@@ -1,7 +1,7 @@
 """Alice 对外 Agent run 用例。
 
 AgentRunService 是 Alice 的公开 run 用例入口：创建 root frame、为每次 run
-构造 run-local RunScheduler、组装 ``AgentRunResult``，并在流式终态后发出
+构造 run-local RunExecutor、组装 ``AgentRunResult``，并在流式终态后发出
 唯一 done（见 docs/alice/orchestration.md §1）。queue / runner task /
 stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层。
 """
@@ -26,7 +26,7 @@ from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
-from hivememory.alice.orchestration.run_scheduler import RunScheduler
+from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter, BoundAgentRunEvents
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
@@ -98,19 +98,19 @@ class AgentRunService:
                 session=session,
                 agent_profile=agent_run_context.agent_profile,
             )
-            scheduler = RunScheduler(
+            executor = RunExecutor(
                 agent_runtime=self._agent_runtime,
                 session=session,
                 call_coordinator=self._call_coordinator,
             )
-            engine_result = await scheduler.run(
+            engine_result = await executor.run(
                 frame,
                 generation_options=generation_options,
             )
             result = self._assemble_agent_run_result(
                 frame,
                 engine_result,
-                scheduler.runtime_products or RuntimeProducts(),
+                executor.runtime_products or RuntimeProducts(),
             )
             self._publish_terminal(run_events, result)
             return result
@@ -136,7 +136,7 @@ class AgentRunService:
         run_events.started()
 
         exit_reason = StreamExitReason.RUNNING
-        scheduler_stream: AsyncGenerator[dict[str, Any], None] | None = None
+        executor_stream: AsyncGenerator[dict[str, Any], None] | None = None
 
         try:
             self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
@@ -149,23 +149,23 @@ class AgentRunService:
                 session=session,
                 agent_profile=agent_run_context.agent_profile,
             )
-            scheduler = RunScheduler(
+            executor = RunExecutor(
                 agent_runtime=self._agent_runtime,
                 session=session,
                 call_coordinator=self._call_coordinator,
             )
             event_metadata = self._event_metadata_for_frame(frame)
-            scheduler_stream = agent_stream.events(
-                scheduler.run(
+            executor_stream = agent_stream.events(
+                executor.run(
                     frame,
                     generation_options=generation_options,
                     run_output=agent_stream.output,
                 )
             )
-            async for event in scheduler_stream:
+            async for event in executor_stream:
                 yield event
 
-            terminal_result = scheduler.terminal_result
+            terminal_result = executor.terminal_result
             if terminal_result is None:
                 exit_reason = StreamExitReason.MISSING_DONE
                 run_events.failed(
@@ -175,7 +175,7 @@ class AgentRunService:
             result = self._assemble_agent_run_result(
                 frame,
                 terminal_result,
-                scheduler.runtime_products or RuntimeProducts(),
+                executor.runtime_products or RuntimeProducts(),
             )
             self._publish_terminal(run_events, result)
             exit_reason = StreamExitReason.TERMINAL
@@ -204,8 +204,8 @@ class AgentRunService:
                     message="Agent stream closed before terminal event.",
                     close_reason="stream_closed",
                 )
-            if scheduler_stream is not None:
-                await scheduler_stream.aclose()
+            if executor_stream is not None:
+                await executor_stream.aclose()
 
     def _register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
         self._atom_cache.ingest_atoms(memories)

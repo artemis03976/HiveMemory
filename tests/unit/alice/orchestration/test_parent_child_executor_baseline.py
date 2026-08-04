@@ -17,10 +17,12 @@ from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.orchestration.call_coordinator import (
     CallCoordinator,
-    CallNextAction,
+    CancelRun,
+    DispatchCallee,
+    ResumeCaller,
 )
+from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_output import CallOutputFinished
-from hivememory.alice.orchestration.run_scheduler import RunScheduler
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.streaming import AgentRunStream
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
@@ -105,12 +107,12 @@ async def test_root_terminal_outcomes_match_between_streaming_and_non_streaming(
         run_frame=AsyncMock(return_value=FrameExecutionResult(status=status)),
         finalize_run=non_stream_finalize,
     )
-    non_stream_scheduler = RunScheduler(
+    non_stream_executor = RunExecutor(
         non_stream_runtime,
         session=_session(non_stream_frame),
     )
 
-    non_stream_result = await non_stream_scheduler.run(non_stream_frame)
+    non_stream_result = await non_stream_executor.run(non_stream_frame)
 
     stream_frame = _frame("frame-stream")
     stream_finalize = MagicMock()
@@ -119,18 +121,18 @@ async def test_root_terminal_outcomes_match_between_streaming_and_non_streaming(
         finalize_run=stream_finalize,
     )
     stream_session = _session(stream_frame)
-    stream_scheduler = RunScheduler(stream_runtime, session=stream_session)
+    stream_executor = RunExecutor(stream_runtime, session=stream_session)
     agent_stream = AgentRunStream(stream_session)
     events = [
         event
         async for event in agent_stream.events(
-            stream_scheduler.run(stream_frame, run_output=agent_stream.output)
+            stream_executor.run(stream_frame, run_output=agent_stream.output)
         )
     ]
 
     assert non_stream_result.status == status
-    assert stream_scheduler.terminal_result is not None
-    assert stream_scheduler.terminal_result.status == status
+    assert stream_executor.terminal_result is not None
+    assert stream_executor.terminal_result.status == status
     assert events == []
     non_stream_finalize.assert_called_once()
     stream_finalize.assert_called_once()
@@ -159,7 +161,7 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
     )
     response = runtime.apply_call_response.call_args.args[2]
 
-    assert transition.action == CallNextAction.RESUME_CALLER
+    assert transition == ResumeCaller()
     assert response.status == MTPResponseStatus.ERROR
     assert response.error is not None
     assert response.error.code == "mtp.permission.denied"
@@ -184,7 +186,7 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
     suspension = _suspension()
     session = _session(caller)
     begin = await coordinator.begin_call(caller, suspension, session=session)
-    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    assert begin == DispatchCallee(child)
     transition = await coordinator.complete_call(
         caller,
         suspension,
@@ -194,7 +196,7 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
     )
     response = runtime.apply_call_response.call_args.args[2]
 
-    assert transition.action == CallNextAction.RESUME_CALLER
+    assert transition == ResumeCaller()
     assert response.status == MTPResponseStatus.ERROR
     assert response.error is not None
     assert response.error.code == "mtp.call_response.sub_agent_error"
@@ -231,15 +233,15 @@ async def test_cancelled_session_stops_call_before_dispatch():
         suspension,
         session=session,
     )
-    assert begin.action == CallNextAction.CANCEL_RUN
+    assert begin == CancelRun()
     runtime.apply_call_response.assert_not_called()
     runtime.run_frame.assert_not_awaited()
     runtime.finalize_frame.assert_not_called()
     assert session.call_records[("frame-root", "action-1")].status.value == "cancelled"
 
 
-def test_run_scheduler_is_the_only_alice_run_frame_caller():
-    """R3 永久门禁：Alice 编排层仅 RunScheduler 可以推进 frame。"""
+def test_run_executor_is_the_only_alice_run_frame_caller():
+    """Alice 编排层仅递归 RunExecutor 可以推进 frame。"""
     repo_root = Path(__file__).resolve().parents[4]
     alice_root = repo_root / "src" / "hivememory" / "alice"
     callers: set[str] = set()
@@ -254,4 +256,4 @@ def test_run_scheduler_is_the_only_alice_run_frame_caller():
         ):
             callers.add(source_path.name)
 
-    assert callers == {"run_scheduler.py"}
+    assert callers == {"run_executor.py"}

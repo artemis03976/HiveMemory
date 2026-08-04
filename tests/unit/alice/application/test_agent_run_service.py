@@ -223,20 +223,20 @@ async def test_run_agent_stream_error_does_not_set_cancel_event():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_without_scheduler_terminal_fails_cleanly():
+async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
     recorder = RecordingRuntimeEventSink()
     _runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
     cancel_event = asyncio.Event()
 
-    scheduler = MagicMock()
-    scheduler.run = AsyncMock(
+    executor = MagicMock()
+    executor.run = AsyncMock(
         return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
     )
-    scheduler.terminal_result = None
+    executor.terminal_result = None
     with patch(
-        "hivememory.alice.application.agent_run_service.RunScheduler",
-        return_value=scheduler,
+        "hivememory.alice.application.agent_run_service.RunExecutor",
+        return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
             async for _ in service.run_agent_stream(context, cancel_event=cancel_event):

@@ -13,8 +13,9 @@ from hivememory.agent_runtime.products import FrameProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call_coordinator import (
     CallCoordinator,
-    CallNextAction,
-    CallTransition,
+    CancelRun,
+    DispatchCallee,
+    ResumeCaller,
 )
 from hivememory.alice.orchestration.call_record import CallRecord, CallRecordStatus
 from hivememory.alice.orchestration.run_session import RunSession
@@ -136,13 +137,12 @@ def test_call_record_cancel_wins_before_apply():
         record.mark_applied()
 
 
-def test_call_transition_requires_a_frame_only_for_dispatch_or_resume():
+def test_call_results_express_dispatch_resume_and_cancel_without_nullable_payloads():
     caller = _frame()
 
-    with pytest.raises(ValueError, match="requires a next frame"):
-        CallTransition(CallNextAction.DISPATCH_CALLEE)
-    with pytest.raises(ValueError, match="cannot schedule"):
-        CallTransition(CallNextAction.CANCEL_RUN, caller)
+    assert DispatchCallee(caller).frame is caller
+    assert ResumeCaller() == ResumeCaller()
+    assert CancelRun() == CancelRun()
 
 
 @pytest.mark.asyncio
@@ -173,7 +173,7 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
 
     begin = await coordinator.begin_call(caller, suspension, session=session)
 
-    assert begin == CallTransition(CallNextAction.DISPATCH_CALLEE, child)
+    assert begin == DispatchCallee(child)
     runtime.run_frame.assert_not_awaited()
     record = session.call_for_callee("frame-child")
     assert record.callee_frame_id == "frame-child"
@@ -187,7 +187,7 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
         session=session,
     )
 
-    assert complete == CallTransition(CallNextAction.RESUME_CALLER, caller)
+    assert complete == ResumeCaller()
     runtime.finalize_frame.assert_called_once()
     runtime.apply_call_response.assert_called_once()
     runtime.finalize_run.assert_not_called()
@@ -208,7 +208,7 @@ async def test_cancel_call_finalizes_bound_child_once_without_applying_response(
     coordinator = _coordinator(runtime, child)
     suspension = _suspension()
     begin = await coordinator.begin_call(caller, suspension, session=session)
-    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    assert begin == DispatchCallee(child)
 
     session.cancel_event.set()
     coordinator.cancel_call(caller, suspension, session=session)
@@ -258,7 +258,7 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
 
     suspension = _suspension()
     begin = await coordinator.begin_call(caller, suspension, session=session)
-    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    assert begin == DispatchCallee(child)
     transition = await coordinator.complete_call(
         caller,
         suspension,
@@ -268,8 +268,7 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     )
     response = runtime.apply_call_response.call_args.args[2]
 
-    assert transition.action == CallNextAction.RESUME_CALLER
-    assert transition.next_frame is caller
+    assert transition == ResumeCaller()
     assert response.status == MTPResponseStatus.SUCCESS
     assert response.reply == "done"
     assert response.artifact_aliases == ["draft-child"]
@@ -298,7 +297,7 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
 
     suspension = _suspension()
     begin = await coordinator.begin_call(caller, suspension, session=session)
-    assert begin.action == CallNextAction.DISPATCH_CALLEE
+    assert begin == DispatchCallee(child)
     cancel_event.set()
     transition = await coordinator.complete_call(
         caller,
@@ -308,7 +307,7 @@ async def test_call_coordinator_cleans_late_success_when_cancel_wins():
         session=session,
     )
 
-    assert transition.action == CallNextAction.CANCEL_RUN
+    assert transition == CancelRun()
     runtime.apply_call_response.assert_not_called()
     runtime.finalize_frame.assert_called_once()
     assert runtime.finalize_frame.call_args.args[0] is child

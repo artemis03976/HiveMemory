@@ -7,10 +7,7 @@ import pytest
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
-from hivememory.alice.orchestration.run_session import (
-    FrameSchedulingStatus,
-    RunSession,
-)
+from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 
 
@@ -103,32 +100,12 @@ def test_session_registers_root_and_callee_with_explicit_run_local_relationship(
     assert session.root_frame_id == "frame-root"
     assert record.callee_frame_id == "frame-callee"
     assert session.call_for_callee("frame-callee") is record
-    assert session.frame_statuses == {
-        "frame-root": FrameSchedulingStatus.PENDING,
-        "frame-callee": FrameSchedulingStatus.PENDING,
+    assert session.frames == {
+        "frame-root": root,
+        "frame-callee": callee,
     }
-
-
-def test_session_enforces_single_active_frame_and_legal_transitions() -> None:
-    session = RunSession(agent_run_id="run-a")
-    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
-    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
-    session.register_root_frame(root)
-    session.register_frame(callee)
-
-    session.transition_frame("frame-root", FrameSchedulingStatus.RUNNABLE)
-    session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNABLE)
-    session.transition_frame("frame-root", FrameSchedulingStatus.RUNNING)
-    with pytest.raises(RuntimeError, match="active frame"):
-        session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNING)
-
-    session.transition_frame("frame-root", FrameSchedulingStatus.WAITING)
-    session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNING)
-    session.transition_frame("frame-callee", FrameSchedulingStatus.TERMINATED)
-
-    assert session.active_frame_id is None
-    with pytest.raises(RuntimeError, match="Cannot transition"):
-        session.transition_frame("frame-callee", FrameSchedulingStatus.RUNNABLE)
+    assert not hasattr(session, "frame_statuses")
+    assert not hasattr(session, "active_frame_id")
 
 
 def test_session_rejects_duplicate_root_callee_binding_and_cross_run_frame() -> None:

@@ -2,54 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from enum import Enum
 
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.alice.orchestration.call_record import CallRecord, CallRecordStatus
-
-
-class FrameSchedulingStatus(str, Enum):
-    """Alice 编排层记录的单 frame 调度状态。"""
-
-    PENDING = "pending"
-    RUNNABLE = "runnable"
-    RUNNING = "running"
-    WAITING = "waiting"
-    TERMINATED = "terminated"
-
-
-# 单 frame 调度状态机：TERMINATED 无后继；任一时刻最多一个 RUNNING frame。
-# 典型轨迹见 docs/alice/orchestration.md §2。
-_ALLOWED_FRAME_TRANSITIONS: dict[
-    FrameSchedulingStatus,
-    frozenset[FrameSchedulingStatus],
-] = {
-    FrameSchedulingStatus.PENDING: frozenset(
-        {FrameSchedulingStatus.RUNNABLE, FrameSchedulingStatus.TERMINATED}
-    ),
-    FrameSchedulingStatus.RUNNABLE: frozenset(
-        {FrameSchedulingStatus.RUNNING, FrameSchedulingStatus.TERMINATED}
-    ),
-    FrameSchedulingStatus.RUNNING: frozenset(
-        {
-            FrameSchedulingStatus.WAITING,
-            FrameSchedulingStatus.RUNNABLE,
-            FrameSchedulingStatus.TERMINATED,
-        }
-    ),
-    FrameSchedulingStatus.WAITING: frozenset(
-        {FrameSchedulingStatus.RUNNABLE, FrameSchedulingStatus.TERMINATED}
-    ),
-    FrameSchedulingStatus.TERMINATED: frozenset(),
-}
 
 
 @dataclass
 class RunSession:
     """一次 Alice run 独占的可变状态（run-local 控制面）。
 
-    保存帧注册表、CALL 记账与取消信号；不存在进程级挂起栈，也不保存
-    传输层 stream sequence（见 docs/alice/orchestration.md §1 / §2）。
+    保存帧注册表、CALL 记账与取消信号。frame 的挂起与恢复由 run-local
+    递归执行器的协程栈表达，Session 不充当调度程序计数器。
     """
 
     agent_run_id: str
@@ -57,8 +20,6 @@ class RunSession:
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     frames: dict[str, ExecutionFrame] = field(default_factory=dict)
     root_frame_id: str | None = None
-    active_frame_id: str | None = None
-    frame_statuses: dict[str, FrameSchedulingStatus] = field(default_factory=dict)
     call_records: dict[tuple[str, str], CallRecord] = field(default_factory=dict)
     call_records_by_callee: dict[str, CallRecord] = field(default_factory=dict)
 
@@ -72,7 +33,6 @@ class RunSession:
         if existing is frame:
             return
         self.frames[frame_id] = frame
-        self.frame_statuses[frame_id] = FrameSchedulingStatus.PENDING
 
     def register_root_frame(self, frame: ExecutionFrame) -> None:
         """登记本次 run 唯一的 root frame。"""
@@ -100,7 +60,6 @@ class RunSession:
 
         record.bind_callee(callee_frame_id)
         self.frames[callee_frame_id] = frame
-        self.frame_statuses[callee_frame_id] = FrameSchedulingStatus.PENDING
         self.call_records_by_callee[callee_frame_id] = record
 
     def require_frame(self, frame: ExecutionFrame) -> None:
@@ -109,47 +68,6 @@ class RunSession:
             raise ValueError(
                 f"Frame {frame_id!r} is not registered in RunSession {self.agent_run_id!r}."
             )
-
-    def require_frame_status(
-        self,
-        frame_id: str,
-        expected: FrameSchedulingStatus,
-    ) -> None:
-        actual = self.frame_statuses.get(frame_id)
-        if actual != expected:
-            raise RuntimeError(
-                f"Frame {frame_id!r} has scheduling status {actual!r}, "
-                f"expected {expected.value!r}."
-            )
-
-    def transition_frame(
-        self,
-        frame_id: str,
-        target: FrameSchedulingStatus,
-    ) -> None:
-        """执行受保护的 run-local frame 状态转换。"""
-        if frame_id not in self.frames:
-            raise ValueError(f"Frame is not registered in this RunSession: {frame_id!r}")
-        current = self.frame_statuses[frame_id]
-        if target not in _ALLOWED_FRAME_TRANSITIONS[current]:
-            raise RuntimeError(
-                f"Cannot transition frame {frame_id!r} from "
-                f"{current.value!r} to {target.value!r}."
-            )
-        if (
-            target == FrameSchedulingStatus.RUNNING
-            and self.active_frame_id is not None
-            and self.active_frame_id != frame_id
-        ):
-            raise RuntimeError(
-                "RunSession already has an active frame: " f"{self.active_frame_id!r}"
-            )
-
-        if current == FrameSchedulingStatus.RUNNING:
-            self.active_frame_id = None
-        if target == FrameSchedulingStatus.RUNNING:
-            self.active_frame_id = frame_id
-        self.frame_statuses[frame_id] = target
 
     def register_call(self, frame: ExecutionFrame, action_id: str) -> CallRecord:
         self.require_frame(frame)
@@ -195,4 +113,4 @@ class RunSession:
             )
 
 
-__all__ = ["FrameSchedulingStatus", "RunSession"]
+__all__ = ["RunSession"]

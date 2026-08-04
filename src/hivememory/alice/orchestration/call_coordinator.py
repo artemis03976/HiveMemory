@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.models import (
@@ -46,30 +45,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class CallNextAction(str, Enum):
-    """一次 CALL 边界处理完成后交给调度器的下一步动作。"""
+@dataclass(frozen=True)
+class DispatchCallee:
+    """CALL 已准备好 callee，由执行器递归运行该 frame。"""
 
-    DISPATCH_CALLEE = "dispatch_callee"
-    RESUME_CALLER = "resume_caller"
-    CANCEL_RUN = "cancel_run"
+    frame: ExecutionFrame
 
 
 @dataclass(frozen=True)
-class CallTransition:
-    """CALL 协调阶段返回的窄调度结果。"""
+class ResumeCaller:
+    """CALL 已完成回填，执行器可以重入原 caller。"""
 
-    action: CallNextAction
-    next_frame: ExecutionFrame | None = None
 
-    def __post_init__(self) -> None:
-        requires_frame = self.action in {
-            CallNextAction.DISPATCH_CALLEE,
-            CallNextAction.RESUME_CALLER,
-        }
-        if requires_frame and self.next_frame is None:
-            raise ValueError(f"CALL transition {self.action.value!r} requires a next frame.")
-        if self.action == CallNextAction.CANCEL_RUN and self.next_frame is not None:
-            raise ValueError("A cancelled run cannot schedule another frame.")
+@dataclass(frozen=True)
+class CancelRun:
+    """全局取消在 CALL 提交前胜出，终止当前 run。"""
+
+
+type CallStartResult = DispatchCallee | ResumeCaller | CancelRun
+type CallCompletionResult = ResumeCaller | CancelRun
 
 
 class CallCoordinator:
@@ -98,7 +92,7 @@ class CallCoordinator:
         session: RunSession,
         generation_options: dict[str, Any] | None = None,
         run_output: AgentRunOutput | None = None,
-    ) -> CallTransition:
+    ) -> CallStartResult:
         """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
         output = run_output or NullAgentRunOutput()
         call_request, action_id = self._require_suspension(suspension)
@@ -210,7 +204,7 @@ class CallCoordinator:
                 frame_id=sub_frame.runtime_scope.frame_id,
             )
         )
-        return CallTransition(CallNextAction.DISPATCH_CALLEE, sub_frame)
+        return DispatchCallee(sub_frame)
 
     async def complete_call(
         self,
@@ -222,7 +216,7 @@ class CallCoordinator:
         session: RunSession,
         generation_options: dict[str, Any] | None = None,
         run_output: AgentRunOutput | None = None,
-    ) -> CallTransition:
+    ) -> CallCompletionResult:
         """把 callee outcome 收口为 caller 可消费的 CALL response。"""
         output = run_output or NullAgentRunOutput()
         call_request, action_id = self._require_suspension(suspension)
@@ -318,7 +312,7 @@ class CallCoordinator:
         *,
         session: RunSession,
         run_output: AgentRunOutput,
-    ) -> CallTransition:
+    ) -> CallCompletionResult:
         """CALL 准备失败/取消的收尾路径：结算 record 并回填错误或取消响应。"""
         call_request, action_id = self._require_suspension(suspension)
         record = session.require_call(caller_frame, action_id)
@@ -348,14 +342,14 @@ class CallCoordinator:
         *,
         record,
         session: RunSession,
-    ) -> CallTransition:
+    ) -> CallCompletionResult:
         """根据取消状态决定：取消整个 run，或 exactly-once 回填 caller。"""
         if session.cancel_event.is_set():
             record.cancel()
-            return CallTransition(CallNextAction.CANCEL_RUN)
+            return CancelRun()
         self._agent_runtime.apply_call_response(caller_frame, suspension, response)
         record.mark_applied()
-        return CallTransition(CallNextAction.RESUME_CALLER, caller_frame)
+        return ResumeCaller()
 
     def _finalize_callee(
         self,
@@ -564,4 +558,11 @@ class CallCoordinator:
         ).text
 
 
-__all__ = ["CallCoordinator", "CallNextAction", "CallTransition"]
+__all__ = [
+    "CallCompletionResult",
+    "CallCoordinator",
+    "CallStartResult",
+    "CancelRun",
+    "DispatchCallee",
+    "ResumeCaller",
+]

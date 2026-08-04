@@ -26,7 +26,7 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory
-from hivememory.alice.orchestration.run_scheduler import RunScheduler
+from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -453,23 +453,23 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     frame = _make_frame()
     session = RunSession(agent_run_id="run_test_1")
     session.register_root_frame(frame)
-    scheduler = RunScheduler(
+    executor = RunExecutor(
         agent_runtime,
         session=session,
         call_coordinator=coordinator,
     )
 
-    scheduler_result = await scheduler.run(frame)
+    executor_result = await executor.run(frame)
 
     call_events = [
         ev
         for ev in frame.progress.turn_events
         if ev.kind == "tool_result" and ev.tool_kind == "CALL"
     ]
-    assert scheduler_result.status == FrameExecutionStatus.COMPLETED
-    assert (
-        len(call_events) == 1
-    ), f"应有 1 个 CALL tool_result 事件，实际: {frame.progress.turn_events}"
+    assert executor_result.status == FrameExecutionStatus.COMPLETED
+    assert len(call_events) == 1, (
+        f"应有 1 个 CALL tool_result 事件，实际: {frame.progress.turn_events}"
+    )
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"

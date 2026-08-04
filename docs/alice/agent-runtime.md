@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-04
 ---
 
 # Agent Runtime
@@ -25,7 +25,7 @@ Agent Runtime 负责把一个 Agent 的一帧运行到自然收敛、取消或�
 
 ```text
 AgentRunService
-  -> RunScheduler
+  -> RunExecutor
        -> AgentRuntime facade
        -> AgentLoopExecutor
        -> WorkerAgentService
@@ -37,11 +37,11 @@ AgentRunService
 
 - 不实现 `SubsystemProtocol`，不注册 `GlobalSystemBus` route；
 - 不拥有 start/stop/health 生命周期；
-- 不直接 import Alice 的 RunScheduler、CallCoordinator 或 ProfileResolver；
+- 不直接 import Alice 的 RunExecutor、CallCoordinator 或 ProfileResolver；
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
-`AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢热缓存和三级解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunScheduler；执行层不再位于 Alice 编排目录中。
+`AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢热缓存和三级解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunExecutor；执行层不再位于 Alice 编排目录中。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink, cancel_event)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
 
@@ -140,11 +140,11 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
 - `mtp_result`：指令的 success/error/ack/suspend 等状态；
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
-- `done` 由 AgentRunService 在 Scheduler 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
+- `done` 由 AgentRunService 在 RunExecutor 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
 
-每次流式 run 由 `AgentRunStreamAdapter` 创建容量为 256 的有界 FIFO queue、runner task 与 run-local `stream_sequence`。`QueueAgentRunOutput` 使用 `await put()` 保留背压，不丢弃 token 或控制事件；消费者提前关闭时，适配器设置当前 `RunSession.cancel_event` 并取消当前 runner，不影响其他 run。RunScheduler 本身没有 `run_stream()`、queue 或 sequence，它只调用统一的 `run(..., run_output=...)`。
+每次流式 run 由 `AgentRunStreamAdapter` 创建容量为 256 的有界 FIFO queue、runner task 与 run-local `stream_sequence`。`QueueAgentRunOutput` 使用 `await put()` 保留背压，不丢弃 token 或控制事件；消费者提前关闭时，适配器设置当前 `RunSession.cancel_event` 并取消当前 runner，不影响其他 run。RunExecutor 本身没有 `run_stream()`、queue 或 sequence，它只调用统一的 `run(..., run_output=...)`。
 
-检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunScheduler` 直接取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；同一个 `_drive()` 循环运行 callee 后再调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。
+检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunExecutor` 取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；随后递归等待同一个 `_execute_frame(callee)`，返回后调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。Runtime 不感知入口/被调用角色，挂起关系由 Executor 的协程调用栈表达。
 
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/done` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，只记录 `agent.run.*` 等生命周期摘要。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
@@ -163,7 +163,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 
 执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，AgentRunService 只在 run 边界投影稳定公共结果。
 
-当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由 `RunScheduler` 在根 run 终态调用一次；编排层不再遍历 PendingAtom store 的内部集合。
+当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由 `RunExecutor` 在入口 frame 终态调用一次；编排层不再遍历 PendingAtom store 的内部集合。
 
 ## 8. 关键不变量与矛盾检查
 
@@ -188,7 +188,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - `tests/unit/agent_runtime/execution/test_worker.py`；
 - `tests/unit/agent_runtime/test_runtime.py`；
 - `tests/unit/alice/application/test_agent_run_service.py`；
-- `tests/unit/alice/orchestration/test_run_scheduler.py`；
+- `tests/unit/alice/orchestration/test_run_executor.py`；
 - `tests/unit/alice/runtime/test_streaming.py`、`test_runtime_events.py`；
 - `tests/e2e/pipeline/test_kernel_loop_e2e.py`、`test_active_mode_e2e.py`。
 
