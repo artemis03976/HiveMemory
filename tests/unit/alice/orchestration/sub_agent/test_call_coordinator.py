@@ -11,14 +11,15 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
-from hivememory.alice.orchestration.call_coordinator import (
+from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
+from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCoordinator,
     CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
-from hivememory.alice.orchestration.call_record import CallRecord, CallRecordStatus
-from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 
@@ -56,7 +57,7 @@ def _suspension(action_id: str = "act-1") -> FrameExecutionResult:
     )
 
 
-def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> CallCoordinator:
+def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> CallCoordinator:
     if not hasattr(runtime, "apply_call_response"):
         runtime.apply_call_response = MagicMock()
     frame_factory = SimpleNamespace(
@@ -68,8 +69,10 @@ def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> Ca
     )
     return CallCoordinator(
         runtime,
-        profile_resolver or SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
-        SimpleNamespace(resolve=AsyncMock()),
+        context_provider
+        or SimpleNamespace(
+            provide=AsyncMock(return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE))
+        ),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )
@@ -152,10 +155,10 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
     session = _session(caller)
 
-    async def resolve_profile(*_args, **_kwargs):
+    async def provide_context(*_args, **_kwargs):
         record = session.call_records[("frame-1", "act-1")]
         assert record.status == CallRecordStatus.RESOLVING
-        return OMNI_DOLL_PROFILE
+        return CallContext(agent_profile=OMNI_DOLL_PROFILE)
 
     runtime = SimpleNamespace(
         max_iterations=8,
@@ -167,7 +170,7 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
     coordinator = _coordinator(
         runtime,
         child,
-        profile_resolver=SimpleNamespace(resolve=AsyncMock(side_effect=resolve_profile)),
+        context_provider=SimpleNamespace(provide=AsyncMock(side_effect=provide_context)),
     )
     suspension = _suspension()
 

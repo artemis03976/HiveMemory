@@ -62,15 +62,15 @@ System 应用层拥有完整 chat 顺序和取消控制；Gateway 拥有入口�
 AliceSystem
   ├─ AgentRunService                  public run / run_stream use case
   │    -> RunExecutor + RunSession    recursive execution + run-local ledger
-  │         -> CallCoordinator + FrameFactory
+  │         -> CallCoordinator + CallContextProvider + FrameFactory
   │         -> AgentRuntime facade
   ├─ AliceRuntime                     process-local execution resources
-  │    -> Koakuma + PendingAtomRuntime + alias cache
+  │    -> Koakuma + PendingAtomRuntime + alias/profile caches
   └─ AliceBridge                      public routes + Patchouli proxies/events
 ```
 
 - `agent_runtime/` 是“CPU”：只关心把一个 `ExecutionFrame` 运行到自然收敛、取消或 CALL trap，不决定下一步该调度谁；
-- Alice 编排层是“进程调度器”：创建主帧，消费 CALL trap，解析子 Agent Profile，派生子帧，收割结果并恢复主帧；
+- Alice 编排层是“进程调度器”：创建主帧，消费 CALL trap，通过 CallContextProvider 取得子 Agent Profile/共享上下文，派生子帧，收割结果并恢复主帧；
 - Patchouli 是长期存储与记忆域：Alice 可以提出物化请求，却不能自行确认长期事实已经成立。
 
 `agent_runtime/` 是顶层共享层，不是第四个子系统。它不实现 `SubsystemProtocol`，不注册全局公开路由，也不拥有独立启停；依赖的 bus、配置、模型注册表和 PendingAtomRuntime 均由 Alice 注入。反向出现 `agent_runtime -> alice` 的领域依赖，或让执行循环重新决定子 Agent 拓扑，都意味着这道边界开始失效。
@@ -116,8 +116,8 @@ Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重�
 root frame emits CALL
   -> Koakuma returns SUSPEND + MTPCallRequest
   -> RunExecutor 让 CallCoordinator 建立 CallRecord 并准备 callee
-  -> resolve target Agent Profile
-  -> resolve context_refs + compile shared context
+  -> CallContextProvider resolve target Agent Profile
+  -> CallContextProvider resolve context_refs + compile shared context
   -> FrameFactory 创建普通 callee frame
   -> RunExecutor 递归等待 callee frame
   -> finalize_frame 投影 pending aliases + natural-language reply
@@ -148,7 +148,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 ## 7. 当前设计文档
 
 - [Agent Runtime](./agent-runtime.md)：单 Agent 执行层、ExecutionFrame、prompt、模型解析、循环与流式输出；
-- [多 Agent 编排](./orchestration.md)：RunExecutor、CallCoordinator、CALL trap、Profile 解析、共享上下文、结果回流与当前单层策略；
+- [多 Agent 编排](./orchestration.md)：RunExecutor、CallCoordinator、CallContextProvider、CALL trap、Profile 解析、共享上下文、结果回流与当前单层策略；
 - [PendingAtom](./pending-atom.md)：运行时写缓冲、状态机、物化任务、settlement、redirect 与回收；
 - [MTP Runtime](./mtp-runtime.md)：Koakuma、权限、verb 分发、syscall、错误、取消和真实安全边界。
 
@@ -161,7 +161,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 | 子系统装配与生命周期 | `src/hivememory/alice/system.py` |
 | Agent run 应用用例 | `src/hivememory/alice/application/agent_run_service.py` |
 | Alice 进程级资源与 local bus | `src/hivememory/alice/runtime/core.py`、`bus.py` |
-| 多 Agent 编排 | `src/hivememory/alice/orchestration/run_executor.py`、`call_coordinator.py`、`run_session.py` |
+| 多 Agent 编排 | `src/hivememory/alice/orchestration/run_executor.py`、`src/hivememory/alice/orchestration/sub_agent/`、`src/hivememory/alice/orchestration/run_session.py` |
 | 单 Agent 执行层 | `src/hivememory/agent_runtime/`、`agent_runtime/runtime.py` |
 | Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
 | 公共运行模型 | `src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |

@@ -37,7 +37,7 @@ AgentRunService
 
 - 不实现 `SubsystemProtocol`，不注册 `GlobalSystemBus` route；
 - 不拥有 start/stop/health 生命周期；
-- 不直接 import Alice 的 RunExecutor、CallCoordinator 或 ProfileResolver；
+- 不直接 import Alice 的 RunExecutor、CallCoordinator、CallContextProvider 或 ProfileResolver；
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
@@ -144,7 +144,7 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 
 每次流式 run 由 `AgentRunStreamAdapter` 创建容量为 256 的有界 FIFO queue、runner task 与 run-local `stream_sequence`。`QueueAgentRunOutput` 使用 `await put()` 保留背压，不丢弃 token 或控制事件；消费者提前关闭时，适配器设置当前 `RunSession.cancel_event` 并取消当前 runner，不影响其他 run。RunExecutor 本身没有 `run_stream()`、queue 或 sequence，它只调用统一的 `run(..., run_output=...)`。
 
-检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunExecutor` 取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()` 准备 callee；随后递归等待同一个 `_execute_frame(callee)`，返回后调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。Runtime 不感知入口/被调用角色，挂起关系由 Executor 的协程调用栈表达。
+检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunExecutor` 取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()`；Coordinator 先通过 `CallContextProvider` 获得目标 Profile 和共享上下文，再准备 callee。随后 Executor 递归等待同一个 `_execute_frame(callee)`，返回后调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。Runtime 不感知入口/被调用角色，挂起关系由 Executor 的协程调用栈表达。
 
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/done` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，只记录 `agent.run.*` 等生命周期摘要。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 

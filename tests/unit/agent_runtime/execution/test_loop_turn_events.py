@@ -9,12 +9,10 @@ LoopExecutor TurnEvent 采集单测
 """
 
 import asyncio
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.aliases import ResolveResult
 from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -24,18 +22,13 @@ from hivememory.agent_runtime.models import (
     RuntimeScope,
 )
 from hivememory.agent_runtime.runtime import AgentRuntime
-from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    MetaData,
-    PayloadLayer,
     TurnEvent,
 )
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
@@ -118,24 +111,6 @@ def _make_frame() -> ExecutionFrame:
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic_1",
         identity=Identity(user_id="u1", agent_id="agent_a"),
-    )
-
-
-def _make_context_atom(title: str, content: str) -> MemoryAtom:
-    return MemoryAtom(
-        index=IndexLayer(
-            title=title,
-            summary=f"{title} summary",
-            memory_type=MemoryType.FACT,
-            tags=["context"],
-        ),
-        payload=PayloadLayer(content=content),
-        meta=MetaData(
-            source_agent_id="test",
-            user_id="u1",
-            updated_at=datetime.now(),
-            confidence_score=0.9,
-        ),
     )
 
 
@@ -415,8 +390,6 @@ async def test_empty_prefix_text_not_recorded():
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
-    from hivememory.agent_runtime.runtime import AgentRuntime
-
     call_counter = {"n": 0}
 
     async def gen_async_side(*args, **kwargs):
@@ -445,8 +418,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     ]
     coordinator = CallCoordinator(
         agent_runtime,
-        profile_resolver,
-        alias_resolver,
+        CallContextProvider(profile_resolver, alias_resolver),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )
@@ -475,72 +447,6 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     assert call_ev.status == "success"
     assert call_ev.render_as == "system_call_response"
     assert call_ev.content.startswith("[System MTP Call Response]\n")
-
-
-@pytest.mark.asyncio
-async def test_context_refs_fetch_uses_runtime_alias_resolver():
-    executor, _kernel = _build_executor([])
-    atom = _make_context_atom("Fact A", "ctx")
-    resolved = ResolveResult(
-        kind="atom",
-        requested_alias="fact_a",
-        atom=atom,
-    )
-    alias_resolver = MagicMock()
-    alias_resolver.resolve = AsyncMock(return_value=resolved)
-
-    coordinator = CallCoordinator(
-        AgentRuntime(mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor),
-        MagicMock(),
-        alias_resolver,
-        frame_factory=FrameFactory(),
-        prompt_assembler=MagicMock(),
-    )
-    identity = Identity(user_id="u1", agent_id="agent_a")
-
-    result = await coordinator._fetch_context_refs_content(
-        ["fact_a"],
-        identity,
-        language="en",
-    )
-
-    assert result.startswith("[Shared Context from Parent Agent]")
-    assert "Use READ" in result
-    assert '<memory alias="' in result
-    assert "Fact A" in result
-    assert "ctx" in result
-    alias_resolver.resolve.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_context_refs_fetch_renders_redirected_alias_as_canonical_atom():
-    executor, _kernel = _build_executor([])
-    atom = _make_context_atom("Canonical Fact", "canonical ctx")
-    resolved = ResolveResult(
-        kind="redirect",
-        requested_alias="draft_ctx_1234",
-        canonical_alias="fact_canonical",
-        atom=atom,
-    )
-    alias_resolver = MagicMock()
-    alias_resolver.resolve = AsyncMock(return_value=resolved)
-
-    coordinator = CallCoordinator(
-        AgentRuntime(mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor),
-        MagicMock(),
-        alias_resolver,
-        frame_factory=FrameFactory(),
-        prompt_assembler=MagicMock(),
-    )
-    identity = Identity(user_id="u1", agent_id="agent_a")
-
-    result = await coordinator._fetch_context_refs_content(["draft_ctx_1234"], identity)
-
-    assert result.startswith("[Shared Context from Parent Agent]")
-    assert "Canonical Fact" in result
-    assert "canonical ctx" in result
-    assert "<memory alias=" in result
-    alias_resolver.resolve.assert_awaited_once()
 
 
 def test_chat_result_default_turn_events():

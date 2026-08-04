@@ -7,10 +7,12 @@ code_paths:
   - src/hivememory/alice/application/agent_run_service.py
   - src/hivememory/alice/orchestration/run_executor.py
   - src/hivememory/alice/orchestration/run_session.py
-  - src/hivememory/alice/orchestration/call_coordinator.py
+  - src/hivememory/alice/orchestration/sub_agent/call_coordinator.py
+  - src/hivememory/alice/orchestration/sub_agent/call_context_provider.py
+  - src/hivememory/alice/orchestration/sub_agent/call_record.py
   - src/hivememory/alice/orchestration/frame_factory.py
-  - src/hivememory/alice/orchestration/profile_resolver.py
   - src/hivememory/alice/orchestration/run_output.py
+  - src/hivememory/alice/runtime/profile_resolver.py
   - src/hivememory/alice/runtime/streaming.py
   - src/hivememory/alice/runtime/runtime_events.py
   - src/hivememory/prompts/assembler.py
@@ -30,40 +32,38 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 ## 1. 编排层组件
 
 ```text
-AgentRunService
-  ├─ public run API / root frame bootstrap / AgentRunResult / stream done
-  ├─ RunSession
-  │    ├─ frame registry / CallRecord ledger
-  │    ├─ cancel event
-  ├─ RunExecutor
-  │    └─ recursive frame evaluation + run finalization
-  ├─ AgentRunOutput
-  │    └─ frame output binding + CALL boundary output
-  ├─ AgentRunStreamAdapter
-  │    └─ bounded queue / runner task / stream sequence / disconnect cancellation
-  ├─ AgentRunEventEmitter
-  │    └─ global best-effort agent.run.* observability
-  ├─ CallCoordinator
-  │    └─ begin/complete CALL, profile/context resolution, response apply
-  ├─ FrameFactory
-  │    └─ create ordinary ExecutionFrame from FrameSpec
-  ├─ AgentProfileResolver
-  │    └─ alias -> Patchouli AgentProfile -> LRU cache
-  ├─ RuntimeAliasResolver
-  │    └─ context_refs -> pending / redirect / atom
-  └─ AgentRuntime facade
-       └─ run one frame to completed / suspended / cancelled / failed / budget_exhausted
+AliceSystem
+  ├─ AgentRunService
+  │    ├─ public run API / root frame bootstrap / AgentRunResult / stream done
+  │    ├─ RunSession
+  │    │    └─ frame registry / CallRecord ledger / cancel event
+  │    ├─ RunExecutor
+  │    │    └─ recursive frame evaluation + run finalization
+  │    ├─ CallCoordinator
+  │    │    ├─ begin/complete CALL, frame preparation, response apply
+  │    │    └─ CallContextProvider -> target profile + context_refs -> CallContext
+  │    ├─ FrameFactory
+  │    │    └─ create ordinary ExecutionFrame from FrameSpec
+  │    ├─ AgentRunOutput / AgentRunStreamAdapter
+  │    │    └─ frame output binding + bounded streaming queue
+  │    └─ AgentRunEventEmitter
+  │         └─ global best-effort agent.run.* observability
+  └─ AliceRuntime
+       ├─ AgentProfileResolver -> identity-scoped AgentProfile LRU cache
+       ├─ RuntimeAliasResolver -> context_refs pending / redirect / atom
+       └─ AgentRuntime facade -> execute one frame to a terminal/trap outcome
 ```
 
 - AgentRunService 是 Alice 的公开 run 用例入口，负责创建入口 frame、为每次 run 构造 Executor、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
-- AliceSystem 是子系统装配根；AliceRuntime 只持有进程级执行资源和 PendingAtom 运行时投影，不参与单次 run 的控制链；
+- AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache 和 PendingAtom 运行时投影，不参与单次 run 的控制链；
 - RunSession 拥有一次 run 的 frame registry、CALL record 和取消信号，不保存活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并且是唯一调用 `finalize_run()` 的位置；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
 - AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
-- CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：准备 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不运行 frame，也不收尾整个 run；
+- CallContextProvider 按 caller identity 解析目标 Profile 与 `context_refs`，返回不含 frame 或 CALL ledger 状态的 `CallContext`；
+- CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
-- ProfileResolver 负责把可读 agent alias 解析为运行图纸；
+- AgentProfileResolver 负责把可读 agent alias 解析为运行图纸；其实例和按 Identity 隔离的 cache 由 AliceRuntime 持有；
 - RuntimeAliasResolver 让 context refs 复用与 READ 相同的运行时寻址；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
 
@@ -96,7 +96,8 @@ current frame emits CALL
   -> AgentLoopExecutor records tool_call and returns FrameExecutionResult
   -> RunExecutor calls CallCoordinator.begin_call()
   -> register CallRecord before the first await
-  -> resolve target profile/context_refs and create a normal callee frame
+  -> CallContextProvider resolves target profile/context_refs
+  -> CallCoordinator creates a normal callee frame from CallContext
   -> return DispatchCallee(callee)
   -> RunExecutor awaits _execute_frame(callee)
   -> CallCoordinator.complete_call() finalizes and maps MTPCallResponse
@@ -110,7 +111,7 @@ current frame emits CALL
 
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
 
-其他 alias 必须随父 frame 的 `Identity` 解析。Alice 先查 Identity + alias 维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力；并发 cache miss 会串行复查，避免一个身份的授权结果污染另一个请求。Patchouli 作为 Profile atom 所有者执行 user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。
+其他 alias 必须随父 frame 的 `Identity` 解析。CallContextProvider 调用 AliceRuntime 持有的 AgentProfileResolver；Resolver 先查 Identity + alias 维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力。并发 cache miss 会串行复查，避免一个身份的授权结果污染另一个请求。Patchouli 作为 Profile atom 所有者执行 user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。cache 生命周期因此跟随 AliceRuntime，而不是某个 run 或 CallCoordinator；`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
 
 显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
 
@@ -128,7 +129,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 ### 3.2 共享上下文
 
-`context_refs` 不是直接复制父 frame 的全部 history。CallCoordinator 逐个使用 RuntimeAliasResolver 解析：
+`context_refs` 不是直接复制父 frame 的全部 history。CallContextProvider 逐个使用 RuntimeAliasResolver 解析：
 
 - pending：共享尚未物化的本轮写意图；
 - redirect：共享已经结算后的 canonical atom；
@@ -165,7 +166,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 PromptAssembler 实现：被调用 frame 的 prompt 始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 在 Profile 权限基础上显式移除 CALL；Koakuma 同时校验 Profile 与 frame policy。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 PromptAssembler 实现：被调用 frame 的 prompt 始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，在 Profile 权限基础上显式移除 CALL；Koakuma 同时校验 Profile 与 frame policy。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 
@@ -198,7 +199,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 - 模型解析、generation/provider 等可归一化故障在最窄边界形成 `FrameExecutionResult.FAILED`；root 对外映射为失败 run，callee 对外映射为 CALL error；
 - frame 注册、action/target、重复 apply、callee 关联与重复 finalize 等编排不变量继续抛出，不被 Executor 外层宽泛吞掉；
-- 子 Agent Profile 解析、共享上下文、模型调用或执行异常会被捕获并形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
+- CallContextProvider 的 Profile/共享上下文解析错误，以及后续模型调用或执行异常，会在 CALL 边界形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
 - 子帧预算耗尽映射为 `mtp.call_response.budget_exhausted`，子帧取消保持 cancelled 终态；生产 policy 会在 Agent loop 内拒绝被调用 frame 的 CALL，因此不会形成第二层 suspension；若未来开放该权限，RunExecutor 会直接递归执行，而不需要增加 root/callee 状态分支；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
 - run 取消 token 会传给主/子 AgentRuntime；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；

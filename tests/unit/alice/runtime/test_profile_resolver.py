@@ -1,9 +1,9 @@
-﻿import asyncio
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,

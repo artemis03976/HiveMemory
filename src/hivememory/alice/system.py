@@ -10,9 +10,8 @@ import logging
 from typing import Any
 
 from hivememory.alice.application import AgentRunService
-from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory
-from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
+from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
@@ -57,11 +56,13 @@ class AliceSystem(SubsystemProtocol):
 
         frame_factory = FrameFactory()
         prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
-        profile_resolver = AgentProfileResolver(local_bus=self._runtime.local_bus)
+        call_context_provider = CallContextProvider(
+            self._runtime.profile_resolver,
+            self._runtime.alias_resolver,
+        )
         call_coordinator = CallCoordinator(
             self._runtime.agent_runtime,
-            profile_resolver,
-            self._runtime.alias_resolver,
+            call_context_provider,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
         )

@@ -7,9 +7,8 @@ from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecution
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
-from hivememory.alice.orchestration.call_coordinator import CallCoordinator
 from hivememory.alice.orchestration.frame_factory import FrameFactory
-from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
+from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
@@ -71,8 +70,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        AgentProfileResolver(local_bus=runtime.local_bus),
-        runtime.alias_resolver,
+        CallContextProvider(runtime.profile_resolver, runtime.alias_resolver),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )

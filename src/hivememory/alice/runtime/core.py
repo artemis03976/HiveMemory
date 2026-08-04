@@ -9,6 +9,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.model_registry import ModelRegistry
@@ -26,6 +27,7 @@ class AliceRuntime:
         model_registry: ModelRegistry | None = None,
     ) -> None:
         self._local_bus = AliceBus()
+        self._profile_resolver = AgentProfileResolver(local_bus=self._local_bus)
         self._pending_runtime = PendingAtomRuntime()
         self._atom_cache = KoakumaAtomCache()
         self._alias_resolver = RuntimeAliasResolver(
@@ -62,6 +64,11 @@ class AliceRuntime:
     def alias_resolver(self) -> RuntimeAliasResolver:
         """供 AliceSystem 在装配期构造 CALL 协调器。"""
         return self._alias_resolver
+
+    @property
+    def profile_resolver(self) -> AgentProfileResolver:
+        """供 Alice 编排层解析受 caller identity 授权的 Agent Profile。"""
+        return self._profile_resolver
 
     @property
     def atom_cache(self) -> KoakumaAtomCache:

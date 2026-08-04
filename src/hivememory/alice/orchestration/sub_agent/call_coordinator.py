@@ -8,11 +8,9 @@ from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
-    MTPExecutionContext,
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.orchestration.call_record import CallRecordStatus
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_output import (
     AgentRunOutput,
@@ -20,6 +18,8 @@ from hivememory.alice.orchestration.run_output import (
     CallOutputStarted,
     NullAgentRunOutput,
 )
+from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContextProvider
+from hivememory.alice.orchestration.sub_agent.call_record import CallRecordStatus
 from hivememory.core.mtp import MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
@@ -28,18 +28,11 @@ from hivememory.core.mtp.exceptions import (
     SubAgentExecutionError,
     SubAgentUnexpectedSuspendError,
 )
-from hivememory.engines.memory_compiler import (
-    MemoryCompileOptions,
-    MemoryCompiler,
-    MemoryEnvelopeTarget,
-)
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.aliases import RuntimeAliasResolver
     from hivememory.agent_runtime.runtime import AgentRuntime
-    from hivememory.alice.orchestration.profile_resolver import AgentProfileResolver
     from hivememory.alice.orchestration.run_session import RunSession
-    from hivememory.core.models import AgentProfile, Identity
+    from hivememory.core.models import AgentProfile
     from hivememory.prompts.assembler import AgentPromptAssembler
 
 logger = logging.getLogger(__name__)
@@ -72,15 +65,13 @@ class CallCoordinator:
     def __init__(
         self,
         agent_runtime: AgentRuntime,
-        agent_profile_resolver: AgentProfileResolver,
-        alias_resolver: RuntimeAliasResolver,
+        call_context_provider: CallContextProvider,
         *,
         frame_factory: FrameFactory,
         prompt_assembler: AgentPromptAssembler,
     ) -> None:
         self._agent_runtime = agent_runtime
-        self._agent_profile_resolver = agent_profile_resolver
-        self._alias_resolver = alias_resolver
+        self._call_context_provider = call_context_provider
         self._frame_factory = frame_factory
         self._prompt_assembler = prompt_assembler
 
@@ -117,9 +108,9 @@ class CallCoordinator:
 
         sub_profile: AgentProfile | None = None
         try:
-            sub_profile = await self._agent_profile_resolver.resolve(
-                call_request.target_alias,
-                identity=caller_frame.identity,
+            call_context = await self._call_context_provider.provide(
+                caller_frame,
+                call_request,
             )
             if session.cancel_event.is_set():
                 return await self._complete_preparation(
@@ -129,19 +120,7 @@ class CallCoordinator:
                     session=session,
                     run_output=output,
                 )
-            shared_context = await self._fetch_context_refs_content(
-                aliases=call_request.context_refs,
-                identity=caller_frame.identity,
-                language=getattr(caller_frame.agent_profile, "language", None),
-            )
-            if session.cancel_event.is_set():
-                return await self._complete_preparation(
-                    caller_frame,
-                    suspension,
-                    self._cancelled_response(call_request.target_alias),
-                    session=session,
-                    run_output=output,
-                )
+            sub_profile = call_context.agent_profile
             policy = FrameExecutionPolicy.from_profile(
                 sub_profile,
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),
@@ -150,7 +129,7 @@ class CallCoordinator:
             messages = self._prompt_assembler.build_sub_agent_messages(
                 profile=sub_profile,
                 task=call_request.task,
-                shared_context=shared_context,
+                shared_context=call_context.shared_context,
             )
             scope = self._frame_factory.scope(run_id=caller_frame.runtime_scope.run_id)
             sub_frame = self._frame_factory.create(
@@ -519,43 +498,6 @@ class CallCoordinator:
         if result is not None and result.status != FrameExecutionStatus.COMPLETED:
             return result
         return FrameExecutionResult(status=FrameExecutionStatus.FAILED)
-
-    async def _fetch_context_refs_content(
-        self,
-        aliases: list[str],
-        identity: Identity,
-        language: str | None = None,
-    ) -> str:
-        """逐项解析 context_refs 并用 MemoryCompiler 编译为子 Agent 共享上下文。
-
-        单个 ref 解析失败仅记录 warning 并跳过；全部失败时返回空串，子 Agent
-        仍只带 task 运行（见 docs/alice/orchestration.md §3.2）。
-        """
-        if not aliases:
-            return ""
-        compiler = MemoryCompiler()
-        sources = []
-        context = MTPExecutionContext(identity=identity)
-        for alias in aliases:
-            try:
-                resolved = await self._alias_resolver.resolve(alias, context=context)
-            except Exception as error:
-                logger.warning("Failed to resolve context_ref %s: %s", alias, error)
-                continue
-            if resolved.kind in {"pending", "redirect", "atom"} and (
-                resolved.pending is not None or resolved.atom is not None
-            ):
-                sources.append(resolved)
-            else:
-                logger.warning("Context ref alias not found: %s", alias)
-        if not sources:
-            logger.warning("No rendered context returned for context_refs: %s", aliases)
-            return ""
-        return compiler.compile(
-            sources,
-            MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
-            MemoryCompileOptions(language=language),
-        ).text
 
 
 __all__ = [

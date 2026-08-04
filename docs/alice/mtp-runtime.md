@@ -50,7 +50,7 @@ WorkerAgentService.generate(stop = MTP right delimiter)
 
 如果文本中没有 MTP 左定界符，Koakuma 返回 `None`，Agent loop 把本次生成当作自然语言收敛。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。
 
-CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只产生 `suspend + MTPCallRequest`；AgentLoopExecutor 把 frame 状态交还 Alice 的 `RunExecutor`，由 `CallCoordinator.begin_call()` 解析目标并创建普通 callee frame，Executor 递归等待 callee frame 完成，再由 `complete_call()` 通过 `AgentRuntime.apply_call_response()` 恢复 caller。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 编排权。
+CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析协议参数并产生 `suspend + MTPCallRequest`，不读取 Agent Profile 或 `context_refs` 内容；AgentLoopExecutor 把 frame 状态交还 Alice 的 `RunExecutor`，由 `CallContextProvider` 解析调用上下文，`CallCoordinator.begin_call()` 消费该上下文并创建普通 callee frame。Executor 递归等待 callee frame 完成，再由 `complete_call()` 通过 `AgentRuntime.apply_call_response()` 恢复 caller。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 编排权。
 
 ## 2. MTPExecutionContext
 
@@ -82,7 +82,7 @@ Agent Profile 的权限同时作用于 prompt 和 runtime：
 | `RUN` | 先匹配 Kernel syscall；否则解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | Profile 控制工具可见面，但不等于 OS 沙箱 |
 | `WRITE` | 校验 content，注册 `WriteFocus` PendingAtom，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
 | `UPDATE` | 解析单个正式 atom，注册 `UpdateFocus` revision，使原 alias 的 L1 缓存失效，返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
-| `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallCoordinator` 负责 callee 与结果回流 |
+| `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallContextProvider` 解析上下文，`CallCoordinator` 负责 callee 与结果回流 |
 
 SEARCH 空结果是带 `no_memories_found` warning 的 success，而不是基础设施错误；READ 列表中部分 alias 丢失时返回已有内容并附 warning，全部丢失才返回 error。这样的区别让“不确定检索没有证据”和“系统无法完成请求”保持不同语义。
 

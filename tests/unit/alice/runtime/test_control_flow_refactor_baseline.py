@@ -13,7 +13,9 @@ from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
+from hivememory.system.config import HiveMemoryConfig
 
 
 def _frame(run_id: str, frame_id: str) -> ExecutionFrame:
@@ -72,6 +74,14 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
     assert "run_agent_stream" not in runtime_public_methods
     assert inspect.iscoroutinefunction(AgentRunService.run_agent)
     assert inspect.isasyncgenfunction(AgentRunService.run_agent_stream)
+
+
+def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
+    config = HiveMemoryConfig()
+    runtime = AliceRuntime(config.alice, config.memory_compiler)
+
+    assert isinstance(runtime.profile_resolver, AgentProfileResolver)
+    assert runtime.profile_resolver is runtime.profile_resolver
 
 
 def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:

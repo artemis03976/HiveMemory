@@ -5,7 +5,7 @@ from enum import Enum
 
 
 class CallRecordStatus(str, Enum):
-    """CALL 记账生命周期：挂起 → 解析中 → 已结算 → 已回填 / 已取消。"""
+    """Sub-agent CALL 记账生命周期：挂起 → 解析中 → 已结算 → 已回填 / 已取消。"""
 
     SUSPENDED = "suspended"
     RESOLVING = "resolving"
@@ -41,9 +41,7 @@ class CallRecord:
         if callee_frame_id == self.caller_frame_id:
             raise ValueError("Caller and callee frame ids must be different.")
         if self.callee_frame_id is not None:
-            raise RuntimeError(
-                "CALL record already has a callee frame: " f"{self.callee_frame_id!r}"
-            )
+            raise RuntimeError(f"CALL record already has a callee frame: {self.callee_frame_id!r}")
         self.callee_frame_id = callee_frame_id
 
     def mark_resolved(self) -> None:

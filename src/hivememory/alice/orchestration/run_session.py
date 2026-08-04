@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.alice.orchestration.call_record import CallRecord, CallRecordStatus
+from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
 
 
 @dataclass

@@ -15,15 +15,16 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
-from hivememory.alice.orchestration.call_coordinator import (
+from hivememory.alice.orchestration.run_executor import RunExecutor
+from hivememory.alice.orchestration.run_output import CallOutputFinished
+from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
+from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCoordinator,
     CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
-from hivememory.alice.orchestration.run_executor import RunExecutor
-from hivememory.alice.orchestration.run_output import CallOutputFinished
-from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.streaming import AgentRunStream
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
@@ -57,13 +58,15 @@ def _session(frame: ExecutionFrame, *, cancel_event: asyncio.Event | None = None
     return session
 
 
-def _coordinator(runtime, child: ExecutionFrame, *, profile_resolver=None) -> CallCoordinator:
+def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> CallCoordinator:
     if not hasattr(runtime, "apply_call_response"):
         runtime.apply_call_response = MagicMock()
     return CallCoordinator(
         runtime,
-        profile_resolver or SimpleNamespace(resolve=AsyncMock(return_value=OMNI_DOLL_PROFILE)),
-        SimpleNamespace(resolve=AsyncMock()),
+        context_provider
+        or SimpleNamespace(
+            provide=AsyncMock(return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE))
+        ),
         frame_factory=SimpleNamespace(
             scope=MagicMock(return_value=child.runtime_scope),
             create=MagicMock(return_value=child),
@@ -147,10 +150,10 @@ async def test_call_preparation_error_is_returned_without_dispatching_child():
         run_frame=AsyncMock(),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
-    profile_resolver = SimpleNamespace(
-        resolve=AsyncMock(side_effect=PermissionDeniedError("denied"))
+    context_provider = SimpleNamespace(
+        provide=AsyncMock(side_effect=PermissionDeniedError("denied"))
     )
-    coordinator = _coordinator(runtime, child, profile_resolver=profile_resolver)
+    coordinator = _coordinator(runtime, child, context_provider=context_provider)
     output = _RecordingRunOutput()
 
     transition = await coordinator.begin_call(

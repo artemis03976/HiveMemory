@@ -9,14 +9,14 @@ import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import NullFrameOutputSink, TokenDelta
-from hivememory.alice.orchestration.call_coordinator import (
+from hivememory.alice.orchestration.run_executor import RunExecutor
+from hivememory.alice.orchestration.run_output import CallOutputFinished
+from hivememory.alice.orchestration.run_session import RunSession
+from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
-from hivememory.alice.orchestration.run_executor import RunExecutor
-from hivememory.alice.orchestration.run_output import CallOutputFinished
-from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.streaming import AgentRunStream, QueueAgentRunOutput
 from hivememory.core.mtp import MTPCallRequest
 
