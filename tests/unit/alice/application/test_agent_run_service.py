@@ -194,6 +194,59 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 
 
 @pytest.mark.asyncio
+async def test_executor_stream_close_error_does_not_replace_task_cancellation():
+    recorder = RecordingRuntimeEventSink()
+    _runtime, service = _build_service(runtime_events=recorder)
+    context = _build_agent_run_context(_build_memory_atom())
+
+    class CloseFailingExecutorStream:
+        def __init__(self) -> None:
+            self._emitted = False
+            self.pull_started = asyncio.Event()
+            self.close_calls = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._emitted:
+                self.pull_started.set()
+                await asyncio.Event().wait()
+            self._emitted = True
+            return {"event": "token", "data": {"content": "hi"}}
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+            raise RuntimeError("executor stream close failed")
+
+    executor_stream = CloseFailingExecutorStream()
+    agent_stream = MagicMock()
+    agent_stream.output = MagicMock()
+
+    def events(runner):
+        runner.close()
+        return executor_stream
+
+    agent_stream.events.side_effect = events
+    service._stream_adapter.create = MagicMock(return_value=agent_stream)
+    stream = service.run_agent_stream(context)
+
+    assert (await anext(stream))["event"] == "token"
+    pull_task = asyncio.create_task(anext(stream))
+    await executor_stream.pull_started.wait()
+    pull_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await pull_task
+
+    assert executor_stream.close_calls == 1
+    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_CANCELLED
+    assert RuntimeEventType.AGENT_RUN_FAILED not in {
+        event.event_type for event in recorder.events
+    }
+
+
+@pytest.mark.asyncio
 async def test_run_agent_stream_error_preserves_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)

@@ -18,11 +18,17 @@ logger = logging.getLogger(__name__)
 
 async def _cancel_and_join(task: asyncio.Task) -> None:
     """Cancel and settle one in-flight Chat stream pull."""
+    owner = asyncio.current_task()
+    entry_cancelling = owner.cancelling() if owner is not None else 0
+
     if not task.done():
         task.cancel()
     try:
         await task
-    except (asyncio.CancelledError, StopAsyncIteration):
+    except asyncio.CancelledError:
+        if owner is not None and owner.cancelling() > entry_cancelling:
+            raise
+    except StopAsyncIteration:
         pass
     except Exception:
         logger.debug("SSE pull task cleanup failed", exc_info=True)

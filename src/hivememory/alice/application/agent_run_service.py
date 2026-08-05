@@ -8,6 +8,7 @@ stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -199,7 +200,12 @@ class AgentRunService:
                     close_reason="stream_closed",
                 )
             if executor_stream is not None:
-                await executor_stream.aclose()
+                try:
+                    await executor_stream.aclose()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("关闭 Agent executor stream 失败", exc_info=True)
 
     def _register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
         self._atom_cache.ingest_atoms(memories)

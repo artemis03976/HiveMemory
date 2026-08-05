@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.server.models.chat import ChatRequest
-from hivememory.server.routers.chat import chat, router
+from hivememory.server.routers.chat import _cancel_and_join, chat, router
 
 
 def _create_test_app(mock_service):
@@ -49,6 +49,31 @@ def _parse_sse_events(response_text: str):
     if current_event:
         events.append(current_event)
     return events
+
+
+@pytest.mark.asyncio
+async def test_cancel_and_join_preserves_owner_cancellation() -> None:
+    child_started = asyncio.Event()
+    child_cleanup_started = asyncio.Event()
+
+    async def child() -> None:
+        child_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            child_cleanup_started.set()
+            await asyncio.Event().wait()
+
+    child_task = asyncio.create_task(child())
+    await child_started.wait()
+    join_task = asyncio.create_task(_cancel_and_join(child_task))
+    await asyncio.wait_for(child_cleanup_started.wait(), timeout=1)
+    join_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await join_task
+
+    assert child_task.done()
 
 
 class TestChatRouter:

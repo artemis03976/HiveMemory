@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -21,6 +22,8 @@ from hivememory.alice.orchestration.sub_agent.call_record import CallRecord
 if TYPE_CHECKING:
     from hivememory.agent_runtime.runtime import AgentRuntime
     from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +82,10 @@ class RunExecutor:
                 output_context=_FrameOutputContext(),
             )
         except asyncio.CancelledError:
-            self._abort_cancelled_run()
+            try:
+                self._abort_cancelled_run()
+            except Exception:
+                logger.warning("取消 Agent run 收尾失败", exc_info=True)
             raise
 
         return self._finish(result)
@@ -199,7 +205,10 @@ class RunExecutor:
                         f"CALL preparation returned an unsupported outcome: {outcome!r}"
                     )
         except asyncio.CancelledError:
-            self._cancel_call_if_registered(caller_frame, suspension)
+            try:
+                self._cancel_call_if_registered(caller_frame, suspension)
+            except Exception:
+                logger.warning("取消 CALL 收尾失败", exc_info=True)
             raise
 
     def _cancel_call_if_registered(
@@ -219,9 +228,15 @@ class RunExecutor:
 
     def _abort_cancelled_run(self) -> None:
         """协程取消沿递归栈清理 CALL 后，在最外层收尾整个 run。"""
-        self._session.cancel_unapplied_calls()
+        try:
+            self._session.cancel_unapplied_calls()
+        except Exception:
+            logger.warning("取消未回填 CALL 失败", exc_info=True)
         if self.terminal_result is None:
-            self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+            try:
+                self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+            except Exception:
+                logger.warning("收尾已取消 Agent run 失败", exc_info=True)
 
     def _finish(self, result: FrameExecutionResult) -> FrameExecutionResult:
         if self.terminal_result is not None:

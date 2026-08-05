@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Awaitable, Mapping
-from contextlib import suppress
 from typing import Any, Literal
 
 from hivememory.agent_runtime.models import ExecutionFrame, FrameExecutionResult
@@ -21,6 +21,24 @@ from hivememory.alice.orchestration.run_output import (
     CallOutputStarted,
 )
 from hivememory.alice.orchestration.run_session import RunSession
+
+logger = logging.getLogger(__name__)
+
+
+async def _cancel_and_join(task: asyncio.Task[Any]) -> None:
+    """取消并等待 runner，同时保留当前消费 task 自己收到的取消。"""
+    owner = asyncio.current_task()
+    entry_cancelling = owner.cancelling() if owner is not None else 0
+
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        if owner is not None and owner.cancelling() > entry_cancelling:
+            raise
+    except Exception:
+        logger.warning("取消 Agent runner 收尾失败", exc_info=True)
 
 
 class _BoundFrameOutputSink:
@@ -173,9 +191,7 @@ class AgentRunStream:
             finally:
                 consumer_closed.set()
                 if not task.done():
-                    task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await task
+                    await _cancel_and_join(task)
                 elif not task.cancelled():
                     # 若消费端在 runner 异常后、读取 sentinel 前关闭，主动取出异常，
                     # 避免产生 "Task exception was never retrieved"；正常消费路径仍会

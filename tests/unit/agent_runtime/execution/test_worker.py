@@ -223,6 +223,25 @@ class _MockStreamResponse:
             yield item
 
 
+class _CloseFailingStreamResponse:
+    """模拟取消期间底层 LLM response 关闭失败。"""
+
+    def __init__(self) -> None:
+        self.pull_started = asyncio.Event()
+        self.close_calls = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        self.pull_started.set()
+        await asyncio.Event().wait()
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        raise RuntimeError("response close failed")
+
+
 def _make_stream_chunk(delta: str = "", finish_reason=None):
     choice = Mock()
     choice.delta.content = delta
@@ -236,6 +255,28 @@ def _make_stream_chunk(delta: str = "", finish_reason=None):
 class TestWorkerAgentGenerateStream:
     def setup_method(self):
         self.service = WorkerAgentService()
+
+    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    async def test_response_close_error_does_not_replace_task_cancellation(
+        self,
+        mock_completion,
+    ):
+        response = _CloseFailingStreamResponse()
+        mock_completion.return_value = response
+        chunks = self.service.generate_stream(
+            [{"role": "user", "content": "hi"}],
+            model="test-model",
+            api_key="test-key",
+        ).__aiter__()
+
+        pull_task = asyncio.create_task(anext(chunks))
+        await response.pull_started.wait()
+        pull_task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await pull_task
+
+        assert response.close_calls == 1
 
     @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_stream_no_duplicate_before_mtp(self, mock_completion):

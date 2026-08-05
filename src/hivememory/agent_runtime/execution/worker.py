@@ -7,6 +7,7 @@ asyncio task 直接传播，不在本层维护额外的控制信号。
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from collections.abc import AsyncGenerator
@@ -212,9 +213,14 @@ class WorkerAgentService:
         finally:
             close = getattr(response, "aclose", None)
             if callable(close):
-                close_result = close()
-                if inspect.isawaitable(close_result):
-                    await close_result
+                try:
+                    close_result = close()
+                    if inspect.isawaitable(close_result):
+                        await close_result
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("关闭 LLM 流式响应失败", exc_info=True)
 
 
 __all__ = [
