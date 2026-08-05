@@ -108,12 +108,12 @@ def test_run_session_keeps_frames_and_calls_run_local() -> None:
     assert session.call_records[("frame-a", "action-1")] is record
 
 
-def test_mtp_cancel_event_is_invocation_local() -> None:
+def test_mtp_executor_keeps_runtime_stateless() -> None:
     koakuma = SimpleNamespace()
     executor = KoakumaMTPExecutor(koakuma)
 
-    assert not hasattr(executor, "set_cancel_event")
-    assert not hasattr(koakuma, "cancel_event")
+    assert vars(executor) == {"_koakuma": koakuma}
+    assert vars(koakuma) == {}
 
 
 def test_mtp_context_contains_only_frame_coordinates() -> None:

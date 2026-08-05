@@ -7,18 +7,17 @@ Chat 路由单元测试
     3. 异常处理 — SSE error 事件
 """
 
-import json
 import asyncio
-import pytest
+import json
+from unittest.mock import MagicMock
 from uuid import uuid4
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hivememory.server.routers.chat import router
-from hivememory.server.routers.chat import chat
 from hivememory.server.models.chat import ChatRequest
+from hivememory.server.routers.chat import chat, router
 
 
 def _create_test_app(mock_service):
@@ -221,6 +220,32 @@ class TestChatRouter:
         assert "token" not in event_types
         assert events[0]["data"]["message"] == "cleared"
         assert events[0]["data"]["client_action"] == {"type": "clear_chat"}
+
+    def test_stop_route_projects_cancel_result(self):
+        mock_service = MagicMock()
+        mock_service.cancel_generation.return_value = MagicMock(
+            generation_id="gen-1",
+            cancelled=False,
+            status="not_found",
+            reason="user_requested",
+        )
+
+        app = _create_test_app(mock_service)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/chat/stop",
+            json={"generation_id": "gen-1"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "generation_id": "gen-1",
+            "cancelled": False,
+            "status": "not_found",
+            "reason": "user_requested",
+        }
+        mock_service.cancel_generation.assert_called_once_with("gen-1")
 
     def test_uuid_payload_is_serializable(self):
         mock_service = MagicMock()

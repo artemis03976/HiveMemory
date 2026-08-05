@@ -107,10 +107,10 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options、cancel event | `AgentRunResult` |
-| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | 同上 | async generator 对象 |
+| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options | `AgentRunResult` |
+| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | `AgentRunContext`、generation options | async generator 对象 |
 
-流式 route 返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 run，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
+流式 route 返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
 
 ## 3. 全局业务事件
 

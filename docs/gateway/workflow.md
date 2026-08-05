@@ -125,7 +125,7 @@ GatewayDecisionOutcome
 
 请求控制遵循两个原则：取消优先传播，deadline 限制整条链路。
 
-`cancel_event` 在 Step 开始前和能力调用等待期间都会检查。取消发生时，当前 invocation task 被取消并等待收尾，workflow 抛出 `GatewayCancelledError`。取消不是能力退化，因此不能转为本地 fallback 或普通 decision。
+Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat application 在进入 Gateway 阶段时创建 child task；用户 stop 直接取消这个 task，原生 `asyncio.CancelledError` 沿当前 await 传播。取消不是能力退化，因此不能转为本地 fallback 或普通 decision；request deadline 和 Step timeout 仍由 workflow 自己负责，并继续使用现有 fallback 规则。
 
 请求 deadline 从 workflow 开始时计算。每个 Step 的实际等待时间是“Step timeout”与“整次请求剩余时间”的较小值。若整次 deadline 在某个可降级 Step 中耗尽，该 Step 先提交 fallback，后续带 fallback 的 Step 不再调用能力，而是继续提交保守默认值，直到形成完整 decision；若当前 Step 没有 fallback，则抛出 `GatewayTimeoutError`。
 

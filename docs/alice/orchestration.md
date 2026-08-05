@@ -36,7 +36,7 @@ AliceSystem
   ├─ AgentRunService
   │    ├─ public run API / root frame bootstrap / AgentRunResult / stream done
   │    ├─ RunSession
-  │    │    └─ frame registry / CallRecord ledger / cancel event
+  │    │    └─ frame registry / CallRecord ledger
   │    ├─ RunExecutor
   │    │    └─ recursive frame evaluation + run finalization
   │    ├─ CallCoordinator
@@ -104,7 +104,7 @@ current frame emits CALL
   -> call_response maps the finalized result to one MTPCallResponse
   -> AgentRuntime.apply_call_response() commits the response once
   -> emit sub_agent_end
-  -> return ResumeCaller, or CancelRun after a cancelled response
+  -> return ResumeCaller; task cancellation unwinds the recursive call stack
 ```
 
 `suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，Agent 会在被调用任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。RunExecutor 必须先等待被调用任务完成，再以同一 action_id 通过 `AgentRuntime.apply_call_response()` 回填 tool result。
@@ -204,8 +204,8 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - CallContextProvider 的 Profile/共享上下文解析错误，以及后续模型调用或执行异常，会在 CALL 边界形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
 - 子帧预算耗尽映射为 `mtp.call_response.budget_exhausted`，子帧取消保持 cancelled 终态；生产 policy 会在 Agent loop 内拒绝被调用 frame 的 CALL，因此不会形成第二层 suspension；若未来开放该权限，RunExecutor 会直接递归执行，而不需要增加 root/callee 状态分支；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
-- run 取消 token 会传给主/子 AgentRuntime；活动 CALL 先 exactly-once 回填 cancelled response 并把 record 标记为 applied，再以 `CancelRun` 终止递归执行，不重入 caller 继续生成；最终主结果为 cancelled，并取消本 run 尚未结算的 PendingAtom，不交出 materialize tasks；
-- 流生成器提前关闭时，AgentRunService 设置当前 RunSession 的 cancel token，并关闭 AgentRunStream；适配器取消 runner task，CancelledError 沿递归协程栈展开，各层清理尚未 apply 的 CALL 并回填 cancelled response，最外层只收尾整个 run 一次，且不再向关闭的 consumer 阻塞发送事件；
+- Chat application 不向主/子 AgentRuntime 传递取消 token。用户 stop 取消当前 Alice task；RunExecutor 捕获 `CancelledError` 做本地 unwind，活跃 CALL 只清理 callee frame 和 record，不伪造 caller response，最外层收尾整个 run 一次，并保留原生异常传播；
+- 流生成器提前关闭时，`AgentRunStream` 取消并 join 自己创建的 runner；`CancelledError` 沿递归协程栈展开，各层清理尚未 apply 的 CALL，且不再向关闭的 consumer 阻塞发送事件；
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。
@@ -225,7 +225,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 - AgentProfile cache 已按 Identity + alias 隔离、上限固定为 32，但没有 TTL、版本检查或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 Identity。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 Identity 证明真实 CALL 目标；
-- frame registry、CallRecord 与 cancel event 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
+- frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；
 - 当前产品 policy 只允许串行单层 CALL；RunExecutor 已能递归求值 frame，但尚未开放嵌套 CALL，也没有 parallel fan-out、动态 DAG、review loop 或 Alice 自主规划。

@@ -114,7 +114,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S2：Run-local 执行隔离（基础已完成）
 
-1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 cancel token、frame registry 和 CALL record 收敛为 run-local 状态；流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
+1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 frame registry 和 CALL record 收敛为 run-local 状态；Chat application 在上层持有可取消阶段 task，流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
 2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
 3. 已完成：被调用 frame 继承 caller Identity，CALL 权限由 `FrameExecutionPolicy` 和 Profile capability 硬检查，不再以 depth 作为控制依据；
 4. 明确恢复/重试时不能复用已经失效的授权快照。

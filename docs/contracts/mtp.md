@@ -194,7 +194,7 @@ Localized message
 
 Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alias`、`call_request` 和内部 cause 不序列化到普通 Agent 响应正文，由运行时结构化消费。
 
-CALL 取消使用 `<mtp_response status="cancelled">` exactly-once 回填本地化的取消文案，不伪装为空 success，也不需要构造 error code。全局 run 取消时，回填完成后返回 `CancelRun`，caller 不会据此重入并继续生成。
+内部 callee 自然产生 `CANCELLED` 时，CALL 可以使用 `<mtp_response status="cancelled">` exactly-once 回填本地化结果；这不是 Chat-level stop 协议。全局 run 被 task cancellation 取消时，CallCoordinator 只清理活跃 record 和 callee frame，不伪造 caller response，CancelledError 沿递归调用栈传播。
 
 当前 formatter 会把业务 `content`、reply 和 warning 文本直接嵌入 XML 容器，尚未对所有内容执行统一 XML escaping。若文本自身包含 `<`、`>` 或 `&`，Agent 可见结果可能不是严格可解析 XML；调用方当前应把它视为结构化文本信封，而不是承诺任意 payload 都能通过 XML parser。补齐 escaping 时必须同时验证代码片段与既有 prompt 行为。
 
