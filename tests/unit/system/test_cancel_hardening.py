@@ -19,7 +19,8 @@ from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.system.runtime.control import (
     ChatGenerationRun,
     ChatGenerationRunRegistry,
-    ChatGenerationRunStatus,
+    ChatRunOutcome,
+    ChatRunPhase,
 )
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
@@ -28,15 +29,15 @@ class TestChatGenerationRunRegistry:
     def setup_method(self):
         self.registry = ChatGenerationRunRegistry()
 
-    def test_cancel_sets_event_and_returns_result(self):
+    def test_cancel_records_stop_and_returns_result(self):
         run = ChatGenerationRun(generation_id="gen-1")
         self.registry.register(run)
 
         result = self.registry.cancel("gen-1")
 
         assert result.cancelled is True
-        assert result.status == ChatGenerationRunStatus.CANCELLING.value
-        assert run.cancel_event.is_set()
+        assert result.status == ChatRunOutcome.STOP_REQUESTED.value
+        assert run.outcome is ChatRunOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
         run = ChatGenerationRun(generation_id="gen-2")
@@ -47,6 +48,7 @@ class TestChatGenerationRunRegistry:
 
         assert r1.cancelled is True
         assert r2.cancelled is True  # 重复 cancel 不报错
+        assert r2.reason == r1.reason
 
     def test_cancel_unknown_generation_id_returns_not_found(self):
         result = self.registry.cancel("nonexistent")
@@ -56,14 +58,15 @@ class TestChatGenerationRunRegistry:
     def test_close_removes_run(self):
         run = ChatGenerationRun(generation_id="gen-3")
         self.registry.register(run)
-        self.registry.close("gen-3", ChatGenerationRunStatus.COMPLETED)
+        self.registry.close("gen-3")
         assert self.registry.get("gen-3") is None
 
-    def test_run_cancelled_property(self):
+    def test_run_stop_outcome(self):
         run = ChatGenerationRun(generation_id="gen-4")
-        assert run.cancelled is False
-        run.request_cancel()
-        assert run.cancelled is True
+        assert run.outcome is ChatRunOutcome.RUNNING
+        run.enter_phase(ChatRunPhase.ALICE)
+        run.request_stop()
+        assert run.outcome is ChatRunOutcome.STOP_REQUESTED
 
 
 # ─── AgentRunResult.status ───────────────────────────────────────────────────
