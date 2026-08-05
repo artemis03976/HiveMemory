@@ -93,24 +93,36 @@ class AgentLoopExecutor:
             frame.working_history,
             **(generation_options or {}),
         ).__aiter__()
-        while True:
-            try:
-                chunk = await anext(chunks)
-            except StopAsyncIteration:
-                break
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                logger.error("Streaming frame generation failed: %s", error, exc_info=True)
-                return FrameExecutionResult(
-                    status=FrameExecutionStatus.FAILED,
-                    error=error,
-                )
-            if chunk.is_final:
-                result = chunk.result
-                break
-            if not chunk.mtp_detected and chunk.delta:
-                await sink.send(TokenDelta(content=chunk.delta))
+
+        try:
+            while True:
+                try:
+                    chunk = await anext(chunks)
+                except StopAsyncIteration:
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    logger.error("Streaming frame generation failed: %s", error, exc_info=True)
+                    return FrameExecutionResult(
+                        status=FrameExecutionStatus.FAILED,
+                        error=error,
+                    )
+                if chunk.is_final:
+                    result = chunk.result
+                    break
+                if not chunk.mtp_detected and chunk.delta:
+                    await sink.send(TokenDelta(content=chunk.delta))
+        finally:
+            close = getattr(chunks, "aclose", None)
+            if callable(close):
+                try:
+                    await close()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("关闭 Worker stream 失败", exc_info=True)
+
         if result is not None:
             return result
         return FrameExecutionResult(
