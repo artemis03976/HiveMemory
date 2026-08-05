@@ -71,7 +71,6 @@ class AgentRuntime:
         *,
         generation_options: dict[str, Any] | None = None,
         output_sink: FrameOutputSink,
-        cancel_event=None,
     ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
         try:
@@ -88,7 +87,6 @@ class AgentRuntime:
             max_iterations=max_iterations,
             generation_options=generation_options,
             output_sink=output_sink,
-            cancel_event=cancel_event,
         )
 
     def apply_call_response(

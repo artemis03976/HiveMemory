@@ -155,7 +155,6 @@ class AgentRunStream:
                 try:
                     return await runner
                 except asyncio.CancelledError:
-                    self._session.cancel_event.set()
                     raise
                 finally:
                     # runner 自身被取消时，仍要唤醒正在消费的客户端；只有消费端已经
@@ -174,7 +173,6 @@ class AgentRunStream:
             finally:
                 consumer_closed.set()
                 if not task.done():
-                    self._session.cancel_event.set()
                     task.cancel()
                     with suppress(asyncio.CancelledError):
                         await task

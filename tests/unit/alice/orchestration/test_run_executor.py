@@ -13,7 +13,6 @@ from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
-    CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
@@ -21,11 +20,8 @@ from hivememory.alice.runtime.streaming import AgentRunStream, QueueAgentRunOutp
 from hivememory.core.mtp import MTPCallRequest
 
 
-def _session_with(frame, *, cancel_event: asyncio.Event | None = None) -> RunSession:
-    session = RunSession(
-        agent_run_id=frame.runtime_scope.run_id,
-        cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
-    )
+def _session_with(frame) -> RunSession:
+    session = RunSession(agent_run_id=frame.runtime_scope.run_id)
     session.register_root_frame(frame)
     return session
 
@@ -42,11 +38,9 @@ class _CallCoordinatorStub:
     def __init__(
         self,
         *,
-        cancel_on_complete: bool = False,
         emit_end: bool = False,
         child_ids: dict[str, str] | None = None,
     ) -> None:
-        self.cancel_on_complete = cancel_on_complete
         self.emit_end = emit_end
         self.child_ids = child_ids or {}
         self.callee_results = []
@@ -88,10 +82,6 @@ class _CallCoordinatorStub:
                     terminal_status="completed",
                 )
             )
-        if self.cancel_on_complete:
-            session.cancel_event.set()
-            record.cancel()
-            return CancelRun()
         record.mark_applied()
         return ResumeCaller()
 
@@ -328,7 +318,6 @@ async def test_run_executor_cleans_active_call_when_stream_consumer_closes():
     await stream.aclose()
 
     assert coordinator.cancel_calls == 1
-    assert session.cancel_event.is_set()
     assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"
     finalize_run.assert_called_once()
     assert finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
@@ -401,40 +390,6 @@ async def test_run_executor_accepts_call_resume_without_applying_response_itself
 
     assert result.status == FrameExecutionStatus.COMPLETED
     runtime.apply_call_response.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_run_executor_drops_late_call_response_after_cancel():
-    cancel_event = asyncio.Event()
-    applied = []
-
-    async def run_frame(current_frame, **_kwargs):
-        if current_frame.runtime_scope.frame_id == "frame-child":
-            return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
-        if cancel_event.is_set():
-            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-        return FrameExecutionResult(
-            status=FrameExecutionStatus.SUSPENDED,
-            call_request=MTPCallRequest(target_alias="helper", task="task"),
-            suspend_action_id="act-1",
-        )
-
-    runtime = SimpleNamespace(
-        run_frame=run_frame,
-        apply_call_response=lambda *args: applied.append(args),
-    )
-    frame = _frame_stub("frame-1")
-    session = _session_with(frame, cancel_event=cancel_event)
-    executor = RunExecutor(
-        runtime,
-        session=session,
-        call_coordinator=_CallCoordinatorStub(cancel_on_complete=True),
-    )
-
-    result = await executor.run(frame)
-
-    assert result.status == FrameExecutionStatus.CANCELLED
-    assert applied == []
 
 
 @pytest.mark.asyncio

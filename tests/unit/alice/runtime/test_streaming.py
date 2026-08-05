@@ -132,4 +132,3 @@ async def test_agent_run_stream_wakes_consumer_when_runner_is_cancelled() -> Non
 
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(anext(events), timeout=1)
-    assert session.cancel_event.is_set()

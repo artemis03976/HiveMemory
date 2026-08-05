@@ -8,7 +8,6 @@ stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层。
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
@@ -77,12 +76,10 @@ class AgentRunService:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        cancel_event: asyncio.Event | None = None,
         generation_id: str | None = None,
     ) -> AgentRunResult:
         session = self._create_run_session(
             generation_id=generation_id,
-            cancel_event=cancel_event,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -124,12 +121,10 @@ class AgentRunService:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        cancel_event: asyncio.Event | None = None,
         generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         session = self._create_run_session(
             generation_id=generation_id,
-            cancel_event=cancel_event,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -199,7 +194,6 @@ class AgentRunService:
             raise
         finally:
             if exit_reason == StreamExitReason.RUNNING:
-                session.cancel_event.set()
                 run_events.cancelled(
                     message="Agent stream closed before terminal event.",
                     close_reason="stream_closed",
@@ -280,12 +274,10 @@ class AgentRunService:
     def _create_run_session(
         *,
         generation_id: str | None,
-        cancel_event: asyncio.Event | None,
     ) -> RunSession:
         return RunSession(
             agent_run_id=f"agent_run_{uuid.uuid4().hex}",
             generation_id=generation_id,
-            cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
         )
 
     @staticmethod

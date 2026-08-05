@@ -8,7 +8,6 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCompletionResult,
     CallCoordinator,
     CallStartResult,
-    CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "CallRecord",
     "CallRecordStatus",
     "CallStartResult",
-    "CancelRun",
     "DispatchCallee",
     "ResumeCaller",
 ]

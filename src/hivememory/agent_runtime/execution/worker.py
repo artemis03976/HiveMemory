@@ -1,42 +1,21 @@
 """
-Worker Agent Service - Agent Runtime 的无状态 LLM 文本生成服务
+Worker Agent Service - Agent Runtime 的无状态 LLM 文本生成服务。
 
-定位：单 frame 执行引擎的模型生成适配器，纯粹的文本生成器。
-职责：
-    - 封装 LLM API 调用 (via litellm)
-    - 使用 MTP Stop Sequence (⟫) 实现生成中断
-    - 检测 MTP 指令并返回结构化结果
-    - 不持有任何业务状态（由 AliceRuntime / AgentRuntime 调度）
-
-架构定位：
-    AgentRuntime 持有 WorkerAgentService，并由 AgentLoopExecutor 调用。
-    WorkerAgentService 不知道 MTP 协议的具体语义，只负责检测 ⟪ 定界符。
-
-    AliceSystem
-    ├── AliceRuntime
-    │   ├── KoakumaRuntime
-    │   ├── AgentRuntime
-    │   │   ├── AgentLoopExecutor
-    │   │   └── WorkerAgentService (LLM Engine)  ← 本模块
-    └── AgentRunService
-
-对应设计文档: MemoryToolProtocol.md Section 3.1 & 6.4
+Worker 只负责 LLM 调用、MTP stop sequence 和文本分段；取消由调用它的
+asyncio task 直接传播，不在本层维护额外的控制信号。
 """
 
-import asyncio
+from __future__ import annotations
+
+import inspect
 import logging
 from collections.abc import AsyncGenerator
-from contextlib import suppress
 from typing import Any
 
 import litellm
 
 from hivememory.agent_runtime.models import GenerationResult, StreamChunk
-from hivememory.core.constants import (
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TOP_P,
-)
+from hivememory.core.constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
@@ -47,38 +26,13 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerAgentService:
-    """
-    无状态 LLM 文本生成服务
-
-    封装 litellm.acompletion() 调用，自动注入 MTP Stop Sequence，
-    并对返回结果进行 MTP 中断检测。
-
-    所有 LLM 参数（model、api_key、api_base 等）必须在每次调用时通过
-    generation_options 显式传入，不保存任何实例级配置。
-    model 缺失时立即抛出 ValueError，拒绝静默降级。
-
-    使用示例:
-        >>> service = WorkerAgentService()
-        >>> result = await service.generate_async(
-        ...     messages,
-        ...     model="deepseek/deepseek-chat",
-        ...     api_key="sk-...",
-        ... )
-    """
+    """无状态 LLM 文本生成服务。"""
 
     def __init__(self) -> None:
         logger.info("WorkerAgentService 初始化完成（无状态）")
 
     def _extract_runtime_params(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """从 generation_options（kwargs）中提取本次 LLM 调用的运行时参数。
-
-        设计原则：
-        - model 是必填项，缺失即抛 ValueError。不允许隐式回落到"某个"模型——
-          用错模型比报错更糟糕。
-        - api_key / api_base 允许为 None：litellm 会从对应环境变量读取，
-          这是合法的密钥管理方式。
-        - temperature / max_tokens / top_p 缺失时使用项目级默认常量，不影响模型正确性。
-        """
+        """提取本次 LLM 调用的运行时参数。"""
         model = kwargs.pop("model", None)
         if not model:
             raise ValueError(
@@ -90,24 +44,18 @@ class WorkerAgentService:
         temperature = kwargs.pop("temperature", None)
         top_p = kwargs.pop("top_p", None)
         max_tokens = kwargs.pop("max_tokens", None)
-        # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）
-        api_key = kwargs.pop("api_key", None)
-        api_base = kwargs.pop("api_base", None)
-
-        # temperature / max_tokens / top_p 回落到项目级默认常量
-        params: dict[str, Any] = {
+        return {
             "model": model,
             "temperature": DEFAULT_TEMPERATURE if temperature is None else temperature,
             "max_tokens": DEFAULT_MAX_TOKENS if max_tokens is None else max_tokens,
             "top_p": DEFAULT_TOP_P if top_p is None else top_p,
-            "api_key": api_key,
-            "api_base": api_base,
+            "api_key": kwargs.pop("api_key", None),
+            "api_base": kwargs.pop("api_base", None),
         }
-        return params
 
     @staticmethod
     def _normalize_mtp_interrupted_text(text: str, last_open: int) -> str:
-        """为被 stop sequence 截断的 MTP 文本补全右定界符，供下游解析。"""
+        """为被 stop sequence 截断的 MTP 文本补全右定界符。"""
         if last_open == -1:
             return text
         mtp_fragment = text[last_open:]
@@ -118,62 +66,40 @@ class WorkerAgentService:
     async def generate_async(
         self,
         messages: list[dict[str, str]],
-        cancel_event: asyncio.Event | None = None,
         **kwargs,
     ) -> GenerationResult:
+        """执行一次完整 LLM 生成。"""
         runtime_params = self._extract_runtime_params(kwargs)
         try:
-            response = await self._completion_with_cancel(
-                cancel_event=cancel_event,
-                completion_kwargs=dict(
-                    model=runtime_params["model"],
-                    messages=messages,
-                    api_key=runtime_params["api_key"],
-                    api_base=runtime_params["api_base"],
-                    temperature=runtime_params["temperature"],
-                    max_tokens=runtime_params["max_tokens"],
-                    stop=[MTP_STOP_SEQUENCE],
-                    top_p=runtime_params["top_p"],
-                    **kwargs,
-                ),
+            response = await litellm.acompletion(
+                model=runtime_params["model"],
+                messages=messages,
+                api_key=runtime_params["api_key"],
+                api_base=runtime_params["api_base"],
+                temperature=runtime_params["temperature"],
+                max_tokens=runtime_params["max_tokens"],
+                stop=[MTP_STOP_SEQUENCE],
+                top_p=runtime_params["top_p"],
+                **kwargs,
             )
-        except Exception as e:
-            logger.error(f"LLM 异步生成失败: {e}")
+        except Exception as error:
+            logger.error("LLM 异步生成失败: %s", error)
             raise
-
-        if response is None:
-            return GenerationResult(
-                text="",
-                finish_reason="cancelled",
-                was_mtp_interrupted=False,
-                prefix_text="",
-                mtp_fragment="",
-                model_used=runtime_params["model"],
-            )
 
         text = response.choices[0].message.content or ""
         finish_reason = response.choices[0].finish_reason or "stop"
-
-        if cancel_event is not None and cancel_event.is_set():
-            text = ""
-            finish_reason = "cancelled"
-
         if hasattr(response, "usage") and response.usage:
             logger.info(
-                f"LLM 异步生成完成 (model={runtime_params['model']}, "
-                f"tokens={response.usage.total_tokens}, "
-                f"finish_reason={finish_reason})"
+                "LLM 异步生成完成 (model=%s, tokens=%s, finish_reason=%s)",
+                runtime_params["model"],
+                response.usage.total_tokens,
+                finish_reason,
             )
 
         last_open = text.rfind(MTP_LEFT_DELIMITER)
         was_mtp = finish_reason == "stop" and last_open != -1
-
         if was_mtp:
             text = self._normalize_mtp_interrupted_text(text, last_open)
-            logger.info(
-                f"MTP 中断检测: ⟪ 位于 offset={last_open}, "
-                f"prefix_len={last_open}, fragment_len={len(text) - last_open}"
-            )
 
         return GenerationResult(
             text=text,
@@ -184,55 +110,12 @@ class WorkerAgentService:
             model_used=runtime_params["model"],
         )
 
-    async def _completion_with_cancel(
-        self,
-        *,
-        cancel_event: asyncio.Event | None,
-        completion_kwargs: dict[str, Any],
-    ) -> Any:
-        """让 LLM 请求与 cancel_event 竞争；取消命中时主动取消 completion task。"""
-        completion_task = asyncio.create_task(litellm.acompletion(**completion_kwargs))
-        if cancel_event is None:
-            return await completion_task
-
-        cancel_task = asyncio.create_task(cancel_event.wait())
-        try:
-            done, _ = await asyncio.wait(
-                {completion_task, cancel_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if cancel_task in done:
-                completion_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await completion_task
-                return None
-            return await completion_task
-        finally:
-            cancel_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await cancel_task
-
     async def generate_stream(
         self,
         messages: list[dict[str, str]],
-        cancel_event: asyncio.Event | None = None,
         **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
-        """
-        流式 LLM 生成，逐 chunk yield
-
-        使用 litellm.acompletion(stream=True)，实时检测 MTP 定界符 ⟪。
-        - 检测到 ⟪ 之前：每个 chunk 作为 delta yield (mtp_detected=False)
-        - 检测到 ⟪ 之后：继续缓冲但不 yield delta (mtp_detected=True)
-        - 流结束时：yield is_final=True 的 StreamChunk，携带完整 GenerationResult
-
-        Args:
-            messages: OpenAI 格式的消息列表
-            **kwargs: 传递给 litellm 的额外参数
-
-        Yields:
-            StreamChunk: 流式 chunk
-        """
+        """流式生成文本，并在结束或取消时关闭底层 async iterator。"""
         runtime_params = self._extract_runtime_params(kwargs)
         try:
             response = await litellm.acompletion(
@@ -247,91 +130,91 @@ class WorkerAgentService:
                 stream=True,
                 **kwargs,
             )
-        except Exception as e:
-            logger.error(f"LLM 流式生成启动失败: {e}")
+        except Exception as error:
+            logger.error("LLM 流式生成启动失败: %s", error)
             raise
 
         full_text = ""
         mtp_detected = False
         finish_reason = "stop"
-        # 缓冲区：用于处理 ⟪ 可能跨 chunk 边界的情况
         pending = ""
         delimiter_tail = max(0, len(MTP_LEFT_DELIMITER) - 1)
 
-        async for chunk in response:
-            if cancel_event is not None and cancel_event.is_set():
-                logger.info("LLM 流式生成被用户取消")
-                finish_reason = "cancelled"
-                break
+        try:
+            async for chunk in response:
+                choice = chunk.choices[0] if chunk.choices else None
+                if choice is None:
+                    continue
 
-            choice = chunk.choices[0] if chunk.choices else None
-            if choice is None:
-                continue
+                delta_content = choice.delta.content or ""
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                if not delta_content:
+                    continue
 
-            delta_content = choice.delta.content or ""
-            if choice.finish_reason:
-                finish_reason = choice.finish_reason
+                full_text += delta_content
+                if mtp_detected:
+                    continue
 
-            if not delta_content:
-                continue
-
-            full_text += delta_content
-
-            if not mtp_detected:
                 pending += delta_content
                 if MTP_LEFT_DELIMITER in pending:
                     mtp_detected = True
-                    idx = pending.index(MTP_LEFT_DELIMITER)
-                    # ⟪ 之前的文本作为最后一个正常 delta 推送
-                    before = pending[:idx]
+                    index = pending.index(MTP_LEFT_DELIMITER)
+                    before = pending[:index]
                     if before:
-                        yield StreamChunk(delta=before, full_text=full_text, mtp_detected=False)
-                    # ⟪ 及之后的内容不推送，标记 mtp_detected
+                        yield StreamChunk(
+                            delta=before,
+                            full_text=full_text,
+                            mtp_detected=False,
+                        )
                     yield StreamChunk(delta="", full_text=full_text, mtp_detected=True)
                     pending = ""
+                    continue
+
+                if delimiter_tail == 0:
+                    emit_text = pending
+                    pending = ""
+                elif len(pending) > delimiter_tail:
+                    emit_text = pending[:-delimiter_tail]
+                    pending = pending[-delimiter_tail:]
                 else:
-                    if delimiter_tail == 0:
-                        emit_text = pending
-                        pending = ""
-                    elif len(pending) > delimiter_tail:
-                        emit_text = pending[:-delimiter_tail]
-                        pending = pending[-delimiter_tail:]
-                    else:
-                        emit_text = ""
-                    if emit_text:
-                        yield StreamChunk(delta=emit_text, full_text=full_text, mtp_detected=False)
-            # mtp_detected=True 后不再 yield 中间 chunk，静默缓冲
+                    emit_text = ""
+                if emit_text:
+                    yield StreamChunk(
+                        delta=emit_text,
+                        full_text=full_text,
+                        mtp_detected=False,
+                    )
 
-        if not mtp_detected and pending:
-            yield StreamChunk(delta=pending, full_text=full_text, mtp_detected=False)
+            if not mtp_detected and pending:
+                yield StreamChunk(delta=pending, full_text=full_text, mtp_detected=False)
 
-        # 流结束，构建最终 GenerationResult
-        last_open = full_text.rfind(MTP_LEFT_DELIMITER)
-        was_mtp = finish_reason == "stop" and last_open != -1
+            last_open = full_text.rfind(MTP_LEFT_DELIMITER)
+            was_mtp = finish_reason == "stop" and last_open != -1
+            if was_mtp:
+                full_text = self._normalize_mtp_interrupted_text(full_text, last_open)
 
-        if was_mtp:
-            full_text = self._normalize_mtp_interrupted_text(full_text, last_open)
-            logger.info(
-                f"流式 MTP 中断检测: ⟪ 位于 offset={last_open}, "
-                f"prefix_len={last_open}, fragment_len={len(full_text) - last_open}"
+            result = GenerationResult(
+                text=full_text,
+                finish_reason=finish_reason,
+                was_mtp_interrupted=was_mtp,
+                prefix_text=full_text[:last_open] if was_mtp else full_text,
+                mtp_fragment=full_text[last_open:] if was_mtp else "",
+                model_used=runtime_params["model"],
             )
-
-        result = GenerationResult(
-            text=full_text,
-            finish_reason=finish_reason,
-            was_mtp_interrupted=was_mtp,
-            prefix_text=full_text[:last_open] if was_mtp else full_text,
-            mtp_fragment=full_text[last_open:] if was_mtp else "",
-            model_used=runtime_params["model"],
-        )
-
-        yield StreamChunk(
-            delta="",
-            full_text=full_text,
-            is_final=True,
-            result=result,
-            mtp_detected=mtp_detected,
-        )
+            yield StreamChunk(
+                delta="",
+                full_text=full_text,
+                is_final=True,
+                result=result,
+                mtp_detected=mtp_detected,
+            )
+        finally:
+            close = getattr(response, "aclose", None)
+            if callable(close):
+                close_result = close()
+                if inspect.isawaitable(close_result):
+                    await close_result
 
 
 __all__ = [

@@ -21,7 +21,6 @@ from hivememory.alice.orchestration.run_output import (
 from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContextProvider
 from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
 from hivememory.alice.orchestration.sub_agent.call_response import (
-    cancelled_response,
     preparation_error_response,
     response_for_frame_result,
 )
@@ -49,13 +48,8 @@ class ResumeCaller:
     """CALL 已完成回填，执行器可以重入原 caller。"""
 
 
-@dataclass(frozen=True)
-class CancelRun:
-    """全局取消在 CALL 提交前胜出，终止当前 run。"""
-
-
-type CallStartResult = DispatchCallee | ResumeCaller | CancelRun
-type CallCompletionResult = ResumeCaller | CancelRun
+type CallStartResult = DispatchCallee | ResumeCaller
+type CallCompletionResult = ResumeCaller
 type _PreparationResult = ExecutionFrame | MTPCallResponse
 
 
@@ -87,8 +81,8 @@ class CallCoordinator:
 
         output = run_output or NullAgentRunOutput()
 
-        call_request = suspension.call_request
         action_id = suspension.suspend_action_id
+        call_request = suspension.call_request
 
         session.require_frame(caller_frame)
 
@@ -101,13 +95,7 @@ class CallCoordinator:
             call_request.task[:80],
         )
 
-        prepared = (
-            cancelled_response(call_request.target_alias)
-            if session.cancel_event.is_set()
-            else await self._prepare_callee(caller_frame, call_request)
-        )
-        if session.cancel_event.is_set():
-            prepared = cancelled_response(call_request.target_alias)
+        prepared = await self._prepare_callee(caller_frame, call_request)
 
         match prepared:
             case ExecutionFrame() as callee_frame:
@@ -129,7 +117,6 @@ class CallCoordinator:
                     suspension,
                     response,
                     record=record,
-                    cancel_run=session.cancel_event.is_set(),
                     callee_frame=None,
                     callee_result=None,
                     run_output=output,
@@ -231,27 +218,17 @@ class CallCoordinator:
         if callee_result.status == FrameExecutionStatus.SUSPENDED:
             raise ValueError("CallCoordinator.complete_call requires a terminal callee result.")
 
-        cancel_run = session.cancel_event.is_set()
-        result_for_finalization = (
-            FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-            if cancel_run
-            else callee_result
-        )
         effective_result, frame_products = self._finalize_callee(
             callee_frame,
-            result_for_finalization,
+            callee_result,
         )
-        response = (
-            cancelled_response(call_request.target_alias)
-            if cancel_run
-            else response_for_frame_result(
-                call_request.target_alias,
-                effective_result,
-                reply="".join(callee_frame.progress.text_segments),
-                artifact_aliases=frame_products.artifact_aliases,
-                profile=callee_frame.agent_profile,
-                generation_options=generation_options,
-            )
+        response = response_for_frame_result(
+            call_request.target_alias,
+            effective_result,
+            reply="".join(callee_frame.progress.text_segments),
+            artifact_aliases=frame_products.artifact_aliases,
+            profile=callee_frame.agent_profile,
+            generation_options=generation_options,
         )
 
         return await self._commit_response(
@@ -259,7 +236,6 @@ class CallCoordinator:
             suspension,
             response,
             record=record,
-            cancel_run=cancel_run,
             callee_frame=callee_frame,
             callee_result=effective_result,
             run_output=output,
@@ -273,7 +249,6 @@ class CallCoordinator:
         session: RunSession,
     ) -> None:
         """协程取消时收尾未 apply 的 CALL，并回填 cancelled response。"""
-        call_request = suspension.call_request
         action_id = suspension.suspend_action_id
         record = session.require_call(caller_frame, action_id)
         if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
@@ -294,12 +269,7 @@ class CallCoordinator:
                 logger.exception("Failed to finalize cancelled sub-agent frame")
         if record.status == CallRecordStatus.RESOLVING:
             record.mark_resolved()
-        self._agent_runtime.apply_call_response(
-            caller_frame,
-            suspension,
-            cancelled_response(call_request.target_alias),
-        )
-        record.mark_applied()
+        record.cancel()
 
     async def _commit_response(
         self,
@@ -308,7 +278,6 @@ class CallCoordinator:
         response: MTPCallResponse,
         *,
         record: CallRecord,
-        cancel_run: bool,
         callee_frame: ExecutionFrame | None,
         callee_result: FrameExecutionResult | None,
         run_output: AgentRunOutput,
@@ -318,7 +287,7 @@ class CallCoordinator:
         action_id = suspension.suspend_action_id
 
         record.mark_resolved()
-        
+
         self._agent_runtime.apply_call_response(caller_frame, suspension, response)
         record.mark_applied()
 
@@ -331,7 +300,7 @@ class CallCoordinator:
             callee_result=callee_result,
             run_output=run_output,
         )
-        return CancelRun() if cancel_run else ResumeCaller()
+        return ResumeCaller()
 
     def _finalize_callee(
         self,
@@ -391,7 +360,6 @@ __all__ = [
     "CallCompletionResult",
     "CallCoordinator",
     "CallStartResult",
-    "CancelRun",
     "DispatchCallee",
     "ResumeCaller",
 ]

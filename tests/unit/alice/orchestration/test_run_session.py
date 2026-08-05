@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from hivememory.agent_runtime.models import ExecutionFrame
@@ -63,8 +61,7 @@ def test_callee_policy_removes_call_without_reading_frame_depth() -> None:
     assert not policy.allows("CALL")
 
 
-@pytest.mark.asyncio
-async def test_interleaved_sessions_keep_cancel_and_records_isolated() -> None:
+def test_interleaved_sessions_keep_records_isolated() -> None:
     session_a = RunSession(agent_run_id="run-a")
     session_b = RunSession(agent_run_id="run-b")
     frame_a = _frame("run-a", "frame-a", FrameExecutionPolicy())
@@ -72,17 +69,8 @@ async def test_interleaved_sessions_keep_cancel_and_records_isolated() -> None:
     session_a.register_frame(frame_a)
     session_b.register_frame(frame_b)
 
-    async def cancel_one() -> None:
-        await asyncio.sleep(0)
-        session_a.cancel_event.set()
-
-    task = asyncio.create_task(cancel_one())
-    await asyncio.sleep(0)
     record = session_b.register_call(frame_b, "action-b")
-    await task
 
-    assert session_a.cancel_event.is_set()
-    assert not session_b.cancel_event.is_set()
     assert session_a.call_records == {}
     assert session_b.call_records[("frame-b", "action-b")] is record
 

@@ -7,9 +7,10 @@ WorkerAgentService 单元测试
 - 异常传播 / stop sequence 注入 / kwargs 透传
 """
 
-import pytest
 import asyncio
 from unittest.mock import Mock, patch
+
+import pytest
 
 from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTP_STOP_SEQUENCE
@@ -182,32 +183,32 @@ class TestWorkerAgentGenerateAsync:
         assert call_kwargs["presence_penalty"] == 0.5
 
     @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
-    async def test_cancel_event_cancels_completion(self, mock_completion):
-        """非流式 LLM 调用期间 cancel_event 触发时返回 cancelled。"""
+    async def test_task_cancellation_propagates_from_completion(self, mock_completion):
+        """非流式 LLM 调用期间 task cancellation 原样向上传播。"""
         started = asyncio.Event()
-        release = asyncio.Event()
+        provider_cancelled = asyncio.Event()
 
         async def slow_completion(**kwargs):
             started.set()
-            await release.wait()
-            return _make_response("late", "stop")
+            try:
+                await asyncio.Event().wait()
+            finally:
+                provider_cancelled.set()
 
         mock_completion.side_effect = slow_completion
-        cancel_event = asyncio.Event()
         task = asyncio.create_task(
             self.service.generate_async(
                 [{"role": "user", "content": "test"}],
-                cancel_event=cancel_event,
                 model="test-model", api_key="test-key",
             )
         )
 
         await started.wait()
-        cancel_event.set()
-        result = await task
+        task.cancel()
 
-        assert result.finish_reason == "cancelled"
-        assert result.text == ""
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert provider_cancelled.is_set()
 
 
 class _MockStreamResponse:
