@@ -48,9 +48,9 @@ class TestPendingAtomStatus:
     def test_in_flight_and_terminal_are_mutually_exclusive(self):
         # is_in_flight / is_terminal 不再覆盖所有状态；仅验证两者不同时为 True
         for status in PendingAtomStatus:
-            assert not (status.is_in_flight and status.is_terminal), (
-                f"{status} must not be both in-flight and terminal"
-            )
+            assert not (
+                status.is_in_flight and status.is_terminal
+            ), f"{status} must not be both in-flight and terminal"
 
 
 class TestPendingAtomResolution:
@@ -248,14 +248,21 @@ class TestPendingAtomRuntimeSnapshot:
 
     def test_committed_settlement_yields_settled_created(self, runtime, identity):
         atom = runtime.register_write(
-            content="hello", title="Hello", reason=None, identity=identity,
+            content="hello",
+            title="Hello",
+            reason=None,
+            identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
-            canonical_alias="fact_hello",
-            canonical_uuid="uuid-1",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.CREATED,
+                canonical_alias="fact_hello",
+                canonical_uuid="uuid-1",
+            )
+        )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.CREATED
@@ -264,10 +271,15 @@ class TestPendingAtomRuntimeSnapshot:
 
     def test_settle_from_pending_is_illegal(self, runtime, identity):
         atom = runtime.register_write(
-            content="hello", title="Hello", reason=None, identity=identity,
+            content="hello",
+            title="Hello",
+            reason=None,
+            identity=identity,
         )
         settlement = _make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
+            atom.pending_alias,
+            atom.intent_id,
+            PendingAtomResolution.CREATED,
             canonical_alias="fact_hello",
             canonical_uuid="uuid-1",
         )
@@ -281,17 +293,22 @@ class TestPendingAtomRuntimeSnapshot:
 
     def test_settle_with_mismatched_intent_is_ignored(self, runtime, identity):
         atom = runtime.register_write(
-            content="hello", title="Hello", reason=None, identity=identity,
+            content="hello",
+            title="Hello",
+            reason=None,
+            identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
 
-        runtime.settle(_make_settlement(
-            atom.pending_alias,
-            "intent_other",
-            PendingAtomResolution.CREATED,
-            canonical_alias="fact_hello",
-            canonical_uuid="uuid-1",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                "intent_other",
+                PendingAtomResolution.CREATED,
+                canonical_alias="fact_hello",
+                canonical_uuid="uuid-1",
+            )
+        )
 
         snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.MATERIALIZING
@@ -300,14 +317,21 @@ class TestPendingAtomRuntimeSnapshot:
 
     def test_merged_settlement_yields_settled_merged(self, runtime, identity):
         atom = runtime.register_write(
-            content="dup", title="Dup", reason=None, identity=identity,
+            content="dup",
+            title="Dup",
+            reason=None,
+            identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.MERGED,
-            canonical_alias="fact_dup",
-            canonical_uuid="uuid-2",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.MERGED,
+                canonical_alias="fact_dup",
+                canonical_uuid="uuid-2",
+            )
+        )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.MERGED
@@ -315,14 +339,21 @@ class TestPendingAtomRuntimeSnapshot:
 
     def test_touched_settlement_yields_settled_touched(self, runtime, identity):
         atom = runtime.register_write(
-            content="touch", title="Touch", reason=None, identity=identity,
+            content="touch",
+            title="Touch",
+            reason=None,
+            identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.TOUCHED,
-            canonical_alias="fact_touch",
-            canonical_uuid="uuid-3",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.TOUCHED,
+                canonical_alias="fact_touch",
+                canonical_uuid="uuid-3",
+            )
+        )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.TOUCHED
@@ -336,11 +367,15 @@ class TestPendingAtomRuntimeSnapshot:
             identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.UPDATED,
-            canonical_alias="fact_x",
-            canonical_uuid="uuid-base",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.UPDATED,
+                canonical_alias="fact_x",
+                canonical_uuid="uuid-base",
+            )
+        )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.UPDATED
@@ -349,12 +384,19 @@ class TestPendingAtomRuntimeSnapshot:
     def test_discarded_settlement_strips_canonical(self, runtime, identity):
         """DISCARDED 不应该携带 canonical_uuid，即便 settlement 端误传也要被剔除。"""
         atom = runtime.register_write(
-            content="lowq", title="LowQ", reason=None, identity=identity,
+            content="lowq",
+            title="LowQ",
+            reason=None,
+            identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.DISCARDED,
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.DISCARDED,
+            )
+        )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap.status == PendingAtomStatus.SETTLED
         assert snap.resolution == PendingAtomResolution.DISCARDED
@@ -363,14 +405,21 @@ class TestPendingAtomRuntimeSnapshot:
 
     def test_clear_removes_settlement_source(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
-            canonical_alias="fact_x",
-            canonical_uuid="uuid-x",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.CREATED,
+                canonical_alias="fact_x",
+                canonical_uuid="uuid-x",
+            )
+        )
         assert runtime.snapshot(atom.pending_alias).resolution is not None
 
         runtime.clear()
@@ -380,7 +429,10 @@ class TestPendingAtomRuntimeSnapshot:
 class TestPendingAtomRuntimeCommands:
     def test_start_materializing(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
 
         runtime.start_materializing(atom.pending_alias)
@@ -389,7 +441,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_start_materializing_rejects_terminal_atom(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         runtime.expire(atom.pending_alias)
 
@@ -398,7 +453,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_mark_failed_materializing_atom(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         runtime.start_materializing(atom.pending_alias)
 
@@ -408,7 +466,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_mark_failed_keeps_idempotent_skip_for_pending(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
 
         runtime.mark_failed(atom.pending_alias)
@@ -417,7 +478,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_cancel_pending_atom(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
 
         runtime.cancel(atom.pending_alias)
@@ -426,7 +490,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_cancel_materializing_atom(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         runtime.start_materializing(atom.pending_alias)
 
@@ -436,7 +503,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_cancel_terminal_atom_is_idempotent_skip(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         runtime.start_materializing(atom.pending_alias)
         runtime.mark_failed(atom.pending_alias)
@@ -469,9 +539,34 @@ class TestPendingAtomRuntimeCommands:
         assert materializing.status == PendingAtomStatus.CANCELLED
         assert other.status == PendingAtomStatus.PENDING
 
+    def test_cancel_frame_only_cancels_atoms_from_target_frame(self, runtime, identity):
+        target = runtime.register_write(
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
+            runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-a"),
+        )
+        sibling = runtime.register_write(
+            content="y",
+            title="Y",
+            reason=None,
+            identity=identity,
+            runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-b"),
+        )
+
+        cancelled = runtime.cancel_frame("frame-a")
+
+        assert cancelled == [target.pending_alias]
+        assert target.status == PendingAtomStatus.CANCELLED
+        assert sibling.status == PendingAtomStatus.PENDING
+
     def test_expire_pending_atom(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
 
         runtime.expire(atom.pending_alias)
@@ -480,7 +575,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_expire_materializing_atom_is_illegal(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         runtime.start_materializing(atom.pending_alias)
 
@@ -489,7 +587,10 @@ class TestPendingAtomRuntimeCommands:
 
     def test_duplicate_settle_is_illegal(self, runtime, identity):
         atom = runtime.register_write(
-            content="x", title="X", reason=None, identity=identity,
+            content="x",
+            title="X",
+            reason=None,
+            identity=identity,
         )
         settlement = _make_settlement(
             atom.pending_alias,
@@ -519,10 +620,15 @@ class TestPendingAtomRuntimeEviction:
             runtime_scope=RuntimeScope(run_id="run_1"),
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
-            canonical_alias="fact_x", canonical_uuid="uuid-x",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.CREATED,
+                canonical_alias="fact_x",
+                canonical_uuid="uuid-x",
+            )
+        )
         assert atom.status == PendingAtomStatus.SETTLED
 
         runtime.evict_by_run(current_run_id="run_2")
@@ -546,10 +652,15 @@ class TestPendingAtomRuntimeEviction:
             runtime_scope=RuntimeScope(run_id="run_current"),
         )
         runtime.claim_for_materialization([atom.pending_alias])
-        runtime.settle(_make_settlement(
-            atom.pending_alias, atom.intent_id, PendingAtomResolution.CREATED,
-            canonical_alias="fact_y", canonical_uuid="uuid-y",
-        ))
+        runtime.settle(
+            _make_settlement(
+                atom.pending_alias,
+                atom.intent_id,
+                PendingAtomResolution.CREATED,
+                canonical_alias="fact_y",
+                canonical_uuid="uuid-y",
+            )
+        )
 
         runtime.evict_by_run(current_run_id="run_current")
 
@@ -558,7 +669,10 @@ class TestPendingAtomRuntimeEviction:
 
     def test_evict_by_run_deletes_expired(self, runtime, identity):
         atom = runtime.register_write(
-            content="z", title="Z", reason=None, identity=identity,
+            content="z",
+            title="Z",
+            reason=None,
+            identity=identity,
         )
         runtime.expire(atom.pending_alias)
         assert atom.status == PendingAtomStatus.EXPIRED
@@ -571,14 +685,20 @@ class TestPendingAtomRuntimeEviction:
         from hivememory.core.models.pending import RuntimeScope
 
         failed = runtime.register_write(
-            content="f", title="F", reason=None, identity=identity,
+            content="f",
+            title="F",
+            reason=None,
+            identity=identity,
             runtime_scope=RuntimeScope(run_id="run_old"),
         )
         runtime.start_materializing(failed.pending_alias)
         runtime.mark_failed(failed.pending_alias)
 
         cancelled = runtime.register_write(
-            content="c", title="C", reason=None, identity=identity,
+            content="c",
+            title="C",
+            reason=None,
+            identity=identity,
             runtime_scope=RuntimeScope(run_id="run_old"),
         )
         runtime.cancel(cancelled.pending_alias)
@@ -594,4 +714,3 @@ class TestPendingAtomRuntimeEviction:
 
         assert runtime.get(failed.pending_alias) is None
         assert runtime.get(cancelled.pending_alias) is None
-

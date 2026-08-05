@@ -157,7 +157,7 @@ def execute_sandboxed(
     namespace_extras: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 10,
 ) -> SyscallResult:
-    """Execute Python code in a restricted subprocess sandbox."""
+    """在受限子进程沙箱中执行 Python 代码。"""
     try:
         output = _run_code_in_process(
             code=code,
@@ -191,7 +191,7 @@ def execute_sandboxed(
 
 
 def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> SyscallResult:
-    """Restricted Python REPL syscall."""
+    """受限 Python REPL syscall（Level 0 内核工具）。"""
     code = args.get("code", "")
     if not code:
         raise SyscallInvalidArgumentError(

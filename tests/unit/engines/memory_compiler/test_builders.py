@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pytest
 
-from hivememory.agent_runtime.resolver import ResolveResult
+from hivememory.agent_runtime.aliases import ResolveResult
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,

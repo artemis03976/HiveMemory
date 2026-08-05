@@ -5,7 +5,7 @@ owner: alice
 scope: mtp-parser-execution-permissions-and-syscalls
 code_paths:
   - src/hivememory/agent_runtime/mtp/
-  - src/hivememory/agent_runtime/resolver.py
+  - src/hivememory/agent_runtime/aliases/
   - src/hivememory/core/mtp/
   - src/hivememory/prompts/mtp.py
   - src/hivememory/system/config/alice.py
@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/alice/pending-atom.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-03
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -36,7 +36,7 @@ WorkerAgentService.generate(stop = MTP right delimiter)
   -> KoakumaMTPExecutor.intercept_and_execute()
   -> KoakumaRuntime
        parse text -> MTPCommand
-       resolve MTPExecutionContext
+       resolve MTPExecutionContext(run_id, frame_id, action_id)
        check cancellation
        check verb permission
        dispatch handler
@@ -50,7 +50,7 @@ WorkerAgentService.generate(stop = MTP right delimiter)
 
 如果文本中没有 MTP 左定界符，Koakuma 返回 `None`，Agent loop 把本次生成当作自然语言收敛。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。
 
-CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只产生 `suspend + MTPCallRequest`；AgentLoopExecutor 把 frame 状态交还 Alice Orchestrator，由它创建子帧、等待结果并恢复父帧。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 调度权。
+CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析协议参数并产生 `suspend + MTPCallRequest`，不读取 Agent Profile 或 `context_refs` 内容；AgentLoopExecutor 把 frame 状态交还 Alice 的 `RunExecutor`，由 `CallContextProvider` 解析调用上下文，`CallCoordinator.begin_call()` 消费该上下文并创建普通 callee frame。Executor 递归等待 callee frame 完成，再由 `complete_call()` 通过 `AgentRuntime.apply_call_response()` 恢复 caller。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 编排权。
 
 ## 2. MTPExecutionContext
 
@@ -58,10 +58,10 @@ Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构�
 
 - `identity`：访问 Patchouli 公开记忆能力时使用的调用方身份；
 - `agent_profile`：MTP verb 与系统工具白名单；
-- `runtime_scope`：run、frame、action 与 depth 坐标；
+- `runtime_scope`：run、frame 与 action 坐标；不包含 parent/depth 拓扑信息；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-WRITE/UPDATE 注册 PendingAtom 时会复制 identity 与 runtime scope；SEARCH、READ、UPDATE 和用户态 RUN 在 L2 冷查询时把 identity 传给 Patchouli；CALL 使用 depth 阻止子帧继续递归派生。协议参数只描述“想做什么”，ExecutionContext 才回答“谁在做、在哪一帧做、允许做到哪里”。
+WRITE/UPDATE 注册 PendingAtom 时会复制 identity 与 runtime scope；SEARCH、READ、UPDATE 和用户态 RUN 在 L2 冷查询时把 identity 传给 Patchouli；CALL 是否允许由 `FrameExecutionPolicy` 的 permitted verbs 决定。协议参数只描述“想做什么”，ExecutionContext 才回答“谁在做、在哪一帧做、允许做到哪里”。
 
 ## 3. 双层权限
 
@@ -69,7 +69,7 @@ Agent Profile 的权限同时作用于 prompt 和 runtime：
 
 1. **提示层裁剪**：PromptBuilder 根据 `allowed_mtp_verbs` 与 `allowed_sys_tools` 缩减动词教学和工具菜单，降低模型生成不可用命令的概率；
 2. **执行层强制**：Koakuma 在分发前调用 `is_verb_allowed()`，RUN 内核工具前再调用 `is_tool_allowed()`。拒绝以 `agent_fault` 结构化错误回填，模型不能通过改写 prompt 或手工生成 MTP 绕过白名单；
-3. **控制流硬限制**：即使 Profile 允许 CALL，`runtime_scope.depth >= 1` 仍会拒绝再次 CALL，当前只支持根帧派生一层子帧。
+3. **控制流硬限制**：被调用 frame 的 policy 在 Profile 权限基础上显式移除 CALL；Koakuma 同时校验 Profile 与 frame policy，当前仍只支持根 run 的串行一层 CALL。
 
 两个白名单都有三态语义：`None` 表示全部允许，空列表表示全部禁止，非空列表表示只允许列出的能力。提示层是可用性引导，runtime 检查才是授权判定；二者必须保持一致，但不能因为已有 runtime 检查就放任 prompt 持续教授被禁用能力。
 
@@ -82,7 +82,7 @@ Agent Profile 的权限同时作用于 prompt 和 runtime：
 | `RUN` | 先匹配 Kernel syscall；否则解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | Profile 控制工具可见面，但不等于 OS 沙箱 |
 | `WRITE` | 校验 content，注册 `WriteFocus` PendingAtom，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
 | `UPDATE` | 解析单个正式 atom，注册 `UpdateFocus` revision，使原 alias 的 L1 缓存失效，返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
-| `CALL` | 校验 target/task/depth，返回 `suspend + MTPCallRequest` | Alice Orchestrator 负责子帧与结果回流 |
+| `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallContextProvider` 解析上下文，`CallCoordinator` 负责 callee 与结果回流 |
 
 SEARCH 空结果是带 `no_memories_found` warning 的 success，而不是基础设施错误；READ 列表中部分 alias 丢失时返回已有内容并附 warning，全部丢失才返回 error。这样的区别让“不确定检索没有证据”和“系统无法完成请求”保持不同语义。
 
@@ -126,7 +126,7 @@ READ 正式 atom/redirect 与 RUN code atom 会请求 Patchouli 记录 citation�
 
 ## 7. 取消边界
 
-Koakuma 在拦截命令前和 handler 分发前检查 `cancel_event`；Agent loop 也在生成前后与 MTP 执行前后设置 checkpoint。命中取消时返回 `cancelled`，frame 随后由 Agent Runtime 结束，不应转换成普通 success。
+Koakuma 在拦截命令前和 handler 分发前检查本次调用显式传入的 `cancel_event`；Agent loop 也在生成前后与 MTP 执行前后设置 checkpoint。命中取消时返回 `cancelled`，frame 随后由 Agent Runtime 结束，不应转换成普通 success。MTPExecutor 和 Koakuma 不再保存跨 run 的共享 cancel 字段。
 
 这是一种协作式取消。同步 syscall 一旦开始执行，事件循环必须等待函数返回；REPL 自身的 subprocess timeout 能终止超时子进程，但普通 cancel_event 不能在运行中立即打断它。文件 I/O 和 web search 同样没有中途取消 checkpoint。
 
@@ -158,7 +158,7 @@ Alice 配置当前分为两组：
 1. 变化属于协议语义还是 Alice 的实现策略？前者更新 Contracts，后者更新本文；
 2. 新能力是否同时经过 prompt 裁剪和 runtime 权限检查；
 3. 记忆访问是否使用当前 frame 的 Identity，而不是全局缓存中的无主对象；
-4. WRITE/UPDATE 是否仍然只登记意图，CALL 是否仍然只产生 scheduler trap；
+4. WRITE/UPDATE 是否仍然只登记意图，CALL 是否仍然只产生 `SUSPENDED` trap；
 5. handler 是否保持结构化 error/warning，不泄露内部 exception；
 6. 同步工作、timeout 与取消是否给出了与真实接线一致的保证；
 7. RUN 的权限白名单是否被误写成安全沙箱；
@@ -170,8 +170,8 @@ Alice 配置当前分为两组：
 |:---|:---|
 | parser、formatter 与协议模型 | `src/hivememory/core/mtp/` |
 | Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py` |
-| Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/mtp_executor.py` |
-| alias 解析与热缓存 | `src/hivememory/agent_runtime/resolver.py`、`cache.py` |
+| Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/executor.py` |
+| alias 解析与热缓存 | `src/hivememory/agent_runtime/aliases/resolver.py`、`cache.py` |
 | syscall 注册与实现 | `src/hivememory/agent_runtime/mtp/syscalls/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
 | Alice 配置 | `src/hivememory/system/config/alice.py` |
@@ -184,13 +184,13 @@ Alice 配置当前分为两组：
 - `execution_timeout_seconds` 没有包住 `execute_mtp()`，`tool_cache_size` 也未接入任何 cache；配置存在不代表能力已实现；
 - `web_search_timeout_seconds` 虽被传进 syscall registry，但 `sys_web_search()` 明确忽略该参数；底层调用可能超过配置时间；
 - Kernel syscalls 是同步函数，并在 async handler 中直接执行。文件、搜索和 subprocess 等工作会阻塞当前事件循环；
-- cancel token 保存在共享 KoakumaRuntime 的可变 `cancel_event` 字段中。AgentRuntime 只在传入非空 token 时设置它，无 token 的后续 run 不会主动清除旧值；并发 run 与陈旧取消可能互相串扰；
+- cancel token 按 `intercept_and_execute(..., cancel_event=...)` 逐次传入，不再保存在共享 KoakumaRuntime 字段中；仍需通过并发回归测试持续验证 run-local 隔离；
 - 同步 syscall 执行期间不会轮询 cancel_event，因此协作式取消不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
 - RuntimeAliasResolver 的 L0 PendingAtom 和 L1 atom cache 命中不重新校验 Identity。当前代码尚未完全兑现 MTP 契约中“记忆访问使用调用方 Identity”的不变量；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
-- Agent loop 达到 `max_loop_iterations` 后当前返回 `COMPLETED`，没有独立的 budget-exhausted 终态，调用方无法仅凭 run status 区分自然收敛与耗尽预算；
-- Koakuma、atom cache 与 PendingAtomRuntime 都由 AliceRuntime 进程级共享，尚未形成 task-local 或 tenant-local 执行隔离。
+- Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
+- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，但 frame registry、CALL ledger、cancel event 与 stream sequence 已按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

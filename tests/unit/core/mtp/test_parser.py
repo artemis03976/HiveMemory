@@ -33,6 +33,7 @@ from hivememory.i18n.mtp_runtime import get_mtp_error_text
 
 # ========== Fixtures ==========
 
+
 @pytest.fixture
 def parser() -> MTPParser:
     return MTPParser()
@@ -45,17 +46,21 @@ def formatter() -> MTPFormatter:
 
 # ========== 常量测试 ==========
 
+
 class TestConstants:
     """测试 MTP 协议常量"""
 
     def test_delimiters(self):
-        assert MTP_LEFT_DELIMITER == "\u27EA"
-        assert MTP_RIGHT_DELIMITER == "\u27EB"
+        assert MTP_LEFT_DELIMITER == "\u27ea"
+        assert MTP_RIGHT_DELIMITER == "\u27eb"
         assert MTP_STOP_SEQUENCE == MTP_RIGHT_DELIMITER
+
+
 # PLACEHOLDER_PARSER_TESTS
 
 
 # ========== 解析器测试 ==========
+
 
 class TestMTPParser:
     """测试 MTP 协议解析器"""
@@ -109,7 +114,7 @@ class TestMTPParser:
 
     def test_parse_update(self, parser: MTPParser):
         """测试 UPDATE 指令解析"""
-        cmd = parser.parse('⟪ UPDATE | fact_old_config | patch=`new_value=42` ⟫')
+        cmd = parser.parse("⟪ UPDATE | fact_old_config | patch=`new_value=42` ⟫")
         assert cmd.verb == MTPVerb.UPDATE
         assert cmd.target.single_alias == "fact_old_config"
         assert cmd.args["patch"] == "new_value=42"
@@ -175,12 +180,12 @@ class TestMTPParser:
 
     def test_parse_pipe_in_args(self, parser: MTPParser):
         """测试 ARGS 内部的管道符不被误分割 (Section 2.1)"""
-        cmd = parser.parse('⟪ WRITE | * | content=`a | b | c` ⟫')
+        cmd = parser.parse("⟪ WRITE | * | content=`a | b | c` ⟫")
         assert cmd.args["content"] == "a | b | c"
 
     def test_parse_multiline_content(self, parser: MTPParser):
         """测试多行内容"""
-        text = '⟪ WRITE | * | content=`line1\nline2\nline3` ⟫'
+        text = "⟪ WRITE | * | content=`line1\nline2\nline3` ⟫"
         cmd = parser.parse(text)
         assert "line1\nline2\nline3" == cmd.args["content"]
 
@@ -225,10 +230,13 @@ class TestMTPParser:
         error = exc_info.value.to_error_info()
         assert "Missing separator" in get_mtp_error_text(error.message_key, error.params, "en")
         assert "缺少分隔符" in get_mtp_error_text(error.message_key, error.params, "zh")
+
+
 # PLACEHOLDER_COMPLETE_AND_DETECT
 
 
 # ========== 补全与检测测试 ==========
+
 
 class TestMTPParserCompleteAndDetect:
     """测试 MTP 指令补全与检测"""
@@ -249,7 +257,7 @@ class TestMTPParserCompleteAndDetect:
 
     def test_detect_command_present(self, parser: MTPParser):
         """测试检测到 MTP 指令"""
-        text = "I need to check ⟪ SEARCH | * | query=\"test\" ⟫"
+        text = 'I need to check ⟪ SEARCH | * | query="test" ⟫'
         assert parser.detect_command(text) is True
 
     def test_detect_command_absent(self, parser: MTPParser):
@@ -258,11 +266,12 @@ class TestMTPParserCompleteAndDetect:
 
     def test_detect_command_left_delimiter_only(self, parser: MTPParser):
         """测试仅有左定界符 (Stop Sequence 截断场景)"""
-        text = "Let me search ⟪ SEARCH | * | query=\"test\""
+        text = 'Let me search ⟪ SEARCH | * | query="test"'
         assert parser.detect_command(text) is True
 
 
 # ========== 格式化器测试 ==========
+
 
 class TestMTPFormatter:
     """测试 MTP 响应格式化器"""
@@ -333,7 +342,7 @@ class TestMTPFormatter:
         """测试 ACK 响应格式化"""
         response = MTPResponse(
             status=MTPResponseStatus.ACK,
-            content='Memory saved.',
+            content="Memory saved.",
         )
         result = formatter.format_response(response)
         assert '<mtp_response status="ack">' in result
@@ -388,6 +397,18 @@ class TestMTPFormatter:
         assert "[Artifacts Generated / Updated]:" in result
         assert "- mem_code_1 (pending, readable now)" in result
 
+    def test_format_call_response_cancelled(self, formatter: MTPFormatter):
+        response = MTPCallResponse(
+            status=MTPResponseStatus.CANCELLED,
+            agent_alias="coder_doll",
+        )
+
+        result = formatter.format_call_response(response, "en")
+
+        assert '<mtp_response status="cancelled" type="call_response">' in result
+        assert "[Sub-Agent Cancelled]" in result
+        assert "[Sub-Agent Reply]:" not in result
+
     def test_format_call_response_error(self, formatter: MTPFormatter):
         response = MTPCallResponse(
             status=MTPResponseStatus.ERROR,
@@ -410,6 +431,7 @@ class TestMTPFormatter:
 
 # ========== 工厂函数测试 ==========
 
+
 class TestFactoryFunctions:
     """测试工厂函数"""
 
@@ -420,4 +442,3 @@ class TestFactoryFunctions:
     def test_create_formatter(self):
         f = create_formatter()
         assert isinstance(f, MTPFormatter)
-

@@ -33,6 +33,7 @@ from hivememory.system.runtime.events import (
     RuntimeEventBus,
     RuntimeEventSink,
 )
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ class _RuntimeBundle:
     scheduler: GlobalMaintenanceScheduler
     event_bus: RuntimeEventBus | None
     event_sink: RuntimeEventSink
+    event_publisher: RuntimeEventPublisher
 
 
 @dataclass
@@ -128,6 +130,7 @@ class SystemAssembler:
             else None
         )
         event_sink: RuntimeEventSink = event_bus or NullRuntimeEventSink()
+        event_publisher = RuntimeEventPublisher(event_sink)
 
         scheduler = GlobalMaintenanceScheduler(
             tick_seconds=self._config.scheduler.tick_seconds,
@@ -143,6 +146,7 @@ class SystemAssembler:
             scheduler=scheduler,
             event_bus=event_bus,
             event_sink=event_sink,
+            event_publisher=event_publisher,
         )
 
     # ------------------------------------------------------------------
@@ -197,7 +201,7 @@ class SystemAssembler:
         alice = AliceSystem(
             config=self._config,
             global_bus=runtime.global_bus,
-            runtime_events=runtime.event_sink.scoped("alice"),
+            event_publisher=runtime.event_publisher.scoped(subsystem="alice"),
             model_registry=registries.model_registry,
         )
 
@@ -213,9 +217,7 @@ class SystemAssembler:
     ) -> _ServicesBundle:
         chat = ChatApplicationService(
             global_bus=runtime.global_bus,
-            gateway_request_timeout_ms=(
-                self._config.gateway.workflow.default_request_timeout_ms
-            ),
+            gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
             runtime_events=runtime.event_sink.scoped(
                 "system",
                 component="chat_application_service",

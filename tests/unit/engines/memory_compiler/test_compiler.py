@@ -502,7 +502,7 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def atom_resolve(self, sample_atom):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
 
         return ResolveResult(
             kind="atom",
@@ -512,7 +512,7 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def redirect_resolve(self, sample_atom):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import (
             PendingAtomResolution,
             PendingAtomSettlement,
@@ -533,7 +533,7 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def discarded_resolve(self):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import (
             PendingAtomResolution,
             PendingAtomSettlement,
@@ -553,7 +553,7 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def failed_resolve(self):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import (
             PendingAtomResolution,
             PendingAtomSettlement,
@@ -572,13 +572,13 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def expired_resolve(self):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
 
         return ResolveResult(kind="expired", requested_alias="draft_expired")
 
     @pytest.fixture
     def pending_resolve(self):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
 
         pending = PendingAtom(
@@ -651,7 +651,7 @@ class TestResolveResultCompilation:
         assert "Pending content" in artifact.text
 
     def test_not_found_raises(self, compiler):
-        from hivememory.agent_runtime.resolver import ResolveResult
+        from hivememory.agent_runtime.aliases import ResolveResult
 
         resolve = ResolveResult(kind="not_found", requested_alias="missing")
         with pytest.raises(ValueError, match="not_found"):

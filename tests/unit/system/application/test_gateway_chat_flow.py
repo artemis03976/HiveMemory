@@ -108,10 +108,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
         AsyncMock(return_value=_command_outcome()),
     )
 
-    events = [
-        event
-        async for event in ChatApplicationService(bus).chat_stream("/clear", "u1")
-    ]
+    events = [event async for event in ChatApplicationService(bus).chat_stream("/clear", "u1")]
 
     assert [event["event"] for event in events] == [
         "generation_id",
@@ -132,9 +129,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     service = ChatApplicationService(bus)
 
     result = await service.chat("问题", "u1")
-    stream_events = [
-        event async for event in service.chat_stream("问题", "u1")
-    ]
+    stream_events = [event async for event in service.chat_stream("问题", "u1")]
 
     assert result.kind == "agent"
     assert result.agent_run_result.status == "cancelled"
@@ -163,9 +158,7 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
     )
     bus.register(
         GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(
-            return_value=AgentRunResult(status=AgentRunStatus.CANCELLED)
-        ),
+        AsyncMock(return_value=AgentRunResult(status=AgentRunStatus.CANCELLED)),
     )
     bus.register(
         GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
@@ -176,4 +169,77 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
 
     assert result.kind == "agent"
     assert result.agent_run_result.status == "cancelled"
+    cleanup.assert_awaited_once_with(prepared_run=prepared)
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() -> None:
+    bus = GlobalSystemBus()
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+    prepared.stream_prelude.topic_id = "topic-1"
+    prepared.stream_prelude.is_new_topic = False
+    prepared.stream_prelude.pool_topics = []
+    prepared.stream_prelude.memory_refs = []
+    finalize = AsyncMock(return_value=[])
+    cleanup = AsyncMock(return_value=True)
+    bus.register(
+        GlobalRoutes.GATEWAY_PROCESS,
+        AsyncMock(return_value=_decision_outcome()),
+    )
+    bus.register(
+        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        AsyncMock(return_value=prepared),
+    )
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        AsyncMock(return_value=AgentRunResult(status=AgentRunStatus.FAILED)),
+    )
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+
+    result = await ChatApplicationService(bus).chat("问题", "u1")
+
+    assert result.agent_run_result.status == AgentRunStatus.FAILED.value
+    finalize.assert_not_awaited()
+    cleanup.assert_awaited_once_with(prepared_run=prepared)
+
+
+@pytest.mark.asyncio
+async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None:
+    bus = GlobalSystemBus()
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+    prepared.stream_prelude.topic_id = "topic-1"
+    prepared.stream_prelude.is_new_topic = False
+    prepared.stream_prelude.pool_topics = []
+    prepared.stream_prelude.memory_refs = []
+
+    async def alice_stream(**_kwargs):
+        yield {
+            "event": "done",
+            "data": AgentRunResult(status=AgentRunStatus.FAILED).model_dump(),
+        }
+
+    bus.register(
+        GlobalRoutes.GATEWAY_PROCESS,
+        AsyncMock(return_value=_decision_outcome()),
+    )
+    bus.register(
+        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        AsyncMock(return_value=prepared),
+    )
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
+    cleanup = AsyncMock(return_value=True)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+
+    events = [event async for event in ChatApplicationService(bus).chat_stream("问题", "u1")]
+
+    assert events[-1]["event"] == "done"
+    assert events[-1]["data"]["status"] == AgentRunStatus.FAILED.value
+    assert events[-1]["data"]["stopped"] is True
     cleanup.assert_awaited_once_with(prepared_run=prepared)

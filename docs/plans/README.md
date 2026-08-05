@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-05
 ---
 
 # Plans
@@ -12,6 +12,8 @@ last_reviewed: 2026-07-30
 
 当前计划：
 
+- [Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md)：当前实施依据；仅以 `Task.cancel()` 跑通 `/chat/stop` 对 Gateway 与 Alice agent run 的取消，移除阶段内部私有取消协议，prepare 延迟响应 stop，finalize 进入后不再接受 stop。
+- [Chat Run 取消与生命周期后续设计](./chat-run-cancellation-future.md)：不阻塞最小闭环的独立候选集合，包括 SSE 所有权解耦、事件发布收敛、前端 `final_text` 契约等；`PreparedRunLease` 无限期延后，并保留删除该设计的可能。
 - [数据模型可变性治理](./data-model-mutability-governance.md)：未排期的项目级模型角色、所有权与边界投影治理。
 - [RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)：统一 Publisher、领域 emitter、payload 安全与生产端 best-effort 边界，当前未实现。
 - [运行时状态持久化与故障恢复](./runtime-state-durability-and-recovery.md)：统一 Memory、Artifact、PendingAtom、Agent frame、工作项和恢复语义的耐久性分级；不替代 Local Work Queue 的机械设计。

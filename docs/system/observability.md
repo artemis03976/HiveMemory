@@ -5,13 +5,14 @@ owner: system
 scope: runtime-events-operations-and-health
 code_paths:
   - src/hivememory/system/runtime/events.py
+  - src/hivememory/system/runtime/publisher.py
   - src/hivememory/system/runtime/operations.py
   - src/hivememory/system/contracts/runtime_events.py
   - src/hivememory/system/system.py
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-03
 ---
 
 # System 可观测性
@@ -47,9 +48,9 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 
 事件的顺序只在当前进程 RuntimeEventBus 内有意义。它不能被用来推断“没有看到失败事件就一定成功”，也不能替代 Patchouli 的 memory task 状态或 System 的 chat run 状态。
 
-## 3. Scoped sink 与操作观测
+## 3. Publisher、Scoped sink 与操作观测
 
-SystemAssembler 为 System、Gateway、Patchouli、Alice 和具体 component 创建 scoped sink。scope 负责补充稳定的 subsystem/source/component，而不改变业务事件类型。
+SystemAssembler 创建唯一 root `RuntimeEventPublisher`，并为 Alice 注入 subsystem scope；Publisher 负责合并稳定的 subsystem/source/component 与 run/task context，把 Pydantic 或 Mapping payload 转为安全 dict，并在 sink 或 payload 转换失败时保持 best-effort。Alice 进一步通过 `AgentRunEventEmitter` 把 `agent.run.*` 领域事实投影到 Publisher。Gateway、Patchouli、Chat、Scheduler 与 System lifecycle 当前仍可继续使用 scoped sink，后续按计划渐进迁移。
 
 `RuntimeOperationObserver` 对单个 async operation 提供统一的 started/completed/failed 记录：
 
@@ -75,6 +76,8 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 
 事件 `data` 必须摘要化：不把完整 Passive 消息、tool args、memory context、traceback、密钥或绝对路径放入公共观测信封。需要调试原始 cause 时应使用受保护的日志或专用诊断入口。
 
+Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `FrameOutputSink -> AgentRunOutput -> AgentRunStreamAdapter` 链路投递，具有请求级背压和断流取消语义；RuntimeEventBus 则面向全局观测，允许慢订阅者丢弃旧事件。两者只共享 correlation ID，不自动桥接，也不把 token 或完整 tool args 复制进观测信封。
+
 ## 6. 设计矛盾检查
 
 评审观测改动时，检查：
@@ -87,15 +90,17 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 
 ## 7. 当前生产端边界与演进计划
 
-RuntimeEvent 的消费语义已经稳定，但生产端尚未完成同等程度的收敛。Chat、Gateway workflow、Alice、memory task、Scheduler 和 System lifecycle 仍分别构造 `RuntimeEvent`，并保留多组 `_emit_*` 私有方法；`PassiveIngressEventEmitter` 与 `RuntimeOperationObserver` 已经证明“领域投影与业务主流程分离”可行，却还没有形成全项目统一的 Publisher/Emitter 模式。
+RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段。统一 `RuntimeEventPublisher` 基础设施已经落地，Alice 的 `agent.run.*` 已迁移到 `AgentRunEventEmitter`，补齐了 `generation_id` 关联并删除 Agent run 主流程中的 envelope 构造；Chat、Gateway workflow、memory task、Scheduler、System lifecycle 与 Passive Ingress 尚未全部切换到这一模式。
 
 这项重复不会改变当前 wire format 或业务正确性，但会让默认 severity、关联上下文、payload 白名单和异常隔离在多个生产域中漂移。后续重构应保持三个约束：事件发生时机仍由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。详细范围与验收条件见 [RuntimeEvent 生产端发布抽象重构](../plans/runtime-event-publishing-refactor.md)。
 
-在该计划落地前，不能把 `RuntimeEventPublisher`、完整 payload 类型化或全域 emitter 写成当前能力；直接生产点仍以代码和本文件描述的外部契约为准。
+因此不能把“Publisher 与 Alice emitter 已落地”写成“全域生产端重构已完成”，也不能假设所有 payload 已强类型化。尚未迁移的生产点仍以代码和本文件描述的外部契约为准。
 
 ## 8. 验证入口
 
 - `tests/unit/system/runtime/test_runtime_events.py`
+- `tests/unit/system/runtime/test_publisher.py`
+- `tests/unit/alice/runtime/test_runtime_events.py`
 - `tests/unit/system/runtime/test_operations.py`
 - `tests/unit/system/test_lifecycle.py`
 - `src/hivememory/system/contracts/runtime_events.py`

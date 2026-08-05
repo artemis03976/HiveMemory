@@ -58,9 +58,7 @@ class NonStreamingChatAgentOutcome:
     agent_run_result: AgentRunResult
 
 
-type NonStreamingChatResult = (
-    NonStreamingChatCommandOutcome | NonStreamingChatAgentOutcome
-)
+type NonStreamingChatResult = (NonStreamingChatCommandOutcome | NonStreamingChatAgentOutcome)
 
 
 class ChatApplicationService:
@@ -129,9 +127,7 @@ class ChatApplicationService:
                     agent_id=agent_id,
                 )
                 return NonStreamingChatCommandOutcome(
-                    command_execution_result=(
-                        gateway_result.command_execution_result
-                    )
+                    command_execution_result=(gateway_result.command_execution_result)
                 )
 
             prepared = await self._bus.request(
@@ -153,9 +149,7 @@ class ChatApplicationService:
                     trace_id=trace_id,
                     agent_id=agent_id,
                 )
-                return NonStreamingChatAgentOutcome(
-                    agent_run_result=self._cancelled_agent_result()
-                )
+                return NonStreamingChatAgentOutcome(agent_run_result=self._cancelled_agent_result())
 
             run.status = ChatGenerationRunStatus.STREAMING
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
@@ -164,9 +158,10 @@ class ChatApplicationService:
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
                 cancel_event=run.cancel_event,
+                generation_id=run.generation_id,
             )
 
-            if run.cancelled or loop_result.status != AgentRunStatus.COMPLETED.value:
+            if run.cancelled or loop_result.status == AgentRunStatus.CANCELLED.value:
                 run.status = ChatGenerationRunStatus.CANCELLED
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
@@ -178,6 +173,17 @@ class ChatApplicationService:
                 return NonStreamingChatAgentOutcome(
                     agent_run_result=self._cancelled_agent_result(loop_result)
                 )
+            if loop_result.status == AgentRunStatus.FAILED.value:
+                run.status = ChatGenerationRunStatus.FAILED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_FAILED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prepared.topic_id,
+                    severity="error",
+                )
+                return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
 
             run.status = ChatGenerationRunStatus.FINALIZING
             self._emit_chat_status(
@@ -210,9 +216,7 @@ class ChatApplicationService:
                 trace_id=trace_id,
                 agent_id=agent_id,
             )
-            return NonStreamingChatAgentOutcome(
-                agent_run_result=self._cancelled_agent_result()
-            )
+            return NonStreamingChatAgentOutcome(agent_run_result=self._cancelled_agent_result())
         except Exception:
             run.status = ChatGenerationRunStatus.FAILED
             self._emit_chat_event(
@@ -328,10 +332,7 @@ class ChatApplicationService:
                 "data": {
                     "topic_id": prelude.topic_id,
                     "is_new": prelude.is_new_topic,
-                    "pool_topics": [
-                        topic.model_dump(mode="json")
-                        for topic in prelude.pool_topics
-                    ],
+                    "pool_topics": [topic.model_dump(mode="json") for topic in prelude.pool_topics],
                 },
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
@@ -363,6 +364,7 @@ class ChatApplicationService:
                 agent_run_context=prepared.agent_run_context,
                 generation_options=prepared.generation_options,
                 cancel_event=run.cancel_event,
+                generation_id=run.generation_id,
             )
             async for event in stream:
                 if event["event"] == "done":
@@ -375,7 +377,7 @@ class ChatApplicationService:
                 raise RuntimeError("Stream ended without done event")
 
             # 分支：用户取消或 Alice 响应取消。跳过 finalize，不触发主动记忆生成。
-            if run.cancelled or loop_result.status != AgentRunStatus.COMPLETED.value:
+            if run.cancelled or loop_result.status == AgentRunStatus.CANCELLED.value:
                 run.status = ChatGenerationRunStatus.CANCELLED
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
@@ -386,6 +388,19 @@ class ChatApplicationService:
                 )
                 terminal_state = "cancelled"
                 yield self._cancelled_done(run, loop_result)
+                return
+            if loop_result.status == AgentRunStatus.FAILED.value:
+                run.status = ChatGenerationRunStatus.FAILED
+                self._emit_chat_event(
+                    RuntimeEventType.CHAT_RUN_FAILED,
+                    run,
+                    trace_id=trace_id,
+                    agent_id=agent_id,
+                    topic_id=prelude.topic_id,
+                    severity="error",
+                )
+                terminal_state = "failed"
+                yield self._failed_done(run, loop_result)
                 return
 
             run.status = ChatGenerationRunStatus.FINALIZING
@@ -409,10 +424,7 @@ class ChatApplicationService:
                 loop_result=loop_result,
             )
             prepared_finalized = True
-            memory_task_ids = [
-                memory_task.task_id
-                for memory_task in (memory_tasks or [])
-            ]
+            memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
             final_pool_topics = await self._list_final_pool_topics(prepared)
 
             run.status = ChatGenerationRunStatus.COMPLETED
@@ -545,6 +557,23 @@ class ChatApplicationService:
         }
 
     @staticmethod
+    def _failed_done(
+        run: ChatGenerationRun,
+        loop_result: AgentRunResult,
+    ) -> dict[str, Any]:
+        return {
+            "event": "done",
+            "data": {
+                **loop_result.model_dump(),
+                "generation_id": run.generation_id,
+                "status": "failed",
+                "stopped": True,
+                "reason": "agent_run_failed",
+                "memory_task_ids": [],
+            },
+        }
+
+    @staticmethod
     def _cancelled_agent_result(
         loop_result: AgentRunResult | None = None,
     ) -> AgentRunResult:
@@ -635,4 +664,3 @@ __all__ = [
     "NonStreamingChatCommandOutcome",
     "NonStreamingChatResult",
 ]
-

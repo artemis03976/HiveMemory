@@ -104,7 +104,6 @@ def test_build_sub_agent_messages_disables_call():
         profile=profile,
         task="Write unit tests",
         shared_context="[Shared Context]",
-        depth=1,
     )
 
     assert messages[0]["role"] == "system"
@@ -126,7 +125,6 @@ def test_mtp_prompt_uses_resolved_profile_language():
         profile=profile,
         task="Search memory",
         shared_context="",
-        depth=0,
     )
 
     assert "You are an intelligent Agent running on HiveOS" in messages[0]["content"]

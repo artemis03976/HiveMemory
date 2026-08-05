@@ -132,8 +132,12 @@ class MemoryCompiler:
         """
         从可编译单元 source 构建 MemoryUnitIR。
         """
-        from hivememory.agent_runtime.resolver import ResolveResult
-        from hivememory.core.models.pending import PendingAtom, PendingAtomResolution, PendingAtomSettlement
+        from hivememory.agent_runtime.aliases import ResolveResult
+        from hivememory.core.models.pending import (
+            PendingAtom,
+            PendingAtomResolution,
+            PendingAtomSettlement,
+        )
 
         if isinstance(source, ResolveResult):
             if source.kind == "not_found":

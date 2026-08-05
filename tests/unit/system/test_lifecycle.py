@@ -16,6 +16,7 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.system import HiveMemorySystem
 
@@ -58,8 +59,12 @@ def mock_patchouli():
     runtime.is_models_ready.return_value = True
     runtime.local_routes_registered = False
     runtime.ensure_storage_ready = AsyncMock()
-    runtime.mount_local_routes = MagicMock(side_effect=lambda service: setattr(runtime, "local_routes_registered", True))
-    runtime.unmount_local_routes = MagicMock(side_effect=lambda: setattr(runtime, "local_routes_registered", False))
+    runtime.mount_local_routes = MagicMock(
+        side_effect=lambda service: setattr(runtime, "local_routes_registered", True)
+    )
+    runtime.unmount_local_routes = MagicMock(
+        side_effect=lambda: setattr(runtime, "local_routes_registered", False)
+    )
     runtime.shutdown_drain = AsyncMock(return_value={"success": True})
     p.runtime = runtime
     p.register_maintenance_tasks = MagicMock(return_value=True)
@@ -108,11 +113,13 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         alice.health = AsyncMock(return_value={"status": "ok"})
         mock_patchouli._scheduler = scheduler
 
+        runtime_event_sink = NullRuntimeEventSink()
         runtime = _RuntimeBundle(
             global_bus=global_bus,
             scheduler=scheduler,
             event_bus=None,
-            event_sink=NullRuntimeEventSink(),
+            event_sink=runtime_event_sink,
+            event_publisher=RuntimeEventPublisher(runtime_event_sink),
         )
         registries = _RegistriesBundle(
             provider_registry=MagicMock(),
@@ -145,9 +152,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
 
 class TestHiveMemorySystemLifecycle:
     @pytest.mark.asyncio
-    async def test_start_calls_scheduler(
-        self, system_factory, mock_patchouli, scheduler
-    ):
+    async def test_start_calls_scheduler(self, system_factory, mock_patchouli, scheduler):
         ingress_service = MagicMock()
         ingress_service.start = AsyncMock()
         system = system_factory(ingress_service=ingress_service)
@@ -155,9 +160,7 @@ class TestHiveMemorySystemLifecycle:
         await system.start()
 
         mock_patchouli.register_maintenance_tasks.assert_called_once_with(scheduler)
-        mock_patchouli.runtime.mount_local_routes.assert_called_once_with(
-            mock_patchouli.service
-        )
+        mock_patchouli.runtime.mount_local_routes.assert_called_once_with(mock_patchouli.service)
         ingress_service.start.assert_called_once()
         assert scheduler.is_running
         assert system._started
@@ -235,9 +238,7 @@ class TestPatchouliSystemLocalRoutes:
             "service.cleanup_prepared_agent_run",
         }
 
-        assert not set(PatchouliLocalRoutes.ALL).intersection(
-            runtime.local_bus.list_routes()
-        )
+        assert not set(PatchouliLocalRoutes.ALL).intersection(runtime.local_bus.list_routes())
 
         await patchouli.start()
 

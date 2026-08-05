@@ -15,6 +15,7 @@ from hivememory.system.assembler import (
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.system import HiveMemorySystem
 
@@ -73,6 +74,7 @@ def system(mock_patchouli):
         scheduler=scheduler,
         event_bus=None,
         event_sink=runtime_events,
+        event_publisher=RuntimeEventPublisher(runtime_events),
     )
     registries = _RegistriesBundle(
         provider_registry=MagicMock(),

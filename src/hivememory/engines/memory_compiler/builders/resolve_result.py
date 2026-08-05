@@ -18,7 +18,7 @@ from hivememory.engines.memory_compiler.ir import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.resolver import ResolveResult
+    from hivememory.agent_runtime.aliases import ResolveResult
 
 _TERMINAL_KINDS = {"discarded", "failed", "expired"}
 

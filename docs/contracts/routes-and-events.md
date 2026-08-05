@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-03
 ---
 
 # 公开路由与事件
@@ -107,8 +107,10 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AliceService.run_agent` | `AgentRunContext`、generation options、cancel event | `AgentRunResult` |
-| `alice.public.run_agent_stream` | `AliceService.run_agent_stream` 适配器 | 同上 | async generator 对象 |
+| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options、cancel event | `AgentRunResult` |
+| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | 同上 | async generator 对象 |
+
+流式 route 返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 run，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
 
 ## 3. 全局业务事件
 
@@ -159,6 +161,15 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 - 找不到客户端提供的 `last_event_id` 时，先生成 `event.stream.gap`；
 - 每个订阅者队列有界，满时丢弃最旧事件；
 - RuntimeEvent 不承诺跨进程连续、持久化或 exactly-once。
+
+### 4.2 与 Agent 交互输出流的边界
+
+`alice.public.run_agent_stream` 的交互输出与 `/runtime-events/stream` 是两条独立通道：
+
+- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
+- RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；
+- 两条流可以通过 `generation_id/agent_run_id` 关联展示，但不得自动互相桥接；
+- RuntimeEvent 的缺失或 transport 故障不能改变 Agent 结果，交互输出也不替代结构化 `TurnEvent` 与权威 run 状态。
 
 ## 5. `SystemEvent` 的状态
 
