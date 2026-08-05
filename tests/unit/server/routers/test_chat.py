@@ -355,3 +355,92 @@ class TestChatRouter:
             generation_id,
             reason="client_disconnected",
         )
+
+    @pytest.mark.asyncio
+    async def test_asgi_cancellation_joins_pending_pull_before_closing_stream(self):
+        mock_service = MagicMock()
+        pull_started = asyncio.Event()
+        stream_closed = asyncio.Event()
+        pull_task = None
+
+        async def fake_stream(**kwargs):
+            nonlocal pull_task
+            yield {
+                "event": "generation_id",
+                "data": {"generation_id": kwargs["generation_id"]},
+            }
+            pull_task = asyncio.current_task()
+            pull_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stream_closed.set()
+
+        class FakeRequest:
+            async def is_disconnected(self):
+                return False
+
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.cancel_generation = MagicMock()
+
+        response = await chat(
+            request=FakeRequest(),
+            body=ChatRequest(message="hello", user_id="test"),
+            service=mock_service,
+        )
+
+        first_chunk = await response.body_iterator.__anext__()
+        assert first_chunk["event"] == "generation_id"
+
+        next_chunk = asyncio.create_task(response.body_iterator.__anext__())
+        await pull_started.wait()
+        next_chunk.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await next_chunk
+
+        assert stream_closed.is_set()
+        assert pull_task is not None
+        assert pull_task.done()
+        assert pull_task.cancelled()
+        generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
+        mock_service.cancel_generation.assert_called_once_with(
+            generation_id,
+            reason="client_disconnected",
+        )
+
+    @pytest.mark.asyncio
+    async def test_sse_iterator_close_closes_chat_stream(self):
+        mock_service = MagicMock()
+        stream_closed = asyncio.Event()
+
+        async def fake_stream(**kwargs):
+            try:
+                yield {
+                    "event": "generation_id",
+                    "data": {"generation_id": kwargs["generation_id"]},
+                }
+                yield {"event": "token", "data": {"content": "late"}}
+            finally:
+                stream_closed.set()
+
+        class FakeRequest:
+            async def is_disconnected(self):
+                return False
+
+        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+
+        response = await chat(
+            request=FakeRequest(),
+            body=ChatRequest(message="hello", user_id="test"),
+            service=mock_service,
+        )
+
+        first_chunk = await response.body_iterator.__anext__()
+        assert first_chunk["event"] == "generation_id"
+
+        await response.body_iterator.aclose()
+
+        assert stream_closed.is_set()
+        with pytest.raises(StopAsyncIteration):
+            await response.body_iterator.__anext__()
