@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 from time import perf_counter
 from typing import Any
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
-    GatewayCancelledError,
     GatewayIngressMode,
     GatewayProcessResult,
     GatewayTimeoutError,
@@ -51,7 +49,6 @@ class GatewayWorkflow:
         *,
         identity: Identity,
         ingress_mode: GatewayIngressMode,
-        cancel_event: asyncio.Event | None = None,
         request_timeout_ms: int | None = None,
     ) -> GatewayProcessResult:
         """执行 Entry、固定 topic 前缀和唯一 analysis 分支。"""
@@ -81,7 +78,6 @@ class GatewayWorkflow:
                 state,
                 self._entry_step,
                 completed_steps,
-                cancel_event=cancel_event,
                 deadline=deadline,
             )
             if deadline_reached:
@@ -98,7 +94,6 @@ class GatewayWorkflow:
                     state,
                     self._command_dispatch_step,
                     completed_steps,
-                    cancel_event=cancel_event,
                     deadline=deadline,
                 )
                 if deadline_reached:
@@ -114,7 +109,6 @@ class GatewayWorkflow:
                     state,
                     step,
                     completed_steps,
-                    cancel_event=cancel_event,
                     deadline=deadline,
                 )
                 if deadline_reached:
@@ -132,7 +126,6 @@ class GatewayWorkflow:
                 state,
                 analysis_step,
                 completed_steps,
-                cancel_event=cancel_event,
                 deadline=deadline,
             )
             if deadline_reached:
@@ -142,18 +135,6 @@ class GatewayWorkflow:
             outcome = state.finalize()
             self._emit_completed(outcome, completed_steps, started_at)
             return outcome
-        except GatewayCancelledError:
-            self._emit(
-                RuntimeEventType.GATEWAY_WORKFLOW_CANCELLED,
-                reason="cancelled",
-                data={
-                    "step_id": current_step_id,
-                    "ingress_mode": ingress_mode.value,
-                    "completed_steps": completed_steps,
-                    "duration_ms": _elapsed_ms(started_at),
-                },
-            )
-            raise
         except Exception as exc:
             self._emit(
                 RuntimeEventType.GATEWAY_WORKFLOW_FAILED,
@@ -174,13 +155,11 @@ class GatewayWorkflow:
         step: GatewayWorkflowStep[Any, Any],
         step_index: int,
         *,
-        cancel_event: asyncio.Event | None = None,
         deadline: float | None = None,
     ) -> bool:
         """统一执行一次 Step，并保证只有一次 state apply。"""
 
         step_started_at = perf_counter()
-        self._raise_if_cancelled(cancel_event)
         selected_input = step.select_input(state.snapshot())
         is_fallback = False
         fallback_reason: str | None = None
@@ -230,10 +209,11 @@ class GatewayWorkflow:
         )
 
         try:
-            output = await self._invoke_with_control(
-                step.invoke(selected_input),
-                timeout=effective_timeout,
-                cancel_event=cancel_event,
+            invocation = step.invoke(selected_input)
+            output = (
+                await asyncio.wait_for(invocation, timeout=effective_timeout)
+                if effective_timeout is not None
+                else await invocation
             )
         except (TimeoutError, RecoverableGatewayError) as exc:
             if step.fallback is None:
@@ -275,55 +255,6 @@ class GatewayWorkflow:
             flow_end_reason=flow_end_reason,
         )
         return is_fallback and fallback_reason == "GatewayTimeoutError"
-
-    async def _invoke_with_control(
-        self,
-        invocation,
-        *,
-        timeout: float | None,
-        cancel_event: asyncio.Event | None,
-    ):
-        """等待一次能力调用，并在取消或超时时终止其任务。"""
-
-        self._raise_if_cancelled(cancel_event)
-        invoke_task = asyncio.create_task(invocation)
-        cancel_task = (
-            asyncio.create_task(cancel_event.wait())
-            if cancel_event is not None
-            else None
-        )
-        wait_set = {invoke_task}
-        if cancel_task is not None:
-            wait_set.add(cancel_task)
-
-        try:
-            done, _pending = await asyncio.wait(
-                wait_set,
-                timeout=timeout,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if cancel_task is not None and cancel_task in done:
-                invoke_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await invoke_task
-                raise GatewayCancelledError("Gateway 请求已取消")
-            if invoke_task in done:
-                return await invoke_task
-
-            invoke_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await invoke_task
-            raise TimeoutError("Gateway Step timeout")
-        finally:
-            if cancel_task is not None:
-                cancel_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await cancel_task
-
-    @staticmethod
-    def _raise_if_cancelled(cancel_event: asyncio.Event | None) -> None:
-        if cancel_event is not None and cancel_event.is_set():
-            raise GatewayCancelledError("Gateway 请求已取消")
 
     @staticmethod
     def _remaining_seconds(deadline: float | None) -> float | None:

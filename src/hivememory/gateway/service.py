@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
@@ -28,7 +26,6 @@ class GatewayService:
         *,
         identity: Identity,
         ingress_mode: GatewayIngressMode,
-        cancel_event: asyncio.Event | None = None,
         request_timeout_ms: int | None = None,
     ) -> GatewayProcessResult:
         """把一次 Gateway 请求完整委托给 Runtime 持有的 workflow。"""
@@ -44,7 +41,6 @@ class GatewayService:
             message,
             identity=identity,
             ingress_mode=ingress_mode,
-            cancel_event=cancel_event,
             request_timeout_ms=effective_timeout_ms,
         )
 

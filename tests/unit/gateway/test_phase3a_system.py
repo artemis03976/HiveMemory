@@ -30,7 +30,6 @@ async def test_gateway_service_delegates_to_workflow() -> None:
         "hello",
         identity=identity,
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-        cancel_event=None,
         request_timeout_ms=8000,
     )
 
@@ -39,7 +38,6 @@ async def test_gateway_service_delegates_to_workflow() -> None:
         "hello",
         identity=identity,
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-        cancel_event=None,
         request_timeout_ms=8000,
     )
 

@@ -3,7 +3,6 @@
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
-    GatewayCancelledError,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -15,7 +14,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-
 from hivememory.core.protocol.models import (
     InteractionPayload,
     MessageType,
@@ -30,7 +28,6 @@ __all__ = [
     "RetrievalRequest",
     "CommandExecutionResult",
     "CommandExecutionStatus",
-    "GatewayCancelledError",
     "GatewayCommandOutcome",
     "GatewayDecision",
     "GatewayDecisionOutcome",

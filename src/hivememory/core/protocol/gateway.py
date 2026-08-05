@@ -135,10 +135,6 @@ class GatewayControlError(RuntimeError):
     """Gateway 请求控制异常基类。"""
 
 
-class GatewayCancelledError(GatewayControlError):
-    """Gateway 请求被调用方取消。"""
-
-
 class GatewayTimeoutError(GatewayControlError):
     """Gateway 无法在 deadline 内形成完整终态。"""
 
@@ -146,7 +142,6 @@ class GatewayTimeoutError(GatewayControlError):
 __all__ = [
     "CommandExecutionResult",
     "CommandExecutionStatus",
-    "GatewayCancelledError",
     "GatewayCommandOutcome",
     "GatewayControlError",
     "GatewayDecision",
