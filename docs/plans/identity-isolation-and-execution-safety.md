@@ -17,7 +17,7 @@ related_docs:
   - docs/alice/mtp-runtime.md
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-05
 ---
 
 # 身份隔离与执行安全计划
@@ -33,7 +33,7 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 | Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | 某些别名 L0/L1 cache 命中不会再次按调用 Identity 校验 |
 | PendingAtom | atom 保存 identity，Alice 通过 alias/intent 解析 | 进程级 cache/store 与并发 run 共享，跨用户隔离尚未完全成立 |
 | Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | alias cache 进程级、失效不完整；显式 Profile 加载失败与未指定 Profile 的 Omni-Doll fallback 语义混淆 |
-| Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy 与 `AgentRunStreamAdapter` | frame registry、CALL record、取消信号、输出队列和流序号已按 run 隔离；跨用户身份与缓存隔离仍待验证 |
+| Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、Chat 可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
 | Frontend identity | 前端已有默认 user id 和待办的 identity store 方向 | UI 字段不是认证/授权边界，多个请求可能使用不同默认身份；切换时 cache/stream 清理不完整 |

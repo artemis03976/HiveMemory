@@ -12,12 +12,12 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-05
 ---
 
 # System 运行时与总线
 
-System 的运行时基础设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Runtime control 负责前台用例的取消句柄，RuntimeEventSink 负责观测旁路。
+System 的运行时基础设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Runtime control 负责前台用例的阶段与停止控制，RuntimeEventSink 负责观测旁路。
 
 这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。
 

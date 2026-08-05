@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-05
 ---
 
 # Gateway
@@ -37,7 +37,7 @@ Gateway 当前负责：
 - 读取候选话题快照并选择已有话题或 `NEW_TOPIC`；
 - 对路由后的用户输入生成意图、query rewrite、关键词、记忆写入信号和检索计划；
 - 对可恢复的上下文或模型能力失败应用局部保守降级；
-- 处理整次请求的 deadline、调用方取消和 RuntimeEvent 观测；
+- 处理整次请求的 deadline 与 RuntimeEvent 观测；外层 task cancellation 原样传播，不建立 Gateway 私有取消协议；
 - 只通过 `gateway.public.process` 暴露稳定公共结果。
 
 Gateway 不负责：

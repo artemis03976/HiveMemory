@@ -20,7 +20,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-04
+last_reviewed: 2026-08-05
 ---
 
 # 多 Agent 编排
@@ -56,7 +56,7 @@ AliceSystem
 
 - AgentRunService 是 Alice 的公开 run 用例入口，负责创建入口 frame、为每次 run 构造 Executor、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
 - AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache 和 PendingAtom 运行时投影，不参与单次 run 的控制链；
-- RunSession 拥有一次 run 的 frame registry、CALL record 和取消信号，不保存活动 frame、frame 调度状态或传输层 stream sequence；
+- RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并且是唯一调用 `finalize_run()` 的位置；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
 - AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
@@ -206,6 +206,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
 - Chat application 不向主/子 AgentRuntime 传递取消 token。用户 stop 取消当前 Alice task；RunExecutor 捕获 `CancelledError` 做本地 unwind，活跃 CALL 只清理 callee frame 和 record，不伪造 caller response，最外层收尾整个 run 一次，并保留原生异常传播；
 - 流生成器提前关闭时，`AgentRunStream` 取消并 join 自己创建的 runner；`CancelledError` 沿递归协程栈展开，各层清理尚未 apply 的 CALL，且不再向关闭的 consumer 阻塞发送事件；
+- RunExecutor、Agent loop 与 Worker 的 unwind/close 都是 best effort：清理异常记录日志，但不能替换正在传播的 `CancelledError`；
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。
@@ -218,7 +219,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - Profile 的 persona 不能提升结构化权限，调用方 task 也不能替被调用者改写白名单；
 - Pending alias 的 IPC 收割与 run 级 materialize task 收集是两条不同用途的数据流；
 - `context_refs` 必须经过 RuntimeAliasResolver 与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；
-- CALL 权限、预算与取消必须随 frame policy/session 传播，不能只依赖 prompt 告诫模型；
+- CALL 权限与预算必须随 frame policy 传播，不能只依赖 prompt 告诫模型；取消沿拥有 Alice run 的 task 递归展开，不通过 session 建立第二套控制面；
 - Alice 可以持有 Profile 运行时 cache，却不能把它当成 Patchouli 中 Profile 记忆的第二份权威事实。
 
 ## 10. 当前限制

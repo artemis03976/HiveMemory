@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-05
 ---
 
 # Archived Plans
@@ -12,6 +12,7 @@ last_reviewed: 2026-08-03
 
 当前记录：
 
+- [Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md)：已完成的 phase task 控制、Gateway/Alice 原生 task cancellation、prepare 延迟响应、finalize 门禁，以及 SSE/Worker/unwind 清理加固；当前事实见 `docs/system/application-services.md`、`docs/system/runtime-and-bus.md`、`docs/gateway/`、`docs/alice/` 与 `docs/contracts/`。
 - [Alice 父子 Agent 进程调度流程收口](./alice-parent-child-run-scheduler.md)：已完成的 run-local RunScheduler、统一 root/callee 活动 frame 循环、CALL begin/complete、取消/异常收口与编排兼容层删除；当前事实见 `docs/alice/` 与 `docs/contracts/mtp.md`。
 - [Alice Agent Runtime 控制流重构](./alice-agent-runtime-control-flow-refactor.md)：已完成的单 frame runtime、run-local 编排、CALL transaction 与 PendingAtom 生命周期收口；当前事实见 `docs/alice/`。
 

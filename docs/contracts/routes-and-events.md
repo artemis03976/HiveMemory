@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-05
 ---
 
 # 公开路由与事件
@@ -61,7 +61,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `gateway.public.process` | `GatewayService.process` | message、Identity、ingress mode、可选 cancel/timeout | `GatewayProcessResult` |
+| `gateway.public.process` | `GatewayService.process` | message、Identity、ingress mode、可选 `request_timeout_ms` | `GatewayProcessResult` |
 
 ### 2.2 Patchouli Chat / Retrieval
 

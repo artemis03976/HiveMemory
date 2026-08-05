@@ -1,8 +1,9 @@
 ---
 title: Chat Run 取消重构最小闭环
-status: planned
+status: completed
 owner: system
 scope: chat-run-cancellation-minimal
+archived_at: 2026-08-05
 code_paths:
   - src/hivememory/system/application/chat_service.py
   - src/hivememory/system/runtime/control.py
@@ -24,9 +25,21 @@ last_reviewed: 2026-08-05
 
 # Chat Run 取消重构最小闭环
 
+## 实施完成记录
+
+本计划已在 `refactor/chat-run-cancel` 分支完成，实施提交从 `6fc6892`（控制契约测试）延续至
+`fb4ab51`（取消期间 cleanup 异常优先级修复），并包含 Gateway/Alice 兼容代码清理、ASGI
+断流处理、Worker stream 关闭和路由可读性整理。
+
+当前事实以 [System 应用服务](../../system/application-services.md)、
+[System 运行时与总线](../../system/runtime-and-bus.md)、[Gateway 固定工作流](../../gateway/workflow.md)、
+[Alice 多 Agent 编排](../../alice/orchestration.md)、[Agent Runtime](../../alice/agent-runtime.md)和
+[公开路由与事件](../../contracts/routes-and-events.md)为准。本文归档后只保留实施边界、设计依据与验收记录；
+未实施的生命周期候选继续由[后续设计](../../plans/chat-run-cancellation-future.md)维护。
+
 ## 1. 文档定位
 
-本文档是当前 Chat Run 取消重构的**唯一首期实施依据**。目标只有一个：
+本文档曾是 Chat Run 取消重构的**唯一首期实施依据**，现已完成。目标只有一个：
 
 > 用 `Task.cancel()` + `asyncio.CancelledError` 取代沿 Gateway、Alice、Worker、MTP、CALL 逐层传递和轮询的 `asyncio.Event`，跑通 `/chat/stop` 到 Chat 终态的最小闭环。
 
@@ -35,7 +48,7 @@ last_reviewed: 2026-08-05
 `ChatOutputChannel`、`PreparedRunLease` 或新的 SSE 协议。
 
 后续候选设计统一放入
-[Chat Run 取消与生命周期后续设计](./chat-run-cancellation-future.md)，不得反向成为首期依赖。
+[Chat Run 取消与生命周期后续设计](../../plans/chat-run-cancellation-future.md)，不得反向成为首期依赖。
 
 ---
 
@@ -556,16 +569,19 @@ except _ChatRunCancelled as cancelled:
 
 ---
 
-## 12. 首期结束条件
+## 12. 实施完成后的边界
 
-满足 §11 后，本次取消机制重构即完成。以下现象不阻塞首期结束：
+§11 已满足，本次取消机制重构完成。SSE adapter 现在会在客户端断开或 ASGI 取消时请求停止
+generation，先取消并 join 自己创建的 pull task，再关闭 `chat_stream()`；Alice、Agent loop、
+Worker 与 RunExecutor 的清理异常也不会替换正在传播的 `CancelledError`。
 
-- SSE 断开仍会结束当前 `chat_stream()` 所拥有的生命周期；
-- 外层 SSE generator 因背压暂停在 `yield` 时，Alice 取消可能延迟到下一次 pull 或 close；
+以下事项仍不属于本次最小闭环：
+
+- Chat Run 生命周期仍由当前请求中的 `chat_stream()` 拥有，没有独立 Job、断线重连或后台状态查询；
 - 取消时少量尚未离开 Alice 内部队列的 event 可能不再送达；
 - cancelled `done` 与前端 partial text 的长期契约尚未版本化；
 - RuntimeEvent 仍存在历史事件粒度和时序差异；
-- Prepare 尚未使用资源租约；
+- Prepare 未使用资源租约，且在现有短时、不可取消语义下默认不需要；
 - Gateway command 尚未建立通用提交屏障。
 
-这些是已知后续候选，不是最小取消闭环的缺陷回补清单。
+这些是后续设计的按需候选，不是已完成取消闭环的缺陷回补清单。

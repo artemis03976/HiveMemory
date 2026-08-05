@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-04
+last_reviewed: 2026-08-05
 ---
 
 # Agent Runtime
@@ -147,7 +147,7 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/done` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，只记录 `agent.run.*` 等生命周期摘要。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
-非流式 LiteLLM await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Worker 在流式 iterator 的 `finally` 中关闭底层 iterator；同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
+非流式 LiteLLM await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Agent loop 在 `finally` 中关闭 Worker generator，Worker 再关闭 LiteLLM/provider response；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
 
 ## 7. AgentRunResult 的组装边界
 
