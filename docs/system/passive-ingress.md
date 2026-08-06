@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-06
 ---
 
 # 被动对话摄入
@@ -26,7 +26,7 @@ Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 har
 
 - `source` 与 `external_conversation_id`：构成外部会话命名空间；
 - `external_event_id`：与 `source` 共同构成进程内幂等键；
-- 可选 `turn_id`、`sequence`、`occurred_at`；
+- 可选 `turn_id`、`sequence`、`occurred_at`；其中 `sequence` 当前用于关联与观测，不触发缺口等待或乱序重排；
 - `role`：`user`、`assistant`、`tool_call`、`tool_result`；
 - `content`、tool metadata、`is_final`。
 
@@ -35,6 +35,10 @@ Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 har
 `is_final` 表示当前 turn 是否结束，与 role 无关。外部 assistant 可能分段输出，tool result 也可能是一个 turn 的最后事件，因此不能用“收到 assistant 就提交”替代显式 final、下一条 user、idle timeout、手动 flush 或 shutdown drain。
 
 当前 dedup 是有界的进程内 TTL registry：默认窗口为 300 秒，最大 4096 条。重复事件在窗口内不会重复追加 buffer、重复 retrieval 或重复提交 interaction；这不是跨进程 exactly-once 保证。
+
+同一 `PassiveConversationKey` 的事件路由与显式 flush 由进程内 keyed async lock 串行化。串行范围覆盖 dedup、Gateway/retrieval、turn buffer 修改、seal 和本次 drain，因此先进入服务并开始处理的 user 不会在等待 Gateway 时被同会话 assistant/tool 事件越过。不同会话使用不同锁，仍可并发处理；最后一个持有者或等待者退出后会移除对应 lock entry。
+
+该保证只适用于单 event loop、单进程内的接收顺序。connector 必须按同一外部会话的因果顺序投递事件；如果 `sequence=3` 先于 `sequence=2` 到达，当前实现不会等待或重排。跨进程排序、缺口恢复和持久化事件 mailbox 不属于 v0.6.0 契约。
 
 ## 2. 事件路由与记忆上下文
 
@@ -89,7 +93,7 @@ name  = observer_idle_flush
 callback = PassiveMessageIngressor.scan_idle_conversations_once
 ```
 
-扫描会按配置的 idle timeout seal 超时 buffer，再 drain 全部 outbox。该维护任务由 System 的统一 `GlobalMaintenanceScheduler` 驱动，Passive Ingress 不自建线程或 event loop。
+扫描会按配置的 idle timeout seal 超时 buffer，再 drain 全部 outbox。idle flush 会逐会话取得与事件路由相同的串行门，并在门内重新检查 idle 时间，避免扫描快照与刚到达的事件竞争。该维护任务由 System 的统一 `GlobalMaintenanceScheduler` 驱动，Passive Ingress 不自建线程或 event loop。
 
 关闭时，System 先停 scheduler，再调用 `shutdown_drain()`：停止注册、封口所有活动 buffer、尽力 drain，并返回 `sealed_turns`、`submitted_turns` 和 `outbox_pending` 摘要。outbox 仍有 pending 不等价于 shutdown 失败已经被补偿；它表示当前进程在关闭边界仍有未提交事实。
 
@@ -114,6 +118,8 @@ callback = PassiveMessageIngressor.scan_idle_conversations_once
 - 上一 turn 提交失败不能阻塞下一 turn accumulator；
 - sealed turn 在 Patchouli 成功前不能从 outbox 删除；
 - `source + external_event_id` 的重复事件不能再次检索或提交；
+- 同一 `PassiveConversationKey` 的事件和 flush 不能并发修改 accumulator；不同会话不能被一把全局锁串行化；
+- connector 必须按会话因果顺序投递；可选 `sequence` 不代表系统承诺乱序重排；
 - outbox 的内存有界限制必须显式记录，不能宣称跨进程 exactly-once；
 - `memory_write_signal=SKIP` 不得删除 raw interaction 或 provenance；
 - 观测 sink 失败不能改变 accepted/buffered/duplicate 等业务响应。

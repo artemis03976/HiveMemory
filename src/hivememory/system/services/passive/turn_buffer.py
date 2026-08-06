@@ -340,26 +340,41 @@ class MessageTurnBufferManager:
             `(conversation_key, flush_result, turn_id)` 列表，
             由调用方封装为 SealedTurn 并进入 outbox。
         """
-        now = datetime.now().timestamp()
         results: list[tuple[PassiveConversationKey, FlushResult, str | None]] = []
 
-        with self._lock:
-            for key, buf in list(self._buffers.items()):
-                if not buf.has_pending_round:
-                    continue
-                idle_duration = now - buf.last_activity_time
-                if idle_duration <= timeout_seconds:
-                    continue
-                turn_id = buf.turn_id
-                flushed = buf.flush()
-                if flushed:
-                    results.append((key, flushed, turn_id))
-                    logger.info(
-                        "Message idle timeout flush: "
-                        f"conversation={key.label}, idle={idle_duration:.1f}s"
-                    )
+        for key in self.list_active_buffers():
+            flushed = self.flush_idle_buffer(key, timeout_seconds)
+            if flushed is not None:
+                result, turn_id = flushed
+                results.append((key, result, turn_id))
 
         return results
+
+    def flush_idle_buffer(
+        self,
+        key: PassiveConversationKey,
+        timeout_seconds: float,
+    ) -> tuple[FlushResult, str | None] | None:
+        """重新检查并 flush 一个空闲超时的会话 buffer。"""
+        now = datetime.now().timestamp()
+        with self._lock:
+            buf = self._buffers.get(key)
+            if buf is None or not buf.has_pending_round:
+                return None
+
+            idle_duration = now - buf.last_activity_time
+            if idle_duration <= timeout_seconds:
+                return None
+
+            turn_id = buf.turn_id
+            flushed = buf.flush()
+            if flushed is None:
+                return None
+
+            logger.info(
+                f"Message idle timeout flush: conversation={key.label}, idle={idle_duration:.1f}s"
+            )
+            return flushed, turn_id
 
 
 __all__ = [

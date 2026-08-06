@@ -41,8 +41,9 @@ jobs:
           python -m build
 
       - name: Generate checksums
+        working-directory: dist
         run: |
-          sha256sum dist/* > backend-checksums.txt
+          sha256sum *.whl *.tar.gz > backend-checksums.txt
 
       - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
@@ -51,7 +52,7 @@ jobs:
           path: |
             dist/*.whl
             dist/*.tar.gz
-            backend-checksums.txt
+            dist/backend-checksums.txt
           if-no-files-found: error
 
   build_frontend:
@@ -116,6 +117,8 @@ jobs:
 
       - name: Merge checksums
         run: |
+          (cd release-assets/backend && sha256sum --check backend-checksums.txt)
+          (cd release-assets/frontend && sha256sum --check frontend-checksums.txt)
           cat release-assets/backend/backend-checksums.txt release-assets/frontend/frontend-checksums.txt > release-assets/SHA256SUMS.txt
 
       - name: Publish release
@@ -124,6 +127,7 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           generate_release_notes: true
           prerelease: ${{ contains(env.TAG_NAME, '-') }}
+          fail_on_unmatched_files: true
           files: |
             release-assets/backend/*.whl
             release-assets/backend/*.tar.gz
