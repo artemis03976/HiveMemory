@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -13,7 +14,6 @@ from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.orchestration.run_output import AgentRunOutput, NullAgentRunOutput
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
-    CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
@@ -22,6 +22,8 @@ from hivememory.alice.orchestration.sub_agent.call_record import CallRecord
 if TYPE_CHECKING:
     from hivememory.agent_runtime.runtime import AgentRuntime
     from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,10 +82,13 @@ class RunExecutor:
                 output_context=_FrameOutputContext(),
             )
         except asyncio.CancelledError:
-            self._abort_cancelled_run()
+            try:
+                self._abort_cancelled_run()
+            except Exception:
+                logger.warning("取消 Agent run 收尾失败", exc_info=True)
             raise
 
-        return self._finish(self._normalize_terminal_result(result, self._session.cancel_event))
+        return self._finish(result)
 
     async def _execute_frame(
         self,
@@ -107,7 +112,6 @@ class RunExecutor:
                 frame,
                 generation_options=generation_options,
                 output_sink=frame_output,
-                cancel_event=self._session.cancel_event,
             )
 
             match result.status:
@@ -131,8 +135,6 @@ class RunExecutor:
                     match outcome:
                         case ResumeCaller():
                             continue
-                        case CancelRun():
-                            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
                         case _:
                             raise RuntimeError(
                                 f"CALL execution returned an unsupported outcome: {outcome!r}"
@@ -160,7 +162,7 @@ class RunExecutor:
         generation_options: dict[str, Any] | None,
         run_output: AgentRunOutput,
         output_context: _FrameOutputContext,
-    ) -> ResumeCaller | CancelRun:
+    ) -> ResumeCaller:
         coordinator = self._require_call_coordinator()
         try:
             outcome = await coordinator.begin_call(
@@ -190,20 +192,23 @@ class RunExecutor:
                         run_output=run_output,
                     )
                     match completion:
-                        case ResumeCaller() | CancelRun():
+                        case ResumeCaller():
                             return completion
                         case _:
                             raise RuntimeError(
                                 f"CALL completion returned an unsupported outcome: {completion!r}"
                             )
-                case ResumeCaller() | CancelRun():
+                case ResumeCaller():
                     return outcome
                 case _:
                     raise RuntimeError(
                         f"CALL preparation returned an unsupported outcome: {outcome!r}"
                     )
         except asyncio.CancelledError:
-            self._cancel_call_if_registered(caller_frame, suspension)
+            try:
+                self._cancel_call_if_registered(caller_frame, suspension)
+            except Exception:
+                logger.warning("取消 CALL 收尾失败", exc_info=True)
             raise
 
     def _cancel_call_if_registered(
@@ -223,10 +228,15 @@ class RunExecutor:
 
     def _abort_cancelled_run(self) -> None:
         """协程取消沿递归栈清理 CALL 后，在最外层收尾整个 run。"""
-        self._session.cancel_event.set()
-        self._session.cancel_unapplied_calls()
+        try:
+            self._session.cancel_unapplied_calls()
+        except Exception:
+            logger.warning("取消未回填 CALL 失败", exc_info=True)
         if self.terminal_result is None:
-            self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+            try:
+                self._finish(FrameExecutionResult(status=FrameExecutionStatus.CANCELLED))
+            except Exception:
+                logger.warning("收尾已取消 Agent run 失败", exc_info=True)
 
     def _finish(self, result: FrameExecutionResult) -> FrameExecutionResult:
         if self.terminal_result is not None:
@@ -262,15 +272,5 @@ class RunExecutor:
         action_id = suspension.suspend_action_id
         if not action_id:
             raise RuntimeError("CALL suspension is missing its action id.")
-
-    @staticmethod
-    def _normalize_terminal_result(
-        result: FrameExecutionResult,
-        cancel_event: asyncio.Event,
-    ) -> FrameExecutionResult:
-        if cancel_event.is_set() and result.status != FrameExecutionStatus.CANCELLED:
-            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-        return result
-
 
 __all__ = ["RunExecutor"]

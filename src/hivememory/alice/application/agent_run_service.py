@@ -77,12 +77,10 @@ class AgentRunService:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        cancel_event: asyncio.Event | None = None,
         generation_id: str | None = None,
     ) -> AgentRunResult:
         session = self._create_run_session(
             generation_id=generation_id,
-            cancel_event=cancel_event,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -124,12 +122,10 @@ class AgentRunService:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        cancel_event: asyncio.Event | None = None,
         generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         session = self._create_run_session(
             generation_id=generation_id,
-            cancel_event=cancel_event,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -199,13 +195,17 @@ class AgentRunService:
             raise
         finally:
             if exit_reason == StreamExitReason.RUNNING:
-                session.cancel_event.set()
                 run_events.cancelled(
                     message="Agent stream closed before terminal event.",
                     close_reason="stream_closed",
                 )
             if executor_stream is not None:
-                await executor_stream.aclose()
+                try:
+                    await executor_stream.aclose()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("关闭 Agent executor stream 失败", exc_info=True)
 
     def _register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
         self._atom_cache.ingest_atoms(memories)
@@ -280,12 +280,10 @@ class AgentRunService:
     def _create_run_session(
         *,
         generation_id: str | None,
-        cancel_event: asyncio.Event | None,
     ) -> RunSession:
         return RunSession(
             agent_run_id=f"agent_run_{uuid.uuid4().hex}",
             generation_id=generation_id,
-            cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
         )
 
     @staticmethod

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 
 from hivememory.agent_runtime.models import ExecutionFrame
@@ -11,13 +10,12 @@ from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, Cal
 class RunSession:
     """一次 Alice run 独占的可变状态（run-local 控制面）。
 
-    保存帧注册表、CALL 记账与取消信号。frame 的挂起与恢复由 run-local
+    保存帧注册表与 CALL 记账。frame 的挂起与恢复由 run-local
     递归执行器的协程栈表达，Session 不充当调度程序计数器。
     """
 
     agent_run_id: str
     generation_id: str | None = None
-    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     frames: dict[str, ExecutionFrame] = field(default_factory=dict)
     root_frame_id: str | None = None
     call_records: dict[tuple[str, str], CallRecord] = field(default_factory=dict)

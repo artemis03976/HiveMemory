@@ -26,7 +26,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -223,8 +222,6 @@ class KoakumaRuntime:
         self,
         text: str,
         context: MTPExecutionContext | None = None,
-        *,
-        cancel_event: asyncio.Event | None = None,
     ) -> MTPExecutionResult:
         """
         执行 MTP 指令 (主入口)
@@ -252,7 +249,6 @@ class KoakumaRuntime:
             response = await self._route_and_execute(
                 command,
                 context or MTPExecutionContext(),
-                cancel_event=cancel_event,
             )
             response.execution_time_ms = (time.time() - start_time) * 1000
 
@@ -294,8 +290,6 @@ class KoakumaRuntime:
         self,
         assistant_text: str,
         context: MTPExecutionContext | None = None,
-        *,
-        cancel_event: asyncio.Event | None = None,
     ) -> MTPExecutionResult | None:
         """
         拦截检测 + 执行 (Section 3.1.2 Stop Sequence 场景)
@@ -318,23 +312,12 @@ class KoakumaRuntime:
         if last_open == -1:
             return None
 
-        if cancel_event is not None and cancel_event.is_set():
-            return MTPExecutionResult(
-                command=None,
-                response_status=MTPResponseStatus.CANCELLED.value,
-                response_content="",
-                formatted_response="",
-                success=False,
-                execution_time_ms=0.0,
-            )
-
         # 提取从 ⟪ 开始的文本片段
         mtp_fragment = assistant_text[last_open:]
 
         return await self.execute_mtp(
             mtp_fragment,
             context=context,
-            cancel_event=cancel_event,
         )
 
     # ========== 别名管理 ==========
@@ -355,8 +338,6 @@ class KoakumaRuntime:
         self,
         command: MTPCommand,
         context: MTPExecutionContext,
-        *,
-        cancel_event: asyncio.Event | None = None,
     ) -> MTPResponse:
         """
         路由并执行 MTP 指令 (Section 3)
@@ -387,8 +368,6 @@ class KoakumaRuntime:
             )
 
         try:
-            if cancel_event is not None and cancel_event.is_set():
-                return MTPResponse(status=MTPResponseStatus.CANCELLED, content="")
             # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)

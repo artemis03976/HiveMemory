@@ -20,8 +20,6 @@ class MTPExecutor(ABC):
         self,
         assistant_text: str,
         context: MTPExecutionContext,
-        *,
-        cancel_event=None,
     ) -> MTPExecutionResult | None:
         pass
 
@@ -36,13 +34,10 @@ class KoakumaMTPExecutor(MTPExecutor):
         self,
         assistant_text: str,
         context: MTPExecutionContext,
-        *,
-        cancel_event=None,
     ) -> MTPExecutionResult | None:
         return await self._koakuma.intercept_and_execute(
             assistant_text,
             context=context,
-            cancel_event=cancel_event,
         )
 
 

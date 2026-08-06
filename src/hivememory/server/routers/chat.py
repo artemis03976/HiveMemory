@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import uuid
-from contextlib import suppress
 
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
@@ -15,6 +14,24 @@ from hivememory.system.application.chat_service import ChatApplicationService
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
+
+
+async def _cancel_and_join(task: asyncio.Task) -> None:
+    """Cancel and settle one in-flight Chat stream pull."""
+    owner = asyncio.current_task()
+    entry_cancelling = owner.cancelling() if owner is not None else 0
+
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        if owner is not None and owner.cancelling() > entry_cancelling:
+            raise
+    except StopAsyncIteration:
+        pass
+    except Exception:
+        logger.debug("SSE pull task cleanup failed", exc_info=True)
 
 
 @router.post("/chat")
@@ -28,6 +45,7 @@ async def chat(
 
     async def event_generator():
         stream = None
+
         try:
             stream = service.chat_stream(
                 user_message=body.message,
@@ -44,38 +62,34 @@ async def chat(
             )
 
             while True:
-                next_event_task = asyncio.create_task(stream.__anext__())
-                while not next_event_task.done():
-                    if await request.is_disconnected():
-                        if generation_id:
-                            service.cancel_generation(generation_id, reason="client_disconnected")
-                        next_event_task.cancel()
-                        with suppress(asyncio.CancelledError):
-                            await next_event_task
-                        return
-                    await asyncio.sleep(0.1)
-
+                pull_task = asyncio.create_task(stream.__anext__())
                 try:
-                    event = next_event_task.result()
+                    while not pull_task.done():
+                        if await request.is_disconnected():
+                            service.cancel_generation(generation_id, reason="client_disconnected")
+                            return
+                        await asyncio.sleep(0.1)
+
+                    event = await pull_task
+
+                    yield {
+                        "event": event["event"],
+                        "data": json.dumps(event["data"], ensure_ascii=False, default=str),
+                    }
+
+                    if await request.is_disconnected():
+                        service.cancel_generation(generation_id, reason="client_disconnected")
+                        break
                 except StopAsyncIteration:
                     break
+                except asyncio.CancelledError:
+                    service.cancel_generation(generation_id, reason="client_disconnected")
+                    raise
+                finally:
+                    await _cancel_and_join(pull_task)
 
-                yield {
-                    "event": event["event"],
-                    "data": json.dumps(event["data"], ensure_ascii=False, default=str),
-                }
-
-                if await request.is_disconnected():
-                    if generation_id:
-                        service.cancel_generation(generation_id, reason="client_disconnected")
-                    break
-
-        except asyncio.CancelledError:
-            if generation_id:
-                service.cancel_generation(generation_id, reason="client_disconnected")
-            raise
-        except Exception as e:
-            logger.error(f"chat route stream error: {e}", exc_info=True)
+        except Exception:
+            logger.exception("chat route stream error")
             yield {
                 "event": "error",
                 "data": json.dumps(
@@ -85,7 +99,10 @@ async def chat(
             }
         finally:
             if stream is not None:
-                await stream.aclose()
+                try:
+                    await stream.aclose()
+                except Exception:
+                    logger.warning("关闭 Chat stream 失败", exc_info=True)
 
     return EventSourceResponse(event_generator())
 

@@ -10,16 +10,16 @@ v0.4.0 Phase 1 变更：
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
-    GatewayCancelledError,
     GatewayIngressMode,
 )
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
@@ -35,11 +35,64 @@ from hivememory.system.runtime.control import (
     CancelResult,
     ChatGenerationRun,
     ChatGenerationRunRegistry,
-    ChatGenerationRunStatus,
+    ChatRunOutcome,
+    ChatRunPhase,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 logger = logging.getLogger(__name__)
+
+
+class _ChatRunCancelled(Exception):  # noqa: N818 - 设计要求使用私有领域分支名
+    """Chat application 内部的用户 stop 分支。"""
+
+    def __init__(self, phase: ChatRunPhase, reason: str) -> None:
+        super().__init__(f"{phase.value} cancelled: {reason}")
+        self.phase = phase
+        self.reason = reason
+
+
+async def _run_interruptible(
+    control: ChatGenerationRun,
+    phase: ChatRunPhase,
+    operation_factory: Callable[[], Awaitable[Any]],
+) -> Any:
+    """用 Chat application 自有 child task 包装一个可中断阶段。"""
+    owner_task = asyncio.current_task()
+    if owner_task is None:
+        raise RuntimeError("_run_interruptible 必须运行在 asyncio task 中")
+    entry_cancelling = owner_task.cancelling()
+
+    if control.outcome is ChatRunOutcome.STOP_REQUESTED:
+        raise _ChatRunCancelled(phase, control.stop_reason or "user_requested")
+
+    async def invoke() -> Any:
+        return await operation_factory()
+
+    task = asyncio.create_task(invoke())
+    control.bind_phase(phase, task)
+    try:
+        result = await task
+        if control.outcome is ChatRunOutcome.STOP_REQUESTED:
+            raise _ChatRunCancelled(
+                phase,
+                control.stop_reason or "user_requested",
+            )
+        return result
+    except asyncio.CancelledError:
+        if owner_task.cancelling() > entry_cancelling:
+            raise
+        if (
+            control.outcome is ChatRunOutcome.STOP_REQUESTED
+            and control.active_task is task
+        ):
+            raise _ChatRunCancelled(
+                phase,
+                control.stop_reason or "user_requested",
+            ) from None
+        raise
+    finally:
+        control.unbind_phase(task)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -107,19 +160,22 @@ class ChatApplicationService:
         )
 
         try:
-            run.status = ChatGenerationRunStatus.PREPARING
+            run.enter_phase(ChatRunPhase.GATEWAY)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
-            gateway_result = await self._bus.request(
-                GlobalRoutes.GATEWAY_PROCESS,
-                message=user_message,
-                identity=identity,
-                ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-                cancel_event=run.cancel_event,
-                request_timeout_ms=self._gateway_request_timeout_ms,
+            gateway_result = await _run_interruptible(
+                run,
+                ChatRunPhase.GATEWAY,
+                lambda: self._bus.request(
+                    GlobalRoutes.GATEWAY_PROCESS,
+                    message=user_message,
+                    identity=identity,
+                    ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+                    request_timeout_ms=self._gateway_request_timeout_ms,
+                ),
             )
 
             if gateway_result.kind == "command":
-                run.status = ChatGenerationRunStatus.COMPLETED
+                run.mark_completed()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_COMPLETED,
                     run,
@@ -130,6 +186,12 @@ class ChatApplicationService:
                     command_execution_result=(gateway_result.command_execution_result)
                 )
 
+            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
+                raise _ChatRunCancelled(
+                    ChatRunPhase.PREPARE,
+                    run.stop_reason or "user_requested",
+                )
+            run.enter_phase(ChatRunPhase.PREPARE)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -141,28 +203,27 @@ class ChatApplicationService:
                 generation_options=generation_options,
             )
 
-            if run.cancelled:
-                run.status = ChatGenerationRunStatus.CANCELLED
-                self._emit_chat_event(
-                    RuntimeEventType.CHAT_RUN_CANCELLED,
-                    run,
-                    trace_id=trace_id,
-                    agent_id=agent_id,
+            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
+                raise _ChatRunCancelled(
+                    ChatRunPhase.PREPARE,
+                    run.stop_reason or "user_requested",
                 )
-                return NonStreamingChatAgentOutcome(agent_run_result=self._cancelled_agent_result())
 
-            run.status = ChatGenerationRunStatus.STREAMING
+            run.enter_phase(ChatRunPhase.ALICE)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
-            loop_result: AgentRunResult = await self._bus.request(
-                GlobalRoutes.ALICE_RUN_AGENT,
-                agent_run_context=prepared.agent_run_context,
-                generation_options=prepared.generation_options,
-                cancel_event=run.cancel_event,
-                generation_id=run.generation_id,
+            loop_result: AgentRunResult = await _run_interruptible(
+                run,
+                ChatRunPhase.ALICE,
+                lambda: self._bus.request(
+                    GlobalRoutes.ALICE_RUN_AGENT,
+                    agent_run_context=prepared.agent_run_context,
+                    generation_options=prepared.generation_options,
+                    generation_id=run.generation_id,
+                ),
             )
 
-            if run.cancelled or loop_result.status == AgentRunStatus.CANCELLED.value:
-                run.status = ChatGenerationRunStatus.CANCELLED
+            if loop_result.status == AgentRunStatus.CANCELLED.value:
+                run.mark_cancelled()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
                     run,
@@ -174,7 +235,7 @@ class ChatApplicationService:
                     agent_run_result=self._cancelled_agent_result(loop_result)
                 )
             if loop_result.status == AgentRunStatus.FAILED.value:
-                run.status = ChatGenerationRunStatus.FAILED
+                run.mark_failed()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_FAILED,
                     run,
@@ -185,7 +246,11 @@ class ChatApplicationService:
                 )
                 return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
 
-            run.status = ChatGenerationRunStatus.FINALIZING
+            if not run.try_enter_finalizing():
+                raise _ChatRunCancelled(
+                    run.phase,
+                    run.stop_reason or "user_requested",
+                )
             self._emit_chat_status(
                 run,
                 trace_id=trace_id,
@@ -199,7 +264,7 @@ class ChatApplicationService:
             )
             prepared_finalized = True
 
-            run.status = ChatGenerationRunStatus.COMPLETED
+            run.mark_completed()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_COMPLETED,
                 run,
@@ -208,17 +273,19 @@ class ChatApplicationService:
                 topic_id=prepared.topic_id,
             )
             return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
-        except GatewayCancelledError:
-            run.status = ChatGenerationRunStatus.CANCELLED
+        except _ChatRunCancelled as cancelled:
+            run.mark_cancelled()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_CANCELLED,
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
+                topic_id=prepared.topic_id if prepared is not None else None,
+                data={"phase": cancelled.phase.value},
             )
             return NonStreamingChatAgentOutcome(agent_run_result=self._cancelled_agent_result())
         except Exception:
-            run.status = ChatGenerationRunStatus.FAILED
+            run.mark_failed()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_FAILED,
                 run,
@@ -238,7 +305,7 @@ class ChatApplicationService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            self._registry.close(run.generation_id, run.status)
+            self._registry.close(run.generation_id)
             reset_trace_context(tokens)
 
     # ========== 流式主链路 ==========
@@ -269,6 +336,7 @@ class ChatApplicationService:
         terminal_state: Literal["completed", "cancelled", "failed"] | None = None
         # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
         prepared_finalized = False
+        owner_task = asyncio.current_task()
         identity = Identity(
             user_id=user_id,
             agent_id=agent_id,
@@ -286,20 +354,23 @@ class ChatApplicationService:
             )
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
 
-            run.status = ChatGenerationRunStatus.PREPARING
+            run.enter_phase(ChatRunPhase.GATEWAY)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
-            gateway_result = await self._bus.request(
-                GlobalRoutes.GATEWAY_PROCESS,
-                message=user_message,
-                identity=identity,
-                ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-                cancel_event=run.cancel_event,
-                request_timeout_ms=self._gateway_request_timeout_ms,
+            gateway_result = await _run_interruptible(
+                run,
+                ChatRunPhase.GATEWAY,
+                lambda: self._bus.request(
+                    GlobalRoutes.GATEWAY_PROCESS,
+                    message=user_message,
+                    identity=identity,
+                    ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+                    request_timeout_ms=self._gateway_request_timeout_ms,
+                ),
             )
 
             if gateway_result.kind == "command":
                 command_result = gateway_result.command_execution_result
-                run.status = ChatGenerationRunStatus.COMPLETED
+                run.mark_completed()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_COMPLETED,
                     run,
@@ -315,6 +386,12 @@ class ChatApplicationService:
                 yield self._command_done(run, command_result)
                 return
 
+            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
+                raise _ChatRunCancelled(
+                    ChatRunPhase.PREPARE,
+                    run.stop_reason or "user_requested",
+                )
+            run.enter_phase(ChatRunPhase.PREPARE)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -325,6 +402,12 @@ class ChatApplicationService:
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
             )
+
+            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
+                raise _ChatRunCancelled(
+                    ChatRunPhase.PREPARE,
+                    run.stop_reason or "user_requested",
+                )
 
             prelude = prepared.stream_prelude
             yield {
@@ -337,21 +420,7 @@ class ChatApplicationService:
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
 
-            # 分支：用户在 prepare 期间请求取消。跳过 Alice 和 finalize，返回 cancelled done。
-            if run.cancelled:
-                run.status = ChatGenerationRunStatus.CANCELLED
-                self._emit_chat_event(
-                    RuntimeEventType.CHAT_RUN_CANCELLED,
-                    run,
-                    trace_id=trace_id,
-                    agent_id=agent_id,
-                    topic_id=prelude.topic_id,
-                )
-                terminal_state = "cancelled"
-                yield self._cancelled_done(run)
-                return
-
-            run.status = ChatGenerationRunStatus.STREAMING
+            run.enter_phase(ChatRunPhase.ALICE)
             self._emit_chat_status(
                 run,
                 trace_id=trace_id,
@@ -359,26 +428,35 @@ class ChatApplicationService:
                 topic_id=prelude.topic_id,
             )
             loop_result = None
-            stream = await self._bus.request(
-                GlobalRoutes.ALICE_RUN_AGENT_STREAM,
-                agent_run_context=prepared.agent_run_context,
-                generation_options=prepared.generation_options,
-                cancel_event=run.cancel_event,
-                generation_id=run.generation_id,
+            stream = await _run_interruptible(
+                run,
+                ChatRunPhase.ALICE,
+                lambda: self._bus.request(
+                    GlobalRoutes.ALICE_RUN_AGENT_STREAM,
+                    agent_run_context=prepared.agent_run_context,
+                    generation_options=prepared.generation_options,
+                    generation_id=run.generation_id,
+                ),
             )
-            async for event in stream:
+            while True:
+                try:
+                    event = await _run_interruptible(
+                        run,
+                        ChatRunPhase.ALICE,
+                        lambda: anext(stream),
+                    )
+                except StopAsyncIteration:
+                    break
                 if event["event"] == "done":
                     loop_result = AgentRunResult(**event["data"])
                 else:
                     yield event
 
-            # 分支：Alice stream 非异常结束但没有终态 done，按协议错误进入 failed。
             if loop_result is None:
                 raise RuntimeError("Stream ended without done event")
 
-            # 分支：用户取消或 Alice 响应取消。跳过 finalize，不触发主动记忆生成。
-            if run.cancelled or loop_result.status == AgentRunStatus.CANCELLED.value:
-                run.status = ChatGenerationRunStatus.CANCELLED
+            if loop_result.status == AgentRunStatus.CANCELLED.value:
+                run.mark_cancelled()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
                     run,
@@ -390,7 +468,7 @@ class ChatApplicationService:
                 yield self._cancelled_done(run, loop_result)
                 return
             if loop_result.status == AgentRunStatus.FAILED.value:
-                run.status = ChatGenerationRunStatus.FAILED
+                run.mark_failed()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_FAILED,
                     run,
@@ -403,7 +481,11 @@ class ChatApplicationService:
                 yield self._failed_done(run, loop_result)
                 return
 
-            run.status = ChatGenerationRunStatus.FINALIZING
+            if not run.try_enter_finalizing():
+                raise _ChatRunCancelled(
+                    run.phase,
+                    run.stop_reason or "user_requested",
+                )
             self._emit_chat_status(
                 run,
                 trace_id=trace_id,
@@ -414,7 +496,7 @@ class ChatApplicationService:
                 "event": "run_status",
                 "data": {
                     "generation_id": run.generation_id,
-                    "status": run.status.value,
+                    "status": "finalizing",
                 },
             }
             # 分支：正常完成 Alice 后进入 Patchouli finalize；成功后 prepared 不再需要 cleanup。
@@ -427,7 +509,7 @@ class ChatApplicationService:
             memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
             final_pool_topics = await self._list_final_pool_topics(prepared)
 
-            run.status = ChatGenerationRunStatus.COMPLETED
+            run.mark_completed()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_COMPLETED,
                 run,
@@ -450,21 +532,22 @@ class ChatApplicationService:
                 },
             }
 
-        except GatewayCancelledError:
-            run.status = ChatGenerationRunStatus.CANCELLED
+        except _ChatRunCancelled as cancelled:
+            run.mark_cancelled()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_CANCELLED,
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
+                topic_id=prepared.topic_id if prepared is not None else None,
+                data={"phase": cancelled.phase.value},
             )
             terminal_state = "cancelled"
             yield self._cancelled_done(run)
             return
         except Exception as e:
-            # 分支：prepare / Alice / finalize 任一阶段抛出非取消异常，统一发布 failed。
             logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
-            run.status = ChatGenerationRunStatus.FAILED
+            run.mark_failed()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_FAILED,
                 run,
@@ -478,10 +561,11 @@ class ChatApplicationService:
             yield {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
         finally:
             # 分支：客户端断开或生成器被提前关闭，且此前没有 completed/cancelled/failed 终态。
-            if terminal_state is None:
-                if not run.cancelled:
-                    run.request_cancel("stream_closed")
-                run.status = ChatGenerationRunStatus.CANCELLED
+            owner_is_cancelling = owner_task is not None and owner_task.cancelling() > 0
+            if terminal_state is None and not owner_is_cancelling:
+                if run.outcome is ChatRunOutcome.RUNNING:
+                    run.request_stop("stream_closed")
+                run.mark_cancelled()
                 self._emit_chat_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
                     run,
@@ -489,7 +573,7 @@ class ChatApplicationService:
                     agent_id=agent_id,
                     topic_id=prepared.topic_id if prepared is not None else None,
                     message="Chat stream closed before terminal event.",
-                    data={"close_reason": run.cancel_reason or "stream_closed"},
+                    data={"close_reason": run.stop_reason or "stream_closed"},
                 )
                 terminal_state = "cancelled"
             # 统一清理：无论正常、取消、失败还是断流，都尝试关闭 Alice 子流。
@@ -509,7 +593,7 @@ class ChatApplicationService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            self._registry.close(run.generation_id, run.status)
+            self._registry.close(run.generation_id)
             if tokens is not None:
                 reset_trace_context(tokens)
 
@@ -551,7 +635,7 @@ class ChatApplicationService:
                 "generation_id": run.generation_id,
                 "status": "cancelled",
                 "stopped": True,
-                "reason": run.cancel_reason or "user_requested",
+                "reason": run.stop_reason or "user_requested",
                 "memory_task_ids": [],
             },
         }
@@ -637,13 +721,26 @@ class ChatApplicationService:
                 generation_id=run.generation_id,
                 agent_id=agent_id,
                 topic_id=topic_id,
-                status=run.status.value,
-                reason=run.cancel_reason,
+                status=self._event_status(run),
+                reason=run.stop_reason,
                 severity=severity,  # type: ignore[arg-type]
                 message=message,
                 data=data or {},
             )
         )
+
+    @staticmethod
+    def _event_status(run: ChatGenerationRun) -> str:
+        if run.outcome is not ChatRunOutcome.RUNNING:
+            return run.outcome.value
+        return {
+            ChatRunPhase.CREATED: "created",
+            ChatRunPhase.GATEWAY: "preparing",
+            ChatRunPhase.PREPARE: "preparing",
+            ChatRunPhase.ALICE: "streaming",
+            ChatRunPhase.FINALIZE: "finalizing",
+            ChatRunPhase.TERMINAL: "terminal",
+        }[run.phase]
 
     async def _list_final_pool_topics(self, prepared_run) -> list[dict[str, Any]]:
         try:

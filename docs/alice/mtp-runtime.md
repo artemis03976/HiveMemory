@@ -126,9 +126,9 @@ READ 正式 atom/redirect 与 RUN code atom 会请求 Patchouli 记录 citation�
 
 ## 7. 取消边界
 
-Koakuma 在拦截命令前和 handler 分发前检查本次调用显式传入的 `cancel_event`；Agent loop 也在生成前后与 MTP 执行前后设置 checkpoint。命中取消时返回 `cancelled`，frame 随后由 Agent Runtime 结束，不应转换成普通 success。MTPExecutor 和 Koakuma 不再保存跨 run 的共享 cancel 字段。
+Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定义取消协议。Chat application 取消等待中的 Agent task 后，原生 `asyncio.CancelledError` 直接穿过 MTP await；不得转换为普通 success，也不得构造 Chat-level cancelled 哨兵。内部已经结算的 `FrameExecutionStatus.CANCELLED` 仍可用于 frame finalize 和 CALL response 映射，但不能吞掉 task cancellation。
 
-这是一种协作式取消。同步 syscall 一旦开始执行，事件循环必须等待函数返回；REPL 自身的 subprocess timeout 能终止超时子进程，但普通 cancel_event 不能在运行中立即打断它。文件 I/O 和 web search 同样没有中途取消 checkpoint。
+同步 syscall 一旦开始执行，事件循环必须等待函数返回；REPL 自身的 subprocess timeout 能终止超时子进程，但 Python task cancellation 不能在运行中强制打断同步代码。文件 I/O 和 web search 同样没有中途抢占点。
 
 ## 8. 配置与实际接线
 
@@ -184,13 +184,13 @@ Alice 配置当前分为两组：
 - `execution_timeout_seconds` 没有包住 `execute_mtp()`，`tool_cache_size` 也未接入任何 cache；配置存在不代表能力已实现；
 - `web_search_timeout_seconds` 虽被传进 syscall registry，但 `sys_web_search()` 明确忽略该参数；底层调用可能超过配置时间；
 - Kernel syscalls 是同步函数，并在 async handler 中直接执行。文件、搜索和 subprocess 等工作会阻塞当前事件循环；
-- cancel token 按 `intercept_and_execute(..., cancel_event=...)` 逐次传入，不再保存在共享 KoakumaRuntime 字段中；仍需通过并发回归测试持续验证 run-local 隔离；
-- 同步 syscall 执行期间不会轮询 cancel_event，因此协作式取消不能立即中断文件或网络调用；
+- MTP 调用不携带 Chat Run 取消参数；取消边界由拥有该 await 的外层 task 负责；
+- 同步 syscall 执行期间不会轮询取消状态，因此 task cancellation 不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
 - RuntimeAliasResolver 的 L0 PendingAtom 和 L1 atom cache 命中不重新校验 Identity。当前代码尚未完全兑现 MTP 契约中“记忆访问使用调用方 Identity”的不变量；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
-- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，但 frame registry、CALL ledger、cancel event 与 stream sequence 已按 run 隔离。
+- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，但 frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-08-05
 ---
 
 # 系统边界与所有权
@@ -63,7 +63,7 @@ System 是舞台管理者：它知道一次完整用例需要哪些参与者、�
 ### 4.1 拥有的状态
 
 - `HiveMemorySystem` 启停状态；
-- chat generation registry 和取消信号；
+- chat generation registry，以及其中的 phase、outcome、首次 stop reason 与当前可中断阶段 task 引用；
 - Passive Ingress 的去重、turn buffer、outbox 与 drain 状态；
 - `RuntimeEventBus` 有界事件缓冲；
 - 全局维护任务注册与调度状态；
@@ -86,7 +86,7 @@ Gateway 的价值在于把不稳定、可能降级的入口分析收敛为一个
 
 ### 5.1 输入与输出
 
-Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`Identity`、`GatewayIngressMode` 以及可选取消/超时控制；输出为命令终态或普通决策终态。
+Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`Identity`、`GatewayIngressMode` 以及可选 `request_timeout_ms`；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
 
 `GatewayDecision` 只表达下游需要的稳定事实：目标话题、查询重写、关键词、记忆写入信号、检索计划和主意图。Workflow 的 step、snapshot、fallback 原因与内部分析对象不越过公共边界。
 
@@ -97,7 +97,8 @@ Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括�
 - 已路由话题加载失败：使用空话题上下文；
 - 查询分析失败：保留原始查询，使用 `RAG + HYBRID` 和默认 `top_k`；
 - step 投影、状态提交或终态不变量失败：不使用局部 fallback，整个 workflow 失败；
-- 请求取消或总 deadline 耗尽：抛出明确的 Gateway 控制错误。
+- 外层 task cancellation：原生 `asyncio.CancelledError` 直接传播，不转为 Gateway 业务错误或 fallback；
+- 总 deadline 耗尽：只有剩余步骤都有安全 fallback 时才能继续形成保守终态，否则抛出 `GatewayTimeoutError`。
 
 这些降级并不是把所有异常吞掉。候选集、辅助上下文和单项分析失败时，Gateway 仍可能形成保守而完整的决定；一旦 workflow 无法满足终态不变量，再继续返回“看起来可用”的结果只会把程序错误伪装成正常决策，因此必须让整次处理失败。
 
@@ -141,7 +142,7 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 ### 7.1 拥有的状态
 
 - 一次 Agent run 的 frame、消息、turn events 和终态；
-- Agent loop 的迭代、取消与流式输出；
+- Agent loop 的迭代与流式执行资源；task cancellation 的业务裁决属于 System，Alice 只负责原生传播与本地 unwind；
 - Koakuma 的 MTP parser、权限检查、alias cache 与 syscall registry；
 - PendingAtom 在当前运行期内的别名、redirect 和 terminal view；
 - CALL 的父子 frame 调度。

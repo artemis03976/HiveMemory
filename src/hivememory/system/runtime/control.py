@@ -1,26 +1,45 @@
-"""Runtime control handles owned by the system application layer."""
+"""System 应用层持有的 Chat Run 运行时控制句柄。"""
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
-class ChatGenerationRunStatus(str, Enum):
+class ChatRunPhase(str, Enum):
+    """Chat Run 当前所在的编排阶段。"""
+
     CREATED = "created"
-    PREPARING = "preparing"
-    STREAMING = "streaming"
-    FINALIZING = "finalizing"
-    COMPLETED = "completed"
-    CANCELLING = "cancelling"
+    GATEWAY = "gateway"
+    PREPARE = "prepare"
+    ALICE = "alice"
+    FINALIZE = "finalize"
+    TERMINAL = "terminal"
+
+
+class ChatRunOutcome(str, Enum):
+    """Chat Run 的持久终态事实。"""
+
+    RUNNING = "running"
+    STOP_REQUESTED = "stop_requested"
     CANCELLED = "cancelled"
+    COMPLETED = "completed"
     FAILED = "failed"
 
 
-@dataclass
+@dataclass(frozen=True)
+class StopResult:
+    """一次 stop 请求的即时判定。"""
+
+    accepted: bool
+    reason: str
+
+
+@dataclass(frozen=True)
 class CancelResult:
+    """Stop API 对外保持的结构化结果。"""
+
     generation_id: str
     cancelled: bool
     status: str
@@ -29,29 +48,90 @@ class CancelResult:
 
 @dataclass
 class ChatGenerationRun:
+    """一次 Chat Run 的阶段引用与终态事实。"""
+
     generation_id: str
-    cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
-    status: ChatGenerationRunStatus = ChatGenerationRunStatus.CREATED
-    cancel_reason: Optional[str] = None
+    phase: ChatRunPhase = ChatRunPhase.CREATED
+    outcome: ChatRunOutcome = ChatRunOutcome.RUNNING
+    stop_reason: str | None = None
+    active_task: asyncio.Task[object] | None = None
 
-    @property
-    def cancelled(self) -> bool:
-        return self.cancel_event.is_set()
+    def bind_phase(self, phase: ChatRunPhase, task: asyncio.Task[object]) -> None:
+        """绑定当前可被 stop 中断的阶段 task。"""
+        self.phase = phase
+        self.active_task = task
 
-    def request_cancel(self, reason: str = "user_requested") -> None:
-        if self.status not in (
-            ChatGenerationRunStatus.CANCELLED,
-            ChatGenerationRunStatus.COMPLETED,
-            ChatGenerationRunStatus.FAILED,
-        ):
-            self.status = ChatGenerationRunStatus.CANCELLING
-            if self.cancel_reason is None:
-                self.cancel_reason = reason
-        self.cancel_event.set()
+    def unbind_phase(self, task: asyncio.Task[object]) -> None:
+        """仅按 task 身份解绑，避免旧 task 清空新阶段引用。"""
+        if self.active_task is task:
+            self.active_task = None
+
+    def enter_phase(self, phase: ChatRunPhase) -> None:
+        """进入没有可中断 task 的阶段或阶段交接窗口。"""
+        self.phase = phase
+        self.active_task = None
+
+    def try_enter_finalizing(self) -> bool:
+        """同步进入 finalize；已接受 stop 时拒绝进入。"""
+        if self.outcome in {ChatRunOutcome.STOP_REQUESTED, ChatRunOutcome.CANCELLED}:
+            return False
+        if self.phase is ChatRunPhase.TERMINAL:
+            return False
+        self.phase = ChatRunPhase.FINALIZE
+        self.active_task = None
+        return True
+
+    def mark_cancelled(self) -> None:
+        """记录 Chat-level cancelled 终态。"""
+        self.outcome = ChatRunOutcome.CANCELLED
+        self.phase = ChatRunPhase.TERMINAL
+        self.active_task = None
+
+    def mark_completed(self) -> None:
+        """记录 Chat-level completed 终态。"""
+        self.outcome = ChatRunOutcome.COMPLETED
+        self.phase = ChatRunPhase.TERMINAL
+        self.active_task = None
+
+    def mark_failed(self) -> None:
+        """记录 Chat-level failed 终态。"""
+        self.outcome = ChatRunOutcome.FAILED
+        self.phase = ChatRunPhase.TERMINAL
+        self.active_task = None
+
+    def request_stop(self, reason: str = "user_requested") -> StopResult:
+        """同步记录 stop，并取消当前唯一的可中断阶段 task。"""
+        if self.outcome in {ChatRunOutcome.STOP_REQUESTED, ChatRunOutcome.CANCELLED}:
+            return StopResult(
+                accepted=True,
+                reason=self.stop_reason or reason,
+            )
+
+        if self.phase in {ChatRunPhase.FINALIZE, ChatRunPhase.TERMINAL}:
+            return StopResult(
+                accepted=False,
+                reason=(
+                    "already_finalizing"
+                    if self.phase is ChatRunPhase.FINALIZE
+                    else "already_terminal"
+                ),
+            )
+
+        self.outcome = ChatRunOutcome.STOP_REQUESTED
+        self.stop_reason = reason
+
+        task = self.active_task
+        if task is not None and not task.done():
+            task.cancel()
+
+        return StopResult(
+            accepted=True,
+            reason=reason,
+        )
 
 
 class ChatGenerationRunRegistry:
-    """In-process registry and cancellation surface for chat runs."""
+    """进程内 Chat Run 注册表与 stop API 控制面。"""
 
     def __init__(self) -> None:
         self._runs: dict[str, ChatGenerationRun] = {}
@@ -59,7 +139,7 @@ class ChatGenerationRunRegistry:
     def register(self, run: ChatGenerationRun) -> None:
         self._runs[run.generation_id] = run
 
-    def get(self, generation_id: str) -> Optional[ChatGenerationRun]:
+    def get(self, generation_id: str) -> ChatGenerationRun | None:
         return self._runs.get(generation_id)
 
     def cancel(self, generation_id: str, reason: str = "user_requested") -> CancelResult:
@@ -71,23 +151,25 @@ class ChatGenerationRunRegistry:
                 status="not_found",
                 reason=reason,
             )
-        run.request_cancel(reason)
+
+        result = run.request_stop(reason)
         return CancelResult(
             generation_id=generation_id,
-            cancelled=True,
-            status=run.status.value,
-            reason=run.cancel_reason or reason,
+            cancelled=result.accepted,
+            status=run.outcome.value,
+            reason=result.reason,
         )
 
-    def close(self, generation_id: str, status: ChatGenerationRunStatus) -> None:
-        run = self._runs.pop(generation_id, None)
-        if run is not None and not run.cancelled:
-            run.status = status
+    def close(self, generation_id: str) -> None:
+        """移除已由 Chat application 记录终态的 run。"""
+        self._runs.pop(generation_id, None)
 
 
 __all__ = [
     "CancelResult",
     "ChatGenerationRun",
     "ChatGenerationRunRegistry",
-    "ChatGenerationRunStatus",
+    "ChatRunOutcome",
+    "ChatRunPhase",
+    "StopResult",
 ]

@@ -121,25 +121,29 @@ async def test_run_agent_assembles_result_from_completed_frame():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_cancelled_does_not_materialize_runtime_products():
+async def test_run_agent_cancellation_unwinds_and_propagates():
     frame = _frame()
-    cancel_event = asyncio.Event()
-    cancel_event.set()
-    session = RunSession(agent_run_id="run-1", cancel_event=cancel_event)
+    started = asyncio.Event()
+
+    async def run_frame(*_args, **_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
     agent_runtime = SimpleNamespace(
         max_iterations=5,
-        run_frame=AsyncMock(
-            return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
-        ),
+        run_frame=run_frame,
         finalize_run=MagicMock(return_value=RuntimeProducts()),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
-    service, _ = _runtime_for_frame(frame, agent_runtime, session=session)
+    service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame))
+    task = asyncio.create_task(service.run_agent(_context(frame)))
+    await started.wait()
+    task.cancel()
 
-    assert result.status == AgentRunStatus.CANCELLED.value
-    assert result.materialize_tasks == []
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    agent_runtime.finalize_run.assert_called_once()
     assert agent_runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
 
 

@@ -12,12 +12,12 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-05
 ---
 
 # System 运行时与总线
 
-System 的运行时基础设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Runtime control 负责前台用例的取消句柄，RuntimeEventSink 负责观测旁路。
+System 的运行时基础设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Runtime control 负责前台用例的阶段与停止控制，RuntimeEventSink 负责观测旁路。
 
 这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。
 
@@ -80,15 +80,20 @@ jitter_seconds     -> 可选启动抖动
 
 ## 3. Runtime control
 
-`ChatGenerationRunRegistry` 是 System 应用层的前台控制表，保存 generation ID、取消 event、状态和取消原因。它只服务进程内 chat run：
+`ChatGenerationRunRegistry` 是 System 应用层的前台控制表，保存 generation ID、当前阶段、状态、取消原因和当前阶段的 task 引用。它只服务进程内 chat run：
 
 ```text
 client cancel
   -> registry.cancel(generation_id)
-  -> cancel_event.set()
-  -> Gateway/Alice 检查并终止当前能力
+  -> ChatGenerationRun.request_stop()
+  -> 取消 Gateway/Alice 阶段 child task
   -> ChatApplicationService 决定取消 done 与 prepared cleanup
 ```
+
+Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的阶段 task；`request_stop()`
+同步记录首次 stop reason，并且只调用一次 `Task.cancel()`。Prepare 没有可取消 task，停止只记账，
+返回后由 application 检查；Finalize 已经开始后拒绝 stop。跨子系统的取消传播使用原生
+`asyncio.CancelledError`，用户 stop 只在 Chat application 边界翻译为取消结果。
 
 该 registry 不提供持久化恢复、跨进程广播或历史查询。不要把它与后续 Runtime Job Queue 的长期任务状态混为一谈。
 
@@ -104,7 +109,7 @@ client cancel
 System application service -> GlobalSystemBus RPC -> subsystem owner
 Subsystem maintenance task -> GlobalMaintenanceScheduler callback
 Any operation -> RuntimeEventSink (best-effort observation)
-Chat cancel -> RuntimeControlRegistry -> current capability
+Chat cancel -> ChatGenerationRunRegistry -> current phase task
 ```
 
 禁止：

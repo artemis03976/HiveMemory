@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-05
 ---
 
 # System 应用服务
@@ -89,7 +89,7 @@ generation_id
        done(completed + memory_task_ids + pool_topics)
 ```
 
-流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭流则将 run 标记为 `cancelled`，关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。
+流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭时，SSE adapter 请求停止当前 generation，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。`chat_stream()` 随后关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。
 
 流式 `done`、`command_result` 和 `error` 是 transport 可消费的事件，不是新的跨子系统业务契约；它们的来源和调用顺序仍由本服务和 Contracts 共同约束。
 
@@ -98,11 +98,14 @@ generation_id
 `ChatGenerationRunRegistry` 是 System 应用层拥有的进程内控制表。每条 run 有：
 
 - `generation_id`；
-- `asyncio.Event` 取消信号；
-- `created/preparing/streaming/finalizing/completed/cancelling/cancelled/failed` 状态；
-- 首次取消原因。
+- `phase`：`created/gateway/prepare/alice/finalize/terminal`；
+- `outcome`：`running/stop_requested/cancelled/completed/failed`；
+- 首次接受的 `stop_reason`；
+- 仅在 Gateway 或 Alice 阶段存在的 `active_task` 身份引用。
 
-`cancel_generation()` 是幂等的：不存在返回 `not_found`，已完成或已失败的 run 不再改变业务终态，仍然可以返回当前状态。取消信号通过 Gateway、Alice 和流式清理边界传递，不由 RuntimeEvent 或客户端断连事件直接替代。
+Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run 后同步调用 `request_stop()`：不存在返回 `not_found`；首次 stop 固定 reason；重复 stop 返回同一判定且不重复取消 task。Gateway 与 Alice 阶段会取消当前 `active_task`；Prepare 只记录 stop，正常返回后由应用服务终止后续阶段；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。`active_task` 只表达当前可中断阶段的 task 身份，不是另一份取消状态。
+
+用户 stop 在 `chat_service.py` 内被翻译为私有 `_ChatRunCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 同时区分“stop 取消 child task”和“Chat owner 被 ASGI/shutdown 取消”，后者必须原样向上传播。资源所有者在 unwind 中关闭自己创建的 stream、runner 与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
 
 当前 registry 是进程内短期控制状态，不是可恢复 Job。进程重启后不能据此恢复 run；长期 Job 生命周期属于后续 Runtime Job Queue 计划。
 
@@ -123,7 +126,7 @@ generation_id
 ## 6. 错误、观测与 cleanup
 
 - 业务拒绝或资源不存在应使用服务定义的稳定结果/异常；
-- Gateway cancel/timeout 和 Alice 取消不应被包装成普通 success；
+- Gateway/Alice 的 task cancellation 不应被包装成普通 success 或 failed；Gateway timeout 仍按自己的 deadline/fallback 契约处理；
 - `RuntimeEventSink` 只记录 chat run、状态和失败，不改变返回值；
 - cleanup 是 prepare 失败后的有限补偿，不是跨子系统 rollback；
 - 应用服务捕获的错误应保留原始因果，不能通过“空列表/空话题”掩盖 route 缺失或契约违约。
@@ -144,7 +147,9 @@ generation_id
 ## 8. 验证入口
 
 - `tests/unit/system/application/test_gateway_chat_flow.py`
+- `tests/unit/system/test_chat_run_control_contract.py`
 - `tests/unit/system/test_cancel_hardening.py`
+- `tests/unit/server/routers/test_chat.py`
 - `tests/unit/system/application/test_api_services.py`
 - `tests/unit/system/application/test_memory_service.py`
 - `tests/unit/system/application/test_memory_task_service.py`

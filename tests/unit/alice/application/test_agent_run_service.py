@@ -127,11 +127,8 @@ async def test_run_agent_correlates_runtime_scope_and_generation_id():
         return session
 
     service._create_run_session = _capture_session
-    cancel_event = asyncio.Event()
-
     await service.run_agent(
         context,
-        cancel_event=cancel_event,
         generation_id="generation-1",
     )
 
@@ -139,8 +136,6 @@ async def test_run_agent_correlates_runtime_scope_and_generation_id():
     assert session.generation_id == "generation-1"
     assert session.agent_run_id == recorder.events[0].agent_run_id
     assert recorder.events[0].generation_id == "generation-1"
-    assert session.cancel_event is cancel_event
-    assert runtime._agent_runtime.run_frame.await_args.kwargs["cancel_event"] is cancel_event
 
 
 @pytest.mark.asyncio
@@ -179,10 +174,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
-    received_cancel_events = []
-
-    async def _run_frame(_frame, *, output_sink, cancel_event, **_kwargs):
-        received_cancel_events.append(cancel_event)
+    async def _run_frame(_frame, *, output_sink, **_kwargs):
         await output_sink.send(TokenDelta(content="hi"))
         await asyncio.Event().wait()
 
@@ -198,24 +190,73 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     assert RuntimeEventType.AGENT_RUN_CANCELLED in runtime_event_types
     assert recorder.events[-1].status == "cancelled"
     assert recorder.events[-1].data["close_reason"] == "stream_closed"
-    assert len(received_cancel_events) == 1
-    assert received_cancel_events[0].is_set()
     runtime._agent_runtime.finalize_run.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_error_does_not_set_cancel_event():
+async def test_executor_stream_close_error_does_not_replace_task_cancellation():
+    recorder = RecordingRuntimeEventSink()
+    _runtime, service = _build_service(runtime_events=recorder)
+    context = _build_agent_run_context(_build_memory_atom())
+
+    class CloseFailingExecutorStream:
+        def __init__(self) -> None:
+            self._emitted = False
+            self.pull_started = asyncio.Event()
+            self.close_calls = 0
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._emitted:
+                self.pull_started.set()
+                await asyncio.Event().wait()
+            self._emitted = True
+            return {"event": "token", "data": {"content": "hi"}}
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+            raise RuntimeError("executor stream close failed")
+
+    executor_stream = CloseFailingExecutorStream()
+    agent_stream = MagicMock()
+    agent_stream.output = MagicMock()
+
+    def events(runner):
+        runner.close()
+        return executor_stream
+
+    agent_stream.events.side_effect = events
+    service._stream_adapter.create = MagicMock(return_value=agent_stream)
+    stream = service.run_agent_stream(context)
+
+    assert (await anext(stream))["event"] == "token"
+    pull_task = asyncio.create_task(anext(stream))
+    await executor_stream.pull_started.wait()
+    pull_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await pull_task
+
+    assert executor_stream.close_calls == 1
+    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_CANCELLED
+    assert RuntimeEventType.AGENT_RUN_FAILED not in {
+        event.event_type for event in recorder.events
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_error_preserves_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
-    cancel_event = asyncio.Event()
     runtime._agent_runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
-        async for _ in service.run_agent_stream(context, cancel_event=cancel_event):
+        async for _ in service.run_agent_stream(context):
             pass
 
-    assert cancel_event.is_set() is False
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
     assert recorder.events[-1].status == "failed"
 
@@ -225,8 +266,6 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
     recorder = RecordingRuntimeEventSink()
     _runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
-    cancel_event = asyncio.Event()
-
     executor = MagicMock()
     executor.run = AsyncMock(
         return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
@@ -237,9 +276,8 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
         return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent_stream(context, cancel_event=cancel_event):
+            async for _ in service.run_agent_stream(context):
                 pass
 
-    assert cancel_event.is_set() is False
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
     assert recorder.events[-1].message == "Agent stream ended without done event."

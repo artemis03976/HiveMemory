@@ -32,6 +32,5 @@ async def test_koakuma_mtp_executor_delegates_to_runtime():
     koakuma.intercept_and_execute.assert_awaited_once_with(
         "assistant text",
         context=context,
-        cancel_event=None,
     )
     assert actual is result

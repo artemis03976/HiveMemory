@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/server/routers/chat.py
   - frontend/src/stores/chat/
 related_docs:
-  - docs/plans/chat-run-cancellation-unified.md
+  - docs/archive/plans/chat-run-cancellation-unified.md
   - docs/plans/runtime-event-publishing-refactor.md
   - docs/plans/cross-subsystem-idempotency-and-retry.md
   - docs/system/observability.md
@@ -25,9 +25,9 @@ last_reviewed: 2026-08-05
 ## 1. 文档定位
 
 本文档保存从取消重构中拆出的后续候选设计。它不是当前实施依据，也不是
-[Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md) 的前置依赖。
+[已归档的 Chat Run 取消重构最小闭环](../archive/plans/chat-run-cancellation-unified.md) 的前置依赖。
 
-最小闭环完成后，只有在产品需求、运行指标或真实故障证明有必要时，才按本文各节的
+最小闭环已完成。只有在产品需求、运行指标或真实故障证明有必要时，才按本文各节的
 独立启用条件立项。不得以“架构最终会需要”为理由一次性实施全部内容。
 
 本文覆盖：

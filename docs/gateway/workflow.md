@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-05
 ---
 
 # Gateway 固定工作流
@@ -40,7 +40,7 @@ GatewayWorkflow
 
 `GatewayWorkflow` 是请求级执行协调者，`GatewayExecutionState` 只由它持有。Engine、Provider、Resolver 和 Dispatcher 可以替换，但不能改变公共终态结构；拓扑若发生变化，应显式修改 `build_gateway_workflow()` 和当前文档，而不是让某个 Engine 私下跳转到另一步。
 
-`GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、`Identity`、入口模式、取消信号和有效 deadline 交给 workflow。
+`GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、`Identity`、入口模式和有效 deadline 交给 workflow；Gateway 不接收 Chat Run 控制对象或取消参数。
 
 ## 2. 当前固定拓扑
 
@@ -125,7 +125,7 @@ GatewayDecisionOutcome
 
 请求控制遵循两个原则：取消优先传播，deadline 限制整条链路。
 
-`cancel_event` 在 Step 开始前和能力调用等待期间都会检查。取消发生时，当前 invocation task 被取消并等待收尾，workflow 抛出 `GatewayCancelledError`。取消不是能力退化，因此不能转为本地 fallback 或普通 decision。
+Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat application 在进入 Gateway 阶段时创建 child task；用户 stop 直接取消这个 task，原生 `asyncio.CancelledError` 沿当前 await 传播。取消不是能力退化，因此不能转为本地 fallback 或普通 decision；request deadline 和 Step timeout 仍由 workflow 自己负责，并继续使用现有 fallback 规则。
 
 请求 deadline 从 workflow 开始时计算。每个 Step 的实际等待时间是“Step timeout”与“整次请求剩余时间”的较小值。若整次 deadline 在某个可降级 Step 中耗尽，该 Step 先提交 fallback，后续带 fallback 的 Step 不再调用能力，而是继续提交保守默认值，直到形成完整 decision；若当前 Step 没有 fallback，则抛出 `GatewayTimeoutError`。
 
@@ -147,7 +147,7 @@ GatewayDecisionOutcome
 
 ## 7. 观测不是控制面
 
-Workflow 发布 started、step completed、completed、cancelled 和 failed RuntimeEvent。Step 事件会记录 `step_id`、序号、耗时、是否 fallback 和原因；终态事件记录 outcome kind 与总耗时。
+Workflow 发布 started、step completed、completed 和 failed RuntimeEvent。Step 事件会记录 `step_id`、序号、耗时、是否 fallback 和原因；终态事件记录 outcome kind 与总耗时。原生 task cancellation 直接离开 Gateway，不发布 `gateway.workflow.cancelled`，也不伪装成 failed 观测。
 
 RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入公共 outcome。关于 RuntimeEvent 的统一边界见 [System 可观测性](../system/observability.md)。
 

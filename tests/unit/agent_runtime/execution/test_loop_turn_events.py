@@ -303,43 +303,47 @@ async def test_mtp_execution_receives_frame_context():
 
 
 @pytest.mark.asyncio
-async def test_cancel_before_mtp_execution_skips_executor():
+async def test_task_cancellation_during_generation_propagates_before_mtp():
     frame = _make_frame()
-    cancel_event = asyncio.Event()
+    started = asyncio.Event()
 
-    async def generate_and_cancel(*args, **kwargs):
-        cancel_event.set()
-        return _mtp_result("前缀", "<< READ | alias_x >>")
+    async def slow_generate(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
 
     executor, _kernel = _build_executor([])
-    executor.worker_agent.generate_async = AsyncMock(side_effect=generate_and_cancel)
+    executor.worker_agent.generate_async = slow_generate
 
-    await executor.execute_frame(frame, max_iterations=5, cancel_event=cancel_event)
+    task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
+    await started.wait()
+    task.cancel()
 
+    with pytest.raises(asyncio.CancelledError):
+        await task
     executor._mtp_executor.intercept_and_execute.assert_not_awaited()
-    assert "".join(frame.progress.text_segments) == "前缀"
-    assert [ev.kind for ev in frame.progress.turn_events] == ["assistant_message"]
 
 
 @pytest.mark.asyncio
-async def test_cancel_after_mtp_execution_skips_result_processing():
+async def test_task_cancellation_during_mtp_propagates():
     frame = _make_frame()
     gen_results = [_mtp_result("前缀", "<< READ | alias_x >>")]
     executor, _kernel = _build_executor(gen_results)
-    cancel_event = asyncio.Event()
+    started = asyncio.Event()
 
-    async def execute_and_cancel(*args, **kwargs):
-        cancel_event.set()
-        return _mtp_exec_result("READ")
+    async def slow_execute(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
 
-    executor._mtp_executor.intercept_and_execute = AsyncMock(side_effect=execute_and_cancel)
+    executor._mtp_executor.intercept_and_execute = slow_execute
 
-    await executor.execute_frame(frame, max_iterations=5, cancel_event=cancel_event)
+    task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
+    await started.wait()
+    task.cancel()
 
-    executor._mtp_executor.intercept_and_execute.assert_awaited_once()
+    with pytest.raises(asyncio.CancelledError):
+        await task
     assert "".join(frame.progress.text_segments) == "前缀"
     assert [ev.kind for ev in frame.progress.turn_events] == ["assistant_message"]
-    assert len(frame.working_history) == 1
 
 
 @pytest.mark.asyncio

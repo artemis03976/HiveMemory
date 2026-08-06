@@ -10,7 +10,6 @@ import pytest
 import hivememory
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
-    GatewayCancelledError,
     GatewayIngressMode,
     GatewayTimeoutError,
 )
@@ -28,7 +27,7 @@ from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 @pytest.mark.asyncio
-async def test_cancel_stops_current_provider_invoke_and_emits_cancelled() -> None:
+async def test_task_cancel_stops_current_provider_invoke_and_propagates() -> None:
     bus = GlobalSystemBus()
     started = asyncio.Event()
     provider_cancelled = asyncio.Event()
@@ -47,24 +46,22 @@ async def test_cancel_stops_current_provider_invoke_and_emits_cancelled() -> Non
         global_bus=bus,
         runtime_events=events,
     )
-    cancel_event = asyncio.Event()
     task = asyncio.create_task(
         GatewayService(runtime).process(
             "需要取消的问题",
             identity=Identity(user_id="u1"),
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-            cancel_event=cancel_event,
         )
     )
 
     await started.wait()
-    cancel_event.set()
+    task.cancel()
 
-    with pytest.raises(GatewayCancelledError):
+    with pytest.raises(asyncio.CancelledError):
         await task
     assert provider_cancelled.is_set()
     event_types = [event.event_type for event in events.events]
-    assert RuntimeEventType.GATEWAY_WORKFLOW_CANCELLED.value in event_types
+    assert RuntimeEventType.GATEWAY_WORKFLOW_CANCELLED.value not in event_types
     assert RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value not in event_types
 
 
@@ -122,23 +119,31 @@ async def test_exhausted_deadline_without_fallback_raises_timeout() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_wins_when_invoke_completes_at_the_same_time() -> None:
+async def test_workflow_propagates_task_cancellation_without_business_result() -> None:
+    bus = GlobalSystemBus()
+    started = asyncio.Event()
+
+    async def slow_topics(**_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, slow_topics)
     runtime = GatewayRuntime(
         config=SystemGatewayConfig(),
-        global_bus=GlobalSystemBus(),
+        global_bus=bus,
     )
-    cancel_event = asyncio.Event()
-
-    async def complete_and_cancel() -> str:
-        cancel_event.set()
-        return "completed"
-
-    with pytest.raises(GatewayCancelledError):
-        await runtime.workflow._invoke_with_control(
-            complete_and_cancel(),
-            timeout=1.0,
-            cancel_event=cancel_event,
+    task = asyncio.create_task(
+        runtime.workflow.run(
+            "问题",
+            identity=Identity(user_id="u1"),
+            ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         )
+    )
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 def test_legacy_gateway_root_exports_are_removed() -> None:

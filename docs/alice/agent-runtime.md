@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-04
+last_reviewed: 2026-08-05
 ---
 
 # Agent Runtime
@@ -43,7 +43,7 @@ AgentRunService
 
 `AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢热缓存和三级解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunExecutor；执行层不再位于 Alice 编排目录中。
 
-当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink, cancel_event)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
+当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
 
 ## 2. ExecutionFrame：可恢复的运行 PCB
 
@@ -110,17 +110,16 @@ session generation_options
 默认最大循环次数为 10。每轮执行：
 
 ```text
-1. check cancel
-2. WorkerAgent generate with stop=["⟫"]
-3. natural output?
+1. WorkerAgent generate with stop=["⟫"]
+2. natural output?
      -> append assistant text/event -> complete
-4. MTP fragment?
+3. MTP fragment?
      -> build action-scoped MTPExecutionContext
      -> Koakuma execute
      -> append tool_call event
-5. response == suspend?
+4. response == suspend?
      -> return FrameExecutionResult(SUSPENDED)
-6. ordinary result
+5. ordinary result
      -> append assistant command + formatted tool result to history
      -> append tool_result event
      -> continue
@@ -142,13 +141,13 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
 - `done` 由 AgentRunService 在 RunExecutor 完成主 run 收尾后组装，而不是由 WorkerAgent 直接发出。
 
-每次流式 run 由 `AgentRunStreamAdapter` 创建容量为 256 的有界 FIFO queue、runner task 与 run-local `stream_sequence`。`QueueAgentRunOutput` 使用 `await put()` 保留背压，不丢弃 token 或控制事件；消费者提前关闭时，适配器设置当前 `RunSession.cancel_event` 并取消当前 runner，不影响其他 run。RunExecutor 本身没有 `run_stream()`、queue 或 sequence，它只调用统一的 `run(..., run_output=...)`。
+每次流式 run 由 `AgentRunStreamAdapter` 创建容量为 256 的有界 FIFO queue、runner task 与 run-local `stream_sequence`。`QueueAgentRunOutput` 使用 `await put()` 保留背压，不丢弃 token 或控制事件；消费者提前关闭时，适配器取消并 join 自己创建的 runner，不影响其他 run。RunExecutor 本身没有 `run_stream()`、queue 或 sequence，它只调用统一的 `run(..., run_output=...)`。
 
 检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunExecutor` 取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()`；Coordinator 先通过 `CallContextProvider` 获得目标 Profile 和共享上下文，再准备 callee。随后 Executor 递归等待同一个 `_execute_frame(callee)`，返回后调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。Runtime 不感知入口/被调用角色，挂起关系由 Executor 的协程调用栈表达。
 
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/done` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，只记录 `agent.run.*` 等生命周期摘要。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
-非流式 LiteLLM 请求会与 `cancel_event.wait()` 竞争，取消时主动 cancel completion task。流式请求在每个 chunk 边界检查 cancel_event；MTP handler 又在执行前后检查，但同步 syscall 运行期间不能被这些 checkpoint 强制打断。
+非流式 LiteLLM await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Agent loop 在 `finally` 中关闭 Worker generator，Worker 再关闭 LiteLLM/provider response；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
 
 ## 7. AgentRunResult 的组装边界
 

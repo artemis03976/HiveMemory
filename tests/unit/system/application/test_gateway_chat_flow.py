@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,7 +10,6 @@ import pytest
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
-    GatewayCancelledError,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -122,22 +122,24 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
 @pytest.mark.asyncio
 async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     bus = GlobalSystemBus()
-    bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
-        AsyncMock(side_effect=GatewayCancelledError("cancelled")),
-    )
+    started = asyncio.Event()
+
+    async def gateway(**_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     service = ChatApplicationService(bus)
 
-    result = await service.chat("问题", "u1")
-    stream_events = [event async for event in service.chat_stream("问题", "u1")]
+    task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-gateway"))
+    await started.wait()
+    stop_result = service.cancel_generation("gen-gateway")
+    result = await task
+
+    assert stop_result.cancelled is True
 
     assert result.kind == "agent"
     assert result.agent_run_result.status == "cancelled"
-    assert [event["event"] for event in stream_events] == [
-        "generation_id",
-        "done",
-    ]
-    assert stream_events[-1]["data"]["status"] == "cancelled"
 
 
 @pytest.mark.asyncio
@@ -243,3 +245,147 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
     assert events[-1]["data"]["status"] == AgentRunStatus.FAILED.value
     assert events[-1]["data"]["stopped"] is True
     cleanup.assert_awaited_once_with(prepared_run=prepared)
+
+
+@pytest.mark.asyncio
+async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finalize() -> None:
+    bus = GlobalSystemBus()
+    prepare_started = asyncio.Event()
+    release_prepare = asyncio.Event()
+    prepare_cancelled = False
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+
+    async def prepare(**_kwargs):
+        nonlocal prepare_cancelled
+        prepare_started.set()
+        try:
+            await release_prepare.wait()
+        except asyncio.CancelledError:
+            prepare_cancelled = True
+            raise
+        return prepared
+
+    alice = AsyncMock()
+    finalize = AsyncMock()
+    cleanup = AsyncMock(return_value=True)
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    service = ChatApplicationService(bus)
+
+    task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-prepare"))
+    await prepare_started.wait()
+    stop_result = service.cancel_generation("gen-prepare")
+    release_prepare.set()
+    result = await task
+
+    assert stop_result.cancelled is True
+    assert prepare_cancelled is False
+    assert result.agent_run_result.status == AgentRunStatus.CANCELLED.value
+    alice.assert_not_awaited()
+    finalize.assert_not_awaited()
+    cleanup.assert_awaited_once_with(prepared_run=prepared)
+
+
+@pytest.mark.asyncio
+async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> None:
+    bus = GlobalSystemBus()
+    pull_started = asyncio.Event()
+    stream_closed = asyncio.Event()
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+    prepared.stream_prelude.topic_id = "topic-1"
+    prepared.stream_prelude.is_new_topic = False
+    prepared.stream_prelude.pool_topics = []
+    prepared.stream_prelude.memory_refs = []
+
+    async def alice_stream():
+        try:
+            pull_started.set()
+            await asyncio.Event().wait()
+            yield {"event": "token", "data": {"content": "late"}}
+        finally:
+            stream_closed.set()
+
+    finalize = AsyncMock()
+    cleanup = AsyncMock(return_value=True)
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, AsyncMock(return_value=prepared))
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    service = ChatApplicationService(bus)
+
+    task = asyncio.create_task(
+        _collect_stream(service, generation_id="gen-stream-cancel")
+    )
+    await pull_started.wait()
+    stop_result = service.cancel_generation("gen-stream-cancel")
+    events = await task
+
+    assert stop_result.cancelled is True
+    assert stream_closed.is_set()
+    assert events[-1]["event"] == "done"
+    assert events[-1]["data"]["status"] == "cancelled"
+    finalize.assert_not_awaited()
+    cleanup.assert_awaited_once_with(prepared_run=prepared)
+
+
+@pytest.mark.asyncio
+async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None:
+    bus = GlobalSystemBus()
+    finalize_started = asyncio.Event()
+    release_finalize = asyncio.Event()
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+
+    async def finalize(**_kwargs):
+        finalize_started.set()
+        await release_finalize.wait()
+        return []
+
+    cleanup = AsyncMock(return_value=True)
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, AsyncMock(return_value=prepared))
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        AsyncMock(return_value=AgentRunResult(final_text="完成")),
+    )
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    service = ChatApplicationService(bus)
+
+    task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-finalize"))
+    await finalize_started.wait()
+    stop_result = service.cancel_generation("gen-finalize")
+    release_finalize.set()
+    result = await task
+
+    assert stop_result.cancelled is False
+    assert stop_result.reason == "already_finalizing"
+    assert result.agent_run_result.status == AgentRunStatus.COMPLETED.value
+    cleanup.assert_not_awaited()
+
+
+async def _collect_stream(
+    service: ChatApplicationService,
+    *,
+    generation_id: str,
+) -> list[dict]:
+    return [
+        event
+        async for event in service.chat_stream(
+            "问题",
+            "u1",
+            generation_id=generation_id,
+        )
+    ]

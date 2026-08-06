@@ -71,14 +71,12 @@ class AgentLoopExecutor:
         frame: ExecutionFrame,
         generation_options: dict[str, Any] | None,
         sink: FrameOutputSink,
-        cancel_event: asyncio.Event | None,
     ) -> GenerationResult | FrameExecutionResult:
         """执行一轮 LLM 生成：按 sink 是否输出 token 选择完整 / 流式路径。"""
         if not sink.streams_tokens:
             try:
                 return await self.worker_agent.generate_async(
                     frame.working_history,
-                    cancel_event=cancel_event,
                     **(generation_options or {}),
                 )
             except asyncio.CancelledError:
@@ -93,31 +91,40 @@ class AgentLoopExecutor:
         result: GenerationResult | None = None
         chunks = self.worker_agent.generate_stream(
             frame.working_history,
-            cancel_event=cancel_event,
             **(generation_options or {}),
         ).__aiter__()
-        while True:
-            try:
-                chunk = await anext(chunks)
-            except StopAsyncIteration:
-                break
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                logger.error("Streaming frame generation failed: %s", error, exc_info=True)
-                return FrameExecutionResult(
-                    status=FrameExecutionStatus.FAILED,
-                    error=error,
-                )
-            if chunk.is_final:
-                result = chunk.result
-                break
-            if not chunk.mtp_detected and chunk.delta:
-                await sink.send(TokenDelta(content=chunk.delta))
+
+        try:
+            while True:
+                try:
+                    chunk = await anext(chunks)
+                except StopAsyncIteration:
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    logger.error("Streaming frame generation failed: %s", error, exc_info=True)
+                    return FrameExecutionResult(
+                        status=FrameExecutionStatus.FAILED,
+                        error=error,
+                    )
+                if chunk.is_final:
+                    result = chunk.result
+                    break
+                if not chunk.mtp_detected and chunk.delta:
+                    await sink.send(TokenDelta(content=chunk.delta))
+        finally:
+            close = getattr(chunks, "aclose", None)
+            if callable(close):
+                try:
+                    await close()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.warning("关闭 Worker stream 失败", exc_info=True)
+
         if result is not None:
             return result
-        if cancel_event is not None and cancel_event.is_set():
-            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
         return FrameExecutionResult(
             status=FrameExecutionStatus.FAILED,
             error=RuntimeError("Streaming generation ended without a final result."),
@@ -129,7 +136,6 @@ class AgentLoopExecutor:
         max_iterations: int,
         generation_options: dict[str, Any] | None = None,
         output_sink: FrameOutputSink | None = None,
-        cancel_event: asyncio.Event | None = None,
     ) -> FrameExecutionResult:
         """
         执行单个帧的循环，直到自然收敛、命中 CALL 或进入其他明确终态。
@@ -144,24 +150,15 @@ class AgentLoopExecutor:
         sink = output_sink or NullFrameOutputSink()
 
         while p.iteration < max_iterations:
-            if cancel_event is not None and cancel_event.is_set():
-                logger.info("Generation cancelled by user")
-                return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-
             p.iteration += 1
 
             result = await self._generate_turn(
                 frame,
                 generation_options,
                 sink,
-                cancel_event,
             )
             if isinstance(result, FrameExecutionResult):
                 return result
-
-            if result.finish_reason == "cancelled":
-                logger.info("Generation cancelled by user")
-                return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
 
             if not result.was_mtp_interrupted:
                 p.text_segments.append(result.text)
@@ -200,22 +197,10 @@ class AgentLoopExecutor:
                 runtime_scope=frame.runtime_scope.with_action(action_id),
                 execution_policy=frame.execution_policy,
             )
-            if cancel_event is not None and cancel_event.is_set():
-                logger.info("Generation cancelled before MTP execution")
-                return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
                 context=mtp_context,
-                cancel_event=cancel_event,
             )
-            if cancel_event is not None and cancel_event.is_set():
-                logger.info("Generation cancelled after MTP execution")
-                return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-
-            if mtp_result is not None and mtp_result.response_status == "cancelled":
-                logger.info("MTP execution cancelled")
-                return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
 
             if mtp_result is not None and mtp_result.command:
                 verb_hint = mtp_result.command.verb.value
@@ -343,8 +328,6 @@ class AgentLoopExecutor:
             )
             p.sequence += 1
 
-        if cancel_event is not None and cancel_event.is_set():
-            return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
         return FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
 
     def _extract_command_info(self, command, raw_hint):

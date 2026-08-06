@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +21,6 @@ from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCoordinator,
-    CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
@@ -50,11 +48,8 @@ def _suspension() -> FrameExecutionResult:
     )
 
 
-def _session(frame: ExecutionFrame, *, cancel_event: asyncio.Event | None = None) -> RunSession:
-    session = RunSession(
-        agent_run_id=frame.runtime_scope.run_id,
-        cancel_event=cancel_event if cancel_event is not None else asyncio.Event(),
-    )
+def _session(frame: ExecutionFrame) -> RunSession:
+    session = RunSession(agent_run_id=frame.runtime_scope.run_id)
     session.register_root_frame(frame)
     return session
 
@@ -231,43 +226,6 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
     assert runtime.finalize_frame.call_count == 2
     cleanup_result = runtime.finalize_frame.call_args.args[1]
     assert cleanup_result.status == FrameExecutionStatus.FAILED
-
-
-@pytest.mark.asyncio
-async def test_cancelled_session_stops_call_before_dispatch():
-    caller = _frame()
-    child = _frame("frame-child")
-    cancel_event = asyncio.Event()
-    cancel_event.set()
-
-    async def run_frame(frame, *, cancel_event: asyncio.Event, **_kwargs):
-        del frame
-        assert cancel_event is _session_cancel_event
-        assert cancel_event.is_set()
-        return FrameExecutionResult(status=FrameExecutionStatus.CANCELLED)
-
-    _session_cancel_event = cancel_event
-    runtime = SimpleNamespace(
-        max_iterations=8,
-        run_frame=AsyncMock(side_effect=run_frame),
-        finalize_frame=MagicMock(return_value=FrameProducts()),
-    )
-    coordinator = _coordinator(runtime, child)
-
-    suspension = _suspension()
-    session = _session(caller, cancel_event=cancel_event)
-    begin = await coordinator.begin_call(
-        caller,
-        suspension,
-        session=session,
-    )
-    assert begin == CancelRun()
-    runtime.apply_call_response.assert_called_once()
-    response = runtime.apply_call_response.call_args.args[2]
-    assert response.status == MTPResponseStatus.CANCELLED
-    runtime.run_frame.assert_not_awaited()
-    runtime.finalize_frame.assert_not_called()
-    assert session.call_records[("frame-root", "action-1")].status.value == "applied"
 
 
 def test_run_executor_is_the_only_alice_run_frame_caller():

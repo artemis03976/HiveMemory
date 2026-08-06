@@ -7,13 +7,11 @@ from hivememory.alice.orchestration.sub_agent import (
     CallContext,
     CallContextProvider,
     CallCoordinator,
-    CancelRun,
     DispatchCallee,
     ResumeCaller,
 )
 
 __all__ = [
-    "CancelRun",
     "CallContext",
     "CallContextProvider",
     "CallCoordinator",

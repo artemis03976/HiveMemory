@@ -48,7 +48,6 @@ process(
     *,
     identity: Identity,
     ingress_mode: GatewayIngressMode,
-    cancel_event: asyncio.Event | None = None,
     request_timeout_ms: int | None = None,
 ) -> GatewayProcessResult
 ```
@@ -170,7 +169,6 @@ Memory 与 Topic 的身份可见性由 Patchouli 执行，调用方不能仅凭�
 run_agent(
     agent_run_context: AgentRunContext,
     generation_options: dict[str, Any] | None = None,
-    cancel_event: asyncio.Event | None = None,
 ) -> AgentRunResult
 ```
 
@@ -183,11 +181,11 @@ run_agent(
 - `materialize_tasks`：本 run 产生的不可变物化请求；
 - `model_used`：注册表解析出的展示名，空字符串表示未解析。
 
-这个结果是 Alice 对一次执行的完整事实声明，而不是已经提交的长期记忆。System 据此决定是否进入 finalize，Patchouli 再归约其中的 turn events 和 materialize tasks；任何一方都不能仅凭流中的部分文本推断 run 已经完成。
+这个结果是 Alice 对一次执行的完整事实声明，而不是已经提交的长期记忆。Chat application 通过拥有的 task 控制用户 stop，Alice 只沿 await 传播原生 `asyncio.CancelledError`；System 据此决定是否进入 finalize，Patchouli 再归约其中的 turn events 和 materialize tasks；任何一方都不能仅凭流中的部分文本推断 run 已经完成。
 
 ### 4.2 流式运行
 
-`run_agent_stream()` 接收相同输入，经全局 RPC 返回 async generator。流中包含增量事件，最终必须给 System 提供完整 `AgentRunResult`；只有拿到正常完成的最终结果才能进入 Patchouli finalize。
+`run_agent_stream()` 接收相同输入，经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给 System 提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能进入 Patchouli finalize。
 
 ### 4.3 Alice 不变量
 

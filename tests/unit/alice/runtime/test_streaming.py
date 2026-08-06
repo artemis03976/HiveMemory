@@ -132,4 +132,25 @@ async def test_agent_run_stream_wakes_consumer_when_runner_is_cancelled() -> Non
 
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(anext(events), timeout=1)
-    assert session.cancel_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_runner_cleanup_error_does_not_replace_consumer_cancellation() -> None:
+    session = RunSession(agent_run_id="run-1")
+    stream = AgentRunStream(session)
+    runner_started = asyncio.Event()
+
+    async def runner() -> FrameExecutionResult:
+        runner_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            raise RuntimeError("runner cleanup failed")
+
+    events = stream.events(runner())
+    pull_task = asyncio.create_task(anext(events))
+    await runner_started.wait()
+    pull_task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await pull_task
