@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -112,6 +113,249 @@ def _build(recorder: _Recorder, **config_kwargs) -> PassiveMessageIngressor:
 
 
 # ========== 读写时序 ==========
+
+
+@pytest.mark.asyncio
+async def test_same_conversation_waits_for_inflight_user_event() -> None:
+    recorder = _Recorder()
+    gateway_started = asyncio.Event()
+    release_gateway = asyncio.Event()
+
+    async def blocking_gateway(message, **kwargs):
+        recorder.calls.append(f"gateway:{message}")
+        gateway_started.set()
+        await release_gateway.wait()
+        return _decision()
+
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    ingressor = PassiveMessageIngressor(
+        bus,
+        submit_sealed_turn=recorder.submit,
+    )
+
+    user_task = asyncio.create_task(ingressor.route_event(_event("user", "u1"), IDENTITY))
+    await asyncio.wait_for(gateway_started.wait(), timeout=1)
+
+    assistant_task = asyncio.create_task(ingressor.route_event(_event("assistant", "a1"), IDENTITY))
+    await asyncio.sleep(0)
+
+    assert not assistant_task.done()
+    assert ingressor._serial_gate.active_key_count == 1
+
+    release_gateway.set()
+    user_outcome, assistant_outcome = await asyncio.wait_for(
+        asyncio.gather(user_task, assistant_task),
+        timeout=1,
+    )
+
+    assert user_outcome.kind == "user"
+    assert assistant_outcome.kind == "buffered"
+    assert ingressor._serial_gate.active_key_count == 0
+
+    assert await ingressor.flush_conversation(_key(), IDENTITY) == 1
+    payload = recorder.submitted[0].payload
+    assert payload.user_message == "u1"
+    assert payload.assistant_final_text == "a1"
+
+
+@pytest.mark.asyncio
+async def test_different_conversations_remain_concurrent() -> None:
+    recorder = _Recorder()
+    gateway_started = asyncio.Event()
+    release_gateway = asyncio.Event()
+
+    async def selectively_blocking_gateway(message, **kwargs):
+        recorder.calls.append(f"gateway:{message}")
+        if message == "u-a":
+            gateway_started.set()
+            await release_gateway.wait()
+        return _decision()
+
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, selectively_blocking_gateway)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    ingressor = PassiveMessageIngressor(
+        bus,
+        submit_sealed_turn=recorder.submit,
+    )
+
+    await ingressor.route_event(
+        _event("user", "u-b", conversation="c-b"),
+        IDENTITY,
+    )
+    blocked_task = asyncio.create_task(
+        ingressor.route_event(
+            _event("user", "u-a", conversation="c-a"),
+            IDENTITY,
+        )
+    )
+    await asyncio.wait_for(gateway_started.wait(), timeout=1)
+
+    outcome = await asyncio.wait_for(
+        ingressor.route_event(
+            _event("assistant", "a-b", conversation="c-b"),
+            IDENTITY,
+        ),
+        timeout=1,
+    )
+    assert outcome.kind == "buffered"
+
+    release_gateway.set()
+    await asyncio.wait_for(blocked_task, timeout=1)
+    assert ingressor._serial_gate.active_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_event_releases_conversation_gate() -> None:
+    recorder = _Recorder()
+    gateway_started = asyncio.Event()
+
+    async def cancellable_gateway(message, **kwargs):
+        recorder.calls.append(f"gateway:{message}")
+        if message == "cancel-me":
+            gateway_started.set()
+            await asyncio.Event().wait()
+        return _decision()
+
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, cancellable_gateway)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    ingressor = PassiveMessageIngressor(
+        bus,
+        submit_sealed_turn=recorder.submit,
+    )
+
+    cancelled_task = asyncio.create_task(
+        ingressor.route_event(_event("user", "cancel-me"), IDENTITY)
+    )
+    await asyncio.wait_for(gateway_started.wait(), timeout=1)
+    cancelled_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_task
+
+    assert ingressor._serial_gate.active_key_count == 0
+    outcome = await asyncio.wait_for(
+        ingressor.route_event(_event("user", "after-cancel"), IDENTITY),
+        timeout=1,
+    )
+    assert outcome.kind == "user"
+    assert ingressor.buffers.peek_buffer(_key()).event_count == 1
+    assert ingressor._serial_gate.active_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_does_not_leak_conversation_gate() -> None:
+    recorder = _Recorder()
+    gateway_started = asyncio.Event()
+    release_gateway = asyncio.Event()
+
+    async def blocking_gateway(**kwargs):
+        gateway_started.set()
+        await release_gateway.wait()
+        return _decision()
+
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    ingressor = PassiveMessageIngressor(
+        bus,
+        submit_sealed_turn=recorder.submit,
+    )
+
+    holder_task = asyncio.create_task(
+        ingressor.route_event(_event("user", "u1"), IDENTITY)
+    )
+    await asyncio.wait_for(gateway_started.wait(), timeout=1)
+    waiter_task = asyncio.create_task(
+        ingressor.route_event(_event("assistant", "a1"), IDENTITY)
+    )
+    await asyncio.sleep(0)
+
+    waiter_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter_task
+    assert ingressor._serial_gate.active_key_count == 1
+
+    release_gateway.set()
+    await asyncio.wait_for(holder_task, timeout=1)
+    assert ingressor._serial_gate.active_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_manual_flush_waits_for_inflight_event() -> None:
+    recorder = _Recorder()
+    gateway_started = asyncio.Event()
+    release_gateway = asyncio.Event()
+
+    async def blocking_gateway(**kwargs):
+        gateway_started.set()
+        await release_gateway.wait()
+        return _decision()
+
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    ingressor = PassiveMessageIngressor(
+        bus,
+        submit_sealed_turn=recorder.submit,
+    )
+
+    user_task = asyncio.create_task(ingressor.route_event(_event("user", "u1"), IDENTITY))
+    await asyncio.wait_for(gateway_started.wait(), timeout=1)
+    flush_task = asyncio.create_task(ingressor.flush_conversation(_key(), IDENTITY))
+    await asyncio.sleep(0)
+
+    assert not flush_task.done()
+
+    release_gateway.set()
+    await asyncio.wait_for(user_task, timeout=1)
+    assert await asyncio.wait_for(flush_task, timeout=1) == 1
+    assert recorder.submitted[0].payload.user_message == "u1"
+    assert ingressor._serial_gate.active_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_waits_for_inflight_event_before_sealing() -> None:
+    recorder = _Recorder()
+    gateway_started = asyncio.Event()
+    release_gateway = asyncio.Event()
+
+    async def blocking_gateway(**kwargs):
+        gateway_started.set()
+        await release_gateway.wait()
+        return _decision()
+
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
+    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    ingressor = PassiveMessageIngressor(
+        bus,
+        submit_sealed_turn=recorder.submit,
+    )
+
+    user_task = asyncio.create_task(
+        ingressor.route_event(_event("user", "u1"), IDENTITY)
+    )
+    await asyncio.wait_for(gateway_started.wait(), timeout=1)
+    shutdown_task = asyncio.create_task(ingressor.shutdown_drain())
+    await asyncio.sleep(0)
+
+    assert not shutdown_task.done()
+
+    release_gateway.set()
+    await asyncio.wait_for(user_task, timeout=1)
+    result = await asyncio.wait_for(shutdown_task, timeout=1)
+
+    assert result == {
+        "sealed_turns": 1,
+        "submitted_turns": 1,
+        "outbox_pending": 0,
+    }
+    assert recorder.submitted[0].seal_reason == "shutdown_drain"
+    assert recorder.submitted[0].payload.user_message == "u1"
+    assert ingressor._serial_gate.active_key_count == 0
 
 
 @pytest.mark.asyncio

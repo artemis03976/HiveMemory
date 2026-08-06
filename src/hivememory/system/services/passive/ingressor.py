@@ -28,6 +28,9 @@ from hivememory.system.services.passive.outbox import (
     SealedTurnOutbox,
     SealReason,
 )
+from hivememory.system.services.passive.serial_gate import (
+    PassiveIngressSerialGate,
+)
 from hivememory.system.services.passive.submitter import (
     SealedTurnSubmitter,
     SubmitSealedTurn,
@@ -92,6 +95,7 @@ class PassiveMessageIngressor:
             ttl_seconds=self._config.dedup_ttl_seconds,
             max_entries=self._config.max_dedup_entries,
         )
+        self._serial_gate = PassiveIngressSerialGate()
         self._idle_timeout: float = 30.0
 
     # ------------------------------------------------------------------
@@ -176,6 +180,17 @@ class PassiveMessageIngressor:
         identity: Identity,
     ) -> PassiveIngressOutcome:
         key = event.conversation_key(identity)
+
+        async with self._serial_gate.hold(key):
+            return await self._route_event_serialized(event, identity, key)
+
+    async def _route_event_serialized(
+        self,
+        event: PassiveIngressEvent,
+        identity: Identity,
+        key: PassiveConversationKey,
+    ) -> PassiveIngressOutcome:
+        """在当前会话串行门内完成一次事件的全部状态变更。"""
 
         if not self._dedup.register(event.dedup_key):
             logger.info(
@@ -293,36 +308,38 @@ class PassiveMessageIngressor:
         seal_reason: SealReason = "manual_flush",
     ) -> int:
         """显式 seal 当前 turn 并 drain 该会话 outbox。"""
-        self._seal_current_turn(key, seal_reason=seal_reason)
-        return await self.drain_outbox(key)
+        async with self._serial_gate.hold(key):
+            self._seal_current_turn(key, seal_reason=seal_reason)
+            return await self.drain_outbox(key)
 
     async def scan_idle_conversations_once(self) -> int:
         """idle timeout：seal 超时 turn 后 drain 全部 outbox。"""
-        idle_items = self._buffers.flush_idle_buffers(self._idle_timeout)
-        for key, flushed, turn_id in idle_items:
-            self._seal_into_outbox(
-                key,
-                flushed,
-                seal_reason="idle_timeout",
-                turn_id=turn_id,
-            )
+        for key in self._buffers.list_active_buffers():
+            async with self._serial_gate.hold(key):
+                idle_item = self._buffers.flush_idle_buffer(
+                    key,
+                    self._idle_timeout,
+                )
+                if idle_item is None:
+                    continue
+                flushed, turn_id = idle_item
+                self._seal_into_outbox(
+                    key,
+                    flushed,
+                    seal_reason="idle_timeout",
+                    turn_id=turn_id,
+                )
         return await self.drain_all_outbox()
 
     async def shutdown_drain(self) -> dict[str, Any]:
         """shutdown：seal 全部挂起 turn 后尽力 drain。"""
         sealed = 0
-        for key, buffer in self._buffers.list_active_buffers().items():
-            turn_id = buffer.turn_id
-            flushed = buffer.flush()
-            if flushed is None:
-                continue
-            self._seal_into_outbox(
-                key,
-                flushed,
-                seal_reason="shutdown_drain",
-                turn_id=turn_id,
-            )
-            sealed += 1
+        keys = set(self._buffers.list_active_buffers())
+        keys.update(self._serial_gate.active_keys())
+        for key in keys:
+            async with self._serial_gate.hold(key):
+                if self._seal_current_turn(key, seal_reason="shutdown_drain"):
+                    sealed += 1
 
         submitted = await self.drain_all_outbox()
         return {
