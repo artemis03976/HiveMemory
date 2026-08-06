@@ -134,8 +134,9 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
-| 最新已发布标签 | `v0.5.0` | 最近一次可由 Git tag 指认的发布基线 |
-| 当前开发基线 | `v0.6.0` | 已合并 Gateway、Commands、Workflow、Passive Ingress，尚未发布 |
+| 最新已发布标签 | `v0.6.0` | 最近一次可由 Git tag 指认的发布基线 |
+| 当前发布基线 | `v0.6.0` | 已发布 Gateway、Commands、Workflow、Passive Ingress 及对应契约与测试 |
+| 下一计划版本 | `v0.6.1` | Planned，建立通用 Local Work Queue Runtime |
 | 规范代码版本 | `0.6.0` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
 版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。开发分支可以先进入下一个目标版本而不创建 tag，此时仍是未发布快照；正式发布只接受完全匹配 `v<代码版本>` 的稳定标签。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。

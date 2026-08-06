@@ -7,7 +7,7 @@ updates:
   - docs/PROJECT.md
   - docs/plans/
   - docs/archive/plans/
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-06
 ---
 
 # HiveMemory 开发路线图
@@ -28,12 +28,13 @@ last_reviewed: 2026-07-30
 | Partially Landed | 阶段中的一部分已进入当前实现，其余仍未完成 |
 | Deferred | 已明确后置，不属于近期承诺 |
 
-当前必须同时使用两个版本事实：
+当前版本事实如下：
 
-- 最新已发布标签：`v0.5.0`；
-- 当前未发布开发基线：`v0.6.0`。
+- 最新已发布标签：`v0.6.0`；
+- 当前发布基线：`v0.6.0`；
+- 下一计划版本：`v0.6.1`，状态为 Planned。
 
-当前规范代码版本同为 `0.6.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。代码进入某一版本基线不代表该版本已经发布；发布仍要求完全匹配的 Git tag。
+当前规范代码版本同为 `0.6.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。发布基线必须与完全匹配的 Git tag、Python 包、前端清单和构建检查保持一致；后续开发工作进入下一版本时，再在新的提交中更新代码版本。
 
 ## 2. 发布历史
 
@@ -44,14 +45,15 @@ last_reviewed: 2026-07-30
 | `v0.3.0` | Released | CALL、PendingAtom、Alice Orchestrator、MemoryCompiler | Git tag；[Alice 当前设计](./alice/README.md)；[MTP](./contracts/mtp.md) |
 | `v0.4.0` | Released | chat run / memory task 取消控制与 RuntimeEvent | Git tag；[路由与事件](./contracts/routes-and-events.md) |
 | `v0.5.0` | Released | artifact/provenance、MemoryLibrary、async-native、模型注册 | Git tag；[System 当前设计](./system/README.md)；[Patchouli 当前设计](./patchouli/README.md) |
+| `v0.6.0` | Released | System Gateway、全局命令、主动/被动入口契约、Passive Ingress 串行与 outbox | Git tag；本路线图 3.1；[Passive Ingress 当前设计](./system/passive-ingress.md) |
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
-## 3. 当前开发：v0.6.0
+## 3. 当前发布：v0.6.0
 
 主题：**System Gateway、全局命令与 Passive Ingress**。
 
-### 3.1 已经落地
+### 3.1 发布内容
 
 - Gateway 已从旧引擎角色上移为 `GatewaySystem` 同级子系统；
 - `gateway.public.process` 成为主动/被动入口的统一决策路由；
@@ -61,6 +63,9 @@ last_reviewed: 2026-07-30
 - 主动 chat 已收敛为 Gateway -> Patchouli prepare -> Alice -> Patchouli finalize；
 - Passive Ingress 已归属 System 应用层，具备去重、顺序缓冲、封口、outbox 重试和 drain；
 - Passive Memory 禁止命令、Alice、MTP 和回复生成；
+- Agent-facing 错误 payload 已完成 XML escaping；
+- 同一 `PassiveConversationKey` 在单进程内串行处理，不同会话仍可并发；
+- 取消、超时、Profile 失败、Passive degradation 和 outbox retry 均有测试与观测；
 - 浅色主题主体已合并，但它属于 v0.6.3 工作流的部分提前交付。
 
 当前事实入口：
@@ -77,24 +82,25 @@ last_reviewed: 2026-07-30
 - [Help](./help/README.md)
 - [Applications](./applications/README.md)
 
-### 3.2 发布前剩余工作
+### 3.2 发布范围边界
 
-- 继续稳定 Gateway 降级、命令和 Passive Ingress 的端到端行为；
-- 修复 Alice 子帧终态、FrameScheduler 运行隔离和显式 Profile 加载失败等会造成错误成功、跨运行污染或 fail-open 的缺陷；
-- 补齐 Agent-facing 错误 payload 的 XML escaping，保证失败路径仍形成合法协议文本；
-- 完成当前设计、README、包版本、发布 tag 和发布检查的最终核对。
+- 完整复合意图分解已经移出 v0.6.0 发布范围，暂列为 **Unscheduled**；
+- 自定义入口拦截规则不属于当前能力，只有出现明确接入需求并形成 Plan 后再排期；
+- 浅色主题属于 v0.6.3 工作流的部分提前交付，不改变 v0.6.0 的后端发布范围；
+- `v0.6.1` 负责通用 Local Work Queue Runtime，不回溯改写 v0.6.0 Passive Ingress 的公共契约。
 
-完整复合意图分解已经移出 v0.6.0 发布范围，暂列为 **Unscheduled**。其 C0 样本与指标工作可以作为非阻塞研究继续推进，但在证据门槛、公共 envelope 和下游消费协议成立前，不得把它写成当前能力。自定义入口拦截规则同样不阻塞 v0.6.0，只有出现明确接入需求并形成 Plan 后再排期。
+其 C0 样本与指标工作可以作为非阻塞研究继续推进，但在证据门槛、公共 envelope 和下游消费协议成立前，不得把它写成当前能力。
 
-### 3.3 v0.6.0 完成条件
+### 3.3 v0.6.0 发布验收
 
-- Gateway 的公开决策能够覆盖发布范围内的所有入口模式；
+- Gateway 的公开决策覆盖发布范围内的所有入口模式；
 - 命令、普通 chat 和 Passive Memory 的契约边界明确；
 - 局部分析失败不会破坏可安全降级的主流程；
 - 子 Agent 终态、并发 frame/cancel 状态和显式 Profile 失败不会被错误包装为成功或静默放大权限；
 - 取消、超时和不可恢复不变量失败均有测试与观测；
-- 当前设计文档、README、包版本和 tag 口径一致；
-- 未完成方案已经移入后续 Plan，不在当前文档中使用现在时。
+- 当前设计文档、README、包版本和 `v0.6.0` tag 口径一致；
+- 未完成方案已移入后续 Plan，不在当前文档中使用现在时；
+- Release workflow 同时校验并发布 backend wheel、sdist、frontend archive 和合并校验文件。
 
 ## 4. 近期计划
 

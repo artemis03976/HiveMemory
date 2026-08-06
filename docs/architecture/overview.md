@@ -41,8 +41,9 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 
 ## 2. 当前基线
 
-- 最新已发布 Git 标签：`v0.5.0`；
-- 当前未发布开发基线：`v0.6.0`；
+- 最新已发布 Git 标签：`v0.6.0`；
+- 当前发布基线：`v0.6.0`；
+- 下一计划版本：`v0.6.1`，建立通用 Local Work Queue Runtime；
 - 当前代码、构建与运行时版本：`0.6.0`，唯一声明位于 `src/hivememory/_version.py`；
 - 当前基线已经包含独立 Gateway、全局命令、Gateway workflow 和 Passive Ingress；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
@@ -231,11 +232,11 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 
 ## 10. 已知限制
 
-- `v0.6.0` 尚未发布，复合意图的下游消费、自定义入口规则和部分稳定化工作仍未完成；
+- `v0.6.0` 已发布；复合意图的下游消费和自定义入口规则属于后续 Unscheduled 方向，不是当前能力；
 - RuntimeEvent 只有进程内有界缓冲，不是耐久审计日志；
 - MTP RUN 的用户代码执行还没有强隔离沙箱；
 - 通用持久化 Job Queue、附件摄入、Document Ingestion 与 Deep Research 尚未实现；
-- 包版本元数据仍未统一，发布标签和开发基线必须分开解释。
+- 发布必须使用与包版本完全匹配的 Git tag，并通过版本一致性和 Release artifact 校验。
 
 ## 11. 验证入口
 
