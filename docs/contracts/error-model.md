@@ -13,7 +13,7 @@ code_paths:
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-06
 ---
 
 # 跨边界错误模型
@@ -128,7 +128,7 @@ warning 的核心语义是“主要成果仍然成立”。例如 READ 多个 al
 
 `MTPFormatter` 是普通 Agent-facing MTP 回填文本的唯一构造点：它根据 language 渲染 code/severity/message/warnings，并排除内部 cause。`response_content` 只是业务 payload，不等于完整回填；需要写回模型历史时应使用运行结果的 `formatted_response`。CALL 不经过旧的通用 IPC 文本拼接，而由 `RunExecutor`/`CallCoordinator` 消费 `MTPCallRequest`；`CallContextProvider` 在编排边界解析 Profile 和共享上下文。Executor 递归等待被调用 frame，CallCoordinator 先 finalize callee，再由 `call_response.py` 把最终 `FrameExecutionResult` 单向映射为一个 `MTPCallResponse`，最后交给 `AgentRuntime.apply_call_response()` 恢复 caller frame。response 提交早于可等待的结束事件发送；内部已结算的 `CANCELLED` 结果可以映射为 CALL response，但外层 task cancellation 不回填伪造 response，也不终止 caller 重入流程。`SUSPENDED` 是非终态控制流，不参与错误映射。
 
-当前 formatter 尚未为所有业务 content/reply/warning 提供统一 XML escaping，因此错误结构稳定不等于任意 payload 都是严格合法 XML。这个限制应在 formatter 层修复，不能由各 verb handler 各自发明转义规则。
+Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和 warning 统一作为原始文本编码：含 XML 保留字符的正文使用 CDATA，属性使用实体转义，换行统一为 LF，XML 1.0 禁止的控制字符替换为 `U+FFFD`。已编码实体和嵌套 XML 样式 payload 保持字面语义，不由 handler 预转义。Agent 回填开头的本地化系统标题不属于 XML；需要严格解析时从 `<mtp_response>` XML 块开始。
 
 ## 4. 控制异常
 
@@ -177,7 +177,6 @@ RuntimeEventSink 是 best-effort：
 - RuntimeEvent 不是持久化审计记录；
 - Command `error_code` 尚未形成与 MTP code 等价的全局注册表；
 - 部分历史实现仍可能抛通用异常，调用方应在顶层边界记录并终止，不能猜测为可恢复错误。
-- Agent-facing XML 对业务 payload 的统一 escaping 尚未完成。
 
 这些限制应进入后续 System/API 计划，不通过扩大 MTP error 模型来掩盖。
 
