@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-08-01
+last_reviewed: 2026-08-06
 ---
 
 # Todo
@@ -15,7 +15,6 @@ last_reviewed: 2026-08-01
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；
 - [Page Folding 跨入口上下文与证据后续技术债](./page-folding-cross-ingress-follow-ups.md)；
-- [补齐 Agent-facing 错误 payload 的 XML escaping](./error-formatter-xml-escaping.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)。
 

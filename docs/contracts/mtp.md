@@ -13,7 +13,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-06
 ---
 
 # Memory Tool Protocol (MTP)
@@ -182,7 +182,7 @@ MTP 是否应该出现，取决于当前行动门槛，而不是“能调用工�
 | `suspend` | CALL 要求 Alice RunExecutor 接管 |
 | `cancelled` | 执行在取消边界终止 |
 
-Agent 可见格式为本地化 XML：
+Agent 可见回填由本地化系统标题和随后的 XML 块组成；标题不属于 XML 文档，严格解析边界从 `<mtp_response>` 开始：
 
 ```xml
 <mtp_response status="error" time="12ms">
@@ -196,7 +196,9 @@ Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alia
 
 内部 callee 自然产生 `CANCELLED` 时，CALL 可以使用 `<mtp_response status="cancelled">` exactly-once 回填本地化结果；这不是 Chat-level stop 协议。全局 run 被 task cancellation 取消时，CallCoordinator 只清理活跃 record 和 callee frame，不伪造 caller response，CancelledError 沿递归调用栈传播。
 
-当前 formatter 会把业务 `content`、reply 和 warning 文本直接嵌入 XML 容器，尚未对所有内容执行统一 XML escaping。若文本自身包含 `<`、`>` 或 `&`，Agent 可见结果可能不是严格可解析 XML；调用方当前应把它视为结构化文本信封，而不是承诺任意 payload 都能通过 XML parser。补齐 escaping 时必须同时验证代码片段与既有 prompt 行为。
+Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视为原始 Unicode 文本，并独占 XML 结构构造权。正文包含 `<`、`>` 或 `&` 时使用 CDATA，`]]>` 会拆成相邻 CDATA 段；因此已编码实体和嵌套 XML 样式 payload 会按字面文本保留，不会成为协议子节点。XML 属性单独执行实体转义。正文换行统一为 LF，XML 1.0 禁止的控制字符替换为 `U+FFFD`。
+
+空 `content` 不产生正文，无 warnings 时不产生 `<warnings>`；成功 CALL 的空 reply 仍保留 reply label 和空正文。上述规则覆盖成功 content、MemoryCompiler 编译出的可选摘要、CALL reply、artifact alias、warning 和 error reason，不要求各 verb handler 自行转义。
 
 错误结构详见[error-model.md](./error-model.md)。
 
