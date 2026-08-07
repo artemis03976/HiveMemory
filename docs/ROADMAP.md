@@ -141,6 +141,8 @@ last_reviewed: 2026-08-06
 
 进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成四份 Plan 的全部后续阶段。
 
+截至 2026-08-07，四项清单交付物均已建立：[D0 状态清单](./plans/durability-d0-state-inventory.md)、[I0 操作清单](./plans/idempotency-i0-operations-inventory.md)、[S0 身份与威胁清单](./plans/identity-s0-threat-model-inventory.md)和[数据模型 Phase I 清单](./plans/data-model-phase-i-inventory.md)。清单完成只表示实现入口和风险已经冻结，不表示对应后续治理阶段已经落地。
+
 v0.6.1 的发布顺序应为：
 
 1. 冻结 Queue 契约并完成 in-memory runtime 的机械状态机验证；
