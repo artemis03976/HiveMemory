@@ -10,7 +10,12 @@ updates:
   - docs/contracts/routes-and-events.md
   - docs/patchouli/memory-library.md
   - docs/alice/pending-atom.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/plans/data-model-phase-i-inventory.md
+  - docs/plans/durability-d0-state-inventory.md
+  - docs/plans/idempotency-i0-operations-inventory.md
+  - docs/plans/identity-s0-threat-model-inventory.md
+last_reviewed: 2026-08-07
 ---
 
 # 数据模型可变性治理计划
@@ -21,7 +26,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 
 问题不在于 copy-on-write 或可变对象本身，而在于调用方必须靠阅读实现猜测：谁可以写、嵌套引用是否仍可修改、何时生成稳定快照，以及一个 public route 是否把内部实体泄漏给了另一个所有者。
 
-本计划把这些隐含约定收敛为可验证的项目级规则。它尚未排入具体版本，不属于当前开发周期承诺。
+本计划把这些隐含约定收敛为可验证的项目级规则。整体治理仍未排入具体版本；其中 Phase I 已作为 v0.6.1 Queue 的轻量前置门槛完成调研，交付物见[Phase I 数据模型与边界清单](./data-model-phase-i-inventory.md)。该清单完成不代表 Phase II-VI 已实现。
 
 ## 2. 目标
 
@@ -53,6 +58,8 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 ## 5. 实施阶段
 
 ### Phase I：模型与边界清单
+
+**状态：已完成现状调研与清单冻结（2026-08-07）**。交付物见[Phase I 数据模型与边界清单](./data-model-phase-i-inventory.md)。
 
 - 建立模型矩阵：定义位置、角色、冻结等级、嵌套可变字段、创建者、写入者、消费者；
 - 记录 public/local route、RuntimeEvent、缓存和任务边界承载的模型；

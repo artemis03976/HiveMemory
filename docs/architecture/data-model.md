@@ -14,7 +14,9 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_decisions:
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
-last_reviewed: 2026-07-29
+related_inventories:
+  - docs/plans/data-model-phase-i-inventory.md
+last_reviewed: 2026-08-07
 ---
 
 # 数据模型与可变性边界
@@ -158,4 +160,4 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 - `src/hivememory/core/protocol/models.py`；
 - `src/hivememory/gateway/workflow/state.py`、`steps.py`。
 
-相关设计：[系统边界与所有权](./boundaries.md)、[MemoryLibrary](../patchouli/memory-library.md)、[PendingAtom](../alice/pending-atom.md)、[数据模型边界 ADR](./decisions/0001-data-model-mutability-and-boundary-projection.md)与[后续治理计划](../plans/data-model-mutability-governance.md)。
+相关设计：[系统边界与所有权](./boundaries.md)、[MemoryLibrary](../patchouli/memory-library.md)、[PendingAtom](../alice/pending-atom.md)、[数据模型边界 ADR](./decisions/0001-data-model-mutability-and-boundary-projection.md)、[Phase I 数据模型与边界清单](../plans/data-model-phase-i-inventory.md)与[后续治理计划](../plans/data-model-mutability-governance.md)。
