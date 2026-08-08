@@ -8,7 +8,9 @@ Pending sealed-turn outbox
     - turn 一旦 seal 就先进入 outbox，只有 Patchouli submit 成功后才移除 item。
     - 上一 turn 提交失败时保留 outbox item，但不占用也不覆盖当前 accumulator；
       新 user 仍可开始下一 turn。
-    - v0.6.0 的 outbox 是有界进程内结构，后续持久化时保持同一提交语义。
+    - v0.6.0 的 outbox 只是有界、进程内的 best-effort retry buffer：进程退出、
+      崩溃或断电后 pending item 不可恢复，也不提供 durable accepted 保证。
+      后续迁移到持久化队列时仍需保持同一提交与会话内顺序语义。
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ class SealedTurn:
 
 
 class SealedTurnOutbox:
-    """按外部会话分桶的有界 pending sealed-turn 队列。"""
+    """按外部会话分桶的有界进程内 best-effort retry buffer。"""
 
     def __init__(self, *, max_items_per_conversation: int = 32) -> None:
         self._max_items = max(1, max_items_per_conversation)
