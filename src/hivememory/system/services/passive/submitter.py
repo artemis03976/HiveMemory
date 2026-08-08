@@ -1,9 +1,9 @@
-"""Sealed turn 提交器 — 持有 outbox 并负责重试语义。
+"""Sealed turn 提交适配器 — 持有 admission outbox 并调用目标队列/回调。
 
 契约（v0.6.0 设计 §5/§6）：
     - sealed turn 一律先进入 pending outbox，只有 Patchouli submit 成功后才移除。
-    - 提交失败时保留剩余 item（按原顺序放回队首）并停止该会话本轮 drain，
-      以保证会话内提交顺序，且不阻塞下一 turn accumulator。
+    - queue admission 或兼容回调失败时保留剩余 item（按原顺序放回队首）并停止
+      该会话本轮 drain；work 被 queue 接受后的 retry 不再由本组件管理。
     - 每个外部会话一把 asyncio 锁，避免并发 drain 撕裂顺序。
 
 提交结果只经 `PassiveIngressEventEmitter` 发布，不在返回值里累积 trace。

@@ -1,0 +1,234 @@
+"""Interaction Submission Queue 的 Q2 契约测试。"""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from hivememory.core.models import Identity, TurnEvent
+from hivememory.core.protocol.models import InteractionPayload
+from hivememory.engines.perception.semantic_flow_perception_layer import (
+    SemanticFlowPerceptionLayer,
+)
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmission,
+    InteractionSubmissionQueue,
+)
+from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+from hivememory.patchouli.services.perception import PerceptionFamiliar
+from hivememory.system.config import SemanticFlowPerceptionConfig
+from hivememory.system.runtime.work_queue import WorkState
+
+
+def _payload(message: str = "hello") -> InteractionPayload:
+    return InteractionPayload(
+        identity=Identity(user_id="u1", agent_id="a1"),
+        user_message=message,
+        assistant_final_text=f"answer:{message}",
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content=f"answer:{message}",
+            )
+        ],
+    )
+
+
+def _submission(
+    interaction_id: str,
+    *,
+    message: str | None = None,
+    ordering_key: str = "conversation-1",
+    payload: InteractionPayload | None = None,
+) -> InteractionSubmission:
+    return InteractionSubmission(
+        interaction_id=interaction_id,
+        payload=payload or _payload(message or interaction_id),
+        requested_topic_id="NEW_TOPIC",
+        ordering_key=ordering_key,
+        origin="passive_memory",
+        correlation={"turn_id": interaction_id},
+    )
+
+
+@pytest.mark.asyncio
+async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> None:
+    attempts: list[InteractionPayload] = []
+
+    async def submit(payload, *, target_topic_id, interaction_id):
+        attempts.append(payload)
+        if len(attempts) == 1:
+            payload.user_message = "attempt-local-mutation"
+            payload.turn_events.clear()
+            raise RuntimeError("temporary failure")
+        return "topic-real"
+
+    queue = InteractionSubmissionQueue(submit)
+    original = _payload("original")
+    submission = _submission("interaction-1", payload=original)
+
+    try:
+        await queue.start()
+        receipt = await queue.submit(submission)
+
+        # 入队后的调用方修改不得影响 canonical bytes 中的工作快照。
+        original.user_message = "external-mutation"
+        original.turn_events.clear()
+        submission.payload.user_message = "submission-mutation"
+        submission.payload.turn_events.clear()
+
+        outcome = await queue.wait(receipt, timeout=2)
+    finally:
+        await queue.stop()
+
+    assert outcome is not None
+    assert outcome.state == WorkState.SUCCEEDED
+    assert outcome.topic_id == "topic-real"
+    assert len(attempts) == 2
+    assert attempts[0] is not attempts[1]
+    assert attempts[1].user_message == "original"
+    assert len(attempts[1].turn_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
+    calls: list[str] = []
+    first_attempt = 0
+
+    async def submit(payload, *, target_topic_id, interaction_id):
+        nonlocal first_attempt
+        calls.append(payload.user_message)
+        if payload.user_message == "first":
+            first_attempt += 1
+            if first_attempt == 1:
+                raise RuntimeError("retry first")
+        return f"topic:{payload.user_message}"
+
+    queue = InteractionSubmissionQueue(submit)
+    try:
+        await queue.submit(_submission("interaction-first", message="first"))
+        second = await queue.submit(_submission("interaction-second", message="second"))
+        await queue.start()
+        second_outcome = await queue.wait(second, timeout=2)
+    finally:
+        await queue.stop()
+
+    assert second_outcome is not None
+    assert second_outcome.state == WorkState.SUCCEEDED
+    assert calls == ["first", "first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_different_ordering_keys_can_execute_concurrently() -> None:
+    first_started = asyncio.Event()
+    second_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def submit(payload, *, target_topic_id, interaction_id):
+        if payload.user_message == "first":
+            first_started.set()
+        else:
+            second_started.set()
+        await release.wait()
+        return f"topic:{payload.user_message}"
+
+    queue = InteractionSubmissionQueue(submit)
+    try:
+        await queue.submit(
+            _submission("interaction-a", message="first", ordering_key="conversation-a")
+        )
+        await queue.submit(
+            _submission("interaction-b", message="second", ordering_key="conversation-b")
+        )
+        await queue.start()
+
+        await asyncio.wait_for(
+            asyncio.gather(first_started.wait(), second_started.wait()),
+            timeout=1,
+        )
+        release.set()
+        assert await queue.drain_all(timeout=2) == 2
+    finally:
+        release.set()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> None:
+    # 容量设为 1，确保 retry 的幂等快路径发生在 LRU 检查之前。
+    store = ShortTermMemoryStore(max_resident_topics=1)
+    relay = Mock()
+    relay.should_relay.return_value = None
+    layer = SemanticFlowPerceptionLayer(
+        config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+        relay_controller=relay,
+        short_term_store=store,
+    )
+    original_fold = layer._maybe_fold_pages
+    fold_calls = 0
+
+    async def fail_once_after_add(topic_id: str):
+        nonlocal fold_calls
+        fold_calls += 1
+        if fold_calls == 1:
+            raise RuntimeError("caller missed apply result")
+        return await original_fold(topic_id)
+
+    layer._maybe_fold_pages = fail_once_after_add
+    bus = Mock()
+    bus.request = AsyncMock(return_value=None)
+    familiar = PerceptionFamiliar(
+        perception_layer=layer,
+        bus=bus,
+        config=SimpleNamespace(idle_timeout_seconds=30),
+        memory_library=MemoryLibrary(
+            short_term=store,
+            mid_term=Mock(),
+            long_term=Mock(),
+        ),
+    )
+    queue = InteractionSubmissionQueue(familiar.submit_interaction)
+
+    try:
+        await queue.start()
+        receipt = await queue.submit(_submission("interaction-ambiguous"))
+        outcome = await queue.wait(receipt, timeout=2)
+    finally:
+        await queue.stop()
+
+    assert outcome is not None
+    assert outcome.state == WorkState.SUCCEEDED
+    assert outcome.topic_id is not None
+    topic = store.get_topic_data(outcome.topic_id, touch=False)
+    assert topic is not None
+    assert topic.block_count == 1
+    assert store.get_last_active_topic() == outcome.topic_id
+
+
+@pytest.mark.asyncio
+async def test_duplicate_interaction_id_is_idempotent_but_rejects_another_payload() -> None:
+    submit = AsyncMock(return_value="topic-real")
+    queue = InteractionSubmissionQueue(submit)
+    first = _submission("interaction-same", message="first")
+
+    try:
+        first_receipt = await queue.submit(first)
+        same_receipt = await queue.submit(first)
+        with pytest.raises(ValueError, match="already belongs"):
+            await queue.submit(_submission("interaction-same", message="changed"))
+
+        await queue.start()
+        outcome = await queue.wait(first_receipt, timeout=2)
+    finally:
+        await queue.stop()
+
+    assert same_receipt == first_receipt
+    assert outcome is not None
+    assert outcome.state == WorkState.SUCCEEDED
+    submit.assert_awaited_once()

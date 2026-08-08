@@ -74,6 +74,9 @@ def mock_patchouli():
     p._scheduler = None
     p._maintenance_registered = False
     p._bridge = MagicMock()
+    p._interaction_submission_queue = MagicMock()
+    p._interaction_submission_queue.start = AsyncMock()
+    p._interaction_submission_queue.stop = AsyncMock()
     p.service = MagicMock()
     p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
     p.stop = PatchouliSystem.stop.__get__(p, PatchouliSystem)
@@ -225,6 +228,9 @@ class TestPatchouliSystemLocalRoutes:
         patchouli._global_bus = None
         patchouli._maintenance_registered = False
         patchouli._bridge = MagicMock()
+        patchouli._interaction_submission_queue = MagicMock()
+        patchouli._interaction_submission_queue.start = AsyncMock()
+        patchouli._interaction_submission_queue.stop = AsyncMock()
         patchouli.service = MagicMock()
         patchouli.service.prepare_agent_run = AsyncMock()
         patchouli.service.finalize_agent_run = AsyncMock()
@@ -252,3 +258,5 @@ class TestPatchouliSystemLocalRoutes:
         assert not set(PatchouliLocalRoutes.ALL).intersection(routes)
         assert public_only_routes.isdisjoint(routes)
         runtime.shutdown_drain.assert_awaited_once()
+        patchouli._interaction_submission_queue.start.assert_awaited_once()
+        patchouli._interaction_submission_queue.stop.assert_awaited_once()

@@ -64,6 +64,11 @@ class PassiveConversationKey:
             f"@{self.user_id}:{self.agent_id}:{team}"
         )
 
+    @property
+    def ordering_key(self) -> str:
+        """为通用 submission queue 提供稳定的会话内顺序键。"""
+        return self.label
+
 
 DEFAULT_PASSIVE_SOURCE = "external"
 DEFAULT_EXTERNAL_CONVERSATION_ID = "default"

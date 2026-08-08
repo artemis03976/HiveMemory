@@ -5,17 +5,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -58,6 +59,8 @@ class PerceptionFamiliar:
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._short_term = memory_library.short_term
+        self._interaction_results: dict[str, str] = {}
+        self._interaction_locks: dict[str, asyncio.Lock] = {}
 
         logger.info("PerceptionFamiliar 初始化完成")
 
@@ -65,8 +68,44 @@ class PerceptionFamiliar:
         self,
         payload: InteractionPayload,
         target_topic_id: str = "NEW_TOPIC",
+        interaction_id: str | None = None,
     ) -> str:
         """摄入完整交互载荷，并交给感知层完成话题路由。"""
+        if interaction_id:
+            lock = self._interaction_locks.setdefault(interaction_id, asyncio.Lock())
+            async with lock:
+                existing_topic_id = self._interaction_results.get(interaction_id)
+                if existing_topic_id is not None:
+                    return existing_topic_id
+                topic_id = await self._submit_interaction_once(
+                    payload,
+                    target_topic_id,
+                    interaction_id,
+                )
+                self._interaction_results[interaction_id] = topic_id
+                return topic_id
+
+        return await self._submit_interaction_once(payload, target_topic_id, None)
+
+    async def _submit_interaction_once(
+        self,
+        payload: InteractionPayload,
+        target_topic_id: str,
+        interaction_id: str | None,
+    ) -> str:
+        """执行一次实际摄入；幂等查找由外层与 raw perception journal 共同完成。"""
+        if interaction_id:
+            lookup_applied = getattr(
+                self._short_term,
+                "get_applied_interaction_topic",
+                None,
+            )
+            if callable(lookup_applied):
+                applied_topic_id = lookup_applied(interaction_id)
+                if isinstance(applied_topic_id, str):
+                    self._short_term.set_last_active_topic(applied_topic_id)
+                    return applied_topic_id
+
         logger.info(
             "PerceptionFamiliar 摄入交互载荷: "
             "user='%s...', target_topic_id=%s, traces=%s, tasks=%s",
@@ -79,7 +118,17 @@ class PerceptionFamiliar:
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
         await self._maybe_evict_lru(target_topic_id)
 
-        topic_id, settle_payload = await self.perception_layer.route_and_ingest(target_topic_id, payload)
+        if interaction_id is None:
+            topic_id, settle_payload = await self.perception_layer.route_and_ingest(
+                target_topic_id,
+                payload,
+            )
+        else:
+            topic_id, settle_payload = await self.perception_layer.route_and_ingest(
+                target_topic_id,
+                payload,
+                interaction_id=interaction_id,
+            )
 
         if settle_payload is not None:
             await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)

@@ -63,6 +63,8 @@ class ShortTermMemoryStore:
         self._port: ShortTermStoragePort = port or InMemoryShortTermStorage()
         self.max_resident_topics = max_resident_topics
         self._last_active_topic_id: Optional[str] = None
+        # 进程内 interaction apply journal：队列重试时用于跳过已写入的 block。
+        self._applied_interactions: dict[str, str] = {}
         logger.info(f"ShortTermMemoryStore 初始化, max_resident={max_resident_topics}")
 
     # ========== 最后活跃话题记录 ==========
@@ -72,6 +74,19 @@ class ShortTermMemoryStore:
 
     def set_last_active_topic(self, topic_id: str) -> None:
         self._last_active_topic_id = topic_id
+
+    def get_applied_interaction_topic(self, interaction_id: str) -> str | None:
+        """返回 interaction 已落定的话题；未应用时返回 None。"""
+        return self._applied_interactions.get(interaction_id)
+
+    def mark_interaction_applied(self, interaction_id: str, topic_id: str) -> None:
+        """在 block 写入后记录幂等结果。"""
+        existing = self._applied_interactions.get(interaction_id)
+        if existing is not None and existing != topic_id:
+            raise ValueError(
+                f"interaction '{interaction_id}' was already applied to topic '{existing}'"
+            )
+        self._applied_interactions[interaction_id] = topic_id
 
     # ========== CRUD ==========
 

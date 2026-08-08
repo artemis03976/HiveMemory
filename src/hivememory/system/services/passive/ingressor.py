@@ -1,7 +1,8 @@
 """顶层被动消息编排器 — 只负责事件路由与 seal 时序。
 
 memory context 准备下沉到 `MemoryContextProvider`，
-提交与重试下沉到 `SealedTurnSubmitter`；本模块保留路由策略本身。
+submission work 由 `InteractionSubmissionQueue` 承接；`SealedTurnSubmitter` 仅保留
+queue admission 与旧回调兼容。本模块保留路由策略本身。
 """
 
 from __future__ import annotations
@@ -10,6 +11,10 @@ import logging
 from typing import Any
 
 from hivememory.core.models import Identity
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmission,
+    InteractionSubmissionQueue,
+)
 from hivememory.system.config.passive import PassiveIngressConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RuntimeEventSink
@@ -68,6 +73,7 @@ class PassiveMessageIngressor:
         bus: GlobalSystemBus,
         *,
         submit_sealed_turn: SubmitSealedTurn | None = None,
+        interaction_queue: InteractionSubmissionQueue | None = None,
         gateway_request_timeout_ms: int = 8000,
         config: PassiveIngressConfig | None = None,
         runtime_events: RuntimeEventSink | None = None,
@@ -84,8 +90,13 @@ class PassiveMessageIngressor:
             gateway_request_timeout_ms=gateway_request_timeout_ms,
             events=self._events,
         )
+        self._interaction_queue = interaction_queue
         self._submitter = SealedTurnSubmitter(
-            submit_sealed_turn=submit_sealed_turn,
+            submit_sealed_turn=(
+                self._enqueue_interaction_submission
+                if interaction_queue is not None
+                else submit_sealed_turn
+            ),
             max_items_per_conversation=(
                 self._config.max_outbox_items_per_conversation
             ),
@@ -120,6 +131,29 @@ class PassiveMessageIngressor:
     # ------------------------------------------------------------------
     # seal / 提交
     # ------------------------------------------------------------------
+
+    async def _enqueue_interaction_submission(self, sealed: SealedTurn) -> str | None:
+        """把 passive sealed turn 投影为通用 submission work item。"""
+        if self._interaction_queue is None:
+            raise RuntimeError("interaction submission queue is not configured")
+        await self._interaction_queue.submit(
+            InteractionSubmission(
+                interaction_id=sealed.interaction_id,
+                payload=sealed.payload,
+                requested_topic_id=sealed.target_topic or "NEW_TOPIC",
+                ordering_key=sealed.conversation_key.ordering_key,
+                origin="passive_memory",
+                correlation={
+                    "source": sealed.conversation_key.source,
+                    "external_conversation_id": (
+                        sealed.conversation_key.external_conversation_id
+                    ),
+                    "turn_id": sealed.turn_id or "",
+                },
+            )
+        )
+        # enqueue 只表示 queue 已接受；真实 topic_id 由 work outcome 保存。
+        return None
 
     def _seal_into_outbox(
         self,

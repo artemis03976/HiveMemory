@@ -2,15 +2,15 @@
 Pending sealed-turn outbox
 
 每个外部会话分离"当前可变 turn accumulator"（MessageTurnBuffer）和
-"不可变 pending sealed-turn outbox"（本模块）。
+"不可变 pending sealed-turn admission buffer"（本模块）。
 
 契约（v0.6.0 设计 §5/§6）：
     - turn 一旦 seal 就先进入 outbox，只有 Patchouli submit 成功后才移除 item。
     - 上一 turn 提交失败时保留 outbox item，但不占用也不覆盖当前 accumulator；
       新 user 仍可开始下一 turn。
-    - v0.6.0 的 outbox 只是有界、进程内的 best-effort retry buffer：进程退出、
-      崩溃或断电后 pending item 不可恢复，也不提供 durable accepted 保证。
-      后续迁移到持久化队列时仍需保持同一提交与会话内顺序语义。
+    - Q2 起生产链路会立即把 item 移交 InteractionSubmissionQueue；本 outbox 只负责
+      queue admission 失败时的短暂保留，以及 v0.6.0 直接回调的兼容行为。
+    - 它仍是进程内结构，不提供 durable accepted 保证。
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from collections import deque
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal
+from uuid import uuid4
 
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.system.services.passive.models import PassiveConversationKey
@@ -38,7 +39,7 @@ SealReason = Literal[
 
 @dataclass(frozen=True)
 class SealedTurn:
-    """已封口的不可变 turn 提交项。"""
+    """已封口的 turn admission 项；深快照由 submission codec 在入队时完成。"""
 
     conversation_key: PassiveConversationKey
     payload: InteractionPayload
@@ -47,13 +48,18 @@ class SealedTurn:
     turn_id: str | None = None
     sealed_at: datetime = field(default_factory=datetime.now)
     attempts: int = 0
+    interaction_id: str = field(default_factory=lambda: f"interaction_{uuid4().hex}")
+
+    def __post_init__(self) -> None:
+        if not self.interaction_id.strip():
+            raise ValueError("interaction_id must not be blank")
 
     def with_attempt(self) -> SealedTurn:
         return replace(self, attempts=self.attempts + 1)
 
 
 class SealedTurnOutbox:
-    """按外部会话分桶的有界进程内 best-effort retry buffer。"""
+    """按外部会话分桶的有界进程内 admission/兼容缓冲区。"""
 
     def __init__(self, *, max_items_per_conversation: int = 32) -> None:
         self._max_items = max(1, max_items_per_conversation)

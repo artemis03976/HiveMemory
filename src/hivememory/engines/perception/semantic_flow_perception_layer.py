@@ -143,6 +143,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         payload: InteractionPayload,
+        interaction_id: str | None = None,
     ) -> tuple[str, TopicMaterializeTask | None]:
         """
         MMU 核心方法：路由到指定话题并摄入载荷。
@@ -151,6 +152,15 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             (real_topic_id, TopicMaterializeTask | None)
             调用方负责将 TopicMaterializeTask 提交给生成链路。
         """
+        # consumer 侧先查 apply journal，避免 ambiguous failure 后重复追加 block。
+        if interaction_id:
+            applied_topic_id = self._short_term_store.get_applied_interaction_topic(
+                interaction_id
+            )
+            if applied_topic_id is not None:
+                self._short_term_store.set_last_active_topic(applied_topic_id)
+                return applied_topic_id, None
+
         # 重新检查创建情况，避免预创建后某些错误导致的异常
         topic_id = await self.prepare_topic(
             target_topic_id=topic_id,
@@ -158,7 +168,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             new_topic_summary=None,
             identity=payload.identity,
         )
-        settle_payload = await self.ingest_payload(payload, topic_id)
+        settle_payload = await self.ingest_payload(
+            payload,
+            topic_id,
+            interaction_id=interaction_id,
+        )
         self._short_term_store.set_last_active_topic(topic_id)
         return topic_id, settle_payload
 
@@ -166,6 +180,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         payload: InteractionPayload,
         topic_id: str,
+        interaction_id: str | None = None,
     ) -> TopicMaterializeTask | None:
         """
         摄入完整交互载荷。
@@ -173,6 +188,17 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             如发生 TOKEN_OVERFLOW 结算则返回 TopicMaterializeTask，否则 None
         """
+        if interaction_id:
+            applied_topic_id = self._short_term_store.get_applied_interaction_topic(
+                interaction_id
+            )
+            if applied_topic_id is not None:
+                if applied_topic_id != topic_id:
+                    raise ValueError(
+                        f"interaction '{interaction_id}' was already applied to another topic"
+                    )
+                return None
+
         if not payload.turn_events:
             raise ValueError(
                 "InteractionPayload.turn_events is required; "
@@ -210,6 +236,9 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
         self._short_term_store.add_block(topic_id, block)
+        if interaction_id:
+            # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
+            self._short_term_store.mark_interaction_applied(interaction_id, topic_id)
 
         # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
         if payload.model_used:
@@ -289,13 +318,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 class NullPerceptionLayer(BasePerceptionLayer):
     """Disabled perception layer with the same public surface as SemanticFlow."""
 
-    async def ingest_payload(self, payload: InteractionPayload, topic_id: str) -> None:
+    async def ingest_payload(
+        self,
+        payload: InteractionPayload,
+        topic_id: str,
+        interaction_id: str | None = None,
+    ) -> None:
         return None
 
     async def route_and_ingest(
         self,
         topic_id: str,
         payload: InteractionPayload,
+        interaction_id: str | None = None,
     ) -> tuple[str, None]:
         return topic_id, None
 

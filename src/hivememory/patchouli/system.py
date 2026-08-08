@@ -27,10 +27,8 @@
 """
 
 import logging
-
 from typing import TYPE_CHECKING, Any, Optional
 
-from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     MemoryManagementService,
@@ -38,7 +36,11 @@ from hivememory.patchouli.application import (
     ModelReadinessService,
     TopicManagementService,
 )
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmissionQueue,
+)
 from hivememory.patchouli.runtime import PatchouliRuntime
+from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
@@ -119,6 +121,13 @@ class PatchouliSystem(SubsystemProtocol):
             global_bus=global_bus,
             public_api=self._public_api,
         )
+        self._interaction_submission_queue = InteractionSubmissionQueue(
+            self.runtime.perception_familiar.submit_interaction,
+            runtime_events=self._runtime_events.scoped(
+                "patchouli",
+                component="interaction_submission_queue",
+            ),
+        )
 
         self._scheduler = scheduler
         self._maintenance_registered = False
@@ -129,6 +138,11 @@ class PatchouliSystem(SubsystemProtocol):
     def service(self) -> PatchouliService:
         """访问 Patchouli 对外能力门面。"""
         return self._service
+
+    @property
+    def interaction_submission_queue(self) -> InteractionSubmissionQueue:
+        """访问 passive 与未来 active 共用的 interaction submission queue。"""
+        return self._interaction_submission_queue
 
     @property
     def name(self) -> str:
@@ -174,6 +188,7 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime.mount_local_routes(self.service)
 
         self._bridge.mount()
+        await self._interaction_submission_queue.start()
 
         if self._scheduler and not self._maintenance_registered:
             self._maintenance_registered = self.register_maintenance_tasks(
@@ -185,6 +200,7 @@ class PatchouliSystem(SubsystemProtocol):
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
 
+        await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
 
         self._bridge.unmount()
