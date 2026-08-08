@@ -61,6 +61,11 @@ class ExternalEventDedupRegistry:
             self._prune_expired(now)
             return key in self._entries
 
+    def discard(self, key: tuple[str, str]) -> None:
+        """撤销尚未完成处理的事件登记，允许调用方稍后重试。"""
+        with self._lock:
+            self._entries.pop(key, None)
+
     def size(self) -> int:
         with self._lock:
             return len(self._entries)

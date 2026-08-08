@@ -97,9 +97,9 @@ class _Recorder:
             raise self.retrieval_error
         return RetrievalResponse()
 
-    async def submit(self, sealed):
+    async def submit(self, submission):
         self.calls.append("submit")
-        self.submitted.append(sealed)
+        self.submitted.append(submission)
         return "topic-settled"
 
 
@@ -115,7 +115,7 @@ def _build(
     sink = RecordingRuntimeEventSink()
     ingressor = PassiveMessageIngressor(
         bus,
-        submit_sealed_turn=recorder.submit,
+        interaction_queue=recorder,
         runtime_events=sink,
     )
     return ingressor, sink
@@ -184,7 +184,7 @@ async def test_degraded_turn_still_submits_raw_interaction() -> None:
     # 缺少 decision 派生值，但 raw artifact 未被丢弃
     assert sealed.payload.rewritten_query is None
     assert sealed.payload.worth_saving is None
-    assert sealed.target_topic is None
+    assert sealed.requested_topic_id == "NEW_TOPIC"
 
 
 @pytest.mark.asyncio
@@ -225,7 +225,7 @@ async def test_retrieval_failure_preserves_decision() -> None:
     await ingressor.flush_conversation(_key(), IDENTITY)
 
     sealed = recorder.submitted[0]
-    assert sealed.target_topic == "topic-1"
+    assert sealed.requested_topic_id == "topic-1"
     assert sealed.payload.rewritten_query == "q"
     assert sealed.payload.worth_saving is True
 

@@ -30,7 +30,7 @@ last_reviewed: 2026-07-30
 | `i18n` | 默认语言、fallback 字段、支持语言列表 | 全局文本解析 |
 | `shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
-| `passive_ingress` | dedup、turn buffer、outbox 上限 | System passive ingress |
+| `passive_ingress` | dedup、turn accumulator 上限 | System passive ingress |
 | `memory_compiler` | 编译策略 | MemoryCompiler 所有者 |
 | `patchouli` / `alice` | 各自运行时和存储配置 | 对应子系统 |
 

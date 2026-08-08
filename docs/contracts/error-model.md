@@ -146,7 +146,7 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 ### 4.3 Passive Ingress
 
-`PassiveIngressContractError` 表示下游违反协议，例如 `PASSIVE_MEMORY` 返回 command outcome。它不是可重试基础设施错误。可恢复提交错误由 outbox 管理，并通过 RuntimeEvent 表达 retry pending；对外 outcome 保持收敛。
+`PassiveIngressContractError` 表示下游违反协议，例如 `PASSIVE_MEMORY` 返回 command outcome。它不是可重试基础设施错误。submission queue admission 失败会向调用方抛出明确异常，同时保留当前 accumulator；admission 后的 apply 失败由 Work Queue Runtime 按 policy 重试并通过通用 RuntimeEvent 观测。
 
 ## 5. 观测失败与业务失败
 

@@ -9,9 +9,10 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmissionQueue,
+)
 from hivememory.system.config.memory_compiler import FullContextStrategyConfig
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 from hivememory.system.services.passive import (
@@ -23,7 +24,6 @@ from hivememory.system.services.passive.models import (
     DEFAULT_EXTERNAL_CONVERSATION_ID,
     DEFAULT_PASSIVE_SOURCE,
 )
-from hivememory.system.services.passive.outbox import SealedTurn
 
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
@@ -43,16 +43,14 @@ class PassiveIngressService:
         bus: GlobalSystemBus,
         config: HiveMemoryConfig,
         scheduler: AsyncMaintenanceScheduler,
-        interaction_queue: InteractionSubmissionQueue | None = None,
+        interaction_queue: InteractionSubmissionQueue,
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
-        self._bus = bus
         self._config = config
         self._scheduler = scheduler
         self._interaction_queue = interaction_queue
         self._ingressor = PassiveMessageIngressor(
             bus=bus,
-            submit_sealed_turn=self._submit_sealed_turn,
             interaction_queue=interaction_queue,
             gateway_request_timeout_ms=(
                 config.gateway.workflow.default_request_timeout_ms
@@ -91,21 +89,6 @@ class PassiveIngressService:
     def _unregister_maintenance_tasks(self) -> int:
         return self._scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 
-    async def _submit_sealed_turn(self, sealed: SealedTurn) -> str | None:
-        """未注入通用 queue 时，把 sealed turn 直接提交给 Patchouli。
-
-        这是 v0.6.0 兼容路径；生产装配由 Ingressor 直接移交 InteractionSubmissionQueue。
-        抛出异常即代表提交失败，由 Ingressor 保留 outbox item 供重试。
-
-        Returns:
-            Patchouli 落定的真实 topic_id，供观测事件关联。
-        """
-        return await self._bus.request(
-            GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION,
-            payload=sealed.payload,
-            target_topic=sealed.target_topic or "NEW_TOPIC",
-        )
-
     async def start(self) -> None:
         if self._maintenance_registered:
             return
@@ -120,16 +103,13 @@ class PassiveIngressService:
     async def shutdown_drain(self) -> dict[str, Any]:
         await self.stop()
         result = await self._ingressor.shutdown_drain()
-        queue_pending = 0
-        if self._interaction_queue is not None:
-            # PatchouliSystem.stop 会停止 claim；先在这里等待 passive 已移交的 work。
-            await self._interaction_queue.drain_all()
-            queue_pending = await self._interaction_queue.pending_count()
-        total_pending = result["outbox_pending"] + queue_pending
+        # PatchouliSystem.stop 会停止 claim；先在这里等待 passive 已移交的 work。
+        await self._interaction_queue.drain_all()
+        queue_pending = await self._interaction_queue.pending_count()
         return {
-            "success": total_pending == 0,
-            "observer_payloads_submitted": result["submitted_turns"],
-            "observer_payloads_pending": total_pending,
+            "success": queue_pending == 0,
+            "observer_payloads_submitted": result["accepted_submissions"],
+            "observer_payloads_pending": queue_pending,
         }
 
     # ------------------------------------------------------------------
@@ -211,10 +191,10 @@ class PassiveIngressService:
         user_id: str,
         agent_id: str = DEFAULT_AGENT_ID,
     ) -> bool:
-        """显式 seal 并提交指定外部会话的当前 turn。
+        """显式把指定外部会话的当前 turn 移交 submission queue。
 
         Returns:
-            True 表示至少有一个 sealed turn 被成功提交。
+            True 表示当前 turn 已被 queue 接收。
         """
         identity = Identity(
             user_id=user_id,

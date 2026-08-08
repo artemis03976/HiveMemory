@@ -104,7 +104,7 @@ GlobalMaintenanceScheduler.stop
   -> SYSTEM_STOPPED
 ```
 
-先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 封口并尽力提交仍在 outbox 中的 turn。只有被动摄入完成 shutdown drain 后，才关闭 Alice、Patchouli 和 Gateway，避免在仍有 sealed turn 待提交时撤掉 Patchouli route。
+先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`，并等待队列已接受的 work 进入终态。只有被动摄入完成 shutdown drain 后，才关闭 Alice、Patchouli 和 Gateway，避免在 submission 仍待 apply 时停止 Patchouli worker。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
 
@@ -126,7 +126,7 @@ System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `ch
 - 应用服务不直接持有 Gateway/Patchouli/Alice 实例；
 - 维护任务必须在 scheduler 注册，不能由业务组件偷偷创建第二个 interval loop；
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
-- `SYSTEM_STOPPED` 的观测摘要不等于所有 outbox 已持久化，必须查看 `passive_shutdown_drain`；
+- `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。
 
 评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。

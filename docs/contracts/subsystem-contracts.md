@@ -219,7 +219,7 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 
 对外 `PassiveIngressOutcome` 只表达 accepted/buffered/duplicate/degraded 等业务结果；Gateway execution state、fallback 原因和 RuntimeEvent 不进入 API 响应。
 
-同一 `PassiveConversationKey` 在单进程内按服务接收顺序串行处理，串行范围包含 Gateway/retrieval 等异步阶段以及 accumulator、seal 和 flush 状态变更；不同会话仍可并发。connector 负责按会话因果顺序投递，`sequence` 当前只用于关联和观测，不承诺对已经乱序到达的事件进行重排。该契约不扩展为跨进程排序或持久化 mailbox。
+同一 `PassiveConversationKey` 在单进程内按服务接收顺序串行处理，串行范围包含 Gateway/retrieval、accumulator 修改与 submission queue admission；不同会话仍可并发。admission 成功前 accumulator 不会清空，也不会被下一 user 覆盖。connector 负责按会话因果顺序投递，`sequence` 当前只用于关联和观测，不承诺对已经乱序到达的事件进行重排。该契约不扩展为跨进程排序或持久化 mailbox。
 
 这条限制保护的是入口语义。Passive Memory 用于摄入已经发生的外部经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。
 

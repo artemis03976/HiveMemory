@@ -33,6 +33,14 @@ SOURCE = "unit_test"
 CONVERSATION = "conv-1"
 
 
+class _SubmissionQueueRecorder:
+    def __init__(self, submitted: list | None = None) -> None:
+        self.submitted = submitted if submitted is not None else []
+
+    async def submit(self, submission) -> None:
+        self.submitted.append(submission)
+
+
 def _decision_outcome(
     mode: RetrievalMode = RetrievalMode.HYBRID,
 ) -> GatewayDecisionOutcome:
@@ -79,7 +87,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     submitted = []
     ingressor = PassiveMessageIngressor(
         bus,
-        submit_sealed_turn=AsyncMock(side_effect=submitted.append),
+        interaction_queue=_SubmissionQueueRecorder(submitted),
         gateway_request_timeout_ms=123,
     )
     identity = Identity(user_id="u1", session_id="s1")
@@ -87,9 +95,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     outcome = await ingressor.route_event(_event("user", "被动原问题"), identity)
 
     assert outcome.gateway_decision == _decision_outcome().decision
-    assert gateway.await_args.kwargs["ingress_mode"] == (
-        GatewayIngressMode.PASSIVE_MEMORY
-    )
+    assert gateway.await_args.kwargs["ingress_mode"] == (GatewayIngressMode.PASSIVE_MEMORY)
     assert gateway.await_args.kwargs["request_timeout_ms"] == 123
     request = retrieve.await_args.kwargs["request"]
     assert request.semantic_query == "被动原问题"
@@ -97,11 +103,11 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
 
     assert await ingressor.flush_conversation(_key(identity), identity) == 1
     assert len(submitted) == 1
-    sealed = submitted[0]
-    assert sealed.target_topic == "topic-passive"
-    assert sealed.seal_reason == "manual_flush"
-    assert sealed.payload.rewritten_query == "被动原问题"
-    assert sealed.payload.worth_saving is True
+    submission = submitted[0]
+    assert submission.requested_topic_id == "topic-passive"
+    assert submission.correlation["seal_reason"] == "manual_flush"
+    assert submission.payload.rewritten_query == "被动原问题"
+    assert submission.payload.worth_saving is True
 
 
 @pytest.mark.asyncio
@@ -111,7 +117,10 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
         GlobalRoutes.GATEWAY_PROCESS,
         AsyncMock(return_value=_decision_outcome(RetrievalMode.SKIP)),
     )
-    ingressor = PassiveMessageIngressor(bus, submit_sealed_turn=AsyncMock())
+    ingressor = PassiveMessageIngressor(
+        bus,
+        interaction_queue=_SubmissionQueueRecorder(),
+    )
 
     outcome = await ingressor.route_event(
         _event("user", "你好"),
@@ -139,7 +148,10 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
         ),
     )
 
-    ingressor = PassiveMessageIngressor(bus, submit_sealed_turn=AsyncMock())
+    ingressor = PassiveMessageIngressor(
+        bus,
+        interaction_queue=_SubmissionQueueRecorder(),
+    )
     # 契约违约不走 §6 降级路径，必须向上抛出
     with pytest.raises(PassiveIngressContractError, match="不得返回 command"):
         await ingressor.route_event(_event("user", "/clear"), Identity(user_id="u1"))

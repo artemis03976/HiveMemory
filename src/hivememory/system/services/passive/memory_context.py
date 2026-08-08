@@ -89,7 +89,7 @@ class MemoryContextProvider:
     ) -> MemoryContextAttempt:
         """请求 Gateway decision 与 Patchouli retrieval，可恢复失败则降级。
 
-        retrieval 失败时保留已获得的 decision，使 sealed turn 仍能路由到
+        retrieval 失败时保留已获得的 decision，使最终 submission 仍能路由到
         正确的 topic，只是缺少 memory context。
         """
         started_at = time.perf_counter()

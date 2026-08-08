@@ -1,7 +1,8 @@
 """Passive ingress 可观测性契约测试。
 
 覆盖 v0.6.0 设计 §9 与验收清单 #9：
-    - 五个结构化 passive 事件按语义发布
+    - Passive 事件接收、duplicate 与 memory context 按语义发布
+    - submission 生命周期统一由通用 WORK_* 事件观测
     - 观测信息只进 RuntimeEventSink，不进 outcome / 公共响应
     - 事件不携带外部消息全文、tool args 或完整 memory context
 """
@@ -101,10 +102,10 @@ class _Recorder:
     async def retrieve(self, **kwargs):
         return RetrievalResponse(memories=list(self.memories))
 
-    async def submit(self, sealed):
+    async def submit(self, submission):
         if self.fail_submit:
             raise RuntimeError(f"patchouli down: {USER_SECRET}")
-        return self.settled_topic_id
+        return None
 
 
 def _build(
@@ -116,7 +117,7 @@ def _build(
     sink = RecordingRuntimeEventSink()
     ingressor = PassiveMessageIngressor(
         bus,
-        submit_sealed_turn=recorder.submit,
+        interaction_queue=recorder,
         runtime_events=sink,
     )
     return ingressor, sink
@@ -203,64 +204,6 @@ async def test_non_user_event_does_not_publish_memory_context() -> None:
     assert RuntimeEventType.PASSIVE_MEMORY_CONTEXT_PREPARED.value not in _types(sink)
 
 
-@pytest.mark.asyncio
-async def test_turn_submitted_reports_settled_topic_and_seal_reason() -> None:
-    recorder = _Recorder()
-    ingressor, sink = _build(recorder)
-
-    await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
-    await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
-    sink.events.clear()
-
-    await ingressor.flush_conversation(_key(), IDENTITY)
-
-    submitted = _first(sink, RuntimeEventType.PASSIVE_TURN_SUBMITTED)
-    assert submitted.data["seal_reason"] == "manual_flush"
-    assert submitted.data["event_count"] == 2
-    assert submitted.data["attempts"] == 1
-    # 观测的 topic 是 Patchouli 落定值，而非提交前的 target
-    assert submitted.topic_id == "topic-settled"
-    assert submitted.status == "submitted"
-
-
-@pytest.mark.asyncio
-async def test_turn_submit_failed_reports_retry_state() -> None:
-    recorder = _Recorder()
-    ingressor, sink = _build(recorder)
-
-    await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
-    recorder.fail_submit = True
-    sink.events.clear()
-
-    await ingressor.flush_conversation(_key(), IDENTITY)
-
-    failed = _first(sink, RuntimeEventType.PASSIVE_TURN_SUBMIT_FAILED)
-    assert failed.data["error_class"] == "RuntimeError"
-    assert failed.data["will_retry"] is True
-    assert failed.data["attempts"] == 1
-    assert failed.data["outbox_pending"] == 1
-    assert failed.severity == "warning"
-    assert failed.status == "retry_pending"
-    assert RuntimeEventType.PASSIVE_TURN_SUBMITTED.value not in _types(sink)
-
-
-@pytest.mark.asyncio
-async def test_retry_after_failure_publishes_submitted_with_attempt_count() -> None:
-    recorder = _Recorder()
-    ingressor, sink = _build(recorder)
-
-    await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
-    recorder.fail_submit = True
-    await ingressor.flush_conversation(_key(), IDENTITY)
-
-    recorder.fail_submit = False
-    sink.events.clear()
-    await ingressor.drain_outbox(_key())
-
-    submitted = _first(sink, RuntimeEventType.PASSIVE_TURN_SUBMITTED)
-    assert submitted.data["attempts"] == 2
-
-
 # ========== 脱敏与边界 ==========
 
 
@@ -281,7 +224,6 @@ async def test_events_never_carry_external_content_or_tool_args() -> None:
         ),
         IDENTITY,
     )
-    recorder.fail_submit = True
     await ingressor.flush_conversation(_key(), IDENTITY)
 
     assert sink.events, "应至少发布若干观测事件"
@@ -312,7 +254,7 @@ async def test_ingressor_works_without_sink() -> None:
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, recorder.gateway)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
-    ingressor = PassiveMessageIngressor(bus, submit_sealed_turn=recorder.submit)
+    ingressor = PassiveMessageIngressor(bus, interaction_queue=recorder)
 
     outcome = await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
     assert outcome.kind == "user"

@@ -66,9 +66,9 @@ observer 不捕获后吞掉原异常，不执行重试，也不决定事务是�
 
 ## 4. 生命周期、Scheduler 与 Passive 事件
 
-System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed；Passive Ingress 发布事件接收、duplicate、memory context、sealed turn 提交和 retry 事实。
+System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed；Passive Ingress 发布事件接收、duplicate 与 memory context 事实。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
 
-这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`passive.turn.submit_failed` 不直接修改 outbox，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、submitter 和 run registry 负责。
+这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`work.retry_scheduled` 不直接修改 work record，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、Work Queue Runtime 和 run registry 负责。
 
 ## 5. 健康与日志的关系
 
