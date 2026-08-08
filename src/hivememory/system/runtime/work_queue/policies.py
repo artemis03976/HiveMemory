@@ -18,6 +18,7 @@ class QueuePolicy:
     timeout_seconds: float | None = None
     max_attempts: int = 1
     terminal_retention: int = 100
+    shutdown_wait_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.capacity < 1:
@@ -31,6 +32,8 @@ class QueuePolicy:
             raise ValueError("max_attempts must not be negative")
         if self.terminal_retention < 0:
             raise ValueError("terminal_retention must not be negative")
+        if self.shutdown_wait_seconds is not None and self.shutdown_wait_seconds < 0:
+            raise ValueError("shutdown_wait_seconds must not be negative")
 
 
 class FailureAction(str, Enum):

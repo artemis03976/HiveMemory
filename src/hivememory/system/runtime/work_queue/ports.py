@@ -13,10 +13,11 @@ from hivememory.system.runtime.work_queue.models import (
     WorkErrorSnapshot,
     WorkExecutionContext,
     WorkItem,
+    WorkLaneSnapshot,
     WorkReceipt,
     WorkRecord,
 )
-from hivememory.system.runtime.work_queue.policies import FailureDecision
+from hivememory.system.runtime.work_queue.policies import FailureDecision, QueuePolicy
 
 HandlerPayloadT = TypeVar("HandlerPayloadT", contravariant=True)
 HandlerResultT = TypeVar("HandlerResultT", covariant=True)
@@ -43,7 +44,12 @@ class WorkHandlerPort(Protocol[HandlerPayloadT, HandlerResultT]):
 class WorkStorePort(Protocol):
     """保存 work 状态真相并提供原子迁移的基础设施端口。"""
 
-    async def enqueue(self, item: WorkItem[Any]) -> None: ...
+    @property
+    def is_durable(self) -> bool: ...
+
+    def configure_lane(self, lane: str, policy: QueuePolicy) -> None: ...
+
+    async def enqueue(self, item: WorkItem[Any]) -> WorkRecord[Any]: ...
 
     async def claim_ready(
         self,
@@ -83,6 +89,16 @@ class WorkStorePort(Protocol):
 
     async def get(self, work_id: str) -> WorkRecord[Any] | None: ...
 
+    async def wait(
+        self,
+        work_id: str,
+        timeout: float | None = None,
+    ) -> WorkRecord[Any] | None: ...
+
+    async def wait_for_ready(self, lane: str, timeout: float) -> None: ...
+
+    async def snapshot(self, lane: str) -> WorkLaneSnapshot: ...
+
 
 @runtime_checkable
 class WorkQueuePort(Protocol):
@@ -93,6 +109,12 @@ class WorkQueuePort(Protocol):
     async def cancel(self, work_id: str) -> bool: ...
 
     async def get(self, work_id: str) -> WorkRecord[Any] | None: ...
+
+    async def wait(
+        self,
+        work_id: str,
+        timeout: float | None = None,
+    ) -> WorkRecord[Any] | None: ...
 
 
 # 无 Port 后缀的名称用于对应设计文档中的角色术语；Port 名称是代码中的规范名称。
