@@ -6,7 +6,6 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
-from typing import Any
 
 from hivememory.system.runtime.work_queue.cancellation import WorkCancellationToken
 from hivememory.system.runtime.work_queue.models import (
@@ -21,7 +20,7 @@ from hivememory.system.runtime.work_queue.ports import WorkStorePort
 logger = logging.getLogger(__name__)
 
 type ExecuteWork = Callable[
-    [str, WorkRecord[Any], WorkCancellationToken],
+    [str, WorkRecord, WorkCancellationToken],
     Awaitable[None],
 ]
 

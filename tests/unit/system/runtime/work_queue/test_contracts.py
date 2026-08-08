@@ -19,6 +19,8 @@ from hivememory.system.runtime.work_queue import (
     WorkRecord,
     WorkState,
     can_transition_work_state,
+    decode_canonical_json,
+    encode_canonical_json,
 )
 
 
@@ -32,25 +34,31 @@ def test_work_state_transitions_are_closed_after_terminal_state() -> None:
         assert not any(can_transition_work_state(state, target) for target in WorkState)
 
 
-def test_work_item_is_a_validated_immutable_envelope() -> None:
+def test_work_item_is_an_immutable_bytes_envelope() -> None:
+    source_payload = {"topic_id": "topic-1", "events": ["created"]}
     item = WorkItem(
         work_id="work-1",
         lane="memory_generation",
         kind="patchouli.memory_generation.v1",
         schema_version=1,
-        payload={"topic_id": "topic-1"},
+        payload=encode_canonical_json(source_payload),
         idempotency_key="intent-1",
     )
 
     with pytest.raises(FrozenInstanceError):
         item.lane = "runtime_job"  # type: ignore[misc]
+    source_payload["events"].append("changed")  # type: ignore[union-attr]
+    assert decode_canonical_json(item.payload) == {
+        "events": ["created"],
+        "topic_id": "topic-1",
+    }
     with pytest.raises(ValueError, match="lane"):
         WorkItem(
             work_id="work-2",
             lane=" ",
             kind="example.v1",
             schema_version=1,
-            payload={},
+            payload=encode_canonical_json({}),
         )
     with pytest.raises(ValueError, match="schema_version"):
         WorkItem(
@@ -58,8 +66,33 @@ def test_work_item_is_a_validated_immutable_envelope() -> None:
             lane="example",
             kind="example.v1",
             schema_version=0,
-            payload={},
+            payload=encode_canonical_json({}),
         )
+    with pytest.raises(TypeError, match="schema_version"):
+        WorkItem(
+            work_id="work-3b",
+            lane="example",
+            kind="example.v1",
+            schema_version=True,  # type: ignore[arg-type]
+            payload=encode_canonical_json({}),
+        )
+
+    with pytest.raises(TypeError, match="payload must be bytes"):
+        WorkItem(
+            work_id="work-4",
+            lane="example",
+            kind="example.v1",
+            schema_version=1,
+            payload={},  # type: ignore[arg-type]
+        )
+    non_canonical_item = WorkItem(
+        work_id="work-5",
+        lane="example",
+        kind="example.v1",
+        schema_version=1,
+        payload=b'{"topic_id": "topic-1"}',
+    )
+    assert decode_canonical_json(non_canonical_item.payload) == {"topic_id": "topic-1"}
 
 
 def test_work_record_keeps_runtime_state_outside_work_item() -> None:
@@ -69,7 +102,7 @@ def test_work_record_keeps_runtime_state_outside_work_item() -> None:
         lane="interaction_submission",
         kind="patchouli.interaction_submission.v1",
         schema_version=1,
-        payload={"interaction_id": "interaction-1"},
+        payload=encode_canonical_json({"interaction_id": "interaction-1"}),
     )
     record = WorkRecord(
         item=item,

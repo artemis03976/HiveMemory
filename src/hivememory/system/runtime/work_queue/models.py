@@ -14,6 +14,7 @@ from enum import Enum
 from types import MappingProxyType
 
 from hivememory.system.runtime.work_queue.cancellation import WorkCancellationToken
+from hivememory.system.runtime.work_queue.payloads import validate_payload_bytes
 
 
 class WorkState(str, Enum):
@@ -71,18 +72,19 @@ def _require_non_blank(value: str, *, field_name: str) -> None:
 
 
 @dataclass(frozen=True)
-class WorkItem[PayloadT]:
+class WorkItem:
     """进入通用运行时的不可变工作信封。
 
-    ``payload`` 对 runtime 保持不透明。冻结 dataclass 只保证信封字段不可改写，
-    业务 adapter 仍需在 enqueue 前提供稳定快照或可序列化值。
+    ``payload`` 只保存由 versioned codec 生成的 JSON bytes，不持有业务 DTO、
+    领域实体或调用方可变容器的引用。WorkItem 不重复解析 payload；handler 在每次
+    attempt 中通过 codec 重新解码。
     """
 
     work_id: str
     lane: str
     kind: str
     schema_version: int
-    payload: PayloadT
+    payload: bytes = field(repr=False)
     ordering_key: str | None = None
     priority: int = 0
     correlation_id: str | None = None
@@ -92,8 +94,11 @@ class WorkItem[PayloadT]:
         _require_non_blank(self.work_id, field_name="work_id")
         _require_non_blank(self.lane, field_name="lane")
         _require_non_blank(self.kind, field_name="kind")
+        if not isinstance(self.schema_version, int) or isinstance(self.schema_version, bool):
+            raise TypeError("schema_version must be an integer")
         if self.schema_version < 1:
             raise ValueError("schema_version must be at least 1")
+        validate_payload_bytes(self.payload)
         for field_name in ("ordering_key", "correlation_id", "idempotency_key"):
             value = getattr(self, field_name)
             if value is not None:
@@ -112,10 +117,10 @@ class WorkErrorSnapshot:
 
 
 @dataclass(frozen=True)
-class WorkRecord[PayloadT]:
+class WorkRecord:
     """由 store/runtime 持有的工作状态真相快照。"""
 
-    item: WorkItem[PayloadT]
+    item: WorkItem
     state: WorkState
     attempt_count: int
     enqueued_at: datetime

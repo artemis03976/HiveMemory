@@ -17,6 +17,7 @@ from hivememory.system.runtime.work_queue.exceptions import (
     DuplicateWorkLaneError,
     UnknownWorkLaneError,
     UnsupportedWorkQueueFeatureError,
+    WorkPayloadCodecError,
     WorkQueueStoppedError,
 )
 from hivememory.system.runtime.work_queue.models import (
@@ -28,6 +29,7 @@ from hivememory.system.runtime.work_queue.models import (
     WorkRecord,
     WorkState,
 )
+from hivememory.system.runtime.work_queue.payloads import WorkPayloadCodecRegistry
 from hivememory.system.runtime.work_queue.policies import (
     FailureAction,
     FailureDecision,
@@ -60,12 +62,14 @@ class WorkQueueRuntime:
         self,
         *,
         store: WorkStorePort,
+        payload_codecs: WorkPayloadCodecRegistry,
         runtime_events: RuntimeEventSink | None = None,
         worker_poll_interval_seconds: float = 0.2,
         lease_seconds: float = 300.0,
         shutdown_wait_seconds: float = 10.0,
     ) -> None:
         self._store = store
+        self._payload_codecs = payload_codecs
         self._bindings: dict[str, _LaneBinding] = {}
         self._events = WorkQueueEventEmitter(runtime_events or NullRuntimeEventSink())
         self._supervisor = WorkQueueSupervisor(
@@ -126,7 +130,7 @@ class WorkQueueRuntime:
         self._stopped = True
         return await self._supervisor.stop()
 
-    async def enqueue(self, item: WorkItem[Any]) -> WorkReceipt:
+    async def enqueue(self, item: WorkItem) -> WorkReceipt:
         binding = self._bindings.get(item.lane)
         if binding is None:
             await self._emit_rejected(item, reason="unknown_lane")
@@ -134,6 +138,15 @@ class WorkQueueRuntime:
         if not self._accepting:
             await self._emit_rejected(item, reason="runtime_stopped", policy=binding.lane.policy)
             raise WorkQueueStoppedError("Work queue runtime is not accepting new work")
+        try:
+            self._payload_codecs.require(item.kind, item.schema_version)
+        except WorkPayloadCodecError:
+            await self._emit_rejected(
+                item,
+                reason="unknown_payload_codec",
+                policy=binding.lane.policy,
+            )
+            raise
 
         try:
             record = await self._store.enqueue(item)
@@ -157,14 +170,14 @@ class WorkQueueRuntime:
             enqueued_at=record.enqueued_at,
         )
 
-    async def get(self, work_id: str) -> WorkRecord[Any] | None:
+    async def get(self, work_id: str) -> WorkRecord | None:
         return await self._store.get(work_id)
 
     async def wait(
         self,
         work_id: str,
         timeout: float | None = None,
-    ) -> WorkRecord[Any] | None:
+    ) -> WorkRecord | None:
         return await self._store.wait(work_id, timeout=timeout)
 
     async def cancel(
@@ -232,7 +245,7 @@ class WorkQueueRuntime:
     async def _execute_record(
         self,
         lane_name: str,
-        record: WorkRecord[Any],
+        record: WorkRecord,
         cancellation: WorkCancellationToken,
     ) -> None:
         binding = self._bindings[lane_name]
@@ -253,11 +266,16 @@ class WorkQueueRuntime:
         )
 
         try:
+            payload = self._payload_codecs.decode(
+                record.item.kind,
+                record.item.schema_version,
+                record.item.payload,
+            )
             if binding.lane.policy.timeout_seconds is None:
-                result = await binding.handler.execute(record.item.payload, context)
+                result = await binding.handler.execute(payload, context)
             else:
                 async with asyncio.timeout(binding.lane.policy.timeout_seconds):
-                    result = await binding.handler.execute(record.item.payload, context)
+                    result = await binding.handler.execute(payload, context)
 
             # handler 即使吞掉 CancelledError，也不能覆盖已经记录的取消请求。
             if cancellation.requested:
@@ -281,13 +299,15 @@ class WorkQueueRuntime:
             )
         except asyncio.CancelledError:
             await self._finish_cancelled(binding, record, cancellation)
+        except WorkPayloadCodecError as error:
+            await self._handle_payload_failure(binding, record, error)
         except Exception as exc:
             await self._handle_failure(binding, record, context, exc)
 
     async def _finish_cancelled(
         self,
         binding: _LaneBinding,
-        record: WorkRecord[Any],
+        record: WorkRecord,
         cancellation: WorkCancellationToken,
     ) -> None:
         reason = cancellation.reason or "runtime_cancelled"
@@ -314,10 +334,39 @@ class WorkQueueRuntime:
             reason=reason,
         )
 
+    async def _handle_payload_failure(
+        self,
+        binding: _LaneBinding,
+        record: WorkRecord,
+        error: WorkPayloadCodecError,
+    ) -> None:
+        """把不可重试的 payload 契约失败安全移入 dead letter。"""
+
+        error_snapshot = WorkErrorSnapshot(
+            error_class=type(error).__name__,
+            message="invalid_work_payload",
+        )
+        await self._store.mark_dead_lettered(record.work_id, error_snapshot)
+        dead_lettered = await self._latest_or(
+            record,
+            state=WorkState.DEAD_LETTER,
+            finished_at=datetime.now(UTC),
+            lease_until=None,
+            last_error=error_snapshot,
+        )
+        await self._emit_transition(
+            RuntimeEventType.WORK_DEAD_LETTERED,
+            binding=binding,
+            record=dead_lettered,
+            severity="error",
+            reason=error_snapshot.message,
+            error_class=error_snapshot.error_class,
+        )
+
     async def _handle_failure(
         self,
         binding: _LaneBinding,
-        record: WorkRecord[Any],
+        record: WorkRecord,
         context: WorkExecutionContext,
         error: Exception,
     ) -> None:
@@ -432,7 +481,7 @@ class WorkQueueRuntime:
         event_type: RuntimeEventType,
         *,
         binding: _LaneBinding,
-        record: WorkRecord[Any],
+        record: WorkRecord,
         severity: Severity = "info",
         reason: str | None = None,
         error_class: str | None = None,
@@ -460,7 +509,7 @@ class WorkQueueRuntime:
 
     async def _emit_rejected(
         self,
-        item: WorkItem[Any],
+        item: WorkItem,
         *,
         reason: str,
         policy: QueuePolicy | None = None,
@@ -482,9 +531,9 @@ class WorkQueueRuntime:
 
     async def _latest_or(
         self,
-        record: WorkRecord[Any],
+        record: WorkRecord,
         **updates: Any,
-    ) -> WorkRecord[Any]:
+    ) -> WorkRecord:
         return await self._store.get(record.work_id) or replace(record, **updates)
 
     @staticmethod

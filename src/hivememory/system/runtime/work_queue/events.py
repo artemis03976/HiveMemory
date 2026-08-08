@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
-from typing import Any
 
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RuntimeEventSink
@@ -48,10 +47,10 @@ class WorkQueueEventEmitter:
         self,
         event_type: RuntimeEventType,
         *,
-        item: WorkItem[Any],
+        item: WorkItem,
         state: WorkState | None = None,
         attempt_count: int = 0,
-        record: WorkRecord[Any] | None = None,
+        record: WorkRecord | None = None,
         policy: QueuePolicy | None = None,
         snapshot: WorkLaneSnapshot | None = None,
         severity: Severity = "info",

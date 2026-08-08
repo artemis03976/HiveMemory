@@ -16,16 +16,17 @@ from hivememory.system.runtime.work_queue import (
     WorkQueueCapacityError,
     WorkState,
     WorkStateConflictError,
+    encode_canonical_json,
 )
 
 
-def _item(work_id: str, *, key: str | None = None, lane: str = "lane") -> WorkItem[str]:
+def _item(work_id: str, *, key: str | None = None, lane: str = "lane") -> WorkItem:
     return WorkItem(
         work_id=work_id,
         lane=lane,
         kind="test.work.v1",
         schema_version=1,
-        payload=work_id,
+        payload=encode_canonical_json(work_id),
         ordering_key=key,
     )
 

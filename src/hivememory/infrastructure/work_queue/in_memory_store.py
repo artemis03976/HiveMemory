@@ -10,7 +10,6 @@ import asyncio
 from collections import Counter, deque
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from hivememory.system.runtime.work_queue.exceptions import (
     DuplicateWorkItemError,
@@ -42,7 +41,7 @@ class InMemoryWorkStore:
     """按 lane 分桶、由单把异步锁保护原子状态迁移的内存 store。"""
 
     def __init__(self) -> None:
-        self._records: dict[str, WorkRecord[Any]] = {}
+        self._records: dict[str, WorkRecord] = {}
         self._lanes: dict[str, _LaneState] = {}
         self._condition = asyncio.Condition()
 
@@ -60,7 +59,7 @@ class InMemoryWorkStore:
         if existing.policy != policy:
             raise DuplicateWorkLaneError(f"Work store lane '{lane}' is already configured")
 
-    async def enqueue(self, item: WorkItem[Any]) -> WorkRecord[Any]:
+    async def enqueue(self, item: WorkItem) -> WorkRecord:
         """原子检查 work ID 与 lane capacity 后接受工作项。"""
 
         async with self._condition:
@@ -89,7 +88,7 @@ class InMemoryWorkStore:
         *,
         limit: int,
         lease_seconds: float,
-    ) -> list[WorkRecord[Any]]:
+    ) -> list[WorkRecord]:
         """按原始入队顺序原子 claim 当前可执行项。"""
 
         if limit < 1:
@@ -101,7 +100,7 @@ class InMemoryWorkStore:
             lane_state = self._lane_for(lane)
             now = datetime.now(UTC)
             work_ids = self._claimable_work_ids(lane_state, now=now, limit=limit)
-            claimed: list[WorkRecord[Any]] = []
+            claimed: list[WorkRecord] = []
             for work_id in work_ids:
                 current = self._records[work_id]
                 # retry-wait 到期后在同一临界区完成 QUEUED -> RUNNING 两步迁移。
@@ -203,7 +202,7 @@ class InMemoryWorkStore:
             self._condition.notify_all()
             return True
 
-    async def get(self, work_id: str) -> WorkRecord[Any] | None:
+    async def get(self, work_id: str) -> WorkRecord | None:
         async with self._condition:
             return self._records.get(work_id)
 
@@ -211,7 +210,7 @@ class InMemoryWorkStore:
         self,
         work_id: str,
         timeout: float | None = None,
-    ) -> WorkRecord[Any] | None:
+    ) -> WorkRecord | None:
         """等待 work 进入终态；超时返回当时的最新快照。"""
 
         async with self._condition:
@@ -339,7 +338,7 @@ class InMemoryWorkStore:
             and record.state not in TERMINAL_WORK_STATES
         )
 
-    def _record_with_lane(self, work_id: str) -> tuple[_LaneState, WorkRecord[Any]]:
+    def _record_with_lane(self, work_id: str) -> tuple[_LaneState, WorkRecord]:
         current = self._records.get(work_id)
         if current is None:
             raise KeyError(work_id)
@@ -352,7 +351,7 @@ class InMemoryWorkStore:
         return lane_state
 
     @staticmethod
-    def _require_transition(record: WorkRecord[Any], target: WorkState) -> None:
+    def _require_transition(record: WorkRecord, target: WorkState) -> None:
         if not can_transition_work_state(record.state, target):
             raise WorkStateConflictError(
                 f"Invalid work state transition: {record.state.value} -> {target.value}"

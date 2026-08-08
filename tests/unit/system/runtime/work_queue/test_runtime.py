@@ -15,13 +15,42 @@ from hivememory.system.runtime.work_queue import (
     FailureAction,
     FailureDecision,
     QueuePolicy,
+    UnknownWorkPayloadCodecError,
     UnsupportedWorkQueueFeatureError,
     WorkExecutionContext,
     WorkItem,
+    WorkPayloadCodecRegistry,
     WorkQueueCapacityError,
     WorkQueueRuntime,
     WorkState,
+    encode_canonical_json,
 )
+
+_TEST_WORK_KIND = "test.work.v1"
+_TEST_SCHEMA_VERSION = 1
+
+
+class _TestPayloadCodec:
+    kind = _TEST_WORK_KIND
+    schema_version = _TEST_SCHEMA_VERSION
+
+    def encode(self, payload: Any) -> object:
+        return payload
+
+    def decode(self, payload: Any) -> Any:
+        return payload
+
+
+_TEST_PAYLOAD_CODECS = WorkPayloadCodecRegistry()
+_TEST_PAYLOAD_CODECS.register(_TestPayloadCodec())
+
+
+def _runtime(**kwargs: Any) -> WorkQueueRuntime:
+    return WorkQueueRuntime(
+        store=InMemoryWorkStore(),
+        payload_codecs=_TEST_PAYLOAD_CODECS,
+        **kwargs,
+    )
 
 
 def _item(
@@ -30,13 +59,17 @@ def _item(
     lane: str,
     payload: Any | None = None,
     key: str | None = None,
-) -> WorkItem[Any]:
+) -> WorkItem:
     return WorkItem(
         work_id=work_id,
         lane=lane,
-        kind="test.work.v1",
-        schema_version=1,
-        payload=work_id if payload is None else payload,
+        kind=_TEST_WORK_KIND,
+        schema_version=_TEST_SCHEMA_VERSION,
+        payload=_TEST_PAYLOAD_CODECS.encode(
+            _TEST_WORK_KIND,
+            _TEST_SCHEMA_VERSION,
+            work_id if payload is None else payload,
+        ),
         ordering_key=key,
     )
 
@@ -99,7 +132,7 @@ class _RetryOnceHandler(_ImmediateHandler):
 @pytest.mark.asyncio
 async def test_different_lanes_do_not_block_each_other() -> None:
     slow = _ControlledHandler()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore())
+    runtime = _runtime()
     runtime.register_lane(
         "slow",
         handler=slow,
@@ -129,7 +162,7 @@ async def test_different_lanes_do_not_block_each_other() -> None:
 @pytest.mark.asyncio
 async def test_same_key_is_fifo_while_different_keys_run_concurrently() -> None:
     handler = _ControlledHandler()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore())
+    runtime = _runtime()
     runtime.register_lane(
         "ordered",
         handler=handler,
@@ -160,7 +193,7 @@ async def test_same_key_is_fifo_while_different_keys_run_concurrently() -> None:
 @pytest.mark.asyncio
 async def test_retry_preserves_work_id_and_same_key_order() -> None:
     handler = _RetryOnceHandler()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), worker_poll_interval_seconds=0.01)
+    runtime = _runtime(worker_poll_interval_seconds=0.01)
     runtime.register_lane(
         "ordered",
         handler=handler,
@@ -184,6 +217,49 @@ async def test_retry_preserves_work_id_and_same_key_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retry_decodes_a_fresh_payload_snapshot_for_each_attempt() -> None:
+    class MutatingRetryHandler(_ImmediateHandler):
+        def __init__(self) -> None:
+            self.observed_events: list[list[str]] = []
+
+        async def execute(self, payload: Any, context: WorkExecutionContext) -> None:
+            events = payload["events"]
+            self.observed_events.append(list(events))
+            events.append("handler-changed")
+            if context.attempt_count == 1:
+                raise RuntimeError("retry once")
+
+        def classify_failure(
+            self,
+            error: Exception,
+            context: WorkExecutionContext,
+        ) -> FailureDecision:
+            return FailureDecision(
+                action=FailureAction.RETRY,
+                retry_after_seconds=0,
+                reason="transient",
+            )
+
+    handler = MutatingRetryHandler()
+    runtime = _runtime(worker_poll_interval_seconds=0.01)
+    runtime.register_lane(
+        "lane",
+        handler=handler,
+        policy=QueuePolicy(capacity=1, max_concurrency=1, max_attempts=2),
+    )
+    source_payload = {"events": ["created"]}
+    await runtime.enqueue(_item("work-1", lane="lane", payload=source_payload))
+    source_payload["events"].append("source-changed")
+    await runtime.start()
+
+    terminal = await runtime.wait("work-1", timeout=1)
+
+    assert terminal is not None and terminal.state == WorkState.SUCCEEDED
+    assert handler.observed_events == [["created"], ["created"]]
+    await runtime.stop()
+
+
+@pytest.mark.asyncio
 async def test_retry_exhaustion_moves_work_to_dead_letter() -> None:
     class AlwaysRetry(_RetryOnceHandler):
         async def execute(self, payload: str, context: WorkExecutionContext) -> None:
@@ -191,7 +267,7 @@ async def test_retry_exhaustion_moves_work_to_dead_letter() -> None:
             raise RuntimeError("transient")
 
     handler = AlwaysRetry()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), worker_poll_interval_seconds=0.01)
+    runtime = _runtime(worker_poll_interval_seconds=0.01)
     runtime.register_lane(
         "lane",
         handler=handler,
@@ -215,7 +291,7 @@ async def test_non_retryable_failure_is_failed_instead_of_dead_lettered() -> Non
                 raise ValueError("raw failure detail")
             return await super().execute(payload, context)
 
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore())
+    runtime = _runtime()
     runtime.register_lane(
         "lane",
         handler=FailingHandler(),
@@ -242,7 +318,7 @@ async def test_timeout_is_classified_by_handler() -> None:
         async def execute(self, payload: Any, context: WorkExecutionContext) -> None:
             await asyncio.sleep(10)
 
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore())
+    runtime = _runtime()
     runtime.register_lane(
         "lane",
         handler=TimeoutHandler(),
@@ -266,7 +342,7 @@ async def test_timeout_is_classified_by_handler() -> None:
 @pytest.mark.asyncio
 async def test_capacity_rejection_is_explicit_and_observable() -> None:
     sink = RecordingRuntimeEventSink()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), runtime_events=sink)
+    runtime = _runtime(runtime_events=sink)
     runtime.register_lane(
         "lane",
         handler=_ImmediateHandler(),
@@ -282,10 +358,83 @@ async def test_capacity_rejection_is_explicit_and_observable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_enqueue_rejects_unknown_payload_codec_before_store_acceptance() -> None:
+    sink = RecordingRuntimeEventSink()
+    runtime = _runtime(runtime_events=sink)
+    runtime.register_lane(
+        "lane",
+        handler=_ImmediateHandler(),
+        policy=QueuePolicy(capacity=1, max_concurrency=1),
+    )
+    item = WorkItem(
+        work_id="work-1",
+        lane="lane",
+        kind="unknown.work",
+        schema_version=1,
+        payload=encode_canonical_json({"value": "safe"}),
+    )
+
+    with pytest.raises(UnknownWorkPayloadCodecError):
+        await runtime.enqueue(item)
+
+    assert await runtime.get("work-1") is None
+    assert sink.events[-1].event_type == RuntimeEventType.WORK_REJECTED
+    assert sink.events[-1].reason == "unknown_payload_codec"
+
+
+@pytest.mark.asyncio
+async def test_payload_decode_failure_is_dead_lettered_without_calling_handler() -> None:
+    class BrokenDecodeCodec:
+        kind = "broken.work"
+        schema_version = 1
+
+        def encode(self, payload: Any) -> object:
+            return payload
+
+        def decode(self, payload: Any) -> Any:
+            raise ValueError("invalid business schema")
+
+    class CountingHandler(_ImmediateHandler):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, payload: Any, context: WorkExecutionContext) -> None:
+            self.calls += 1
+
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(BrokenDecodeCodec())
+    handler = CountingHandler()
+    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), payload_codecs=codecs)
+    runtime.register_lane(
+        "lane",
+        handler=handler,
+        policy=QueuePolicy(capacity=1, max_concurrency=1),
+    )
+    item = WorkItem(
+        work_id="work-1",
+        lane="lane",
+        kind="broken.work",
+        schema_version=1,
+        payload=codecs.encode("broken.work", 1, {"value": "invalid"}),
+    )
+    await runtime.enqueue(item)
+    await runtime.start()
+
+    terminal = await runtime.wait("work-1", timeout=1)
+
+    assert terminal is not None and terminal.state == WorkState.DEAD_LETTER
+    assert terminal.last_error is not None
+    assert terminal.last_error.error_class == "WorkPayloadDecodeError"
+    assert terminal.last_error.message == "invalid_work_payload"
+    assert handler.calls == 0
+    await runtime.stop()
+
+
+@pytest.mark.asyncio
 async def test_running_cancellation_is_idempotent_and_releases_ordering_key() -> None:
     handler = _ControlledHandler()
     sink = RecordingRuntimeEventSink()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), runtime_events=sink)
+    runtime = _runtime(runtime_events=sink)
     runtime.register_lane(
         "lane",
         handler=handler,
@@ -317,7 +466,7 @@ async def test_running_cancellation_is_idempotent_and_releases_ordering_key() ->
 @pytest.mark.asyncio
 async def test_queued_cancellation_never_invokes_handler() -> None:
     handler = _ControlledHandler()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore())
+    runtime = _runtime()
     runtime.register_lane(
         "lane",
         handler=handler,
@@ -338,7 +487,7 @@ async def test_queued_cancellation_never_invokes_handler() -> None:
 @pytest.mark.asyncio
 async def test_shutdown_summary_reports_in_memory_loss_risk_per_lane() -> None:
     handler = _ControlledHandler()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), shutdown_wait_seconds=0)
+    runtime = _runtime(shutdown_wait_seconds=0)
     runtime.register_lane(
         "lane",
         handler=handler,
@@ -369,7 +518,7 @@ async def test_shutdown_summary_reports_in_memory_loss_risk_per_lane() -> None:
 @pytest.mark.asyncio
 async def test_shutdown_cancels_running_work_when_lane_policy_allows_it() -> None:
     handler = _ControlledHandler()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), shutdown_wait_seconds=0)
+    runtime = _runtime(shutdown_wait_seconds=0)
     runtime.register_lane(
         "lane",
         handler=handler,
@@ -395,7 +544,7 @@ async def test_shutdown_cancels_running_work_when_lane_policy_allows_it() -> Non
 @pytest.mark.asyncio
 async def test_work_events_emit_safe_identifiers_without_business_payload() -> None:
     sink = RecordingRuntimeEventSink()
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), runtime_events=sink)
+    runtime = _runtime(runtime_events=sink)
     runtime.register_lane(
         "lane",
         handler=_NoResultHandler(),
@@ -406,7 +555,11 @@ async def test_work_events_emit_safe_identifiers_without_business_payload() -> N
         lane="lane",
         kind="test.work.v1",
         schema_version=1,
-        payload={"private_text": "payload-secret"},
+        payload=_TEST_PAYLOAD_CODECS.encode(
+            _TEST_WORK_KIND,
+            _TEST_SCHEMA_VERSION,
+            {"private_text": "payload-secret"},
+        ),
         ordering_key="ordering-secret",
         correlation_id="correlation-secret",
         idempotency_key="idempotency-secret",
@@ -440,7 +593,7 @@ async def test_runtime_event_failure_does_not_change_work_result() -> None:
         def scoped(self, *_args, **_kwargs):
             return self
 
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore(), runtime_events=FailingSink())
+    runtime = _runtime(runtime_events=FailingSink())
     runtime.register_lane(
         "lane",
         handler=_ImmediateHandler(),
@@ -456,7 +609,7 @@ async def test_runtime_event_failure_does_not_change_work_result() -> None:
 
 
 def test_q1_rejects_priority_instead_of_silently_ignoring_it() -> None:
-    runtime = WorkQueueRuntime(store=InMemoryWorkStore())
+    runtime = _runtime()
 
     with pytest.raises(UnsupportedWorkQueueFeatureError):
         runtime.register_lane(

@@ -40,11 +40,57 @@ class UnsupportedWorkQueueFeatureError(WorkQueueError):
     """配置启用了当前阶段尚未实现的队列能力。"""
 
 
+class WorkPayloadCodecError(WorkQueueError):
+    """work payload 编解码契约失败。"""
+
+
+class DuplicateWorkPayloadCodecError(WorkPayloadCodecError):
+    """同一 kind 与 schema version 被重复注册。"""
+
+
+class UnknownWorkPayloadCodecError(WorkPayloadCodecError):
+    """work item 指向未注册的 payload codec。"""
+
+    def __init__(self, kind: str, schema_version: int) -> None:
+        self.kind = kind
+        self.schema_version = schema_version
+        super().__init__(
+            f"Work payload codec '{kind}' schema version {schema_version} is not registered"
+        )
+
+
+class WorkPayloadEncodeError(WorkPayloadCodecError):
+    """业务 payload 无法编码为稳定 JSON bytes。"""
+
+    def __init__(self, kind: str, schema_version: int) -> None:
+        self.kind = kind
+        self.schema_version = schema_version
+        super().__init__(
+            f"Work payload codec '{kind}' schema version {schema_version} failed to encode"
+        )
+
+
+class WorkPayloadDecodeError(WorkPayloadCodecError):
+    """JSON bytes 无法恢复为业务 payload。"""
+
+    def __init__(self, kind: str, schema_version: int) -> None:
+        self.kind = kind
+        self.schema_version = schema_version
+        super().__init__(
+            f"Work payload codec '{kind}' schema version {schema_version} failed to decode"
+        )
+
+
 __all__ = [
     "DuplicateWorkItemError",
     "DuplicateWorkLaneError",
+    "DuplicateWorkPayloadCodecError",
     "UnknownWorkLaneError",
+    "UnknownWorkPayloadCodecError",
     "UnsupportedWorkQueueFeatureError",
+    "WorkPayloadCodecError",
+    "WorkPayloadDecodeError",
+    "WorkPayloadEncodeError",
     "WorkQueueCapacityError",
     "WorkQueueError",
     "WorkQueueStoppedError",
