@@ -138,6 +138,41 @@ async def test_admission_failure_keeps_payload_and_interaction_id_for_retry() ->
 
 
 @pytest.mark.asyncio
+async def test_same_explicit_final_event_retries_admission_without_reappend() -> None:
+    ingressor, queue = _build()
+    event = _event(
+        "user",
+        "hello",
+        external_event_id="event-final-retry",
+        is_final=True,
+    )
+    queue.fail_submit = True
+
+    with pytest.raises(WorkQueueCapacityError):
+        await ingressor.route_event(event, IDENTITY)
+
+    buffer = ingressor.buffers.peek_buffer(_key())
+    assert buffer is not None
+    interaction_id = buffer.interaction_id
+    assert buffer.event_count == 1
+    assert buffer.pending_final_event_key == event.dedup_key
+
+    queue.fail_submit = False
+    outcome = await ingressor.route_event(event, IDENTITY)
+
+    assert outcome.kind == "user"
+    assert len(queue.submissions) == 1
+    assert queue.submissions[0].interaction_id == interaction_id
+    assert queue.submissions[0].payload.user_message == "hello"
+    assert len(queue.submissions[0].payload.turn_events) == 1
+    assert not buffer.has_pending_round
+
+    duplicate = await ingressor.route_event(event, IDENTITY)
+    assert duplicate.kind == "duplicate"
+    assert len(queue.submissions) == 1
+
+
+@pytest.mark.asyncio
 async def test_next_user_admission_failure_does_not_overwrite_previous_turn() -> None:
     ingressor, queue = _build()
     await ingressor.route_event(

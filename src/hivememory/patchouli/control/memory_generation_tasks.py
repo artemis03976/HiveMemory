@@ -425,6 +425,7 @@ class MemoryGenerationTaskController:
             )
         finally:
             self._task_registry.retain_terminal(memory_task.task_id)
+            self._work_ids.pop(memory_task.task_id, None)
 
     async def _publish_best_effort(self, awaitable, warning: str) -> None:
         """发布可观测副作用；失败只记日志，不改变任务终态。"""

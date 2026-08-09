@@ -152,14 +152,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             (real_topic_id, TopicMaterializeTask | None)
             调用方负责将 TopicMaterializeTask 提交给生成链路。
         """
-        # consumer 侧先查 apply journal，避免 ambiguous failure 后重复追加 block。
+        # consumer 侧先查 apply journal。已写入但尚未完成 settlement admission 的
+        # interaction 继续执行后置义务，而不是把「block 已写入」误当成全部完成。
         if interaction_id:
-            applied_topic_id = self._short_term_store.get_applied_interaction_topic(
+            apply_state = self._short_term_store.get_interaction_apply_state(
                 interaction_id
             )
-            if applied_topic_id is not None:
-                self._short_term_store.set_last_active_topic(applied_topic_id)
-                return applied_topic_id, None
+            if apply_state is not None:
+                settle_payload = await self.ingest_payload(
+                    payload,
+                    apply_state.topic_id,
+                    interaction_id=interaction_id,
+                )
+                self._short_term_store.set_last_active_topic(apply_state.topic_id)
+                return apply_state.topic_id, settle_payload
 
         # 重新检查创建情况，避免预创建后某些错误导致的异常
         topic_id = await self.prepare_topic(
@@ -189,15 +195,23 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             如发生 TOKEN_OVERFLOW 结算则返回 TopicMaterializeTask，否则 None
         """
         if interaction_id:
-            applied_topic_id = self._short_term_store.get_applied_interaction_topic(
+            apply_state = self._short_term_store.get_interaction_apply_state(
                 interaction_id
             )
-            if applied_topic_id is not None:
-                if applied_topic_id != topic_id:
+            if apply_state is not None:
+                if apply_state.topic_id != topic_id:
                     raise ValueError(
                         f"interaction '{interaction_id}' was already applied to another topic"
                     )
-                return None
+                if apply_state.completed:
+                    return None
+                if apply_state.post_apply_ready:
+                    return apply_state.pending_settlement
+                return await self._complete_interaction_post_apply(
+                    payload,
+                    topic_id,
+                    interaction_id=interaction_id,
+                )
 
         if not payload.turn_events:
             raise ValueError(
@@ -240,6 +254,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
             self._short_term_store.mark_interaction_applied(interaction_id, topic_id)
 
+        return await self._complete_interaction_post_apply(
+            payload,
+            topic_id,
+            interaction_id=interaction_id,
+        )
+
+    async def _complete_interaction_post_apply(
+        self,
+        payload: InteractionPayload,
+        topic_id: str,
+        *,
+        interaction_id: str | None,
+    ) -> TopicMaterializeTask | None:
+        """完成 block 写入后的本地义务，并为外层 settlement admission 留存结果。"""
         # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
         if payload.model_used:
             self._short_term_store.update_model_used(topic_id, payload.model_used)
@@ -249,6 +277,13 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 重置状态
         self._short_term_store.update_metadata(topic_id, state=BufferState.IDLE)
+
+        if interaction_id:
+            self._short_term_store.mark_interaction_post_apply_ready(
+                interaction_id,
+                topic_id,
+                settle_payload,
+            )
 
         return settle_payload
 

@@ -17,7 +17,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
 )
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.work_queue import (
-    DuplicateWorkPayloadCodecError,
     FailureAction,
     FailureDecision,
     QueuePolicy,
@@ -236,27 +235,19 @@ class MemoryGenerationQueue:
         self,
         execute_generation: ExecuteGeneration,
         *,
-        runtime: WorkQueueRuntime | None = None,
         store: InMemoryWorkStore | None = None,
-        payload_codecs: WorkPayloadCodecRegistry | None = None,
         runtime_events: RuntimeEventSink | None = None,
         policy: QueuePolicy | None = None,
         retry_after_seconds: float = 0.05,
     ) -> None:
-        self._codecs = payload_codecs or WorkPayloadCodecRegistry()
-        try:
-            self._codecs.register(MemoryGenerationTaskSpecCodec())
-        except DuplicateWorkPayloadCodecError:
-            self._codecs.require(
-                MemoryGenerationTaskSpecCodec.kind,
-                MemoryGenerationTaskSpecCodec.schema_version,
-            )
+        self._codecs = WorkPayloadCodecRegistry()
+        self._codecs.register(MemoryGenerationTaskSpecCodec())
 
         self._handler = MemoryGenerationHandler(
             execute_generation,
             retry_after_seconds=retry_after_seconds,
         )
-        self._runtime = runtime or WorkQueueRuntime(
+        self._runtime = WorkQueueRuntime(
             store=store or InMemoryWorkStore(),
             payload_codecs=self._codecs,
             runtime_events=runtime_events,
@@ -271,7 +262,7 @@ class MemoryGenerationQueue:
                 capacity=128,
                 max_concurrency=2,
                 timeout_seconds=300.0,
-                max_attempts=3,
+                max_attempts=1,
                 terminal_retention=100,
             ),
         )

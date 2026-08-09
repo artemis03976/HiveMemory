@@ -8,17 +8,16 @@ handler 的单次 attempt 中重新构造。这样 passive seal 后，外部继�
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from types import MappingProxyType
 from typing import Literal
 
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.work_queue import (
-    DuplicateWorkPayloadCodecError,
     FailureAction,
     FailureDecision,
     QueuePolicy,
@@ -59,16 +58,11 @@ class InteractionSubmission:
         if not isinstance(self.correlation, Mapping):
             raise TypeError("correlation must be a mapping")
 
-        # dataclass 的 frozen 只保护字段引用；这里额外复制 payload 与 correlation，
-        # 把 submission 本身变成可安全跨 await 边界传递的快照。
-        payload_snapshot = InteractionPayload.model_validate(self.payload.model_dump(mode="json"))
-        correlation_snapshot = {str(key): str(value) for key, value in self.correlation.items()}
-        object.__setattr__(self, "payload", payload_snapshot)
-        object.__setattr__(
-            self,
-            "correlation",
-            MappingProxyType(correlation_snapshot),
-        )
+        if not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in self.correlation.items()
+        ):
+            raise TypeError("correlation keys and values must be strings")
 
 
 class InteractionSubmissionCodec:
@@ -196,23 +190,20 @@ class InteractionSubmissionQueue:
         self,
         submit_interaction: SubmitInteraction,
         *,
-        runtime: WorkQueueRuntime | None = None,
         store: InMemoryWorkStore | None = None,
-        payload_codecs: WorkPayloadCodecRegistry | None = None,
         runtime_events: RuntimeEventSink | None = None,
         policy: QueuePolicy | None = None,
     ) -> None:
-        self._codecs = payload_codecs or WorkPayloadCodecRegistry()
-        try:
-            self._codecs.register(InteractionSubmissionCodec())
-        except DuplicateWorkPayloadCodecError:
-            # 外部注入 registry 时允许调用方提前注册同一 codec。
-            self._codecs.require(
-                InteractionSubmissionCodec.kind,
-                InteractionSubmissionCodec.schema_version,
-            )
-
-        self._runtime = runtime or WorkQueueRuntime(
+        self._codecs = WorkPayloadCodecRegistry()
+        self._codecs.register(InteractionSubmissionCodec())
+        lane_policy = policy or QueuePolicy(
+            capacity=256,
+            max_concurrency=4,
+            ordered_by_key=True,
+            max_attempts=3,
+            terminal_retention=512,
+        )
+        self._runtime = WorkQueueRuntime(
             store=store or InMemoryWorkStore(),
             payload_codecs=self._codecs,
             runtime_events=runtime_events,
@@ -222,16 +213,12 @@ class InteractionSubmissionQueue:
         self._runtime.register_lane(
             self.LANE,
             handler=InteractionSubmissionHandler(submit_interaction),
-            policy=policy
-            or QueuePolicy(
-                capacity=256,
-                max_concurrency=4,
-                ordered_by_key=True,
-                max_attempts=3,
-                terminal_retention=512,
-            ),
+            policy=lane_policy,
         )
-        self._submissions: dict[str, _StoredSubmission] = {}
+        self._max_submission_entries = (
+            lane_policy.capacity + lane_policy.terminal_retention
+        )
+        self._submissions: OrderedDict[str, _StoredSubmission] = OrderedDict()
         self._submit_lock = asyncio.Lock()
 
     @property
@@ -291,7 +278,19 @@ class InteractionSubmissionQueue:
                 receipt=domain_receipt,
                 payload_bytes=payload_bytes,
             )
+            await self._trim_submissions_locked()
             return domain_receipt
+
+    async def _trim_submissions_locked(self) -> None:
+        """保留全部活跃 submission，只淘汰超出窗口的终态旁路索引。"""
+        if len(self._submissions) <= self._max_submission_entries:
+            return
+        for interaction_id, stored in list(self._submissions.items()):
+            if len(self._submissions) <= self._max_submission_entries:
+                break
+            record = await self._runtime.get(stored.receipt.work_id)
+            if record is None:
+                self._submissions.pop(interaction_id, None)
 
     async def wait(
         self,

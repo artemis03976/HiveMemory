@@ -54,6 +54,7 @@ class MessageTurnBuffer:
         self._gateway_decision: GatewayDecision | None = None
         self._target_topic: str | None = None
         self._turn_id: str | None = None
+        self._pending_final_event_key: tuple[str, str] | None = None
         self._dropped_events: int = 0
         self._last_activity: float = datetime.now().timestamp()
 
@@ -90,6 +91,11 @@ class MessageTurnBuffer:
     def interaction_id(self) -> str | None:
         """当前 turn 的稳定提交标识；只有队列接收成功后才会被清除。"""
         return self._interaction_id
+
+    @property
+    def pending_final_event_key(self) -> tuple[str, str] | None:
+        """已追加但尚未完成 queue admission 的显式 final 事件。"""
+        return self._pending_final_event_key
 
     @property
     def event_count(self) -> int:
@@ -245,6 +251,17 @@ class MessageTurnBuffer:
             return None
 
         return self._build_payload(), self._target_topic
+
+    def mark_finalization_pending(self, event_key: tuple[str, str]) -> None:
+        """在显式 final 已写入 buffer 后记录其可恢复 admission 状态。"""
+        if not self.has_pending_round:
+            raise RuntimeError("cannot mark finalization on an idle turn buffer")
+        if (
+            self._pending_final_event_key is not None
+            and self._pending_final_event_key != event_key
+        ):
+            raise RuntimeError("another explicit final event is already pending admission")
+        self._pending_final_event_key = event_key
 
     def commit_flush(self, interaction_id: str) -> None:
         """确认同一 turn 已被队列接收，然后清空 accumulator。"""

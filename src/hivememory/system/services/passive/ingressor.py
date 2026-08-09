@@ -153,6 +153,22 @@ class PassiveMessageIngressor:
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
         """在当前会话串行门内完成一次事件的全部状态变更。"""
+        buffer = self._buffers.peek_buffer(key)
+        if (
+            event.is_final
+            and buffer is not None
+            and buffer.pending_final_event_key == event.dedup_key
+        ):
+            # 上次调用已经追加了该 final，只是 queue admission 失败。
+            # 这里仅重试 finalize，不能重复 retrieval 或再次追加事件内容。
+            await self._finalize_current_turn(
+                key,
+                seal_reason="explicit_final",
+            )
+            return PassiveIngressOutcome(
+                kind="user" if event.role == "user" else "buffered"
+            )
+
         if not self._dedup.register(event.dedup_key):
             logger.info(
                 "Passive ingress 忽略重复事件: source=%s, external_event_id=%s",
@@ -208,6 +224,7 @@ class PassiveMessageIngressor:
         )
 
         if event.is_final:
+            buffer.mark_finalization_pending(event.dedup_key)
             await self._finalize_current_turn(
                 key,
                 seal_reason="explicit_final",
@@ -247,6 +264,8 @@ class PassiveMessageIngressor:
             )
 
         if event.is_final:
+            if buffer.has_pending_round:
+                buffer.mark_finalization_pending(event.dedup_key)
             await self._finalize_current_turn(
                 key,
                 seal_reason="explicit_final",

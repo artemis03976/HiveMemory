@@ -15,7 +15,7 @@ def test_memory_generation_queue_policy_has_local_defaults() -> None:
     assert config.queue_capacity == 128
     assert config.queue_max_concurrency == 2
     assert config.queue_timeout_seconds == 300.0
-    assert config.queue_max_attempts == 3
+    assert config.queue_max_attempts == 1
 
 
 def test_unwired_fields_are_absent_from_patchouli_config_surface() -> None:

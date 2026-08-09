@@ -307,6 +307,29 @@ async def test_transient_retry_uses_fresh_spec_and_publishes_settlement_once() -
 
 
 @pytest.mark.asyncio
+async def test_default_policy_does_not_retry_generation_side_effects() -> None:
+    bus = Mock(
+        request=AsyncMock(
+            side_effect=TransientMemoryGenerationError(
+                "generation may already have written partial results"
+            )
+        ),
+        publish=AsyncMock(),
+    )
+    controller = MemoryGenerationTaskController(bus=bus)
+
+    try:
+        memory_task = await controller.submit_generation(_spec())
+        result = await controller.wait_task(memory_task.task_id, timeout=1)
+    finally:
+        await controller.stop()
+
+    assert result.status == MemoryGenerationTaskStatus.FAILED
+    assert bus.request.await_count == 1
+    assert memory_task.task_id not in controller._work_ids
+
+
+@pytest.mark.asyncio
 async def test_non_retryable_failure_fails_once() -> None:
     bus = Mock(
         request=AsyncMock(side_effect=ValueError("invalid generation spec")),
