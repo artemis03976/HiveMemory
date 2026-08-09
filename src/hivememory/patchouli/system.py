@@ -189,6 +189,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         self._bridge.mount()
         await self._interaction_submission_queue.start()
+        await self.runtime.start_memory_generation_queue()
 
         if self._scheduler and not self._maintenance_registered:
             self._maintenance_registered = self.register_maintenance_tasks(
@@ -202,6 +203,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
+        await self.runtime.stop_memory_generation_queue()
 
         self._bridge.unmount()
 

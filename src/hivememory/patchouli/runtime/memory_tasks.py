@@ -7,7 +7,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -132,10 +132,6 @@ class MemoryGenerationTask:
 
     def attach_task(self, task: asyncio.Task) -> None:
         self._bg_task = task
-
-    def cancel_background_task(self) -> None:
-        if self._bg_task is not None and not self._bg_task.done():
-            self._bg_task.cancel()
 
 
 @dataclass(frozen=True)
@@ -280,11 +276,11 @@ class MemoryGenerationTaskRegistry:
         return list(self._active_tasks.values()) + list(self._terminal_tasks.values())
 
     def cancel(self, task_id: str) -> bool:
+        """只记录领域取消请求；真正执行取消由 Work Queue Controller 发起。"""
         memory_task = self._active_tasks.get(task_id)
         if memory_task is None:
             return False
         memory_task.request_cancel()
-        memory_task.cancel_background_task()
         return True
 
     def retain_terminal(self, task_id: str) -> None:

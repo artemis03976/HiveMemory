@@ -35,9 +35,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
-from hivememory.core.models import Identity
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
@@ -51,6 +50,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 from hivememory.system.config import PatchouliConfig, SharedConfig
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.operations import RuntimeOperationObserver
+from hivememory.system.runtime.work_queue import QueuePolicy, WorkQueueShutdownSummary
 
 if TYPE_CHECKING:
     from hivememory.patchouli.service import PatchouliService
@@ -143,6 +143,14 @@ class PatchouliRuntime:
 
     def list_local_routes(self) -> list[str]:
         return self._local_bus.list_routes()
+
+    async def start_memory_generation_queue(self) -> None:
+        """启动记忆生成 lane。"""
+        await self._task_controller.start()
+
+    async def stop_memory_generation_queue(self) -> WorkQueueShutdownSummary:
+        """停止记忆生成 lane，并返回通用队列 drain 摘要。"""
+        return await self._task_controller.stop()
 
     # ========== 模型预热 ==========
 
@@ -494,6 +502,17 @@ class PatchouliRuntime:
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",
+            ),
+            queue_policy=QueuePolicy(
+                capacity=self._patchouli_config.generation.queue_capacity,
+                max_concurrency=(
+                    self._patchouli_config.generation.queue_max_concurrency
+                ),
+                timeout_seconds=(
+                    self._patchouli_config.generation.queue_timeout_seconds
+                ),
+                max_attempts=self._patchouli_config.generation.queue_max_attempts,
+                terminal_retention=100,
             ),
         )
 

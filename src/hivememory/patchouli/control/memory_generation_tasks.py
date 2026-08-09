@@ -10,6 +10,9 @@ from typing import Any, List, Optional
 
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.memory_generation_queue import (
+    MemoryGenerationQueue,
+)
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationResult,
     MemoryGenerationTask,
@@ -22,6 +25,13 @@ from hivememory.patchouli.runtime.memory_tasks import (
 )
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.runtime.work_queue import (
+    TERMINAL_WORK_STATES,
+    QueuePolicy,
+    WorkQueueShutdownSummary,
+    WorkRecord,
+    WorkState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +53,36 @@ class MemoryGenerationTaskController:
         bus: Any,
         task_registry: Optional[MemoryGenerationTaskRegistry] = None,
         runtime_events: RuntimeEventSink | None = None,
+        memory_queue: MemoryGenerationQueue | None = None,
+        queue_policy: QueuePolicy | None = None,
     ) -> None:
         self._bus = bus
         self._task_registry = task_registry or MemoryGenerationTaskRegistry()
         self._events = runtime_events or NullRuntimeEventSink()
+        self._queue = memory_queue or MemoryGenerationQueue(
+            self._execute_generation,
+            runtime_events=self._events,
+            policy=queue_policy,
+        )
+        self._work_ids: dict[str, str] = {}
+        self._cancel_reasons: dict[str, str] = {}
+
+    @property
+    def queue(self) -> MemoryGenerationQueue:
+        """访问 memory generation 业务队列。"""
+        return self._queue
+
+    async def start(self) -> None:
+        """启动 memory generation lane。"""
+        await self._queue.start()
+
+    async def stop(self) -> WorkQueueShutdownSummary:
+        """停止 memory generation lane。"""
+        summary = await self._queue.stop()
+        # queue 先确认 running work 的 drain/cancel，再给领域投影一个短窗口完成
+        # 终态事件，避免随后卸载 local routes 时丢失取消或失败快照。
+        await self.wait_all(timeout=0.5)
+        return summary
 
     async def submit_generation(
         self,
@@ -70,7 +106,7 @@ class MemoryGenerationTaskController:
         *,
         spec: MemoryGenerationTaskSpec,
     ) -> MemoryGenerationTask:
-        """创建运行时任务句柄并调度后台协程。"""
+        """创建领域任务句柄并提交到 memory generation lane。"""
         memory_task = MemoryGenerationTask(
             task_id=str(uuid.uuid4()),
             topic_id=spec.topic_id,
@@ -85,59 +121,129 @@ class MemoryGenerationTaskController:
             message="Memory generation task created.",
         )
 
-        bg_task = asyncio.create_task(
-            self._run_task(memory_task, spec),
-            name=f"memory_task_{memory_task.task_id[:8]}",
-        )
-        memory_task.attach_task(bg_task)
-        return memory_task
-
-    async def _run_task(
-        self,
-        memory_task: MemoryGenerationTask,
-        spec: MemoryGenerationTaskSpec,
-    ) -> None:
-        """执行单个规范化生成任务的控制流程。"""
-        if memory_task.cancelled:
-            await self._finish_task(
-                memory_task,
-                MemoryGenerationTaskStatus.CANCELLED,
-                pending_alias=spec.pending_alias,
-            )
-            return
-
-        await self._start_task(memory_task)
         try:
-            results = await self._bus.request(
-                PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
-                spec,
-            )
-            self._backfill_memory_task_result(
-                memory_task,
-                results,
-                pending_alias=spec.pending_alias,
-            )
-            await self._publish_settlements(results)
-        except asyncio.CancelledError:
-            await self._finish_task(
-                memory_task,
-                MemoryGenerationTaskStatus.CANCELLED,
-                pending_alias=spec.pending_alias,
-            )
-            raise
+            # Controller 可单独用于本地测试与嵌入式调用，因此保留幂等懒启动；
+            # PatchouliSystem 的正常生命周期仍会显式启动该 lane。
+            await self._queue.start()
+            receipt = await self._queue.submit(memory_task.task_id, spec)
         except Exception as exc:
-            logger.error(
-                f"Memory generation failed: label={spec.label}, err={exc}",
-                exc_info=True,
-            )
             await self._finish_task(
                 memory_task,
                 MemoryGenerationTaskStatus.FAILED,
                 error=str(exc),
                 pending_alias=spec.pending_alias,
             )
-        else:
-            await self._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
+            raise
+
+        self._work_ids[memory_task.task_id] = receipt.work_id
+        # 兼容字段只承载 WorkRecord -> 领域状态投影，不再执行业务生成流程。
+        projection_task = asyncio.create_task(
+            self._project_work(memory_task, spec, receipt.work_id),
+            name=f"memory_task_projection_{memory_task.task_id[:8]}",
+        )
+        memory_task.attach_task(projection_task)
+        return memory_task
+
+    async def _execute_generation(
+        self,
+        spec: MemoryGenerationTaskSpec,
+    ) -> List[MemoryGenerationResult]:
+        """由 queue handler 调用现有生成数据面。"""
+        return await self._bus.request(
+            PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
+            spec,
+        )
+
+    async def _project_work(
+        self,
+        memory_task: MemoryGenerationTask,
+        spec: MemoryGenerationTaskSpec,
+        work_id: str,
+    ) -> None:
+        """持续把 WorkRecord 真相投影到 MemoryGenerationTask。"""
+        while True:
+            record = await self._queue.get(work_id)
+            if record is None:
+                await self._finish_task(
+                    memory_task,
+                    MemoryGenerationTaskStatus.FAILED,
+                    error="memory generation work record missing",
+                    pending_alias=spec.pending_alias,
+                )
+                return
+
+            await self._project_non_terminal_state(memory_task, record)
+            if record.state not in TERMINAL_WORK_STATES:
+                await asyncio.sleep(0.01)
+                continue
+
+            if record.state == WorkState.SUCCEEDED:
+                results = list(self._queue.take_results(work_id) or ())
+                self._backfill_memory_task_result(
+                    memory_task,
+                    results,
+                    pending_alias=spec.pending_alias,
+                )
+                await self._publish_settlements(results)
+                await self._finish_task(
+                    memory_task,
+                    MemoryGenerationTaskStatus.COMPLETED,
+                )
+                return
+
+            if record.state == WorkState.CANCELLED:
+                self._queue.take_error(work_id)
+                reason = self._cancel_reasons.pop(
+                    memory_task.task_id,
+                    "runtime_cancelled",
+                )
+                await self._finish_task(
+                    memory_task,
+                    MemoryGenerationTaskStatus.CANCELLED,
+                    pending_alias=spec.pending_alias,
+                    reason=reason,
+                )
+                # 兼容既有本地调用：被取消任务的 _bg_task 仍表现为 cancelled；
+                # 这里取消的只是投影观察器，业务执行已由 queue 完成终止确认。
+                raise asyncio.CancelledError
+
+            error = self._queue.take_error(work_id)
+            if error is None and record.last_error is not None:
+                error = record.last_error.message or record.last_error.error_class
+            logger.error(
+                "Memory generation failed: label=%s, err=%s",
+                spec.label,
+                error,
+            )
+            await self._finish_task(
+                memory_task,
+                MemoryGenerationTaskStatus.FAILED,
+                error=error or "memory generation work failed",
+                pending_alias=spec.pending_alias,
+            )
+            return
+
+    async def _project_non_terminal_state(
+        self,
+        memory_task: MemoryGenerationTask,
+        record: WorkRecord,
+    ) -> None:
+        """映射 queued/retry-wait/running，并补齐可能错过的 running 快照。"""
+        if memory_task.status in _TERMINAL_STATUSES:
+            return
+        if record.state == WorkState.RUNNING or (
+            record.state in TERMINAL_WORK_STATES
+            and record.started_at is not None
+            and memory_task.started_at is None
+        ):
+            if memory_task.status != MemoryGenerationTaskStatus.RUNNING:
+                await self._start_task(
+                    memory_task,
+                    started_at=record.started_at,
+                )
+            return
+        if record.state in {WorkState.QUEUED, WorkState.RETRY_WAIT}:
+            memory_task.status = MemoryGenerationTaskStatus.PENDING
 
     def _backfill_memory_task_result(
         self,
@@ -251,7 +357,12 @@ class MemoryGenerationTaskController:
         except Exception as pub_err:
             logger.warning(f"MEMORY_TASK_ITEM_STATUS publish error: {pub_err}")
 
-    async def _start_task(self, memory_task: MemoryGenerationTask) -> None:
+    async def _start_task(
+        self,
+        memory_task: MemoryGenerationTask,
+        *,
+        started_at: datetime | None = None,
+    ) -> None:
         """
         进入 RUNNING 状态并发布运行中快照。
 
@@ -262,7 +373,7 @@ class MemoryGenerationTaskController:
             return
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
         if memory_task.started_at is None:
-            memory_task.started_at = datetime.now(timezone.utc)
+            memory_task.started_at = started_at or datetime.now(timezone.utc)
         await self._publish_memory_task_status(memory_task)
 
     async def _finish_task(
@@ -337,26 +448,52 @@ class MemoryGenerationTaskController:
         task_id: str,
         timeout: float | None = None,
     ) -> MemoryGenerationTaskWaitResult:
-        """等待指定后台记忆生成任务完成，不取消或接管后台任务。"""
+        """等待指定记忆生成 work 完成，不取消或接管其执行。"""
         memory_task = self._task_registry.get(task_id)
         if memory_task is None:
             return MemoryGenerationTaskWaitResult.not_found(task_id)
 
-        bg_task = memory_task._bg_task
-        if bg_task is None or bg_task.done():
+        if memory_task.status in _TERMINAL_STATUSES:
             return MemoryGenerationTaskWaitResult.from_task(memory_task)
 
-        try:
-            await asyncio.wait_for(asyncio.shield(bg_task), timeout=timeout)
-        except TimeoutError:
+        work_id = self._work_ids.get(task_id)
+        if work_id is None:
+            return MemoryGenerationTaskWaitResult.from_task(memory_task)
+
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + max(0.0, timeout)
+        record = await self._queue.wait(work_id, timeout=timeout)
+        if record is None or record.state not in TERMINAL_WORK_STATES:
+            if record is not None:
+                await self._project_non_terminal_state(memory_task, record)
             return MemoryGenerationTaskWaitResult.from_task(
                 memory_task,
                 timed_out=True,
             )
-        except asyncio.CancelledError:
-            if bg_task.done():
-                return MemoryGenerationTaskWaitResult.from_task(memory_task)
-            raise
+
+        projection_task = memory_task._bg_task
+        if projection_task is not None and not projection_task.done():
+            remaining = (
+                None
+                if deadline is None
+                else max(0.0, deadline - loop.time())
+            )
+            try:
+                if remaining is None:
+                    await asyncio.shield(projection_task)
+                else:
+                    await asyncio.wait_for(
+                        asyncio.shield(projection_task),
+                        timeout=remaining,
+                    )
+            except TimeoutError:
+                return MemoryGenerationTaskWaitResult.from_task(
+                    memory_task,
+                    timed_out=True,
+                )
+            except asyncio.CancelledError:
+                if not projection_task.done():
+                    raise
 
         return MemoryGenerationTaskWaitResult.from_task(memory_task)
 
@@ -405,11 +542,12 @@ class MemoryGenerationTaskController:
         self,
         timeout: float | None = None,
     ) -> MemoryGenerationTaskWaitSummary:
-        """等待调用瞬间所有仍在后台执行的记忆生成任务完成。"""
+        """等待调用瞬间所有仍未进入领域终态的记忆生成任务完成。"""
         task_ids = [
             memory_task.task_id
             for memory_task in self._task_registry.list_all()
-            if memory_task._bg_task is not None and not memory_task._bg_task.done()
+            if memory_task.status not in _TERMINAL_STATUSES
+            and memory_task.task_id in self._work_ids
         ]
         return await self.wait_many(task_ids, timeout=timeout)
 
@@ -421,17 +559,25 @@ class MemoryGenerationTaskController:
     ) -> bool:
         """请求取消指定记忆生成任务。"""
         memory_task = self._task_registry.get(task_id)
-        ok = self._task_registry.cancel(task_id)
-        if ok and memory_task is not None:
+        if memory_task is None or memory_task.status in _TERMINAL_STATUSES:
+            return False
+        work_id = self._work_ids.get(task_id)
+        if work_id is None:
+            return False
+
+        already_requested = memory_task.cancelled
+        memory_task.request_cancel()
+        if not already_requested:
+            # 先保存原因，避免 queued cancel 在 queue.cancel 返回前已被投影。
+            self._cancel_reasons[task_id] = reason
+        ok = await self._queue.cancel(work_id, reason=reason)
+        if not ok and not already_requested:
+            self._cancel_reasons.pop(task_id, None)
+            memory_task.cancel_event.clear()
+        if ok and not already_requested:
             self._emit_memory_task_event(
                 RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
                 memory_task,
-                reason=reason,
-            )
-            await self._finish_task(
-                memory_task,
-                MemoryGenerationTaskStatus.CANCELLED,
-                pending_alias=memory_task.pending_alias,
                 reason=reason,
             )
         return ok

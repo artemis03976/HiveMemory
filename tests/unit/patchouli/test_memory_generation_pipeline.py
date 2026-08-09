@@ -209,7 +209,11 @@ async def test_active_update_fetches_existing_memory_before_generation():
     assert spec.source == MemoryGenerationSource.UPDATE
     assert spec.pending_alias == "draft_update"
     assert spec.request.is_update is True
-    assert spec.request.existing_memory is existing
+    assert spec.request.existing_memory is not existing
+    assert (
+        spec.request.existing_memory.model_dump(mode="json")
+        == existing.model_dump(mode="json")
+    )
 
 
 @pytest.mark.asyncio
