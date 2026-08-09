@@ -8,6 +8,9 @@ from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
@@ -51,6 +54,7 @@ def _make_layer(
         config=config,
         relay_controller=relay,
         short_term_store=store or ShortTermMemoryStore(),
+        interaction_journal=InMemoryInteractionApplyJournal(),
     )
 
 
@@ -192,7 +196,11 @@ class TestPageFoldingThreshold:
                 ),
             )
 
-        folded = store.update_summary(topic_id, "Test summary", retain_count=2)
+        folded = store.apply_compaction(
+            topic_id,
+            "Test summary",
+            retain_count=2,
+        )
 
         topic_data = store.get_topic_data(topic_id, touch=False)
         assert topic_data is not None
@@ -214,7 +222,7 @@ class TestPageFoldingThreshold:
                 ),
             )
 
-        folded = store.update_summary(
+        folded = store.apply_compaction(
             buffer.topic_id,
             "summary",
             retain_count=0,
@@ -232,7 +240,11 @@ class TestPageFoldingThreshold:
         buffer = store.create_buffer(_make_identity().user_id)
 
         with pytest.raises(ValueError, match="greater than or equal to 0"):
-            store.update_summary(buffer.topic_id, "summary", retain_count=-1)
+            store.apply_compaction(
+                buffer.topic_id,
+                "summary",
+                retain_count=-1,
+            )
 
 
 class TestPageFoldingConfig:

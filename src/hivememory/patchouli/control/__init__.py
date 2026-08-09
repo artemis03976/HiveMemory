@@ -1,5 +1,10 @@
 """Patchouli control-plane components."""
 
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+    InteractionApplyRecord,
+    InteractionApplyStage,
+)
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionCodec,
@@ -24,6 +29,9 @@ from hivememory.patchouli.control.memory_generation_tasks import (
 )
 
 __all__ = [
+    "InMemoryInteractionApplyJournal",
+    "InteractionApplyRecord",
+    "InteractionApplyStage",
     "InteractionSubmission",
     "InteractionSubmissionCodec",
     "InteractionSubmissionHandler",

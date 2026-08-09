@@ -156,6 +156,44 @@ class TestShortTermMemoryStore:
         assert len(data.blocks) == 1
         assert data.total_tokens >= 0
 
+    @pytest.mark.parametrize(
+        ("method_name", "args", "kwargs"),
+        [
+            (
+                "add_block",
+                (LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+                {},
+            ),
+            ("clear_blocks", (), {}),
+            ("update_summary", ("summary",), {}),
+            ("apply_compaction", ("summary",), {"retain_count": 1}),
+            ("update_title", ("title",), {}),
+            ("reset_topic_content", (), {}),
+            ("update_metadata", (), {}),
+            ("update_model_used", ("model",), {}),
+        ],
+        ids=[
+            "add-block",
+            "clear-blocks",
+            "update-summary",
+            "apply-compaction",
+            "update-title",
+            "reset-topic-content",
+            "update-metadata",
+            "update-model-used",
+        ],
+    )
+    def test_write_commands_require_an_existing_topic(
+        self,
+        method_name,
+        args,
+        kwargs,
+    ):
+        operation = getattr(self.store, method_name)
+
+        with pytest.raises(KeyError, match="topic 'missing' does not exist"):
+            operation("missing", *args, **kwargs)
+
     def test_clear_blocks_removes_all_and_resets_tokens(self):
         buf = self.store.create_buffer("u1")
         self.store.add_block(buf.topic_id, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
@@ -227,11 +265,11 @@ class TestShortTermMemoryStore:
         assert removed is not None
         assert self.store.topic_exists(buf.topic_id) is False
 
-    def test_clear_buffer_keeps_topic_but_clears_blocks(self):
+    def test_reset_topic_content_keeps_topic_but_clears_blocks(self):
         buf = self.store.create_buffer("u1")
         self.store.add_block(buf.topic_id, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
-        cleared = self.store.clear_buffer(buf.topic_id)
+        cleared = self.store.reset_topic_content(buf.topic_id)
 
         assert len(cleared) == 1
         data = self.store.get_topic_data(buf.topic_id)

@@ -15,6 +15,10 @@ from hivememory.engines.perception.semantic_flow_perception_layer import (
     NullPerceptionLayer,
     SemanticFlowPerceptionLayer,
 )
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+    InteractionApplyStage,
+)
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
@@ -166,12 +170,14 @@ async def test_different_ordering_keys_can_execute_concurrently() -> None:
 async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> None:
     # 容量设为 1，确保 retry 的幂等快路径发生在 LRU 检查之前。
     store = ShortTermMemoryStore(max_resident_topics=1)
+    interaction_journal = InMemoryInteractionApplyJournal()
     relay = Mock()
     relay.should_relay.return_value = None
     layer = SemanticFlowPerceptionLayer(
         config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
         relay_controller=relay,
         short_term_store=store,
+        interaction_journal=interaction_journal,
     )
     original_fold = layer._maybe_fold_pages
     fold_calls = 0
@@ -195,6 +201,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
             mid_term=Mock(),
             long_term=Mock(),
         ),
+        interaction_journal=interaction_journal,
     )
     queue = InteractionSubmissionQueue(familiar.submit_interaction)
 
@@ -218,12 +225,14 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
 @pytest.mark.asyncio
 async def test_retry_resubmits_pending_settlement_without_duplicating_block() -> None:
     store = ShortTermMemoryStore(max_resident_topics=1)
+    interaction_journal = InMemoryInteractionApplyJournal()
     relay = Mock()
     relay.should_relay.return_value = None
     layer = SemanticFlowPerceptionLayer(
         config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
         relay_controller=relay,
         short_term_store=store,
+        interaction_journal=interaction_journal,
     )
     settlement = TopicMaterializeTask(topic_id="topic-settlement")
     layer._maybe_fold_pages = AsyncMock(return_value=settlement)
@@ -240,6 +249,7 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
             mid_term=Mock(),
             long_term=Mock(),
         ),
+        interaction_journal=interaction_journal,
     )
     queue = InteractionSubmissionQueue(familiar.submit_interaction)
 
@@ -258,31 +268,16 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
     assert layer._maybe_fold_pages.await_count == 1
     assert bus.request.await_count == 2
     assert all(call.args[1] is settlement for call in bus.request.await_args_list)
-    state = store.get_interaction_apply_state("interaction-settlement")
-    assert state is not None
-    assert state.completed is True
-    assert state.pending_settlement is None
-
-
-def test_interaction_apply_journal_has_a_bounded_idempotency_window() -> None:
-    store = ShortTermMemoryStore(max_applied_interactions=2)
-
-    for index in range(3):
-        interaction_id = f"interaction-{index}"
-        topic_id = f"topic-{index}"
-        store.mark_interaction_applied(interaction_id, topic_id)
-        store.mark_interaction_post_apply_ready(interaction_id, topic_id, None)
-        store.mark_interaction_completed(interaction_id, topic_id)
-
-    assert store.interaction_journal_size() == 2
-    assert store.get_interaction_apply_state("interaction-0") is None
-    assert store.get_interaction_apply_state("interaction-1") is not None
-    assert store.get_interaction_apply_state("interaction-2") is not None
+    record = interaction_journal.get("interaction-settlement")
+    assert record is not None
+    assert record.stage is InteractionApplyStage.COMPLETED
+    assert record.settlement_to_submit is None
 
 
 @pytest.mark.asyncio
 async def test_disabled_perception_does_not_require_apply_journal_entry() -> None:
     store = ShortTermMemoryStore()
+    interaction_journal = InMemoryInteractionApplyJournal()
     familiar = PerceptionFamiliar(
         perception_layer=NullPerceptionLayer(),
         bus=Mock(request=AsyncMock()),
@@ -292,6 +287,7 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
             mid_term=Mock(),
             long_term=Mock(),
         ),
+        interaction_journal=interaction_journal,
     )
 
     topic_id = await familiar.submit_interaction(
@@ -300,7 +296,7 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
     )
 
     assert topic_id == "NEW_TOPIC"
-    assert store.get_interaction_apply_state("interaction-disabled") is None
+    assert interaction_journal.get("interaction-disabled") is None
     assert familiar._interaction_gates == {}
 
 

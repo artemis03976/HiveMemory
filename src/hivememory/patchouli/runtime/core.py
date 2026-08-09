@@ -38,6 +38,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
@@ -101,6 +104,7 @@ class PatchouliRuntime:
         self._local_bus = PatchouliBus()
         self._local_routes_registered = False
         self._shutdown_drain_started = False
+        self._interaction_apply_journal = InMemoryInteractionApplyJournal()
 
         # 1. 初始化基础设施
         self._init_infrastructure()
@@ -386,6 +390,7 @@ class PatchouliRuntime:
             config=self._patchouli_config.perception,
             llm_service=self.librarian_llm_service,
             short_term_store=self.memory_library.short_term,
+            interaction_journal=self._interaction_apply_journal,
         )
 
     def _build_generation_engine(self):
@@ -521,6 +526,7 @@ class PatchouliRuntime:
             bus=self._local_bus,
             config=self._patchouli_config.perception,
             memory_library=self.memory_library,
+            interaction_journal=self._interaction_apply_journal,
         )
 
         self._services["lifecycle"] = LifecycleFamiliar(

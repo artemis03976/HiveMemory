@@ -23,15 +23,12 @@ LongTermMemoryStore:
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import BufferState, LogicalBlock, MemoryAtom, TopicData
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import (
@@ -49,17 +46,6 @@ logger = logging.getLogger(__name__)
 
 # ============ ShortTermMemoryStore ============
 
-
-@dataclass(frozen=True)
-class InteractionApplyState:
-    """一次 interaction 在进程内 apply journal 中的分阶段状态。"""
-
-    topic_id: str
-    post_apply_ready: bool = False
-    pending_settlement: TopicMaterializeTask | None = None
-    completed: bool = False
-
-
 class ShortTermMemoryStore:
     """
     短期记忆存储（MMU）
@@ -73,17 +59,10 @@ class ShortTermMemoryStore:
         self,
         port: Optional[ShortTermStoragePort] = None,
         max_resident_topics: int = 5,
-        max_applied_interactions: int = 512,
     ) -> None:
         self._port: ShortTermStoragePort = port or InMemoryShortTermStorage()
         self.max_resident_topics = max_resident_topics
         self._last_active_topic_id: Optional[str] = None
-        self._max_applied_interactions = max(1, max_applied_interactions)
-        # 这是有界的进程内幂等窗口，不承诺跨进程或无限期去重。
-        self._applied_interactions: OrderedDict[
-            str,
-            InteractionApplyState,
-        ] = OrderedDict()
         logger.info(f"ShortTermMemoryStore 初始化, max_resident={max_resident_topics}")
 
     # ========== 最后活跃话题记录 ==========
@@ -94,94 +73,12 @@ class ShortTermMemoryStore:
     def set_last_active_topic(self, topic_id: str) -> None:
         self._last_active_topic_id = topic_id
 
-    def get_applied_interaction_topic(self, interaction_id: str) -> str | None:
-        """返回 interaction 已写入 block 的话题；未应用时返回 None。"""
-        state = self.get_interaction_apply_state(interaction_id)
-        return state.topic_id if state is not None else None
-
-    def get_interaction_apply_state(
-        self,
-        interaction_id: str,
-    ) -> InteractionApplyState | None:
-        """读取分阶段 apply 状态，并刷新其进程内保留顺序。"""
-        state = self._applied_interactions.get(interaction_id)
-        if state is not None:
-            self._applied_interactions.move_to_end(interaction_id)
-        return state
-
-    def mark_interaction_applied(self, interaction_id: str, topic_id: str) -> None:
-        """紧跟 block 写入记录第一阶段，防止 retry 重复追加。"""
-        existing = self._applied_interactions.get(interaction_id)
-        if existing is not None and existing.topic_id != topic_id:
-            raise ValueError(
-                f"interaction '{interaction_id}' was already applied to topic "
-                f"'{existing.topic_id}'"
-            )
-        if existing is None:
-            self._applied_interactions[interaction_id] = InteractionApplyState(
-                topic_id=topic_id,
-            )
-        self._applied_interactions.move_to_end(interaction_id)
-        self._trim_applied_interactions()
-
-    def mark_interaction_post_apply_ready(
-        self,
-        interaction_id: str,
-        topic_id: str,
-        pending_settlement: TopicMaterializeTask | None,
-    ) -> None:
-        """记录 folding 等本地义务已完成以及仍待 admission 的 settlement。"""
-        existing = self._require_interaction_state(interaction_id, topic_id)
-        if existing.completed:
-            return
-        self._applied_interactions[interaction_id] = InteractionApplyState(
-            topic_id=topic_id,
-            post_apply_ready=True,
-            pending_settlement=pending_settlement,
-        )
-        self._applied_interactions.move_to_end(interaction_id)
-        self._trim_applied_interactions()
-
-    def mark_interaction_completed(
-        self,
-        interaction_id: str,
-        topic_id: str,
-    ) -> None:
-        """在 settlement admission 成功（或无需 settlement）后标记全部完成。"""
-        existing = self._require_interaction_state(interaction_id, topic_id)
-        if not existing.post_apply_ready:
-            raise RuntimeError(
-                f"interaction '{interaction_id}' post-apply obligations are not ready"
-            )
-        self._applied_interactions[interaction_id] = InteractionApplyState(
-            topic_id=topic_id,
-            post_apply_ready=True,
-            completed=True,
-        )
-        self._applied_interactions.move_to_end(interaction_id)
-        self._trim_applied_interactions()
-
-    def interaction_journal_size(self) -> int:
-        return len(self._applied_interactions)
-
-    def _require_interaction_state(
-        self,
-        interaction_id: str,
-        topic_id: str,
-    ) -> InteractionApplyState:
-        existing = self._applied_interactions.get(interaction_id)
-        if existing is None:
-            raise KeyError(f"interaction '{interaction_id}' has not been applied")
-        if existing.topic_id != topic_id:
-            raise ValueError(
-                f"interaction '{interaction_id}' was already applied to topic "
-                f"'{existing.topic_id}'"
-            )
-        return existing
-
-    def _trim_applied_interactions(self) -> None:
-        while len(self._applied_interactions) > self._max_applied_interactions:
-            self._applied_interactions.popitem(last=False)
+    def _require_buffer(self, topic_id: str) -> SemanticBuffer:
+        """返回必须存在的话题 buffer；写命令不得静默忽略缺失 topic。"""
+        buf = self._port.get(topic_id)
+        if buf is None:
+            raise KeyError(f"topic '{topic_id}' does not exist")
+        return buf
 
     # ========== CRUD ==========
 
@@ -242,19 +139,14 @@ class ShortTermMemoryStore:
     # ========== 写操作（命名方法，禁止调用方直接写 buffer 字段）==========
 
     def add_block(self, topic_id: str, block: LogicalBlock) -> None:
-        buf = self._port.get(topic_id)
-        if buf is None:
-            logger.error(f"add_block: topic_id={topic_id} 不存在")
-            return
+        buf = self._require_buffer(topic_id)
         buf.blocks.append(block)
         buf.total_tokens += block.total_tokens
         buf.last_update = datetime.now().timestamp()
 
     def clear_blocks(self, topic_id: str) -> None:
         """清空 blocks 并重置 token 计数（替代 buffer.blocks.clear() + total_tokens=0）。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         buf.blocks.clear()
         buf.total_tokens = 0
         buf.last_update = datetime.now().timestamp()
@@ -263,20 +155,26 @@ class ShortTermMemoryStore:
         self,
         topic_id: str,
         summary: str,
-        *,
-        retain_count: Optional[int] = None,
-    ) -> int:
-        """写入 state_summary，并可选保留最近 N 个 blocks；0 表示全部裁剪。"""
-        if retain_count is not None and retain_count < 0:
-            raise ValueError("retain_count must be greater than or equal to 0")
-
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return 0
+    ) -> None:
+        """只更新 state summary，不改变当前 blocks。"""
+        buf = self._require_buffer(topic_id)
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
-        if retain_count is None:
-            return 0
+
+    def apply_compaction(
+        self,
+        topic_id: str,
+        summary: str,
+        *,
+        retain_count: int,
+    ) -> int:
+        """写入摘要并保留最近 N 个 blocks，返回被裁剪的 block 数。"""
+        if retain_count < 0:
+            raise ValueError("retain_count must be greater than or equal to 0")
+
+        buf = self._require_buffer(topic_id)
+        buf.state_summary = summary
+        buf.last_update = datetime.now().timestamp()
         if retain_count == 0:
             folded = len(buf.blocks)
             buf.blocks.clear()
@@ -291,16 +189,12 @@ class ShortTermMemoryStore:
 
     def update_title(self, topic_id: str, title: str) -> None:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         buf.topic_title = title
 
-    def clear_buffer(self, topic_id: str) -> List[LogicalBlock]:
-        """清空话题段内容，保留在活跃池中。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return []
+    def reset_topic_content(self, topic_id: str) -> List[LogicalBlock]:
+        """清空 blocks 与 state summary，保留话题在活跃池中。"""
+        buf = self._require_buffer(topic_id)
         cleared = buf.blocks.copy()
         buf.blocks.clear()
         buf.total_tokens = 0
@@ -309,18 +203,14 @@ class ShortTermMemoryStore:
         return cleared
 
     def update_metadata(self, topic_id: str, state: Optional[BufferState] = None) -> None:
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         if state is not None:
             buf.state = state
         buf.last_update = datetime.now().timestamp()
 
     def update_model_used(self, topic_id: str, model_used: str) -> None:
         """写入最近一次 run 使用的模型展示名。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         buf.model_used = model_used
 
     # ========== LRU ==========
@@ -514,7 +404,6 @@ class ArtifactStore:
 
 
 __all__ = [
-    "InteractionApplyState",
     "ShortTermMemoryStore",
     "MidTermMemoryStore",
     "LongTermMemoryStore",

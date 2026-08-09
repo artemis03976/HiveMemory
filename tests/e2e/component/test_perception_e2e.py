@@ -77,6 +77,10 @@ from hivememory.engines.perception.models import FlushReason
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
 from hivememory.engines.perception.relay_controller import SimpleRelayController
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 
 # 配置
 from hivememory.system.config import (
@@ -160,6 +164,8 @@ def setup_test_env(max_tokens: int = 2048) -> SemanticFlowPerceptionLayer:
     _shared_perception = SemanticFlowPerceptionLayer(
         config=perception_config,
         relay_controller=relay_controller,
+        short_term_store=ShortTermMemoryStore(),
+        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     _shared_perception.set_generation_callback(_shared_flush_recorder)
 
@@ -201,7 +207,7 @@ def reset_test_env() -> None:
         # 清空所有活跃 Buffer
         active_buffers = _shared_perception.list_active_buffers()
         for topic_id in active_buffers:
-            _shared_perception.clear_buffer(topic_id)
+            _shared_perception.reset_topic_content(topic_id)
 
 
 # ========== 辅助函数 ==========

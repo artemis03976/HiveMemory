@@ -1,9 +1,15 @@
+from unittest.mock import MagicMock, Mock
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 
 from hivememory.core.models import Identity, TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
+from hivememory.engines.perception.semantic_flow_perception_layer import (
+    SemanticFlowPerceptionLayer,
+)
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
@@ -14,11 +20,13 @@ async def test_ingest_payload_uses_identity_agent_id():
         config=SemanticFlowPerceptionConfig(),
         relay_controller=Mock(),
         short_term_store=ShortTermMemoryStore(),
+        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     captured_blocks = []
     layer._short_term_store.add_block = Mock(
         side_effect=lambda topic_id, block: captured_blocks.append(block)
     )
+    layer._short_term_store.update_metadata = Mock()
     payload = InteractionPayload(
         user_message="u",
         assistant_final_text="a",
@@ -45,6 +53,7 @@ async def test_create_new_topic_calls_create_buffer_with_user_id():
         config=SemanticFlowPerceptionConfig(),
         relay_controller=Mock(),
         short_term_store=ShortTermMemoryStore(),
+        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     fake_buffer = MagicMock()
     fake_buffer.topic_id = "topic-xyz"

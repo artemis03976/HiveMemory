@@ -17,6 +17,9 @@ from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 
 if TYPE_CHECKING:
@@ -63,11 +66,13 @@ class PerceptionFamiliar:
         bus: "PatchouliBus",
         config: "MemoryPerceptionConfig",
         memory_library: "MemoryLibrary",
+        interaction_journal: InMemoryInteractionApplyJournal,
     ) -> None:
         self.perception_layer = perception_layer
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._short_term = memory_library.short_term
+        self._interaction_journal = interaction_journal
         self._interaction_gates: dict[str, _InteractionGate] = {}
         self._interaction_gates_lock = asyncio.Lock()
 
@@ -126,17 +131,11 @@ class PerceptionFamiliar:
         interaction_id: str | None,
     ) -> str:
         """执行一次实际摄入；分阶段幂等真相由 raw perception journal 保存。"""
-        applied_topic_id: str | None = None
-        if interaction_id:
-            lookup_applied = getattr(
-                self._short_term,
-                "get_applied_interaction_topic",
-                None,
-            )
-            if callable(lookup_applied):
-                candidate = lookup_applied(interaction_id)
-                if isinstance(candidate, str):
-                    applied_topic_id = candidate
+        apply_record = (
+            self._interaction_journal.get(interaction_id)
+            if interaction_id
+            else None
+        )
 
         logger.info(
             "PerceptionFamiliar 摄入交互载荷: "
@@ -148,7 +147,7 @@ class PerceptionFamiliar:
         )
 
         # retry 已有 apply journal 时不能驱逐刚刚写入的目标话题。
-        if applied_topic_id is None:
+        if apply_record is None:
             await self._maybe_evict_lru(target_topic_id)
 
         if interaction_id is None:
@@ -170,22 +169,9 @@ class PerceptionFamiliar:
             )
 
         if interaction_id:
-            lookup_state = getattr(
-                self._short_term,
-                "get_interaction_apply_state",
-                None,
-            )
-            mark_completed = getattr(
-                self._short_term,
-                "mark_interaction_completed",
-                None,
-            )
-            if (
-                callable(lookup_state)
-                and lookup_state(interaction_id) is not None
-                and callable(mark_completed)
-            ):
-                mark_completed(interaction_id, topic_id)
+            apply_record = self._interaction_journal.get(interaction_id)
+            if apply_record is not None:
+                self._interaction_journal.complete(interaction_id, topic_id)
         return topic_id
 
     async def prepare_topic(

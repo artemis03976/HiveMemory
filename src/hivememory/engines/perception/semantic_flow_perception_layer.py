@@ -12,7 +12,7 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
 """
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from hivememory.core.models import ActionReducer, BufferState, Identity, LogicalBlock, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
@@ -24,6 +24,10 @@ from hivememory.engines.perception.models import (
 )
 from hivememory.engines.perception.relay_controller import BaseRelayController
 from hivememory.engines.perception.trigger_manager import TriggerManager
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+    InteractionApplyStage,
+)
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.utils.token_estimator import estimate_tokens
 
@@ -46,7 +50,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         config: SemanticFlowPerceptionConfig,
         relay_controller: BaseRelayController,
-        short_term_store: Optional["ShortTermMemoryStore"] = None,
+        short_term_store: "ShortTermMemoryStore",
+        interaction_journal: InMemoryInteractionApplyJournal,
     ):
         """
         初始化语义流感知层 (MMU)
@@ -55,6 +60,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             config: SemanticFlowPerceptionConfig 配置对象
             relay_controller: 接力控制器 / Page Folding 摘要生成器
             short_term_store: 短期记忆存储（由 MemoryLibrary 创建后注入）
+            interaction_journal: interaction apply 的进程内幂等 journal
         """
         super().__init__()
 
@@ -62,10 +68,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         self._relay_controller = relay_controller
 
-        # 短期记忆存储必须由 MemoryLibrary 创建后注入，不允许引擎自行实例化
-        if short_term_store is None:
-            raise ValueError("未注入 short_term_store")
         self._short_term_store = short_term_store
+        self._interaction_journal = interaction_journal
 
         # TriggerManager 负责话题结算调度
         self._trigger_manager = TriggerManager(
@@ -155,17 +159,15 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         # consumer 侧先查 apply journal。已写入但尚未完成 settlement admission 的
         # interaction 继续执行后置义务，而不是把「block 已写入」误当成全部完成。
         if interaction_id:
-            apply_state = self._short_term_store.get_interaction_apply_state(
-                interaction_id
-            )
-            if apply_state is not None:
+            apply_record = self._interaction_journal.get(interaction_id)
+            if apply_record is not None:
                 settle_payload = await self.ingest_payload(
                     payload,
-                    apply_state.topic_id,
+                    apply_record.topic_id,
                     interaction_id=interaction_id,
                 )
-                self._short_term_store.set_last_active_topic(apply_state.topic_id)
-                return apply_state.topic_id, settle_payload
+                self._short_term_store.set_last_active_topic(apply_record.topic_id)
+                return apply_record.topic_id, settle_payload
 
         # 重新检查创建情况，避免预创建后某些错误导致的异常
         topic_id = await self.prepare_topic(
@@ -195,18 +197,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             如发生 TOKEN_OVERFLOW 结算则返回 TopicMaterializeTask，否则 None
         """
         if interaction_id:
-            apply_state = self._short_term_store.get_interaction_apply_state(
-                interaction_id
-            )
-            if apply_state is not None:
-                if apply_state.topic_id != topic_id:
+            apply_record = self._interaction_journal.get(interaction_id)
+            if apply_record is not None:
+                if apply_record.topic_id != topic_id:
                     raise ValueError(
                         f"interaction '{interaction_id}' was already applied to another topic"
                     )
-                if apply_state.completed:
+                if apply_record.stage is InteractionApplyStage.COMPLETED:
                     return None
-                if apply_state.post_apply_ready:
-                    return apply_state.pending_settlement
+                if apply_record.stage is InteractionApplyStage.LOCAL_COMPLETED:
+                    return apply_record.settlement_to_submit
                 return await self._complete_interaction_post_apply(
                     payload,
                     topic_id,
@@ -252,7 +252,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self._short_term_store.add_block(topic_id, block)
         if interaction_id:
             # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
-            self._short_term_store.mark_interaction_applied(interaction_id, topic_id)
+            self._interaction_journal.record_block_applied(interaction_id, topic_id)
 
         return await self._complete_interaction_post_apply(
             payload,
@@ -279,7 +279,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self._short_term_store.update_metadata(topic_id, state=BufferState.IDLE)
 
         if interaction_id:
-            self._short_term_store.mark_interaction_post_apply_ready(
+            self._interaction_journal.record_local_completed(
                 interaction_id,
                 topic_id,
                 settle_payload,
