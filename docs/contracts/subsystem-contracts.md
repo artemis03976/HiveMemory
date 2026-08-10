@@ -223,7 +223,20 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 
 这条限制保护的是入口语义。Passive Memory 用于摄入已经发生的外部经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。
 
-## 7. 契约矛盾检查
+## 7. Interaction 与 Topic 时序契约
+
+Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
+
+1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
+2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
+3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。idempotency journal 只防止重复副作用，不参与排序。
+4. **Passive source sequence 不负责事后重排。** connector 应按会话因果顺序投递；源 `sequence` 当前用于关联和观测，不承诺缓存、等待或重排晚到消息。
+5. **Active prepare 读取的是一个 topic snapshot。** finalize/apply 的先后位置只能证明提交顺序，不能证明某个 run 在生成 LLM input 时看见过中间提交。多个 run 可以基于同一 revision 并发执行。
+6. **多 Agent 并发优先表达因果偏序。** 未来应保存 `base_topic_revision`、causal parent 或等价的 run/frame 关系，再由 prompt/display 层按需要确定性线性化；不得仅按完成时间伪造语义先后。
+
+`occurred_at`、`received_at`、`enqueued_at` 与 `applied_at` 是不同阶段的观测时间，均不能替代 topic 内的权威顺序。当前契约要求的是 topic-local authoritative log 与可扩展的 causal relation，而不是全系统绝对时间线；本阶段不要求全局序列、向量时钟或完整事件溯源。
+
+## 8. 契约矛盾检查
 
 新增或修改公共能力时，应先回答以下问题：
 
@@ -234,10 +247,13 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 5. cleanup 是否仍是对空话题的有限补偿，还是被当成可以撤销长期状态的事务回滚？
 6. `AgentRunResult`、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
 7. 身份、可见性和权限检查是否仍由状态所有者执行，而不是由拿到 id 的调用方自行假设？
+8. 是否把 enqueue/apply timestamp 或 queue FIFO 误当作业务发生顺序？
+9. 是否把 topic append 顺序误当作 Agent 已观察到彼此结果的因果关系？
+10. 是否声称 finalize ordering 已经解决 prepare/LLM input snapshot 的并发？
 
 这些问题能帮助评审者从契约语义发现设计分叉，而不只是检查函数签名是否还能调用。
 
-## 8. 兼容与变更
+## 9. 兼容与变更
 
 以下变化属于跨子系统破坏性变更，必须同步修改 route 常量、公共模型、调用方、契约测试和本文：
 
