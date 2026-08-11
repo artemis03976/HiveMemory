@@ -200,6 +200,8 @@ class InteractionSubmissionQueue:
             capacity=256,
             max_concurrency=4,
             ordered_by_key=True,
+            cancellable=False,
+            timeout_seconds=30.0,
             max_attempts=3,
             terminal_retention=512,
         )
@@ -220,6 +222,7 @@ class InteractionSubmissionQueue:
         )
         self._submissions: OrderedDict[str, _StoredSubmission] = OrderedDict()
         self._submit_lock = asyncio.Lock()
+        self._stopped = asyncio.Event()
 
     @property
     def runtime(self) -> WorkQueueRuntime:
@@ -229,11 +232,19 @@ class InteractionSubmissionQueue:
     def started(self) -> bool:
         return self._runtime.started
 
+    @property
+    def stopped(self) -> bool:
+        return self._stopped.is_set()
+
     async def start(self) -> None:
         await self._runtime.start()
 
     async def stop(self):
-        return await self._runtime.stop()
+        try:
+            return await self._runtime.stop()
+        finally:
+            # 唤醒仍在等待 applied gate 的调用方，由其把非终态解释为运行时不可用。
+            self._stopped.set()
 
     async def submit(self, submission: InteractionSubmission) -> InteractionSubmissionReceipt:
         """规范化并接受一次 submission；重复 interaction_id 只返回原收据。"""
@@ -266,6 +277,25 @@ class InteractionSubmissionQueue:
                     )
                 return existing.receipt
 
+            # 调用方可能在 store 已接纳、receipt 尚未投影时被取消。稳定 work ID 允许
+            # 后续 finalize 恢复该 admission，而不是再次创建 interaction。
+            existing_record = await self._runtime.get(work_id)
+            if existing_record is not None:
+                if existing_record.item.payload != payload_bytes:
+                    raise ValueError(
+                        f"interaction_id '{submission.interaction_id}' already belongs to another payload"
+                    )
+                domain_receipt = self._receipt_from_record(
+                    submission,
+                    existing_record,
+                )
+                self._submissions[submission.interaction_id] = _StoredSubmission(
+                    receipt=domain_receipt,
+                    payload_bytes=payload_bytes,
+                )
+                await self._trim_submissions_locked()
+                return domain_receipt
+
             receipt = await self._runtime.enqueue(item)
             domain_receipt = InteractionSubmissionReceipt(
                 interaction_id=submission.interaction_id,
@@ -280,6 +310,13 @@ class InteractionSubmissionQueue:
             )
             await self._trim_submissions_locked()
             return domain_receipt
+
+    async def is_accepted(self, interaction_id: str) -> bool:
+        """判断稳定 interaction ID 是否已经由 queue 接管。"""
+        async with self._submit_lock:
+            if interaction_id in self._submissions:
+                return True
+            return await self._runtime.get(f"interaction:{interaction_id}") is not None
 
     async def _trim_submissions_locked(self) -> None:
         """保留全部活跃 submission，只淘汰超出窗口的终态旁路索引。"""
@@ -305,7 +342,27 @@ class InteractionSubmissionQueue:
         stored = self._submissions.get(interaction_id)
         if stored is None:
             return None
-        record = await self._runtime.wait(stored.receipt.work_id, timeout=timeout)
+        wait_task = asyncio.create_task(
+            self._runtime.wait(stored.receipt.work_id, timeout=timeout)
+        )
+        stopped_task = asyncio.create_task(self._stopped.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {wait_task, stopped_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if wait_task in done:
+                record = wait_task.result()
+            else:
+                wait_task.cancel()
+                await asyncio.gather(wait_task, return_exceptions=True)
+                record = await self._runtime.get(stored.receipt.work_id)
+        finally:
+            if not wait_task.done():
+                wait_task.cancel()
+                await asyncio.gather(wait_task, return_exceptions=True)
+            stopped_task.cancel()
+            await asyncio.gather(stopped_task, return_exceptions=True)
         return self._to_outcome(interaction_id, stored.receipt.work_id, record)
 
     async def drain(
@@ -359,6 +416,19 @@ class InteractionSubmissionQueue:
             state=record.state,
             topic_id=record.result_ref if record.state == WorkState.SUCCEEDED else None,
             error_class=record.last_error.error_class if record.last_error else None,
+        )
+
+    @staticmethod
+    def _receipt_from_record(
+        submission: InteractionSubmission,
+        record: WorkRecord,
+    ) -> InteractionSubmissionReceipt:
+        return InteractionSubmissionReceipt(
+            interaction_id=submission.interaction_id,
+            work_id=record.work_id,
+            ordering_key=submission.ordering_key,
+            state=record.state,
+            enqueued_at=record.enqueued_at,
         )
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-from uuid import UUID
+from typing import Any, Literal
+from uuid import UUID, uuid4
 
 from hivememory.core.models import ActionReducer, Identity, MemoryAtom, TraceReducer
 from hivememory.core.protocol.gateway import (
@@ -22,12 +22,48 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmission,
+    InteractionSubmissionQueue,
+)
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.system.config import MemoryCompilerConfig
+from hivememory.system.runtime.work_queue import (
+    WorkQueueCapacityError,
+    WorkQueueStoppedError,
+    WorkState,
+)
 
 logger = logging.getLogger(__name__)
+
+ActiveFinalizationStage = Literal[
+    "interaction_admission",
+    "interaction_apply",
+    "materialization_dispatch",
+    "retrieval_hit_record",
+]
+
+
+class ActiveInteractionFinalizationError(RuntimeError):
+    """Active interaction 已生成，但 finalize 未完成指定阶段。"""
+
+    def __init__(
+        self,
+        *,
+        interaction_id: str,
+        stage: ActiveFinalizationStage,
+        reason: str,
+        work_state: WorkState | None = None,
+        error_class: str | None = None,
+    ) -> None:
+        self.interaction_id = interaction_id
+        self.stage = stage
+        self.reason = reason
+        self.work_state = work_state
+        self.error_class = error_class
+        super().__init__(f"Active interaction finalization failed at {stage}: {reason}")
 
 
 class PatchouliService:
@@ -37,9 +73,13 @@ class PatchouliService:
         self,
         bus: PatchouliBus,
         *,
+        interaction_queue: InteractionSubmissionQueue,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
+        if interaction_queue is None:
+            raise TypeError("interaction_queue is required")
         self._local_bus = bus
+        self._interaction_queue = interaction_queue
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
 
@@ -132,6 +172,7 @@ class PatchouliService:
                 agent_run_context=agent_run_context,
                 gateway_decision=gateway_decision,
                 stream_prelude=stream_prelude,
+                interaction_id=str(uuid4()),
                 generation_options=generation_options,
             )
         except Exception:
@@ -162,22 +203,107 @@ class PatchouliService:
             model_used=loop_result.model_used,
         )
 
-        await self._local_bus.request(
-            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
-            payload,
-            target_topic_id=agent_context.topic_id,
-        )
+        await self._submit_active_interaction(prepared_run, payload)
 
+        # 触发主动记忆生成副作用
         memory_tasks: list[MemoryGenerationTask] = []
         if loop_result.materialize_tasks:
-            memory_tasks = await self._local_bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-                loop_result.materialize_tasks,
-                topic_id=agent_context.topic_id,
-            )
+            try:
+                memory_tasks = await self._local_bus.request(
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
+                    loop_result.materialize_tasks,
+                    topic_id=agent_context.topic_id,
+                )
+            except Exception as error:
+                raise ActiveInteractionFinalizationError(
+                    interaction_id=prepared_run.interaction_id,
+                    stage="materialization_dispatch",
+                    reason=type(error).__name__,
+                ) from error
 
-        await self._record_retrieval_hits(prepared_run)
+        # 记录检索命中事件
+        try:
+            await self._record_retrieval_hits(prepared_run)
+        except Exception as error:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="retrieval_hit_record",
+                reason=type(error).__name__,
+            ) from error
         return memory_tasks
+
+    async def _submit_active_interaction(
+        self,
+        prepared_run: PreparedAgentRun,
+        payload: InteractionPayload,
+    ) -> None:
+        topic_id = prepared_run.topic_id
+        correlation = {
+            "topic_id": topic_id,
+            "agent_id": prepared_run.agent_id,
+        }
+        if prepared_run.identity.session_id:
+            correlation["session_id"] = prepared_run.identity.session_id
+
+        try:
+            receipt = await self._interaction_queue.submit(
+                InteractionSubmission(
+                    interaction_id=prepared_run.interaction_id,
+                    payload=payload,
+                    requested_topic_id=topic_id,
+                    ordering_key=f"topic:{topic_id}",
+                    origin="active_chat",
+                    correlation=correlation,
+                )
+            )
+        except WorkQueueCapacityError as error:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="interaction_admission",
+                reason="capacity_rejected",
+            ) from error
+        except WorkQueueStoppedError as error:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="interaction_admission",
+                reason="queue_stopped",
+            ) from error
+        except Exception as error:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="interaction_admission",
+                reason=type(error).__name__,
+            ) from error
+
+        outcome = await self._interaction_queue.wait(receipt)
+        if outcome is None:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="interaction_apply",
+                reason="outcome_missing",
+            )
+        if outcome.state != WorkState.SUCCEEDED:
+            reason = (
+                "queue_stopped"
+                if self._interaction_queue.stopped
+                and outcome.state
+                in {WorkState.QUEUED, WorkState.RUNNING, WorkState.RETRY_WAIT}
+                else f"work_{outcome.state.value}"
+            )
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="interaction_apply",
+                reason=reason,
+                work_state=outcome.state,
+                error_class=outcome.error_class,
+            )
+        if outcome.topic_id != topic_id:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=prepared_run.interaction_id,
+                stage="interaction_apply",
+                reason="topic_mismatch",
+                work_state=outcome.state,
+            )
 
     async def submit_interaction(
         self,
@@ -213,6 +339,12 @@ class PatchouliService:
         """清理已 prepare 但未 finalize 的预创建空话题。"""
 
         if not prepared_run.stream_prelude.is_new_topic:
+            return False
+        if await self._interaction_queue.is_accepted(prepared_run.interaction_id):
+            logger.info(
+                "interaction 已由 submission queue 接管，跳过 prepared topic 清理: %s",
+                prepared_run.interaction_id,
+            )
             return False
         return await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
 
@@ -254,18 +386,11 @@ class PatchouliService:
             if memory_key in seen:
                 continue
             seen.add(memory_key)
-            try:
-                await self._local_bus.request(
-                    PatchouliLocalRoutes.MEMORY_RECORD_HIT,
-                    memory_id,
-                    source="retrieval.finalize",
-                )
-            except Exception:
-                logger.warning(
-                    "记录检索命中失败: memory_id=%s",
-                    memory_id,
-                    exc_info=True,
-                )
+            await self._local_bus.request(
+                PatchouliLocalRoutes.MEMORY_RECORD_HIT,
+                memory_id,
+                source="retrieval.finalize",
+            )
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
         try:
@@ -304,4 +429,4 @@ def _memory_ref_from_atom(memory: MemoryAtom) -> dict[str, Any]:
     }
 
 
-__all__ = ["PatchouliService"]
+__all__ = ["ActiveInteractionFinalizationError", "PatchouliService"]

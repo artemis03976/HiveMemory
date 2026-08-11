@@ -65,6 +65,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             memory_refs=[],
         ),
         gateway_decision=gateway_decision,
+        interaction_id="interaction-test",
         generation_options=None,
     )
     defaults.update(overrides)

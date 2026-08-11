@@ -26,8 +26,10 @@
 版本: 4.0
 """
 
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
@@ -73,8 +75,8 @@ class PatchouliSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        global_bus: Optional[GlobalSystemBus] = None,
-        scheduler: Optional["AsyncMaintenanceScheduler"] = None,
+        global_bus: GlobalSystemBus | None = None,
+        scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
     ):
         self.config = config
@@ -88,9 +90,18 @@ class PatchouliSystem(SubsystemProtocol):
             runtime_events=self._runtime_events,
         )
 
-        # 2. Patchouli 对外能力门面。Phase 3A 起不再持有旧 Gateway gaze。
+        self._interaction_submission_queue = InteractionSubmissionQueue(
+            self.runtime.perception_familiar.submit_interaction,
+            runtime_events=self._runtime_events.scoped(
+                "patchouli",
+                component="interaction_submission_queue",
+            ),
+        )
+
+        # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
+            interaction_queue=self._interaction_submission_queue,
             memory_compiler_config=self.config.memory_compiler,
         )
         self._memory_management_service = MemoryManagementService(
@@ -121,14 +132,6 @@ class PatchouliSystem(SubsystemProtocol):
             global_bus=global_bus,
             public_api=self._public_api,
         )
-        self._interaction_submission_queue = InteractionSubmissionQueue(
-            self.runtime.perception_familiar.submit_interaction,
-            runtime_events=self._runtime_events.scoped(
-                "patchouli",
-                component="interaction_submission_queue",
-            ),
-        )
-
         self._scheduler = scheduler
         self._maintenance_registered = False
 
@@ -141,7 +144,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     @property
     def interaction_submission_queue(self) -> InteractionSubmissionQueue:
-        """访问 passive 与未来 active 共用的 interaction submission queue。"""
+        """访问 active/passive 共用的 interaction submission queue。"""
         return self._interaction_submission_queue
 
     @property
