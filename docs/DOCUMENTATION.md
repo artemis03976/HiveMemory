@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-10
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -314,12 +314,12 @@ last_reviewed: YYYY-MM-DD
 
 ```yaml
 ---
-title: Runtime Job Queue
+title: Chat Attachments
 status: planned
 owner: system
-target: v0.6.1
+target: v0.6.2
 updates:
-  - docs/system/runtime-and-bus.md
+  - docs/architecture/overview.md
   - docs/contracts/routes-and-events.md
 ---
 ```
@@ -465,7 +465,7 @@ ADR 应保持简短，通常包含：
 - 固定入口使用大写名称：`PROJECT.md`、`VISION.md`、`ROADMAP.md`、`DOCUMENTATION.md`、`README.md`；
 - 当前模块文档使用稳定的英文小写 kebab-case，例如 `memory-compiler.md`；
 - 当前文档名不包含版本号、日期、`new`、`final`、`latest` 等易失效标记；
-- 计划可以使用目标版本或日期，例如 `v0.6.1-runtime-job-queue.md`；
+- 计划可以使用目标版本或日期，例如 `v0.6.1-local-work-queue-runtime.md`；
 - ADR 使用递增编号，例如 `0001-async-system-bus.md`。
 
 ### 12.2 链接

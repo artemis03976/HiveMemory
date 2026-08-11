@@ -114,7 +114,7 @@ Producer 生成 operation id 和幂等 key，Consumer 在自己的状态所有�
 ### Phase I1：基础记录与 Work Queue 接线
 
 1. 复用 Local Work Queue 的 `(lane, idempotency_key)` 唯一约束和 lease 设计；
-2. 为 interaction、memory generation 和 runtime job 保存可查询的 operation result ref；
+2. 为 interaction 与 memory generation 保存可查询的 operation result ref；
 3. 让 retry enqueue 返回已有 work，而不是创建第二个 handler；
 4. unknown kind/version、expired lease 和 dead-letter 都保留可解释的操作结果。
 

@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-08-05
+last_reviewed: 2026-08-10
 ---
 
 # System 运行时与总线
@@ -95,7 +95,7 @@ Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的�
 返回后由 application 检查；Finalize 已经开始后拒绝 stop。跨子系统的取消传播使用原生
 `asyncio.CancelledError`，用户 stop 只在 Chat application 边界翻译为取消结果。
 
-该 registry 不提供持久化恢复、跨进程广播或历史查询。不要把它与后续 Runtime Job Queue 的长期任务状态混为一谈。
+该 registry 不提供持久化恢复、跨进程广播或历史查询。不要把它误认为用户可见长期任务状态；此类能力当前没有版本承诺，需在真实负载出现后独立设计。
 
 ## 4. RuntimeOperationObserver
 

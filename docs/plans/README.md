@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-08-07
+last_reviewed: 2026-08-10
 ---
 
 # Plans
@@ -19,7 +19,7 @@ last_reviewed: 2026-08-07
 - [跨子系统幂等性与重试语义](./cross-subsystem-idempotency-and-retry.md)：统一 interaction、generation、Artifact、MemoryLibrary、PendingAtom 与生命周期操作的稳定身份、重复结果和模糊失败边界。
 - [身份隔离与执行安全](./identity-isolation-and-execution-safety.md)：收紧 Identity propagation、cache/frame 隔离、Profile fail-open 和 MTP RUN 的执行安全边界。
 - [复合意图分解](./composite-intent-decomposition.md)：未排期；先建立样本门禁与 composite envelope，再讨论多分支执行。
-- [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：以多 lane 的本地工作队列收敛 interaction submission、memory generation 与未来 runtime job 的机械生命周期。
+- [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：以多 lane 的本地工作队列收敛 interaction submission 与 memory generation 的机械生命周期，并完成 Active/Passive 共用 submission lane 的迁移。
 
 已完成的 v0.6.1 前置清单：
 

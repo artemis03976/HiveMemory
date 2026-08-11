@@ -244,10 +244,9 @@ Gateway 全入口（G1/G2）、Passive 提交与 flush（P2/P4/P5）、Alice 全
 
 ## 6. 结论与后续建议（I1 前置输入）
 
-1. **I1 应优先接线的三个入口**（与 Work Queue 计划的 lane 对应）：
-   - Interaction Submission：`interaction_id` 目前不存在，I1 需先在 `InteractionPayload` 或 submission envelope 上引入稳定 `interaction_id`，再谈 `(lane, idempotency_key)` 唯一约束；
+1. **I1 应优先接线的两个入口**（与 Work Queue 计划的 lane 对应）：
+   - Interaction Submission：稳定 `interaction_id` 已落在 submission envelope；I1 继续把它落实为持久化 `(lane, idempotency_key)` 唯一约束；
    - Memory Generation：`intent_id` 已作为跨子系统关联键存在（A3→M4→M13），I1 应把它落为 lane 的幂等键并加唯一约束；
-   - Runtime Job：尚无入口，随 Q4 引入。
 2. **I0 标记为"仅进程内"的机制**（dedup、settle 守卫、终态防重、cancel 幂等）在迁移到持久化 store 时必须保留原语义，且重复 settle 应从"抛异常"改为"显式跳过 + 返回已结算结果"。
 3. **version 字段的两种出路**需在 I2 前定论：落地 Qdrant 版本 CAS，或移除"乐观锁"表述并改用显式 merge/operation_id。
 4. **模糊失败优先级最高的是跨层搬运与提交链路**：archive/revive（L4/L5）与 Passive submit（P4）是"双副本/重复写入"风险源，I2 的 saga 与 reconciliation 设计应优先覆盖。

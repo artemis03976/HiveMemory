@@ -11,14 +11,14 @@ related_contracts:
   - docs/gateway/analysis.md
   - docs/gateway/workflow.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-10
 ---
 
 # 复合意图分解计划
 
 **文档状态**: Planned  
 **目标阶段**: Unscheduled  
-**适用范围**: `gateway/`、`engines/gateway/intent_decomposer.py`、`patchouli/`、`alice/`、未来 Runtime Job Queue  
+**适用范围**: `gateway/`、`engines/gateway/intent_decomposer.py`、`patchouli/`、`alice/`
 **前置条件**: 当前固定单主意图 workflow 与公共 `GatewayDecision` 保持稳定  
 **核心目标**: 为复合意图分解、多分支消费和合并语义建立清晰边界。具体算法、Prompt、执行策略仍需在实现前以真实样本收敛。
 
@@ -28,7 +28,7 @@ last_reviewed: 2026-07-30
 
 当前第一代 Query Understanding 可以把主意图分类为 `COMPOSITE`，也会在 Engine 私有结果中解析 `sub_intents`；但 Resolver 不把 `sub_intents` 投影进公共 `UserQueryAnalysisResult`，固定 workflow 仍然只提交一个 `GatewayDecision`。代码中没有旧稿曾设想的 `CompositePlaceholder`、`is_composite` 或 `composite_deferred` 公共状态，也没有多分支执行、合并和持久化样本集。
 
-这不是“分解已经实现但暂时关闭”，而是只有一个仍未被消费的分类信号。计划的作用是先固定复合 envelope、下游所有权和 fallback，再决定是否保留当前私有 `sub_intents`、建立独立 decomposer 或收集更多样本；不能为了临时支持复合输入而输出不稳定的 `list[GatewayState]`，也不能让 Patchouli、Alice 或未来 Job Runtime 被迫适配半成品分支结构。
+这不是“分解已经实现但暂时关闭”，而是只有一个仍未被消费的分类信号。计划的作用是先固定复合 envelope、下游所有权和 fallback，再决定是否保留当前私有 `sub_intents`、建立独立 decomposer 或收集更多样本；不能为了临时支持复合输入而输出不稳定的 `list[GatewayState]`，也不能让 Patchouli、Alice 或尚未立项的后台执行机制被迫适配半成品分支结构。
 
 本计划已经移出 v0.6.0 发布范围，当前不绑定具体版本。Phase C0 可以作为非阻塞研究推进；只有真实样本证明单主意图路径存在稳定缺口，且 envelope、消费所有权与 fallback 能够形成可验收契约后，才重新进入路线图排期。
 
@@ -55,7 +55,7 @@ last_reviewed: 2026-07-30
 
 - 不把 Engine 私有 `sub_intents` 当作已提交的公共结果；
 - 不返回 `list[GatewayState]`；
-- 不触发多分支 Patchouli/Alice/Job Runtime 调用；
+- 不触发多分支 Patchouli/Alice 或后台长任务调用；
 - 不把没有持久化事实支撑的“deferred”字段添加到公共协议；
 - `COMPOSITE` 仍按单主意图兼容路径执行，必要时由 Alice 在自然语言层处理。
 
@@ -88,7 +88,7 @@ last_reviewed: 2026-07-30
 3. **下游消费协议**
    - TODO: 定义 Patchouli 如何消费多 QUERY/WRITE 分支。
    - TODO: 定义 Alice 如何消费需要协作或规划的分支。
-   - TODO: 定义 Runtime Job Queue 如何消费 `FUTURE_JOB` 分支。
+   - `FUTURE_JOB` 分支保持 unsupported；只有真实长任务机制独立立项后才增加消费者。
 
 4. **执行与合并语义**
    - TODO: 定义串行/并行策略。
@@ -108,7 +108,7 @@ last_reviewed: 2026-07-30
 
 ### 5.1 BranchIntentKind
 
-当前公共 `IntentType` 是 `RAG / WRITE / CHAT / COMPOSITE / UNKNOWN`，不应为了草案直接改写其值或大小写。分解后的 branch 若需要区分命令与未来 Job，应建立新的 branch-local 枚举，并在 envelope 评审时决定是否进入公共契约：
+当前公共 `IntentType` 是 `RAG / WRITE / CHAT / COMPOSITE / UNKNOWN`，不应为了草案直接改写其值或大小写。分解后的 branch 若需要区分命令与当前不支持的后台工作，应建立新的 branch-local 枚举，并在 envelope 评审时决定是否进入公共契约：
 
 ```python
 class BranchIntentKind(str, Enum):
@@ -123,7 +123,7 @@ class BranchIntentKind(str, Enum):
 说明：
 
 - 当前 `COMPOSITE` 只应作为 parent 分类信号，不应作为分解后的 branch 类型。
-- `FUTURE_JOB` 为 Runtime Job Queue / Deep Research 等后续能力预留。
+- `FUTURE_JOB` 只是现有 route placeholder，不代表已经存在对应队列或版本计划。
 
 ### 5.2 SubIntent
 
@@ -248,15 +248,7 @@ TODO:
 - 需要协作的分支是否转为 Alice execution plan。
 - Alice 是否需要知道 branch dependency。
 
-### 8.3 Runtime Job Queue
-
-TODO:
-
-- `FUTURE_JOB` 分支如何转换为 task spec。
-- 任务创建是否需要用户确认。
-- job result 如何回流 memory。
-
-### 8.4 Frontend
+### 8.3 Frontend
 
 TODO:
 
@@ -298,7 +290,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 - 查询 + 写入。
 - 查询 + 系统指令。
 - 修改/更新历史上下文。
-- 需要规划或未来 job 的复杂请求。
+- 需要规划或长期后台执行的复杂请求。
 - 低置信度需要澄清的请求。
 
 评价指标 TODO：
@@ -337,7 +329,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 
 1. 设计 `CompositeGatewayDecision` 或等价 envelope。
 2. 明确 `parent_state`、`branches`、`merge_policy`、`fallback_policy`。
-3. 定义 Patchouli、Alice、Runtime Job Queue 的消费边界。
+3. 定义 Patchouli 与 Alice 的消费边界；`FUTURE_JOB` 保持 unsupported fallback。
 4. 定义多分支排序、依赖、失败、用户确认和展示策略。
 
 验收：
