@@ -283,6 +283,45 @@ class TestMemoryGenerationCoordinator:
         )
 
     @pytest.mark.asyncio
+    async def test_submit_active_isolates_unexpected_spec_build_failure(self):
+        memory_id = uuid4()
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_GET:
+                raise RuntimeError("memory store unavailable")
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                return [_task_handle(source=MemoryGenerationSource.WRITE)]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active(
+            [
+                _write_task("draft_write"),
+                _update_task(str(memory_id), "draft_update"),
+            ],
+            "t1",
+        )
+
+        assert len(result) == 1
+        specs = bus.request.await_args_list[-1].args[1]
+        assert [spec.pending_alias for spec in specs] == ["draft_write"]
+        bus.publish.assert_awaited_once_with(
+            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+            pending_alias="draft_update",
+        )
+
+    @pytest.mark.asyncio
     async def test_submit_active_invalid_update_uuid_marks_pending_failed(self):
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]

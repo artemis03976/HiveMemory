@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, List
 from uuid import UUID
 
 from hivememory.core.models import LogicalBlock
@@ -69,9 +68,9 @@ class MemoryGenerationCoordinator:
 
     async def submit_active(
         self,
-        tasks: List[PendingAtomMaterializeTask],
+        tasks: list[PendingAtomMaterializeTask],
         topic_id: str,
-    ) -> List[MemoryGenerationTask]:
+    ) -> list[MemoryGenerationTask]:
         """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。"""
         if not tasks:
             return []
@@ -136,6 +135,13 @@ class MemoryGenerationCoordinator:
             )
             await self._publish_pending_atom_failed(task.pending_alias)
             return None
+        except Exception:
+            logger.exception(
+                "Active spec build failed unexpectedly, skipping task: pending_alias=%s",
+                task.pending_alias,
+            )
+            await self._publish_pending_atom_failed(task.pending_alias)
+            return None
 
     async def _build_active_spec(
         self,
@@ -197,7 +203,7 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         topic_title: str,
         topic_summary: str,
-        blocks: List["LogicalBlock"],
+        blocks: list[LogicalBlock],
     ) -> InteractionArtifactInput | None:
         """将原始交互数据冻结为生成数据平面的交互输入。"""
         if not blocks:

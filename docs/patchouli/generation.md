@@ -140,10 +140,13 @@ Patchouli finalize 当前顺序为：
 ```text
 AgentRunResult
   -> build InteractionPayload
-  -> ingest current turn into Perception
-  -> submit WRITE/UPDATE materialize tasks
-  -> record prepared retrieval HITs
+  -> wait until current turn is applied to Perception
+  -> lock Chat completed
+  -> independently submit WRITE/UPDATE materialize tasks
+  -> best-effort record prepared retrieval HITs
 ```
+
+Interaction applied 是 Chat 的硬成功边界。之后 materialization admission 或执行失败由 `MemoryGenerationTask` 与 PendingAtom failed 独立表达，retrieval HIT 失败只记录 warning；两者都不能反向把 Chat 改写为 failed。Active continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不会中止已经接管的 post-apply 义务。
 
 主动生成因此可以从 topic 最近 blocks 中看到当前轮，而不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。当前交互仍留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档是不同意图，不能通过清空 buffer 相互替代。
 

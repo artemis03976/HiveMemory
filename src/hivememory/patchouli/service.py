@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from hivememory.core.models import ActionReducer, Identity, MemoryAtom, TraceReducer
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
@@ -21,10 +23,12 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
+    InteractionSubmissionReceipt,
 )
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -41,13 +45,11 @@ logger = logging.getLogger(__name__)
 ActiveFinalizationStage = Literal[
     "interaction_admission",
     "interaction_apply",
-    "materialization_dispatch",
-    "retrieval_hit_record",
 ]
 
 
 class ActiveInteractionFinalizationError(RuntimeError):
-    """Active interaction 已生成，但 finalize 未完成指定阶段。"""
+    """Active interaction 未能跨过 admission/apply 硬成功边界。"""
 
     def __init__(
         self,
@@ -82,6 +84,12 @@ class PatchouliService:
         self._interaction_queue = interaction_queue
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
+        self._active_finalizations: dict[
+            str,
+            asyncio.Task[list[MemoryGenerationTask]],
+        ] = {}
+        self._detached_finalizations: set[str] = set()
+        self._retrieval_hit_tasks: set[asyncio.Task[None]] = set()
 
     async def prepare_agent_run(
         self,
@@ -162,10 +170,7 @@ class PatchouliService:
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
                 pool_topics=pool_topics,
-                memory_refs=[
-                    _memory_ref_from_atom(memory)
-                    for memory in retrieval_result.memories
-                ],
+                memory_refs=[_memory_ref_from_atom(memory) for memory in retrieval_result.memories],
             )
 
             return PreparedAgentRun(
@@ -185,7 +190,7 @@ class PatchouliService:
         prepared_run: PreparedAgentRun,
         loop_result: AgentRunResult,
     ) -> list[MemoryGenerationTask]:
-        """提交交互、触发主动记忆生成并记录检索命中。"""
+        """提交 interaction，并把 post-apply 工作交给 Patchouli 持有。"""
 
         agent_context = prepared_run.agent_run_context
         decision = prepared_run.gateway_decision
@@ -203,40 +208,59 @@ class PatchouliService:
             model_used=loop_result.model_used,
         )
 
-        await self._submit_active_interaction(prepared_run, payload)
-
-        # 触发主动记忆生成副作用
-        memory_tasks: list[MemoryGenerationTask] = []
-        if loop_result.materialize_tasks:
-            try:
-                memory_tasks = await self._local_bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-                    loop_result.materialize_tasks,
-                    topic_id=agent_context.topic_id,
+        continuation = self._active_finalizations.get(prepared_run.interaction_id)
+        if continuation is None:
+            continuation = asyncio.create_task(
+                self._continue_active_finalization(prepared_run, payload),
+                name=f"active_finalize_{prepared_run.interaction_id[:8]}",
+            )
+            self._active_finalizations[prepared_run.interaction_id] = continuation
+            continuation.add_done_callback(
+                lambda completed, interaction_id=prepared_run.interaction_id: (
+                    self._active_finalization_done(interaction_id, completed)
                 )
-            except Exception as error:
-                raise ActiveInteractionFinalizationError(
-                    interaction_id=prepared_run.interaction_id,
-                    stage="materialization_dispatch",
-                    reason=type(error).__name__,
-                ) from error
+            )
 
-        # 记录检索命中事件
+        # 调用方取消只中断当前等待；continuation 继续完成已接管的业务义务。
         try:
-            await self._record_retrieval_hits(prepared_run)
-        except Exception as error:
-            raise ActiveInteractionFinalizationError(
-                interaction_id=prepared_run.interaction_id,
-                stage="retrieval_hit_record",
-                reason=type(error).__name__,
-            ) from error
-        return memory_tasks
+            return await asyncio.shield(continuation)
+        except asyncio.CancelledError:
+            if not continuation.done():
+                self._detached_finalizations.add(prepared_run.interaction_id)
+            raise
 
-    async def _submit_active_interaction(
+    async def _continue_active_finalization(
         self,
         prepared_run: PreparedAgentRun,
         payload: InteractionPayload,
-    ) -> None:
+    ) -> list[MemoryGenerationTask]:
+        try:
+            receipt = await self._admit_active_interaction(prepared_run, payload)
+            await self._wait_active_interaction(prepared_run, receipt)
+        except ActiveInteractionFinalizationError as error:
+            if (
+                prepared_run.stream_prelude.is_new_topic
+                and (
+                    error.stage == "interaction_apply"
+                    or prepared_run.interaction_id in self._detached_finalizations
+                )
+            ):
+                await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
+            raise
+
+        # Interaction applied 后 Chat 的业务终态已经锁定。后续工作各自结算，
+        # 不得再把 Chat 改写为 failed。
+        self._schedule_retrieval_hit_record(prepared_run)
+        return await self._dispatch_materialization(
+            prepared_run,
+            list(payload.materialize_tasks),
+        )
+
+    async def _admit_active_interaction(
+        self,
+        prepared_run: PreparedAgentRun,
+        payload: InteractionPayload,
+    ) -> InteractionSubmissionReceipt:
         topic_id = prepared_run.topic_id
         correlation = {
             "topic_id": topic_id,
@@ -275,6 +299,15 @@ class PatchouliService:
                 reason=type(error).__name__,
             ) from error
 
+        return receipt
+
+    async def _wait_active_interaction(
+        self,
+        prepared_run: PreparedAgentRun,
+        receipt: InteractionSubmissionReceipt,
+    ) -> None:
+        topic_id = prepared_run.topic_id
+
         outcome = await self._interaction_queue.wait(receipt)
         if outcome is None:
             raise ActiveInteractionFinalizationError(
@@ -286,8 +319,7 @@ class PatchouliService:
             reason = (
                 "queue_stopped"
                 if self._interaction_queue.stopped
-                and outcome.state
-                in {WorkState.QUEUED, WorkState.RUNNING, WorkState.RETRY_WAIT}
+                and outcome.state in {WorkState.QUEUED, WorkState.RUNNING, WorkState.RETRY_WAIT}
                 else f"work_{outcome.state.value}"
             )
             raise ActiveInteractionFinalizationError(
@@ -304,6 +336,123 @@ class PatchouliService:
                 reason="topic_mismatch",
                 work_state=outcome.state,
             )
+
+    async def _dispatch_materialization(
+        self,
+        prepared_run: PreparedAgentRun,
+        tasks: list[PendingAtomMaterializeTask],
+    ) -> list[MemoryGenerationTask]:
+        if not tasks:
+            return []
+
+        try:
+            return await self._local_bus.request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
+                tasks,
+                topic_id=prepared_run.topic_id,
+            )
+        except Exception as error:
+            logger.warning(
+                "Active materialization dispatch failed after interaction apply: "
+                "interaction_id=%s, error=%s",
+                prepared_run.interaction_id,
+                type(error).__name__,
+                exc_info=True,
+            )
+            await self._mark_materialization_failed(tasks)
+            return []
+
+    async def _mark_materialization_failed(
+        self,
+        tasks: list[PendingAtomMaterializeTask],
+    ) -> None:
+        seen: set[str] = set()
+        for task in tasks:
+            if task.pending_alias in seen:
+                continue
+            seen.add(task.pending_alias)
+            try:
+                await self._local_bus.publish(
+                    PatchouliLocalEvents.PENDING_ATOM_FAILED,
+                    pending_alias=task.pending_alias,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to settle PendingAtom after materialization dispatch failure: "
+                    "pending_alias=%s",
+                    task.pending_alias,
+                    exc_info=True,
+                )
+
+    def _schedule_retrieval_hit_record(
+        self,
+        prepared_run: PreparedAgentRun,
+    ) -> None:
+        if not prepared_run.agent_run_context.retrieval_result.memories:
+            return
+        task = asyncio.create_task(
+            self._record_retrieval_hits(prepared_run),
+            name=f"retrieval_hits_{prepared_run.interaction_id[:8]}",
+        )
+        self._retrieval_hit_tasks.add(task)
+        task.add_done_callback(self._retrieval_hit_task_done)
+
+    def _active_finalization_done(
+        self,
+        interaction_id: str,
+        task: asyncio.Task[list[MemoryGenerationTask]],
+    ) -> None:
+        if self._active_finalizations.get(interaction_id) is task:
+            self._active_finalizations.pop(interaction_id, None)
+        self._detached_finalizations.discard(interaction_id)
+        if task.cancelled():
+            logger.warning("Active finalization continuation cancelled: %s", interaction_id)
+            return
+        error = task.exception()
+        if error is not None:
+            logger.warning(
+                "Active finalization continuation failed: interaction_id=%s, error=%s",
+                interaction_id,
+                type(error).__name__,
+            )
+
+    def _retrieval_hit_task_done(self, task: asyncio.Task[None]) -> None:
+        self._retrieval_hit_tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.warning(
+                "Retrieval HIT background task failed",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    async def drain_active_finalizations(
+        self,
+        *,
+        retrieval_hit_timeout: float = 1.0,
+    ) -> None:
+        """关闭前等待可靠 continuation，并给 best-effort HIT 一个短收尾窗口。"""
+
+        while True:
+            finalizations = [
+                task for task in self._active_finalizations.values() if not task.done()
+            ]
+            if not finalizations:
+                break
+            await asyncio.gather(
+                *(asyncio.shield(task) for task in finalizations),
+                return_exceptions=True,
+            )
+
+        hit_tasks = {task for task in self._retrieval_hit_tasks if not task.done()}
+        if not hit_tasks:
+            return
+        _, pending = await asyncio.wait(hit_tasks, timeout=retrieval_hit_timeout)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     async def submit_interaction(
         self,
@@ -339,6 +488,13 @@ class PatchouliService:
         """清理已 prepare 但未 finalize 的预创建空话题。"""
 
         if not prepared_run.stream_prelude.is_new_topic:
+            return False
+        continuation = self._active_finalizations.get(prepared_run.interaction_id)
+        if continuation is not None and not continuation.done():
+            logger.info(
+                "active finalization continuation 已接管，跳过 prepared topic 清理: %s",
+                prepared_run.interaction_id,
+            )
             return False
         if await self._interaction_queue.is_accepted(prepared_run.interaction_id):
             logger.info(
@@ -386,11 +542,18 @@ class PatchouliService:
             if memory_key in seen:
                 continue
             seen.add(memory_key)
-            await self._local_bus.request(
-                PatchouliLocalRoutes.MEMORY_RECORD_HIT,
-                memory_id,
-                source="retrieval.finalize",
-            )
+            try:
+                await self._local_bus.request(
+                    PatchouliLocalRoutes.MEMORY_RECORD_HIT,
+                    memory_id,
+                    source="retrieval.finalize",
+                )
+            except Exception:
+                logger.warning(
+                    "记录检索命中失败: memory_id=%s",
+                    memory_id,
+                    exc_info=True,
+                )
 
     async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
         try:
@@ -414,9 +577,7 @@ def _memory_ref_from_atom(memory: MemoryAtom) -> dict[str, Any]:
         "id": str(memory.id),
         "title": memory.index.title,
         "summary": memory.index.summary,
-        "memory_type": (
-            memory_type.value if hasattr(memory_type, "value") else str(memory_type)
-        ),
+        "memory_type": (memory_type.value if hasattr(memory_type, "value") else str(memory_type)),
         "tags": list(memory.index.tags),
         "alias": memory.index.alias,
         "content": memory.payload.content,

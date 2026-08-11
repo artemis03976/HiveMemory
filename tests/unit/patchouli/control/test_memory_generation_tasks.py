@@ -64,11 +64,7 @@ def _memory_task_statuses(bus):
 
 
 def _runtime_event_types_for_task(recorder, memory_task):
-    return [
-        event.event_type
-        for event in recorder.events
-        if event.task_id == memory_task.task_id
-    ]
+    return [event.event_type for event in recorder.events if event.task_id == memory_task.task_id]
 
 
 def _assert_runtime_event_task_payload(event, memory_task):
@@ -85,6 +81,26 @@ def _assert_runtime_event_task_payload(event, memory_task):
 
 
 class TestMemoryGenerationTaskController:
+    @pytest.mark.asyncio
+    async def test_submit_generation_many_isolates_one_admission_failure(self):
+        controller = MemoryGenerationTaskController(bus=Mock())
+        first = _task_handle(task_id="first")
+        third = _task_handle(task_id="third")
+        controller.submit_generation = AsyncMock(
+            side_effect=[first, RuntimeError("queue full"), third]
+        )
+
+        result = await controller.submit_generation_many(
+            [
+                _spec(label="first"),
+                _spec(label="failed"),
+                _spec(label="third"),
+            ]
+        )
+
+        assert result == [first, third]
+        assert controller.submit_generation.await_count == 3
+
     @pytest.mark.asyncio
     async def test_submit_generation_returns_before_background_generation_completes(self):
         blocker = asyncio.Event()
@@ -259,19 +275,18 @@ class TestMemoryGenerationTaskController:
         memory_task = await controller.submit_generation(_spec())
         await asyncio.wait_for(started.wait(), timeout=1)
 
-        assert await controller.cancel_many(
-            [memory_task.task_id],
-            reason="shutdown_timeout",
-        ) == 1
+        assert (
+            await controller.cancel_many(
+                [memory_task.task_id],
+                reason="shutdown_timeout",
+            )
+            == 1
+        )
         await asyncio.wait_for(released.wait(), timeout=1)
         with pytest.raises(asyncio.CancelledError):
             await memory_task._bg_task
 
-        task_events = [
-            event
-            for event in recorder.events
-            if event.task_id == memory_task.task_id
-        ]
+        task_events = [event for event in recorder.events if event.task_id == memory_task.task_id]
         assert task_events[-2].event_type == RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED
         assert task_events[-2].reason == "shutdown_timeout"
         assert task_events[-2].data["reason"] == "shutdown_timeout"

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -51,7 +51,7 @@ class MemoryGenerationTaskController:
         self,
         *,
         bus: Any,
-        task_registry: Optional[MemoryGenerationTaskRegistry] = None,
+        task_registry: MemoryGenerationTaskRegistry | None = None,
         runtime_events: RuntimeEventSink | None = None,
         memory_queue: MemoryGenerationQueue | None = None,
         queue_policy: QueuePolicy | None = None,
@@ -93,12 +93,21 @@ class MemoryGenerationTaskController:
 
     async def submit_generation_many(
         self,
-        specs: List[MemoryGenerationTaskSpec],
-    ) -> List[MemoryGenerationTask]:
-        """提交多个规范化生成任务。"""
-        memory_tasks: List[MemoryGenerationTask] = []
+        specs: list[MemoryGenerationTaskSpec],
+    ) -> list[MemoryGenerationTask]:
+        """逐项提交生成任务；单项失败不得阻断同批次其他任务。"""
+        memory_tasks: list[MemoryGenerationTask] = []
         for spec in specs:
-            memory_tasks.append(await self.submit_generation(spec))
+            try:
+                memory_tasks.append(await self.submit_generation(spec))
+            except Exception:
+                # submit_generation 已把对应领域任务结算为 failed 并发布
+                # PendingAtom failure；批入口只负责继续处理剩余 spec。
+                logger.warning(
+                    "Memory generation task admission failed: label=%s",
+                    spec.label,
+                    exc_info=True,
+                )
         return memory_tasks
 
     async def _create_and_run_task(
@@ -147,7 +156,7 @@ class MemoryGenerationTaskController:
     async def _execute_generation(
         self,
         spec: MemoryGenerationTaskSpec,
-    ) -> List[MemoryGenerationResult]:
+    ) -> list[MemoryGenerationResult]:
         """由 queue handler 调用现有生成数据面。"""
         return await self._bus.request(
             PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
@@ -248,8 +257,8 @@ class MemoryGenerationTaskController:
     def _backfill_memory_task_result(
         self,
         memory_task: MemoryGenerationTask,
-        results: List[MemoryGenerationResult],
-        pending_alias: Optional[str] = None,
+        results: list[MemoryGenerationResult],
+        pending_alias: str | None = None,
     ) -> None:
         """从生成结果中选择 canonical_alias 并写回运行时任务句柄。"""
         canonical_alias = self._select_canonical_alias(
@@ -261,9 +270,9 @@ class MemoryGenerationTaskController:
 
     def _select_canonical_alias(
         self,
-        results: List[MemoryGenerationResult],
-        pending_alias: Optional[str] = None,
-    ) -> Optional[str]:
+        results: list[MemoryGenerationResult],
+        pending_alias: str | None = None,
+    ) -> str | None:
         """选择任务展示用 canonical_alias。"""
         candidates = results
         if pending_alias:
@@ -294,7 +303,7 @@ class MemoryGenerationTaskController:
 
     async def _publish_settlements(
         self,
-        results: List[MemoryGenerationResult],
+        results: list[MemoryGenerationResult],
     ) -> None:
         """发布主动链路的 PendingAtom settlement 事件。"""
         for result in results:
@@ -307,12 +316,9 @@ class MemoryGenerationTaskController:
                 )
             except Exception as pub_err:
                 logger.warning(
-                    f"Settlement publish failed for "
-                    f"{result.settlement.pending_alias}: {pub_err}"
+                    f"Settlement publish failed for {result.settlement.pending_alias}: {pub_err}"
                 )
-                await self._publish_pending_atom_failed(
-                    result.settlement.pending_alias
-                )
+                await self._publish_pending_atom_failed(result.settlement.pending_alias)
 
     async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
         """发布主动链路 PendingAtom 取消事件。"""
@@ -373,7 +379,7 @@ class MemoryGenerationTaskController:
             return
         memory_task.status = MemoryGenerationTaskStatus.RUNNING
         if memory_task.started_at is None:
-            memory_task.started_at = started_at or datetime.now(timezone.utc)
+            memory_task.started_at = started_at or datetime.now(UTC)
         await self._publish_memory_task_status(memory_task)
 
     async def _finish_task(
@@ -403,7 +409,7 @@ class MemoryGenerationTaskController:
         if error is not None:
             memory_task.error = error
         if memory_task.finished_at is None:
-            memory_task.finished_at = datetime.now(timezone.utc)
+            memory_task.finished_at = datetime.now(UTC)
 
         try:
             # failed/cancelled 由任务终态发布；completed settlement 已由结果发布。
@@ -436,11 +442,11 @@ class MemoryGenerationTaskController:
         except Exception:
             logger.warning(warning, exc_info=True)
 
-    def get_task(self, task_id: str) -> Optional[MemoryGenerationTask]:
+    def get_task(self, task_id: str) -> MemoryGenerationTask | None:
         """按 task_id 查询运行时任务。"""
         return self._task_registry.get(task_id)
 
-    def list_tasks(self) -> List[MemoryGenerationTask]:
+    def list_tasks(self) -> list[MemoryGenerationTask]:
         """列出当前 registry 中仍保留的任务。"""
         return self._task_registry.list_all()
 
@@ -474,11 +480,7 @@ class MemoryGenerationTaskController:
 
         projection_task = memory_task._bg_task
         if projection_task is not None and not projection_task.done():
-            remaining = (
-                None
-                if deadline is None
-                else max(0.0, deadline - loop.time())
-            )
+            remaining = None if deadline is None else max(0.0, deadline - loop.time())
             try:
                 if remaining is None:
                     await asyncio.shield(projection_task)
@@ -500,7 +502,7 @@ class MemoryGenerationTaskController:
 
     async def wait_many(
         self,
-        task_ids: List[str],
+        task_ids: list[str],
         timeout: float | None = None,
     ) -> MemoryGenerationTaskWaitSummary:
         """等待一批指定后台记忆生成任务完成。"""
@@ -516,7 +518,7 @@ class MemoryGenerationTaskController:
         ]
         done, pending = await asyncio.wait(waiters, timeout=timeout)
 
-        results: List[MemoryGenerationTaskWaitResult] = []
+        results: list[MemoryGenerationTaskWaitResult] = []
         for task_id, waiter in zip(task_ids, waiters):
             if waiter in done:
                 results.append(waiter.result())
@@ -524,9 +526,7 @@ class MemoryGenerationTaskController:
                 waiter.cancel()
                 memory_task = self._task_registry.get(task_id)
                 if memory_task is None:
-                    results.append(
-                        MemoryGenerationTaskWaitResult.not_found(task_id)
-                    )
+                    results.append(MemoryGenerationTaskWaitResult.not_found(task_id))
                 else:
                     results.append(
                         MemoryGenerationTaskWaitResult.from_task(
@@ -585,7 +585,7 @@ class MemoryGenerationTaskController:
 
     async def cancel_many(
         self,
-        task_ids: List[str],
+        task_ids: list[str],
         *,
         reason: str = "user_requested",
     ) -> int:

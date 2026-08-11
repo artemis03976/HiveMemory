@@ -195,15 +195,17 @@ class PatchouliSystem(SubsystemProtocol):
         await self.runtime.start_memory_generation_queue()
 
         if self._scheduler and not self._maintenance_registered:
-            self._maintenance_registered = self.register_maintenance_tasks(
-                self._scheduler
-            )
+            self._maintenance_registered = self.register_maintenance_tasks(self._scheduler)
 
     async def stop(self) -> None:
         if self._scheduler and self._maintenance_registered:
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
 
+        # interaction work 不可取消；先等待所有已接纳 work 和 Active continuation
+        # 完成，再进入 perception flush，避免 handler 晚于 shutdown settlement 写入。
+        await self._interaction_submission_queue.drain_all(timeout=None)
+        await self.service.drain_active_finalizations()
         await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
         await self.runtime.stop_memory_generation_queue()
@@ -218,6 +220,7 @@ class PatchouliSystem(SubsystemProtocol):
             "status": "ok" if models_ready else "warming_up",
             "models_ready": models_ready,
         }
+
 
 __all__ = [
     "PatchouliSystem",

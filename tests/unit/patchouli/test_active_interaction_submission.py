@@ -30,6 +30,7 @@ from hivememory.core.protocol.models import (
     InteractionPayload,
     RetrievalResponse,
 )
+from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
@@ -148,9 +149,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
 
     try:
         await queue.start()
-        finalize_task = asyncio.create_task(
-            service.finalize_agent_run(prepared, loop_result)
-        )
+        finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, loop_result))
         await asyncio.wait_for(apply_started.wait(), timeout=1)
         assert calls == ["apply_started"]
 
@@ -183,9 +182,11 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     apply = AsyncMock(side_effect=ConnectionError("temporary"))
     materialize = AsyncMock()
     record_hit = AsyncMock()
+    discard = AsyncMock(return_value=True)
     bus = PatchouliBus()
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, materialize)
     bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
+    bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
     queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
     service = PatchouliService(bus, interaction_queue=queue)
 
@@ -193,7 +194,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
         await queue.start()
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
             await service.finalize_agent_run(
-                _prepared(memories=[_memory()]),
+                _prepared(is_new=True, memories=[_memory()]),
                 AgentRunResult(
                     final_text="answer",
                     materialize_tasks=[_write_task()],
@@ -207,6 +208,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     assert exc_info.value.error_class == "ConnectionError"
     materialize.assert_not_awaited()
     record_hit.assert_not_awaited()
+    discard.assert_awaited_once_with("topic-1")
 
 
 @pytest.mark.asyncio
@@ -293,16 +295,26 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         return target_topic_id
 
     discard = AsyncMock(return_value=True)
+    materialize = AsyncMock(return_value=[])
+    record_hit = AsyncMock()
     bus = PatchouliBus()
     bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
+    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, materialize)
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
     queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
     service = PatchouliService(bus, interaction_queue=queue)
-    prepared = _prepared(is_new=True)
+    prepared = _prepared(is_new=True, memories=[_memory()])
 
     try:
         await queue.start()
         finalize_task = asyncio.create_task(
-            service.finalize_agent_run(prepared, AgentRunResult(final_text="answer"))
+            service.finalize_agent_run(
+                prepared,
+                AgentRunResult(
+                    final_text="answer",
+                    materialize_tasks=[_write_task()],
+                ),
+            )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
         finalize_task.cancel()
@@ -313,16 +325,60 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         discard.assert_not_awaited()
 
         release_apply.set()
+        await service.drain_active_finalizations()
         outcome = await queue.wait(prepared.interaction_id, timeout=1)
         assert outcome is not None
         assert outcome.state == WorkState.SUCCEEDED
+        materialize.assert_awaited_once()
+        record_hit.assert_awaited_once()
     finally:
         release_apply.set()
         await queue.stop()
 
 
 @pytest.mark.asyncio
-async def test_post_apply_failure_exposes_materialization_stage() -> None:
+async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
+    apply_started = asyncio.Event()
+    release_apply = asyncio.Event()
+
+    async def apply(payload, *, target_topic_id, interaction_id):
+        apply_started.set()
+        await release_apply.wait()
+        raise ConnectionError("interaction store unavailable")
+
+    discard = AsyncMock(return_value=True)
+    bus = PatchouliBus()
+    bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
+    queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
+    service = PatchouliService(bus, interaction_queue=queue)
+    prepared = _prepared(is_new=True)
+
+    try:
+        await queue.start()
+        finalize_task = asyncio.create_task(
+            service.finalize_agent_run(
+                prepared,
+                AgentRunResult(final_text="answer"),
+            )
+        )
+        await asyncio.wait_for(apply_started.wait(), timeout=1)
+        finalize_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await finalize_task
+
+        assert await service.cleanup_prepared_agent_run(prepared) is False
+
+        release_apply.set()
+        await service.drain_active_finalizations()
+    finally:
+        release_apply.set()
+        await queue.stop()
+
+    discard.assert_awaited_once_with(prepared.topic_id)
+
+
+@pytest.mark.asyncio
+async def test_post_apply_materialization_failure_isolated_from_chat() -> None:
     queue = InteractionSubmissionQueue(
         AsyncMock(return_value="topic-1"),
         policy=_queue_policy(),
@@ -332,50 +388,85 @@ async def test_post_apply_failure_exposes_materialization_stage() -> None:
         PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
         AsyncMock(side_effect=RuntimeError("generation unavailable")),
     )
+    failed_aliases: list[str] = []
+
+    async def capture_failure(*, pending_alias: str) -> None:
+        failed_aliases.append(pending_alias)
+
+    bus.subscribe(PatchouliLocalEvents.PENDING_ATOM_FAILED, capture_failure)
     service = PatchouliService(bus, interaction_queue=queue)
 
     try:
         await queue.start()
-        with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
-            await service.finalize_agent_run(
-                _prepared(),
-                AgentRunResult(
-                    final_text="answer",
-                    materialize_tasks=[_write_task()],
-                ),
-            )
+        result = await service.finalize_agent_run(
+            _prepared(),
+            AgentRunResult(
+                final_text="answer",
+                materialize_tasks=[_write_task()],
+            ),
+        )
     finally:
         await queue.stop()
 
-    assert exc_info.value.stage == "materialization_dispatch"
-    assert exc_info.value.reason == "RuntimeError"
+    assert result == []
+    assert failed_aliases == ["draft_active"]
 
 
 @pytest.mark.asyncio
-async def test_post_apply_failure_exposes_retrieval_hit_stage() -> None:
+async def test_pending_atom_failure_publish_does_not_reopen_chat_outcome() -> None:
     queue = InteractionSubmissionQueue(
         AsyncMock(return_value="topic-1"),
         policy=_queue_policy(),
     )
     bus = PatchouliBus()
     bus.register(
-        PatchouliLocalRoutes.MEMORY_RECORD_HIT,
-        AsyncMock(side_effect=ConnectionError("hit store unavailable")),
+        PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
+        AsyncMock(side_effect=RuntimeError("generation unavailable")),
+    )
+    bus.subscribe(
+        PatchouliLocalEvents.PENDING_ATOM_FAILED,
+        AsyncMock(side_effect=ConnectionError("event subscriber unavailable")),
     )
     service = PatchouliService(bus, interaction_queue=queue)
 
     try:
         await queue.start()
-        with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
-            await service.finalize_agent_run(
-                _prepared(memories=[_memory()]),
-                AgentRunResult(final_text="answer"),
-            )
+        result = await service.finalize_agent_run(
+            _prepared(),
+            AgentRunResult(
+                final_text="answer",
+                materialize_tasks=[_write_task()],
+            ),
+        )
     finally:
         await queue.stop()
 
-    assert exc_info.value.stage == "retrieval_hit_record"
-    assert exc_info.value.reason == "ConnectionError"
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
+    queue = InteractionSubmissionQueue(
+        AsyncMock(return_value="topic-1"),
+        policy=_queue_policy(),
+    )
+    bus = PatchouliBus()
+    record_hit = AsyncMock(side_effect=ConnectionError("hit store unavailable"))
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit)
+    service = PatchouliService(bus, interaction_queue=queue)
+
+    try:
+        await queue.start()
+        result = await service.finalize_agent_run(
+            _prepared(memories=[_memory()]),
+            AgentRunResult(final_text="answer"),
+        )
+        await service.drain_active_finalizations()
+    finally:
+        await queue.stop()
+
+    assert result == []
+    record_hit.assert_awaited_once()
 
 
 def test_default_interaction_policy_has_finite_attempt_timeout() -> None:
