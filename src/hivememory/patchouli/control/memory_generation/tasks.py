@@ -423,8 +423,8 @@ class MemoryGenerationTaskController:
             entry = self._entries.pop(task_id)
             if entry.handle is not None:
                 self._queue.release(entry.handle)
-    
-        async def _publish_running_if_needed(
+
+    async def _publish_running_if_needed(
         self,
         entry: _MemoryTaskEntry,
         outcome: TaskOutcome[MemoryGenerationResults],
@@ -433,6 +433,7 @@ class MemoryGenerationTaskController:
 
         if entry.running_published or outcome.record.started_at is None:
             return
+
         entry.running_published = True
         running = MemoryGenerationTask.from_outcome(
             entry.created,
@@ -440,7 +441,6 @@ class MemoryGenerationTaskController:
             expose_terminal=False,
         )
         self._task_events.running(running)
-        await self._publish_memory_task_item_status(running)
 
     async def _publish_terminal(
         self,
@@ -461,13 +461,10 @@ class MemoryGenerationTaskController:
                     self._publish_pending_atom_failed(pending_alias),
                     f"pending atom failed publish failed: {pending_alias}",
                 )
+
         self._task_events.terminal(
             snapshot,
             reason=snapshot.cancel_reason,
-        )
-        await self._publish_best_effort(
-            self._publish_memory_task_item_status(snapshot),
-            f"memory task terminal publish failed: {snapshot.task_id}",
         )
 
     async def _publish_settlements(
@@ -515,23 +512,6 @@ class MemoryGenerationTaskController:
             )
         except Exception as error:
             logger.warning("FAILED event publish error: %s", error)
-
-    async def _publish_memory_task_item_status(
-        self,
-        snapshot: MemoryGenerationTask,
-    ) -> None:
-        """向 Patchouli 本地功能总线发布任务状态快照。"""
-
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,
-                task_id=snapshot.task_id,
-                pending_alias=snapshot.pending_alias,
-                status=snapshot.status.value,
-                canonical_alias=snapshot.canonical_alias,
-            )
-        except Exception as error:
-            logger.warning("MEMORY_TASK_ITEM_STATUS publish error: %s", error)
 
     async def _publish_best_effort(self, awaitable, warning: str) -> None:
         """执行可观测副作用；失败只记录日志，不改变任务终态。"""

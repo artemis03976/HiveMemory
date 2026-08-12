@@ -55,14 +55,6 @@ def _spec(
     )
 
 
-def _memory_task_statuses(bus):
-    return [
-        call.kwargs["status"]
-        for call in bus.publish.await_args_list
-        if call.args and call.args[0] == PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS
-    ]
-
-
 def _runtime_event_types_for_task(recorder, memory_task):
     return [event.event_type for event in recorder.events if event.task_id == memory_task.task_id]
 
@@ -126,7 +118,7 @@ class TestMemoryGenerationTaskController:
         await waiter
 
     @pytest.mark.asyncio
-    async def test_completed_task_publishes_terminal_status(self):
+    async def test_completed_task_does_not_publish_local_status_event(self):
         bus = Mock()
         bus.request = AsyncMock(return_value=[])
         bus.publish = AsyncMock()
@@ -137,7 +129,7 @@ class TestMemoryGenerationTaskController:
         completed = await controller.get_task(memory_task.task_id)
 
         assert completed.status == MemoryGenerationTaskStatus.COMPLETED
-        assert _memory_task_statuses(bus) == ["running", "completed"]
+        bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_failed_task_marked_failed(self):
@@ -152,7 +144,6 @@ class TestMemoryGenerationTaskController:
 
         assert failed.status == MemoryGenerationTaskStatus.FAILED
         assert "generation error" in failed.error
-        assert _memory_task_statuses(bus) == ["running", "failed"]
 
     @pytest.mark.asyncio
     async def test_active_success_publishes_settlement_and_runtime_events(self):
@@ -225,7 +216,6 @@ class TestMemoryGenerationTaskController:
         await asyncio.wait_for(released.wait(), timeout=1)
         result = await controller.wait_task(memory_task.task_id)
         assert result.status == MemoryGenerationTaskStatus.CANCELLED
-        assert _memory_task_statuses(bus) == ["running", "cancelled"]
 
     @pytest.mark.asyncio
     async def test_cancel_task_before_background_coroutine_starts_marks_cancelled(self):
@@ -248,7 +238,6 @@ class TestMemoryGenerationTaskController:
         assert cancelled.status == MemoryGenerationTaskStatus.CANCELLED
         assert cancelled.finished_at is not None
         assert bus.request.await_count == 0
-        assert _memory_task_statuses(bus) == ["cancelled"]
         bus.publish.assert_any_await(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             pending_alias="draft_early_cancel",
@@ -307,10 +296,10 @@ class TestMemoryGenerationTaskController:
         second = await controller.wait_task(memory_task.task_id)
 
         assert first == second
-        assert _memory_task_statuses(bus) == ["running", "completed"]
 
     @pytest.mark.asyncio
     async def test_running_status_is_published_before_work_completes(self):
+        recorder = RecordingRuntimeEventSink()
         started = asyncio.Event()
         release = asyncio.Event()
 
@@ -320,16 +309,20 @@ class TestMemoryGenerationTaskController:
             return []
 
         bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
-        controller = MemoryGenerationTaskController(bus=bus)
+        controller = MemoryGenerationTaskController(
+            bus=bus,
+            runtime_events=recorder,
+        )
 
         memory_task = await controller.submit_generation(_spec())
         await asyncio.wait_for(started.wait(), timeout=1)
         for _ in range(10):
-            if _memory_task_statuses(bus):
+            task_event_types = _runtime_event_types_for_task(recorder, memory_task)
+            if RuntimeEventType.MEMORY_TASK_STATUS in task_event_types:
                 break
             await asyncio.sleep(0)
 
-        assert _memory_task_statuses(bus) == ["running"]
+        assert RuntimeEventType.MEMORY_TASK_STATUS in task_event_types
         assert (await controller.get_task(memory_task.task_id)).status == (
             MemoryGenerationTaskStatus.RUNNING
         )
