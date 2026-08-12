@@ -518,7 +518,7 @@ class PatchouliRuntime:
                 timeout_seconds=(
                     self._patchouli_config.generation.queue_timeout_seconds
                 ),
-                max_attempts=self._patchouli_config.generation.queue_max_attempts,
+                max_attempts=1,
                 terminal_retention=100,
             ),
         )

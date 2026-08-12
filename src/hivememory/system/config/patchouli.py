@@ -89,7 +89,6 @@ class MemoryGenerationConfig(BaseModel):
     queue_capacity: int = Field(default=128, ge=1)
     queue_max_concurrency: int = Field(default=2, ge=1)
     queue_timeout_seconds: float | None = Field(default=300.0, gt=0)
-    queue_max_attempts: int = Field(default=1, ge=1)
 
     model_config = ConfigDict(extra="ignore")
 

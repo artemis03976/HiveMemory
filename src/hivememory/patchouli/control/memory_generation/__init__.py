@@ -12,7 +12,6 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationHandler,
     MemoryGenerationQueue,
     MemoryGenerationWorkAdapter,
-    TransientMemoryGenerationError,
 )
 from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
@@ -27,5 +26,4 @@ __all__ = [
     "MemoryGenerationTaskController",
     "MemoryGenerationWorkAdapter",
     "MemoryTaskEventEmitter",
-    "TransientMemoryGenerationError",
 ]

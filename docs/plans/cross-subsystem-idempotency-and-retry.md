@@ -15,7 +15,7 @@ related_docs:
   - docs/plans/runtime-state-durability-and-recovery.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-12
 ---
 
 # 跨子系统幂等性与重试语义计划
@@ -29,8 +29,8 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | 操作 | 当前已有基础 | 当前缺口 |
 |:---|:---|:---|
 | Passive ingress | `source + external_event_id` 进程内去重，重复事件可忽略 | dedup 记录不耐久；重启后可能再次接受；submit apply 的跨进程幂等仍需定义 |
-| Interaction submission | Passive outbox 有顺序与 retry 语义 | active/passive 共享 apply 的稳定 interaction key、重复结果和模糊失败规则尚未完全统一 |
-| Memory generation | task/spec/intent/alias 有关联字段，TaskController 只写一次终态 | 重试可能重复生成/写入；task id 是运行句柄，不自动等同业务幂等键 |
+| Interaction submission | Active/Passive 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id` | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
+| Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
 | PendingAtom settlement | `intent_id` 与 alias 反查，settlement 会校验 intent | store 进程内，resolution 与重复 settlement 缺少耐久唯一约束和跨重启 replay |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
 | MemoryAtom update | version 字段和 UPDATE artifact | 版本冲突、重复 UPDATE、CREATE/UPDATE/TOUCH 重放的业务结果需要统一 |
@@ -96,7 +96,11 @@ Producer 生成 operation id 和幂等 key，Consumer 在自己的状态所有�
 
 ### 4.3 Retry 由错误类别和副作用状态共同决定
 
-瞬态网络、模型限流、存储暂时不可用可以 retry；schema/permission/identity 错误不应盲目 retry；外部副作用已经不确定时应进入 reconciliation，而不是无限重试。
+重试必须同时满足错误类别和副作用边界。Interaction Submission 只允许明确的瞬态连接/提交错误有限重试；
+Memory Generation 整条数据面不自动重试，模型、存储和 timeout 都进入单次 `FAILED`，因为它们可能已经
+产生部分副作用。schema/permission/identity 错误同样不应盲目 retry；外部副作用已经不确定时应进入
+reconciliation，而不是无限重试。LLM client 在单次 generation attempt 内的调用级 retry 是独立边界，不能
+扩大为整条业务任务 retry。
 
 ### 4.4 幂等不替代业务顺序
 

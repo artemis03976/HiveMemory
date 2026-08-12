@@ -45,10 +45,6 @@ def _require_text(value: object, *, field_name: str) -> str:
     return value
 
 
-class TransientMemoryGenerationError(RuntimeError):
-    """显式标记可安全重试的临时性记忆生成失败。"""
-
-
 class MemoryGenerationWorkAdapter:
     """``MemoryGenerationWork`` v1 的队列适配器与规范 JSON 编解码器。
 
@@ -198,12 +194,9 @@ class MemoryGenerationHandler(
         self,
         execute_generation: ExecuteGeneration,
         handles: dict[str, MemoryGenerationHandle],
-        *,
-        retry_after_seconds: float = 0.05,
     ) -> None:
         self._execute_generation = execute_generation
         self._handles = handles
-        self._retry_after_seconds = retry_after_seconds
 
     async def execute(
         self,
@@ -214,15 +207,6 @@ class MemoryGenerationHandler(
 
         handle = self._handles[context.work_id]
         handle._record_execution_started()
-        cached = handle._cached_execution_result
-        if cached is not None:
-            # handler 已完成但通用状态确认发生模糊失败时，重试复用已生成结果，
-            # 避免再次进入具有写入副作用的数据面。
-            return MemoryGenerationExecutionResult(
-                work_id=context.work_id,
-                result_count=len(cached),
-            )
-
         results = await self._execute_generation(work.spec)
         if not isinstance(results, list) or not all(
             isinstance(result, MemoryGenerationResult) for result in results
@@ -242,20 +226,11 @@ class MemoryGenerationHandler(
         error: Exception,
         context: WorkExecutionContext,
     ) -> FailureDecision:
-        """区分允许重试的临时故障与应立即失败的其他异常。"""
+        """记录失败，并禁止自动重放整条记忆生成数据面。"""
 
         handle = self._handles.get(context.work_id)
         if handle is not None:
             handle._record_execution_error(error)
-        if isinstance(
-            error,
-            (TimeoutError, ConnectionError, TransientMemoryGenerationError),
-        ):
-            return FailureDecision(
-                action=FailureAction.RETRY,
-                retry_after_seconds=self._retry_after_seconds,
-                reason="memory_generation_transient_failure",
-            )
         return FailureDecision(
             action=FailureAction.FAIL,
             reason="memory_generation_failed",
@@ -279,8 +254,10 @@ class MemoryGenerationQueue:
         store: InMemoryWorkStore | None = None,
         runtime_events: RuntimeEventSink | None = None,
         policy: QueuePolicy | None = None,
-        retry_after_seconds: float = 0.05,
     ) -> None:
+        if policy is not None and policy.max_attempts != 1:
+            raise ValueError("memory generation queue requires max_attempts=1")
+
         self._adapter = MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
@@ -288,7 +265,6 @@ class MemoryGenerationQueue:
         self._handler = MemoryGenerationHandler(
             execute_generation,
             self._handles,
-            retry_after_seconds=retry_after_seconds,
         )
         self._runtime = WorkQueueRuntime(
             store=store or InMemoryWorkStore(),
@@ -400,5 +376,4 @@ __all__ = [
     "MemoryGenerationResults",
     "MemoryGenerationWorkAdapter",
     "TaskOutcome",
-    "TransientMemoryGenerationError",
 ]

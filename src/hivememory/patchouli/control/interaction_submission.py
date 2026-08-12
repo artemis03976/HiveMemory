@@ -139,6 +139,10 @@ class InteractionSubmissionOutcome:
 SubmitInteraction = Callable[..., Awaitable[str]]
 
 
+class TransientInteractionSubmissionError(RuntimeError):
+    """显式标记可由同一 interaction identity 安全重试的瞬态失败。"""
+
+
 class InteractionSubmissionHandler(
     WorkHandlerPort[InteractionSubmission, InteractionSubmissionResult]
 ):
@@ -167,10 +171,16 @@ class InteractionSubmissionHandler(
         error: Exception,
         context: WorkExecutionContext,
     ) -> FailureDecision:
-        # 感知写入失败通常是暂时性存储/总线故障，交由 queue policy 截断重试次数。
+        """仅重试已明确分类、且可复用同一 interaction identity 的失败。"""
+
+        if isinstance(error, (ConnectionError, TransientInteractionSubmissionError)):
+            return FailureDecision(
+                action=FailureAction.RETRY,
+                retry_after_seconds=0.05,
+                reason="interaction_submission_transient_failure",
+            )
         return FailureDecision(
-            action=FailureAction.RETRY,
-            retry_after_seconds=0.05,
+            action=FailureAction.FAIL,
             reason="interaction_submission_failed",
         )
 
@@ -441,4 +451,5 @@ __all__ = [
     "InteractionSubmissionQueue",
     "InteractionSubmissionReceipt",
     "InteractionSubmissionResult",
+    "TransientInteractionSubmissionError",
 ]

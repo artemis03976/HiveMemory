@@ -22,6 +22,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
+    TransientInteractionSubmissionError,
 )
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
@@ -72,7 +73,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
         if len(attempts) == 1:
             payload.user_message = "attempt-local-mutation"
             payload.turn_events.clear()
-            raise RuntimeError("temporary failure")
+            raise TransientInteractionSubmissionError("temporary failure")
         return "topic-real"
 
     queue = InteractionSubmissionQueue(submit)
@@ -114,7 +115,7 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
         if payload.user_message == "first":
             first_attempt += 1
             if first_attempt == 1:
-                raise RuntimeError("retry first")
+                raise TransientInteractionSubmissionError("retry first")
         return f"topic:{payload.user_message}"
 
     queue = InteractionSubmissionQueue(submit)
@@ -186,7 +187,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
         nonlocal fold_calls
         fold_calls += 1
         if fold_calls == 1:
-            raise RuntimeError("caller missed apply result")
+            raise TransientInteractionSubmissionError("caller missed apply result")
         return await original_fold(topic_id)
 
     layer._maybe_fold_pages = fail_once_after_add
@@ -220,6 +221,56 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert topic.block_count == 1
     assert store.get_last_active_topic() == outcome.topic_id
     assert familiar._interaction_gates == {}
+
+
+@pytest.mark.asyncio
+async def test_unclassified_failure_is_not_retried() -> None:
+    submit = AsyncMock(side_effect=RuntimeError("invalid apply state"))
+    queue = InteractionSubmissionQueue(submit)
+
+    try:
+        await queue.start()
+        receipt = await queue.submit(_submission("interaction-failed"))
+        outcome = await queue.wait(receipt, timeout=1)
+    finally:
+        await queue.stop()
+
+    assert outcome is not None
+    assert outcome.state == WorkState.FAILED
+    assert outcome.error_class == "RuntimeError"
+    submit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handler_timeout_is_not_retried() -> None:
+    attempts = 0
+
+    async def submit(payload, *, target_topic_id, interaction_id):
+        nonlocal attempts
+        attempts += 1
+        await asyncio.Event().wait()
+
+    queue = InteractionSubmissionQueue(
+        submit,
+        policy=QueuePolicy(
+            capacity=4,
+            max_concurrency=1,
+            timeout_seconds=0.01,
+            max_attempts=3,
+        ),
+    )
+
+    try:
+        await queue.start()
+        receipt = await queue.submit(_submission("interaction-timeout"))
+        outcome = await queue.wait(receipt, timeout=1)
+    finally:
+        await queue.stop()
+
+    assert outcome is not None
+    assert outcome.state == WorkState.FAILED
+    assert outcome.error_class == "TimeoutError"
+    assert attempts == 1
 
 
 @pytest.mark.asyncio

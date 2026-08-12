@@ -15,22 +15,17 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
-    PendingAtomResolution,
-    PendingAtomSettlement,
     TurnRecord,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationWorkAdapter,
-    TransientMemoryGenerationError,
 )
 from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
-    MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
@@ -81,7 +76,6 @@ def _controller(
     *,
     max_concurrency: int = 1,
     timeout_seconds: float | None = None,
-    max_attempts: int = 2,
 ) -> MemoryGenerationTaskController:
     return MemoryGenerationTaskController(
         bus=bus,
@@ -89,7 +83,7 @@ def _controller(
             capacity=16,
             max_concurrency=max_concurrency,
             timeout_seconds=timeout_seconds,
-            max_attempts=max_attempts,
+            max_attempts=1,
             terminal_retention=16,
         ),
     )
@@ -255,65 +249,25 @@ async def test_running_cancel_interrupts_handler_and_projects_cancelled() -> Non
         await controller.stop()
 
 
-@pytest.mark.asyncio
-async def test_transient_retry_uses_fresh_spec_and_publishes_settlement_once() -> None:
-    attempts: list[MemoryGenerationTaskSpec] = []
-    settlement = PendingAtomSettlement(
-        pending_alias="draft-retry",
-        intent_id="intent-retry",
-        resolution=PendingAtomResolution.CREATED,
-        canonical_alias="fact-retry",
-        canonical_uuid="uuid-retry",
-    )
+def test_memory_generation_rejects_multiple_attempt_policy() -> None:
+    bus = Mock(request=AsyncMock(), publish=AsyncMock())
 
-    async def execute(route, spec):
-        attempts.append(spec)
-        if len(attempts) == 1:
-            spec.request.context.state_summary = "attempt-local mutation"
-            raise TransientMemoryGenerationError("model temporarily unavailable")
-        return [
-            MemoryGenerationResult(
-                pending_alias="draft-retry",
-                intent_id="intent-retry",
-                canonical_alias="fact-retry",
-                settlement=settlement,
-            )
-        ]
-
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
-    controller = _controller(bus, max_attempts=2)
-    spec = _spec(
-        request=GenerationRequest(
-            context=GenerationContext(state_summary="original summary")
-        ),
-        intent_id="intent-retry",
-        pending_alias="draft-retry",
-    )
-
-    try:
-        memory_task = await controller.submit_generation(spec)
-        result = await controller.wait_task(memory_task.task_id, timeout=2)
-    finally:
-        await controller.stop()
-
-    assert result.status == MemoryGenerationTaskStatus.COMPLETED
-    assert (await controller.get_task(memory_task.task_id)).canonical_alias == "fact-retry"
-    assert len(attempts) == 2
-    assert attempts[0] is not attempts[1]
-    assert attempts[1].request.context.state_summary == "original summary"
-    settlement_calls = [
-        call
-        for call in bus.publish.await_args_list
-        if call.args and call.args[0] == PatchouliLocalEvents.PENDING_ATOM_SETTLED
-    ]
-    assert len(settlement_calls) == 1
+    with pytest.raises(ValueError, match="requires max_attempts=1"):
+        MemoryGenerationTaskController(
+            bus=bus,
+            queue_policy=QueuePolicy(
+                capacity=16,
+                max_concurrency=1,
+                max_attempts=2,
+            ),
+        )
 
 
 @pytest.mark.asyncio
 async def test_default_policy_does_not_retry_generation_side_effects() -> None:
     bus = Mock(
         request=AsyncMock(
-            side_effect=TransientMemoryGenerationError(
+            side_effect=ConnectionError(
                 "generation may already have written partial results"
             )
         ),
@@ -338,7 +292,7 @@ async def test_non_retryable_failure_fails_once() -> None:
         request=AsyncMock(side_effect=ValueError("invalid generation spec")),
         publish=AsyncMock(),
     )
-    controller = _controller(bus, max_attempts=3)
+    controller = _controller(bus)
 
     try:
         memory_task = await controller.submit_generation(_spec())
@@ -352,7 +306,7 @@ async def test_non_retryable_failure_fails_once() -> None:
 
 
 @pytest.mark.asyncio
-async def test_timeout_is_retried_by_policy_then_projects_failed() -> None:
+async def test_timeout_fails_without_retry() -> None:
     async def execute(route, spec):
         await asyncio.Event().wait()
 
@@ -363,7 +317,6 @@ async def test_timeout_is_retried_by_policy_then_projects_failed() -> None:
     controller = _controller(
         bus,
         timeout_seconds=0.01,
-        max_attempts=1,
     )
 
     try:
@@ -378,4 +331,5 @@ async def test_timeout_is_retried_by_policy_then_projects_failed() -> None:
     assert result.status == MemoryGenerationTaskStatus.FAILED
     assert result.error == "TimeoutError"
     assert record is not None
-    assert record.state == WorkState.DEAD_LETTER
+    assert record.state == WorkState.FAILED
+    assert bus.request.await_count == 1

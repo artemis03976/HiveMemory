@@ -118,6 +118,18 @@ MemoryGenerationFamiliar 执行：
 
 Artifact 写入是 best effort，Qdrant upsert 失败则任务失败。详见[Artifacts 与来源追踪](./artifacts.md)。
 
+### 5.1 重试边界
+
+Memory Generation 的业务 handler 固定为单次 attempt。整条数据面包含 artifact 写入、LLM 生成和
+`MemoryAtom` upsert 等副作用；在这些步骤部分成功后无法确认外部状态时，自动重放可能制造重复记忆或重复
+artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通业务异常都会直接把任务投影为
+`FAILED`，不会由 Memory Generation lane 自动重试。
+
+这不等于系统完全没有重试：通用 Work Queue Runtime 仍保留 retry 状态机，Interaction Submission 也只对
+明确标记的瞬态提交错误做有限重试；Generation extractor 内部的 LLM 边界重试属于另一层策略。当前
+`FAILED` 只表示本次任务未完成，不保证没有任何外部副作用。operation identity、reconciliation 和耐久
+结果记录将在后续幂等性与持久化阶段处理。
+
 手工 memory create/update 同样通过 Familiar：创建生成 MANUAL provenance，编辑捕获 before snapshot、递增 version 并生成 MANUAL_EDIT version artifact。
 
 ## 6. 后台任务与终态
