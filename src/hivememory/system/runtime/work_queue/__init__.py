@@ -57,6 +57,14 @@ from hivememory.system.runtime.work_queue.ports import (
 )
 from hivememory.system.runtime.work_queue.runtime import WorkLane, WorkQueueRuntime
 from hivememory.system.runtime.work_queue.supervisor import WorkQueueSupervisor
+from hivememory.system.runtime.work_queue.tasks import (
+    QueueTask,
+    QueueTaskAdapter,
+    QueueTaskIdentity,
+    TaskHandle,
+    TaskOutcome,
+    adapt_queue_task,
+)
 
 __all__ = [
     "TERMINAL_WORK_STATES",
@@ -64,6 +72,9 @@ __all__ = [
     "FailureAction",
     "FailureDecision",
     "QueuePolicy",
+    "QueueTask",
+    "QueueTaskAdapter",
+    "QueueTaskIdentity",
     "DuplicateWorkItemError",
     "DuplicateWorkLaneError",
     "DuplicateWorkPayloadCodecError",
@@ -100,6 +111,9 @@ __all__ = [
     "WorkStorePort",
     "WorkQueueSupervisor",
     "WorkStateConflictError",
+    "TaskHandle",
+    "TaskOutcome",
+    "adapt_queue_task",
     "can_transition_work_state",
     "decode_canonical_json",
     "encode_canonical_json",

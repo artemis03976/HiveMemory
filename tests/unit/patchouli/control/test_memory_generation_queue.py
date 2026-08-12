@@ -22,7 +22,7 @@ from hivememory.core.models import (
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.control.memory_generation_queue import (
-    MemoryGenerationTaskSpecCodec,
+    MemoryGenerationWorkAdapter,
     TransientMemoryGenerationError,
 )
 from hivememory.patchouli.control.memory_generation_tasks import (
@@ -34,6 +34,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    MemoryGenerationWork,
 )
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
@@ -117,39 +118,41 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         pending_alias="draft-codec",
     )
     codecs = WorkPayloadCodecRegistry()
-    codecs.register(MemoryGenerationTaskSpecCodec())
+    codecs.register(MemoryGenerationWorkAdapter())
+    work = MemoryGenerationWork(task_id="task-codec", spec=spec)
 
     payload_bytes = codecs.encode(
-        MemoryGenerationTaskSpecCodec.kind,
-        MemoryGenerationTaskSpecCodec.schema_version,
-        spec,
+        MemoryGenerationWorkAdapter.kind,
+        MemoryGenerationWorkAdapter.schema_version,
+        work,
     )
     assert payload_bytes == codecs.encode(
-        MemoryGenerationTaskSpecCodec.kind,
-        MemoryGenerationTaskSpecCodec.schema_version,
-        spec,
+        MemoryGenerationWorkAdapter.kind,
+        MemoryGenerationWorkAdapter.schema_version,
+        work,
     )
 
     spec.request.context.state_summary = "external mutation"
     atom.payload.content = "external mutation"
     first = codecs.decode(
-        MemoryGenerationTaskSpecCodec.kind,
-        MemoryGenerationTaskSpecCodec.schema_version,
+        MemoryGenerationWorkAdapter.kind,
+        MemoryGenerationWorkAdapter.schema_version,
         payload_bytes,
     )
     second = codecs.decode(
-        MemoryGenerationTaskSpecCodec.kind,
-        MemoryGenerationTaskSpecCodec.schema_version,
+        MemoryGenerationWorkAdapter.kind,
+        MemoryGenerationWorkAdapter.schema_version,
         payload_bytes,
     )
 
-    assert first.request.context.state_summary == "original summary"
-    assert isinstance(first.request.existing_memory, MemoryAtom)
-    assert first.request.existing_memory.payload.content == "original content"
-    assert first.interaction_input is not None
-    assert isinstance(first.interaction_input.blocks[0], LogicalBlock)
-    first.request.context.state_summary = "attempt-local mutation"
-    assert second.request.context.state_summary == "original summary"
+    assert first.task_id == "task-codec"
+    assert first.spec.request.context.state_summary == "original summary"
+    assert isinstance(first.spec.request.existing_memory, MemoryAtom)
+    assert first.spec.request.existing_memory.payload.content == "original content"
+    assert first.spec.interaction_input is not None
+    assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
+    first.spec.request.context.state_summary = "attempt-local mutation"
+    assert second.spec.request.context.state_summary == "original summary"
 
 
 @pytest.mark.asyncio
@@ -178,13 +181,13 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
         assert second_work is not None
         assert second_work.state == WorkState.QUEUED
         assert second.status == MemoryGenerationTaskStatus.PENDING
-        assert controller.get_task(second.task_id) is second
+        assert await controller.get_task(second.task_id) == second
 
         release.set()
         summary = await controller.wait_all(timeout=2)
         assert summary.completed == 2
-        assert first.status == MemoryGenerationTaskStatus.COMPLETED
-        assert second.status == MemoryGenerationTaskStatus.COMPLETED
+        assert (await controller.get_task(first.task_id)).status == MemoryGenerationTaskStatus.COMPLETED
+        assert (await controller.get_task(second.task_id)).status == MemoryGenerationTaskStatus.COMPLETED
     finally:
         release.set()
         await controller.stop()
@@ -247,7 +250,7 @@ async def test_running_cancel_interrupts_handler_and_projects_cancelled() -> Non
 
         await asyncio.wait_for(released.wait(), timeout=1)
         assert result.status == MemoryGenerationTaskStatus.CANCELLED
-        assert memory_task.cancelled is True
+        assert (await controller.get_task(memory_task.task_id)).cancelled is True
     finally:
         await controller.stop()
 
@@ -294,7 +297,7 @@ async def test_transient_retry_uses_fresh_spec_and_publishes_settlement_once() -
         await controller.stop()
 
     assert result.status == MemoryGenerationTaskStatus.COMPLETED
-    assert memory_task.canonical_alias == "fact-retry"
+    assert (await controller.get_task(memory_task.task_id)).canonical_alias == "fact-retry"
     assert len(attempts) == 2
     assert attempts[0] is not attempts[1]
     assert attempts[1].request.context.state_summary == "original summary"
@@ -326,7 +329,7 @@ async def test_default_policy_does_not_retry_generation_side_effects() -> None:
 
     assert result.status == MemoryGenerationTaskStatus.FAILED
     assert bus.request.await_count == 1
-    assert memory_task.task_id not in controller._work_ids
+    assert (await controller.get_task(memory_task.task_id)).status == MemoryGenerationTaskStatus.FAILED
 
 
 @pytest.mark.asyncio

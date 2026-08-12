@@ -21,7 +21,7 @@ related_docs:
   - docs/plans/cross-subsystem-idempotency-and-retry.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-07
+last_reviewed: 2026-08-12
 ---
 
 # Phase D0 持久化状态清单（耐久性与恢复）
@@ -38,7 +38,7 @@ Phase D0 的四项任务：
 ## 1. 全局结论摘要
 
 - **项目没有任何关系数据库**（无 SQLite/Postgres/ORM），持久化介质只有三类：**Qdrant**（外部向量服务，唯一的"业务数据库"）、**文件系统**（artifact JSON、冷归档 JSON、配置 YAML）、**内存**（全部运行时执行状态）。
-- **所有"进行中/待办/承诺中"的执行状态都是进程内真相源**：8 个权威组件（PendingAtom store、MemoryGenerationTaskRegistry、SemanticBuffer、SealedTurnOutbox、MessageTurnBuffer、ChatGenerationRunRegistry、RunSession、ExecutionFrame）崩溃即不可恢复，其中 4 个（outbox、turn buffer、SemanticBuffer、ChatGenerationRun）直接造成**已向用户或上游承诺的数据丢失**。
+- **所有"进行中/待办/承诺中"的执行状态仍是进程内真相源**：Memory Generation 已由 WorkStore `memory_generation` lane 统一状态，但当前 Store 仍为 in-memory；其余 PendingAtom store、SemanticBuffer、Interaction Submission WorkStore、MessageTurnBuffer、ChatGenerationRunRegistry、RunSession、ExecutionFrame 同样崩溃即不可恢复。
 - **已持久化 ≠ 已恢复**：Qdrant 中的 MemoryAtom 与文件系统中的 Artifact/archive 都跨重启保留，但没有 schema version、没有 CAS、没有 reconciliation；`archive_index.json` 损坏时静默降级为空索引，已归档文件"隐身"（[long_term.py](../../src/hivememory/patchouli/memory_library/adapters/long_term.py#L140-L149)）。
 - **唯一带 schema_version 的持久化对象是 Artifact**（`BaseArtifact.schema_version = "1"`，[artifact.py](../../src/hivememory/core/models/artifact.py#L46)），且**没有任何读取校验逻辑**；Qdrant payload 无版本字段，兼容性完全依赖 pydantic `extra="ignore"` 静默丢弃未知字段（[memory.py](../../src/hivememory/core/models/memory.py#L267-L286)）。
 - **无迁移框架**：schema 变更只能靠一次性手动脚本（如 [scripts/migrate_memories_to_omni_public.py](../../scripts/migrate_memories_to_omni_public.py)），旧数据不会自动升级，也不会被拒绝。
@@ -109,7 +109,7 @@ Gateway 不持有任何跨请求业务状态；决策结果不落库，其可重
 | 资产 | 所有者 | 真相源 | 等级 | schema | retention | 恢复策略 |
 |:--|:--|:--|:--|:--|:--|:--|
 | MemoryAtom（含 meta/index/payload/relations） | Patchouli | Qdrant `hivememory_main` | **Durable authoritative** | 无 payload 版本字段；`meta.version` 乐观锁形同虚设（无 CAS，见 [I0 §1](./idempotency-i0-operations-inventory.md#1-全局结论摘要)） | 无 TTL；GC 仅归档不删除 | 无。可读回但无校验、无 reconciliation |
-| MemoryGenerationTask（status/canonical_alias/error/cancel_event） | Patchouli | 进程内 registry（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L264-L302)） | **Recoverable → 应 durable** | 无 | active 无限；terminal 上限 50（溢出丢最旧终态） | 无。崩溃后任务终态、取消状态、后台协程引用丢失；已落 Qdrant 的产物不受损 |
+| MemoryGenerationWork / WorkRecord / typed result | Patchouli | in-memory WorkStore `memory_generation` lane + Controller entries | **Recoverable → 应 durable** | payload codec v1；暂无 durable schema migration | capacity/terminal retention 由 QueuePolicy 统一 | 无。崩溃后 queued/running/终态快照、typed result 与待发布 settlement 丢失；已落 Qdrant 的产物不受损 |
 | SemanticBuffer / ShortTerm（未结算 blocks、state_summary） | Patchouli | 进程内 `InMemoryShortTermStorage`（[short_term.py](../../src/hivememory/patchouli/memory_library/adapters/short_term.py)） | Recoverable（已承诺的 settlement 应可恢复） | 无 | 常驻上限 5 话题（LRU 驱逐可能触发 settle） | 无。崩溃丢全部未结算对话内容 |
 | AgentProfile 原子（AGENT_PROFILE type） | Patchouli | Qdrant（`get_agent_profile` 走 alias 查询，[vector_store.py](../../src/hivememory/infrastructure/storage/vector_store.py#L285-L312)） | Durable authoritative | 无 | 无 | 无（读回即可） |
 
@@ -226,7 +226,7 @@ Storage adapter owns bytes / 事务 / 索引          → Qdrant / FS / YAML
 
 1. **D1 应优先迁移的四个高危进程内真相源**（崩溃即丢已承诺数据）：
    - `SealedTurnOutbox` → WorkStore `interaction_submission` lane（与 [Work Queue 计划](./v0.6.1-local-work-queue-runtime.md) 对齐）；
-   - `MemoryGenerationTaskRegistry` → WorkStore `memory_generation` lane；
+   - 将现有 WorkStore `memory_generation` lane 从 in-memory adapter 迁到 durable adapter，并为 typed result/settlement 定义恢复协议；
    - `PendingAtom`（intent / pending alias / settlement / resolution / cancel reason）→ 可持久化 record（主计划 D1 任务 2）；
    - `MessageTurnBuffer` / `ChatGenerationRunRegistry` → 先明确"必须恢复"还是"进入明确失败终态"的边界（避免过度持久化）。
 2. **Qdrant 是当前唯一可跨重启的业务事实库**，但缺 schema version、CAS 与 reconciliation；D2 的 upsert 序列设计必须先补 version 语义（`meta.version` 的 CAS 落地或显式放弃）。

@@ -1,17 +1,17 @@
-"""Memory task router tests."""
+"""记忆任务路由测试。"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hivememory.server.routers.memory_tasks import router
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
+from hivememory.server.routers.memory_tasks import router
 
 
 def _create_test_app(service):
@@ -24,15 +24,21 @@ def _create_test_app(service):
     return app
 
 
-def _memory_task():
+def _memory_task(*, cancelled: bool = False):
     return MemoryGenerationTask(
         task_id="task_1",
         topic_id="topic_1",
         label="draft_abc",
         source=MemoryGenerationSource.WRITE,
         pending_alias="draft_abc",
-        status=MemoryGenerationTaskStatus.RUNNING,
-        started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        status=(
+            MemoryGenerationTaskStatus.CANCELLED
+            if cancelled
+            else MemoryGenerationTaskStatus.RUNNING
+        ),
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+        cancel_requested=cancelled,
+        cancel_reason="user_requested" if cancelled else None,
     )
 
 
@@ -59,7 +65,13 @@ def test_list_memory_tasks_serializes_task_source():
 def test_cancel_memory_task_calls_service():
     service = MagicMock()
     memory_task = _memory_task()
-    memory_task.request_cancel()
+    memory_task = MemoryGenerationTask(
+        **{
+            **memory_task.__dict__,
+            "cancel_requested": True,
+            "cancel_reason": "user_requested",
+        }
+    )
     service.cancel_memory_task = AsyncMock(return_value=True)
     service.get_memory_task = AsyncMock(return_value=memory_task)
     client = TestClient(_create_test_app(service))
@@ -81,9 +93,7 @@ def test_cancel_memory_task_calls_service():
 
 def test_cancel_memory_task_returns_terminal_cancelled_state():
     service = MagicMock()
-    memory_task = _memory_task()
-    memory_task.request_cancel()
-    memory_task.status = MemoryGenerationTaskStatus.CANCELLED
+    memory_task = _memory_task(cancelled=True)
     service.cancel_memory_task = AsyncMock(return_value=True)
     service.get_memory_task = AsyncMock(return_value=memory_task)
     client = TestClient(_create_test_app(service))

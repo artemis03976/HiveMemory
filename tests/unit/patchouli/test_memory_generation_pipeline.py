@@ -110,7 +110,9 @@ def _settlement_result(alias="draft_write") -> list[MemoryGenerationResult]:
     ]
 
 
-def _wire_generation_pipeline(bus: PatchouliBus) -> MemoryGenerationCoordinator:
+def _wire_generation_pipeline(
+    bus: PatchouliBus,
+) -> tuple[MemoryGenerationCoordinator, MemoryGenerationTaskController]:
     controller = MemoryGenerationTaskController(bus=bus)
     coordinator = MemoryGenerationCoordinator(bus=bus)
     bus.register(
@@ -121,7 +123,7 @@ def _wire_generation_pipeline(bus: PatchouliBus) -> MemoryGenerationCoordinator:
         PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
         controller.submit_generation_many,
     )
-    return coordinator
+    return coordinator, controller
 
 
 async def _capture_event(target: list, **kwargs) -> None:
@@ -131,7 +133,7 @@ async def _capture_event(target: list, **kwargs) -> None:
 @pytest.mark.asyncio
 async def test_passive_settlement_routes_archive_spec_through_task_controller():
     bus = PatchouliBus()
-    coordinator = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus)
     execute_spec = AsyncMock(return_value=[])
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
 
@@ -151,9 +153,10 @@ async def test_passive_settlement_routes_archive_spec_through_task_controller():
             state_summary="state summary",
         )
     )
-    await memory_task._bg_task
+    await controller.wait_task(memory_task.task_id)
+    completed = await controller.get_task(memory_task.task_id)
 
-    assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.ARCHIVE
     assert spec.source.creation_artifact_intent == "ARCHIVE"
@@ -164,7 +167,7 @@ async def test_passive_settlement_routes_archive_spec_through_task_controller():
 @pytest.mark.asyncio
 async def test_active_write_routes_to_generation_and_publishes_settlement():
     bus = PatchouliBus()
-    coordinator = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus)
     published = []
     execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
@@ -175,10 +178,11 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
     )
 
     memory_tasks = await coordinator.submit_active([_write_task("draft_write")], "topic_1")
-    await memory_tasks[0]._bg_task
+    await controller.wait_task(memory_tasks[0].task_id)
+    completed = await controller.get_task(memory_tasks[0].task_id)
 
-    assert memory_tasks[0].status == MemoryGenerationTaskStatus.COMPLETED
-    assert memory_tasks[0].canonical_alias == "memory_alias"
+    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+    assert completed.canonical_alias == "memory_alias"
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.WRITE
     assert spec.pending_alias == "draft_write"
@@ -190,7 +194,7 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
 @pytest.mark.asyncio
 async def test_active_update_fetches_existing_memory_before_generation():
     bus = PatchouliBus()
-    coordinator = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus)
     existing = _memory_atom()
     memory_get = AsyncMock(return_value=existing)
     execute_spec = AsyncMock(return_value=_settlement_result("draft_update"))
@@ -202,7 +206,7 @@ async def test_active_update_fetches_existing_memory_before_generation():
         [_update_task(str(existing.id), "draft_update")],
         "topic_1",
     )
-    await memory_tasks[0]._bg_task
+    await controller.wait_task(memory_tasks[0].task_id)
 
     memory_get.assert_awaited_once_with(existing.id)
     spec = execute_spec.await_args.args[0]
@@ -219,7 +223,7 @@ async def test_active_update_fetches_existing_memory_before_generation():
 @pytest.mark.asyncio
 async def test_active_batch_skips_missing_update_and_runs_valid_write():
     bus = PatchouliBus()
-    coordinator = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus)
     failed = []
     execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
@@ -237,10 +241,11 @@ async def test_active_batch_skips_missing_update_and_runs_valid_write():
         ],
         "topic_1",
     )
-    await memory_tasks[0]._bg_task
+    await controller.wait_task(memory_tasks[0].task_id)
+    completed = await controller.get_task(memory_tasks[0].task_id)
 
     assert len(memory_tasks) == 1
-    assert memory_tasks[0].status == MemoryGenerationTaskStatus.COMPLETED
+    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.WRITE
     assert spec.pending_alias == "draft_write"

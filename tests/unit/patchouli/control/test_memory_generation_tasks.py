@@ -85,9 +85,10 @@ class TestMemoryGenerationTaskController:
     async def test_submit_generation_many_isolates_one_admission_failure(self):
         controller = MemoryGenerationTaskController(bus=Mock())
         first = _task_handle(task_id="first")
+        failed = _task_handle(task_id="failed")
         third = _task_handle(task_id="third")
         controller.submit_generation = AsyncMock(
-            side_effect=[first, RuntimeError("queue full"), third]
+            side_effect=[first, failed, third]
         )
 
         result = await controller.submit_generation_many(
@@ -98,7 +99,7 @@ class TestMemoryGenerationTaskController:
             ]
         )
 
-        assert result == [first, third]
+        assert result == [first, failed, third]
         assert controller.submit_generation.await_count == 3
 
     @pytest.mark.asyncio
@@ -118,10 +119,11 @@ class TestMemoryGenerationTaskController:
         memory_task = await controller.submit_generation(_spec())
 
         assert isinstance(memory_task, MemoryGenerationTask)
-        assert memory_task._bg_task is not None
-        assert not memory_task._bg_task.done()
+        waiter = asyncio.create_task(controller.wait_task(memory_task.task_id))
+        await asyncio.sleep(0)
+        assert not waiter.done()
         blocker.set()
-        await memory_task._bg_task
+        await waiter
 
     @pytest.mark.asyncio
     async def test_completed_task_publishes_terminal_status(self):
@@ -131,9 +133,10 @@ class TestMemoryGenerationTaskController:
         controller = MemoryGenerationTaskController(bus=bus)
 
         memory_task = await controller.submit_generation(_spec())
-        await memory_task._bg_task
+        await controller.wait_task(memory_task.task_id)
+        completed = await controller.get_task(memory_task.task_id)
 
-        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert completed.status == MemoryGenerationTaskStatus.COMPLETED
         assert _memory_task_statuses(bus) == ["running", "completed"]
 
     @pytest.mark.asyncio
@@ -144,10 +147,11 @@ class TestMemoryGenerationTaskController:
         controller = MemoryGenerationTaskController(bus=bus)
 
         memory_task = await controller.submit_generation(_spec())
-        await memory_task._bg_task
+        await controller.wait_task(memory_task.task_id)
+        failed = await controller.get_task(memory_task.task_id)
 
-        assert memory_task.status == MemoryGenerationTaskStatus.FAILED
-        assert "generation error" in memory_task.error
+        assert failed.status == MemoryGenerationTaskStatus.FAILED
+        assert "generation error" in failed.error
         assert _memory_task_statuses(bus) == ["running", "failed"]
 
     @pytest.mark.asyncio
@@ -181,10 +185,11 @@ class TestMemoryGenerationTaskController:
                 pending_alias="draft_matrix",
             )
         )
-        await memory_task._bg_task
+        await controller.wait_task(memory_task.task_id)
+        completed = await controller.get_task(memory_task.task_id)
 
-        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
-        assert memory_task.canonical_alias == "fact_matrix"
+        assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+        assert completed.canonical_alias == "fact_matrix"
         bus.publish.assert_any_await(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             settlement=settlement,
@@ -194,7 +199,7 @@ class TestMemoryGenerationTaskController:
             RuntimeEventType.MEMORY_TASK_STATUS,
             RuntimeEventType.MEMORY_TASK_COMPLETED,
         ]
-        _assert_runtime_event_task_payload(recorder.events[-1], memory_task)
+        _assert_runtime_event_task_payload(recorder.events[-1], completed)
 
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry_cancels_background_task(self):
@@ -218,9 +223,8 @@ class TestMemoryGenerationTaskController:
 
         assert await controller.cancel_task(memory_task.task_id) is True
         await asyncio.wait_for(released.wait(), timeout=1)
-        with pytest.raises(asyncio.CancelledError):
-            await memory_task._bg_task
-        assert memory_task.status == MemoryGenerationTaskStatus.CANCELLED
+        result = await controller.wait_task(memory_task.task_id)
+        assert result.status == MemoryGenerationTaskStatus.CANCELLED
         assert _memory_task_statuses(bus) == ["running", "cancelled"]
 
     @pytest.mark.asyncio
@@ -238,12 +242,11 @@ class TestMemoryGenerationTaskController:
         )
 
         assert await controller.cancel_task(memory_task.task_id) is True
-        with pytest.raises(asyncio.CancelledError):
-            await memory_task._bg_task
-        await asyncio.sleep(0)
+        await controller.wait_task(memory_task.task_id)
+        cancelled = await controller.get_task(memory_task.task_id)
 
-        assert memory_task.status == MemoryGenerationTaskStatus.CANCELLED
-        assert memory_task.finished_at is not None
+        assert cancelled.status == MemoryGenerationTaskStatus.CANCELLED
+        assert cancelled.finished_at is not None
         assert bus.request.await_count == 0
         assert _memory_task_statuses(bus) == ["cancelled"]
         bus.publish.assert_any_await(
@@ -283,8 +286,7 @@ class TestMemoryGenerationTaskController:
             == 1
         )
         await asyncio.wait_for(released.wait(), timeout=1)
-        with pytest.raises(asyncio.CancelledError):
-            await memory_task._bg_task
+        await controller.wait_task(memory_task.task_id)
 
         task_events = [event for event in recorder.events if event.task_id == memory_task.task_id]
         assert task_events[-2].event_type == RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED
@@ -295,17 +297,45 @@ class TestMemoryGenerationTaskController:
         assert task_events[-1].data["reason"] == "shutdown_timeout"
 
     @pytest.mark.asyncio
-    async def test_finish_task_is_idempotent(self):
+    async def test_terminal_snapshot_is_stable_across_repeated_waits(self):
         bus = Mock()
+        bus.request = AsyncMock(return_value=[])
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
-        memory_task = _task_handle()
+        memory_task = await controller.submit_generation(_spec())
+        first = await controller.wait_task(memory_task.task_id)
+        second = await controller.wait_task(memory_task.task_id)
 
-        await controller._finish_task(memory_task, MemoryGenerationTaskStatus.COMPLETED)
-        await controller._finish_task(memory_task, MemoryGenerationTaskStatus.FAILED)
+        assert first == second
+        assert _memory_task_statuses(bus) == ["running", "completed"]
 
-        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
-        assert _memory_task_statuses(bus) == ["completed"]
+    @pytest.mark.asyncio
+    async def test_running_status_is_published_before_work_completes(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def request(route, spec):
+            started.set()
+            await release.wait()
+            return []
+
+        bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
+        controller = MemoryGenerationTaskController(bus=bus)
+
+        memory_task = await controller.submit_generation(_spec())
+        await asyncio.wait_for(started.wait(), timeout=1)
+        for _ in range(10):
+            if _memory_task_statuses(bus):
+                break
+            await asyncio.sleep(0)
+
+        assert _memory_task_statuses(bus) == ["running"]
+        assert (await controller.get_task(memory_task.task_id)).status == (
+            MemoryGenerationTaskStatus.RUNNING
+        )
+
+        release.set()
+        await controller.wait_task(memory_task.task_id)
 
     @pytest.mark.asyncio
     async def test_wait_task_waits_for_background_completion(self):
@@ -350,12 +380,13 @@ class TestMemoryGenerationTaskController:
 
         assert result.found is True
         assert result.timed_out is True
-        assert memory_task._bg_task is not None
-        assert not memory_task._bg_task.done()
+        entry = controller._entries[memory_task.task_id]
+        assert entry.finalizer is not None
+        assert not entry.finalizer.done()
 
         blocker.set()
-        await memory_task._bg_task
-        assert memory_task.status == MemoryGenerationTaskStatus.COMPLETED
+        completed = await controller.wait_task(memory_task.task_id)
+        assert completed.status == MemoryGenerationTaskStatus.COMPLETED
 
     @pytest.mark.asyncio
     async def test_wait_task_returns_not_found_for_missing_task(self):
@@ -395,7 +426,7 @@ class TestMemoryGenerationTaskController:
         assert summary.running == 1
 
         blocker.set()
-        await memory_task._bg_task
+        await controller.wait_task(memory_task.task_id)
 
     @pytest.mark.asyncio
     async def test_wait_all_waits_for_current_running_tasks(self):

@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-12
 ---
 
 # 记忆生成
@@ -31,7 +31,8 @@ last_reviewed: 2026-07-29
 MemoryGenerationCoordinator
   -> MemoryGenerationTaskSpec
   -> MemoryGenerationTaskController
-       -> in-process MemoryGenerationTask
+       -> immutable MemoryGenerationWork
+       -> MemoryGenerationQueue / TaskHandle
        -> local route GENERATION_EXECUTE_SPEC
   -> MemoryGenerationFamiliar
        -> MemoryGenerationEngine.process
@@ -41,7 +42,7 @@ MemoryGenerationCoordinator
 ```
 
 - Coordinator 把 settlement 或 PendingAtom materialize task 变成统一 spec；
-- TaskController 创建后台 `asyncio.Task`，维护状态、取消、等待与事件；
+- TaskController 创建不可变 work 并持有 typed handle，负责领域快照、取消、等待与事件；
 - Familiar 是生成数据面，执行 compute -> artifact -> persist；
 - GenerationEngine 负责提取、合并、去重和构造 outcome，不直接持久化或发布事件。
 
@@ -121,13 +122,16 @@ Artifact 写入是 best effort，Qdrant upsert 失败则任务失败。详见[Ar
 
 ## 6. 后台任务与终态
 
-每个 spec 对应一个 `MemoryGenerationTask`：
+每个 spec 对应一个不可变 `MemoryGenerationWork`；公开 API 使用同名的只读
+`MemoryGenerationTask` 快照表达下列领域状态：
 
 ```text
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 ```
 
-TaskController 是 `status/error/started_at/finished_at` 的唯一写入者。第一次终态调用胜出，后续终态 no-op，防止取消、异常和清理竞争覆盖结果。
+`WorkRecord` 是执行状态的唯一真相源，Queue 的 `TaskHandle` 提供 snapshot/wait/cancel；
+TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。
+提交返回的 `MemoryGenerationTask` 不会原地更新，调用方需要通过 list/get/wait 获取新快照。
 
 控制面提供 list/get/cancel/wait/wait_many/wait_all。等待使用 `asyncio.shield`，超时只返回快照，不会接管或自动取消后台任务；shutdown drain 在 wait_all 超时后才显式 cancel 那批任务。
 
@@ -156,8 +160,8 @@ Interaction applied 是 Chat 的硬成功边界。之后 materialization admissi
 
 ## 8. 当前限制
 
-- memory task 与终态 registry 只存在于当前进程，重启后不可恢复；持久化与恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
-- registry 默认只保留最近 50 个终态任务；
+- memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
+- 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - `submit_generation_many()` 逐个创建后台 task；active spec 的 I/O 构建并行，但没有持久化队列、并发额度或 backpressure；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；
 - Mode A/B 去重只取 dense top-1 且没有 identity filter，跨用户隔离依赖存储/数据前提，仍需收紧；
@@ -165,4 +169,4 @@ Interaction applied 是 Chat 的硬成功边界。之后 materialization admissi
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - Artifact 失败不阻断主记忆，provenance 与 MemoryAtom 不是原子提交。
 
-未来若引入 durable queue 或任务并发治理，首先要保持 `MemoryGenerationTaskSpec`、唯一终态和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。
+未来若引入 durable queue，首先要保持 `MemoryGenerationWork` codec、`WorkRecord` 单一状态源和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。

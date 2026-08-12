@@ -106,7 +106,12 @@ class WorkQueuePort(Protocol):
 
     async def enqueue(self, item: WorkItem) -> WorkReceipt: ...
 
-    async def cancel(self, work_id: str) -> bool: ...
+    async def cancel(
+        self,
+        work_id: str,
+        *,
+        reason: str = "user_requested",
+    ) -> bool: ...
 
     async def get(self, work_id: str) -> WorkRecord | None: ...
 

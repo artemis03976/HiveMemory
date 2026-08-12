@@ -1,4 +1,4 @@
-"""Patchouli Memory Generation 的工作队列适配。"""
+"""Patchouli 记忆生成的工作队列适配层。"""
 
 from __future__ import annotations
 
@@ -14,22 +14,25 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
+    MemoryGenerationWork,
 )
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.work_queue import (
     FailureAction,
     FailureDecision,
     QueuePolicy,
+    QueueTaskIdentity,
+    TaskHandle,
+    TaskOutcome,
     WorkExecutionContext,
     WorkHandlerPort,
-    WorkItem,
     WorkPayloadCodecRegistry,
     WorkQueueRuntime,
     WorkQueueShutdownSummary,
-    WorkReceipt,
-    WorkRecord,
+    adapt_queue_task,
 )
 
+MemoryGenerationResults = tuple[MemoryGenerationResult, ...]
 ExecuteGeneration = Callable[
     [MemoryGenerationTaskSpec],
     Awaitable[list[MemoryGenerationResult]],
@@ -43,60 +46,92 @@ def _require_text(value: object, *, field_name: str) -> str:
 
 
 class TransientMemoryGenerationError(RuntimeError):
-    """由生成数据面显式标记、允许安全重试的瞬态失败。"""
+    """显式标记可安全重试的临时性记忆生成失败。"""
 
 
-class MemoryGenerationTaskSpecCodec:
-    """MemoryGenerationTaskSpec 的 v1 canonical JSON codec。"""
+class MemoryGenerationWorkAdapter:
+    """``MemoryGenerationWork`` v1 的队列适配器与规范 JSON 编解码器。
+
+    适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
+    重建独立的领域任务对象。
+    """
 
     kind = "patchouli.memory_generation"
     schema_version = 1
 
-    def encode(self, spec: MemoryGenerationTaskSpec) -> object:
-        if not isinstance(spec, MemoryGenerationTaskSpec):
+    @staticmethod
+    def identity(work: MemoryGenerationWork) -> QueueTaskIdentity:
+        """从领域任务中派生稳定的队列标识和调度元数据。"""
+
+        return QueueTaskIdentity(
+            work_id=MemoryGenerationQueue.work_id_for(work.task_id),
+            ordering_key=work.topic_id,
+            correlation_id=work.intent_id or work.pending_alias or work.task_id,
+            idempotency_key=work.task_id,
+        )
+
+    def encode(self, work: MemoryGenerationWork) -> object:
+        """将领域任务编码为可进入通用 payload codec 的 JSON 值。"""
+
+        if not isinstance(work, MemoryGenerationWork):
             raise TypeError("memory generation payload has an unexpected type")
+
+        spec = work.spec
+        _require_text(work.task_id, field_name="task_id")
         _require_text(spec.topic_id, field_name="topic_id")
         _require_text(spec.label, field_name="label")
         return {
-            "topic_id": spec.topic_id,
-            "label": spec.label,
-            "source": spec.source.value,
-            "request": spec.request.model_dump(mode="json"),
-            "interaction_input": self._encode_interaction_input(
-                spec.interaction_input
-            ),
-            "intent_id": spec.intent_id,
-            "pending_alias": spec.pending_alias,
+            "task_id": work.task_id,
+            "spec": {
+                "topic_id": spec.topic_id,
+                "label": spec.label,
+                "source": spec.source.value,
+                "request": spec.request.model_dump(mode="json"),
+                "interaction_input": self._encode_interaction_input(
+                    spec.interaction_input
+                ),
+                "intent_id": spec.intent_id,
+                "pending_alias": spec.pending_alias,
+            },
         }
 
-    def decode(self, payload: object) -> MemoryGenerationTaskSpec:
+    def decode(self, payload: object) -> MemoryGenerationWork:
+        """从 JSON 值重建一次执行尝试专用的领域任务。"""
+
         if not isinstance(payload, dict):
             raise TypeError("memory generation payload must be an object")
-
-        raw_request = payload.get("request")
+        raw_spec = payload.get("spec")
+        if not isinstance(raw_spec, dict):
+            raise TypeError("memory generation payload.spec must be an object")
+        raw_request = raw_spec.get("request")
         if not isinstance(raw_request, dict):
-            raise TypeError("memory generation payload.request must be an object")
+            raise TypeError("memory generation payload.spec.request must be an object")
+
         request_data = dict(raw_request)
         existing_memory = request_data.get("existing_memory")
         if existing_memory is not None:
             if not isinstance(existing_memory, dict):
                 raise TypeError("request.existing_memory must be an object")
-            # GenerationRequest 的 existing_memory 是 Any，需要在 codec 边界
-            # 显式恢复领域类型，避免数据面收到普通 dict。
-            request_data["existing_memory"] = MemoryAtom.model_validate(
-                existing_memory
-            )
+            # GenerationRequest 将 existing_memory 声明为 Any，需要在 codec
+            # 边界显式恢复领域类型，避免数据面收到普通 dict。
+            request_data["existing_memory"] = MemoryAtom.model_validate(existing_memory)
 
-        return MemoryGenerationTaskSpec(
-            topic_id=_require_text(payload.get("topic_id"), field_name="topic_id"),
-            label=_require_text(payload.get("label"), field_name="label"),
-            source=MemoryGenerationSource(payload["source"]),
-            request=GenerationRequest.model_validate(request_data),
-            interaction_input=self._decode_interaction_input(
-                payload.get("interaction_input")
+        return MemoryGenerationWork(
+            task_id=_require_text(payload.get("task_id"), field_name="task_id"),
+            spec=MemoryGenerationTaskSpec(
+                topic_id=_require_text(
+                    raw_spec.get("topic_id"),
+                    field_name="topic_id",
+                ),
+                label=_require_text(raw_spec.get("label"), field_name="label"),
+                source=MemoryGenerationSource(raw_spec["source"]),
+                request=GenerationRequest.model_validate(request_data),
+                interaction_input=self._decode_interaction_input(
+                    raw_spec.get("interaction_input")
+                ),
+                intent_id=raw_spec.get("intent_id"),
+                pending_alias=raw_spec.get("pending_alias"),
             ),
-            intent_id=payload.get("intent_id"),
-            pending_alias=payload.get("pending_alias"),
         )
 
     @staticmethod
@@ -109,16 +144,11 @@ class MemoryGenerationTaskSpecCodec:
             "topic_id": interaction_input.topic_id,
             "topic_title": interaction_input.topic_title,
             "topic_summary": interaction_input.topic_summary,
-            "blocks": [
-                block.model_dump(mode="json")
-                for block in interaction_input.blocks
-            ],
+            "blocks": [block.model_dump(mode="json") for block in interaction_input.blocks],
         }
 
     @staticmethod
-    def _decode_interaction_input(
-        payload: object,
-    ) -> InteractionArtifactInput | None:
+    def _decode_interaction_input(payload: object) -> InteractionArtifactInput | None:
         if payload is None:
             return None
         if not isinstance(payload, dict):
@@ -137,9 +167,15 @@ class MemoryGenerationTaskSpecCodec:
         )
 
 
+class MemoryGenerationHandle(
+    TaskHandle[MemoryGenerationWork, MemoryGenerationResults]
+):
+    """记忆生成工作被接纳后返回的类型化控制句柄。"""
+
+
 @dataclass(frozen=True)
 class MemoryGenerationExecutionResult:
-    """handler 成功后的轻量结果引用。"""
+    """返回给通用运行时的轻量结果引用。"""
 
     work_id: str
     result_count: int
@@ -150,48 +186,55 @@ class MemoryGenerationExecutionResult:
 
 
 class MemoryGenerationHandler(
-    WorkHandlerPort[MemoryGenerationTaskSpec, MemoryGenerationExecutionResult]
+    WorkHandlerPort[MemoryGenerationWork, MemoryGenerationExecutionResult]
 ):
-    """把 memory generation work attempt 适配到现有生成数据面。"""
+    """将单次队列执行尝试适配到现有的记忆生成数据面。
+
+    handler 只执行生成并分类失败；任务状态仍由通用 runtime 维护，领域结果通过
+    对应的类型化 handle 暂存在进程内，供控制器完成终态结算。
+    """
 
     def __init__(
         self,
         execute_generation: ExecuteGeneration,
+        handles: dict[str, MemoryGenerationHandle],
         *,
         retry_after_seconds: float = 0.05,
     ) -> None:
         self._execute_generation = execute_generation
+        self._handles = handles
         self._retry_after_seconds = retry_after_seconds
-        self._results: dict[str, tuple[MemoryGenerationResult, ...]] = {}
-        self._errors: dict[str, str] = {}
 
     async def execute(
         self,
-        payload: MemoryGenerationTaskSpec,
+        work: MemoryGenerationWork,
         context: WorkExecutionContext,
     ) -> MemoryGenerationExecutionResult:
-        # handler 已完成但通用状态确认发生模糊失败时，后续 attempt 直接复用
-        # 内存结果，不重复进入具有写入副作用的生成数据面。
-        cached = self._results.get(context.work_id)
+        """执行一次记忆生成尝试，并保存领域结果供 finalize 使用。"""
+
+        handle = self._handles[context.work_id]
+        handle._record_execution_started()
+        cached = handle._cached_execution_result
         if cached is not None:
+            # handler 已完成但通用状态确认发生模糊失败时，重试复用已生成结果，
+            # 避免再次进入具有写入副作用的数据面。
             return MemoryGenerationExecutionResult(
                 work_id=context.work_id,
                 result_count=len(cached),
             )
 
-        results = await self._execute_generation(payload)
+        results = await self._execute_generation(work.spec)
         if not isinstance(results, list) or not all(
             isinstance(result, MemoryGenerationResult) for result in results
         ):
             raise TypeError(
                 "memory generation handler must return MemoryGenerationResult list"
             )
-
-        self._results[context.work_id] = tuple(results)
-        self._errors.pop(context.work_id, None)
+        typed_results = tuple(results)
+        handle._record_execution_result(typed_results)
         return MemoryGenerationExecutionResult(
             work_id=context.work_id,
-            result_count=len(results),
+            result_count=len(typed_results),
         )
 
     def classify_failure(
@@ -199,7 +242,11 @@ class MemoryGenerationHandler(
         error: Exception,
         context: WorkExecutionContext,
     ) -> FailureDecision:
-        self._errors[context.work_id] = str(error) or type(error).__name__
+        """区分允许重试的临时故障与应立即失败的其他异常。"""
+
+        handle = self._handles.get(context.work_id)
+        if handle is not None:
+            handle._record_execution_error(error)
         if isinstance(
             error,
             (TimeoutError, ConnectionError, TransientMemoryGenerationError),
@@ -214,20 +261,14 @@ class MemoryGenerationHandler(
             reason="memory_generation_failed",
         )
 
-    def take_results(
-        self,
-        work_id: str,
-    ) -> tuple[MemoryGenerationResult, ...] | None:
-        """取出已确认成功 work 的领域结果。"""
-        return self._results.pop(work_id, None)
-
-    def take_error(self, work_id: str) -> str | None:
-        """取出终止 work 的原始错误文本，仅用于领域任务投影。"""
-        return self._errors.pop(work_id, None)
-
 
 class MemoryGenerationQueue:
-    """Patchouli memory generation lane 的轻量业务队列。"""
+    """Patchouli 的结构化记忆生成队列边界。
+
+    对外接收 ``MemoryGenerationWork``，在边界内部才转换为 ``WorkItem``；
+    类型化 handle 与执行结果仅服务当前进程，运行时状态仍统一来自
+    ``WorkRecord``。
+    """
 
     LANE = "patchouli.memory_generation"
 
@@ -240,11 +281,13 @@ class MemoryGenerationQueue:
         policy: QueuePolicy | None = None,
         retry_after_seconds: float = 0.05,
     ) -> None:
+        self._adapter = MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
-        self._codecs.register(MemoryGenerationTaskSpecCodec())
-
+        self._codecs.register(self._adapter)
+        self._handles: dict[str, MemoryGenerationHandle] = {}
         self._handler = MemoryGenerationHandler(
             execute_generation,
+            self._handles,
             retry_after_seconds=retry_after_seconds,
         )
         self._runtime = WorkQueueRuntime(
@@ -254,7 +297,7 @@ class MemoryGenerationQueue:
             worker_poll_interval_seconds=0.02,
             shutdown_wait_seconds=2.0,
         )
-        self._runtime.register_lane(
+        self._lane = self._runtime.register_lane(
             self.LANE,
             handler=self._handler,
             policy=policy
@@ -273,47 +316,63 @@ class MemoryGenerationQueue:
         return self._runtime
 
     @property
+    def terminal_retention(self) -> int:
+        return self._lane.policy.terminal_retention
+
+    @property
     def started(self) -> bool:
         return self._runtime.started
 
     async def start(self) -> None:
+        """幂等启动底层工作队列运行时。"""
+
         async with self._start_lock:
             if not self._runtime.started:
                 await self._runtime.start()
 
     async def stop(self) -> WorkQueueShutdownSummary:
+        """停止底层运行时并返回尚未完成的工作摘要。"""
+
         return await self._runtime.stop()
 
-    async def submit(
-        self,
-        task_id: str,
-        spec: MemoryGenerationTaskSpec,
-    ) -> WorkReceipt:
-        payload_bytes = self._codecs.encode(
-            MemoryGenerationTaskSpecCodec.kind,
-            MemoryGenerationTaskSpecCodec.schema_version,
-            spec,
-        )
-        item = WorkItem(
-            work_id=self.work_id_for(task_id),
-            lane=self.LANE,
-            kind=MemoryGenerationTaskSpecCodec.kind,
-            schema_version=MemoryGenerationTaskSpecCodec.schema_version,
-            payload=payload_bytes,
-            ordering_key=spec.topic_id,
-            correlation_id=spec.intent_id or spec.pending_alias or task_id,
-            idempotency_key=task_id,
-        )
-        return await self._runtime.enqueue(item)
+    async def submit(self, work: MemoryGenerationWork) -> MemoryGenerationHandle:
+        """接纳一个领域工作定义并返回类型化控制句柄。"""
 
-    async def get(self, work_id: str) -> WorkRecord | None:
+        item = adapt_queue_task(
+            work,
+            lane=self.LANE,
+            adapter=self._adapter,
+            codecs=self._codecs,
+        )
+        handle = MemoryGenerationHandle(
+            task=work,
+            task_id=work.task_id,
+            work_id=item.work_id,
+            queue=self._runtime,
+        )
+        # worker 可能在 enqueue 返回前取得工作，必须先注册 handle，确保 handler
+        # 总能找到用于记录进程内结果的目标。
+        self._handles[item.work_id] = handle
+        try:
+            await self._runtime.enqueue(item)
+        except BaseException:
+            self._handles.pop(item.work_id, None)
+            raise
+        return handle
+
+    def release(self, handle: MemoryGenerationHandle) -> None:
+        """保留任务被淘汰后，释放其进程内类型化结果数据。"""
+
+        self._handles.pop(handle.work_id, None)
+
+    async def get(self, work_id: str):
+        """读取底层 ``WorkRecord`` 快照。"""
+
         return await self._runtime.get(work_id)
 
-    async def wait(
-        self,
-        work_id: str,
-        timeout: float | None = None,
-    ) -> WorkRecord | None:
+    async def wait(self, work_id: str, timeout: float | None = None):
+        """等待底层工作进入终态。"""
+
         return await self._runtime.wait(work_id, timeout=timeout)
 
     async def cancel(
@@ -322,26 +381,24 @@ class MemoryGenerationQueue:
         *,
         reason: str = "user_requested",
     ) -> bool:
+        """向底层运行时请求取消指定工作。"""
+
         return await self._runtime.cancel(work_id, reason=reason)
-
-    def take_results(
-        self,
-        work_id: str,
-    ) -> tuple[MemoryGenerationResult, ...] | None:
-        return self._handler.take_results(work_id)
-
-    def take_error(self, work_id: str) -> str | None:
-        return self._handler.take_error(work_id)
 
     @staticmethod
     def work_id_for(task_id: str) -> str:
+        """生成记忆任务在通用运行时中的稳定工作标识。"""
+
         return f"memory_generation:{task_id}"
 
 
 __all__ = [
     "MemoryGenerationExecutionResult",
+    "MemoryGenerationHandle",
     "MemoryGenerationHandler",
     "MemoryGenerationQueue",
-    "MemoryGenerationTaskSpecCodec",
+    "MemoryGenerationResults",
+    "MemoryGenerationWorkAdapter",
+    "TaskOutcome",
     "TransientMemoryGenerationError",
 ]

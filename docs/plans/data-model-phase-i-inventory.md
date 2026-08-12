@@ -21,7 +21,7 @@ related_docs:
   - docs/plans/v0.6.1-local-work-queue-runtime.md
   - docs/architecture/data-model.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
-last_reviewed: 2026-08-07
+last_reviewed: 2026-08-12
 ---
 
 # Phase I 数据模型与边界清单
@@ -80,8 +80,8 @@ Phase I 的四项任务：
 2. **Memory 是当前最大可变聚合。** `MemoryAtom` 的 meta/index/payload/artifacts/relations 全部可变，多个写路径直接修改嵌套字段；Global/local route、retrieval response 和 Koakuma cache 都传播同一个可变类型，没有独立 read model。
 3. **PendingAtom 有清晰 Runtime 所有者，但原始引用仍会出境。** `PendingAtomRuntime.get()` / `all_atoms()` 返回内部实体，状态机只靠调用约定维持；`PendingAtomSnapshot` 与 `PendingAtomMaterializeTask` 已是良好投影。
 4. **Agent Run 使用“可变执行 PCB → 可变公共 DTO → 不可变 TurnRecord”的混合链。** `ExecutionFrame` / `ExecutionProgress` 的受控可变合理；问题在于 `AgentRunContext`、`AgentRunResult` 和 `InteractionPayload` 仍含可变 list、`Any`、`AgentProfile` 与 `MemoryAtom` 引用。
-5. **frozen 外壳不等于可靠队列载荷。** `SealedTurn` 包含可变 `InteractionPayload`；`PreparedAgentRun` 包含可变 `AgentRunContext` 和 dict；`MemoryGenerationTaskSpec` 包含可变 `GenerationRequest`；`MTPExecutionContext` 包含可变 `AgentProfile` 和 policy。它们都只能标为 `shallow frozen`。
-6. **HTTP 层大多已投影，主要风险集中在进程内总线和共享容器。** Memory、Topic、Task 的 REST response 都重新构造 DTO；Global/local bus、RuntimeEvent、Koakuma cache、PendingAtom store、Memory task registry 和 Chat run registry 则传递或返回内部可变对象。
+5. **frozen 外壳不等于可靠队列载荷。** `SealedTurn` 包含可变 `InteractionPayload`；`PreparedAgentRun` 包含可变 `AgentRunContext` 和 dict；`MemoryGenerationTaskSpec` 包含可变 `GenerationRequest`；`MTPExecutionContext` 包含可变 `AgentProfile` 和 policy。它们都只能标为 `shallow frozen`。Memory Generation 已在 Adapter 边界编码为 canonical bytes，避免被接纳后的 work 继续共享这些引用。
+6. **HTTP 层大多已投影，主要风险集中在进程内总线和共享容器。** Memory、Topic、Task 的 REST response 都重新构造 DTO；Global/local bus、RuntimeEvent、Koakuma cache、PendingAtom store 和 Chat run registry 则传递或返回内部可变对象。Memory task list/get 已改为只读领域快照。
 7. **当前高效 Topic/Turn 投影依赖共享不可变子对象。** 基准显示对整个对象图做深拷贝会比当前投影慢两个数量级，并产生显著额外内存；后续治理应继续采用“受控可变聚合 + 不可变成员共享 + 边界投影”，不应全局机械 deep-copy。
 8. **v0.6.1 Queue 不能直接持久化现有业务对象。** Work payload 必须是带 `kind/schema_version` 的规范化快照；不得保存 coroutine、task、lock、service、任意 `Any` 或可变领域实体引用。
 
@@ -126,7 +126,7 @@ Phase I 的四项任务：
 | `GenerationContext` / `GenerationRequest`（[models.py](../../src/hivememory/engines/generation/models.py#L97)） | Generation 内部执行 DTO；单 task | mutable | turns list、trace list、`existing_memory: Any` | Coordinator → Generation pipeline | 不可持久化；validator 还会原地回填 identity |
 | `TopicMaterializeTask`（[models.py](../../src/hivememory/engines/perception/models.py#L59)） | Perception → Generation task payload | mutable | blocks list | TriggerManager → Coordinator | 结算后跨异步边界；需规范化快照而非继续传播 list |
 | `MemoryGenerationTaskSpec`（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L73)） | Patchouli task spec | shallow frozen | `request: GenerationRequest` 可变且含 `Any` | Coordinator → 无语义写入者 | TaskController/未来 Queue；当前不能直接 JSON 持久化 |
-| `MemoryGenerationTask`（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L107)） | Domain runtime handle；task 生命周期 | controlled mutable，但 registry 返回原始引用 | `asyncio.Event`、`asyncio.Task`、状态/时间字段 | TaskController → TaskController/registry cancel | System/HTTP 读取后再投影；不可作为 WorkRecord 或持久化模型 |
+| `MemoryGenerationWork` / `MemoryGenerationTask`（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py)） | Queue-ready task definition / public domain snapshot | frozen；Work 在 Adapter 边界深编码，Task 是只读值快照 | Work 的 spec 仍是 shallow frozen，但接纳后不再共享；Task 仅值字段 | Coordinator/Controller → 无语义写入者 | WorkRecord 是唯一执行状态源；list/get/wait 每次返回新 Task 快照 |
 | wait result / summary（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L142)） | Task 查询快照 | deep immutable | summary 用 tuple 包含 frozen result | TaskController → 无写入者 | Application/HTTP；方向良好 |
 | `AgentRunContext`（[models.py](../../src/hivememory/core/protocol/models.py#L148)） | Patchouli → Alice 请求 DTO；单 run | mutable | RetrievalResponse、AgentProfile、generation option 外部另传 | Patchouli → 语义上无后续写入者 | Alice、PreparedAgentRun；携带可变 MemoryAtom/Profile 引用 |
 | `ExecutionFrame` / `RunSession`（[models.py](../../src/hivememory/agent_runtime/models.py#L41)） | Runtime State / PCB；单 run/frame | controlled mutable | history/progress/frame registry/call records | Alice orchestration → AgentRuntime/RunExecutor | 合理的请求内可变状态；禁止进入公共 DTO、cache 或持久化 payload |
@@ -215,9 +215,9 @@ Patchouli prepares AgentRunContext
 | Gateway process | frozen Gateway result | 良好 | 公共决策已投影且依赖中立 |
 | Topic list/get | tuple[`TopicSnapshot`] / `TopicData` | 良好 | 明确只读契约，Gateway 还做类型检查 |
 | Memory create/list/get/update/retrieve | `MemoryAtom` / list[`MemoryAtom`] / `RetrievalResponse` | 高风险 | 跨 System/Patchouli/Alice 传播 mutable aggregate 原始引用 |
-| Patchouli prepare/finalize | `PreparedAgentRun`、`AgentRunResult`、list[`MemoryGenerationTask`] | 高风险 | frozen 外壳或 mutable handle；没有统一 snapshot 边界 |
+| Patchouli prepare/finalize | `PreparedAgentRun`、`AgentRunResult`、list[`MemoryGenerationTask`] | 中高风险 | run DTO 仍含可变引用；MemoryGenerationTask 已是只读 admission 快照 |
 | Alice run | `AgentRunContext` → `AgentRunResult` | 中高风险 | 请求/结果均可变且包含 Memory/Profile 引用 |
-| Memory task list/get | mutable `MemoryGenerationTask` | 中风险 | HTTP 会投影，但其他 Global route 调用方可修改句柄 |
+| Memory task list/get | frozen `MemoryGenerationTask` | 良好 | Global/local/HTTP 调用方均只得到当前值快照；不会原地更新 |
 
 ### 5.3 Subsystem local routes
 
@@ -226,7 +226,7 @@ Patchouli prepares AgentRunContext
 | Patchouli ingestion | `InteractionPayload` | list 可变、无 interaction/schema version；是 Queue Q2 的直接前置缺口 |
 | Patchouli retrieval | `RetrievalRequest/Response`、`MemoryAtom` | 读结果和 cache 共享 mutable atom |
 | Patchouli generation | `TopicMaterializeTask`、`GenerationRequest/Outcome`、`MemoryGenerationTaskSpec` | list/`Any`/实体引用与 runtime handle 混合，不能直接持久化 |
-| Patchouli task control | `MemoryGenerationTask`、wait snapshot | 写侧 handle 可变；wait snapshot 良好 |
+| Patchouli task control | `MemoryGenerationWork`、typed `TaskHandle`、`MemoryGenerationTask` | WorkRecord 唯一状态源；typed handle 留在控制面；公开只读快照 |
 | Alice MTP/events | Focus、MaterializeTask、Settlement | Focus/Task 良好；Settlement 未冻结/未版本化 |
 
 ### 5.4 RuntimeEvent 与 event bus
@@ -248,10 +248,10 @@ RuntimeEvent 是观测事实，不是业务真相；即使后续冻结，也不�
 | `_PendingAtomStore` | mutable `PendingAtom` | `get/all_atoms` 返回原始引用 | 可绕过 Runtime 状态机 |
 | `AgentProfileCache` | mutable `AgentProfile` | 返回共享 profile 引用 | 私有 lazy set 和白名单 list 可跨 run 变化 |
 | `RuntimeEventBus` | mutable `RuntimeEvent` | replay/subscriber 收到同一对象 | 观测历史可被后续引用修改 |
-| `MemoryGenerationTaskRegistry` | mutable task + asyncio handle | list/get 返回原始引用 | 应由 WorkRecord snapshot 替代执行真相源 |
+| Memory task Controller entries | immutable work + typed handle + final snapshot | list/get 动态读取 WorkRecord | 已由 WorkRecord snapshot 替代执行真相源；entry 不再维护第二套状态机 |
 | `ChatGenerationRunRegistry` | mutable run + active asyncio task | get 返回原始引用 | 仅应由 Chat control 使用；未来查询需独立 snapshot |
 | `SealedTurn` | frozen 外壳 + mutable InteractionPayload | outbox 持同一 payload 引用 | seal 后内容仍可能变化 |
-| `MemoryGenerationTaskSpec` | frozen 外壳 + mutable GenerationRequest | runner 直接持引用 | enqueue 后外部修改可改变执行输入 |
+| `MemoryGenerationWork` | frozen 外壳 + mutable GenerationRequest | Queue Adapter 立即编码 canonical bytes | enqueue 后外部修改不再影响已接受 work；每次 attempt 重新 decode |
 | `MaintenanceTaskSpec/TaskRuntimeState` | mutable spec + callback + asyncio task | scheduler 内部持有 | 合法 scheduler runtime；不能升级为可持久化 WorkItem |
 
 ## 6. 复制性能基线
@@ -303,7 +303,7 @@ RuntimeEvent 是观测事实，不是业务真相；即使后续冻结，也不�
 3. **Memory Generation**
    - 不持久化 `MemoryGenerationTask`、`GenerationRequest.existing_memory: Any` 或 `asyncio.Event/Task`；
    - 把 task spec 拆成可序列化、版本化的业务输入和进程内 handler context；MemoryAtom 只传稳定 ref/id/version 或必要快照；
-   - `WorkRecord` 是执行状态真相源，`MemoryGenerationTask` 只做兼容领域投影。
+   - `WorkRecord` 是执行状态真相源，`MemoryGenerationTask` 只做只读领域快照。
 4. **RuntimeEvent**
    - 事件 payload 必须在 emit 时转成安全值快照；不得把 WorkRecord、MemoryAtom、InteractionPayload 或异常对象原始引用放进 `data`；
    - 冻结事件不会改变其 best-effort 观测定位。

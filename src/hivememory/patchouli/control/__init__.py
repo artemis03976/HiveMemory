@@ -1,4 +1,4 @@
-"""Patchouli control-plane components."""
+"""Patchouli 控制面组件。"""
 
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
@@ -19,9 +19,10 @@ from hivememory.patchouli.control.memory_generation_coordinator import (
 )
 from hivememory.patchouli.control.memory_generation_queue import (
     MemoryGenerationExecutionResult,
+    MemoryGenerationHandle,
     MemoryGenerationHandler,
     MemoryGenerationQueue,
-    MemoryGenerationTaskSpecCodec,
+    MemoryGenerationWorkAdapter,
     TransientMemoryGenerationError,
 )
 from hivememory.patchouli.control.memory_generation_tasks import (
@@ -41,9 +42,10 @@ __all__ = [
     "InteractionSubmissionResult",
     "MemoryGenerationCoordinator",
     "MemoryGenerationExecutionResult",
+    "MemoryGenerationHandle",
     "MemoryGenerationHandler",
     "MemoryGenerationQueue",
-    "MemoryGenerationTaskSpecCodec",
+    "MemoryGenerationWorkAdapter",
     "MemoryGenerationTaskController",
     "TransientMemoryGenerationError",
 ]
