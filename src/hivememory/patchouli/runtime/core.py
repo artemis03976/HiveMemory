@@ -56,10 +56,10 @@ from hivememory.system.runtime.operations import RuntimeOperationObserver
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkQueueShutdownSummary
 
 if TYPE_CHECKING:
+    from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-    from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
     from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
@@ -479,10 +479,12 @@ class PatchouliRuntime:
         当前注册：perception、retrieval、generation、generation_coordinator、lifecycle。
         MemoryGenerationTaskController 通过 local bus 请求生成执行，不再注入馆长本体。
         """
+        from hivememory.patchouli.control.memory_generation import (
+            MemoryGenerationCoordinator,
+            MemoryGenerationTaskController,
+        )
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-        from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
-        from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 

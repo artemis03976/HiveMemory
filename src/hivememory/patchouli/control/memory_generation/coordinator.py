@@ -1,4 +1,4 @@
-"""Patchouli memory generation entrypoint coordinator."""
+"""Patchouli 记忆生成任务的规范化与提交协调。"""
 
 from __future__ import annotations
 

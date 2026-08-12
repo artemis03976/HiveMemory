@@ -12,7 +12,10 @@ from typing import Any
 
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation_queue import (
+from hivememory.patchouli.control.memory_generation.events import (
+    MemoryTaskEventEmitter,
+)
+from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationHandle,
     MemoryGenerationQueue,
     MemoryGenerationResults,
@@ -25,10 +28,9 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTaskWaitResult,
     MemoryGenerationTaskWaitSummary,
     MemoryGenerationWork,
-    memory_task_to_payload,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
     TaskOutcome,
@@ -80,10 +82,11 @@ class MemoryGenerationTaskController:
         queue_policy: QueuePolicy | None = None,
     ) -> None:
         self._bus = bus
-        self._events = runtime_events or NullRuntimeEventSink()
+        event_sink = runtime_events or NullRuntimeEventSink()
+        self._task_events = MemoryTaskEventEmitter(RuntimeEventPublisher(event_sink))
         self._queue = memory_queue or MemoryGenerationQueue(
             self._execute_generation,
-            runtime_events=self._events,
+            runtime_events=event_sink,
             policy=queue_policy,
         )
 
@@ -120,11 +123,7 @@ class MemoryGenerationTaskController:
         entry = _MemoryTaskEntry(work=work, created=created)
         self._entries[work.task_id] = entry
 
-        self._emit_memory_task_event(
-            RuntimeEventType.MEMORY_TASK_CREATED,
-            created,
-            message="Memory generation task created.",
-        )
+        self._task_events.created(created)
 
         try:
             # Controller 也可独立用于测试与嵌入式调用，因此保留幂等懒启动；
@@ -257,130 +256,6 @@ class MemoryGenerationTaskController:
             )
         await self._publish_terminal(entry, snapshot)
         return snapshot
-
-    async def _publish_running_if_needed(
-        self,
-        entry: _MemoryTaskEntry,
-        outcome: TaskOutcome[MemoryGenerationResults],
-    ) -> None:
-        """在首次执行已经开始后至多发布一次运行中快照。"""
-
-        if entry.running_published or outcome.record.started_at is None:
-            return
-        entry.running_published = True
-        running = MemoryGenerationTask.from_outcome(
-            entry.created,
-            outcome,
-            expose_terminal=False,
-        )
-        await self._publish_memory_task_status(running)
-
-    async def _publish_terminal(
-        self,
-        entry: _MemoryTaskEntry,
-        snapshot: MemoryGenerationTask,
-    ) -> None:
-        """以 best-effort 方式发布领域终态及关联 PendingAtom 事件。"""
-
-        pending_alias = entry.work.pending_alias
-        if pending_alias is not None:
-            if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
-                await self._publish_best_effort(
-                    self._publish_pending_atom_cancelled(pending_alias),
-                    f"pending atom cancel publish failed: {pending_alias}",
-                )
-            elif snapshot.status == MemoryGenerationTaskStatus.FAILED:
-                await self._publish_best_effort(
-                    self._publish_pending_atom_failed(pending_alias),
-                    f"pending atom failed publish failed: {pending_alias}",
-                )
-        await self._publish_best_effort(
-            self._publish_memory_task_status(
-                snapshot,
-                reason=snapshot.cancel_reason,
-            ),
-            f"memory task terminal publish failed: {snapshot.task_id}",
-        )
-
-    async def _publish_settlements(
-        self,
-        results: list[MemoryGenerationResult],
-    ) -> None:
-        """发布主动链路的 ``PendingAtom`` settlement 事件。"""
-
-        for result in results:
-            if result.settlement is None:
-                continue
-            try:
-                await self._bus.publish(
-                    PatchouliLocalEvents.PENDING_ATOM_SETTLED,
-                    settlement=result.settlement,
-                )
-            except Exception as error:
-                logger.warning(
-                    "Settlement publish failed for %s: %s",
-                    result.settlement.pending_alias,
-                    error,
-                )
-                await self._publish_pending_atom_failed(
-                    result.settlement.pending_alias
-                )
-
-    async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
-        """发布主动链路 ``PendingAtom`` 取消事件。"""
-
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
-                pending_alias=pending_alias,
-            )
-        except Exception as error:
-            logger.warning("CANCELLED event publish error: %s", error)
-
-    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
-        """发布主动链路 ``PendingAtom`` 失败事件。"""
-
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                pending_alias=pending_alias,
-            )
-        except Exception as error:
-            logger.warning("FAILED event publish error: %s", error)
-
-    async def _publish_memory_task_status(
-        self,
-        snapshot: MemoryGenerationTask,
-        *,
-        reason: str | None = None,
-    ) -> None:
-        """向运行时事件流与本地总线发布任务状态快照。"""
-
-        self._emit_memory_task_event(
-            self._event_type_for_task_status(snapshot.status),
-            snapshot,
-            reason=reason,
-        )
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,
-                task_id=snapshot.task_id,
-                pending_alias=snapshot.pending_alias,
-                status=snapshot.status.value,
-                canonical_alias=snapshot.canonical_alias,
-            )
-        except Exception as error:
-            logger.warning("MEMORY_TASK_ITEM_STATUS publish error: %s", error)
-
-    async def _publish_best_effort(self, awaitable, warning: str) -> None:
-        """执行可观测副作用；失败只记录日志，不改变任务终态。"""
-
-        try:
-            await awaitable
-        except asyncio.CancelledError:
-            logger.warning(warning, exc_info=True)
-        except Exception:
-            logger.warning(warning, exc_info=True)
 
     async def get_task(self, task_id: str) -> MemoryGenerationTask | None:
         """按任务标识查询当前只读领域快照。"""
@@ -516,8 +391,7 @@ class MemoryGenerationTaskController:
                 if current_outcome is not None:
                     await self._publish_running_if_needed(entry, current_outcome)
                 snapshot = (await self._snapshot_entry(entry)).with_cancel_request(reason)
-                self._emit_memory_task_event(
-                    RuntimeEventType.MEMORY_TASK_CANCEL_REQUESTED,
+                self._task_events.cancel_requested(
                     snapshot,
                     reason=reason,
                 )
@@ -549,48 +423,124 @@ class MemoryGenerationTaskController:
             entry = self._entries.pop(task_id)
             if entry.handle is not None:
                 self._queue.release(entry.handle)
-
-    def _emit_memory_task_event(
+    
+        async def _publish_running_if_needed(
         self,
-        event_type: RuntimeEventType,
-        snapshot: MemoryGenerationTask,
-        *,
-        reason: str | None = None,
-        message: str | None = None,
+        entry: _MemoryTaskEntry,
+        outcome: TaskOutcome[MemoryGenerationResults],
     ) -> None:
-        """向统一运行时事件流发送稳定的任务快照。"""
+        """在首次执行已经开始后至多发布一次运行中快照。"""
 
-        self._events.emit(
-            RuntimeEvent(
-                event_type=event_type,
-                task_type="background",
-                task_id=snapshot.task_id,
-                topic_id=snapshot.topic_id,
-                status=snapshot.status.value,
-                reason=reason,
-                message=message,
-                severity=(
-                    "error"
-                    if event_type == RuntimeEventType.MEMORY_TASK_FAILED
-                    else "info"
-                ),
-                data=memory_task_to_payload(snapshot, reason=reason),
-            )
+        if entry.running_published or outcome.record.started_at is None:
+            return
+        entry.running_published = True
+        running = MemoryGenerationTask.from_outcome(
+            entry.created,
+            outcome,
+            expose_terminal=False,
+        )
+        self._task_events.running(running)
+        await self._publish_memory_task_item_status(running)
+
+    async def _publish_terminal(
+        self,
+        entry: _MemoryTaskEntry,
+        snapshot: MemoryGenerationTask,
+    ) -> None:
+        """以 best-effort 方式发布领域终态及关联 PendingAtom 事件。"""
+
+        pending_alias = entry.work.pending_alias
+        if pending_alias is not None:
+            if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
+                await self._publish_best_effort(
+                    self._publish_pending_atom_cancelled(pending_alias),
+                    f"pending atom cancel publish failed: {pending_alias}",
+                )
+            elif snapshot.status == MemoryGenerationTaskStatus.FAILED:
+                await self._publish_best_effort(
+                    self._publish_pending_atom_failed(pending_alias),
+                    f"pending atom failed publish failed: {pending_alias}",
+                )
+        self._task_events.terminal(
+            snapshot,
+            reason=snapshot.cancel_reason,
+        )
+        await self._publish_best_effort(
+            self._publish_memory_task_item_status(snapshot),
+            f"memory task terminal publish failed: {snapshot.task_id}",
         )
 
-    @staticmethod
-    def _event_type_for_task_status(
-        status: MemoryGenerationTaskStatus,
-    ) -> RuntimeEventType:
-        """把领域任务状态映射为运行时事件类型。"""
+    async def _publish_settlements(
+        self,
+        results: list[MemoryGenerationResult],
+    ) -> None:
+        """发布主动链路的 ``PendingAtom`` settlement 事件。"""
 
-        if status == MemoryGenerationTaskStatus.COMPLETED:
-            return RuntimeEventType.MEMORY_TASK_COMPLETED
-        if status == MemoryGenerationTaskStatus.CANCELLED:
-            return RuntimeEventType.MEMORY_TASK_CANCELLED
-        if status == MemoryGenerationTaskStatus.FAILED:
-            return RuntimeEventType.MEMORY_TASK_FAILED
-        return RuntimeEventType.MEMORY_TASK_STATUS
+        for result in results:
+            if result.settlement is None:
+                continue
+            try:
+                await self._bus.publish(
+                    PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+                    settlement=result.settlement,
+                )
+            except Exception as error:
+                logger.warning(
+                    "Settlement publish failed for %s: %s",
+                    result.settlement.pending_alias,
+                    error,
+                )
+                await self._publish_pending_atom_failed(
+                    result.settlement.pending_alias
+                )
 
+    async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
+        """发布主动链路 ``PendingAtom`` 取消事件。"""
+
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
+                pending_alias=pending_alias,
+            )
+        except Exception as error:
+            logger.warning("CANCELLED event publish error: %s", error)
+
+    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
+        """发布主动链路 ``PendingAtom`` 失败事件。"""
+
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.PENDING_ATOM_FAILED,
+                pending_alias=pending_alias,
+            )
+        except Exception as error:
+            logger.warning("FAILED event publish error: %s", error)
+
+    async def _publish_memory_task_item_status(
+        self,
+        snapshot: MemoryGenerationTask,
+    ) -> None:
+        """向 Patchouli 本地功能总线发布任务状态快照。"""
+
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.MEMORY_TASK_ITEM_STATUS,
+                task_id=snapshot.task_id,
+                pending_alias=snapshot.pending_alias,
+                status=snapshot.status.value,
+                canonical_alias=snapshot.canonical_alias,
+            )
+        except Exception as error:
+            logger.warning("MEMORY_TASK_ITEM_STATUS publish error: %s", error)
+
+    async def _publish_best_effort(self, awaitable, warning: str) -> None:
+        """执行可观测副作用；失败只记录日志，不改变任务终态。"""
+
+        try:
+            await awaitable
+        except asyncio.CancelledError:
+            logger.warning(warning, exc_info=True)
+        except Exception:
+            logger.warning(warning, exc_info=True)
 
 __all__ = ["MemoryGenerationTaskController"]

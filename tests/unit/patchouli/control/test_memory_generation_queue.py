@@ -21,11 +21,11 @@ from hivememory.core.models import (
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
-from hivememory.patchouli.control.memory_generation_queue import (
+from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationWorkAdapter,
     TransientMemoryGenerationError,
 )
-from hivememory.patchouli.control.memory_generation_tasks import (
+from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.runtime.memory_tasks import (

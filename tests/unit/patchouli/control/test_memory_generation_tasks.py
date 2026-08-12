@@ -10,7 +10,7 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation_tasks import (
+from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.runtime.memory_tasks import (

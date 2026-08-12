@@ -14,19 +14,16 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionReceipt,
     InteractionSubmissionResult,
 )
-from hivememory.patchouli.control.memory_generation_coordinator import (
+from hivememory.patchouli.control.memory_generation import (
     MemoryGenerationCoordinator,
-)
-from hivememory.patchouli.control.memory_generation_queue import (
     MemoryGenerationExecutionResult,
     MemoryGenerationHandle,
     MemoryGenerationHandler,
     MemoryGenerationQueue,
-    MemoryGenerationWorkAdapter,
-    TransientMemoryGenerationError,
-)
-from hivememory.patchouli.control.memory_generation_tasks import (
     MemoryGenerationTaskController,
+    MemoryGenerationWorkAdapter,
+    MemoryTaskEventEmitter,
+    TransientMemoryGenerationError,
 )
 
 __all__ = [
@@ -47,5 +44,6 @@ __all__ = [
     "MemoryGenerationQueue",
     "MemoryGenerationWorkAdapter",
     "MemoryGenerationTaskController",
+    "MemoryTaskEventEmitter",
     "TransientMemoryGenerationError",
 ]

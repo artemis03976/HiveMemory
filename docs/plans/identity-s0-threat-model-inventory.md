@@ -92,7 +92,7 @@ Phase S0 的四项任务：
 
 | # | 工作项（位置） | 身份输入 | 现状 |
 |:--|:--|:--|:--|
-| W1 | MemoryGenerationTask（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L72-L82)） | **无独立 identity 字段**；主动链路显式注入 `task.identity`（[coordinator.py](../../src/hivememory/patchouli/control/memory_generation_coordinator.py#L153-L180)）；被动链路从 `context.turns[0].identity` 回退，可退化为默认 Identity（[generation/models.py](../../src/hivememory/engines/generation/models.py#L130-L137)） | 缺失 |
+| W1 | MemoryGenerationTask（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L72-L82)） | **无独立 identity 字段**；主动链路显式注入 `task.identity`（[coordinator.py](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)）；被动链路从 `context.turns[0].identity` 回退，可退化为默认 Identity（[generation/models.py](../../src/hivememory/engines/generation/models.py#L130-L137)） | 缺失 |
 | W2 | Scheduler 任务（[async_scheduler.py](../../src/hivememory/system/runtime/scheduler/async_scheduler.py)） | **无身份概念**（spec 仅 owner/name/interval） | 缺失 |
 | W3 | Passive drain 后台提交（[passive_ingress_service.py](../../src/hivememory/system/application/passive_ingress_service.py#L90-L102)） | 靠 `InteractionPayload.identity`（buffer 构建时写入，[turn_buffer.py](../../src/hivememory/system/services/passive/turn_buffer.py#L272)） | 部分 |
 

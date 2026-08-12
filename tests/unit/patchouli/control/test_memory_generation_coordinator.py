@@ -21,7 +21,7 @@ from hivememory.core.models.pending import (
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation_coordinator import (
+from hivememory.patchouli.control.memory_generation.coordinator import (
     MemoryGenerationCoordinator,
 )
 from hivememory.patchouli.runtime.memory_tasks import (

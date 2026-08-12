@@ -19,10 +19,10 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFoc
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation_coordinator import (
+from hivememory.patchouli.control.memory_generation.coordinator import (
     MemoryGenerationCoordinator,
 )
-from hivememory.patchouli.control.memory_generation_tasks import (
+from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
