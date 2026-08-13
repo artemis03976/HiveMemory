@@ -100,6 +100,11 @@ Service 还直接负责创建 task、注册 `_active_finalization_done()` 与 `_
 
 ## P1：让 WorkStore 状态迁移返回权威 WorkRecord
 
+> 状态：已完成（2026-08-13）。`WorkStorePort` 的成功、重试、失败与 dead-letter
+> 迁移现在直接返回已提交的 `WorkRecord`，`cancel()` 返回 `WorkRecord | None`；
+> Runtime 已删除 `_latest_or()` 与迁移结果模拟分支，只使用 Store 返回记录发布事件。
+> 可复用 Store contract tests 覆盖成功/非法迁移、并发取消与终态重复操作。
+
 ### 问题与证据
 
 `WorkStorePort.mark_succeeded()`、`schedule_retry()`、`mark_failed()` 与 `mark_dead_lettered()` 当前只执行写入而不返回迁移结果。Runtime 随后通过 `_latest_or()` 再次读取 Store；若读取失败，则使用 `dataclasses.replace()` 在旧 record 上模拟新状态。

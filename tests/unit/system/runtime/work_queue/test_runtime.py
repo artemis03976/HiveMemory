@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -17,11 +19,13 @@ from hivememory.system.runtime.work_queue import (
     QueuePolicy,
     UnknownWorkPayloadCodecError,
     UnsupportedWorkQueueFeatureError,
+    WorkErrorSnapshot,
     WorkExecutionContext,
     WorkItem,
     WorkPayloadCodecRegistry,
     WorkQueueCapacityError,
     WorkQueueRuntime,
+    WorkRecord,
     WorkState,
     encode_canonical_json,
 )
@@ -127,6 +131,115 @@ class _RetryOnceHandler(_ImmediateHandler):
             retry_after_seconds=0,
             reason="transient",
         )
+
+
+class _AuthoritativeStore(InMemoryWorkStore):
+    """Injects store-owned values so Runtime cannot reproduce transitions itself."""
+
+    finished_at = datetime(2040, 1, 2, 3, 4, 5, tzinfo=UTC)
+    retry_at = datetime(2040, 2, 3, 4, 5, 6, tzinfo=UTC)
+    error = WorkErrorSnapshot(error_class="StoreError", message="store-reason")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.get_calls = 0
+        self.committed_records: dict[str, WorkRecord] = {}
+
+    async def get(self, work_id: str) -> WorkRecord | None:
+        self.get_calls += 1
+        return self.committed_records.get(work_id) or await super().get(work_id)
+
+    def committed(self, record: WorkRecord) -> WorkRecord:
+        self.committed_records[record.work_id] = record
+        return record
+
+    async def mark_succeeded(
+        self,
+        work_id: str,
+        result_ref: str | None = None,
+    ) -> WorkRecord:
+        record = await super().mark_succeeded(work_id, result_ref=result_ref)
+        return self.committed(
+            replace(
+                record,
+                attempt_count=37,
+                finished_at=self.finished_at,
+                result_ref="store-result",
+            )
+        )
+
+    async def schedule_retry(
+        self,
+        work_id: str,
+        *,
+        available_at: datetime,
+        error: WorkErrorSnapshot,
+    ) -> WorkRecord:
+        record = await super().schedule_retry(
+            work_id,
+            available_at=self.retry_at,
+            error=self.error,
+        )
+        return self.committed(replace(record, attempt_count=37))
+
+    async def mark_failed(
+        self,
+        work_id: str,
+        error: WorkErrorSnapshot,
+    ) -> WorkRecord:
+        record = await super().mark_failed(work_id, self.error)
+        return self.committed(
+            replace(record, attempt_count=37, finished_at=self.finished_at)
+        )
+
+    async def mark_dead_lettered(
+        self,
+        work_id: str,
+        error: WorkErrorSnapshot,
+    ) -> WorkRecord:
+        record = await super().mark_dead_lettered(work_id, self.error)
+        return self.committed(
+            replace(record, attempt_count=37, finished_at=self.finished_at)
+        )
+
+    async def cancel(self, work_id: str) -> WorkRecord | None:
+        record = await super().cancel(work_id)
+        if record is None:
+            return None
+        return self.committed(
+            replace(record, attempt_count=37, finished_at=self.finished_at)
+        )
+
+
+class _DecidingFailureHandler(_ImmediateHandler):
+    def __init__(self, action: FailureAction) -> None:
+        self.action = action
+
+    async def execute(self, payload: Any, context: WorkExecutionContext) -> None:
+        raise RuntimeError("raw runtime failure")
+
+    def classify_failure(
+        self,
+        error: Exception,
+        context: WorkExecutionContext,
+    ) -> FailureDecision:
+        return FailureDecision(
+            action=self.action,
+            retry_after_seconds=0 if self.action == FailureAction.RETRY else None,
+            reason="runtime-reason",
+        )
+
+
+async def _wait_for_event(
+    sink: RecordingRuntimeEventSink,
+    event_type: RuntimeEventType,
+) -> Any:
+    async with asyncio.timeout(1):
+        while True:
+            for event in sink.events:
+                if event.event_type == event_type:
+                    return event
+            await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
@@ -482,6 +595,100 @@ async def test_queued_cancellation_never_invokes_handler() -> None:
     assert record is not None and record.state == WorkState.CANCELLED
     assert handler.started.empty()
     await runtime.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler", "event_type", "expected_state"),
+    [
+        (_ImmediateHandler(), RuntimeEventType.WORK_SUCCEEDED, WorkState.SUCCEEDED),
+        (
+            _DecidingFailureHandler(FailureAction.RETRY),
+            RuntimeEventType.WORK_RETRY_SCHEDULED,
+            WorkState.RETRY_WAIT,
+        ),
+        (
+            _DecidingFailureHandler(FailureAction.FAIL),
+            RuntimeEventType.WORK_FAILED,
+            WorkState.FAILED,
+        ),
+        (
+            _DecidingFailureHandler(FailureAction.DEAD_LETTER),
+            RuntimeEventType.WORK_DEAD_LETTERED,
+            WorkState.DEAD_LETTER,
+        ),
+    ],
+)
+async def test_runtime_events_use_authoritative_transition_records_without_follow_up_get(
+    handler: _ImmediateHandler,
+    event_type: RuntimeEventType,
+    expected_state: WorkState,
+) -> None:
+    store = _AuthoritativeStore()
+    sink = RecordingRuntimeEventSink()
+    runtime = WorkQueueRuntime(
+        store=store,
+        payload_codecs=_TEST_PAYLOAD_CODECS,
+        runtime_events=sink,
+        worker_poll_interval_seconds=10,
+    )
+    runtime.register_lane(
+        "lane",
+        handler=handler,
+        policy=QueuePolicy(capacity=1, max_concurrency=1, max_attempts=0),
+    )
+    await runtime.enqueue(_item("work-1", lane="lane"))
+    await runtime.start()
+
+    event = await _wait_for_event(sink, event_type)
+
+    assert store.get_calls == 0
+    assert event.status == expected_state.value
+    assert event.data["state"] == expected_state.value
+    assert event.data["attempt_count"] == 37
+    if expected_state == WorkState.SUCCEEDED:
+        assert event.data["finished_at"] == store.finished_at.isoformat()
+        assert event.data["result_ref"] == "store-result"
+    elif expected_state == WorkState.RETRY_WAIT:
+        assert event.reason == store.error.message
+        assert event.data["error_class"] == store.error.error_class
+        assert event.data["available_at"] == store.retry_at.isoformat()
+        assert event.data["next_retry_at"] == store.retry_at.isoformat()
+    else:
+        assert event.reason == store.error.message
+        assert event.data["error_class"] == store.error.error_class
+        assert event.data["finished_at"] == store.finished_at.isoformat()
+    await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_queued_cancel_event_uses_authoritative_record_without_follow_up_get() -> None:
+    store = _AuthoritativeStore()
+    sink = RecordingRuntimeEventSink()
+    runtime = WorkQueueRuntime(
+        store=store,
+        payload_codecs=_TEST_PAYLOAD_CODECS,
+        runtime_events=sink,
+    )
+    runtime.register_lane(
+        "lane",
+        handler=_ImmediateHandler(),
+        policy=QueuePolicy(capacity=1, max_concurrency=1, cancellable=True),
+    )
+    await runtime.enqueue(_item("work-1", lane="lane"))
+    store.get_calls = 0
+
+    assert await runtime.cancel("work-1")
+
+    cancelled = next(
+        event for event in sink.events if event.event_type == RuntimeEventType.WORK_CANCELLED
+    )
+    # One read is required to locate the item and lane before cancellation; there is no
+    # transition-following read because cancel() itself returns the committed record.
+    assert store.get_calls == 1
+    assert cancelled.status == WorkState.CANCELLED.value
+    assert cancelled.data["attempt_count"] == 37
+    assert cancelled.data["finished_at"] == store.finished_at.isoformat()
 
 
 @pytest.mark.asyncio

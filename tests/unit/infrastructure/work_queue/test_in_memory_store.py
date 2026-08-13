@@ -18,6 +18,11 @@ from hivememory.system.runtime.work_queue import (
     WorkStateConflictError,
     encode_canonical_json,
 )
+from tests.unit.infrastructure.work_queue.work_store_contract import WorkStoreContract
+
+
+class TestInMemoryWorkStoreContract(WorkStoreContract):
+    store_factory = staticmethod(InMemoryWorkStore)
 
 
 def _item(work_id: str, *, key: str | None = None, lane: str = "lane") -> WorkItem:
@@ -38,8 +43,7 @@ async def test_enqueue_claim_and_terminal_transition() -> None:
 
     queued = await store.enqueue(_item("work-1"))
     claimed = await store.claim_ready("lane", limit=1, lease_seconds=30)
-    await store.mark_succeeded("work-1", result_ref="artifact-1")
-    terminal = await store.get("work-1")
+    terminal = await store.mark_succeeded("work-1", result_ref="artifact-1")
 
     assert queued.state == WorkState.QUEUED
     assert claimed[0].state == WorkState.RUNNING
@@ -85,11 +89,12 @@ async def test_same_key_retry_keeps_original_fifo_position() -> None:
     first_claim = await store.claim_ready("lane", limit=2, lease_seconds=30)
     assert [record.work_id for record in first_claim] == ["first"]
 
-    await store.schedule_retry(
+    retrying = await store.schedule_retry(
         "first",
         available_at=datetime.now(UTC),
         error=WorkErrorSnapshot(error_class="TransientError"),
     )
+    assert retrying.state == WorkState.RETRY_WAIT
     retry_claim = await store.claim_ready("lane", limit=2, lease_seconds=30)
     assert [record.work_id for record in retry_claim] == ["first"]
     assert retry_claim[0].attempt_count == 2

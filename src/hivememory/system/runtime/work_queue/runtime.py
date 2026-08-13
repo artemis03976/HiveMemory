@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -219,20 +219,14 @@ class WorkQueueRuntime:
                     )
                 return True
 
-        cancelled = await self._store.cancel(work_id)
-        if not cancelled:
+        cancelled_record = await self._store.cancel(work_id)
+        if cancelled_record is None:
             return False
         await self._emit_transition(
             RuntimeEventType.WORK_CANCEL_REQUESTED,
             binding=binding,
             record=record,
             reason=reason,
-        )
-        cancelled_record = await self._latest_or(
-            record,
-            state=WorkState.CANCELLED,
-            finished_at=datetime.now(UTC),
-            lease_until=None,
         )
         await self._emit_transition(
             RuntimeEventType.WORK_CANCELLED,
@@ -283,19 +277,14 @@ class WorkQueueRuntime:
                 return
 
             result_ref = self._result_ref(result)
-            await self._store.mark_succeeded(record.work_id, result_ref=result_ref)
-            succeeded = await self._latest_or(
-                record,
-                state=WorkState.SUCCEEDED,
-                finished_at=datetime.now(UTC),
-                lease_until=None,
+            succeeded = await self._store.mark_succeeded(
+                record.work_id,
                 result_ref=result_ref,
             )
             await self._emit_transition(
                 RuntimeEventType.WORK_SUCCEEDED,
                 binding=binding,
                 record=succeeded,
-                result_ref=result_ref,
             )
         except asyncio.CancelledError:
             await self._finish_cancelled(binding, record, cancellation)
@@ -319,18 +308,12 @@ class WorkQueueRuntime:
                 reason=reason,
             )
         cancelled = await self._store.cancel(record.work_id)
-        if not cancelled:
+        if cancelled is None:
             return
-        latest = await self._latest_or(
-            record,
-            state=WorkState.CANCELLED,
-            finished_at=datetime.now(UTC),
-            lease_until=None,
-        )
         await self._emit_transition(
             RuntimeEventType.WORK_CANCELLED,
             binding=binding,
-            record=latest,
+            record=cancelled,
             reason=reason,
         )
 
@@ -346,21 +329,15 @@ class WorkQueueRuntime:
             error_class=type(error).__name__,
             message="invalid_work_payload",
         )
-        await self._store.mark_dead_lettered(record.work_id, error_snapshot)
-        dead_lettered = await self._latest_or(
-            record,
-            state=WorkState.DEAD_LETTER,
-            finished_at=datetime.now(UTC),
-            lease_until=None,
-            last_error=error_snapshot,
+        dead_lettered = await self._store.mark_dead_lettered(
+            record.work_id,
+            error_snapshot,
         )
         await self._emit_transition(
             RuntimeEventType.WORK_DEAD_LETTERED,
             binding=binding,
             record=dead_lettered,
             severity="error",
-            reason=error_snapshot.message,
-            error_class=error_snapshot.error_class,
         )
 
     async def _handle_failure(
@@ -393,13 +370,7 @@ class WorkQueueRuntime:
         policy = binding.lane.policy
 
         if decision.action == FailureAction.TREAT_AS_SUCCESS:
-            await self._store.mark_succeeded(record.work_id)
-            succeeded = await self._latest_or(
-                record,
-                state=WorkState.SUCCEEDED,
-                finished_at=datetime.now(UTC),
-                lease_until=None,
-            )
+            succeeded = await self._store.mark_succeeded(record.work_id)
             await self._emit_transition(
                 RuntimeEventType.WORK_SUCCEEDED,
                 binding=binding,
@@ -415,65 +386,43 @@ class WorkQueueRuntime:
         )
         if decision.action == FailureAction.RETRY and not retry_exhausted:
             retry_at = datetime.now(UTC) + timedelta(seconds=decision.retry_after_seconds or 0.0)
-            await self._store.schedule_retry(
+            retrying = await self._store.schedule_retry(
                 record.work_id,
                 available_at=retry_at,
                 error=error_snapshot,
-            )
-            retrying = await self._latest_or(
-                record,
-                state=WorkState.RETRY_WAIT,
-                available_at=retry_at,
-                lease_until=None,
-                last_error=error_snapshot,
             )
             await self._emit_transition(
                 RuntimeEventType.WORK_RETRY_SCHEDULED,
                 binding=binding,
                 record=retrying,
                 severity="warning",
-                reason=decision.reason,
-                error_class=error_snapshot.error_class,
-                next_retry_at=retry_at,
             )
             return
 
         if decision.action == FailureAction.DEAD_LETTER or retry_exhausted:
             reason = "max_attempts_exhausted" if retry_exhausted else decision.reason
-            terminal_error = replace(error_snapshot, message=reason)
-            await self._store.mark_dead_lettered(record.work_id, terminal_error)
-            dead_lettered = await self._latest_or(
-                record,
-                state=WorkState.DEAD_LETTER,
-                finished_at=datetime.now(UTC),
-                lease_until=None,
-                last_error=terminal_error,
+            terminal_error = WorkErrorSnapshot(
+                error_class=error_snapshot.error_class,
+                message=reason,
+            )
+            dead_lettered = await self._store.mark_dead_lettered(
+                record.work_id,
+                terminal_error,
             )
             await self._emit_transition(
                 RuntimeEventType.WORK_DEAD_LETTERED,
                 binding=binding,
                 record=dead_lettered,
                 severity="error",
-                reason=reason,
-                error_class=terminal_error.error_class,
             )
             return
 
-        await self._store.mark_failed(record.work_id, error_snapshot)
-        failed = await self._latest_or(
-            record,
-            state=WorkState.FAILED,
-            finished_at=datetime.now(UTC),
-            lease_until=None,
-            last_error=error_snapshot,
-        )
+        failed = await self._store.mark_failed(record.work_id, error_snapshot)
         await self._emit_transition(
             RuntimeEventType.WORK_FAILED,
             binding=binding,
             record=failed,
             severity="error",
-            reason=decision.reason,
-            error_class=error_snapshot.error_class,
         )
 
     async def _emit_transition(
@@ -484,9 +433,6 @@ class WorkQueueRuntime:
         record: WorkRecord,
         severity: Severity = "info",
         reason: str | None = None,
-        error_class: str | None = None,
-        next_retry_at: datetime | None = None,
-        result_ref: str | None = None,
     ) -> None:
         try:
             snapshot = await self._store.snapshot(record.lane)
@@ -495,16 +441,11 @@ class WorkQueueRuntime:
         self._events.emit(
             event_type,
             item=record.item,
-            state=record.state,
-            attempt_count=record.attempt_count,
             record=record,
             policy=binding.lane.policy,
             snapshot=snapshot,
             severity=severity,
             reason=reason,
-            error_class=error_class,
-            next_retry_at=next_retry_at,
-            result_ref=result_ref,
         )
 
     async def _emit_rejected(
@@ -528,13 +469,6 @@ class WorkQueueRuntime:
             severity="warning",
             reason=reason,
         )
-
-    async def _latest_or(
-        self,
-        record: WorkRecord,
-        **updates: Any,
-    ) -> WorkRecord:
-        return await self._store.get(record.work_id) or replace(record, **updates)
 
     @staticmethod
     def _result_ref(result: Any) -> str | None:

@@ -125,8 +125,8 @@ class InMemoryWorkStore:
         self,
         work_id: str,
         result_ref: str | None = None,
-    ) -> None:
-        await self._mark_terminal(
+    ) -> WorkRecord:
+        return await self._mark_terminal(
             work_id,
             state=WorkState.SUCCEEDED,
             result_ref=result_ref,
@@ -138,29 +138,31 @@ class InMemoryWorkStore:
         *,
         available_at: datetime,
         error: WorkErrorSnapshot,
-    ) -> None:
+    ) -> WorkRecord:
         if available_at.tzinfo is None:
             raise ValueError("available_at must be timezone-aware")
 
         async with self._condition:
             lane, current = self._record_with_lane(work_id)
             self._require_transition(current, WorkState.RETRY_WAIT)
-            self._records[work_id] = replace(
+            retrying = replace(
                 current,
                 state=WorkState.RETRY_WAIT,
                 available_at=available_at,
                 lease_until=None,
                 last_error=error,
             )
+            self._records[work_id] = retrying
             self._condition.notify_all()
             self._prune_terminal(lane)
+            return retrying
 
     async def mark_failed(
         self,
         work_id: str,
         error: WorkErrorSnapshot,
-    ) -> None:
-        await self._mark_terminal(
+    ) -> WorkRecord:
+        return await self._mark_terminal(
             work_id,
             state=WorkState.FAILED,
             error=error,
@@ -170,37 +172,38 @@ class InMemoryWorkStore:
         self,
         work_id: str,
         error: WorkErrorSnapshot,
-    ) -> None:
-        await self._mark_terminal(
+    ) -> WorkRecord:
+        return await self._mark_terminal(
             work_id,
             state=WorkState.DEAD_LETTER,
             error=error,
         )
 
-    async def cancel(self, work_id: str) -> bool:
-        """幂等取消非终态工作；已取消记录再次调用仍返回 True。"""
+    async def cancel(self, work_id: str) -> WorkRecord | None:
+        """幂等取消非终态工作；返回已提交的取消记录或未接纳标记。"""
 
         async with self._condition:
             current = self._records.get(work_id)
             if current is None:
-                return False
+                return None
             if current.state == WorkState.CANCELLED:
-                return True
+                return current
             if current.state in TERMINAL_WORK_STATES:
-                return False
+                return None
 
             lane = self._lane_for(current.lane)
             self._require_transition(current, WorkState.CANCELLED)
-            self._records[work_id] = replace(
+            cancelled = replace(
                 current,
                 state=WorkState.CANCELLED,
                 finished_at=datetime.now(UTC),
                 lease_until=None,
             )
+            self._records[work_id] = cancelled
             lane.terminal_ids.append(work_id)
             self._prune_terminal(lane)
             self._condition.notify_all()
-            return True
+            return cancelled
 
     async def get(self, work_id: str) -> WorkRecord | None:
         async with self._condition:
@@ -281,11 +284,11 @@ class InMemoryWorkStore:
         state: WorkState,
         error: WorkErrorSnapshot | None = None,
         result_ref: str | None = None,
-    ) -> None:
+    ) -> WorkRecord:
         async with self._condition:
             lane, current = self._record_with_lane(work_id)
             self._require_transition(current, state)
-            self._records[work_id] = replace(
+            terminal = replace(
                 current,
                 state=state,
                 finished_at=datetime.now(UTC),
@@ -293,9 +296,11 @@ class InMemoryWorkStore:
                 last_error=error,
                 result_ref=result_ref,
             )
+            self._records[work_id] = terminal
             lane.terminal_ids.append(work_id)
             self._prune_terminal(lane)
             self._condition.notify_all()
+            return terminal
 
     def _claimable_work_ids(
         self,

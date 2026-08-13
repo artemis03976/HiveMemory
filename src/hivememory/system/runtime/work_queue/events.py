@@ -48,17 +48,23 @@ class WorkQueueEventEmitter:
         event_type: RuntimeEventType,
         *,
         item: WorkItem,
-        state: WorkState | None = None,
-        attempt_count: int = 0,
         record: WorkRecord | None = None,
         policy: QueuePolicy | None = None,
         snapshot: WorkLaneSnapshot | None = None,
         severity: Severity = "info",
         reason: str | None = None,
-        error_class: str | None = None,
-        next_retry_at: datetime | None = None,
-        result_ref: str | None = None,
     ) -> None:
+        state = record.state if record is not None else None
+        attempt_count = record.attempt_count if record is not None else 0
+        error_class = (
+            record.last_error.error_class
+            if record is not None and record.last_error is not None
+            else None
+        )
+        next_retry_at = (
+            record.available_at if record is not None and state == WorkState.RETRY_WAIT else None
+        )
+        result_ref = record.result_ref if record is not None else None
         now = datetime.now(record.enqueued_at.tzinfo) if record is not None else None
         data: dict[str, object] = {
             "work_id": item.work_id,
@@ -75,6 +81,21 @@ class WorkQueueEventEmitter:
             "result_ref": result_ref,
         }
         if record is not None:
+            data.update(
+                {
+                    "enqueued_at": record.enqueued_at.isoformat(),
+                    "available_at": record.available_at.isoformat(),
+                    "started_at": (
+                        record.started_at.isoformat() if record.started_at is not None else None
+                    ),
+                    "finished_at": (
+                        record.finished_at.isoformat() if record.finished_at is not None else None
+                    ),
+                    "lease_until": (
+                        record.lease_until.isoformat() if record.lease_until is not None else None
+                    ),
+                }
+            )
             data["queue_latency_ms"] = _duration_ms(record.enqueued_at, record.started_at)
             if record.finished_at is not None:
                 data["execution_latency_ms"] = _duration_ms(
@@ -103,7 +124,15 @@ class WorkQueueEventEmitter:
             event_type,
             status=state.value if state is not None else None,
             severity=severity,
-            reason=reason,
+            reason=(
+                reason
+                if reason is not None
+                else (
+                    record.last_error.message
+                    if record is not None and record.last_error is not None
+                    else None
+                )
+            ),
             data={key: value for key, value in data.items() if value is not None},
         )
 
