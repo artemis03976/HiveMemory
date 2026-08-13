@@ -1,6 +1,6 @@
 ---
 title: RuntimeEvent 生产端发布抽象重构
-status: planned
+status: archived
 owner: system
 scope: runtime-event-producer-abstractions
 code_paths:
@@ -12,7 +12,12 @@ code_paths:
 related_contracts:
   - docs/system/observability.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-03
+last_reviewed: 2026-08-13
+archived_at: 2026-08-13
+superseded_by:
+  - docs/system/observability.md
+  - docs/contracts/routes-and-events.md
+  - docs/todo/runtime-event-producer-migration.md
 ---
 
 # RuntimeEvent 生产端发布抽象重构
@@ -21,7 +26,9 @@ last_reviewed: 2026-08-03
 
 本文档描述 HiveMemory `RuntimeEvent` 生产端的发布抽象重构方案，重点解决事件构造与发布逻辑侵入业务主流程、不同生产域重复实现 `_emit_*`、payload 缺少类型约束等问题。
 
-本文档是 [System 可观测性](../system/observability.md)当前设计之上的生产端重构计划。它沿用 v0.4.0 已经落地的 RuntimeEvent 体系，但不把下列“已生效的不变量”与本计划尚未实现的 Publisher/Emitter 代码混为一谈：
+> 本文已归档，只保存 RuntimeEvent 生产端抽象的设计演进。当前规范见 [System 可观测性](../../system/observability.md)和[公开路由与事件](../../contracts/routes-and-events.md)，未完成迁移见 [RuntimeEvent 生产端迁移后续](../../todo/runtime-event-producer-migration.md)。
+
+本文档是 [System 可观测性](../../system/observability.md)当前设计之上的历史生产端重构稿。它沿用 v0.4.0 已经落地的 RuntimeEvent 体系，但不把下列“已生效的不变量”与当时尚未实现的 Publisher/Emitter 代码混为一谈：
 
 - `RuntimeEvent` 是稳定的可观测性事实，不驱动业务状态推进。
 - `RuntimeEventBus` 是独立的 best-effort 观测总线，不复用功能总线。

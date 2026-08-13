@@ -3,7 +3,7 @@ title: HiveMemory Vision
 status: current
 owner: project
 scope: project-vision-positioning-and-decision-principles
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-13
 ---
 
 # HiveMemory 项目愿景与新定位总纲
@@ -783,9 +783,9 @@ HiveMemory 更关心数天、数周甚至更长时间内的状态一致性、修
 
 ---
 
-## 19. 未来文档体系的重构原则
+## 19. 文档体系的组织原则
 
-以本愿景为上位依据，未来文档可按以下层级重新组织：
+以本愿景为上位依据，项目文档按以下层级组织：
 
 | 文档层级 | 回答的问题 | 建议载体 |
 |:---|:---|:---|
@@ -795,7 +795,9 @@ HiveMemory 更关心数天、数周甚至更长时间内的状态一致性、修
 | Architecture | 当前系统如何划分、边界是什么 | `docs/architecture/` |
 | Protocol & Contract | 子系统如何稳定交互 | `docs/contracts/` |
 | Roadmap | 接下来验证什么、按什么顺序 | `docs/ROADMAP.md` |
-| Implementation Design | 某次实现或重构如何落地 | `docs/plans/`；完成后进入 `docs/archive/` |
+| Governance | 跨版本必须达到什么质量门槛 | `docs/governance/` |
+| Baseline | 治理判断建立在哪个时间点的调查证据上 | `docs/governance/baselines/` |
+| Implementation Plan | 已绑定版本或里程碑的实现、重构如何落地 | `docs/plans/`；完成后进入 `docs/archive/plans/` |
 | Evidence | 实验、指标、用户反馈证明了什么 | 应用验收与评估报告 |
 
 后续重构时应遵循：
@@ -804,6 +806,9 @@ HiveMemory 更关心数天、数周甚至更长时间内的状态一致性、修
 - PROJECT 解释当前系统，不再混合大量过期未来构想。
 - VISION 保留长期方向，但明确能力状态。
 - Architecture 记录已经收敛的边界，不承担产品宣传。
+- Governance 维护跨版本质量门槛，不替代当前设计、契约或 ADR。
+- Baseline 作为特定时间点的调查证据冻结，不冒充持续更新的系统事实。
+- Plans 只承接已经绑定版本或里程碑、能够独立实施和验收的工作。
 - Roadmap 由验证假设驱动，不按功能数量堆叠。
 - Ideas 文档可以大胆探索，但不能自动升级为项目承诺。
 

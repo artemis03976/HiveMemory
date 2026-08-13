@@ -19,7 +19,7 @@ last_reviewed: 2026-08-08
 
 Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 harness、Bot 或工具链中发生的 user、assistant、tool call 和 tool result 事件，为 user 事件准备可选的记忆上下文，并在 turn 结束后把完整交互移交 Patchouli 的 `InteractionSubmissionQueue`。
 
-它不是第二套 active chat，也不会触发命令、Alice 或 MTP。Active `finalize_agent_run()` 目前仍保持原同步链路，不在本阶段迁移。
+它不是第二套 active chat，也不会触发命令、Alice 或 MTP。Active `finalize_agent_run()` 同样通过共享 `InteractionSubmissionQueue` 提交，并由自己的 applied gate 决定最终成功；两条链路只共享 submission adapter，不共享入口时序或领域成功条件。
 
 ## 1. 外部事件与会话身份
 

@@ -134,7 +134,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 ### 4.1 `RuntimeEventPublishingRefactorDesign.md`
 
-**分类与动作：** 尚未实现且范围/验收完整，迁移为当前 [RuntimeEvent 生产端发布抽象重构 Plan](../../plans/runtime-event-publishing-refactor.md)，不进入 Archive implementation。
+**分类与动作（后续更新）：** 当时曾迁移为 RuntimeEvent 生产端重构 Plan；随着 Publisher/Alice/Memory emitter 部分落地，当前规范已由 System/Contracts 承接，剩余工作缩减为 [Todo](../../todo/runtime-event-producer-migration.md)，原完整设计现已[归档](./runtime-event-publishing-refactor.md)。
 
 **当前承接与缺口：** [System 可观测性](../../system/observability.md)已经承接 RuntimeEvent 是 best-effort 旁路、单一顶层扁平流、scope、payload 摘要和 observer 不驱动业务等稳定不变量；但 `RuntimeEventPublisher`、不可变 bind context、全域领域 emitter 与关键 payload 类型化并不存在。代码仍保留 `ChatApplicationService._emit_chat_event()`、`GatewayWorkflow._emit()`、`AliceRuntime._emit_agent_event()`、`MemoryGenerationTaskController._emit_memory_task_event()`、Scheduler/System lifecycle 私有发布方法。
 
@@ -196,7 +196,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 ### 5.1 `V0.6.0CompositeIntentDecompositionDesign.md`
 
-**分类与动作：** 迁移为[复合意图分解 Plan](../../plans/composite-intent-decomposition.md)；该计划后续已移出 v0.6.0 范围并标记为未排期。
+**分类与动作（后续更新）：** 当时曾迁移为复合意图分解 Plan；由于缺少版本承诺与证据门禁，现归类为[复合意图分解 Idea](../../ideas/composite-intent-decomposition.md)。
 
 **当前差距：** 代码只有公共 `IntentType.COMPOSITE` 和 Engine 私有 `sub_intents`；Resolver 不提交 sub-intents，workflow 没有 `CompositeGatewayDecision`、branch execution、merge/fallback policy 或旧稿设想的 `CompositePlaceholder`。迁移时已删除这些占位字段“已经实现”的错误口径，并新增样本/指标门禁 Phase C0。
 
@@ -223,10 +223,10 @@ docs/mod/{15 completed or superseded records}
   -> docs/archive/plans/implementation/
 
 docs/mod/RuntimeEventPublishingRefactorDesign.md
-  -> docs/plans/runtime-event-publishing-refactor.md
+  -> docs/archive/plans/runtime-event-publishing-refactor.md
 
 docs/mod/V0.6.0CompositeIntentDecompositionDesign.md
-  -> docs/plans/composite-intent-decomposition.md
+  -> docs/ideas/composite-intent-decomposition.md
 
 docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md
   -> docs/plans/v0.6.1-local-work-queue-runtime.md

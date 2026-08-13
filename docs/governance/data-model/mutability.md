@@ -1,8 +1,7 @@
 ---
 title: Data Model Mutability Governance
-status: planned
+status: governance
 owner: project
-target: unscheduled
 scope: model-classification-ownership-deep-immutability-and-boundary-projection
 updates:
   - docs/architecture/data-model.md
@@ -11,14 +10,14 @@ updates:
   - docs/patchouli/memory-library.md
   - docs/alice/pending-atom.md
 related_docs:
-  - docs/plans/data-model-phase-i-inventory.md
-  - docs/plans/durability-d0-state-inventory.md
-  - docs/plans/idempotency-i0-operations-inventory.md
-  - docs/plans/identity-s0-threat-model-inventory.md
+  - docs/governance/baselines/data-model-phase-i-inventory.md
+  - docs/governance/baselines/durability-d0-state-inventory.md
+  - docs/governance/baselines/idempotency-i0-operations-inventory.md
+  - docs/governance/baselines/identity-s0-threat-model-inventory.md
 last_reviewed: 2026-08-07
 ---
 
-# 数据模型可变性治理计划
+# 数据模型可变性治理
 
 ## 1. 背景
 
@@ -26,7 +25,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 
 问题不在于 copy-on-write 或可变对象本身，而在于调用方必须靠阅读实现猜测：谁可以写、嵌套引用是否仍可修改、何时生成稳定快照，以及一个 public route 是否把内部实体泄漏给了另一个所有者。
 
-本计划把这些隐含约定收敛为可验证的项目级规则。整体治理仍未排入具体版本；其中 Phase I 已作为 v0.6.1 Queue 的轻量前置门槛完成调研，交付物见[Phase I 数据模型与边界清单](./data-model-phase-i-inventory.md)。该清单完成不代表 Phase II-VI 已实现。
+本文把这些隐含约定收敛为可验证的项目级规则。整体治理不绑定单一版本；其中 Phase I 已作为 v0.6.1 Queue 的轻量前置门槛完成调研，交付物见[Phase I 数据模型与边界清单](../baselines/data-model-phase-i-inventory.md)。该清单完成不代表 Phase II-VI 已实现，后续切片只有在绑定版本和验收出口后才形成独立 Plan。
 
 ## 2. 目标
 
@@ -55,11 +54,11 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 6. `model_copy(update=...)` 的业务使用缺少统一验证边界；
 7. 测试尚未系统覆盖实体引用泄漏、快照脱钩和嵌套可变字段。
 
-## 5. 实施阶段
+## 5. 未排期治理工作包
 
 ### Phase I：模型与边界清单
 
-**状态：已完成现状调研与清单冻结（2026-08-07）**。交付物见[Phase I 数据模型与边界清单](./data-model-phase-i-inventory.md)。
+**状态：已完成现状调研与清单冻结（2026-08-07）**。交付物见[Phase I 数据模型与边界清单](../baselines/data-model-phase-i-inventory.md)。
 
 - 建立模型矩阵：定义位置、角色、冻结等级、嵌套可变字段、创建者、写入者、消费者；
 - 记录 public/local route、RuntimeEvent、缓存和任务边界承载的模型；
@@ -111,7 +110,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 - 为新模型增加角色/所有权评审项；
 - 在关键边界加入自动化测试或静态检查；
 - 根据实际复制成本优化热点，但不得破坏所有权；
-- 回写当前设计文档，并将本计划归档为实施记录。
+- 回写当前设计文档，并将对应的版本 Plan 归档为实施记录。
 
 ## 6. 迁移与兼容策略
 
@@ -121,7 +120,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 - Memory/Pending 状态迁移必须保留现有持久化数据兼容与失败恢复路径；
 - 性能优化以基线为依据，不为了减少复制重新传播内部实体引用。
 
-## 7. 验收标准
+## 7. 治理成熟度目标
 
 - 主要业务模型均有可查询的角色、冻结等级和唯一写入者记录；
 - public routes 不返回 Store/Repository/Runtime 的内部可变实体；
@@ -129,7 +128,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 - Topic、Memory、PendingAtom 快照在源对象变化后保持不变；
 - 有业务语义的状态迁移不再依赖散落的裸字段写入；
 - Retrieval/Agent Run 等公共 DTO 的可变例外有明确所有者和生命周期；
-- 当前文档与 ADR 已按最终实现更新，本计划转为 `completed` 并归档。
+- 当前文档与 ADR 已按最终实现更新；对应版本 Plan 转为 `completed` 并归档，本文只更新成熟度状态。
 
 ## 8. 风险与待决问题
 
@@ -139,4 +138,4 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 - 流式执行天然需要累积状态，错误地追求 deep immutable 可能制造大量无意义复制；
 - persistence model 与 domain model 是否分离，需要根据现有 Qdrant 映射复杂度决定。
 
-相关当前设计见[数据模型与可变性边界](../architecture/data-model.md)，长期裁定见[ADR-0001](../architecture/decisions/0001-data-model-mutability-and-boundary-projection.md)。
+相关当前设计见[数据模型与可变性边界](../../architecture/data-model.md)，长期裁定见[ADR-0001](../../architecture/decisions/0001-data-model-mutability-and-boundary-projection.md)。

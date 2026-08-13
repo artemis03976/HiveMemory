@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-08-05
+last_reviewed: 2026-08-13
 ---
 
 # Archived Plans
@@ -15,6 +15,7 @@ last_reviewed: 2026-08-05
 - [Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md)：已完成的 phase task 控制、Gateway/Alice 原生 task cancellation、prepare 延迟响应、finalize 门禁，以及 SSE/Worker/unwind 清理加固；当前事实见 `docs/system/application-services.md`、`docs/system/runtime-and-bus.md`、`docs/gateway/`、`docs/alice/` 与 `docs/contracts/`。
 - [Alice 父子 Agent 进程调度流程收口](./alice-parent-child-run-scheduler.md)：已完成的 run-local RunScheduler、统一 root/callee 活动 frame 循环、CALL begin/complete、取消/异常收口与编排兼容层删除；当前事实见 `docs/alice/` 与 `docs/contracts/mtp.md`。
 - [Alice Agent Runtime 控制流重构](./alice-agent-runtime-control-flow-refactor.md)：已完成的单 frame runtime、run-local 编排、CALL transaction 与 PendingAtom 生命周期收口；当前事实见 `docs/alice/`。
+- [RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)：部分基础设施与领域 emitter 已落地，当前规范由 System/Contracts 承接，剩余生产端接驳已缩减为 Todo；原大重构稿不再作为当前 Plan。
 
 - [文档体系迁移清单](./documentation-migration-inventory.md)：文档重构各批次的原始范围、分类、迁移动作与最终完成记录。
 - [文档迁移逐篇审计：清单第 4～6 节](./documentation-migration-audit-sections-4-6.md)：顶层治理、Architecture、System/Contracts/i18n 的承接与物理迁移记录。
@@ -25,4 +26,4 @@ last_reviewed: 2026-08-05
 - [文档迁移最终收口审计](./documentation-migration-finalization-audit.md)：Ideas、残余 README、旧 `archive/mod/` 分类、索引与全库门禁的最终结论。
 - [历史实施计划索引](./implementation/README.md)：从原 `docs/mod/` 迁入的已完成或被替代实施稿。
 
-原 `docs/mod/` 已完成迁移：仍有效的三篇计划进入 `docs/plans/`，其余十五篇进入 `implementation/`；迁移前已经位于 `archive/mod/` 的生命周期实施稿也已并入该目录。归档稿只保留演化证据，当前事实仍从项目与子系统索引进入。
+原 `docs/mod/` 已完成迁移：当前仍在实施的 Local Work Queue 保留于 `docs/plans/`；复合意图分解已降级为 Idea；RuntimeEvent 生产端大重构稿在部分落地并拆分当前规范/Todo 后进入本目录；其余十五篇进入 `implementation/`。归档稿只保留演化证据，当前事实仍从项目与子系统索引进入。

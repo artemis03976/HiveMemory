@@ -1,6 +1,6 @@
 ---
 title: Data Model Mutability Phase I Inventory
-status: current
+status: baseline
 owner: project
 scope: model-role-ownership-boundary-and-copy-baseline-inventory
 code_paths:
@@ -14,19 +14,20 @@ code_paths:
   - src/hivememory/alice/
   - src/hivememory/server/models/
 related_docs:
-  - docs/plans/data-model-mutability-governance.md
-  - docs/plans/durability-d0-state-inventory.md
-  - docs/plans/idempotency-i0-operations-inventory.md
-  - docs/plans/identity-s0-threat-model-inventory.md
+  - docs/governance/data-model/mutability.md
+  - docs/governance/baselines/durability-d0-state-inventory.md
+  - docs/governance/baselines/idempotency-i0-operations-inventory.md
+  - docs/governance/baselines/identity-s0-threat-model-inventory.md
   - docs/plans/v0.6.1-local-work-queue-runtime.md
   - docs/architecture/data-model.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
 last_reviewed: 2026-08-12
+snapshot_at: 2026-08-12
 ---
 
 # Phase I 数据模型与边界清单
 
-本文是[数据模型可变性治理计划](./data-model-mutability-governance.md) **Phase I** 的交付物。Phase I 不修改模型实现，而是冻结当前模型角色、生命周期、冻结深度、所有权和传播边界，并为后续治理建立复制性能基线。
+本文是[数据模型可变性治理](../data-model/mutability.md) **Phase I** 的冻结基线。Phase I 不修改模型实现，而是记录截至 `snapshot_at` 的模型角色、生命周期、冻结深度、所有权和传播边界，并为后续治理保存复制性能基线。最新系统事实仍以当前设计和代码为准。
 
 本清单与另外三项 v0.6.1 前置清单分工如下：
 
@@ -72,7 +73,7 @@ Phase I 的四项任务：
 - 检查 Pydantic `ConfigDict`、dataclass frozen 标记、list/dict/`Any` 字段和 `model_copy(update=...)`；
 - 检查 store/cache/registry 返回的是 snapshot、投影还是内部原始引用；
 - 检查 Global/local route bindings、HTTP response mapper、RuntimeEvent ring buffer 和后台 task spec；
-- 使用 [benchmark_data_model_phase_i.py](../../scripts/benchmark_data_model_phase_i.py) 对当前投影、完整深拷贝和候选队列序列化进行本地基准测试。
+- 使用 [benchmark_data_model_phase_i.py](../../../scripts/benchmark_data_model_phase_i.py) 对当前投影、完整深拷贝和候选队列序列化进行本地基准测试。
 
 ## 2. 全局结论摘要
 
@@ -80,7 +81,7 @@ Phase I 的四项任务：
 2. **Memory 是当前最大可变聚合。** `MemoryAtom` 的 meta/index/payload/artifacts/relations 全部可变，多个写路径直接修改嵌套字段；Global/local route、retrieval response 和 Koakuma cache 都传播同一个可变类型，没有独立 read model。
 3. **PendingAtom 有清晰 Runtime 所有者，但原始引用仍会出境。** `PendingAtomRuntime.get()` / `all_atoms()` 返回内部实体，状态机只靠调用约定维持；`PendingAtomSnapshot` 与 `PendingAtomMaterializeTask` 已是良好投影。
 4. **Agent Run 使用“可变执行 PCB → 可变公共 DTO → 不可变 TurnRecord”的混合链。** `ExecutionFrame` / `ExecutionProgress` 的受控可变合理；问题在于 `AgentRunContext`、`AgentRunResult` 和 `InteractionPayload` 仍含可变 list、`Any`、`AgentProfile` 与 `MemoryAtom` 引用。
-5. **frozen 外壳不等于可靠队列载荷。** `SealedTurn` 包含可变 `InteractionPayload`；`PreparedAgentRun` 包含可变 `AgentRunContext` 和 dict；`MemoryGenerationTaskSpec` 包含可变 `GenerationRequest`；`MTPExecutionContext` 包含可变 `AgentProfile` 和 policy。它们都只能标为 `shallow frozen`。Memory Generation 已在 Adapter 边界编码为 canonical bytes，避免被接纳后的 work 继续共享这些引用。
+5. **frozen 外壳不等于可靠队列载荷。** `InteractionSubmission`、`PreparedAgentRun`、`MemoryGenerationTaskSpec` 和 `MTPExecutionContext` 在进入各自边界前仍可能包含可变嵌套对象；其中 Interaction/Memory Generation 已在 Adapter 边界编码为 canonical bytes，避免被接纳后的 work 继续共享这些引用。其余对象仍只能标为 `shallow frozen`。
 6. **HTTP 层大多已投影，主要风险集中在进程内总线和共享容器。** Memory、Topic、Task 的 REST response 都重新构造 DTO；Global/local bus、RuntimeEvent、Koakuma cache、PendingAtom store 和 Chat run registry 则传递或返回内部可变对象。Memory task list/get 已改为只读领域快照。
 7. **当前高效 Topic/Turn 投影依赖共享不可变子对象。** 基准显示对整个对象图做深拷贝会比当前投影慢两个数量级，并产生显著额外内存；后续治理应继续采用“受控可变聚合 + 不可变成员共享 + 边界投影”，不应全局机械 deep-copy。
 8. **v0.6.1 Queue 不能直接持久化现有业务对象。** Work payload 必须是带 `kind/schema_version` 的规范化快照；不得保存 coroutine、task、lock、service、任意 `Any` 或可变领域实体引用。
@@ -91,51 +92,51 @@ Phase I 的四项任务：
 
 | 模型（位置） | 角色 / 生命周期 | 冻结等级 | 嵌套可变字段 | 创建者 → 唯一写入者 | 主要消费者 / 现状 |
 |:--|:--|:--|:--|:--|:--|
-| `Identity`（[interaction.py](../../src/hivememory/core/models/interaction.py#L20)） | Value Object；request/run/work 生命周期 | deep immutable | 无；均为标量 | Server/Patchouli/Alice → 无写入者 | 全系统传播；适合作为 Queue identity snapshot 的基础，但 S0 要求统一来源与授权 |
-| `GatewayDecision` / outcome（[gateway.py](../../src/hivememory/core/protocol/gateway.py#L88)） | 公共决策快照；单请求 | deep immutable | tuple + frozen 子模型 | GatewayWorkflow → 无写入者 | System/Patchouli/Passive；边界良好 |
-| `CommandExecutionResult`（[gateway.py](../../src/hivememory/core/protocol/gateway.py#L68)） | 公共命令结果；单请求 | deep immutable（JSON-supported） | `FrozenDict[str, Any]`；自定义对象仍不受支持 | CommandDispatcher → 无写入者 | System/HTTP；新增 data 类型需限制为 JSON 值 |
-| `ExecutionProgress`（[models.py](../../src/hivememory/agent_runtime/models.py#L23)） | Builder / PCB progress；单 frame | controlled mutable | `text_segments`、`turn_events` list | FrameFactory → AgentRuntime loop | 只应留在 frame 内；当前定位合理 |
-| `TurnEvent` / `AgentAction` / `TraceItem`（[interaction.py](../../src/hivememory/core/models/interaction.py#L132)） | Event / Value Object；run 后长期共享 | deep immutable（JSON-supported） | `tool_args` 经 `FrozenDict` 递归冻结 JSON 值 | Agent loop / reducer → 无写入者；变化产出新对象 | Agent、Patchouli、Artifact；`model_copy(update=...)` 是已知转换入口 |
-| `TurnRecord`（[interaction.py](../../src/hivememory/core/models/interaction.py#L272)） | 内容真相快照；interaction 生命周期 | deep immutable | tuple 中成员均为 frozen 模型 | Perception → 无写入者 | `LogicalBlock`、Artifact builder、Generation；边界良好 |
-| `LogicalBlock`（[topic.py](../../src/hivememory/core/models/topic.py#L47)） | Topic 内不可变 value；直到结算/归档 | deep immutable | 持有 deep immutable `TurnRecord` | Perception → 无写入者 | SemanticBuffer、TopicData、Generation；可安全共享引用 |
-| `SemanticBuffer`（[buffer.py](../../src/hivememory/patchouli/memory_library/buffer.py#L18)） | Topic Aggregate；活跃话题期 | controlled mutable | `blocks` list、state/summary/计数 | ShortTerm store → `ShortTermMemoryStore` 命名写方法 | Patchouli 内部；port 仍可返回实体，写权限主要靠模块约定 |
-| `TopicData` / `TopicSnapshot`（[topic.py](../../src/hivememory/core/models/topic.py#L100)） | Read Model / Snapshot；单次读取 | deep immutable | `blocks` tuple 共享已冻结 `LogicalBlock` | ShortTerm store → 无写入者 | Gateway、Server、Generation；源 buffer 后续 append 不改变既有 tuple |
+| `Identity`（[interaction.py](../../../src/hivememory/core/models/interaction.py#L20)） | Value Object；request/run/work 生命周期 | deep immutable | 无；均为标量 | Server/Patchouli/Alice → 无写入者 | 全系统传播；适合作为 Queue identity snapshot 的基础，但 S0 要求统一来源与授权 |
+| `GatewayDecision` / outcome（[gateway.py](../../../src/hivememory/core/protocol/gateway.py#L88)） | 公共决策快照；单请求 | deep immutable | tuple + frozen 子模型 | GatewayWorkflow → 无写入者 | System/Patchouli/Passive；边界良好 |
+| `CommandExecutionResult`（[gateway.py](../../../src/hivememory/core/protocol/gateway.py#L68)） | 公共命令结果；单请求 | deep immutable（JSON-supported） | `FrozenDict[str, Any]`；自定义对象仍不受支持 | CommandDispatcher → 无写入者 | System/HTTP；新增 data 类型需限制为 JSON 值 |
+| `ExecutionProgress`（[models.py](../../../src/hivememory/agent_runtime/models.py#L23)） | Builder / PCB progress；单 frame | controlled mutable | `text_segments`、`turn_events` list | FrameFactory → AgentRuntime loop | 只应留在 frame 内；当前定位合理 |
+| `TurnEvent` / `AgentAction` / `TraceItem`（[interaction.py](../../../src/hivememory/core/models/interaction.py#L132)） | Event / Value Object；run 后长期共享 | deep immutable（JSON-supported） | `tool_args` 经 `FrozenDict` 递归冻结 JSON 值 | Agent loop / reducer → 无写入者；变化产出新对象 | Agent、Patchouli、Artifact；`model_copy(update=...)` 是已知转换入口 |
+| `TurnRecord`（[interaction.py](../../../src/hivememory/core/models/interaction.py#L272)） | 内容真相快照；interaction 生命周期 | deep immutable | tuple 中成员均为 frozen 模型 | Perception → 无写入者 | `LogicalBlock`、Artifact builder、Generation；边界良好 |
+| `LogicalBlock`（[topic.py](../../../src/hivememory/core/models/topic.py#L47)） | Topic 内不可变 value；直到结算/归档 | deep immutable | 持有 deep immutable `TurnRecord` | Perception → 无写入者 | SemanticBuffer、TopicData、Generation；可安全共享引用 |
+| `SemanticBuffer`（[buffer.py](../../../src/hivememory/patchouli/memory_library/buffer.py#L18)） | Topic Aggregate；活跃话题期 | controlled mutable | `blocks` list、state/summary/计数 | ShortTerm store → `ShortTermMemoryStore` 命名写方法 | Patchouli 内部；port 仍可返回实体，写权限主要靠模块约定 |
+| `TopicData` / `TopicSnapshot`（[topic.py](../../../src/hivememory/core/models/topic.py#L100)） | Read Model / Snapshot；单次读取 | deep immutable | `blocks` tuple 共享已冻结 `LogicalBlock` | ShortTerm store → 无写入者 | Gateway、Server、Generation；源 buffer 后续 append 不改变既有 tuple |
 
 ### 3.2 Retrieval、Memory、Artifact 与 Profile
 
 | 模型（位置） | 角色 / 生命周期 | 冻结等级 | 嵌套可变字段 | 创建者 → 唯一写入者 | 主要消费者 / 现状 |
 |:--|:--|:--|:--|:--|:--|
-| `RetrievalRequest` / `QueryFilters`（[models.py](../../src/hivememory/core/protocol/models.py#L80)） | 请求 DTO；一次检索 | mutable | keywords/tags list；filters 可变 | Gateway/MTP → 语义上不应再写，但代码未冻结 | Retrieval；不适合直接作为持久化 work payload |
-| `RetrievalResponse` / engine result（[models.py](../../src/hivememory/core/protocol/models.py#L128)） | Read Result；prepare/run 生命周期 | mutable | `memories: list[MemoryAtom]`，直接传播可变实体 | Retrieval → 无明确写入者 | AgentRunContext、cache、hit 记录；缺少 Memory read projection |
-| `MemoryAtom` + meta/index/payload/relations（[memory.py](../../src/hivememory/core/models/memory.py#L219)） | Durable Aggregate；长期资产 | mutable | 多层 list/dict/`Any`/子模型全部可变 | Generation/HTTP create → Generation、Lifecycle、Memory service 多点直接写 | Qdrant、retrieval、cache、MTP、Artifact、HTTP；没有唯一写入口或只读投影 |
-| `ArtifactRef` / `MemoryEventLog`（[artifact.py](../../src/hivememory/core/models/artifact.py#L24)） | 引用与生命周期记录；随 Memory/Artifact | mutable | event 的 `artifact_refs` list | Artifact builder/Lifecycle → 多调用点 append/替换 | MemoryAtom payload、Artifact 文件；标称 append-only 但模型不冻结 |
-| `BaseArtifact` 及四类 Artifact（[artifact.py](../../src/hivememory/core/models/artifact.py#L41)） | Persistence Model / point-in-time record | mutable | list/dict/`Any`、嵌套 mutable ref/snapshot | Artifact builder/store → store 会回填 `content_hash` | 文件系统；“写入后不可变”目前只是文档约定，不是模型保证 |
-| `MemoryVersionSnapshot`（[artifact.py](../../src/hivememory/core/models/artifact.py#L146)） | Memory 版本快照 | mutable | `tags: List[str]` | Artifact builder → 无语义写入者 | Version Artifact；快照本身仍可修改，后续需冻结或序列化脱钩测试 |
-| `AgentProfile`（[agent.py](../../src/hivememory/core/models/agent.py#L15)） | 配置/权限 read model；跨多个 run 缓存 | mutable（read-mostly） | allowed lists + 惰性 `_verb_set/_tool_set` | MemoryAtom 解析 / fallback 常量 → 惰性缓存方法会写私有 set | Frame、Profile cache、policy；共享引用可能在 run 间传播权限变化 |
-| `MemoryResponse` / list response（[memory.py](../../src/hivememory/server/models/memory.py#L17)） | HTTP DTO；单响应 | mutable，但与实体投影脱钩 | tags list | Server mapper → 无后续写入者 | REST；边界投影方向正确，尚未形成递归只读契约 |
+| `RetrievalRequest` / `QueryFilters`（[models.py](../../../src/hivememory/core/protocol/models.py#L80)） | 请求 DTO；一次检索 | mutable | keywords/tags list；filters 可变 | Gateway/MTP → 语义上不应再写，但代码未冻结 | Retrieval；不适合直接作为持久化 work payload |
+| `RetrievalResponse` / engine result（[models.py](../../../src/hivememory/core/protocol/models.py#L128)） | Read Result；prepare/run 生命周期 | mutable | `memories: list[MemoryAtom]`，直接传播可变实体 | Retrieval → 无明确写入者 | AgentRunContext、cache、hit 记录；缺少 Memory read projection |
+| `MemoryAtom` + meta/index/payload/relations（[memory.py](../../../src/hivememory/core/models/memory.py#L219)） | Durable Aggregate；长期资产 | mutable | 多层 list/dict/`Any`/子模型全部可变 | Generation/HTTP create → Generation、Lifecycle、Memory service 多点直接写 | Qdrant、retrieval、cache、MTP、Artifact、HTTP；没有唯一写入口或只读投影 |
+| `ArtifactRef` / `MemoryEventLog`（[artifact.py](../../../src/hivememory/core/models/artifact.py#L24)） | 引用与生命周期记录；随 Memory/Artifact | mutable | event 的 `artifact_refs` list | Artifact builder/Lifecycle → 多调用点 append/替换 | MemoryAtom payload、Artifact 文件；标称 append-only 但模型不冻结 |
+| `BaseArtifact` 及四类 Artifact（[artifact.py](../../../src/hivememory/core/models/artifact.py#L41)） | Persistence Model / point-in-time record | mutable | list/dict/`Any`、嵌套 mutable ref/snapshot | Artifact builder/store → store 会回填 `content_hash` | 文件系统；“写入后不可变”目前只是文档约定，不是模型保证 |
+| `MemoryVersionSnapshot`（[artifact.py](../../../src/hivememory/core/models/artifact.py#L146)） | Memory 版本快照 | mutable | `tags: List[str]` | Artifact builder → 无语义写入者 | Version Artifact；快照本身仍可修改，后续需冻结或序列化脱钩测试 |
+| `AgentProfile`（[agent.py](../../../src/hivememory/core/models/agent.py#L15)） | 配置/权限 read model；跨多个 run 缓存 | mutable（read-mostly） | allowed lists + 惰性 `_verb_set/_tool_set` | MemoryAtom 解析 / fallback 常量 → 惰性缓存方法会写私有 set | Frame、Profile cache、policy；共享引用可能在 run 间传播权限变化 |
+| `MemoryResponse` / list response（[memory.py](../../../src/hivememory/server/models/memory.py#L17)） | HTTP DTO；单响应 | mutable，但与实体投影脱钩 | tags list | Server mapper → 无后续写入者 | REST；边界投影方向正确，尚未形成递归只读契约 |
 
 ### 3.3 PendingAtom、生成任务与 Agent Run
 
 | 模型（位置） | 角色 / 生命周期 | 冻结等级 | 嵌套可变字段 | 创建者 → 唯一写入者 | 主要消费者 / 现状 |
 |:--|:--|:--|:--|:--|:--|
-| `WriteFocus` / `UpdateFocus` / `RuntimeScope`（[pending.py](../../src/hivememory/core/models/pending.py#L114)） | Value Object；pending/run 生命周期 | deep immutable | 无 | Alice MTP runtime → 无写入者 | PendingAtom、materialize task；边界良好 |
-| `PendingAtom`（[pending.py](../../src/hivememory/core/models/pending.py#L223)） | Runtime Aggregate；pending 到 terminal/evict | controlled mutable，但原始引用泄漏 | `settlement` 为 mutable 模型 | PendingAtomRuntime → Runtime 状态机 | `get()` / `all_atoms()` 返回内部引用；调用方可绕过状态机直接写字段 |
-| `PendingAtomSnapshot`（[pending.py](../../src/hivememory/core/models/pending.py#L250)） | Read Model；单次查询 | deep immutable | 无 | PendingAtomRuntime → 无写入者 | Resolver/compiler/view；应成为默认查询结果 |
-| `PendingAtomMaterializeTask`（[pending.py](../../src/hivememory/core/models/pending.py#L193)） | 跨 Alice/Patchouli task spec | deep immutable | Identity + Focus 均冻结 | PendingAtomRuntime → 无写入者 | finalize/generation；可作为 versioned codec 的业务输入，但自身无 schema_version |
-| `PendingAtomSettlement`（[pending.py](../../src/hivememory/core/models/pending.py#L165)） | 跨子系统结果 DTO | mutable | 当前均为标量/enum | Generation → 语义上无后续写入者 | Global event → PendingAtomRuntime；应冻结并增加 settlement/schema version |
-| `GenerationContext` / `GenerationRequest`（[models.py](../../src/hivememory/engines/generation/models.py#L97)） | Generation 内部执行 DTO；单 task | mutable | turns list、trace list、`existing_memory: Any` | Coordinator → Generation pipeline | 不可持久化；validator 还会原地回填 identity |
-| `TopicMaterializeTask`（[models.py](../../src/hivememory/engines/perception/models.py#L59)） | Perception → Generation task payload | mutable | blocks list | TriggerManager → Coordinator | 结算后跨异步边界；需规范化快照而非继续传播 list |
-| `MemoryGenerationTaskSpec`（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L73)） | Patchouli task spec | shallow frozen | `request: GenerationRequest` 可变且含 `Any` | Coordinator → 无语义写入者 | TaskController/未来 Queue；当前不能直接 JSON 持久化 |
-| `MemoryGenerationWork` / `MemoryGenerationTask`（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py)） | Queue-ready task definition / public domain snapshot | frozen；Work 在 Adapter 边界深编码，Task 是只读值快照 | Work 的 spec 仍是 shallow frozen，但接纳后不再共享；Task 仅值字段 | Coordinator/Controller → 无语义写入者 | WorkRecord 是唯一执行状态源；list/get/wait 每次返回新 Task 快照 |
-| wait result / summary（[memory_tasks.py](../../src/hivememory/patchouli/runtime/memory_tasks.py#L142)） | Task 查询快照 | deep immutable | summary 用 tuple 包含 frozen result | TaskController → 无写入者 | Application/HTTP；方向良好 |
-| `AgentRunContext`（[models.py](../../src/hivememory/core/protocol/models.py#L148)） | Patchouli → Alice 请求 DTO；单 run | mutable | RetrievalResponse、AgentProfile、generation option 外部另传 | Patchouli → 语义上无后续写入者 | Alice、PreparedAgentRun；携带可变 MemoryAtom/Profile 引用 |
-| `ExecutionFrame` / `RunSession`（[models.py](../../src/hivememory/agent_runtime/models.py#L41)） | Runtime State / PCB；单 run/frame | controlled mutable | history/progress/frame registry/call records | Alice orchestration → AgentRuntime/RunExecutor | 合理的请求内可变状态；禁止进入公共 DTO、cache 或持久化 payload |
-| `MTPExecutionContext`（[models.py](../../src/hivememory/agent_runtime/models.py#L84)） | 单指令上下文 | shallow frozen | AgentProfile、FrameExecutionPolicy 可变 | Agent loop → 无语义写入者 | MTP runtime；外壳冻结不能隔离权限对象变化 |
-| `AgentRunResult`（[models.py](../../src/hivememory/core/protocol/models.py#L185)） | Alice 公共结果；finalize 生命周期 | mutable | `turn_events: list[Any]`、materialize list | Alice → System/Patchouli | 流式链还会 `model_dump/model_validate`；需明确稳定只读结果边界 |
-| `InteractionPayload`（[models.py](../../src/hivememory/core/protocol/models.py#L209)） | Active/Passive → Perception 传输包 | mutable | 三个 list；无 schema_version / interaction_id | Patchouli finalize / Passive buffer → Perception | v0.6.1 最高优先级 payload 缺口；不能直接 durable enqueue |
-| `SealedTurn`（[outbox.py](../../src/hivememory/system/services/passive/outbox.py#L38)） | Passive outbox item | shallow frozen | 直接持有 mutable InteractionPayload | Passive buffer → 仅 attempts 通过 replace 新建 | 原对象后续修改可改变“已封口”内容；当前不可称不可变 outbox item |
-| `StreamPrelude` / `PreparedAgentRun`（[models.py](../../src/hivememory/patchouli/models.py#L14)） | 应用服务 outcome / run lease | shallow frozen | list、dict、mutable AgentRunContext/Profile | Patchouli → System/Alice | frozen 外壳只防字段替换，不防上下文被修改 |
-| `ChatGenerationRun`（[control.py](../../src/hivememory/system/runtime/control.py#L46)） | System runtime handle；chat 生命周期 | controlled mutable | `asyncio.Task` + 状态字段 | ChatApplicationService → registry/control methods | 合理的运行时状态；查询需 snapshot，不能进入 Work payload |
+| `WriteFocus` / `UpdateFocus` / `RuntimeScope`（[pending.py](../../../src/hivememory/core/models/pending.py#L114)） | Value Object；pending/run 生命周期 | deep immutable | 无 | Alice MTP runtime → 无写入者 | PendingAtom、materialize task；边界良好 |
+| `PendingAtom`（[pending.py](../../../src/hivememory/core/models/pending.py#L223)） | Runtime Aggregate；pending 到 terminal/evict | controlled mutable，但原始引用泄漏 | `settlement` 为 mutable 模型 | PendingAtomRuntime → Runtime 状态机 | `get()` / `all_atoms()` 返回内部引用；调用方可绕过状态机直接写字段 |
+| `PendingAtomSnapshot`（[pending.py](../../../src/hivememory/core/models/pending.py#L250)） | Read Model；单次查询 | deep immutable | 无 | PendingAtomRuntime → 无写入者 | Resolver/compiler/view；应成为默认查询结果 |
+| `PendingAtomMaterializeTask`（[pending.py](../../../src/hivememory/core/models/pending.py#L193)） | 跨 Alice/Patchouli task spec | deep immutable | Identity + Focus 均冻结 | PendingAtomRuntime → 无写入者 | finalize/generation；可作为 versioned codec 的业务输入，但自身无 schema_version |
+| `PendingAtomSettlement`（[pending.py](../../../src/hivememory/core/models/pending.py#L165)） | 跨子系统结果 DTO | mutable | 当前均为标量/enum | Generation → 语义上无后续写入者 | Global event → PendingAtomRuntime；应冻结并增加 settlement/schema version |
+| `GenerationContext` / `GenerationRequest`（[models.py](../../../src/hivememory/engines/generation/models.py#L97)） | Generation 内部执行 DTO；单 task | mutable | turns list、trace list、`existing_memory: Any` | Coordinator → Generation pipeline | 不可持久化；validator 还会原地回填 identity |
+| `TopicMaterializeTask`（[models.py](../../../src/hivememory/engines/perception/models.py#L59)） | Perception → Generation task payload | mutable | blocks list | TriggerManager → Coordinator | 结算后跨异步边界；需规范化快照而非继续传播 list |
+| `MemoryGenerationTaskSpec`（[memory_tasks.py](../../../src/hivememory/patchouli/runtime/memory_tasks.py#L73)） | Patchouli task spec | shallow frozen | `request: GenerationRequest` 可变且含 `Any` | Coordinator → 无语义写入者 | TaskController/未来 Queue；当前不能直接 JSON 持久化 |
+| `MemoryGenerationWork` / `MemoryGenerationTask`（[memory_tasks.py](../../../src/hivememory/patchouli/runtime/memory_tasks.py)） | Queue-ready task definition / public domain snapshot | frozen；Work 在 Adapter 边界深编码，Task 是只读值快照 | Work 的 spec 仍是 shallow frozen，但接纳后不再共享；Task 仅值字段 | Coordinator/Controller → 无语义写入者 | WorkRecord 是唯一执行状态源；list/get/wait 每次返回新 Task 快照 |
+| wait result / summary（[memory_tasks.py](../../../src/hivememory/patchouli/runtime/memory_tasks.py#L142)） | Task 查询快照 | deep immutable | summary 用 tuple 包含 frozen result | TaskController → 无写入者 | Application/HTTP；方向良好 |
+| `AgentRunContext`（[models.py](../../../src/hivememory/core/protocol/models.py#L148)） | Patchouli → Alice 请求 DTO；单 run | mutable | RetrievalResponse、AgentProfile、generation option 外部另传 | Patchouli → 语义上无后续写入者 | Alice、PreparedAgentRun；携带可变 MemoryAtom/Profile 引用 |
+| `ExecutionFrame` / `RunSession`（[models.py](../../../src/hivememory/agent_runtime/models.py#L41)） | Runtime State / PCB；单 run/frame | controlled mutable | history/progress/frame registry/call records | Alice orchestration → AgentRuntime/RunExecutor | 合理的请求内可变状态；禁止进入公共 DTO、cache 或持久化 payload |
+| `MTPExecutionContext`（[models.py](../../../src/hivememory/agent_runtime/models.py#L84)） | 单指令上下文 | shallow frozen | AgentProfile、FrameExecutionPolicy 可变 | Agent loop → 无语义写入者 | MTP runtime；外壳冻结不能隔离权限对象变化 |
+| `AgentRunResult`（[models.py](../../../src/hivememory/core/protocol/models.py#L185)） | Alice 公共结果；finalize 生命周期 | mutable | `turn_events: list[Any]`、materialize list | Alice → System/Patchouli | 流式链还会 `model_dump/model_validate`；需明确稳定只读结果边界 |
+| `InteractionPayload`（[models.py](../../../src/hivememory/core/protocol/models.py#L209)） | Active/Passive → Perception 传输包 | mutable | 三个 list；无 schema_version / interaction_id | Patchouli finalize / Passive buffer → Perception | v0.6.1 最高优先级 payload 缺口；不能直接 durable enqueue |
+| `InteractionSubmission`（[interaction_submission.py](../../../src/hivememory/patchouli/control/interaction_submission.py#L42)） | Active/Passive submission envelope | frozen outer dataclass；codec boundary deep snapshot | 入队前持有 mutable `InteractionPayload`；编码后保存 canonical JSON bytes | Passive/Active → `InteractionSubmissionQueue` → WorkStore | 队列接纳后不再共享调用方 DTO；仍需在后续持久化阶段固定 identity scope 与 schema 迁移语义 |
+| `StreamPrelude` / `PreparedAgentRun`（[models.py](../../../src/hivememory/patchouli/models.py#L14)） | 应用服务 outcome / run lease | shallow frozen | list、dict、mutable AgentRunContext/Profile | Patchouli → System/Alice | frozen 外壳只防字段替换，不防上下文被修改 |
+| `ChatGenerationRun`（[control.py](../../../src/hivememory/system/runtime/control.py#L46)） | System runtime handle；chat 生命周期 | controlled mutable | `asyncio.Task` + 状态字段 | ChatApplicationService → registry/control methods | 合理的运行时状态；查询需 snapshot，不能进入 Work payload |
 
 ## 4. 聚合所有权与投影关系
 
@@ -250,7 +251,7 @@ RuntimeEvent 是观测事实，不是业务真相；即使后续冻结，也不�
 | `RuntimeEventBus` | mutable `RuntimeEvent` | replay/subscriber 收到同一对象 | 观测历史可被后续引用修改 |
 | Memory task Controller entries | immutable work + typed handle + final snapshot | list/get 动态读取 WorkRecord | 已由 WorkRecord snapshot 替代执行真相源；entry 不再维护第二套状态机 |
 | `ChatGenerationRunRegistry` | mutable run + active asyncio task | get 返回原始引用 | 仅应由 Chat control 使用；未来查询需独立 snapshot |
-| `SealedTurn` | frozen 外壳 + mutable InteractionPayload | outbox 持同一 payload 引用 | seal 后内容仍可能变化 |
+| `InteractionSubmission` | frozen 外壳 + mutable InteractionPayload | queue codec 编码为 canonical JSON bytes | 入队后内容稳定；identity scope 与 schema 迁移仍待治理 |
 | `MemoryGenerationWork` | frozen 外壳 + mutable GenerationRequest | Queue Adapter 立即编码 canonical bytes | enqueue 后外部修改不再影响已接受 work；每次 attempt 重新 decode |
 | `MaintenanceTaskSpec/TaskRuntimeState` | mutable spec + callback + asyncio task | scheduler 内部持有 | 合法 scheduler runtime；不能升级为可持久化 WorkItem |
 
@@ -263,7 +264,7 @@ RuntimeEvent 是观测事实，不是业务真相；即使后续冻结，也不�
 - 每项预热一次，执行 7 次并报告中位数；
 - 峰值内存使用 `tracemalloc` 对单次操作测量；
 - 合成数据不访问 Qdrant、模型服务或文件持久化；
-- 可复现入口：[scripts/benchmark_data_model_phase_i.py](../../scripts/benchmark_data_model_phase_i.py)。
+- 可复现入口：[scripts/benchmark_data_model_phase_i.py](../../../scripts/benchmark_data_model_phase_i.py)。
 
 结果是当前开发机上的方向性基线，不是跨硬件性能承诺，也暂不作为 CI 阈值。
 
@@ -297,7 +298,7 @@ RuntimeEvent 是观测事实，不是业务真相；即使后续冻结，也不�
    - WorkItem 本身 deep immutable；WorkRecord 由 Store 单一所有者 controlled mutable；查询只返回 WorkRecord snapshot；
    - payload 只接受可规范化序列化的数据，不接受 coroutine、lock、event loop、service、`asyncio.Task` 或任意领域实体引用。
 2. **Interaction Submission**
-   - 不把现有 `InteractionPayload` 或 `SealedTurn` 直接写入 WorkStore；
+   - 不把现有 `InteractionPayload` 直接写入 WorkStore；
    - 新建 versioned submission envelope/codec，入队时把 list 规范化为稳定快照并包含 `interaction_id` 与 Identity scope；
    - handler decode 后再构造当前 Perception 所需 DTO，外部对象后续变化不得影响已接受 work。
 3. **Memory Generation**
@@ -315,7 +316,7 @@ RuntimeEvent 是观测事实，不是业务真相；即使后续冻结，也不�
 
 ### P0：v0.6.1 Queue 前置
 
-1. 建立 versioned `InteractionSubmission` codec，消除 `SealedTurn -> InteractionPayload` 的浅冻结假象；
+1. 已建立 versioned `InteractionSubmission` codec；后续需将其 identity scope、schema 迁移和持久化承诺接入治理门槛；
 2. 建立 WorkItem/WorkRecord/WorkRecordSnapshot 的角色与冻结规则；
 3. 把 Memory generation payload 中的 `GenerationRequest`、`Any` 和运行时句柄拆出持久化 spec；
 4. 为 enqueue-after-mutation、unknown schema、snapshot round-trip 和 identity scope 增加测试。

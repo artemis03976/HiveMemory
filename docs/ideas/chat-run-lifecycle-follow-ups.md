@@ -1,6 +1,6 @@
 ---
 title: Chat Run 取消与生命周期后续设计
-status: planned
+status: idea
 owner: system
 scope: chat-run-cancellation-future
 code_paths:
@@ -13,8 +13,8 @@ code_paths:
   - frontend/src/stores/chat/
 related_docs:
   - docs/archive/plans/chat-run-cancellation-unified.md
-  - docs/plans/runtime-event-publishing-refactor.md
-  - docs/plans/cross-subsystem-idempotency-and-retry.md
+  - docs/todo/runtime-event-producer-migration.md
+  - docs/governance/reliability/idempotency-and-retry.md
   - docs/system/observability.md
   - docs/contracts/routes-and-events.md
 last_reviewed: 2026-08-05
@@ -176,10 +176,10 @@ chat.run.cancel_requested
 - timeout、user stop、client disconnect、shutdown 使用不同 reason；
 - RuntimeEvent 发布失败不能反向改变业务终态。
 
-### 5.2 与现有计划的关系
+### 5.2 与现有治理事项的关系
 
 事件 emitter、payload 安全和 best-effort 边界依赖
-[RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)。
+[RuntimeEvent 生产端迁移后续](../todo/runtime-event-producer-migration.md)。
 在该依赖完成前，不应只为取消建立另一套专用事件总线。
 
 ### 5.3 启用条件
@@ -281,7 +281,7 @@ OPEN -> COMMITTED
 - prepare 中断时在重新抛出 `CancelledError` 前 abort；
 - prepare 返回后所有权明确移交给 Chat owner；
 - 补偿失败进入可查询 reconciliation，不伪装成普通 cancelled；
-- 与跨子系统幂等性计划共同实施。
+- 需要与跨子系统幂等性治理保持一致；只有具体候选立项后才进入同一版本实施。
 
 在重新启用前，不创建 lease interface、表字段、状态枚举或兼容占位代码。
 

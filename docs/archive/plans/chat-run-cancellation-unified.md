@@ -17,7 +17,7 @@ code_paths:
   - src/hivememory/agent_runtime/mtp/
   - src/hivememory/server/routers/chat.py
 related_docs:
-  - docs/plans/chat-run-cancellation-future.md
+  - docs/ideas/chat-run-lifecycle-follow-ups.md
   - docs/alice/orchestration.md
   - docs/contracts/routes-and-events.md
 last_reviewed: 2026-08-05
@@ -35,7 +35,7 @@ last_reviewed: 2026-08-05
 [System 运行时与总线](../../system/runtime-and-bus.md)、[Gateway 固定工作流](../../gateway/workflow.md)、
 [Alice 多 Agent 编排](../../alice/orchestration.md)、[Agent Runtime](../../alice/agent-runtime.md)和
 [公开路由与事件](../../contracts/routes-and-events.md)为准。本文归档后只保留实施边界、设计依据与验收记录；
-未实施的生命周期候选继续由[后续设计](../../plans/chat-run-cancellation-future.md)维护。
+未实施的生命周期候选继续由[后续 Idea](../../ideas/chat-run-lifecycle-follow-ups.md)维护。
 
 ## 1. 文档定位
 
@@ -48,7 +48,7 @@ last_reviewed: 2026-08-05
 `ChatOutputChannel`、`PreparedRunLease` 或新的 SSE 协议。
 
 后续候选设计统一放入
-[Chat Run 取消与生命周期后续设计](../../plans/chat-run-cancellation-future.md)，不得反向成为首期依赖。
+[Chat Run 生命周期后续候选](../../ideas/chat-run-lifecycle-follow-ups.md)，不得反向成为首期依赖。
 
 ---
 

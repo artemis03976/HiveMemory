@@ -1,8 +1,7 @@
 ---
-title: 复合意图分解计划
-status: planned
+title: 复合意图分解
+status: idea
 owner: gateway
-target: unscheduled
 scope: composite-intent-contract-and-execution
 code_paths:
   - src/hivememory/gateway/
@@ -14,9 +13,9 @@ related_contracts:
 last_reviewed: 2026-08-10
 ---
 
-# 复合意图分解计划
+# 复合意图分解
 
-**文档状态**: Planned  
+**文档状态**: Idea  
 **目标阶段**: Unscheduled  
 **适用范围**: `gateway/`、`engines/gateway/intent_decomposer.py`、`patchouli/`、`alice/`
 **前置条件**: 当前固定单主意图 workflow 与公共 `GatewayDecision` 保持稳定  
@@ -28,9 +27,9 @@ last_reviewed: 2026-08-10
 
 当前第一代 Query Understanding 可以把主意图分类为 `COMPOSITE`，也会在 Engine 私有结果中解析 `sub_intents`；但 Resolver 不把 `sub_intents` 投影进公共 `UserQueryAnalysisResult`，固定 workflow 仍然只提交一个 `GatewayDecision`。代码中没有旧稿曾设想的 `CompositePlaceholder`、`is_composite` 或 `composite_deferred` 公共状态，也没有多分支执行、合并和持久化样本集。
 
-这不是“分解已经实现但暂时关闭”，而是只有一个仍未被消费的分类信号。计划的作用是先固定复合 envelope、下游所有权和 fallback，再决定是否保留当前私有 `sub_intents`、建立独立 decomposer 或收集更多样本；不能为了临时支持复合输入而输出不稳定的 `list[GatewayState]`，也不能让 Patchouli、Alice 或尚未立项的后台执行机制被迫适配半成品分支结构。
+这不是“分解已经实现但暂时关闭”，而是只有一个仍未被消费的分类信号。本 Idea 的作用是探索复合 envelope、下游所有权和 fallback，再决定是否保留当前私有 `sub_intents`、建立独立 decomposer 或收集更多样本；不能为了临时支持复合输入而输出不稳定的 `list[GatewayState]`，也不能让 Patchouli、Alice 或尚未立项的后台执行机制被迫适配半成品分支结构。
 
-本计划已经移出 v0.6.0 发布范围，当前不绑定具体版本。Phase C0 可以作为非阻塞研究推进；只有真实样本证明单主意图路径存在稳定缺口，且 envelope、消费所有权与 fallback 能够形成可验收契约后，才重新进入路线图排期。
+本方向已经移出 v0.6.0 发布范围，当前不绑定具体版本。Phase C0 可以作为非阻塞研究推进；只有真实样本证明单主意图路径存在稳定缺口，且 envelope、消费所有权与 fallback 能够形成可验收契约后，才升级为独立 Plan 并重新进入路线图排期。
 
 ---
 
@@ -51,7 +50,7 @@ last_reviewed: 2026-08-10
 
 ## 3. 当前基线与样本门禁
 
-当前基线是：Query Understanding 仍只调用一次 LLM；`COMPOSITE` 和私有 `sub_intents` 只参与本次分析，不进入公共决策；下游继续消费单一 `GatewayDecision`。在本计划形成稳定协议前，必须保持以下约束：
+当前基线是：Query Understanding 仍只调用一次 LLM；`COMPOSITE` 和私有 `sub_intents` 只参与本次分析，不进入公共决策；下游继续消费单一 `GatewayDecision`。在本 Idea 升级为稳定协议前，必须保持以下约束：
 
 - 不把 Engine 私有 `sub_intents` 当作已提交的公共结果；
 - 不返回 `list[GatewayState]`；
@@ -72,9 +71,9 @@ last_reviewed: 2026-08-10
 
 ---
 
-## 4. 计划范围
+## 4. 探索范围
 
-本计划需要解决以下问题，但具体实现仍需由数据与协议评审收敛：
+本 Idea 需要回答以下问题，但具体实现仍需由数据与协议评审收敛：
 
 1. **IntentDecomposer**
    - TODO: 设计 prompt。
@@ -260,7 +259,7 @@ TODO:
 
 ## 9. Fallback 策略
 
-本计划必须保留以下 fallback：
+未来方案必须保留以下 fallback：
 
 | 场景 | 行为 |
 | --- | --- |
@@ -303,7 +302,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 
 ---
 
-## 11. 实现计划
+## 11. 候选验证阶段
 
 ### Phase C0: 基线测量与样本集
 
@@ -364,7 +363,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 2. 多个 QUERY 子意图是分别检索后交给 Alice 合成，还是先在 Gateway 层生成统一 retrieval plan？
 3. WRITE 子意图应在 Gateway 阶段生成 memory write request，还是只生成 `memory_write_signal` 供 Patchouli finalize 使用？
 4. 复合输入中的系统指令是否允许和普通聊天共享一次响应，还是拆成 command result + chat result 两条事件？
-5. 本计划是否需要 lightweight planner，还是只做 decomposition？
+5. 本方向是否需要 lightweight planner，还是只做 decomposition？
 6. IntentDecomposer prompt、置信度阈值和 golden dataset 如何设计，才能避免过度分解与漏分解？
 7. 多分支并行时，`CandidateTopics` 和 `RoutedTopicContext` 是否克隆，还是保证只读共享？
 8. Branch trace 如何合并到 parent trace？
@@ -376,4 +375,4 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 
 复合意图分解必须建立在稳定的单主意图 workflow、下游公共契约和可验证样本之上。当前实现只有 `COMPOSITE` 分类与不对外提交的私有 `sub_intents`，没有 `CompositeGatewayDecision`、branch 调度、merge policy 或多分支消费能力。
 
-因此，下一步不是直接让 LLM 输出更多字段，而是先完成 Phase C0 的证据门禁，再冻结 envelope 与消费协议。其余内容都属于计划，不应被当前 Gateway、Patchouli、Alice 或 Frontend 文档写成已经生效的能力。
+因此，下一步不是直接让 LLM 输出更多字段，而是先完成 Phase C0 的证据门禁，再冻结 envelope 与消费协议。其余内容都属于候选方案，不应被当前 Gateway、Patchouli、Alice 或 Frontend 文档写成已经生效的能力。

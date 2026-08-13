@@ -6,13 +6,16 @@ scope: releases-and-planned-capabilities
 updates:
   - docs/PROJECT.md
   - docs/plans/
+  - docs/governance/
+  - docs/ideas/
+  - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-10
+last_reviewed: 2026-08-13
 ---
 
 # HiveMemory 开发路线图
 
-本文只维护版本阶段、当前完成度、依赖关系和相关设计入口。已经生效的详细设计进入 Architecture、System 或子系统文档；尚未实现的详细方案进入 Plans；完成后的实施文档进入 Archive。
+本文只维护版本阶段、当前完成度、依赖关系和相关入口。已经生效的详细设计进入 Architecture、System 或子系统文档；跨版本质量目标进入 Governance；未承诺方向进入 Ideas；绑定版本的实施方案进入 Plans；完成后的实施文档进入 Archive。
 
 路线图是一条能力依赖链，不是功能愿望清单。排序首先回答“下一项能力需要哪些已经可信的状态、契约和证据”，其次才考虑它是否显眼或易于演示。HiveMemory 的长期方向涉及异步任务、文件、文档、来源和研究，如果这些能力各自建立一套临时状态与失败语义，规模越大反而越难保持记忆闭环。因此近期路线优先补齐可复用底座，再让上层能力逐步消费它们。
 
@@ -108,7 +111,7 @@ last_reviewed: 2026-08-10
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Reliable Local Work Runtime | Current Development | 收敛 Interaction Submission 与 Memory Generation 的本地执行生命周期，并建立最小耐久性、幂等、身份 scope 与 SQLite 恢复门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项可靠性 Plan 的前置切片 |
+| `v0.6.1` Reliable Local Work Runtime | Current Development | 收敛 Interaction Submission 与 Memory Generation 的本地执行生命周期，并建立最小耐久性、幂等、身份 scope 与 SQLite 恢复门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项治理主题的前置切片 |
 | `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件异步解析另行立项 | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -117,17 +120,17 @@ last_reviewed: 2026-08-10
 
 ### 4.1 未排期事项
 
-下表集中维护所有已经确认、但尚未进入具体版本承诺的事项。可靠性与模型治理 Plan 中被 v0.6.1 采用的最小前置切片不再视为未排期；表中记录的是其余完整领域阶段。
+下表集中维护所有已经确认、但尚未进入具体版本承诺的事项。治理主题中被 v0.6.1 采用的最小前置切片不再视为未排期；表中记录的是其余治理工作包、Ideas 与候选方向。它们不因出现在路线图中就自动成为 Plan。
 
-| 事项 | 范围 | 暂不排期原因或进入条件 | 计划入口 |
+| 事项 | 范围 | 暂不排期原因或进入条件 | 分类入口 |
 |:---|:---|:---|:---|
-| 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition](./plans/composite-intent-decomposition.md) |
+| 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition Idea](./ideas/composite-intent-decomposition.md) |
 | 自定义入口拦截规则 | Gateway | 当前固定入口链已可运行；只有出现明确外部接入需求、配置所有者和验收样本后才建立 Plan | 待建立 |
-| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只承担 work、lease 和已承诺操作的最小恢复；Artifact/Memory saga、Agent checkpoint、反馈与维护恢复另行排期 | [Runtime State Durability and Recovery](./plans/runtime-state-durability-and-recovery.md) |
-| 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Cross-Subsystem Idempotency and Retry](./plans/cross-subsystem-idempotency-and-retry.md) |
-| 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity Isolation and Execution Safety](./plans/identity-isolation-and-execution-safety.md) |
-| 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./plans/data-model-mutability-governance.md) |
-| RuntimeEvent 生产端抽象重构 | System / Cross-system | 当前 wire format、总线与消费语义已生效；除新 Work Runtime 所需最小事件契约外，不阻塞近期功能 | [RuntimeEvent Publishing Refactor](./plans/runtime-event-publishing-refactor.md) |
+| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只承担 work、lease 和已承诺操作的最小恢复；Artifact/Memory saga、Agent checkpoint、反馈与维护恢复另行排期 | [Durability and Recovery Governance](./governance/reliability/durability-and-recovery.md) |
+| 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Idempotency and Retry Governance](./governance/reliability/idempotency-and-retry.md) |
+| 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity and Execution Safety Governance](./governance/security/identity-and-execution-safety.md) |
+| 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./governance/data-model/mutability.md) |
+| RuntimeEvent 生产端迁移 | System / Cross-system | 当前 wire format、总线与消费语义已生效；仅剩各生产域 emitter/publisher 接驳，不阻塞近期功能 | [RuntimeEvent Producer Migration Todo](./todo/runtime-event-producer-migration.md) |
 | 用户可见长期任务与后台 Agent workflow | System / Gateway / Alice | 当前缺少稳定的复杂任务自主执行能力和已经验证的长任务负载；先用现有 interaction/memory lane 跑通真实业务，再根据 Document/Research 需求重新设计 | 待建立 |
 | Frontend 视觉个性化 | Frontend | 主题覆盖和自定义背景可并行探索，但必须后于真实状态、identity 和错误披露，不阻塞后端版本 | 待建立 |
 | Conversation Branching | Chat / Memory / Lifecycle | 等 provenance、生命周期和真实编辑需求稳定后，再设计分支所有权与已沉淀记忆的失效语义 | 待建立 |
@@ -140,9 +143,9 @@ last_reviewed: 2026-08-10
 
 这里的核心矛盾是“复用已验证的执行机制”与“过早抽象成万能任务框架”。验收重点是 interaction 的可靠 apply、memory generation 的并发/取消，以及两者共同需要的状态、重试、backpressure 和 shutdown 语义。priority、用户任务 API、定时/hook 工作流和 outcome artifact 不属于本版本验收范围。
 
-进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成四份 Plan 的全部后续阶段。
+进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成各治理主题的全部后续工作包。
 
-截至 2026-08-07，四项清单交付物均已建立：[D0 状态清单](./plans/durability-d0-state-inventory.md)、[I0 操作清单](./plans/idempotency-i0-operations-inventory.md)、[S0 身份与威胁清单](./plans/identity-s0-threat-model-inventory.md)和[数据模型 Phase I 清单](./plans/data-model-phase-i-inventory.md)。清单完成只表示实现入口和风险已经冻结，不表示对应后续治理阶段已经落地。
+截至 2026-08-07，四项基线均已建立：[D0 状态清单](./governance/baselines/durability-d0-state-inventory.md)、[I0 操作清单](./governance/baselines/idempotency-i0-operations-inventory.md)、[S0 身份与威胁清单](./governance/baselines/identity-s0-threat-model-inventory.md)和[数据模型 Phase I 清单](./governance/baselines/data-model-phase-i-inventory.md)。基线完成只表示当时的实现入口和风险已经冻结，不表示对应后续治理阶段已经落地。
 
 v0.6.1 的发布顺序应为：
 

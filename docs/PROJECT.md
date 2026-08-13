@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-13
 ---
 
 # HiveMemory 项目总览
@@ -289,7 +289,8 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 
 ### 9.5 其他文档类型
 
-- [Plans](./plans/README.md)：明确但尚未完全实现的功能与迁移；
+- [Governance](./governance/README.md)：跨版本可靠性、安全和数据模型治理主题及其阶段性基线；
+- [Plans](./plans/README.md)：已经绑定版本或里程碑、可独立验收的功能与迁移；
 - [Ideas](./ideas/README.md)：未形成承诺的开放探索；
 - [Todo](./todo/README.md)：小范围缺陷和技术债；
 - [Help](./help/README.md)：Docker/本地安装、配置来源、Provider/Model 管理与排障；
@@ -301,10 +302,10 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 
 ## 10. 当前已知限制
 
-- 复合意图目前只有分类信号与不对外提交的私有 `sub_intents`，公共 envelope、多分支消费和合并语义尚未实现；相关[复合意图分解计划](./plans/composite-intent-decomposition.md)当前未排期。自定义入口拦截规则同样尚未形成明确接入需求与独立 Plan；
-- RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一持久化与故障恢复见[运行时状态持久化与故障恢复计划](./plans/runtime-state-durability-and-recovery.md)；
-- 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试语义计划](./plans/cross-subsystem-idempotency-and-retry.md)；
-- MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全计划](./plans/identity-isolation-and-execution-safety.md)；
+- 复合意图目前只有分类信号与不对外提交的私有 `sub_intents`，公共 envelope、多分支消费和合并语义尚未实现；相关[复合意图分解 Idea](./ideas/composite-intent-decomposition.md)当前未排期。自定义入口拦截规则同样尚未形成明确接入需求与独立 Plan；
+- RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一成熟度与恢复门槛见[耐久性与故障恢复治理](./governance/reliability/durability-and-recovery.md)；
+- 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试治理](./governance/reliability/idempotency-and-retry.md)；
+- MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全治理](./governance/security/identity-and-execution-safety.md)；
 - 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
 - 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐，mock fallback 也尚未统一标识。
 

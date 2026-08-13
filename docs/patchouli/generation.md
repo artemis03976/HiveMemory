@@ -172,7 +172,7 @@ Interaction applied 是 Chat 的硬成功边界。之后 materialization admissi
 
 ## 8. 当前限制
 
-- memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
+- memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - `submit_generation_many()` 逐个创建后台 task；active spec 的 I/O 构建并行，但没有持久化队列、并发额度或 backpressure；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；

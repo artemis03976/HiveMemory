@@ -1,6 +1,6 @@
 ---
-title: Identity Isolation and Execution Safety
-status: planned
+title: Identity Isolation and Execution Safety Governance
+status: governance
 owner: system
 scope: cross-subsystem-identity-authorization-and-execution-safety
 code_paths:
@@ -20,7 +20,7 @@ related_docs:
 last_reviewed: 2026-08-05
 ---
 
-# 身份隔离与执行安全计划
+# 身份隔离与执行安全治理
 
 HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性写进了设计，但当前仍存在“拿到 alias/id 就可以继续使用”“进程级 cache 共享可变状态”“前端 user id 看起来像认证”“RUN 能执行代码但不是安全沙箱”等边界缺口。
 
@@ -53,7 +53,7 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 
 ### 2.2 非目标
 
-- 不在本计划中选择具体身份提供商、OAuth 产品或多租户商业方案；
+- 不在本治理主题中选择具体身份提供商、OAuth 产品或多租户商业方案；
 - 不把 prompt 中的 verb 教学当作安全控制；
 - 不让 Gateway、Alice 或前端自行决定 Patchouli 的长期可见性；
 - 不承诺把任意 Python 代码变成安全可执行资产；
@@ -95,7 +95,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 - 执行结果与失败必须带 run/asset identity，不能只依赖 prompt；
 - 无法提供强隔离时，默认拒绝不受信任资产，或明确降级为展示/提议而非执行。
 
-## 4. 分阶段实施
+## 4. 未排期治理工作包
 
 ### Phase S0：身份与威胁模型清单
 
@@ -134,12 +134,12 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 3. 与后端认证、session、workspace 和错误契约对齐；
 4. UI 明确展示“当前身份/权限”与“后端拒绝”，不把默认 user id 当成登录状态。
 
-## 5. 验收标准
+## 5. 治理成熟度目标
 
 - 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际 Identity scope 校验；
 - 两个并发用户使用相同 alias、topic 或 Profile 名称不会读取对方状态；
 - 子 Agent、后台 retry 和恢复任务不会扩大或错误继承身份权限；
-- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；PendingAtom 与 cache 的跨用户隔离仍需按本计划验证；
+- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；PendingAtom 与 cache 的跨用户隔离仍需按本治理主题验证；
 - 指定 Profile 失败不会静默加载全权限 Omni-Doll；未指定 Profile 的 fallback 仍有明确且可观察语义；
 - MTP RUN 在未满足可信资产和硬限制时拒绝执行或明确降级，不能把 prompt 当安全边界；
 - 前端身份切换不会留下旧用户的请求、缓存、stream 或页面状态；
@@ -148,4 +148,4 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ## 6. 依赖与风险
 
-本计划依赖[运行时状态持久化与故障恢复](./runtime-state-durability-and-recovery.md)处理身份快照、任务恢复和 PendingAtom ledger，也依赖[跨子系统幂等性与重试语义](./cross-subsystem-idempotency-and-retry.md)防止重复操作跨用户复用。最大风险是把“身份字段已在模型中”误认为“安全边界已经成立”；完成判断必须以越权测试和失败路径为准。
+本治理主题依赖[运行时状态持久化与故障恢复](../reliability/durability-and-recovery.md)处理身份快照、任务恢复和 PendingAtom ledger，也依赖[跨子系统幂等性与重试语义](../reliability/idempotency-and-retry.md)防止重复操作跨用户复用。最大风险是把“身份字段已在模型中”误认为“安全边界已经成立”；完成判断必须以越权测试和失败路径为准。具体安全切片只有在绑定版本和验收出口后才形成独立 Plan。

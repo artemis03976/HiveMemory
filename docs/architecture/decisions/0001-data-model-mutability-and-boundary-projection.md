@@ -57,11 +57,11 @@ HiveMemory 同时拥有长期记忆实体、话题 buffer、请求级 Gateway �
 
 ## Status
 
-Accepted。当前局部实现已经遵循该方向；项目级存量治理尚未排期，见相关 Plan。
+Accepted。当前局部实现已经遵循该方向；项目级存量治理跨版本推进，具体切片尚未排期。
 
 ## Related documents
 
 - [数据模型与可变性边界](../data-model.md)
-- [数据模型可变性治理计划](../../plans/data-model-mutability-governance.md)
+- [数据模型可变性治理](../../governance/data-model/mutability.md)
 - [系统边界与所有权](../boundaries.md)
 - [子系统公共契约](../../contracts/subsystem-contracts.md)

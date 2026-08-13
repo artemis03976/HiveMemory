@@ -1,6 +1,6 @@
 ---
-title: Runtime State Durability and Recovery
-status: planned
+title: Runtime State Durability and Recovery Governance
+status: governance
 owner: system
 scope: cross-subsystem-state-durability-and-crash-recovery
 code_paths:
@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/patchouli/memory_library/
 related_docs:
   - docs/plans/v0.6.1-local-work-queue-runtime.md
-  - docs/plans/cross-subsystem-idempotency-and-retry.md
+  - docs/governance/reliability/idempotency-and-retry.md
   - docs/patchouli/artifacts.md
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
@@ -20,11 +20,11 @@ related_docs:
 last_reviewed: 2026-07-29
 ---
 
-# 运行时状态持久化与故障恢复计划
+# 运行时状态持久化与故障恢复治理
 
-本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的问题。它不是把所有对象都写入数据库的计划，也不替代 [Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md) 对队列机械生命周期的设计。
+本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 对队列机械生命周期的设计。具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
 
-项目的核心命题是把易逝 Context 转化为可寻址、可验证、可演化的 Memory 资产。如果 Agent frame、PendingAtom、Generation task 和来源写入在进程退出后全部消失，这条命题只能在单次进程生命周期内成立。因此本计划首先建立“状态的耐久性等级”，再按所有权逐步补齐持久化和恢复，不把 RuntimeEvent 或日志误当成业务状态数据库。
+项目的核心命题是把易逝 Context 转化为可寻址、可验证、可演化的 Memory 资产。如果 Agent frame、PendingAtom、Generation task 和来源写入在进程退出后全部消失，这条命题只能在单次进程生命周期内成立。因此本治理主题首先建立“状态的耐久性等级”，再按所有权逐步补齐持久化和恢复，不把 RuntimeEvent 或日志误当成业务状态数据库。
 
 ## 1. 当前状态与问题证据
 
@@ -34,7 +34,7 @@ last_reviewed: 2026-07-29
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
 | Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
-| Passive sealed outbox | 进程内 `SealedTurnOutbox` | 重启后 pending submission 丢失 | 由 Queue/Submission lane 负责可选 durable store |
+| Passive interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失 | 由 SQLite WorkStore 负责 durable store；当前实现后置 |
 | Memory generation task | 进程内 task registry + `asyncio.create_task()` | registry 只保留有限终态，重启后无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 统一 Work Store、任务 codec、lease 和 outcome ref |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
@@ -58,7 +58,7 @@ last_reviewed: 2026-07-29
 
 ### 2.2 非目标
 
-- 不在本计划中实现分布式数据库、跨节点 leader election 或 exactly-once execution；
+- 不在本治理主题中要求分布式数据库、跨节点 leader election 或 exactly-once execution；
 - 不把所有 RuntimeEvent 变成永久审计日志；
 - 不承诺同步模型调用、任意 syscall 或外部 HTTP 调用可以从中间 token 位置恢复；
 - 不把所有短期 topic blocks 自动写入长期记忆或 raw evidence store；
@@ -67,7 +67,7 @@ last_reviewed: 2026-07-29
 
 ## 3. 耐久性等级
 
-所有需要纳入本计划的状态先归入以下等级：
+所有需要纳入本治理主题的状态先归入以下等级：
 
 ### 3.1 Durable authoritative
 
@@ -106,9 +106,9 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 ### 4.4 以 at-least-once 为默认，依赖幂等避免重复副作用
 
-持久化不会自动带来 exactly-once。每个恢复动作都必须配合稳定 idempotency key、状态迁移保护或 compare-and-set；完整规则由[跨子系统幂等性与重试语义计划](./cross-subsystem-idempotency-and-retry.md)统一定义。
+持久化不会自动带来 exactly-once。每个恢复动作都必须配合稳定 idempotency key、状态迁移保护或 compare-and-set；完整规则由[跨子系统幂等性与重试治理](./idempotency-and-retry.md)统一定义。
 
-## 5. 分阶段实施
+## 5. 未排期治理工作包
 
 ### Phase D0：状态清单与承诺分级
 
@@ -146,7 +146,7 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 3. 区分可重建的健康快照、历史审计和业务状态；
 4. 为 retention、压缩、删除和归档建立定期维护任务，但不让维护直接改变业务正确性。
 
-## 6. 验收标准
+## 6. 治理成熟度目标
 
 - 关键状态清单中每个对象都有 owner、source of truth、durability level、schema version、retention 和恢复策略；
 - 重启后 queued/retry-wait interaction、memory task 和 PendingAtom settlement 能继续、重试或进入明确终态；
@@ -160,6 +160,6 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 ## 7. 依赖与风险
 
-本计划依赖[跨子系统幂等性与重试语义](./cross-subsystem-idempotency-and-retry.md)，并复用 [Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md) 的 lane、WorkStore、lease 和 handler registry 设计。Identity 隔离计划必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
+本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 的 lane、WorkStore、lease 和 handler registry 设计。身份隔离治理必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
 
 主要风险是过早把所有内存对象写入持久化层，导致 schema、隐私和迁移成本快速膨胀；因此首期应优先保护已经对外承诺的工作项和写入意图，保留短期 topic、cache 与 RuntimeEvent 的明确 ephemeral 语义。

@@ -1,6 +1,6 @@
 ---
-title: Cross-Subsystem Idempotency and Retry Semantics
-status: planned
+title: Cross-Subsystem Idempotency and Retry Governance
+status: governance
 owner: system
 scope: cross-subsystem-idempotency-retry-and-ambiguous-failure
 code_paths:
@@ -12,17 +12,17 @@ code_paths:
   - src/hivememory/system/runtime/
 related_docs:
   - docs/plans/v0.6.1-local-work-queue-runtime.md
-  - docs/plans/runtime-state-durability-and-recovery.md
+  - docs/governance/reliability/durability-and-recovery.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
 last_reviewed: 2026-08-12
 ---
 
-# 跨子系统幂等性与重试语义计划
+# 跨子系统幂等性与重试治理
 
 HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAtom 和生命周期状态转移都可能在“请求方不知道上一次是否成功”的情况下被重试。若每个模块各自决定 dedup、retry 和重复结果，系统会出现重复记忆、重复引用强化、重复 archive、重复 artifact 或无法解释的 success/failure。
 
-本计划统一定义跨边界的幂等性语言和验证方式；它不承诺 exactly-once，也不把所有重复事件当作错误。目标是让 at-least-once delivery 在明确的业务边界内安全可重放。
+本文统一定义跨边界的幂等性语言、成熟度目标和验证方式；它不承诺 exactly-once，也不把所有重复事件当作错误。目标是让 at-least-once delivery 在明确的业务边界内安全可重放。具体工作只有在绑定版本、依赖和验收出口后才从本文提取为独立 Plan。
 
 ## 1. 当前状态与证据
 
@@ -106,7 +106,7 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 
 同一 conversation/topic 的 interaction 仍需要 ordering key；同一 MemoryAtom 的不同版本仍需要 compare-and-set 或显式 merge。一个成功的旧操作不能覆盖更新的合法操作。
 
-## 5. 分阶段实施
+## 5. 未排期治理工作包
 
 ### Phase I0：业务操作清单
 
@@ -136,7 +136,7 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 3. 把幂等 key、attempt、错误类别和结果 ref 纳入安全观测，但不把完整 payload 放进 RuntimeEvent；
 4. 将重复语义写入 Contracts、Patchouli、Alice 和 Help 文档。
 
-## 6. 验收标准
+## 6. 治理成熟度目标
 
 - 每个可恢复业务入口都有稳定 operation identity、作用域和 schema version；
 - Passive、Interaction、Memory Generation、PendingAtom、Artifact、MemoryAtom update、archive/revive 和 lifecycle event 的重复语义均有测试；
@@ -149,4 +149,4 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 
 ## 7. 依赖与不采用方案
 
-本计划依赖[运行时状态持久化与故障恢复](./runtime-state-durability-and-recovery.md)提供耐久记录，也复用 [Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md) 的队列机械能力。它不引入全局万能 DedupService，不承诺 exactly-once，不用 RuntimeEvent 作为去重数据库，也不把所有自然重复的 HIT 事件都错误视为重复请求。
+本治理主题依赖[运行时状态持久化与故障恢复](./durability-and-recovery.md)提供耐久记录，也复用 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 的队列机械能力。它不引入全局万能 DedupService，不承诺 exactly-once，不用 RuntimeEvent 作为去重数据库，也不把所有自然重复的 HIT 事件都错误视为重复请求。
