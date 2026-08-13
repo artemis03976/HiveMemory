@@ -41,6 +41,7 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
@@ -102,6 +103,7 @@ class PatchouliRuntime:
         self._shared_config = shared_config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = PatchouliBus()
+        self._pending_atom_settler = PendingAtomSettler(self._local_bus)
         self._local_routes_registered = False
         self._shutdown_drain_started = False
         self._interaction_apply_journal = InMemoryInteractionApplyJournal()
@@ -128,6 +130,10 @@ class PatchouliRuntime:
     @property
     def local_routes_registered(self) -> bool:
         return self._local_routes_registered
+
+    @property
+    def pending_atom_settler(self) -> PendingAtomSettler:
+        return self._pending_atom_settler
 
     def mount_local_routes(self, service: "PatchouliService") -> None:
         if self._local_routes_registered:
@@ -502,10 +508,12 @@ class PatchouliRuntime:
 
         self._services["generation_coordinator"] = MemoryGenerationCoordinator(
             bus=self._local_bus,
+            pending_atom_settler=self._pending_atom_settler,
         )
 
         self._task_controller = MemoryGenerationTaskController(
             bus=self._local_bus,
+            pending_atom_settler=self._pending_atom_settler,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",

@@ -25,6 +25,7 @@ from hivememory.patchouli.control.memory_generation import (
     MemoryGenerationWorkAdapter,
     MemoryTaskEventEmitter,
 )
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 
 __all__ = [
     "InMemoryInteractionApplyJournal",
@@ -46,4 +47,5 @@ __all__ = [
     "MemoryGenerationWorkAdapter",
     "MemoryGenerationTaskController",
     "MemoryTaskEventEmitter",
+    "PendingAtomSettler",
 ]

@@ -23,13 +23,13 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
     InteractionSubmissionReceipt,
 )
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
@@ -77,10 +77,12 @@ class PatchouliService:
         *,
         interaction_queue: InteractionSubmissionQueue,
         memory_compiler_config: MemoryCompilerConfig | None = None,
+        pending_atom_settler: PendingAtomSettler | None = None,
     ) -> None:
         if interaction_queue is None:
             raise TypeError("interaction_queue is required")
         self._local_bus = bus
+        self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         self._interaction_queue = interaction_queue
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
@@ -359,30 +361,11 @@ class PatchouliService:
                 type(error).__name__,
                 exc_info=True,
             )
-            await self._mark_materialization_failed(tasks)
-            return []
 
-    async def _mark_materialization_failed(
-        self,
-        tasks: list[PendingAtomMaterializeTask],
-    ) -> None:
-        seen: set[str] = set()
-        for task in tasks:
-            if task.pending_alias in seen:
-                continue
-            seen.add(task.pending_alias)
-            try:
-                await self._local_bus.publish(
-                    PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                    pending_alias=task.pending_alias,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to settle PendingAtom after materialization dispatch failure: "
-                    "pending_alias=%s",
-                    task.pending_alias,
-                    exc_info=True,
-                )
+            for task in tasks:
+                await self._pending_atom_settler.failed(task.pending_alias)
+
+            return []
 
     def _schedule_retrieval_hit_record(
         self,

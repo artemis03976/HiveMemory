@@ -132,6 +132,12 @@ Service 还直接负责创建 task、注册 `_active_finalization_done()` 与 `_
 
 ## P1：集中 PendingAtom 功能事件结算
 
+> 状态：已完成（2026-08-13）。新增共享 `PendingAtomSettler`，统一 settled、failed、
+> cancelled 的 alias payload、并发终态竞争与去重、settled 发布失败降级、有限 retention
+> 和 best-effort 异常隔离。Memory Generation Controller、Coordinator 与 Active finalize
+> 在生产装配中共享同一 Settler；PendingAtom 功能事件与 Memory Task 可观测事件仍保持
+> 独立边界。
+
 ### 问题与证据
 
 PendingAtom 的 settled、failed 与 cancelled 发布目前分散在 Memory Generation Controller、Memory Generation Coordinator 和 Active finalize 失败路径中。它们表达的是 Alice/Patchouli 的真实业务结算，而不是队列可观测状态；继续分散会让失败隔离、去重和日志行为逐渐不一致。

@@ -10,8 +10,8 @@ from hivememory.core.models import LogicalBlock
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import TopicMaterializeTask
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
@@ -35,8 +35,10 @@ class MemoryGenerationCoordinator:
         self,
         *,
         bus: PatchouliBus,
+        pending_atom_settler: PendingAtomSettler | None = None,
     ) -> None:
         self._bus = bus
+        self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         self._transcript_builder = GenerationTranscriptBuilder()
 
     async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:
@@ -133,14 +135,14 @@ class MemoryGenerationCoordinator:
             logger.error(
                 f"Active spec build failed, skipping task: pending_alias={task.pending_alias}, err={exc}",
             )
-            await self._publish_pending_atom_failed(task.pending_alias)
+            await self._pending_atom_settler.failed(task.pending_alias)
             return None
         except Exception:
             logger.exception(
                 "Active spec build failed unexpectedly, skipping task: pending_alias=%s",
                 task.pending_alias,
             )
-            await self._publish_pending_atom_failed(task.pending_alias)
+            await self._pending_atom_settler.failed(task.pending_alias)
             return None
 
     async def _build_active_spec(
@@ -214,18 +216,5 @@ class MemoryGenerationCoordinator:
             topic_summary=topic_summary,
             blocks=tuple(blocks),
         )
-
-    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
-        """
-        发布待处理 PendingAtom 的失败事件。
-        """
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                pending_alias=pending_alias,
-            )
-        except Exception as pub_err:
-            logger.warning(f"FAILED event publish error: {pub_err}")
-
 
 __all__ = ["MemoryGenerationCoordinator"]

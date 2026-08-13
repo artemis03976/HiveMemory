@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.events import (
     MemoryTaskEventEmitter,
@@ -20,6 +19,7 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationQueue,
     MemoryGenerationResults,
 )
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationResult,
     MemoryGenerationTask,
@@ -80,8 +80,10 @@ class MemoryGenerationTaskController:
         runtime_events: RuntimeEventSink | None = None,
         memory_queue: MemoryGenerationQueue | None = None,
         queue_policy: QueuePolicy | None = None,
+        pending_atom_settler: PendingAtomSettler | None = None,
     ) -> None:
         self._bus = bus
+        self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         event_sink = runtime_events or NullRuntimeEventSink()
         self._task_events = MemoryTaskEventEmitter(RuntimeEventPublisher(event_sink))
         self._queue = memory_queue or MemoryGenerationQueue(
@@ -452,15 +454,9 @@ class MemoryGenerationTaskController:
         pending_alias = entry.work.pending_alias
         if pending_alias is not None:
             if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
-                await self._publish_best_effort(
-                    self._publish_pending_atom_cancelled(pending_alias),
-                    f"pending atom cancel publish failed: {pending_alias}",
-                )
+                await self._pending_atom_settler.cancelled(pending_alias)
             elif snapshot.status == MemoryGenerationTaskStatus.FAILED:
-                await self._publish_best_effort(
-                    self._publish_pending_atom_failed(pending_alias),
-                    f"pending atom failed publish failed: {pending_alias}",
-                )
+                await self._pending_atom_settler.failed(pending_alias)
 
         self._task_events.terminal(
             snapshot,
@@ -476,51 +472,6 @@ class MemoryGenerationTaskController:
         for result in results:
             if result.settlement is None:
                 continue
-            try:
-                await self._bus.publish(
-                    PatchouliLocalEvents.PENDING_ATOM_SETTLED,
-                    settlement=result.settlement,
-                )
-            except Exception as error:
-                logger.warning(
-                    "Settlement publish failed for %s: %s",
-                    result.settlement.pending_alias,
-                    error,
-                )
-                await self._publish_pending_atom_failed(
-                    result.settlement.pending_alias
-                )
-
-    async def _publish_pending_atom_cancelled(self, pending_alias: str) -> None:
-        """发布主动链路 ``PendingAtom`` 取消事件。"""
-
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
-                pending_alias=pending_alias,
-            )
-        except Exception as error:
-            logger.warning("CANCELLED event publish error: %s", error)
-
-    async def _publish_pending_atom_failed(self, pending_alias: str) -> None:
-        """发布主动链路 ``PendingAtom`` 失败事件。"""
-
-        try:
-            await self._bus.publish(
-                PatchouliLocalEvents.PENDING_ATOM_FAILED,
-                pending_alias=pending_alias,
-            )
-        except Exception as error:
-            logger.warning("FAILED event publish error: %s", error)
-
-    async def _publish_best_effort(self, awaitable, warning: str) -> None:
-        """执行可观测副作用；失败只记录日志，不改变任务终态。"""
-
-        try:
-            await awaitable
-        except asyncio.CancelledError:
-            logger.warning(warning, exc_info=True)
-        except Exception:
-            logger.warning(warning, exc_info=True)
+            await self._pending_atom_settler.settled(result.settlement)
 
 __all__ = ["MemoryGenerationTaskController"]
