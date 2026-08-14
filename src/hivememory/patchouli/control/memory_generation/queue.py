@@ -187,27 +187,30 @@ class _MemoryGenerationWorkAdapter:
         )
 
 
-class MemoryGenerationHandle(
-    TaskHandle[_MemoryGenerationWork, MemoryGenerationResults]
-):
-    """记忆生成工作被接纳后返回的类型化控制句柄。"""
+class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
+    """记忆生成工作被接纳后返回的类型化控制句柄。
+
+    payload bytes 只用于同一 work identity 的进程内冲突检测，不作为任务状态
+    或对外工作定义暴露。
+    """
+
+    def __init__(
+        self,
+        *,
+        payload_bytes: bytes,
+        work_id: str,
+        queue: WorkQueueRuntime,
+    ) -> None:
+        super().__init__(work_id=work_id, queue=queue)
+        self._payload_bytes = payload_bytes
+
+    def matches_payload(self, payload_bytes: bytes) -> bool:
+        """判断重复 work identity 是否仍指向同一不可变 payload。"""
+
+        return self._payload_bytes == payload_bytes
 
 
-@dataclass(frozen=True)
-class MemoryGenerationExecutionResult:
-    """返回给通用运行时的轻量结果引用。"""
-
-    work_id: str
-    result_count: int
-
-    @property
-    def result_ref(self) -> str:
-        return self.work_id
-
-
-class MemoryGenerationHandler(
-    WorkHandlerPort[_MemoryGenerationWork, MemoryGenerationExecutionResult]
-):
+class MemoryGenerationHandler(WorkHandlerPort[_MemoryGenerationWork, str]):
     """将单次队列执行尝试适配到现有的记忆生成数据面。
 
     handler 只执行生成并分类失败；任务状态仍由通用 runtime 维护，领域结果通过
@@ -226,7 +229,7 @@ class MemoryGenerationHandler(
         self,
         work: _MemoryGenerationWork,
         context: WorkExecutionContext,
-    ) -> MemoryGenerationExecutionResult:
+    ) -> str:
         """执行一次记忆生成尝试，并保存领域结果供 finalize 使用。"""
 
         handle = self._handles[context.work_id]
@@ -240,10 +243,7 @@ class MemoryGenerationHandler(
             )
         typed_results = tuple(results)
         handle._record_execution_result(typed_results)
-        return MemoryGenerationExecutionResult(
-            work_id=context.work_id,
-            result_count=len(typed_results),
-        )
+        return context.work_id
 
     def classify_failure(
         self,
@@ -351,14 +351,13 @@ class MemoryGenerationQueue:
         )
         existing = self._handles.get(item.work_id)
         if existing is not None:
-            if existing.task != work:
+            if not existing.matches_payload(item.payload):
                 raise ValueError(
                     f"memory generation work already exists with different payload: {item.work_id}"
                 )
             return existing
         handle = MemoryGenerationHandle(
-            task=work,
-            task_id=work.task_id,
+            payload_bytes=item.payload,
             work_id=item.work_id,
             queue=self._runtime,
         )
@@ -405,7 +404,6 @@ class MemoryGenerationQueue:
 
 
 __all__ = [
-    "MemoryGenerationExecutionResult",
     "MemoryGenerationHandle",
     "MemoryGenerationHandler",
     "MemoryGenerationQueue",

@@ -18,7 +18,6 @@ from hivememory.system.runtime.work_queue import (
     FailureDecision,
     QueuePolicy,
     UnknownWorkPayloadCodecError,
-    UnsupportedWorkQueueFeatureError,
     WorkErrorSnapshot,
     WorkExecutionContext,
     WorkItem,
@@ -813,18 +812,3 @@ async def test_runtime_event_failure_does_not_change_work_result() -> None:
 
     assert terminal is not None and terminal.state == WorkState.SUCCEEDED
     await runtime.stop()
-
-
-def test_q1_rejects_priority_instead_of_silently_ignoring_it() -> None:
-    runtime = _runtime()
-
-    with pytest.raises(UnsupportedWorkQueueFeatureError):
-        runtime.register_lane(
-            "priority",
-            handler=_ImmediateHandler(),
-            policy=QueuePolicy(
-                capacity=1,
-                max_concurrency=1,
-                priority_enabled=True,
-            ),
-        )

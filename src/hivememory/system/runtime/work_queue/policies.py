@@ -13,7 +13,6 @@ class QueuePolicy:
     capacity: int
     max_concurrency: int
     ordered_by_key: bool = False
-    priority_enabled: bool = False
     cancellable: bool = True
     timeout_seconds: float | None = None
     max_attempts: int = 1
@@ -42,7 +41,6 @@ class FailureAction(str, Enum):
     RETRY = "retry"
     FAIL = "fail"
     DEAD_LETTER = "dead_letter"
-    TREAT_AS_SUCCESS = "treat_as_success"
 
 
 @dataclass(frozen=True)

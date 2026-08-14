@@ -154,10 +154,13 @@ class MemoryGenerationTaskController:
             created_at=datetime.now(UTC),
         )
 
-        # Controller 也可独立用于测试与嵌入式调用，因此保留幂等懒启动；
-        # PatchouliSystem 的正常生命周期仍会显式启动该 lane。只有队列确认接纳后
-        # 才建立 entry 和发布 created，避免把 admission rejection 混入任务状态机。
-        await self._queue.start()
+        if not self._queue.started:
+            raise RuntimeError(
+                "memory generation queue must be started before submitting work"
+            )
+
+        # 只有队列确认接纳后才建立 entry 和发布 created，避免把 admission
+        # rejection 混入任务状态机。
         handle = await self._queue.submit(task_id, spec)
 
         entry = _MemoryTaskEntry(

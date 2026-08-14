@@ -86,7 +86,6 @@ class WorkItem:
     schema_version: int
     payload: bytes = field(repr=False)
     ordering_key: str | None = None
-    priority: int = 0
     correlation_id: str | None = None
     idempotency_key: str | None = None
 
@@ -127,7 +126,6 @@ class WorkRecord:
     available_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
-    lease_until: datetime | None = None
     last_error: WorkErrorSnapshot | None = None
     result_ref: str | None = None
 

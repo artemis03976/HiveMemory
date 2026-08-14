@@ -96,9 +96,7 @@ async def test_handle_combines_record_with_stable_typed_result():
     record = _record(item, state=WorkState.SUCCEEDED)
     queue = AsyncMock()
     queue.wait.return_value = record
-    handle = TaskHandle[_Task, tuple[str, ...]](
-        task=task,
-        task_id=task.task_id,
+    handle = TaskHandle[tuple[str, ...]](
         work_id=item.work_id,
         queue=queue,
     )
@@ -115,12 +113,9 @@ async def test_handle_combines_record_with_stable_typed_result():
 
 @pytest.mark.asyncio
 async def test_handle_rolls_back_cancel_marker_when_queue_cancel_raises():
-    task = _Task(task_id="task-1", value="payload")
     queue = AsyncMock()
     queue.cancel.side_effect = RuntimeError("queue unavailable")
-    handle = TaskHandle[_Task, None](
-        task=task,
-        task_id=task.task_id,
+    handle = TaskHandle[None](
         work_id="test:task-1",
         queue=queue,
     )
@@ -147,9 +142,7 @@ async def test_handle_exposes_accepted_cancel_reason_before_terminal_cancel():
     queue = AsyncMock()
     queue.cancel.return_value = True
     queue.get.return_value = _record(item, state=WorkState.RUNNING)
-    handle = TaskHandle[_Task, None](
-        task=task,
-        task_id=task.task_id,
+    handle = TaskHandle[None](
         work_id=item.work_id,
         queue=queue,
     )

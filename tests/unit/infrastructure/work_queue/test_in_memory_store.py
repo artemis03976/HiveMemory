@@ -42,7 +42,7 @@ async def test_enqueue_claim_and_terminal_transition() -> None:
     store.configure_lane("lane", QueuePolicy(capacity=2, max_concurrency=1))
 
     queued = await store.enqueue(_item("work-1"))
-    claimed = await store.claim_ready("lane", limit=1, lease_seconds=30)
+    claimed = await store.claim_ready("lane", limit=1)
     terminal = await store.mark_succeeded("work-1", result_ref="artifact-1")
 
     assert queued.state == WorkState.QUEUED
@@ -86,7 +86,7 @@ async def test_same_key_retry_keeps_original_fifo_position() -> None:
     await store.enqueue(_item("first", key="topic-1"))
     await store.enqueue(_item("second", key="topic-1"))
 
-    first_claim = await store.claim_ready("lane", limit=2, lease_seconds=30)
+    first_claim = await store.claim_ready("lane", limit=2)
     assert [record.work_id for record in first_claim] == ["first"]
 
     retrying = await store.schedule_retry(
@@ -95,12 +95,12 @@ async def test_same_key_retry_keeps_original_fifo_position() -> None:
         error=WorkErrorSnapshot(error_class="TransientError"),
     )
     assert retrying.state == WorkState.RETRY_WAIT
-    retry_claim = await store.claim_ready("lane", limit=2, lease_seconds=30)
+    retry_claim = await store.claim_ready("lane", limit=2)
     assert [record.work_id for record in retry_claim] == ["first"]
     assert retry_claim[0].attempt_count == 2
 
     await store.mark_succeeded("first")
-    second_claim = await store.claim_ready("lane", limit=2, lease_seconds=30)
+    second_claim = await store.claim_ready("lane", limit=2)
     assert [record.work_id for record in second_claim] == ["second"]
 
 
@@ -115,7 +115,7 @@ async def test_different_ordering_keys_can_be_claimed_together() -> None:
     await store.enqueue(_item("second", key="topic-1"))
     await store.enqueue(_item("other", key="topic-2"))
 
-    claimed = await store.claim_ready("lane", limit=3, lease_seconds=30)
+    claimed = await store.claim_ready("lane", limit=3)
 
     assert [record.work_id for record in claimed] == ["first", "other"]
 
@@ -127,8 +127,8 @@ async def test_concurrent_claim_does_not_return_duplicate_work() -> None:
     await store.enqueue(_item("work-1"))
 
     results = await asyncio.gather(
-        store.claim_ready("lane", limit=1, lease_seconds=30),
-        store.claim_ready("lane", limit=1, lease_seconds=30),
+        store.claim_ready("lane", limit=1),
+        store.claim_ready("lane", limit=1),
     )
 
     assert sum(len(result) for result in results) == 1
@@ -143,7 +143,7 @@ async def test_terminal_retention_is_bounded() -> None:
     )
     for work_id in ("work-1", "work-2"):
         await store.enqueue(_item(work_id))
-        await store.claim_ready("lane", limit=1, lease_seconds=30)
+        await store.claim_ready("lane", limit=1)
         await store.mark_succeeded(work_id)
 
     assert await store.get("work-1") is None

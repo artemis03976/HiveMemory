@@ -132,6 +132,7 @@ async def _capture_event(target: list, **kwargs) -> None:
 async def test_passive_settlement_routes_archive_spec_through_task_controller():
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
     execute_spec = AsyncMock(return_value=[])
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
 
@@ -166,6 +167,7 @@ async def test_passive_settlement_routes_archive_spec_through_task_controller():
 async def test_active_write_routes_to_generation_and_publishes_settlement():
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
     published = []
     execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
@@ -193,6 +195,7 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
 async def test_active_update_fetches_existing_memory_before_generation():
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
     existing = _memory_atom()
     memory_get = AsyncMock(return_value=existing)
     execute_spec = AsyncMock(return_value=_settlement_result("draft_update"))
@@ -222,6 +225,7 @@ async def test_active_update_fetches_existing_memory_before_generation():
 async def test_active_batch_skips_missing_update_and_runs_valid_write():
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
     failed = []
     execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)

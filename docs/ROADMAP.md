@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-13
+last_reviewed: 2026-08-14
 ---
 
 # HiveMemory 开发路线图
@@ -111,7 +111,7 @@ last_reviewed: 2026-08-13
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Reliable Local Work Runtime | Current Development | 收敛 Interaction Submission 与 Memory Generation 的本地执行生命周期，并建立最小耐久性、幂等、身份 scope 与 SQLite 恢复门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项治理主题的前置切片 |
+| `v0.6.1` Reliable Local Work Runtime | Current Development | 收敛 Interaction Submission 与 Memory Generation 的进程内执行生命周期，并建立必要的接纳幂等、身份 scope 与未来持久化门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项治理主题的前置切片 |
 | `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件异步解析另行立项 | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -126,7 +126,7 @@ last_reviewed: 2026-08-13
 |:---|:---|:---|:---|
 | 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition Idea](./ideas/composite-intent-decomposition.md) |
 | 自定义入口拦截规则 | Gateway | 当前固定入口链已可运行；只有出现明确外部接入需求、配置所有者和验收样本后才建立 Plan | 待建立 |
-| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只承担 work、lease 和已承诺操作的最小恢复；Artifact/Memory saga、Agent checkpoint、反馈与维护恢复另行排期 | [Durability and Recovery Governance](./governance/reliability/durability-and-recovery.md) |
+| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只冻结进程内 work 契约与持久化门槛；SQLite、claim ownership/lease、Artifact/Memory saga、Agent checkpoint、反馈与维护恢复均按真实恢复需求另行排期 | [Durability and Recovery Governance](./governance/reliability/durability-and-recovery.md) |
 | 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Idempotency and Retry Governance](./governance/reliability/idempotency-and-retry.md) |
 | 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity and Execution Safety Governance](./governance/security/identity-and-execution-safety.md) |
 | 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./governance/data-model/mutability.md) |
@@ -152,9 +152,12 @@ v0.6.1 的发布顺序应为：
 1. 冻结 Queue 契约并完成 in-memory runtime 的机械状态机验证；
 2. 迁移 Passive Interaction Submission 与 Memory Generation，先让 in-memory runtime 跑通现有业务；
 3. 以同步 applied gate 迁移 Active finalize，验证稳定 `interaction_id`、共享 capacity、模糊失败和后续副作用顺序；
-4. 现有业务链稳定后，再建立 SQLite WorkStore、lease recovery、唯一 idempotency key 和最小 identity scope。
+4. 收敛迁移遗留的重复状态、隐式生命周期和未被业务消费的通用 Queue 能力，并验证最小 identity scope。
 
-In-memory runtime 是内部实现里程碑，不构成跨重启可靠交付。任何入口在 SQLite 恢复和业务幂等门槛完成前，都不能对外声称 durable accepted。
+In-memory runtime 是 v0.6.1 的实现边界，不构成跨重启可靠交付。SQLite WorkStore、claim ownership、
+lease recovery 与数据库级唯一 idempotency key 后置到出现真实恢复需求后的独立阶段，并作为完整恢复
+方案重新设计；当前 Runtime 不为它们预留半实现字段。任何入口在持久化恢复和业务幂等门槛完成前，
+都不能对外声称 durable accepted。
 
 ### 4.3 v0.6.2 Attachments
 

@@ -39,8 +39,6 @@ class MemoryGenerationSource(str, Enum):
     WRITE = "WRITE"
     UPDATE = "UPDATE"
     ARCHIVE = "ARCHIVE"
-    MERGE = "MERGE"
-    SPLIT = "SPLIT"
 
     @property
     def creation_artifact_intent(
@@ -57,13 +55,9 @@ class MemoryGenerationSource(str, Enum):
     @property
     def version_update_source(
         self,
-    ) -> Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"]:
+    ) -> Literal["UPDATE"]:
         """映射记忆版本更新使用的来源类型。"""
 
-        if self == MemoryGenerationSource.MERGE:
-            return "MERGE"
-        if self == MemoryGenerationSource.SPLIT:
-            return "SYSTEM_REWRITE"
         return "UPDATE"
 
 

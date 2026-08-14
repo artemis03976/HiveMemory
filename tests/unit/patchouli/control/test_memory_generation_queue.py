@@ -174,6 +174,7 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
 
     bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
     controller = _controller(bus, max_concurrency=1)
+    await controller.start()
 
     try:
         first = await controller.submit_generation(_spec(label="first"))
@@ -218,6 +219,7 @@ async def test_queued_cancel_never_calls_generation_handler() -> None:
 
     bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
     controller = _controller(bus, max_concurrency=1)
+    await controller.start()
 
     try:
         first = await controller.submit_generation(_spec(label="first"))
@@ -250,6 +252,7 @@ async def test_running_cancel_interrupts_handler_and_projects_cancelled() -> Non
 
     bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
     controller = _controller(bus)
+    await controller.start()
 
     try:
         memory_task = await controller.submit_generation(_spec())
@@ -280,6 +283,16 @@ def test_memory_generation_rejects_multiple_attempt_policy() -> None:
 
 
 @pytest.mark.asyncio
+async def test_memory_generation_submit_requires_explicit_start() -> None:
+    controller = MemoryGenerationTaskController(
+        bus=Mock(request=AsyncMock(), publish=AsyncMock())
+    )
+
+    with pytest.raises(RuntimeError, match="must be started"):
+        await controller.submit_generation(_spec())
+
+
+@pytest.mark.asyncio
 async def test_default_policy_does_not_retry_generation_side_effects() -> None:
     bus = Mock(
         request=AsyncMock(
@@ -290,6 +303,7 @@ async def test_default_policy_does_not_retry_generation_side_effects() -> None:
         publish=AsyncMock(),
     )
     controller = MemoryGenerationTaskController(bus=bus)
+    await controller.start()
 
     try:
         memory_task = await controller.submit_generation(_spec())
@@ -309,6 +323,7 @@ async def test_non_retryable_failure_fails_once() -> None:
         publish=AsyncMock(),
     )
     controller = _controller(bus)
+    await controller.start()
 
     try:
         memory_task = await controller.submit_generation(_spec())
@@ -334,6 +349,7 @@ async def test_timeout_fails_without_retry() -> None:
         bus,
         timeout_seconds=0.01,
     )
+    await controller.start()
 
     try:
         memory_task = await controller.submit_generation(_spec())

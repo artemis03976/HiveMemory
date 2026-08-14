@@ -37,7 +37,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | archive/revive | MemoryLibrary 编排跨层搬运，GC 会检查已归档 | 中间失败可能产生重复副本；重复 archive/revive 的返回语义未形成公共规则 |
 | Retrieval HIT | finalize 内有单批 `seen` 去重和 best-effort 记录入口 | 有意不提供跨 finalize 去重、retry 或耐久 event key；允许少量遗漏或重复 |
 | CITATION/feedback | 生命周期事件入口已经存在 | 若未来被提升为必须恢复的用户事实，再为其定义稳定身份与重复语义 |
-| Work Queue | 计划中已有 lane 级 `idempotency_key`、lease 和 at-least-once 方向 | 通用 key 不能替代各领域对重复副作用的解释；业务 consumer 仍未全部实现 |
+| Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；当前契约不含 lease，通用 key 也不能替代各领域对重复副作用的解释 |
 
 当前唯一较完整的例子是 Passive ingress 的 external event dedup。它不能被直接推广为所有业务的“全局去重表”：不同操作的重复输入可能代表重试、同一意图的新版本、合法的再次引用或必须拒绝的冲突。
 
@@ -129,10 +129,10 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 
 ### Phase I1：基础记录与 Work Queue 接线
 
-1. 复用 Local Work Queue 的 `(lane, idempotency_key)` 唯一约束和 lease 设计；
+1. 在持久化 WorkStore 阶段实现 `(lane, idempotency_key)` 唯一约束，并按真实崩溃恢复需求设计 claim ownership；当前 in-memory 契约不预留 lease 字段；
 2. 为 interaction 与 memory generation 保存可查询的 operation result ref；
 3. 让 retry enqueue 返回已有 work，而不是创建第二个 handler；
-4. unknown kind/version、expired lease 和 dead-letter 都保留可解释的操作结果。
+4. unknown kind/version、abandoned running work 和 dead-letter 都保留可解释的操作结果；若恢复方案采用 lease，再定义 expired lease 语义。
 
 ### Phase I2：Patchouli 与 MemoryLibrary 副作用
 
@@ -157,7 +157,7 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 - 模糊失败会进入可查询的 retry/reconciliation/unknown 状态，不能直接伪装成普通 failed；
 - Queue 的 at-least-once 行为、业务 consumer 幂等和并发版本控制互相有明确边界；
 - Retrieval HIT 与 RuntimeEvent 等 best-effort 信号不会反向获得任务状态机、自动 retry 或耐久去重要求；
-- 进程重启、重复消息、lease 过期和外部写入超时测试通过；
+- 进程重启、重复消息、abandoned running work 和外部写入超时测试通过；若持久化实现采用 lease，再补充 lease 过期测试；
 - 现有 wire format 和成功路径保持兼容，除非契约明确增加 operation result 字段。
 
 ## 7. 依赖与不采用方案

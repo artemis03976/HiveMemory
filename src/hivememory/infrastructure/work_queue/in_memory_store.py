@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections import Counter, deque
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from hivememory.system.runtime.work_queue.exceptions import (
     DuplicateWorkItemError,
@@ -87,14 +87,11 @@ class InMemoryWorkStore:
         lane: str,
         *,
         limit: int,
-        lease_seconds: float,
     ) -> list[WorkRecord]:
         """按原始入队顺序原子 claim 当前可执行项。"""
 
         if limit < 1:
             return []
-        if lease_seconds <= 0:
-            raise ValueError("lease_seconds must be greater than 0")
 
         async with self._condition:
             lane_state = self._lane_for(lane)
@@ -112,7 +109,6 @@ class InMemoryWorkStore:
                     attempt_count=current.attempt_count + 1,
                     started_at=now,
                     finished_at=None,
-                    lease_until=now + timedelta(seconds=lease_seconds),
                 )
                 self._records[work_id] = running
                 claimed.append(running)
@@ -149,7 +145,6 @@ class InMemoryWorkStore:
                 current,
                 state=WorkState.RETRY_WAIT,
                 available_at=available_at,
-                lease_until=None,
                 last_error=error,
             )
             self._records[work_id] = retrying
@@ -197,7 +192,6 @@ class InMemoryWorkStore:
                 current,
                 state=WorkState.CANCELLED,
                 finished_at=datetime.now(UTC),
-                lease_until=None,
             )
             self._records[work_id] = cancelled
             lane.terminal_ids.append(work_id)
@@ -292,7 +286,6 @@ class InMemoryWorkStore:
                 current,
                 state=state,
                 finished_at=datetime.now(UTC),
-                lease_until=None,
                 last_error=error,
                 result_ref=result_ref,
             )

@@ -85,6 +85,7 @@ class TestMemoryGenerationTaskController:
 
         bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        await controller.start()
         spec = _spec(
             source=MemoryGenerationSource.WRITE,
             intent_id="intent_stable",
@@ -111,6 +112,7 @@ class TestMemoryGenerationTaskController:
     async def test_active_intent_rejects_conflicting_spec(self):
         bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
         first_spec = _spec(
             label="first",
             source=MemoryGenerationSource.WRITE,
@@ -136,6 +138,7 @@ class TestMemoryGenerationTaskController:
     async def test_submit_generation_many_isolates_one_admission_failure(self):
         bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
         try:
             result = await controller.submit_generation_many(
                 [
@@ -163,6 +166,7 @@ class TestMemoryGenerationTaskController:
     async def test_submit_generation_many_keeps_unknown_admission_pending(self):
         queue = Mock()
         queue.start = AsyncMock()
+        queue.started = True
         queue.submit = AsyncMock(side_effect=ConnectionError("response lost"))
         bus = Mock(publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus, memory_queue=queue)
@@ -193,6 +197,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
 
@@ -209,6 +214,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(return_value=[])
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         await controller.wait_task(memory_task.task_id)
@@ -223,6 +229,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=RuntimeError("generation error"))
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         await controller.wait_task(memory_task.task_id)
@@ -251,6 +258,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(return_value=results)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        await controller.start()
 
         memory_task = await controller.submit_generation(
             _spec(
@@ -292,6 +300,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -307,6 +316,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(return_value=[])
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(
             _spec(
@@ -347,6 +357,7 @@ class TestMemoryGenerationTaskController:
             bus=bus,
             runtime_events=recorder,
         )
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -375,6 +386,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(return_value=[])
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
         memory_task = await controller.submit_generation(_spec())
         first = await controller.wait_task(memory_task.task_id)
         second = await controller.wait_task(memory_task.task_id)
@@ -397,6 +409,7 @@ class TestMemoryGenerationTaskController:
             bus=bus,
             runtime_events=recorder,
         )
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -426,6 +439,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         waiter = asyncio.create_task(controller.wait_task(memory_task.task_id))
@@ -450,6 +464,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         result = await controller.wait_task(memory_task.task_id, timeout=0.01)
@@ -489,6 +504,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
         results = await controller.wait_many(
@@ -520,6 +536,7 @@ class TestMemoryGenerationTaskController:
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
 
         first = await controller.submit_generation(_spec(label="first"))
         second = await controller.submit_generation(_spec(label="second"))

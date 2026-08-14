@@ -45,20 +45,16 @@ class WorkQueueSupervisor:
         store: WorkStorePort,
         execute_work: ExecuteWork,
         worker_poll_interval_seconds: float = 0.2,
-        lease_seconds: float = 300.0,
         shutdown_wait_seconds: float = 10.0,
     ) -> None:
         if worker_poll_interval_seconds <= 0:
             raise ValueError("worker_poll_interval_seconds must be greater than 0")
-        if lease_seconds <= 0:
-            raise ValueError("lease_seconds must be greater than 0")
         if shutdown_wait_seconds < 0:
             raise ValueError("shutdown_wait_seconds must not be negative")
 
         self._store = store
         self._execute_work = execute_work
         self._poll_interval = worker_poll_interval_seconds
-        self._lease_seconds = lease_seconds
         self._shutdown_wait_seconds = shutdown_wait_seconds
         self._lanes: dict[str, _LaneWorker] = {}
         self._started = False
@@ -144,15 +140,10 @@ class WorkQueueSupervisor:
                         await lane.slot_available.wait()
                     continue
 
-                lease_seconds = max(
-                    self._lease_seconds,
-                    (lane.policy.timeout_seconds or 0.0) + 1.0,
-                )
                 try:
                     records = await self._store.claim_ready(
                         lane.name,
                         limit=available_slots,
-                        lease_seconds=lease_seconds,
                     )
                 except asyncio.CancelledError:
                     raise

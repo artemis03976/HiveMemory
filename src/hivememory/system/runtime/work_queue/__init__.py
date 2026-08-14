@@ -11,7 +11,6 @@ from hivememory.system.runtime.work_queue.exceptions import (
     DuplicateWorkPayloadCodecError,
     UnknownWorkLaneError,
     UnknownWorkPayloadCodecError,
-    UnsupportedWorkQueueFeatureError,
     WorkPayloadCodecError,
     WorkPayloadDecodeError,
     WorkPayloadEncodeError,
@@ -58,7 +57,6 @@ from hivememory.system.runtime.work_queue.ports import (
 from hivememory.system.runtime.work_queue.runtime import WorkLane, WorkQueueRuntime
 from hivememory.system.runtime.work_queue.supervisor import WorkQueueSupervisor
 from hivememory.system.runtime.work_queue.tasks import (
-    QueueTask,
     QueueTaskAdapter,
     QueueTaskIdentity,
     TaskHandle,
@@ -72,7 +70,6 @@ __all__ = [
     "FailureAction",
     "FailureDecision",
     "QueuePolicy",
-    "QueueTask",
     "QueueTaskAdapter",
     "QueueTaskIdentity",
     "DuplicateWorkItemError",
@@ -82,7 +79,6 @@ __all__ = [
     "JsonValue",
     "UnknownWorkLaneError",
     "UnknownWorkPayloadCodecError",
-    "UnsupportedWorkQueueFeatureError",
     "WorkCancellationToken",
     "WorkErrorSnapshot",
     "WorkExecutionContext",

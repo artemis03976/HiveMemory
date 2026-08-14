@@ -171,6 +171,10 @@ Controller、Coordinator 与 Active finalize 只调用该组件，不再各自�
 
 ## P1：继续缩减 MemoryGenerationTaskController 的运行时接驳代码
 
+> 状态：已完成（2026-08-14）。无消费者的 TaskHandle 字段与执行结果包装已删除，
+> Memory Generation 提交不再隐式启动 Queue；未启动提交会明确失败，并由系统生命周期或测试装配
+> 显式调用 `start()`。
+
 ### 问题与证据
 
 Controller 的提交与状态控制已经较简洁，但通用 `TaskHandle` 和 Memory Generation handler 仍保留了没有实际消费者的接驳字段：
@@ -258,14 +262,18 @@ payload_digest
 
 ## P2：删除通用 Queue 中尚未形成真实语义的能力
 
+> 状态：已完成（2026-08-14）。当前 Runtime 契约已删除 priority、
+> `FailureAction.TREAT_AS_SUCCESS`、无消费者 `QueueTask` Protocol 和未配套恢复算法的 lease 字段。
+> SQLite 阶段若需要崩溃恢复，将把 claim 所有权与过期恢复算法作为一项完整能力重新设计。
+
 ### 问题与证据
 
-通用 Queue 仍保留数项未来能力，但当前没有业务 lane 使用，或者只有“拒绝启用”的半实现分支：
+清理前，通用 Queue 保留了数项没有业务 lane 使用、或只有“拒绝启用”分支的未来能力：
 
 - `priority` / `priority_enabled`；
 - `FailureAction.TREAT_AS_SUCCESS`；
 - 未被 `adapt_queue_task()` 约束或消费的 `QueueTask` Protocol；
-- `lease_until` / `lease_seconds`，当前会写入 lease，但没有过期 claim 恢复流程。
+- `lease_until` / `lease_seconds`，只写入 lease，却没有过期 claim 恢复流程。
 
 这些字段会扩大 API、状态机和测试面，却不能提供完整的优先级调度或崩溃恢复保证。
 
@@ -284,15 +292,14 @@ payload_digest
 > Queue 模块私有实现，`_build_update_artifact()` 返回类型也已修正。Active admission 的逐项隔离已
 > 收回 `submit_generation_many()`，未入队不再伪装为任务 `FAILED`。`MemoryGenerationTaskWaitResult`
 > 与 `MemoryGenerationTaskWaitSummary` 也已删除：wait API 直接返回任务快照，shutdown 计数下沉到
-> shutdown observability 边界。
+> shutdown observability 边界。没有生产路径的 `MemoryGenerationSource.MERGE/SPLIT` 也已删除，
+> Artifact 版本自身的 MERGE 语义不受影响。
 
 ### 问题与证据
 
 `patchouli/runtime/memory_tasks.py` 仍同时包含共享任务 spec、跨域结果、公开快照、WorkState 映射和
-事件 payload，文件职责偏多。当前剩余问题主要是：
-
-- `MERGE` / `SPLIT` 缺少生产路径，主要由测试引用；
-- spec、跨域 result、任务快照与事件序列化是否值得继续拆文件，仍应以实际消费者数量衡量。
+事件 payload，文件职责偏多。当前剩余问题是 spec、跨域 result、任务快照与事件序列化是否值得
+继续拆文件；这仍应以实际消费者数量衡量，不因类型数量本身机械拆分。
 
 ### 目标方案
 
@@ -325,12 +332,12 @@ payload_digest
 ## 推荐实施顺序
 
 1. 将 Runtime/Supervisor 从未被生产装配使用的多-lane 容器收敛为单-lane 实例；
-2. 继续删除 Memory Task Handle、ExecutionResult 与隐式启动等无消费者接驳；
-3. 简化 Interaction Submission 旁路索引，再按职责拆分文件；
-4. 审计并删除通用 Queue 的未使用未来能力；
-5. 继续收敛 Memory Generation 模型边界，并降低测试的私有实现耦合。
+2. 简化 Interaction Submission 旁路索引，再按职责拆分文件；
+3. 继续收敛 Memory Generation 模型边界，并降低测试的私有实现耦合。
 
-Retrieval HIT task 生命周期简化、WorkStore 权威迁移与 `PendingAtomSettler` 已完成，不再列入待实施顺序。其余各项可分别提交并独立回归，避免把正确性边界调整与大规模文件移动混合。
+Retrieval HIT task 生命周期简化、WorkStore 权威迁移、`PendingAtomSettler`、Memory Generation
+无消费者接驳清理和通用 Queue 虚假能力清理均已完成，不再列入待实施顺序。其余各项可分别提交并
+独立回归，避免把正确性边界调整与大规模文件移动混合。
 
 ## 总体验收
 

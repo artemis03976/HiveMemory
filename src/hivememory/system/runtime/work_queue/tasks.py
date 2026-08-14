@@ -27,14 +27,6 @@ class QueueTaskIdentity:
     ordering_key: str | None = None
     correlation_id: str | None = None
     idempotency_key: str | None = None
-    priority: int = 0
-
-
-@runtime_checkable
-class QueueTask(Protocol):
-    """可入队任务定义需要实现的最小标识契约。"""
-
-    task_id: str
 
 
 @runtime_checkable
@@ -77,7 +69,6 @@ def adapt_queue_task(
         schema_version=adapter.schema_version,
         payload=payload,
         ordering_key=identity.ordering_key,
-        priority=identity.priority,
         correlation_id=identity.correlation_id,
         idempotency_key=identity.idempotency_key,
     )
@@ -105,7 +96,7 @@ class TaskOutcome[ResultT]:
         return self.record.state == WorkState.SUCCEEDED
 
 
-class TaskHandle[TaskT, ResultT]:
+class TaskHandle[ResultT]:
     """在不持有任务状态的前提下查询、等待和取消结构化任务。
 
     句柄通过 ``WorkQueuePort`` 读取 ``WorkRecord``，自身只保存无法进入通用
@@ -116,13 +107,9 @@ class TaskHandle[TaskT, ResultT]:
     def __init__(
         self,
         *,
-        task: TaskT,
-        task_id: str,
         work_id: str,
         queue: WorkQueuePort,
     ) -> None:
-        self._task = task
-        self._task_id = task_id
         self._work_id = work_id
         self._queue = queue
         self._execution_result: ResultT | None = None
@@ -130,14 +117,6 @@ class TaskHandle[TaskT, ResultT]:
         self._execution_started = asyncio.Event()
         self._pending_cancel_reason: str | None = None
         self._accepted_cancel_reason: str | None = None
-
-    @property
-    def task(self) -> TaskT:
-        return self._task
-
-    @property
-    def task_id(self) -> str:
-        return self._task_id
 
     @property
     def work_id(self) -> str:
@@ -205,10 +184,6 @@ class TaskHandle[TaskT, ResultT]:
 
         self._last_execution_error = str(error) or type(error).__name__
 
-    @property
-    def _cached_execution_result(self) -> ResultT | None:
-        return self._execution_result
-
     def _to_outcome(self, record: WorkRecord | None) -> TaskOutcome[ResultT] | None:
         """把状态真相与进程内补充信息合成为只读结果视图。"""
 
@@ -229,7 +204,6 @@ class TaskHandle[TaskT, ResultT]:
 
 
 __all__ = [
-    "QueueTask",
     "QueueTaskAdapter",
     "QueueTaskIdentity",
     "TaskHandle",

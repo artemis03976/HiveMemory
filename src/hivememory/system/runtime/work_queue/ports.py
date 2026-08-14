@@ -56,7 +56,6 @@ class WorkStorePort(Protocol):
         lane: str,
         *,
         limit: int,
-        lease_seconds: float,
     ) -> list[WorkRecord]: ...
 
     async def mark_succeeded(

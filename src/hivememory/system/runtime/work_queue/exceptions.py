@@ -36,10 +36,6 @@ class WorkStateConflictError(WorkQueueError):
     """store 收到不符合状态机的迁移请求。"""
 
 
-class UnsupportedWorkQueueFeatureError(WorkQueueError):
-    """配置启用了当前阶段尚未实现的队列能力。"""
-
-
 class WorkPayloadCodecError(WorkQueueError):
     """work payload 编解码契约失败。"""
 
@@ -87,7 +83,6 @@ __all__ = [
     "DuplicateWorkPayloadCodecError",
     "UnknownWorkLaneError",
     "UnknownWorkPayloadCodecError",
-    "UnsupportedWorkQueueFeatureError",
     "WorkPayloadCodecError",
     "WorkPayloadDecodeError",
     "WorkPayloadEncodeError",

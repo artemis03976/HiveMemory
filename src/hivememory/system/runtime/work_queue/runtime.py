@@ -16,7 +16,6 @@ from hivememory.system.runtime.work_queue.events import WorkQueueEventEmitter
 from hivememory.system.runtime.work_queue.exceptions import (
     DuplicateWorkLaneError,
     UnknownWorkLaneError,
-    UnsupportedWorkQueueFeatureError,
     WorkPayloadCodecError,
     WorkQueueStoppedError,
 )
@@ -65,7 +64,6 @@ class WorkQueueRuntime:
         payload_codecs: WorkPayloadCodecRegistry,
         runtime_events: RuntimeEventSink | None = None,
         worker_poll_interval_seconds: float = 0.2,
-        lease_seconds: float = 300.0,
         shutdown_wait_seconds: float = 10.0,
     ) -> None:
         self._store = store
@@ -76,7 +74,6 @@ class WorkQueueRuntime:
             store=store,
             execute_work=self._execute_record,
             worker_poll_interval_seconds=worker_poll_interval_seconds,
-            lease_seconds=lease_seconds,
             shutdown_wait_seconds=shutdown_wait_seconds,
         )
         self._accepting = True
@@ -107,11 +104,6 @@ class WorkQueueRuntime:
             raise ValueError("lane name must not be blank")
         if name in self._bindings:
             raise DuplicateWorkLaneError(f"Work queue lane '{name}' is already registered")
-        if policy.priority_enabled:
-            raise UnsupportedWorkQueueFeatureError(
-                "priority_enabled is not implemented by the Q1 in-memory runtime"
-            )
-
         lane = WorkLane(name=name, policy=policy)
         self._store.configure_lane(name, policy)
         self._bindings[name] = _LaneBinding(lane=lane, handler=handler)
@@ -368,16 +360,6 @@ class WorkQueueRuntime:
             message=decision.reason,
         )
         policy = binding.lane.policy
-
-        if decision.action == FailureAction.TREAT_AS_SUCCESS:
-            succeeded = await self._store.mark_succeeded(record.work_id)
-            await self._emit_transition(
-                RuntimeEventType.WORK_SUCCEEDED,
-                binding=binding,
-                record=succeeded,
-                reason=decision.reason,
-            )
-            return
 
         retry_exhausted = (
             decision.action == FailureAction.RETRY

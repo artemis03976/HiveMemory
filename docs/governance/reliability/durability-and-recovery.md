@@ -17,7 +17,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/system/observability.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-14
 ---
 
 # 运行时状态持久化与故障恢复治理
@@ -35,7 +35,7 @@ last_reviewed: 2026-07-29
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
 | Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
 | Passive interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失 | 由 SQLite WorkStore 负责 durable store；当前实现后置 |
-| Memory generation task | 进程内 task registry + `asyncio.create_task()` | registry 只保留有限终态，重启后无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 统一 Work Store、任务 codec、lease 和 outcome ref |
+| Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
 | Profile/alias/cache | 进程级 cache | cache 失效、身份隔离和重启语义不完整 | 先区分可重建 cache 与需要持久化的配置/资产，不把 cache 当事实 |
@@ -121,7 +121,7 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 1. 复用 Local Work Queue 的 lane/handler/store 方向，把 interaction submission 和 memory generation 的可承诺状态写入 WorkStore；
 2. 为 PendingAtom intent、pending alias、settlement、resolution 和 cancel reason 建立可持久化 record；
-3. 启动时恢复 queued/retry-wait work，处理 expired running lease，并把未知 schema/kind 安全放入 blocked/dead-letter；
+3. 启动时恢复 queued/retry-wait work，处理 abandoned running work，并把未知 schema/kind 安全放入 blocked/dead-letter；若采用 lease，再把过期判定和安全重新 claim 纳入同一恢复算法；
 4. 保证 task、settlement 和 pending state 的终态只由一个所有者推进。
 
 ### Phase D2：Artifact、MemoryAtom 与冷热状态恢复
@@ -150,7 +150,7 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 - 关键状态清单中每个对象都有 owner、source of truth、durability level、schema version、retention 和恢复策略；
 - 重启后 queued/retry-wait interaction、memory task 和 PendingAtom settlement 能继续、重试或进入明确终态；
-- running lease 过期不会永久卡住 work，也不会无保护地重复产生副作用；
+- abandoned running work 不会永久卡住，也不会无保护地重复产生副作用；若采用 lease，其过期语义有完整测试；
 - Artifact/MemoryAtom/archive/revive 的故障注入可以发现并补偿中间态；
 - Agent checkpoint 不会把取消、超时、同步 syscall 或不完整模型输出伪装成成功恢复；
 - RuntimeEvent 丢失、禁用或订阅者失败不会改变持久化业务结果；
@@ -160,6 +160,6 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 ## 7. 依赖与风险
 
-本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 的 lane、WorkStore、lease 和 handler registry 设计。身份隔离治理必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
+本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
 
 主要风险是过早把所有内存对象写入持久化层，导致 schema、隐私和迁移成本快速膨胀；因此首期应优先保护已经对外承诺的工作项和写入意图，保留短期 topic、cache 与 RuntimeEvent 的明确 ephemeral 语义。

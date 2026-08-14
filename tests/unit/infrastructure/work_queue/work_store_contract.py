@@ -44,7 +44,7 @@ class WorkStoreContract:
 
     async def _running(self, store: WorkStorePort, work_id: str) -> WorkRecord:
         await store.enqueue(_item(work_id))
-        claimed = await store.claim_ready("lane", limit=1, lease_seconds=30)
+        claimed = await store.claim_ready("lane", limit=1)
         assert len(claimed) == 1
         return claimed[0]
 
@@ -84,7 +84,6 @@ class WorkStoreContract:
         assert transitioned == await store.get(running.work_id)
         assert transitioned.state == expected_state
         assert transitioned.attempt_count == running.attempt_count
-        assert transitioned.lease_until is None
         if expected_state == WorkState.SUCCEEDED:
             assert transitioned.result_ref == "artifact-1"
             assert transitioned.finished_at is not None

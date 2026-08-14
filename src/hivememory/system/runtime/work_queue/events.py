@@ -91,9 +91,6 @@ class WorkQueueEventEmitter:
                     "finished_at": (
                         record.finished_at.isoformat() if record.finished_at is not None else None
                     ),
-                    "lease_until": (
-                        record.lease_until.isoformat() if record.lease_until is not None else None
-                    ),
                 }
             )
             data["queue_latency_ms"] = _duration_ms(record.enqueued_at, record.started_at)
