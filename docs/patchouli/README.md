@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-14
 ---
 
 # Patchouli
@@ -99,7 +99,7 @@ GatewayDecision
        -> best-effort record retrieval HIT
 ```
 
-Prepare 只准备运行上下文，不运行 Alice。Finalize 消费已经完成的 `AgentRunResult`，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后 MTP 物化与 retrieval HIT 分别按独立任务和 best-effort 语义处理，不反向改写 Chat 终态。若 prepare 已创建新话题而 run 没有走到 finalize，System 会调用 cleanup 删除仍为空的话题。
+Prepare 只准备运行上下文，不运行 Alice。Finalize 消费已经完成的 `AgentRunResult`，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内并行执行 MTP 物化接纳与 best-effort retrieval HIT，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，System 会调用 cleanup 删除仍为空的话题。
 
 `WRITE` / `UPDATE` 的 ACK 只代表 Alice 已登记一个 PendingAtom。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 把 pending alias 投影为 canonical alias/UUID 或 discard/failure/cancel 终态。
 

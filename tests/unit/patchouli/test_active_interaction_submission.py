@@ -179,6 +179,52 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
 
 
 @pytest.mark.asyncio
+async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> None:
+    hit_started = asyncio.Event()
+    release_hit = asyncio.Event()
+
+    async def record_hit(*_args, **_kwargs) -> None:
+        hit_started.set()
+        await release_hit.wait()
+
+    memory = _memory()
+    record_hit_mock = AsyncMock(side_effect=record_hit)
+    bus = PatchouliBus()
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_HIT, record_hit_mock)
+    queue = InteractionSubmissionQueue(
+        AsyncMock(return_value="topic-1"),
+        policy=_queue_policy(),
+    )
+    service = PatchouliService(bus, interaction_queue=queue)
+    finalize_task: asyncio.Task[list] | None = None
+
+    try:
+        await queue.start()
+        finalize_task = asyncio.create_task(
+            service.finalize_agent_run(
+                _prepared(memories=[memory, memory]),
+                AgentRunResult(final_text="answer"),
+            )
+        )
+
+        await asyncio.wait_for(hit_started.wait(), timeout=1)
+        assert not finalize_task.done()
+
+        release_hit.set()
+        assert await finalize_task == []
+    finally:
+        release_hit.set()
+        if finalize_task is not None and not finalize_task.done():
+            await asyncio.gather(finalize_task, return_exceptions=True)
+        await queue.stop()
+
+    record_hit_mock.assert_awaited_once_with(
+        memory.id,
+        source="retrieval.finalize",
+    )
+
+
+@pytest.mark.asyncio
 async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> None:
     apply = AsyncMock(side_effect=ConnectionError("temporary"))
     materialize = AsyncMock()

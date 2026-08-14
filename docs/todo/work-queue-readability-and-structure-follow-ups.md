@@ -9,7 +9,7 @@ related_docs:
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/patchouli/generation.md
   - docs/system/runtime-and-bus.md
-last_reviewed: 2026-08-13
+last_reviewed: 2026-08-14
 ---
 
 # Work Queue 迁移后的可读性与结构收敛
@@ -18,93 +18,93 @@ last_reviewed: 2026-08-13
 
 v0.6.1 已经完成 In-memory Work Queue Runtime MVP，并将 Passive Interaction、Active Interaction 与 Memory Generation 接入通用运行时。Memory Generation 的双状态承载和重复 retry 承诺已经完成首轮清理，任务可观测事件也已由独立 emitter 接管。
 
-当前剩余工作不再是扩充队列能力，而是继续修正 Active finalize 的整体生命周期幂等性，并减少运行时、领域控制层和测试之间的重复状态与实现耦合。SQLite Work Queue 仍然后置，不应成为本轮清理的前置条件。
+当前剩余工作不再是扩充队列能力，也不再追求 Active finalize 每一个内部步骤和后置副作用的整体幂等。后续重点是保持少数业务接纳边界的可靠性，并减少运行时、领域控制层和测试之间的重复状态与实现耦合。SQLite Work Queue 仍然后置，不应成为本轮清理的前置条件。
 
 本轮已完成两项局部修正：Active WRITE/UPDATE 以 PendingAtom `intent_id` 派生稳定
 Memory Generation task/work identity，进程内重复 dispatch 会复用已有任务；Active materialization
-改为逐 intent 接纳，确定性拒绝与 unknown 结果隔离处理。它们解决了生成任务重复入队和批量失败污染
-的问题，但尚未覆盖 retrieval HIT 或整条 Active continuation 的终态回放。
+改为逐 intent 接纳，确定性拒绝与 unknown 结果隔离处理。它们已经覆盖会创建和结算领域任务的关键
+边界。Retrieval HIT 只是一项统计性强化信号，不再把跨 finalize 去重或终态回放列为正确性目标。
 
 ## 收敛原则
 
 - `WorkRecord` 继续作为通用执行状态的唯一真相源；领域模型只做只读投影。
 - 通用 Runtime 保留必要的机械 retry 状态机，但不承诺业务操作天然可安全重放。
 - `PendingAtom` settlement 属于 Patchouli/Alice 功能事件，不进入通用 Work Queue 事件模型。
+- 只对 Interaction、Memory Generation intent 和 PendingAtom 终态等业务事实接纳边界要求幂等；可重建投影依赖权威事实，统计与可观测信号采用 best-effort。
+- Retrieval HIT 只保留单批 memory 去重，不自动 retry，不增加 event identity、终态 retention、持久化 marker 或专用控制组件。
 - 不为尚未存在的 SQLite 恢复、优先级或用户任务编排提前保留半实现能力。
 - 不删除 `_MemoryTaskEntry`、Memory Generation finalizer、`wait_started()` 和 `running_published`；它们仍承载领域结算元数据与前端实时状态所需的时序，而不是第二套执行状态机。
 - 先修正确性，再收敛状态所有权与业务边界，最后移动文件和清理命名。
 
-## P0：保证 Active finalize 的 post-apply 副作用只执行一次
+## 已决策：不实现 Active finalize 整体副作用幂等
 
-### 问题与证据
+### 原问题与边界调整
 
-`PatchouliService` 当前只在 `_active_finalizations` 中保留仍在运行的 continuation。任务完成后，`_active_finalization_done()` 会立即删除对应条目。相同 `interaction_id` 再次调用 `finalize_agent_run()` 时，Interaction Submission 可以依赖稳定 work identity 避免重复 apply，但 materialization dispatch 与 retrieval HIT record 会再次执行。
+`PatchouliService` 当前只在 `_active_finalizations` 中保留仍在运行的 continuation。任务完成后，`_active_finalization_done()` 会立即删除对应条目。相同 `interaction_id` 再次调用 `finalize_agent_run()` 时，Interaction Submission 依赖稳定 work identity 避免重复 apply；materialization 会再次 dispatch，但下游按 PendingAtom `intent_id` 复用已有生成任务；retrieval HIT 可能再次执行。
 
-现有 Active Interaction 测试还明确断言第二次 finalize 会再次 materialize，因而把这一缺陷固化成了当前行为。Interaction apply 的幂等性不能替代整个 Active finalization 的幂等性。
+此前把这些差异统一视为“整条 finalization 不幂等”，并计划增加 payload fingerprint、终态回放和 retention。该方案会迫使每项 post-apply 操作拥有独立状态、冲突和恢复语义，超出当前目标场景需要，也会重新形成一套位于 Work Queue 之外的任务状态机。
 
-### 目标方案
+### 当前决策
 
-> 进度：Memory Generation intent 级任务接纳已完成；本项剩余的是让 interaction、materialization
-> dispatch 与 retrieval HIT 在同一 Active finalization identity 下都只执行一次，并保留终态回放。
+Active finalize 不再承担“所有副作用统一只执行一次”的承诺，而按业务重要性分级：
 
-建立进程内 `ActiveFinalizationCoordinator`，以 `interaction_id` 管理运行中与有界保留的终态记录。每条记录至少包含：
+- Interaction apply 是对话事实接纳边界，继续按稳定 `interaction_id` 幂等提交；
+- Memory Generation 是领域任务接纳边界，继续按 PendingAtom `intent_id` 派生稳定 task/work identity；
+- PendingAtom settlement 跟随 Generation task 的领域终态结算；
+- retrieval HIT 是 best-effort 统计信号，只做单批去重，允许少量遗漏或重复；
+- RuntimeEvent 等可观测信号同样允许丢失或重复，不反向改变业务终态。
 
-- 输入 payload 的稳定 fingerprint；
-- 唯一 owner continuation；
-- 已完成结果或原始失败；
-- detached 状态；
-- 终态保留与淘汰信息。
+因此不建立 `ActiveFinalizationCoordinator`，也不增加 Active finalization payload fingerprint、完成结果缓存、失败回放和终态 retention。现有进程内 continuation 只负责客户端断开后继续完成已经接管的 applied gate 与有限 post-apply 调用，不升级为持久化 Finalization Job。
 
-语义约束：
+### 接受的限制
 
-- 相同 ID、相同 payload：运行中复用 owner，完成后回放原结果或原失败；
-- 相同 ID、不同 payload：明确拒绝，不能复用旧结果或再次执行；
-- Interaction apply、materialization dispatch 和 retrieval HIT record 在同一 finalization identity 下最多执行一次；
-- 调用方取消或客户端断开只中断等待，不取消已经接管的 owner continuation；
-- 终态记录只提供进程内有界幂等窗口，不宣称跨进程重启恢复。
+- 同一进程内仍在运行的重复 finalize 复用现有 owner continuation；
+- owner 完成后再次 finalize 不回放整条 finalization 结果，但 Interaction 与 Generation 接纳边界各自防止重复业务事实；
+- retrieval HIT 在重复 finalize 中可能再次计数，进程退出或异常也可能导致 HIT 未记录；
+- 当前不为 HIT 的模糊成功、跨重启重复和并发计数误差建立 reconciliation；
+- 如果未来多 Agent 场景要求所有派生行为可恢复，应从 Interaction 权威事实建立统一 outbox/dispatcher，而不是为每个副作用增加控制组件。
 
-### 完成条件
+### 文档验收
 
-- 并发重复 finalize 只创建一个 owner continuation；
-- owner 完成后重复 finalize 回放同一结果，不重复 materialization 或 retrieval HIT；
-- owner 失败后重复 finalize 回放相同失败，不重新运行 post-apply 阶段；
-- 相同 `interaction_id` 携带不同 payload 时被拒绝；
-- detached、drain、shutdown 和终态 retention 均有测试；
-- 修改当前“第二次 materialize”断言，使其验证副作用只执行一次；
-- 同步 `v0.6.1-local-work-queue-runtime.md` 中 Active finalize 的幂等边界。
+- Work Queue 计划与可靠性治理文档不再要求整条 Active finalization exactly-once 或终态回放；
+- retrieval HIT 被明确标记为无自动 retry、无跨 finalize 去重、无持久化 marker 的 best-effort 信号；
+- Active Interaction 测试继续分别验证 Interaction apply 和 Generation intent 接纳，不使用“所有副作用只执行一次”作为总断言。
 
-## P1：从 PatchouliService 提取 Active continuation 生命周期宿主
+## P1：收敛 Active continuation 中的 HIT task 生命周期
 
-### 当前状态与证据
+> 状态：已完成（2026-08-14）。Retrieval HIT 已收回现有 Active continuation，
+> 与 materialization dispatch 在 interaction applied 后并行执行；HIT 专属 task set、
+> done callback 和 shutdown drain 已删除，单批去重与逐条 best-effort 异常隔离保持不变。
 
-该问题尚未解决。`PatchouliService` 当前直接维护三组相互关联但语义不同的运行中状态：
+### 原状态与问题
+
+修改前，`PatchouliService` 直接维护三组运行中状态：
 
 - `_active_finalizations`：需要可靠完成的 Active finalize continuation；
 - `_detached_finalizations`：调用方取消等待后，仍由 Patchouli 接管的 interaction identity；
 - `_retrieval_hit_tasks`：Interaction applied 后以 best-effort 方式运行的 HIT record task。
 
-Service 还直接负责创建 task、注册 `_active_finalization_done()` 与 `_retrieval_hit_task_done()` 两套 done callback、记录异常、清理集合、区分可靠 drain 与限时 best-effort drain，并在 `cleanup_prepared_agent_run()` 中读取 continuation 状态。这些代码虽然分别有用途，但共同把门面服务变成了后台任务生命周期宿主。
+前两组共同保证客户端取消等待后，已经接管的 Interaction admission/apply 不会被截断，并为 prepared topic cleanup 提供必要判断。第三组只为了让少量 best-effort HIT 脱离 continuation 执行，却额外引入一套 done callback、异常观察、集合清理和限时 drain。
 
-### 与 P0 的关系
+### 目标方案
 
-这项结构问题与前述 P0 correctness 缺陷共享同一个解决边界，不应再建立第二个并行组件。P0 计划中的 `ActiveFinalizationCoordinator` 除了保证 finalization identity 幂等，还应接管上述 task 所有权：
+不提取 `ActiveFinalizationCoordinator` 或通用 `BackgroundTaskManager`。保留现有 Active continuation 的最小所有权，把 retrieval HIT 收回该 continuation：
 
-- 用单条 finalization record 合并 owner task、detached 状态、payload fingerprint 与终态回放信息，消除 dict/set 之间的手工同步；
-- 统一创建、完成回调、异常观察、retention 和 reliable drain；
-- 单独管理 post-apply best-effort HIT task 及其限时 drain，但仍把它关联到对应 finalization identity；
-- 向 `PatchouliService` 提供 `finalize()`、`is_owned()` 和 `drain()` 等窄接口；
-- 不抽象成全项目通用的 BackgroundTaskManager，避免为了两种明确语义重新引入过宽框架。
+- Interaction applied 后，在 `_continue_active_finalization()` 内并行调用 materialization dispatch 与 `_record_retrieval_hits()`；
+- `_record_retrieval_hits()` 继续逐 memory 捕获异常，任何 HIT 失败都不改变 Chat 或 materialization 结果；
+- 删除 `_retrieval_hit_tasks`、`_schedule_retrieval_hit_record()`、`_retrieval_hit_task_done()` 和 HIT 专属 shutdown drain；
+- shutdown 只等待已经存在的 Active continuation；HIT 作为该 continuation 内的有限 post-apply 调用一起结束；
+- 不为 HIT 增加 timeout 状态、attempt、event id、result DTO 或终态 marker。
 
-`PatchouliService` 最终只负责准备领域输入、调用 coordinator 和执行与门面有关的错误映射，不再直接维护 asyncio task 集合。
+这项修改只减少一种后台 task 生命周期，不改变 Active continuation 的可靠接管语义，也不试图解决 owner 完成后的整条 finalization 回放。
 
 ### 完成条件
 
-- `PatchouliService` 中不再存在 `_active_finalizations`、`_detached_finalizations` 和 `_retrieval_hit_tasks`；
-- Service 中不再存在两套 done callback 或 task 集合清理逻辑；
-- prepared topic cleanup 通过 coordinator 的语义查询判断所有权，不读取内部 task；
-- reliable finalization 与 best-effort HIT 的 shutdown 语义仍然明确分离；
-- coordinator 测试覆盖 owner 复用、detached、异常观察、retention、可靠 drain 和 HIT 限时 drain；
-- 本项与 P0 在同一阶段实施，但以独立测试分别证明 correctness 与结构收敛。
+- `PatchouliService` 不再持有 `_retrieval_hit_tasks`，也不再有 HIT 专属 done callback 和 drain 分支；
+- `_active_finalizations` 与 `_detached_finalizations` 继续只表达已接管 continuation 的运行期所有权；
+- 客户端取消、prepared topic cleanup 和 graceful shutdown 的现有行为保持不变；
+- HIT 失败仍只记录 warning，重复 finalize 的 HIT 重复不作为失败；
+- 测试通过公共行为验证 Interaction、Generation 与 HIT 的不同可靠性等级。
 
 ## P1：让 WorkStore 状态迁移返回权威 WorkRecord
 
@@ -324,25 +324,23 @@ payload_digest
 
 ## 推荐实施顺序
 
-1. 修复 Active finalize 重复执行 post-apply 副作用，并把三组 continuation/task 状态收进同一个 `ActiveFinalizationCoordinator`；
-2. 让 WorkStore 状态迁移返回权威 `WorkRecord`；
-3. 将 Runtime/Supervisor 从未被生产装配使用的多-lane 容器收敛为单-lane 实例；
-4. 建立 `PendingAtomSettler`；
-5. 删除 Memory Task Handle、ExecutionResult 与隐式启动冗余；
-6. 简化 Interaction Submission 旁路索引，再按职责拆分文件；
-7. 审计并删除通用 Queue 的未使用未来能力；
-8. 继续收敛 Memory Generation wait/drain 模型，待职责稳定后再移动文件，并降低测试的私有实现耦合。
+1. 将 Runtime/Supervisor 从未被生产装配使用的多-lane 容器收敛为单-lane 实例；
+2. 继续删除 Memory Task Handle、ExecutionResult 与隐式启动等无消费者接驳；
+3. 简化 Interaction Submission 旁路索引，再按职责拆分文件；
+4. 审计并删除通用 Queue 的未使用未来能力；
+5. 继续收敛 Memory Generation 模型边界，并降低测试的私有实现耦合。
 
-第 1 项同时包含 correctness 修复与其直接依赖的生命周期所有权收敛，不应再拆出第二套 task 管理组件，也不应与无关的大规模文件移动混合。第 2～6 项对状态所有权和可读性的收益最高，可分别提交并独立回归。第 7～8 项应在主要行为稳定后进行，避免清理噪声干扰缺陷定位。
+Retrieval HIT task 生命周期简化、WorkStore 权威迁移与 `PendingAtomSettler` 已完成，不再列入待实施顺序。其余各项可分别提交并独立回归，避免把正确性边界调整与大规模文件移动混合。
 
 ## 总体验收
 
-- 相同 Active finalization identity 不会重复产生业务副作用；
-- `PatchouliService` 不再直接持有 Active continuation、detached identity 和 retrieval HIT task 集合；
+- Interaction 与 Memory Generation 分别在自己的业务接纳边界防止重复事实，不要求整条 Active finalization 的所有副作用 exactly-once；
+- `PatchouliService` 不再持有 retrieval HIT task 集合或 HIT 专属 done callback；Active continuation 与 detached identity 只保留运行期接管职责；
 - Work Queue Runtime 只消费 Store 返回的权威状态，不模拟持久化结果；
 - 每个生产 Runtime 实例只承载一条 lane，Supervisor 保留必要 worker 职责但不维护未使用的多-lane registry；
 - Memory Generation 不再形成第二套执行状态机，Controller 只负责领域结算与投影；
 - PendingAtom 功能事件、Memory Task 可观测事件和通用 RuntimeEvent 各有单一发布边界；
+- Retrieval HIT 保持单批去重和 best-effort，不增加自动 retry、持久化 marker 或专用控制组件；
 - Interaction Submission 不复制 Store 已经持有的状态与完整 payload；
 - 当前代码不再暴露未实现的优先级、lease recovery 等虚假能力；
 - 关键集成测试验证公共行为，并保留 Active/Passive、Memory Generation、cancel、shutdown 和 retry 的现有业务契约。

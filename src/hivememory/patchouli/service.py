@@ -91,7 +91,6 @@ class PatchouliService:
             asyncio.Task[list[MemoryGenerationTask]],
         ] = {}
         self._detached_finalizations: set[str] = set()
-        self._retrieval_hit_tasks: set[asyncio.Task[None]] = set()
 
     async def prepare_agent_run(
         self,
@@ -252,11 +251,14 @@ class PatchouliService:
 
         # Interaction applied 后 Chat 的业务终态已经锁定。后续工作各自结算，
         # 不得再把 Chat 改写为 failed。
-        self._schedule_retrieval_hit_record(prepared_run)
-        return await self._dispatch_materialization(
-            prepared_run,
-            list(payload.materialize_tasks),
+        materialization, _ = await asyncio.gather(
+            self._dispatch_materialization(
+                prepared_run,
+                list(payload.materialize_tasks),
+            ),
+            self._record_retrieval_hits(prepared_run),
         )
+        return materialization
 
     async def _admit_active_interaction(
         self,
@@ -366,19 +368,6 @@ class PatchouliService:
             # 只有下游明确返回 rejected 时，才由 Coordinator 按 intent 单独结算失败。
             return []
 
-    def _schedule_retrieval_hit_record(
-        self,
-        prepared_run: PreparedAgentRun,
-    ) -> None:
-        if not prepared_run.agent_run_context.retrieval_result.memories:
-            return
-        task = asyncio.create_task(
-            self._record_retrieval_hits(prepared_run),
-            name=f"retrieval_hits_{prepared_run.interaction_id[:8]}",
-        )
-        self._retrieval_hit_tasks.add(task)
-        task.add_done_callback(self._retrieval_hit_task_done)
-
     def _active_finalization_done(
         self,
         interaction_id: str,
@@ -398,23 +387,8 @@ class PatchouliService:
                 type(error).__name__,
             )
 
-    def _retrieval_hit_task_done(self, task: asyncio.Task[None]) -> None:
-        self._retrieval_hit_tasks.discard(task)
-        if task.cancelled():
-            return
-        error = task.exception()
-        if error is not None:
-            logger.warning(
-                "Retrieval HIT background task failed",
-                exc_info=(type(error), error, error.__traceback__),
-            )
-
-    async def drain_active_finalizations(
-        self,
-        *,
-        retrieval_hit_timeout: float = 1.0,
-    ) -> None:
-        """关闭前等待可靠 continuation，并给 best-effort HIT 一个短收尾窗口。"""
+    async def drain_active_finalizations(self) -> None:
+        """关闭前等待已经由 Patchouli 接管的 Active continuation。"""
 
         while True:
             finalizations = [
@@ -426,15 +400,6 @@ class PatchouliService:
                 *(asyncio.shield(task) for task in finalizations),
                 return_exceptions=True,
             )
-
-        hit_tasks = {task for task in self._retrieval_hit_tasks if not task.done()}
-        if not hit_tasks:
-            return
-        _, pending = await asyncio.wait(hit_tasks, timeout=retrieval_hit_timeout)
-        for task in pending:
-            task.cancel()
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
 
     async def submit_interaction(
         self,
