@@ -201,11 +201,16 @@ Controller 的提交与状态控制已经较简洁，但通用 `TaskHandle` 和 
 
 ## P1：简化 Interaction Submission 的旁路索引
 
+> 状态：Deferred（2026-08-14）。当前没有明确的 Interaction Submission 持久化需求，
+> 现有 in-memory 旁路索引虽有重复信息，但规模受 capacity 与 terminal retention 约束，尚未形成
+> 实际故障或维护阻塞。本阶段接受现状，不修改生产实现；待 Q5 SQLite 设计确定状态真相与查询方式时
+> 一并复审。测试对 `_submissions` / `_codecs` 的直接依赖已作为独立测试清理项移除。
+
 ### 问题与证据
 
 `_StoredSubmission` 当前同时保存完整 `InteractionSubmissionReceipt` 与完整 payload bytes，而 `WorkRecord` 已保存 work identity、状态、时间和 payload。旁路索引因此复制了状态与大块数据，并迫使 wait、drain、pending count 和 retention 在两份结构间来回映射。
 
-### 目标方案
+### 持久化阶段的复审方向
 
 将旁路索引缩减为定位和冲突检测所需的最少信息：
 
@@ -221,7 +226,7 @@ payload_digest
 - 完成索引收敛后，再按职责把当前单文件拆分为 `models.py`、`codec.py` 与 `queue.py`；
 - 文件拆分不是本项的先决条件，也不能只是把原有重复状态搬到多个文件。
 
-### 完成条件
+### 恢复实施时的完成条件
 
 - 旁路索引不再保存完整 receipt 和完整 payload bytes；
 - wait、drain、pending count 和重复 submit 都以 `WorkRecord` 为状态真相；
@@ -229,6 +234,10 @@ payload_digest
 - codec 有独立契约测试，Active/Passive 集成测试不再依赖 `_submissions` 或 `_codecs` 私有字段。
 
 ## P1：按实际装配将 WorkQueueRuntime 收敛为单 lane
+
+> 状态：Deferred（2026-08-14）。生产装配当前确实是一实例一 lane，但通用 Runtime 的多 lane
+> registry 与 Supervisor 功能正常，也没有造成真实调度故障。该项属于影响公共 Runtime 契约的架构
+> 重构；在出现共享 Store、统一生命周期或跨 lane 调度需求之前不实施，Q5 SQLite 设计时再复审拓扑。
 
 ### 当前状态与证据
 
@@ -240,7 +249,7 @@ payload_digest
 
 因此，“多 lane 注册容器”目前只在通用 Runtime 单元测试中真正使用。Supervisor 对 running task、取消令牌、并发槽位和 shutdown drain 的管理仍然有必要；冗余的是同一实例内的 lane registry 和循环分派结构，而不是整个 supervisor 职责。
 
-### 目标方案
+### 未来触发后的候选方案
 
 - 让 Runtime 在构造时接收唯一的 lane name、policy 与 handler，不再提供动态 `register_lane()`；
 - `_LaneBinding` 变为单个 binding，Runtime 的 enqueue/get/cancel/event 路径直接使用该 binding；
@@ -251,7 +260,7 @@ payload_digest
 
 该修改收敛的是 Runtime 实例模型，不应把两条业务队列合并成一个物理 FIFO，也不应牺牲 per-key FIFO、并发限制、retry、cancel、backpressure 和 shutdown drain。
 
-### 完成条件
+### 恢复实施时的完成条件
 
 - 生产代码与公共 API 中不再存在 `register_lane()`、`runtime.lanes` 和 lane binding registry；
 - Supervisor 不再为单实例维护 lane 字典和逐 lane 生命周期循环；
@@ -321,9 +330,14 @@ WorkState 映射和事件 payload，却并不拥有 runtime 生命周期。迁�
 
 ## P2：降低测试对私有实现的耦合
 
+> 状态：已完成（2026-08-14）。Active finalize 在 `submit()` 公共边界验证 submission；
+> Interaction gate、terminal retention 与 Memory Generation wait 均改由重复调用、公共查询和最终终态
+> 验证，不再读取 `controller._entries`、`queue._submissions`、`queue._codecs` 或
+> `familiar._interaction_gates`，也没有为测试新增生产 API。
+
 ### 问题与证据
 
-当前测试直接读取 `controller._entries`、`queue._submissions`、`queue._codecs` 和 `familiar._interaction_gates`。这些断言让内部结构重命名或收敛时产生大量无业务价值的测试修改，也会诱导生产代码为了测试便利扩大公共 API。
+清理前，测试直接读取 `controller._entries`、`queue._submissions`、`queue._codecs` 和 `familiar._interaction_gates`。这些断言让内部结构重命名或收敛时产生大量无业务价值的测试修改，也会诱导生产代码为了测试便利扩大公共 API。
 
 ### 目标方案与完成条件
 
@@ -333,25 +347,24 @@ WorkState 映射和事件 payload，却并不拥有 runtime 生命周期。迁�
 - 不为了替换白盒断言而新增无业务意义的公开属性；
 - 仅在无法由公共行为证明的重要不变量上保留少量明确标注的白盒测试。
 
-## 推荐实施顺序
-
-1. 将 Runtime/Supervisor 从未被生产装配使用的多-lane 容器收敛为单-lane 实例；
-2. 简化 Interaction Submission 旁路索引，再按职责拆分文件；
-3. 继续收敛 Memory Generation 模型边界，并降低测试的私有实现耦合。
+## 当前实施结论
 
 Retrieval HIT task 生命周期简化、WorkStore 权威迁移、`PendingAtomSettler`、Memory Generation
-无消费者接驳清理和通用 Queue 虚假能力清理均已完成，不再列入待实施顺序。其余各项可分别提交并
-独立回归，避免把正确性边界调整与大规模文件移动混合。
+接驳与模型边界收敛、通用 Queue 虚假能力清理及测试私有耦合清理均已完成。Interaction Submission
+旁路索引与 Runtime/Supervisor 单 lane 重构均已 Deferred，不进入当前实施顺序。
+
+因此，当前 in-memory Work Queue 没有新的待实施任务。后续唯一正式阶段是有明确持久化需求后启动
+Q5 SQLite；本文件保留的 deferred 方案只作为届时的复审输入，不构成独立开发承诺。
 
 ## 总体验收
 
 - Interaction 与 Memory Generation 分别在自己的业务接纳边界防止重复事实，不要求整条 Active finalization 的所有副作用 exactly-once；
 - `PatchouliService` 不再持有 retrieval HIT task 集合或 HIT 专属 done callback；Active continuation 与 detached identity 只保留运行期接管职责；
 - Work Queue Runtime 只消费 Store 返回的权威状态，不模拟持久化结果；
-- 每个生产 Runtime 实例只承载一条 lane，Supervisor 保留必要 worker 职责但不维护未使用的多-lane registry；
+- 每个生产 Runtime 实例当前只承载一条 lane；通用 Runtime/Supervisor 暂时保留功能正常的多-lane registry，其收敛已 Deferred；
 - Memory Generation 不再形成第二套执行状态机，Controller 只负责领域结算与投影；
 - PendingAtom 功能事件、Memory Task 可观测事件和通用 RuntimeEvent 各有单一发布边界；
 - Retrieval HIT 保持单批去重和 best-effort，不增加自动 retry、持久化 marker 或专用控制组件；
-- Interaction Submission 不复制 Store 已经持有的状态与完整 payload；
+- Interaction Submission 当前保留受容量约束的 in-memory 旁路索引，其状态真相与 payload 去重方式在 Q5 SQLite 设计时复审；
 - 当前代码不再暴露未实现的优先级、lease recovery 等虚假能力；
 - 关键集成测试验证公共行为，并保留 Active/Passive、Memory Generation、cancel、shutdown 和 retry 的现有业务契约。

@@ -474,9 +474,6 @@ class TestMemoryGenerationTaskController:
             MemoryGenerationTaskStatus.PENDING,
             MemoryGenerationTaskStatus.RUNNING,
         }
-        entry = controller._entries[memory_task.task_id]
-        assert entry.finalizer is not None
-        assert not entry.finalizer.done()
 
         blocker.set()
         completed = await controller.wait_task(memory_task.task_id)

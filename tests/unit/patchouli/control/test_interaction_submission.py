@@ -220,7 +220,17 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert topic is not None
     assert topic.block_count == 1
     assert store.get_last_active_topic() == outcome.topic_id
-    assert familiar._interaction_gates == {}
+
+    replayed_topic = await asyncio.wait_for(
+        familiar.submit_interaction(
+            _payload("interaction-ambiguous"),
+            target_topic_id=outcome.topic_id,
+            interaction_id="interaction-ambiguous",
+        ),
+        timeout=1,
+    )
+    assert replayed_topic == outcome.topic_id
+    assert topic.block_count == 1
 
 
 @pytest.mark.asyncio
@@ -345,14 +355,21 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
         _payload(),
         interaction_id="interaction-disabled",
     )
+    replayed_topic_id = await asyncio.wait_for(
+        familiar.submit_interaction(
+            _payload(),
+            interaction_id="interaction-disabled",
+        ),
+        timeout=1,
+    )
 
     assert topic_id == "NEW_TOPIC"
+    assert replayed_topic_id == "NEW_TOPIC"
     assert interaction_journal.get("interaction-disabled") is None
-    assert familiar._interaction_gates == {}
 
 
 @pytest.mark.asyncio
-async def test_submission_index_tracks_only_active_and_retained_terminal_work() -> None:
+async def test_submission_lookup_evicts_old_terminal_work() -> None:
     submit = AsyncMock(return_value="topic-real")
     queue = InteractionSubmissionQueue(
         submit,
@@ -373,7 +390,11 @@ async def test_submission_index_tracks_only_active_and_retained_terminal_work() 
     finally:
         await queue.stop()
 
-    assert len(queue._submissions) <= 2
+    assert await queue.wait("interaction-0") is None
+    latest = await queue.wait("interaction-2")
+    assert latest is not None
+    assert latest.state == WorkState.SUCCEEDED
+    assert await queue.pending_count() == 0
 
 
 @pytest.mark.asyncio

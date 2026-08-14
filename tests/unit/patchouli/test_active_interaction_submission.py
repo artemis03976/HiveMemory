@@ -34,7 +34,6 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
-    InteractionSubmissionCodec,
     InteractionSubmissionQueue,
 )
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
@@ -148,6 +147,8 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     )
 
     try:
+        submit_spy = AsyncMock(wraps=queue.submit)
+        queue.submit = submit_spy
         await queue.start()
         finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, loop_result))
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -156,12 +157,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         release_apply.set()
         await finalize_task
 
-        stored = queue._submissions[prepared.interaction_id]
-        submission = queue._codecs.decode(
-            InteractionSubmissionCodec.kind,
-            InteractionSubmissionCodec.schema_version,
-            stored.payload_bytes,
-        )
+        submission = submit_spy.await_args.args[0]
         assert isinstance(submission, InteractionSubmission)
         assert submission.origin == "active_chat"
         assert submission.requested_topic_id == prepared.topic_id
