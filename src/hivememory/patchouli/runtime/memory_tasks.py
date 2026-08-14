@@ -5,12 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Literal
-
-from pydantic import BaseModel
+from typing import Literal
 
 from hivememory.core.models import LogicalBlock, PendingAtomSettlement
-from hivememory.engines.generation.models import DuplicateDecision, GenerationRequest
+from hivememory.engines.generation.models import GenerationRequest
 from hivememory.system.runtime.work_queue import TaskOutcome, WorkState
 
 
@@ -93,53 +91,17 @@ class MemoryGenerationTaskSpec:
 
 
 @dataclass(frozen=True)
-class MemoryGenerationWork:
-    """单个记忆生成任务的不可变、可入队定义。
+class MemoryGenerationResult:
+    """生成数据面完成持久化后返回给控制面的领域事实。
 
-    该类型保留领域可读的任务结构；真正入队时由业务适配器将其编码为运行时
-    私有的不可变 ``WorkItem``，因此它不需要继承队列内部模型。
+    Engine 的 ``GenerationOutcome`` 只在 Familiar 内参与 compute、artifact 与
+    persist 流水线；控制面只需要最终 canonical identity 和可选的
+    ``PendingAtom`` 结算事实。
     """
 
-    task_id: str
-    spec: MemoryGenerationTaskSpec
-
-    @property
-    def topic_id(self) -> str:
-        return self.spec.topic_id
-
-    @property
-    def label(self) -> str:
-        return self.spec.label
-
-    @property
-    def source(self) -> MemoryGenerationSource:
-        return self.spec.source
-
-    @property
-    def intent_id(self) -> str | None:
-        return self.spec.intent_id
-
-    @property
-    def pending_alias(self) -> str | None:
-        return self.spec.pending_alias
-
-
-class MemoryGenerationResult(BaseModel):
-    """由 Patchouli 管理的记忆生成执行结果视图。"""
-
-    intent_id: str | None = None
-    pending_alias: str | None = None
-    atom: Any | None = None
     canonical_alias: str | None = None
     canonical_uuid: str | None = None
-    duplicate_decision: DuplicateDecision | None = None
-    memory_before_snapshot: Any | None = None
-    changelog: str | None = None
     settlement: PendingAtomSettlement | None = None
-    message: str | None = None
-    error: str | None = None
-
-    model_config = {"arbitrary_types_allowed": True}
 
 
 @dataclass(frozen=True)
@@ -165,20 +127,21 @@ class MemoryGenerationTask:
     cancel_reason: str | None = None
 
     @classmethod
-    def from_work(
+    def from_spec(
         cls,
-        work: MemoryGenerationWork,
+        task_id: str,
+        spec: MemoryGenerationTaskSpec,
         *,
         created_at: datetime,
     ) -> MemoryGenerationTask:
-        """从不可变工作定义创建任务接纳快照。"""
+        """从已接纳的任务规范创建对外初始快照。"""
 
         return cls(
-            task_id=work.task_id,
-            topic_id=work.topic_id,
-            label=work.label,
-            source=work.source,
-            pending_alias=work.pending_alias,
+            task_id=task_id,
+            topic_id=spec.topic_id,
+            label=spec.label,
+            source=spec.source,
+            pending_alias=spec.pending_alias,
             created_at=created_at,
         )
 
@@ -273,11 +236,8 @@ class MemoryGenerationTask:
             matched = tuple(
                 result
                 for result in results
-                if result.pending_alias == pending_alias
-                or (
-                    result.settlement is not None
-                    and result.settlement.pending_alias == pending_alias
-                )
+                if result.settlement is not None
+                and result.settlement.pending_alias == pending_alias
             )
             if matched:
                 candidates = matched
@@ -286,10 +246,6 @@ class MemoryGenerationTask:
                 return result.settlement.canonical_alias
             if result.canonical_alias:
                 return result.canonical_alias
-            if result.atom is not None:
-                get_alias = getattr(result.atom, "get_alias", None)
-                if callable(get_alias) and (alias := get_alias()):
-                    return alias
         return None
 
     @property
@@ -299,94 +255,6 @@ class MemoryGenerationTask:
         return (
             self.cancel_requested
             or self.status == MemoryGenerationTaskStatus.CANCELLED
-        )
-
-
-@dataclass(frozen=True)
-class MemoryGenerationTaskWaitResult:
-    """等待单个记忆生成任务时返回的结果快照。"""
-
-    task_id: str
-    found: bool
-    timed_out: bool = False
-    status: MemoryGenerationTaskStatus | None = None
-    canonical_alias: str | None = None
-    error: str | None = None
-
-    @classmethod
-    def from_task(
-        cls,
-        memory_task: MemoryGenerationTask,
-        *,
-        timed_out: bool = False,
-    ) -> MemoryGenerationTaskWaitResult:
-        """从已找到的领域快照构造等待结果。"""
-
-        return cls(
-            task_id=memory_task.task_id,
-            found=True,
-            timed_out=timed_out,
-            status=memory_task.status,
-            canonical_alias=memory_task.canonical_alias,
-            error=memory_task.error,
-        )
-
-    @classmethod
-    def not_found(cls, task_id: str) -> MemoryGenerationTaskWaitResult:
-        """构造任务不存在时的等待结果。"""
-
-        return cls(task_id=task_id, found=False)
-
-
-@dataclass(frozen=True)
-class MemoryGenerationTaskWaitSummary:
-    """等待多个记忆生成任务时返回的聚合结果。"""
-
-    requested: int
-    found: int
-    missing: int
-    completed: int
-    failed: int
-    cancelled: int
-    pending: int
-    running: int
-    timed_out: int
-    results: tuple[MemoryGenerationTaskWaitResult, ...]
-
-    @classmethod
-    def from_results(
-        cls,
-        results: list[MemoryGenerationTaskWaitResult],
-    ) -> MemoryGenerationTaskWaitSummary:
-        """按等待结果的领域状态生成聚合计数。"""
-
-        found = [result for result in results if result.found]
-        return cls(
-            requested=len(results),
-            found=len(found),
-            missing=sum(1 for result in results if not result.found),
-            completed=sum(
-                result.status == MemoryGenerationTaskStatus.COMPLETED
-                for result in found
-            ),
-            failed=sum(
-                result.status == MemoryGenerationTaskStatus.FAILED
-                for result in found
-            ),
-            cancelled=sum(
-                result.status == MemoryGenerationTaskStatus.CANCELLED
-                for result in found
-            ),
-            pending=sum(
-                result.status == MemoryGenerationTaskStatus.PENDING
-                for result in found
-            ),
-            running=sum(
-                result.status == MemoryGenerationTaskStatus.RUNNING
-                for result in found
-            ),
-            timed_out=sum(result.timed_out for result in results),
-            results=tuple(results),
         )
 
 
@@ -431,8 +299,5 @@ __all__ = [
     "MemoryGenerationTask",
     "MemoryGenerationTaskSpec",
     "MemoryGenerationTaskStatus",
-    "MemoryGenerationTaskWaitResult",
-    "MemoryGenerationTaskWaitSummary",
-    "MemoryGenerationWork",
     "memory_task_to_payload",
 ]

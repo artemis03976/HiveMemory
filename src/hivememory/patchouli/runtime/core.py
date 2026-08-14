@@ -43,9 +43,10 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskStatus
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
 from hivememory.patchouli.runtime.shutdown_drain import (
+    build_shutdown_generation_summary,
     shutdown_drain_completed_severity,
     shutdown_drain_completed_status,
     summarize_shutdown_drain_failure,
@@ -234,7 +235,7 @@ class PatchouliRuntime:
     async def _run_shutdown_drain(self) -> dict[str, Any]:
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
-            generation_summary = MemoryGenerationTaskWaitSummary.from_results([])
+            generation_summary = build_shutdown_generation_summary([])
             return {
                 "success": True,
                 "perception": {
@@ -252,17 +253,22 @@ class PatchouliRuntime:
         logger.info("开始执行 shutdown drain")
 
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
-        generation_result = await self._task_controller.wait_all(
+        generation_tasks = await self._task_controller.wait_all(
             timeout=(
                 self._patchouli_config.shutdown
                 .generation_wait_timeout_seconds
             ),
         )
         timed_out_task_ids = [
-            result.task_id
-            for result in generation_result.results
-            if result.timed_out and result.found
+            task.task_id
+            for task in generation_tasks
+            if task.status
+            in {
+                MemoryGenerationTaskStatus.PENDING,
+                MemoryGenerationTaskStatus.RUNNING,
+            }
         ]
+        generation_summary = build_shutdown_generation_summary(generation_tasks)
         cancelled_after_timeout = 0
         if timed_out_task_ids:
             cancelled_after_timeout = await self._task_controller.cancel_many(
@@ -270,16 +276,16 @@ class PatchouliRuntime:
                 reason="shutdown_timeout",
             )
         result = {
-            "success": generation_result.timed_out == 0,
+            "success": generation_summary["timed_out"] == 0,
             "perception": perception_result,
-            "generation": generation_result,
+            "generation": generation_summary,
             "generation_cancelled_after_timeout": cancelled_after_timeout,
             "reentrant": False,
         }
         logger.info(
             f"shutdown drain 完成: observer_payloads=0, "
             f"flushed_topics={len(perception_result.flushed_topics)}, "
-            f"generation_timed_out={generation_result.timed_out}"
+            f"generation_timed_out={generation_summary['timed_out']}"
         )
         return result
 

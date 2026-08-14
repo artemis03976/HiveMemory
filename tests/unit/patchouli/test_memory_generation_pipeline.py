@@ -102,8 +102,6 @@ def _settlement_result(alias="draft_write") -> list[MemoryGenerationResult]:
     )
     return [
         MemoryGenerationResult(
-            pending_alias=alias,
-            intent_id=f"intent_{alias}",
             canonical_alias="memory_alias",
             settlement=settlement,
         )

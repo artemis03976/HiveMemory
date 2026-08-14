@@ -19,7 +19,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
-    MemoryGenerationTaskWaitSummary,
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -116,39 +115,70 @@ class TestMemoryGenerationTaskController:
             label="first",
             source=MemoryGenerationSource.WRITE,
             intent_id="intent_conflict",
+            pending_alias="draft-conflict",
         )
         conflicting_spec = _spec(
             label="second",
             source=MemoryGenerationSource.WRITE,
             intent_id="intent_conflict",
+            pending_alias="draft-conflict",
         )
 
         first = await controller.submit_generation(first_spec)
         with pytest.raises(ValueError, match="different spec"):
             await controller.submit_generation(conflicting_spec)
+        assert await controller.submit_generation_many([conflicting_spec]) == []
+        bus.publish.assert_not_awaited()
 
         await controller.wait_task(first.task_id)
 
     @pytest.mark.asyncio
     async def test_submit_generation_many_isolates_one_admission_failure(self):
-        controller = MemoryGenerationTaskController(bus=Mock())
-        first = _task_handle(task_id="first")
-        failed = _task_handle(task_id="failed")
-        third = _task_handle(task_id="third")
-        controller.submit_generation = AsyncMock(
-            side_effect=[first, failed, third]
-        )
+        bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
+        controller = MemoryGenerationTaskController(bus=bus)
+        try:
+            result = await controller.submit_generation_many(
+                [
+                    _spec(label="first"),
+                    _spec(label="", pending_alias="draft-failed"),
+                    _spec(label="third"),
+                ]
+            )
+
+            assert [task.label for task in result] == ["first", "third"]
+            bus.publish.assert_awaited_once_with(
+                PatchouliLocalEvents.PENDING_ATOM_FAILED,
+                pending_alias="draft-failed",
+            )
+            completed = await controller.wait_all(timeout=1)
+            assert len(completed) == 2
+            assert all(
+                task.status == MemoryGenerationTaskStatus.COMPLETED
+                for task in completed
+            )
+        finally:
+            await controller.stop()
+
+    @pytest.mark.asyncio
+    async def test_submit_generation_many_keeps_unknown_admission_pending(self):
+        queue = Mock()
+        queue.start = AsyncMock()
+        queue.submit = AsyncMock(side_effect=ConnectionError("response lost"))
+        bus = Mock(publish=AsyncMock())
+        controller = MemoryGenerationTaskController(bus=bus, memory_queue=queue)
 
         result = await controller.submit_generation_many(
             [
-                _spec(label="first"),
-                _spec(label="failed"),
-                _spec(label="third"),
+                _spec(
+                    label="unknown",
+                    intent_id="intent-unknown",
+                    pending_alias="draft-unknown",
+                ),
             ]
         )
 
-        assert result == [first, failed, third]
-        assert controller.submit_generation.await_count == 3
+        assert result == []
+        bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_submit_generation_returns_before_background_generation_completes(self):
@@ -213,8 +243,6 @@ class TestMemoryGenerationTaskController:
         )
         results = [
             MemoryGenerationResult(
-                pending_alias="draft_matrix",
-                intent_id="intent_draft_matrix",
                 canonical_alias="fact_matrix",
                 settlement=settlement,
             )
@@ -407,8 +435,7 @@ class TestMemoryGenerationTaskController:
         blocker.set()
         result = await waiter
 
-        assert result.found is True
-        assert result.timed_out is False
+        assert result is not None
         assert result.status == MemoryGenerationTaskStatus.COMPLETED
 
     @pytest.mark.asyncio
@@ -427,8 +454,11 @@ class TestMemoryGenerationTaskController:
         memory_task = await controller.submit_generation(_spec())
         result = await controller.wait_task(memory_task.task_id, timeout=0.01)
 
-        assert result.found is True
-        assert result.timed_out is True
+        assert result is not None
+        assert result.status in {
+            MemoryGenerationTaskStatus.PENDING,
+            MemoryGenerationTaskStatus.RUNNING,
+        }
         entry = controller._entries[memory_task.task_id]
         assert entry.finalizer is not None
         assert not entry.finalizer.done()
@@ -445,11 +475,10 @@ class TestMemoryGenerationTaskController:
 
         result = await controller.wait_task("missing-task")
 
-        assert result.found is False
-        assert result.task_id == "missing-task"
+        assert result is None
 
     @pytest.mark.asyncio
-    async def test_wait_many_summarizes_mixed_results(self):
+    async def test_wait_many_returns_ordered_snapshots_and_missing_entries(self):
         blocker = asyncio.Event()
 
         async def request(route, spec):
@@ -462,17 +491,19 @@ class TestMemoryGenerationTaskController:
         controller = MemoryGenerationTaskController(bus=bus)
 
         memory_task = await controller.submit_generation(_spec())
-        summary = await controller.wait_many(
+        results = await controller.wait_many(
             [memory_task.task_id, "missing-task"],
             timeout=0.01,
         )
 
-        assert isinstance(summary, MemoryGenerationTaskWaitSummary)
-        assert summary.requested == 2
-        assert summary.found == 1
-        assert summary.missing == 1
-        assert summary.timed_out == 1
-        assert summary.running == 1
+        assert len(results) == 2
+        assert results[0] is not None
+        assert results[0].task_id == memory_task.task_id
+        assert results[0].status in {
+            MemoryGenerationTaskStatus.PENDING,
+            MemoryGenerationTaskStatus.RUNNING,
+        }
+        assert results[1] is None
 
         blocker.set()
         await controller.wait_task(memory_task.task_id)
@@ -497,11 +528,13 @@ class TestMemoryGenerationTaskController:
         await asyncio.sleep(0)
         assert not waiter.done()
         blocker.set()
-        summary = await waiter
+        completed = await waiter
 
-        assert summary.requested == 2
-        assert summary.completed == 2
-        assert {result.task_id for result in summary.results} == {
+        assert all(
+            task.status == MemoryGenerationTaskStatus.COMPLETED
+            for task in completed
+        )
+        assert {task.task_id for task in completed} == {
             first.task_id,
             second.task_id,
         }

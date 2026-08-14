@@ -19,7 +19,8 @@ from hivememory.core.models import (
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
 from hivememory.patchouli.control.memory_generation.queue import (
-    MemoryGenerationWorkAdapter,
+    _MemoryGenerationWork,
+    _MemoryGenerationWorkAdapter,
 )
 from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
@@ -29,7 +30,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
-    MemoryGenerationWork,
 )
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
@@ -112,30 +112,30 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         pending_alias="draft-codec",
     )
     codecs = WorkPayloadCodecRegistry()
-    codecs.register(MemoryGenerationWorkAdapter())
-    work = MemoryGenerationWork(task_id="task-codec", spec=spec)
+    codecs.register(_MemoryGenerationWorkAdapter())
+    work = _MemoryGenerationWork(task_id="task-codec", spec=spec)
 
     payload_bytes = codecs.encode(
-        MemoryGenerationWorkAdapter.kind,
-        MemoryGenerationWorkAdapter.schema_version,
+        _MemoryGenerationWorkAdapter.kind,
+        _MemoryGenerationWorkAdapter.schema_version,
         work,
     )
     assert payload_bytes == codecs.encode(
-        MemoryGenerationWorkAdapter.kind,
-        MemoryGenerationWorkAdapter.schema_version,
+        _MemoryGenerationWorkAdapter.kind,
+        _MemoryGenerationWorkAdapter.schema_version,
         work,
     )
 
     spec.request.context.state_summary = "external mutation"
     atom.payload.content = "external mutation"
     first = codecs.decode(
-        MemoryGenerationWorkAdapter.kind,
-        MemoryGenerationWorkAdapter.schema_version,
+        _MemoryGenerationWorkAdapter.kind,
+        _MemoryGenerationWorkAdapter.schema_version,
         payload_bytes,
     )
     second = codecs.decode(
-        MemoryGenerationWorkAdapter.kind,
-        MemoryGenerationWorkAdapter.schema_version,
+        _MemoryGenerationWorkAdapter.kind,
+        _MemoryGenerationWorkAdapter.schema_version,
         payload_bytes,
     )
 
@@ -150,12 +150,12 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
 
 
 def test_active_identity_uses_stable_intent_task_id() -> None:
-    work = MemoryGenerationWork(
+    work = _MemoryGenerationWork(
         task_id="active:intent-codec",
         spec=_spec(intent_id="intent-codec", pending_alias="draft-codec"),
     )
 
-    identity = MemoryGenerationWorkAdapter.identity(work)
+    identity = _MemoryGenerationWorkAdapter.identity(work)
 
     assert identity.work_id == "memory_generation:active:intent-codec"
     assert identity.idempotency_key == "active:intent-codec"
@@ -190,8 +190,12 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
         assert await controller.get_task(second.task_id) == second
 
         release.set()
-        summary = await controller.wait_all(timeout=2)
-        assert summary.completed == 2
+        completed = await controller.wait_all(timeout=2)
+        assert len(completed) == 2
+        assert all(
+            task.status == MemoryGenerationTaskStatus.COMPLETED
+            for task in completed
+        )
         assert (await controller.get_task(first.task_id)).status == MemoryGenerationTaskStatus.COMPLETED
         assert (await controller.get_task(second.task_id)).status == MemoryGenerationTaskStatus.COMPLETED
     finally:

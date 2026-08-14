@@ -14,7 +14,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
-    MemoryGenerationWork,
 )
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.work_queue import (
@@ -39,14 +38,39 @@ ExecuteGeneration = Callable[
 ]
 
 
+@dataclass(frozen=True)
+class _MemoryGenerationWork:
+    """控制层送入队列的私有不可变信封。
+
+    ``MemoryGenerationTaskSpec`` 是跨控制面与数据面的业务输入；``task_id``
+    只服务队列身份和任务观测，因此二者只在队列边界内组合，不再作为一份
+    公开的 Memory Generation 模型。
+    """
+
+    task_id: str
+    spec: MemoryGenerationTaskSpec
+
+    @property
+    def topic_id(self) -> str:
+        return self.spec.topic_id
+
+    @property
+    def intent_id(self) -> str | None:
+        return self.spec.intent_id
+
+    @property
+    def pending_alias(self) -> str | None:
+        return self.spec.pending_alias
+
+
 def _require_text(value: object, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must not be blank")
     return value
 
 
-class MemoryGenerationWorkAdapter:
-    """``MemoryGenerationWork`` v1 的队列适配器与规范 JSON 编解码器。
+class _MemoryGenerationWorkAdapter:
+    """Memory Generation 私有工作信封 v1 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。
@@ -56,7 +80,7 @@ class MemoryGenerationWorkAdapter:
     schema_version = 1
 
     @staticmethod
-    def identity(work: MemoryGenerationWork) -> QueueTaskIdentity:
+    def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
         """从领域任务中派生稳定的队列标识和调度元数据。"""
 
         return QueueTaskIdentity(
@@ -66,10 +90,10 @@ class MemoryGenerationWorkAdapter:
             idempotency_key=work.task_id,
         )
 
-    def encode(self, work: MemoryGenerationWork) -> object:
+    def encode(self, work: _MemoryGenerationWork) -> object:
         """将领域任务编码为可进入通用 payload codec 的 JSON 值。"""
 
-        if not isinstance(work, MemoryGenerationWork):
+        if not isinstance(work, _MemoryGenerationWork):
             raise TypeError("memory generation payload has an unexpected type")
 
         spec = work.spec
@@ -91,7 +115,7 @@ class MemoryGenerationWorkAdapter:
             },
         }
 
-    def decode(self, payload: object) -> MemoryGenerationWork:
+    def decode(self, payload: object) -> _MemoryGenerationWork:
         """从 JSON 值重建一次执行尝试专用的领域任务。"""
 
         if not isinstance(payload, dict):
@@ -112,7 +136,7 @@ class MemoryGenerationWorkAdapter:
             # 边界显式恢复领域类型，避免数据面收到普通 dict。
             request_data["existing_memory"] = MemoryAtom.model_validate(existing_memory)
 
-        return MemoryGenerationWork(
+        return _MemoryGenerationWork(
             task_id=_require_text(payload.get("task_id"), field_name="task_id"),
             spec=MemoryGenerationTaskSpec(
                 topic_id=_require_text(
@@ -164,7 +188,7 @@ class MemoryGenerationWorkAdapter:
 
 
 class MemoryGenerationHandle(
-    TaskHandle[MemoryGenerationWork, MemoryGenerationResults]
+    TaskHandle[_MemoryGenerationWork, MemoryGenerationResults]
 ):
     """记忆生成工作被接纳后返回的类型化控制句柄。"""
 
@@ -182,7 +206,7 @@ class MemoryGenerationExecutionResult:
 
 
 class MemoryGenerationHandler(
-    WorkHandlerPort[MemoryGenerationWork, MemoryGenerationExecutionResult]
+    WorkHandlerPort[_MemoryGenerationWork, MemoryGenerationExecutionResult]
 ):
     """将单次队列执行尝试适配到现有的记忆生成数据面。
 
@@ -200,7 +224,7 @@ class MemoryGenerationHandler(
 
     async def execute(
         self,
-        work: MemoryGenerationWork,
+        work: _MemoryGenerationWork,
         context: WorkExecutionContext,
     ) -> MemoryGenerationExecutionResult:
         """执行一次记忆生成尝试，并保存领域结果供 finalize 使用。"""
@@ -240,9 +264,9 @@ class MemoryGenerationHandler(
 class MemoryGenerationQueue:
     """Patchouli 的结构化记忆生成队列边界。
 
-    对外接收 ``MemoryGenerationWork``，在边界内部才转换为 ``WorkItem``；
-    类型化 handle 与执行结果仅服务当前进程，运行时状态仍统一来自
-    ``WorkRecord``。
+    对外由 Controller 交付任务规范和身份，在本模块内包装为私有工作信封后
+    转换成 ``WorkItem``；类型化 handle 与执行结果仅服务当前进程，运行时状态
+    仍统一来自 ``WorkRecord``。
     """
 
     LANE = "patchouli.memory_generation"
@@ -258,7 +282,7 @@ class MemoryGenerationQueue:
         if policy is not None and policy.max_attempts != 1:
             raise ValueError("memory generation queue requires max_attempts=1")
 
-        self._adapter = MemoryGenerationWorkAdapter()
+        self._adapter = _MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
         self._handles: dict[str, MemoryGenerationHandle] = {}
@@ -311,9 +335,14 @@ class MemoryGenerationQueue:
 
         return await self._runtime.stop()
 
-    async def submit(self, work: MemoryGenerationWork) -> MemoryGenerationHandle:
+    async def submit(
+        self,
+        task_id: str,
+        spec: MemoryGenerationTaskSpec,
+    ) -> MemoryGenerationHandle:
         """接纳一个领域工作定义并返回类型化控制句柄。"""
 
+        work = _MemoryGenerationWork(task_id=task_id, spec=spec)
         item = adapt_queue_task(
             work,
             lane=self.LANE,
@@ -381,6 +410,5 @@ __all__ = [
     "MemoryGenerationHandler",
     "MemoryGenerationQueue",
     "MemoryGenerationResults",
-    "MemoryGenerationWorkAdapter",
     "TaskOutcome",
 ]

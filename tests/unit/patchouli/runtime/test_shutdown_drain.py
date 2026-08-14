@@ -1,9 +1,10 @@
 from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationSource,
+    MemoryGenerationTask,
     MemoryGenerationTaskStatus,
-    MemoryGenerationTaskWaitResult,
-    MemoryGenerationTaskWaitSummary,
 )
 from hivememory.patchouli.runtime.shutdown_drain import (
+    build_shutdown_generation_summary,
     shutdown_drain_completed_severity,
     shutdown_drain_completed_status,
     summarize_shutdown_drain_failure,
@@ -21,24 +22,16 @@ def test_summarize_shutdown_drain_result_uses_counts_only():
         skipped_topics=["topic-c"],
         archived_blocks=3,
     )
-    generation = MemoryGenerationTaskWaitSummary(
-        requested=1,
-        found=1,
-        missing=0,
-        completed=0,
-        failed=0,
-        cancelled=0,
-        pending=0,
-        running=1,
-        timed_out=1,
-        results=(
-            MemoryGenerationTaskWaitResult(
+    generation = build_shutdown_generation_summary(
+        [
+            MemoryGenerationTask(
                 task_id="memory-task-timeout",
-                found=True,
-                timed_out=True,
+                topic_id="topic-1",
+                label="timeout",
+                source=MemoryGenerationSource.WRITE,
                 status=MemoryGenerationTaskStatus.RUNNING,
-            ),
-        ),
+            )
+        ]
     )
 
     summary = summarize_shutdown_drain_result(

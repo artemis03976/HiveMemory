@@ -26,20 +26,22 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
-    MemoryGenerationTaskWaitResult,
-    MemoryGenerationTaskWaitSummary,
-    MemoryGenerationWork,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
     TaskOutcome,
+    WorkQueueError,
     WorkQueueShutdownSummary,
     WorkState,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _MemoryGenerationIntentConflictError(ValueError):
+    """同一 Active intent 被重复用于不同任务规范。"""
 
 
 @dataclass
@@ -50,7 +52,8 @@ class _MemoryTaskEntry:
     对外终态快照以及发布侧的同步原语。
     """
 
-    work: MemoryGenerationWork
+    task_id: str
+    spec: MemoryGenerationTaskSpec
     created: MemoryGenerationTask
     handle: MemoryGenerationHandle | None = None
     finalizer: asyncio.Task[MemoryGenerationTask] | None = None
@@ -138,41 +141,37 @@ class MemoryGenerationTaskController:
         task_id = self._task_id_for_spec(spec)
         existing = self._entries.get(task_id)
         if existing is not None:
-            if existing.work.spec != spec:
-                raise ValueError(
+            if existing.spec != spec:
+                raise _MemoryGenerationIntentConflictError(
                     f"memory generation intent already exists with different spec: {task_id}"
                 )
             # 幂等重提交只返回原任务的当前投影，不再次发布 created、入队或启动执行。
             return await self._snapshot_entry(existing)
 
-        work = MemoryGenerationWork(task_id=task_id, spec=spec)
-        created = MemoryGenerationTask.from_work(work, created_at=datetime.now(UTC))
-        entry = _MemoryTaskEntry(work=work, created=created)
-        self._entries[work.task_id] = entry
+        created = MemoryGenerationTask.from_spec(
+            task_id,
+            spec,
+            created_at=datetime.now(UTC),
+        )
 
+        # Controller 也可独立用于测试与嵌入式调用，因此保留幂等懒启动；
+        # PatchouliSystem 的正常生命周期仍会显式启动该 lane。只有队列确认接纳后
+        # 才建立 entry 和发布 created，避免把 admission rejection 混入任务状态机。
+        await self._queue.start()
+        handle = await self._queue.submit(task_id, spec)
+
+        entry = _MemoryTaskEntry(
+            task_id=task_id,
+            spec=spec,
+            created=created,
+            handle=handle,
+        )
+        self._entries[task_id] = entry
         self._task_events.created(created)
-
-        try:
-            # Controller 也可独立用于测试与嵌入式调用，因此保留幂等懒启动；
-            # PatchouliSystem 的正常生命周期仍会显式启动该 lane。
-            await self._queue.start()
-            entry.handle = await self._queue.submit(work)
-        except asyncio.CancelledError:
-            self._entries.pop(work.task_id, None)
-            raise
-        except Exception as exc:
-            failed = created.as_failed(
-                str(exc) or type(exc).__name__,
-                finished_at=datetime.now(UTC),
-            )
-            entry.final_snapshot = failed
-            await self._publish_terminal(entry, failed)
-            self._retain_terminal_entries()
-            return failed
 
         entry.finalizer = asyncio.create_task(
             self._finalize(entry),
-            name=f"memory_task_finalize_{work.task_id[:8]}",
+            name=f"memory_task_finalize_{task_id[:8]}",
         )
         # 返回接纳时刻的值对象；后续状态变化通过查询、等待和事件获得，不原地
         # 修改这个快照。
@@ -193,9 +192,60 @@ class MemoryGenerationTaskController:
         self,
         specs: list[MemoryGenerationTaskSpec],
     ) -> list[MemoryGenerationTask]:
-        """逐项提交任务；接纳失败时返回失败状态的快照。"""
+        """按输入顺序逐项接纳，并只返回已接纳或幂等复用的任务。
 
-        return [await self.submit_generation(spec) for spec in specs]
+        一项确定性拒绝不会阻断后续任务，并由 Controller 结算关联的
+        ``PendingAtom``；无法判断是否接纳的异常只记录稳定 identity，保留
+        ``PendingAtom`` 非终态供上层按同一 intent 重试。
+        """
+
+        accepted: list[MemoryGenerationTask] = []
+        rejected_aliases: list[str] = []
+        # 整批持有 admission 锁，保证同一批规范不会与并发提交交错；实际执行仍
+        # 由队列异步调度，本方法只串行化轻量的接纳阶段。
+        async with self._submission_lock:
+            for spec in specs:
+                try:
+                    task = await self._submit_generation_locked(spec)
+                except asyncio.CancelledError:
+                    raise
+                except _MemoryGenerationIntentConflictError as exc:
+                    # 已有任务仍拥有该 intent 的最终结算权；冲突重放不能抢先把
+                    # 同一个 PendingAtom 标记为失败。
+                    logger.warning(
+                        "Memory generation intent payload conflict: "
+                        "pending_alias=%s, intent_id=%s, err=%s",
+                        spec.pending_alias,
+                        spec.intent_id,
+                        exc,
+                    )
+                    continue
+                except (TypeError, ValueError, WorkQueueError) as exc:
+                    logger.warning(
+                        "Memory generation admission rejected: "
+                        "pending_alias=%s, intent_id=%s, err=%s",
+                        spec.pending_alias,
+                        spec.intent_id,
+                        exc,
+                    )
+                    if spec.pending_alias:
+                        rejected_aliases.append(spec.pending_alias)
+                    continue
+                except Exception:
+                    logger.warning(
+                        "Memory generation admission outcome unknown: "
+                        "pending_alias=%s, intent_id=%s",
+                        spec.pending_alias,
+                        spec.intent_id,
+                        exc_info=True,
+                    )
+                    continue
+                accepted.append(task)
+
+        # 功能事件发布不占用 admission 锁，避免慢订阅者阻塞其他提交方。
+        for pending_alias in rejected_aliases:
+            await self._pending_atom_settler.failed(pending_alias)
+        return accepted
 
     async def _execute_generation(
         self,
@@ -221,11 +271,11 @@ class MemoryGenerationTaskController:
 
         outcome_waiter = asyncio.create_task(
             handle.wait(),
-            name=f"memory_task_outcome_{entry.work.task_id[:8]}",
+            name=f"memory_task_outcome_{entry.task_id[:8]}",
         )
         started_waiter = asyncio.create_task(
             handle.wait_started(),
-            name=f"memory_task_started_{entry.work.task_id[:8]}",
+            name=f"memory_task_started_{entry.task_id[:8]}",
         )
         try:
             # 同时等待开始信号和终态，既避免轮询，也覆盖工作在观察前已经快速
@@ -289,7 +339,7 @@ class MemoryGenerationTaskController:
         elif record.state != WorkState.CANCELLED:
             logger.error(
                 "Memory generation failed: label=%s, err=%s",
-                entry.work.label,
+                entry.spec.label,
                 snapshot.error,
             )
         await self._publish_terminal(entry, snapshot)
@@ -333,18 +383,20 @@ class MemoryGenerationTaskController:
         self,
         task_id: str,
         timeout: float | None = None,
-    ) -> MemoryGenerationTaskWaitResult:
-        """等待指定记忆生成任务完成，不取消或接管其执行。"""
+    ) -> MemoryGenerationTask | None:
+        """等待指定任务并返回最新快照；不存在时返回 ``None``。
+
+        超时只停止等待，不取消后台任务；此时返回值仍是该任务当前的非终态
+        ``MemoryGenerationTask``，调用方无需再解包一层等待结果。
+        """
 
         entry = self._entries.get(task_id)
         if entry is None:
-            return MemoryGenerationTaskWaitResult.not_found(task_id)
+            return None
         if entry.final_snapshot is not None:
-            return MemoryGenerationTaskWaitResult.from_task(entry.final_snapshot)
+            return entry.final_snapshot
         if entry.finalizer is None:
-            return MemoryGenerationTaskWaitResult.from_task(
-                await self._snapshot_entry(entry)
-            )
+            return await self._snapshot_entry(entry)
         try:
             if timeout is None:
                 snapshot = await asyncio.shield(entry.finalizer)
@@ -354,21 +406,18 @@ class MemoryGenerationTaskController:
                     timeout=max(0.0, timeout),
                 )
         except TimeoutError:
-            return MemoryGenerationTaskWaitResult.from_task(
-                await self._snapshot_entry(entry),
-                timed_out=True,
-            )
-        return MemoryGenerationTaskWaitResult.from_task(snapshot)
+            return await self._snapshot_entry(entry)
+        return snapshot
 
     async def wait_many(
         self,
         task_ids: list[str],
         timeout: float | None = None,
-    ) -> MemoryGenerationTaskWaitSummary:
-        """在共享超时窗口内等待一批指定任务。"""
+    ) -> list[MemoryGenerationTask | None]:
+        """在共享超时窗口内按请求顺序返回任务最新快照。"""
 
         if not task_ids:
-            return MemoryGenerationTaskWaitSummary.from_results([])
+            return []
 
         waiters = [
             asyncio.create_task(self.wait_task(task_id), name=f"memory_task_wait_{task_id[:8]}")
@@ -376,7 +425,7 @@ class MemoryGenerationTaskController:
         ]
         done, pending = await asyncio.wait(waiters, timeout=timeout)
 
-        results: list[MemoryGenerationTaskWaitResult] = []
+        results: list[MemoryGenerationTask | None] = []
         for task_id, waiter in zip(task_ids, waiters):
             if waiter in done:
                 results.append(waiter.result())
@@ -384,22 +433,17 @@ class MemoryGenerationTaskController:
             waiter.cancel()
             entry = self._entries.get(task_id)
             if entry is None:
-                results.append(MemoryGenerationTaskWaitResult.not_found(task_id))
+                results.append(None)
             else:
-                results.append(
-                    MemoryGenerationTaskWaitResult.from_task(
-                        await self._snapshot_entry(entry),
-                        timed_out=True,
-                    )
-                )
+                results.append(await self._snapshot_entry(entry))
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        return MemoryGenerationTaskWaitSummary.from_results(results)
+        return results
 
     async def wait_all(
         self,
         timeout: float | None = None,
-    ) -> MemoryGenerationTaskWaitSummary:
+    ) -> list[MemoryGenerationTask]:
         """等待调用时所有尚未进入领域终态的记忆生成任务。"""
 
         task_ids = [
@@ -407,7 +451,10 @@ class MemoryGenerationTaskController:
             for task_id, entry in self._entries.items()
             if entry.final_snapshot is None and entry.finalizer is not None
         ]
-        return await self.wait_many(task_ids, timeout=timeout)
+        results = await self.wait_many(task_ids, timeout=timeout)
+        # task_ids 来自当前 entry 集合，因此此处不会产生缺失项；过滤只用于
+        # 保持返回类型精确，并防御未来 retention 策略在等待期间发生变化。
+        return [task for task in results if task is not None]
 
     async def cancel_task(
         self,
@@ -487,7 +534,7 @@ class MemoryGenerationTaskController:
     ) -> None:
         """以 best-effort 方式发布领域终态及关联 PendingAtom 事件。"""
 
-        pending_alias = entry.work.pending_alias
+        pending_alias = entry.spec.pending_alias
         if pending_alias is not None:
             if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
                 await self._pending_atom_settler.cancelled(pending_alias)

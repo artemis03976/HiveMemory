@@ -10,7 +10,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
-    MemoryGenerationWork,
     memory_task_to_payload,
 )
 from hivememory.system.runtime.work_queue import (
@@ -40,15 +39,12 @@ def _task_snapshot(**updates):
     return MemoryGenerationTask(**values)
 
 
-def _work():
-    return MemoryGenerationWork(
-        task_id="j1",
-        spec=MemoryGenerationTaskSpec(
-            topic_id="t1",
-            label="task",
-            source=MemoryGenerationSource.WRITE,
-            request=GenerationRequest(context=GenerationContext()),
-        ),
+def _spec():
+    return MemoryGenerationTaskSpec(
+        topic_id="t1",
+        label="task",
+        source=MemoryGenerationSource.WRITE,
+        request=GenerationRequest(context=GenerationContext()),
     )
 
 
@@ -94,25 +90,24 @@ def _outcome(
     )
 
 
-def test_memory_generation_work_exposes_queue_identity_inputs():
-    work = _work()
+def test_memory_generation_spec_exposes_domain_inputs():
+    spec = _spec()
 
-    assert work.task_id == "j1"
-    assert work.topic_id == "t1"
-    assert work.label == "task"
-    assert work.source == MemoryGenerationSource.WRITE
+    assert spec.topic_id == "t1"
+    assert spec.label == "task"
+    assert spec.source == MemoryGenerationSource.WRITE
 
 
-def test_memory_generation_task_projects_admission_snapshot_from_work():
-    work = _work()
+def test_memory_generation_task_projects_admission_snapshot_from_spec():
+    spec = _spec()
     created_at = datetime.now(UTC)
 
-    snapshot = MemoryGenerationTask.from_work(work, created_at=created_at)
+    snapshot = MemoryGenerationTask.from_spec("j1", spec, created_at=created_at)
 
-    assert snapshot.task_id == work.task_id
-    assert snapshot.topic_id == work.topic_id
-    assert snapshot.label == work.label
-    assert snapshot.source == work.source
+    assert snapshot.task_id == "j1"
+    assert snapshot.topic_id == spec.topic_id
+    assert snapshot.label == spec.label
+    assert snapshot.source == spec.source
     assert snapshot.created_at == created_at
     assert snapshot.status == MemoryGenerationTaskStatus.PENDING
 
@@ -133,7 +128,11 @@ def test_memory_generation_task_maps_work_state_to_domain_status(
     work_state: WorkState,
     task_status: MemoryGenerationTaskStatus,
 ):
-    created = MemoryGenerationTask.from_work(_work(), created_at=datetime.now(UTC))
+    created = MemoryGenerationTask.from_spec(
+        "j1",
+        _spec(),
+        created_at=datetime.now(UTC),
+    )
 
     snapshot = MemoryGenerationTask.from_outcome(
         created,
@@ -145,7 +144,11 @@ def test_memory_generation_task_maps_work_state_to_domain_status(
 
 
 def test_memory_generation_task_hides_queue_terminal_before_finalize():
-    created = MemoryGenerationTask.from_work(_work(), created_at=datetime.now(UTC))
+    created = MemoryGenerationTask.from_spec(
+        "j1",
+        _spec(),
+        created_at=datetime.now(UTC),
+    )
 
     snapshot = MemoryGenerationTask.from_outcome(
         created,
@@ -158,19 +161,19 @@ def test_memory_generation_task_hides_queue_terminal_before_finalize():
 
 
 def test_memory_generation_task_projects_result_and_cancel_metadata():
-    work = MemoryGenerationWork(
-        task_id="j1",
-        spec=MemoryGenerationTaskSpec(
-            topic_id="t1",
-            label="task",
-            source=MemoryGenerationSource.WRITE,
-            request=GenerationRequest(context=GenerationContext()),
-            pending_alias="draft-target",
-        ),
-    )
-    created = MemoryGenerationTask.from_work(work, created_at=datetime.now(UTC))
-    result = MemoryGenerationResult(
+    spec = MemoryGenerationTaskSpec(
+        topic_id="t1",
+        label="task",
+        source=MemoryGenerationSource.WRITE,
+        request=GenerationRequest(context=GenerationContext()),
         pending_alias="draft-target",
+    )
+    created = MemoryGenerationTask.from_spec(
+        "j1",
+        spec,
+        created_at=datetime.now(UTC),
+    )
+    result = MemoryGenerationResult(
         canonical_alias="fact-target",
     )
 
@@ -191,7 +194,11 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
 
 
 def test_memory_generation_task_uses_failed_outcome_error_fallback():
-    created = MemoryGenerationTask.from_work(_work(), created_at=datetime.now(UTC))
+    created = MemoryGenerationTask.from_spec(
+        "j1",
+        _spec(),
+        created_at=datetime.now(UTC),
+    )
 
     snapshot = MemoryGenerationTask.from_outcome(
         created,

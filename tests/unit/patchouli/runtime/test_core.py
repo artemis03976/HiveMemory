@@ -10,13 +10,26 @@ from hivememory.patchouli.memory_library.models import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.memory_tasks import (
+    MemoryGenerationSource,
+    MemoryGenerationTask,
     MemoryGenerationTaskStatus,
-    MemoryGenerationTaskWaitResult,
-    MemoryGenerationTaskWaitSummary,
 )
 from hivememory.patchouli.services.perception import ShutdownFlushResult
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+
+
+def _memory_task(
+    task_id: str,
+    status: MemoryGenerationTaskStatus,
+) -> MemoryGenerationTask:
+    return MemoryGenerationTask(
+        task_id=task_id,
+        topic_id="topic-1",
+        label=task_id,
+        source=MemoryGenerationSource.WRITE,
+        status=status,
+    )
 
 
 def _create_runtime():
@@ -52,9 +65,7 @@ def _create_runtime():
             "lifecycle": Mock(),
         }
         runtime._task_controller = Mock()
-        runtime._task_controller.wait_all = AsyncMock(
-            return_value=MemoryGenerationTaskWaitSummary.from_results([])
-        )
+        runtime._task_controller.wait_all = AsyncMock(return_value=[])
         runtime._task_controller.cancel_many = AsyncMock(return_value=0)
         runtime.storage = Mock()
         runtime.memory_library = Mock()
@@ -84,7 +95,7 @@ class TestRuntimeShutdownDrain:
         runtime._task_controller.cancel_many.assert_not_awaited()
         assert result["reentrant"] is False
         assert result["perception"].trigger_reason == "shutdown"
-        assert result["generation"].timed_out == 0
+        assert result["generation"]["timed_out"] == 0
         assert result["generation_cancelled_after_timeout"] == 0
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
@@ -125,25 +136,12 @@ class TestRuntimeShutdownDrain:
             )
         )
         runtime._task_controller.wait_all = AsyncMock(
-            return_value=MemoryGenerationTaskWaitSummary(
-                requested=1,
-                found=1,
-                missing=0,
-                completed=0,
-                failed=0,
-                cancelled=0,
-                pending=0,
-                running=1,
-                timed_out=1,
-                results=(
-                    MemoryGenerationTaskWaitResult(
-                        task_id="memory-task-timeout",
-                        found=True,
-                        timed_out=True,
-                        status=MemoryGenerationTaskStatus.RUNNING,
-                    ),
-                ),
-            )
+            return_value=[
+                _memory_task(
+                    "memory-task-timeout",
+                    MemoryGenerationTaskStatus.RUNNING,
+                )
+            ]
         )
         runtime._task_controller.cancel_many = AsyncMock(return_value=1)
 
@@ -154,7 +152,7 @@ class TestRuntimeShutdownDrain:
             reason="shutdown_timeout",
         )
         assert result["success"] is False
-        assert result["generation"].timed_out == 1
+        assert result["generation"]["timed_out"] == 1
         assert result["generation_cancelled_after_timeout"] == 1
         completed = runtime._test_runtime_events.events[-1]
         assert completed.event_type == RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED

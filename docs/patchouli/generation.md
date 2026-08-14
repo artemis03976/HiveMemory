@@ -30,13 +30,15 @@ last_reviewed: 2026-08-12
 MemoryGenerationCoordinator
   -> MemoryGenerationTaskSpec
   -> MemoryGenerationTaskController
-       -> immutable MemoryGenerationWork
+       -> stable task_id
+       -> private queue work envelope
        -> MemoryGenerationQueue / TaskHandle
        -> local route GENERATION_EXECUTE_SPEC
   -> MemoryGenerationFamiliar
        -> MemoryGenerationEngine.process
        -> ArtifactEngine
        -> MidTermMemoryStore.upsert
+       -> MemoryGenerationResult
   -> PendingAtom settlement + RuntimeEvent
 ```
 
@@ -135,8 +137,9 @@ spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 re
 
 ## 6. 后台任务与终态
 
-每个 spec 对应一个不可变 `MemoryGenerationWork`；公开 API 使用同名的只读
-`MemoryGenerationTask` 快照表达下列领域状态：
+`MemoryGenerationTaskSpec` 是控制面与 Familiar 共享的业务输入。Controller 只在队列边界内把
+`task_id + spec` 包装为私有不可变工作信封；该队列适配细节不再作为一份公开领域模型。公开 API 使用
+`MemoryGenerationTask` 只读快照表达下列领域状态：
 
 ```text
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
@@ -146,7 +149,15 @@ PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。
 提交返回的 `MemoryGenerationTask` 不会原地更新，调用方需要通过 list/get/wait 获取新快照。
 
-控制面提供 list/get/cancel/wait/wait_many/wait_all。等待使用 `asyncio.shield`，超时只返回快照，不会接管或自动取消后台任务；shutdown drain 在 wait_all 超时后才显式 cancel 那批任务。
+Familiar 内部以 Generation Engine 返回的 `GenerationOutcome` 完成 compute、artifact 与 persist；只有这些
+步骤成功退出后才投影为跨域 `MemoryGenerationResult`。该结果仅保留 canonical identity 和可选的
+`PendingAtomSettlement`，不会把 `MemoryAtom`、`DuplicateDecision`、before snapshot 或 changelog 泄漏到
+Controller。由此，Engine 计算语义与 Patchouli 已持久化事实保持明确边界。
+
+控制面提供 list/get/cancel/wait/wait_many/wait_all。`wait_task()` 直接返回
+`MemoryGenerationTask | None`，`wait_many()` 按请求顺序返回快照或 `None` 的列表，不再复制一层
+WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PENDING/RUNNING` 快照，不会接管或
+自动取消后台任务；仅 shutdown drain 会把超时窗口后仍未终结的快照汇总为观测计数，并显式 cancel 那批任务。
 
 任务状态通过 RuntimeEvent 发布。TaskController 只决定生命周期事件的发生时机，`MemoryTaskEventEmitter` 集中选择 `memory.task.*` 类型并组装稳定 payload；通用队列仍独立发布 `work.*` 基础设施事件，两者不互相替代。主动任务完成后，settlement 会通过 PatchouliBridge 转发为全局 PendingAtom event；发布失败不会把已持久化记忆回滚，但会 best-effort 发布 pending failure，使 Alice 不无限等待。PendingAtom settlement、failed、cancelled 仍属于功能事件并继续留在 TaskController。
 
@@ -163,11 +174,13 @@ AgentRunResult
   -> best-effort record prepared retrieval HITs
 ```
 
-Interaction applied 是 Chat 的硬成功边界。之后 materialization 按 intent 逐项接纳：明确未入队的任务由
-`MemoryGenerationTask` failed 与 PendingAtom failed 独立表达；调用异常或响应丢失属于 unknown，不会把
-PendingAtom 锁为 failed，可通过稳定 `intent_id` 再次 dispatch 并复用已有任务。retrieval HIT 失败只记录
-warning；两者都不能反向把 Chat 改写为 failed。Active continuation 由 Patchouli 进程级持有，因此 HTTP/SSE
-调用方取消不会中止已经接管的 post-apply 义务。
+Interaction applied 是 Chat 的硬成功边界。之后 Coordinator 一次调用 `submit_generation_many()`；批量入口
+按输入顺序逐项接纳，返回值只包含已接纳或幂等复用的任务。确定性 admission rejection 由 Controller 结算
+对应 PendingAtom failed，且不创建伪造的 `MemoryGenerationTask.FAILED`；调用异常或响应丢失属于 unknown，
+不会把 PendingAtom 锁为 failed，可通过稳定 `intent_id` 再次 dispatch 并复用已有任务。单项 rejected/unknown
+不会阻断批内后续项。若同一 intent 携带不同 spec 重放，已有任务仍保留该 PendingAtom 的结算权，冲突请求
+只被拒绝而不会抢先发布 failed。retrieval HIT 失败只记录 warning；两者都不能反向把 Chat 改写为 failed。Active
+continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不会中止已经接管的 post-apply 义务。
 
 主动生成因此可以从 topic 最近 blocks 中看到当前轮，而不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。当前交互仍留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档是不同意图，不能通过清空 buffer 相互替代。
 
@@ -179,11 +192,11 @@ warning；两者都不能反向把 Chat 改写为 failed。Active continuation �
 
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
-- `submit_generation_many()` 仍供非 Active 批量调用逐个创建后台 task；Active spec 的 I/O 构建并行、接纳按 intent 逐项隔离；
+- Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；
 - Mode A/B 去重只取 dense top-1 且没有 identity filter，跨用户隔离依赖存储/数据前提，仍需收紧；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - Artifact 失败不阻断主记忆，provenance 与 MemoryAtom 不是原子提交。
 
-未来若引入 durable queue，首先要保持 `MemoryGenerationWork` codec、`WorkRecord` 单一状态源和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。
+未来若引入 durable queue，首先要保持私有工作信封 codec、`WorkRecord` 单一状态源和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。

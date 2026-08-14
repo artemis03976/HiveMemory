@@ -279,27 +279,31 @@ payload_digest
 
 ## P2：收紧 Memory Generation 模型归属与类型
 
+> 状态：部分完成（2026-08-14）。`MemoryGenerationResult` 已收缩为 canonical identity 与
+> `PendingAtomSettlement`，Engine 的 `GenerationOutcome` 不再穿透 Familiar；队列工作信封已退回
+> Queue 模块私有实现，`_build_update_artifact()` 返回类型也已修正。Active admission 的逐项隔离已
+> 收回 `submit_generation_many()`，未入队不再伪装为任务 `FAILED`。`MemoryGenerationTaskWaitResult`
+> 与 `MemoryGenerationTaskWaitSummary` 也已删除：wait API 直接返回任务快照，shutdown 计数下沉到
+> shutdown observability 边界。
+
 ### 问题与证据
 
-`patchouli/runtime/memory_tasks.py` 同时包含领域工作定义、公开快照、等待/关闭 DTO、WorkState 映射和事件 payload，文件职责仍然偏多。另有若干类型或字段没有形成清晰契约：
+`patchouli/runtime/memory_tasks.py` 仍同时包含共享任务 spec、跨域结果、公开快照、WorkState 映射和
+事件 payload，文件职责偏多。当前剩余问题主要是：
 
-- `MemoryGenerationResult.atom` 与 `memory_before_snapshot` 使用 `Any`；
-- `MemoryGenerationResult.error` 没有明确生产者或消费者；
-- `message` 有生产路径但没有可见消费路径；
 - `MERGE` / `SPLIT` 缺少生产路径，主要由测试引用；
-- `_build_update_artifact()` 标注返回 `None`，实际会返回 `ArtifactRef`。
+- spec、跨域 result、任务快照与事件序列化是否值得继续拆文件，仍应以实际消费者数量衡量。
 
 ### 目标方案
 
-- 将稳定后的领域模型迁入 `control/memory_generation/`，按 `models.py`、`snapshots.py` 与 `events.py` 划分；
+- 仅在职责稳定后将领域模型迁入 `control/memory_generation/`，按 contracts、snapshots 与 events 划分；
 - 旧 `runtime/memory_tasks.py` 可在过渡期作为兼容 re-export，不同时维护两份实现；
-- 以实际 `MemoryAtom`、snapshot 或专用协议替代 `Any`；
 - 删除无生产/消费语义的字段与枚举值，或补充其真实契约；
-- 修正 `_build_update_artifact()` 的返回类型。
+- 不再为 admission 阶段新增 Memory Generation 专用 status/result DTO。
 
 ### 完成条件
 
-- 模型文件边界按领域定义、状态投影和事件 payload 清晰分离；
+- 模型文件边界按领域输入、状态投影和 shutdown drain 清晰分离；
 - 没有仅因历史兼容而存在、却无法说明生产者和消费者的字段；
 - public import 路径在迁移期保持兼容；
 - mypy/静态检查能够识别 artifact 返回值和 MemoryAtom 相关字段。
@@ -327,7 +331,7 @@ payload_digest
 5. 删除 Memory Task Handle、ExecutionResult 与隐式启动冗余；
 6. 简化 Interaction Submission 旁路索引，再按职责拆分文件；
 7. 审计并删除通用 Queue 的未使用未来能力；
-8. 最后移动 Memory Generation 模型，并降低测试的私有实现耦合。
+8. 继续收敛 Memory Generation wait/drain 模型，待职责稳定后再移动文件，并降低测试的私有实现耦合。
 
 第 1 项同时包含 correctness 修复与其直接依赖的生命周期所有权收敛，不应再拆出第二套 task 管理组件，也不应与无关的大规模文件移动混合。第 2～6 项对状态所有权和可读性的收益最高，可分别提交并独立回归。第 7～8 项应在主要行为稳定后进行，避免清理噪声干扰缺陷定位。
 

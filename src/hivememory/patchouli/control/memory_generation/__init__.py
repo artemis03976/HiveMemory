@@ -11,7 +11,6 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationHandle,
     MemoryGenerationHandler,
     MemoryGenerationQueue,
-    MemoryGenerationWorkAdapter,
 )
 from hivememory.patchouli.control.memory_generation.tasks import (
     MemoryGenerationTaskController,
@@ -24,6 +23,5 @@ __all__ = [
     "MemoryGenerationHandler",
     "MemoryGenerationQueue",
     "MemoryGenerationTaskController",
-    "MemoryGenerationWorkAdapter",
     "MemoryTaskEventEmitter",
 ]

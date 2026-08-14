@@ -34,7 +34,6 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.patchouli.runtime.memory_tasks import (
     InteractionArtifactInput,
-    MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
@@ -56,29 +55,17 @@ def _make_memory_atom(title="test_memory", memory_id=None) -> MemoryAtom:
     )
 
 
-def _make_gen_result(
-    alias="test",
-    decision=DuplicateDecision.CREATE,
-    atom=None,
-):
-    return MemoryGenerationResult(
-        pending_alias=alias,
-        intent_id=f"intent_{alias}",
-        canonical_alias=f"fact_{alias}",
-        atom=atom,
-        duplicate_decision=decision,
-    )
-
-
 def _make_outcome(
     decision=DuplicateDecision.CREATE,
     atom=None,
     changelog=None,
+    memory_before_snapshot=None,
 ):
     return GenerationOutcome(
         atom=atom,
         duplicate_decision=decision,
         changelog=changelog,
+        memory_before_snapshot=memory_before_snapshot,
     )
 
 
@@ -197,7 +184,7 @@ class TestMemoryGenerationFamiliarExecute:
             artifact_engine=artifact_engine,
         )
 
-        results = await familiar.execute(spec)
+        await familiar.execute(spec)
 
         # 即使 artifact 构建失败，生成仍应继续
         gen_engine.process.assert_awaited_once()
@@ -244,7 +231,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         results = await familiar._run_generation(spec)
 
         assert len(results) == 1
-        assert results[0].duplicate_decision == DuplicateDecision.CREATE
+        assert results[0].canonical_alias is None
         assert results[0].settlement is None
         gen_engine.process.assert_awaited_once_with(request)
 
@@ -511,7 +498,7 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_for_create_attaches_refs(self):
         atom = _make_memory_atom()
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=atom)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
         memory_bundle = MemoryCreationBundle(
@@ -526,7 +513,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
         await familiar._attach_memory_artifacts(
-            [gen_result],
+            [outcome],
             GenerationContext(),
             interaction_ref,
             creation_source="WRITE",
@@ -539,8 +526,11 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_for_update_attaches_version_ref(self):
         atom = _make_memory_atom()
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
-        gen_result.memory_before_snapshot = Mock()
+        outcome = _make_outcome(
+            decision=DuplicateDecision.UPDATE,
+            atom=atom,
+            memory_before_snapshot=Mock(),
+        )
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
         version_ref = ArtifactRef(artifact_id="version_2", artifact_type=ArtifactType.MEMORY_VERSION)
@@ -552,7 +542,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
         await familiar._attach_memory_artifacts(
-            [gen_result],
+            [outcome],
             GenerationContext(),
             interaction_ref,
             creation_source="SYSTEM",
@@ -566,13 +556,13 @@ class TestMemoryGenerationFamiliarArtifacts:
         atom = _make_memory_atom()
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.events = []
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=atom)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
         familiar = self._make_familiar(artifact_engine=None)
 
         await familiar._attach_memory_artifacts(
-            [gen_result],
+            [outcome],
             GenerationContext(),
             interaction_ref,
             creation_source="WRITE",
@@ -587,7 +577,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         atom = _make_memory_atom()
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.events = []
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=atom)
+        outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=atom)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
         artifact_engine = Mock()
@@ -597,7 +587,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
         await familiar._attach_memory_artifacts(
-            [gen_result],
+            [outcome],
             GenerationContext(),
             interaction_ref,
             creation_source="WRITE",
@@ -612,8 +602,11 @@ class TestMemoryGenerationFamiliarArtifacts:
         atom = _make_memory_atom()
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.events = []
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.UPDATE, atom=atom)
-        gen_result.changelog = "changed"
+        outcome = _make_outcome(
+            decision=DuplicateDecision.UPDATE,
+            atom=atom,
+            changelog="changed",
+        )
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
         artifact_engine = Mock()
@@ -623,7 +616,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
         await familiar._attach_memory_artifacts(
-            [gen_result],
+            [outcome],
             GenerationContext(),
             interaction_ref,
             creation_source="SYSTEM",
@@ -636,7 +629,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_ignores_results_without_atoms(self):
-        gen_result = _make_gen_result(alias="test", decision=DuplicateDecision.CREATE, atom=None)
+        outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=None)
         interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
 
         artifact_engine = Mock()
@@ -645,7 +638,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
         await familiar._attach_memory_artifacts(
-            [gen_result],
+            [outcome],
             GenerationContext(),
             interaction_ref,
             creation_source="WRITE",

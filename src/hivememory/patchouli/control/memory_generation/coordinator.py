@@ -18,7 +18,6 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
-    MemoryGenerationTaskStatus,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 
@@ -112,39 +111,28 @@ class MemoryGenerationCoordinator:
         if not specs:
             return []
 
-        accepted: list[MemoryGenerationTask] = []
-        for spec in specs:
-            try:
-                task = await self._bus.request(
-                    PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
-                    spec,
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # 单项调用可能在服务端已经接纳后才断开响应，此时结果不确定，
-                # 不能将 PendingAtom 确定标记为失败；后续可用稳定 intent_id 重试。
-                logger.warning(
-                    "Active generation admission outcome unknown: pending_alias=%s, intent_id=%s",
-                    spec.pending_alias,
-                    spec.intent_id,
-                    exc_info=True,
-                )
-                continue
+        try:
+            accepted = await self._bus.request(
+                PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
+                specs,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # 批量入口会在 Controller 内逐项隔离 admission；若连批量响应本身都
+            # 未返回，则无法判断哪些 intent 已被接纳，必须保持 PendingAtom 非终态。
+            logger.warning(
+                "Active generation batch admission outcome unknown: intents=%s",
+                [spec.intent_id for spec in specs],
+                exc_info=True,
+            )
+            return []
 
-            if not isinstance(task, MemoryGenerationTask):
-                logger.warning(
-                    "Active generation admission returned invalid task: pending_alias=%s",
-                    spec.pending_alias,
-                )
-                continue
-            if task.status == MemoryGenerationTaskStatus.FAILED:
-                # Controller 只有在明确未能入队时才返回 admission failed 快照。
-                if spec.pending_alias:
-                    await self._pending_atom_settler.failed(spec.pending_alias)
-                continue
-            accepted.append(task)
-
+        if not isinstance(accepted, list) or not all(
+            isinstance(task, MemoryGenerationTask) for task in accepted
+        ):
+            logger.warning("Active generation batch admission returned invalid tasks")
+            return []
         return accepted
 
     async def _try_build_active_spec(

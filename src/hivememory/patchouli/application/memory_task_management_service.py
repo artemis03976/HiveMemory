@@ -3,11 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.runtime.memory_tasks import (
-    MemoryGenerationTask,
-    MemoryGenerationTaskWaitResult,
-    MemoryGenerationTaskWaitSummary,
-)
+from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -16,7 +12,7 @@ if TYPE_CHECKING:
 class MemoryTaskManagementService:
     """Patchouli application service for public memory task APIs."""
 
-    def __init__(self, *, bus: "PatchouliBus") -> None:
+    def __init__(self, *, bus: PatchouliBus) -> None:
         # Public use-case 层只通过 local bus 访问任务控制面，避免直接持有 controller。
         self._bus = bus
 
@@ -33,7 +29,7 @@ class MemoryTaskManagementService:
         self,
         task_id: str,
         timeout: float | None = None,
-    ) -> MemoryGenerationTaskWaitResult:
+    ) -> MemoryGenerationTask | None:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_WAIT,
             task_id,
@@ -44,7 +40,7 @@ class MemoryTaskManagementService:
         self,
         task_ids: list[str],
         timeout: float | None = None,
-    ) -> MemoryGenerationTaskWaitSummary:
+    ) -> list[MemoryGenerationTask | None]:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_WAIT_MANY,
             task_ids,
@@ -54,7 +50,7 @@ class MemoryTaskManagementService:
     async def wait_all_memory_tasks(
         self,
         timeout: float | None = None,
-    ) -> MemoryGenerationTaskWaitSummary:
+    ) -> list[MemoryGenerationTask]:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_WAIT_ALL,
             timeout,
