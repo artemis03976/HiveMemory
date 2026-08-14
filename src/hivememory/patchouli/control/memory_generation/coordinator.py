@@ -18,6 +18,7 @@ from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
+    MemoryGenerationTaskStatus,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 
@@ -111,10 +112,40 @@ class MemoryGenerationCoordinator:
         if not specs:
             return []
 
-        return await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-            specs,
-        )
+        accepted: list[MemoryGenerationTask] = []
+        for spec in specs:
+            try:
+                task = await self._bus.request(
+                    PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
+                    spec,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # 单项调用可能在服务端已经接纳后才断开响应，此时结果不确定，
+                # 不能将 PendingAtom 确定标记为失败；后续可用稳定 intent_id 重试。
+                logger.warning(
+                    "Active generation admission outcome unknown: pending_alias=%s, intent_id=%s",
+                    spec.pending_alias,
+                    spec.intent_id,
+                    exc_info=True,
+                )
+                continue
+
+            if not isinstance(task, MemoryGenerationTask):
+                logger.warning(
+                    "Active generation admission returned invalid task: pending_alias=%s",
+                    spec.pending_alias,
+                )
+                continue
+            if task.status == MemoryGenerationTaskStatus.FAILED:
+                # Controller 只有在明确未能入队时才返回 admission failed 快照。
+                if spec.pending_alias:
+                    await self._pending_atom_settler.failed(spec.pending_alias)
+                continue
+            accepted.append(task)
+
+        return accepted
 
     async def _try_build_active_spec(
         self,
@@ -139,10 +170,11 @@ class MemoryGenerationCoordinator:
             return None
         except Exception:
             logger.exception(
-                "Active spec build failed unexpectedly, skipping task: pending_alias=%s",
+                "Active spec build outcome unknown, keeping intent pending: pending_alias=%s",
                 task.pending_alias,
             )
-            await self._pending_atom_settler.failed(task.pending_alias)
+            # 例如 MEMORY_GET 的存储异常无法确定 UPDATE 的业务前提，不属于
+            # 确定性输入拒绝；保留 intent，下一次 dispatch 使用同一 intent_id 重试。
             return None
 
     async def _build_active_spec(

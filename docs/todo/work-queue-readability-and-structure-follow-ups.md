@@ -18,7 +18,12 @@ last_reviewed: 2026-08-13
 
 v0.6.1 已经完成 In-memory Work Queue Runtime MVP，并将 Passive Interaction、Active Interaction 与 Memory Generation 接入通用运行时。Memory Generation 的双状态承载和重复 retry 承诺已经完成首轮清理，任务可观测事件也已由独立 emitter 接管。
 
-当前剩余工作不再是扩充队列能力，而是修正一项 Active finalize 正确性缺陷，并继续减少运行时、领域控制层和测试之间的重复状态与实现耦合。SQLite Work Queue 仍然后置，不应成为本轮清理的前置条件。
+当前剩余工作不再是扩充队列能力，而是继续修正 Active finalize 的整体生命周期幂等性，并减少运行时、领域控制层和测试之间的重复状态与实现耦合。SQLite Work Queue 仍然后置，不应成为本轮清理的前置条件。
+
+本轮已完成两项局部修正：Active WRITE/UPDATE 以 PendingAtom `intent_id` 派生稳定
+Memory Generation task/work identity，进程内重复 dispatch 会复用已有任务；Active materialization
+改为逐 intent 接纳，确定性拒绝与 unknown 结果隔离处理。它们解决了生成任务重复入队和批量失败污染
+的问题，但尚未覆盖 retrieval HIT 或整条 Active continuation 的终态回放。
 
 ## 收敛原则
 
@@ -38,6 +43,9 @@ v0.6.1 已经完成 In-memory Work Queue Runtime MVP，并将 Passive Interactio
 现有 Active Interaction 测试还明确断言第二次 finalize 会再次 materialize，因而把这一缺陷固化成了当前行为。Interaction apply 的幂等性不能替代整个 Active finalization 的幂等性。
 
 ### 目标方案
+
+> 进度：Memory Generation intent 级任务接纳已完成；本项剩余的是让 interaction、materialization
+> dispatch 与 retrieval HIT 在同一 Active finalization identity 下都只执行一次，并保留终态回放。
 
 建立进程内 `ActiveFinalizationCoordinator`，以 `interaction_id` 管理运行中与有界保留的终态记录。每条记录至少包含：
 

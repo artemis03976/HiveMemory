@@ -320,6 +320,13 @@ class MemoryGenerationQueue:
             adapter=self._adapter,
             codecs=self._codecs,
         )
+        existing = self._handles.get(item.work_id)
+        if existing is not None:
+            if existing.task != work:
+                raise ValueError(
+                    f"memory generation work already exists with different payload: {item.work_id}"
+                )
+            return existing
         handle = MemoryGenerationHandle(
             task=work,
             task_id=work.task_id,

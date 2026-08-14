@@ -22,6 +22,7 @@ from hivememory.patchouli.control.memory_generation.queue import (
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.memory_tasks import (
     MemoryGenerationResult,
+    MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
@@ -93,6 +94,7 @@ class MemoryGenerationTaskController:
         )
 
         self._entries: OrderedDict[str, _MemoryTaskEntry] = OrderedDict()
+        self._submission_lock = asyncio.Lock()
 
     @property
     def queue(self) -> MemoryGenerationQueue:
@@ -120,7 +122,30 @@ class MemoryGenerationTaskController:
     ) -> MemoryGenerationTask:
         """提交一个不可变工作定义，并返回其接纳快照。"""
 
-        work = MemoryGenerationWork(task_id=str(uuid.uuid4()), spec=spec)
+        # 串行化 admission，确保并发重提交不会在首个请求尚未确定入队结果时
+        # 误读一个只有 created、尚无 handle 的中间 entry。
+        async with self._submission_lock:
+            return await self._submit_generation_locked(spec)
+
+    async def _submit_generation_locked(
+        self,
+        spec: MemoryGenerationTaskSpec,
+    ) -> MemoryGenerationTask:
+        """在 admission 锁内接纳或复用一项生成任务。"""
+
+        # Active WRITE/UPDATE 的 intent_id 来自 PendingAtom，跨重复 dispatch 保持稳定。
+        # 其他来源没有可复用的业务意图，仍使用一次性 task_id。
+        task_id = self._task_id_for_spec(spec)
+        existing = self._entries.get(task_id)
+        if existing is not None:
+            if existing.work.spec != spec:
+                raise ValueError(
+                    f"memory generation intent already exists with different spec: {task_id}"
+                )
+            # 幂等重提交只返回原任务的当前投影，不再次发布 created、入队或启动执行。
+            return await self._snapshot_entry(existing)
+
+        work = MemoryGenerationWork(task_id=task_id, spec=spec)
         created = MemoryGenerationTask.from_work(work, created_at=datetime.now(UTC))
         entry = _MemoryTaskEntry(work=work, created=created)
         self._entries[work.task_id] = entry
@@ -152,6 +177,17 @@ class MemoryGenerationTaskController:
         # 返回接纳时刻的值对象；后续状态变化通过查询、等待和事件获得，不原地
         # 修改这个快照。
         return created
+
+    @staticmethod
+    def _task_id_for_spec(spec: MemoryGenerationTaskSpec) -> str:
+        """为任务生成稳定身份；Active intent 使用业务 intent_id。"""
+
+        if spec.source in {
+            MemoryGenerationSource.WRITE,
+            MemoryGenerationSource.UPDATE,
+        } and spec.intent_id:
+            return f"active:{spec.intent_id}"
+        return str(uuid.uuid4())
 
     async def submit_generation_many(
         self,

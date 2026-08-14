@@ -44,6 +44,7 @@ def _spec(
     topic_id="t1",
     label="t1",
     source=MemoryGenerationSource.ARCHIVE,
+    intent_id=None,
     pending_alias=None,
 ):
     return MemoryGenerationTaskSpec(
@@ -51,6 +52,7 @@ def _spec(
         label=label,
         source=source,
         request=GenerationRequest(context=GenerationContext()),
+        intent_id=intent_id,
         pending_alias=pending_alias,
     )
 
@@ -73,6 +75,60 @@ def _assert_runtime_event_task_payload(event, memory_task):
 
 
 class TestMemoryGenerationTaskController:
+    @pytest.mark.asyncio
+    async def test_active_intent_reuses_existing_generation_task(self):
+        blocker = asyncio.Event()
+        recorder = RecordingRuntimeEventSink()
+
+        async def request(route, spec):
+            await blocker.wait()
+            return []
+
+        bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
+        controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        spec = _spec(
+            source=MemoryGenerationSource.WRITE,
+            intent_id="intent_stable",
+            pending_alias="draft_stable",
+        )
+
+        first = await controller.submit_generation(spec)
+        second = await controller.submit_generation(spec)
+
+        assert first.task_id == "active:intent_stable"
+        assert second.task_id == first.task_id
+        created_events = [
+            event
+            for event in recorder.events
+            if event.event_type == RuntimeEventType.MEMORY_TASK_CREATED
+        ]
+        assert len(created_events) == 1
+
+        blocker.set()
+        await controller.wait_task(first.task_id)
+        assert bus.request.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_active_intent_rejects_conflicting_spec(self):
+        bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
+        controller = MemoryGenerationTaskController(bus=bus)
+        first_spec = _spec(
+            label="first",
+            source=MemoryGenerationSource.WRITE,
+            intent_id="intent_conflict",
+        )
+        conflicting_spec = _spec(
+            label="second",
+            source=MemoryGenerationSource.WRITE,
+            intent_id="intent_conflict",
+        )
+
+        first = await controller.submit_generation(first_spec)
+        with pytest.raises(ValueError, match="different spec"):
+            await controller.submit_generation(conflicting_spec)
+
+        await controller.wait_task(first.task_id)
+
     @pytest.mark.asyncio
     async def test_submit_generation_many_isolates_one_admission_failure(self):
         controller = MemoryGenerationTaskController(bus=Mock())

@@ -127,8 +127,9 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 
 这不等于系统完全没有重试：通用 Work Queue Runtime 仍保留 retry 状态机，Interaction Submission 也只对
 明确标记的瞬态提交错误做有限重试；Generation extractor 内部的 LLM 边界重试属于另一层策略。当前
-`FAILED` 只表示本次任务未完成，不保证没有任何外部副作用。operation identity、reconciliation 和耐久
-结果记录将在后续幂等性与持久化阶段处理。
+`FAILED` 只表示本次任务未完成，不保证没有任何外部副作用。Active WRITE/UPDATE 已使用 PendingAtom
+`intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
+spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
 
 手工 memory create/update 同样通过 Familiar：创建生成 MANUAL provenance，编辑捕获 before snapshot、递增 version 并生成 MANUAL_EDIT version artifact。
 
@@ -162,7 +163,11 @@ AgentRunResult
   -> best-effort record prepared retrieval HITs
 ```
 
-Interaction applied 是 Chat 的硬成功边界。之后 materialization admission 或执行失败由 `MemoryGenerationTask` 与 PendingAtom failed 独立表达，retrieval HIT 失败只记录 warning；两者都不能反向把 Chat 改写为 failed。Active continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不会中止已经接管的 post-apply 义务。
+Interaction applied 是 Chat 的硬成功边界。之后 materialization 按 intent 逐项接纳：明确未入队的任务由
+`MemoryGenerationTask` failed 与 PendingAtom failed 独立表达；调用异常或响应丢失属于 unknown，不会把
+PendingAtom 锁为 failed，可通过稳定 `intent_id` 再次 dispatch 并复用已有任务。retrieval HIT 失败只记录
+warning；两者都不能反向把 Chat 改写为 failed。Active continuation 由 Patchouli 进程级持有，因此 HTTP/SSE
+调用方取消不会中止已经接管的 post-apply 义务。
 
 主动生成因此可以从 topic 最近 blocks 中看到当前轮，而不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。当前交互仍留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档是不同意图，不能通过清空 buffer 相互替代。
 
@@ -174,7 +179,7 @@ Interaction applied 是 Chat 的硬成功边界。之后 materialization admissi
 
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
-- `submit_generation_many()` 逐个创建后台 task；active spec 的 I/O 构建并行，但没有持久化队列、并发额度或 backpressure；
+- `submit_generation_many()` 仍供非 Active 批量调用逐个创建后台 task；Active spec 的 I/O 构建并行、接纳按 intent 逐项隔离；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；
 - Mode A/B 去重只取 dense top-1 且没有 identity filter，跨用户隔离依赖存储/数据前提，仍需收紧；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；

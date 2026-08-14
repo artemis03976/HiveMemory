@@ -362,9 +362,8 @@ class PatchouliService:
                 exc_info=True,
             )
 
-            for task in tasks:
-                await self._pending_atom_settler.failed(task.pending_alias)
-
+            # 这里的调用可能在下游已接纳任务后才断开响应，结果属于 unknown。
+            # 只有下游明确返回 rejected 时，才由 Coordinator 按 intent 单独结算失败。
             return []
 
     def _schedule_retrieval_hit_record(

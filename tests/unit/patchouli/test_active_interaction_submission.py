@@ -171,6 +171,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         # 重复 finalize 复用原 work，interaction apply 不会再次执行。
         await service.finalize_agent_run(prepared, loop_result)
         assert calls.count("apply_started") == 1
+        # finalize 可重新 dispatch；真正的幂等复用由下游 intent_id 边界保证。
         assert calls.count("materialize") == 2
     finally:
         release_apply.set()
@@ -409,7 +410,7 @@ async def test_post_apply_materialization_failure_isolated_from_chat() -> None:
         await queue.stop()
 
     assert result == []
-    assert failed_aliases == ["draft_active"]
+    assert failed_aliases == []
 
 
 @pytest.mark.asyncio
