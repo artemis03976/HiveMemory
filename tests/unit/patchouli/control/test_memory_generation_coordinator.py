@@ -24,7 +24,7 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.coordinator import (
     MemoryGenerationCoordinator,
 )
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )

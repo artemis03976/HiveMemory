@@ -3,17 +3,17 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.memory_generation.models import (
+    MemoryGenerationSource,
+    MemoryGenerationTask,
+    MemoryGenerationTaskStatus,
+)
 from hivememory.patchouli.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.patchouli.runtime.memory_tasks import (
-    MemoryGenerationSource,
-    MemoryGenerationTask,
-    MemoryGenerationTaskStatus,
-)
 from hivememory.patchouli.services.perception import ShutdownFlushResult
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink

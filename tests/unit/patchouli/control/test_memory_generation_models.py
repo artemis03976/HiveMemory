@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTask,

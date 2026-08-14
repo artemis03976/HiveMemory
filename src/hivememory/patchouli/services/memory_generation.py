@@ -20,7 +20,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationOutcome,
 )
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationResult,
     MemoryGenerationSource,

@@ -1,4 +1,4 @@
-"""Patchouli 记忆生成任务定义与对外快照。"""
+"""Patchouli 记忆生成领域模型与对外只读快照。"""
 
 from __future__ import annotations
 

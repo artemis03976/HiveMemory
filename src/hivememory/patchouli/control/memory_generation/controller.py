@@ -14,19 +14,19 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.events import (
     MemoryTaskEventEmitter,
 )
-from hivememory.patchouli.control.memory_generation.queue import (
-    MemoryGenerationHandle,
-    MemoryGenerationQueue,
-    MemoryGenerationResults,
-)
-from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
 )
+from hivememory.patchouli.control.memory_generation.queue import (
+    MemoryGenerationHandle,
+    MemoryGenerationQueue,
+    MemoryGenerationResults,
+)
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.work_queue import (

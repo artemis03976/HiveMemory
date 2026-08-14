@@ -287,24 +287,28 @@ payload_digest
 
 ## P2：收紧 Memory Generation 模型归属与类型
 
-> 状态：部分完成（2026-08-14）。`MemoryGenerationResult` 已收缩为 canonical identity 与
+> 状态：已完成（2026-08-14）。`MemoryGenerationResult` 已收缩为 canonical identity 与
 > `PendingAtomSettlement`，Engine 的 `GenerationOutcome` 不再穿透 Familiar；队列工作信封已退回
 > Queue 模块私有实现，`_build_update_artifact()` 返回类型也已修正。Active admission 的逐项隔离已
 > 收回 `submit_generation_many()`，未入队不再伪装为任务 `FAILED`。`MemoryGenerationTaskWaitResult`
 > 与 `MemoryGenerationTaskWaitSummary` 也已删除：wait API 直接返回任务快照，shutdown 计数下沉到
 > shutdown observability 边界。没有生产路径的 `MemoryGenerationSource.MERGE/SPLIT` 也已删除，
-> Artifact 版本自身的 MERGE 语义不受影响。
+> Artifact 版本自身的 MERGE 语义不受影响。领域模型现已迁入
+> `control/memory_generation/models.py`，原控制器文件改名为 `controller.py`；`runtime` 下不保留
+> 兼容转发模块。
 
 ### 问题与证据
 
-`patchouli/runtime/memory_tasks.py` 仍同时包含共享任务 spec、跨域结果、公开快照、WorkState 映射和
-事件 payload，文件职责偏多。当前剩余问题是 spec、跨域 result、任务快照与事件序列化是否值得
-继续拆文件；这仍应以实际消费者数量衡量，不因类型数量本身机械拆分。
+清理前，`patchouli/runtime/memory_tasks.py` 同时包含共享任务 spec、跨域结果、公开快照、
+WorkState 映射和事件 payload，却并不拥有 runtime 生命周期。迁移后这些稳定领域模型集中在
+`control/memory_generation/models.py`，任务接纳、投影与结算逻辑则由 `controller.py` 持有。
+当前没有证据支持继续按 contracts、snapshots 与 events 机械拆分模型文件。
 
 ### 目标方案
 
-- 仅在职责稳定后将领域模型迁入 `control/memory_generation/`，按 contracts、snapshots 与 events 划分；
-- 旧 `runtime/memory_tasks.py` 可在过渡期作为兼容 re-export，不同时维护两份实现；
+- 将稳定领域模型迁入 `control/memory_generation/models.py`，与通用 runtime 生命周期分离；
+- 将控制器明确命名为 `controller.py`，不再以笼统的 `tasks.py` 同时暗示模型和控制职责；
+- 删除旧 `runtime/memory_tasks.py`，不维护兼容 re-export 或第二份实现；
 - 删除无生产/消费语义的字段与枚举值，或补充其真实契约；
 - 不再为 admission 阶段新增 Memory Generation 专用 status/result DTO。
 
@@ -312,7 +316,7 @@ payload_digest
 
 - 模型文件边界按领域输入、状态投影和 shutdown drain 清晰分离；
 - 没有仅因历史兼容而存在、却无法说明生产者和消费者的字段；
-- public import 路径在迁移期保持兼容；
+- 生产代码、测试和当前文档统一使用新的模型与控制器导入路径；
 - mypy/静态检查能够识别 artifact 返回值和 MemoryAtom 相关字段。
 
 ## P2：降低测试对私有实现的耦合

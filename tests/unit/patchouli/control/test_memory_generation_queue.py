@@ -18,18 +18,18 @@ from hivememory.core.models import (
     TurnRecord,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
-from hivememory.patchouli.control.memory_generation.queue import (
-    _MemoryGenerationWork,
-    _MemoryGenerationWorkAdapter,
-)
-from hivememory.patchouli.control.memory_generation.tasks import (
+from hivememory.patchouli.control.memory_generation.controller import (
     MemoryGenerationTaskController,
 )
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+)
+from hivememory.patchouli.control.memory_generation.queue import (
+    _MemoryGenerationWork,
+    _MemoryGenerationWorkAdapter,
 )
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,

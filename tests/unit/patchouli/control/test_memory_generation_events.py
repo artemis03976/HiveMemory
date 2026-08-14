@@ -6,7 +6,7 @@ import pytest
 from hivememory.patchouli.control.memory_generation.events import (
     MemoryTaskEventEmitter,
 )
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
@@ -153,4 +153,3 @@ def test_sink_failure_does_not_escape_emitter() -> None:
     emitter = MemoryTaskEventEmitter(RuntimeEventPublisher(FailingSink()))
 
     emitter.created(_snapshot())
-

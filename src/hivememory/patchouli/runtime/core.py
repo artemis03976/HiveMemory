@@ -41,9 +41,9 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
+from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTaskStatus
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskStatus
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
 from hivememory.patchouli.runtime.shutdown_drain import (
     build_shutdown_generation_summary,

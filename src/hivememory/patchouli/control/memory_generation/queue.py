@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from hivememory.core.models import LogicalBlock, MemoryAtom
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationResult,
     MemoryGenerationSource,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus

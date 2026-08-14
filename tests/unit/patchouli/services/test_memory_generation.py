@@ -32,7 +32,7 @@ from hivememory.engines.generation.models import (
     GenerationOutcome,
     GenerationRequest,
 )
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,

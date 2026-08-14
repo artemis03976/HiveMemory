@@ -273,7 +273,9 @@ class TestPerceptionFamiliar:
     @pytest.mark.asyncio
     async def test_manual_settle_returns_task_for_non_empty_topic(self):
         """验证手动结算非空话题时返回任务"""
-        from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+        from hivememory.patchouli.control.memory_generation.models import (
+            MemoryGenerationTask,
+        )
         store = Mock()
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(

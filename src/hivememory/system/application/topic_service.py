@@ -37,7 +37,7 @@ class TopicApplicationService:
         )
 
     async def settle_topic(self, *, topic_id: str | None = None) -> dict:
-        from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+        from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
         task: MemoryGenerationTask | None = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
             topic_id=topic_id,

@@ -11,14 +11,14 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFoc
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
-from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
 )
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 
 logger = logging.getLogger(__name__)

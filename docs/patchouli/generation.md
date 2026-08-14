@@ -8,12 +8,11 @@ code_paths:
   - src/hivememory/prompts/transcript/generation.py
   - src/hivememory/patchouli/services/memory_generation.py
   - src/hivememory/patchouli/control/memory_generation/
-  - src/hivememory/patchouli/runtime/memory_tasks.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-08-12
+last_reviewed: 2026-08-14
 ---
 
 # 记忆生成

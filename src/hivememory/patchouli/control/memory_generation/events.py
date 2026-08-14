@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
     memory_task_to_payload,

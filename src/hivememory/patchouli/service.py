@@ -29,10 +29,10 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
     InteractionSubmissionReceipt,
 )
+from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.system.config import MemoryCompilerConfig
 from hivememory.system.runtime.work_queue import (
     WorkQueueCapacityError,
