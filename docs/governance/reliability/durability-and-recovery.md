@@ -34,7 +34,7 @@ last_reviewed: 2026-08-14
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
 | Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
-| Passive interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失 | 由 SQLite WorkStore 负责 durable store；当前实现后置 |
+| Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
@@ -108,6 +108,19 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 持久化不会自动带来 exactly-once。每个恢复动作都必须配合稳定 idempotency key、状态迁移保护或 compare-and-set；完整规则由[跨子系统幂等性与重试治理](./idempotency-and-retry.md)统一定义。
 
+### 4.5 持久化迁移必须收敛状态真相
+
+为满足进程内去重、收据投影或有界 retention 而建立的旁路字典可以在内存实现中暂时存在，但不能与
+持久化 Store 同时成为状态真相。`InteractionSubmissionQueue` 当前的 `_StoredSubmission` 同时保存
+receipt 与 canonical payload bytes，而 `WorkRecord` 已持有 work identity、状态和 payload；这一重复在
+当前 capacity/retention 约束下可以接受，但 SQLite 迁移不得把两份结构分别持久化。
+
+持久化后，重复 submit、wait、outcome、冲突检测和 terminal retention 都必须以 SQLite WorkRecord
+及其唯一约束为准。若业务适配层仍需要 `interaction_id -> work_id` 映射，只能保留为可失效、可重建的
+定位缓存；payload hash 可以作为索引或快速冲突检查，但 canonical payload 只保存一份。具体 schema 与
+迁移验收由 [Local Work Queue Runtime §9.2](../../plans/v0.6.1-local-work-queue-runtime.md#92-sqliteworkstore)
+定义。
+
 ## 5. 未排期治理工作包
 
 ### Phase D0：状态清单与承诺分级
@@ -119,7 +132,7 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 
 ### Phase D1：工作项与 PendingAtom 恢复
 
-1. 复用 Local Work Queue 的 lane/handler/store 方向，把 interaction submission 和 memory generation 的可承诺状态写入 WorkStore；
+1. 复用 Local Work Queue 的 lane/handler/store 方向，把 interaction submission 和 memory generation 的可承诺状态写入 WorkStore，并在迁移 interaction 时删除持久化旁路真相，只保留可选的可重建定位缓存；
 2. 为 PendingAtom intent、pending alias、settlement、resolution 和 cancel reason 建立可持久化 record；
 3. 启动时恢复 queued/retry-wait work，处理 abandoned running work，并把未知 schema/kind 安全放入 blocked/dead-letter；若采用 lease，再把过期判定和安全重新 claim 纳入同一恢复算法；
 4. 保证 task、settlement 和 pending state 的终态只由一个所有者推进。
@@ -155,6 +168,7 @@ RuntimeEvent 可帮助诊断恢复过程，但它可能丢失、乱序或被禁�
 - Agent checkpoint 不会把取消、超时、同步 syscall 或不完整模型输出伪装成成功恢复；
 - RuntimeEvent 丢失、禁用或订阅者失败不会改变持久化业务结果；
 - 旧 schema 能迁移或安全进入 blocked 状态，不能静默按错误版本执行；
+- Interaction Submission 的 receipt、outcome、payload 冲突与 retention 统一来自持久化 WorkRecord，不依赖第二份不可重建索引；
 - 相关单元、重启模拟、故障注入和数据一致性测试全部通过；
 - 当前文档、公开 API 和 Help 明确区分进程内 accepted 与 durable accepted。
 

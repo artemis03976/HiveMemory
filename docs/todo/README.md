@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-08-13
+last_reviewed: 2026-08-14
 ---
 
 # Todo
@@ -15,7 +15,7 @@ last_reviewed: 2026-08-13
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；
 - [Page Folding 跨入口上下文与证据后续技术债](./page-folding-cross-ingress-follow-ups.md)；
-- [Work Queue 迁移后的可读性与结构收敛](./work-queue-readability-and-structure-follow-ups.md)；
+- [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
 - [RuntimeEvent 生产端迁移后续](./runtime-event-producer-migration.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)。
