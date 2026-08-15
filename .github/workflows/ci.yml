@@ -28,13 +28,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run unit tests
+      - name: Run tests with coverage
         run: |
-          pytest tests/unit -v --tb=short -m "not live_llm and not e2e" -n auto
-
-      - name: Run integration tests
-        run: |
-          pytest tests/integration -v --tb=short -m "not live_llm" -n auto
+          pytest tests/unit tests/integration -v --tb=short -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-report=term-missing --cov-fail-under=85
 
   frontend:
     name: Frontend Build

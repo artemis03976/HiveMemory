@@ -25,6 +25,10 @@ last_reviewed: 2026-08-13
 
 - [数据模型可变性治理](./data-model/mutability.md)：模型角色、冻结深度、聚合所有权与跨边界投影规则。
 
+### Testing
+
+- [测试设计规范](./testing/test-design-standards.md)：测试编写的分层、断言、mock、隔离与命名规则，以及必须避免的无效测试反模式。
+
 ## 调研基线
 
 [Baselines](./baselines/README.md) 保存已经完成的 point-in-time 清单和风险证据。基线用于说明治理判断建立在什么事实之上，不代表对应治理目标已经实现，也不作为当前系统行为的唯一来源。
