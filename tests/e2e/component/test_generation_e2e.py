@@ -484,9 +484,10 @@ class TestMemoryExtraction:
         else:
             # 检查内容是否包含代码关键词
             content_keywords = test_case.get("expected_content_contains", [])
-            for keyword in content_keywords:
-                if keyword not in draft.content:
-                    console.print(f"    [yellow]警告: 内容缺少关键词 '{keyword}'[/yellow]")
+            missing_keywords = [k for k in content_keywords if k not in draft.content]
+            if missing_keywords:
+                success = False
+                error_msg = f"内容缺少关键词 {missing_keywords}"
 
             # 检查标签
             expected_tags = test_case.get("expected_tags_any", [])
@@ -494,8 +495,9 @@ class TestMemoryExtraction:
                 tag.lower() in [t.lower() for t in draft.tags]
                 for tag in expected_tags
             )
-            if not tag_match and expected_tags:
-                console.print(f"    [yellow]警告: 标签 {draft.tags} 不包含预期标签[/yellow]")
+            if expected_tags and not tag_match:
+                success = False
+                error_msg = f"标签 {draft.tags} 不包含预期标签 {expected_tags}"
 
         print_test_result(console, "GEN-EXT-003: 复杂结构提取", success, error_msg)
 
@@ -904,10 +906,7 @@ class TestSchemaValidation:
         )
 
         # 验证 draft 不为空
-        if draft is None or not draft.has_value:
-            print_test_result(console, "GEN-SCH-001: JSON Schema 合规", False, "提取结果为空")
-            pytest.skip("提取结果为空，跳过 Schema 验证")
-            return
+        assert draft is not None and draft.has_value, "Schema 合规测试需要非空提取结果"
 
         # 转换为 MemoryAtom
         memory = self._draft_to_memory(draft)

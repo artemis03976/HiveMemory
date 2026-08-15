@@ -483,41 +483,10 @@ class TestTokenOverflow:
 
         # 验证：应触发 Token 溢出
         overflow_flushes = self.recorder.get_flushes_by_reason(FlushReason.TOKEN_OVERFLOW)
-        lru_flushes = self.recorder.get_flushes_by_reason(FlushReason.LRU_EVICTION)
-        assert isinstance(overflow_flushes, list)
-        assert isinstance(lru_flushes, list)
+        assert len(overflow_flushes) > 0, "应至少触发一次 Token 溢出 Flush"
 
         print_test_result(console, "PER-BUF-001", True)
         console.print(f"    [dim]Token 溢出触发次数: {len(overflow_flushes)} (预期: > 0)[/dim]")
-
-    def test_relay_summary_generated(self):
-        """
-        PER-BUF-002: 接力摘要生成
-
-        验证点：
-        - Flush 时有消息被记录
-        """
-        identity = Identity(user_id="test_relay_summary", agent_id="chatbot", session_id="session1")
-
-        # 添加长对话直到溢出
-        for msg in COMPACT_OVERFLOW_CONVERSATION:
-            add_message_to_perception(
-                perception=self.perception,
-                role=msg["role"],
-                content=msg["content"],
-                identity=identity,
-                rewritten_query=msg.get("rewritten_query", None),
-            )
-
-        # 检查溢出事件
-        overflow_flushes = self.recorder.get_flushes_by_reason(FlushReason.TOKEN_OVERFLOW)
-        print_test_result(console, "PER-BUF-002", True)
-        if overflow_flushes:
-            last_overflow = overflow_flushes[-1]
-            msg_count = last_overflow["message_count"]
-            console.print(f"    [dim]溢出 Flush 包含 {msg_count} 条消息[/dim]")
-        else:
-            console.print(f"    [dim]未触发溢出[/dim]")
 
     def test_post_overflow_continuation(self):
         """

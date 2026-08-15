@@ -500,17 +500,14 @@ class TestPassiveWorthSavingFilter:
         )
         worth_flags = [getattr(block, "worth_saving", None) for block in blocks]
 
-        if worth_saving is False:
-            assert False in worth_flags, (
-                f"worth_saving=False 的闲聊应在感知层 block 上保留该标记, "
-                f"实际 worth_flags={worth_flags}"
-            )
-            logger.info("PAS-E2E-006: 闲聊 payload 已进入感知层，且保留 worth_saving=False")
-        else:
-            logger.warning(
-                f"PAS-E2E-006: Eye 未将闲聊标记为 worth_saving=False "
-                f"(actual={worth_saving}), 感知层 worth_flags={worth_flags}"
-            )
+        assert worth_saving is False, (
+            f"Eye 应将闲聊标记为 worth_saving=False, actual={worth_saving}"
+        )
+        assert False in worth_flags, (
+            f"worth_saving=False 的闲聊应在感知层 block 上保留该标记, "
+            f"实际 worth_flags={worth_flags}"
+        )
+        logger.info("PAS-E2E-006: 闲聊 payload 已进入感知层，且保留 worth_saving=False")
 
     @pytest.mark.asyncio
     async def test_mixed_chitchat_and_fact(self, e2e_system, clean_user):
@@ -563,14 +560,18 @@ class TestPassiveWorthSavingFilter:
         assert "SuperSecret789" in all_content or "数据库" in all_content, (
             f"应包含事实轮次的感知层内容, 实际: {all_content[:200]}"
         )
-        if r1.get("worth_saving") is False:
-            assert any(getattr(block, "worth_saving", None) is False for block in blocks), (
-                "Round 1 被标记为 worth_saving=False 时，应在感知层 block 中可见该标记"
-            )
-        if r2.get("worth_saving") is not None:
-            assert any(getattr(block, "worth_saving", None) == r2.get("worth_saving") for block in blocks), (
-                f"感知层 block 应包含 Round 2 的 worth_saving 标记: {r2.get('worth_saving')}"
-            )
+        assert r1.get("worth_saving") is False, (
+            f"Round 1 闲聊应被标记为 worth_saving=False, actual={r1.get('worth_saving')}"
+        )
+        assert any(getattr(block, "worth_saving", None) is False for block in blocks), (
+            "Round 1 被标记为 worth_saving=False 时，应在感知层 block 中可见该标记"
+        )
+        assert r2.get("worth_saving") is not None, (
+            "Round 2 事实轮次应携带 worth_saving 标记"
+        )
+        assert any(getattr(block, "worth_saving", None) == r2.get("worth_saving") for block in blocks), (
+            f"感知层 block 应包含 Round 2 的 worth_saving 标记: {r2.get('worth_saving')}"
+        )
         assert any(
             "SuperSecret789" in _block_text(block) or "数据库" in _block_text(block)
             for block in blocks
@@ -654,13 +655,10 @@ class TestPassiveMultiSessionIsolation:
         )
 
         has_java_before = "Java 17" in all_content and "Spring Boot" in all_content
-        if not has_java_before:
-            logger.info("PAS-E2E-007: Session B 数据未泄漏到 Session A flush 中")
-        else:
-            logger.warning(
-                "PAS-E2E-007: Session B 内容出现在 Session A flush 结果中, "
-                "可能存在隔离问题"
-            )
+        assert not has_java_before, (
+            f"Session B 内容不应泄漏到 Session A flush 中, content={all_content[:200]}"
+        )
+        logger.info("PAS-E2E-007: Session B 数据未泄漏到 Session A flush 中")
 
         # 现在 flush Session B → 提交到感知层
         flushed_b = await _flush(

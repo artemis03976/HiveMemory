@@ -81,7 +81,6 @@ def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
     runtime = AliceRuntime(config.alice, config.memory_compiler)
 
     assert isinstance(runtime.profile_resolver, AgentProfileResolver)
-    assert runtime.profile_resolver is runtime.profile_resolver
 
 
 def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:

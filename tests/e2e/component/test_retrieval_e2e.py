@@ -511,9 +511,10 @@ class TestReranking:
             max_score = max(r.score for r in results.results)
             console.print(f"    [dim]最高分: {max_score:.4f}[/dim]")
 
-        # 注意：此测试为 P1，允许软失败
-        if not success:
-            console.print(f"    [yellow]警告: 阈值过滤未完全生效，但这是 P1 测试[/yellow]")
+        # 注意：阈值过滤应生效
+        assert success, (
+            f"阈值过滤应生效, 查询={test_case['query']}, 阈值={score_threshold}"
+        )
 
 
 # ========== Group 3: 上下文编译测试 (MemoryCompiler) ==========
@@ -754,13 +755,13 @@ class TestEndToEndFlow:
             score_threshold=0.9,  # 高阈值
         ))
 
-        # 验证结果：应该返回空但不抛异常
-        success = True  # 只要不抛异常就算成功
+        # 验证结果：无匹配时应返回空列表
+        assert len(result.memories) == 0, (
+            f"无匹配结果应返回空列表, 实际召回 {len(result.memories)} 条"
+        )
 
-        print_test_result(console, "E2E-002: 空结果处理", success)
+        print_test_result(console, "E2E-002: 空结果处理", True)
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
-
-        assert success, "空结果处理应正常返回"
 
     def test_retrieval_with_markdown_format(self):
         """
@@ -853,9 +854,9 @@ class TestEndToEndFlow:
         console.print(f"    [dim]平均 MRR: {avg_mrr:.3f}[/dim]")
         console.print(f"    [dim]测试查询数: {query_count}[/dim]")
 
-        # 这是一个软性测试，记录指标但不强制失败
-        if not success:
-            console.print(f"    [yellow]警告: 指标未达到预期，但这可能与测试数据有关[/yellow]")
+        assert success, (
+            f"检索指标应达到预期, Recall@5={avg_recall:.2%}, MRR={avg_mrr:.3f}"
+        )
 
 
 def run_all_tests():

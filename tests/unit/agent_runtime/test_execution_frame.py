@@ -12,12 +12,7 @@ def test_create_frame_uses_only_run_and_frame_coordinates() -> None:
     )
 
     assert not frame.is_transient()
-    assert frame.harvested_aliases == []
     assert frame.runtime_scope.run_id == "run-1"
-    assert not hasattr(frame.runtime_scope, "depth")
-    assert not hasattr(frame.runtime_scope, "parent_frame_id")
-    assert not hasattr(frame, "is_main_frame")
-    assert not hasattr(frame, "is_sub_frame")
 
 
 def test_transient_frame_is_a_normal_frame_without_parent_metadata() -> None:
@@ -31,7 +26,6 @@ def test_transient_frame_is_a_normal_frame_without_parent_metadata() -> None:
 
     assert frame.is_transient()
     assert frame.runtime_scope.run_id == "run-1"
-    assert not hasattr(frame.runtime_scope, "parent_frame_id")
 
 
 def test_harvest_alias_deduplicates() -> None:

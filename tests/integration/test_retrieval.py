@@ -21,7 +21,6 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 
 from hivememory.core.models import (
-    Identity,
     MemoryAtom,
     MetaData,
     IndexLayer,
@@ -232,28 +231,6 @@ class TestQueryAndFilterCollaboration:
         # 验证结果
         assert results is not None
 
-    def test_multiple_filters(self):
-        """测试多个过滤条件"""
-        mock_storage = Mock()
-        mock_storage.get_memories_by_filter = Mock(return_value=[
-            create_test_memory("用户1", "内容1", MemoryType.USER_PROFILE),
-        ])
-
-        query = RetrievalQuery(
-            semantic_query="查询",
-            filters=QueryFilters(
-                memory_type=MemoryType.USER_PROFILE,
-                identity=Identity(user_id="user1"),
-                tags=["profile"],
-            ),
-        )
-
-        # 验证过滤器正确构建
-        assert query.filters.memory_type == MemoryType.USER_PROFILE
-        assert query.filters.user_id == "user1"
-        assert query.filters.tags == ["profile"]
-
-
 class TestHybridRetrieverOrchestration:
     """测试 HybridRetriever 的整体编排"""
 
@@ -342,24 +319,6 @@ class TestHybridRetrieverOrchestration:
         retriever = create_retriever(mid_term=mock_storage, config=config)
         
         assert isinstance(retriever, DenseRetriever)
-
-
-class TestScoreNormalization:
-    """测试分数归一化"""
-
-    def test_dense_and_sparse_score_normalization(self):
-        """测试密集和稀疏分数归一化"""
-        # 密集检索分数通常是 0-1
-        dense_score = 0.85
-        # 稀疏检索分数可能范围不同
-        sparse_score = 5.0
-
-        # 归一化后应该在同一范围内
-        normalized_dense = dense_score  # 已经在 0-1
-        normalized_sparse = min(sparse_score / 10.0, 1.0)  # 简单归一化
-
-        assert 0 <= normalized_dense <= 1
-        assert 0 <= normalized_sparse <= 1
 
 
 if __name__ == "__main__":

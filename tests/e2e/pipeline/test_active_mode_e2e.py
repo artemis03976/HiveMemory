@@ -348,14 +348,9 @@ class TestActiveMultiTopicRouting:
             f"活跃话题数 {topic_count}"
         )
 
-        # 如果路由机制工作良好，应该观察到多个话题
-        if topic_count >= 2:
-            logger.info("ACT-E2E-003: 路由机制工作正常，数据被分发到多个话题")
-        else:
-            logger.warning(
-                f"ACT-E2E-003: 活跃话题数仅为 {topic_count}，"
-                "路由机制可能需要优化话题区分度"
-            )
+        # 路由机制应把数据分发到多个话题
+        assert topic_count >= 2, f"路由机制应把数据分发到多个话题, 实际活跃话题数 {topic_count}"
+        logger.info(f"ACT-E2E-003: 路由机制工作正常，数据被分发到 {topic_count} 个话题")
 
 
 # ========== ACT-E2E-004: MTP WRITE 定向写入 ==========
@@ -384,20 +379,14 @@ class TestActiveMTPWriteDirected:
         assert len(result.final_text.strip()) > 0
 
         commands = _mtp_commands(result)
-        if "WRITE" in commands:
-            # WRITE 触发了 → 等待记忆持久化
-            await asyncio.sleep(FLUSH_SETTLE_SECONDS)
-            try:
-                memories = await wait_for_memory_persistence_async(
-                    e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
-                )
-                logger.info(f"ACT-E2E-004: WRITE 成功, {len(memories)} 条记忆已持久化")
-            except TimeoutError:
-                logger.warning("ACT-E2E-004: WRITE 执行但记忆未在超时内持久化")
-        else:
-            logger.warning(
-                f"ACT-E2E-004: LLM 未触发 WRITE, commands={commands}"
-            )
+        assert "WRITE" in commands, f"LLM 应触发 WRITE, commands={commands}"
+
+        # WRITE 触发 → 等待记忆持久化
+        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        memories = await wait_for_memory_persistence_async(
+            e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
+        )
+        logger.info(f"ACT-E2E-004: WRITE 成功, {len(memories)} 条记忆已持久化")
 
 
 # ========== ACT-E2E-005: MTP UPDATE 定向更新 ==========
@@ -445,39 +434,32 @@ class TestActiveMTPUpdateDirected:
         assert len(result.final_text.strip()) > 0
 
         commands = _mtp_commands(result)
-        if "UPDATE" in commands:
-            # Phase 3: 等待更新持久化
-            await asyncio.sleep(FLUSH_SETTLE_SECONDS)
-            # 手动触发话题结算（Archive + Compact）
-            await e2e_system.manual_trigger()
-            await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        assert "UPDATE" in commands, (
+            f"LLM 应触发 UPDATE, commands={commands}, response={result.final_text[:150]}"
+        )
 
-            memories_after = await wait_for_memory_persistence_async(
-                e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
-            )
+        # Phase 3: 等待更新持久化
+        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        # 手动触发话题结算（Archive + Compact）
+        await e2e_system.manual_trigger()
+        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
 
-            # UPDATE 不应增加记忆总数（是原地修改，不是新建）
-            assert len(memories_after) <= count_before + 1, (
-                f"UPDATE 不应大量增加记忆, before={count_before}, after={len(memories_after)}"
-            )
+        memories_after = await wait_for_memory_persistence_async(
+            e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
+        )
 
-            # 验证更新后的内容包含 9090
-            all_content = " ".join(
-                [_memory_text(m) for m in memories_after if _memory_text(m)]
-            )
-            if "9090" in all_content:
-                logger.info("ACT-E2E-005: UPDATE 成功, 记忆已包含 9090")
-            else:
-                logger.warning(
-                    f"ACT-E2E-005: UPDATE 执行但内容未包含 9090, "
-                    f"content: {all_content[:200]}"
-                )
-        else:
-            logger.warning(
-                f"ACT-E2E-005: LLM 未触发 UPDATE, "
-                f"commands={commands}, "
-                f"response: {result.final_text[:150]}"
-            )
+        # UPDATE 不应增加记忆总数（是原地修改，不是新建）
+        assert len(memories_after) <= count_before + 1, (
+            f"UPDATE 不应大量增加记忆, before={count_before}, after={len(memories_after)}"
+        )
+
+        # 验证更新后的内容包含 9090
+        all_content = " ".join(
+            [_memory_text(m) for m in memories_after if _memory_text(m)]
+        )
+        assert "9090" in all_content, (
+            f"UPDATE 后记忆内容应包含 9090, content={all_content[:200]}"
+        )
 
 
 # ========== ACT-E2E-006: 记忆去重验证 ==========

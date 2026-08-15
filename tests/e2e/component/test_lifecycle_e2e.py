@@ -890,12 +890,7 @@ class TestArchiving:
         first_path = first_record.storage_path
 
         # 第二次归档（应该是幂等的，不产生错误）
-        try:
-            await archiver.archive(memory_id)
-            no_error = True
-        except Exception as e:
-            no_error = False
-            console.print(f"[yellow]Warning: Second archive raised {type(e).__name__}[/yellow]")
+        await archiver.archive(memory_id)
 
         # 验证没有重复文件
         record_after = await archiver.get_archive_record(memory_id)
@@ -906,7 +901,7 @@ class TestArchiving:
         print_test_result(
             case["id"],
             case["name"],
-            no_error,
+            True,
             f"Idempotent: no error, no duplicate file"
         )
 

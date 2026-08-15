@@ -9,7 +9,6 @@ Note:
     Phase 4.5 重构：PerceptionLayer 方法改为使用 topic_id
 """
 
-import asyncio
 from unittest.mock import Mock
 
 import pytest
@@ -96,12 +95,6 @@ class TestSemanticFlowPerceptionLayerOrchestration:
         return perception
 
     @pytest.mark.asyncio
-    async def test_semantic_flow_initialization(self):
-        """测试语义流初始化"""
-        perception = self._create_perception()
-        assert perception is not None
-
-    @pytest.mark.asyncio
     async def test_semantic_flow_route_and_ingest(self):
         """测试语义流路由和摄入"""
         perception = self._create_perception()
@@ -152,90 +145,6 @@ class TestSemanticFlowPerceptionLayerOrchestration:
 
         result = await perception.settle_topic(topic_id)
         assert result.topic_id == topic_id
-
-
-class TestPerceptionAndGenerationCollaboration:
-    """测试感知层与生成层的协作"""
-
-    @pytest.mark.skip(reason="Callback mechanism removed in new architecture - settle_topic returns Task for external processing")
-    @pytest.mark.asyncio
-    async def test_messages_converted_to_stream_messages(self):
-        """测试消息转换为 StreamMessage"""
-        archive_payloads = []
-
-        async def on_generate(payload):
-            archive_payloads.append(payload)
-
-        config = SemanticFlowPerceptionConfig()
-        mock_relay = Mock()
-        mock_relay.should_relay.return_value = None
-        mock_relay.generate_summary.return_value = ""
-        short_term_store = ShortTermMemoryStore()
-
-        perception = SemanticFlowPerceptionLayer(
-            config=config,
-            relay_controller=mock_relay,
-            short_term_store=short_term_store,
-            interaction_journal=InMemoryInteractionApplyJournal(),
-        )
-
-        identity = Identity(user_id="test_user", agent_id="test_agent")
-
-        # 路由并摄入
-        topic_id, _ = await perception.route_and_ingest(
-            "NEW_TOPIC",
-            _make_payload("用户消息", "助手回复", identity)
-        )
-
-        await perception.settle_topic(topic_id)
-        await asyncio.sleep(0)
-
-        assert len(archive_payloads) > 0
-        assert archive_payloads[0].topic_id == topic_id
-        assert len(archive_payloads[0].blocks) > 0
-
-    @pytest.mark.skip(reason="Callback mechanism removed in new architecture - settle_topic returns Task for external processing")
-    @pytest.mark.asyncio
-    async def test_manual_trigger_archives_identity_from_payload(self):
-        """场景D：settle_topic 后归档块保留 identity 溯源"""
-        archive_payloads = []
-
-        async def on_generate(payload):
-            archive_payloads.append(payload)
-
-        config = SemanticFlowPerceptionConfig()
-        mock_relay = Mock()
-        mock_relay.should_relay.return_value = None
-        mock_relay.generate_summary.return_value = ""
-        short_term_store = ShortTermMemoryStore()
-
-        perception = SemanticFlowPerceptionLayer(
-            config=config,
-            relay_controller=mock_relay,
-            short_term_store=short_term_store,
-            interaction_journal=InMemoryInteractionApplyJournal(),
-        )
-
-        identity = Identity(user_id="test_user", agent_id="reviewer_doll")
-        buffer = perception._short_term_store.create_buffer(
-            user_id=identity.user_id,
-            topic_title="新建话题",
-        )
-        topic_id = buffer.topic_id
-        perception._short_term_store.set_last_active_topic(topic_id)
-        await perception.ingest_payload(
-            _make_payload("请 review 一下上面的代码", "建议补充边界条件测试", identity),
-            topic_id=topic_id,
-        )
-
-        result = await perception.settle_topic(topic_id)
-        assert result.topic_id == topic_id
-        await asyncio.sleep(0)
-
-        assert len(archive_payloads) > 0
-        archived_blocks = archive_payloads[0].blocks
-        assert len(archived_blocks) == 1
-        assert archived_blocks[0].identity.agent_id == "reviewer_doll"
 
 
 class TestTokenManagement:

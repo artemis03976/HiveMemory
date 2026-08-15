@@ -379,4 +379,4 @@ class TestKoakumaResponseFormatting:
         """测试执行耗时被记录"""
         result = koakuma.execute_mtp("⟪ SEARCH | * | ⟫")
 
-        assert result.execution_time_ms >= 0
+        assert result.execution_time_ms > 0

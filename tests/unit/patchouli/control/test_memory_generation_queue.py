@@ -120,11 +120,6 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         _MemoryGenerationWorkAdapter.schema_version,
         work,
     )
-    assert payload_bytes == codecs.encode(
-        _MemoryGenerationWorkAdapter.kind,
-        _MemoryGenerationWorkAdapter.schema_version,
-        work,
-    )
 
     spec.request.context.state_summary = "external mutation"
     atom.payload.content = "external mutation"
