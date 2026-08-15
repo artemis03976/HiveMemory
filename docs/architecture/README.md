@@ -22,5 +22,5 @@ last_reviewed: 2026-07-29
 - [跨子系统契约](../contracts/README.md)
 - [项目总览](../PROJECT.md)
 - [开发路线图](../ROADMAP.md)
-- [数据模型可变性治理计划](../plans/data-model-mutability-governance.md)
+- [数据模型可变性治理](../governance/data-model/mutability.md)
 - [历史架构](../archive/legacy-architecture/README.md)

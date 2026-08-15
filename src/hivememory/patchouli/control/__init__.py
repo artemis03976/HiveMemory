@@ -1,13 +1,47 @@
-"""Patchouli control-plane components."""
+"""Patchouli 控制面组件。"""
 
-from hivememory.patchouli.control.memory_generation_coordinator import (
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+    InteractionApplyRecord,
+    InteractionApplyStage,
+)
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmission,
+    InteractionSubmissionCodec,
+    InteractionSubmissionHandler,
+    InteractionSubmissionOutcome,
+    InteractionSubmissionQueue,
+    InteractionSubmissionReceipt,
+    InteractionSubmissionResult,
+    TransientInteractionSubmissionError,
+)
+from hivememory.patchouli.control.memory_generation import (
     MemoryGenerationCoordinator,
-)
-from hivememory.patchouli.control.memory_generation_tasks import (
+    MemoryGenerationHandle,
+    MemoryGenerationHandler,
+    MemoryGenerationQueue,
     MemoryGenerationTaskController,
+    MemoryTaskEventEmitter,
 )
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 
 __all__ = [
+    "InMemoryInteractionApplyJournal",
+    "InteractionApplyRecord",
+    "InteractionApplyStage",
+    "InteractionSubmission",
+    "InteractionSubmissionCodec",
+    "InteractionSubmissionHandler",
+    "InteractionSubmissionOutcome",
+    "InteractionSubmissionQueue",
+    "InteractionSubmissionReceipt",
+    "InteractionSubmissionResult",
+    "TransientInteractionSubmissionError",
     "MemoryGenerationCoordinator",
+    "MemoryGenerationHandle",
+    "MemoryGenerationHandler",
+    "MemoryGenerationQueue",
     "MemoryGenerationTaskController",
+    "MemoryTaskEventEmitter",
+    "PendingAtomSettler",
 ]

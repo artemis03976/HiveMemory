@@ -27,6 +27,9 @@ from hivememory.system.config import (
     MemoryPerceptionConfig,
     SemanticFlowPerceptionConfig,
 )
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 
 from hivememory.engines.perception.interfaces import (
     BasePerceptionLayer,
@@ -69,6 +72,7 @@ def create_perception_layer(
     llm_service=None,
     *,
     short_term_store,
+    interaction_journal: InMemoryInteractionApplyJournal,
 ) -> BasePerceptionLayer:
     """
     创建感知层 (MMU) 实例
@@ -77,6 +81,7 @@ def create_perception_layer(
         config: 感知层配置 (MemoryPerceptionConfig)
         llm_service: LLM 服务（用于 LLMRelayController 摘要生成）
         short_term_store: ShortTermMemoryStore 实例，必须由 PatchouliRuntime 从 MemoryLibrary 注入
+        interaction_journal: interaction apply 的进程内幂等 journal
 
     Returns:
         SemanticFlowPerceptionLayer 实例
@@ -103,6 +108,7 @@ def create_perception_layer(
         config=impl_config,
         relay_controller=relay_controller,
         short_term_store=short_term_store,
+        interaction_journal=interaction_journal,
     )
 
     return perception

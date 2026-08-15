@@ -35,14 +35,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict
 
-from hivememory.core.models import Identity
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
+from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTaskStatus
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTaskWaitSummary
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
 from hivememory.patchouli.runtime.shutdown_drain import (
+    build_shutdown_generation_summary,
     shutdown_drain_completed_severity,
     shutdown_drain_completed_status,
     summarize_shutdown_drain_failure,
@@ -51,12 +55,13 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 from hivememory.system.config import PatchouliConfig, SharedConfig
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.operations import RuntimeOperationObserver
+from hivememory.system.runtime.work_queue import QueuePolicy, WorkQueueShutdownSummary
 
 if TYPE_CHECKING:
+    from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-    from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
     from hivememory.patchouli.services.perception import PerceptionFamiliar
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
@@ -99,8 +104,10 @@ class PatchouliRuntime:
         self._shared_config = shared_config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._local_bus = PatchouliBus()
+        self._pending_atom_settler = PendingAtomSettler(self._local_bus)
         self._local_routes_registered = False
         self._shutdown_drain_started = False
+        self._interaction_apply_journal = InMemoryInteractionApplyJournal()
 
         # 1. 初始化基础设施
         self._init_infrastructure()
@@ -125,6 +132,10 @@ class PatchouliRuntime:
     def local_routes_registered(self) -> bool:
         return self._local_routes_registered
 
+    @property
+    def pending_atom_settler(self) -> PendingAtomSettler:
+        return self._pending_atom_settler
+
     def mount_local_routes(self, service: "PatchouliService") -> None:
         if self._local_routes_registered:
             return
@@ -143,6 +154,14 @@ class PatchouliRuntime:
 
     def list_local_routes(self) -> list[str]:
         return self._local_bus.list_routes()
+
+    async def start_memory_generation_queue(self) -> None:
+        """启动记忆生成 lane。"""
+        await self._task_controller.start()
+
+    async def stop_memory_generation_queue(self) -> WorkQueueShutdownSummary:
+        """停止记忆生成 lane，并返回通用队列 drain 摘要。"""
+        return await self._task_controller.stop()
 
     # ========== 模型预热 ==========
 
@@ -216,7 +235,7 @@ class PatchouliRuntime:
     async def _run_shutdown_drain(self) -> dict[str, Any]:
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
-            generation_summary = MemoryGenerationTaskWaitSummary.from_results([])
+            generation_summary = build_shutdown_generation_summary([])
             return {
                 "success": True,
                 "perception": {
@@ -234,17 +253,22 @@ class PatchouliRuntime:
         logger.info("开始执行 shutdown drain")
 
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
-        generation_result = await self._task_controller.wait_all(
+        generation_tasks = await self._task_controller.wait_all(
             timeout=(
                 self._patchouli_config.shutdown
                 .generation_wait_timeout_seconds
             ),
         )
         timed_out_task_ids = [
-            result.task_id
-            for result in generation_result.results
-            if result.timed_out and result.found
+            task.task_id
+            for task in generation_tasks
+            if task.status
+            in {
+                MemoryGenerationTaskStatus.PENDING,
+                MemoryGenerationTaskStatus.RUNNING,
+            }
         ]
+        generation_summary = build_shutdown_generation_summary(generation_tasks)
         cancelled_after_timeout = 0
         if timed_out_task_ids:
             cancelled_after_timeout = await self._task_controller.cancel_many(
@@ -252,16 +276,16 @@ class PatchouliRuntime:
                 reason="shutdown_timeout",
             )
         result = {
-            "success": generation_result.timed_out == 0,
+            "success": generation_summary["timed_out"] == 0,
             "perception": perception_result,
-            "generation": generation_result,
+            "generation": generation_summary,
             "generation_cancelled_after_timeout": cancelled_after_timeout,
             "reentrant": False,
         }
         logger.info(
             f"shutdown drain 完成: observer_payloads=0, "
             f"flushed_topics={len(perception_result.flushed_topics)}, "
-            f"generation_timed_out={generation_result.timed_out}"
+            f"generation_timed_out={generation_summary['timed_out']}"
         )
         return result
 
@@ -378,6 +402,7 @@ class PatchouliRuntime:
             config=self._patchouli_config.perception,
             llm_service=self.librarian_llm_service,
             short_term_store=self.memory_library.short_term,
+            interaction_journal=self._interaction_apply_journal,
         )
 
     def _build_generation_engine(self):
@@ -466,10 +491,12 @@ class PatchouliRuntime:
         当前注册：perception、retrieval、generation、generation_coordinator、lifecycle。
         MemoryGenerationTaskController 通过 local bus 请求生成执行，不再注入馆长本体。
         """
+        from hivememory.patchouli.control.memory_generation import (
+            MemoryGenerationCoordinator,
+            MemoryGenerationTaskController,
+        )
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-        from hivememory.patchouli.control.memory_generation_coordinator import MemoryGenerationCoordinator
-        from hivememory.patchouli.control.memory_generation_tasks import MemoryGenerationTaskController
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
@@ -487,13 +514,26 @@ class PatchouliRuntime:
 
         self._services["generation_coordinator"] = MemoryGenerationCoordinator(
             bus=self._local_bus,
+            pending_atom_settler=self._pending_atom_settler,
         )
 
         self._task_controller = MemoryGenerationTaskController(
             bus=self._local_bus,
+            pending_atom_settler=self._pending_atom_settler,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="memory_generation_task_controller",
+            ),
+            queue_policy=QueuePolicy(
+                capacity=self._patchouli_config.generation.queue_capacity,
+                max_concurrency=(
+                    self._patchouli_config.generation.queue_max_concurrency
+                ),
+                timeout_seconds=(
+                    self._patchouli_config.generation.queue_timeout_seconds
+                ),
+                max_attempts=1,
+                terminal_retention=100,
             ),
         )
 
@@ -502,6 +542,7 @@ class PatchouliRuntime:
             bus=self._local_bus,
             config=self._patchouli_config.perception,
             memory_library=self.memory_library,
+            interaction_journal=self._interaction_apply_journal,
         )
 
         self._services["lifecycle"] = LifecycleFamiliar(

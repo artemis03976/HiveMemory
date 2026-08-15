@@ -60,6 +60,7 @@ class BasePerceptionLayer(ABC):
         self,
         payload: InteractionPayload,
         topic_id: str,
+        interaction_id: str | None = None,
     ) -> Optional[TopicMaterializeTask]:
         """
         摄入完整交互载荷。
@@ -75,6 +76,7 @@ class BasePerceptionLayer(ABC):
         self,
         topic_id: str,
         payload: InteractionPayload,
+        interaction_id: str | None = None,
     ) -> Tuple[str, Optional[TopicMaterializeTask]]:
         """
         路由到指定话题并摄入载荷。

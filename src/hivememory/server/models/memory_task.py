@@ -1,17 +1,17 @@
-"""Memory task API models."""
+"""记忆任务 API 模型。"""
 
 from __future__ import annotations
 
 from pydantic import BaseModel
 
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
 
 
 class MemoryTaskResponse(BaseModel):
-    """Stable public projection for MemoryGenerationTask REST APIs."""
+    """面向 ``MemoryGenerationTask`` REST API 的稳定对外投影。"""
 
     task_id: str
     topic_id: str
@@ -34,8 +34,10 @@ class MemoryTaskResponse(BaseModel):
         memory_task: MemoryGenerationTask,
         *,
         reason: str | None = None,
-    ) -> "MemoryTaskResponse":
-        cancel_requested = memory_task.cancelled
+    ) -> MemoryTaskResponse:
+        """从不可变领域快照构造稳定的 REST 响应。"""
+
+        cancel_requested = memory_task.cancel_requested
         cancelled = memory_task.status == MemoryGenerationTaskStatus.CANCELLED
         return cls(
             task_id=memory_task.task_id,
@@ -59,13 +61,13 @@ class MemoryTaskResponse(BaseModel):
             ),
             cancel_requested=cancel_requested,
             cancelled=cancelled,
-            reason=reason if reason is not None else (
-                "user_requested" if cancel_requested else None
-            ),
+            reason=reason or memory_task.cancel_reason,
         )
 
 
 class MemoryTaskListResponse(BaseModel):
+    """记忆任务列表响应。"""
+
     tasks: list[MemoryTaskResponse]
 
 

@@ -6,13 +6,16 @@ scope: releases-and-planned-capabilities
 updates:
   - docs/PROJECT.md
   - docs/plans/
+  - docs/governance/
+  - docs/ideas/
+  - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-06
+last_reviewed: 2026-08-14
 ---
 
 # HiveMemory 开发路线图
 
-本文只维护版本阶段、当前完成度、依赖关系和相关设计入口。已经生效的详细设计进入 Architecture、System 或子系统文档；尚未实现的详细方案进入 Plans；完成后的实施文档进入 Archive。
+本文只维护版本阶段、当前完成度、依赖关系和相关入口。已经生效的详细设计进入 Architecture、System 或子系统文档；跨版本质量目标进入 Governance；未承诺方向进入 Ideas；绑定版本的实施方案进入 Plans；完成后的实施文档进入 Archive。
 
 路线图是一条能力依赖链，不是功能愿望清单。排序首先回答“下一项能力需要哪些已经可信的状态、契约和证据”，其次才考虑它是否显眼或易于演示。HiveMemory 的长期方向涉及异步任务、文件、文档、来源和研究，如果这些能力各自建立一套临时状态与失败语义，规模越大反而越难保持记忆闭环。因此近期路线优先补齐可复用底座，再让上层能力逐步消费它们。
 
@@ -32,7 +35,7 @@ last_reviewed: 2026-08-06
 
 - 最新已发布标签：`v0.6.0`；
 - 当前发布基线：`v0.6.0`；
-- 下一计划版本：`v0.6.1`，状态为 Planned。
+- 下一计划版本：`v0.6.1`，状态为 Current Development。
 
 当前规范代码版本同为 `0.6.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。发布基线必须与完全匹配的 Git tag、Python 包、前端清单和构建检查保持一致；后续开发工作进入下一版本时，再在新的提交中更新代码版本。
 
@@ -108,57 +111,61 @@ last_reviewed: 2026-08-06
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Reliable Local Work Runtime | Planned | 统一后台 work/job 生命周期，并建立最小耐久性、幂等、身份 scope 与 SQLite 恢复门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项可靠性 Plan 的前置切片 |
-| `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件走 Job | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
+| `v0.6.1` Reliable Local Work Runtime | Current Development | 收敛 Interaction Submission 与 Memory Generation 的进程内执行生命周期，并建立必要的接纳幂等、身份 scope 与未来持久化门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项治理主题的前置切片 |
+| `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件异步解析另行立项 | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
 | `v0.7.1` MTP READ Provenance | Candidate | 将已经稳定的版本、来源 artifact 和检索证据暴露给 READ | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
-| `v0.7.2` Deep Research MVP | Candidate | 可取消、可观测、可追溯的研究 Job 与报告 artifact | 依赖 Job、Document、READ provenance |
+| `v0.7.2` Deep Research MVP | Candidate | 可取消、可观测、可追溯的研究过程与报告 artifact | 依赖真实长任务负载、Document、READ provenance；后台执行机制待独立设计 |
 
 ### 4.1 未排期事项
 
-下表集中维护所有已经确认、但尚未进入具体版本承诺的事项。可靠性与模型治理 Plan 中被 v0.6.1 采用的最小前置切片不再视为未排期；表中记录的是其余完整领域阶段。
+下表集中维护所有已经确认、但尚未进入具体版本承诺的事项。治理主题中被 v0.6.1 采用的最小前置切片不再视为未排期；表中记录的是其余治理工作包、Ideas 与候选方向。它们不因出现在路线图中就自动成为 Plan。
 
-| 事项 | 范围 | 暂不排期原因或进入条件 | 计划入口 |
+| 事项 | 范围 | 暂不排期原因或进入条件 | 分类入口 |
 |:---|:---|:---|:---|
-| 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition](./plans/composite-intent-decomposition.md) |
+| 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition Idea](./ideas/composite-intent-decomposition.md) |
 | 自定义入口拦截规则 | Gateway | 当前固定入口链已可运行；只有出现明确外部接入需求、配置所有者和验收样本后才建立 Plan | 待建立 |
-| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只承担 work、lease 和已承诺操作的最小恢复；Artifact/Memory saga、Agent checkpoint、反馈与维护恢复另行排期 | [Runtime State Durability and Recovery](./plans/runtime-state-durability-and-recovery.md) |
-| 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Cross-Subsystem Idempotency and Retry](./plans/cross-subsystem-idempotency-and-retry.md) |
-| 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity Isolation and Execution Safety](./plans/identity-isolation-and-execution-safety.md) |
-| 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./plans/data-model-mutability-governance.md) |
-| RuntimeEvent 生产端抽象重构 | System / Cross-system | 当前 wire format、总线与消费语义已生效；除新 Work Runtime 所需最小事件契约外，不阻塞近期功能 | [RuntimeEvent Publishing Refactor](./plans/runtime-event-publishing-refactor.md) |
+| 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只冻结进程内 work 契约与持久化门槛；SQLite、claim ownership/lease、Artifact/Memory saga、Agent checkpoint、反馈与维护恢复均按真实恢复需求另行排期 | [Durability and Recovery Governance](./governance/reliability/durability-and-recovery.md) |
+| 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Idempotency and Retry Governance](./governance/reliability/idempotency-and-retry.md) |
+| 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity and Execution Safety Governance](./governance/security/identity-and-execution-safety.md) |
+| 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./governance/data-model/mutability.md) |
+| RuntimeEvent 生产端迁移 | System / Cross-system | 当前 wire format、总线与消费语义已生效；仅剩各生产域 emitter/publisher 接驳，不阻塞近期功能 | [RuntimeEvent Producer Migration Todo](./todo/runtime-event-producer-migration.md) |
+| 用户可见长期任务与后台 Agent workflow | System / Gateway / Alice | 当前缺少稳定的复杂任务自主执行能力和已经验证的长任务负载；先用现有 interaction/memory lane 跑通真实业务，再根据 Document/Research 需求重新设计 | 待建立 |
 | Frontend 视觉个性化 | Frontend | 主题覆盖和自定义背景可并行探索，但必须后于真实状态、identity 和错误披露，不阻塞后端版本 | 待建立 |
 | Conversation Branching | Chat / Memory / Lifecycle | 等 provenance、生命周期和真实编辑需求稳定后，再设计分支所有权与已沉淀记忆的失效语义 | 待建立 |
 
 ### 4.2 v0.6.1 Reliable Local Work Runtime
 
-近期最优先的新增底座。目标是把当前分散的后台 memory task、未来 ingestion/research 和定时/hook 任务收敛到可持久化、可查询的统一生命周期。
+近期最优先的新增底座。目标是先把已经存在的 Interaction Submission 与 Memory Generation 收敛到同一套机械运行时，不为尚未出现的复杂 Agent 长任务提前建立用户发布任务系统。
 
 第一阶段只要求单机可靠语义，不提前引入分布式队列或通用任务图。
 
-这里的核心矛盾是“统一生命周期”与“过早抽象成万能任务框架”。验收重点不是支持尽可能多的调度形式，而是让任务身份、状态、取消、重试、超时和 outcome artifact 对调用方有一致含义，并能覆盖下一阶段真实负载。若 Document 或 Research 仍需自建第二套任务状态，Job Queue 就没有完成其底座职责。
+这里的核心矛盾是“复用已验证的执行机制”与“过早抽象成万能任务框架”。验收重点是 interaction 的可靠 apply、memory generation 的并发/取消，以及两者共同需要的状态、重试、backpressure 和 shutdown 语义。priority、用户任务 API、定时/hook 工作流和 outcome artifact 不属于本版本验收范围。
 
-进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成四份 Plan 的全部后续阶段。
+进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成各治理主题的全部后续工作包。
 
-截至 2026-08-07，四项清单交付物均已建立：[D0 状态清单](./plans/durability-d0-state-inventory.md)、[I0 操作清单](./plans/idempotency-i0-operations-inventory.md)、[S0 身份与威胁清单](./plans/identity-s0-threat-model-inventory.md)和[数据模型 Phase I 清单](./plans/data-model-phase-i-inventory.md)。清单完成只表示实现入口和风险已经冻结，不表示对应后续治理阶段已经落地。
+截至 2026-08-07，四项基线均已建立：[D0 状态清单](./governance/baselines/durability-d0-state-inventory.md)、[I0 操作清单](./governance/baselines/idempotency-i0-operations-inventory.md)、[S0 身份与威胁清单](./governance/baselines/identity-s0-threat-model-inventory.md)和[数据模型 Phase I 清单](./governance/baselines/data-model-phase-i-inventory.md)。基线完成只表示当时的实现入口和风险已经冻结，不表示对应后续治理阶段已经落地。
 
 v0.6.1 的发布顺序应为：
 
 1. 冻结 Queue 契约并完成 in-memory runtime 的机械状态机验证；
-2. 建立 SQLite WorkStore、lease recovery、唯一 idempotency key 和最小 identity scope；
-3. 通过 feature flag 迁移 Interaction Submission 与 Memory Generation，验证重复消费、模糊失败和状态投影；
-4. 最后开放用户可见 Runtime Job API 和 outcome artifact。
+2. 迁移 Passive Interaction Submission 与 Memory Generation，先让 in-memory runtime 跑通现有业务；
+3. 以同步 applied gate 迁移 Active finalize，验证稳定 `interaction_id`、共享 capacity、模糊失败和后续副作用顺序；
+4. 收敛迁移遗留的重复状态、隐式生命周期和未被业务消费的通用 Queue 能力，并验证最小 identity scope。
 
-In-memory runtime 是内部实现里程碑，不构成“可靠 Job 已交付”。任何对外返回 durable accepted 的入口都必须在 SQLite 恢复和业务幂等门槛完成后开放。
+In-memory runtime 是 v0.6.1 的实现边界，不构成跨重启可靠交付。SQLite WorkStore、claim ownership、
+lease recovery 与数据库级唯一 idempotency key 后置到出现真实恢复需求后的独立阶段，并作为完整恢复
+方案重新设计；当前 Runtime 不为它们预留半实现字段。任何入口在持久化恢复和业务幂等门槛完成前，
+都不能对外声称 durable accepted。
 
 ### 4.3 v0.6.2 Attachments
 
-上传文件先成为原始 artifact 和解析 artifact，再按当前对话需要编译为上下文。附件上传不应默认直接污染长期记忆；大文件解析交给 Job Queue。
+上传文件先成为原始 artifact 和解析 artifact，再按当前对话需要编译为上下文。附件上传不应默认直接污染长期记忆；大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。
 
 Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了什么”，再讨论系统从中理解出什么。原始文件、解析结果和候选记忆具有不同真实性和生命周期；如果上传后直接生成正式记忆，后续无法可靠区分证据、解析错误与系统结论。该阶段的验收重点是身份、来源和失败边界，而不是提前完成完整文档知识化。
 
-附件还必须复用 v0.6.1 的 operation identity、重试结果和 identity scope：同一上传重试不能产生多份原始 Artifact，也不能因为拿到 artifact id 就跨身份读取。大文件只有在 Job 已经 durable accepted 后，才可向页面报告后台解析已接受。
+附件还必须复用 v0.6.1 的 operation identity、重试结果和 identity scope：同一上传重试不能产生多份原始 Artifact，也不能因为拿到 artifact id 就跨身份读取。若未来采用后台解析，只有其工作项已经持久化接纳后，才可向页面报告后台处理已接受。
 
 ### 4.4 Frontend Reliability（并行工作流）
 
@@ -169,22 +176,24 @@ Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了�
 ### 4.5 v0.7.x 能力链
 
 ```text
-Runtime Job Queue
-  -> Attachment / Document Artifacts
+Attachment / Document Artifacts
   -> Document Ingestion + Provenance Contract
   -> MTP READ Provenance
+
+真实长任务负载 + 稳定 Agent 执行能力
+  -> 独立设计后台执行机制
   -> Deep Research
 ```
 
-这条顺序优先复用现有 artifact、provenance、MemoryCompiler 和 RuntimeEvent，避免每个长任务建立独立状态系统。
+这条顺序优先复用现有 artifact、provenance、MemoryCompiler 和 RuntimeEvent，同时避免在真实长任务出现前冻结一套用户任务抽象。
 
-Document Ingestion 必须建立在 Job 与 Artifact 之上，因为解析可能耗时、失败、取消，也必须保留原始证据；provenance 数据契约必须在摄入阶段同步冻结，`v0.7.1` 只负责把已有证据链稳定暴露给 MTP READ。Deep Research 又依赖可取消 Job、可追溯输入和可引用输出，否则报告只是另一段无法审计的生成内容。Conversation Branching 不再占用固定版本号，进入未排期表等待 provenance、生命周期边界和真实编辑需求稳定。
+Document Ingestion 必须建立在 Artifact 之上，因为解析必须保留原始证据；当解析规模确实需要后台执行时，再根据真实耗时、取消和恢复要求建立对应机制。provenance 数据契约应在摄入阶段同步冻结，`v0.7.1` 只负责把已有证据链稳定暴露给 MTP READ。Deep Research 还依赖可追溯输入、可引用输出和已经证明可行的 Agent 长任务执行，否则报告只是另一段无法审计的生成内容。Conversation Branching 不再占用固定版本号，进入未排期表等待 provenance、生命周期边界和真实编辑需求稳定。
 
 ### 4.6 排序与验收检查
 
 路线项目进入实现前，应确认：
 
-- 它是否复用上一阶段已经形成的权威状态，而不是建立第二套 Job、Artifact 或 provenance 模型；
+- 它是否复用上一阶段已经形成的权威状态，而不是建立第二套工作状态、Artifact 或 provenance 模型；
 - 它的成功条件是否包含取消、失败、来源和恢复语义，而不只是 happy path 可演示；
 - 新生成的信息是否仍能回到原始证据，并区分 artifact、候选记忆和正式记忆；
 - 计划是否把强沙箱、自动回滚或分布式可靠性等尚未成立的能力误写成当前依赖；
@@ -198,7 +207,7 @@ Document Ingestion 必须建立在 Job 与 Artifact 之上，因为解析可能�
 
 状态：Deferred。
 
-候选范围包括 plan-and-execute、多角色协作、parallel specialists、review loop 和可观测任务图。它依赖稳定的 Gateway task spec、Job Queue 与真实长任务负载，在这些前置能力完成前不扩大 Alice 框架。
+候选范围包括 plan-and-execute、多角色协作、parallel specialists、review loop 和可观测任务图。它依赖稳定的 Gateway task spec、真实长任务负载和为这些负载验证过的后台执行契约，在这些前置能力完成前不扩大 Alice 框架。
 
 ### v0.9.0+：高级记忆生命周期
 
@@ -217,7 +226,7 @@ Document Ingestion 必须建立在 Job 与 Artifact 之上，因为解析可能�
 ## 6. 长期方向
 
 - **记忆系统**：从 CRUD 走向可审计、可回放、可演化的知识资产；
-- **运行时**：从单次 run/task 走向可持久化 Job 与受控任务图；
+- **运行时**：在真实负载证明需要后，从单次 run/task 走向可持久化后台工作与受控任务图；
 - **多 Agent**：从有限 CALL 走向有真实工作负载支撑的编排策略；
 - **编译系统**：让 Retrieval、READ、Profile、Document、Research 与可执行资产共享 MemoryCompiler IR；
 - **开放接入**：在保持身份和 provenance 边界的前提下服务外部 Agent harness。

@@ -15,7 +15,7 @@ related_contracts:
 related_decisions:
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
 related_inventories:
-  - docs/plans/data-model-phase-i-inventory.md
+  - docs/governance/baselines/data-model-phase-i-inventory.md
 last_reviewed: 2026-08-07
 ---
 
@@ -25,7 +25,7 @@ HiveMemory 的数据模型首先服务于一个长期目标：把记忆从对话
 
 因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。
 
-本文描述当前已经成立的边界，并记录仍然存在的引用泄漏与冻结深度问题。后续规范化工作见[数据模型可变性治理计划](../plans/data-model-mutability-governance.md)。
+本文描述当前已经成立的边界，并记录仍然存在的引用泄漏与冻结深度问题。后续规范化工作见[数据模型可变性治理](../governance/data-model/mutability.md)。
 
 ## 1. MemoryAtom：语义事务与冰山结构
 
@@ -160,4 +160,4 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 - `src/hivememory/core/protocol/models.py`；
 - `src/hivememory/gateway/workflow/state.py`、`steps.py`。
 
-相关设计：[系统边界与所有权](./boundaries.md)、[MemoryLibrary](../patchouli/memory-library.md)、[PendingAtom](../alice/pending-atom.md)、[数据模型边界 ADR](./decisions/0001-data-model-mutability-and-boundary-projection.md)、[Phase I 数据模型与边界清单](../plans/data-model-phase-i-inventory.md)与[后续治理计划](../plans/data-model-mutability-governance.md)。
+相关设计：[系统边界与所有权](./boundaries.md)、[MemoryLibrary](../patchouli/memory-library.md)、[PendingAtom](../alice/pending-atom.md)、[数据模型边界 ADR](./decisions/0001-data-model-mutability-and-boundary-projection.md)、[Phase I 数据模型与边界清单](../governance/baselines/data-model-phase-i-inventory.md)与[后续治理主题](../governance/data-model/mutability.md)。

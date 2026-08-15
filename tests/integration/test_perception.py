@@ -17,6 +17,9 @@ import pytest
 from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord
 from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import SemanticFlowPerceptionLayer
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
@@ -86,6 +89,7 @@ class TestSemanticFlowPerceptionLayerOrchestration:
             config=config,
             relay_controller=mock_relay,
             short_term_store=short_term_store,
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
         if on_flush_callback is not None:
             perception.set_generation_callback(on_flush_callback)
@@ -172,6 +176,7 @@ class TestPerceptionAndGenerationCollaboration:
             config=config,
             relay_controller=mock_relay,
             short_term_store=short_term_store,
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
         identity = Identity(user_id="test_user", agent_id="test_agent")
@@ -208,6 +213,7 @@ class TestPerceptionAndGenerationCollaboration:
             config=config,
             relay_controller=mock_relay,
             short_term_store=short_term_store,
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
         identity = Identity(user_id="test_user", agent_id="reviewer_doll")

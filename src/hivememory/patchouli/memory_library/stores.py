@@ -29,16 +29,16 @@ from uuid import UUID
 
 from hivememory.core.models import BufferState, LogicalBlock, MemoryAtom, TopicData
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import (
     StorageHealthComponent,
 )
 from hivememory.patchouli.memory_library.ports import (
+    ArtifactStoragePort,
     LongTermStoragePort,
     MidTermStoragePort,
     ShortTermStoragePort,
-    ArtifactStoragePort,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,13 @@ class ShortTermMemoryStore:
 
     def set_last_active_topic(self, topic_id: str) -> None:
         self._last_active_topic_id = topic_id
+
+    def _require_buffer(self, topic_id: str) -> SemanticBuffer:
+        """返回必须存在的话题 buffer；写命令不得静默忽略缺失 topic。"""
+        buf = self._port.get(topic_id)
+        if buf is None:
+            raise KeyError(f"topic '{topic_id}' does not exist")
+        return buf
 
     # ========== CRUD ==========
 
@@ -132,19 +139,14 @@ class ShortTermMemoryStore:
     # ========== 写操作（命名方法，禁止调用方直接写 buffer 字段）==========
 
     def add_block(self, topic_id: str, block: LogicalBlock) -> None:
-        buf = self._port.get(topic_id)
-        if buf is None:
-            logger.error(f"add_block: topic_id={topic_id} 不存在")
-            return
+        buf = self._require_buffer(topic_id)
         buf.blocks.append(block)
         buf.total_tokens += block.total_tokens
         buf.last_update = datetime.now().timestamp()
 
     def clear_blocks(self, topic_id: str) -> None:
         """清空 blocks 并重置 token 计数（替代 buffer.blocks.clear() + total_tokens=0）。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         buf.blocks.clear()
         buf.total_tokens = 0
         buf.last_update = datetime.now().timestamp()
@@ -153,20 +155,26 @@ class ShortTermMemoryStore:
         self,
         topic_id: str,
         summary: str,
-        *,
-        retain_count: Optional[int] = None,
-    ) -> int:
-        """写入 state_summary，并可选保留最近 N 个 blocks；0 表示全部裁剪。"""
-        if retain_count is not None and retain_count < 0:
-            raise ValueError("retain_count must be greater than or equal to 0")
-
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return 0
+    ) -> None:
+        """只更新 state summary，不改变当前 blocks。"""
+        buf = self._require_buffer(topic_id)
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
-        if retain_count is None:
-            return 0
+
+    def apply_compaction(
+        self,
+        topic_id: str,
+        summary: str,
+        *,
+        retain_count: int,
+    ) -> int:
+        """写入摘要并保留最近 N 个 blocks，返回被裁剪的 block 数。"""
+        if retain_count < 0:
+            raise ValueError("retain_count must be greater than or equal to 0")
+
+        buf = self._require_buffer(topic_id)
+        buf.state_summary = summary
+        buf.last_update = datetime.now().timestamp()
         if retain_count == 0:
             folded = len(buf.blocks)
             buf.blocks.clear()
@@ -181,16 +189,12 @@ class ShortTermMemoryStore:
 
     def update_title(self, topic_id: str, title: str) -> None:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         buf.topic_title = title
 
-    def clear_buffer(self, topic_id: str) -> List[LogicalBlock]:
-        """清空话题段内容，保留在活跃池中。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return []
+    def reset_topic_content(self, topic_id: str) -> List[LogicalBlock]:
+        """清空 blocks 与 state summary，保留话题在活跃池中。"""
+        buf = self._require_buffer(topic_id)
         cleared = buf.blocks.copy()
         buf.blocks.clear()
         buf.total_tokens = 0
@@ -199,18 +203,14 @@ class ShortTermMemoryStore:
         return cleared
 
     def update_metadata(self, topic_id: str, state: Optional[BufferState] = None) -> None:
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         if state is not None:
             buf.state = state
         buf.last_update = datetime.now().timestamp()
 
     def update_model_used(self, topic_id: str, model_used: str) -> None:
         """写入最近一次 run 使用的模型展示名。"""
-        buf = self._port.get(topic_id)
-        if buf is None:
-            return
+        buf = self._require_buffer(topic_id)
         buf.model_used = model_used
 
     # ========== LRU ==========

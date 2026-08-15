@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-13
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -112,6 +112,8 @@ HiveMemory 的文档库应当帮助读者可靠地回答以下问题：
 | Product & Evidence | 为谁解决什么问题、怎样验证价值 | `applications/` 及评估文档 |
 | Help | 如何安装、配置、使用和排障 | `help/` |
 | Roadmap | 接下来验证和交付什么、顺序如何 | `ROADMAP.md` |
+| Governance | 跨版本必须达到哪些质量门槛、当前成熟度和工作包是什么 | `governance/` |
+| Baseline | 某项治理判断建立在哪个时间点的调查证据上 | `governance/baselines/` |
 | Plan | 某项功能或重构准备如何落地 | `plans/` |
 | Idea | 哪些方向值得探索、尚有哪些开放问题 | `ideas/` |
 | Todo | 哪些小范围缺陷或技术债需要处理 | `todo/` |
@@ -253,6 +255,12 @@ docs/
 │   ├── setup.md
 │   ├── configuration.md
 │   └── troubleshooting.md
+├── governance/
+│   ├── README.md
+│   ├── reliability/
+│   ├── security/
+│   ├── data-model/
+│   └── baselines/
 ├── plans/
 ├── ideas/
 ├── todo/
@@ -272,8 +280,11 @@ docs/
 |:---|:---|
 | `draft` | 正在编写，尚未成为正式依据 |
 | `current` | 当前生效的规范性设计或帮助文档 |
+| `governance` | 跨版本持续维护的工程质量目标、成熟度与工作包 |
+| `baseline` | 已冻结的 point-in-time 调研证据，不持续追随实现更新 |
 | `planned` | 已形成计划，但尚未开始实施 |
 | `active` | 对应工作正在实施 |
+| `in-progress` | 对应工作正在实施；与 `active` 同义，兼容现有版本计划 |
 | `idea` | 开放设想，未形成项目承诺 |
 | `todo` | 已确认的小范围缺陷或技术债 |
 | `accepted` | 已接受且仍有效的架构决策 |
@@ -314,12 +325,12 @@ last_reviewed: YYYY-MM-DD
 
 ```yaml
 ---
-title: Runtime Job Queue
+title: Chat Attachments
 status: planned
 owner: system
-target: v0.6.1
+target: v0.6.2
 updates:
-  - docs/system/runtime-and-bus.md
+  - docs/architecture/overview.md
   - docs/contracts/routes-and-events.md
 ---
 ```
@@ -370,9 +381,28 @@ superseded_by: docs/patchouli/retrieval.md
 - 与当前行为无关的大段探索性讨论；
 - 容易快速失效的逐文件目录快照，除非它确实帮助解释稳定边界。
 
-## 8. Plans、Ideas 与 Todo
+## 8. Governance、Baselines、Plans、Ideas 与 Todo
 
-### 8.1 Plans
+### 8.1 Governance
+
+Governance 用于维护跨多个版本持续有效的工程质量主题，例如耐久性、幂等与重试、身份与执行安全、数据模型治理。它至少应区分：
+
+- 当前最低约束；
+- 当前成熟度和已知缺口；
+- 长期目标与非目标；
+- 尚未排期的工作包；
+- 工作包升级为独立 Plan 的门槛；
+- 当前设计、契约、ADR 和调研基线入口。
+
+Governance 不描述某个版本的逐步实施方案，不替代当前设计或公共契约，也不因为列出工作包就形成路线图承诺。
+
+### 8.2 Baselines
+
+Baseline 是某个时间点的调研快照，记录代码入口、现状矩阵、风险证据和优先级。它必须包含 `snapshot_at`，并明确最新系统事实仍由当前设计、代码和测试定义。
+
+Baseline 原则上冻结；实现演进后不通过反复改写旧清单制造“永远当前”的调查文档。需要新一轮全量调研时建立新基线，并记录替代关系。
+
+### 8.3 Plans
 
 Plan 用于描述一个可独立验收的功能、重构或迁移，至少包括：
 
@@ -388,7 +418,16 @@ Plan 用于描述一个可独立验收的功能、重构或迁移，至少包括
 
 Plan 是实施过程的工作依据，但在功能落地后不能继续承担当前设计说明。
 
-### 8.2 Ideas
+进入 `plans/` 还必须满足：
+
+- 绑定明确版本或里程碑，不使用 `target: unscheduled`；
+- 能作为一个独立交付切片完成和验收；
+- 依赖与非目标已经基本明确；
+- 包含迁移、测试、风险和完成后当前文档更新清单；
+- 文档状态只能是 `planned`、`active` 或 `in-progress`；
+- 工作完成后立即合并当前事实并进入 `archive/plans/`。
+
+### 8.4 Ideas
 
 Idea 用于开放探索，可以包含：
 
@@ -400,7 +439,7 @@ Idea 用于开放探索，可以包含：
 
 Idea 不代表路线图承诺，不使用确定语气宣称功能一定会实现。
 
-### 8.3 Todo
+### 8.5 Todo
 
 Todo 只适用于范围较小、排期灵活的缺陷或技术债。大型功能和跨系统重构必须形成 Plan。
 
@@ -465,7 +504,7 @@ ADR 应保持简短，通常包含：
 - 固定入口使用大写名称：`PROJECT.md`、`VISION.md`、`ROADMAP.md`、`DOCUMENTATION.md`、`README.md`；
 - 当前模块文档使用稳定的英文小写 kebab-case，例如 `memory-compiler.md`；
 - 当前文档名不包含版本号、日期、`new`、`final`、`latest` 等易失效标记；
-- 计划可以使用目标版本或日期，例如 `v0.6.1-runtime-job-queue.md`；
+- 计划可以使用目标版本或日期，例如 `v0.6.1-local-work-queue-runtime.md`；
 - ADR 使用递增编号，例如 `0001-async-system-bus.md`。
 
 ### 12.2 链接
@@ -489,6 +528,17 @@ Idea
   -> 归档已完成 Plan
   -> 必要时保留 ADR
   -> 更新 ROADMAP 与索引
+```
+
+治理型工作使用相同闭环，但从治理工作包开始：
+
+```text
+Governance work package
+  -> 绑定版本与验收出口
+  -> Plan
+  -> Implementation
+  -> 更新当前设计、契约与治理成熟度
+  -> 归档 Plan
 ```
 
 任何改变系统行为的 PR 都应检查：

@@ -5,17 +5,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
+from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -41,6 +46,14 @@ class ShutdownFlushResult(BaseModel):
     archived_blocks: int
 
 
+@dataclass
+class _InteractionGate:
+    """仅在同一 interaction 的并发调用期间存在。"""
+
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    users: int = 0
+
+
 # ========== PerceptionFamiliar ==========
 
 class PerceptionFamiliar:
@@ -53,11 +66,15 @@ class PerceptionFamiliar:
         bus: "PatchouliBus",
         config: "MemoryPerceptionConfig",
         memory_library: "MemoryLibrary",
+        interaction_journal: InMemoryInteractionApplyJournal,
     ) -> None:
         self.perception_layer = perception_layer
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._short_term = memory_library.short_term
+        self._interaction_journal = interaction_journal
+        self._interaction_gates: dict[str, _InteractionGate] = {}
+        self._interaction_gates_lock = asyncio.Lock()
 
         logger.info("PerceptionFamiliar 初始化完成")
 
@@ -65,8 +82,61 @@ class PerceptionFamiliar:
         self,
         payload: InteractionPayload,
         target_topic_id: str = "NEW_TOPIC",
+        interaction_id: str | None = None,
     ) -> str:
         """摄入完整交互载荷，并交给感知层完成话题路由。"""
+        if interaction_id:
+            gate = await self._acquire_interaction_gate(interaction_id)
+            try:
+                async with gate.lock:
+                    return await self._submit_interaction_once(
+                        payload,
+                        target_topic_id,
+                        interaction_id,
+                    )
+            finally:
+                await self._release_interaction_gate(interaction_id, gate)
+
+        return await self._submit_interaction_once(payload, target_topic_id, None)
+
+    async def _acquire_interaction_gate(
+        self,
+        interaction_id: str,
+    ) -> _InteractionGate:
+        async with self._interaction_gates_lock:
+            gate = self._interaction_gates.get(interaction_id)
+            if gate is None:
+                gate = _InteractionGate()
+                self._interaction_gates[interaction_id] = gate
+            gate.users += 1
+            return gate
+
+    async def _release_interaction_gate(
+        self,
+        interaction_id: str,
+        gate: _InteractionGate,
+    ) -> None:
+        async with self._interaction_gates_lock:
+            gate.users -= 1
+            if (
+                gate.users == 0
+                and self._interaction_gates.get(interaction_id) is gate
+            ):
+                self._interaction_gates.pop(interaction_id, None)
+
+    async def _submit_interaction_once(
+        self,
+        payload: InteractionPayload,
+        target_topic_id: str,
+        interaction_id: str | None,
+    ) -> str:
+        """执行一次实际摄入；分阶段幂等真相由 raw perception journal 保存。"""
+        apply_record = (
+            self._interaction_journal.get(interaction_id)
+            if interaction_id
+            else None
+        )
+
         logger.info(
             "PerceptionFamiliar 摄入交互载荷: "
             "user='%s...', target_topic_id=%s, traces=%s, tasks=%s",
@@ -76,13 +146,32 @@ class PerceptionFamiliar:
             len(payload.materialize_tasks),
         )
 
-        # 检查是否需要先驱逐 LRU 话题，独立发出 task
-        await self._maybe_evict_lru(target_topic_id)
+        # retry 已有 apply journal 时不能驱逐刚刚写入的目标话题。
+        if apply_record is None:
+            await self._maybe_evict_lru(target_topic_id)
 
-        topic_id, settle_payload = await self.perception_layer.route_and_ingest(target_topic_id, payload)
+        if interaction_id is None:
+            topic_id, settle_payload = await self.perception_layer.route_and_ingest(
+                target_topic_id,
+                payload,
+            )
+        else:
+            topic_id, settle_payload = await self.perception_layer.route_and_ingest(
+                target_topic_id,
+                payload,
+                interaction_id=interaction_id,
+            )
 
         if settle_payload is not None:
-            await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)
+            await self._bus.request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+                settle_payload,
+            )
+
+        if interaction_id:
+            apply_record = self._interaction_journal.get(interaction_id)
+            if apply_record is not None:
+                self._interaction_journal.complete(interaction_id, topic_id)
         return topic_id
 
     async def prepare_topic(
@@ -110,7 +199,7 @@ class PerceptionFamiliar:
             return
         if not self._short_term.needs_eviction():
             return
-            
+
         lru_topic_id = self._short_term.get_lru_topic()
         if lru_topic_id is None:
             return
@@ -129,7 +218,7 @@ class PerceptionFamiliar:
         topic = self._short_term.get_topic_data(target_id)
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
- 
+
         if topic.is_empty:
             return None
 
@@ -175,7 +264,7 @@ class PerceptionFamiliar:
                 )
                 if settle_payload is not None:
                     await self._bus.request(
-                        PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
+                        PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
                         settle_payload
                     )
                 flushed.append(topic.topic_id)
@@ -196,7 +285,7 @@ class PerceptionFamiliar:
             )
             if settle_payload is not None:
                 await self._bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, 
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
                     settle_payload
                 )
             flushed.append(topic.topic_id)
@@ -205,7 +294,7 @@ class PerceptionFamiliar:
             "shutdown flush 完成: flushed=%d, skipped=%d, archived_blocks=%d",
             len(flushed), len(skipped), archived_blocks,
         )
-        
+
         return ShutdownFlushResult(
             success=True,
             trigger_reason=FlushReason.SHUTDOWN.value,
@@ -216,7 +305,7 @@ class PerceptionFamiliar:
 
 
 __all__ = [
-    "PerceptionFamiliar", 
-    "TopicEvictResult", 
+    "PerceptionFamiliar",
+    "TopicEvictResult",
     "ShutdownFlushResult"
 ]

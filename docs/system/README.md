@@ -26,7 +26,7 @@ System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实
 
 - [组合根与生命周期](./composition.md)：`HiveMemorySystem`、`SystemAssembler`、子系统装配和启停顺序；
 - [应用服务](./application-services.md)：主动 chat、取消、API facade 和跨子系统编排；
-- [被动摄入](./passive-ingress.md)：外部对话事件、turn buffer、outbox 和降级语义；
+- [被动摄入](./passive-ingress.md)：外部对话事件、turn accumulator、submission queue 和降级语义；
 - [运行时与总线](./runtime-and-bus.md)：GlobalSystemBus、维护调度器和运行控制；
 - [配置与注册表](./configuration.md)：配置来源、所有权、模型/Provider 注册和覆盖边界；
 - [可观测性](./observability.md)：RuntimeEvent、operation observer、健康状态和旁路原则；

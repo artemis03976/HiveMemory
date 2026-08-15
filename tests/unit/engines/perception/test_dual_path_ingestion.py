@@ -7,13 +7,17 @@ Current contract:
 3. mtp_traces=[item] is persisted directly; trace reduction happens before ingestion.
 """
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from hivememory.core.models import Identity, TraceItem, TurnEvent
 from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
+)
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
@@ -27,6 +31,7 @@ def _make_layer() -> SemanticFlowPerceptionLayer:
         config=config,
         relay_controller=relay,
         short_term_store=ShortTermMemoryStore(),
+        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     return layer
 

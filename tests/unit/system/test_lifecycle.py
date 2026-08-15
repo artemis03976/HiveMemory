@@ -39,6 +39,8 @@ def _build_runtime_with_local_bus():
     runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
     runtime.storage = MagicMock()
     runtime.ensure_storage_ready = AsyncMock()
+    runtime.start_memory_generation_queue = AsyncMock()
+    runtime.stop_memory_generation_queue = AsyncMock()
     runtime.mount_local_routes = PatchouliRuntime.mount_local_routes.__get__(
         runtime, PatchouliRuntime
     )
@@ -59,6 +61,8 @@ def mock_patchouli():
     runtime.is_models_ready.return_value = True
     runtime.local_routes_registered = False
     runtime.ensure_storage_ready = AsyncMock()
+    runtime.start_memory_generation_queue = AsyncMock()
+    runtime.stop_memory_generation_queue = AsyncMock()
     runtime.mount_local_routes = MagicMock(
         side_effect=lambda service: setattr(runtime, "local_routes_registered", True)
     )
@@ -74,7 +78,12 @@ def mock_patchouli():
     p._scheduler = None
     p._maintenance_registered = False
     p._bridge = MagicMock()
+    p._interaction_submission_queue = MagicMock()
+    p._interaction_submission_queue.start = AsyncMock()
+    p._interaction_submission_queue.drain_all = AsyncMock(return_value=0)
+    p._interaction_submission_queue.stop = AsyncMock()
     p.service = MagicMock()
+    p.service.drain_active_finalizations = AsyncMock()
     p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
     p.stop = PatchouliSystem.stop.__get__(p, PatchouliSystem)
     p.health = PatchouliSystem.health.__get__(p, PatchouliSystem)
@@ -225,7 +234,12 @@ class TestPatchouliSystemLocalRoutes:
         patchouli._global_bus = None
         patchouli._maintenance_registered = False
         patchouli._bridge = MagicMock()
+        patchouli._interaction_submission_queue = MagicMock()
+        patchouli._interaction_submission_queue.start = AsyncMock()
+        patchouli._interaction_submission_queue.drain_all = AsyncMock(return_value=0)
+        patchouli._interaction_submission_queue.stop = AsyncMock()
         patchouli.service = MagicMock()
+        patchouli.service.drain_active_finalizations = AsyncMock()
         patchouli.service.prepare_agent_run = AsyncMock()
         patchouli.service.finalize_agent_run = AsyncMock()
         patchouli.service.cleanup_prepared_agent_run = AsyncMock()
@@ -252,3 +266,9 @@ class TestPatchouliSystemLocalRoutes:
         assert not set(PatchouliLocalRoutes.ALL).intersection(routes)
         assert public_only_routes.isdisjoint(routes)
         runtime.shutdown_drain.assert_awaited_once()
+        runtime.start_memory_generation_queue.assert_awaited_once()
+        runtime.stop_memory_generation_queue.assert_awaited_once()
+        patchouli._interaction_submission_queue.start.assert_awaited_once()
+        patchouli._interaction_submission_queue.drain_all.assert_awaited_once_with(timeout=None)
+        patchouli.service.drain_active_finalizations.assert_awaited_once()
+        patchouli._interaction_submission_queue.stop.assert_awaited_once()

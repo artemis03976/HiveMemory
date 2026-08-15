@@ -4,7 +4,6 @@
 system 层的被动接入子模块，统一收口 passive ingress 相关实现：
     - PassiveIngressEvent / PassiveIngressOutcome / PassiveConversationKey
     - MessageTurnBuffer / MessageTurnBufferManager
-    - SealedTurn / SealedTurnOutbox / SealedTurnSubmitter
     - MemoryContextProvider / MemoryContextAttempt
     - ExternalEventDedupRegistry
     - PassiveIngressEventEmitter
@@ -34,15 +33,7 @@ from hivememory.system.services.passive.models import (
     PassiveConversationKey,
     PassiveIngressEvent,
     PassiveIngressOutcome,
-)
-from hivememory.system.services.passive.outbox import (
-    SealedTurn,
-    SealedTurnOutbox,
     SealReason,
-)
-from hivememory.system.services.passive.submitter import (
-    SealedTurnSubmitter,
-    SubmitSealedTurn,
 )
 from hivememory.system.services.passive.turn_buffer import (
     FlushResult,
@@ -67,9 +58,5 @@ __all__ = [
     "PassiveIngressOutcome",
     "PassiveMessageIngressor",
     "SealReason",
-    "SealedTurn",
-    "SealedTurnOutbox",
-    "SealedTurnSubmitter",
-    "SubmitSealedTurn",
     "is_recoverable_ingress_error",
 ]

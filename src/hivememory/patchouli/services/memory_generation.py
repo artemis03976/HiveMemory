@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, List, Literal
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom, PendingAtomResolution, PendingAtomSettlement
@@ -15,8 +15,12 @@ from hivememory.core.models.artifact import (
     MemoryVersionSnapshot,
 )
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
-from hivememory.engines.generation.models import DuplicateDecision, GenerationContext
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.engines.generation.models import (
+    DuplicateDecision,
+    GenerationContext,
+    GenerationOutcome,
+)
+from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationResult,
     MemoryGenerationSource,
@@ -37,9 +41,9 @@ class MemoryGenerationFamiliar:
     def __init__(
         self,
         *,
-        generation_engine: "MemoryGenerationEngine",
-        memory_library: "MemoryLibrary",
-        artifact_engine: "ArtifactEngine | None" = None,
+        generation_engine: MemoryGenerationEngine,
+        memory_library: MemoryLibrary,
+        artifact_engine: ArtifactEngine | None = None,
     ) -> None:
         from hivememory.engines.artifacts.engine import ArtifactEngine
 
@@ -52,7 +56,7 @@ class MemoryGenerationFamiliar:
     async def execute(
         self,
         spec: MemoryGenerationTaskSpec,
-    ) -> List[MemoryGenerationResult]:
+    ) -> list[MemoryGenerationResult]:
         """
         执行统一生成任务规范，只返回结果不发布事件。
         """
@@ -65,15 +69,13 @@ class MemoryGenerationFamiliar:
         """
         对外部创建的记忆原子进行持久化处理。
         """
-        await self._attach_memory_artifacts(
-            [
-                MemoryGenerationResult(
-                    atom=atom,
-                    duplicate_decision=DuplicateDecision.CREATE,
-                )
-            ],
-            GenerationContext(),
-            None,
+        await self._attach_memory_artifact(
+            atom=atom,
+            decision=DuplicateDecision.CREATE,
+            memory_before_snapshot=None,
+            changelog=None,
+            gen_context=GenerationContext(),
+            interaction_ref=None,
             creation_source="MANUAL",
         )
         await self._mid_term.upsert(atom)
@@ -107,20 +109,16 @@ class MemoryGenerationFamiliar:
             tags=tags,
             agent_config=agent_config,
         )
-        atom.meta.updated_at = datetime.now(timezone.utc)
+        atom.meta.updated_at = datetime.now(UTC)
         atom.meta.version += 1
 
-        await self._attach_memory_artifacts(
-            [
-                MemoryGenerationResult(
-                    atom=atom,
-                    duplicate_decision=DuplicateDecision.UPDATE,
-                    memory_before_snapshot=before_snapshot,
-                    changelog=_manual_changelog(changed_fields),
-                )
-            ],
-            GenerationContext(),
-            None,
+        await self._attach_memory_artifact(
+            atom=atom,
+            decision=DuplicateDecision.UPDATE,
+            memory_before_snapshot=before_snapshot,
+            changelog=_manual_changelog(changed_fields),
+            gen_context=GenerationContext(),
+            interaction_ref=None,
             creation_source="MANUAL",
             update_source="MANUAL_EDIT",
         )
@@ -163,18 +161,14 @@ class MemoryGenerationFamiliar:
         self,
         spec: MemoryGenerationTaskSpec,
         interaction_ref: ArtifactRef | None = None,
-    ) -> List[MemoryGenerationResult]:
+    ) -> list[MemoryGenerationResult]:
         """
         执行 compute -> artifacts -> persist 三步流水线。
         """
         # Step 1：纯计算，GenerationEngine 不负责持久化。
         outcomes = await self._generation_engine.process(spec.request)
-        results = [
-            self._build_generation_result(spec, outcome)
-            for outcome in outcomes
-        ]
 
-        memories = [result.atom for result in results if result.atom is not None]
+        memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
         logger.info(
             f"Extracted {len(memories)} memories"
             if memories
@@ -183,55 +177,50 @@ class MemoryGenerationFamiliar:
 
         # Step 2：构建 artifact，并在第一次写库前挂载到 MemoryAtom。
         await self._attach_memory_artifacts(
-            results,
+            outcomes,
             spec.request.context,
             interaction_ref,
             creation_source=spec.source.creation_artifact_intent,
             update_source=spec.source.version_update_source,
         )
 
-        # Step 3：写入 CREATE/UPDATE 结果；settlement 由控制面统一发布。
-        for result in results:
+        # Step 3：写入 CREATE/UPDATE 结果。
+        for outcome in outcomes:
             if (
-                result.duplicate_decision != DuplicateDecision.DISCARD
-                and result.atom is not None
+                outcome.duplicate_decision != DuplicateDecision.DISCARD
+                and outcome.atom is not None
             ):
                 try:
-                    await self._mid_term.upsert(result.atom)
+                    await self._mid_term.upsert(outcome.atom)
                     logger.info(
-                        f"记忆已存储 '{result.atom.index.title}' "
-                        f"(ID: {result.atom.id})"
+                        f"记忆已存储 '{outcome.atom.index.title}' "
+                        f"(ID: {outcome.atom.id})"
                     )
                 except Exception as exc:
                     logger.error(f"存储记忆失败: {exc}", exc_info=True)
                     raise
 
-        return results
+        # 只有 artifact 与持久化均完成后，才把 Engine outcome 收缩为跨域事实；
+        # settlement 随该结果交给控制面独立发布。
+        return [self._build_generation_result(spec, outcome) for outcome in outcomes]
 
     def _build_generation_result(
         self,
         spec: MemoryGenerationTaskSpec,
-        outcome,
+        outcome: GenerationOutcome,
     ) -> MemoryGenerationResult:
         atom = outcome.atom
         canonical_alias = atom.get_alias() if atom is not None else None
         canonical_uuid = str(atom.id) if atom is not None else None
         return MemoryGenerationResult(
-            intent_id=spec.intent_id,
-            pending_alias=spec.pending_alias,
-            atom=atom,
             canonical_alias=canonical_alias,
             canonical_uuid=canonical_uuid,
-            duplicate_decision=outcome.duplicate_decision,
-            memory_before_snapshot=outcome.memory_before_snapshot,
-            changelog=outcome.changelog,
             settlement=self._build_settlement(
                 spec,
                 outcome.duplicate_decision,
                 canonical_alias=canonical_alias,
                 canonical_uuid=canonical_uuid,
             ),
-            message=outcome.message,
         )
 
     def _build_settlement(
@@ -296,7 +285,7 @@ class MemoryGenerationFamiliar:
 
     async def _attach_memory_artifacts(
         self,
-        results: List[MemoryGenerationResult],
+        outcomes: list[GenerationOutcome],
         gen_context: GenerationContext,
         interaction_ref: ArtifactRef | None,
         *,
@@ -306,43 +295,71 @@ class MemoryGenerationFamiliar:
         """
         构建 artifact 并挂载 refs/events，不负责发布事件。
         """
-        src_refs = [interaction_ref] if interaction_ref else []
-
-        for result in results:
-            atom = result.atom
+        for outcome in outcomes:
+            atom = outcome.atom
             if atom is None:
                 continue
-            if result.duplicate_decision == DuplicateDecision.CREATE:
-                bundle = await self._build_creation_artifacts(
-                    atom=atom,
-                    gen_context=gen_context,
-                    source_artifact_refs=src_refs,
-                    creation_source=creation_source,
-                )
+            await self._attach_memory_artifact(
+                atom=atom,
+                decision=outcome.duplicate_decision,
+                memory_before_snapshot=outcome.memory_before_snapshot,
+                changelog=outcome.changelog,
+                gen_context=gen_context,
+                interaction_ref=interaction_ref,
+                creation_source=creation_source,
+                update_source=update_source,
+            )
 
-                atom.payload.artifacts.events.append(
-                    MemoryEventLog(
-                        event_type=MemoryEventType.CREATED,
-                        artifact_refs=bundle.refs,
-                    )
-                )
+    async def _attach_memory_artifact(
+        self,
+        *,
+        atom: MemoryAtom,
+        decision: DuplicateDecision,
+        memory_before_snapshot: MemoryVersionSnapshot | None,
+        changelog: str | None,
+        gen_context: GenerationContext,
+        interaction_ref: ArtifactRef | None,
+        creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
+        update_source: Literal[
+            "UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"
+        ] = "UPDATE",
+    ) -> None:
+        """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。"""
 
-            elif result.duplicate_decision == DuplicateDecision.UPDATE:
-                version_ref = await self._build_update_artifact(
-                    result=result,
-                    source_artifact_refs=src_refs,
-                    update_source=update_source,
-                )
+        src_refs = [interaction_ref] if interaction_ref else []
+        if decision == DuplicateDecision.CREATE:
+            bundle = await self._build_creation_artifacts(
+                atom=atom,
+                gen_context=gen_context,
+                source_artifact_refs=src_refs,
+                creation_source=creation_source,
+            )
 
-                atom.payload.artifacts.events.append(
-                    MemoryEventLog(
-                        event_type=MemoryEventType.VERSIONED,
-                        artifact_refs=[version_ref] if version_ref else [],
-                        note=result.changelog,
-                    )
+            atom.payload.artifacts.events.append(
+                MemoryEventLog(
+                    event_type=MemoryEventType.CREATED,
+                    artifact_refs=bundle.refs,
                 )
+            )
 
-            self._append_artifact_ref_once(atom, interaction_ref)
+        elif decision == DuplicateDecision.UPDATE:
+            version_ref = await self._build_update_artifact(
+                atom=atom,
+                memory_before_snapshot=memory_before_snapshot,
+                changelog=changelog,
+                source_artifact_refs=src_refs,
+                update_source=update_source,
+            )
+
+            atom.payload.artifacts.events.append(
+                MemoryEventLog(
+                    event_type=MemoryEventType.VERSIONED,
+                    artifact_refs=[version_ref] if version_ref else [],
+                    note=changelog,
+                )
+            )
+
+        self._append_artifact_ref_once(atom, interaction_ref)
 
     async def _build_creation_artifacts(
         self,
@@ -368,23 +385,24 @@ class MemoryGenerationFamiliar:
 
         for ref in bundle.refs:
             self._append_artifact_ref_once(atom, ref)
-    
+
         return bundle
-        
+
     async def _build_update_artifact(
         self,
         *,
-        result: MemoryGenerationResult,
+        atom: MemoryAtom,
+        memory_before_snapshot: MemoryVersionSnapshot | None,
+        changelog: str | None,
         source_artifact_refs: list[ArtifactRef],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
-    ) -> None:
-        atom = result.atom
+    ) -> ArtifactRef | None:
         try:
             version_ref = await self._artifact_engine.memory.build_for_update(
                 memory_after=atom,
-                snapshot_before=result.memory_before_snapshot,
+                snapshot_before=memory_before_snapshot,
                 update_source=update_source,
-                changelog=result.changelog,
+                changelog=changelog,
                 source_artifact_refs=source_artifact_refs,
             )
         except Exception:

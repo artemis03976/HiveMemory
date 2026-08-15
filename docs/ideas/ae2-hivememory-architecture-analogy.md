@@ -192,7 +192,7 @@ WorkspaceMount
 - 只向主 Workspace 导出构建产物、测试结果和已确认记忆；
 - 对主网表现成一个稳定的 `frontend capability`，而不暴露内部 Agent 拓扑。
 
-当前实现还没有这样的资源容器。`PUBLIC / WORKSPACE / PRIVATE` 是同一用户内的可见性模型：`PUBLIC` 仍受 `user_id` 硬过滤，`WORKSPACE` 依赖 `team_id`，`PRIVATE` 依赖来源 Agent。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，不能解释成每个 Workspace 都有独立执行环境。相关缺口和风险见 [检索身份过滤](../patchouli/retrieval.md) 与 [身份隔离与执行安全计划](../plans/identity-isolation-and-execution-safety.md)。
+当前实现还没有这样的资源容器。`PUBLIC / WORKSPACE / PRIVATE` 是同一用户内的可见性模型：`PUBLIC` 仍受 `user_id` 硬过滤，`WORKSPACE` 依赖 `team_id`，`PRIVATE` 依赖来源 Agent。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，不能解释成每个 Workspace 都有独立执行环境。相关缺口和风险见 [检索身份过滤](../patchouli/retrieval.md) 与 [身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)。
 
 此外，AE2 的过滤首先是物流边界，不是面向恶意调用者的安全授权。HiveMemory 必须由真正的资源所有者在读取、修改、执行、缓存命中、重试和后台恢复时重新校验 Identity，不能仅复制查询过滤器。
 

@@ -62,18 +62,18 @@ def _build(config, *, gateway_error: Exception | None = None):
             raise gateway_error
         raise AssertionError("本测试只覆盖降级路径")
 
-    async def submit(**kwargs):
-        submitted.append(kwargs)
-        return "topic-settled"
+    class _SubmissionQueueRecorder:
+        async def submit(self, submission):
+            submitted.append(submission)
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_SUBMIT_INTERACTION, submit)
 
     sink = RecordingRuntimeEventSink()
     service = PassiveIngressService(
         bus=bus,
         config=config,
         scheduler=MagicMock(),
+        interaction_queue=_SubmissionQueueRecorder(),
         # 与 assembler 一致的 scope，确保 component 归属可断言
         runtime_events=sink.scoped("system", component="passive_ingress_service"),
     )
@@ -127,11 +127,11 @@ async def test_degraded_turn_is_still_submitted_to_patchouli(config) -> None:
 
     assert flushed is True
     assert len(submitted) == 1
-    payload = submitted[0]["payload"]
+    payload = submitted[0].payload
     assert payload.user_message == "u1"
     assert payload.assistant_final_text == "a1"
     # 无 decision 时回落到 NEW_TOPIC，而不是丢弃 payload
-    assert submitted[0]["target_topic"] == "NEW_TOPIC"
+    assert submitted[0].requested_topic_id == "NEW_TOPIC"
 
 
 @pytest.mark.asyncio
@@ -140,11 +140,7 @@ async def test_degradation_is_observable_via_sink(config) -> None:
 
     await service.ingest_event(_event("user", "u1"), user_id="u1", agent_id="a1")
 
-    degraded = [
-        event
-        for event in sink.events
-        if event.data.get("degraded") is True
-    ]
+    degraded = [event for event in sink.events if event.data.get("degraded") is True]
     assert degraded, "降级应通过 RuntimeEventSink 可观测"
     assert degraded[0].component == "passive_ingress_service"
     assert degraded[0].data["failed_stage"] == "gateway"

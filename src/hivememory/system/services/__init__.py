@@ -12,7 +12,7 @@ System 业务能力提供者
 依赖方向单向：`application/` → `services/`，反向不允许。
 
 当前能力：
-    - `passive`  被动接入（外部会话事件观测、turn 封口、sealed turn 提交）
+    - `passive`  被动接入（外部会话事件观测、turn 累积与 submission queue 移交）
 """
 
 from hivememory.system.services.passive import (

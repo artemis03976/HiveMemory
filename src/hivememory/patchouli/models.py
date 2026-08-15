@@ -27,6 +27,7 @@ class PreparedAgentRun:
     agent_run_context: AgentRunContext
     gateway_decision: GatewayDecision
     stream_prelude: StreamPrelude
+    interaction_id: str
     generation_options: dict[str, Any] | None = field(default=None)
 
     @property

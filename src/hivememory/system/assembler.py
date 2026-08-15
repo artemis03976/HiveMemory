@@ -100,7 +100,7 @@ class SystemAssembler:
         runtime = self._build_runtime()
         registries = self._build_registries()
         subsystems = self._build_subsystems(runtime, registries)
-        services = self._build_services(runtime)
+        services = self._build_services(runtime, subsystems)
 
         return HiveMemorySystem(
             config=self._config,
@@ -214,6 +214,7 @@ class SystemAssembler:
     def _build_services(
         self,
         runtime: _RuntimeBundle,
+        subsystems: _SubsystemBundle,
     ) -> _ServicesBundle:
         chat = ChatApplicationService(
             global_bus=runtime.global_bus,
@@ -227,6 +228,7 @@ class SystemAssembler:
             bus=runtime.global_bus,
             config=self._config,
             scheduler=runtime.scheduler,
+            interaction_queue=subsystems.patchouli.interaction_submission_queue,
             runtime_events=runtime.event_sink.scoped(
                 "system",
                 component="passive_ingress_service",

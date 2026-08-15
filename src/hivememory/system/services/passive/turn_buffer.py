@@ -9,6 +9,7 @@ import threading
 from datetime import datetime
 from enum import Enum
 from typing import Any
+from uuid import uuid4
 
 from hivememory.core.models import Identity
 from hivememory.core.models.interaction import TurnEvent
@@ -25,8 +26,7 @@ DEFAULT_MAX_BUFFERED_EVENTS_PER_TURN = 256
 
 class MessageBufferState(str, Enum):
     IDLE = "idle"
-    AWAITING_RESPONSE = "awaiting"
-    SEALED = "sealed"
+    ACCUMULATING = "accumulating"
 
 
 class MessageTurnBuffer:
@@ -46,6 +46,7 @@ class MessageTurnBuffer:
 
     def _reset(self) -> None:
         self._state = MessageBufferState.IDLE
+        self._interaction_id: str | None = None
         self._user_content: str | None = None
         self._assistant_parts: list[str] = []
         self._turn_events: list[TurnEvent] = []
@@ -53,6 +54,7 @@ class MessageTurnBuffer:
         self._gateway_decision: GatewayDecision | None = None
         self._target_topic: str | None = None
         self._turn_id: str | None = None
+        self._pending_final_event_key: tuple[str, str] | None = None
         self._dropped_events: int = 0
         self._last_activity: float = datetime.now().timestamp()
 
@@ -86,6 +88,16 @@ class MessageTurnBuffer:
         return self._turn_id
 
     @property
+    def interaction_id(self) -> str | None:
+        """当前 turn 的稳定提交标识；只有队列接收成功后才会被清除。"""
+        return self._interaction_id
+
+    @property
+    def pending_final_event_key(self) -> tuple[str, str] | None:
+        """已追加但尚未完成 queue admission 的显式 final 事件。"""
+        return self._pending_final_event_key
+
+    @property
     def event_count(self) -> int:
         return len(self._turn_events)
 
@@ -102,12 +114,8 @@ class MessageTurnBuffer:
         return self._state == MessageBufferState.IDLE
 
     @property
-    def is_awaiting(self) -> bool:
-        return self._state == MessageBufferState.AWAITING_RESPONSE
-
-    @property
-    def is_sealed(self) -> bool:
-        return self._state == MessageBufferState.SEALED
+    def is_accumulating(self) -> bool:
+        return self._state == MessageBufferState.ACCUMULATING
 
     @property
     def has_pending_round(self) -> bool:
@@ -123,22 +131,16 @@ class MessageTurnBuffer:
         gateway_decision: GatewayDecision | None = None,
         *,
         turn_id: str | None = None,
-    ) -> FlushResult | None:
-        """开启新一轮。
-
-        调用方（Ingressor）应已先显式 flush 上一轮并提交；这里保留隐式 flush
-        仅作为不变量兜底，返回值仍需被调用方送入 outbox，不得丢弃。
-        """
-        flushed: FlushResult | None = None
-
+    ) -> None:
+        """开启新一轮；调用方必须先完成上一轮的队列 admission。"""
         if self.has_pending_round:
-            flushed = (self._build_payload(), self._target_topic)
-            logger.warning(
-                "MessageTurnBuffer 在 accept_user 时发现未提交的上一轮，已兜底 seal: "
-                f"conversation={self._conversation_key.label}"
+            raise RuntimeError(
+                "MessageTurnBuffer 仍有未提交 turn，不能覆盖当前 accumulator: "
+                f"conversation={self._conversation_key.label}, "
+                f"interaction_id={self._interaction_id}"
             )
-            self._reset()
 
+        self._interaction_id = f"interaction_{uuid4().hex}"
         self._user_content = content
         self._gateway_decision = gateway_decision
         self._target_topic = (
@@ -153,17 +155,15 @@ class MessageTurnBuffer:
                 content=content,
             )
         )
-        self._state = MessageBufferState.AWAITING_RESPONSE
+        self._state = MessageBufferState.ACCUMULATING
         self._last_activity = datetime.now().timestamp()
 
         logger.debug(
             "MessageTurnBuffer 接收 user 消息: "
             f"conversation={self._conversation_key.label}, "
             f"target_topic={self._target_topic}, "
-            f"flushed_previous={flushed is not None}"
+            f"interaction_id={self._interaction_id}"
         )
-
-        return flushed
 
     def accept_assistant(self, content: str) -> None:
         if self._state == MessageBufferState.IDLE:
@@ -183,7 +183,6 @@ class MessageTurnBuffer:
             )
         ):
             self._assistant_parts.append(content)
-        self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
     def accept_tool_call(
@@ -216,7 +215,6 @@ class MessageTurnBuffer:
                 target=target,
             )
         )
-        self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
     def accept_tool_result(
@@ -245,19 +243,41 @@ class MessageTurnBuffer:
                 render_as=render_as,
             )
         )
-        self._state = MessageBufferState.SEALED
         self._last_activity = datetime.now().timestamp()
 
-    def flush(self) -> FlushResult | None:
+    def prepare_flush(self) -> FlushResult | None:
+        """构建当前 turn 的提交快照，但不清空 accumulator。"""
         if self._state == MessageBufferState.IDLE:
             return None
 
-        result = (self._build_payload(), self._target_topic)
+        return self._build_payload(), self._target_topic
+
+    def mark_finalization_pending(self, event_key: tuple[str, str]) -> None:
+        """在显式 final 已写入 buffer 后记录其可恢复 admission 状态。"""
+        if not self.has_pending_round:
+            raise RuntimeError("cannot mark finalization on an idle turn buffer")
+        if (
+            self._pending_final_event_key is not None
+            and self._pending_final_event_key != event_key
+        ):
+            raise RuntimeError("another explicit final event is already pending admission")
+        self._pending_final_event_key = event_key
+
+    def commit_flush(self, interaction_id: str) -> None:
+        """确认同一 turn 已被队列接收，然后清空 accumulator。"""
+        if self._interaction_id != interaction_id:
+            raise RuntimeError(
+                "MessageTurnBuffer commit 对应的 interaction 已发生变化: "
+                f"conversation={self._conversation_key.label}, "
+                f"expected={interaction_id}, actual={self._interaction_id}"
+            )
+
         self._reset()
         logger.debug(
-            f"MessageTurnBuffer flush: conversation={self._conversation_key.label}"
+            "MessageTurnBuffer commit flush: "
+            f"conversation={self._conversation_key.label}, "
+            f"interaction_id={interaction_id}"
         )
-        return result
 
     def _build_payload(self) -> InteractionPayload:
         assistant_final_text = (
@@ -330,51 +350,26 @@ class MessageTurnBufferManager:
         with self._lock:
             return dict(self._buffers)
 
-    def flush_idle_buffers(
-        self,
-        timeout_seconds: float,
-    ) -> list[tuple[PassiveConversationKey, FlushResult, str | None]]:
-        """flush 空闲超时的 buffer。
-
-        Returns:
-            `(conversation_key, flush_result, turn_id)` 列表，
-            由调用方封装为 SealedTurn 并进入 outbox。
-        """
-        results: list[tuple[PassiveConversationKey, FlushResult, str | None]] = []
-
-        for key in self.list_active_buffers():
-            flushed = self.flush_idle_buffer(key, timeout_seconds)
-            if flushed is not None:
-                result, turn_id = flushed
-                results.append((key, result, turn_id))
-
-        return results
-
-    def flush_idle_buffer(
+    def is_idle_timeout(
         self,
         key: PassiveConversationKey,
         timeout_seconds: float,
-    ) -> tuple[FlushResult, str | None] | None:
-        """重新检查并 flush 一个空闲超时的会话 buffer。"""
+    ) -> bool:
+        """重新检查一个会话是否仍有 turn 且已达到空闲阈值。"""
         now = datetime.now().timestamp()
         with self._lock:
             buf = self._buffers.get(key)
             if buf is None or not buf.has_pending_round:
-                return None
+                return False
 
             idle_duration = now - buf.last_activity_time
             if idle_duration <= timeout_seconds:
-                return None
-
-            turn_id = buf.turn_id
-            flushed = buf.flush()
-            if flushed is None:
-                return None
+                return False
 
             logger.info(
-                f"Message idle timeout flush: conversation={key.label}, idle={idle_duration:.1f}s"
+                f"Message idle timeout reached: conversation={key.label}, idle={idle_duration:.1f}s"
             )
-            return flushed, turn_id
+            return True
 
 
 __all__ = [

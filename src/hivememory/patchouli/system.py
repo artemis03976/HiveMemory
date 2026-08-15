@@ -26,11 +26,11 @@
 版本: 4.0
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
-from typing import TYPE_CHECKING, Any, Optional
-
-from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     MemoryManagementService,
@@ -38,7 +38,11 @@ from hivememory.patchouli.application import (
     ModelReadinessService,
     TopicManagementService,
 )
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmissionQueue,
+)
 from hivememory.patchouli.runtime import PatchouliRuntime
+from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.service import PatchouliService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
@@ -71,8 +75,8 @@ class PatchouliSystem(SubsystemProtocol):
     def __init__(
         self,
         config: HiveMemoryConfig,
-        global_bus: Optional[GlobalSystemBus] = None,
-        scheduler: Optional["AsyncMaintenanceScheduler"] = None,
+        global_bus: GlobalSystemBus | None = None,
+        scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
     ):
         self.config = config
@@ -86,10 +90,20 @@ class PatchouliSystem(SubsystemProtocol):
             runtime_events=self._runtime_events,
         )
 
-        # 2. Patchouli 对外能力门面。Phase 3A 起不再持有旧 Gateway gaze。
+        self._interaction_submission_queue = InteractionSubmissionQueue(
+            self.runtime.perception_familiar.submit_interaction,
+            runtime_events=self._runtime_events.scoped(
+                "patchouli",
+                component="interaction_submission_queue",
+            ),
+        )
+
+        # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
+            interaction_queue=self._interaction_submission_queue,
             memory_compiler_config=self.config.memory_compiler,
+            pending_atom_settler=self.runtime.pending_atom_settler,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
@@ -119,7 +133,6 @@ class PatchouliSystem(SubsystemProtocol):
             global_bus=global_bus,
             public_api=self._public_api,
         )
-
         self._scheduler = scheduler
         self._maintenance_registered = False
 
@@ -129,6 +142,11 @@ class PatchouliSystem(SubsystemProtocol):
     def service(self) -> PatchouliService:
         """访问 Patchouli 对外能力门面。"""
         return self._service
+
+    @property
+    def interaction_submission_queue(self) -> InteractionSubmissionQueue:
+        """访问 active/passive 共用的 interaction submission queue。"""
+        return self._interaction_submission_queue
 
     @property
     def name(self) -> str:
@@ -174,18 +192,24 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime.mount_local_routes(self.service)
 
         self._bridge.mount()
+        await self._interaction_submission_queue.start()
+        await self.runtime.start_memory_generation_queue()
 
         if self._scheduler and not self._maintenance_registered:
-            self._maintenance_registered = self.register_maintenance_tasks(
-                self._scheduler
-            )
+            self._maintenance_registered = self.register_maintenance_tasks(self._scheduler)
 
     async def stop(self) -> None:
         if self._scheduler and self._maintenance_registered:
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
 
+        # interaction work 不可取消；先等待所有已接纳 work 和 Active continuation
+        # 完成，再进入 perception flush，避免 handler 晚于 shutdown settlement 写入。
+        await self._interaction_submission_queue.drain_all(timeout=None)
+        await self.service.drain_active_finalizations()
+        await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
+        await self.runtime.stop_memory_generation_queue()
 
         self._bridge.unmount()
 
@@ -197,6 +221,7 @@ class PatchouliSystem(SubsystemProtocol):
             "status": "ok" if models_ready else "warming_up",
             "models_ready": models_ready,
         }
+
 
 __all__ = [
     "PatchouliSystem",

@@ -7,6 +7,9 @@ from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
@@ -37,6 +40,7 @@ class TestSemanticFlowPerceptionLayer:
             config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
             relay_controller=self.relay,
             short_term_store=self.store,
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
     @pytest.mark.asyncio
@@ -94,7 +98,7 @@ class TestSemanticFlowPerceptionLayer:
             _make_payload("hi", "hello"),
         )
 
-        cleared = self.store.clear_buffer(topic_id)
+        cleared = self.store.reset_topic_content(topic_id)
 
         assert len(cleared) == 1
         topic_data = self.store.get_topic_data(topic_id, touch=False)

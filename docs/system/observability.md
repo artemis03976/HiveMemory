@@ -66,9 +66,9 @@ observer 不捕获后吞掉原异常，不执行重试，也不决定事务是�
 
 ## 4. 生命周期、Scheduler 与 Passive 事件
 
-System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed；Passive Ingress 发布事件接收、duplicate、memory context、sealed turn 提交和 retry 事实。
+System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed；Passive Ingress 发布事件接收、duplicate 与 memory context 事实。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
 
-这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`passive.turn.submit_failed` 不直接修改 outbox，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、submitter 和 run registry 负责。
+这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`work.retry_scheduled` 不直接修改 work record，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、Work Queue Runtime 和 run registry 负责。
 
 ## 5. 健康与日志的关系
 
@@ -92,7 +92,7 @@ Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `Fram
 
 RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段。统一 `RuntimeEventPublisher` 基础设施已经落地，Alice 的 `agent.run.*` 已迁移到 `AgentRunEventEmitter`，补齐了 `generation_id` 关联并删除 Agent run 主流程中的 envelope 构造；Chat、Gateway workflow、memory task、Scheduler、System lifecycle 与 Passive Ingress 尚未全部切换到这一模式。
 
-这项重复不会改变当前 wire format 或业务正确性，但会让默认 severity、关联上下文、payload 白名单和异常隔离在多个生产域中漂移。后续重构应保持三个约束：事件发生时机仍由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。详细范围与验收条件见 [RuntimeEvent 生产端发布抽象重构](../plans/runtime-event-publishing-refactor.md)。
+这项重复不会改变当前 wire format 或业务正确性，但会让默认 severity、关联上下文、payload 白名单和异常隔离在多个生产域中漂移。后续迁移应保持三个约束：事件发生时机仍由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。剩余范围与完成条件见 [RuntimeEvent 生产端迁移后续](../todo/runtime-event-producer-migration.md)。
 
 因此不能把“Publisher 与 Alice emitter 已落地”写成“全域生产端重构已完成”，也不能假设所有 payload 已强类型化。尚未迁移的生产点仍以代码和本文件描述的外部契约为准。
 

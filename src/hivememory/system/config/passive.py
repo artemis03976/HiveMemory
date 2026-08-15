@@ -14,8 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class PassiveIngressConfig(BaseModel):
     """被动接入的有界进程内资源约束。
 
-    v0.6.0 只承诺进程内幂等与进程内 outbox，不承诺跨进程 exactly-once；
-    后续可替换为持久化 ingress store 而保持同一提交语义。
+    Passive accumulator 只保留尚未被通用 submission queue 接收的当前 turn；
+    跨进程恢复能力由 queue store 的具体实现决定。
     """
 
     dedup_ttl_seconds: float = Field(
@@ -30,11 +30,6 @@ class PassiveIngressConfig(BaseModel):
         default=256,
         description="单个 turn 允许累计的最大事件数，超出丢弃并记录",
     )
-    max_outbox_items_per_conversation: int = Field(
-        default=32,
-        description="单个外部会话允许挂起的最大 sealed turn 数，超出按最旧淘汰",
-    )
-
     model_config = ConfigDict(extra="ignore")
 
 

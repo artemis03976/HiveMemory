@@ -16,8 +16,8 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/alice/pending-atom.md
   - docs/todo/alice-frame-scheduler-concurrency.md
-  - docs/plans/identity-isolation-and-execution-safety.md
-  - docs/plans/runtime-state-durability-and-recovery.md
+  - docs/governance/security/identity-and-execution-safety.md
+  - docs/governance/reliability/durability-and-recovery.md
 last_reviewed: 2026-08-01
 ---
 

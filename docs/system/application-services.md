@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-05
+last_reviewed: 2026-08-10
 ---
 
 # System 应用服务
@@ -107,7 +107,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 用户 stop 在 `chat_service.py` 内被翻译为私有 `_ChatRunCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 同时区分“stop 取消 child task”和“Chat owner 被 ASGI/shutdown 取消”，后者必须原样向上传播。资源所有者在 unwind 中关闭自己创建的 stream、runner 与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
 
-当前 registry 是进程内短期控制状态，不是可恢复 Job。进程重启后不能据此恢复 run；长期 Job 生命周期属于后续 Runtime Job Queue 计划。
+当前 registry 是进程内短期控制状态，不是可恢复的长期工作记录。进程重启后不能据此恢复 run；用户可见长期任务与后台 Agent workflow 当前未立项，需在真实负载和执行能力成立后独立设计。
 
 ## 5. 管理类应用服务
 

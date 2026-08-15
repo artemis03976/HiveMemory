@@ -61,7 +61,7 @@ superseded_by:
 
 拒绝重新引入旧 PROJECT/设计稿中的静态版本时间表和未验证性能承诺。
 
-当前入口：`docs/ROADMAP.md`、`docs/plans/data-model-mutability-governance.md`。
+当前入口：`docs/ROADMAP.md`、`docs/governance/data-model/mutability.md`。
 
 ### `docs/SETUP.md`
 

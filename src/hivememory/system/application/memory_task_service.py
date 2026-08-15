@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:

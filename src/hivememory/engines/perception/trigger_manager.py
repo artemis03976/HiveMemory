@@ -284,9 +284,10 @@ class TriggerManager:
 
         # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
         if retain_recent_blocks is None:
-            folded = self._store.update_summary(topic_id, new_summary)
+            self._store.update_summary(topic_id, new_summary)
+            folded = 0
         else:
-            folded = self._store.update_summary(
+            folded = self._store.apply_compaction(
                 topic_id,
                 new_summary,
                 retain_count=retain_recent_blocks,

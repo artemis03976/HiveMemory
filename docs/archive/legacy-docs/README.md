@@ -24,7 +24,7 @@ last_reviewed: 2026-07-30
 
 ### Architecture 混合文档
 
-- [不可变数据模型现状与规划](./architecture/DataModelImmutabilityStatusAndRoadmap.md)：已拆分为[当前数据模型](../../architecture/data-model.md)、[ADR-0001](../../architecture/decisions/0001-data-model-mutability-and-boundary-projection.md)与[治理计划](../../plans/data-model-mutability-governance.md)。
+- [不可变数据模型现状与规划](./architecture/DataModelImmutabilityStatusAndRoadmap.md)：已拆分为[当前数据模型](../../architecture/data-model.md)、[ADR-0001](../../architecture/decisions/0001-data-model-mutability-and-boundary-projection.md)与[数据模型治理](../../governance/data-model/mutability.md)。
 
 ### Protocols 与 i18n
 

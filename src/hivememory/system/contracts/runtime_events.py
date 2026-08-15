@@ -46,6 +46,16 @@ class RuntimeEventType(str, Enum):
     MEMORY_TASK_COMPLETED = "memory.task.completed"
     MEMORY_TASK_FAILED = "memory.task.failed"
 
+    WORK_QUEUED = "work.queued"
+    WORK_STARTED = "work.started"
+    WORK_RETRY_SCHEDULED = "work.retry_scheduled"
+    WORK_SUCCEEDED = "work.succeeded"
+    WORK_FAILED = "work.failed"
+    WORK_DEAD_LETTERED = "work.dead_lettered"
+    WORK_CANCEL_REQUESTED = "work.cancel_requested"
+    WORK_CANCELLED = "work.cancelled"
+    WORK_REJECTED = "work.rejected"
+
     MAINTENANCE_TASK_STARTED = "maintenance.task.started"
     MAINTENANCE_TASK_COMPLETED = "maintenance.task.completed"
     MAINTENANCE_TASK_FAILED = "maintenance.task.failed"

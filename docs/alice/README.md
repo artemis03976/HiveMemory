@@ -176,7 +176,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 - KoakumaAtomCache 与 PendingAtomRuntime 都由 AliceRuntime 进程级共享。L0/L1 alias 命中当前不会再次校验调用 Identity，尚未满足跨用户并发运行所需的隔离；
 - 每次 run 的 frame registry 与 CallRecord 由独立 `RunSession` 持有，stream sequence 由流式输出端口持有；`RunExecutor` 用协程递归表达 CALL 的挂起与重入，不维护单活动 frame 状态机；Chat application 在更上层拥有可取消阶段 task。
 - 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
-- Agent frame、PendingAtom、alias cache 与 Profile cache 均不持久化，进程重启后不能恢复；统一恢复边界见[运行时状态持久化与故障恢复计划](../plans/runtime-state-durability-and-recovery.md)；
+- Agent frame、PendingAtom、alias cache 与 Profile cache 均不持久化，进程重启后不能恢复；统一恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - Alice 当前只有单层 CALL，不具备持久化 DAG、并行 specialist、review loop、配额或 backpressure；
 - Koakuma 的若干配置字段和同步 syscall 仍有实现缺口，RUN 也不是不受信任代码的安全边界，详见 [MTP Runtime](./mtp-runtime.md)；
 - `health()` 目前主要报告 AgentRuntime 与 Koakuma 的固定 `ok`，不探测模型、syscall、缓存隔离或正在运行的 frame。

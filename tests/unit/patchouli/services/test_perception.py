@@ -22,6 +22,9 @@ from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_apply_journal import (
+    InMemoryInteractionApplyJournal,
+)
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
@@ -66,6 +69,7 @@ def _make_real_familiar(
             else f"folded:{len(blocks_to_fold)}"
         )
     )
+    interaction_journal = InMemoryInteractionApplyJournal()
     layer = SemanticFlowPerceptionLayer(
         config=SemanticFlowPerceptionConfig(
             fold_token_threshold=fold_token_threshold,
@@ -73,6 +77,7 @@ def _make_real_familiar(
         ),
         relay_controller=relay,
         short_term_store=store,
+        interaction_journal=interaction_journal,
     )
     bus = Mock()
     bus.request = AsyncMock(return_value=None)
@@ -82,6 +87,7 @@ def _make_real_familiar(
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=idle_timeout_seconds),
         memory_library=library,
+        interaction_journal=interaction_journal,
     )
     return familiar, layer, store, bus
 
@@ -122,6 +128,7 @@ class TestPerceptionFamiliar:
             bus=bus,
             config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
             memory_library=memory_lib,
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
     @pytest.mark.asyncio
@@ -150,6 +157,7 @@ class TestPerceptionFamiliar:
             bus=bus,
             config=SimpleNamespace(idle_timeout_seconds=30),
             memory_library=SimpleNamespace(short_term=store),
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
         result = await familiar.submit_interaction(payload, "t1")
@@ -221,6 +229,7 @@ class TestPerceptionFamiliar:
             bus=bus,
             config=SimpleNamespace(idle_timeout_seconds=30),
             memory_library=SimpleNamespace(short_term=store),
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
         result = await familiar.submit_interaction(payload, "NEW_TOPIC")
@@ -253,6 +262,7 @@ class TestPerceptionFamiliar:
             bus=bus,
             config=SimpleNamespace(idle_timeout_seconds=30),
             memory_library=SimpleNamespace(short_term=store),
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
         result = await familiar.manual_settle_topic()
@@ -263,7 +273,9 @@ class TestPerceptionFamiliar:
     @pytest.mark.asyncio
     async def test_manual_settle_returns_task_for_non_empty_topic(self):
         """验证手动结算非空话题时返回任务"""
-        from hivememory.patchouli.runtime.memory_tasks import MemoryGenerationTask
+        from hivememory.patchouli.control.memory_generation.models import (
+            MemoryGenerationTask,
+        )
         store = Mock()
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
@@ -295,6 +307,7 @@ class TestPerceptionFamiliar:
             bus=bus,
             config=SimpleNamespace(idle_timeout_seconds=30),
             memory_library=SimpleNamespace(short_term=store),
+            interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
         result = await familiar.manual_settle_topic()

@@ -17,6 +17,9 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.core.protocol.models import AgentRunResult, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmissionQueue,
+)
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 
@@ -39,7 +42,7 @@ def _decision(
 def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
     bus = PatchouliBus()
     retrieve = AsyncMock(return_value=RetrievalResponse())
-    submit = AsyncMock()
+    submit = AsyncMock(return_value="topic-1")
     bus.register(
         PatchouliLocalRoutes.GET_AGENT_PROFILE,
         AsyncMock(return_value=OMNI_DOLL_PROFILE),
@@ -62,6 +65,13 @@ def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
     return bus, retrieve, submit
 
 
+def _service(bus: PatchouliBus, submit: AsyncMock) -> PatchouliService:
+    return PatchouliService(
+        bus,
+        interaction_queue=InteractionSubmissionQueue(submit),
+    )
+
+
 @pytest.mark.asyncio
 async def test_prepare_explicit_missing_profile_fails_before_topic_creation() -> None:
     bus = PatchouliBus()
@@ -75,7 +85,7 @@ async def test_prepare_explicit_missing_profile_fails_before_topic_creation() ->
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
 
     with pytest.raises(AliasNotFoundError) as exc_info:
-        await PatchouliService(bus).prepare_agent_run(
+        await _service(bus, AsyncMock(return_value="topic-1")).prepare_agent_run(
             "hello",
             "u1",
             gateway_decision=_decision(),
@@ -95,7 +105,7 @@ async def test_prepare_stores_decision_and_derives_retrieval_request() -> None:
     bus, retrieve, _submit = _prepare_bus()
     decision = _decision(top_k=9)
 
-    prepared = await PatchouliService(bus).prepare_agent_run(
+    prepared = await _service(bus, _submit).prepare_agent_run(
         "原问题",
         "u1",
         gateway_decision=decision,
@@ -119,7 +129,7 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
         }
     )
 
-    prepared = await PatchouliService(bus).prepare_agent_run(
+    prepared = await _service(bus, _submit).prepare_agent_run(
         "你好",
         "u1",
         gateway_decision=decision,
@@ -133,19 +143,25 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
 async def test_finalize_uses_saved_decision_instead_of_legacy_gaze() -> None:
     bus, _retrieve, submit = _prepare_bus()
     decision = _decision()
-    service = PatchouliService(bus)
+    queue = InteractionSubmissionQueue(submit)
+    service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
         "原问题",
         "u1",
         gateway_decision=decision,
     )
 
-    await service.finalize_agent_run(
-        prepared,
-        AgentRunResult(final_text="回答"),
-    )
+    try:
+        await queue.start()
+        await service.finalize_agent_run(
+            prepared,
+            AgentRunResult(final_text="回答"),
+        )
+    finally:
+        await queue.stop()
 
     payload = submit.await_args.args[0]
     assert payload.rewritten_query == decision.rewritten_query
     assert payload.worth_saving is True
     assert payload.assistant_final_text == "回答"
+    assert submit.await_args.kwargs["interaction_id"] == prepared.interaction_id

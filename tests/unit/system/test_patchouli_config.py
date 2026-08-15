@@ -2,10 +2,26 @@
 
 from hivememory.system.config import (
     AdaptiveWeightedFusionConfig,
+    MemoryGenerationConfig,
     MemoryLifecycleConfig,
     PatchouliConfig,
     RetrievalModeConfig,
 )
+
+
+def test_memory_generation_queue_policy_has_local_defaults() -> None:
+    config = MemoryGenerationConfig()
+
+    assert config.queue_capacity == 128
+    assert config.queue_max_concurrency == 2
+    assert config.queue_timeout_seconds == 300.0
+    assert "queue_max_attempts" not in MemoryGenerationConfig.model_fields
+
+
+def test_legacy_memory_generation_retry_config_is_pruned() -> None:
+    config = MemoryGenerationConfig.model_validate({"queue_max_attempts": 3})
+
+    assert "queue_max_attempts" not in config.model_dump()
 
 
 def test_unwired_fields_are_absent_from_patchouli_config_surface() -> None:

@@ -144,7 +144,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 |:---|:---|
 | Chat | `chat.run.*` |
 | Command | `command.executed` |
-| Passive Ingress | `passive.ingress.*`、`passive.memory.context.prepared`、`passive.turn.*` |
+| Passive Ingress | `passive.ingress.*`、`passive.memory.context.prepared`；提交生命周期复用 `work.*` |
 | Gateway | `gateway.workflow.*`、`gateway.step.completed`、`gateway.analysis.capability.completed` |
 | Agent | `agent.run.*` |
 | Memory Task | `memory.task.*` |

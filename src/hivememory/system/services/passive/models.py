@@ -64,9 +64,22 @@ class PassiveConversationKey:
             f"@{self.user_id}:{self.agent_id}:{team}"
         )
 
+    @property
+    def ordering_key(self) -> str:
+        """为通用 submission queue 提供稳定的会话内顺序键。"""
+        return self.label
+
 
 DEFAULT_PASSIVE_SOURCE = "external"
 DEFAULT_EXTERNAL_CONVERSATION_ID = "default"
+
+SealReason = Literal[
+    "next_user",
+    "explicit_final",
+    "idle_timeout",
+    "manual_flush",
+    "shutdown_drain",
+]
 
 
 def _new_external_event_id() -> str:
@@ -134,8 +147,8 @@ class PassiveIngressEvent(BaseModel):
 class PassiveIngressOutcome:
     """被动事件路由结果。
 
-    只承载 service 构造公共响应所需的字段。提交计数与 outbox 深度属于观测量，
-    经 `RuntimeEventSink`（设计 §9）发布，不在 outcome 中重复携带。
+    只承载 service 构造公共响应所需的字段。队列状态属于内部观测量，
+    不在 outcome 中重复携带。
     """
 
     kind: Literal["user", "buffered", "duplicate", "ignored"]
@@ -149,4 +162,5 @@ __all__ = [
     "PassiveConversationKey",
     "PassiveIngressEvent",
     "PassiveIngressOutcome",
+    "SealReason",
 ]

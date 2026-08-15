@@ -21,10 +21,10 @@ from hivememory.core.models.pending import (
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation_coordinator import (
+from hivememory.patchouli.control.memory_generation.coordinator import (
     MemoryGenerationCoordinator,
 )
-from hivememory.patchouli.runtime.memory_tasks import (
+from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
@@ -89,6 +89,109 @@ def _memory_atom(memory_id) -> MemoryAtom:
 
 
 class TestMemoryGenerationCoordinator:
+    @pytest.mark.asyncio
+    async def test_submit_active_delegates_specs_to_batch_entry(self):
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                specs = args[0]
+                assert [spec.pending_alias for spec in specs] == [
+                    "draft_ok",
+                    "draft_rejected",
+                ]
+                return [
+                    _task_handle(
+                        task_id="accepted",
+                        source=MemoryGenerationSource.WRITE,
+                    )
+                ]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active(
+            [_write_task("draft_ok"), _write_task("draft_rejected")],
+            "t1",
+        )
+
+        assert [task.task_id for task in result] == ["accepted"]
+        bus.publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_submit_active_keeps_ambiguous_admission_pending(self):
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                raise ConnectionError("admission response lost")
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active([_write_task("draft_unknown")], "t1")
+
+        assert result == []
+        bus.publish.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_submit_active_returns_tasks_accepted_by_batch_entry(self):
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                specs = args[0]
+                return [
+                    _task_handle(
+                        task_id=spec.pending_alias,
+                        source=MemoryGenerationSource.WRITE,
+                    )
+                    for spec in specs
+                    if spec.pending_alias != "draft_unknown"
+                ]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active(
+            [
+                _write_task("draft_first"),
+                _write_task("draft_unknown"),
+                _write_task("draft_last"),
+            ],
+            "t1",
+        )
+
+        assert [task.task_id for task in result] == ["draft_first", "draft_last"]
+        bus.publish.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_submit_settlement_builds_archive_spec(self):
         bus = Mock()
@@ -162,9 +265,7 @@ class TestMemoryGenerationCoordinator:
         result = await coordinator.submit_active([_write_task("draft_1")], "t1")
 
         assert len(result) == 1
-        specs = bus.request.await_args_list[-1].args[1]
-        assert len(specs) == 1
-        spec = specs[0]
+        spec = bus.request.await_args_list[-1].args[1][0]
         assert spec.source == MemoryGenerationSource.WRITE
         assert spec.pending_alias == "draft_1"
         assert spec.request.is_write is True
@@ -273,14 +374,49 @@ class TestMemoryGenerationCoordinator:
         )
 
         assert len(result) == 1
-        specs = bus.request.await_args_list[-1].args[1]
-        assert len(specs) == 1
-        assert specs[0].source == MemoryGenerationSource.WRITE
-        assert specs[0].pending_alias == "draft_write"
+        spec = bus.request.await_args_list[-1].args[1][0]
+        assert spec.source == MemoryGenerationSource.WRITE
+        assert spec.pending_alias == "draft_write"
         bus.publish.assert_awaited_once_with(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
         )
+
+    @pytest.mark.asyncio
+    async def test_submit_active_isolates_unexpected_spec_build_failure(self):
+        memory_id = uuid4()
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_GET:
+                raise RuntimeError("memory store unavailable")
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                return [_task_handle(source=MemoryGenerationSource.WRITE)]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus)
+
+        result = await coordinator.submit_active(
+            [
+                _write_task("draft_write"),
+                _update_task(str(memory_id), "draft_update"),
+            ],
+            "t1",
+        )
+
+        assert len(result) == 1
+        spec = bus.request.await_args_list[-1].args[1][0]
+        assert spec.pending_alias == "draft_write"
+        bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_submit_active_invalid_update_uuid_marks_pending_failed(self):
