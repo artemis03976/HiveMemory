@@ -1,18 +1,12 @@
-"""ChatApplicationService / PassiveIngressService 委托测试"""
+"""SystemReadinessService 委托测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
 
 import pytest
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    MetaData,
-    PayloadLayer,
 )
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -103,63 +97,6 @@ def mock_global_bus():
 
     bus.request = AsyncMock(side_effect=route_dispatch)
     return bus
-
-
-@pytest.fixture
-def passive_config():
-    scheduler_tasks = MagicMock()
-    scheduler_tasks.observer_idle_flush_timeout_seconds = 30.0
-    scheduler_tasks.observer_idle_flush_interval_seconds = 30.0
-    scheduler_tasks.enable_observer_idle_flush = True
-
-    scheduler = MagicMock()
-    scheduler.tick_seconds = 0.01
-    scheduler.shutdown_wait_seconds = 0.1
-    scheduler.enabled = False
-    scheduler.tasks = scheduler_tasks
-
-    config = MagicMock()
-    config.scheduler = scheduler
-    return config
-
-
-def _make_analysis_result(
-    *,
-    target_topic: str = "NEW_TOPIC",
-    memory: str | None = "<mem>ctx</mem>",
-    worth_saving: bool = True,
-) -> tuple[GatewayDecision, RetrievalResponse]:
-    gateway_decision = GatewayDecision(
-        target_topic_id=target_topic,
-        rewritten_query="resolved query",
-        search_keywords=("resolved",),
-        memory_write_signal=(
-            MemoryWriteSignal.WRITE
-            if worth_saving
-            else MemoryWriteSignal.SKIP
-        ),
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
-    )
-    retrieval_result = RetrievalResponse(
-        memories=[],
-    )
-    _ = memory
-    return gateway_decision, retrieval_result
-
-
-def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
-    return MemoryAtom(
-        id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id=user_id),
-        index=IndexLayer(
-            title=title,
-            summary="A test memory summary",
-            tags=["test"],
-            memory_type=MemoryType.FACT,
-        ),
-        payload=PayloadLayer(content="test content"),
-    )
 
 
 class TestSystemReadinessService:

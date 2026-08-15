@@ -1,18 +1,12 @@
-"""ChatApplicationService / PassiveIngressService 委托测试"""
+"""API 应用服务装配测试。"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    MetaData,
-    PayloadLayer,
 )
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -129,45 +123,6 @@ def passive_config():
     config.scheduler = scheduler
     config.passive_ingress = PassiveIngressConfig()
     return config
-
-
-def _make_analysis_result(
-    *,
-    target_topic: str = "NEW_TOPIC",
-    memory: str | None = "<mem>ctx</mem>",
-    worth_saving: bool = True,
-) -> tuple[GatewayDecision, RetrievalResponse]:
-    gateway_decision = GatewayDecision(
-        target_topic_id=target_topic,
-        rewritten_query="resolved query",
-        search_keywords=("resolved",),
-        memory_write_signal=(
-            MemoryWriteSignal.WRITE
-            if worth_saving
-            else MemoryWriteSignal.SKIP
-        ),
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
-    )
-    retrieval_result = RetrievalResponse(
-        memories=[],
-    )
-    _ = memory
-    return gateway_decision, retrieval_result
-
-
-def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
-    return MemoryAtom(
-        id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id=user_id),
-        index=IndexLayer(
-            title=title,
-            summary="A test memory summary",
-            tags=["test"],
-            memory_type=MemoryType.FACT,
-        ),
-        payload=PayloadLayer(content="test content"),
-    )
 
 
 class TestApiApplicationServices:

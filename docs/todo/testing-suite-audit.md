@@ -17,6 +17,10 @@ last_reviewed: 2026-08-14
 `unit` / `integration` / `e2e` 三个层级，并交叉核对了覆盖率基线（CI 门禁 `--cov-fail-under=85`，
 实测 88.99%）与低覆盖模块。
 
+> **P0/P1 清理后现状**（2026-08-14）：删除 12 个无效/重复/失修测试文件后，剩余约 190 个测试文件；
+> CI（unit + integration）运行 2006 个用例，覆盖率 88.92%（门禁 85% 达标）。清理详情见下方"行动计划"
+> 各阶段的完成状态。
+
 **核心结论**：测试数量充足但有效性分布极不均匀。约一半文件是扎实的行为断言，可作项目参照标准；
 另一半存在"测试数量多但无法发现回归"的问题——恒真断言、同义反复、只验证 mock 调用细节、
 层级错位（mock 冒充集成 / 假 e2e）、被 marker 掩盖的死测试、真实 LLM 条件下的软失败模式等。
@@ -377,27 +381,30 @@ last_reviewed: 2026-08-14
 
 ## 二、行动计划（按优先级）
 
-### P0 - 立即可做（低风险、高收益，删/修不可能失败的测试）
+### P0 - 立即可做（低风险、高收益，删/修不可能失败的测试）✅ 已完成
 
-1. 修复恒真断言与无断言测试：`test_score_normalization`、`test_multiple_filters`（integration/test_retrieval.py）、
+1. ✅ 修复恒真断言与无断言测试：`test_score_normalization`、`test_multiple_filters`（integration/test_retrieval.py）、
    `test_control_flow_refactor_baseline.py` L84 `profile_resolver is profile_resolver`、
    `test_chat_run_control_contract.py` L135、`test_agent_profile_fallback.py` L15-16、
    `test_memory_generation_queue.py` L123-127、`execution_frame` `not hasattr` 系列。
-2. 修复"条件守卫"软断言（e2e 与 live 测试）：把 `if ...: assert ... else: warning` 改为无条件断言。
-3. 删除/重写 integration 目录的 mock 冒充：删除 `fixtures/` 死目录、`test_debug_messages.py`、
+2. ✅ 修复"条件守卫"软断言（e2e 与 live 测试）：把 `if ...: assert ... else: warning` 改为无条件断言。
+3. ✅ 删除/重写 integration 目录的 mock 冒充：删除 `fixtures/` 死目录、`test_debug_messages.py`、
    两个被 skip 的陈旧测试、`test_perception.py` 中恒真 `is not None` 断言。
-4. 删除测试内死代码：各文件的未用变量、重复赋值、未用 import、`test_live_runtime.py` L327-384。
+4. ✅ 删除测试内死代码：各文件的未用变量、重复赋值、未用 import、`test_live_runtime.py` L327-384。
 
-### P1 - 短期（结构调整与归类）
+### P1 - 短期（结构调整与归类）✅ 已完成（遗留 2 项待 P2 重写）
 
-5. 重新归类：
-   - `tests/integration/` → 降级为组件测试（真实 `MemoryLibrary` + 真实文件存储，参照 test_lifecycle.py 做法），
-     或明确并入 unit；真正需要"集成"语义的测试改用真实 Qdrant。
-   - `e2e/component/` 下 `test_lifecycle_e2e.py`、`test_koakuma_e2e.py`、`test_agent_permission_e2e.py`
-     → 去除 e2e 标记移入 `tests/unit/`。
-   - `unit/agent_runtime/` 下 3 个 live 测试文件 → 修复构造签名或移入 e2e 目录。
-6. 修复 `application/` 5 个文件的 docstring 与死代码；修复 `core/mtp/` 三个文件的 docstring 与未用 import；
+5. ✅ 重新归类：
+   - `tests/integration/` → 去重分析后删除 3 个与 unit 完全重复的 mock 文件（test_generation/test_retrieval/test_perception），
+     仅保留 test_lifecycle.py（真实 `MemoryLibrary` + `FileBasedStorageAdapter`，唯一真正的集成测试）。
+   - `e2e/component/` 下 `test_lifecycle_e2e.py`、`test_agent_permission_e2e.py` → 去 e2e 标记移入 `tests/unit/`；
+     `test_koakuma_e2e.py` 移动后发现 mock 方式过时（`MemoryCompiler` 不接受 MagicMock）→ 撤销移动，待 P2 重写。
+   - `unit/agent_runtime/` 下 3 个 live 测试文件 + `live_support.py` → 构造签名过时且依赖真实 LLM，整体删除，待 P2 按新 bus 架构重写。
+6. ✅ 修复 `application/` 5 个文件的 docstring 与死代码；修复 `core/mtp/` 三个文件的 docstring 与未用 import；
    修正 `test_trace_reducer.py` 命名（"WRITE/UPDATE/CALL → 保留"）。
+
+> **P1 遗留（待 P2）**：① `test_koakuma_e2e.py`（需把 MagicMock 重写为真实 MemoryAtom）；② 3 个 live 测试
+> （需按新 bus 架构 + 真实对象重写，并需真实 LLM 环境验证）。
 
 ### P2 - 中期（补真实缺口的测试）
 
@@ -434,7 +441,7 @@ last_reviewed: 2026-08-14
 
 ## 四、完成条件
 
-- P0 全部完成：测试套件中不再存在恒真/无断言/恒绿测试；
-- P1 完成：integration 与 e2e 目录的层级语义真实，无 mock 冒充；
+- P0 全部完成 ✅：测试套件中不再存在恒真/无断言/恒绿测试；
+- P1 完成 ✅（遗留 test_koakuma_e2e.py 与 live 测试重写待 P2）：integration 与 e2e 目录的层级语义真实，无 mock 冒充；
 - P2 完成：CI 运行所有本应运行的层级，低覆盖关键模块补测到位；
 - P3 部分完成：FLAKY 类测试可控化，测试规范文档落地。

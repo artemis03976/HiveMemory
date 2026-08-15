@@ -1,8 +1,8 @@
 """
-Agent 权限端到端测试
+Agent 权限链路单元测试。
 
 测试覆盖:
-- 端到端权限链路: profile → prompt 过滤 → Koakuma 拦截
+- 权限链路: profile → prompt 过滤 → Koakuma 拦截
 - 限制性 profile 阻止越权操作
 - 未指定 profile 时使用显式能力边界的 Omni-Doll
 - Prompt 不显示禁止的动词和工具

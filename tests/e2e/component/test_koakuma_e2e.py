@@ -1,14 +1,4 @@
-"""
-Koakuma MTP 运行时集成测试
-
-测试覆盖:
-- KoakumaRuntime 的 MTP 指令端到端执行流程
-- intercept_and_execute 的 Stop Sequence 拦截
-- 各指令处理器的错误处理
-- 与 PatchouliRuntime 的集成
-
-对应设计文档: MemoryToolProtocol.md Chapter 3
-"""
+"""Koakuma MTP 运行时测试（待修复：mock 方式过时，需用真实 MemoryAtom 替代 MagicMock）。"""
 
 import pytest
 
@@ -22,6 +12,8 @@ from hivememory.core.mtp import (
     MTPVerb,
 )
 from hivememory.core.protocol.models import MTPExecutionResult, RetrievalResponse
+from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
 
@@ -74,8 +66,12 @@ def koakuma(mock_kernel) -> KoakumaRuntime:
     return KoakumaRuntime(
         bus=mock_bus,
         config=config,
+        alias_resolver=RuntimeAliasResolver(
+            pending_runtime=PendingAtomRuntime(),
+            atom_cache=KoakumaAtomCache(),
+            bus=mock_bus,
+        ),
     )
-# PLACEHOLDER_KOAKUMA_TESTS
 
 
 # ========== 基础执行测试 ==========
@@ -83,7 +79,8 @@ def koakuma(mock_kernel) -> KoakumaRuntime:
 class TestKoakumaExecution:
     """测试 Koakuma MTP 指令执行"""
 
-    def test_execute_search_success(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_execute_search_success(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 SEARCH 指令成功执行"""
         # Mock Retrieval 返回结果
         mock_result = MagicMock()
@@ -91,39 +88,43 @@ class TestKoakumaExecution:
         mock_result.memories = [self._make_mock_memory("test_doc", "Test document")]
         mock_kernel.retrieval.retrieve.return_value = mock_result
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
+        result = await koakuma.execute_mtp('⟪ SEARCH | * | query="test" ⟫')
 
         assert result.success is True
         assert result.response_status == "success"
         assert "[Menu]:" in result.response_content
         mock_kernel.retrieval.retrieve.assert_called_once()
 
-    def test_execute_search_no_results(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_execute_search_no_results(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 SEARCH 无结果"""
         mock_result = MagicMock()
         mock_result.is_empty.return_value = True
         mock_kernel.retrieval.retrieve.return_value = mock_result
 
-        result = koakuma.execute_mtp('⟪ SEARCH | * | query="nonexistent" ⟫')
+        result = await koakuma.execute_mtp('⟪ SEARCH | * | query="nonexistent" ⟫')
 
         assert result.success is True
         assert "No memories found" in result.response_content
 
-    def test_execute_search_missing_query(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_search_missing_query(self, koakuma: KoakumaRuntime):
         """测试 SEARCH 缺少 query 参数"""
-        result = koakuma.execute_mtp("⟪ SEARCH | * | ⟫")
+        result = await koakuma.execute_mtp("⟪ SEARCH | * | ⟫")
 
         assert result.success is False
         assert "query" in result.response_content.lower()
 
-    def test_execute_read_alias_not_found(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_read_alias_not_found(self, koakuma: KoakumaRuntime):
         """测试 READ 别名未找到"""
-        result = koakuma.execute_mtp("⟪ READ | nonexistent_alias | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | nonexistent_alias | ⟫")
 
         assert result.success is False
         assert "not found" in result.response_content
 
-    def test_execute_read_with_resolved_alias(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_execute_read_with_resolved_alias(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 READ 已注册别名 - 从 storage 读取完整 Payload"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000123",
@@ -135,36 +136,40 @@ class TestKoakumaExecution:
         mock_memory.payload.content = "This is the API specification for login."
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert result.success is True
         assert "API specification for login" in result.response_content
         mock_kernel.storage.get_memory_by_alias.assert_not_called()
 
-    def test_execute_read_wildcard_rejected(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_read_wildcard_rejected(self, koakuma: KoakumaRuntime):
         """测试 READ 拒绝通配符"""
-        result = koakuma.execute_mtp("⟪ READ | * | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | * | ⟫")
 
         assert result.success is False
         assert "wildcard" in result.response_content.lower()
 
-    def test_execute_run_sys_clock(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_run_sys_clock(self, koakuma: KoakumaRuntime):
         """测试 RUN 指令执行 sys_clock"""
-        result = koakuma.execute_mtp('⟪ RUN | sys_clock | ⟫')
+        result = await koakuma.execute_mtp('⟪ RUN | sys_clock | ⟫')
 
         assert result.success is True
         assert "UTC" in result.response_content
 
-    def test_execute_run_unknown_tool(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_run_unknown_tool(self, koakuma: KoakumaRuntime):
         """测试 RUN 未知工具"""
-        result = koakuma.execute_mtp('⟪ RUN | nonexistent_tool | ⟫')
+        result = await koakuma.execute_mtp('⟪ RUN | nonexistent_tool | ⟫')
 
         assert result.success is False
         assert "not found" in result.response_content.lower()
 
-    def test_execute_write_success(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_write_success(self, koakuma: KoakumaRuntime):
         """测试 WRITE 指令 ACK"""
-        result = koakuma.execute_mtp(
+        result = await koakuma.execute_mtp(
             '⟪ WRITE | * | title="Test" content=`hello world` ⟫'
         )
 
@@ -172,38 +177,42 @@ class TestKoakumaExecution:
         assert result.response_status == "ack"
         assert "saved" in result.response_content.lower()
 
-    def test_execute_write_missing_content(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_write_missing_content(self, koakuma: KoakumaRuntime):
         """测试 WRITE 缺少 content"""
-        result = koakuma.execute_mtp('⟪ WRITE | * | title="Test" ⟫')
+        result = await koakuma.execute_mtp('⟪ WRITE | * | title="Test" ⟫')
 
         assert result.success is False
         assert "content" in result.response_content.lower()
 
-    def test_execute_update_success(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_update_success(self, koakuma: KoakumaRuntime):
         """测试 UPDATE 指令 ACK"""
         _register_cached_alias(
             koakuma, "fact_old", "00000000-0000-0000-0000-000000000123"
         )
 
-        result = koakuma.execute_mtp(
+        result = await koakuma.execute_mtp(
             '⟪ UPDATE | fact_old | instruction=`new_value=42` ⟫'
         )
 
         assert result.success is True
         assert result.response_status == "ack"
 
-    def test_execute_update_alias_not_found(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_update_alias_not_found(self, koakuma: KoakumaRuntime):
         """测试 UPDATE 别名未找到"""
-        result = koakuma.execute_mtp(
+        result = await koakuma.execute_mtp(
             '⟪ UPDATE | nonexistent | instruction=`fix` ⟫'
         )
 
         assert result.success is False
         assert "not found" in result.response_content
 
-    def test_execute_parse_error(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execute_parse_error(self, koakuma: KoakumaRuntime):
         """测试解析错误处理"""
-        result = koakuma.execute_mtp("⟪ INVALID_VERB | * | ⟫")
+        result = await koakuma.execute_mtp("⟪ INVALID_VERB | * | ⟫")
 
         assert result.success is False
         assert result.command is None
@@ -225,19 +234,21 @@ class TestKoakumaExecution:
 class TestKoakumaRead:
     """测试 Koakuma READ 指令的 storage 读取与并发"""
 
-    def test_read_memory_not_found_in_storage(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_read_memory_not_found_in_storage(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 storage 中找不到记忆 (已删除/归档)"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
         mock_kernel.storage.get_memory_by_alias.return_value = None
 
-        result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert result.success is False
         assert "not found" in result.response_content.lower()
 
-    def test_read_multiple_aliases_concurrent(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_read_multiple_aliases_concurrent(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试列表目标并发读取"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001", "Content of memory A"
@@ -246,13 +257,14 @@ class TestKoakumaRead:
             koakuma, "fact_b", "00000000-0000-0000-0000-000000000002", "Content of memory B"
         )
 
-        result = koakuma.execute_mtp("⟪ READ | [fact_a, fact_b] | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | [fact_a, fact_b] | ⟫")
 
         assert result.success is True
         assert "Content of memory A" in result.response_content
         assert "Content of memory B" in result.response_content
 
-    def test_read_mixed_resolved_and_unresolved(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_read_mixed_resolved_and_unresolved(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试部分别名有效、部分无效"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001", "Valid content"
@@ -263,25 +275,27 @@ class TestKoakumaRead:
         mock_memory.payload.content = "Valid content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        result = koakuma.execute_mtp("⟪ READ | [fact_a, fact_b] | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | [fact_a, fact_b] | ⟫")
 
         assert result.success is True
         assert "Valid content" in result.response_content
         assert "fact_b" in result.response_content
         assert "not found" in result.response_content
 
-    def test_read_storage_exception(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_read_storage_exception(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试 storage 读取异常被优雅处理"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
         )
         mock_kernel.storage.get_memory_by_alias.side_effect = Exception("Connection refused")
 
-        result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert result.success is True
 
-    def test_read_payload_content_format(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_read_payload_content_format(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试读取结果的格式: [alias]:\\n{content}"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001",
@@ -291,7 +305,7 @@ class TestKoakumaRead:
         mock_memory.payload.content = "def login(user):\n    return True"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert result.success is True
         assert result.response_content.startswith("[fact_a]:")
@@ -303,7 +317,8 @@ class TestKoakumaRead:
 class TestKoakumaInterception:
     """测试 Koakuma Stop Sequence 拦截 (Section 3.1)"""
 
-    def test_intercept_with_mtp_command(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_intercept_with_mtp_command(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试拦截包含 MTP 指令的文本"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
@@ -313,19 +328,21 @@ class TestKoakumaInterception:
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         text = f"Let me check the documentation. ⟪ READ | fact_a | {MTP_RIGHT_DELIMITER}"
-        result = koakuma.intercept_and_execute(text)
+        result = await koakuma.intercept_and_execute(text)
 
         assert result is not None
         assert result.success is True
 
-    def test_intercept_no_command(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_intercept_no_command(self, koakuma: KoakumaRuntime):
         """测试无 MTP 指令时返回 None"""
         text = "Just some normal text without any commands."
-        result = koakuma.intercept_and_execute(text)
+        result = await koakuma.intercept_and_execute(text)
 
         assert result is None
 
-    def test_intercept_extracts_last_command(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_intercept_extracts_last_command(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试提取最后一个 MTP 指令"""
         _register_cached_alias(
             koakuma, "fact_b", "00000000-0000-0000-0000-000000000002"
@@ -335,7 +352,7 @@ class TestKoakumaInterception:
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
         text = f"Previous text... ⟪ READ | fact_b | {MTP_RIGHT_DELIMITER}"
-        result = koakuma.intercept_and_execute(text)
+        result = await koakuma.intercept_and_execute(text)
 
         assert result is not None
         assert result.command is not None
@@ -347,7 +364,8 @@ class TestKoakumaInterception:
 class TestKoakumaResponseFormatting:
     """测试 Koakuma 响应格式化 (Section 3.3)"""
 
-    def test_formatted_response_contains_xml(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_formatted_response_contains_xml(self, koakuma: KoakumaRuntime, mock_kernel):
         """测试回填文本包含 XML 响应容器"""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
@@ -356,12 +374,13 @@ class TestKoakumaResponseFormatting:
         mock_memory.payload.content = "test content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert "<mtp_response" in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 
-    def test_formatted_response_excludes_command_text(self, koakuma: KoakumaRuntime, mock_kernel):
+    @pytest.mark.asyncio
+    async def test_formatted_response_excludes_command_text(self, koakuma: KoakumaRuntime, mock_kernel):
         """MTP command text is structural metadata and is not repeated in backfill."""
         _register_cached_alias(
             koakuma, "fact_a", "00000000-0000-0000-0000-000000000001"
@@ -370,13 +389,14 @@ class TestKoakumaResponseFormatting:
         mock_memory.payload.content = "test content"
         mock_kernel.storage.get_memory_by_alias.return_value = mock_memory
 
-        result = koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
+        result = await koakuma.execute_mtp("⟪ READ | fact_a | ⟫")
 
         assert MTP_LEFT_DELIMITER not in result.formatted_response
         assert "<mtp_response" in result.formatted_response
 
-    def test_execution_time_tracked(self, koakuma: KoakumaRuntime):
+    @pytest.mark.asyncio
+    async def test_execution_time_tracked(self, koakuma: KoakumaRuntime):
         """测试执行耗时被记录"""
-        result = koakuma.execute_mtp("⟪ SEARCH | * | ⟫")
+        result = await koakuma.execute_mtp("⟪ SEARCH | * | ⟫")
 
         assert result.execution_time_ms > 0

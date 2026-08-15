@@ -1,5 +1,5 @@
 """
-HiveMemory Lifecycle Component E2E Tests
+HiveMemory Lifecycle 组件单元测试。
 
 测试 Lifecycle (生命周期引擎) 的核心逻辑。
 
@@ -8,16 +8,10 @@ HiveMemory Lifecycle Component E2E Tests
     - Group 2: 强化事件测试 (Reinforcement)
     - Group 3: 归档与唤醒测试 (Archiving)
 
-运行方式：
-    pytest tests/components/test_lifecycle_e2e.py -v
-
 核心原则：
     - 使用 Mock Storage 模拟 Qdrant
     - 使用 Mock Clock 模拟时间流逝
     - 验证评分公式、强化机制、归档流程
-
-作者: HiveMemory Team
-版本: 1.0.0
 """
 
 import sys
@@ -52,13 +46,8 @@ logging.basicConfig(
 
 import pytest
 
-pytestmark = pytest.mark.e2e
 from rich.console import Console
 from rich.panel import Panel
-
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型
 from hivememory.core.models import MemoryAtom, MemoryType
