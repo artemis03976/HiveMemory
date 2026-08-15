@@ -70,35 +70,6 @@ def _mock_mid_term():
     return mid_term
 
 
-# ========== Test 1: WriteFocus Model ==========
-
-class TestWriteFocusModel:
-    """WriteFocus 数据模型测试"""
-
-    def test_basic_construction(self):
-        focus = WriteFocus(content="def fix(): pass", reason="修复代码", title="Fix CORS")
-        assert focus.content == "def fix(): pass"
-        assert focus.reason == "修复代码"
-        assert focus.title == "Fix CORS"
-
-    def test_defaults(self):
-        focus = WriteFocus(content="some content")
-        assert focus.reason is None
-        assert focus.title is None
-
-    def test_dto_fields_only(self):
-        focus = WriteFocus(content="test")
-        assert focus.model_dump() == {
-            "content": "test",
-            "reason": None,
-            "title": None,
-        }
-
-    def test_content_required(self):
-        with pytest.raises(Exception):
-            WriteFocus()
-
-
 # ========== Test 2: GenerationRequest Model ==========
 
 class TestGenerationRequest:

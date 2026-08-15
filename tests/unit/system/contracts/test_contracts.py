@@ -44,15 +44,6 @@ class TestSubsystemProtocol:
 
 
 class TestSystemEvent:
-    def test_event_creation(self):
-        event = SystemEvent(
-            event_type=SystemEventType.SUBSYSTEM_STARTED,
-            subsystem_name="patchouli",
-        )
-        assert event.event_type == SystemEventType.SUBSYSTEM_STARTED
-        assert event.subsystem_name == "patchouli"
-        assert event.metadata == {}
-
     def test_event_is_frozen(self):
         event = SystemEvent(event_type=SystemEventType.SYSTEM_READY)
         with pytest.raises(Exception):

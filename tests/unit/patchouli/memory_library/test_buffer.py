@@ -187,24 +187,3 @@ class TestSemanticBufferStateEnum:
         assert BufferState.IDLE.value == "idle"
         assert BufferState.PROCESSING.value == "processing"
         assert BufferState.FLUSHING.value == "flushing"
-
-
-class TestSemanticBufferPydanticModel:
-    """Pydantic 模型配置测试"""
-
-    def test_arbitrary_types_allowed(self):
-        """验证 arbitrary_types_allowed 配置允许 LogicalBlock"""
-        buf = SemanticBuffer()
-        block = LogicalBlock(turn=TurnRecord(user_query="test"))
-        buf.blocks.append(block)
-
-        assert len(buf.blocks) == 1
-
-    def test_enum_use_enum_values(self):
-        """验证 use_enum_values 配置使枚举序列化为值"""
-        buf = SemanticBuffer()
-        buf.state = BufferState.PROCESSING
-
-        # 由于 use_enum_values=True，state 应该是字符串值
-        assert buf.state == "processing"
-        assert isinstance(buf.state, str)

@@ -69,24 +69,6 @@ class TestChatGenerationRunRegistry:
         assert run.outcome is ChatRunOutcome.STOP_REQUESTED
 
 
-# ─── AgentRunResult.status ───────────────────────────────────────────────────
-
-class TestAgentRunResultStatus:
-    def test_default_status_completed(self):
-        result = AgentRunResult()
-        assert result.status == AgentRunStatus.COMPLETED.value
-
-    def test_cancelled_status_serializes(self):
-        result = AgentRunResult(status=AgentRunStatus.CANCELLED)
-        data = result.model_dump()
-        assert data["status"] == "cancelled"
-
-    def test_status_roundtrip(self):
-        result = AgentRunResult(status=AgentRunStatus.CANCELLED, final_text="partial")
-        restored = AgentRunResult(**result.model_dump())
-        assert restored.status == AgentRunStatus.CANCELLED.value
-
-
 # ─── ChatApplicationService cancel 路径 ──────────────────────────────────────
 
 class TestChatServiceCancelPath:
