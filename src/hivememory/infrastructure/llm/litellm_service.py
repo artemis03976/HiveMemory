@@ -267,53 +267,6 @@ class LiteLLMService(SingletonLLMService):
 
         return None
 
-
-# ========== 工厂函数 ==========
-
-def get_gateway_llm_service(
-    config: LLMConfig,
-) -> LiteLLMService:
-    """
-    获取 Gateway LLM 服务实例
-
-    用于路由与指代消解等场景。
-
-    Args:
-        config: LLM 配置对象（必须提供）
-
-    Returns:
-        LiteLLMService: Gateway LLM 服务实例
-    """
-    if config is None:
-        raise ValueError("config is required for get_gateway_llm_service")
-
-    return LiteLLMService(config=config)
-
-
-def get_librarian_llm_service(
-    config: LLMConfig = None,
-) -> LiteLLMService:
-    """
-    获取 Librarian LLM 服务实例（单例）
-
-    用于记忆提取等任务。
-
-    Args:
-        config: LLM 配置对象（None 则自动加载全局配置）
-
-    Returns:
-        LiteLLMService: Librarian LLM 服务实例
-    """
-    from hivememory.system.config import load_app_config
-
-    if config is None:
-        config = load_app_config().get_librarian_llm_config()
-
-    return LiteLLMService(config=config)
-
-
-    # ========== Async 方法 (Concurrent.md 热链路) ==========
-
     async def acomplete(
         self,
         messages: List[Dict[str, str]],
@@ -361,7 +314,7 @@ def get_librarian_llm_service(
         else:
             logger.info(f"LLM 调用成功 (model={self.model})")
 
-        logger.debug(f"LLM 匽应长度: {len(content)} 字符")
+        logger.debug(f"LLM 响应长度: {len(content)} 字符")
 
         return content
 
@@ -389,6 +342,50 @@ def get_librarian_llm_service(
             except Exception as e:
                 logger.warning(f"LLM 调用失败 (async, 尝试 {attempt + 1}/{max_retries}): {e}")
         return None
+
+
+# ========== 工厂函数 ==========
+
+def get_gateway_llm_service(
+    config: LLMConfig,
+) -> LiteLLMService:
+    """
+    获取 Gateway LLM 服务实例
+
+    用于路由与指代消解等场景。
+
+    Args:
+        config: LLM 配置对象（必须提供）
+
+    Returns:
+        LiteLLMService: Gateway LLM 服务实例
+    """
+    if config is None:
+        raise ValueError("config is required for get_gateway_llm_service")
+
+    return LiteLLMService(config=config)
+
+
+def get_librarian_llm_service(
+    config: LLMConfig = None,
+) -> LiteLLMService:
+    """
+    获取 Librarian LLM 服务实例（单例）
+
+    用于记忆提取等任务。
+
+    Args:
+        config: LLM 配置对象（None 则自动加载全局配置）
+
+    Returns:
+        LiteLLMService: Librarian LLM 服务实例
+    """
+    from hivememory.system.config import load_app_config
+
+    if config is None:
+        config = load_app_config().get_librarian_llm_config()
+
+    return LiteLLMService(config=config)
 
 
 __all__ = [
