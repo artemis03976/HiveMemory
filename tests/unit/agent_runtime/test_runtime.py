@@ -53,21 +53,30 @@ def test_agent_runtime_builds_engine_facade():
     )
 
     assert isinstance(runtime._loop_executor, AgentLoopExecutor)
-    assert runtime._loop_executor._mtp_executor is mtp_executor
-    assert runtime._max_iterations == config.alice.runtime.max_loop_iterations
+    assert runtime.max_iterations == config.alice.runtime.max_loop_iterations
 
 
-def test_agent_runtime_accepts_injected_loop_executor():
-    """门面支持注入预构建的 loop_executor（测试/高级装配 seam）。"""
-    injected = MagicMock()
-
+@pytest.mark.asyncio
+async def test_agent_runtime_uses_injected_loop_executor():
+    """门面使用注入的 loop_executor 执行帧（行为级验证注入 seam）。"""
+    result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    loop_executor = SimpleNamespace(
+        config=SimpleNamespace(max_loop_iterations=8),
+        execute_frame=AsyncMock(return_value=result),
+    )
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
-        loop_executor=injected,
+        loop_executor=loop_executor,
     )
 
-    assert runtime._loop_executor is injected
+    actual = await runtime.run_frame(
+        _frame(),
+        output_sink=NullFrameOutputSink(),
+    )
+
+    assert actual is result
+    loop_executor.execute_frame.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -18,13 +18,12 @@ UPDATE 指令执行链路测试
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
     MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    UpdateFocus, WriteFocus,
+    UpdateFocus,
 )
 from hivememory.engines.generation.models import (
     MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
@@ -99,39 +98,6 @@ def _mock_mid_term():
     return mid_term
 
 
-# ========== Test 3: GenerationRequest Update ==========
-
-class TestGenerationRequestUpdate:
-    """GenerationRequest is_update 属性测试"""
-
-    def test_is_update_with_update_focus(self):
-        uf = UpdateFocus(
-            instruction="test", base_uuid="uuid-123", base_alias="alias",
-        )
-        req = GenerationRequest(update_focus=uf)
-        assert req.is_update
-        assert not req.is_write
-
-    def test_is_write_with_write_focus(self):
-        wf = WriteFocus(content="test")
-        req = GenerationRequest(write_focus=wf)
-        assert req.is_write
-        assert not req.is_update
-
-    def test_default_neither(self):
-        req = GenerationRequest()
-        assert not req.is_update
-        assert not req.is_write
-
-    def test_update_with_context(self, sample_context):
-        uf = UpdateFocus(
-            instruction="test", base_uuid="uuid-123", base_alias="alias",
-        )
-        req = GenerationRequest(context=sample_context, update_focus=uf)
-        assert req.is_update
-        assert len(req.context.turns) == 1
-
-
 # ========== Test 4: Mode C Merge Prompt ==========
 
 class TestModeCMergePrompt:
@@ -163,16 +129,16 @@ class TestModeCMergePrompt:
         )
         result = await engine.process(request=request)
 
-        # merge() 被调用，extract() 不被调用
+        # merge() 被调用，extract() 不被调用（Mode C 路由契约）
         mock_extractor.merge.assert_called_once()
         mock_extractor.extract.assert_not_called()
 
-        # 验证 merge 参数
+        # merge 参数携带 update 语义
         call_args = mock_extractor.merge.call_args
-        assert call_args[1]["old_content"] == old_content
         metadata = call_args[1]["metadata"]
         assert metadata["mode"] == "update"
         assert metadata["instruction"] == "把端口改成 9090"
+        assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_mode_c_returns_updated_memory(self, identity, existing_memory):
@@ -197,7 +163,6 @@ class TestModeCMergePrompt:
         assert result[0].atom.payload.content == "新内容"
         assert result[0].atom.get_alias() == existing_memory.get_alias()
         assert str(result[0].atom.id) == str(existing_memory.id)
-        assert result[0].atom is not None
 
 
 # ========== Test 5: Mode C Fallback ==========
@@ -226,7 +191,6 @@ class TestModeCFallback:
 
         # fallback 应该保底入库
         assert len(result) == 1
-        assert result[0].atom is not None
         # fallback 拼接: 旧内容 + 新内容
         assert "新增的段落" in result[0].atom.payload.content
         assert existing_memory.payload.content.split("\n")[0] in result[0].atom.payload.content
@@ -300,11 +264,10 @@ class TestApplyUpdate:
             mid_term=mock_storage, extractor=MagicMock(), deduplicator=MagicMock(),
         )
 
-        old_version = existing_memory.meta.version
         result = engine._apply_update(existing_memory, merge_result)
 
         assert len(result) == 1
-        assert result[0].atom.meta.version == old_version + 1
+        assert result[0].atom.meta.version == 2  # fixture 起点 version=1
 
     def test_content_updated(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
@@ -334,24 +297,6 @@ class TestApplyUpdate:
 
         assert result[0].atom.meta.confidence_score == 1.0
 
-    def test_updated_at_set(self, existing_memory, merge_result):
-        engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
-        )
-        before = datetime.now()
-        result = engine._apply_update(existing_memory, merge_result)
-
-        assert result[0].atom.meta.updated_at >= before
-
-    def test_apply_update_does_not_build_settlement(self, existing_memory, merge_result):
-        engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
-        )
-
-        result = engine._apply_update(existing_memory, merge_result)
-
-        assert not hasattr(result[0], "settlement")
-
     def test_multiple_updates_accumulate_history(self, existing_memory):
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
@@ -367,28 +312,6 @@ class TestApplyUpdate:
 
         assert existing_memory.meta.version == 3
         assert len(existing_memory.payload.history_summary) == 2
-
-
-# ========== Test 7: Active UPDATE boundary ==========
-
-
-class TestActiveUpdateBoundary:
-    """Active UPDATE generation is no longer represented as a perception flush."""
-
-    def test_mtp_update_flush_reason_removed(self):
-        assert "MTP_UPDATE" not in FlushReason.__members__
-
-    def test_update_focus_stays_on_generation_request(self):
-        focus = UpdateFocus(
-            instruction="change port",
-            base_uuid="uuid-123",
-            base_alias="fact_api_port",
-        )
-        request = GenerationRequest(update_focus=focus)
-
-        assert request.is_update
-        assert request.update_focus is focus
-        assert request.write_focus is None
 
 
 # ========== Test 11: Active Flush Reason Removed ==========

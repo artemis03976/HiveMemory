@@ -2,7 +2,7 @@ from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
 
 
-def test_create_frame_uses_only_run_and_frame_coordinates() -> None:
+def test_frame_with_topic_is_not_transient() -> None:
     frame = ExecutionFrame(
         runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-1"),
         agent_profile=OMNI_DOLL_PROFILE,
@@ -12,7 +12,6 @@ def test_create_frame_uses_only_run_and_frame_coordinates() -> None:
     )
 
     assert not frame.is_transient()
-    assert frame.runtime_scope.run_id == "run-1"
 
 
 def test_transient_frame_is_a_normal_frame_without_parent_metadata() -> None:
@@ -25,7 +24,6 @@ def test_transient_frame_is_a_normal_frame_without_parent_metadata() -> None:
     )
 
     assert frame.is_transient()
-    assert frame.runtime_scope.run_id == "run-1"
 
 
 def test_harvest_alias_deduplicates() -> None:

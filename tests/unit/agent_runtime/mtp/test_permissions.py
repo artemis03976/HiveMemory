@@ -34,9 +34,9 @@ class TestCheckVerbPermission:
         koakuma = _create_koakuma()
         context = _context(_make_profile(allowed_verbs=["READ", "SEARCH", "WRITE"]))
 
-        koakuma._check_verb_permission("READ", context=context)
-        koakuma._check_verb_permission("SEARCH", context=context)
-        koakuma._check_verb_permission("WRITE", context=context)
+        assert koakuma._check_verb_permission("READ", context=context) is None
+        assert koakuma._check_verb_permission("SEARCH", context=context) is None
+        assert koakuma._check_verb_permission("WRITE", context=context) is None
 
     def test_verb_denied_raises_exception(self):
         koakuma = _create_koakuma()
@@ -52,16 +52,16 @@ class TestCheckVerbPermission:
         koakuma = _create_koakuma()
         context = _context(_make_profile(allowed_verbs=["read", "search"]))
 
-        koakuma._check_verb_permission("READ", context=context)
-        koakuma._check_verb_permission("SEARCH", context=context)
-        koakuma._check_verb_permission("read", context=context)
-        koakuma._check_verb_permission("search", context=context)
+        assert koakuma._check_verb_permission("READ", context=context) is None
+        assert koakuma._check_verb_permission("SEARCH", context=context) is None
+        assert koakuma._check_verb_permission("read", context=context) is None
+        assert koakuma._check_verb_permission("search", context=context) is None
 
     def test_no_profile_allows_all_verbs(self):
         koakuma = _create_koakuma()
 
         for verb in ["READ", "WRITE", "UPDATE", "RUN", "SEARCH"]:
-            koakuma._check_verb_permission(verb, context=_context())
+            assert koakuma._check_verb_permission(verb, context=_context()) is None
 
     def test_empty_verb_list_denies_all(self):
         koakuma = _create_koakuma()
@@ -77,8 +77,8 @@ class TestCheckToolPermission:
         koakuma = _create_koakuma()
         context = _context(_make_profile(allowed_tools=["sys_clock", "sys_read_file"]))
 
-        koakuma._check_tool_permission("sys_clock", context=context)
-        koakuma._check_tool_permission("sys_read_file", context=context)
+        assert koakuma._check_tool_permission("sys_clock", context=context) is None
+        assert koakuma._check_tool_permission("sys_read_file", context=context) is None
 
     def test_tool_denied_raises_exception(self):
         koakuma = _create_koakuma()
@@ -94,7 +94,7 @@ class TestCheckToolPermission:
         koakuma = _create_koakuma()
         context = _context(_make_profile(allowed_tools=["sys_clock"]))
 
-        koakuma._check_tool_permission("sys_clock", context=context)
+        assert koakuma._check_tool_permission("sys_clock", context=context) is None
         with pytest.raises(PermissionDeniedError):
             koakuma._check_tool_permission("SYS_CLOCK", context=context)
 
@@ -102,7 +102,7 @@ class TestCheckToolPermission:
         koakuma = _create_koakuma()
 
         for tool in ["sys_clock", "sys_bash_exec", "sys_web_search", "sys_python_repl"]:
-            koakuma._check_tool_permission(tool, context=_context())
+            assert koakuma._check_tool_permission(tool, context=_context()) is None
 
     def test_empty_tool_list_denies_all(self):
         koakuma = _create_koakuma()
@@ -150,27 +150,14 @@ class TestCombinedPermissions:
             allowed_tools=["sys_clock"],
         ))
 
-        koakuma._check_verb_permission("READ", context=context)
-        koakuma._check_verb_permission("SEARCH", context=context)
-        koakuma._check_tool_permission("sys_clock", context=context)
+        assert koakuma._check_verb_permission("READ", context=context) is None
+        assert koakuma._check_verb_permission("SEARCH", context=context) is None
+        assert koakuma._check_tool_permission("sys_clock", context=context) is None
 
         with pytest.raises(PermissionDeniedError):
             koakuma._check_verb_permission("WRITE", context=context)
         with pytest.raises(PermissionDeniedError):
             koakuma._check_tool_permission("sys_bash_exec", context=context)
-
-    def test_reviewer_profile_scenario(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_tools=["sys_clock"],
-        ))
-
-        koakuma._check_verb_permission("READ", context=context)
-        koakuma._check_verb_permission("SEARCH", context=context)
-
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE", context=context)
         with pytest.raises(PermissionDeniedError):
             koakuma._check_tool_permission("sys_write_file", context=context)
 
@@ -181,9 +168,9 @@ class TestCombinedPermissions:
             allowed_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
         ))
 
-        koakuma._check_verb_permission("READ", context=context)
-        koakuma._check_verb_permission("WRITE", context=context)
-        koakuma._check_verb_permission("RUN", context=context)
-        koakuma._check_tool_permission("sys_read_file", context=context)
-        koakuma._check_tool_permission("sys_write_file", context=context)
-        koakuma._check_tool_permission("sys_python_repl", context=context)
+        assert koakuma._check_verb_permission("READ", context=context) is None
+        assert koakuma._check_verb_permission("WRITE", context=context) is None
+        assert koakuma._check_verb_permission("RUN", context=context) is None
+        assert koakuma._check_tool_permission("sys_read_file", context=context) is None
+        assert koakuma._check_tool_permission("sys_write_file", context=context) is None
+        assert koakuma._check_tool_permission("sys_python_repl", context=context) is None

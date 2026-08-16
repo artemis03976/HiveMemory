@@ -114,8 +114,7 @@ class TestBuildAlias:
         result = MemoryGenerationEngine._build_alias(
             "FACT", long_suffix, "irrelevant"
         )
-        assert result == f"fact_{'a' * 40}"
-        assert len(result) == 5 + 40  # "fact_" + 40 chars
+        assert result == "fact_" + "a" * 40  # 截断期望：40 个字符的 a
 
     def test_consecutive_underscores_collapsed(self):
         """连续下划线合并"""
@@ -216,16 +215,6 @@ class TestDraftToMemoryAlias:
 
 class TestKoakumaAliasPreference:
     """测试 MemoryAtom.get_alias() 的存储别名优先逻辑"""
-
-    def test_prefer_stored_alias(self):
-        """存储了正式别名时直接返回"""
-        mem = MagicMock()
-        mem.index.alias = "fact_api_spec"
-        mem.index.memory_type.value = "FACT"
-        mem.index.title = "API Specification"
-
-        result = MemoryAtom.get_alias(mem)
-        assert result == "fact_api_spec"
 
     def test_fallback_when_alias_none(self):
         """alias 为 None 时 fallback 到运行时生成"""

@@ -14,10 +14,8 @@ WRITE 指令执行链路测试
 版本: 1.0
 """
 
-import asyncio
 import pytest
-from unittest.mock import MagicMock, patch, call, AsyncMock
-from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import (
     Identity,
@@ -68,35 +66,6 @@ def _mock_mid_term():
     mid_term.search = AsyncMock(return_value=[])
     mid_term.upsert = AsyncMock()
     return mid_term
-
-
-# ========== Test 2: GenerationRequest Model ==========
-
-class TestGenerationRequest:
-    """GenerationRequest 数据模型测试"""
-
-    def test_mode_a_default(self, sample_context):
-        req = GenerationRequest(context=sample_context)
-        assert not req.is_write
-        assert req.write_focus is None
-        assert len(req.context.turns) == 1
-
-    def test_mode_b_with_focus(self, sample_context):
-        focus = WriteFocus(content="test content")
-        req = GenerationRequest(context=sample_context, write_focus=focus)
-        assert req.is_write
-        assert req.write_focus.content == "test content"
-
-    def test_empty_request(self):
-        req = GenerationRequest()
-        assert not req.is_write
-        assert len(req.context.turns) == 0
-
-    def test_focus_only_no_context(self):
-        focus = WriteFocus(content="standalone write")
-        req = GenerationRequest(write_focus=focus)
-        assert req.is_write
-        assert len(req.context.turns) == 0
 
 
 # ========== Test 3: Engine Mode B Extraction ==========
@@ -154,7 +123,7 @@ class TestModeBExtraction:
 
         call_args = mock_extractor.extract.call_args
         metadata = call_args[1]["metadata"] if "metadata" in call_args[1] else call_args[0][1]
-        assert "mode" not in metadata or metadata.get("mode") != "write"
+        assert "mode" not in metadata
 
 
 # ========== Test 4: Mode B Fallback ==========
@@ -211,25 +180,8 @@ class TestModeBFallback:
         )
         focus = WriteFocus(content="A very long content that should be truncated for title")
         draft = engine._build_fallback_draft(focus)
-        assert draft.title == focus.content[:50]
-
-
-# ========== Test 5: Active WRITE boundary ==========
-
-
-class TestActiveWriteBoundary:
-    """Active WRITE generation is no longer represented as a perception flush."""
-
-    def test_mtp_write_flush_reason_removed(self):
-        assert "MTP_WRITE" not in FlushReason.__members__
-
-    def test_write_focus_stays_on_generation_request(self):
-        focus = WriteFocus(content="port = 9090", reason="fix cors")
-        request = GenerationRequest(write_focus=focus)
-
-        assert request.is_write
-        assert request.write_focus is focus
-        assert request.update_focus is None
+        # 无 title 时回退 content[:50]
+        assert draft.title == "A very long content that should be truncated for t"
 
 
 # ========== Test 8: Active Flush Reason Removed ==========

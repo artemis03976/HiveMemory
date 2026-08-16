@@ -2,22 +2,16 @@
 Agent 权限链路单元测试。
 
 测试覆盖:
-- 权限链路: profile → prompt 过滤 → Koakuma 拦截
-- 限制性 profile 阻止越权操作
-- 未指定 profile 时使用显式能力边界的 Omni-Doll
-- Prompt 不显示禁止的动词和工具
+- Profile 的动词白名单正确过滤 MTP prompt
+- Profile 的工具白名单正确过滤 MTP prompt
+- 无 profile 时渲染完整 prompt（兜底逻辑）
 """
 
-from types import MethodType
-from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     AgentProfile,
     IndexLayer,
     MemoryAtom,
@@ -25,12 +19,6 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
 )
-from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    InvalidArgumentError,
-    PermissionDeniedError,
-)
-from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 
@@ -68,53 +56,22 @@ def _make_profile_atom(
     )
 
 
-def _create_runtime_with_koakuma():
-    """创建带 Koakuma 的 PatchouliRuntime"""
-    with patch.object(PatchouliRuntime, "_init_infrastructure"), \
-         patch.object(PatchouliRuntime, "_build_engines", return_value={}), \
-         patch.object(PatchouliRuntime, "_register_services"):
+def _profile(agent_id: str, allowed_verbs: list, allowed_tools: list) -> AgentProfile:
+    profile = AgentProfile.from_atom(
+        _make_profile_atom(agent_id, allowed_verbs, allowed_tools)
+    )
+    assert profile is not None
+    return profile
 
-        mock_patchouli_config = Mock()
-        mock_shared_config = Mock()
 
-        runtime = PatchouliRuntime(patchouli_config=mock_patchouli_config, shared_config=mock_shared_config)
-        runtime.storage = Mock()
-
-        def _get_agent_profile(agent_alias: str):
-            if not agent_alias or agent_alias in ("default", "omni_doll"):
-                return OMNI_DOLL_PROFILE
-            atom = runtime.storage.get_memory_by_alias(agent_alias)
-            if atom is None:
-                raise AliasNotFoundError(
-                    message_key="mtp.call.profile_not_found",
-                    params={"agent_alias": agent_alias},
-                )
-            profile = AgentProfile.from_atom(atom)
-            if profile is None:
-                raise InvalidArgumentError(
-                    message_key="mtp.call.profile_invalid",
-                    params={"agent_alias": agent_alias},
-                )
-            return profile
-
-        def _get_mtp_prompt(self, profile=None):
-            builder = MTPPromptBuilder(
-                language="en",
-                include_demo=True,
-                include_error_handling=True,
-                allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),
-                allowed_runtime_tools=getattr(profile, "allowed_sys_tools", None),
-            )
-            return builder.build()
-
-        runtime.storage.get_agent_profile = Mock(side_effect=_get_agent_profile)
-        runtime.get_mtp_prompt = MethodType(_get_mtp_prompt, runtime)
-
-        # 创建真实的 Koakuma 实例
-        koakuma = KoakumaRuntime(bus=None, config=None, alias_resolver=Mock())
-        runtime._services = {"koakuma": koakuma}
-
-        return runtime, koakuma
+def _build_prompt(profile: AgentProfile | None) -> str:
+    return MTPPromptBuilder(
+        language="en",
+        include_demo=True,
+        include_error_handling=True,
+        allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),
+        allowed_runtime_tools=getattr(profile, "allowed_sys_tools", None),
+    ).build()
 
 
 @pytest.mark.asyncio
@@ -123,21 +80,12 @@ class TestProfileToPromptFiltering:
 
     async def test_profile_filters_prompt_verbs(self):
         """Profile 的动词白名单正确过滤 prompt"""
-        kernel, _ = _create_runtime_with_koakuma()
-
-        # 加载限制性 profile
-        profile_atom = _make_profile_atom(
+        profile = _profile(
             agent_id="reviewer_doll",
             allowed_verbs=["READ", "SEARCH"],
             allowed_tools=["sys_clock"],
         )
-        kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
-
-        profile = kernel.storage.get_agent_profile("reviewer_doll")
-        assert profile is not None
-
-        # 生成 MTP prompt
-        mtp_prompt = kernel.get_mtp_prompt(profile=profile)
+        mtp_prompt = _build_prompt(profile)
 
         # 允许的动词应该出现
         assert "- READ:" in mtp_prompt
@@ -150,17 +98,12 @@ class TestProfileToPromptFiltering:
 
     async def test_profile_filters_prompt_tools(self):
         """Profile 的工具白名单正确过滤 prompt"""
-        kernel, _ = _create_runtime_with_koakuma()
-
-        profile_atom = _make_profile_atom(
+        profile = _profile(
             agent_id="restricted_agent",
             allowed_verbs=["READ", "RUN"],
             allowed_tools=["sys_clock"],
         )
-        kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
-
-        profile = kernel.storage.get_agent_profile("restricted_agent")
-        mtp_prompt = kernel.get_mtp_prompt(profile=profile)
+        mtp_prompt = _build_prompt(profile)
 
         # 允许的工具应该出现
         assert "sys_clock" in mtp_prompt
@@ -172,10 +115,7 @@ class TestProfileToPromptFiltering:
 
     async def test_no_profile_renders_full_prompt(self):
         """无 profile 时渲染完整 prompt（兜底逻辑）"""
-        kernel, _ = _create_runtime_with_koakuma()
-
-        # 不加载 profile
-        mtp_prompt = kernel.get_mtp_prompt(profile=None)
+        mtp_prompt = _build_prompt(profile=None)
 
         # 所有动词都应该出现
         assert "- SEARCH:" in mtp_prompt

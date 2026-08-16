@@ -129,12 +129,11 @@ class TestStateMachine:
 
 class TestSnapshotInvariants:
     def test_pending_without_resolution_ok(self):
-        snap = PendingAtomSnapshot(
+        # 合法组合构造不应被 validator 拒绝（默认 resolution/canonical_uuid 为 None）
+        PendingAtomSnapshot(
             pending_alias="draft_x_0001",
             status=PendingAtomStatus.PENDING,
         )
-        assert snap.resolution is None
-        assert snap.canonical_uuid is None
 
     def test_settled_requires_resolution(self):
         with pytest.raises(ValueError, match="requires a resolution"):
@@ -171,15 +170,14 @@ class TestSnapshotInvariants:
             )
 
     def test_settled_created_with_canonical_ok(self):
-        snap = PendingAtomSnapshot(
+        # 合法组合构造不应被 validator 拒绝（SETTLED + CREATED + canonical 齐全）
+        PendingAtomSnapshot(
             pending_alias="draft_x_0001",
             status=PendingAtomStatus.SETTLED,
             resolution=PendingAtomResolution.CREATED,
             canonical_alias="fact_x",
             canonical_uuid="uuid-123",
         )
-        assert snap.resolution == PendingAtomResolution.CREATED
-        assert snap.canonical_uuid == "uuid-123"
 
 
 # ---------------------------------------------------------------------------

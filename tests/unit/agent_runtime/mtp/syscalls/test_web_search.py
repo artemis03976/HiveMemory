@@ -89,8 +89,14 @@ class TestSysWebSearch:
                 return False
 
             def text(self, query, max_results):
-                assert max_results == 3
-                return []
+                return [
+                    {
+                        "title": f"Result {i}",
+                        "body": f"Snippet {i}",
+                        "href": f"https://example.com/{i}",
+                    }
+                    for i in range(max_results)
+                ]
 
         monkeypatch.setitem(
             sys.modules,
@@ -100,7 +106,10 @@ class TestSysWebSearch:
 
         result = sys_web_search({"query": "test", "num": "abc"})
 
-        assert "未找到与 query 'test' 相关的结果。" in result.content
+        # 回退为 3 时输出恰好 3 条结果
+        assert "Result 0" in result.content
+        assert "Result 2" in result.content
+        assert "Result 3" not in result.content
 
     def test_search_unavailable(self, monkeypatch):
         # 模拟依赖缺失，确认 handler 抛出结构化 unavailable 异常。

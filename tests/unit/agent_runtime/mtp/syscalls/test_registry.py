@@ -21,7 +21,7 @@ class TestKernelRegistry:
     def test_registry_descriptions(self):
         registry = build_kernel_registry()
         for name, syscall in registry.items():
-            assert syscall.description, f"{name} has empty description"
+            assert syscall.description.strip(), f"{name} has empty description"
 
     def test_registry_handlers_callable(self):
         registry = build_kernel_registry()
@@ -29,5 +29,7 @@ class TestKernelRegistry:
             assert callable(syscall.handler), f"{name} handler not callable"
 
     def test_custom_repl_timeout(self):
+        """python_repl_timeout 必须绑定到 repl handler。"""
         registry = build_kernel_registry(python_repl_timeout=5)
-        assert "sys_python_repl" in registry
+        handler = registry["sys_python_repl"].handler
+        assert handler.keywords["timeout_seconds"] == 5

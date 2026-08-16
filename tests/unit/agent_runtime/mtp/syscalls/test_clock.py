@@ -15,8 +15,10 @@ class TestSysClock:
 
     def test_iso_format(self):
         result = sys_clock({"format": "iso"})
-        assert "T" in result.content
-        assert "+" in result.content or "-" in result.content or "Z" in result.content
+        assert re.match(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?[+-]\d{2}:\d{2}$",
+            result.content,
+        ), f"Unexpected format: {result.content}"
 
     def test_date_format(self):
         result = sys_clock({"format": "date"})
