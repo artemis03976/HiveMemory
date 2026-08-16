@@ -1,3 +1,10 @@
+"""
+AgentRunService 结果组装集成测试 — 真实 RunExecutor/RunSession/StreamAdapter 协作
+
+驱动 AgentRunService + service 内部真实构造的 RunExecutor + 真实 RunSession +
+真实 AgentRunStreamAdapter 协作；仅 stub LLM 执行端口与 FrameFactory 边界。
+"""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock

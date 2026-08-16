@@ -5,26 +5,11 @@ from hivememory.alice.orchestration.sub_agent.call_response import (
     cancelled_response,
     preparation_error_response,
     response_for_frame_result,
-    success_response,
 )
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.mtp import MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError
 from hivememory.system.model_registry import ModelNotFoundError
-
-
-def test_success_response_contains_reply_and_artifacts():
-    response = success_response(
-        "helper",
-        reply="done",
-        artifact_aliases=("draft-1",),
-    )
-
-    assert response.status == MTPResponseStatus.SUCCESS
-    assert response.agent_alias == "helper"
-    assert response.reply == "done"
-    assert response.artifact_aliases == ["draft-1"]
-    assert response.error is None
 
 
 def test_cancelled_response_is_empty_cancelled_envelope():

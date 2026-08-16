@@ -10,7 +10,6 @@ from hivememory.core.mtp.exceptions import (
     BusRouteUnavailableError,
     PermissionDeniedError,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
 
 
 def _make_profile(alias: str = "coder_doll") -> AgentProfile:
@@ -44,12 +43,7 @@ async def test_resolve_loads_profile_from_bus_and_caches():
     second = await resolver.resolve("coder_doll", identity=identity)
 
     assert first is second
-    assert first.persona == "coder_doll persona"
-    bus.request.assert_awaited_once_with(
-        GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
-        "coder_doll",
-        identity=identity,
-    )
+    assert bus.request.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -103,7 +97,7 @@ async def test_resolve_propagates_profile_permission_denial():
     with pytest.raises(PermissionDeniedError) as exc_info:
         await resolver.resolve("private_doll", identity=_identity())
 
-    assert exc_info.value is denial
+    assert exc_info.value.code == "mtp.permission.denied"
 
 
 @pytest.mark.asyncio

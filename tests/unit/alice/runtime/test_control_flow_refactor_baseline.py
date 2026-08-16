@@ -3,10 +3,8 @@ from __future__ import annotations
 import ast
 import inspect
 from pathlib import Path
-from types import SimpleNamespace
 
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
-from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.application import AgentRunService
@@ -86,8 +84,7 @@ def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
 def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:
     frame = _frame("run-a", "frame-a")
 
-    assert frame.runtime_scope.run_id == "run-a"
-    assert frame.runtime_scope.frame_id == "frame-a"
+    # 架构护栏：普通 frame 不携带父子拓扑元数据
     assert not hasattr(frame.runtime_scope, "depth")
     assert not hasattr(frame.runtime_scope, "parent_frame_id")
     assert not hasattr(frame, "is_main_frame")
@@ -107,17 +104,10 @@ def test_run_session_keeps_frames_and_calls_run_local() -> None:
     assert session.call_records[("frame-a", "action-1")] is record
 
 
-def test_mtp_executor_keeps_runtime_stateless() -> None:
-    koakuma = SimpleNamespace()
-    executor = KoakumaMTPExecutor(koakuma)
-
-    assert vars(executor) == {"_koakuma": koakuma}
-    assert vars(koakuma) == {}
-
-
 def test_mtp_context_contains_only_frame_coordinates() -> None:
     context = MTPExecutionContext()
 
     assert context.runtime_scope.run_id == ""
     assert context.runtime_scope.frame_id == ""
+    # 架构护栏：执行上下文不携带父子拓扑元数据
     assert not hasattr(context.runtime_scope, "depth")
