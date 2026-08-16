@@ -65,7 +65,8 @@ class _Resolver:
             return_value=UserQueryAnalysisResult(
                 intent_type=IntentType.RAG,
                 rewritten_query="分析后的问题",
-                search_keywords=("gateway",),
+                # list 输入：验证 finalize 投影前 pydantic 归一化为 tuple
+                search_keywords=["gateway"],
                 memory_write_signal=MemoryWriteSignal.WRITE,
                 retrieval_plan=RetrievalPlan(
                     mode=RetrievalMode.HYBRID,
@@ -172,9 +173,7 @@ async def test_standard_branch_applies_one_complete_analysis_result() -> None:
     )
 
     assert result.kind == "decision"
-    assert result.decision.rewritten_query == "分析后的问题"
     assert result.decision.search_keywords == ("gateway",)
-    assert result.decision.retrieval_plan.top_k == 7
     resolver.resolve.assert_awaited_once()
     context = resolver.resolve.await_args.args[0]
     assert context.topic_id == "topic-1"

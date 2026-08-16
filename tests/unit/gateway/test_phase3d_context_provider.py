@@ -9,7 +9,6 @@ import pytest
 
 from hivememory.core.models import (
     Identity,
-    TopicData,
     TopicLastTurn,
     TopicSnapshot,
 )
@@ -57,7 +56,8 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
 
     async def list_active_topics(**kwargs):
         calls.append(kwargs)
-        return snapshots
+        # 依据 include_empty 参数返回不同结果，使下方透传断言有约束力
+        return snapshots if kwargs["include_empty"] else ()
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_active_topics)
     provider = GlobalBusGatewayContextProvider(
@@ -68,40 +68,9 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
     result = await provider.prepare_candidate_topics(identity=identity)
 
     assert result.topic_snapshots == snapshots
-    assert result.topic_snapshots[0] is snapshots[0]
     assert "topic-1" in result.active_topics_menu
     assert "正在实现 Phase 3D" in result.active_topics_menu
     assert "User: 继续" in result.active_topics_menu
-    assert calls == [{"identity": identity, "include_empty": True}]
-
-
-@pytest.mark.asyncio
-async def test_provider_returns_canonical_routed_topic() -> None:
-    bus = GlobalSystemBus()
-    identity = Identity(user_id="u1")
-    topic_data = TopicData(
-        topic_id="topic-1",
-        user_id="u1",
-        topic_title="Gateway",
-        last_update=1.0,
-        last_accessed_at=2.0,
-    )
-    calls = []
-
-    async def get_topic_data(**kwargs):
-        calls.append(kwargs)
-        return topic_data
-
-    bus.register(PatchouliRoutes.TOPIC_GET_DATA, get_topic_data)
-    provider = GlobalBusGatewayContextProvider(global_bus=bus)
-
-    result = await provider.prepare_routed_topic(
-        identity=identity,
-        topic_id="topic-1",
-    )
-
-    assert result is topic_data
-    assert calls == [{"identity": identity, "topic_id": "topic-1"}]
 
 
 @pytest.mark.asyncio

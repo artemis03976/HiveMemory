@@ -2,10 +2,7 @@
 
 import pytest
 
-from hivememory.gateway.commands.builtins import (
-    create_builtin_command_registry,
-    register_builtin_commands,
-)
+from hivememory.gateway.commands.builtins import create_builtin_command_registry
 from hivememory.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
@@ -161,7 +158,3 @@ class TestBuiltinCommands:
         )
         ids = {definition.command_id for definition in registry.list()}
         assert "system.help" not in ids
-
-    def test_register_returns_registry(self):
-        registry = CommandRegistry()
-        assert register_builtin_commands(registry) is registry

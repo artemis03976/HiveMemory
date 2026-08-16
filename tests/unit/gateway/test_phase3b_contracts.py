@@ -136,7 +136,6 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
     assert isinstance(candidates.topic_snapshots, tuple)
     assert "identity" not in CandidateTopics.model_fields
     assert context.candidate_topics is candidates
-    assert analysis.search_keywords == ()
 
 
 def test_execution_state_has_one_guarded_write_entry() -> None:

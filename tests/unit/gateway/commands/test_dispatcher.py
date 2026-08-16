@@ -126,6 +126,7 @@ class TestDispatcherPermissions:
             identity=Identity(agent_id="other_agent"),
         )
         assert result.status == CommandExecutionStatus.REJECTED
+        assert result.error_code == "command.permission_denied"
 
     async def test_debug_disabled(self):
         registry = CommandRegistry()
@@ -135,6 +136,7 @@ class TestDispatcherPermissions:
         dispatcher = SystemCommandDispatcher(registry, debug_enabled=False)
         result = await dispatcher.execute(_parse(command_id="dbg.cmd"))
         assert result.status == CommandExecutionStatus.REJECTED
+        assert result.error_code == "command.permission_denied"
 
     async def test_debug_enabled_allows(self):
         registry = CommandRegistry()

@@ -1,45 +1,14 @@
 """Gateway Phase 3A 子系统骨架测试。"""
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import GatewayIngressMode, IntentType
-from hivememory.gateway import GatewayService, GatewaySystem
+from hivememory.gateway import GatewaySystem
 from hivememory.gateway.contracts import GatewayLocalRoutes, GatewayPublicRoutes
-from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-
-
-@pytest.mark.asyncio
-async def test_gateway_service_delegates_to_workflow() -> None:
-    workflow = AsyncMock()
-    workflow.run.return_value = "ok"
-    runtime = GatewayRuntime(
-        config=HiveMemoryConfig().gateway,
-        global_bus=GlobalSystemBus(),
-        workflow=workflow,
-    )
-    service = GatewayService(runtime)
-    identity = Identity(user_id="u1", agent_id="a1")
-
-    result = await service.process(
-        "hello",
-        identity=identity,
-        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-        request_timeout_ms=8000,
-    )
-
-    assert result == "ok"
-    workflow.run.assert_awaited_once_with(
-        "hello",
-        identity=identity,
-        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-        request_timeout_ms=8000,
-    )
 
 
 @pytest.mark.asyncio

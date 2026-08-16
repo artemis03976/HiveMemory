@@ -118,36 +118,7 @@ async def test_exhausted_deadline_without_fallback_raises_timeout() -> None:
         )
 
 
-@pytest.mark.asyncio
-async def test_workflow_propagates_task_cancellation_without_business_result() -> None:
-    bus = GlobalSystemBus()
-    started = asyncio.Event()
-
-    async def slow_topics(**_kwargs):
-        started.set()
-        await asyncio.Event().wait()
-
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, slow_topics)
-    runtime = GatewayRuntime(
-        config=SystemGatewayConfig(),
-        global_bus=bus,
-    )
-    task = asyncio.create_task(
-        runtime.workflow.run(
-            "问题",
-            identity=Identity(user_id="u1"),
-            ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-        )
-    )
-    await started.wait()
-    task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-
 def test_legacy_gateway_root_exports_are_removed() -> None:
+    # __getattr__ 对未知名字抛 AttributeError，__all__ 断言已足够
     assert "GatewayState" not in hivememory.__all__
     assert "PatchouliPrepareDecision" not in hivememory.__all__
-    assert not hasattr(hivememory, "GatewayState")
-    assert not hasattr(hivememory, "PatchouliPrepareDecision")

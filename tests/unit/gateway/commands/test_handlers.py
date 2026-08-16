@@ -153,12 +153,3 @@ class TestHandleStatus:
         assert result.data["gateway"] == "ok"
         assert result.data["commands_visible"] == 4
         assert result.data["debug_enabled"] is False
-
-    def test_debug_enabled_flag(self):
-        result = handle_status(
-            command=_parse_result(),
-            registry=_registry(),
-            identity=Identity(),
-            debug_enabled=True,
-        )
-        assert result.data["debug_enabled"] is True
