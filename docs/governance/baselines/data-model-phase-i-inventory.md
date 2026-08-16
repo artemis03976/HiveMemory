@@ -18,10 +18,10 @@ related_docs:
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
   - docs/governance/baselines/identity-s0-threat-model-inventory.md
-  - docs/plans/v0.6.1-local-work-queue-runtime.md
+  - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/architecture/data-model.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
-last_reviewed: 2026-08-12
+last_reviewed: 2026-08-16
 snapshot_at: 2026-08-12
 ---
 

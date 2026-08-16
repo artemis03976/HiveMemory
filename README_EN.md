@@ -7,14 +7,14 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.6.0 release baseline where the top-level HiveMemory System orchestrates the peer Gateway, Patchouli, and Alice subsystems.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.6.1 release baseline where the top-level HiveMemory System orchestrates the peer Gateway, Patchouli, and Alice subsystems.
 
 ## Release Status
 
-- Latest released tag: `v0.6.0`
-- Current release baseline: `v0.6.0`
-- Next planned version: `v0.6.1` (Planned)
-- Code and package version: `0.6.0`
+- Latest released tag: `v0.6.1`
+- Current release baseline: `v0.6.1`
+- Next planned version: `v0.6.2` Chat Attachments (Candidate)
+- Code and package version: `0.6.1`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
@@ -308,7 +308,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. The repository is currently on the v0.6.0 release baseline; runtime queue work and other follow-up capabilities are planned for v0.6.1. Behavioral changes should update the corresponding current design or contract document in the same change.
+Issues and pull requests are welcome. The repository is currently on the v0.6.1 release baseline, with v0.6.2 Chat Attachments as the next candidate capability. Behavioral changes should update the corresponding current design or contract document in the same change.
 
 ## License
 

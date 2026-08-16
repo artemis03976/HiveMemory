@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-08-16
 ---
 
 # HiveMemory 当前系统架构
@@ -41,11 +41,11 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 
 ## 2. 当前基线
 
-- 最新已发布 Git 标签：`v0.6.0`；
-- 当前发布基线：`v0.6.0`；
-- 下一计划版本：`v0.6.1`，建立通用 Local Work Queue Runtime；
-- 当前代码、构建与运行时版本：`0.6.0`，唯一声明位于 `src/hivememory/_version.py`；
-- 当前基线已经包含独立 Gateway、全局命令、Gateway workflow 和 Passive Ingress；
+- 最新已发布 Git 标签：`v0.6.1`；
+- 当前发布基线：`v0.6.1`；
+- 下一计划版本：`v0.6.2` Chat Attachments，状态为 Candidate；
+- 当前代码、构建与运行时版本：`0.6.1`，唯一声明位于 `src/hivememory/_version.py`；
+- 当前发布基线已经包含独立 Gateway、全局命令、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
 
 版本规划与完成度以[路线图](../ROADMAP.md)为准，系统当前由什么组件组成则以本文和代码为准。
@@ -143,6 +143,16 @@ Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、�
 
 全局调度器提供统一维护时钟和任务生命周期；子系统注册自己拥有的任务。当前 Patchouli 注册 idle buffer flush 与 memory gardening。调度器只回答“何时运行、如何停止和如何观测”，不回答“怎样整理记忆”，因此不会取得这些任务的业务所有权。
 
+### 4.4 Local Work Queue Runtime
+
+Local Work Queue Runtime 统一进程内 work 的 enqueue、状态迁移、并发、retry wait、timeout、cancel、
+backpressure 与 shutdown drain。Interaction Submission 与 Memory Generation 使用独立业务 lane、payload、
+成功条件和失败策略；System Runtime 只拥有机械生命周期，不解释 Patchouli 业务。
+
+当前 Store 是 in-memory，只承诺单进程生命周期内的 accepted 与状态查询，不承诺重启恢复或 durable
+accepted。当前契约见 [System 运行时与总线](../system/runtime-and-bus.md#3-local-work-queue-runtime)，
+SQLite 后续见[持久化治理](../governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)。
+
 ## 5. 主动对话：一次跨平面的受控交接
 
 ```text
@@ -232,7 +242,7 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 
 ## 10. 已知限制
 
-- `v0.6.0` 已发布；复合意图的下游消费和自定义入口规则属于后续 Unscheduled 方向，不是当前能力；
+- `v0.6.1` 已发布；复合意图的下游消费和自定义入口规则属于后续 Unscheduled 方向，不是当前能力；
 - RuntimeEvent 只有进程内有界缓冲，不是耐久审计日志；
 - MTP RUN 的用户代码执行还没有强隔离沙箱；
 - 通用持久化 Job Queue、附件摄入、Document Ingestion 与 Deep Research 尚未实现；

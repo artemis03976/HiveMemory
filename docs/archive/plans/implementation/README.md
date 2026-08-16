@@ -3,7 +3,7 @@ title: Historical Implementation Plans
 status: current
 owner: project
 scope: completed-or-superseded-implementation-records
-last_reviewed: 2026-07-29
+last_reviewed: 2026-08-16
 ---
 
 # 历史实施计划
@@ -35,4 +35,4 @@ last_reviewed: 2026-07-29
 - [v0.6.0 Passive Ingress](./v0.6.0-passive-ingress.md)：当前入口为 System Passive Ingress 与 Gateway workflow；
 - [User Query Analysis 第一代技术债](./v0.6.0-user-query-analysis-gen1-tech-debt.md)：当前入口为 Gateway analysis；第二代方向尚未形成独立排期。
 
-原三篇未来工作已重新分类：[RuntimeEvent 生产端发布抽象重构](../runtime-event-publishing-refactor.md)现已归档，[复合意图分解](../../../ideas/composite-intent-decomposition.md)进入 Ideas，[Local Work Queue Runtime](../../../plans/v0.6.1-local-work-queue-runtime.md)仍是当前实施 Plan。逐篇分类依据见 [`docs/mod` 迁移审计](../documentation-migration-audit-docs-mod.md)。
+原三篇未来工作已重新分类：[RuntimeEvent 生产端发布抽象重构](../runtime-event-publishing-refactor.md)现已归档，[复合意图分解](../../../ideas/composite-intent-decomposition.md)进入 Ideas，[Local Work Queue Runtime](../v0.6.1-local-work-queue-runtime.md)已在 v0.6.1 完成并归档。逐篇分类依据见 [`docs/mod` 迁移审计](../documentation-migration-audit-docs-mod.md)。

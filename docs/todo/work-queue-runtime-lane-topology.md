@@ -4,8 +4,9 @@ status: deferred
 owner: system
 scope: work-queue-runtime-lane-composition
 related_docs:
-  - docs/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-08-14
+  - docs/system/runtime-and-bus.md
+  - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
+last_reviewed: 2026-08-16
 ---
 
 # Work Queue Runtime 多 lane 拓扑技术债
