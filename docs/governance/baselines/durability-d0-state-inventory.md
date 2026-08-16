@@ -17,11 +17,11 @@ code_paths:
 related_docs:
   - docs/governance/reliability/durability-and-recovery.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
-  - docs/plans/v0.6.1-local-work-queue-runtime.md
+  - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-12
+last_reviewed: 2026-08-16
 snapshot_at: 2026-08-12
 ---
 
@@ -226,7 +226,7 @@ Storage adapter owns bytes / 事务 / 索引          → Qdrant / FS / YAML
 ## 7. 结论与后续建议（D1 前置输入）
 
 1. **D1 应优先迁移的四个高危进程内真相源**（崩溃即丢已承诺数据）：
-   - `InteractionSubmissionQueue` → SQLite WorkStore `interaction_submission` lane（与 [Work Queue 计划](../../plans/v0.6.1-local-work-queue-runtime.md) 对齐）；
+   - `InteractionSubmissionQueue` → SQLite WorkStore `interaction_submission` lane（与 [SQLite WorkStore 持久化治理](../reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)对齐）；
    - 将现有 WorkStore `memory_generation` lane 从 in-memory adapter 迁到 durable adapter，并为 typed result/settlement 定义恢复协议；
    - `PendingAtom`（intent / pending alias / settlement / resolution / cancel reason）→ 可持久化 record（主计划 D1 任务 2）；
    - `MessageTurnBuffer` / `ChatGenerationRunRegistry` → 先明确"必须恢复"还是"进入明确失败终态"的边界（避免过度持久化）。

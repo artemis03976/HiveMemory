@@ -16,12 +16,12 @@ code_paths:
   - src/hivememory/server/routers/
 related_docs:
   - docs/governance/reliability/idempotency-and-retry.md
-  - docs/plans/v0.6.1-local-work-queue-runtime.md
+  - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-12
+last_reviewed: 2026-08-16
 snapshot_at: 2026-08-12
 ---
 

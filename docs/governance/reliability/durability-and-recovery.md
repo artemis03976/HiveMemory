@@ -11,18 +11,19 @@ code_paths:
   - src/hivememory/alice/runtime/
   - src/hivememory/patchouli/memory_library/
 related_docs:
-  - docs/plans/v0.6.1-local-work-queue-runtime.md
+  - docs/system/runtime-and-bus.md
+  - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/patchouli/artifacts.md
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/system/observability.md
-last_reviewed: 2026-08-14
+last_reviewed: 2026-08-16
 ---
 
 # 运行时状态持久化与故障恢复治理
 
-本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 对队列机械生命周期的设计。具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
+本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [System 运行时与总线](../../system/runtime-and-bus.md#3-local-work-queue-runtime) 对队列机械生命周期的当前设计。v0.6.1 已完成进程内 Local Work Queue；SQLite WorkStore 与其他具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
 
 项目的核心命题是把易逝 Context 转化为可寻址、可验证、可演化的 Memory 资产。如果 Agent frame、PendingAtom、Generation task 和来源写入在进程退出后全部消失，这条命题只能在单次进程生命周期内成立。因此本治理主题首先建立“状态的耐久性等级”，再按所有权逐步补齐持久化和恢复，不把 RuntimeEvent 或日志误当成业务状态数据库。
 
@@ -117,9 +118,103 @@ receipt 与 canonical payload bytes，而 `WorkRecord` 已持有 work identity�
 
 持久化后，重复 submit、wait、outcome、冲突检测和 terminal retention 都必须以 SQLite WorkRecord
 及其唯一约束为准。若业务适配层仍需要 `interaction_id -> work_id` 映射，只能保留为可失效、可重建的
-定位缓存；payload hash 可以作为索引或快速冲突检查，但 canonical payload 只保存一份。具体 schema 与
-迁移验收由 [Local Work Queue Runtime §9.2](../../plans/v0.6.1-local-work-queue-runtime.md#92-sqliteworkstore)
-定义。
+定位缓存；payload hash 可以作为索引或快速冲突检查，但 canonical payload 只保存一份。具体 schema、
+恢复边界和迁移验收统一由下一节维护。
+
+### 4.6 SQLite WorkStore 持久化门槛与设计约束
+
+SQLite WorkStore 是单机跨重启恢复的优先候选，不是 v0.6.1 的遗留交付项。它只有在出现已经被真实
+入口消费的恢复需求，并能够绑定版本、迁移顺序和验收出口后才建立实施 Plan。仅因“已有 WorkStore port”
+或“未来可能需要后台任务”不能触发实现。
+
+#### 4.6.1 启动条件与范围
+
+至少满足以下条件之一后，才评审 SQLite 实施：
+
+1. 已接纳的 interaction 或 memory generation work 必须在进程重启后继续、重试或可查询；
+2. 真实后台解析、Document/Research 等负载需要 durable accepted 语义；
+3. 人工恢复需要稳定的 list/replay/drop 或 dead-letter 操作面；
+4. 现有进程内状态丢失已经形成可复现的数据丢失或重复副作用。
+
+首个 SQLite 切片仍限定为单机、零额外服务，不引入 Redis、分布式 worker、leader election、DAG 或
+exactly-once 承诺。是否让多个 lane 共享连接、事务或 Runtime，由真实连接与恢复拓扑决定，不能反向用
+SQLite 猜测当前多 lane 抽象必须保留或删除。
+
+#### 4.6.2 Adapter、schema 与状态真相
+
+`SQLiteWorkStore` 位于 `infrastructure/work_queue`，实现 System 定义的 `WorkStorePort`；业务 controller
+不得直接依赖具体 adapter。SQLite 负责 bytes、事务、索引、容量与唤醒，不解释
+`InteractionSubmission`、`MemoryGenerationTaskSpec` 或其他业务 payload。
+
+持久化记录至少需要表达：
+
+- `work_id`、lane、kind、work schema version 和 canonical payload bytes；
+- ordering/correlation/idempotency key；
+- state、attempt count、enqueue/available/start/finish 时间；
+- 脱敏错误快照与稳定 `result_ref` / `outcome_ref`；
+- terminal retention 所需时间与索引字段。
+
+对 `(lane, idempotency_key)` 建立数据库级唯一约束；相同 key 的重放返回原 WorkRecord，不创建第二份
+work。相同 identity 但 canonical payload 不同必须明确冲突。payload 可增加 digest 索引用于快速比较，
+但不能用 digest、receipt 表或 controller 字典取代唯一 canonical payload 真相。
+
+每个 work kind 的 codec 与 schema migration 由 handler registry 或业务 adapter 拥有。旧 schema 必须
+可迁移，或安全进入 blocked/dead-letter；不能依赖 Pydantic 宽松读取把未知字段静默丢弃，也不能持久化
+任意 Python 对象、closure、lock、client 或 coroutine。
+
+#### 4.6.3 Claim ownership 与崩溃恢复
+
+enqueue、claim、ack、retry schedule 和 terminal transition 必须由事务保护。queued/retry-wait work
+在重启后可以按 `available_at` 恢复；abandoned running work 必须先有明确 ownership、崩溃检测和安全
+重放规则，不能启动时一律改回 queued。
+
+当前 `WorkItem`、`WorkRecord` 与 in-memory port 没有 lease 字段，持久化实现不得为了兼容尚未存在的
+方案提前加入半实现 lease。如果真实恢复算法选择 lease，必须同时冻结 owner token、续租、过期时钟、
+最大执行期、过期后的 claim 竞争和旧 worker 晚到 ack 的拒绝规则；若不采用 lease，则必须提供等价且
+可验证的 abandoned-running 处理机制。
+
+业务 handler 仍按 at-least-once 假设设计。SQLite 事务只能保证 WorkRecord 的原子迁移，不能自动让
+Qdrant、Artifact 文件、模型调用或 PendingAtom settlement 获得 exactly-once。
+
+#### 4.6.4 Interaction Submission 旁路索引收敛
+
+当前 `InteractionSubmissionQueue` 的有界 `_StoredSubmission` 保存 receipt 与 canonical payload，服务于
+进程内 wait、重复 submit 冲突检查和终态 retention。SQLite 迁移时不得将它与 WorkRecord 一起变成
+两份持久化状态真相：
+
+- 稳定 `interaction_id` 通过 `(lane, idempotency_key)` 唯一约束定位原 work；
+- receipt、wait outcome、重复 submit、payload 冲突与 pending count 从 WorkRecord 投影；
+- 内存中的 `interaction_id -> work_id` 最多作为可失效、可重建的查询缓存；
+- terminal cleanup 在同一事务边界维护 record、唯一键与查询语义，不能留下必要的悬空索引；
+- 若 cleanup 后允许同一 idempotency key 再次使用，必须先定义业务可见语义，不能由 TTL 偶然决定。
+
+#### 4.6.5 配置、健康与迁移
+
+composition root 通过 port 注入选择 in-memory 或 SQLite store；应用 service method signature 和领域
+response 不因 adapter 切换而改变。允许按 lane 选择 store，但一次迁移必须明确哪些 lane 已获得 durable
+accepted，不能在同一响应口径下混用进程内与持久化承诺。
+
+SQLite 路径、连接、journal/synchronous 策略、schema migration 和 cleanup maintenance 必须有明确配置
+所有者。SQLite 不可用或 schema 不兼容时 readiness/diagnostic 明确降级；不得静默回退到 in-memory 后
+继续声称 durable accepted。
+
+#### 4.6.6 验收门槛
+
+建立具体实施 Plan 时至少覆盖：
+
+- Store contract tests 同时运行于 `InMemoryWorkStore` 与 `SQLiteWorkStore`；
+- 重启后 queued/retry-wait work 可恢复，终态与结果引用可查询；
+- abandoned running work 按选定算法进入可验证恢复路径，旧 owner 不能提交晚到终态；
+- 重复 idempotency key 不产生重复 work 或业务副作用，同 key 不同 payload 明确冲突；
+- Interaction Submission 重启后仍能按稳定 `interaction_id` 查询原 work，且没有第二份持久化 receipt/payload 真相；
+- transaction interruption、database locked、disk full、损坏 schema 与 migration failure 有故障注入；
+- terminal retention/cleanup 不破坏唯一键、查询、审计和恢复语义；
+- SQLite 不可用时健康状态与公开 accepted 语言准确降级；
+- 当前设计、配置、Help、运维恢复步骤和数据删除语义同步更新。
+
+v0.6.1 对这一方向的历史讨论保留于
+[Local Work Queue Runtime 归档计划](../../archive/plans/v0.6.1-local-work-queue-runtime.md)，但后续实现
+不得直接把归档 Q5 当作已批准范围。
 
 ## 5. 未排期治理工作包
 
@@ -132,7 +227,7 @@ receipt 与 canonical payload bytes，而 `WorkRecord` 已持有 work identity�
 
 ### Phase D1：工作项与 PendingAtom 恢复
 
-1. 复用 Local Work Queue 的 lane/handler/store 方向，把 interaction submission 和 memory generation 的可承诺状态写入 WorkStore，并在迁移 interaction 时删除持久化旁路真相，只保留可选的可重建定位缓存；
+1. 按 §4.6 的启动门槛与 schema 约束复用 Local Work Queue 的 lane/handler/store 方向，把 interaction submission 和 memory generation 的可承诺状态写入 WorkStore，并在迁移 interaction 时删除持久化旁路真相，只保留可选的可重建定位缓存；
 2. 为 PendingAtom intent、pending alias、settlement、resolution 和 cancel reason 建立可持久化 record；
 3. 启动时恢复 queued/retry-wait work，处理 abandoned running work，并把未知 schema/kind 安全放入 blocked/dead-letter；若采用 lease，再把过期判定和安全重新 claim 纳入同一恢复算法；
 4. 保证 task、settlement 和 pending state 的终态只由一个所有者推进。
@@ -174,6 +269,6 @@ receipt 与 canonical payload bytes，而 `WorkRecord` 已持有 work identity�
 
 ## 7. 依赖与风险
 
-本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [Local Work Queue Runtime](../../plans/v0.6.1-local-work-queue-runtime.md) 的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
+本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../system/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
 
 主要风险是过早把所有内存对象写入持久化层，导致 schema、隐私和迁移成本快速膨胀；因此首期应优先保护已经对外承诺的工作项和写入意图，保留短期 topic、cache 与 RuntimeEvent 的明确 ephemeral 语义。

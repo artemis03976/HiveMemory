@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "HiveMemory Frontend Dashboard",
   "repository": {
     "type": "git",

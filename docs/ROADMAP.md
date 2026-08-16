@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-14
+last_reviewed: 2026-08-16
 ---
 
 # HiveMemory 开发路线图
@@ -35,9 +35,10 @@ last_reviewed: 2026-08-14
 
 - 最新已发布标签：`v0.6.0`；
 - 当前发布基线：`v0.6.0`；
-- 下一计划版本：`v0.6.1`，状态为 Current Development。
+- 当前开发版本：`v0.6.1`，实现已完成并进入发布收尾，尚未因缺少 Git tag 标为 Released；
+- 下一计划版本：`v0.6.2` Chat Attachments，状态为 Candidate，正式 Plan 待建立。
 
-当前规范代码版本同为 `0.6.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。发布基线必须与完全匹配的 Git tag、Python 包、前端清单和构建检查保持一致；后续开发工作进入下一版本时，再在新的提交中更新代码版本。
+当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。它在 `v0.6.1` tag 创建前仍是未发布快照；发布基线必须与完全匹配的 Git tag、Python 包、前端清单和构建检查保持一致。
 
 ## 2. 发布历史
 
@@ -49,6 +50,7 @@ last_reviewed: 2026-08-14
 | `v0.4.0` | Released | chat run / memory task 取消控制与 RuntimeEvent | Git tag；[路由与事件](./contracts/routes-and-events.md) |
 | `v0.5.0` | Released | artifact/provenance、MemoryLibrary、async-native、模型注册 | Git tag；[System 当前设计](./system/README.md)；[Patchouli 当前设计](./patchouli/README.md) |
 | `v0.6.0` | Released | System Gateway、全局命令、主动/被动入口契约、Passive Ingress 串行与 outbox | Git tag；本路线图 3.1；[Passive Ingress 当前设计](./system/passive-ingress.md) |
+| `v0.6.1` | Current Development / Implementation Complete | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | 当前代码版本；[System Runtime 当前设计](./system/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)；Git tag 待创建 |
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
@@ -90,7 +92,7 @@ last_reviewed: 2026-08-14
 - 完整复合意图分解已经移出 v0.6.0 发布范围，暂列为 **Unscheduled**；
 - 自定义入口拦截规则不属于当前能力，只有出现明确接入需求并形成 Plan 后再排期；
 - 浅色主题属于 v0.6.3 工作流的部分提前交付，不改变 v0.6.0 的后端发布范围；
-- `v0.6.1` 负责通用 Local Work Queue Runtime，不回溯改写 v0.6.0 Passive Ingress 的公共契约。
+- `v0.6.1` 已完成通用 Local Work Queue Runtime，且未回溯改写 v0.6.0 Passive Ingress 的公共契约。
 
 其 C0 样本与指标工作可以作为非阻塞研究继续推进，但在证据门槛、公共 envelope 和下游消费协议成立前，不得把它写成当前能力。
 
@@ -111,7 +113,7 @@ last_reviewed: 2026-08-14
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Reliable Local Work Runtime | Current Development | 收敛 Interaction Submission 与 Memory Generation 的进程内执行生命周期，并建立必要的接纳幂等、身份 scope 与未来持久化门槛 | [Local Work Queue Runtime](./plans/v0.6.1-local-work-queue-runtime.md)及三项治理主题的前置切片 |
+| `v0.6.1` Reliable Local Work Runtime | Current Development / Implementation Complete | Interaction Submission 与 Memory Generation 已收敛到进程内运行时；当前仅待匹配 tag 的正式发布，不包含 SQLite | [System Runtime 当前设计](./system/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)；[持久化治理](./governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束) |
 | `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件异步解析另行立项 | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -137,27 +139,20 @@ last_reviewed: 2026-08-14
 
 ### 4.2 v0.6.1 Reliable Local Work Runtime
 
-近期最优先的新增底座。目标是先把已经存在的 Interaction Submission 与 Memory Generation 收敛到同一套机械运行时，不为尚未出现的复杂 Agent 长任务提前建立用户发布任务系统。
+v0.6.1 的 Q0–Q4 已完成：通用 Work Queue 状态机、lane、codec、backpressure、retry、cancel、timeout
+与 shutdown 骨架已经落地；Passive/Active Interaction Submission 共用稳定 `interaction_id` 和 applied
+gate；Memory Generation 已接入独立业务 lane 与只读任务投影。Durability D0、Idempotency I0、Identity
+S0 和数据模型 Phase I 四项前置基线也已建立。
 
-第一阶段只要求单机可靠语义，不提前引入分布式队列或通用任务图。
+当前事实由 [System Runtime](./system/runtime-and-bus.md#3-local-work-queue-runtime)、
+[Passive Ingress](./system/passive-ingress.md)与[Patchouli Generation](./patchouli/generation.md)承接，实施过程
+保留于[归档计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)。
 
-这里的核心矛盾是“复用已验证的执行机制”与“过早抽象成万能任务框架”。验收重点是 interaction 的可靠 apply、memory generation 的并发/取消，以及两者共同需要的状态、重试、backpressure 和 shutdown 语义。priority、用户任务 API、定时/hook 工作流和 outcome artifact 不属于本版本验收范围。
-
-进入 Queue 实现前，必须先完成四项轻量门槛：Durability D0 的状态分级、Idempotency I0 的业务操作身份清单、Identity S0 的身份/威胁模型，以及数据模型治理 Phase I 的 payload/所有权边界清单。它们用于冻结“什么可以被接受、序列化、恢复和重放”，不要求提前完成各治理主题的全部后续工作包。
-
-截至 2026-08-07，四项基线均已建立：[D0 状态清单](./governance/baselines/durability-d0-state-inventory.md)、[I0 操作清单](./governance/baselines/idempotency-i0-operations-inventory.md)、[S0 身份与威胁清单](./governance/baselines/identity-s0-threat-model-inventory.md)和[数据模型 Phase I 清单](./governance/baselines/data-model-phase-i-inventory.md)。基线完成只表示当时的实现入口和风险已经冻结，不表示对应后续治理阶段已经落地。
-
-v0.6.1 的发布顺序应为：
-
-1. 冻结 Queue 契约并完成 in-memory runtime 的机械状态机验证；
-2. 迁移 Passive Interaction Submission 与 Memory Generation，先让 in-memory runtime 跑通现有业务；
-3. 以同步 applied gate 迁移 Active finalize，验证稳定 `interaction_id`、共享 capacity、模糊失败和后续副作用顺序；
-4. 收敛迁移遗留的重复状态、隐式生命周期和未被业务消费的通用 Queue 能力，并验证最小 identity scope。
-
-In-memory runtime 是 v0.6.1 的实现边界，不构成跨重启可靠交付。SQLite WorkStore、claim ownership、
-lease recovery 与数据库级唯一 idempotency key 后置到出现真实恢复需求后的独立阶段，并作为完整恢复
-方案重新设计；当前 Runtime 不为它们预留半实现字段。任何入口在持久化恢复和业务幂等门槛完成前，
-都不能对外声称 durable accepted。
+In-memory runtime 是 v0.6.1 的完成边界，不构成跨重启可靠交付。SQLite WorkStore、claim ownership、
+lease recovery 与数据库级唯一 idempotency key 已移入
+[持久化治理](./governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)，
+只在出现真实恢复需求并建立独立 Plan 后启动。任何入口在持久化恢复和业务幂等门槛完成前，都不能
+对外声称 durable accepted。
 
 ### 4.3 v0.6.2 Attachments
 

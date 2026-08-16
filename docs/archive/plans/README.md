@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-08-13
+last_reviewed: 2026-08-16
 ---
 
 # Archived Plans
@@ -12,6 +12,7 @@ last_reviewed: 2026-08-13
 
 当前记录：
 
+- [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：Q0–Q4 已完成，Active/Passive Interaction Submission 与 Memory Generation 已接入进程内通用运行时；当前事实见 System Runtime、Passive Ingress 与 Patchouli Generation，SQLite 后续由持久化治理承接。
 - [Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md)：已完成的 phase task 控制、Gateway/Alice 原生 task cancellation、prepare 延迟响应、finalize 门禁，以及 SSE/Worker/unwind 清理加固；当前事实见 `docs/system/application-services.md`、`docs/system/runtime-and-bus.md`、`docs/gateway/`、`docs/alice/` 与 `docs/contracts/`。
 - [Alice 父子 Agent 进程调度流程收口](./alice-parent-child-run-scheduler.md)：已完成的 run-local RunScheduler、统一 root/callee 活动 frame 循环、CALL begin/complete、取消/异常收口与编排兼容层删除；当前事实见 `docs/alice/` 与 `docs/contracts/mtp.md`。
 - [Alice Agent Runtime 控制流重构](./alice-agent-runtime-control-flow-refactor.md)：已完成的单 frame runtime、run-local 编排、CALL transaction 与 PendingAtom 生命周期收口；当前事实见 `docs/alice/`。
@@ -26,4 +27,4 @@ last_reviewed: 2026-08-13
 - [文档迁移最终收口审计](./documentation-migration-finalization-audit.md)：Ideas、残余 README、旧 `archive/mod/` 分类、索引与全库门禁的最终结论。
 - [历史实施计划索引](./implementation/README.md)：从原 `docs/mod/` 迁入的已完成或被替代实施稿。
 
-原 `docs/mod/` 已完成迁移：当前仍在实施的 Local Work Queue 保留于 `docs/plans/`；复合意图分解已降级为 Idea；RuntimeEvent 生产端大重构稿在部分落地并拆分当前规范/Todo 后进入本目录；其余十五篇进入 `implementation/`。归档稿只保留演化证据，当前事实仍从项目与子系统索引进入。
+原 `docs/mod/` 已完成迁移：Local Work Queue 在 v0.6.1 完成后已进入本目录；复合意图分解已降级为 Idea；RuntimeEvent 生产端大重构稿在部分落地并拆分当前规范/Todo 后进入本目录；其余十五篇进入 `implementation/`。归档稿只保留演化证据，当前事实仍从项目与子系统索引进入。

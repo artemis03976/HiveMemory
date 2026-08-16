@@ -204,7 +204,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 ### 5.2 `V0.6.1LocalWorkQueueRuntimePlan.md`
 
-**分类与动作：** 迁移为 [v0.6.1 Local Work Queue Runtime Plan](../../plans/v0.6.1-local-work-queue-runtime.md)。
+**分类与动作：** 先迁移为 v0.6.1 当前 Plan，完成后归档为 [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)。
 
 **当前差距：** Passive outbox 与 memory task 都是进程内专用实现；memory task 提交后直接 `asyncio.create_task()`，没有 pending queue、配额、backpressure 或 durable retry runner；Scheduler 只回答“何时触发”，不是业务 work store。
 
@@ -229,7 +229,7 @@ docs/mod/V0.6.0CompositeIntentDecompositionDesign.md
   -> docs/ideas/composite-intent-decomposition.md
 
 docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md
-  -> docs/plans/v0.6.1-local-work-queue-runtime.md
+  -> docs/archive/plans/v0.6.1-local-work-queue-runtime.md
 ```
 
 归档文件统一修正到当前文档、源码、测试和彼此历史稿的相对链接；Roadmap、Plans/Archive 索引、System/Gateway 入口、源码注释和迁移清单不再引用活动 `docs/mod/` 路径。

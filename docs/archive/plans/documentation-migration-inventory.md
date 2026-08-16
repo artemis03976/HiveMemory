@@ -17,7 +17,7 @@ updates:
   - docs/alice/
   - docs/gateway/
   - docs/contracts/
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-16
 ---
 
 # 文档体系迁移清单
@@ -195,7 +195,7 @@ last_reviewed: 2026-07-30
 | `docs/mod/V0.6.0GlobalCommandSystemDesign.md` | archive | 已迁移 | 已实现命令语义进入 `gateway/commands.md`，未实现设想只留在历史稿 |
 | `docs/mod/V0.6.0PassiveIngressDesign.md` | archive | 已迁移 | 当前事实进入 `system/passive-ingress.md` 与 Gateway workflow |
 | `docs/mod/V0.6.0UserQueryAnalysisGen1TechDebt.md` | archive | 已迁移 | 当前技术债与指标先行原则进入 `gateway/analysis.md`；第二代尚不足以建立小型 Todo 或排期 Plan |
-| `docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md` | plan | 已迁移 | 迁入 `plans/v0.6.1-local-work-queue-runtime.md`，继续保持 Planned 状态 |
+| `docs/mod/V0.6.1LocalWorkQueueRuntimePlan.md` | plan | 已完成并归档 | 先迁入 `plans/` 实施，v0.6.1 完成后归档至 `archive/plans/v0.6.1-local-work-queue-runtime.md` |
 
 ## 14. 迁移批次
 
