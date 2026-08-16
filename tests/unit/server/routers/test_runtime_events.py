@@ -58,6 +58,8 @@ async def test_runtime_events_stream_returns_sse_replay():
     assert "event: runtime_event" in chunk
     assert "chat.run.created" in chunk
 
+    await response.body_iterator.aclose()
+
 
 @pytest.mark.asyncio
 async def test_runtime_events_stream_replays_after_last_event_id_query():
@@ -82,6 +84,8 @@ async def test_runtime_events_stream_replays_after_last_event_id_query():
     assert "streaming" in chunk
     assert first_id not in chunk
 
+    await response.body_iterator.aclose()
+
 
 @pytest.mark.asyncio
 async def test_runtime_events_stream_header_last_event_id_emits_gap_when_evicted():
@@ -104,3 +108,5 @@ async def test_runtime_events_stream_header_last_event_id_emits_gap_when_evicted
 
     assert "event.stream.gap" in chunk
     assert evicted_id in chunk
+
+    await response.body_iterator.aclose()

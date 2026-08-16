@@ -1,31 +1,24 @@
-"""Tests for I18nConfig integration with HiveMemoryConfig."""
+"""Tests for HiveMemoryConfig i18n 集成。"""
 
 import pytest
 
-from hivememory.system.config import HiveMemoryConfig, I18nConfig
+from hivememory.i18n import get_default_language, set_default_language
+from hivememory.system.config import HiveMemoryConfig
 
 
-class TestI18nConfig:
-    def test_defaults(self):
-        config = I18nConfig()
-        assert config.default_language == "zh"
-        assert config.fallback_language == "en"
-        assert config.supported_languages == ["zh", "en"]
-
-    def test_override(self):
-        config = I18nConfig(default_language="en", fallback_language="zh")
-        assert config.default_language == "en"
-        assert config.fallback_language == "zh"
+@pytest.fixture(autouse=True)
+def _reset_default_language():
+    set_default_language("zh")
+    yield
+    set_default_language("zh")
 
 
 class TestHiveMemoryConfigI18n:
-    def test_default_i18n_field(self):
-        config = HiveMemoryConfig()
-        assert config.i18n.default_language == "zh"
-        assert config.i18n.fallback_language == "en"
-        assert config.i18n.supported_languages == ["zh", "en"]
-
-    def test_override_via_constructor(self):
+    def test_syncs_default_language_to_global_resolver(self):
         config = HiveMemoryConfig(i18n={"default_language": "en"})
+        assert get_default_language() == "en"
         assert config.i18n.default_language == "en"
-        assert config.i18n.fallback_language == "en"
+
+    def test_keeps_default_language_zh(self):
+        config = HiveMemoryConfig()
+        assert get_default_language() == "zh"

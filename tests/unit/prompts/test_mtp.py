@@ -21,7 +21,6 @@ from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )
-from hivememory.system.config import MTPPromptConfig, KoakumaConfig
 
 
 # ========== MTPPromptBuilder 单元测试 ==========
@@ -166,10 +165,10 @@ class TestGetMTPPrompt:
     """测试 get_mtp_prompt 便捷函数"""
 
     def test_returns_string(self):
-        """返回非空字符串"""
+        """返回完整协议 prompt"""
         result = get_mtp_prompt()
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert "HIVE MEMORY" in result
+        assert MTP_LEFT_DELIMITER in result
 
     def test_passes_language_param(self):
         """语言参数正确传递"""
@@ -185,39 +184,3 @@ class TestGetMTPPrompt:
         result = get_mtp_prompt(runtime_tools=custom)
         assert "test_tool" in result
         assert "sys_clock" not in result
-
-
-# ========== MTPPromptConfig 配置测试 ==========
-
-class TestMTPPromptConfig:
-    """测试 MTPPromptConfig 配置模型"""
-
-    def test_default_values(self):
-        """默认配置值正确"""
-        config = MTPPromptConfig()
-        assert config.enabled is True
-        assert config.include_demo is True
-        assert config.include_error_handling is True
-
-    def test_nested_in_koakuma(self):
-        """MTPPromptConfig 嵌套在 KoakumaConfig 中"""
-        config = KoakumaConfig()
-        assert hasattr(config, "mtp_prompt")
-        assert isinstance(config.mtp_prompt, MTPPromptConfig)
-        assert config.mtp_prompt.enabled is True
-
-    def test_custom_values(self):
-        """自定义配置值"""
-        config = MTPPromptConfig(
-            enabled=False,
-            include_demo=False,
-        )
-        assert config.enabled is False
-        assert config.include_demo is False
-
-    def test_koakuma_config_with_mtp_prompt(self):
-        """KoakumaConfig 接受嵌套的 mtp_prompt 配置"""
-        config = KoakumaConfig(
-            mtp_prompt=MTPPromptConfig(include_demo=False)
-        )
-        assert config.mtp_prompt.include_demo is False

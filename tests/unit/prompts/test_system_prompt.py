@@ -10,7 +10,6 @@ def test_system_prompt_default_chinese_texts():
         .build()
     )
 
-    assert prompt is not None
     assert "[系统通知]" in prompt
     assert "### 角色设定 ###" in prompt
     assert "[话题状态]" in prompt
@@ -26,7 +25,6 @@ def test_system_prompt_english_texts():
         .build()
     )
 
-    assert prompt is not None
     assert "[SYSTEM NOTICE]" in prompt
     assert "### PERSONA ###" in prompt
     assert "[Topic State]" in prompt
@@ -41,6 +39,5 @@ def test_system_prompt_language_alias_fallback():
         .build()
     )
 
-    assert prompt is not None
     assert "[SYSTEM NOTICE]" in prompt
     assert "### PERSONA ###" in prompt

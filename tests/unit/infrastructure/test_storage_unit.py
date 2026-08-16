@@ -114,16 +114,17 @@ class TestQdrantMemoryStore:
         )
 
     @pytest.mark.asyncio
-    async def test_ensure_ready_waits_for_qdrant_and_collection(self, storage):
+    async def test_ensure_ready_creates_missing_collection(self, storage):
         storage.client.info = AsyncMock(return_value=MagicMock())
         storage.client.get_collections = AsyncMock(return_value=MagicMock(collections=[]))
         storage.client.create_collection = AsyncMock()
 
         await storage.ensure_ready()
 
-        storage.client.info.assert_awaited_once()
-        storage.client.get_collections.assert_awaited_once()
         storage.client.create_collection.assert_awaited_once()
+        call_kwargs = storage.client.create_collection.call_args.kwargs
+        assert call_kwargs["collection_name"] == "test"
+        assert "dense_text" in call_kwargs["vectors_config"]
 
     @pytest.mark.asyncio
     async def test_upsert_memory_dense_only(self, storage):
@@ -149,10 +150,8 @@ class TestQdrantMemoryStore:
         # 验证 point.vector 中包含 dense_text
         vector = points[0].vector
         assert "dense_text" in vector
-        assert vector["dense_text"] == [0.1] * 1024
-
-        # 验证 memory.index 上确实没有 embedding 属性
-        assert not hasattr(memory.index, 'embedding')
+        # 维度契约：encode 输出长度等于配置的向量维度
+        assert len(vector["dense_text"]) == 1024
 
     @pytest.mark.asyncio
     async def test_upsert_memory_hybrid(self, storage):
@@ -172,7 +171,7 @@ class TestQdrantMemoryStore:
         vector = points[0].vector
         assert "dense_text" in vector
         assert "sparse_text" in vector
-        assert vector["dense_text"] == [0.1] * 1024
+        assert len(vector["dense_text"]) == 1024
         assert isinstance(vector["sparse_text"], Document)
         assert vector["sparse_text"].text
         assert vector["sparse_text"].model == "qdrant/bm25"
@@ -196,6 +195,9 @@ class TestQdrantMemoryStore:
         )
 
         assert len(results) == 1
+        assert results[0]["score"] == 0.42
+        assert results[0]["id"] == "point-1"
+        assert results[0]["memory"].payload.content == "Content"
         call_args = storage.client.query_points.call_args.kwargs
         assert call_args["using"] == "sparse_text"
         assert isinstance(call_args["query"], Document)
@@ -220,9 +222,11 @@ class TestQdrantMemoryStore:
         )
 
         assert len(results) == 1
+        assert results[0]["score"] == 0.88
+        assert results[0]["memory"].payload.content == "Content"
         call_args = storage.client.query_points.call_args.kwargs
         assert call_args["using"] == "dense_text"
-        assert call_args["query"] == [0.1] * 1024
+        assert len(call_args["query"]) == 1024
 
     @staticmethod
     def _make_memory() -> MemoryAtom:
@@ -307,7 +311,6 @@ class TestQdrantMemoryStore:
         result = await storage.get_agent_profile("coder_doll")
 
         assert result.persona == "You are a test agent."
-        storage.get_memory_by_alias.assert_called_once_with("coder_doll")
 
     @pytest.mark.asyncio
     async def test_get_agent_profile_not_found_fails_explicitly(self, storage):

@@ -52,7 +52,7 @@ class _AgentProfileManagementStub:
         )
 
 
-def test_list_agents_uses_index_memory_type_filter():
+def test_list_agents_returns_200_and_passes_limit():
     storage = MagicMock()
     storage.get_all_memories.return_value = []
 
@@ -61,7 +61,5 @@ def test_list_agents_uses_index_memory_type_filter():
 
     response = client.get("/api/v1/agents")
     assert response.status_code == 200
-    storage.get_all_memories.assert_called_once_with(
-        filters={"index.memory_type": "AGENT_PROFILE"},
-        limit=100,
-    )
+    # limit=100 由 router/service 层透传；stub 内部的 filter 属于 stub 自身行为，不在此处断言
+    assert storage.get_all_memories.call_args.kwargs["limit"] == 100

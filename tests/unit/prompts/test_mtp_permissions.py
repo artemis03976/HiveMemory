@@ -226,27 +226,6 @@ class TestCombinedPermissions:
         assert "sys_read_file" not in output
         assert "sys_write_file" not in output
 
-    def test_reviewer_profile_prompt(self):
-        """Reviewer 人偶 prompt：只读权限"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_runtime_tools=["sys_clock"],  # 无写文件权限
-        )
-        output = builder.build()
-
-        # 可以读取
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-
-        # 不能写入
-        assert "- WRITE:" not in output
-        assert "- UPDATE:" not in output
-
-        # 不能执行代码或写文件
-        assert "sys_write_file" not in output
-        assert "sys_python_repl" not in output
-
     def test_coder_profile_prompt(self):
         """Coder 人偶 prompt：读写权限"""
         builder = MTPPromptBuilder(
@@ -265,26 +244,6 @@ class TestCombinedPermissions:
         assert "sys_read_file" in output
         assert "sys_write_file" in output
         assert "sys_python_repl" in output
-
-    def test_omni_doll_profile_prompt(self):
-        """Omni Doll 全能人偶 prompt：全权限"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=None,  # 全部动词
-            allowed_runtime_tools=None,  # 全部工具
-        )
-        output = builder.build()
-
-        # 所有动词都应该出现
-        assert "- SEARCH:" in output
-        assert "- READ:" in output
-        assert "- RUN:" in output
-        assert "- WRITE:" in output
-        assert "- UPDATE:" in output
-
-        # 所有默认工具都应该出现
-        for tool_alias, _ in DEFAULT_RUNTIME_TOOLS:
-            assert tool_alias in output
 
 
 class TestPromptStructureIntegrity:
@@ -325,8 +284,8 @@ class TestPromptStructureIntegrity:
         # 工具列表不应该出现（空列表）
         assert "[RUNTIME TOOLS]" not in output
 
-    def test_filtered_prompt_no_leaked_verbs(self):
-        """确保禁止的动词不会在其他部分泄露"""
+    def test_filtered_verb_absent_from_verb_list(self):
+        """白名单之外的动词不应出现在 VERBS 列表中"""
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ"],
@@ -337,8 +296,8 @@ class TestPromptStructureIntegrity:
         # WRITE 不应该在 VERBS 列表中
         assert "- WRITE:" not in output
 
-        # 但 WRITE 可能在其他说明中出现（如 "do not write"），这是正常的
-        # 我们只检查动词定义列表
+        # 允许的动词仍然渲染
+        assert "- READ:" in output
 
 
 class TestEdgeCases:

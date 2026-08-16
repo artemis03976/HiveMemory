@@ -88,7 +88,8 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
 
     messages = assembler.build_main_agent_messages(context)
 
-    assert "OFFLINE" in messages[0]["content"] or "离线" in messages[0]["content"]
+    # zh 场景应渲染中文离线通知；若语言回退错误渲染成英文文本，此断言会红
+    assert "离线" in messages[0]["content"]
 
 
 def test_build_sub_agent_messages_disables_call():
@@ -135,6 +136,10 @@ def test_mtp_prompt_uses_global_language_without_profile_language():
     set_default_language("en")
     assembler = AgentPromptAssembler(_make_koakuma_config())
 
-    prompt = assembler._build_mtp_prompt(profile=None)
+    messages = assembler.build_sub_agent_messages(
+        profile=None,
+        task="Search memory",
+        shared_context="",
+    )
 
-    assert "You are an intelligent Agent running on HiveOS" in prompt
+    assert "You are an intelligent Agent running on HiveOS" in messages[0]["content"]

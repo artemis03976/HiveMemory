@@ -36,4 +36,6 @@ def test_estimate_dict_defaults_to_all_stringifiable_values():
 
 
 def test_estimate_tokens_is_backward_compatible_alias():
-    assert estimate_tokens("abcd") == TokenEstimator.estimate("abcd")
+    # 便捷函数与默认 ratio 的估算结果一致（确定性值）
+    assert estimate_tokens("abcd") == 1
+    assert estimate_tokens("世界") == 1

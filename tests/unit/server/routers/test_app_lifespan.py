@@ -1,5 +1,6 @@
 """server.app 生命周期接线测试"""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,16 +24,18 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
         patch.object(app_module, "init_websocket_log_broadcasting", return_value=ws_manager),
         patch.object(app_module, "shutdown_system", AsyncMock()) as shutdown_system,
         patch.object(app_module, "shutdown_websocket_log_broadcasting", AsyncMock()) as shutdown_ws,
-        patch("hivememory.server.app.asyncio.create_task") as create_task,
     ):
         app = FastAPI()
         async with app_module.lifespan(app):
+            # 验证生产代码将 ws_manager 存储到 app.state 的接线行为
             assert app.state.ws_manager is ws_manager
+
+        # 让 lifespan 中 create_task 的后台预热任务被事件循环调度执行
+        await asyncio.sleep(0)
 
         init_system.assert_called_once_with()
         mock_system.start.assert_awaited_once()
-        create_task.assert_called_once()
-        mock_system.readiness_service.warmup_models.assert_called_once()
+        mock_system.readiness_service.warmup_models.assert_awaited_once()
         shutdown_system.assert_awaited_once()
         shutdown_ws.assert_awaited_once_with(ws_manager)
 

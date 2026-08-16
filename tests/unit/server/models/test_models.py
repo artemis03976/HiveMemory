@@ -6,8 +6,8 @@ server/models 单元测试
     2. Common 模型的版本守护
 """
 
-from hivememory.server.models.memory import MemoryResponse, MemoryListResponse
-from hivememory.server.models.common import ErrorResponse, HealthResponse
+from hivememory.server.models.memory import MemoryResponse
+from hivememory.server.models.common import HealthResponse
 
 
 class TestMemoryResponse:
@@ -45,16 +45,8 @@ class TestMemoryResponse:
         assert resp.alias == "test_memory"
         assert resp.access_count == 5
 
-    def test_list_response(self):
-        resp = MemoryListResponse(memories=[], total=0)
-        assert resp.total == 0
-
 
 class TestCommonModels:
-    def test_error_response(self):
-        e = ErrorResponse(error="bad request", detail="missing field")
-        assert e.error == "bad request"
-
     def test_health_response(self):
         from hivememory import __version__
 

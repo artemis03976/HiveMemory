@@ -89,7 +89,7 @@ class TestListModels:
 
         resp = client.get("/api/v1/models")
         model = resp.json()[0]
-        assert "api_key" not in model or model.get("api_key") is None
+        assert "api_key" not in model
         masked = model.get("api_key_masked", "")
         assert "verylongapikey" not in masked
         assert masked.startswith("sk-")

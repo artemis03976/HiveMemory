@@ -17,14 +17,16 @@ def _hook_args(thread):
 
 
 def test_configure_logging_sets_levels():
-    server_main._configure_logging()
-    assert logging.getLogger().level == logging.INFO
-    assert logging.getLogger("hivememory").level == logging.INFO
-
-
-def test_install_thread_exception_hook():
-    server_main._install_thread_exception_hook()
-    assert threading.excepthook is not None
+    root_level = logging.getLogger().level
+    hivememory_level = logging.getLogger("hivememory").level
+    try:
+        server_main._configure_logging()
+        assert logging.getLogger().level == logging.INFO
+        assert logging.getLogger("hivememory").level == logging.INFO
+    finally:
+        # 恢复日志级别，避免 basicConfig(force=True) 污染同进程后续测试
+        logging.getLogger().setLevel(root_level)
+        logging.getLogger("hivememory").setLevel(hivememory_level)
 
 
 def test_thread_exception_hook_logs_error(caplog):

@@ -19,14 +19,16 @@ def test_trace_inject_filter_uses_defaults():
 
 def test_set_and_reset_trace_context():
     tokens = set_trace_context("trace-1", "span-a", "background")
-    record = logging.LogRecord("test", logging.INFO, __file__, 1, "msg", (), None)
+    try:
+        record = logging.LogRecord("test", logging.INFO, __file__, 1, "msg", (), None)
+        TraceInjectFilter().filter(record)
+        assert record.trace_id == "trace-1"
+        assert record.span_name == "span-a"
+        assert record.task_type == "background"
+    finally:
+        # 无论断言是否失败都恢复全局 context，避免污染后续测试
+        reset_trace_context(tokens)
 
-    TraceInjectFilter().filter(record)
-    assert record.trace_id == "trace-1"
-    assert record.span_name == "span-a"
-    assert record.task_type == "background"
-
-    reset_trace_context(tokens)
     restored = logging.LogRecord("test", logging.INFO, __file__, 1, "msg", (), None)
     TraceInjectFilter().filter(restored)
     assert restored.trace_id == "system"
