@@ -6,10 +6,9 @@ scope: test-authoring-standards-anti-patterns-and-quality-gates
 code_paths:
   - tests/
 related_docs:
-  - docs/todo/testing-suite-audit.md
   - pyproject.toml
   - .github/workflows/ci.yml
-last_reviewed: 2026-08-15
+last_reviewed: 2026-08-16
 ---
 
 # 测试设计规范
@@ -22,10 +21,10 @@ HiveMemory 现有测试数量充足（约 2009 个用例、覆盖率 88.99%）�
 依然可能畅通无阻。
 
 本规范约束**今后新编写与修改的测试**，目标是让每一条测试都满足一个最低标准：**它必须在至少一个维度上能够失败**，
-失败时才真正暴露缺陷。存量的清理与归类见[测试体系问题清单](../../todo/testing-suite-audit.md)，本规范不重复逐条修复计划。
+失败时才真正暴露缺陷。存量测试体系的清理与归类已结项，处置结果见[§12 存量治理结项记录](#12-存量治理结项记录testing-suite-audit-结项)，
+本规范不重复逐条修复计划。
 
-本文是跨版本持续生效的工程质量治理主题，不绑定某个版本的实施方案。只有满足[升级门槛](#10-升级为独立-plan-的门槛)
-的机制建设才从本文提取为独立 Plan。
+本文是跨版本持续生效的工程质量治理主题，不绑定某个版本的实施方案。
 
 ## 2. 核心原则
 
@@ -119,6 +118,16 @@ HiveMemory 现有测试数量充足（约 2009 个用例、覆盖率 88.99%）�
 本地默认运行 PR 快速集。真实资源任务应显式选择，不得因为默认排除而长期无人运行。
 
 ## 4. 断言规范
+
+### 4.0 行为断言约束
+
+> **约束（审计 P3-12 结项）**：新建测试必须通过**行为断言**验证，禁止用 mock 细节断言替代。
+>
+> - **行为断言** = 验证可观察结果：输入→输出、状态迁移、副作用（存储写入、事件发布、持久化结果）；
+> - **mock 细节断言** = 断言 mock 调用次数、中间参数、mock 返回值镜像（反模式 A3/A4，见 §4.1 与 §5）。
+>
+> 判定标准：把 mock 换成真实对象后测试仍能通过，才算行为断言；仅依赖 mock 细节才能成立即不合格。
+> 此项自 2026-08-16 起作为 §9 评审清单的硬性检查项，持续生效。
 
 ### 4.1 禁止的断言模式（反模式清单）
 
@@ -270,8 +279,6 @@ def test_write_creates_memory(self):
   [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)，覆盖率源码范围配置见 [pyproject.toml](../../../pyproject.toml)。
 - 覆盖率是**下限而非质量上限**：高覆盖率不保证断言有效。本规范第 4 节的断言规范优先级高于覆盖率数字。
 - 新增代码应优先补齐关键分支（状态机迁移、错误路径、边界值），而不是用恒真断言刷覆盖率。
-- 已知低覆盖模块（`gateway/commands/parser.py`、`infrastructure/llm/litellm_service.py`、`server/__main__.py`）
-  的补测属于存量工作，见审计文档的 COVERAGE_GAP 条目。
 
 ## 9. 评审清单（新测试 PR 必查）
 
@@ -307,6 +314,31 @@ def test_write_creates_memory(self):
 
 ## 11. 相关文档
 
-- [测试体系问题清单](../../todo/testing-suite-audit.md)：存量的逐条问题与修复计划（P0-P3）；
 - [pyproject.toml](../../../pyproject.toml)：pytest、marker 与覆盖率源码范围配置；
-- [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)：CI 测试执行方式。
+- [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)：CI 测试执行方式；
+- [§12 存量治理结项记录](#12-存量治理结项记录testing-suite-audit-结项)：测试体系审计（P0-P3）的处置结果与遗留项。
+
+## 12. 存量治理结项记录（Testing Suite Audit 结项）
+
+2026-08-14 至 2026-08-16 对 `tests/` 全部文件的测试体系审计（原 `docs/todo/testing-suite-audit.md`）
+已完成处置，该清单文档已删除（逐文件明细保留在 Git 历史中）。处置结果：
+
+- **P0（恒真/无断言/死代码）** ✅：恒真断言、条件守卫软断言、mock 冒充、死代码全部修复或删除。
+- **P1（结构归类）** ✅：`integration` 与 `e2e` 目录层级语义真实化、无 mock 冒充；失修的 live 测试与
+  `test_koakuma_e2e.py` 删除；e2e 目录重构为 `pipeline` / `system` / `component` 分层。
+- **P2（真实缺口）**：
+  - COVERAGE_GAP 补测 ✅：`gateway/commands/parser.py`、`handlers.py`（`tests/unit/gateway/commands/`）、
+    `litellm_service.py`（`tests/unit/infrastructure/test_litellm_service.py`）、`server/__main__.py`
+    （`tests/unit/server/test_main.py`）；
+  - e2e 修复 ✅：CI 手动触发 e2e job（`.github/workflows/ci.yml`）、固定 sleep 轮询化、
+    `sub_agent_call_e2e.py` 共享存储副作用清理、`flush_triggers_e2e.py` OR 断言收紧；
+    新增完整 agent loop 与 chat run（含 MTP WRITE 确定性落库）e2e；
+  - 薄 service 转发测试收敛 ⏳ **遗留**：`tests/unit/patchouli/application/` 下 4 个文件的
+    bus 转发测试仍以 mock 回读为主，待参数化契约化或并入真实 bus 集成。
+- **P3（机制建设）**：
+  - FLAKY 可控时钟 ✅：scheduler 注入可控单调时钟（`test_async_scheduler.py` 的 `_FakeMonotonic`）；
+    perception idle 与 vitality 已达"相对时间 + 有界轮询"标准；e2e 明确不做时钟化；
+  - 行为断言规范 ✅（即审计 P3-12）：见 §4.0 / §4.1 / §5 / §9；
+  - mutation testing ⏳ **遗留**：先由 §4 约束防止新增恒真断言，再引入 `mutmut` 校验存量断言有效性。
+
+遗留项已在本节登记，不再维护独立的 todo 清单文档。

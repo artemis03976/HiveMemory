@@ -67,6 +67,35 @@ async def _wait_for_skip_count(
             await asyncio.sleep(0.01)
 
 
+class _FakeMonotonic:
+    """可控单调时钟：读取返回当前值，测试显式推进。
+
+    AsyncMaintenanceScheduler 以 `from time import monotonic` 模块级导入，
+    通过 monkeypatch `async_scheduler.monotonic` 即可让「interval 到期判定」
+    由假时钟控制：注册后 next_run_at = 0 + interval，推进时钟即可触发 dispatch，
+    不再依赖真实时间等待（消除固定 sleep 与机器负载导致的 flaky）。
+    """
+
+    def __init__(self, start: float = 0.0) -> None:
+        self._now = start
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+@pytest.fixture
+def fake_clock(monkeypatch) -> _FakeMonotonic:
+    clock = _FakeMonotonic()
+    monkeypatch.setattr(
+        "hivememory.system.runtime.scheduler.async_scheduler.monotonic",
+        clock,
+    )
+    return clock
+
+
 class TestSchedulerRegistration:
 
     def test_register_task(self):
@@ -111,10 +140,11 @@ class TestSchedulerRegistration:
 class TestSchedulerExecution:
 
     @pytest.mark.asyncio
-    async def test_task_is_called(self):
+    async def test_task_is_called(self, fake_clock):
         callback = AsyncMock()
-        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
-        scheduler.register(make_spec(name="test", interval_seconds=0.1), callback)
+        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.01)
+        scheduler.register(make_spec(name="test", interval_seconds=1.0), callback)
+        fake_clock.advance(1.0)  # 推进时钟使任务到期，无需真实等待
 
         scheduler.start()
         try:
@@ -125,28 +155,31 @@ class TestSchedulerExecution:
         assert callback.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_disabled_task_not_called(self):
+    async def test_disabled_task_not_called(self, fake_clock):
         callback = AsyncMock()
-        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
+        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.01)
         scheduler.register(
-            make_spec(name="test", interval_seconds=0.1, enabled=False),
+            make_spec(name="test", interval_seconds=1.0, enabled=False),
             callback,
         )
+        # 假时钟覆盖 3 个 interval 周期：disabled 任务永不触发
+        fake_clock.advance(3.0)
 
         scheduler.start()
-        # 覆盖两个 interval 周期后仍未调用（disabled 任务永不触发，不 flaky）
-        await asyncio.sleep(0.25)
+        # 真实等待仅需覆盖几个 tick（10ms 级），保证 tick 循环已跨过多周期
+        await asyncio.sleep(0.05)
         await scheduler.stop()
 
         callback.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_exception_does_not_crash_scheduler(self):
+    async def test_exception_does_not_crash_scheduler(self, fake_clock):
         failing = AsyncMock(side_effect=RuntimeError("boom"))
         healthy = AsyncMock()
-        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
-        scheduler.register(make_spec(name="failing", interval_seconds=0.1), failing)
-        scheduler.register(make_spec(name="healthy", interval_seconds=0.1), healthy)
+        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.01)
+        scheduler.register(make_spec(name="failing", interval_seconds=1.0), failing)
+        scheduler.register(make_spec(name="healthy", interval_seconds=1.0), healthy)
+        fake_clock.advance(1.0)
 
         scheduler.start()
         try:
@@ -160,28 +193,36 @@ class TestSchedulerExecution:
         assert status[f"{TEST_OWNER}.failing"]["last_error"] == "boom"
 
     @pytest.mark.asyncio
-    async def test_non_reentrant_skip(self):
+    async def test_non_reentrant_skip(self, fake_clock):
         """长时间运行的任务不会重入"""
         call_count = 0
 
         async def slow_task():
             nonlocal call_count
             call_count += 1
-            await asyncio.sleep(0.3)
+            # 模拟耗时任务：必须真实占用事件循环，时钟无法替代
+            await asyncio.sleep(0.1)
 
-        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
+        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.01)
         scheduler.register(
             make_spec(
                 name="slow",
-                interval_seconds=0.05,
+                interval_seconds=0.5,
                 non_reentrant=True,
                 skip_if_running=True,
             ),
             slow_task,
         )
+        fake_clock.advance(0.5)  # 第一次到期 → dispatch slow_task
 
         scheduler.start()
         try:
+            # 等 slow_task 被派发（call_count >= 1）
+            async with asyncio.timeout(1.0):
+                while call_count < 1:
+                    await asyncio.sleep(0.01)
+            # 任务运行中再次到期 → 应 skip 而非重入
+            fake_clock.advance(0.5)
             await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow", 1)
             await scheduler.stop()
         except asyncio.TimeoutError:
@@ -193,17 +234,18 @@ class TestSchedulerExecution:
         assert status[f"{TEST_OWNER}.slow"]["skip_count"] >= 1
 
     @pytest.mark.asyncio
-    async def test_success_task_emits_runtime_events(self):
+    async def test_success_task_emits_runtime_events(self, fake_clock):
         recorder = RecordingRuntimeEventSink()
 
         async def callback():
             return {"flushed": 2}
 
         scheduler = AsyncMaintenanceScheduler(
-            tick_seconds=0.05,
+            tick_seconds=0.01,
             runtime_events=recorder,
         )
-        scheduler.register(make_spec(name="success", interval_seconds=0.05), callback)
+        scheduler.register(make_spec(name="success", interval_seconds=1.0), callback)
+        fake_clock.advance(1.0)
 
         scheduler.start()
         try:
@@ -218,17 +260,18 @@ class TestSchedulerExecution:
         assert completed.data["result"] == {"flushed": 2}
 
     @pytest.mark.asyncio
-    async def test_failed_task_emits_runtime_event_and_keeps_scheduler_alive(self):
+    async def test_failed_task_emits_runtime_event_and_keeps_scheduler_alive(self, fake_clock):
         recorder = RecordingRuntimeEventSink()
 
         async def callback():
             raise RuntimeError("boom")
 
         scheduler = AsyncMaintenanceScheduler(
-            tick_seconds=0.05,
+            tick_seconds=0.01,
             runtime_events=recorder,
         )
-        scheduler.register(make_spec(name="failing", interval_seconds=0.05), callback)
+        scheduler.register(make_spec(name="failing", interval_seconds=1.0), callback)
+        fake_clock.advance(1.0)
 
         scheduler.start()
         try:
@@ -246,48 +289,57 @@ class TestSchedulerExecution:
         assert scheduler.get_status()[f"{TEST_OWNER}.failing"]["last_error"] == "boom"
 
     @pytest.mark.asyncio
-    async def test_disabled_task_emits_no_runtime_events(self):
+    async def test_disabled_task_emits_no_runtime_events(self, fake_clock):
         recorder = RecordingRuntimeEventSink()
         callback = AsyncMock()
         scheduler = AsyncMaintenanceScheduler(
-            tick_seconds=0.05,
+            tick_seconds=0.01,
             runtime_events=recorder,
         )
         scheduler.register(
-            make_spec(name="disabled", interval_seconds=0.1, enabled=False),
+            make_spec(name="disabled", interval_seconds=1.0, enabled=False),
             callback,
         )
+        # 假时钟覆盖 3 个 interval 周期：disabled 任务永不触发
+        fake_clock.advance(3.0)
 
         scheduler.start()
-        # 覆盖两个 interval 周期后仍无事件（disabled 任务永不触发）
-        await asyncio.sleep(0.25)
+        # 真实等待仅需覆盖几个 tick，保证 tick 循环已跨过多周期
+        await asyncio.sleep(0.05)
         await scheduler.stop()
 
         assert recorder.events == []
 
     @pytest.mark.asyncio
-    async def test_non_reentrant_skip_emits_no_extra_runtime_events(self):
+    async def test_non_reentrant_skip_emits_no_extra_runtime_events(self, fake_clock):
         recorder = RecordingRuntimeEventSink()
 
         async def slow_task():
-            await asyncio.sleep(0.3)
+            # 模拟耗时任务：必须真实占用事件循环，时钟无法替代
+            await asyncio.sleep(0.1)
 
         scheduler = AsyncMaintenanceScheduler(
-            tick_seconds=0.05,
+            tick_seconds=0.01,
             runtime_events=recorder,
         )
         scheduler.register(
             make_spec(
                 name="slow_events",
-                interval_seconds=0.05,
+                interval_seconds=0.5,
                 non_reentrant=True,
                 skip_if_running=True,
             ),
             slow_task,
         )
+        fake_clock.advance(0.5)  # 第一次到期 → dispatch slow_task
 
         scheduler.start()
         try:
+            # 等任务已派发（产生 STARTED 事件）后，任务运行中再次到期 → skip
+            await _wait_for_event(
+                recorder, RuntimeEventType.MAINTENANCE_TASK_STARTED
+            )
+            fake_clock.advance(0.5)
             await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow_events", 1)
             await scheduler.stop()
         except asyncio.TimeoutError:
@@ -302,10 +354,11 @@ class TestSchedulerExecution:
         assert event_types.count(RuntimeEventType.MAINTENANCE_TASK_STARTED) >= 1
 
     @pytest.mark.asyncio
-    async def test_default_null_runtime_event_sink_does_not_affect_task(self):
-        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
+    async def test_default_null_runtime_event_sink_does_not_affect_task(self, fake_clock):
+        scheduler = AsyncMaintenanceScheduler(tick_seconds=0.01)
         callback = AsyncMock(return_value=1)
-        scheduler.register(make_spec(name="default_sink", interval_seconds=0.05), callback)
+        scheduler.register(make_spec(name="default_sink", interval_seconds=1.0), callback)
+        fake_clock.advance(1.0)
 
         scheduler.start()
         try:
