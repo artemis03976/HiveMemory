@@ -64,7 +64,6 @@ logger = logging.getLogger(__name__)
 # ========== 常量 ==========
 
 MEMORY_WAIT_TIMEOUT = 15.0
-FLUSH_SETTLE_SECONDS = 5.0
 
 
 def build_messages(
@@ -232,8 +231,7 @@ class TestPassiveBasicFlow:
         )
         assert flushed is True, "flush 应返回 True (有数据被提交到感知层)"
 
-        # Step 4: 等待 payload 进入感知层 Buffer
-        time.sleep(FLUSH_SETTLE_SECONDS)
+        # Step 4: 等待 payload 进入感知层 Buffer（轮询）
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=1, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -292,8 +290,7 @@ class TestPassiveAutoFlush:
             session_id=session_id,
         )
 
-        # 等待 Round 1 payload 进入感知层 Buffer
-        time.sleep(FLUSH_SETTLE_SECONDS)
+        # 等待 Round 1 payload 进入感知层 Buffer（轮询）
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=1, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -313,7 +310,6 @@ class TestPassiveAutoFlush:
         )
         await _flush(
             e2e_system, user_id=user_id, session_id=session_id)
-        time.sleep(FLUSH_SETTLE_SECONDS)
 
         blocks_after = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=2, timeout=MEMORY_WAIT_TIMEOUT
@@ -363,8 +359,6 @@ class TestPassiveMultiRound:
         # 显式 flush 最后一轮 → 提交到感知层
         await _flush(
             e2e_system, user_id=user_id, session_id=session_id)
-        time.sleep(FLUSH_SETTLE_SECONDS + 3)  # 多轮需要更长等待
-
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=3, timeout=MEMORY_WAIT_TIMEOUT + 5
         )
@@ -411,7 +405,6 @@ class TestPassiveThenActiveRetrieval:
         )
         await _flush(
             e2e_system, user_id=user_id, session_id="passive-seed")
-        time.sleep(FLUSH_SETTLE_SECONDS)
 
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=1, timeout=MEMORY_WAIT_TIMEOUT
@@ -492,8 +485,6 @@ class TestPassiveWorthSavingFilter:
             e2e_system,
             user_id=user_id, session_id=session_id
         )
-        time.sleep(FLUSH_SETTLE_SECONDS + 3)
-
         # Step 4: 验证 — flush 后应能在感知层 Buffer 中观察到 block
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=1, timeout=MEMORY_WAIT_TIMEOUT
@@ -550,8 +541,6 @@ class TestPassiveWorthSavingFilter:
             e2e_system,
             user_id=user_id, session_id=session_id
         )
-        time.sleep(FLUSH_SETTLE_SECONDS + 3)
-
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=2, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -642,7 +631,6 @@ class TestPassiveMultiSessionIsolation:
         )
         assert flushed_a is True, "Session A flush 应返回 True"
 
-        time.sleep(FLUSH_SETTLE_SECONDS)
         blocks = _wait_for_perception_blocks(
             e2e_system, user_id, min_blocks=1, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -666,7 +654,6 @@ class TestPassiveMultiSessionIsolation:
             user_id=user_id, session_id=session_b
         )
         if flushed_b:
-            time.sleep(FLUSH_SETTLE_SECONDS)
             blocks_all = _wait_for_perception_blocks(
                 e2e_system, user_id, min_blocks=2, timeout=MEMORY_WAIT_TIMEOUT
             )

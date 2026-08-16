@@ -55,24 +55,29 @@ def _done_commands(done_event: dict[str, Any] | None) -> list[str]:
     ]
 
 
-def _ensure_coder_doll_profile(system) -> None:
+def _ensure_coder_doll_profile(system) -> bool:
     """
     确保 coder_doll 的 Agent Profile 存在，避免 CALL 目标缺失导致链路无法触发。
 
     规则：
-    - 已存在且类型为 AGENT_PROFILE：不修改用户现有配置
-    - 不存在或别名被其他类型占用：创建最小可用的 coder_doll profile
+    - 已存在且类型为 AGENT_PROFILE：不修改用户现有配置，返回 False（无需清理）
+    - 不存在或别名被其他类型占用：创建最小可用的 coder_doll profile，返回 True（需测试后清理）
+
+    返回 True 表示本测试创建了 profile，测试结束应由 fixture 删除。
     """
     alias = "coder_doll"
     atom = system.storage.get_memory_by_alias(alias)
 
     if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
         system.runtime.agent_profile_cache.invalidate(alias)
-        return
+        return False
 
     if atom is not None and atom.index.memory_type != MemoryType.AGENT_PROFILE:
-        logger.warning("alias='coder_doll' 被非 AGENT_PROFILE 占用，测试前将删除并重建 profile。")
-        system.storage.delete_memory(atom.id)
+        # 不删除他人记忆：共享存储上 alias 被其他类型占用时跳过，
+        # 避免 e2e 测试破坏真实用户数据。
+        pytest.skip(
+            "alias='coder_doll' 被非 AGENT_PROFILE 记忆占用，跳过以避免破坏共享存储"
+        )
 
     profile_atom = MemoryAtom(
         meta=MetaData(source_agent_id="e2e_test", user_id="default"),
@@ -102,6 +107,20 @@ def _ensure_coder_doll_profile(system) -> None:
     system.storage.upsert_memory(profile_atom)
     system.runtime.agent_profile_cache.invalidate(alias)
     logger.info("已创建 coder_doll profile 以保证子代理 e2e 链路可执行。")
+    return True
+
+
+@pytest.fixture
+def coder_doll_profile(e2e_system):
+    """创建 coder_doll profile 并在测试结束后清理，避免污染共享存储。"""
+    created = _ensure_coder_doll_profile(e2e_system)
+    yield
+    if created:
+        atom = e2e_system.storage.get_memory_by_alias("coder_doll")
+        if atom is not None:
+            e2e_system.storage.delete_memory(atom.id)
+            e2e_system.runtime.agent_profile_cache.invalidate("coder_doll")
+            logger.info("已清理测试创建的 coder_doll profile。")
 
 
 async def _collect_stream_events(
@@ -125,10 +144,8 @@ async def _collect_stream_events(
 
 
 @pytest.mark.asyncio
-async def test_live_sub_agent_call_stream_contract(e2e_system):
+async def test_live_sub_agent_call_stream_contract(e2e_system, coder_doll_profile):
     """真实 LLM 下验证 CALL 与子代理流式事件契约。"""
-    _ensure_coder_doll_profile(e2e_system)
-
     prompt = (
         "请严格按下面流程执行：\n"
         "1) 通过 CALL 调用子代理 coder_doll。\n"
@@ -166,10 +183,8 @@ async def test_live_sub_agent_call_stream_contract(e2e_system):
 
 
 @pytest.mark.asyncio
-async def test_live_sub_agent_disallow_nested_call(e2e_system):
+async def test_live_sub_agent_disallow_nested_call(e2e_system, coder_doll_profile):
     """真实 LLM 下验证子代理侧不应出现 CALL（星型拓扑约束）。"""
-    _ensure_coder_doll_profile(e2e_system)
-
     prompt = (
         "请通过 CALL 委派 coder_doll 完成任务：写一段 Python 排序代码并返回。"
         "同时要求子代理尝试进一步分解任务。"

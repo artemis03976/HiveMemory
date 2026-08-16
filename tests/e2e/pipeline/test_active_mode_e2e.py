@@ -42,7 +42,7 @@ from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.services.passive import PassiveIngressEvent
 from hivememory.core.protocol.models import AgentRunResult
 
-from tests.e2e.conftest import wait_for_memory_persistence_async
+from tests.e2e.conftest import wait_for_memory_persistence_async, wait_until_async
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
@@ -52,7 +52,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 MEMORY_WAIT_TIMEOUT = 20.0
-FLUSH_SETTLE_SECONDS = 5.0
 
 
 # ========== 辅助函数 ==========
@@ -247,8 +246,13 @@ class TestActiveMultiTurnSameTopic:
             history.append({"role": "user", "content": user_msg})
             history.append({"role": "assistant", "content": result.final_text})
 
-        # 验证感知层累积
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        # 验证感知层累积（轮询，无需固定 sleep）
+        await wait_until_async(
+            lambda: len(_collect_user_blocks(e2e_system, user_id)) >= 2,
+            timeout=MEMORY_WAIT_TIMEOUT,
+            poll_interval=1.0,
+            description="同一话题累积至少 2 个 block",
+        )
         blocks = _collect_user_blocks(e2e_system, user_id)
         topic_count = _count_user_topics(e2e_system, user_id)
 
@@ -334,8 +338,13 @@ class TestActiveMultiTopicRouting:
             history_c.append({"role": "user", "content": user_msg})
             history_c.append({"role": "assistant", "content": result.final_text})
 
-        # 验证多话题路由
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        # 验证多话题路由（轮询，无需固定 sleep）
+        await wait_until_async(
+            lambda: len(_collect_user_blocks(e2e_system, user_id)) >= 3,
+            timeout=MEMORY_WAIT_TIMEOUT,
+            poll_interval=1.0,
+            description="3 个话题累积至少 3 个 block",
+        )
         blocks = _collect_user_blocks(e2e_system, user_id)
         topic_count = _count_user_topics(e2e_system, user_id)
 
@@ -381,8 +390,7 @@ class TestActiveMTPWriteDirected:
         commands = _mtp_commands(result)
         assert "WRITE" in commands, f"LLM 应触发 WRITE, commands={commands}"
 
-        # WRITE 触发 → 等待记忆持久化
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        # WRITE 触发 → 等待记忆持久化（轮询）
         memories = await wait_for_memory_persistence_async(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -413,7 +421,6 @@ class TestActiveMTPUpdateDirected:
             user_msg="我们的 API 服务部署在 8080 端口，使用 Nginx 做反向代理",
             assistant_msg="好的，我记住了 API 服务的部署信息：8080 端口 + Nginx 反代",
         )
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
         memories_before = await wait_for_memory_persistence_async(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -438,11 +445,9 @@ class TestActiveMTPUpdateDirected:
             f"LLM 应触发 UPDATE, commands={commands}, response={result.final_text[:150]}"
         )
 
-        # Phase 3: 等待更新持久化
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
+        # Phase 3: 等待更新持久化（轮询）
         # 手动触发话题结算（Archive + Compact）
         await e2e_system.manual_trigger()
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
 
         memories_after = await wait_for_memory_persistence_async(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
@@ -486,7 +491,6 @@ class TestActiveMemoryDeduplication:
             user_msg="我们的微服务项目使用 Go 语言，服务间用 gRPC 通信",
             assistant_msg="好的，Go + gRPC 是很好的微服务技术组合",
         )
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS)
         memories_round1 = await wait_for_memory_persistence_async(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
         )
@@ -499,9 +503,7 @@ class TestActiveMemoryDeduplication:
             user_msg="项目技术栈是 Go 和 gRPC 框架",
             assistant_msg="了解，Go 和 gRPC 微服务架构",
         )
-        await asyncio.sleep(FLUSH_SETTLE_SECONDS + 3)
-
-        # Phase 3: 验证去重效果
+        # Phase 3: 验证去重效果（轮询）
         memories_round2 = await wait_for_memory_persistence_async(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT
         )

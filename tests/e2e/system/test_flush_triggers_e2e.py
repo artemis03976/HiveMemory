@@ -30,7 +30,7 @@ from hivememory.core.models import Identity
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.services.passive import PassiveIngressEvent
 
-from tests.e2e.conftest import wait_for_memory_persistence
+from tests.e2e.conftest import wait_for_memory_persistence, wait_until
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
@@ -94,6 +94,42 @@ def _cleanup_all_buffers(system: PatchouliSystem) -> None:
         except Exception as e:
             logger.debug(f"清理话题 {topic_id} 时出错: {e}")
     logger.debug(f"已清空所有活跃 buffer, 清理前数量={len(active_topics)}")
+
+
+def _topic_is_idle(layer, topic_id: str, timeout_seconds: int) -> bool:
+    """轮询用：话题已进入 idle 状态。"""
+    data = layer.short_term_store.get_topic_data(topic_id, touch=False)
+    return data is not None and data.is_idle(timeout_seconds)
+
+
+def _assert_no_memory_persisted(
+    system: PatchouliSystem,
+    user_id: str,
+    window_seconds: float,
+    check_interval: float = 1.0,
+) -> None:
+    """
+    负向确认：在 window 时间内反复检查 Qdrant，确认始终无该用户记忆落库。
+
+    用于替换"睡够固定时长后断言 0 条"的固定 sleep——若异步 Generation 出现，
+    在窗口内任一次检查即失败。
+    """
+    deadline = time.time() + window_seconds
+    while time.time() < deadline:
+        try:
+            memories = system.storage.get_all_memories(
+                filters={"meta.user_id": user_id}, limit=100,
+            )
+        except Exception:
+            memories = []
+        if memories:
+            contents = " | ".join(
+                m.payload.content for m in memories[:3] if m.payload.content
+            )
+            raise AssertionError(
+                f"期望窗口内无记忆落库, 但发现 {len(memories)} 条: {contents[:200]}"
+            )
+        time.sleep(check_interval)
 
 
 def _run(coro):
@@ -283,21 +319,8 @@ class TestPageFolding:
             assert topic_data is not None
             assert topic_data.state_summary != "", "应已触发折叠"
 
-        # 等待足够时间确认无异步 Generation
-        time.sleep(FLUSH_SETTLE_SECONDS)
-
-        # 验证 Qdrant 中无记忆
-        try:
-            memories = e2e_system.storage.get_all_memories(
-                filters={"meta.user_id": user_id}, limit=100,
-            )
-        except Exception:
-            memories = []
-
-        assert len(memories) == 0, (
-            f"Page Folding 不应触发 Generation, "
-            f"但 Qdrant 中发现 {len(memories)} 条记忆"
-        )
+        # 在窗口内确认无异步 Generation：折叠不应触发记忆落库
+        _assert_no_memory_persisted(e2e_system, user_id, FLUSH_SETTLE_SECONDS)
         logger.info("FLUSH-E2E-001: 折叠未触发 Generation, 0 条记忆")
 
         _cleanup_all_buffers(e2e_system)
@@ -343,8 +366,13 @@ class TestIdleHibernate:
         try:
             layer._idle_timeout_seconds = 2
 
-            # 等待超时
-            time.sleep(3)
+            # 等待 idle 超时（轮询直到话题进入 idle 状态）
+            wait_until(
+                lambda: _topic_is_idle(layer, topic_id, timeout_seconds=2),
+                timeout=10.0,
+                poll_interval=0.5,
+                description=f"topic {topic_id} 进入 idle",
+            )
 
             # 手动触发扫描
             flushed_keys = _run(layer.scan_idle_buffers_once())
@@ -362,8 +390,7 @@ class TestIdleHibernate:
         finally:
             layer._idle_timeout_seconds = original_timeout
 
-        # 等待 Generation 完成 + Qdrant 持久化
-        time.sleep(FLUSH_SETTLE_SECONDS)
+        # 等待 Generation 完成 + Qdrant 持久化（轮询，无需固定 sleep）
         memories = wait_for_memory_persistence(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT,
         )
@@ -411,8 +438,16 @@ class TestIdleHibernate:
             active_full = layer.list_active_buffers()
             logger.info(f"FLUSH-E2E-002: 填满后活跃数={len(active_full)}")
 
-            # 等待超时并扫描
-            time.sleep(2)
+            # 等待 idle 超时（轮询直到话题进入 idle 状态）
+            wait_until(
+                lambda: any(
+                    _topic_is_idle(layer, tid, timeout_seconds=1)
+                    for tid in layer.list_active_buffers()
+                ),
+                timeout=10.0,
+                poll_interval=0.5,
+                description="话题进入 idle",
+            )
             flushed = _run(layer.scan_idle_buffers_once())
             assert len(flushed) >= 2, f"应 flush 2 个话题, 实际 {len(flushed)}"
 
@@ -509,9 +544,12 @@ class TestLRUEviction:
                 f"话题 A 应被 LRU 驱逐, 活跃列表: {active_after}"
             )
 
-            # 话题 B 和 C 应在活跃池
-            assert topic_b in active_after or topic_c in active_after, (
-                f"话题 B 或 C 应在活跃池, 活跃列表: {active_after}"
+            # 话题 B 和 C 应在活跃池（A 被驱逐后两者应同时保留）
+            assert topic_b in active_after, (
+                f"话题 B 应仍在活跃池, 活跃列表: {active_after}"
+            )
+            assert topic_c in active_after, (
+                f"话题 C 应在活跃池, 活跃列表: {active_after}"
             )
 
             logger.info(
@@ -523,8 +561,7 @@ class TestLRUEviction:
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
 
-        # 等待驱逐触发的 Generation 完成
-        time.sleep(FLUSH_SETTLE_SECONDS)
+        # 等待驱逐触发的 Generation 完成（轮询，无需固定 sleep）
         memories = wait_for_memory_persistence(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT,
         )

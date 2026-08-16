@@ -98,6 +98,41 @@ def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
 
 # ========== Wait for Memory Persistence ==========
 
+def wait_until(
+    predicate,
+    timeout: float = 15.0,
+    poll_interval: float = 1.0,
+    description: str = "condition",
+) -> bool:
+    """
+    通用轮询：在超时前反复求值 predicate，满足即返回 True。
+
+    用于替换固定 sleep：只做无副作用的状态检查（查询 Qdrant / 感知层 / 事件队列）。
+    注意：不要在 predicate 中执行会产生副作用的操作。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if predicate():
+                return True
+        except Exception as e:  # 检查期间服务未就绪视为未满足
+            logger.warning(f"wait_until 检查异常: {e}")
+        time.sleep(poll_interval)
+    raise TimeoutError(f"等待超时 ({timeout}s): {description}")
+
+
+async def wait_until_async(
+    predicate,
+    timeout: float = 15.0,
+    poll_interval: float = 1.0,
+    description: str = "condition",
+) -> bool:
+    """异步版本：通过线程池执行同步 predicate，避免阻塞事件循环。"""
+    return await asyncio.to_thread(
+        wait_until, predicate, timeout, poll_interval, description
+    )
+
+
 def wait_for_memory_persistence(
     system: HiveMemorySystem,
     user_id: str,
