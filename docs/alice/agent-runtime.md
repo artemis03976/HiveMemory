@@ -189,7 +189,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - `tests/unit/alice/application/test_agent_run_service.py`；
 - `tests/unit/alice/orchestration/test_run_executor.py`；
 - `tests/unit/alice/runtime/test_streaming.py`、`test_runtime_events.py`；
-- `tests/e2e/pipeline/test_kernel_loop_e2e.py`、`test_active_mode_e2e.py`。
+- `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`。
 
 ## 10. 当前限制
 

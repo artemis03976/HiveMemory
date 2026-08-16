@@ -293,7 +293,7 @@ class TestHybridSearch:
         query = RetrievalQuery(semantic_query=test_case["query"])
 
         # 执行检索
-        results = self.retriever.retrieve(query, top_k=5, score_threshold=0.0)
+        results = asyncio.run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -338,7 +338,7 @@ class TestHybridSearch:
         )
 
         # 执行检索
-        results = self.retriever.retrieve(query, top_k=5, score_threshold=0.0)
+        results = asyncio.run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -445,7 +445,7 @@ class TestReranking:
         query = RetrievalQuery(semantic_query=test_case["query"])
 
         # 执行检索（包含 Rerank）
-        results = self.retriever.retrieve(query, top_k=10, score_threshold=0.0)
+        results = asyncio.run(self.retriever.retrieve(query, top_k=10, score_threshold=0.0))
 
         # 验证结果
         expected_top1 = test_case.get("expected_top1_after_rerank")
@@ -489,7 +489,9 @@ class TestReranking:
 
         # 执行检索
         score_threshold = test_case.get("score_threshold", 0.5)
-        results = self.retriever.retrieve(query, top_k=5, score_threshold=score_threshold)
+        results = asyncio.run(
+            self.retriever.retrieve(query, top_k=5, score_threshold=score_threshold)
+        )
 
         # 验证结果：应该返回空或低分结果
         if test_case.get("expected_empty_or_low_score"):

@@ -19,11 +19,25 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import Identity, MemoryAtom
+from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.system.config import load_app_config
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
+
+
+def _make_qdrant_store(system: HiveMemorySystem) -> QdrantMemoryStore:
+    """直连真实 Qdrant（默认集合），用于 e2e 的记忆查询与清理。
+
+    不走系统内部总线，避免 list_memories 的 refresh_vitality 副作用；
+    QdrantMemoryStore 是同步存储适配器，可直接在轮询循环中调用。
+    """
+    config = system.config
+    return QdrantMemoryStore(
+        qdrant_config=config.qdrant,
+        embedding_config=config.embedding.default,
+    )
 
 
 # ========== Session-scoped HiveMemorySystem ==========
@@ -48,6 +62,12 @@ def e2e_system(e2e_config):
     yield system
     asyncio.run(system.stop())
     logger.info("E2E HiveMemorySystem 清理完成")
+
+
+@pytest.fixture
+def qdrant_store(e2e_system) -> QdrantMemoryStore:
+    """直连真实 Qdrant（默认集合）的存储适配器，用于 e2e 记忆预埋/查询/清理。"""
+    return _make_qdrant_store(e2e_system)
 
 
 # ========== Clean User Factory ==========
@@ -84,13 +104,16 @@ def clean_user(e2e_system):
 def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
     """清理指定用户在 Qdrant 中的所有记忆"""
     try:
-        memories = system.storage.get_all_memories(
-            filters={"meta.user_id": user_id},
-            limit=1000,
+        store = _make_qdrant_store(system)
+        memories = asyncio.run(
+            store.get_all_memories(
+                filters={"meta.user_id": user_id},
+                limit=1000,
+            )
         )
         if memories:
             memory_ids = [m.id for m in memories]
-            system.storage.batch_delete_memories(memory_ids)
+            asyncio.run(store.batch_delete_memories(memory_ids))
             logger.info(f"清理用户 {user_id} 的 {len(memory_ids)} 条记忆")
     except Exception as e:
         logger.warning(f"清理用户 {user_id} 记忆时出错: {e}")
@@ -158,12 +181,15 @@ def wait_for_memory_persistence(
     """
     deadline = time.time() + timeout
     memories = []
+    store = _make_qdrant_store(system)
 
     while time.time() < deadline:
         try:
-            memories = system.storage.get_all_memories(
-                filters={"meta.user_id": user_id},
-                limit=1000,
+            memories = asyncio.run(
+                store.get_all_memories(
+                    filters={"meta.user_id": user_id},
+                    limit=1000,
+                )
             )
             if len(memories) >= min_count:
                 logger.info(

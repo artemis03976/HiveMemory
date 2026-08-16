@@ -1,5 +1,5 @@
 from unittest.mock import AsyncMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -16,6 +16,7 @@ from hivememory.core.models import (
     TurnRecord,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
+from hivememory.engines.generation.models import DuplicateDecision, GenerationOutcome
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -30,7 +31,16 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskStatus,
 )
+from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.patchouli.memory_library.ports import MidTermStoragePort
+from hivememory.patchouli.memory_library.stores import (
+    LongTermMemoryStore,
+    MidTermMemoryStore,
+    ShortTermMemoryStore,
+)
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 
 
 class _TopicData:
@@ -252,3 +262,176 @@ async def test_active_batch_skips_missing_update_and_runs_valid_write():
     assert spec.source == MemoryGenerationSource.WRITE
     assert spec.pending_alias == "draft_write"
     assert failed == [{"pending_alias": "draft_update"}]
+
+
+# ========== 真实 Familiar + stub engine + 真实 mid_term（数据面补档） ==========
+# 将 GENERATION_EXECUTE_SPEC 从 AsyncMock 升级为真实 MemoryGenerationFamiliar，
+# 验证「coordinator → controller → familiar → 真实 mid_term 落库」完整数据面：
+# 控制流断言保留在旧用例，此处聚焦「生成结果真实落库 + settlement 发布」。
+
+
+class _InMemoryMidTermPort(MidTermStoragePort):
+    """真实 MidTermMemoryStore 的内存后端，验证生成结果真实写入中期存储。"""
+
+    def __init__(self) -> None:
+        self.memories: dict[UUID, MemoryAtom] = {}
+
+    async def upsert(self, memory: MemoryAtom) -> None:
+        self.memories[memory.id] = memory
+
+    async def get(self, memory_id: UUID) -> MemoryAtom | None:
+        return self.memories.get(memory_id)
+
+    async def get_by_alias(self, alias: str, user_id: str | None = None) -> MemoryAtom | None:
+        for memory in self.memories.values():
+            if memory.index.alias == alias:
+                return memory
+        return None
+
+    async def update_access_info(self, memory_id: UUID) -> None:
+        memory = self.memories.get(memory_id)
+        if memory is not None:
+            memory.meta.access_count += 1
+
+    async def delete(self, memory_id: UUID) -> bool:
+        return self.memories.pop(memory_id, None) is not None
+
+    async def batch_delete(self, ids: list[UUID]) -> int:
+        return sum(1 for mid in ids if await self.delete(mid))
+
+    async def search(
+        self,
+        query: str,
+        top_k: int,
+        filters=None,
+        mode: str = "dense",
+        score_threshold: float = 0.0,
+    ):
+        return [
+            {"memory": memory, "score": 1.0}
+            for memory in list(self.memories.values())[:top_k]
+        ]
+
+    async def scroll(self, filters=None, limit: int = 100) -> list[MemoryAtom]:
+        return list(self.memories.values())[:limit]
+
+    async def count(self, filters=None) -> int:
+        return len(self.memories)
+
+
+class _StubGenerationEngine:
+    """真实接口的 stub：process 返回预设 GenerationOutcome，不触达 LLM。"""
+
+    def __init__(self, outcomes: list) -> None:
+        self._outcomes = outcomes
+        self.requests: list = []
+
+    async def process(self, request):
+        self.requests.append(request)
+        return self._outcomes
+
+
+@pytest.fixture
+def memory_library(tmp_path) -> MemoryLibrary:
+    """真实 MemoryLibrary：真实 MidTermMemoryStore + 内存后端，长期存储用临时目录。"""
+    mid_term = MidTermMemoryStore(primary=_InMemoryMidTermPort())
+    short_term = ShortTermMemoryStore()
+    long_term = LongTermMemoryStore(
+        FileBasedStorageAdapter(
+            archive_dir=str(tmp_path / "archive"),
+            compress=False,
+        )
+    )
+    return MemoryLibrary(
+        short_term=short_term,
+        mid_term=mid_term,
+        long_term=long_term,
+    )
+
+
+def _wire_generation_familiar(
+    bus: PatchouliBus,
+    memory_library: MemoryLibrary,
+    stub_engine: _StubGenerationEngine,
+) -> MemoryGenerationFamiliar:
+    familiar = MemoryGenerationFamiliar(
+        generation_engine=stub_engine,  # type: ignore[arg-type]
+        memory_library=memory_library,
+    )
+    bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, familiar.execute)
+    return familiar
+
+
+@pytest.mark.asyncio
+async def test_passive_settlement_lands_in_real_mid_term(memory_library):
+    """被动 SETTLEMENT：真实 Familiar 把生成结果写入真实 mid_term。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+
+    atom = _memory_atom()
+    stub = _StubGenerationEngine(
+        [GenerationOutcome(atom=atom, duplicate_decision=DuplicateDecision.CREATE)]
+    )
+    _wire_generation_familiar(bus, memory_library, stub)
+
+    memory_task = await coordinator.submit_settlement(
+        TopicMaterializeTask(
+            topic_id="topic_1",
+            topic_title="topic title",
+            topic_summary="topic summary",
+            blocks=[
+                LogicalBlock(
+                    turn=TurnRecord(
+                        user_query="question",
+                        assistant_final_text="answer",
+                    )
+                )
+            ],
+            state_summary="state summary",
+        )
+    )
+    await controller.wait_task(memory_task.task_id)
+    completed = await controller.get_task(memory_task.task_id)
+
+    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+    assert completed.canonical_alias == "memory_alias"
+    # 数据面：stub engine 被真实 familiar 调用，且结果真实落库 mid_term
+    assert stub.requests, "真实 familiar 应调用 stub generation engine"
+    stored = await memory_library.mid_term.get(atom.id)
+    assert stored is not None, "生成结果应写入真实 mid_term"
+    assert stored.payload.content == "content"
+
+
+@pytest.mark.asyncio
+async def test_active_write_lands_in_real_mid_term(memory_library):
+    """主动 WRITE：真实 Familiar 执行后落库 mid_term 并发布 settlement。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    published = []
+
+    atom = _memory_atom()
+    stub = _StubGenerationEngine(
+        [GenerationOutcome(atom=atom, duplicate_decision=DuplicateDecision.CREATE)]
+    )
+    _wire_generation_familiar(bus, memory_library, stub)
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
+    bus.subscribe(
+        PatchouliLocalEvents.PENDING_ATOM_SETTLED,
+        lambda **kwargs: _capture_event(published, **kwargs),
+    )
+
+    memory_tasks = await coordinator.submit_active([_write_task("draft_write")], "topic_1")
+    await controller.wait_task(memory_tasks[0].task_id)
+    completed = await controller.get_task(memory_tasks[0].task_id)
+
+    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+    assert completed.canonical_alias == "memory_alias"
+    # 数据面：真实落库 mid_term
+    stored = await memory_library.mid_term.get(atom.id)
+    assert stored is not None, "WRITE 生成结果应写入真实 mid_term"
+    # 控制面：settlement 由熟悉发布，pending atom 链路闭环
+    assert published, "应发布 PENDING_ATOM_SETTLED 事件"
+    assert published[0]["settlement"].pending_alias == "draft_write"
+    assert published[0]["settlement"].canonical_alias == "memory_alias"

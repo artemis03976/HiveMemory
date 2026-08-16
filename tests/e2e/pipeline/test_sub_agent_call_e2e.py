@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from uuid import uuid4
@@ -25,7 +26,7 @@ from hivememory.core.models import (
 )
 
 logger = logging.getLogger(__name__)
-pytestmark = pytest.mark.live_llm
+pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
 
 def _new_user_id() -> str:
@@ -55,7 +56,7 @@ def _done_commands(done_event: dict[str, Any] | None) -> list[str]:
     ]
 
 
-def _ensure_coder_doll_profile(system) -> bool:
+def _ensure_coder_doll_profile(qdrant_store) -> bool:
     """
     确保 coder_doll 的 Agent Profile 存在，避免 CALL 目标缺失导致链路无法触发。
 
@@ -66,10 +67,9 @@ def _ensure_coder_doll_profile(system) -> bool:
     返回 True 表示本测试创建了 profile，测试结束应由 fixture 删除。
     """
     alias = "coder_doll"
-    atom = system.storage.get_memory_by_alias(alias)
+    atom = asyncio.run(qdrant_store.get_memory_by_alias(alias))
 
     if atom is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
-        system.runtime.agent_profile_cache.invalidate(alias)
         return False
 
     if atom is not None and atom.index.memory_type != MemoryType.AGENT_PROFILE:
@@ -104,22 +104,20 @@ def _ensure_coder_doll_profile(system) -> bool:
             ),
         ),
     )
-    system.storage.upsert_memory(profile_atom)
-    system.runtime.agent_profile_cache.invalidate(alias)
+    asyncio.run(qdrant_store.upsert_memory(profile_atom))
     logger.info("已创建 coder_doll profile 以保证子代理 e2e 链路可执行。")
     return True
 
 
 @pytest.fixture
-def coder_doll_profile(e2e_system):
+def coder_doll_profile(e2e_system, qdrant_store):
     """创建 coder_doll profile 并在测试结束后清理，避免污染共享存储。"""
-    created = _ensure_coder_doll_profile(e2e_system)
+    created = _ensure_coder_doll_profile(qdrant_store)
     yield
     if created:
-        atom = e2e_system.storage.get_memory_by_alias("coder_doll")
+        atom = asyncio.run(qdrant_store.get_memory_by_alias("coder_doll"))
         if atom is not None:
-            e2e_system.storage.delete_memory(atom.id)
-            e2e_system.runtime.agent_profile_cache.invalidate("coder_doll")
+            asyncio.run(qdrant_store.delete_memory(atom.id))
             logger.info("已清理测试创建的 coder_doll profile。")
 
 
