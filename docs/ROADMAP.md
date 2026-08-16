@@ -33,12 +33,11 @@ last_reviewed: 2026-08-16
 
 当前版本事实如下：
 
-- 最新已发布标签：`v0.6.0`；
-- 当前发布基线：`v0.6.0`；
-- 当前开发版本：`v0.6.1`，实现已完成并进入发布收尾，尚未因缺少 Git tag 标为 Released；
+- 最新已发布标签：`v0.6.1`；
+- 当前发布基线：`v0.6.1`；
 - 下一计划版本：`v0.6.2` Chat Attachments，状态为 Candidate，正式 Plan 待建立。
 
-当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。它在 `v0.6.1` tag 创建前仍是未发布快照；发布基线必须与完全匹配的 Git tag、Python 包、前端清单和构建检查保持一致。
+当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。`v0.6.1` Git tag、Python 包、前端清单和构建检查使用完全一致的版本口径。
 
 ## 2. 发布历史
 
@@ -49,29 +48,27 @@ last_reviewed: 2026-08-16
 | `v0.3.0` | Released | CALL、PendingAtom、Alice Orchestrator、MemoryCompiler | Git tag；[Alice 当前设计](./alice/README.md)；[MTP](./contracts/mtp.md) |
 | `v0.4.0` | Released | chat run / memory task 取消控制与 RuntimeEvent | Git tag；[路由与事件](./contracts/routes-and-events.md) |
 | `v0.5.0` | Released | artifact/provenance、MemoryLibrary、async-native、模型注册 | Git tag；[System 当前设计](./system/README.md)；[Patchouli 当前设计](./patchouli/README.md) |
-| `v0.6.0` | Released | System Gateway、全局命令、主动/被动入口契约、Passive Ingress 串行与 outbox | Git tag；本路线图 3.1；[Passive Ingress 当前设计](./system/passive-ingress.md) |
-| `v0.6.1` | Current Development / Implementation Complete | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | 当前代码版本；[System Runtime 当前设计](./system/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)；Git tag 待创建 |
+| `v0.6.0` | Released | System Gateway、全局命令、主动/被动入口契约、Passive Ingress 串行与 outbox | Git tag；[Gateway 当前设计](./gateway/README.md)；[Passive Ingress 当前设计](./system/passive-ingress.md) |
+| `v0.6.1` | Released | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | Git tag；[System Runtime 当前设计](./system/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md) |
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
-## 3. 当前发布：v0.6.0
+## 3. 当前发布：v0.6.1
 
-主题：**System Gateway、全局命令与 Passive Ingress**。
+主题：**Reliable Local Work Runtime**。
 
 ### 3.1 发布内容
 
-- Gateway 已从旧引擎角色上移为 `GatewaySystem` 同级子系统；
-- `gateway.public.process` 成为主动/被动入口的统一决策路由；
-- 固定 Gateway workflow、request deadline、取消和 step-local fallback 已实现；
-- 全局命令 Registry / Parser / Dispatcher 和 chat 短路已实现；
-- 候选话题、话题路由、查询分析与保守降级已实现；
-- 主动 chat 已收敛为 Gateway -> Patchouli prepare -> Alice -> Patchouli finalize；
-- Passive Ingress 已归属 System 应用层，具备去重、顺序缓冲、封口、outbox 重试和 drain；
-- Passive Memory 禁止命令、Alice、MTP 和回复生成；
-- Agent-facing 错误 payload 已完成 XML escaping；
-- 同一 `PassiveConversationKey` 在单进程内串行处理，不同会话仍可并发；
-- 取消、超时、Profile 失败、Passive degradation 和 outbox retry 均有测试与观测；
-- 浅色主题主体已合并，但它属于 v0.6.3 工作流的部分提前交付。
+- Local Work Queue 已建立不可变 `WorkItem`、权威 `WorkRecord`、状态机、lane、versioned codec 与 handler registry；
+- `InMemoryWorkStore`、Runtime 与 Supervisor 统一提供 enqueue、claim、retry wait、timeout、cancel、backpressure 和 shutdown drain；
+- Passive Interaction Submission 已迁移到通用 submission lane，admission 成功后才 commit/reset accumulator；
+- Active finalize 已复用同一 submission queue，并以同步 applied gate 作为继续后续副作用与返回成功的边界；
+- Active/Passive 使用稳定 `interaction_id`、canonical payload 与 topic/conversation ordering key；
+- Memory Generation 已接入独立业务 lane，保留 list/get/wait/cancel 与领域事件，通过 typed handle 投影 WorkRecord；
+- Interaction Submission 与 Memory Generation 保持独立 payload、成功条件、retry classifier、capacity 与取消策略；
+- RuntimeEvent 只投影状态转换，sink 失败不改变业务结果；
+- Durability D0、Idempotency I0、Identity S0 和数据模型 Phase I 四项前置基线已经建立；
+- 相关单元、集成、模糊失败、capacity、取消与 shutdown 行为均有测试证据。
 
 当前事实入口：
 
@@ -80,31 +77,37 @@ last_reviewed: 2026-08-16
 - [子系统公共契约](./contracts/subsystem-contracts.md)
 - [公开路由与事件](./contracts/routes-and-events.md)
 - [System 当前设计](./system/README.md)
+- [System Runtime 与 Work Queue](./system/runtime-and-bus.md#3-local-work-queue-runtime)
+- [Passive Ingress 当前设计](./system/passive-ingress.md)
+- [Patchouli 记忆生成](./patchouli/generation.md)
 - [Gateway 当前设计](./gateway/README.md)
 - [Patchouli 当前设计](./patchouli/README.md)
 - [Alice 当前设计](./alice/README.md)
 - [Frontend 当前设计](./frontend/README.md)
 - [Help](./help/README.md)
 - [Applications](./applications/README.md)
+- [v0.6.1 归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)
 
 ### 3.2 发布范围边界
 
-- 完整复合意图分解已经移出 v0.6.0 发布范围，暂列为 **Unscheduled**；
-- 自定义入口拦截规则不属于当前能力，只有出现明确接入需求并形成 Plan 后再排期；
-- 浅色主题属于 v0.6.3 工作流的部分提前交付，不改变 v0.6.0 的后端发布范围；
-- `v0.6.1` 已完成通用 Local Work Queue Runtime，且未回溯改写 v0.6.0 Passive Ingress 的公共契约。
+- v0.6.1 的可靠性承诺限定为单进程、单 event loop 的进程内执行生命周期，不构成跨重启可靠交付；
+- SQLite WorkStore、claim ownership、lease recovery 和数据库级唯一 idempotency key 不属于本版本，已进入持久化治理；
+- Runtime 多 lane 抽象当前保留，但生产组件仍按业务 queue 分别装配 Runtime/Store；拓扑重构等待真实触发条件；
+- priority、用户任务 API、定时/hook workflow、DAG 和 outcome artifact 不属于本版本；
+- Memory Generation 含领域副作用的数据面固定单次 attempt，不因通用 Runtime 支持 retry 就自动重放；
+- queue FIFO、topic append order 与 Agent causal order 是不同保证，v0.6.1 不宣称已经解决因果排序；
+- v0.6.1 未回溯改写 v0.6.0 Passive Ingress 的公共契约。
 
-其 C0 样本与指标工作可以作为非阻塞研究继续推进，但在证据门槛、公共 envelope 和下游消费协议成立前，不得把它写成当前能力。
+### 3.3 v0.6.1 发布验收
 
-### 3.3 v0.6.0 发布验收
-
-- Gateway 的公开决策覆盖发布范围内的所有入口模式；
-- 命令、普通 chat 和 Passive Memory 的契约边界明确；
-- 局部分析失败不会破坏可安全降级的主流程；
-- 子 Agent 终态、并发 frame/cancel 状态和显式 Profile 失败不会被错误包装为成功或静默放大权限；
-- 取消、超时和不可恢复不变量失败均有测试与观测；
-- 当前设计文档、README、包版本和 `v0.6.0` tag 口径一致；
-- 未完成方案已移入后续 Plan，不在当前文档中使用现在时；
+- Work Queue 公共协议与状态机不依赖 Patchouli、Alice 或 server 业务模型；
+- Interaction Submission 与 Memory Generation 使用独立 lane，不共享 payload、成功条件或 retry classifier；
+- capacity 满时明确拒绝，不静默丢弃已接纳 work；
+- Active finalize 只有在 interaction work `SUCCEEDED` 后才执行 materialization/HIT 等后续副作用；
+- Passive admission 失败保留 payload，重复提交与 retry 复用稳定 `interaction_id`；
+- Memory Generation 的 concurrency、queued/running cancel、timeout、wait/list/get 和 shutdown drain 保持一致投影；
+- at-least-once、业务幂等、模糊失败、RuntimeEvent isolation 和进程内 accepted 边界均有测试与文档；
+- 当前设计、README、Python 包、前端清单和 `v0.6.1` tag 口径一致；
 - Release workflow 同时校验并发布 backend wheel、sdist、frontend archive 和合并校验文件。
 
 ## 4. 近期计划
@@ -113,7 +116,6 @@ last_reviewed: 2026-08-16
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.1` Reliable Local Work Runtime | Current Development / Implementation Complete | Interaction Submission 与 Memory Generation 已收敛到进程内运行时；当前仅待匹配 tag 的正式发布，不包含 SQLite | [System Runtime 当前设计](./system/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)；[持久化治理](./governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束) |
 | `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件异步解析另行立项 | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -137,24 +139,7 @@ last_reviewed: 2026-08-16
 | Frontend 视觉个性化 | Frontend | 主题覆盖和自定义背景可并行探索，但必须后于真实状态、identity 和错误披露，不阻塞后端版本 | 待建立 |
 | Conversation Branching | Chat / Memory / Lifecycle | 等 provenance、生命周期和真实编辑需求稳定后，再设计分支所有权与已沉淀记忆的失效语义 | 待建立 |
 
-### 4.2 v0.6.1 Reliable Local Work Runtime
-
-v0.6.1 的 Q0–Q4 已完成：通用 Work Queue 状态机、lane、codec、backpressure、retry、cancel、timeout
-与 shutdown 骨架已经落地；Passive/Active Interaction Submission 共用稳定 `interaction_id` 和 applied
-gate；Memory Generation 已接入独立业务 lane 与只读任务投影。Durability D0、Idempotency I0、Identity
-S0 和数据模型 Phase I 四项前置基线也已建立。
-
-当前事实由 [System Runtime](./system/runtime-and-bus.md#3-local-work-queue-runtime)、
-[Passive Ingress](./system/passive-ingress.md)与[Patchouli Generation](./patchouli/generation.md)承接，实施过程
-保留于[归档计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)。
-
-In-memory runtime 是 v0.6.1 的完成边界，不构成跨重启可靠交付。SQLite WorkStore、claim ownership、
-lease recovery 与数据库级唯一 idempotency key 已移入
-[持久化治理](./governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)，
-只在出现真实恢复需求并建立独立 Plan 后启动。任何入口在持久化恢复和业务幂等门槛完成前，都不能
-对外声称 durable accepted。
-
-### 4.3 v0.6.2 Attachments
+### 4.2 v0.6.2 Attachments
 
 上传文件先成为原始 artifact 和解析 artifact，再按当前对话需要编译为上下文。附件上传不应默认直接污染长期记忆；大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。
 
@@ -162,13 +147,13 @@ Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了�
 
 附件还必须复用 v0.6.1 的 operation identity、重试结果和 identity scope：同一上传重试不能产生多份原始 Artifact，也不能因为拿到 artifact id 就跨身份读取。若未来采用后台解析，只有其工作项已经持久化接纳后，才可向页面报告后台处理已接受。
 
-### 4.4 Frontend Reliability（并行工作流）
+### 4.3 Frontend Reliability（并行工作流）
 
 浅色主题、Chat 的结构化 MTP/子 Agent 卡片、Kernel Vision 与部分状态持久化已经合并，因此前端工作不能整体标为“未开始”。当前实现和缺口以 [Frontend 当前设计](./frontend/README.md)为准。
 
 近期优先级是可靠性而不是视觉个性化：建立单一 identity context、区分真实后端/缓存/mock、修复 Settings 配置结构偏差，并让 loading/error/waiting 状态来自可观察事实。Terminal 空入口也应删除、接通或明确标记。主题覆盖和自定义背景进入未排期表，可并行探索但不阻塞后端能力链；界面不得展示或暗示不可观测的模型内部推理。
 
-### 4.5 v0.7.x 能力链
+### 4.4 v0.7.x 能力链
 
 ```text
 Attachment / Document Artifacts
@@ -184,7 +169,7 @@ Attachment / Document Artifacts
 
 Document Ingestion 必须建立在 Artifact 之上，因为解析必须保留原始证据；当解析规模确实需要后台执行时，再根据真实耗时、取消和恢复要求建立对应机制。provenance 数据契约应在摄入阶段同步冻结，`v0.7.1` 只负责把已有证据链稳定暴露给 MTP READ。Deep Research 还依赖可追溯输入、可引用输出和已经证明可行的 Agent 长任务执行，否则报告只是另一段无法审计的生成内容。Conversation Branching 不再占用固定版本号，进入未排期表等待 provenance、生命周期边界和真实编辑需求稳定。
 
-### 4.6 排序与验收检查
+### 4.5 排序与验收检查
 
 路线项目进入实现前，应确认：
 
