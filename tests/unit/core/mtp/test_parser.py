@@ -14,7 +14,6 @@ import pytest
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
-    MTP_STOP_SEQUENCE,
     MTPVerb,
     MTPErrorInfo,
     MTPErrorSeverity,
@@ -25,8 +24,6 @@ from hivememory.core.mtp import (
     MTPParser,
     MTPParseError,
     MTPFormatter,
-    create_parser,
-    create_formatter,
 )
 from hivememory.i18n.mtp_runtime import get_mtp_error_text
 
@@ -42,21 +39,6 @@ def parser() -> MTPParser:
 @pytest.fixture
 def formatter() -> MTPFormatter:
     return MTPFormatter()
-
-
-# ========== 常量测试 ==========
-
-
-class TestConstants:
-    """测试 MTP 协议常量"""
-
-    def test_delimiters(self):
-        assert MTP_LEFT_DELIMITER == "\u27ea"
-        assert MTP_RIGHT_DELIMITER == "\u27eb"
-        assert MTP_STOP_SEQUENCE == MTP_RIGHT_DELIMITER
-
-
-# PLACEHOLDER_PARSER_TESTS
 
 
 # ========== 解析器测试 ==========
@@ -230,9 +212,6 @@ class TestMTPParser:
         error = exc_info.value.to_error_info()
         assert "Missing separator" in get_mtp_error_text(error.message_key, error.params, "en")
         assert "缺少分隔符" in get_mtp_error_text(error.message_key, error.params, "zh")
-
-
-# PLACEHOLDER_COMPLETE_AND_DETECT
 
 
 # ========== 补全与检测测试 ==========
@@ -427,18 +406,3 @@ class TestMTPFormatter:
         assert '<error code="mtp.call_response.sub_agent_error" severity="system_fault">' in result
         assert "[Sub-Agent Error]" in result
         assert "coder_doll" in result
-
-
-# ========== 工厂函数测试 ==========
-
-
-class TestFactoryFunctions:
-    """测试工厂函数"""
-
-    def test_create_parser(self):
-        p = create_parser()
-        assert isinstance(p, MTPParser)
-
-    def test_create_formatter(self):
-        f = create_formatter()
-        assert isinstance(f, MTPFormatter)

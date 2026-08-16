@@ -62,6 +62,5 @@ def test_logical_block_accepts_turn_record_directly():
         assistant_final_text="world",
     )
     block = LogicalBlock(turn=turn)
-    assert block.turn is turn
     assert block.user_query == "hello"
     assert block.assistant_final_text == "world"

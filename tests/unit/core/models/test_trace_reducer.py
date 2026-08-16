@@ -3,7 +3,7 @@ TraceReducer 单元测试
 
 覆盖:
 - READ / SEARCH / RUN 的摘要提炼
-- WRITE / UPDATE / CALL 过滤
+- WRITE / UPDATE / CALL 保留
 - SEARCH 优先从 tool_args.query 提取
 - action_id 透传到 TraceItem
 """
