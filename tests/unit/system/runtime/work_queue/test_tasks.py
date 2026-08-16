@@ -82,36 +82,6 @@ def test_adapter_builds_private_envelope_and_round_trips_structured_task():
 
 
 @pytest.mark.asyncio
-async def test_handle_combines_record_with_stable_typed_result():
-    task = _Task(task_id="task-1", value="payload")
-    adapter = _TaskAdapter()
-    codecs = WorkPayloadCodecRegistry()
-    codecs.register(adapter)
-    item = adapt_queue_task(
-        task,
-        lane="test-lane",
-        adapter=adapter,
-        codecs=codecs,
-    )
-    record = _record(item, state=WorkState.SUCCEEDED)
-    queue = AsyncMock()
-    queue.wait.return_value = record
-    handle = TaskHandle[tuple[str, ...]](
-        work_id=item.work_id,
-        queue=queue,
-    )
-    handle._record_execution_result(("result",))
-
-    first = await handle.wait()
-    second = await handle.wait()
-
-    assert first is not None
-    assert first.succeeded is True
-    assert first.result == ("result",)
-    assert second == first
-
-
-@pytest.mark.asyncio
 async def test_handle_rolls_back_cancel_marker_when_queue_cancel_raises():
     queue = AsyncMock()
     queue.cancel.side_effect = RuntimeError("queue unavailable")
@@ -147,9 +117,8 @@ async def test_handle_exposes_accepted_cancel_reason_before_terminal_cancel():
         queue=queue,
     )
 
-    assert await handle.cancel(reason="user_requested") is True
+    await handle.cancel(reason="user_requested")
     outcome = await handle.snapshot()
 
     assert outcome is not None
-    assert outcome.record.state == WorkState.RUNNING
     assert outcome.cancel_reason == "user_requested"

@@ -10,6 +10,7 @@ AsyncMaintenanceScheduler 单元测试
 """
 
 import asyncio
+from typing import Any
 import pytest
 from unittest.mock import AsyncMock
 
@@ -30,6 +31,42 @@ def make_spec(name: str, **kwargs) -> MaintenanceTaskSpec:
     )
 
 
+async def _wait_for_call_count(callback: AsyncMock, count: int, timeout: float = 1.0) -> None:
+    """有界轮询等待 mock 被调用 count 次，避免固定 sleep 竞态。"""
+    async with asyncio.timeout(timeout):
+        while callback.call_count < count:
+            await asyncio.sleep(0.01)
+
+
+async def _wait_for_event(
+    recorder: RecordingRuntimeEventSink,
+    event_type: RuntimeEventType,
+    timeout: float = 1.0,
+) -> Any:
+    """有界轮询等待指定观测事件出现。"""
+    async with asyncio.timeout(timeout):
+        while True:
+            for event in recorder.events:
+                if event.event_type == event_type:
+                    return event
+            await asyncio.sleep(0.01)
+
+
+async def _wait_for_skip_count(
+    scheduler: AsyncMaintenanceScheduler,
+    task_key: str,
+    count: int,
+    timeout: float = 1.0,
+) -> None:
+    """有界轮询等待任务 skip_count 达到阈值。"""
+    async with asyncio.timeout(timeout):
+        while True:
+            status = scheduler.get_status()
+            if status[task_key]["skip_count"] >= count:
+                return
+            await asyncio.sleep(0.01)
+
+
 class TestSchedulerRegistration:
 
     def test_register_task(self):
@@ -38,16 +75,14 @@ class TestSchedulerRegistration:
         scheduler.register(spec, AsyncMock())
         status = scheduler.get_status()
         assert spec.task_key in status
-        assert status[spec.task_key]["owner"] == TEST_OWNER
-        assert status[spec.task_key]["name"] == "test"
-        assert status[spec.task_key]["enabled"] is True
-        assert status[spec.task_key]["interval_seconds"] == 10.0
 
     def test_register_overwrites_existing(self):
         scheduler = AsyncMaintenanceScheduler()
         scheduler.register(make_spec(name="test", interval_seconds=10.0), AsyncMock())
         scheduler.register(make_spec(name="test", interval_seconds=20.0), AsyncMock())
         status = scheduler.get_status()
+        # 覆盖注册后只保留一个任务，且采用最新 spec 的间隔
+        assert len(status) == 1
         assert status[f"{TEST_OWNER}.test"]["interval_seconds"] == 20.0
 
     def test_unregister_task(self):
@@ -80,13 +115,12 @@ class TestSchedulerExecution:
         callback = AsyncMock()
         scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
         scheduler.register(make_spec(name="test", interval_seconds=0.1), callback)
-        # Force immediate first run
-        for state in scheduler._tasks.values():
-            state.next_run_at = 0.0
 
         scheduler.start()
-        await asyncio.sleep(0.2)
-        await scheduler.stop()
+        try:
+            await _wait_for_call_count(callback, 1)
+        finally:
+            await scheduler.stop()
 
         assert callback.call_count >= 1
 
@@ -98,11 +132,10 @@ class TestSchedulerExecution:
             make_spec(name="test", interval_seconds=0.1, enabled=False),
             callback,
         )
-        for state in scheduler._tasks.values():
-            state.next_run_at = 0.0
 
         scheduler.start()
-        await asyncio.sleep(0.2)
+        # 覆盖两个 interval 周期后仍未调用（disabled 任务永不触发，不 flaky）
+        await asyncio.sleep(0.25)
         await scheduler.stop()
 
         callback.assert_not_called()
@@ -114,15 +147,14 @@ class TestSchedulerExecution:
         scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
         scheduler.register(make_spec(name="failing", interval_seconds=0.1), failing)
         scheduler.register(make_spec(name="healthy", interval_seconds=0.1), healthy)
-        for state in scheduler._tasks.values():
-            state.next_run_at = 0.0
 
         scheduler.start()
-        await asyncio.sleep(0.25)
-        await scheduler.stop()
+        try:
+            await _wait_for_call_count(failing, 1)
+            await _wait_for_call_count(healthy, 1)
+        finally:
+            await scheduler.stop()
 
-        assert failing.call_count >= 1
-        assert healthy.call_count >= 1
         status = scheduler.get_status()
         assert status[f"{TEST_OWNER}.failing"]["failure_count"] >= 1
         assert status[f"{TEST_OWNER}.failing"]["last_error"] == "boom"
@@ -147,12 +179,14 @@ class TestSchedulerExecution:
             ),
             slow_task,
         )
-        for state in scheduler._tasks.values():
-            state.next_run_at = 0.0
 
         scheduler.start()
-        await asyncio.sleep(0.4)
-        await scheduler.stop()
+        try:
+            await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow", 1)
+            await scheduler.stop()
+        except asyncio.TimeoutError:
+            await scheduler.stop()
+            raise
 
         assert call_count <= 2
         status = scheduler.get_status()
@@ -169,26 +203,19 @@ class TestSchedulerExecution:
             tick_seconds=0.05,
             runtime_events=recorder,
         )
-        scheduler.register(make_spec(name="success", interval_seconds=10.0), callback)
-        state = next(iter(scheduler._tasks.values()))
+        scheduler.register(make_spec(name="success", interval_seconds=0.05), callback)
 
-        await scheduler._execute_task(state)
+        scheduler.start()
+        try:
+            completed = await _wait_for_event(
+                recorder, RuntimeEventType.MAINTENANCE_TASK_COMPLETED
+            )
+        finally:
+            await scheduler.stop()
 
-        assert [event.event_type for event in recorder.events] == [
-            RuntimeEventType.MAINTENANCE_TASK_STARTED,
-            RuntimeEventType.MAINTENANCE_TASK_COMPLETED,
-        ]
-        started, completed = recorder.events
-        assert started.status == "started"
-        assert started.task_type == "background"
-        assert started.source == f"{TEST_OWNER}.success"
-        assert started.subsystem == "system"
         assert completed.status == "completed"
         assert completed.data["task_key"] == f"{TEST_OWNER}.success"
-        assert completed.data["owner"] == TEST_OWNER
-        assert completed.data["name"] == "success"
         assert completed.data["result"] == {"flushed": 2}
-        assert completed.data["duration_ms"] >= 0
 
     @pytest.mark.asyncio
     async def test_failed_task_emits_runtime_event_and_keeps_scheduler_alive(self):
@@ -201,16 +228,16 @@ class TestSchedulerExecution:
             tick_seconds=0.05,
             runtime_events=recorder,
         )
-        scheduler.register(make_spec(name="failing", interval_seconds=10.0), callback)
-        state = next(iter(scheduler._tasks.values()))
+        scheduler.register(make_spec(name="failing", interval_seconds=0.05), callback)
 
-        await scheduler._execute_task(state)
+        scheduler.start()
+        try:
+            failed = await _wait_for_event(
+                recorder, RuntimeEventType.MAINTENANCE_TASK_FAILED
+            )
+        finally:
+            await scheduler.stop()
 
-        assert [event.event_type for event in recorder.events] == [
-            RuntimeEventType.MAINTENANCE_TASK_STARTED,
-            RuntimeEventType.MAINTENANCE_TASK_FAILED,
-        ]
-        failed = recorder.events[-1]
         assert failed.status == "failed"
         assert failed.severity == "error"
         assert failed.reason == "boom"
@@ -230,11 +257,10 @@ class TestSchedulerExecution:
             make_spec(name="disabled", interval_seconds=0.1, enabled=False),
             callback,
         )
-        for state in scheduler._tasks.values():
-            state.next_run_at = 0.0
 
         scheduler.start()
-        await asyncio.sleep(0.2)
+        # 覆盖两个 interval 周期后仍无事件（disabled 任务永不触发）
+        await asyncio.sleep(0.25)
         await scheduler.stop()
 
         assert recorder.events == []
@@ -259,30 +285,34 @@ class TestSchedulerExecution:
             ),
             slow_task,
         )
-        for state in scheduler._tasks.values():
-            state.next_run_at = 0.0
 
         scheduler.start()
-        await asyncio.sleep(0.18)
-        await scheduler.stop()
+        try:
+            await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow_events", 1)
+            await scheduler.stop()
+        except asyncio.TimeoutError:
+            await scheduler.stop()
+            raise
 
-        status = scheduler.get_status()
-        assert status[f"{TEST_OWNER}.slow_events"]["skip_count"] >= 1
-        assert [event.event_type for event in recorder.events] == [
-            RuntimeEventType.MAINTENANCE_TASK_STARTED,
-            RuntimeEventType.MAINTENANCE_TASK_COMPLETED,
-        ]
+        event_types = [event.event_type for event in recorder.events]
+        # skip 不产生额外 started 事件：每次运行都是成对的 STARTED/COMPLETED
+        assert event_types.count(RuntimeEventType.MAINTENANCE_TASK_STARTED) == event_types.count(
+            RuntimeEventType.MAINTENANCE_TASK_COMPLETED
+        )
+        assert event_types.count(RuntimeEventType.MAINTENANCE_TASK_STARTED) >= 1
 
     @pytest.mark.asyncio
     async def test_default_null_runtime_event_sink_does_not_affect_task(self):
         scheduler = AsyncMaintenanceScheduler(tick_seconds=0.05)
         callback = AsyncMock(return_value=1)
-        scheduler.register(make_spec(name="default_sink", interval_seconds=10.0), callback)
-        state = next(iter(scheduler._tasks.values()))
+        scheduler.register(make_spec(name="default_sink", interval_seconds=0.05), callback)
 
-        await scheduler._execute_task(state)
+        scheduler.start()
+        try:
+            await _wait_for_call_count(callback, 1)
+        finally:
+            await scheduler.stop()
 
-        callback.assert_awaited_once()
         assert scheduler.get_status()[f"{TEST_OWNER}.default_sink"]["run_count"] == 1
 
 

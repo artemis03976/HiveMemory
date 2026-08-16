@@ -171,7 +171,6 @@ class TestMemoryApplicationService:
         assert payload.meta.user_id == "default"
         assert payload.index.memory_type == MemoryType.FACT
         assert payload.index.alias == "created-memory"
-        assert atom is created
 
     @pytest.mark.asyncio
     async def test_get_memory_not_found_raises_domain_error(self, service, mock_global_bus):

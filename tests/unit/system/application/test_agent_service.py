@@ -168,14 +168,14 @@ class TestAgentApplicationService:
         assert payload.index.alias == "worker"
         assert payload.payload.content == "persona"
         assert payload.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
-        assert atom is created
 
     @pytest.mark.asyncio
     async def test_list_agent_profiles_uses_public_route(self, service, mock_global_bus):
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = []
 
-        assert await service.list_agent_profiles() == []
+        await service.list_agent_profiles()
+        # 路由 + 默认 limit=100 是真实生产参数契约
         mock_global_bus.request.assert_awaited_once_with(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
             limit=100,

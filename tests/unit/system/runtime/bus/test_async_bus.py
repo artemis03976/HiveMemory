@@ -10,7 +10,6 @@ AsyncSystemBus 单元测试
 
 import pytest
 from unittest.mock import AsyncMock
-from unittest.mock import Mock
 
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
@@ -22,13 +21,18 @@ class TestAsyncSystemBusRPC:
 
     @pytest.mark.asyncio
     async def test_register_and_request(self):
-        handler = AsyncMock(return_value="result")
+        received = []
+
+        async def handler(*args, **kwargs):
+            received.append((args, kwargs))
+            return "result"
+
         self.bus.register("svc.method", handler)
 
         result = await self.bus.request("svc.method")
 
-        handler.assert_awaited_once()
         assert result == "result"
+        assert received == [((), {})]
 
     @pytest.mark.asyncio
     async def test_request_unregistered_route_raises_keyerror(self):
@@ -37,36 +41,48 @@ class TestAsyncSystemBusRPC:
 
     @pytest.mark.asyncio
     async def test_register_overwrites_existing(self):
-        old_handler = AsyncMock(return_value="old")
-        new_handler = AsyncMock(return_value="new")
+        calls = []
+
+        async def old_handler():
+            calls.append("old")
+
+        async def new_handler():
+            calls.append("new")
 
         self.bus.register("svc.method", old_handler)
         self.bus.register("svc.method", new_handler)
 
-        result = await self.bus.request("svc.method")
+        await self.bus.request("svc.method")
 
-        old_handler.assert_not_awaited()
-        new_handler.assert_awaited_once()
-        assert result == "new"
+        assert calls == ["new"]
 
     @pytest.mark.asyncio
     async def test_request_passes_args_kwargs(self):
-        handler = AsyncMock(return_value="ok")
+        received = []
+
+        async def handler(*args, **kwargs):
+            received.append((args, kwargs))
+
         self.bus.register("svc.method", handler)
 
         await self.bus.request("svc.method", "arg1", "arg2", key="val")
 
-        handler.assert_awaited_once_with("arg1", "arg2", key="val")
+        assert received == [(("arg1", "arg2"), {"key": "val"})]
 
     @pytest.mark.asyncio
     async def test_request_accepts_sync_handler(self):
-        handler = Mock(return_value=["snapshot"])
+        received = []
+
+        def handler(*args, **kwargs):
+            received.append((args, kwargs))
+            return ["snapshot"]
+
         self.bus.register("svc.sync_method", handler)
 
         result = await self.bus.request("svc.sync_method", key="val")
 
-        handler.assert_called_once_with(key="val")
         assert result == ["snapshot"]
+        assert received == [((), {"key": "val"})]
 
     @pytest.mark.asyncio
     async def test_unregister_removes_handler(self):
@@ -88,24 +104,35 @@ class TestAsyncSystemBusPubSub:
 
     @pytest.mark.asyncio
     async def test_subscribe_and_publish(self):
-        callback = AsyncMock()
+        received = []
+
+        async def callback(*args, **kwargs):
+            received.append((args, kwargs))
+
         self.bus.subscribe("evt.test", callback)
 
         await self.bus.publish("evt.test", "data", key="val")
 
-        callback.assert_awaited_once_with("data", key="val")
+        assert received == [(("data",), {"key": "val"})]
 
     @pytest.mark.asyncio
     async def test_publish_multiple_subscribers(self):
-        cb1 = AsyncMock()
-        cb2 = AsyncMock()
+        received1 = []
+        received2 = []
+
+        async def cb1(*args, **kwargs):
+            received1.append(args)
+
+        async def cb2(*args, **kwargs):
+            received2.append(args)
+
         self.bus.subscribe("evt.test", cb1)
         self.bus.subscribe("evt.test", cb2)
 
         await self.bus.publish("evt.test", "data")
 
-        cb1.assert_awaited_once_with("data")
-        cb2.assert_awaited_once_with("data")
+        assert received1 == [("data",)]
+        assert received2 == [("data",)]
 
     @pytest.mark.asyncio
     async def test_publish_no_subscribers_is_noop(self):
@@ -113,28 +140,37 @@ class TestAsyncSystemBusPubSub:
 
     @pytest.mark.asyncio
     async def test_unsubscribe_removes_callback(self):
-        callback = AsyncMock()
+        received = []
+
+        async def callback(*args, **kwargs):
+            received.append(args)
+
         self.bus.subscribe("evt.test", callback)
         self.bus.unsubscribe("evt.test", callback)
 
         await self.bus.publish("evt.test", "data")
 
-        callback.assert_not_awaited()
+        assert received == []
 
     def test_unsubscribe_nonexistent_is_noop(self):
         self.bus.unsubscribe("evt.nonexistent", AsyncMock())
 
     @pytest.mark.asyncio
     async def test_publish_subscriber_exception_isolated(self):
-        bad_cb = AsyncMock(side_effect=RuntimeError("boom"))
-        good_cb = AsyncMock()
+        received = []
+
+        async def bad_cb(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        async def good_cb(*args, **kwargs):
+            received.append(args)
+
         self.bus.subscribe("evt.test", bad_cb)
         self.bus.subscribe("evt.test", good_cb)
 
         await self.bus.publish("evt.test", "data")
 
-        bad_cb.assert_awaited_once()
-        good_cb.assert_awaited_once_with("data")
+        assert received == [("data",)]
 
 
 class TestAsyncSystemBusIntrospection:

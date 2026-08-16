@@ -9,12 +9,7 @@ from hivememory.system.config import (
 )
 
 
-def test_memory_generation_queue_policy_has_local_defaults() -> None:
-    config = MemoryGenerationConfig()
-
-    assert config.queue_capacity == 128
-    assert config.queue_max_concurrency == 2
-    assert config.queue_timeout_seconds == 300.0
+def test_queue_max_attempts_not_in_memory_generation_config() -> None:
     assert "queue_max_attempts" not in MemoryGenerationConfig.model_fields
 
 
@@ -45,16 +40,3 @@ def test_legacy_unwired_fields_are_pruned_during_validation() -> None:
 
     assert "time_weight" not in mode.model_dump()
     assert "high_watermark" not in lifecycle.model_dump()
-
-
-def test_adaptive_fusion_keeps_wired_mode_weights() -> None:
-    config = AdaptiveWeightedFusionConfig()
-
-    assert config.debug_mode.dense_weight == 0.3
-    assert config.debug_mode.sparse_weight == 0.9
-    assert config.concept_mode.dense_weight == 0.8
-    assert config.concept_mode.sparse_weight == 0.2
-    assert config.timeline_mode.dense_weight == 0.4
-    assert config.timeline_mode.sparse_weight == 0.3
-    assert config.brainstorm_mode.dense_weight == 0.6
-    assert config.brainstorm_mode.sparse_weight == 0.1

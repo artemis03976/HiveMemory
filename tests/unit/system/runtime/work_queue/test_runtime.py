@@ -241,6 +241,24 @@ async def _wait_for_event(
             await asyncio.sleep(0)
 
 
+async def _wait_for_state(
+    runtime: WorkQueueRuntime,
+    work_id: str,
+    expected: WorkState,
+    timeout: float = 1.0,
+) -> WorkRecord:
+    """有界轮询等待记录达到期望终态，避免固定 sleep 竞态。"""
+
+    async def _poll() -> WorkRecord:
+        while True:
+            record = await runtime.get(work_id)
+            if record is not None and record.state == expected:
+                return record
+            await asyncio.sleep(0.005)
+
+    return await asyncio.wait_for(_poll(), timeout=timeout)
+
+
 @pytest.mark.asyncio
 async def test_different_lanes_do_not_block_each_other() -> None:
     slow = _ControlledHandler()
@@ -588,10 +606,8 @@ async def test_queued_cancellation_never_invokes_handler() -> None:
 
     assert await runtime.cancel("work-1")
     await runtime.start()
-    await asyncio.sleep(0.02)
-    record = await runtime.get("work-1")
+    record = await _wait_for_state(runtime, "work-1", WorkState.CANCELLED)
 
-    assert record is not None and record.state == WorkState.CANCELLED
     assert handler.started.empty()
     await runtime.stop()
 

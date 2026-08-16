@@ -50,8 +50,9 @@ async def test_runtime_operation_observer_emits_started_and_completed():
     assert started.data["input_count"] == 1
     assert completed.status == "completed"
     assert completed.data["success"] is True
-    assert isinstance(completed.data["duration_ms"], float)
-    assert isinstance(completed.data["value"], str)
+    # object() 无法 JSON 序列化，应被降级为 repr 字符串
+    assert "<object object at" in completed.data["value"]
+    assert "duration_ms" in completed.data
 
 
 @pytest.mark.asyncio

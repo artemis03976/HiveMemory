@@ -45,6 +45,8 @@ class TestSubsystemProtocol:
 
 class TestSystemEvent:
     def test_event_is_frozen(self):
+        from dataclasses import FrozenInstanceError
+
         event = SystemEvent(event_type=SystemEventType.SYSTEM_READY)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             event.event_type = SystemEventType.SYSTEM_SHUTTING_DOWN

@@ -75,7 +75,13 @@ class TestAlicePublicRoutes:
     @pytest.mark.asyncio
     async def test_request_through_global_bus_reaches_handler(self):
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
-        system._service.run_agent = AsyncMock(return_value="agent_result")
+        received = []
+
+        async def fake_run_agent(*, messages, identity):
+            received.append((messages, identity))
+            return "agent_result"
+
+        system._service.run_agent = fake_run_agent
         await system.start()
 
         result = await self.global_bus.request(
@@ -85,7 +91,7 @@ class TestAlicePublicRoutes:
         )
 
         assert result == "agent_result"
-        system._service.run_agent.assert_awaited_once_with(messages=[], identity="id")
+        assert received == [([], "id")]
 
     @pytest.mark.asyncio
     async def test_stream_route_returns_async_generator(self):
@@ -95,7 +101,7 @@ class TestAlicePublicRoutes:
             yield {"event": "token"}
             yield {"event": "done"}
 
-        system._service.run_agent_stream = MagicMock(side_effect=_stream)
+        system._service.run_agent_stream = _stream
         await system.start()
 
         stream = await self.global_bus.request(
@@ -118,10 +124,24 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_alice_local_bus_bridges_patchouli_memory_routes(self):
-        retrieve = AsyncMock(return_value="retrieved")
-        retrieve_by_aliases = AsyncMock(return_value="aliases")
-        get_agent_profile = AsyncMock(return_value="profile")
-        record_citation = AsyncMock(return_value="citation")
+        received = []
+
+        async def retrieve(*, request):
+            received.append(("retrieve", request))
+            return "retrieved"
+
+        async def retrieve_by_aliases(*, aliases):
+            received.append(("aliases", aliases))
+            return "aliases"
+
+        async def get_agent_profile(alias):
+            received.append(("profile", alias))
+            return "profile"
+
+        async def record_citation(*, memory_id, source):
+            received.append(("citation", memory_id, source))
+            return "citation"
+
         self.global_bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, retrieve)
         self.global_bus.register(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
@@ -161,10 +181,12 @@ class TestAlicePublicRoutes:
         assert aliases_result == "aliases"
         assert profile_result == "profile"
         assert citation_result == "citation"
-        retrieve.assert_awaited_once_with(request="request")
-        retrieve_by_aliases.assert_awaited_once_with(aliases=["a"])
-        get_agent_profile.assert_awaited_once_with("coder_doll")
-        record_citation.assert_awaited_once_with(memory_id="mid", source="mtp.read")
+        assert received == [
+            ("retrieve", "request"),
+            ("aliases", ["a"]),
+            ("profile", "coder_doll"),
+            ("citation", "mid", "mtp.read"),
+        ]
 
     @pytest.mark.asyncio
     async def test_alice_unmount_unsubscribes_settlement_event(self):

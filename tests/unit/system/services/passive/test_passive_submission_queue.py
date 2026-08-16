@@ -19,8 +19,10 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.config.passive import PassiveIngressConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkQueueCapacityError
 from hivememory.system.services.passive import (
     PassiveConversationKey,
@@ -265,27 +267,61 @@ async def test_apply_retry_does_not_block_next_accumulator() -> None:
 
 @pytest.mark.asyncio
 async def test_shutdown_waits_for_accepted_submission_work() -> None:
-    queue = MagicMock()
-    queue.drain_all = AsyncMock(return_value=1)
-    queue.pending_count = AsyncMock(return_value=0)
-    ingressor = MagicMock()
-    ingressor.shutdown_drain = AsyncMock(
-        return_value={
-            "finalized_turns": 1,
-            "accepted_submissions": 1,
-        }
+    attempts: list[str] = []
+
+    async def submit_interaction(payload, **kwargs) -> str:
+        attempts.append(payload.user_message)
+        return f"topic-{payload.user_message}"
+
+    queue = InteractionSubmissionQueue(
+        submit_interaction,
+        policy=QueuePolicy(
+            capacity=8,
+            max_concurrency=1,
+            ordered_by_key=True,
+            max_attempts=2,
+        ),
     )
-    service = PassiveIngressService.__new__(PassiveIngressService)
-    service._interaction_queue = queue
-    service._ingressor = ingressor
-    service._maintenance_registered = False
+    await queue.start()
+    try:
+        async def gateway(**kwargs):
+            return GatewayDecisionOutcome(
+                decision=GatewayDecision(
+                    target_topic_id="topic-1",
+                    rewritten_query="hello",
+                    memory_write_signal=MemoryWriteSignal.WRITE,
+                    retrieval_plan=RetrievalPlan(
+                        mode=RetrievalMode.SKIP,
+                        top_k=0,
+                    ),
+                    intent_type=IntentType.RAG,
+                )
+            )
 
-    result = await service.shutdown_drain()
+        bus = GlobalSystemBus()
+        bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+        config = MagicMock()
+        config.gateway.workflow.default_request_timeout_ms = 100
+        config.passive_ingress = PassiveIngressConfig()
+        config.scheduler.enabled = False
+        service = PassiveIngressService(
+            bus=bus,
+            config=config,
+            scheduler=AsyncMaintenanceScheduler(),
+            interaction_queue=queue,
+        )
 
-    queue.drain_all.assert_awaited_once()
-    queue.pending_count.assert_awaited_once()
-    assert result == {
-        "success": True,
-        "observer_payloads_submitted": 1,
-        "observer_payloads_pending": 0,
-    }
+        # 先提交一个已接受的 user turn 进入 queue
+        await service.ingressor.route_event(
+            _event("user", "u1", external_event_id="event-1", is_final=True),
+            IDENTITY,
+        )
+
+        result = await service.shutdown_drain()
+
+        # drain_all 等待并执行了已接受的 submission work
+        assert attempts == ["u1"]
+        assert result["observer_payloads_pending"] == 0
+        assert result["success"] is True
+    finally:
+        await queue.stop()

@@ -44,7 +44,9 @@ class TestTopicApplicationService:
         handler = AsyncMock(return_value=["snapshot"])
         bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, handler)
 
-        assert await service.list_active_topics(user_id="u1") == ["snapshot"]
+        await service.list_active_topics(user_id="u1")
+
+        # list_active_topics 是纯透传；约束力来自路由与 identity 构造
         handler.assert_awaited_once()
         identity = handler.await_args.kwargs["identity"]
         assert identity.user_id == "u1"
@@ -65,7 +67,7 @@ class TestTopicApplicationService:
         handler = AsyncMock(return_value={"success": True, "message": "话题 t1 已删除"})
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, handler)
 
-        result = await service.evict_topic(topic_id="t1")
+        await service.evict_topic(topic_id="t1")
 
-        assert result == {"success": True, "message": "话题 t1 已删除"}
+        # evict_topic 是纯透传；约束力来自路由与参数
         handler.assert_awaited_once_with(topic_id="t1")

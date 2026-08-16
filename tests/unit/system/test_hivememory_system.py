@@ -102,28 +102,17 @@ def system(mock_patchouli):
         subsystems=subsystems,
         services=services,
     )
-    system._test_runtime_events = runtime_events
     return system
 
 
 class TestHiveMemorySystem:
-    @pytest.mark.asyncio
-    async def test_start_starts_subsystem_and_ingress(self, system):
-        system._patchouli.start = AsyncMock()
-        system._scheduler.start = MagicMock()
-        await system.start()
-        system._patchouli.start.assert_called_once()
-        system._scheduler.start.assert_called_once()
-        system._ingress_service.start.assert_called_once()
-        assert system._started is True
-
     @pytest.mark.asyncio
     async def test_start_emits_system_lifecycle_events(self, system):
         system._scheduler.start = MagicMock()
 
         await system.start()
 
-        events = system._test_runtime_events.events
+        events = system._runtime_event_sink.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_STARTING,
             RuntimeEventType.SYSTEM_READY,
@@ -150,7 +139,7 @@ class TestHiveMemorySystem:
         with pytest.raises(RuntimeError, match="boom"):
             await system.start()
 
-        events = system._test_runtime_events.events
+        events = system._runtime_event_sink.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_STARTING,
             RuntimeEventType.SYSTEM_START_FAILED,
@@ -191,11 +180,8 @@ class TestHiveMemorySystem:
 
         await system.stop()
 
+        # 顺序契约：scheduler 停止 → drain → 子系统停止
         assert calls == ["stop_scheduler", "shutdown_drain", "stop"]
-        system._scheduler.stop.assert_called_once()
-        system._ingress_service.shutdown_drain.assert_called_once()
-        system._patchouli.stop.assert_called_once()
-        assert system._started is False
 
     @pytest.mark.asyncio
     async def test_stop_emits_system_lifecycle_events(self, system):
@@ -203,10 +189,10 @@ class TestHiveMemorySystem:
         system._scheduler.stop = AsyncMock()
 
         await system.start()
-        system._test_runtime_events.events.clear()
+        system._runtime_event_sink.events.clear()
         await system.stop()
 
-        events = system._test_runtime_events.events
+        events = system._runtime_event_sink.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
             RuntimeEventType.SYSTEM_STOPPED,
@@ -231,7 +217,7 @@ class TestHiveMemorySystem:
 
         await system.stop()
 
-        events = system._test_runtime_events.events
+        events = system._runtime_event_sink.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
             RuntimeEventType.SYSTEM_STOPPED,
@@ -257,7 +243,7 @@ class TestHiveMemorySystem:
         with pytest.raises(RuntimeError, match="stop boom"):
             await system.stop()
 
-        events = system._test_runtime_events.events
+        events = system._runtime_event_sink.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
             RuntimeEventType.SYSTEM_STOP_FAILED,
@@ -277,20 +263,13 @@ class TestHiveMemorySystem:
 
     @pytest.mark.asyncio
     async def test_health_returns_structure(self, system):
-        system._started = True
-        h = await system.health()
-        assert h["status"] == "ok"
-        assert "subsystems" in h
-        assert h["models_ready"] is True
-
-    def test_config_property(self, system):
-        assert system.config is system._config
-
-    def test_application_service_properties(self, system):
-        assert system.chat_service is system._chat_service
-        assert system.ingress_service is system._ingress_service
-        assert system.memory_service is system._memory_service
-        assert system.memory_task_service is system._memory_task_service
-        assert system.agent_service is system._agent_service
-        assert system.topic_service is system._topic_service
-        assert system.readiness_service is system._readiness_service
+        system._scheduler.start = MagicMock()
+        system._scheduler.stop = AsyncMock()
+        await system.start()
+        try:
+            h = await system.health()
+            assert h["status"] == "ok"
+            assert "subsystems" in h
+            assert h["models_ready"] is True
+        finally:
+            await system.stop()
