@@ -1,4 +1,4 @@
-"""ChatApplicationService / PassiveIngressService 委托测试"""
+"""MemoryApplicationService 委托测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -127,31 +127,6 @@ def passive_config():
     return config
 
 
-def _make_analysis_result(
-    *,
-    target_topic: str = "NEW_TOPIC",
-    memory: str | None = "<mem>ctx</mem>",
-    worth_saving: bool = True,
-) -> tuple[GatewayDecision, RetrievalResponse]:
-    gateway_decision = GatewayDecision(
-        target_topic_id=target_topic,
-        rewritten_query="resolved query",
-        search_keywords=("resolved",),
-        memory_write_signal=(
-            MemoryWriteSignal.WRITE
-            if worth_saving
-            else MemoryWriteSignal.SKIP
-        ),
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
-    )
-    retrieval_result = RetrievalResponse(
-        memories=[],
-    )
-    _ = memory
-    return gateway_decision, retrieval_result
-
-
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
@@ -196,7 +171,6 @@ class TestMemoryApplicationService:
         assert payload.meta.user_id == "default"
         assert payload.index.memory_type == MemoryType.FACT
         assert payload.index.alias == "created-memory"
-        assert atom is created
 
     @pytest.mark.asyncio
     async def test_get_memory_not_found_raises_domain_error(self, service, mock_global_bus):

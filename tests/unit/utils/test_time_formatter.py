@@ -153,7 +153,7 @@ class TestTimeFormatter:
         formatter = TimeFormatter()
         now = datetime.now()
         result = formatter.format(now - timedelta(days=5))
-        assert "天前" in result
+        assert result == "5 天前"
 
     def test_convenience_function(self):
         """测试便捷函数 format_time_ago"""

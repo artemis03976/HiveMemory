@@ -136,11 +136,25 @@ def test_call_record_cancel_wins_before_apply():
         record.mark_applied()
 
 
-def test_call_results_express_dispatch_and_resume_without_nullable_payloads():
-    caller = _frame()
+def test_call_record_callee_binding_requires_resolving_and_is_exactly_once() -> None:
+    session = RunSession(agent_run_id="run-1")
+    root = _frame("act-1")
+    callee = _frame("act-child")
+    callee.runtime_scope = callee.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    session.register_root_frame(root)
+    record = session.register_call(root, "act-1")
 
-    assert DispatchCallee(caller).frame is caller
-    assert ResumeCaller() == ResumeCaller()
+    with pytest.raises(RuntimeError, match="Cannot bind callee"):
+        session.register_callee_frame(callee, record)
+
+    record.begin_resolution()
+    session.register_callee_frame(callee, record)
+    with pytest.raises(RuntimeError, match="already has a callee frame"):
+        record.bind_callee("frame-other")
+
+    record.cancel()
+    record.cancel()
+    assert record.status.value == "cancelled"
 
 
 @pytest.mark.asyncio

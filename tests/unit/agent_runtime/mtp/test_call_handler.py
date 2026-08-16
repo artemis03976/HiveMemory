@@ -72,7 +72,6 @@ async def test_call_missing_task() -> None:
     )
 
     assert response.status == MTPResponseStatus.ERROR
-    assert response.error is not None
     assert response.error.code == "mtp.argument.invalid"
 
 
@@ -90,5 +89,4 @@ async def test_call_missing_target() -> None:
     )
 
     assert response.status == MTPResponseStatus.ERROR
-    assert response.error is not None
     assert response.error.code == "mtp.argument.invalid"

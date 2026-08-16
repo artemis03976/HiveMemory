@@ -78,7 +78,7 @@ class TestListProviders:
 
         resp = client.get("/api/v1/providers")
         item = resp.json()[0]
-        assert "api_key" not in item or item.get("api_key") is None
+        assert "api_key" not in item
         masked = item.get("api_key_masked", "")
         assert "abcdef" not in masked
         assert "sk-" in masked

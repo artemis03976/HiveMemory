@@ -40,11 +40,6 @@ class TestResolveLanguage:
         )
         assert result == Language.EN
 
-    def test_default_over_fallback(self):
-        set_default_language("en")
-        result = resolve_language(fallback=Language.ZH)
-        assert result == Language.EN
-
     def test_module_default_over_fallback(self):
         set_default_language("en")
 

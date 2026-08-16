@@ -23,16 +23,25 @@ def _record(name: str = "hivememory.patchouli", level: int = logging.INFO, msg: 
     return logging.LogRecord(name, level, __file__, 12, msg, (), None)
 
 
-def test_should_handle_exact_and_wildcard_namespaces():
-    handler = WebSocketLogHandler(FakeManager(), ["hivememory.patchouli", "hivememory.alice.*"])
+@pytest.mark.asyncio
+async def test_emit_filters_by_namespace():
+    manager = FakeManager()
+    handler = WebSocketLogHandler(manager, ["hivememory.patchouli", "hivememory.alice.*"])
 
-    assert handler._should_handle(_record("hivememory.patchouli")) is True
-    assert handler._should_handle(_record("hivememory.alice.runtime")) is True
-    assert handler._should_handle(_record("other")) is False
+    handler.emit(_record("hivememory.patchouli"))
+    handler.emit(_record("hivememory.alice.runtime"))
+    handler.emit(_record("other"))
+    await asyncio.sleep(0)
+
+    assert len(manager.messages) == 2
+    assert all(m["message"] == "hello" for m in manager.messages)
 
 
-def test_format_log_record_includes_trace_context_and_json_extra():
-    handler = WebSocketLogHandler(FakeManager(), ["hivememory.*"])
+@pytest.mark.asyncio
+async def test_emit_includes_trace_context_and_json_extra():
+    manager = FakeManager()
+    handler = WebSocketLogHandler(manager, ["hivememory.*"])
+
     record = _record()
     record.trace_id = "trace-1"
     record.span_name = "span"
@@ -40,8 +49,10 @@ def test_format_log_record_includes_trace_context_and_json_extra():
     record.extra_json = {"ok": True}
     record.extra_unserializable = object()
 
-    data = handler._format_log_record(record)
+    handler.emit(record)
+    await asyncio.sleep(0)
 
+    data = manager.messages[0]
     assert data["trace_id"] == "trace-1"
     assert data["span_name"] == "span"
     assert data["task_type"] == "background"
@@ -49,10 +60,13 @@ def test_format_log_record_includes_trace_context_and_json_extra():
     assert "extra_unserializable" not in data["extra"]
 
 
-def test_format_log_record_truncates_large_message_and_traceback():
-    handler = WebSocketLogHandler(FakeManager(), ["hivememory.*"])
+@pytest.mark.asyncio
+async def test_emit_truncates_large_message_and_traceback():
+    manager = FakeManager()
+    handler = WebSocketLogHandler(manager, ["hivememory.*"])
     formatter = logging.Formatter()
     handler.setFormatter(formatter)
+
     try:
         raise RuntimeError("x" * (MAX_TRACEBACK_LENGTH + 100))
     except RuntimeError:
@@ -66,8 +80,10 @@ def test_format_log_record_truncates_large_message_and_traceback():
             exc_info=sys.exc_info(),
         )
 
-    data = handler._format_log_record(record)
+    handler.emit(record)
+    await asyncio.sleep(0)
 
+    data = manager.messages[0]
     assert data["message"].endswith("... [truncated]")
     assert data["exception"]["traceback"].endswith("\n... [truncated]")
 

@@ -101,7 +101,15 @@ async def test_fallback_resolver_returns_fixed_conservative_result() -> None:
 
 @pytest.mark.asyncio
 async def test_llm_resolver_maps_engine_result() -> None:
-    engine = _build_engine_mock()
+    # 差异化 mock 值：若 resolver 映射被清空或硬编码，断言即红
+    engine = _build_engine_mock(
+        result=QueryUnderstandingResult(
+            intent_type=IntentType.RAG,
+            rewritten_query="改写后的完全不同",
+            search_keywords=("关键词甲", "关键词乙"),
+            memory_write_signal=MemoryWriteSignal.WRITE,
+        )
+    )
     resolver = LLMUserQueryAnalysisResolver(
         config=UserQueryAnalysisConfig(), engine=engine
     )
@@ -109,8 +117,8 @@ async def test_llm_resolver_maps_engine_result() -> None:
     result = await resolver.resolve(_build_context("那个报错怎么修"))
 
     assert result.intent_type == IntentType.RAG
-    assert result.rewritten_query == "重写后的查询"
-    assert result.search_keywords == ("关键词",)
+    assert result.rewritten_query == "改写后的完全不同"
+    assert result.search_keywords == ("关键词甲", "关键词乙")
     assert result.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.retrieval_plan.mode == RetrievalMode.HYBRID
 

@@ -22,7 +22,7 @@ def _frame(run_id: str, frame_id: str, policy: FrameExecutionPolicy) -> Executio
     )
 
 
-def test_frame_factory_is_stateless_and_session_owns_registry() -> None:
+def test_session_registers_frame_under_frame_id() -> None:
     policy = FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE, max_iterations=7)
     session = RunSession(agent_run_id="run-a")
     frame = _frame("run-a", "frame-a", policy)
@@ -30,8 +30,6 @@ def test_frame_factory_is_stateless_and_session_owns_registry() -> None:
     session.register_frame(frame)
 
     assert session.frames == {"frame-a": frame}
-    assert frame.execution_policy.max_iterations == 7
-    assert FrameFactory().scope(run_id="run-a").frame_id != frame.runtime_scope.frame_id
 
 
 def test_session_rejects_frame_id_collision_and_unregistered_call() -> None:
@@ -48,17 +46,6 @@ def test_session_rejects_frame_id_collision_and_unregistered_call() -> None:
 
     session.register_frame(registered)
     assert session.frames == {"frame-a": registered}
-
-
-def test_callee_policy_removes_call_without_reading_frame_depth() -> None:
-    policy = FrameExecutionPolicy.from_profile(
-        OMNI_DOLL_PROFILE,
-        max_iterations=3,
-        denied_verbs={"CALL"},
-    )
-
-    assert policy.allows("READ")
-    assert not policy.allows("CALL")
 
 
 def test_interleaved_sessions_keep_records_isolated() -> None:
@@ -92,8 +79,6 @@ def test_session_registers_root_and_callee_with_explicit_run_local_relationship(
         "frame-root": root,
         "frame-callee": callee,
     }
-    assert not hasattr(session, "frame_statuses")
-    assert not hasattr(session, "active_frame_id")
 
 
 def test_session_rejects_duplicate_root_callee_binding_and_cross_run_frame() -> None:
@@ -114,23 +99,3 @@ def test_session_rejects_duplicate_root_callee_binding_and_cross_run_frame() -> 
     session.register_callee_frame(callee, record)
     with pytest.raises(RuntimeError, match="already exists"):
         session.register_callee_frame(callee, record)
-
-
-def test_call_record_callee_binding_requires_resolving_and_is_exactly_once() -> None:
-    session = RunSession(agent_run_id="run-a")
-    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
-    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
-    session.register_root_frame(root)
-    record = session.register_call(root, "action-a")
-
-    with pytest.raises(RuntimeError, match="Cannot bind callee"):
-        session.register_callee_frame(callee, record)
-
-    record.begin_resolution()
-    session.register_callee_frame(callee, record)
-    with pytest.raises(RuntimeError):
-        record.bind_callee("frame-other")
-
-    record.cancel()
-    record.cancel()
-    assert record.status.value == "cancelled"

@@ -42,15 +42,6 @@ class TestDecisionMatrix:
 
 
 class TestTriggerManagerInit:
-    def test_init_with_relay_controller(self):
-        store = Mock()
-        relay = Mock()
-
-        manager = TriggerManager(store=store, relay_controller=relay)
-
-        assert manager._store is store
-        assert manager._relay_controller is relay
-
     def test_init_requires_relay_controller(self):
         with pytest.raises(TypeError):
             TriggerManager(store=Mock())

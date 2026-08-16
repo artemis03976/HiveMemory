@@ -89,8 +89,8 @@ async def test_build_for_create_returns_bundle(builder):
         source_artifact_refs=[],
     )
     assert isinstance(bundle, MemoryCreationBundle)
-    assert bundle.creation_ref is not None
-    assert bundle.initial_version_ref is not None
+    assert bundle.initial_version_ref.artifact_type == ArtifactType.MEMORY_VERSION
+    assert bundle.creation_ref.artifact_type == ArtifactType.MEMORY_CREATION
     assert bundle.refs == [bundle.initial_version_ref, bundle.creation_ref]
 
 
@@ -125,7 +125,6 @@ async def test_build_for_create_initial_version_ref_set(builder, store):
         source_intent="WRITE", source_artifact_refs=[],
     )
     creation: MemoryCreationArtifact = written[1]
-    assert creation.initial_version_ref is not None
     assert creation.initial_version_ref.artifact_id == bundle.initial_version_ref.artifact_id
 
 
@@ -167,7 +166,6 @@ async def test_build_for_update_returns_ref(builder):
         update_source="UPDATE",
         changelog="Updated reason",
     )
-    assert ref is not None
     assert ref.artifact_type == ArtifactType.MEMORY_VERSION
 
 

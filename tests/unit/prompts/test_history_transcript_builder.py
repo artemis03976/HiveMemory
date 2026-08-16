@@ -35,17 +35,6 @@ def _block_fallback(user_query: str, assistant_final_text: str, agent_id: str = 
     )
 
 
-def _block_true_legacy(user_query: str, response: str, agent_id: str = "default") -> LogicalBlock:
-    """兼容历史命名的 block helper，现已直接构造 TurnRecord 风格字段"""
-    return LogicalBlock(
-        turn=TurnRecord(
-            identity=_identity(agent_id),
-            user_query=user_query,
-            assistant_final_text=response,
-        )
-    )
-
-
 def _block_structured(user_query: str, events: list, agent_id: str = "default") -> LogicalBlock:
     """新数据 block（有 turn_events）"""
     return LogicalBlock(
@@ -81,14 +70,6 @@ class TestFallbackPaths:
         assert msgs == [
             {"role": "user", "content": "你好"},
             {"role": "assistant", "content": "你好，有什么可以帮你？"},
-        ]
-
-    def test_fallback_block_uses_assistant_final_text(self):
-        block = _block_true_legacy("legacy hi", "legacy hello")
-        msgs = builder.build_messages([block])
-        assert msgs == [
-            {"role": "user", "content": "legacy hi"},
-            {"role": "assistant", "content": "legacy hello"},
         ]
 
     def test_no_turn_events_and_no_assistant_final_text_emits_only_user(self):
@@ -295,12 +276,6 @@ class TestAgentPrefix:
     def test_legacy_block_different_agent(self):
         """无 turn_events 的 fallback block 也应加前缀"""
         block = _block_fallback("q", "旧回复", agent_id="coder_doll")
-        msgs = builder.build_messages([block], current_agent_id="omni_doll")
-        assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
-
-    def test_fallback_block_different_agent(self):
-        """fallback block 也应加前缀"""
-        block = _block_true_legacy("q", "旧回复", agent_id="coder_doll")
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
 

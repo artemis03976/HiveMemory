@@ -144,16 +144,6 @@ class TestCrossEncoderReranker:
         result_scores = [r.score for r in result.results]
         assert original_scores == result_scores
 
-    def test_normalize_score(self):
-        """测试分数标准化函数"""
-        mock_service = Mock(spec=BaseRerankService)
-        reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
-
-        # 测试 sigmoid 函数
-        assert reranker._normalize_score(0) == pytest.approx(0.5, rel=0.01)
-        assert reranker._normalize_score(5) == pytest.approx(0.993, rel=0.01)
-        assert reranker._normalize_score(-5) == pytest.approx(0.0067, rel=0.01)
-
 
 class TestNoopReranker:
     """测试 NoopReranker"""

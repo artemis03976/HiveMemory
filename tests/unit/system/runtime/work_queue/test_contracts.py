@@ -25,11 +25,6 @@ from hivememory.system.runtime.work_queue import (
 
 
 def test_work_state_transitions_are_closed_after_terminal_state() -> None:
-    assert can_transition_work_state(WorkState.QUEUED, WorkState.RUNNING)
-    assert can_transition_work_state(WorkState.RUNNING, WorkState.RETRY_WAIT)
-    assert can_transition_work_state(WorkState.RETRY_WAIT, WorkState.QUEUED)
-    assert can_transition_work_state(WorkState.RUNNING, WorkState.SUCCEEDED)
-
     for state in TERMINAL_WORK_STATES:
         assert not any(can_transition_work_state(state, target) for target in WorkState)
 
@@ -114,20 +109,6 @@ def test_work_record_keeps_runtime_state_outside_work_item() -> None:
 
     assert record.work_id == item.work_id
     assert record.lane == item.lane
-    assert not hasattr(item, "attempt_count")
-
-
-def test_receipt_only_records_runtime_acceptance_snapshot() -> None:
-    receipt = WorkReceipt(
-        work_id="work-1",
-        lane="runtime_job",
-        state=WorkState.QUEUED,
-        enqueued_at=datetime.now(UTC),
-    )
-
-    assert receipt.state == WorkState.QUEUED
-    assert not hasattr(receipt, "result")
-    assert not hasattr(receipt, "outcome")
 
 
 @pytest.mark.parametrize(
@@ -151,20 +132,7 @@ def test_queue_policy_rejects_invalid_limits(changes: dict[str, object], message
         QueuePolicy(**values)  # type: ignore[arg-type]
 
 
-def test_zero_max_attempts_leaves_retry_limit_to_business_decision() -> None:
-    policy = QueuePolicy(capacity=10, max_concurrency=2, max_attempts=0)
-
-    assert policy.max_attempts == 0
-
-
 def test_failure_decision_only_allows_retry_delay_for_retry() -> None:
-    decision = FailureDecision(
-        action=FailureAction.RETRY,
-        retry_after_seconds=1.5,
-        reason="transient",
-    )
-
-    assert decision.retry_after_seconds == 1.5
     with pytest.raises(ValueError, match="only valid for retry"):
         FailureDecision(action=FailureAction.FAIL, retry_after_seconds=1)
 

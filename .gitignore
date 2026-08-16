@@ -83,7 +83,11 @@ Desktop.ini
 
 .claude
 .trae
-.agents
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/enforce-test-design/
+!.agents/skills/enforce-test-design/**
 
 # project files
 .hivememory

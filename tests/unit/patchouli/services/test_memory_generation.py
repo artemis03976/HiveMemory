@@ -425,26 +425,6 @@ class TestMemoryGenerationFamiliarArtifacts:
         )
 
     @pytest.mark.asyncio
-    async def test_capture_interaction_artifact_returns_ref(self):
-        interaction_ref = ArtifactRef(artifact_id="ref_1", artifact_type=ArtifactType.INTERACTION)
-        artifact_engine = Mock()
-        artifact_engine.interaction = Mock()
-        artifact_engine.interaction.build_and_store = AsyncMock(return_value=interaction_ref)
-
-        familiar = self._make_familiar(artifact_engine=artifact_engine)
-
-        input_data = InteractionArtifactInput(
-            topic_id="t1",
-            topic_title="Test",
-            topic_summary="Summary",
-            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
-        )
-
-        result = await familiar._capture_interaction_artifact(input_data)
-
-        assert result is interaction_ref
-
-    @pytest.mark.asyncio
     async def test_capture_interaction_artifact_returns_none_when_no_engine(self):
         familiar = self._make_familiar(artifact_engine=None)
 

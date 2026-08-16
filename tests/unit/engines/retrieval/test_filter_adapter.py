@@ -157,4 +157,4 @@ class TestEmptyFilter:
 
     def test_empty_filter(self):
         f = _convert(identity=None)
-        assert f.must is None or f.must == []
+        assert f.must is None

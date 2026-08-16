@@ -142,11 +142,8 @@ class TestChatRouter:
         events = _parse_sse_events(response.text)
         event_types = [e["event"] for e in events]
 
-        assert "topic_info" in event_types
-        assert "done" in event_types
-        # token 事件应该存在
-        token_events = [e for e in events if e["event"] == "token"]
-        assert len(token_events) >= 1
+        # 完整事件顺序（router 透传 service 事件原样）
+        assert event_types == ["topic_info", "token", "token", "done"]
 
     def test_mtp_chat_sse_events(self):
         """MTP 对话: topic_info → token → mtp_start → mtp_result → token → done"""
@@ -181,15 +178,22 @@ class TestChatRouter:
         events = _parse_sse_events(response.text)
         event_types = [e["event"] for e in events]
 
-        assert "mtp_start" in event_types
-        assert "mtp_result" in event_types
+        assert event_types == [
+            "topic_info",
+            "token",
+            "mtp_start",
+            "mtp_result",
+            "token",
+            "done",
+        ]
 
-    def test_error_event(self):
-        """异常: error 事件"""
+    def test_stream_exception_emits_error_event(self):
+        """流式中途抛异常时，router 应产出 error 事件"""
         mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
-            yield {"event": "error", "data": {"message": "LLM 调用失败"}}
+            yield {"event": "token", "data": {"content": "partial"}}
+            raise RuntimeError("LLM 调用失败")
 
         mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
@@ -205,7 +209,7 @@ class TestChatRouter:
         events = _parse_sse_events(response.text)
         error_events = [e for e in events if e["event"] == "error"]
         assert len(error_events) == 1
-        assert "LLM" in error_events[0]["data"]["message"]
+        assert "系统错误" in error_events[0]["data"]["message"]
 
     def test_command_result_sse_event_is_forwarded_as_own_event(self):
         mock_service = MagicMock()
@@ -336,7 +340,6 @@ class TestChatRouter:
             await response.body_iterator.__anext__()
 
         generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
-        assert generation_id
         mock_service.cancel_generation.assert_called_once_with(
             generation_id,
             reason="client_disconnected",
@@ -375,7 +378,6 @@ class TestChatRouter:
 
         assert stream_started.is_set()
         generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
-        assert generation_id
         mock_service.cancel_generation.assert_called_once_with(
             generation_id,
             reason="client_disconnected",

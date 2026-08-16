@@ -120,11 +120,6 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         _MemoryGenerationWorkAdapter.schema_version,
         work,
     )
-    assert payload_bytes == codecs.encode(
-        _MemoryGenerationWorkAdapter.kind,
-        _MemoryGenerationWorkAdapter.schema_version,
-        work,
-    )
 
     spec.request.context.state_summary = "external mutation"
     atom.payload.content = "external mutation"
@@ -147,18 +142,6 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
     first.spec.request.context.state_summary = "attempt-local mutation"
     assert second.spec.request.context.state_summary == "original summary"
-
-
-def test_active_identity_uses_stable_intent_task_id() -> None:
-    work = _MemoryGenerationWork(
-        task_id="active:intent-codec",
-        spec=_spec(intent_id="intent-codec", pending_alias="draft-codec"),
-    )
-
-    identity = _MemoryGenerationWorkAdapter.identity(work)
-
-    assert identity.work_id == "memory_generation:active:intent-codec"
-    assert identity.idempotency_key == "active:intent-codec"
 
 
 @pytest.mark.asyncio

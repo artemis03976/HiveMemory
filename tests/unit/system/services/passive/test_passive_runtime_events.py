@@ -187,7 +187,7 @@ async def test_memory_context_prepared_reports_ref_count_and_duration() -> None:
     prepared = _first(sink, RuntimeEventType.PASSIVE_MEMORY_CONTEXT_PREPARED)
     assert prepared.data["memory_ref_count"] == 2
     assert prepared.data["degraded"] is False
-    assert prepared.data["duration_ms"] >= 0
+    assert "duration_ms" in prepared.data
     assert prepared.data["turn_id"] == "t-1"
     assert prepared.topic_id == "topic-1"
     assert prepared.status == "prepared"
@@ -244,7 +244,8 @@ async def test_outcome_carries_no_observability_trace() -> None:
     assert not hasattr(outcome, "runtime_events")
     assert not hasattr(outcome, "trace")
     assert not hasattr(outcome, "fallback")
-    assert sink.events, "观测事件应经由 sink 发布"
+    # 观测事件确实经由 sink 发布
+    assert RuntimeEventType.PASSIVE_INGRESS_EVENT_ACCEPTED.value in _types(sink)
 
 
 @pytest.mark.asyncio

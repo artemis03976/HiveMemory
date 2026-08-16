@@ -167,7 +167,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 | 公共运行模型 | `src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
 | Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
 | 执行、PendingAtom 与 MTP 测试 | `tests/unit/agent_runtime/` |
-| 主动与 CALL 流程 | `tests/e2e/pipeline/test_active_mode_e2e.py`、`test_sub_agent_call_e2e.py` |
+| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py` |
 
 ## 9. 当前限制与设计张力
 

@@ -5,9 +5,9 @@ MTPTraceReducer 单测
 - 空列表 → 空 traces
 - assistant_message / tool_result 类型 → 全部过滤
 - READ / SEARCH / RUN tool_call → 正确 TraceItem
-- WRITE / UPDATE / CALL → 过滤
+- WRITE / UPDATE / CALL → 保留为 TraceItem
 - dict 输入（模拟 SSE 序列化路径）→ 与对象输入结果相同
-- 混合事件列表 → 只保留 READ/SEARCH/RUN
+- 混合事件列表 → 保留 READ/SEARCH/RUN/WRITE/UPDATE/CALL 等控制信号
 """
 
 import pytest
@@ -114,9 +114,9 @@ class TestMTPTraceReducerCommandMapping:
         assert traces[0].status == "unknown"
 
 
-class TestMTPTraceReducerFiltered:
+class TestMTPTraceReducerControlActions:
     @pytest.mark.parametrize("tool_kind", ["WRITE", "UPDATE", "CALL"])
-    def test_filtered_tool_kinds(self, tool_kind):
+    def test_control_tool_kinds_are_kept(self, tool_kind):
         events = [_event("tool_call", tool_kind=tool_kind, target="something")]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 1
@@ -147,7 +147,7 @@ class TestMTPTraceReducerDictInput:
         event_dict = {"kind": "assistant_message", "sequence": 0, "role": "assistant", "content": "hi"}
         assert MTPTraceReducer.reduce([event_dict]) == []
 
-    def test_dict_write_filtered(self):
+    def test_dict_write_kept(self):
         event_dict = _event_dict("tool_call", tool_kind="WRITE")
         traces = MTPTraceReducer.reduce([event_dict])
         assert len(traces) == 1

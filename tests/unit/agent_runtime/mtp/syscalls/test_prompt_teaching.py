@@ -17,19 +17,19 @@ class TestSyscallPromptTeaching:
 
     def test_prompt_contains_run_verb(self, mtp_prompt_en):
         assert "RUN" in mtp_prompt_en
-        assert "Execute" in mtp_prompt_en or "execute" in mtp_prompt_en
+        assert "Execute" in mtp_prompt_en
 
     def test_prompt_contains_demo(self, mtp_prompt_en):
         assert "<mtp_response" in mtp_prompt_en
         assert "</mtp_response>" in mtp_prompt_en
 
     def test_prompt_contains_error_recovery(self, mtp_prompt_en):
-        assert "ERROR RECOVERY" in mtp_prompt_en or "error" in mtp_prompt_en.lower()
+        assert "ERROR RECOVERY" in mtp_prompt_en
         assert "retry" in mtp_prompt_en.lower()
 
     def test_prompt_forbids_json(self, mtp_prompt_en):
         assert "JSON" in mtp_prompt_en
-        assert "NEVER" in mtp_prompt_en or "NOT" in mtp_prompt_en
+        assert "NEVER" in mtp_prompt_en
 
     def test_prompt_zh_structure(self, mtp_prompt_zh):
         assert MTP_LEFT_DELIMITER in mtp_prompt_zh
@@ -39,7 +39,7 @@ class TestSyscallPromptTeaching:
 
     def test_prompt_teaches_inline_flow(self, mtp_prompt_en):
         lower = mtp_prompt_en.lower()
-        assert "inline" in lower or "thought process" in lower
+        assert "inline flow" in lower
 
     def test_prompt_demo_parseable(self, mtp_prompt_en):
         """Prompt 演示中的 MTP 指令可被解析器正确解析"""

@@ -17,16 +17,14 @@ def test_runtime_event_defaults_json_serializable():
         generation_id="gen-1",
     )
 
-    data = event.model_dump(mode="json")
-
     assert event.event_id.startswith("evt_")
-    assert data["event_type"] == "chat.run.created"
-    assert data["generation_id"] == "gen-1"
-    assert data["sequence"] == 0
-    assert "timestamp" in data
+    # model_dump(mode="json") 序列化契约：timestamp 渲染为字符串
+    data = event.model_dump(mode="json")
+    assert isinstance(data["timestamp"], str)
 
 
-def test_runtime_event_bus_assigns_sequence_and_replays_after_last_id():
+@pytest.mark.asyncio
+async def test_runtime_event_bus_assigns_sequence_and_replays_after_last_id():
     bus = RuntimeEventBus(buffer_size=10)
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_CREATED))
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_STATUS, status="streaming"))
@@ -36,26 +34,28 @@ def test_runtime_event_bus_assigns_sequence_and_replays_after_last_id():
     assert second.sequence == 2
 
     sub = bus.subscribe(last_event_id=first.event_id)
-    replay = sub._initial_events
-    sub.close()
+    stream = sub.events()
+    replay_event = await stream.__anext__()
+    await stream.aclose()
 
-    assert [event.event_id for event in replay] == [second.event_id]
+    assert replay_event.event_id == second.event_id
 
 
-def test_runtime_event_bus_emits_gap_when_last_event_evicted():
+@pytest.mark.asyncio
+async def test_runtime_event_bus_emits_gap_when_last_event_evicted():
     bus = RuntimeEventBus(buffer_size=1)
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_CREATED))
     evicted_id = bus.buffer_snapshot[0].event_id
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_STATUS, status="streaming"))
 
     sub = bus.subscribe(last_event_id=evicted_id)
-    replay = sub._initial_events
-    sub.close()
+    stream = sub.events()
+    replay_event = await stream.__anext__()
+    await stream.aclose()
 
-    assert len(replay) == 1
-    assert replay[0].event_type == RuntimeEventType.EVENT_STREAM_GAP
-    assert replay[0].data["last_event_id"] == evicted_id
-    assert replay[0].sequence == 3
+    assert replay_event.event_type == RuntimeEventType.EVENT_STREAM_GAP
+    assert replay_event.data["last_event_id"] == evicted_id
+    assert replay_event.sequence == 3
 
 
 @pytest.mark.asyncio
@@ -66,8 +66,9 @@ async def test_runtime_event_bus_slow_subscriber_drops_oldest():
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_CREATED, status="created"))
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_STATUS, status="streaming"))
 
-    event = await sub._queue.get()
-    sub.close()
+    stream = sub.events()
+    event = await stream.__anext__()
+    await stream.aclose()
 
     assert event.status == "streaming"
     assert sub.dropped_count == 1

@@ -7,10 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.system.application.chat_service import (
-    _ChatRunCancelled,
-    _run_interruptible,
-)
+from hivememory.system.application.chat_service import _run_interruptible
 from hivememory.system.runtime.control import (
     ChatGenerationRun,
     ChatGenerationRunRegistry,
@@ -132,4 +129,3 @@ async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled()
     with pytest.raises(asyncio.CancelledError):
         await task
     assert run.outcome is ChatRunOutcome.RUNNING
-    assert not isinstance(task.exception() if task.done() and not task.cancelled() else None, _ChatRunCancelled)

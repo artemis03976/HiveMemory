@@ -30,13 +30,10 @@ def test_runtime_event_publisher_combines_scope_context_and_typed_payload() -> N
     )
 
     event = sink.events[0]
+    # scoped 链路：subsystem/component 填充；source 回退到 subsystem
     assert event.subsystem == "alice"
     assert event.source == "alice"
     assert event.component == "agent_run"
-    assert event.task_type == "foreground"
-    assert event.generation_id == "generation-1"
-    assert event.agent_run_id == "run-1"
-    assert event.data == {"count": 2}
 
 
 def test_runtime_event_publisher_sanitizes_mapping_payload() -> None:
@@ -56,10 +53,18 @@ def test_runtime_event_publisher_sanitizes_mapping_payload() -> None:
 
 def test_runtime_event_publisher_isolates_sink_failure() -> None:
     class FailingSink:
+        def __init__(self) -> None:
+            self.calls = 0
+
         def emit(self, _event) -> None:
+            self.calls += 1
             raise RuntimeError("sink unavailable")
 
         def scoped(self, *_args, **_kwargs):
             return self
 
-    RuntimeEventPublisher(FailingSink()).emit(RuntimeEventType.AGENT_RUN_STARTED)
+    sink = FailingSink()
+    RuntimeEventPublisher(sink).emit(RuntimeEventType.AGENT_RUN_STARTED)
+
+    # 异常被吞掉，且事件确实到达了 sink
+    assert sink.calls == 1

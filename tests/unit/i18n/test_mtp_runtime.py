@@ -11,7 +11,7 @@ from hivememory.i18n.syscall_runtime import (
     get_syscall_error_text,
     get_syscall_info_text,
 )
-from hivememory.core.mtp.exceptions import StorageOfflineError, SyscallInternalError, SystemFault
+from hivememory.core.mtp.exceptions import SyscallInternalError, SystemFault
 
 
 def test_get_mtp_warning_text_en():
@@ -127,28 +127,17 @@ def test_get_mtp_warning_text_zh():
     assert "未知 filter key 'unknown'" in text
 
 
-def test_system_fault_defaults_to_structured_message_key():
+def test_system_fault_message_renders_from_i18n():
+    """无显式 message 时，异常应通过 message_key 走真实 i18n 回退链路。"""
     error = SystemFault()
-    info = error.to_error_info()
-
-    assert info.code == "mtp.system.fault"
-    assert info.message_key == "mtp.system.unexpected_error"
+    assert error.message  # 非空，且来自 i18n 文本表
+    assert "unexpected_error" in error.message_key
 
 
-def test_storage_offline_defaults_to_structured_message_key():
-    error = StorageOfflineError()
-    info = error.to_error_info()
-
-    assert info.code == "mtp.system.storage_offline"
-    assert info.message_key == "mtp.system.storage_offline"
-
-
-def test_syscall_internal_error_uses_i18n_template():
+def test_syscall_internal_error_message_uses_fallback():
     error = SyscallInternalError(params={"alias": "sys_tool", "detail": "boom"})
-    info = error.to_error_info()
-
-    assert "Tool 'sys_tool'" in get_mtp_error_text(info.message_key, info.params, "en")
-    assert info.message_key == "mtp.system.tool_error"
+    assert "Tool 'sys_tool'" in error.message
+    assert error.message_key == "mtp.system.tool_error"
 
 
 def test_get_syscall_error_text_en():

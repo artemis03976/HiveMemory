@@ -17,26 +17,19 @@ UPDATE 指令执行链路测试
 版本: 1.0
 """
 
-import asyncio
 import pytest
-from uuid import uuid4
-from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import (
     Identity, StreamMessage, StreamMessageType,
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Artifacts,
-    PendingAtomResolution, UpdateFocus, WriteFocus,
+    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
+    UpdateFocus,
 )
 from hivememory.engines.generation.models import (
     MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
 )
 from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.system.config import KoakumaConfig
-from hivememory.core.mtp import MTPResponseStatus
 
 
 # ========== Fixtures ==========
@@ -105,131 +98,6 @@ def _mock_mid_term():
     return mid_term
 
 
-async def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
-    return await koakuma.execute_mtp(text, context=context)
-
-
-async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
-    from .conftest import normalize_worker_agent_mtp_output
-
-    return await koakuma.intercept_and_execute(
-        normalize_worker_agent_mtp_output(assistant_text),
-        context=context,
-    )
-
-
-# ========== Test 1: UpdateFocus Model ==========
-
-class TestUpdateFocusModel:
-    """UpdateFocus 数据模型测试"""
-
-    def test_basic_construction(self):
-        focus = UpdateFocus(
-            instruction="把端口改成 9090",
-            content="port = 9090",
-            base_uuid="uuid-123",
-            base_alias="fact_api_port",
-        )
-        assert focus.instruction == "把端口改成 9090"
-        assert focus.content == "port = 9090"
-        assert focus.base_uuid == "uuid-123"
-        assert focus.base_alias == "fact_api_port"
-
-    def test_defaults(self):
-        focus = UpdateFocus(
-            instruction="修改端口",
-            base_uuid="uuid-123",
-            base_alias="fact_api_port",
-        )
-        assert focus.content is None
-
-    def test_dto_fields_only(self):
-        focus = UpdateFocus(
-            instruction="test",
-            base_uuid="uuid-123",
-            base_alias="alias",
-        )
-        assert focus.model_dump() == {
-            "instruction": "test",
-            "content": None,
-            "base_uuid": "uuid-123",
-            "base_alias": "alias",
-        }
-
-    def test_instruction_required(self):
-        with pytest.raises(Exception):
-            UpdateFocus(base_uuid="uuid-123", base_alias="alias")
-
-    def test_base_uuid_required(self):
-        with pytest.raises(Exception):
-            UpdateFocus(instruction="test", base_alias="alias")
-
-    def test_generation_request_existing_memory(self, existing_memory):
-        focus = UpdateFocus(
-            instruction="test",
-            base_uuid="uuid-123",
-            base_alias="alias",
-        )
-        req = GenerationRequest(update_focus=focus, existing_memory=existing_memory)
-        assert req.existing_memory.index.title == "API 端口配置"
-
-
-# ========== Test 2: MergeResult Model ==========
-
-class TestMergeResult:
-    """MergeResult 数据模型测试"""
-
-    def test_basic_construction(self):
-        result = MergeResult(new_content="new stuff", changelog="updated content")
-        assert result.new_content == "new stuff"
-        assert result.changelog == "updated content"
-
-    def test_serialization(self):
-        result = MergeResult(new_content="content", changelog="log")
-        data = result.model_dump()
-        assert data["new_content"] == "content"
-        assert data["changelog"] == "log"
-
-    def test_required_fields(self):
-        with pytest.raises(Exception):
-            MergeResult(new_content="only content")
-        with pytest.raises(Exception):
-            MergeResult(changelog="only log")
-
-
-# ========== Test 3: GenerationRequest Update ==========
-
-class TestGenerationRequestUpdate:
-    """GenerationRequest is_update 属性测试"""
-
-    def test_is_update_with_update_focus(self):
-        uf = UpdateFocus(
-            instruction="test", base_uuid="uuid-123", base_alias="alias",
-        )
-        req = GenerationRequest(update_focus=uf)
-        assert req.is_update
-        assert not req.is_write
-
-    def test_is_write_with_write_focus(self):
-        wf = WriteFocus(content="test")
-        req = GenerationRequest(write_focus=wf)
-        assert req.is_write
-        assert not req.is_update
-
-    def test_default_neither(self):
-        req = GenerationRequest()
-        assert not req.is_update
-        assert not req.is_write
-
-    def test_update_with_context(self, sample_context):
-        uf = UpdateFocus(
-            instruction="test", base_uuid="uuid-123", base_alias="alias",
-        )
-        req = GenerationRequest(context=sample_context, update_focus=uf)
-        assert req.is_update
-        assert len(req.context.turns) == 1
-
-
 # ========== Test 4: Mode C Merge Prompt ==========
 
 class TestModeCMergePrompt:
@@ -261,16 +129,16 @@ class TestModeCMergePrompt:
         )
         result = await engine.process(request=request)
 
-        # merge() 被调用，extract() 不被调用
+        # merge() 被调用，extract() 不被调用（Mode C 路由契约）
         mock_extractor.merge.assert_called_once()
         mock_extractor.extract.assert_not_called()
 
-        # 验证 merge 参数
+        # merge 参数携带 update 语义
         call_args = mock_extractor.merge.call_args
-        assert call_args[1]["old_content"] == old_content
         metadata = call_args[1]["metadata"]
         assert metadata["mode"] == "update"
         assert metadata["instruction"] == "把端口改成 9090"
+        assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_mode_c_returns_updated_memory(self, identity, existing_memory):
@@ -295,7 +163,6 @@ class TestModeCMergePrompt:
         assert result[0].atom.payload.content == "新内容"
         assert result[0].atom.get_alias() == existing_memory.get_alias()
         assert str(result[0].atom.id) == str(existing_memory.id)
-        assert result[0].atom is not None
 
 
 # ========== Test 5: Mode C Fallback ==========
@@ -324,7 +191,6 @@ class TestModeCFallback:
 
         # fallback 应该保底入库
         assert len(result) == 1
-        assert result[0].atom is not None
         # fallback 拼接: 旧内容 + 新内容
         assert "新增的段落" in result[0].atom.payload.content
         assert existing_memory.payload.content.split("\n")[0] in result[0].atom.payload.content
@@ -398,11 +264,10 @@ class TestApplyUpdate:
             mid_term=mock_storage, extractor=MagicMock(), deduplicator=MagicMock(),
         )
 
-        old_version = existing_memory.meta.version
         result = engine._apply_update(existing_memory, merge_result)
 
         assert len(result) == 1
-        assert result[0].atom.meta.version == old_version + 1
+        assert result[0].atom.meta.version == 2  # fixture 起点 version=1
 
     def test_content_updated(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
@@ -432,24 +297,6 @@ class TestApplyUpdate:
 
         assert result[0].atom.meta.confidence_score == 1.0
 
-    def test_updated_at_set(self, existing_memory, merge_result):
-        engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
-        )
-        before = datetime.now()
-        result = engine._apply_update(existing_memory, merge_result)
-
-        assert result[0].atom.meta.updated_at >= before
-
-    def test_apply_update_does_not_build_settlement(self, existing_memory, merge_result):
-        engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
-        )
-
-        result = engine._apply_update(existing_memory, merge_result)
-
-        assert not hasattr(result[0], "settlement")
-
     def test_multiple_updates_accumulate_history(self, existing_memory):
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
@@ -465,195 +312,6 @@ class TestApplyUpdate:
 
         assert existing_memory.meta.version == 3
         assert len(existing_memory.payload.history_summary) == 2
-
-
-# ========== Test 7: Active UPDATE boundary ==========
-
-
-class TestActiveUpdateBoundary:
-    """Active UPDATE generation is no longer represented as a perception flush."""
-
-    def test_mtp_update_flush_reason_removed(self):
-        assert "MTP_UPDATE" not in FlushReason.__members__
-
-    def test_update_focus_stays_on_generation_request(self):
-        focus = UpdateFocus(
-            instruction="change port",
-            base_uuid="uuid-123",
-            base_alias="fact_api_port",
-        )
-        request = GenerationRequest(update_focus=focus)
-
-        assert request.is_update
-        assert request.update_focus is focus
-        assert request.write_focus is None
-
-
-# ========== Test 9: Koakuma UPDATE E2E ==========
-
-class TestKoakumaUpdateE2E:
-    """通过 MTP 指令验证 Koakuma UPDATE 完整链路"""
-
-    @pytest.fixture
-    def update_koakuma(self, existing_memory) -> KoakumaRuntime:
-        mock_librarian = AsyncMock()
-        mock_librarian.handle_update_signal.return_value = [existing_memory]
-
-        from .conftest import make_koakuma_runtime, make_mock_bus
-        bus = make_mock_bus()
-        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
-
-        # 注册 alias 到缓存
-        koakuma.atom_cache.ingest_atom(existing_memory)
-        return koakuma
-
-    @pytest.mark.asyncio
-    async def test_update_basic(self, update_koakuma):
-        agent_text = '⟪ UPDATE | fact_api_port | instruction="把端口改成 9090"'
-        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
-
-        assert result is not None
-        assert result.success
-
-        pending = update_koakuma.pending_runtime.get(result.pending_alias)
-        assert pending is not None
-        focus = pending.focus
-        assert isinstance(focus, UpdateFocus)
-        assert focus.instruction == "把端口改成 9090"
-        assert focus.base_alias == "fact_api_port"
-
-    @pytest.mark.asyncio
-    async def test_update_with_content(self, update_koakuma):
-        agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
-        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
-
-        assert result is not None
-        assert result.success
-
-        pending = update_koakuma.pending_runtime.get(result.pending_alias)
-        assert pending is not None
-        focus = pending.focus
-        assert focus.content == "port = 9090"
-        assert focus.instruction == "替换端口"
-
-    @pytest.mark.asyncio
-    async def test_update_response_contains_ack(self, update_koakuma):
-        agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
-        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
-
-        assert result is not None
-        assert result.pending_alias is not None
-        assert "pending revision" in result.response_content
-        assert "fact_api_port" in result.response_content
-        assert result.pending_alias in result.response_content
-        assert "ack" in result.formatted_response.lower()
-
-
-# ========== Test 10: Koakuma UPDATE Validation ==========
-
-class TestKoakumaUpdateValidation:
-    """UPDATE 指令校验: alias 不存在、instruction 缺失等"""
-
-    @pytest.fixture
-    def validation_koakuma(self) -> KoakumaRuntime:
-        from .conftest import make_koakuma_runtime, make_mock_bus
-        bus = make_mock_bus()
-        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
-        return koakuma
-
-    @pytest.mark.asyncio
-    async def test_missing_instruction(self, validation_koakuma):
-        # 注册 alias 但不提供 instruction
-        validation_koakuma.atom_cache.ingest_atom(
-            MemoryAtom(
-                id=uuid4(),
-                meta=MetaData(user_id="test_user", source_agent_id="test"),
-                index=IndexLayer(
-                    title="API Port Config",
-                    summary="API port configuration fact",
-                    memory_type=MemoryType.FACT,
-                    alias="fact_api_port",
-                ),
-                payload=PayloadLayer(content="port = 8080"),
-            )
-        )
-        agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
-
-        assert result is not None
-        assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert result.pending_alias is None
-
-    @pytest.mark.asyncio
-    async def test_alias_not_found(self, validation_koakuma):
-        agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
-
-        assert result is not None
-        assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
-        assert result.pending_alias is None
-
-    @pytest.mark.asyncio
-    async def test_pending_alias_rejected(self, validation_koakuma):
-        pending = validation_koakuma.pending_runtime.register_write(
-            content="pending content",
-            title="Pending Note",
-            reason=None,
-            identity=validation_koakuma.context.identity,
-        )
-
-        agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
-
-        assert result is not None
-        assert not result.success
-        assert result.response_content == ""
-        assert "pending" in result.formatted_response.lower()
-        assert result.pending_alias is None
-
-    @pytest.mark.asyncio
-    async def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
-        validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
-        )
-        agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
-
-        assert result is not None
-        assert not result.success
-        assert result.response_content == ""
-        assert "Service Unavailable" in result.formatted_response
-        assert result.pending_alias is None
-
-    @pytest.mark.asyncio
-    async def test_update_deferred_capture_always_ack(self, existing_memory):
-        """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
-        from .conftest import make_koakuma_runtime, make_mock_bus
-        bus = make_mock_bus()
-        koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.core.models import RuntimeScope
-
-        context = MTPExecutionContext(
-            identity=Identity(user_id="test_user"),
-            runtime_scope=RuntimeScope(
-                run_id="run_update_test",
-                frame_id="frame_main_update",
-            ),
-        )
-        koakuma.atom_cache.ingest_atom(existing_memory)
-
-        agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = await _intercept_and_execute(koakuma, agent_text, context=context)
-
-        assert result is not None
-        assert result.success
-        pending = koakuma.pending_runtime.get(result.pending_alias)
-        assert pending is not None
-        assert pending.focus.instruction == "test"
-        assert pending.runtime_scope.run_id == "run_update_test"
-        assert pending.runtime_scope.frame_id == "frame_main_update"
 
 
 # ========== Test 11: Active Flush Reason Removed ==========

@@ -104,68 +104,6 @@ class TestInMemoryShortTermStorageList:
         assert self.storage.count() == 1
 
 
-class TestInMemoryShortTermStorageSync:
-    """InMemoryShortTermStorage 同步快捷方法测试"""
-
-    def setup_method(self):
-        self.storage = InMemoryShortTermStorage()
-
-    def test_get_sync(self):
-        buf = _make_buffer("t1", "u1")
-        self.storage.put("t1", buf)
-
-        result = self.storage._get_sync("t1")
-        assert result is buf
-
-    def test_get_sync_returns_none_for_missing(self):
-        result = self.storage._get_sync("missing")
-        assert result is None
-
-    def test_put_sync(self):
-        buf = _make_buffer("t1", "u1")
-        self.storage._put_sync("t1", buf)
-
-        assert self.storage.get("t1") is buf
-
-    def test_pop_sync(self):
-        buf = _make_buffer("t1", "u1")
-        self.storage.put("t1", buf)
-
-        result = self.storage._pop_sync("t1")
-
-        assert result is buf
-        assert self.storage.get("t1") is None
-
-    def test_list_by_user_sync(self):
-        self.storage.put("t1", _make_buffer("t1", "u1"))
-        self.storage.put("t2", _make_buffer("t2", "u1"))
-        self.storage.put("t3", _make_buffer("t3", "u2"))
-
-        result = self.storage._list_by_user_sync("u1")
-
-        assert len(result) == 2
-
-    def test_list_all_sync(self):
-        self.storage.put("t1", _make_buffer("t1", "u1"))
-        self.storage.put("t2", _make_buffer("t2", "u2"))
-
-        result = self.storage._list_all_sync()
-
-        assert len(result) == 2
-
-    def test_count(self):
-        assert self.storage._count() == 0
-
-        self.storage.put("t1", _make_buffer("t1", "u1"))
-        assert self.storage._count() == 1
-
-        self.storage.put("t2", _make_buffer("t2", "u1"))
-        assert self.storage._count() == 2
-
-        self.storage.pop("t1")
-        assert self.storage._count() == 1
-
-
 class TestInMemoryShortTermStorageThreadSafety:
     """InMemoryShortTermStorage 线程安全测试"""
 
@@ -178,7 +116,7 @@ class TestInMemoryShortTermStorageThreadSafety:
             try:
                 for i in range(100):
                     buf = _make_buffer(f"{topic_id}_{i}", f"user_{topic_id}")
-                    storage._put_sync(f"{topic_id}_{i}", buf)
+                    storage.put(f"{topic_id}_{i}", buf)
             except Exception as e:
                 errors.append(e)
 
@@ -201,4 +139,4 @@ class TestInMemoryShortTermStorageThreadSafety:
             t.join()
 
         assert errors == [], f"Thread safety errors: {errors}"
-        assert storage._count() == 500
+        assert storage.count() == 500

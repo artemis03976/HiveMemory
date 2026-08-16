@@ -28,7 +28,6 @@ def test_ingest_and_retrieve_by_alias(sample_atom):
     cache.ingest_atom(sample_atom)
 
     retrieved = cache.get_atom_by_alias("fact_test_memory")
-    assert retrieved is not None
     assert retrieved.id == sample_atom.id
     assert retrieved.payload.content == "Test content"
 
@@ -78,7 +77,6 @@ def test_invalidate_alias(sample_atom):
     cache = KoakumaAtomCache()
     cache.ingest_atom(sample_atom)
 
-    assert cache.has_alias("fact_test_memory")
     cache.invalidate_alias("fact_test_memory")
 
     assert not cache.has_alias("fact_test_memory")

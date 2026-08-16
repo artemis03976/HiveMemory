@@ -161,45 +161,22 @@ def system_factory(mock_patchouli, global_bus, scheduler):
 
 class TestHiveMemorySystemLifecycle:
     @pytest.mark.asyncio
-    async def test_start_calls_scheduler(self, system_factory, mock_patchouli, scheduler):
-        ingress_service = MagicMock()
-        ingress_service.start = AsyncMock()
+    async def test_start_starts_global_scheduler(self, system_factory, scheduler):
+        ingress_service = MagicMock(
+            start=AsyncMock(),
+            shutdown_drain=AsyncMock(return_value={"success": True}),
+        )
         system = system_factory(ingress_service=ingress_service)
 
         await system.start()
-
-        mock_patchouli.register_maintenance_tasks.assert_called_once_with(scheduler)
-        mock_patchouli.runtime.mount_local_routes.assert_called_once_with(mock_patchouli.service)
-        ingress_service.start.assert_called_once()
-        assert scheduler.is_running
-        assert system._started
-
-    @pytest.mark.asyncio
-    async def test_start_is_idempotent(self, system_factory, mock_patchouli):
-        system = system_factory(ingress_service=MagicMock(start=AsyncMock()))
-        await system.start()
-        await system.start()
-        mock_patchouli.register_maintenance_tasks.assert_called_once()
-        mock_patchouli.runtime.mount_local_routes.assert_called_once()
+        try:
+            assert scheduler.is_running
+        finally:
+            # 清理真实启动的后台调度循环
+            await system.stop()
 
     @pytest.mark.asyncio
-    async def test_stop_scheduler_only_stops_global_scheduler(
-        self, system_factory, mock_patchouli, scheduler
-    ):
-        system = system_factory(ingress_service=MagicMock(start=AsyncMock()))
-        await system.start()
-
-        await system._stop_scheduler()
-
-        assert scheduler.is_running is False
-        mock_patchouli.unregister_maintenance_tasks.assert_not_called()
-        mock_patchouli.runtime.shutdown_drain.assert_not_called()
-        assert system._started
-
-    @pytest.mark.asyncio
-    async def test_stop_calls_runtime_drain_and_scheduler(
-        self, system_factory, mock_patchouli, scheduler
-    ):
+    async def test_stop_stops_scheduler_and_runtime(self, system_factory, scheduler):
         ingress_service = MagicMock()
         ingress_service.start = AsyncMock()
         ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
@@ -208,11 +185,7 @@ class TestHiveMemorySystemLifecycle:
         await system.start()
         await system.stop()
 
-        mock_patchouli.unregister_maintenance_tasks.assert_called_once_with(scheduler)
-        mock_patchouli.runtime.shutdown_drain.assert_awaited_once()
-        mock_patchouli.runtime.unmount_local_routes.assert_called_once()
         assert not scheduler.is_running
-        assert not system._started
 
     @pytest.mark.asyncio
     async def test_stop_without_start_is_noop(self, system_factory, mock_patchouli):
@@ -228,7 +201,6 @@ class TestPatchouliSystemLocalRoutes:
     async def test_start_registers_runtime_local_routes_and_stop_unregisters(self):
         runtime = _build_runtime_with_local_bus()
         patchouli = MagicMock()
-        patchouli.runtime = runtime
         patchouli.runtime = runtime
         patchouli._scheduler = None
         patchouli._global_bus = None

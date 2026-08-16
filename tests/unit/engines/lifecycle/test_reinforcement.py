@@ -73,12 +73,9 @@ class TestDynamicReinforcementEngine:
 
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
-        # 新契约: 最终分数由 calculator 重算得到，不再 +adjustment
-        assert result.new_vitality == 50.0
         # 事件加成累加进 B 项 (event_vitality_boost)
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
         assert updated_memory.meta.event_vitality_boost == self.config.hit_boost
-        assert self.mock_mid_term.upsert.called
 
     @pytest.mark.asyncio
     async def test_citation_resets_decay(self):
@@ -229,7 +226,7 @@ class TestDynamicReinforcementEngine:
 
         # 获取更新的记忆
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
-        assert updated_memory.meta.last_accessed_at is not None
+        assert isinstance(updated_memory.meta.last_accessed_at, datetime)
 
     @pytest.mark.asyncio
     async def test_event_history_tracked(self):

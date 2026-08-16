@@ -69,7 +69,6 @@ async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_ref
         MTPCallRequest(target_alias="helper", task="summarize"),
     )
 
-    assert context.agent_profile is OMNI_DOLL_PROFILE
     assert context.shared_context == ""
     profile_resolver.resolve.assert_awaited_once_with("helper", identity=caller.identity)
     alias_resolver.resolve.assert_not_awaited()
@@ -176,7 +175,7 @@ async def test_provide_propagates_profile_resolution_failure_before_resolving_re
     provider, profile_resolver, alias_resolver = _provider()
     profile_resolver.resolve.side_effect = error
 
-    with pytest.raises(RuntimeError, match="profile unavailable") as exc_info:
+    with pytest.raises(RuntimeError, match="profile unavailable"):
         await provider.provide(
             _frame(),
             MTPCallRequest(
@@ -186,5 +185,4 @@ async def test_provide_propagates_profile_resolution_failure_before_resolving_re
             ),
         )
 
-    assert exc_info.value is error
     alias_resolver.resolve.assert_not_awaited()

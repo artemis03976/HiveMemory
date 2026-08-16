@@ -153,46 +153,6 @@ class TestMemoryGenerationCoordinator:
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_submit_active_returns_tasks_accepted_by_batch_entry(self):
-        topic_data = Mock()
-        topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
-        topic_data.topic_title = "title"
-        topic_data.topic_summary = "summary"
-        bus = Mock()
-
-        async def request(route, *args):
-            if route == PatchouliLocalRoutes.TOPIC_GET:
-                return topic_data
-            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
-                specs = args[0]
-                return [
-                    _task_handle(
-                        task_id=spec.pending_alias,
-                        source=MemoryGenerationSource.WRITE,
-                    )
-                    for spec in specs
-                    if spec.pending_alias != "draft_unknown"
-                ]
-            raise AssertionError(route)
-
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
-
-        result = await coordinator.submit_active(
-            [
-                _write_task("draft_first"),
-                _write_task("draft_unknown"),
-                _write_task("draft_last"),
-            ],
-            "t1",
-        )
-
-        assert [task.task_id for task in result] == ["draft_first", "draft_last"]
-        bus.publish.assert_not_awaited()
-
-    @pytest.mark.asyncio
     async def test_submit_settlement_builds_archive_spec(self):
         bus = Mock()
         bus.request = AsyncMock(return_value=_task_handle())

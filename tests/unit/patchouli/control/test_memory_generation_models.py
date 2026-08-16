@@ -89,28 +89,6 @@ def _outcome(
     )
 
 
-def test_memory_generation_spec_exposes_domain_inputs():
-    spec = _spec()
-
-    assert spec.topic_id == "t1"
-    assert spec.label == "task"
-    assert spec.source == MemoryGenerationSource.WRITE
-
-
-def test_memory_generation_task_projects_admission_snapshot_from_spec():
-    spec = _spec()
-    created_at = datetime.now(UTC)
-
-    snapshot = MemoryGenerationTask.from_spec("j1", spec, created_at=created_at)
-
-    assert snapshot.task_id == "j1"
-    assert snapshot.topic_id == spec.topic_id
-    assert snapshot.label == spec.label
-    assert snapshot.source == spec.source
-    assert snapshot.created_at == created_at
-    assert snapshot.status == MemoryGenerationTaskStatus.PENDING
-
-
 @pytest.mark.parametrize(
     ("work_state", "task_status"),
     [

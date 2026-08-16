@@ -1,0 +1,4 @@
+interface:
+  display_name: "HiveMemory Test Design"
+  short_description: "Enforce HiveMemory test design boundaries"
+  default_prompt: "Use $enforce-test-design to implement tests that comply with HiveMemory test design standards."

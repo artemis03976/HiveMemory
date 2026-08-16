@@ -15,7 +15,7 @@ Flush Triggers E2E Tests - 三种 Flush 触发器全链路端到端测试
     pytest tests/e2e/system/test_flush_triggers_e2e.py -m "e2e and live_llm" -v -s
 
 作者: HiveMemory Team
-版本: 1.0
+版本: 2.0 (对齐 v4 架构: 感知入口 = HiveMemorySystem._patchouli.runtime.perception_familiar)
 """
 
 import time
@@ -26,11 +26,10 @@ from typing import Any, Generator
 
 import pytest
 
-from hivememory.core.models import Identity
-from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system import HiveMemorySystem
 from hivememory.system.services.passive import PassiveIngressEvent
 
-from tests.e2e.conftest import wait_for_memory_persistence
+from tests.e2e.conftest import wait_for_memory_persistence, wait_until
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
@@ -45,14 +44,29 @@ SUBMIT_SETTLE_SECONDS = 3.0  # submit_interaction 是 daemon thread，需等待�
 
 # ========== 辅助工具 ==========
 
-def _get_perception_layer(system: PatchouliSystem):
-    """获取感知层引擎实例（直接访问内部引擎）"""
-    return system.runtime._engines["perception"]
+def _get_perception_familiar(system: HiveMemorySystem):
+    """
+    获取感知使魔（v4 门面）。
+
+    HiveMemorySystem 未公开 patchouli 子系统属性，此处按子系统内部访问：
+    HiveMemorySystem._patchouli → PatchouliSystem.runtime → perception_familiar。
+    """
+    return system._patchouli.runtime.perception_familiar
+
+
+def _get_perception_layer(system: HiveMemorySystem):
+    """获取感知层引擎实例（Familiar 内封装的 SemanticFlowPerceptionLayer）"""
+    return _get_perception_familiar(system).perception_layer
+
+
+def _active_topic_ids(layer) -> list[str]:
+    """活跃话题 ID 列表（读取短期存储读模型）。"""
+    return [t.topic_id for t in layer._short_term_store.list_topic_data()]
 
 
 @contextmanager
 def _override_perception_config(
-    system: PatchouliSystem, **overrides
+    system: HiveMemorySystem, **overrides
 ) -> Generator[Any, None, None]:
     """
     临时修改感知层配置，测试结束后恢复原值
@@ -76,24 +90,75 @@ def _override_perception_config(
             setattr(config, key, value)
 
 
-def _cleanup_all_buffers(system: PatchouliSystem) -> None:
+def _cleanup_all_buffers(system: HiveMemorySystem) -> None:
     """
     统一清理函数 - 销毁感知层所有活跃话题 Buffer
 
     用于在单次测试结束时清理环境，为下一次测试腾出纯净状态。
-    合并了原 _clear_active_buffers 和 _cleanup_session_buffer 的功能。
-
-    Args:
-        system: PatchouliSystem 实例
     """
     layer = _get_perception_layer(system)
-    active_topics = list(layer.list_active_buffers())
+    active_topics = _active_topic_ids(layer)
     for topic_id in active_topics:
         try:
             layer.swap_out_topic(topic_id)
         except Exception as e:
             logger.debug(f"清理话题 {topic_id} 时出错: {e}")
     logger.debug(f"已清空所有活跃 buffer, 清理前数量={len(active_topics)}")
+
+
+def _topic_is_idle(layer, topic_id: str, timeout_seconds: int) -> bool:
+    """轮询用：话题已进入 idle 状态。"""
+    data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    return data is not None and data.is_idle(timeout_seconds)
+
+
+def _get_topic_id(
+    system: HiveMemorySystem,
+    user_id: str,
+) -> str:
+    """
+    通过 user_id 获取最近访问的话题 ID。
+
+    注：v4 架构下话题不记录 current_agent_id（恒为 default），
+    同一用户多话题时用「最近访问」识别本轮摄入的目标话题。
+    """
+    layer = _get_perception_layer(system)
+    topics = layer._short_term_store.list_topic_data(user_id=user_id)
+    if not topics:
+        raise AssertionError(f"未找到任何活跃话题: user_id={user_id}")
+    return max(topics, key=lambda topic: topic.last_accessed_at).topic_id
+
+
+def _assert_no_memory_persisted(
+    qdrant_store,
+    user_id: str,
+    window_seconds: float,
+    check_interval: float = 1.0,
+) -> None:
+    """
+    负向确认：在 window 时间内反复检查 Qdrant，确认始终无该用户记忆落库。
+
+    用于替换"睡够固定时长后断言 0 条"的固定 sleep——若异步 Generation 出现，
+    在窗口内任一次检查即失败。
+    """
+    deadline = time.time() + window_seconds
+    while time.time() < deadline:
+        try:
+            memories = _run(
+                qdrant_store.get_all_memories(
+                    filters={"meta.user_id": user_id}, limit=100,
+                )
+            )
+        except Exception:
+            memories = []
+        if memories:
+            contents = " | ".join(
+                m.payload.content for m in memories[:3] if m.payload.content
+            )
+            raise AssertionError(
+                f"期望窗口内无记忆落库, 但发现 {len(memories)} 条: {contents[:200]}"
+            )
+        time.sleep(check_interval)
 
 
 def _run(coro):
@@ -109,39 +174,8 @@ def _run(coro):
         return future.result(timeout=60)
 
 
-def _get_topic_id(
-    system: PatchouliSystem,
-    user_id: str,
-    agent_id: str = "default",
-) -> str:
-    """
-    通过 user_id + agent_id 获取最近访问的话题 ID
-
-    Args:
-        system: PatchouliSystem 实例
-        user_id: 用户 ID
-        agent_id: Agent ID（用于身份隔离）
-
-    Returns:
-        最近访问的话题 ID
-
-    Raises:
-        AssertionError: 未找到任何活跃话题
-    """
-    layer = _get_perception_layer(system)
-    topics = [
-        topic for topic in layer.short_term_store.list_topic_data(user_id=user_id)
-        if topic.current_agent_id == agent_id
-    ]
-    if not topics:
-        raise AssertionError(
-            f"未找到任何活跃话题: user_id={user_id}, agent_id={agent_id}"
-        )
-    return max(topics, key=lambda topic: topic.last_accessed_at).topic_id
-
-
 def _passive_ingest_round(
-    system: PatchouliSystem,
+    system: HiveMemorySystem,
     user_id: str,
     agent_id: str,
     user_msg: str,
@@ -150,12 +184,7 @@ def _passive_ingest_round(
     """
     通过 Passive 模式摄入一轮 user+assistant 并 flush 到感知层
 
-    Args:
-        system: PatchouliSystem 实例
-        user_id: 用户 ID
-        agent_id: Agent ID（用于身份隔离）
-        user_msg: 用户消息内容
-        assistant_msg: 助手消息内容
+    agent_id 用于隔离同一用户下的不同外部会话（不同会话 → 不同短期话题）。
     """
     source = "e2e_flush_triggers"
     conversation_id = "default"
@@ -220,8 +249,8 @@ class TestPageFolding:
                 )
 
             # 检查 buffer 状态
-            topic_id = _get_topic_id(e2e_system, user_id, agent_id)
-            topic_data = layer.short_term_store.get_topic_data(topic_id, touch=False)
+            topic_id = _get_topic_id(e2e_system, user_id)
+            topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
             assert topic_data is not None
 
             # 折叠后应精确保留最近 1 个 block，而不是清空全部 blocks
@@ -238,7 +267,7 @@ class TestPageFolding:
             )
 
             # 话题仍在活跃池
-            active = layer.list_active_buffers()
+            active = _active_topic_ids(layer)
             assert topic_id in active, (
                 f"折叠后话题应仍在活跃池, 活跃列表: {active}"
             )
@@ -251,7 +280,7 @@ class TestPageFolding:
 
         _cleanup_all_buffers(e2e_system)
 
-    def test_fold_does_not_persist_to_qdrant(self, e2e_system, clean_user):
+    def test_fold_does_not_persist_to_qdrant(self, e2e_system, clean_user, qdrant_store):
         """
         验证 Page Folding 不触发 Generation — 折叠过程中不应产生 Qdrant 记忆。
         只有后续的 flush (MANUAL/IDLE/LRU) 才会触发 Generation。
@@ -278,26 +307,13 @@ class TestPageFolding:
                 )
 
             # 确认折叠已发生
-            topic_id = _get_topic_id(e2e_system, user_id, agent_id)
-            topic_data = layer.short_term_store.get_topic_data(topic_id, touch=False)
+            topic_id = _get_topic_id(e2e_system, user_id)
+            topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
             assert topic_data is not None
             assert topic_data.state_summary != "", "应已触发折叠"
 
-        # 等待足够时间确认无异步 Generation
-        time.sleep(FLUSH_SETTLE_SECONDS)
-
-        # 验证 Qdrant 中无记忆
-        try:
-            memories = e2e_system.storage.get_all_memories(
-                filters={"meta.user_id": user_id}, limit=100,
-            )
-        except Exception:
-            memories = []
-
-        assert len(memories) == 0, (
-            f"Page Folding 不应触发 Generation, "
-            f"但 Qdrant 中发现 {len(memories)} 条记忆"
-        )
+        # 在窗口内确认无异步 Generation：折叠不应触发记忆落库
+        _assert_no_memory_persisted(qdrant_store, user_id, FLUSH_SETTLE_SECONDS)
         logger.info("FLUSH-E2E-001: 折叠未触发 Generation, 0 条记忆")
 
         _cleanup_all_buffers(e2e_system)
@@ -330,24 +346,30 @@ class TestIdleHibernate:
         )
 
         layer = _get_perception_layer(e2e_system)
+        familiar = _get_perception_familiar(e2e_system)
 
         # 确认话题在活跃池中
-        topic_id = _get_topic_id(e2e_system, user_id, agent_id)
-        active_before = layer.list_active_buffers()
+        topic_id = _get_topic_id(e2e_system, user_id)
+        active_before = _active_topic_ids(layer)
         assert topic_id in active_before, (
             f"摄入后话题应在活跃池, 活跃列表: {active_before}"
         )
 
         # 临时降低 idle timeout 并等待超时
-        original_timeout = layer._idle_timeout_seconds
+        original_timeout = familiar._idle_timeout_seconds
         try:
-            layer._idle_timeout_seconds = 2
+            familiar._idle_timeout_seconds = 2
 
-            # 等待超时
-            time.sleep(3)
+            # 等待 idle 超时（轮询直到话题进入 idle 状态）
+            wait_until(
+                lambda: _topic_is_idle(layer, topic_id, timeout_seconds=2),
+                timeout=10.0,
+                poll_interval=0.5,
+                description=f"topic {topic_id} 进入 idle",
+            )
 
             # 手动触发扫描
-            flushed_keys = _run(layer.scan_idle_buffers_once())
+            flushed_keys = _run(familiar.scan_idle_buffers_once())
 
             # 验证话题被 flush
             assert topic_id in flushed_keys, (
@@ -355,15 +377,14 @@ class TestIdleHibernate:
             )
 
             # 验证话题已从活跃池移除 (swap-out)
-            active_after = layer.list_active_buffers()
+            active_after = _active_topic_ids(layer)
             assert topic_id not in active_after, (
                 f"idle flush 后话题应被 swap-out, 活跃列表: {active_after}"
             )
         finally:
-            layer._idle_timeout_seconds = original_timeout
+            familiar._idle_timeout_seconds = original_timeout
 
-        # 等待 Generation 完成 + Qdrant 持久化
-        time.sleep(FLUSH_SETTLE_SECONDS)
+        # 等待 Generation 完成 + Qdrant 持久化（轮询，无需固定 sleep）
         memories = wait_for_memory_persistence(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT,
         )
@@ -389,17 +410,18 @@ class TestIdleHibernate:
         """
         user_id = clean_user()
         layer = _get_perception_layer(e2e_system)
+        familiar = _get_perception_familiar(e2e_system)
 
         # 清空残留 buffer，避免池容量干扰
         _cleanup_all_buffers(e2e_system)
 
-        original_timeout = layer._idle_timeout_seconds
+        original_timeout = familiar._idle_timeout_seconds
         original_max = layer._short_term_store.max_resident_topics
         try:
-            layer._idle_timeout_seconds = 1
+            familiar._idle_timeout_seconds = 1
             layer._short_term_store.max_resident_topics = 2
 
-            # 填满 2 个话题（使用不同 agent_id 隔离）
+            # 填满 2 个话题（使用不同 agent_id 隔离会话）
             agent_ids = ["idle-slot-a0", "idle-slot-a1"]
             for i, aid in enumerate(agent_ids):
                 _passive_ingest_round(
@@ -408,15 +430,23 @@ class TestIdleHibernate:
                     assistant_msg=f"话题 {i} 的回复",
                 )
 
-            active_full = layer.list_active_buffers()
+            active_full = _active_topic_ids(layer)
             logger.info(f"FLUSH-E2E-002: 填满后活跃数={len(active_full)}")
 
-            # 等待超时并扫描
-            time.sleep(2)
-            flushed = _run(layer.scan_idle_buffers_once())
+            # 等待 idle 超时（轮询直到话题进入 idle 状态）
+            wait_until(
+                lambda: any(
+                    _topic_is_idle(layer, tid, timeout_seconds=1)
+                    for tid in _active_topic_ids(layer)
+                ),
+                timeout=10.0,
+                poll_interval=0.5,
+                description="话题进入 idle",
+            )
+            flushed = _run(familiar.scan_idle_buffers_once())
             assert len(flushed) >= 2, f"应 flush 2 个话题, 实际 {len(flushed)}"
 
-            active_after_flush = layer.list_active_buffers()
+            active_after_flush = _active_topic_ids(layer)
             logger.info(
                 f"FLUSH-E2E-002: flush 后活跃数={len(active_after_flush)}"
             )
@@ -429,15 +459,15 @@ class TestIdleHibernate:
                 assistant_msg="好的，记住了 CI/CD 方案",
             )
 
-            topic_new = _get_topic_id(e2e_system, user_id, aid_new)
-            active_final = layer.list_active_buffers()
+            topic_new = _get_topic_id(e2e_system, user_id)
+            active_final = _active_topic_ids(layer)
             assert topic_new in active_final, (
                 f"新话题应在活跃池, 活跃列表: {active_final}"
             )
             logger.info("FLUSH-E2E-002: idle swap-out 释放坑位验证通过")
 
         finally:
-            layer._idle_timeout_seconds = original_timeout
+            familiar._idle_timeout_seconds = original_timeout
             layer._short_term_store.max_resident_topics = original_max
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
@@ -468,14 +498,14 @@ class TestLRUEviction:
         try:
             layer._short_term_store.max_resident_topics = 2
 
-            # 话题 A (最早) - 使用 agent_id 隔离
+            # 话题 A (最早) - 使用 agent_id 隔离会话
             aid_a = "lru-topic-a"
             _passive_ingest_round(
                 e2e_system, user_id, aid_a,
                 user_msg="项目 Alpha 使用 Rust 和 Tokio 异步运行时",
                 assistant_msg="好的，Alpha: Rust + Tokio",
             )
-            topic_a = _get_topic_id(e2e_system, user_id, aid_a)
+            topic_a = _get_topic_id(e2e_system, user_id)
 
             # 话题 B
             aid_b = "lru-topic-b"
@@ -484,9 +514,9 @@ class TestLRUEviction:
                 user_msg="项目 Beta 使用 Go 1.21 和 gRPC 框架",
                 assistant_msg="好的，Beta: Go 1.21 + gRPC",
             )
-            topic_b = _get_topic_id(e2e_system, user_id, aid_b)
+            topic_b = _get_topic_id(e2e_system, user_id)
 
-            active_full = layer.list_active_buffers()
+            active_full = _active_topic_ids(layer)
             assert len(active_full) == 2, (
                 f"应有 2 个活跃话题, 实际 {len(active_full)}"
             )
@@ -499,19 +529,22 @@ class TestLRUEviction:
                 user_msg="项目 Gamma 使用 Python FastAPI 框架",
                 assistant_msg="好的，Gamma: Python + FastAPI",
             )
-            topic_c = _get_topic_id(e2e_system, user_id, aid_c)
+            topic_c = _get_topic_id(e2e_system, user_id)
 
             # 验证活跃池状态
-            active_after = layer.list_active_buffers()
+            active_after = _active_topic_ids(layer)
 
             # 话题 A 应被驱逐
             assert topic_a not in active_after, (
                 f"话题 A 应被 LRU 驱逐, 活跃列表: {active_after}"
             )
 
-            # 话题 B 和 C 应在活跃池
-            assert topic_b in active_after or topic_c in active_after, (
-                f"话题 B 或 C 应在活跃池, 活跃列表: {active_after}"
+            # 话题 B 和 C 应在活跃池（A 被驱逐后两者应同时保留）
+            assert topic_b in active_after, (
+                f"话题 B 应仍在活跃池, 活跃列表: {active_after}"
+            )
+            assert topic_c in active_after, (
+                f"话题 C 应在活跃池, 活跃列表: {active_after}"
             )
 
             logger.info(
@@ -523,8 +556,7 @@ class TestLRUEviction:
             # 清理所有 buffer
             _cleanup_all_buffers(e2e_system)
 
-        # 等待驱逐触发的 Generation 完成
-        time.sleep(FLUSH_SETTLE_SECONDS)
+        # 等待驱逐触发的 Generation 完成（轮询，无需固定 sleep）
         memories = wait_for_memory_persistence(
             e2e_system, user_id, min_count=1, timeout=MEMORY_WAIT_TIMEOUT,
         )
@@ -559,16 +591,16 @@ class TestLRUEviction:
         try:
             layer._short_term_store.max_resident_topics = 1
 
-            # 话题 X (使用 agent_id 隔离)
+            # 话题 X (使用 agent_id 隔离会话)
             aid_x = "lru-replace-x"
             _passive_ingest_round(
                 e2e_system, user_id, aid_x,
                 user_msg="话题 X: 使用 Docker Compose 编排服务",
                 assistant_msg="好的，Docker Compose 编排",
             )
-            topic_x = _get_topic_id(e2e_system, user_id, aid_x)
+            topic_x = _get_topic_id(e2e_system, user_id)
 
-            active_x = layer.list_active_buffers()
+            active_x = _active_topic_ids(layer)
             assert topic_x in active_x
 
             # 话题 Y → 驱逐 X
@@ -578,14 +610,14 @@ class TestLRUEviction:
                 user_msg="话题 Y: Kubernetes 集群使用 3 个 master 节点",
                 assistant_msg="好的，K8s 3 master 节点",
             )
-            topic_y = _get_topic_id(e2e_system, user_id, aid_y)
+            topic_y = _get_topic_id(e2e_system, user_id)
 
-            active_y = layer.list_active_buffers()
+            active_y = _active_topic_ids(layer)
             assert topic_x not in active_y, "X 应被驱逐"
             assert topic_y in active_y, "Y 应在活跃池"
 
             # Y 的 buffer 应有数据
-            topic_y_data = layer.short_term_store.get_topic_data(topic_y, touch=False)
+            topic_y_data = layer._short_term_store.get_topic_data(topic_y, touch=False)
             assert topic_y_data is not None
             assert len(topic_y_data.blocks) >= 1, (
                 f"Y 的话题数据应有 block, 实际 {len(topic_y_data.blocks)}"

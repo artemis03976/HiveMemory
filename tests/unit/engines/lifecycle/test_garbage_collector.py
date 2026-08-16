@@ -108,7 +108,6 @@ class TestPeriodicGarbageCollector:
         archived = await self.gc.collect(memories, batch_size=10)
 
         assert archived == 10
-        assert self.mock_library.archive.await_count == 10
 
     @pytest.mark.asyncio
     async def test_collect_no_candidates(self):
@@ -125,8 +124,11 @@ class TestPeriodicGarbageCollector:
         assert "total_skipped" in stats
         assert "runs_count" in stats
 
-    def test_reset_stats(self):
-        self.gc._update_stats(scanned=1, archived=1)
+    @pytest.mark.asyncio
+    async def test_reset_stats(self):
+        self.mock_library.long_term.is_archived.return_value = False
+        await self.gc.collect([self.low_vitality_memory])
+        assert self.gc.get_stats()["total_scanned"] == 1
 
         self.gc.reset_stats()
 
@@ -142,7 +144,7 @@ class TestPeriodicGarbageCollector:
         await self.gc.collect([self.low_vitality_memory, self.high_vitality_memory])
 
         stats = self.gc.get_stats()
-        assert stats["last_run"] is not None
+        assert isinstance(stats["last_run"], str)
         assert stats["total_scanned"] == 2
         assert stats["total_archived"] == 1
         assert stats["runs_count"] == 1

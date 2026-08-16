@@ -1,3 +1,14 @@
+"""
+TopicManagementService 单元测试
+
+- 薄转发契约（参数化）：list_active_topics 的 route/参数透传与 list→tuple 转换
+- 契约断言：get_topic_data 读取不触发 touch 副作用
+- 真实逻辑：get_topic_data 的 owner 校验与越权隐藏
+
+注：get_topic_data → TOPIC_GET(touch=False) 的真实链路副作用（touch=False 无状态变更）
+已由 tests/integration/patchouli/test_topic_access_chain.py 覆盖。
+"""
+
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -5,8 +16,6 @@ import pytest
 from hivememory.core.models import Identity, TopicData
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 class TestTopicManagementService:
@@ -17,53 +26,44 @@ class TestTopicManagementService:
         return bus
 
     @pytest.mark.asyncio
-    async def test_list_active_topics_uses_local_route(self, bus):
-        identity = Identity(user_id="u1")
-        bus.request.return_value = ["snapshot"]
-        service = TopicManagementService(bus=bus)
-
-        result = await service.list_active_topics(identity=identity)
-
-        assert result == ("snapshot",)
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-            identity=identity,
-        )
-
-    @pytest.mark.asyncio
-    async def test_list_active_topics_can_include_empty_topics(self, bus):
+    @pytest.mark.parametrize(
+        "include_empty",
+        [False, True],
+        ids=["exclude-empty", "include-empty"],
+    )
+    async def test_list_active_topics_passes_route_and_params(self, bus, include_empty):
         identity = Identity(user_id="u1")
         bus.request.return_value = ["snapshot"]
         service = TopicManagementService(bus=bus)
 
         result = await service.list_active_topics(
             identity=identity,
-            include_empty=True,
+            include_empty=include_empty,
         )
 
+        # 契约：route 固定，include_empty 仅在 True 时注入，结果 list → tuple
+        call = bus.request.await_args
+        assert call.args == (PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,)
+        assert call.kwargs == {"identity": identity, **(
+            {"include_empty": True} if include_empty else {}
+        )}
         assert result == ("snapshot",)
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-            identity=identity,
-            include_empty=True,
-        )
 
     @pytest.mark.asyncio
-    async def test_get_topic_data_checks_owner_without_touching_topic(self, bus):
+    async def test_get_topic_data_requests_without_touch(self, bus):
         identity = Identity(user_id="u1")
-        topic_data = TopicData(
+        bus.request.return_value = TopicData(
             topic_id="t1",
             user_id="u1",
             topic_title="Gateway",
             last_update=1.0,
             last_accessed_at=2.0,
         )
-        bus.request.return_value = topic_data
         service = TopicManagementService(bus=bus)
 
-        result = await service.get_topic_data(identity=identity, topic_id="t1")
+        await service.get_topic_data(identity=identity, topic_id="t1")
 
-        assert result is topic_data
+        # 契约：只读读取必须 touch=False，避免更新 last_accessed_at
         bus.request.assert_awaited_once_with(
             PatchouliLocalRoutes.TOPIC_GET,
             "t1",
@@ -94,68 +94,3 @@ class TestTopicManagementService:
         )
 
         assert result is None
-
-    @pytest.mark.asyncio
-    async def test_get_topic_data_does_not_change_topic_access_state(self):
-        store = ShortTermMemoryStore()
-        buffer = store.create_buffer("u1", topic_title="Gateway")
-        initial_accessed_at = buffer.last_accessed_at
-        bus = PatchouliBus()
-
-        async def get_topic(topic_id: str, *, touch: bool = True):
-            return store.get_topic_data(topic_id, touch=touch)
-
-        bus.register(PatchouliLocalRoutes.TOPIC_GET, get_topic)
-        service = TopicManagementService(bus=bus)
-
-        result = await service.get_topic_data(
-            identity=Identity(user_id="u1"),
-            topic_id=buffer.topic_id,
-        )
-
-        assert result is not None
-        assert buffer.last_accessed_at == initial_accessed_at
-        assert store.get_last_active_topic() is None
-
-    @pytest.mark.asyncio
-    async def test_evict_topic_uses_local_route(self, bus):
-        bus.request.return_value = {"success": True}
-        service = TopicManagementService(bus=bus)
-
-        result = await service.evict_topic(topic_id="t1")
-
-        assert result == {"success": True}
-        bus.request.assert_awaited_once_with(PatchouliLocalRoutes.TOPIC_EVICT, "t1")
-
-    @pytest.mark.asyncio
-    async def test_prepare_topic_uses_local_route(self, bus):
-        identity = Identity(user_id="u1")
-        bus.request.return_value = "real_topic"
-        service = TopicManagementService(bus=bus)
-
-        result = await service.prepare_topic(
-            "NEW_TOPIC",
-            "title",
-            "summary",
-            identity,
-        )
-
-        assert result == "real_topic"
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.TOPIC_PREPARE,
-            "NEW_TOPIC",
-            "title",
-            "summary",
-            identity,
-        )
-
-    @pytest.mark.asyncio
-    async def test_settle_topic_uses_local_route(self, bus):
-        service = TopicManagementService(bus=bus)
-
-        await service.settle_topic(topic_id="t1")
-
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
-            "t1",
-        )

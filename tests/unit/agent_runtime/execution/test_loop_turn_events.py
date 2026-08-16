@@ -229,18 +229,6 @@ async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
 
 
 @pytest.mark.asyncio
-async def test_natural_stop_no_prefix_no_extra_events():
-    """没有 MTP 的情况下，turn_events 只有一个事件"""
-    frame = _make_frame()
-    executor, _kernel = _build_executor([_natural_result("Simple reply")])
-
-    await executor.execute_frame(frame, max_iterations=5)
-
-    assert len(frame.progress.turn_events) == 1
-    assert frame.progress.turn_events[0].kind == "assistant_message"
-
-
-@pytest.mark.asyncio
 async def test_single_mtp_produces_four_events():
     """单次 MTP: prefix(assistant_message) + tool_call + tool_result + final(assistant_message)"""
     frame = _make_frame()
@@ -298,7 +286,6 @@ async def test_mtp_execution_receives_frame_context():
     assert context.agent_profile is frame.agent_profile
     assert context.runtime_scope.run_id == frame.runtime_scope.run_id
     assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id
-    assert context.runtime_scope.action_id is not None
     assert context.runtime_scope.action_id == "action_1_0"
 
 
@@ -383,12 +370,12 @@ async def test_empty_prefix_text_not_recorded():
 
     await executor.execute_frame(frame, max_iterations=5)
 
+    # prefix 为空：不产生前缀 assistant_message，只保留 tool_call/tool_result/最终回复
     kinds = [ev.kind for ev in frame.progress.turn_events]
-    assert "assistant_message" not in kinds or all(
-        ev.content != "" for ev in frame.progress.turn_events if ev.kind == "assistant_message"
-    )
-    assert "tool_call" in kinds
-    assert "tool_result" in kinds
+    assert kinds == ["tool_call", "tool_result", "assistant_message"]
+    assistant = [ev for ev in frame.progress.turn_events if ev.kind == "assistant_message"]
+    assert len(assistant) == 1
+    assert assistant[0].content == "done"
 
 
 @pytest.mark.asyncio

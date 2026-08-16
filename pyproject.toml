@@ -109,3 +109,9 @@ markers = [
     "live_llm: 需要真实 LLM API (设置 LLM 相关环境变量或 config.yaml)",
     "slow: 耗时 > 30s 的测试 (idle timeout 等)",
 ]
+
+[tool.coverage.run]
+source = ["hivememory"]
+
+[tool.coverage.report]
+show_missing = true

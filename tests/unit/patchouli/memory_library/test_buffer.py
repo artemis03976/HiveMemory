@@ -43,18 +43,6 @@ class TestSemanticBufferCreation:
         buf = SemanticBuffer()
         assert buf.total_tokens == 0
 
-    def test_custom_fields(self):
-        buf = SemanticBuffer(
-            topic_id="custom_topic",
-            user_id="user_123",
-            topic_title="Custom Title",
-            current_agent_id="agent_a",
-        )
-        assert buf.topic_id == "custom_topic"
-        assert buf.user_id == "user_123"
-        assert buf.topic_title == "Custom Title"
-        assert buf.current_agent_id == "agent_a"
-
 
 class TestSemanticBufferClear:
     """SemanticBuffer.clear() 方法测试"""
@@ -82,10 +70,14 @@ class TestSemanticBufferClear:
     def test_clear_updates_last_update_timestamp(self):
         buf = SemanticBuffer()
         old_timestamp = buf.last_update
+        fixed_now = datetime(2027, 1, 1, 12, 0, 0)
 
-        buf.clear()
+        with patch("hivememory.patchouli.memory_library.buffer.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            buf.clear()
 
-        assert buf.last_update >= old_timestamp
+        assert buf.last_update == fixed_now.timestamp()
+        assert buf.last_update > old_timestamp
 
 
 class TestSemanticBufferBlockCount:
@@ -187,24 +179,3 @@ class TestSemanticBufferStateEnum:
         assert BufferState.IDLE.value == "idle"
         assert BufferState.PROCESSING.value == "processing"
         assert BufferState.FLUSHING.value == "flushing"
-
-
-class TestSemanticBufferPydanticModel:
-    """Pydantic 模型配置测试"""
-
-    def test_arbitrary_types_allowed(self):
-        """验证 arbitrary_types_allowed 配置允许 LogicalBlock"""
-        buf = SemanticBuffer()
-        block = LogicalBlock(turn=TurnRecord(user_query="test"))
-        buf.blocks.append(block)
-
-        assert len(buf.blocks) == 1
-
-    def test_enum_use_enum_values(self):
-        """验证 use_enum_values 配置使枚举序列化为值"""
-        buf = SemanticBuffer()
-        buf.state = BufferState.PROCESSING
-
-        # 由于 use_enum_values=True，state 应该是字符串值
-        assert buf.state == "processing"
-        assert isinstance(buf.state, str)

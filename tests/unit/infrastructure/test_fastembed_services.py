@@ -28,7 +28,6 @@ class TestBGEM3EmbeddingService:
         assert kwargs["model_file"] == "onnx/model_int8.onnx"
         assert kwargs["dim"] == 1024
         assert kwargs["normalization"] is True
-        assert kwargs["pooling"] == "CLS"
         mock_text_embedding_cls.assert_called_once_with(
             model_name="Xenova/bge-m3",
             cache_dir=config.cache_dir,
@@ -64,7 +63,6 @@ class TestFastEmbedRerankerService:
         )
         service = FastEmbedRerankerService(config=config)
         service._model = None
-        service.cache_dir = config.cache_dir
 
         mock_cross_encoder_cls = MagicMock()
 
@@ -75,22 +73,6 @@ class TestFastEmbedRerankerService:
             model_name="BAAI/bge-reranker-base",
             cache_dir="data/model_cache",
         )
-
-    def test_compute_score_returns_float_scores_in_input_order(self):
-        config = RerankerConfig(model_name="BAAI/bge-reranker-base")
-        service = FastEmbedRerankerService(config=config)
-
-        mock_model = MagicMock()
-        mock_model.rerank.return_value = [0.2, 0.8]
-        service._model = mock_model
-
-        scores = service.compute_score([
-            ["query", "doc-a"],
-            ["query", "doc-b"],
-        ])
-
-        assert scores == [0.2, 0.8]
-        mock_model.rerank.assert_called_once_with("query", ["doc-a", "doc-b"], batch_size=256)
 
     def test_compute_score_coerces_numpy_like_scores_to_float(self):
         config = RerankerConfig(model_name="BAAI/bge-reranker-base")

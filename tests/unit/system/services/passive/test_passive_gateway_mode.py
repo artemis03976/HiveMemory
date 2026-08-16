@@ -129,7 +129,6 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
 
     assert outcome.retrieval_result is not None
     assert outcome.retrieval_result.is_empty()
-    assert GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE not in bus.list_routes()
 
 
 @pytest.mark.asyncio

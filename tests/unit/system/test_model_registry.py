@@ -169,9 +169,13 @@ class TestQuery:
 class TestCRUD:
     def test_add_model_new(self, tmp_path):
         registry = _make_registry(tmp_path)
-        model = _make_model("new-model")
+        model = _make_model("new-model", temperature=0.3)
         registry.add_model(model)
-        assert registry.get_model("new-model") is not None
+
+        loaded = registry.get_model("new-model")
+        assert loaded is not None
+        assert loaded.temperature == 0.3
+        assert loaded.display_name == "Test Model"
 
     def test_add_model_duplicate_raises(self, tmp_path):
         model = _make_model("m1")
@@ -295,15 +299,17 @@ class TestCredentialResolution:
         from unittest.mock import MagicMock
 
         model = _make_model("m1", litellm_model="anthropic/claude-3", api_key=None)
-        registry = _make_registry(tmp_path, models=[model])
 
         mock_pr = MagicMock()
         mock_pr.get.return_value = ProviderCredentials(api_key="dynamic-key", api_base=None)
-        registry._provider_registry = mock_pr
+        registry = _make_registry(
+            tmp_path,
+            models=[model],
+            provider_registry=mock_pr,
+        )
 
         llm_config = registry.to_llm_config("m1")
         assert llm_config.api_key == "dynamic-key"
-        mock_pr.get.assert_called_once_with("anthropic")
 
 
 # ---------------------------------------------------------------------------

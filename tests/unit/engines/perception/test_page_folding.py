@@ -78,20 +78,28 @@ class TestBlockTokenComputation:
     @pytest.mark.asyncio
     async def test_block_tokens_include_traces(self):
         layer = _make_layer()
-        traces = [
-            TraceItem(action="SEARCH", query="how to sort a list"),
-            TraceItem(action="READ", target="my_notes_alias"),
-        ]
 
         topic_id, settle_payload = await layer.route_and_ingest(
             "NEW_TOPIC",
-            _make_payload("q", "a", traces=traces),
+            _make_payload("q", "a", traces=[
+                TraceItem(action="SEARCH", query="how to sort a list"),
+                TraceItem(action="READ", target="my_notes_alias"),
+            ]),
         )
 
         assert settle_payload is None
         topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
         assert topic_data is not None
-        assert topic_data.blocks[0].total_tokens > 0
+        with_traces = topic_data.blocks[0].total_tokens
+
+        # 对照：同文本无 traces 的 block，token 数应更小（验证 traces 被计入）
+        topic_id2, _ = await layer.route_and_ingest(
+            "NEW_TOPIC",
+            _make_payload("q", "a"),
+        )
+        without_traces_data = layer._short_term_store.get_topic_data(topic_id2, touch=False)
+        assert without_traces_data is not None
+        assert with_traces > without_traces_data.blocks[0].total_tokens
 
 
 class TestPageFoldingThreshold:

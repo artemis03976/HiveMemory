@@ -140,10 +140,9 @@ class TestWorkerAgentGenerateAsync:
         )
 
         assert result.was_mtp_interrupted is True
-        last_pos = text.rfind(MTP_LEFT_DELIMITER)
-        assert result.prefix_text == text[:last_pos]
+        assert result.prefix_text == f"a{MTP_LEFT_DELIMITER}first"
         assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
-        assert result.mtp_fragment == f"{text[last_pos:]} {MTP_RIGHT_DELIMITER}"
+        assert result.mtp_fragment == f"{MTP_LEFT_DELIMITER}second {MTP_RIGHT_DELIMITER}"
 
     @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_llm_exception_propagated(self, mock_completion):
@@ -297,7 +296,6 @@ class TestWorkerAgentGenerateStream:
         )
         assert non_final_text == "你好世界"
         assert stream_chunks[-1].is_final is True
-        assert stream_chunks[-1].result is not None
         assert stream_chunks[-1].result.was_mtp_interrupted is True
 
     @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
@@ -318,5 +316,4 @@ class TestWorkerAgentGenerateStream:
         )
         assert non_final_text == "AB"
         assert stream_chunks[-1].is_final is True
-        assert stream_chunks[-1].result is not None
         assert stream_chunks[-1].result.text == "AB"

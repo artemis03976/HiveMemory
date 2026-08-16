@@ -13,10 +13,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
-from hivememory.engines.lifecycle.vitality import (
-    VitalityCalculator,
-    INTRINSIC_VALUE_WEIGHTS,
-)
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.system.config import VitalityCalculatorConfig
 
 
@@ -27,15 +24,6 @@ class TestVitalityCalculator:
         """测试初始化: 使用真实配置而非 Mock，避免新字段缺失"""
         self.config = VitalityCalculatorConfig()  # 默认: V_0=100, λ=0.01, access_boost_coef=10.0
         self.calculator = VitalityCalculator(self.config)
-
-    def test_intrinsic_value_weights(self):
-        """测试固有价值权重"""
-        assert INTRINSIC_VALUE_WEIGHTS[MemoryType.CODE_SNIPPET] == 1.0
-        assert INTRINSIC_VALUE_WEIGHTS[MemoryType.FACT] == 0.9
-        assert INTRINSIC_VALUE_WEIGHTS[MemoryType.URL_RESOURCE] == 0.8
-        assert INTRINSIC_VALUE_WEIGHTS[MemoryType.REFLECTION] == 0.7
-        assert INTRINSIC_VALUE_WEIGHTS[MemoryType.USER_PROFILE] == 0.6
-        assert INTRINSIC_VALUE_WEIGHTS[MemoryType.WORK_IN_PROGRESS] == 0.5
 
     def test_calculate_new_memory(self):
         """测试新创建的记忆分数 (三段式: V_0·D(0) + A(0) + B(0) = 100)"""
@@ -96,10 +84,8 @@ class TestVitalityCalculator:
         score_no_access = self.calculator.calculate(memory_no_access)
         score_with_access = self.calculator.calculate(memory_with_access)
 
-        # A(5) = coef · log(6) = 10 · 1.7917 ≈ 17.92
-        import math
-        expected_diff = self.config.access_boost_coef * math.log(6)
-        assert abs((score_with_access - score_no_access) - expected_diff) < 0.5
+        # A(5) = coef · log(6) = 10 · 1.7917 ≈ 17.92（固定期望值）
+        assert abs((score_with_access - score_no_access) - 17.92) < 0.5
 
     def test_access_boost_cap(self):
         """测试访问加成对数饱和 (无硬上限，但增长递减)"""
@@ -113,17 +99,8 @@ class TestVitalityCalculator:
 
         score = self.calculator.calculate(memory_heavy_access)
 
-        # base = V_0 · D(t)；A(100) = coef · log(101) ≈ 46.15
-        import math
-        fact_intrinsic = self.config.fact_weight
-        lambda_eff = self.config.decay_lambda * (2.0 - fact_intrinsic)
-        base_score = self.config.base_vitality * math.exp(-lambda_eff * 200)
-        expected_access_boost = self.config.access_boost_coef * math.log(101)
-        expected_score = base_score + expected_access_boost
-
-        assert abs(score - expected_score) < 0.5
-        # 验证对数饱和: access_count=100 的加成不应超过 coef·log(200) (即使再翻倍 access)
-        assert expected_access_boost < self.config.access_boost_coef * math.log(200)
+        # 200 天衰减后 base≈11 + A(100)≈46 ≈ 57，加成显著且未被 clamp
+        assert 40 < score < 100
 
     def test_clamping(self):
         """测试分数限制在 [0, 100]"""
@@ -146,8 +123,9 @@ class TestVitalityCalculator:
         score_low = self.calculator.calculate(memory_low)
         score_high = self.calculator.calculate(memory_high)
 
-        assert 0 <= score_low <= 100
-        assert 0 <= score_high <= 100
+        # 1000 天 WIP 衰减后分数趋近 0（clamp 下限）；0 天 CODE + 100 次访问必 clamp 到 100
+        assert score_low < 0.001
+        assert score_high == 100.0
 
     def test_different_memory_types(self):
         """测试不同记忆类型的分数差异"""

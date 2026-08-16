@@ -88,8 +88,13 @@ class _Recorder:
         self.submitted.append(submission)
 
 
-def _build(recorder: _Recorder, **config_kwargs) -> PassiveMessageIngressor:
-    bus = GlobalSystemBus()
+def _build(
+    recorder: _Recorder,
+    *,
+    bus: GlobalSystemBus | None = None,
+    **config_kwargs,
+) -> PassiveMessageIngressor:
+    bus = bus or GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, recorder.gateway)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
     return PassiveMessageIngressor(
@@ -121,8 +126,8 @@ async def test_same_conversation_waits_for_inflight_user_event() -> None:
     assistant_task = asyncio.create_task(ingressor.route_event(_event("assistant", "a1"), IDENTITY))
     await asyncio.sleep(0)
 
+    # 同一会话的 assistant 事件被串行门阻塞，等待 user 的 gateway 完成
     assert not assistant_task.done()
-    assert ingressor._serial_gate.active_key_count == 1
 
     release_gateway.set()
     user_outcome, assistant_outcome = await asyncio.wait_for(
@@ -134,7 +139,6 @@ async def test_same_conversation_waits_for_inflight_user_event() -> None:
     assert await ingressor.flush_conversation(_key(), IDENTITY) == 1
     assert recorder.submitted[0].payload.user_message == "u1"
     assert recorder.submitted[0].payload.assistant_final_text == "a1"
-    assert ingressor._serial_gate.active_key_count == 0
 
 
 @pytest.mark.asyncio
@@ -170,8 +174,9 @@ async def test_different_conversations_remain_concurrent() -> None:
     assert outcome.kind == "buffered"
 
     release_gateway.set()
-    await asyncio.wait_for(blocked_task, timeout=1)
-    assert ingressor._serial_gate.active_key_count == 0
+    blocked_outcome = await asyncio.wait_for(blocked_task, timeout=1)
+    # 阻塞的 c-a 事件在门释放后正常完成
+    assert blocked_outcome.kind == "user"
 
 
 @pytest.mark.asyncio
@@ -198,7 +203,12 @@ async def test_cancelled_event_releases_conversation_gate() -> None:
     with pytest.raises(asyncio.CancelledError):
         await cancelled_task
 
-    assert ingressor._serial_gate.active_key_count == 0
+    # 门已释放：同一会话后续事件能正常完成（不再被串行门阻塞）
+    outcome = await asyncio.wait_for(
+        ingressor.route_event(_event("user", "after-cancel"), IDENTITY),
+        timeout=1,
+    )
+    assert outcome.kind == "user"
 
 
 @pytest.mark.asyncio
@@ -275,11 +285,11 @@ async def test_next_user_submits_previous_turn_before_gateway() -> None:
 @pytest.mark.asyncio
 async def test_gateway_failure_does_not_block_previous_turn_submit() -> None:
     recorder = _Recorder()
-    ingressor = _build(recorder)
+    bus = GlobalSystemBus()
+    ingressor = _build(recorder, bus=bus)
 
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
     await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
-    bus = ingressor._memory_context._bus
     bus.unregister(GlobalRoutes.GATEWAY_PROCESS)
     bus.register(
         GlobalRoutes.GATEWAY_PROCESS,

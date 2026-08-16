@@ -1,49 +1,12 @@
-"""
-Phase 2 多智能体子代理调用集成测试
+"""MTP CALL response payload 渲染测试。"""
 
-测试覆盖:
-    1. ExecutionFrame 数据类
-    2. FrameScheduler 帧调度器
-    3. MTP CALL 指令解析与路由
-    4. Koakuma _handle_call() 深度限制
-    5. CALL response payload 渲染
-    6. 星型拓扑约束 (depth=1)
-    7. RAG 菜单渲染 (AGENT_PROFILE 分离)
-
-作者: HiveMemory Team
-版本: 1.0
-"""
-
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from hivememory.core.models import (
-    Identity,
-    AgentProfile,
-    MemoryAtom,
-    MemoryType,
-    OMNI_DOLL_PROFILE,
-    RuntimeScope,
-)
-from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.system.config import KoakumaConfig
 from hivememory.core.mtp import (
     MTPCallResponse,
-    MTPVerb,
-    MTPResponseStatus,
-    MTPParser,
-    MTPCommand,
-    MTPCallRequest,
     MTPErrorInfo,
     MTPErrorSeverity,
     MTPFormatter,
-    MTPResponse,
+    MTPResponseStatus,
 )
-
-
-# ========== ExecutionFrame Tests ==========
 
 
 class TestMTPCallResponseFormatting:
@@ -103,8 +66,3 @@ class TestMTPCallResponseFormatting:
         assert '<error code="mtp.call_response.sub_agent_error" severity="system_fault">' in payload
         assert "[Sub-Agent Error]" in payload
         assert "coder_doll" in payload
-
-
-# ========== MTP Filter Type Map Tests ==========
-
-

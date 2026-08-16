@@ -5,6 +5,7 @@ on:
     branches: [master, develop]
   pull_request:
     branches: [master, develop]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -28,13 +29,60 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run unit tests
+      - name: Run tests with coverage
         run: |
-          pytest tests/unit -v --tb=short -m "not live_llm and not e2e" -n auto
+          pytest tests/unit tests/integration -v --tb=short -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-report=term-missing --cov-fail-under=85
 
-      - name: Run integration tests
+  # ========== E2E（手动触发，真实 LLM + Qdrant） ==========
+  # 依赖真实外部服务，仅在 workflow_dispatch 手动运行时执行。
+  # 需要仓库 Secrets：
+  #   OPENAI_API_KEY / DEEPSEEK_API_KEY / ANTHROPIC_API_KEY（按使用的 provider 配置其一）
+  e2e:
+    name: E2E (real LLM + Qdrant)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
         run: |
-          pytest tests/integration -v --tb=short -m "not live_llm" -n auto
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Start Qdrant
+        run: |
+          docker run -d --name qdrant-e2e -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.16.3
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:6333/readyz >/dev/null; then
+              echo "Qdrant ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Qdrant failed to become ready"
+          exit 1
+
+      - name: Run E2E tests
+        env:
+          LLM__GATEWAY__API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM__LIBRARIAN__API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HIVEMEMORY__PROVIDERS__OPENAI__API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          HIVEMEMORY__PATCHOULI__STORAGE__HOST: 127.0.0.1
+          HIVEMEMORY__PATCHOULI__STORAGE__PORT: 6333
+          HIVEMEMORY__PATCHOULI__STORAGE__GRPC_PORT: 6334
+        run: |
+          pytest tests/e2e -v --tb=short -m "e2e"
+
+      - name: Cleanup Qdrant container
+        if: always()
+        run: docker rm -f qdrant-e2e || true
 
   frontend:
     name: Frontend Build
