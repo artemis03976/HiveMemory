@@ -256,7 +256,6 @@ class TestAdaptiveWeightedFusion:
 
         # 高置信度应排第一
         assert fused.results[0].memory.id == id_high_conf
-        assert fused.results[0].memory.meta.confidence_score > 0.9
 
     def test_concept_mode_weights(self):
         """测试 Concept 模式权重分配正确"""
@@ -356,9 +355,8 @@ class TestAdaptiveWeightedFusion:
         # 使用 "fix error" 意图，应推断为 debug 模式
         fused = fusion.fuse_with_intent(dense_results, sparse_results, "fix error in code")
 
-        # Debug 模式会惩罚低置信度
-        # 验证分数被惩罚
-        assert fused.results[0].score < 0.9
+        # Debug 模式会惩罚低置信度，分数应明显低于原始 0.9
+        assert fused.results[0].score < 0.2
 
     def test_top_k_truncation(self):
         """测试结果截断"""
@@ -398,5 +396,5 @@ class TestAdaptiveWeightedFusion:
         # 使用未知模式
         fused = fusion.fuse(dense_results, sparse_results, mode="unknown_mode")
 
-        # 应该回退到默认模式 (concept)
-        assert len(fused.results) == 1
+        # 应该回退到默认模式 (concept)：无惩罚分数 ≈ 0.72
+        assert fused.results[0].score == pytest.approx(0.72, rel=0.01)

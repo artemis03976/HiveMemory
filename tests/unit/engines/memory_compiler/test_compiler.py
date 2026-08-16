@@ -272,9 +272,10 @@ class TestMemoryAtomCompilation:
             compiler.compile(sample_atom, MemoryCompileTarget.RUNNABLE_TOOL)
 
     def test_options_max_content_length(self, compiler, sample_atom):
+        set_default_language("zh")
         opts = MemoryCompileOptions(max_content_length=10)
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL, opts)
-        assert "截断" in artifact.text or len(artifact.text) < 500
+        assert "截断" in artifact.text
 
     def test_prompt_full_english_truncation_notice(self, sample_atom):
         set_default_language("en")
@@ -451,7 +452,7 @@ class TestPendingAtomCompilation:
 
     def test_settled_mtp_read_shows_canonical(self, compiler, settled_pending):
         artifact = compiler.compile(settled_pending, MemoryCompileTarget.MTP_READ)
-        assert "settled" in artifact.text.lower()
+        assert artifact.status == "settled"
         assert "fact_hello" in artifact.text
 
     def test_settled_mtp_read_empty_canonical_uses_placeholder(self, compiler, settled_pending):
@@ -484,16 +485,16 @@ class TestPendingAtomCompilation:
 
     def test_failed_mtp_read_shows_error(self, compiler, failed_pending):
         artifact = compiler.compile(failed_pending, MemoryCompileTarget.MTP_READ)
-        assert "failed" in artifact.text.lower()
+        assert artifact.status == "failed"
         assert "generation pipeline error" in artifact.text
 
     def test_cancelled_mtp_read(self, compiler, cancelled_pending):
         artifact = compiler.compile(cancelled_pending, MemoryCompileTarget.MTP_READ)
-        assert "cancelled" in artifact.text.lower()
+        assert artifact.status == "cancelled"
 
     def test_expired_mtp_read_shows_reclaimed(self, compiler, expired_pending):
         artifact = compiler.compile(expired_pending, MemoryCompileTarget.MTP_READ)
-        assert "expired" in artifact.text.lower()
+        assert artifact.status == "expired"
         assert "reclaimed" in artifact.text.lower()
 
 
@@ -624,7 +625,7 @@ class TestResolveResultCompilation:
     def test_failed_mtp_read(self, compiler, failed_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_failed")
         artifact = compiler.compile(failed_resolve, MemoryCompileTarget.MTP_READ, opts)
-        assert "failed" in artifact.text.lower()
+        assert artifact.status == "failed"
         assert "generation failed" in artifact.text
         assert "\u6d88\u606f\uff1a\u65e0" in artifact.text
         assert "\u539f\u56e0\uff1a\u65e0" in artifact.text
@@ -750,18 +751,6 @@ class TestEnvelopeCompilation:
         assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
     def test_mtp_read_response_compile(self, compiler, sample_atom):
-        envelope = compiler.compile(
-            sample_atom,
-            MemoryEnvelopeTarget.MTP_READ_RESPONSE,
-        )
-
-        assert envelope.text.startswith("[MTP READ Result]")
-        assert "Python parse_date" in envelope.text
-
-    def test_mtp_read_response_compile_english(self, sample_atom):
-        set_default_language("en")
-        compiler = MemoryCompiler()
-
         envelope = compiler.compile(
             sample_atom,
             MemoryEnvelopeTarget.MTP_READ_RESPONSE,

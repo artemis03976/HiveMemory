@@ -20,8 +20,6 @@ from hivememory.engines.perception.models import (
     LogicalBlock,
     FlushReason,
 )
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
-from hivememory.core.models import StreamMessage, StreamMessageType
 
 
 class TestRelayController:
@@ -71,22 +69,11 @@ class TestLLMRelayController:
         """测试 LLM 摘要生成"""
         from hivememory.engines.perception.relay_controller import LLMRelayController
 
-        # Mock LLM service
-        mock_llm = Mock()
-        mock_llm.complete.return_value = """### 1. 核心目标
-实现用户认证功能
+        # 确定性 fake LLM：返回 user 消息完整内容作为摘要（可观察数据流，非 mock 镜像）
+        fake_llm = Mock()
+        fake_llm.complete.side_effect = lambda messages: messages[-1]["content"]
 
-### 2. 系统状态与已完成
-- 已创建 auth.py 文件
-- 已执行 sys_write_file 工具 (Status: success)
-
-### 3. 约束与避坑
-- 不使用明文密码存储
-
-### 4. 当前焦点
-需要添加密码加密逻辑"""
-
-        controller = LLMRelayController(summary_llm=mock_llm)
+        controller = LLMRelayController(summary_llm=fake_llm)
 
         # 构造带 semantic_traces 的 blocks
         block = LogicalBlock(
@@ -102,16 +89,15 @@ class TestLLMRelayController:
 
         summary = controller.generate_summary([block])
 
-        # 验证 LLM 被调用
-        assert mock_llm.complete.called
-        call_args = mock_llm.complete.call_args[0][0]
+        # messages 结构契约：system + user 双消息
+        call_args = fake_llm.complete.call_args[0][0]
         assert len(call_args) == 2
         assert call_args[0]["role"] == "system"
         assert call_args[1]["role"] == "user"
 
-        # 验证返回结构化摘要
-        assert "核心目标" in summary
-        assert "系统状态与已完成" in summary
+        # 摘要来自真实传入的 recent_events 内容（含用户消息与 MTP 轨迹）
+        assert "创建认证模块" in summary
+        assert "sys_write_file" in summary
 
     def test_llm_fallback_when_no_service(self):
         """测试无 LLM 服务时回退到简单摘要"""

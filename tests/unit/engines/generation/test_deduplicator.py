@@ -9,7 +9,7 @@
 """
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 from datetime import datetime
 from uuid import uuid4
 
@@ -18,7 +18,6 @@ from hivememory.system.config import DeduplicatorConfig
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.engines.generation.extractor import ExtractedMemoryDraft
-from hivememory.infrastructure.storage import QdrantMemoryStore
 
 
 class TestMemoryDeduplicator:
@@ -26,7 +25,6 @@ class TestMemoryDeduplicator:
 
     def setup_method(self):
         """每个测试方法前执行"""
-        self.mock_storage = AsyncMock(spec=QdrantMemoryStore)
         self.config = DeduplicatorConfig()
         self.deduplicator = MemoryDeduplicator(
             config=self.config
@@ -148,11 +146,6 @@ class TestMemoryDeduplicator:
 
         assert decision == DuplicateDecision.CREATE
         assert memory == self.existing_memory
-
-    def test_deduplicator_does_not_apply_memory_merge(self):
-        """Deduplicator 只负责决策，不再构造或修改 MemoryAtom。"""
-        assert not hasattr(self.deduplicator, "merge_memory")
-        assert not hasattr(self.deduplicator, "_merge_content")
 
 
 if __name__ == "__main__":

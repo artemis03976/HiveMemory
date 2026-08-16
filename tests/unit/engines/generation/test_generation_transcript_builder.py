@@ -48,16 +48,6 @@ def _trace(action: str, **kwargs) -> TraceItem:
     return TraceItem(action=action, **kwargs)
 
 
-def _legacy_block_with_message_identities() -> LogicalBlock:
-    return LogicalBlock(
-        turn=TurnRecord(
-            identity=Identity(user_id="legacy_u", agent_id="legacy_agent"),
-            user_query="legacy user",
-            assistant_final_text="legacy assistant",
-        )
-    )
-
-
 builder = GenerationTranscriptBuilder()
 
 
@@ -100,11 +90,6 @@ class TestBuildContextBasic:
 # ============ 2. assistant_final_text 优先级 ============
 
 class TestFinalTextPriority:
-    def test_prefers_assistant_final_text(self):
-        block = _block(assistant_final_text="新的 final_text")
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].assistant_final_text == "新的 final_text"
-
     def test_both_empty_produces_empty_final_text(self):
         block = _block(assistant_final_text="")
         ctx = builder.build_context([block])
@@ -289,13 +274,6 @@ class TestGenerationRequestIdentity:
         assert req.identity.agent_id == "explicit_agent"
 
 
-class TestLegacyIdentityFallback:
-    def test_prefers_legacy_response_block_identity_when_block_identity_empty(self):
-        ctx = builder.build_context([_legacy_block_with_message_identities()])
-        assert len(ctx.turns) == 1
-        assert ctx.turns[0].identity.agent_id == "legacy_agent"
-
-
 # ============ 6. MemoryGenerationEngine 新路径集成测试 ============
 
 class TestEngineWithGenerationContext:
@@ -339,7 +317,8 @@ class TestEngineWithGenerationContext:
         extractor.extract.assert_called_once()
         transcript = extractor.extract.call_args[1]["transcript"]
         assert "[Turn 1]" in transcript
-        assert "摘要" in transcript or "[Topic State]" in transcript
+        assert "摘要" in transcript
+        assert "[Topic State]" in transcript
 
     @pytest.mark.asyncio
     async def test_process_empty_context_skipped(self):

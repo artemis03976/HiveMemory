@@ -1,4 +1,4 @@
-﻿"""
+"""
 Structured ingestion path tests.
 
 Current contract:
@@ -23,17 +23,18 @@ from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
 
 
-def _make_layer() -> SemanticFlowPerceptionLayer:
+def _make_layer() -> tuple[SemanticFlowPerceptionLayer, ShortTermMemoryStore]:
     config = SemanticFlowPerceptionConfig()
     relay = Mock()
     relay.should_relay.return_value = None
+    store = ShortTermMemoryStore()
     layer = SemanticFlowPerceptionLayer(
         config=config,
         relay_controller=relay,
-        short_term_store=ShortTermMemoryStore(),
+        short_term_store=store,
         interaction_journal=InMemoryInteractionApplyJournal(),
     )
-    return layer
+    return layer, store
 
 
 def _identity() -> Identity:
@@ -54,7 +55,7 @@ def _turn_event(kind="tool_call", tool_kind="READ", target="alias_x") -> TurnEve
 
 @pytest.mark.asyncio
 async def test_missing_turn_events_raises_error():
-    layer = _make_layer()
+    layer, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         identity=_identity(),
@@ -65,20 +66,8 @@ async def test_missing_turn_events_raises_error():
 
 
 @pytest.mark.asyncio
-async def test_structured_path_skips_mtp_log_parser():
-    layer = _make_layer()
-    payload = InteractionPayload(
-        user_message="hello",
-        assistant_final_text="clean reply",
-        identity=_identity(),
-        turn_events=[_turn_event()],
-    )
-    await layer.route_and_ingest("NEW_TOPIC", payload)
-
-
-@pytest.mark.asyncio
 async def test_structured_path_persists_assistant_final_text():
-    layer = _make_layer()
+    layer, store = _make_layer()
     turn_event = _turn_event()
     payload = InteractionPayload(
         user_message="hello",
@@ -89,7 +78,7 @@ async def test_structured_path_persists_assistant_final_text():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
 
@@ -101,7 +90,7 @@ async def test_structured_path_persists_assistant_final_text():
 
 @pytest.mark.asyncio
 async def test_structured_path_reduces_turn_events_to_actions():
-    layer = _make_layer()
+    layer, store = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean reply",
@@ -133,7 +122,7 @@ async def test_structured_path_reduces_turn_events_to_actions():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert len(block.actions) == 1
@@ -146,7 +135,7 @@ async def test_structured_path_reduces_turn_events_to_actions():
 
 @pytest.mark.asyncio
 async def test_structured_path_persists_payload_mtp_traces():
-    layer = _make_layer()
+    layer, store = _make_layer()
     trace = TraceItem(action="SEARCH", query="my query")
     payload = InteractionPayload(
         user_message="hello",
@@ -158,7 +147,7 @@ async def test_structured_path_persists_payload_mtp_traces():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert [t.action for t in block.semantic_traces] == ["SEARCH"]
@@ -166,7 +155,7 @@ async def test_structured_path_persists_payload_mtp_traces():
 
 @pytest.mark.asyncio
 async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
-    layer = _make_layer()
+    layer, store = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean",
@@ -177,7 +166,7 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert block.semantic_traces == ()
@@ -185,7 +174,7 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
 
 @pytest.mark.asyncio
 async def test_structured_path_empty_final_text_stays_empty():
-    layer = _make_layer()
+    layer, store = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="",
@@ -195,25 +184,7 @@ async def test_structured_path_empty_final_text_stays_empty():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert block.assistant_final_text == ""
-
-
-@pytest.mark.asyncio
-async def test_assistant_message_no_longer_persists_as_block_field():
-    layer = _make_layer()
-    payload = InteractionPayload(
-        user_message="hello",
-        assistant_final_text="clean",
-        identity=_identity(),
-        turn_events=[_turn_event()],
-    )
-
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
-
-    topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
-    assert topic_data is not None
-    block = topic_data.blocks[0]
-    assert block.assistant_final_text == "clean"

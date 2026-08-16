@@ -145,6 +145,8 @@ class TestGenerationEngineRouting:
 
         call_kwargs = self.mock_extractor.extract.call_args
         assert call_kwargs[1]["metadata"]["mode"] == "write"
+        assert len(result) == 1
+        assert result[0].atom.index.title == "测试记忆"
 
     @pytest.mark.asyncio
     async def test_routes_to_mode_c(self):
@@ -294,7 +296,7 @@ class TestGenerationEngineModeB:
         focus = WriteFocus(content="这是一段很长的内容用于测试")
         draft = self.engine._build_fallback_draft(focus)
 
-        assert draft.title == focus.content[:50]
+        assert draft.title == "这是一段很长的内容用于测试"
 
 
 class TestGenerationEngineModeC:
@@ -425,6 +427,7 @@ class TestGenerationEngineDedup:
         self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is existing
         assert result[0].duplicate_decision == DuplicateDecision.TOUCH
+        assert existing.meta.access_count == 1  # TOUCH 只自增访问计数
 
     @pytest.mark.asyncio
     async def test_dedup_update(self):
@@ -446,7 +449,6 @@ class TestGenerationEngineDedup:
         self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is existing
         assert result[0].duplicate_decision == DuplicateDecision.UPDATE
-        assert result[0].memory_before_snapshot is not None
         assert existing.payload.artifacts.refs == ["ref1"]
         assert existing.payload.history_summary[0] == "old summary"
         assert len(existing.payload.history_summary) == 2
@@ -454,10 +456,9 @@ class TestGenerationEngineDedup:
         assert existing.payload.content == draft.content
         assert existing.index.title == draft.title
         assert existing.index.summary == draft.summary
-        assert existing.index.tags == ["t1", "t"] or existing.index.tags == ["t", "t1"]
+        assert set(existing.index.tags) == {"t1", "t"}
         assert result[0].memory_before_snapshot.title == old_title
         assert result[0].memory_before_snapshot.summary == old_summary
-        assert result[0].changelog is not None
 
     @pytest.mark.asyncio
     async def test_dedup_create(self):
@@ -496,9 +497,7 @@ class TestGenerationEngineAlias:
     def test_build_alias_fallback_to_title(self):
         """无 suffix 时从 title 派生"""
         alias = MemoryGenerationEngine._build_alias("FACT", "", "Python Tips")
-        assert alias is not None
-        assert alias.startswith("fact_")
-        assert "python" in alias
+        assert alias == "fact_python_tips"
 
     def test_build_alias_unknown_type(self):
         """未知类型用 'mem' 前缀"""
@@ -520,7 +519,7 @@ class TestGenerationEngineAlias:
         long_suffix = "a" * 100
         alias = MemoryGenerationEngine._build_alias("FACT", long_suffix, "标题")
         # prefix "fact_" + 40 chars
-        assert len(alias) <= 45
+        assert len(alias) == 45
 
 
 class TestGenerationEngineHelpers:

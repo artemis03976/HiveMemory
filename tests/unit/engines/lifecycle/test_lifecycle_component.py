@@ -380,9 +380,7 @@ class TestVitalityScoring:
 
         # 预期衰减因子 (三段式: λ_eff = λ * (2 - I), FACT 的 I=0.9)
         # 新公式 V_0·D(t) + A + B；fresh 与 old 都无 A/B，故 ratio = D(30)/D(0) = D(30)
-        fact_intrinsic = 0.9  # FACT 默认权重
-        lambda_eff = 0.01 * (2.0 - fact_intrinsic)  # = 0.011
-        expected_decay = math.exp(-lambda_eff * 30)  # ≈ 0.7189
+        expected_decay = 0.7189  # exp(-0.011 * 30) 的固定期望值
         tolerance = case["tolerance"]
 
         # 验证衰减
@@ -407,14 +405,12 @@ class TestVitalityScoring:
 
     def test_lif_scr_003_access_boost_cap(self, vitality_calculator):
         """
-        LIF-SCR-003: 访问加成上限
+        LIF-SCR-003: 访问加成被封顶 100
 
-        验证访问加成不会超过配置的上限 (50)。
+        极高访问次数的新记忆分数必须 clamp 到 100。
         """
         case = get_scoring_test_by_id("LIF-SCR-003")
         print_test_header(case["id"], case["name"])
-
-        max_boost = case["max_access_boost"]
 
         # 创建高访问次数的记忆
         high_access_memory = create_test_memory(
@@ -423,31 +419,19 @@ class TestVitalityScoring:
             access_count=10000,  # 极高访问次数
         )
 
-        # 创建零访问的记忆
-        zero_access_memory = create_test_memory(
-            template_name="fact",
-            confidence_score=0.9,
-            access_count=0,
-        )
-
         # 计算分数
         high_score = vitality_calculator.calculate(high_access_memory)
-        zero_score = vitality_calculator.calculate(zero_access_memory)
 
-        # 访问加成 = high_score - zero_score
-        actual_boost = high_score - zero_score
-
-        # 验证加成不超过上限
-        assert actual_boost <= max_boost + 0.1, (
-            f"Access boost ({actual_boost:.2f}) should not exceed "
-            f"max cap ({max_boost})"
+        # 新记忆 base=100 已封顶，访问加成不改变结果
+        assert high_score == 100.0, (
+            f"High-access memory ({high_score:.2f}) should be clamped to 100"
         )
 
         print_test_result(
             case["id"],
             case["name"],
             True,
-            f"Boost={actual_boost:.2f}, MaxCap={max_boost}"
+            f"HighAccessScore={high_score:.2f}"
         )
 
 

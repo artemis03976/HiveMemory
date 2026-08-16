@@ -49,29 +49,6 @@ from hivememory.core.mtp import (
 class TestRAGMenuRendering:
     """RAG 菜单渲染测试 (AGENT_PROFILE 分离)"""
 
-    def _separate_agent_profiles(self, memories):
-        regular, agents = [], []
-        for m in memories:
-            if hasattr(m, 'index') and hasattr(m.index, 'memory_type') and m.index.memory_type == MemoryType.AGENT_PROFILE:
-                agents.append(m)
-            else:
-                regular.append(m)
-        return regular, agents
-
-    def test_separate_agent_profiles(self):
-        regular_atom = MagicMock(spec=MemoryAtom)
-        regular_atom.index = MagicMock()
-        regular_atom.index.memory_type = MemoryType.FACT
-
-        agent_atom = MagicMock(spec=MemoryAtom)
-        agent_atom.index = MagicMock()
-        agent_atom.index.memory_type = MemoryType.AGENT_PROFILE
-
-        regular, agents = self._separate_agent_profiles([regular_atom, agent_atom])
-
-        assert len(regular) == 1
-        assert len(agents) == 1
-
     def test_render_agent_menu(self):
         """通过 MemoryCompiler envelope 渲染子代理区域"""
         from hivememory.core.models import IndexLayer, MetaData, PayloadLayer
@@ -136,14 +113,4 @@ class TestRAGMenuRendering:
         )
         assert agent_empty_hint not in envelope.text
         assert "### 可用子代理" not in envelope.text
-
-    def test_separate_no_agents(self):
-        """无 AGENT_PROFILE 时分离正常"""
-        atom = MagicMock(spec=MemoryAtom)
-        atom.index = MagicMock()
-        atom.index.memory_type = MemoryType.FACT
-
-        regular, agents = self._separate_agent_profiles([atom])
-        assert len(regular) == 1
-        assert len(agents) == 0
 

@@ -141,8 +141,9 @@ class TestDenseRetriever:
         query = RetrievalQuery(semantic_query="test")
         results = await self.retriever.retrieve(query)
 
+        # 1 天前的新记忆几乎无衰减，分数接近原始值
         assert len(results.results) == 1
-        assert results.results[0].score > 0
+        assert results.results[0].score == pytest.approx(0.9, abs=0.05)
 
 
 class TestHybridRetriever:
@@ -179,32 +180,24 @@ class TestHybridRetriever:
 
     @pytest.mark.asyncio
     async def test_search_hybrid(self):
-        """测试混合检索 (Dense + Sparse + RRF)"""
-        # 模拟 Dense 返回
+        """测试混合检索 (Dense + Sparse + 真实 RRF 融合)"""
+        from hivememory.engines.retrieval.fusion import ReciprocalRankFusion
+        from hivememory.system.config import ReciprocalRankFusionConfig
+
+        self.searcher.fusion = ReciprocalRankFusion(config=ReciprocalRankFusionConfig())
         self.mock_dense.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=self.memory1, score=0.9)
         ]))
-        
-        # 模拟 Sparse 返回
         self.mock_sparse.retrieve = AsyncMock(return_value=SearchResults(results=[
             SearchResult(memory=self.memory2, score=0.85)
         ]))
-        
-        # 模拟 Fusion 返回
-        self.mock_fusion.fuse.return_value = SearchResults(results=[
-            SearchResult(memory=self.memory1, score=0.9, match_reason="RRF"),
-            SearchResult(memory=self.memory2, score=0.8, match_reason="RRF")
-        ])
 
         query = RetrievalQuery(semantic_query="test")
         results = await self.searcher.retrieve(query, top_k=2)
 
-        # 验证调用
-        self.mock_dense.retrieve.assert_called_once()
-        self.mock_sparse.retrieve.assert_called_once()
-        self.mock_fusion.fuse.assert_called_once()
-        
+        # 两个检索通道的结果经真实 RRF 融合后都被保留
         assert len(results.results) == 2
+        assert {r.memory.id for r in results.results} == {self.memory1.id, self.memory2.id}
 
 
 if __name__ == "__main__":

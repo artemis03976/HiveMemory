@@ -5,20 +5,31 @@ Agent 权限链路单元测试。
 - Profile 的动词白名单正确过滤 MTP prompt
 - Profile 的工具白名单正确过滤 MTP prompt
 - 无 profile 时渲染完整 prompt（兜底逻辑）
+- Omni-Doll 兜底语义回归：仅在未指定 agent 或显式选择 default/omni_doll 时生效
 """
 
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     AgentProfile,
+    Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
 )
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
+    PermissionDeniedError,
+)
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
 
 
@@ -129,38 +140,123 @@ class TestProfileToPromptFiltering:
         assert "sys_web_search" in mtp_prompt
 
 
+def _make_retrieval_familiar() -> tuple[RetrievalFamiliar, AsyncMock]:
+    """构造真实 RetrievalFamiliar + mock 存储边界（仅替换 get_by_alias）。"""
+    memory_library = MagicMock()
+    get_by_alias = AsyncMock()
+    memory_library.mid_term.get_by_alias = get_by_alias
+    service = RetrievalFamiliar(
+        engine=MagicMock(),
+        memory_library=memory_library,
+    )
+    return service, get_by_alias
+
+
 @pytest.mark.asyncio
 class TestProfileLoadingErrors:
-    """Profile 加载错误处理测试"""
+    """Omni-Doll 兜底语义回归测试。
 
-    async def test_profile_not_found_fails_explicitly(self):
-        """显式 Profile 不存在时不能使用 Omni-Doll 兜底。"""
-        kernel, _ = _create_runtime_with_koakuma()
+    核心契约：Omni-Doll profile 只在「未指定 agent 或显式选择 default/omni_doll」时使用；
+    任何自定义 alias 的缺失、越权、类型错误或配置损坏都必须显式失败，不能静默回退。
+    """
 
-        # 模拟 profile 不存在
-        kernel.storage.get_memory_by_alias = Mock(return_value=None)
+    async def test_unset_alias_uses_omni_doll_profile(self):
+        """未指定 agent 时使用 Omni-Doll（不触发存储查询）。"""
+        service, get_by_alias = _make_retrieval_familiar()
 
-        with pytest.raises(AliasNotFoundError):
-            kernel.storage.get_agent_profile("nonexistent")
+        for alias in (None, "", "  "):
+            profile = await service.get_agent_profile(
+                alias, identity=Identity(user_id="u1")
+            )
+            assert profile is OMNI_DOLL_PROFILE
+
+        get_by_alias.assert_not_awaited()
+
+    async def test_default_and_omni_doll_aliases_use_omni_doll_profile(self):
+        """显式选择 default / omni_doll 时使用 Omni-Doll。"""
+        service, get_by_alias = _make_retrieval_familiar()
+
+        for alias in ("default", "omni_doll"):
+            profile = await service.get_agent_profile(
+                alias, identity=Identity(user_id="u1")
+            )
+            assert profile is OMNI_DOLL_PROFILE
+
+        get_by_alias.assert_not_awaited()
+
+    async def test_missing_custom_alias_fails_explicitly(self):
+        """自定义 alias 缺失时必须显式失败，不能回退到 Omni-Doll。"""
+        service, get_by_alias = _make_retrieval_familiar()
+        get_by_alias.return_value = None
+
+        with pytest.raises(AliasNotFoundError) as exc_info:
+            await service.get_agent_profile(
+                "nonexistent_agent", identity=Identity(user_id="u1")
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_not_found"
+
+    async def test_custom_alias_without_identity_is_denied(self):
+        """自定义 alias 且无 identity 时拒绝（不触发存储查询）。"""
+        service, get_by_alias = _make_retrieval_familiar()
+
+        with pytest.raises(PermissionDeniedError) as exc_info:
+            await service.get_agent_profile("custom_agent", identity=None)
+
+        assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
+        get_by_alias.assert_not_awaited()
+
+    async def test_wrong_memory_type_fails_explicitly(self):
+        """alias 指向非 AGENT_PROFILE 记忆时显式失败，不回退。"""
+        service, get_by_alias = _make_retrieval_familiar()
+        get_by_alias.return_value = MemoryAtom(
+            meta=MetaData(user_id="u1", source_agent_id="system"),
+            index=IndexLayer(
+                alias="custom", title="custom title", summary="not a profile",
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="c"),
+        )
+
+        with pytest.raises(MemoryTypeMismatchError) as exc_info:
+            await service.get_agent_profile(
+                "custom", identity=Identity(user_id="u1")
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
 
     async def test_malformed_profile_fails_explicitly(self):
-        """格式错误的 Profile 不能使用 Omni-Doll 兜底。"""
-        kernel, _ = _create_runtime_with_koakuma()
-
-        # 模拟格式错误的 profile（缺少 artifacts）
-        broken_atom = MemoryAtom(
+        """AGENT_PROFILE 但 artifacts 损坏（from_atom 解析失败）时显式失败，不回退。"""
+        service, get_by_alias = _make_retrieval_familiar()
+        get_by_alias.return_value = MemoryAtom(
             id=uuid4(),
-            meta=MetaData(user_id="system", source_agent_id="system"),
+            meta=MetaData(user_id="u1", source_agent_id="system"),
             index=IndexLayer(
-                alias="broken",
-                title="Broken",
-                summary="Broken profile",
-                tags=["agent"],
-                memory_type=MemoryType.AGENT_PROFILE,
+                alias="broken", title="Broken", summary="Broken profile",
+                tags=["agent"], memory_type=MemoryType.AGENT_PROFILE,
             ),
-            payload=PayloadLayer(content="Some content", artifacts={}),
+            payload=PayloadLayer(content="c", artifacts={}),
         )
-        kernel.storage.get_memory_by_alias = Mock(return_value=broken_atom)
 
-        with pytest.raises(InvalidArgumentError):
-            kernel.storage.get_agent_profile("broken")
+        with pytest.raises(InvalidArgumentError) as exc_info:
+            await service.get_agent_profile(
+                "broken", identity=Identity(user_id="u1")
+            )
+
+        assert exc_info.value.message_key == "mtp.call.profile_invalid"
+
+    async def test_valid_custom_alias_returns_parsed_profile(self):
+        """合法自定义 alias 返回真实解析的 AgentProfile。"""
+        service, get_by_alias = _make_retrieval_familiar()
+        get_by_alias.return_value = _make_profile_atom(
+            "coder_doll", ["READ", "RUN"], ["sys_clock"]
+        )
+
+        profile = await service.get_agent_profile(
+            "coder_doll", identity=Identity(user_id="system")
+        )
+
+        assert profile.persona == "You are coder_doll."
+        assert profile.allowed_mtp_verbs == ["READ", "RUN"]
+        assert profile.allowed_sys_tools == ["sys_clock"]
+        get_by_alias.assert_awaited_once_with("coder_doll", "system")
