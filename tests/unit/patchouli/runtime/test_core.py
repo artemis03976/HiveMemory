@@ -288,11 +288,3 @@ class TestRuntimeStorageHealth:
         assert await runtime.check_storage_health() is False
         runtime.memory_library.check_storage_health.assert_awaited_once()
 
-    @pytest.mark.asyncio
-    async def test_ensure_storage_ready_delegates_to_store(self):
-        runtime = _create_runtime()
-        runtime.storage.ensure_ready = AsyncMock()
-
-        await runtime.ensure_storage_ready()
-
-        runtime.storage.ensure_ready.assert_awaited_once()

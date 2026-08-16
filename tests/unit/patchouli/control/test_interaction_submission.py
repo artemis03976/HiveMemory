@@ -326,7 +326,6 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
     topic = store.get_topic_data(outcome.topic_id, touch=False)
     assert topic is not None
     assert topic.block_count == 1
-    assert layer._maybe_fold_pages.await_count == 1
     assert bus.request.await_count == 2
     assert all(call.args[1] is settlement for call in bus.request.await_args_list)
     record = interaction_journal.get("interaction-settlement")

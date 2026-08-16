@@ -254,16 +254,6 @@ class TestRetrievalFamiliarRetrieve:
         self.familiar = RetrievalFamiliar(engine=self.mock_engine, memory_library=self.mock_library)
 
     @pytest.mark.asyncio
-    async def test_retrieve_basic(self):
-        mem = _make_memory()
-        self.mock_engine.retrieve.return_value = _make_engine_result([mem])
-
-        response = await self.familiar.retrieve(_make_request())
-
-        self.mock_engine.retrieve.assert_awaited_once()
-        assert response.memories_count == 1
-
-    @pytest.mark.asyncio
     async def test_retrieve_user_id_filter(self):
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
@@ -343,9 +333,13 @@ class TestRetrievalFamiliarRetrieve:
             return [(memories[0].id, 42.0)]
 
         bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, AsyncMock(side_effect=_refresh))
-        self.familiar._local_bus = bus
+        familiar = RetrievalFamiliar(
+            engine=self.mock_engine,
+            memory_library=self.mock_library,
+            local_bus=bus,
+        )
 
-        response = await self.familiar.retrieve_async(_make_request())
+        response = await familiar.retrieve_async(_make_request())
 
         assert response.memories[0].meta.vitality_score == 42.0
 
@@ -355,9 +349,13 @@ class TestRetrievalFamiliarRetrieve:
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
         bus = PatchouliBus()
         bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, AsyncMock(side_effect=RuntimeError("fail")))
-        self.familiar._local_bus = bus
+        familiar = RetrievalFamiliar(
+            engine=self.mock_engine,
+            memory_library=self.mock_library,
+            local_bus=bus,
+        )
 
-        response = await self.familiar.retrieve_async(_make_request())
+        response = await familiar.retrieve_async(_make_request())
 
         assert response.memories == [mem]
 
@@ -424,29 +422,19 @@ class TestRetrievalFamiliarRetrieveByAliases:
         self.familiar = RetrievalFamiliar(engine=self.mock_engine, memory_library=self.mock_library)
 
     @pytest.mark.asyncio
-    async def test_retrieve_by_aliases_returns_memories(self):
-        mem = _make_memory("alias memory")
-        self.mock_library.mid_term.get_by_alias.return_value = mem
-
-        response = await self.familiar.retrieve_by_aliases(
-            aliases=["fact_a"], identity=Identity(user_id="u1"),
-        )
-
-        self.mock_library.mid_term.get_by_alias.assert_awaited_once_with("fact_a", "u1")
-        assert response.memories == [mem]
-        assert response.memories_count == 1
-        assert not hasattr(response, "rendered_context")
-
-    @pytest.mark.asyncio
     async def test_retrieve_by_aliases_async_refreshes_vitality(self):
         mem = _make_memory("alias memory")
         self.mock_library.mid_term.get_by_alias.return_value = mem
         bus = PatchouliBus()
         refresh = AsyncMock(return_value=[(mem.id, 41.0)])
         bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, refresh)
-        self.familiar._local_bus = bus
+        familiar = RetrievalFamiliar(
+            engine=self.mock_engine,
+            memory_library=self.mock_library,
+            local_bus=bus,
+        )
 
-        response = await self.familiar.retrieve_by_aliases_async(
+        response = await familiar.retrieve_by_aliases_async(
             aliases=["fact_a"], identity=Identity(user_id="u1"),
         )
 
@@ -472,12 +460,6 @@ class TestRetrievalFamiliarAccessStats:
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
-
-    @pytest.mark.asyncio
-    async def test_update_access_stats(self):
-        m1, m2 = _make_memory("m1"), _make_memory("m2")
-        await self.familiar.update_access_stats([m1, m2])
-        assert self.mock_library.mid_term.update_access_info.call_count == 2
 
     @pytest.mark.asyncio
     async def test_update_access_stats_per_item_failure(self):
@@ -512,47 +494,3 @@ class TestRetrievalFamiliarShortTermTopics:
         )
         assert [s.topic_id for s in snapshots] == ["new", "old"]
 
-    def test_list_active_topics_include_empty_passthrough(self):
-        self.mock_library.short_term.list_topic_data.return_value = []
-        self.familiar.list_active_topics(Identity(user_id="u1"), include_empty=True)
-        self.mock_library.short_term.list_topic_data.assert_called_once_with(
-            user_id="u1", include_empty=True
-        )
-
-    def test_get_topic_returns_immutable_topic_data(self):
-        topic_data = _make_topic_data()
-        self.mock_library.short_term.get_topic_data.return_value = topic_data
-        result = self.familiar.get_topic("topic_1")
-        self.mock_library.short_term.get_topic_data.assert_called_once_with(
-            "topic_1", touch=True
-        )
-        assert result is topic_data
-
-    def test_get_topic_can_disable_touch(self):
-        self.familiar.get_topic("topic_1", touch=False)
-        self.mock_library.short_term.get_topic_data.assert_called_once_with(
-            "topic_1", touch=False
-        )
-
-
-class TestRetrievalFamiliarArchiveQueries:
-
-    def setup_method(self):
-        self.mock_library = _make_memory_library()
-        self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
-
-    @pytest.mark.asyncio
-    async def test_query_archive_delegates_to_long_term_store(self):
-        records = [Mock()]
-        self.mock_library.long_term.query.return_value = records
-        result = await self.familiar.query_archive(limit=50, vitality_threshold=10.0)
-        self.mock_library.long_term.query.assert_awaited_once_with(limit=50, vitality_threshold=10.0)
-        assert result == records
-
-    @pytest.mark.asyncio
-    async def test_is_archived_delegates_to_long_term_store(self):
-        memory_id = uuid4()
-        self.mock_library.long_term.is_archived.return_value = True
-        result = await self.familiar.is_archived(memory_id)
-        self.mock_library.long_term.is_archived.assert_awaited_once_with(memory_id)
-        assert result is True

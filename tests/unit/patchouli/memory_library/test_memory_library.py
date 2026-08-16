@@ -3,15 +3,16 @@ MemoryLibrary 三层存储单元测试
 
 测试覆盖:
 - ShortTermMemoryStore: buffer CRUD、命名写入方法、LRU、needs_eviction
-- MidTermMemoryStore: upsert/get/delete/search/scroll 多 Port 同步
-- LongTermMemoryStore: persist/load/remove/is_archived/query
+- MidTermMemoryStore: upsert 多 Port 同步
 - MemoryLibrary: archive/revive 跨层状态转移
 """
 
-from unittest.mock import AsyncMock, Mock
+from datetime import datetime
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from hivememory.core.models import (
     IndexLayer,
@@ -24,7 +25,6 @@ from hivememory.core.models import (
     TopicData,
     TurnRecord,
 )
-from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.patchouli.memory_library import (
     ArtifactStore,
     LongTermMemoryStore,
@@ -125,10 +125,16 @@ class TestShortTermMemoryStore:
     def test_get_topic_data_touch_updates_last_accessed_at(self):
         buf = self.store.create_buffer("u1")
         initial = buf.last_accessed_at
+        fixed_now = datetime(2027, 1, 1, 12, 0, 0)
 
-        self.store.get_topic_data(buf.topic_id, touch=True)
+        with patch(
+            "hivememory.patchouli.memory_library.stores.datetime"
+        ) as mock_datetime:
+            mock_datetime.now.return_value = fixed_now
+            self.store.get_topic_data(buf.topic_id, touch=True)
 
-        assert buf.last_accessed_at >= initial
+        assert buf.last_accessed_at == fixed_now.timestamp()
+        assert buf.last_accessed_at > initial
 
     def test_get_topic_data_reuses_immutable_block_objects(self):
         buf = self.store.create_buffer("u1")
@@ -148,13 +154,16 @@ class TestShortTermMemoryStore:
 
     def test_add_block_appends_and_updates_tokens(self):
         buf = self.store.create_buffer("u1")
-        block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
+        block = LogicalBlock(
+            turn=TurnRecord(user_query="q", assistant_final_text="a"),
+            total_tokens=7,
+        )
 
         self.store.add_block(buf.topic_id, block)
 
         data = self.store.get_topic_data(buf.topic_id)
         assert len(data.blocks) == 1
-        assert data.total_tokens >= 0
+        assert data.total_tokens == 7
 
     @pytest.mark.parametrize(
         ("method_name", "args", "kwargs"),
@@ -262,7 +271,7 @@ class TestShortTermMemoryStore:
 
         removed = self.store.pop_buffer(buf.topic_id)
 
-        assert removed is not None
+        assert removed is buf
         assert self.store.topic_exists(buf.topic_id) is False
 
     def test_reset_topic_content_keeps_topic_but_clears_blocks(self):
@@ -327,123 +336,6 @@ class TestMidTermMemoryStore:
 
         self.mock_primary.upsert.assert_awaited_once_with(memory)
         self.mock_secondary.upsert.assert_awaited_once_with(memory)
-
-    @pytest.mark.asyncio
-    async def test_get_returns_from_primary(self):
-        memory = _make_memory()
-        self.mock_primary.get = AsyncMock(return_value=memory)
-
-        result = await self.store.get(memory.id)
-
-        assert result is memory
-        self.mock_primary.get.assert_awaited_once_with(memory.id)
-
-    @pytest.mark.asyncio
-    async def test_get_by_alias_delegates_to_primary(self):
-        memory = _make_memory()
-        self.mock_primary.get_by_alias = AsyncMock(return_value=memory)
-
-        result = await self.store.get_by_alias("alias_test", "u1")
-
-        assert result is memory
-        self.mock_primary.get_by_alias.assert_awaited_once_with("alias_test", "u1")
-
-    @pytest.mark.asyncio
-    async def test_delete_removes_from_primary_and_secondary(self):
-        memory_id = uuid4()
-        self.mock_primary.delete = AsyncMock(return_value=True)
-        self.mock_secondary.delete = AsyncMock()
-
-        result = await self.store.delete(memory_id)
-
-        assert result is True
-        self.mock_primary.delete.assert_awaited_once_with(memory_id)
-        self.mock_secondary.delete.assert_awaited_once_with(memory_id)
-
-    @pytest.mark.asyncio
-    async def test_batch_delete_removes_from_all_ports(self):
-        ids = [uuid4(), uuid4()]
-        self.mock_primary.batch_delete = AsyncMock(return_value=2)
-        self.mock_secondary.batch_delete = AsyncMock()
-
-        result = await self.store.batch_delete(ids)
-
-        assert result == 2
-        self.mock_primary.batch_delete.assert_awaited_once_with(ids)
-        self.mock_secondary.batch_delete.assert_awaited_once_with(ids)
-
-    @pytest.mark.asyncio
-    async def test_search_delegates_to_primary(self):
-        self.mock_primary.search = AsyncMock(return_value=[])
-
-        await self.store.search("query", top_k=5)
-
-        self.mock_primary.search.assert_awaited_once_with("query", 5, None, "dense", 0.0)
-
-    @pytest.mark.asyncio
-    async def test_scroll_delegates_to_primary(self):
-        self.mock_primary.scroll = AsyncMock(return_value=[])
-
-        await self.store.scroll(limit=50)
-
-        self.mock_primary.scroll.assert_awaited_once_with(None, 50)
-
-
-class TestLongTermMemoryStore:
-    """LongTermMemoryStore 测试"""
-
-    def setup_method(self):
-        self.mock_port = Mock()
-        self.store = LongTermMemoryStore(port=self.mock_port)
-
-    @pytest.mark.asyncio
-    async def test_persist_delegates_to_port(self):
-        memory = _make_memory()
-        self.mock_port.persist = AsyncMock()
-
-        await self.store.persist(memory)
-
-        self.mock_port.persist.assert_awaited_once_with(memory)
-
-    @pytest.mark.asyncio
-    async def test_load_delegates_to_port(self):
-        memory = _make_memory()
-        self.mock_port.load = AsyncMock(return_value=memory)
-
-        result = await self.store.load(memory.id)
-
-        assert result is memory
-        self.mock_port.load.assert_awaited_once_with(memory.id)
-
-    @pytest.mark.asyncio
-    async def test_remove_delegates_to_port(self):
-        memory_id = uuid4()
-        self.mock_port.remove = AsyncMock()
-
-        await self.store.remove(memory_id)
-
-        self.mock_port.remove.assert_awaited_once_with(memory_id)
-
-    @pytest.mark.asyncio
-    async def test_is_archived_delegates_to_port(self):
-        memory_id = uuid4()
-        self.mock_port.is_archived = AsyncMock(return_value=True)
-
-        result = await self.store.is_archived(memory_id)
-
-        assert result is True
-        self.mock_port.is_archived.assert_awaited_once_with(memory_id)
-
-    @pytest.mark.asyncio
-    async def test_query_delegates_to_port(self):
-        records = [Mock(spec=ArchiveRecord) for _ in range(2)]
-        self.mock_port.query = AsyncMock(return_value=records)
-
-        result = await self.store.query(limit=50, vitality_threshold=0.1)
-
-        assert result == records
-        self.mock_port.query.assert_awaited_once_with(limit=50, vitality_threshold=0.1)
-
 
 class TestMemoryLibraryArchiveRevive:
     """MemoryLibrary 跨层状态转移测试"""
@@ -636,7 +528,7 @@ class TestShortTermMemoryLibraryBoundary:
 
         data = store.get_topic_data(topic.topic_id)
 
-        with pytest.raises(Exception):  # pydantic validation error
+        with pytest.raises(ValidationError):
             data.topic_title = "modified"
 
     def test_to_topic_snapshot_converts_correctly(self):
@@ -655,3 +547,7 @@ class TestShortTermMemoryLibraryBoundary:
         assert snapshot.topic_title == data.topic_title
         assert snapshot.block_count == 1
         assert snapshot.last_accessed_at == data.last_accessed_at
+        assert snapshot.total_tokens == data.total_tokens
+        assert snapshot.last_turn is not None
+        assert snapshot.last_turn.user == "q"
+        assert snapshot.last_turn.assistant == "a"

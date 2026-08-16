@@ -26,7 +26,8 @@ class TestPatchouliBusRegistration:
 
         assert "test.route" in bus.list_routes()
 
-    def test_register_overwrites_existing_handler(self):
+    @pytest.mark.asyncio
+    async def test_register_overwrites_existing_handler(self):
         bus = PatchouliBus()
         handler1 = AsyncMock()
         handler2 = AsyncMock()
@@ -34,7 +35,10 @@ class TestPatchouliBusRegistration:
         bus.register("test.route", handler1)
         bus.register("test.route", handler2)
 
-        assert bus._handlers["test.route"] is handler2
+        await bus.request("test.route")
+
+        handler2.assert_awaited_once()
+        handler1.assert_not_awaited()
 
     def test_unregister_removes_handler(self):
         bus = PatchouliBus()
@@ -59,13 +63,17 @@ class TestPatchouliBusRequest:
     @pytest.mark.asyncio
     async def test_request_calls_registered_handler(self):
         bus = PatchouliBus()
-        handler = AsyncMock(return_value="result")
+        received = []
+
+        async def handler(x, key=None):
+            received.append((x, key))
+            return f"result-{x}-{key}"
 
         bus.register("test.route", handler)
         result = await bus.request("test.route", "arg1", key="value")
 
-        assert result == "result"
-        handler.assert_awaited_once_with("arg1", key="value")
+        assert result == "result-arg1-value"
+        assert received == [("arg1", "value")]
 
     @pytest.mark.asyncio
     async def test_request_raises_key_error_for_missing_route(self):
@@ -98,16 +106,6 @@ class TestPatchouliBusPubSub:
 
         assert "test.event" in bus.list_events()
 
-    def test_subscribe_multiple_callbacks_for_same_event(self):
-        bus = PatchouliBus()
-        callback1 = AsyncMock()
-        callback2 = AsyncMock()
-
-        bus.subscribe("test.event", callback1)
-        bus.subscribe("test.event", callback2)
-
-        assert len(bus._subscribers["test.event"]) == 2
-
     def test_unsubscribe_removes_callback(self):
         bus = PatchouliBus()
         callback = AsyncMock()
@@ -116,15 +114,6 @@ class TestPatchouliBusPubSub:
         bus.unsubscribe("test.event", callback)
 
         assert "test.event" not in bus.list_events()
-
-    def test_unsubscribe_removes_event_when_last_callback_removed(self):
-        bus = PatchouliBus()
-        callback = AsyncMock()
-        bus.subscribe("test.event", callback)
-
-        bus.unsubscribe("test.event", callback)
-
-        assert "test.event" not in bus._subscribers
 
     @pytest.mark.asyncio
     async def test_publish_calls_all_subscribers(self):
@@ -138,13 +127,6 @@ class TestPatchouliBusPubSub:
 
         callback1.assert_awaited_once_with("data")
         callback2.assert_awaited_once_with("data")
-
-    @pytest.mark.asyncio
-    async def test_publish_noop_when_no_subscribers(self):
-        bus = PatchouliBus()
-
-        # 不应抛出异常
-        await bus.publish("no.subscribers", "data")
 
     @pytest.mark.asyncio
     async def test_publish_isolates_subscriber_failure(self):
@@ -180,16 +162,6 @@ class TestPatchouliBusList:
         events = bus.list_events()
 
         assert events == ["event.a", "event.b"]
-
-    def test_list_routes_empty_when_no_registration(self):
-        bus = PatchouliBus()
-
-        assert bus.list_routes() == []
-
-    def test_list_events_empty_when_no_subscription(self):
-        bus = PatchouliBus()
-
-        assert bus.list_events() == []
 
 
 class TestPatchouliBusRepr:

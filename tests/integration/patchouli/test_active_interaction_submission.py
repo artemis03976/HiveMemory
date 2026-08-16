@@ -517,6 +517,6 @@ def test_default_interaction_policy_has_finite_attempt_timeout() -> None:
 
     policy = queue.runtime.lanes[0].policy
 
-    assert policy.timeout_seconds is not None
+    assert policy.timeout_seconds == 30.0
     assert policy.max_attempts == 3
     assert policy.cancellable is False

@@ -146,10 +146,17 @@ def test_terminal_rejects_non_terminal_snapshot() -> None:
 
 
 def test_sink_failure_does_not_escape_emitter() -> None:
+    emitted = []
+
     class FailingSink:
-        def emit(self, _event) -> None:
+        def emit(self, event) -> None:
+            emitted.append(event.event_type)
             raise RuntimeError("sink unavailable")
 
     emitter = MemoryTaskEventEmitter(RuntimeEventPublisher(FailingSink()))
+    snapshot = _snapshot()
 
-    emitter.created(_snapshot())
+    emitter.created(snapshot)  # sink 异常被隔离，不向外传播
+    emitter.created(snapshot)  # 后续调用仍可用
+
+    assert emitted == [RuntimeEventType.MEMORY_TASK_CREATED] * 2

@@ -69,25 +69,5 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
             detail="in-memory",
         )
 
-    # Backward-compatible aliases for older tests and diagnostics.
-
-    def _get_sync(self, topic_id: str) -> Optional[SemanticBuffer]:
-        return self.get(topic_id)
-
-    def _put_sync(self, topic_id: str, buffer: SemanticBuffer) -> None:
-        self.put(topic_id, buffer)
-
-    def _pop_sync(self, topic_id: str) -> Optional[SemanticBuffer]:
-        return self.pop(topic_id)
-
-    def _list_by_user_sync(self, user_id: str) -> List[SemanticBuffer]:
-        return self.list_by_user(user_id)
-
-    def _list_all_sync(self) -> List[SemanticBuffer]:
-        return self.list_all()
-
-    def _count(self) -> int:
-        return self.count()
-
 
 __all__ = ["InMemoryShortTermStorage"]

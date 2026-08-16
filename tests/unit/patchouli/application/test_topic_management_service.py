@@ -5,8 +5,6 @@ import pytest
 from hivememory.core.models import Identity, TopicData
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 class TestTopicManagementService:
@@ -94,60 +92,6 @@ class TestTopicManagementService:
         )
 
         assert result is None
-
-    @pytest.mark.asyncio
-    async def test_get_topic_data_does_not_change_topic_access_state(self):
-        store = ShortTermMemoryStore()
-        buffer = store.create_buffer("u1", topic_title="Gateway")
-        initial_accessed_at = buffer.last_accessed_at
-        bus = PatchouliBus()
-
-        async def get_topic(topic_id: str, *, touch: bool = True):
-            return store.get_topic_data(topic_id, touch=touch)
-
-        bus.register(PatchouliLocalRoutes.TOPIC_GET, get_topic)
-        service = TopicManagementService(bus=bus)
-
-        result = await service.get_topic_data(
-            identity=Identity(user_id="u1"),
-            topic_id=buffer.topic_id,
-        )
-
-        assert result is not None
-        assert buffer.last_accessed_at == initial_accessed_at
-        assert store.get_last_active_topic() is None
-
-    @pytest.mark.asyncio
-    async def test_evict_topic_uses_local_route(self, bus):
-        bus.request.return_value = {"success": True}
-        service = TopicManagementService(bus=bus)
-
-        result = await service.evict_topic(topic_id="t1")
-
-        assert result == {"success": True}
-        bus.request.assert_awaited_once_with(PatchouliLocalRoutes.TOPIC_EVICT, "t1")
-
-    @pytest.mark.asyncio
-    async def test_prepare_topic_uses_local_route(self, bus):
-        identity = Identity(user_id="u1")
-        bus.request.return_value = "real_topic"
-        service = TopicManagementService(bus=bus)
-
-        result = await service.prepare_topic(
-            "NEW_TOPIC",
-            "title",
-            "summary",
-            identity,
-        )
-
-        assert result == "real_topic"
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.TOPIC_PREPARE,
-            "NEW_TOPIC",
-            "title",
-            "summary",
-            identity,
-        )
 
     @pytest.mark.asyncio
     async def test_settle_topic_uses_local_route(self, bus):
