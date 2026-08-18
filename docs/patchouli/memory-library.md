@@ -9,7 +9,9 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-29
+related_ideas:
+  - docs/ideas/workspace-mvp-chat-attachments-design.md
+last_reviewed: 2026-08-18
 ---
 
 # MemoryLibrary 与存储层
@@ -60,6 +62,20 @@ ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文
 
 详细模型与一致性边界见[Artifacts 与来源追踪](./artifacts.md)。
 
+### 1.5 WorkspaceAsset：规划中的进程内 working set
+
+`v0.6.2` 规划中的 WorkspaceAsset 不属于四种存储角色，也不是短期/中期/长期之间的新层级。它是按 user/workspace 逻辑分区的运行期工作资源，保存用户可通过 `WorkspaceAssetRef` 选择的附件及 RAW、EXTRACTED_TEXT 等 representations。MVP 只承诺当前进程内生命周期，不要求 ArtifactStore、LongTermMemoryStore 或另一个 durable adapter 保存它。
+
+WorkspaceAsset working set 可以由 Patchouli 在同一 Runtime 组合边界内统一管理，但不能被误写成 MemoryLibrary 的第五种持久化层：
+
+- 上传成功只表示当前进程内的 asset/ref 可解析；
+- 进程重启后 ref 可以明确失效；
+- Topic binding 只建立可重复选择关系，不自动写 Artifact；
+- 只有实际参与 Memory CREATE/UPDATE 的 representation，才在 Materialization 时创建独立 Artifact 快照；
+- Artifact 创建后按 ArtifactStore 契约存在，不依赖 WorkspaceAsset 是否仍在内存中。
+
+这一区分避免把“Agent 当前可用的工作材料”和“记忆的持久化证据链”塞进同一个 store。详细资源边界和 promotion 契约见 [Workspace MVP 设计](../ideas/workspace-mvp-chat-attachments-design.md)。
+
 ## 2. 状态转移
 
 ### 2.1 短期到中期
@@ -71,11 +87,13 @@ SemanticBuffer
   -> TopicMaterializeTask
   -> GenerationRequest
   -> GenerationOutcome
-  -> artifact side effects
+  -> artifact side effects, including promoted external sources when present
   -> MidTermMemoryStore.upsert(MemoryAtom)
 ```
 
 这种设计保留了一个重要区分：话题结算只是提供候选材料，不等于每组 blocks 必然产生正式记忆。
+
+Chat Attachments 接入后，GenerationRequest 还会携带从 `ContextAssetUse` 冻结的 representation revision/hash。`DISCARD` 不提升附件来源；CREATE/UPDATE 只对真正参与生成的内容创建 DocumentArtifact 或其他来源 Artifact。该行为尚未实现，并且必须在正式 Plan 中裁定 promotion 失败时阻止 Memory 写入还是显式标记 provenance 不完整。
 
 ### 2.2 中期到长期：archive
 
@@ -123,6 +141,7 @@ Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重
 ## 5. 当前限制与一致性边界
 
 - 短期 store 只在内存中，异常退出不会自动恢复；
+- 规划中的 WorkspaceAsset working set 同样只承诺进程内生命周期，不提供重启恢复；
 - archive/revive 是跨两个后端的顺序操作，没有事务、补偿日志或幂等 job；前一步成功而后一步失败时，可能暂时形成重复副本；
 - MidTerm secondary 写入虽有接口，但当前没有原子提交和回滚语义；
 - 长期记忆不会被普通 Retrieval 自动召回，revive 需要显式触发；
