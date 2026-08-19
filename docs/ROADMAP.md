@@ -35,7 +35,7 @@ last_reviewed: 2026-08-19
 
 - 最新已发布标签：`v0.6.1`；
 - 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2`，状态为 Candidate；先建立独立的 W0 Workspace MVP Plan，W1 Chat Attachments 以其完成为硬前置。
+- 下一计划版本：`v0.6.2`，整体状态为 Candidate；[W0 Workspace MVP](./plans/v0.6.2-workspace-mvp.md)已经形成 Planned 实施方案，W1 Chat Attachments 以其完成为硬前置。
 
 当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。`v0.6.1` Git tag、Python 包、前端清单和构建检查使用完全一致的版本口径。
 
@@ -116,7 +116,7 @@ last_reviewed: 2026-08-19
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.2 W0` Workspace MVP | Candidate | 建立 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 SemanticBuffer binding | 依赖 v0.6.1 与 Identity scope；[Workspace MVP 设计](./ideas/workspace-mvp-chat-attachments-design.md)，独立正式 Plan 待建立 |
+| `v0.6.2 W0` Workspace MVP | Planned | 建立 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 SemanticBuffer binding | 依赖 v0.6.1 与 Identity scope；[正式 Plan](./plans/v0.6.2-workspace-mvp.md)，设计推导见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
 | `v0.6.2 W1` Chat Attachments | Candidate | 在已经验收的 Workspace 公共契约上实现上传、文本解析、asset refs、Context Compiler 与按需 Artifact promotion | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；独立正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -142,7 +142,7 @@ last_reviewed: 2026-08-19
 
 ### 4.2 v0.6.2 Workspace MVP 与 Chat Attachments
 
-`v0.6.2` 使用两份独立开发 Plan。W0 Workspace MVP 是当前首先设计和实施的基础计划，W1 Chat Attachments 是其下游计划；W1 不得通过私有兼容字段或局部容器绕过尚未完成的 Workspace scope、资源归属和隔离验收。
+`v0.6.2` 使用两份独立开发 Plan。[W0 Workspace MVP 正式 Plan](./plans/v0.6.2-workspace-mvp.md)是当前首先实施的基础计划，W1 Chat Attachments 是其下游计划；W1 不得通过私有兼容字段或局部容器绕过尚未完成的 Workspace scope、资源归属和隔离验收。
 
 #### 4.2.1 W0 Workspace MVP
 

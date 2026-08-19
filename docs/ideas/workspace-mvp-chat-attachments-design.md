@@ -13,13 +13,13 @@ related_current:
 related_ideas:
   - ./ae2-hivememory-architecture-analogy.md
 related_plans:
-  - ../plans/README.md
+  - ../plans/v0.6.2-workspace-mvp.md
 last_reviewed: 2026-08-19
 ---
 
 # Workspace MVP 与 Chat Attachments 初步设计
 
-本文同时记录 `v0.6.2 W0 Workspace MVP` 的前置设计和 `W1 Chat Attachments` 对其公共契约的依赖，但二者将形成两份独立实施 Plan。当前首先推进 W0；本文不是已经冻结的实施 Plan，也不代表系统已经具备 Workspace 或附件能力。
+本文同时记录 `v0.6.2 W0 Workspace MVP` 的设计推导和 `W1 Chat Attachments` 对其公共契约的依赖，二者使用两份独立实施 Plan。W0 已转录为[正式 Plan](../plans/v0.6.2-workspace-mvp.md)；本文继续保存设计背景与 W1 开放问题，不代表系统已经具备 Workspace 或附件能力。
 
 本文要解决的问题是：在不提前实现完整 Agent Workspace、Mount、Capability、工具环境和队列管理的前提下，如何建立一个足以承载 Chat Attachment 的资源作用域和资产引用基础，并让后续 `v0.7.0 Document Ingestion` 可以复用同一套来源链。
 
@@ -722,7 +722,7 @@ acquire_ready_representation(access_context, asset_id, preference)
 
 ## 5. 最小数据模型草案
 
-以下模型用于冻结概念和边界，字段可以在正式 Plan 中继续调整。
+以下模型用于冻结概念和边界；W0 的实施字段、不变量和调整程序以[正式 Plan](../plans/v0.6.2-workspace-mvp.md)为准，W1 特有模型仍需在后续独立 Plan 中确认。
 
 ```text
 Workspace
@@ -1047,23 +1047,9 @@ v0.7.0 Document Ingestion
 
 ### 10.1 Workspace MVP Plan
 
-当前首先建立的正式 Plan 只覆盖 Workspace MVP。`WorkspaceIdentity` 的字段、默认值和 MVP 等值不变量已经在 4.1 冻结；System-owned WorkspaceRuntime/WorkspaceAssetStore 与 SemanticBuffer-owned binding 已在 4.3/4.4 冻结；两级状态机、READY-only 使用和无自动解析重试已在 4.9 冻结；`WorkspaceAccessContext` 的三个字段和唯一 `interaction_id` 已在 4.2 冻结；端到端传递链已在 4.7 冻结；历史数据脚本的后置时机已在 6.1.1 冻结。不再把独立 ID 生成、Workspace Registry、数据批量转换、附件上传、真实解析、Context Compiler、缓存迁移或 Artifact promotion 作为本 Plan 的完成条件。
+W0 已转录为 [v0.6.2 W0 Workspace MVP 正式 Plan](../plans/v0.6.2-workspace-mvp.md)。该 Plan 已补齐具体代码落点、P0-P7 迁移顺序、默认 `main_workspace` 解析、AccessContext 传播、Memory/Artifact/Topic/cache/work scope、System-owned WorkspaceAssetStore、两级状态机、SemanticBuffer binding、删除/lease 矩阵、历史兼容读取、双 Workspace 测试和发布回滚边界。
 
-Workspace MVP Plan 进入 `docs/plans` 前仍需补齐：
-
-- 具体受影响模块和迁移顺序；
-- 将已经冻结的 WorkspaceAccessContext 模型和 4.7 传递链映射到具体代码入口、DTO、route 签名和实施顺序；
-- 默认 `main_workspace` 入口解析、历史记录兼容 filter/projection 和第二 Workspace 测试构造的具体落点；
-- Memory、Artifact、Topic、cache 与 Work payload 从裸字段迁移到规范 Workspace 身份投影的方案；
-- 将已冻结的 visibility 枚举映射落实到新枚举定义、兼容读取和后置转换脚本的模块清单；
-- 将已冻结的 System-owned WorkspaceAssetStore/可选薄 WorkspaceRuntime 映射到 `_RuntimeBundle`、Port、依赖注入和启停顺序；
-- 将已冻结的两级状态机、READY-only binding、late parse rejection、删除清理和 lease 契约映射到具体命令/API；
-- 将 TopicAssetBinding 落到 SemanticBuffer/ShortTermMemoryStore 命名方法、只读 Topic 投影和 settle/evict/delete 矩阵；
-- 两 Workspace 隔离、cache 污染、幂等和 provenance hold 的测试计划；
-- 完成后需要同步更新的当前设计文档、contracts 和 Roadmap 条目；
-- 将 `identity-and-execution-safety.md` 中的身份结构明确为 `AccessContext = actor Identity + WorkspaceIdentity + interaction_id`，避免继续把执行者域与资产域写成同一个 Identity 层级。
-
-W0 通过验收后，再单独建立历史数据转换脚本的执行说明和回滚步骤；该脚本不是 Workspace MVP 主链路的一部分。
+正式 Plan 只覆盖 Workspace MVP，不包含独立 ID 生成、Workspace Registry、历史数据批量转换执行、附件上传、真实解析、Context Compiler、cache 所有权迁移或 Artifact promotion。W0 通过验收后，再单独建立历史数据转换脚本的执行说明和回滚步骤；W1 Chat Attachments 也继续使用独立 Plan。
 
 ### 10.2 Chat Attachments Plan
 
