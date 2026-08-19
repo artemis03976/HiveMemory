@@ -61,6 +61,18 @@ from .pending import (
     PendingAtom,
     PendingAtomSettlement,
 )
+from .workspace import (
+    ISOLATION_WORKSPACE_ID,
+    MAIN_WORKSPACE_ID,
+    WorkScopeSnapshot,
+    WorkspaceAccessContext,
+    WorkspaceIdentity,
+    WorkspaceTopicKey,
+    build_internal_workspace_access,
+    require_workspace_access_context,
+    resolve_default_workspace_access,
+    resolve_default_workspace_identity,
+)
 
 __all__ = [
     "ArtifactType",
@@ -116,4 +128,14 @@ __all__ = [
     "RuntimeScope",
     "PendingAtom",
     "PendingAtomSettlement",
+    "MAIN_WORKSPACE_ID",
+    "ISOLATION_WORKSPACE_ID",
+    "WorkspaceIdentity",
+    "WorkspaceAccessContext",
+    "WorkspaceTopicKey",
+    "WorkScopeSnapshot",
+    "resolve_default_workspace_identity",
+    "resolve_default_workspace_access",
+    "build_internal_workspace_access",
+    "require_workspace_access_context",
 ]

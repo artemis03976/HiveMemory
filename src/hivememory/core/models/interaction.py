@@ -33,7 +33,7 @@ class Identity(BaseModel):
     """
     user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
     agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
-    team_id: str | None = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于 Workspace 作用域过滤）")
+    team_id: str | None = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于执行者可见性策略）")
     session_id: str | None = Field(default=None, description="会话 ID（兼容字段）")
 
     @property

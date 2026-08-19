@@ -56,7 +56,7 @@ class MetaData(BaseModel):
 
     source_agent_id: str = Field(..., description="来源Agent ID")
     user_id: str = Field(..., description="归属用户ID")
-    team_id: Optional[str] = Field(default=None, description="团队 ID（用于 Workspace 作用域过滤）")
+    team_id: Optional[str] = Field(default=None, description="来源团队 ID（用于执行者可见性策略）")
     session_id: Optional[str] = Field(default=None, description="原始会话ID")
 
     visibility: MemoryVisibility = Field(
