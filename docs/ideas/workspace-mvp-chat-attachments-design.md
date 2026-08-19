@@ -326,7 +326,7 @@ Workspace MVP 冻结以下规则：
 11. RuntimeEvent 可以记录 Workspace，但不能参与授权；
 12. 未来允许存储层透明物理分片，但不得改变以上领域契约。
 
-这与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)中“request/run/frame/work item 携带不可变身份快照和 scope”“资源所有者重验”“缓存不承载授权”的规则一致。Workspace MVP 需要把这些治理要求从后续目标提升为本功能的前置不变量，否则新增的资产轴会放大现有身份和缓存污染风险。
+这与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)中“request/run/frame/work item 携带不可变身份上下文与 scope”“资源所有者重验”“缓存不承载授权”的规则一致。这里的“快照”是治理层对固定身份坐标的描述，不要求另建一个与 `WorkspaceAccessContext` 重复的领域模型。Workspace MVP 需要把这些治理要求从后续目标提升为本功能的前置不变量，否则新增的资产轴会放大现有身份和缓存污染风险。
 
 #### 4.3.3 System-owned WorkspaceRuntime
 
@@ -534,7 +534,7 @@ HTTP / other adapter
   -> Patchouli finalize / cleanup
 ```
 
-“锁定”表示一次 Run 的 user/agent/team/workspace 坐标不可被下游替换，不表示后续可以省略授权。资源所有者仍需根据该上下文重新验证 Workspace 状态和资源归属。
+“锁定”表示一次 Run 的 user/agent/team/workspace 坐标不可被下游替换，不表示后续可以省略授权。`WorkspaceAccessContext` 及其嵌套的 `Identity`、`WorkspaceIdentity` 在创建后都必须保持不可变；切换 Agent、Workspace 或 Interaction 只能创建新上下文。资源所有者仍需根据原上下文重新验证 Workspace 状态和资源归属。
 
 一次 Active Chat 使用一个且仅一个 `interaction_id` 作为 Run 关联 ID。它必须在冻结 `WorkspaceAccessContext` 之前生成，并贯穿 ChatGenerationRun、Gateway、Patchouli prepare、Alice、finalize、InteractionPayload 和后台 work。HTTP `request_id` 可以继续存在于 transport/logging 层，但不进入该上下文模型。
 
@@ -558,14 +558,14 @@ WorkspaceAccessContext
 | 阶段 | Workspace scope 职责 |
 |:---|:---|
 | ChatApplicationService | 生成唯一 `interaction_id`，解析默认 Workspace，创建不可变 AccessContext |
-| ChatGenerationRun | 保存同一个 `interaction_id` 与 scope/fingerprint，供 cancel/status/event 校验 |
+| ChatGenerationRun | 保存唯一的 AccessContext 与派生 fingerprint；从上下文读取 `interaction_id`，供 cancel/status/event 校验 |
 | GatewayExecutionState | 将 AccessContext 作为初始化后不可覆盖的请求事实 |
 | Patchouli prepare | 在该 scope 内路由 Topic、检索 Memory、绑定资产和编译上下文 |
 | PreparedAgentRun | 冻结 prepare 结果与原始 AccessContext，供 finalize/cleanup 复用 |
 | Alice AgentRunContext | 向主 Frame 提供相同 scope |
-| ExecutionFrame / MTP | 继承相同或更窄的 scope，不允许更换 Workspace |
+| ExecutionFrame / MTP | 完整继承相同 AccessContext；只允许缩小资源选择，不允许改写身份坐标或更换 Workspace |
 | Patchouli finalize | 只消费 PreparedAgentRun 中的 scope，不能接受另一组裸身份字段 |
-| background work/retry | 序列化 scope snapshot，并在每次 attempt 重新授权 |
+| background work/retry | 通过 versioned codec 完整序列化同一 AccessContext，每次 attempt 解码后重新授权 |
 | RuntimeEvent | 投影 workspace_id 供观测，不作为授权输入 |
 
 公共用例签名应优先接收完整上下文：
@@ -588,13 +588,18 @@ Gateway 使用的 scope
   == Patchouli prepare 读取的 scope
   == Alice/子 Frame 使用的 scope
   == Patchouli finalize 写入的 scope
+  == background task 解码后的 AccessContext
 ```
 
 `ChatGenerationRun` 虽然是 System 控制状态而不是 Workspace 资产，也应保存冻结 scope。cancel/status 查询不能只依赖 `generation_id`；调用者至少需要匹配 Run 的 user/workspace 边界，避免 generation ID 被另一个 Workspace 用来停止或观察运行。
 
 子 Agent 默认继承父 Run 的 user/workspace hard boundary，只能通过经过授权的 context refs 缩小或选择资产。自然语言、alias、CALL 或默认值都不能扩大 scope。
 
-通用 Work Queue 不必立即改变基础 `WorkItem` 结构，但所有附件、Interaction、Memory Generation 和 Lifecycle 相关领域 payload、ordering key 和 idempotency key 都必须包含 Workspace scope。后台任务使用可序列化的 scope snapshot，而不是依赖进程内 AccessContext 对象；每次 retry 重新解码并授权。全局 maintenance 如需处理多个 Workspace，应显式逐 Workspace 执行 scoped operation，不能以无 Workspace filter 的全库扫描替代所有权检查。
+通用 Work Queue 不必立即改变基础 `WorkItem` 结构，但所有附件、Interaction、Memory Generation 和 Lifecycle 相关领域 payload、ordering key 和 idempotency key 都必须包含 Workspace scope。由 Interaction 派生的 Task DTO 直接保存唯一的 `WorkspaceAccessContext`；versioned codec 将它完整编码到 WorkItem 独占的 payload bytes，并在每次 retry 重新解码和授权。序列化结果是边界投影，不是新的身份模型，也不能与另一组平铺 actor/workspace 字段并存。全局 maintenance 如需处理多个 Workspace，应显式逐 Workspace 执行 scoped operation，不能以无 Workspace filter 的全库扫描替代所有权检查。
+
+`WorkspaceAccessContext` 在顶层入口创建后即不可修改：切换 Agent、Workspace 或 Interaction 都要创建新的上下文。不可变上下文只固定任务原本绑定的坐标，不缓存永久授权；Workspace 状态、grant、team membership 或资源 policy 变化后，handler 仍需在每次 attempt 使用原坐标重新授权，不能刷新 AccessContext、读取 `current_workspace` 或重新解析 `main_workspace`。
+
+异步隔离还需要满足[数据模型可变性治理](../governance/data-model/mutability.md)的深度要求。TaskSpec 的 frozen 外壳不代表其 `GenerationRequest` 与嵌套容器递归只读；admission 后必须立即生成与调用方对象图脱钩的 payload bytes，确保调用方后续修改请求对象不会改变已入队任务。
 
 ### 4.8 授权、opaque ID 与 cache 命中
 
@@ -891,7 +896,7 @@ ArtifactMeta / TopicMeta
 
 MemoryAtom 在实施 P2 时正式进入 schema v2。顶层 `schema_version` 表示领域/持久化契约版本，与现有用于内容演化或乐观锁的 `meta.version` 正交，不能复用。v2 只以 `workspace_identity` 作为 ownership 权威，不同时保存含糊的 `user_id` 和另一套 owner 字段；`PUBLIC | PRIVATE | TEAM` 是 owning Workspace 内部的 read policy。`PRIVATE/TEAM` 的 target 与 source provenance 分开，避免修改访问策略时篡改创建历史。存储 adapter 负责 v2 平铺和 v1 compatibility decode，不能把兼容字段泄漏回新领域模型。
 
-Memory Generation/Materialization 不能只靠裸 `Identity` 构造 v2：创建输入必须携带 `WorkScopeSnapshot` 或窄化的 `MemoryCreationContext`，从 WorkspaceIdentity 取得 ownership、从 actor Identity 取得 provenance，并将选择后的 policy 显式写入新记录。
+Memory Generation/Materialization 不能只靠裸 `Identity` 构造 v2：所属 TaskSpec 必须携带唯一、完整的 `WorkspaceAccessContext`，从 WorkspaceIdentity 取得 ownership、从 actor Identity 取得 provenance，并将选择后的 policy 显式写入新记录。下层 builder 可以接收从该上下文派生的窄参数，但不得建立 `WorkScopeSnapshot` 或并列 `MemoryCreationContext` 作为第二身份权威。
 
 WorkspaceAsset 与 AssetRepresentation 状态只能通过 WorkspaceAssetStore 的命名迁移改变；asset READY 是 required representation READY 的聚合结果，而不是独立可写布尔值。FAILED 不自动回到 PROCESSING，REMOVED 不允许被晚到解析结果复活。
 
@@ -905,7 +910,7 @@ WorkspaceAsset 与 AssetRepresentation 状态只能通过 WorkspaceAssetStore �
 
 至少包括：
 
-- ChatRequest 入口和 ChatGenerationRun scope snapshot；
+- ChatRequest 入口和 ChatGenerationRun 中冻结的 WorkspaceAccessContext；
 - GatewayExecutionState / Gateway context；
 - PreparedAgentRun；
 - Memory metadata 和 Retrieval filters；
@@ -926,16 +931,34 @@ MUST match_actor_read_policy(access.actor_identity, ...)
 
 Workspace MVP 不在系统落地前批量改写现有数据。对于尚未转换的历史记录，W0 只提供明确的 compatibility-read/filter projection：根据记录中的 `user_id` 临时构造 `WorkspaceIdentity(owner_user_id=user_id, workspace_key="main_workspace", workspace_id="main_workspace")`，并将缺失的 Workspace 归属解释为默认 Workspace；这只是存储适配器的迁移兼容，不是业务链路允许 `workspace_id or workspace_key` 的通用 fallback。历史 `meta.user_id` 在这里被解释为 legacy resource owner，而不是必须永久保留的 actor provenance。历史 `source_agent_id/team_id` 继续作为 provenance 和 v1 policy target 的迁移输入，不能替代 Workspace 归属。
 
-跨子系统公开方法应逐步从裸 `user_id/agent_id/workspace_id` 参数迁移为完整的 `WorkspaceAccessContext`。可持久化或可重试的 work item 使用其可序列化投影：
+跨子系统公开方法应逐步从裸 `user_id/agent_id/workspace_id` 参数迁移为完整的 `WorkspaceAccessContext`。Interaction Submission、Memory Generation 等由 Interaction 派生的 Task DTO 直接保存同一规范上下文：
 
 ```text
-WorkScopeSnapshot
-  workspace_identity: WorkspaceIdentity
-  actor_identity: Identity
-  interaction_id / operation_id
+TaskSpec
+  access_context: WorkspaceAccessContext
+    actor_identity: Identity
+    workspace_identity: WorkspaceIdentity
+    interaction_id: str
+  ...domain payload
+
+versioned codec
+  -> encode complete access_context
+  -> detached WorkItem.payload bytes
+  -> decode and validate per attempt
 ```
 
-scope snapshot 记录目标坐标，不缓存永久授权结果；handler 在每次 attempt 仍由资源所有者重验。
+`WorkspaceAccessContext` 是领域中的唯一身份事实；codec 产出的 bytes 只是跨异步边界的 wire projection。handler 每次 attempt 恢复同一语义上下文，再由资源所有者按当前状态重验权限。缺字段、冲突身份投影、payload 篡改和未知 schema version 均 fail closed。
+
+当前用例都有 Interaction 语义，因此不定义同时携带 `interaction_id?` 与 `operation_id?` 的联合 scope。以后出现真实的 operation-only work 时，应建立独立的不可变强类型，例如：
+
+```text
+WorkspaceOperationContext
+  actor_identity: Identity
+  workspace_identity: WorkspaceIdentity
+  operation_id: str
+```
+
+通用 `WorkItem` 保持领域中立，只持有 schema version、payload bytes 和通用调度字段，不直接依赖 Workspace 模型。
 
 #### 6.1.1 历史数据转换时机与脚本
 
@@ -1132,6 +1155,6 @@ AccessContext
   -> interaction_id
 ```
 
-这不是推翻已有身份治理，而是把其中“不可变身份快照和 scope”原则具体化：Identity 描述执行者，WorkspaceIdentity 描述资产域，AccessContext 在一次 request/run 中冻结两者。
+这不是推翻已有身份治理，而是把其中“不可变身份上下文和 scope”原则具体化：Identity 描述执行者，WorkspaceIdentity 描述资产域，AccessContext 在一次 request/run 中冻结两者。所谓跨边界“快照”指对这份 AccessContext 的版本化序列化投影，不是另一套可独立演化的身份领域对象。
 
 在这些内容冻结前，本稿只作为设计讨论和实现边界参考，不作为当前能力说明。
