@@ -12,6 +12,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.workspace import make_access_context
 
 
 def _make_payload(user_msg="msg", assistant_msg="reply", identity=None):
@@ -27,7 +28,7 @@ def _make_payload(user_msg="msg", assistant_msg="reply", identity=None):
                 content=assistant_msg,
             )
         ],
-        identity=identity,
+        access_context=make_access_context(actor_identity=identity),
     )
 
 
@@ -85,7 +86,7 @@ class TestSemanticFlowPerceptionLayer:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            identity=identity,
+            access_context=make_access_context(actor_identity=identity),
         )
 
         with pytest.raises(ValueError, match="turn_events is required"):

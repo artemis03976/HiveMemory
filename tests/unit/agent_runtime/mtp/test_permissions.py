@@ -2,10 +2,10 @@
 
 import pytest
 
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp.exceptions import AgentFault, PermissionDeniedError
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _create_koakuma():
@@ -26,7 +26,10 @@ def _make_profile(allowed_verbs=None, allowed_tools=None):
 
 
 def _context(profile=None):
-    return MTPExecutionContext(agent_profile=profile)
+    return MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=profile,
+    )
 
 
 class TestCheckVerbPermission:

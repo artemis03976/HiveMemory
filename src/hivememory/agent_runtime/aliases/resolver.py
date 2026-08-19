@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from uuid import UUID
 
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import MemoryAtom
 from hivememory.core.models.pending import (
     PendingAtom,
@@ -76,7 +77,7 @@ class RuntimeAliasResolver:
     async def resolve(
         self,
         alias: str,
-        context: Optional["MTPExecutionContext"] = None,
+        context: MTPExecutionContext,
     ) -> ResolveResult:
         """
         三级解析 alias。
@@ -84,6 +85,9 @@ class RuntimeAliasResolver:
         Returns:
             ResolveResult: kind="pending" / "redirect" / "discarded" / "failed" / "atom" / "not_found"
         """
+        if context is None:
+            raise ScopeRequiredError("Alias resolve 缺少 WorkspaceAccessContext")
+
         # L0: PendingAtomRuntime
         pending = self._pending_runtime.get(alias)
         if pending is not None:
@@ -107,7 +111,7 @@ class RuntimeAliasResolver:
         self,
         pending: PendingAtom,
         alias: str,
-        context: Optional["MTPExecutionContext"] = None,
+        context: MTPExecutionContext,
     ) -> ResolveResult:
         """解析 L0 pending 命中，包括已结算后的 redirect 状态。"""
         settlement = pending.settlement
@@ -187,22 +191,16 @@ class RuntimeAliasResolver:
     async def _cold_lookup(
         self,
         alias: str,
-        context: Optional["MTPExecutionContext"] = None,
+        context: MTPExecutionContext,
     ) -> Optional[MemoryAtom]:
         """L2 冷查询：通过 bus 查询存储层。"""
-        from hivememory.agent_runtime.models import MTPExecutionContext
         from hivememory.system.contracts.routes import GlobalRoutes
 
         try:
-            identity = (
-                context.identity
-                if context is not None
-                else MTPExecutionContext().identity
-            )
             retrieval_response = await self._bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[alias],
-                identity=identity,
+                access_context=context.access_context,
             )
             memories = getattr(retrieval_response, "memories", []) or []
             memory = memories[0] if memories else None

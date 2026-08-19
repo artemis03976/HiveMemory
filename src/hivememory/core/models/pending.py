@@ -21,7 +21,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.core.models.interaction import Identity
-
+from hivememory.core.models.workspace import WorkspaceAccessContext
 
 # ===========================================================================
 # 生命周期状态体系
@@ -144,10 +144,11 @@ class UpdateFocus(BaseModel):
 
 
 class RuntimeScope(BaseModel):
-    """Runtime execution coordinates for an Alice agent run."""
+    """Alice run/frame/action 坐标及其不可切换的 Workspace hard boundary。"""
 
-    run_id: str = ""
-    frame_id: str = ""
+    access_context: WorkspaceAccessContext
+    run_id: str
+    frame_id: str
     action_id: Optional[str] = None
 
     def with_action(self, action_id: str) -> "RuntimeScope":
@@ -235,7 +236,7 @@ class PendingAtom(BaseModel):
 
     focus: WriteFocus | UpdateFocus
     identity: Identity = Field(default_factory=Identity)
-    runtime_scope: RuntimeScope = Field(default_factory=RuntimeScope)
+    runtime_scope: RuntimeScope
     created_at: datetime = Field(default_factory=datetime.now)
 
     # Phase 2: settlement tracking

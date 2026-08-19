@@ -30,6 +30,7 @@ from hivememory.system.config import SystemGatewayConfig, UserQueryAnalysisConfi
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from tests.helpers.workspace import make_access_context
 
 
 def _build_context(raw_message: str, **overrides) -> UserQueryAnalysisContext:
@@ -229,7 +230,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
 
     result = await GatewayService(runtime).process(
         "继续处理标准查询",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -281,7 +282,7 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
 
     result = await GatewayService(runtime).process(
         "继续处理标准查询",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 

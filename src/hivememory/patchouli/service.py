@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from hivememory.core.models import ActionReducer, Identity, MemoryAtom, TraceReducer
+from hivememory.core.models import (
+    ActionReducer,
+    MemoryAtom,
+    TraceReducer,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -95,50 +101,45 @@ class PatchouliService:
     async def prepare_agent_run(
         self,
         user_message: str,
-        user_id: str,
         *,
+        access_context: WorkspaceAccessContext,
         gateway_decision: GatewayDecision,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
     ) -> PreparedAgentRun:
         """根据 GatewayDecision 准备一次完整的 Agent 运行上下文。"""
-
-        identity = Identity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
+        access_context = require_workspace_access_context(access_context)
+        identity = access_context.actor_identity
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
 
         try:
             agent_profile = await self._local_bus.request(
                 PatchouliLocalRoutes.GET_AGENT_PROFILE,
-                agent_id,
-                identity=identity,
+                identity.agent_id,
+                access_context=access_context,
             )
             real_topic_id = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_PREPARE,
                 target_topic_id=gateway_decision.target_topic_id,
                 new_topic_title=gateway_decision.new_topic_title,
                 new_topic_summary=gateway_decision.new_topic_summary,
-                identity=identity,
+                access_context=access_context,
             )
             pool_topics = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-                identity=identity,
+                access_context=access_context,
                 include_empty=True,
             )
             topic_context = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_GET,
                 real_topic_id,
+                access_context=access_context,
             )
 
             retrieval_result = await self.retrieve_for_decision(
                 gateway_decision,
-                identity=identity,
+                access_context=access_context,
                 enable_retrieval=enable_memory_retrieval,
             )
             memory_context = (
@@ -156,7 +157,7 @@ class PatchouliService:
             )
 
             agent_run_context = AgentRunContext(
-                identity=identity,
+                access_context=access_context,
                 topic_id=real_topic_id,
                 user_message=user_message,
                 topic_context=topic_context,
@@ -178,7 +179,6 @@ class PatchouliService:
                 agent_run_context=agent_run_context,
                 gateway_decision=gateway_decision,
                 stream_prelude=stream_prelude,
-                interaction_id=str(uuid4()),
                 generation_options=generation_options,
             )
         except Exception:
@@ -198,10 +198,10 @@ class PatchouliService:
         actions = ActionReducer.reduce(loop_result.turn_events)
         mtp_traces = TraceReducer.reduce(actions)
         payload = InteractionPayload(
+            access_context=prepared_run.access_context,
             user_message=agent_context.user_message,
             mtp_traces=mtp_traces,
             materialize_tasks=loop_result.materialize_tasks,
-            identity=agent_context.identity,
             rewritten_query=decision.rewritten_query,
             worth_saving=decision.worth_saving,
             assistant_final_text=loop_result.final_text,
@@ -455,10 +455,12 @@ class PatchouliService:
         self,
         decision: GatewayDecision,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         enable_retrieval: bool = True,
     ) -> RetrievalResponse:
         """按 GatewayDecision 派生 Patchouli 检索请求。"""
+
+        access_context = require_workspace_access_context(access_context)
 
         if (
             not enable_retrieval
@@ -470,7 +472,7 @@ class PatchouliService:
         retrieval_request = RetrievalRequest(
             semantic_query=decision.rewritten_query,
             keywords=list(decision.search_keywords),
-            identity=identity,
+            access_context=access_context,
             top_k=decision.retrieval_plan.top_k,
         )
         return await self._local_bus.request(

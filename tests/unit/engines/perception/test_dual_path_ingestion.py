@@ -21,6 +21,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.workspace import make_access_context
 
 
 def _make_layer() -> tuple[SemanticFlowPerceptionLayer, ShortTermMemoryStore]:
@@ -58,7 +59,7 @@ async def test_missing_turn_events_raises_error():
     layer, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        identity=_identity(),
+        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[],
     )
     with pytest.raises(ValueError, match="turn_events is required"):
@@ -72,7 +73,7 @@ async def test_structured_path_persists_assistant_final_text():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean reply",
-        identity=_identity(),
+        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[turn_event],
     )
 
@@ -94,7 +95,7 @@ async def test_structured_path_reduces_turn_events_to_actions():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean reply",
-        identity=_identity(),
+        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[
             TurnEvent(
                 kind="tool_call",
@@ -140,7 +141,7 @@ async def test_structured_path_persists_payload_mtp_traces():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean",
-        identity=_identity(),
+        access_context=make_access_context(actor_identity=_identity()),
         mtp_traces=[trace],
         turn_events=[_turn_event()],
     )
@@ -159,7 +160,7 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean",
-        identity=_identity(),
+        access_context=make_access_context(actor_identity=_identity()),
         mtp_traces=[],
         turn_events=[_turn_event()],
     )
@@ -178,7 +179,7 @@ async def test_structured_path_empty_final_text_stays_empty():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="",
-        identity=_identity(),
+        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[_turn_event()],
     )
 

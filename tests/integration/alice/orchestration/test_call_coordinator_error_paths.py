@@ -29,18 +29,18 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     DispatchCallee,
     ResumeCaller,
 )
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
+from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(frame_id: str = "frame-root") -> ExecutionFrame:
     return ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id="run-baseline", frame_id=frame_id),
+        runtime_scope=make_runtime_scope(run_id="run-baseline", frame_id=frame_id),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic-1",
-        identity=Identity(user_id="user-1", agent_id="omni_doll"),
     )
 
 

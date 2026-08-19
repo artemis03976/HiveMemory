@@ -13,10 +13,10 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -27,10 +27,10 @@ from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
     MemoryTypeMismatchError,
-    PermissionDeniedError,
 )
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
+from tests.helpers.workspace import make_access_context
 
 
 def _make_profile_atom(
@@ -166,7 +166,8 @@ class TestProfileLoadingErrors:
 
         for alias in (None, "", "  "):
             profile = await service.get_agent_profile(
-                alias, identity=Identity(user_id="u1")
+                alias,
+                access_context=make_access_context(user_id="u1"),
             )
             assert profile is OMNI_DOLL_PROFILE
 
@@ -178,7 +179,8 @@ class TestProfileLoadingErrors:
 
         for alias in ("default", "omni_doll"):
             profile = await service.get_agent_profile(
-                alias, identity=Identity(user_id="u1")
+                alias,
+                access_context=make_access_context(user_id="u1"),
             )
             assert profile is OMNI_DOLL_PROFILE
 
@@ -191,19 +193,22 @@ class TestProfileLoadingErrors:
 
         with pytest.raises(AliasNotFoundError) as exc_info:
             await service.get_agent_profile(
-                "nonexistent_agent", identity=Identity(user_id="u1")
+                "nonexistent_agent",
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
 
-    async def test_custom_alias_without_identity_is_denied(self):
-        """自定义 alias 且无 identity 时拒绝（不触发存储查询）。"""
+    async def test_custom_alias_without_scope_is_denied(self):
+        """自定义 alias 且无 scope 时拒绝（不触发存储查询）。"""
         service, get_by_alias = _make_retrieval_familiar()
 
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            await service.get_agent_profile("custom_agent", identity=None)
+        with pytest.raises(ScopeRequiredError):
+            await service.get_agent_profile(
+                "custom_agent",
+                access_context=None,  # type: ignore[arg-type]
+            )
 
-        assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
         get_by_alias.assert_not_awaited()
 
     async def test_wrong_memory_type_fails_explicitly(self):
@@ -220,7 +225,8 @@ class TestProfileLoadingErrors:
 
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
             await service.get_agent_profile(
-                "custom", identity=Identity(user_id="u1")
+                "custom",
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
@@ -240,7 +246,8 @@ class TestProfileLoadingErrors:
 
         with pytest.raises(InvalidArgumentError) as exc_info:
             await service.get_agent_profile(
-                "broken", identity=Identity(user_id="u1")
+                "broken",
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
@@ -253,7 +260,8 @@ class TestProfileLoadingErrors:
         )
 
         profile = await service.get_agent_profile(
-            "coder_doll", identity=Identity(user_id="system")
+            "coder_doll",
+            access_context=make_access_context(user_id="system"),
         )
 
         assert profile.persona == "You are coder_doll."

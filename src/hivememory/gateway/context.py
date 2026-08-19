@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models import Identity, TopicData, TopicSnapshot
+from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -28,13 +28,13 @@ class GatewayContextProvider(Protocol):
     async def prepare_candidate_topics(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> CandidateTopics: ...
 
     async def prepare_routed_topic(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicData | None: ...
 
@@ -54,12 +54,12 @@ class GlobalBusGatewayContextProvider:
     async def prepare_candidate_topics(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> CandidateTopics:
         try:
             snapshots = await self._global_bus.request(
                 PatchouliRoutes.TOPIC_LIST_ACTIVE,
-                identity=identity,
+                access_context=access_context,
                 include_empty=self._include_empty_topics,
             )
         except Exception as exc:
@@ -79,7 +79,7 @@ class GlobalBusGatewayContextProvider:
     async def prepare_routed_topic(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicData | None:
         if topic_id == "NEW_TOPIC":
@@ -87,7 +87,7 @@ class GlobalBusGatewayContextProvider:
         try:
             topic_data = await self._global_bus.request(
                 PatchouliRoutes.TOPIC_GET_DATA,
-                identity=identity,
+                access_context=access_context,
                 topic_id=topic_id,
             )
         except Exception as exc:

@@ -24,6 +24,8 @@ from hivememory.core.models import (
     MemoryVisibility,
     TopicData,
     TopicSnapshot,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
 )
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
@@ -88,11 +90,13 @@ class RetrievalFamiliar:
         self,
         topic_id: str,
         *,
+        access_context: WorkspaceAccessContext,
         touch: bool = True,
     ) -> TopicData | None:
         """
         读取短期话题上下文。
         """
+        require_workspace_access_context(access_context)
         return self._memory_library.short_term.get_topic_data(
             topic_id,
             touch=touch,
@@ -100,8 +104,8 @@ class RetrievalFamiliar:
 
     def list_active_topics(
         self,
-        identity: Identity,
         *,
+        access_context: WorkspaceAccessContext,
         include_empty: bool = False,
         sort_by_access: bool = True,
     ) -> tuple[TopicSnapshot, ...]:
@@ -111,8 +115,9 @@ class RetrievalFamiliar:
         默认排除空话题，供 Gateway 路由决策使用；include_empty=True
         时可承接前端话题池展示。
         """
+        access_context = require_workspace_access_context(access_context)
         topics = self._memory_library.short_term.list_topic_data(
-            user_id=identity.user_id,
+            user_id=access_context.workspace_identity.owner_user_id,
             include_empty=include_empty,
         )
         if not include_empty:
@@ -156,7 +161,7 @@ class RetrievalFamiliar:
         self,
         agent_alias: str | None,
         *,
-        identity: Identity | None = None,
+        access_context: WorkspaceAccessContext,
     ) -> AgentProfile:
         """
         根据 Agent 别名读取配置，并由 Profile 所有者 Patchouli 执行可见性校验。
@@ -164,26 +169,26 @@ class RetrievalFamiliar:
         只有未指定 alias 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
         Omni-Doll。任何自定义 alias 的缺失、越权、类型错误或配置损坏都会显式失败。
         """
+        access_context = require_workspace_access_context(access_context)
+        identity = access_context.actor_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        if identity is None:
-            raise PermissionDeniedError(
-                message_key="mtp.call.profile_permission_denied",
-                params={"agent_alias": normalized_alias},
-            )
-
+        owner_user_id = access_context.workspace_identity.owner_user_id
         atom = await self._memory_library.mid_term.get_by_alias(
             normalized_alias,
-            identity.user_id,
+            owner_user_id,
         )
         if atom is None:
             raise AliasNotFoundError(
                 message_key="mtp.call.profile_not_found",
                 params={"agent_alias": normalized_alias},
             )
-        if not self._is_memory_visible_to(atom, identity):
+        if (
+            atom.meta.user_id != owner_user_id
+            or not self._is_memory_visible_to(atom, identity)
+        ):
             raise PermissionDeniedError(
                 message_key="mtp.call.profile_permission_denied",
                 params={"agent_alias": normalized_alias},
@@ -204,9 +209,7 @@ class RetrievalFamiliar:
 
     @staticmethod
     def _is_memory_visible_to(atom: MemoryAtom, identity: Identity) -> bool:
-        """Apply the same user + visibility baseline as regular retrieval."""
-        if atom.meta.user_id != identity.user_id:
-            return False
+        """按 actor 的 Agent/Team 策略判断已完成 owner 过滤的记忆。"""
         if atom.meta.visibility == MemoryVisibility.PUBLIC:
             return True
         if atom.meta.visibility == MemoryVisibility.WORKSPACE:
@@ -224,9 +227,11 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            # Step 1: 基础过滤条件 (identity 安全基线，不可被 MTP filter 覆盖)
-            # 实现 MutiAgentSystem.md §3.3.1 Visibility Scope Filtering
-            query_filters = QueryFilters(identity=request.identity)
+            # P1 仅保留旧检索器的 actor visibility 适配；owner/workspace
+            # 复合硬过滤由 P2 在资源存储边界统一实现。
+            query_filters = QueryFilters(
+                identity=request.access_context.actor_identity
+            )
 
             # Step 2: 合并 MTP filter (如果有)
             if request.filters is not None:
@@ -279,18 +284,19 @@ class RetrievalFamiliar:
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
-        identity: Identity | None = None,
+        access_context: WorkspaceAccessContext,
     ) -> RetrievalResponse:
         """
         精确按 alias 取回记忆。
         """
         start_time = time.time()
         response = RetrievalResponse()
+        access_context = require_workspace_access_context(access_context)
 
         try:
             memories: list[MemoryAtom] = []
             seen_aliases: set[str] = set()
-            user_id = identity.user_id if identity is not None else None
+            user_id = access_context.workspace_identity.owner_user_id
 
             for alias in aliases:
                 normalized = alias.strip() if alias else ""
@@ -319,12 +325,12 @@ class RetrievalFamiliar:
     async def retrieve_by_aliases_async(
         self,
         aliases: list[str],
-        identity: Identity | None = None,
+        access_context: WorkspaceAccessContext,
     ) -> RetrievalResponse:
         """
         精确别名检索的异步总线入口。
         """
-        response = await self.retrieve_by_aliases(aliases, identity)
+        response = await self.retrieve_by_aliases(aliases, access_context)
         await self._refresh_vitality_for_memories(response.memories)
         return response
 

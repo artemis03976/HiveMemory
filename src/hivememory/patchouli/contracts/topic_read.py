@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from hivememory.core.models import Identity, TopicData, TopicSnapshot
+from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
 
 
 class TopicReadPublicApi(Protocol):
@@ -13,14 +13,14 @@ class TopicReadPublicApi(Protocol):
     async def list_active_topics(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]: ...
 
     async def get_topic_data(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicData | None: ...
 

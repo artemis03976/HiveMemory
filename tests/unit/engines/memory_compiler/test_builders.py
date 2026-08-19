@@ -20,6 +20,7 @@ from hivememory.core.models import (
 from hivememory.engines.memory_compiler.builders.memory_atom import build_memory_atom_ir
 from hivememory.engines.memory_compiler.builders.pending_atom import build_pending_atom_ir
 from hivememory.engines.memory_compiler.builders.resolve_result import build_resolve_result_ir
+from tests.helpers.workspace import make_runtime_scope
 
 
 @pytest.fixture
@@ -66,6 +67,7 @@ def test_build_pending_atom_ir_for_write_focus():
         status=PendingAtomStatus.PENDING,
         source_verb="WRITE",
         focus=WriteFocus(title="Title", content="Body"),
+        runtime_scope=make_runtime_scope(),
     )
 
     unit = build_pending_atom_ir(pending)
@@ -91,6 +93,7 @@ def test_build_pending_atom_ir_for_update_focus_and_discarded_settlement():
             instruction="Revise it",
             content="New body",
         ),
+        runtime_scope=make_runtime_scope(),
         settlement=PendingAtomSettlement(
             pending_alias="rev_1",
             intent_id="intent-2",

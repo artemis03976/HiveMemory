@@ -24,6 +24,7 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _make_profile_atom(
@@ -126,7 +127,10 @@ class TestPromptToKoakumaEnforcement:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("reader_only")
-        context = MTPExecutionContext(agent_profile=profile)
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile,
+        )
 
         # 允许的动词应该通过
         koakuma._check_verb_permission("READ", context=context)
@@ -151,7 +155,10 @@ class TestPromptToKoakumaEnforcement:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("safe_agent")
-        context = MTPExecutionContext(agent_profile=profile)
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile,
+        )
 
         # 允许的工具应该通过
         koakuma._check_tool_permission("sys_clock")
@@ -188,7 +195,10 @@ class TestEndToEndPermissionChain:
         assert "- UPDATE:" not in mtp_prompt
 
         # 2. Runtime 层：Koakuma 拦截 WRITE
-        context = MTPExecutionContext(agent_profile=profile)
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile,
+        )
 
         with pytest.raises(PermissionDeniedError) as exc_info:
             koakuma._check_verb_permission("WRITE", context=context)
@@ -216,7 +226,10 @@ class TestEndToEndPermissionChain:
         assert "sys_write_file" in mtp_prompt
 
         # 2. Runtime 层：Koakuma 允许 WRITE
-        context = MTPExecutionContext(agent_profile=profile)
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile,
+        )
 
         # 应该不抛异常
         koakuma._check_verb_permission("WRITE", context=context)
@@ -236,7 +249,7 @@ class TestEndToEndPermissionChain:
         assert "- RUN:" in mtp_prompt
 
         # 2. Runtime 层：Koakuma 允许全部（无 profile）
-        context = MTPExecutionContext()
+        context = MTPExecutionContext(runtime_scope=make_runtime_scope())
 
         # 应该不抛异常
         koakuma._check_verb_permission("WRITE", context=context)
@@ -263,7 +276,10 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("restricted")
-        context = MTPExecutionContext(agent_profile=profile)
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile,
+        )
 
         # 即使 LLM 幻觉输出了 WRITE 指令，运行时也会拦截
         with pytest.raises(PermissionDeniedError):
@@ -281,7 +297,10 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
 
         profile = kernel.storage.get_agent_profile("limited")
-        context = MTPExecutionContext(agent_profile=profile)
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile,
+        )
 
         # sys_clock 应该通过
         koakuma._check_tool_permission("sys_clock", context=context)
@@ -303,7 +322,10 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=restrictive_atom)
 
         profile1 = kernel.storage.get_agent_profile("restrictive")
-        context1 = MTPExecutionContext(agent_profile=profile1)
+        context1 = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile1,
+        )
 
         # WRITE 应该被拒绝
         with pytest.raises(PermissionDeniedError):
@@ -318,7 +340,10 @@ class TestSecurityScenarios:
         kernel.storage.get_memory_by_alias = Mock(return_value=permissive_atom)
 
         profile2 = kernel.storage.get_agent_profile("permissive")
-        context2 = MTPExecutionContext(agent_profile=profile2)
+        context2 = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            agent_profile=profile2,
+        )
 
         # WRITE 现在应该通过
         koakuma._check_verb_permission("WRITE", context=context2)

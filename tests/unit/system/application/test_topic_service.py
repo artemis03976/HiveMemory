@@ -46,10 +46,11 @@ class TestTopicApplicationService:
 
         await service.list_active_topics(user_id="u1")
 
-        # list_active_topics 是纯透传；约束力来自路由与 identity 构造
+        # 公共入口只在此处解析 main Workspace，Patchouli 不再接收裸 identity。
         handler.assert_awaited_once()
-        identity = handler.await_args.kwargs["identity"]
-        assert identity.user_id == "u1"
+        access_context = handler.await_args.kwargs["access_context"]
+        assert access_context.actor_identity.user_id == "u1"
+        assert access_context.workspace_identity.workspace_id == "main_workspace"
 
     @pytest.mark.asyncio
     async def test_settle_topic_uses_public_route(self, service, bus):

@@ -6,15 +6,15 @@ from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
+from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(run_id: str, frame_id: str, policy: FrameExecutionPolicy) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
-            runtime_scope=RuntimeScope(run_id=run_id, frame_id=frame_id),
+            runtime_scope=make_runtime_scope(run_id=run_id, frame_id=frame_id),
             profile=OMNI_DOLL_PROFILE,
-            identity=Identity(user_id="u"),
             messages=[],
             topic_id=None,
             execution_policy=policy,

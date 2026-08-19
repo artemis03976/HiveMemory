@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hivememory.core.models import Identity
+from hivememory.core.models import WorkspaceAccessContext, require_workspace_access_context
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayProcessResult,
@@ -24,7 +24,7 @@ class GatewayService:
         self,
         message: str,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
     ) -> GatewayProcessResult:
@@ -37,9 +37,10 @@ class GatewayService:
             else min(request_timeout_ms, configured_timeout_ms)
         )
 
+        access_context = require_workspace_access_context(access_context)
         return await self._runtime.workflow.run(
             message,
-            identity=identity,
+            access_context=access_context,
             ingress_mode=ingress_mode,
             request_timeout_ms=effective_timeout_ms,
         )

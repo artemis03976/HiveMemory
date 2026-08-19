@@ -1,14 +1,19 @@
 """Gateway Phase 3A 子系统骨架测试。"""
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
-from hivememory.core.models import Identity
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.protocol.gateway import GatewayIngressMode, IntentType
 from hivememory.gateway import GatewaySystem
 from hivememory.gateway.contracts import GatewayLocalRoutes, GatewayPublicRoutes
+from hivememory.gateway.service import GatewayService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_access_context
 
 
 @pytest.mark.asyncio
@@ -42,10 +47,31 @@ async def test_gateway_service_runs_fallback_workflow() -> None:
     result = await global_bus.request(
         GatewayPublicRoutes.PROCESS,
         message="hello",
-        identity=Identity(user_id="u1", agent_id="a1"),
+        access_context=make_access_context(user_id="u1", agent_id="a1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
     assert result.kind == "decision"
     assert result.decision.intent_type == IntentType.CHAT
     await system.stop()
+
+
+@pytest.mark.asyncio
+async def test_gateway_service_rejects_missing_workspace_scope() -> None:
+    """防止 Gateway 中层在缺 scope 时从默认用户隐式补出 Workspace。"""
+    workflow = SimpleNamespace(run=AsyncMock())
+    runtime = SimpleNamespace(
+        config=SimpleNamespace(
+            workflow=SimpleNamespace(default_request_timeout_ms=1000)
+        ),
+        workflow=workflow,
+    )
+
+    with pytest.raises(ScopeRequiredError):
+        await GatewayService(runtime).process(
+            "hello",
+            access_context=None,
+            ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+        )
+
+    workflow.run.assert_not_awaited()

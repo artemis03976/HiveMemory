@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord
+from hivememory.core.models import Identity, TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.perception.semantic_flow_perception_layer import (
@@ -34,6 +34,7 @@ from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.workspace import make_access_context
 
 
 def _make_identity(user="u1", agent="a1"):
@@ -53,7 +54,7 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
                 content=assistant_msg,
             )
         ],
-        identity=identity,
+        access_context=make_access_context(actor_identity=identity),
     )
 
 

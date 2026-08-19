@@ -6,7 +6,12 @@ from uuid import uuid4
 
 from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEvent
+from hivememory.core.models import (
+    AgentProfile,
+    RuntimeScope,
+    TurnEvent,
+    WorkspaceAccessContext,
+)
 
 
 @dataclass(frozen=True)
@@ -15,7 +20,6 @@ class FrameSpec:
 
     runtime_scope: RuntimeScope
     profile: AgentProfile
-    identity: Identity
     messages: Sequence[dict[str, str]]
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
@@ -34,7 +38,6 @@ class FrameFactory:
             agent_profile=spec.profile,
             working_history=[dict(message) for message in spec.messages],
             topic_id=spec.topic_id,
-            identity=spec.identity,
             execution_policy=spec.execution_policy,
             progress=self._initial_progress(spec.messages),
         )
@@ -62,9 +65,18 @@ class FrameFactory:
         return ExecutionProgress()
 
     @staticmethod
-    def scope(*, run_id: str, frame_id: str | None = None) -> RuntimeScope:
-        """生成唯一且无拓扑含义的 run/frame 坐标（无 parent_frame_id / depth）。"""
-        return RuntimeScope(run_id=run_id, frame_id=frame_id or f"frame_{uuid4().hex}")
+    def scope(
+        *,
+        access_context: WorkspaceAccessContext,
+        run_id: str,
+        frame_id: str | None = None,
+    ) -> RuntimeScope:
+        """生成继承 hard boundary 的唯一 run/frame 坐标。"""
+        return RuntimeScope(
+            access_context=access_context,
+            run_id=run_id,
+            frame_id=frame_id or f"frame_{uuid4().hex}",
+        )
 
 
 __all__ = ["FrameFactory", "FrameSpec"]

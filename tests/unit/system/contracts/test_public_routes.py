@@ -24,6 +24,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_access_context, make_runtime_scope
 
 # ========== Alice ==========
 
@@ -130,12 +131,12 @@ class TestAlicePublicRoutes:
             received.append(("retrieve", request))
             return "retrieved"
 
-        async def retrieve_by_aliases(*, aliases):
-            received.append(("aliases", aliases))
+        async def retrieve_by_aliases(*, aliases, access_context):
+            received.append(("aliases", aliases, access_context))
             return "aliases"
 
-        async def get_agent_profile(alias):
-            received.append(("profile", alias))
+        async def get_agent_profile(alias, *, access_context):
+            received.append(("profile", alias, access_context))
             return "profile"
 
         async def record_citation(*, memory_id, source):
@@ -158,6 +159,7 @@ class TestAlicePublicRoutes:
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
+        access_context = make_access_context()
 
         result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
@@ -166,10 +168,12 @@ class TestAlicePublicRoutes:
         aliases_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             aliases=["a"],
+            access_context=access_context,
         )
         profile_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             "coder_doll",
+            access_context=access_context,
         )
         citation_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
@@ -183,8 +187,8 @@ class TestAlicePublicRoutes:
         assert citation_result == "citation"
         assert received == [
             ("retrieve", "request"),
-            ("aliases", ["a"]),
-            ("profile", "coder_doll"),
+            ("aliases", ["a"], access_context),
+            ("profile", "coder_doll", access_context),
             ("citation", "mid", "mtp.read"),
         ]
 
@@ -203,7 +207,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_cancelled_event_marks_alice_pending_atom_cancelled(self):
-        from hivememory.core.models import Identity, RuntimeScope
+        from hivememory.core.models import Identity
         from hivememory.core.models.pending import PendingAtomStatus
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
@@ -213,7 +217,7 @@ class TestAlicePublicRoutes:
             title="Draft",
             reason=None,
             identity=Identity(user_id="test_user", agent_id="test_agent"),
-            runtime_scope=RuntimeScope(run_id="run-1"),
+            runtime_scope=make_runtime_scope(run_id="run-1"),
         )
 
         await self.global_bus.publish(

@@ -12,16 +12,20 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
+from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.system.config import HiveMemoryConfig
+from tests.helpers.workspace import make_access_context, make_runtime_scope
 
 
 def _frame(run_id: str, frame_id: str) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
-            runtime_scope=FrameFactory.scope(run_id=run_id, frame_id=frame_id),
+            runtime_scope=FrameFactory.scope(
+                access_context=make_access_context(user_id="user"),
+                run_id=run_id,
+                frame_id=frame_id,
+            ),
             profile=OMNI_DOLL_PROFILE,
-            identity=Identity(user_id="user"),
             messages=[],
             topic_id="topic",
             execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
@@ -104,10 +108,11 @@ def test_run_session_keeps_frames_and_calls_run_local() -> None:
     assert session.call_records[("frame-a", "action-1")] is record
 
 
-def test_mtp_context_contains_only_frame_coordinates() -> None:
-    context = MTPExecutionContext()
+def test_mtp_context_contains_workspace_and_frame_coordinates() -> None:
+    context = MTPExecutionContext(runtime_scope=make_runtime_scope())
 
-    assert context.runtime_scope.run_id == ""
-    assert context.runtime_scope.frame_id == ""
+    assert context.runtime_scope.run_id == "test_run"
+    assert context.runtime_scope.frame_id == "test_frame"
+    assert context.access_context.workspace_identity.workspace_id == "main_workspace"
     # 架构护栏：执行上下文不携带父子拓扑元数据
     assert not hasattr(context.runtime_scope, "depth")

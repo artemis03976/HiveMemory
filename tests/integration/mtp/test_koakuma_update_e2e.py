@@ -1,9 +1,12 @@
 """Koakuma UPDATE 指令链路集成测试。"""
 
-import pytest
+from unittest.mock import AsyncMock
 from uuid import uuid4
-from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.models import (
     Identity,
     IndexLayer,
@@ -13,9 +16,8 @@ from hivememory.core.models import (
     PayloadLayer,
     UpdateFocus,
 )
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
+from tests.helpers.workspace import make_runtime_scope
 
 from .conftest import (
     make_koakuma_runtime,
@@ -70,7 +72,9 @@ class TestKoakumaUpdateE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(user_id="test_user")
+        )
 
         # 注册 alias 到缓存
         koakuma.atom_cache.ingest_atom(existing_memory)
@@ -125,7 +129,9 @@ class TestKoakumaUpdateValidation:
     def validation_koakuma(self) -> KoakumaRuntime:
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(user_id="test_user")
+        )
         return koakuma
 
     @pytest.mark.asyncio
@@ -167,6 +173,7 @@ class TestKoakumaUpdateValidation:
             title="Pending Note",
             reason=None,
             identity=validation_koakuma.context.identity,
+            runtime_scope=validation_koakuma.context.runtime_scope,
         )
 
         agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'
@@ -197,11 +204,9 @@ class TestKoakumaUpdateValidation:
         """v3.0 延迟捕获: UPDATE 在 Koakuma 层始终返回 ACK"""
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.core.models import RuntimeScope
-
         context = MTPExecutionContext(
-            identity=Identity(user_id="test_user"),
-            runtime_scope=RuntimeScope(
+            runtime_scope=make_runtime_scope(
+                user_id="test_user",
                 run_id="run_update_test",
                 frame_id="frame_main_update",
             ),

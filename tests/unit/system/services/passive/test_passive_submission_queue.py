@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,6 +29,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
+from tests.helpers.workspace import make_access_context
 
 IDENTITY = Identity(user_id="u1", agent_id="a1")
 
@@ -84,7 +85,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source="codex",
         external_conversation_id="conversation-1",
-        identity=IDENTITY,
+        access_context=make_access_context(user_id="u1", agent_id="a1"),
     )
 
 
@@ -100,10 +101,14 @@ async def test_passive_final_enters_common_submission_queue() -> None:
     assert outcome.kind == "user"
     assert len(queue.submissions) == 1
     submission = queue.submissions[0]
-    assert submission.interaction_id.startswith("interaction_")
+    assert submission.interaction_id == (
+        submission.payload.access_context.interaction_id
+    )
     assert submission.origin == "passive_memory"
     assert submission.requested_topic_id == "topic-1"
-    assert submission.ordering_key == "codex/conversation-1@u1:a1:<no-team>"
+    assert submission.ordering_key == (
+        "codex/conversation-1@u1:main_workspace:a1:<no-team>"
+    )
     assert submission.correlation == {
         "source": "codex",
         "external_conversation_id": "conversation-1",
@@ -133,7 +138,7 @@ async def test_admission_failure_keeps_payload_and_interaction_id_for_retry() ->
     assert buffer.has_pending_round
 
     queue.fail_submit = False
-    assert await ingressor.flush_conversation(_key(), IDENTITY) == 1
+    assert await ingressor.flush_conversation(_key()) == 1
     assert queue.submissions[0].interaction_id == interaction_id
     assert not buffer.has_pending_round
     assert buffer.interaction_id is None

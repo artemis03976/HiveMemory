@@ -6,6 +6,12 @@ import asyncio
 from dataclasses import dataclass
 from enum import Enum
 
+from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.models import (
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
+
 
 class ChatRunPhase(str, Enum):
     """Chat Run 当前所在的编排阶段。"""
@@ -46,15 +52,31 @@ class CancelResult:
     reason: str
 
 
+@dataclass(frozen=True)
+class ChatRunStatusSnapshot:
+    """通过 scoped control plane 暴露的 Chat Run 状态。"""
+
+    generation_id: str
+    phase: str
+    status: str
+    reason: str | None
+
+
 @dataclass
 class ChatGenerationRun:
     """一次 Chat Run 的阶段引用与终态事实。"""
 
     generation_id: str
+    access_context: WorkspaceAccessContext
     phase: ChatRunPhase = ChatRunPhase.CREATED
     outcome: ChatRunOutcome = ChatRunOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
+
+    @property
+    def scope_fingerprint(self) -> str:
+        """保存注册时冻结的完整访问上下文指纹。"""
+        return self.access_context.scope_fingerprint
 
     def bind_phase(self, phase: ChatRunPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
@@ -137,13 +159,34 @@ class ChatGenerationRunRegistry:
         self._runs: dict[str, ChatGenerationRun] = {}
 
     def register(self, run: ChatGenerationRun) -> None:
+        require_workspace_access_context(run.access_context)
+        existing = self._runs.get(run.generation_id)
+        if existing is not None:
+            raise WorkspaceDomainError(
+                "generation_id 已被注册，拒绝覆盖现有 Chat Run",
+                details={"generation_id": run.generation_id},
+            )
         self._runs[run.generation_id] = run
 
-    def get(self, generation_id: str) -> ChatGenerationRun | None:
-        return self._runs.get(generation_id)
-
-    def cancel(self, generation_id: str, reason: str = "user_requested") -> CancelResult:
+    def get(
+        self,
+        generation_id: str,
+        access_context: WorkspaceAccessContext,
+    ) -> ChatGenerationRun | None:
+        """只向同 owner/workspace 的控制请求暴露 run。"""
+        access_context = require_workspace_access_context(access_context)
         run = self._runs.get(generation_id)
+        if run is None or not self._same_resource_scope(run.access_context, access_context):
+            return None
+        return run
+
+    def cancel(
+        self,
+        generation_id: str,
+        access_context: WorkspaceAccessContext,
+        reason: str = "user_requested",
+    ) -> CancelResult:
+        run = self.get(generation_id, access_context)
         if run is None:
             return CancelResult(
                 generation_id=generation_id,
@@ -160,15 +203,40 @@ class ChatGenerationRunRegistry:
             reason=result.reason,
         )
 
-    def close(self, generation_id: str) -> None:
+    def status(
+        self,
+        generation_id: str,
+        access_context: WorkspaceAccessContext,
+    ) -> ChatRunStatusSnapshot | None:
+        """查询 scoped 状态；跨 scope 与不存在统一返回 ``None``。"""
+        run = self.get(generation_id, access_context)
+        if run is None:
+            return None
+        return ChatRunStatusSnapshot(
+            generation_id=run.generation_id,
+            phase=run.phase.value,
+            status=run.outcome.value,
+            reason=run.stop_reason,
+        )
+
+    def close(self, run: ChatGenerationRun) -> None:
         """移除已由 Chat application 记录终态的 run。"""
-        self._runs.pop(generation_id, None)
+        if self._runs.get(run.generation_id) is run:
+            self._runs.pop(run.generation_id, None)
+
+    @staticmethod
+    def _same_resource_scope(
+        registered: WorkspaceAccessContext,
+        requested: WorkspaceAccessContext,
+    ) -> bool:
+        return registered.workspace_identity == requested.workspace_identity
 
 
 __all__ = [
     "CancelResult",
     "ChatGenerationRun",
     "ChatGenerationRunRegistry",
+    "ChatRunStatusSnapshot",
     "ChatRunOutcome",
     "ChatRunPhase",
     "StopResult",

@@ -25,6 +25,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
+from tests.helpers.workspace import make_access_context
 
 SOURCE = "unit_test"
 CONVERSATION = "conv-1"
@@ -64,7 +65,7 @@ def _key(conversation: str = CONVERSATION) -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=conversation,
-        identity=IDENTITY,
+        access_context=make_access_context(user_id="u1", agent_id="a1"),
     )
 
 
@@ -136,7 +137,7 @@ async def test_same_conversation_waits_for_inflight_user_event() -> None:
     )
     assert user_outcome.kind == "user"
     assert assistant_outcome.kind == "buffered"
-    assert await ingressor.flush_conversation(_key(), IDENTITY) == 1
+    assert await ingressor.flush_conversation(_key()) == 1
     assert recorder.submitted[0].payload.user_message == "u1"
     assert recorder.submitted[0].payload.assistant_final_text == "a1"
 
@@ -229,7 +230,7 @@ async def test_manual_flush_waits_for_inflight_event() -> None:
 
     user_task = asyncio.create_task(ingressor.route_event(_event("user", "u1"), IDENTITY))
     await asyncio.wait_for(gateway_started.wait(), timeout=1)
-    flush_task = asyncio.create_task(ingressor.flush_conversation(_key(), IDENTITY))
+    flush_task = asyncio.create_task(ingressor.flush_conversation(_key()))
     await asyncio.sleep(0)
     assert not flush_task.done()
 
@@ -329,7 +330,7 @@ async def test_conversations_are_isolated_by_external_conversation_id() -> None:
         IDENTITY,
     )
 
-    assert await ingressor.flush_conversation(_key("c-a"), IDENTITY) == 1
+    assert await ingressor.flush_conversation(_key("c-a")) == 1
     assert recorder.submitted[0].payload.user_message == "alpha"
     assert ingressor.buffers.peek_buffer(_key("c-b")).has_pending_round
 
@@ -362,7 +363,7 @@ async def test_all_finalize_triggers_produce_isomorphic_payload() -> None:
             if trigger == "next_user":
                 await ingressor.route_event(_event("user", "u2"), IDENTITY)
             elif trigger == "manual_flush":
-                await ingressor.flush_conversation(_key(), IDENTITY)
+                await ingressor.flush_conversation(_key())
             else:
                 await ingressor.scan_idle_conversations_once()
 

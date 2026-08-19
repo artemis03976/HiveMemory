@@ -32,10 +32,15 @@ from hivememory.patchouli.models import (
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_access_context
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="omni_doll")
+    access_context = make_access_context(
+        actor_identity=identity,
+        interaction_id="interaction-test",
+    )
     gateway_decision = GatewayDecision(
         target_topic_id="topic_1",
         rewritten_query="resolved",
@@ -46,7 +51,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
     )
     defaults = dict(
         agent_run_context=AgentRunContext(
-            identity=identity,
+            access_context=access_context,
             topic_id="topic_1",
             user_message="hi",
             topic_context=None,
@@ -61,7 +66,6 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             memory_refs=[],
         ),
         gateway_decision=gateway_decision,
-        interaction_id="interaction-test",
         generation_options=None,
     )
     defaults.update(overrides)

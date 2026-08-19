@@ -24,6 +24,8 @@ class ChatRequest(BaseModel):
 
 class StopChatRequest(BaseModel):
     generation_id: str = Field(..., description="要停止的生成任务 ID")
+    user_id: str = Field(default=DEFAULT_USER_ID, description="运行归属用户 ID")
+    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="发起停止请求的 Agent ID")
 
 
 # ========== SSE 事件数据模型 ==========

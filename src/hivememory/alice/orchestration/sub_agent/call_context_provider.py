@@ -47,7 +47,7 @@ class CallContextProvider:
         """按 caller identity 解析目标 profile 与受控共享上下文。"""
         profile = await self._profile_resolver.resolve(
             request.target_alias,
-            identity=caller_frame.identity,
+            access_context=caller_frame.access_context,
         )
         shared_context = await self._resolve_shared_context(
             aliases=request.context_refs,
@@ -70,7 +70,7 @@ class CallContextProvider:
 
         compiler = MemoryCompiler()
         sources = []
-        context = MTPExecutionContext(identity=caller_frame.identity)
+        context = MTPExecutionContext(runtime_scope=caller_frame.runtime_scope)
         for alias in aliases:
             try:
                 resolved = await self._alias_resolver.resolve(alias, context=context)

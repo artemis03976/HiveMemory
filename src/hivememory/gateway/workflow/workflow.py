@@ -6,7 +6,7 @@ import asyncio
 from time import perf_counter
 from typing import Any
 
-from hivememory.core.models import Identity
+from hivememory.core.models import WorkspaceAccessContext, require_workspace_access_context
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayProcessResult,
@@ -47,7 +47,7 @@ class GatewayWorkflow:
         self,
         message: str,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
     ) -> GatewayProcessResult:
@@ -56,7 +56,7 @@ class GatewayWorkflow:
         started_at = perf_counter()
         state = GatewayExecutionState(
             raw_message=message,
-            identity=identity,
+            access_context=require_workspace_access_context(access_context),
             ingress_mode=ingress_mode,
         )
         current_step_id: str | None = None

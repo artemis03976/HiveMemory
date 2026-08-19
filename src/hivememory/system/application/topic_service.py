@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, resolve_default_workspace_access
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
@@ -31,9 +32,13 @@ class TopicApplicationService:
 
     async def list_active_topics(self, *, user_id: str):
         identity = Identity(user_id=user_id)
+        access_context = resolve_default_workspace_access(
+            identity,
+            f"topic_list_{uuid4().hex}",
+        )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
-            identity=identity,
+            access_context=access_context,
         )
 
     async def settle_topic(self, *, topic_id: str | None = None) -> dict:

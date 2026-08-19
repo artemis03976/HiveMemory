@@ -16,20 +16,30 @@ SEARCH 指令执行链路测试
 """
 
 import asyncio
-import pytest
-from uuid import uuid4
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
-from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType, Identity,
-)
-from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+import pytest
+
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+)
+from hivememory.core.mtp import (
+    MTPCommand,
+    MTPFilterParser,
+    MTPResponseStatus,
+    MTPTarget,
+    MTPVerb,
+)
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.config import KoakumaConfig
-from hivememory.core.mtp import MTPCommand, MTPResponseStatus, MTPTarget, MTPVerb
-
+from tests.helpers.workspace import make_runtime_scope
 
 # ========== Helpers ==========
 
@@ -69,7 +79,12 @@ def koakuma() -> KoakumaRuntime:
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
-    return asyncio.run(koakuma.execute_mtp(text, context=context))
+    return asyncio.run(
+        koakuma.execute_mtp(
+            text,
+            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+        )
+    )
 
 
 def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
@@ -78,7 +93,7 @@ def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context
     return asyncio.run(
         koakuma.intercept_and_execute(
             normalize_worker_agent_mtp_output(assistant_text),
-            context=context,
+            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
         )
     )
 
@@ -90,12 +105,16 @@ def _handle_search(koakuma: KoakumaRuntime, args, context=None):
         args=args,
         raw_text="⟪ SEARCH | * | ⟫",
     )
-    return asyncio.run(koakuma._handle_search(command, context or MTPExecutionContext()))
+    return asyncio.run(
+        koakuma._handle_search(
+            command,
+            context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+        )
+    )
 
 
 # ========== Test 1: _parse_mtp_filter ==========
 
-from hivememory.core.mtp import MTPFilterParser
 
 class TestParseFilter:
     """测试 _parse_mtp_filter 方法"""
@@ -224,22 +243,27 @@ class TestSearchRetrievalRequest:
     def test_query_passed_to_retrieval(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        context = MTPExecutionContext(identity=Identity(user_id="user_42"))
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="python decorators" ⟫')
 
         call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.semantic_query == "python decorators"
 
-    def test_user_id_injected(self, koakuma):
+    def test_access_context_injected_for_search(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        context = MTPExecutionContext(identity=Identity(user_id="user_42"))
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(user_id="user_42")
+        )
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫', context=context)
 
-        call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
-        assert call_args.user_id == "user_42"
+        request = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
+        assert request.access_context.actor_identity.user_id == "user_42"
+        assert (
+            request.access_context.workspace_identity.owner_user_id
+            == "user_42"
+        )
 
     def test_filter_passed_to_retrieval(self, koakuma):
         mem = _make_memory()
@@ -299,7 +323,10 @@ class TestSearchResultRendering:
             response = _handle_search(
                 koakuma,
                 {"query": "test", "filter": "unknown:value"},
-                context=MTPExecutionContext(language="en"),
+                context=MTPExecutionContext(
+                    runtime_scope=make_runtime_scope(),
+                    language="en",
+                ),
             )
 
         assert response.status == MTPResponseStatus.SUCCESS
@@ -385,7 +412,10 @@ class TestKoakumaSearchE2E:
         result = _execute_mtp(
             koakuma,
             '⟪ SEARCH | * | query="nonexistent" ⟫',
-            context=MTPExecutionContext(language="en"),
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(),
+                language="en",
+            ),
         )
 
         assert result.success
@@ -394,7 +424,10 @@ class TestKoakumaSearchE2E:
 
     def test_search_empty_result_language_zh(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([])
-        context = MTPExecutionContext(language="zh")
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(),
+            language="zh",
+        )
 
         result = _execute_mtp(
             koakuma,
@@ -412,7 +445,10 @@ class TestKoakumaSearchE2E:
         response = _handle_search(
             koakuma,
             {"query": "nonexistent"},
-            context=MTPExecutionContext(language="en"),
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(),
+                language="en",
+            ),
         )
 
         assert response.status == MTPResponseStatus.SUCCESS
@@ -429,7 +465,10 @@ class TestKoakumaSearchE2E:
         result = _execute_mtp(
             koakuma,
             '⟪ SEARCH | * | query="test" ⟫',
-            context=MTPExecutionContext(language="en"),
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(),
+                language="en",
+            ),
         )
 
         assert not result.success

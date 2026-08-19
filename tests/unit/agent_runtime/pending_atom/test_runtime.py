@@ -20,12 +20,12 @@ from hivememory.core.models import (
     PendingAtomSettlement,
     PendingAtomSnapshot,
     PendingAtomStatus,
-    RuntimeScope,
 )
 from hivememory.core.models.pending import (
     allowed_transitions,
     is_legal_transition,
 )
+from tests.helpers.workspace import make_runtime_scope
 
 # ---------------------------------------------------------------------------
 # Enum 属性
@@ -223,6 +223,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="Hello",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap is not None
@@ -237,6 +238,7 @@ class TestPendingAtomRuntimeSnapshot:
             instruction="patch it",
             content="new content",
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         snap = runtime.snapshot(atom.pending_alias)
         assert snap is not None
@@ -250,6 +252,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="Hello",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -273,6 +276,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="Hello",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         settlement = _make_settlement(
             atom.pending_alias,
@@ -295,6 +299,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="Hello",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
 
@@ -319,6 +324,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="Dup",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -341,6 +347,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="Touch",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -363,6 +370,7 @@ class TestPendingAtomRuntimeSnapshot:
             instruction="patch",
             content=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -386,6 +394,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="LowQ",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -407,6 +416,7 @@ class TestPendingAtomRuntimeSnapshot:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -431,6 +441,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
 
         runtime.start_materializing(atom.pending_alias)
@@ -443,6 +454,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.expire(atom.pending_alias)
 
@@ -455,6 +467,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.start_materializing(atom.pending_alias)
 
@@ -468,6 +481,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
 
         runtime.mark_failed(atom.pending_alias)
@@ -480,6 +494,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
 
         runtime.cancel(atom.pending_alias)
@@ -492,6 +507,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.start_materializing(atom.pending_alias)
 
@@ -505,6 +521,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.start_materializing(atom.pending_alias)
         runtime.mark_failed(atom.pending_alias)
@@ -514,7 +531,7 @@ class TestPendingAtomRuntimeCommands:
         assert atom.status == PendingAtomStatus.FAILED
 
     def test_cancel_run_cancels_pending_and_materializing_atoms(self, runtime, identity):
-        scope = RuntimeScope(run_id="run-1")
+        scope = make_runtime_scope(run_id="run-1")
         pending = runtime.register_write(
             content="x", title="X", reason=None, identity=identity, runtime_scope=scope
         )
@@ -526,7 +543,7 @@ class TestPendingAtomRuntimeCommands:
             title="Z",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run-2"),
+            runtime_scope=make_runtime_scope(run_id="run-2"),
         )
         runtime.start_materializing(materializing.pending_alias)
 
@@ -543,14 +560,14 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-a"),
+            runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-a"),
         )
         sibling = runtime.register_write(
             content="y",
             title="Y",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-b"),
+            runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-b"),
         )
 
         cancelled = runtime.cancel_frame("frame-a")
@@ -565,6 +582,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
 
         runtime.expire(atom.pending_alias)
@@ -577,6 +595,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.start_materializing(atom.pending_alias)
 
@@ -589,6 +608,7 @@ class TestPendingAtomRuntimeCommands:
             title="X",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         settlement = _make_settlement(
             atom.pending_alias,
@@ -608,14 +628,13 @@ class TestPendingAtomRuntimeEviction:
     """测试 PendingAtom 生命周期回收。"""
 
     def test_evict_by_run_migrates_old_settled_to_expired(self, runtime, identity):
-        from hivememory.core.models.pending import RuntimeScope
 
         atom = runtime.register_write(
             content="x",
             title="X",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run_1"),
+            runtime_scope=make_runtime_scope(run_id="run_1"),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -640,14 +659,13 @@ class TestPendingAtomRuntimeEviction:
         assert runtime.get(atom.pending_alias) is None
 
     def test_evict_by_run_preserves_current_run_atoms(self, runtime, identity):
-        from hivememory.core.models.pending import RuntimeScope
 
         atom = runtime.register_write(
             content="y",
             title="Y",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run_current"),
+            runtime_scope=make_runtime_scope(run_id="run_current"),
         )
         runtime.claim_for_materialization([atom.pending_alias])
         runtime.settle(
@@ -671,6 +689,7 @@ class TestPendingAtomRuntimeEviction:
             title="Z",
             reason=None,
             identity=identity,
+            runtime_scope=make_runtime_scope(),
         )
         runtime.expire(atom.pending_alias)
         assert atom.status == PendingAtomStatus.EXPIRED
@@ -680,14 +699,13 @@ class TestPendingAtomRuntimeEviction:
         assert runtime.get(atom.pending_alias) is None
 
     def test_evict_by_run_handles_failed_and_cancelled(self, runtime, identity):
-        from hivememory.core.models.pending import RuntimeScope
 
         failed = runtime.register_write(
             content="f",
             title="F",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run_old"),
+            runtime_scope=make_runtime_scope(run_id="run_old"),
         )
         runtime.start_materializing(failed.pending_alias)
         runtime.mark_failed(failed.pending_alias)
@@ -697,7 +715,7 @@ class TestPendingAtomRuntimeEviction:
             title="C",
             reason=None,
             identity=identity,
-            runtime_scope=RuntimeScope(run_id="run_old"),
+            runtime_scope=make_runtime_scope(run_id="run_old"),
         )
         runtime.cancel(cancelled.pending_alias)
 

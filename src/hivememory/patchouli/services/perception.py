@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
-from hivememory.core.models import Identity
+from hivememory.core.models import WorkspaceAccessContext, require_workspace_access_context
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -179,9 +179,10 @@ class PerceptionFamiliar:
         target_topic_id: str,
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
+        access_context = require_workspace_access_context(access_context)
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
         await self._maybe_evict_lru(target_topic_id)
 
@@ -189,7 +190,7 @@ class PerceptionFamiliar:
             target_topic_id,
             new_topic_title,
             new_topic_summary,
-            identity,
+            access_context.actor_identity,
         )
 
     async def _maybe_evict_lru(self, target_topic_id: str) -> None:

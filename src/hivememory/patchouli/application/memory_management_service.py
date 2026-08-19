@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, MemoryType
+from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceAccessContext
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.utils.uuid import normalize_uuid
@@ -113,12 +113,12 @@ class MemoryManagementService:
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
-        identity=None,
+        access_context: WorkspaceAccessContext,
     ) -> RetrievalResponse:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             aliases,
-            identity,
+            access_context,
         )
 
     @staticmethod

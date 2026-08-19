@@ -40,8 +40,10 @@ class _TopicManagementStub:
     def __init__(self, librarian_core):
         self.librarian_core = librarian_core
 
-    async def list_active_topics(self, *, identity):
-        return self.librarian_core.get_active_topics_snapshots(identity)
+    async def list_active_topics(self, *, access_context):
+        return self.librarian_core.get_active_topics_snapshots(
+            access_context.actor_identity
+        )
 
 
 def _make_snapshot(topic_id="t1", title="Test Topic"):

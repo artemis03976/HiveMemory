@@ -1,21 +1,22 @@
 """MemoryCompiler 单元测试。"""
 
-import pytest
 from datetime import datetime, timedelta
 
+import pytest
+
 from hivememory.core.models import (
+    IndexLayer,
     MemoryAtom,
     MemoryType,
-    PayloadLayer,
-    IndexLayer,
     MetaData,
+    PayloadLayer,
     VerificationStatus,
 )
 from hivememory.engines.memory_compiler import (
+    CompiledMemoryArtifact,
+    MemoryCompileOptions,
     MemoryCompiler,
     MemoryCompileTarget,
-    MemoryCompileOptions,
-    CompiledMemoryArtifact,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
@@ -23,6 +24,7 @@ from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
 from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_ir
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 from hivememory.i18n import set_default_language
+from tests.helpers.workspace import make_runtime_scope
 
 
 @pytest.fixture(autouse=True)
@@ -328,6 +330,7 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
             focus=WriteFocus(content="Hello world", title="Test Write"),
+            runtime_scope=make_runtime_scope(),
         )
 
     @pytest.fixture
@@ -345,6 +348,7 @@ class TestPendingAtomCompilation:
                 instruction="Update the API endpoint",
                 content="New content here",
             ),
+            runtime_scope=make_runtime_scope(),
         )
 
     def test_pending_mtp_read_draft(self, compiler, write_pending):
@@ -388,8 +392,11 @@ class TestPendingAtomCompilation:
     @pytest.fixture
     def settled_pending(self):
         from hivememory.core.models import (
-            PendingAtom, PendingAtomStatus, WriteFocus,
-            PendingAtomSettlement, PendingAtomResolution,
+            PendingAtom,
+            PendingAtomResolution,
+            PendingAtomSettlement,
+            PendingAtomStatus,
+            WriteFocus,
         )
         atom = PendingAtom(
             pending_alias="draft_settled",
@@ -397,6 +404,7 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.SETTLED,
             source_verb="WRITE",
             focus=WriteFocus(content="Hello", title="T"),
+            runtime_scope=make_runtime_scope(),
         )
         atom.settlement = PendingAtomSettlement(
             pending_alias="draft_settled",
@@ -410,8 +418,11 @@ class TestPendingAtomCompilation:
     @pytest.fixture
     def failed_pending(self):
         from hivememory.core.models import (
-            PendingAtom, PendingAtomStatus, WriteFocus,
-            PendingAtomSettlement, PendingAtomResolution,
+            PendingAtom,
+            PendingAtomResolution,
+            PendingAtomSettlement,
+            PendingAtomStatus,
+            WriteFocus,
         )
         atom = PendingAtom(
             pending_alias="draft_failed",
@@ -419,6 +430,7 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.FAILED,
             source_verb="WRITE",
             focus=WriteFocus(content="X"),
+            runtime_scope=make_runtime_scope(),
         )
         atom.settlement = PendingAtomSettlement(
             pending_alias="draft_failed",
@@ -437,6 +449,7 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.CANCELLED,
             source_verb="WRITE",
             focus=WriteFocus(content="X"),
+            runtime_scope=make_runtime_scope(),
         )
 
     @pytest.fixture
@@ -448,6 +461,7 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.EXPIRED,
             source_verb="WRITE",
             focus=WriteFocus(content="X"),
+            runtime_scope=make_runtime_scope(),
         )
 
     def test_settled_mtp_read_shows_canonical(self, compiler, settled_pending):
@@ -588,6 +602,7 @@ class TestResolveResultCompilation:
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
             focus=WriteFocus(content="Pending content", title="Pending"),
+            runtime_scope=make_runtime_scope(),
         )
         return ResolveResult(
             kind="pending",

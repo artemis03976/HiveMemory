@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.core.models import Identity, TurnEvent
+from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.engines.perception.semantic_flow_perception_layer import (
@@ -29,11 +29,12 @@ from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
+from tests.helpers.workspace import make_access_context
 
 
 def _payload(message: str = "hello") -> InteractionPayload:
     return InteractionPayload(
-        identity=Identity(user_id="u1", agent_id="a1"),
+        access_context=make_access_context(user_id="u1", agent_id="a1"),
         user_message=message,
         assistant_final_text=f"answer:{message}",
         turn_events=[

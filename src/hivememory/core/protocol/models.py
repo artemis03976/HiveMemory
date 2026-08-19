@@ -16,7 +16,14 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models import AgentProfile, Identity, MemoryAtom, TraceItem, TurnEvent
+from hivememory.core.models import (
+    AgentProfile,
+    Identity,
+    MemoryAtom,
+    TraceItem,
+    TurnEvent,
+    WorkspaceAccessContext,
+)
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
 from hivememory.engines.retrieval.models import QueryFilters
@@ -92,14 +99,17 @@ class RetrievalRequest(ProtocolMessage):
         msg_type: 固定为 RETRIEVAL_REQUEST
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
-        identity: 请求者身份标识 (user_id + agent_id + team_id)
+        access_context: 请求者身份与 Workspace hard boundary
         filters: MTP filter 解析后的过滤条件 (可选，叠加到 identity 基线之上)
 
     Examples:
         >>> request = RetrievalRequest(
         ...     semantic_query="如何部署贪吃蛇游戏？",
         ...     keywords=["部署", "贪吃蛇", "游戏"],
-        ...     identity=Identity(user_id="user123")
+        ...     access_context=resolve_default_workspace_access(
+        ...         Identity(user_id="user123"),
+        ...         "interaction-example",
+        ...     )
         ... )
     """
 
@@ -111,8 +121,8 @@ class RetrievalRequest(ProtocolMessage):
     # 稀疏检索关键词（用于 BM25）
     keywords: list[str] = Field(default_factory=list, description="检索关键词")
 
-    # 请求者身份标识
-    identity: Identity = Field(default_factory=Identity, description="请求者身份标识")
+    # 请求级 Workspace hard boundary
+    access_context: WorkspaceAccessContext
 
     # MTP SEARCH 指令传入的过滤条件 (可选)
     filters: QueryFilters | None = Field(default=None, description="MTP filter 过滤条件")
@@ -120,9 +130,9 @@ class RetrievalRequest(ProtocolMessage):
     top_k: int = Field(default=5, ge=0, description="本次检索候选数量")
 
     @property
-    def user_id(self) -> str:
-        """兼容属性: 从 identity 中提取 user_id"""
-        return self.identity.user_id
+    def identity(self) -> Identity:
+        """兼容读取 actor identity；检索 hard filter 使用完整 AccessContext。"""
+        return self.access_context.actor_identity
 
 
 class RetrievalResponse(ProtocolMessage):
@@ -148,7 +158,7 @@ class RetrievalResponse(ProtocolMessage):
 class AgentRunContext(BaseModel):
     """供 Alice 组装并执行 Agent run 的中立上下文。"""
 
-    identity: Identity = Field(default_factory=Identity)
+    access_context: WorkspaceAccessContext
     topic_id: str = Field(default="")
     user_message: str = Field(default="")
     topic_context: TopicData | None = Field(default=None)
@@ -160,6 +170,11 @@ class AgentRunContext(BaseModel):
     storage_available: bool = Field(default=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def identity(self) -> Identity:
+        """兼容读取 actor identity；访问边界仍以完整 AccessContext 为准。"""
+        return self.access_context.actor_identity
 
 
 class MTPExecutionResult(BaseModel):
@@ -216,14 +231,14 @@ class InteractionPayload(BaseModel):
         user_message: 原始用户消息
         mtp_traces: Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表
         materialize_tasks: 本 run 产出的不可变物化请求，由 finalize 分发 mode b/c
-        identity: 归属身份元数据
+        access_context: 本轮交互冻结的身份与 Workspace hard boundary
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断
         assistant_final_text: 最终自然语言回复
         turn_events: 结构化轮次事件列表
     """
-    # 身份元数据
-    identity: Identity = Field(default_factory=Identity, description="归属元数据")
+    # 一次交互的唯一访问坐标；handler 不得从进程当前状态重建。
+    access_context: WorkspaceAccessContext
 
     user_message: str = Field(..., description="原始用户消息")
 
@@ -266,6 +281,11 @@ class InteractionPayload(BaseModel):
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def identity(self) -> Identity:
+        """兼容读取 actor identity；资源过滤使用完整 AccessContext。"""
+        return self.access_context.actor_identity
 
 
 __all__ = [

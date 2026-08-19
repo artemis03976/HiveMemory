@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.core.models import Identity, TopicSnapshot
+from hivememory.core.models import TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
@@ -37,6 +37,7 @@ from hivememory.system.config import (
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from tests.helpers.workspace import make_access_context
 
 
 class _Provider:
@@ -113,7 +114,7 @@ async def test_command_branch_dispatches_and_short_circuits_decision_prefix() ->
 
     result = await workflow.run(
         "/clear",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -138,7 +139,7 @@ async def test_simple_chat_keeps_topic_prefix_and_skips_resolver() -> None:
 
     result = await workflow.run(
         "你好",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -168,7 +169,7 @@ async def test_standard_branch_applies_one_complete_analysis_result() -> None:
 
     result = await workflow.run(
         "继续实现 Gateway",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -193,7 +194,7 @@ async def test_passive_slash_input_is_not_a_system_command() -> None:
 
     result = await workflow.run(
         "/clear",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
     )
 
@@ -209,7 +210,7 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
 
     result = await workflow.run(
         "需要检索的问题",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -245,7 +246,7 @@ async def test_step_fallback_only_covers_invoke_failures() -> None:
     workflow = _make_workflow()
     state = GatewayExecutionState(
         raw_message="问题",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
     fallback = Mock(return_value={"topic_id": "NEW_TOPIC"})
@@ -300,7 +301,7 @@ async def test_step_timeout_uses_local_fallback() -> None:
     workflow = _make_workflow()
     state = GatewayExecutionState(
         raw_message="问题",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -333,7 +334,7 @@ async def test_event_sink_failure_does_not_change_business_result() -> None:
 
     result = await workflow.run(
         "问题",
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -355,7 +356,7 @@ async def test_invariant_failure_emits_workflow_failed_event() -> None:
     with pytest.raises(ValueError, match="未知字段"):
         await workflow.run(
             "问题",
-            identity=Identity(user_id="u1"),
+            access_context=make_access_context(user_id="u1"),
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         )
 

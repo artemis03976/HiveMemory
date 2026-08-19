@@ -9,9 +9,8 @@ import threading
 from datetime import datetime
 from enum import Enum
 from typing import Any
-from uuid import uuid4
 
-from hivememory.core.models import Identity
+from hivememory.core.models import WorkspaceAccessContext
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
@@ -34,19 +33,17 @@ class MessageTurnBuffer:
 
     def __init__(
         self,
-        identity: Identity,
         conversation_key: PassiveConversationKey,
         *,
         max_buffered_events_per_turn: int = DEFAULT_MAX_BUFFERED_EVENTS_PER_TURN,
     ) -> None:
-        self._identity = identity
         self._conversation_key = conversation_key
         self._max_events = max(1, max_buffered_events_per_turn)
         self._reset()
 
     def _reset(self) -> None:
         self._state = MessageBufferState.IDLE
-        self._interaction_id: str | None = None
+        self._access_context: WorkspaceAccessContext | None = None
         self._user_content: str | None = None
         self._assistant_parts: list[str] = []
         self._turn_events: list[TurnEvent] = []
@@ -90,7 +87,11 @@ class MessageTurnBuffer:
     @property
     def interaction_id(self) -> str | None:
         """当前 turn 的稳定提交标识；只有队列接收成功后才会被清除。"""
-        return self._interaction_id
+        return (
+            self._access_context.interaction_id
+            if self._access_context is not None
+            else None
+        )
 
     @property
     def pending_final_event_key(self) -> tuple[str, str] | None:
@@ -130,6 +131,7 @@ class MessageTurnBuffer:
         content: str,
         gateway_decision: GatewayDecision | None = None,
         *,
+        access_context: WorkspaceAccessContext,
         turn_id: str | None = None,
     ) -> None:
         """开启新一轮；调用方必须先完成上一轮的队列 admission。"""
@@ -137,10 +139,11 @@ class MessageTurnBuffer:
             raise RuntimeError(
                 "MessageTurnBuffer 仍有未提交 turn，不能覆盖当前 accumulator: "
                 f"conversation={self._conversation_key.label}, "
-                f"interaction_id={self._interaction_id}"
+                f"interaction_id={self.interaction_id}"
             )
 
-        self._interaction_id = f"interaction_{uuid4().hex}"
+        # 顶层 ingress 已生成本轮 interaction_id；buffer 不得另造第二份 scope。
+        self._access_context = access_context
         self._user_content = content
         self._gateway_decision = gateway_decision
         self._target_topic = (
@@ -162,7 +165,7 @@ class MessageTurnBuffer:
             "MessageTurnBuffer 接收 user 消息: "
             f"conversation={self._conversation_key.label}, "
             f"target_topic={self._target_topic}, "
-            f"interaction_id={self._interaction_id}"
+            f"interaction_id={self.interaction_id}"
         )
 
     def accept_assistant(self, content: str) -> None:
@@ -265,11 +268,11 @@ class MessageTurnBuffer:
 
     def commit_flush(self, interaction_id: str) -> None:
         """确认同一 turn 已被队列接收，然后清空 accumulator。"""
-        if self._interaction_id != interaction_id:
+        if self.interaction_id != interaction_id:
             raise RuntimeError(
                 "MessageTurnBuffer commit 对应的 interaction 已发生变化: "
                 f"conversation={self._conversation_key.label}, "
-                f"expected={interaction_id}, actual={self._interaction_id}"
+                f"expected={interaction_id}, actual={self.interaction_id}"
             )
 
         self._reset()
@@ -284,12 +287,15 @@ class MessageTurnBuffer:
             "\n".join(self._assistant_parts) if self._assistant_parts else ""
         )
 
+        access_context = self._access_context
+        if access_context is None:
+            raise RuntimeError("构建 passive payload 时缺少 WorkspaceAccessContext")
         return InteractionPayload(
+            access_context=access_context,
             user_message=self._user_content or "",
             assistant_final_text=assistant_final_text or None,
             turn_events=list(self._turn_events),
             mtp_traces=[],
-            identity=self._identity,
             rewritten_query=(
                 self._gateway_decision.rewritten_query
                 if self._gateway_decision
@@ -319,12 +325,10 @@ class MessageTurnBufferManager:
     def get_buffer(
         self,
         key: PassiveConversationKey,
-        identity: Identity,
     ) -> MessageTurnBuffer:
         with self._lock:
             if key not in self._buffers:
                 self._buffers[key] = MessageTurnBuffer(
-                    identity=identity,
                     conversation_key=key,
                     max_buffered_events_per_turn=(
                         self._max_buffered_events_per_turn

@@ -15,7 +15,13 @@ from enum import Enum
 from typing import Any
 
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import AgentProfile, Identity, RuntimeScope, TurnEvent
+from hivememory.core.models import (
+    AgentProfile,
+    Identity,
+    RuntimeScope,
+    TurnEvent,
+    WorkspaceAccessContext,
+)
 from hivememory.core.mtp.models import MTPCallRequest
 
 
@@ -52,7 +58,6 @@ class ExecutionFrame:
     agent_profile: AgentProfile
     working_history: list[dict[str, str]]
     topic_id: str | None
-    identity: Identity
     execution_policy: FrameExecutionPolicy = field(default_factory=FrameExecutionPolicy)
 
     harvested_aliases: list[str] = field(default_factory=list)
@@ -61,6 +66,16 @@ class ExecutionFrame:
     # execute_frame 的局部变量下沉到此处，使 CALL 挂起后重入续接、编号连续。
     # 见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1bis。
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
+
+    @property
+    def access_context(self) -> WorkspaceAccessContext:
+        """返回 frame 随 RuntimeScope 继承的 Workspace hard boundary。"""
+        return self.runtime_scope.access_context
+
+    @property
+    def identity(self) -> Identity:
+        """兼容读取当前执行者身份。"""
+        return self.access_context.actor_identity
 
     def is_transient(self) -> bool:
         """判断本帧是否未挂载话题（子帧为瞬态帧，topic_id 为 None）。"""
@@ -84,11 +99,20 @@ class ExecutionFrame:
 class MTPExecutionContext:
     """单条 MTP 指令执行时的身份、权限与运行坐标上下文。"""
 
-    identity: Identity = field(default_factory=Identity)
+    runtime_scope: RuntimeScope
     agent_profile: Any = None
-    runtime_scope: RuntimeScope = field(default_factory=RuntimeScope)
     execution_policy: FrameExecutionPolicy | None = None
     language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生
+
+    @property
+    def access_context(self) -> WorkspaceAccessContext:
+        """返回 MTP 指令继承的 Workspace hard boundary。"""
+        return self.runtime_scope.access_context
+
+    @property
+    def identity(self) -> Identity:
+        """兼容读取当前执行者身份。"""
+        return self.access_context.actor_identity
 
 
 @dataclass

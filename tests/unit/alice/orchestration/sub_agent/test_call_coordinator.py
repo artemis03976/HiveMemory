@@ -11,6 +11,7 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
@@ -19,17 +20,25 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
+from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+from tests.helpers.workspace import make_runtime_scope
 
 
-def _frame(action_id: str = "act-1") -> ExecutionFrame:
+def _frame(
+    action_id: str = "act-1",
+    *,
+    workspace_id: str = "main_workspace",
+) -> ExecutionFrame:
     frame = ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-1"),
+        runtime_scope=make_runtime_scope(
+            run_id="run-1",
+            frame_id="frame-1",
+            workspace_id=workspace_id,
+        ),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
         topic_id="topic-1",
-        identity=Identity(user_id="user-1", agent_id="omni_doll"),
     )
     frame.progress.turn_events.append(
         TurnEvent(
@@ -418,3 +427,39 @@ async def test_call_coordinator_rejects_unregistered_caller():
         )
 
     runtime.run_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_child_frame_inherits_caller_workspace_hard_boundary() -> None:
+    """防止 CALL 派生子帧时切回默认 Workspace 或扩大访问边界。"""
+    caller = _frame(workspace_id="isolation_workspace")
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        apply_call_response=MagicMock(),
+    )
+    coordinator = CallCoordinator(
+        runtime,
+        SimpleNamespace(
+            provide=AsyncMock(
+                return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE)
+            )
+        ),
+        frame_factory=FrameFactory(),
+        prompt_assembler=SimpleNamespace(
+            build_sub_agent_messages=MagicMock(
+                return_value=[{"role": "user", "content": "summarize"}]
+            )
+        ),
+    )
+    session = _session(caller)
+
+    result = await coordinator.begin_call(
+        caller,
+        _suspension(),
+        session=session,
+    )
+
+    assert isinstance(result, DispatchCallee)
+    assert result.frame.access_context == caller.access_context
+    assert result.frame.runtime_scope.run_id == caller.runtime_scope.run_id
+    assert result.frame.runtime_scope.frame_id != caller.runtime_scope.frame_id

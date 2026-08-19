@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import Identity
+from hivememory.core.models import WorkspaceAccessContext
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import RetrievalResponse
 
@@ -36,7 +36,8 @@ class PassiveConversationKey:
 
     source: str
     external_conversation_id: str
-    user_id: str
+    owner_user_id: str
+    workspace_id: str
     agent_id: str
     team_id: str | None = None
 
@@ -46,14 +47,15 @@ class PassiveConversationKey:
         *,
         source: str,
         external_conversation_id: str,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> PassiveConversationKey:
         return cls(
             source=source,
             external_conversation_id=external_conversation_id,
-            user_id=identity.user_id,
-            agent_id=identity.agent_id,
-            team_id=identity.team_id,
+            owner_user_id=access_context.workspace_identity.owner_user_id,
+            workspace_id=access_context.workspace_identity.workspace_id,
+            agent_id=access_context.actor_identity.agent_id,
+            team_id=access_context.actor_identity.team_id,
         )
 
     @property
@@ -61,7 +63,7 @@ class PassiveConversationKey:
         team = self.team_id or "<no-team>"
         return (
             f"{self.source}/{self.external_conversation_id}"
-            f"@{self.user_id}:{self.agent_id}:{team}"
+            f"@{self.owner_user_id}:{self.workspace_id}:{self.agent_id}:{team}"
         )
 
     @property
@@ -135,11 +137,14 @@ class PassiveIngressEvent(BaseModel):
         """进程内幂等键。"""
         return (self.source, self.external_event_id)
 
-    def conversation_key(self, identity: Identity) -> PassiveConversationKey:
+    def conversation_key(
+        self,
+        access_context: WorkspaceAccessContext,
+    ) -> PassiveConversationKey:
         return PassiveConversationKey.build(
             source=self.source,
             external_conversation_id=self.external_conversation_id,
-            identity=identity,
+            access_context=access_context,
         )
 
 

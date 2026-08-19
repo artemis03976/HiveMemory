@@ -11,16 +11,16 @@ from hivememory.agent_runtime.models import (
     StreamChunk,
 )
 from hivememory.agent_runtime.output import FrameOutput, TokenDelta
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
+from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame() -> ExecutionFrame:
     return ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-1"),
+        runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "task"}],
         topic_id="topic-1",
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
     )
 
 

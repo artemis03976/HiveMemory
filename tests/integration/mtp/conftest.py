@@ -12,15 +12,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.system.config import KoakumaConfig
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
+from tests.helpers.workspace import make_runtime_scope
 
 
 class MockAsyncBus(AsyncSystemBus):
@@ -144,7 +146,12 @@ def normalize_worker_agent_mtp_output(text: str) -> str:
 
 
 def simulate_kernel_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
-    result = asyncio.run(koakuma.intercept_and_execute(normalize_worker_agent_mtp_output(agent_text)))
+    result = asyncio.run(
+        koakuma.intercept_and_execute(
+            normalize_worker_agent_mtp_output(agent_text),
+            context=MTPExecutionContext(runtime_scope=make_runtime_scope()),
+        )
+    )
     assert result is not None, f"Kernel Loop 未检测到 MTP 指令。Agent 文本: {agent_text!r}"
     return result
 

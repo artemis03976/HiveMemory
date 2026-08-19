@@ -37,6 +37,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
+from tests.helpers.workspace import make_access_context
 
 SOURCE = "unit_events"
 CONVERSATION = "conv-events"
@@ -74,7 +75,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        identity=IDENTITY,
+        access_context=make_access_context(user_id="u1", agent_id="a1"),
     )
 
 
@@ -224,7 +225,7 @@ async def test_events_never_carry_external_content_or_tool_args() -> None:
         ),
         IDENTITY,
     )
-    await ingressor.flush_conversation(_key(), IDENTITY)
+    await ingressor.flush_conversation(_key())
 
     assert sink.events, "应至少发布若干观测事件"
     serialized = "\n".join(event.model_dump_json() for event in sink.events)
@@ -260,5 +261,5 @@ async def test_ingressor_works_without_sink() -> None:
     outcome = await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
     assert outcome.kind == "user"
 
-    submitted = await ingressor.flush_conversation(_key(), IDENTITY)
+    submitted = await ingressor.flush_conversation(_key())
     assert submitted == 1

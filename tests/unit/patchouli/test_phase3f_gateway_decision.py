@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import (
@@ -22,6 +23,7 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
+from tests.helpers.workspace import make_access_context
 
 
 def _decision(
@@ -84,18 +86,21 @@ async def test_prepare_explicit_missing_profile_fails_before_topic_creation() ->
     bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, get_profile)
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
 
+    access_context = make_access_context(
+        user_id="u1",
+        agent_id="missing_doll",
+    )
     with pytest.raises(AliasNotFoundError) as exc_info:
         await _service(bus, AsyncMock(return_value="topic-1")).prepare_agent_run(
             "hello",
-            "u1",
+            access_context=access_context,
             gateway_decision=_decision(),
-            agent_id="missing_doll",
         )
 
     assert exc_info.value is failure
     get_profile.assert_awaited_once_with(
         "missing_doll",
-        identity=Identity(user_id="u1", agent_id="missing_doll"),
+        access_context=access_context,
     )
     prepare_topic.assert_not_awaited()
 
@@ -107,7 +112,7 @@ async def test_prepare_stores_decision_and_derives_retrieval_request() -> None:
 
     prepared = await _service(bus, _submit).prepare_agent_run(
         "原问题",
-        "u1",
+        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
         gateway_decision=decision,
     )
 
@@ -131,7 +136,7 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
 
     prepared = await _service(bus, _submit).prepare_agent_run(
         "你好",
-        "u1",
+        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
         gateway_decision=decision,
     )
 
@@ -147,7 +152,7 @@ async def test_finalize_uses_saved_decision_instead_of_legacy_gaze() -> None:
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
         "原问题",
-        "u1",
+        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
         gateway_decision=decision,
     )
 
@@ -165,3 +170,16 @@ async def test_finalize_uses_saved_decision_instead_of_legacy_gaze() -> None:
     assert payload.worth_saving is True
     assert payload.assistant_final_text == "回答"
     assert submit.await_args.kwargs["interaction_id"] == prepared.interaction_id
+
+
+@pytest.mark.asyncio
+async def test_retrieval_boundary_rejects_missing_scope_even_when_skipped() -> None:
+    """防止 SKIP 分支绕过 scope 校验并形成内部默认 Workspace 先例。"""
+    bus, _retrieve, submit = _prepare_bus()
+    service = _service(bus, submit)
+
+    with pytest.raises(ScopeRequiredError):
+        await service.retrieve_for_decision(
+            _decision(mode=RetrievalMode.SKIP, top_k=0),
+            access_context=None,
+        )

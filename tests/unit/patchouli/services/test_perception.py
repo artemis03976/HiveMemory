@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.core.models import Identity, LogicalBlock, TopicData, TurnEvent, TurnRecord
+from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason, TopicMaterializeTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -25,6 +25,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
 from hivememory.patchouli.services.perception import PerceptionFamiliar
+from tests.helpers.workspace import make_access_context
 
 
 class TestPerceptionFamiliar:
@@ -73,7 +74,7 @@ class TestPerceptionFamiliar:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            identity=Identity(user_id="u1"),
+            access_context=make_access_context(user_id="u1"),
         )
         settlement = TopicMaterializeTask(topic_id="t1", blocks=[
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
@@ -111,7 +112,7 @@ class TestPerceptionFamiliar:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            identity=Identity(user_id="u1"),
+            access_context=make_access_context(user_id="u1"),
         )
         layer = Mock()
         layer.route_and_ingest = AsyncMock(return_value=("t1", None))  # 无 settlement
@@ -135,7 +136,7 @@ class TestPerceptionFamiliar:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            identity=Identity(user_id="u1"),
+            access_context=make_access_context(user_id="u1"),
         )
         lru = TopicData(
             topic_id="old_topic",

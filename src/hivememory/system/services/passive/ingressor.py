@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import uuid4
 
-from hivememory.core.models import Identity
+from hivememory.core.models import (
+    Identity,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+    resolve_default_workspace_access,
+)
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
@@ -141,15 +147,29 @@ class PassiveMessageIngressor:
         event: PassiveIngressEvent,
         identity: Identity,
     ) -> PassiveIngressOutcome:
-        key = event.conversation_key(identity)
+        """公共 passive 入口：为每个顶层事件解析默认 Workspace。"""
+        access_context = resolve_default_workspace_access(
+            identity,
+            f"passive_{uuid4().hex}",
+        )
+        return await self.route_event_scoped(event, access_context)
+
+    async def route_event_scoped(
+        self,
+        event: PassiveIngressEvent,
+        access_context: WorkspaceAccessContext,
+    ) -> PassiveIngressOutcome:
+        """供内部 walking skeleton 使用的显式 scope 入口。"""
+        access_context = require_workspace_access_context(access_context)
+        key = event.conversation_key(access_context)
 
         async with self._serial_gate.hold(key):
-            return await self._route_event_serialized(event, identity, key)
+            return await self._route_event_serialized(event, access_context, key)
 
     async def _route_event_serialized(
         self,
         event: PassiveIngressEvent,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
         """在当前会话串行门内完成一次事件的全部状态变更。"""
@@ -192,17 +212,17 @@ class PassiveMessageIngressor:
         )
 
         if event.role == "user":
-            return await self._handle_user(event, identity, key)
+            return await self._handle_user(event, access_context, key)
 
         if event.role in ("assistant", "tool_call", "tool_result"):
-            return await self._handle_buffered(event, identity, key)
+            return await self._handle_buffered(event, access_context, key)
 
         return PassiveIngressOutcome(kind="ignored")
 
     async def _handle_user(
         self,
         event: PassiveIngressEvent,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
         # 先把上一轮移交队列，再分析新 user。admission 失败时不覆盖旧 accumulator，
@@ -214,12 +234,13 @@ class PassiveMessageIngressor:
             raise
 
         # Gateway/retrieval 的可恢复失败在 provider 内收敛为降级结果。
-        attempt = await self._memory_context.prepare(event, identity, key)
+        attempt = await self._memory_context.prepare(event, access_context, key)
 
-        buffer = self._buffers.get_buffer(key, identity)
+        buffer = self._buffers.get_buffer(key)
         buffer.accept_user(
             content=event.content,
             gateway_decision=attempt.decision,
+            access_context=access_context,
             turn_id=event.turn_id,
         )
 
@@ -239,10 +260,10 @@ class PassiveMessageIngressor:
     async def _handle_buffered(
         self,
         event: PassiveIngressEvent,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
-        buffer = self._buffers.get_buffer(key, identity)
+        buffer = self._buffers.get_buffer(key)
 
         if event.role == "assistant":
             buffer.accept_assistant(event.content)
@@ -280,12 +301,10 @@ class PassiveMessageIngressor:
     async def flush_conversation(
         self,
         key: PassiveConversationKey,
-        identity: Identity,
         *,
         seal_reason: SealReason = "manual_flush",
     ) -> int:
         """把指定会话的当前 turn 移交 submission queue。"""
-        del identity  # key 已包含完整身份维度，保留参数用于公共入口兼容。
         async with self._serial_gate.hold(key):
             accepted = await self._finalize_current_turn(
                 key,

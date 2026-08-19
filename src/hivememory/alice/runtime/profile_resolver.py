@@ -5,12 +5,17 @@ import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+    Identity,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     BusRouteUnavailableError,
     MTPError,
-    PermissionDeniedError,
     SystemFault,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -64,17 +69,13 @@ class AgentProfileResolver:
         self,
         agent_alias: str | None,
         *,
-        identity: Identity | None = None,
+        access_context: WorkspaceAccessContext,
     ) -> AgentProfile:
+        access_context = require_workspace_access_context(access_context)
+        identity = access_context.actor_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
-
-        if identity is None:
-            raise PermissionDeniedError(
-                message_key="mtp.call.profile_permission_denied",
-                params={"agent_alias": normalized_alias},
-            )
 
         cached = self._cache.get(normalized_alias, identity)
         if cached is not None:
@@ -91,7 +92,7 @@ class AgentProfileResolver:
                 profile = await self._local_bus.request(
                     GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
                     normalized_alias,
-                    identity=identity,
+                    access_context=access_context,
                 )
             except MTPError:
                 raise

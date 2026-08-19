@@ -28,6 +28,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
+from tests.helpers.workspace import make_access_context
 
 SOURCE = "unit_test"
 CONVERSATION = "conv-1"
@@ -73,7 +74,10 @@ def _key(identity: Identity) -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        identity=identity,
+        access_context=make_access_context(
+            user_id=identity.user_id,
+            agent_id=identity.agent_id,
+        ),
     )
 
 
@@ -97,15 +101,63 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     assert outcome.gateway_decision == _decision_outcome().decision
     assert gateway.await_args.kwargs["ingress_mode"] == (GatewayIngressMode.PASSIVE_MEMORY)
     assert gateway.await_args.kwargs["request_timeout_ms"] == 123
+    assert (
+        gateway.await_args.kwargs["access_context"].workspace_identity.workspace_id
+        == "main_workspace"
+    )
     request = retrieve.await_args.kwargs["request"]
     assert request.semantic_query == "被动原问题"
     assert request.top_k == 5
 
-    assert await ingressor.flush_conversation(_key(identity), identity) == 1
+    assert await ingressor.flush_conversation(_key(identity)) == 1
     assert len(submitted) == 1
     submission = submitted[0]
     assert submission.requested_topic_id == "topic-passive"
     assert submission.correlation["seal_reason"] == "manual_flush"
+    assert submission.payload.access_context.workspace_identity.workspace_id == (
+        "main_workspace"
+    )
+
+
+@pytest.mark.asyncio
+async def test_scoped_passive_seam_keeps_workspace_in_key_and_payload() -> None:
+    """防止 passive 内部 seam 复用同名会话时退回 main Workspace 分桶。"""
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(
+        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+        AsyncMock(return_value=RetrievalResponse()),
+    )
+    submitted = []
+    ingressor = PassiveMessageIngressor(
+        bus,
+        interaction_queue=_SubmissionQueueRecorder(submitted),
+    )
+    access_context = make_access_context(
+        user_id="u1",
+        workspace_id="isolation_workspace",
+        interaction_id="passive-top-level",
+    )
+
+    await ingressor.route_event_scoped(
+        _event("user", "被动原问题"),
+        access_context,
+    )
+    await ingressor.route_event_scoped(
+        _event("assistant", "回答", is_final=True),
+        access_context,
+    )
+
+    assert len(submitted) == 1
+    submission = submitted[0]
+    assert ":isolation_workspace:" in submission.ordering_key
+    assert submission.payload.access_context.workspace_identity == (
+        access_context.workspace_identity
+    )
+    assert submission.payload.access_context.actor_identity == (
+        access_context.actor_identity
+    )
+    assert submission.payload.access_context == access_context
     assert submission.payload.rewritten_query == "被动原问题"
     assert submission.payload.worth_saving is True
 

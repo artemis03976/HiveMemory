@@ -8,11 +8,11 @@ Topic 访问链路集成测试。
 
 import pytest
 
-from hivememory.core.models import Identity
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from tests.helpers.workspace import make_access_context
 
 
 @pytest.mark.asyncio
@@ -22,14 +22,14 @@ async def test_get_topic_data_does_not_change_topic_access_state():
     initial_accessed_at = buffer.last_accessed_at
     bus = PatchouliBus()
 
-    async def get_topic(topic_id: str, *, touch: bool = True):
+    async def get_topic(topic_id: str, *, access_context, touch: bool = True):
         return store.get_topic_data(topic_id, touch=touch)
 
     bus.register(PatchouliLocalRoutes.TOPIC_GET, get_topic)
     service = TopicManagementService(bus=bus)
 
     result = await service.get_topic_data(
-        identity=Identity(user_id="u1"),
+        access_context=make_access_context(user_id="u1"),
         topic_id=buffer.topic_id,
     )
 

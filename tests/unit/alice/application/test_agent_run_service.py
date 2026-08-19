@@ -19,7 +19,6 @@ from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -32,6 +31,7 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
+from tests.helpers.workspace import make_access_context
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -54,7 +54,7 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     return AgentRunContext(
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
+        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,

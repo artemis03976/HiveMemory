@@ -1,11 +1,11 @@
-import pytest
-from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+
 from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
+from hivememory.agent_runtime.aliases.resolver import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.aliases.resolver import RuntimeAliasResolver
 from hivememory.core.models import (
     Identity,
     IndexLayer,
@@ -17,8 +17,12 @@ from hivememory.core.models import (
     PendingAtomSettlement,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
-
+from tests.helpers.workspace import make_runtime_scope
 from tests.unit.agent_runtime.mtp.conftest import make_mock_bus
+
+
+def _context() -> MTPExecutionContext:
+    return MTPExecutionContext(runtime_scope=make_runtime_scope())
 
 
 def _make_memory(alias: str, content: str = "content") -> MemoryAtom:
@@ -57,9 +61,10 @@ async def test_resolve_l0_pending_hit(resolver_parts):
         title="Pending Note",
         reason=None,
         identity=Identity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(),
     )
 
-    result = await resolver.resolve(pending.pending_alias)
+    result = await resolver.resolve(pending.pending_alias, context=_context())
 
     assert result.kind == "pending"
     assert result.pending is pending
@@ -74,6 +79,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         title="Pending Note",
         reason=None,
         identity=Identity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(),
     )
     canonical = _make_memory(alias="fact_canonical", content="canonical content")
     atom_cache.ingest_atom(canonical)
@@ -87,7 +93,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
 
     pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
-    result = await resolver.resolve(pending.pending_alias)
+    result = await resolver.resolve(pending.pending_alias, context=_context())
 
     assert result.kind == "redirect"
     assert result.requested_alias == pending.pending_alias
@@ -111,6 +117,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
         title="Pending Note",
         reason=None,
         identity=Identity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(),
     )
     canonical = _make_memory(alias="fact_canonical", content="from storage")
     bus._mock_storage.get_memory_by_alias.return_value = canonical
@@ -124,7 +131,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
 
     pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
-    result = await resolver.resolve(pending.pending_alias)
+    result = await resolver.resolve(pending.pending_alias, context=_context())
 
     assert result.kind == "redirect"
     assert result.atom is canonical
@@ -139,6 +146,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
         title="Pending Note",
         reason=None,
         identity=Identity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(),
     )
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
@@ -149,7 +157,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
 
     pending_runtime.claim_for_materialization([pending.pending_alias])
     pending_runtime.settle(settlement)
-    result = await resolver.resolve(pending.pending_alias)
+    result = await resolver.resolve(pending.pending_alias, context=_context())
 
     assert result.kind == "discarded"
     assert result.pending is pending
@@ -164,7 +172,7 @@ async def test_resolve_l1_atom_hit(resolver_parts):
     atom = _make_memory(alias="fact_l1", content="from l1")
     atom_cache.ingest_atom(atom)
 
-    result = await resolver.resolve("fact_l1")
+    result = await resolver.resolve("fact_l1", context=_context())
 
     assert result.kind == "atom"
     assert result.atom is atom
@@ -177,7 +185,7 @@ async def test_resolve_l2_hit_promotes_to_l1(resolver_parts):
     atom = _make_memory(alias="fact_l2", content="from l2")
     bus._mock_storage.get_memory_by_alias.return_value = atom
 
-    context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+    context = _context()
     result = await resolver.resolve("fact_l2", context=context)
 
     assert result.kind == "atom"
@@ -195,7 +203,7 @@ async def test_resolve_l2_miss(resolver_parts):
     resolver, _pending_runtime, _atom_cache, bus = resolver_parts
     bus._mock_storage.get_memory_by_alias.return_value = None
 
-    result = await resolver.resolve("missing")
+    result = await resolver.resolve("missing", context=_context())
 
     assert result.kind == "not_found"
 
@@ -206,7 +214,7 @@ async def test_resolve_route_failure_raises_bus_unavailable(resolver_parts):
     bus._mock_storage.get_memory_by_alias.side_effect = KeyError("route missing")
 
     with pytest.raises(BusRouteUnavailableError):
-        await resolver.resolve("fact_route_missing")
+        await resolver.resolve("fact_route_missing", context=_context())
 
 
 @pytest.mark.asyncio
@@ -215,7 +223,7 @@ async def test_resolve_storage_failure_raises_storage_read_error(resolver_parts)
     bus._mock_storage.get_memory_by_alias.side_effect = RuntimeError("boom")
 
     with pytest.raises(StorageReadError):
-        await resolver.resolve("fact_boom")
+        await resolver.resolve("fact_boom", context=_context())
 
 
 @pytest.mark.asyncio
@@ -226,10 +234,11 @@ async def test_resolve_expired_pending_returns_expired(resolver_parts):
         title="Expire Test",
         reason=None,
         identity=Identity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(),
     )
     pending_runtime.expire(pending.pending_alias)
 
-    result = await resolver.resolve(pending.pending_alias)
+    result = await resolver.resolve(pending.pending_alias, context=_context())
 
     assert result.kind == "expired"
     assert result.requested_alias == pending.pending_alias

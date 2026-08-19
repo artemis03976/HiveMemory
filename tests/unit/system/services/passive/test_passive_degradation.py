@@ -38,6 +38,7 @@ from hivememory.system.services.passive import (
     PassiveMessageIngressor,
     is_recoverable_ingress_error,
 )
+from tests.helpers.workspace import make_access_context
 
 SOURCE = "unit_degrade"
 CONVERSATION = "conv-degrade"
@@ -71,7 +72,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        identity=IDENTITY,
+        access_context=make_access_context(user_id="u1", agent_id="a1"),
     )
 
 
@@ -170,7 +171,7 @@ async def test_degraded_turn_still_submits_raw_interaction() -> None:
 
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
     await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
-    submitted = await ingressor.flush_conversation(_key(), IDENTITY)
+    submitted = await ingressor.flush_conversation(_key())
 
     assert submitted == 1
     sealed = recorder.submitted[0]
@@ -222,7 +223,7 @@ async def test_retrieval_failure_preserves_decision() -> None:
     assert outcome.retrieval_result is None
 
     await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
-    await ingressor.flush_conversation(_key(), IDENTITY)
+    await ingressor.flush_conversation(_key())
 
     sealed = recorder.submitted[0]
     assert sealed.requested_topic_id == "topic-1"

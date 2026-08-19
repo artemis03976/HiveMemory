@@ -2,10 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from hivememory.core.models import AgentProfile, Identity, TopicData
+from hivememory.core.models import AgentProfile, TopicData
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.i18n import set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
+from tests.helpers.workspace import make_access_context
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +49,7 @@ def test_build_main_agent_messages_from_context():
         language="zh",
     )
     context = AgentRunContext(
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
+        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
         topic_context=_make_topic_data("state"),
@@ -77,7 +78,7 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
         language="zh",
     )
     context = AgentRunContext(
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
+        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,

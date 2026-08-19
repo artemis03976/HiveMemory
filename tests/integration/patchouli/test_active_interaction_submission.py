@@ -43,6 +43,7 @@ from hivememory.patchouli.service import (
     PatchouliService,
 )
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
+from tests.helpers.workspace import make_access_context
 
 
 def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
@@ -89,9 +90,13 @@ def _prepared(
     memories: list[MemoryAtom] | None = None,
 ) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="a1", session_id="session-1")
+    access_context = make_access_context(
+        actor_identity=identity,
+        interaction_id=interaction_id,
+    )
     return PreparedAgentRun(
         agent_run_context=AgentRunContext(
-            identity=identity,
+            access_context=access_context,
             topic_id="topic-1",
             user_message="question",
             topic_context=None,
@@ -105,7 +110,6 @@ def _prepared(
             pool_topics=[],
             memory_refs=[],
         ),
-        interaction_id=interaction_id,
     )
 
 
@@ -160,6 +164,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         submission = submit_spy.await_args.args[0]
         assert isinstance(submission, InteractionSubmission)
         assert submission.origin == "active_chat"
+        assert submission.payload.access_context == prepared.access_context
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply", "materialize"]
@@ -295,7 +300,11 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         InteractionSubmission(
             interaction_id="passive-pending",
             payload=InteractionPayload(
-                identity=Identity(user_id="u1", agent_id="a1"),
+                access_context=make_access_context(
+                    user_id="u1",
+                    agent_id="a1",
+                    interaction_id="passive-pending",
+                ),
                 user_message="passive question",
                 assistant_final_text="passive answer",
             ),

@@ -4,12 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.aliases import ResolveResult
-from hivememory.agent_runtime.models import ExecutionFrame, RuntimeScope
+from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.alice.orchestration.sub_agent import CallContextProvider
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -17,15 +16,15 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.mtp import MTPCallRequest
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE) -> ExecutionFrame:
     return ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-1"),
+        runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=profile,
         working_history=[],
         topic_id="topic-1",
-        identity=Identity(user_id="user-1", agent_id="caller"),
     )
 
 
@@ -70,7 +69,10 @@ async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_ref
     )
 
     assert context.shared_context == ""
-    profile_resolver.resolve.assert_awaited_once_with("helper", identity=caller.identity)
+    profile_resolver.resolve.assert_awaited_once_with(
+        "helper",
+        access_context=caller.access_context,
+    )
     alias_resolver.resolve.assert_not_awaited()
 
 

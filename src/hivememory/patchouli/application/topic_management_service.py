@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import Identity, TopicData, TopicSnapshot
+from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 
@@ -20,10 +20,10 @@ class TopicManagementService:
     async def list_active_topics(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]:
-        kwargs = {"identity": identity}
+        kwargs = {"access_context": access_context}
         if include_empty:
             kwargs["include_empty"] = True
         snapshots = await self._bus.request(
@@ -35,7 +35,7 @@ class TopicManagementService:
     async def get_topic_data(
         self,
         *,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicData | None:
         """无副作用读取调用方可见的完整话题数据。"""
@@ -43,9 +43,13 @@ class TopicManagementService:
         topic_data = await self._bus.request(
             PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
+            access_context=access_context,
             touch=False,
         )
-        if topic_data is None or topic_data.user_id != identity.user_id:
+        if (
+            topic_data is None
+            or topic_data.user_id != access_context.workspace_identity.owner_user_id
+        ):
             return None
         return topic_data
 
@@ -60,12 +64,12 @@ class TopicManagementService:
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> str:
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_PREPARE,
             target_topic_id,
             new_topic_title,
             new_topic_summary,
-            identity,
+            access_context,
         )

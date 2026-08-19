@@ -30,7 +30,6 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.analysis import (
     UserQueryAnalysisContext,
-    UserQueryAnalysisResult,
 )
 from hivememory.gateway.context import CandidateTopics
 from hivememory.gateway.workflow import (
@@ -38,6 +37,7 @@ from hivememory.gateway.workflow import (
     GatewayExecutionState,
     GatewayStepResult,
 )
+from tests.helpers.workspace import make_access_context
 
 
 def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
@@ -120,12 +120,6 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
         ],
         active_topics_menu="topic-1: Gateway",
     )
-    analysis = UserQueryAnalysisResult(
-        intent_type=IntentType.RAG,
-        rewritten_query="原问题",
-        memory_write_signal=MemoryWriteSignal.WRITE,
-        retrieval_plan=RetrievalPlan(),
-    )
     context = UserQueryAnalysisContext(
         raw_message="原问题",
         identity=Identity(user_id="user-1"),
@@ -141,7 +135,7 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
 def test_execution_state_has_one_guarded_write_entry() -> None:
     state = GatewayExecutionState(
         raw_message="原问题",
-        identity=Identity(user_id="user-1"),
+        access_context=make_access_context(user_id="user-1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
     updates = {"topic_id": "topic-1"}

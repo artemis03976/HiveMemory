@@ -1,8 +1,11 @@
 """Koakuma WRITE 指令链路集成测试。"""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
+from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.models import (
     Identity,
     IndexLayer,
@@ -11,9 +14,8 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
 )
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
+from tests.helpers.workspace import make_runtime_scope
 
 from .conftest import (
     make_koakuma_runtime,
@@ -53,7 +55,9 @@ class TestKoakumaWriteE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(user_id="test_user")
+        )
         return koakuma
 
     @pytest.mark.asyncio
@@ -106,11 +110,9 @@ class TestKoakumaWriteE2E:
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.core.models import RuntimeScope
-
         context = MTPExecutionContext(
-            identity=Identity(user_id="test_user"),
-            runtime_scope=RuntimeScope(
+            runtime_scope=make_runtime_scope(
+                user_id="test_user",
                 run_id="run_write_test",
                 frame_id="frame_main_write",
             ),

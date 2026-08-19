@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hivememory.core.errors import WorkspaceDomainError
 from hivememory.system.application.chat_service import _run_interruptible
 from hivememory.system.runtime.control import (
     ChatGenerationRun,
@@ -14,11 +15,19 @@ from hivememory.system.runtime.control import (
     ChatRunOutcome,
     ChatRunPhase,
 )
+from tests.helpers.workspace import make_access_context
+
+
+def _run(generation_id: str) -> ChatGenerationRun:
+    return ChatGenerationRun(
+        generation_id=generation_id,
+        access_context=make_access_context(interaction_id=f"interaction-{generation_id}"),
+    )
 
 
 @pytest.mark.asyncio
 async def test_gateway_stop_cancels_bound_task_immediately() -> None:
-    run = ChatGenerationRun(generation_id="generation-1")
+    run = _run("generation-1")
     blocker = asyncio.Event()
     task = asyncio.create_task(blocker.wait())
     run.bind_phase(ChatRunPhase.GATEWAY, task)
@@ -35,7 +44,7 @@ async def test_gateway_stop_cancels_bound_task_immediately() -> None:
 
 @pytest.mark.asyncio
 async def test_prepare_stop_records_request_without_cancelling_prepare_task() -> None:
-    run = ChatGenerationRun(generation_id="generation-2")
+    run = _run("generation-2")
     run.enter_phase(ChatRunPhase.PREPARE)
     blocker = asyncio.Event()
     prepare_task = asyncio.create_task(blocker.wait())
@@ -52,14 +61,14 @@ async def test_prepare_stop_records_request_without_cancelling_prepare_task() ->
 
 
 def test_finalize_and_terminal_stop_are_rejected() -> None:
-    finalizing = ChatGenerationRun(generation_id="generation-3")
+    finalizing = _run("generation-3")
     finalizing.enter_phase(ChatRunPhase.FINALIZE)
     result = finalizing.request_stop()
     assert result.accepted is False
     assert result.reason == "already_finalizing"
     assert finalizing.outcome is ChatRunOutcome.RUNNING
 
-    terminal = ChatGenerationRun(generation_id="generation-4")
+    terminal = _run("generation-4")
     terminal.phase = ChatRunPhase.TERMINAL
     terminal.outcome = ChatRunOutcome.COMPLETED
     result = terminal.request_stop()
@@ -69,7 +78,7 @@ def test_finalize_and_terminal_stop_are_rejected() -> None:
 
 
 def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
-    run = ChatGenerationRun(generation_id="generation-5")
+    run = _run("generation-5")
     task = MagicMock()
     task.done.return_value = False
     run.bind_phase(ChatRunPhase.ALICE, task)
@@ -86,23 +95,24 @@ def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
 def test_registry_not_found_and_terminal_results_are_stable() -> None:
     registry = ChatGenerationRunRegistry()
 
-    missing = registry.cancel("missing-generation")
+    access_context = make_access_context()
+    missing = registry.cancel("missing-generation", access_context)
     assert missing.cancelled is False
     assert missing.status == "not_found"
 
-    run = ChatGenerationRun(generation_id="generation-6")
+    run = _run("generation-6")
     run.phase = ChatRunPhase.TERMINAL
     run.outcome = ChatRunOutcome.FAILED
     registry.register(run)
 
-    terminal = registry.cancel(run.generation_id)
+    terminal = registry.cancel(run.generation_id, run.access_context)
     assert terminal.cancelled is False
     assert terminal.reason == "already_terminal"
     assert run.outcome is ChatRunOutcome.FAILED
 
 
 def test_stop_after_bound_task_finished_is_accepted_without_second_cancel() -> None:
-    run = ChatGenerationRun(generation_id="generation-7")
+    run = _run("generation-7")
     task = MagicMock()
     task.done.return_value = True
     run.bind_phase(ChatRunPhase.GATEWAY, task)
@@ -116,7 +126,7 @@ def test_stop_after_bound_task_finished_is_accepted_without_second_cancel() -> N
 
 @pytest.mark.asyncio
 async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled() -> None:
-    run = ChatGenerationRun(generation_id="generation-8")
+    run = _run("generation-8")
     blocker = asyncio.Event()
 
     async def operation():
@@ -129,3 +139,50 @@ async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled()
     with pytest.raises(asyncio.CancelledError):
         await task
     assert run.outcome is ChatRunOutcome.RUNNING
+
+
+def test_registry_hides_run_from_different_workspace_control_plane() -> None:
+    """防止仅凭 generation_id 跨 Workspace 查询或取消另一条 run。"""
+    registry = ChatGenerationRunRegistry()
+    owner_context = make_access_context(
+        user_id="u1",
+        workspace_id="main_workspace",
+        interaction_id="interaction-main",
+    )
+    other_context = make_access_context(
+        user_id="u1",
+        workspace_id="isolation_workspace",
+        interaction_id="interaction-isolation",
+    )
+    run = ChatGenerationRun(
+        generation_id="shared-generation-id",
+        access_context=owner_context,
+    )
+    registry.register(run)
+
+    assert registry.get(run.generation_id, other_context) is None
+    assert registry.status(run.generation_id, other_context) is None
+    rejected = registry.cancel(run.generation_id, other_context)
+    assert rejected.status == "not_found"
+    assert rejected.cancelled is False
+    assert run.outcome is ChatRunOutcome.RUNNING
+
+
+def test_registry_rejects_generation_id_collision_without_overwriting_owner() -> None:
+    """防止重复 generation_id 覆盖既有 scope 并把控制权转给后注册者。"""
+    registry = ChatGenerationRunRegistry()
+    original = _run("collision")
+    replacement = ChatGenerationRun(
+        generation_id="collision",
+        access_context=make_access_context(
+            workspace_id="isolation_workspace",
+            interaction_id="replacement",
+        ),
+    )
+    registry.register(original)
+
+    with pytest.raises(WorkspaceDomainError, match="拒绝覆盖"):
+        registry.register(replacement)
+
+    assert registry.get("collision", original.access_context) is original
+    assert registry.get("collision", replacement.access_context) is None

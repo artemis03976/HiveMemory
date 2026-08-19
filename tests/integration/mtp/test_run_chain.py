@@ -17,20 +17,25 @@ RUN 指令执行链路测试
 """
 
 import asyncio
-import pytest
 from uuid import uuid4
-from unittest.mock import MagicMock
 
-from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    PendingAtomResolution, PendingAtomSettlement,
-)
-from hivememory.engines.generation.models import DuplicateDecision
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+import pytest
+
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+)
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
+from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
-
+from tests.helpers.workspace import make_runtime_scope
 
 # ========== Helpers ==========
 
@@ -80,11 +85,21 @@ def koakuma() -> KoakumaRuntime:
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
-    return asyncio.run(koakuma.execute_mtp(text, context=context))
+    return asyncio.run(
+        koakuma.execute_mtp(
+            text,
+            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+        )
+    )
 
 
 def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
-    return asyncio.run(koakuma.intercept_and_execute(assistant_text, context=context))
+    return asyncio.run(
+        koakuma.intercept_and_execute(
+            assistant_text,
+            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+        )
+    )
 
 
 # ========== Test 1: Target Validation ==========
@@ -311,7 +326,8 @@ class TestRunUserToolPath:
             content="pending tool",
             title="Pending Tool",
             reason=None,
-            identity=MTPExecutionContext().identity,
+            identity=make_runtime_scope().access_context.actor_identity,
+            runtime_scope=make_runtime_scope(),
         )
         canonical = _make_code_memory(
             code="print('redirected tool output')",
@@ -348,7 +364,8 @@ class TestRunUserToolPath:
             content="pending tool",
             title="Pending Tool",
             reason=None,
-            identity=MTPExecutionContext().identity,
+            identity=make_runtime_scope().access_context.actor_identity,
+            runtime_scope=make_runtime_scope(),
         )
         koakuma.pending_runtime.expire(pending.pending_alias)
 

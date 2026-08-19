@@ -49,6 +49,14 @@ def _command_outcome() -> GatewayCommandOutcome:
     )
 
 
+def _scoped_prepared_route(prepared):
+    async def route(*, access_context, **_kwargs):
+        prepared.access_context = access_context
+        return prepared
+
+    return route
+
+
 @pytest.mark.asyncio
 async def test_non_streaming_command_short_circuits_patchouli_and_alice() -> None:
     bus = GlobalSystemBus()
@@ -78,6 +86,7 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
     async def prepare(**kwargs):
         calls.append("prepare")
         assert kwargs["gateway_decision"] == _decision_outcome().decision
+        prepared.access_context = kwargs["access_context"]
         return prepared
 
     async def run_agent(**_kwargs):
@@ -133,7 +142,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 
     task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-gateway"))
     await started.wait()
-    stop_result = service.cancel_generation("gen-gateway")
+    stop_result = service.cancel_generation("gen-gateway", user_id="u1")
     result = await task
 
     assert stop_result.cancelled is True
@@ -156,7 +165,7 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
     )
     bus.register(
         GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
-        AsyncMock(return_value=prepared),
+        _scoped_prepared_route(prepared),
     )
     bus.register(
         GlobalRoutes.ALICE_RUN_AGENT,
@@ -193,7 +202,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     )
     bus.register(
         GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
-        AsyncMock(return_value=prepared),
+        _scoped_prepared_route(prepared),
     )
     bus.register(
         GlobalRoutes.ALICE_RUN_AGENT,
@@ -233,7 +242,7 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
     )
     bus.register(
         GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
-        AsyncMock(return_value=prepared),
+        _scoped_prepared_route(prepared),
     )
     bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
     cleanup = AsyncMock(return_value=True)
@@ -258,7 +267,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
     prepared.generation_options = None
     prepared.topic_id = "topic-1"
 
-    async def prepare(**_kwargs):
+    async def prepare(*, access_context, **_kwargs):
         nonlocal prepare_cancelled
         prepare_started.set()
         try:
@@ -266,6 +275,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
         except asyncio.CancelledError:
             prepare_cancelled = True
             raise
+        prepared.access_context = access_context
         return prepared
 
     alice = AsyncMock()
@@ -280,7 +290,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
 
     task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-prepare"))
     await prepare_started.wait()
-    stop_result = service.cancel_generation("gen-prepare")
+    stop_result = service.cancel_generation("gen-prepare", user_id="u1")
     release_prepare.set()
     result = await task
 
@@ -317,7 +327,10 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
     finalize = AsyncMock()
     cleanup = AsyncMock(return_value=True)
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, AsyncMock(return_value=prepared))
+    bus.register(
+        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        _scoped_prepared_route(prepared),
+    )
     bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
@@ -327,7 +340,7 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
         _collect_stream(service, generation_id="gen-stream-cancel")
     )
     await pull_started.wait()
-    stop_result = service.cancel_generation("gen-stream-cancel")
+    stop_result = service.cancel_generation("gen-stream-cancel", user_id="u1")
     events = await task
 
     assert stop_result.cancelled is True
@@ -355,7 +368,10 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 
     cleanup = AsyncMock(return_value=True)
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, AsyncMock(return_value=prepared))
+    bus.register(
+        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        _scoped_prepared_route(prepared),
+    )
     bus.register(
         GlobalRoutes.ALICE_RUN_AGENT,
         AsyncMock(return_value=AgentRunResult(final_text="完成")),
@@ -366,7 +382,7 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 
     task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-finalize"))
     await finalize_started.wait()
-    stop_result = service.cancel_generation("gen-finalize")
+    stop_result = service.cancel_generation("gen-finalize", user_id="u1")
     release_finalize.set()
     result = await task
 

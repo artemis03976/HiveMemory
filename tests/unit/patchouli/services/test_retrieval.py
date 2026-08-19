@@ -8,10 +8,10 @@ RetrievalFamiliar 单元测试 (Phase C — renderer 解耦后)
 """
 
 from unittest.mock import AsyncMock, Mock
-from uuid import uuid4
 
 import pytest
 
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Artifacts,
@@ -37,6 +37,7 @@ from hivememory.engines.retrieval.models import QueryFilters, SearchResult, Sear
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from tests.helpers.workspace import make_access_context
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:
@@ -91,7 +92,11 @@ def _make_engine_result(memories=None, is_empty=False):
 
 
 def _make_request(query="测试查询", user_id="u1", filters=None):
-    return RetrievalRequest(semantic_query=query, identity=Identity(user_id=user_id), filters=filters)
+    return RetrievalRequest(
+        semantic_query=query,
+        access_context=make_access_context(user_id=user_id),
+        filters=filters,
+    )
 
 
 def _make_memory_library():
@@ -128,7 +133,10 @@ class TestRetrievalFamiliarAgentProfiles:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("alias", [None, "", "   ", "default", "omni_doll"])
     async def test_unspecified_or_builtin_profile_uses_explicit_fallback(self, alias):
-        result = await self.familiar.get_agent_profile(alias)
+        result = await self.familiar.get_agent_profile(
+            alias,
+            access_context=make_access_context(),
+        )
 
         assert result is OMNI_DOLL_PROFILE
         self.mock_library.mid_term.get_by_alias.assert_not_awaited()
@@ -141,7 +149,7 @@ class TestRetrievalFamiliarAgentProfiles:
 
         result = await self.familiar.get_agent_profile(
             "coder_doll",
-            identity=identity,
+            access_context=make_access_context(actor_identity=identity),
         )
 
         assert result.persona == "You are a coding specialist."
@@ -157,17 +165,20 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(AliasNotFoundError) as exc_info:
             await self.familiar.get_agent_profile(
                 "missing_doll",
-                identity=Identity(user_id="u1"),
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
 
     @pytest.mark.asyncio
-    async def test_custom_profile_without_identity_is_denied_before_storage(self):
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            await self.familiar.get_agent_profile("private_doll")
+    async def test_custom_profile_without_scope_is_denied_before_storage(self):
+        """防止 profile 资源读取在缺 scope 时访问存储。"""
+        with pytest.raises(ScopeRequiredError):
+            await self.familiar.get_agent_profile(
+                "private_doll",
+                access_context=None,  # type: ignore[arg-type]
+            )
 
-        assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
         self.mock_library.mid_term.get_by_alias.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -200,7 +211,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(PermissionDeniedError) as exc_info:
             await self.familiar.get_agent_profile(
                 "private_doll",
-                identity=identity,
+                access_context=make_access_context(actor_identity=identity),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
@@ -212,7 +223,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
             await self.familiar.get_agent_profile(
                 "fact_alias",
-                identity=Identity(user_id="u1"),
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
@@ -226,7 +237,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(InvalidArgumentError) as exc_info:
             await self.familiar.get_agent_profile(
                 "broken_doll",
-                identity=Identity(user_id="u1"),
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
@@ -239,7 +250,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(StorageReadError) as exc_info:
             await self.familiar.get_agent_profile(
                 "coder_doll",
-                identity=Identity(user_id="u1"),
+                access_context=make_access_context(user_id="u1"),
             )
 
         assert exc_info.value is failure
@@ -384,7 +395,12 @@ class TestRetrievalFamiliarIdentityPropagation:
         identity = Identity(user_id="u1", agent_id="coder_doll", team_id="team_a")
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        await self.familiar.retrieve(RetrievalRequest(semantic_query="test", identity=identity))
+        await self.familiar.retrieve(
+            RetrievalRequest(
+                semantic_query="test",
+                access_context=make_access_context(actor_identity=identity),
+            )
+        )
 
         qf = self._get_query_filters()
         assert qf.identity.user_id == "u1"
@@ -396,7 +412,12 @@ class TestRetrievalFamiliarIdentityPropagation:
         identity = Identity(user_id="u1", agent_id="default", team_id=None)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        await self.familiar.retrieve(RetrievalRequest(semantic_query="test", identity=identity))
+        await self.familiar.retrieve(
+            RetrievalRequest(
+                semantic_query="test",
+                access_context=make_access_context(actor_identity=identity),
+            )
+        )
 
         assert self._get_query_filters().identity.team_id is None
 
@@ -406,7 +427,13 @@ class TestRetrievalFamiliarIdentityPropagation:
         mtp_filters = QueryFilters(identity=Identity(user_id="hacker", agent_id="evil"), memory_type=MemoryType.CODE_SNIPPET)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        await self.familiar.retrieve(RetrievalRequest(semantic_query="test", identity=identity, filters=mtp_filters))
+        await self.familiar.retrieve(
+            RetrievalRequest(
+                semantic_query="test",
+                access_context=make_access_context(actor_identity=identity),
+                filters=mtp_filters,
+            )
+        )
 
         qf = self._get_query_filters()
         assert qf.identity.user_id == "u1"
@@ -435,7 +462,8 @@ class TestRetrievalFamiliarRetrieveByAliases:
         )
 
         response = await familiar.retrieve_by_aliases_async(
-            aliases=["fact_a"], identity=Identity(user_id="u1"),
+            aliases=["fact_a"],
+            access_context=make_access_context(user_id="u1"),
         )
 
         refresh.assert_awaited_once_with([mem], persist=False)
@@ -448,7 +476,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
 
         response = await self.familiar.retrieve_by_aliases(
             aliases=["fact_a", "fact_a", "", "fact_missing"],
-            identity=Identity(user_id="u1"),
+            access_context=make_access_context(user_id="u1"),
         )
 
         assert self.mock_library.mid_term.get_by_alias.call_count == 2
@@ -487,7 +515,9 @@ class TestRetrievalFamiliarShortTermTopics:
         new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
         self.mock_library.short_term.list_topic_data.return_value = [old_topic, empty_topic, new_topic]
 
-        snapshots = self.familiar.list_active_topics(Identity(user_id="u1"))
+        snapshots = self.familiar.list_active_topics(
+            access_context=make_access_context(user_id="u1")
+        )
 
         self.mock_library.short_term.list_topic_data.assert_called_once_with(
             user_id="u1", include_empty=False

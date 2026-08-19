@@ -13,6 +13,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.workspace import make_access_context
 
 
 def _make_identity():
@@ -32,7 +33,7 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces
                 content=assistant_msg,
             )
         ],
-        identity=identity,
+        access_context=make_access_context(actor_identity=identity),
         mtp_traces=traces or [],
     )
 
