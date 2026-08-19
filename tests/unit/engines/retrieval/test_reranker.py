@@ -17,6 +17,8 @@ from hivememory.system.config import RerankerConfig
 from hivememory.infrastructure.rerank.base import BaseRerankService
 from datetime import datetime
 from uuid import uuid4
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_access_context
 
 
 @pytest.fixture
@@ -27,7 +29,7 @@ def mock_memory():
         summary="This is a test summary for the memory fixture with enough characters",
         memory_type=MemoryType.FACT,
     )
-    meta = MetaData(
+    meta = make_memory_metadata(
         source_agent_id="test_agent",
         user_id="test_user",
         created_at=datetime.now(),
@@ -55,6 +57,10 @@ def sample_query():
     """创建测试用的 RetrievalQuery"""
     return RetrievalQuery(
         semantic_query="测试查询",
+        access_context=make_access_context(
+            user_id="test_user",
+            agent_id="test_agent",
+        ),
     )
 
 

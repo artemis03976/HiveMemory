@@ -20,6 +20,10 @@ def _make_identity():
     return Identity(user_id="u1", agent_id="a1")
 
 
+def _access_context(identity=None):
+    return make_access_context(actor_identity=identity or _make_identity())
+
+
 def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces=None):
     identity = identity or _make_identity()
     return InteractionPayload(
@@ -70,7 +74,9 @@ class TestBlockTokenComputation:
         )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(), topic_id, touch=False
+        )
         assert topic_data is not None
         assert len(topic_data.blocks) == 1
         assert topic_data.blocks[0].total_tokens > 0
@@ -89,7 +95,9 @@ class TestBlockTokenComputation:
         )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(), topic_id, touch=False
+        )
         assert topic_data is not None
         with_traces = topic_data.blocks[0].total_tokens
 
@@ -98,7 +106,9 @@ class TestBlockTokenComputation:
             "NEW_TOPIC",
             _make_payload("q", "a"),
         )
-        without_traces_data = layer._short_term_store.get_topic_data(topic_id2, touch=False)
+        without_traces_data = layer._short_term_store.get_topic_data(
+            _access_context(), topic_id2, touch=False
+        )
         assert without_traces_data is not None
         assert with_traces > without_traces_data.blocks[0].total_tokens
 
@@ -119,7 +129,9 @@ class TestPageFoldingThreshold:
             )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(identity), topic_id, touch=False
+        )
         assert topic_data is not None
         assert len(topic_data.blocks) == 5
         assert topic_data.state_summary == ""
@@ -135,7 +147,7 @@ class TestPageFoldingThreshold:
             relay=relay,
         )
 
-        topic_id = await layer.create_new_topic(_make_identity())
+        topic_id = await layer.create_new_topic(_access_context())
         settle_payload = None
         for i in range(3):
             _, settle_payload = await layer.route_and_ingest(
@@ -149,7 +161,9 @@ class TestPageFoldingThreshold:
         assert [block.user_query for block in folded_blocks] == [
             "question-0-" * 80
         ]
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(), topic_id, touch=False
+        )
         assert topic_data is not None
         assert topic_data.state_summary == "Test summary"
         assert [block.user_query for block in topic_data.blocks] == [
@@ -170,14 +184,16 @@ class TestPageFoldingThreshold:
             relay=relay,
         )
 
-        topic_id = await layer.create_new_topic(_make_identity())
+        topic_id = await layer.create_new_topic(_access_context())
         for i in range(3):
             await layer.route_and_ingest(
                 topic_id,
                 _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
             )
 
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(), topic_id, touch=False
+        )
         assert topic_data is not None
         assert [block.user_query for block in topic_data.blocks] == [
             "question-0-" * 80,
@@ -190,12 +206,13 @@ class TestPageFoldingThreshold:
     @pytest.mark.asyncio
     async def test_store_update_summary_can_retain_recent_blocks_independently(self):
         store = ShortTermMemoryStore()
-        buffer = store.create_buffer(_make_identity().user_id)
+        access_context = _access_context()
+        buffer = store.create_buffer(access_context)
         topic_id = buffer.topic_id
 
         for i in range(10):
             store.add_block(
-                topic_id,
+                buffer.topic_key,
                 LogicalBlock(
                     turn=TurnRecord(
                         user_query=f"question {i}",
@@ -206,12 +223,12 @@ class TestPageFoldingThreshold:
             )
 
         folded = store.apply_compaction(
-            topic_id,
+            buffer.topic_key,
             "Test summary",
             retain_count=2,
         )
 
-        topic_data = store.get_topic_data(topic_id, touch=False)
+        topic_data = store.get_topic_data(access_context, topic_id, touch=False)
         assert topic_data is not None
         assert folded == 8
         assert len(topic_data.blocks) == 2
@@ -221,10 +238,11 @@ class TestPageFoldingThreshold:
     @pytest.mark.asyncio
     async def test_store_update_summary_zero_clears_all_blocks(self):
         store = ShortTermMemoryStore()
-        buffer = store.create_buffer(_make_identity().user_id)
+        access_context = _access_context()
+        buffer = store.create_buffer(access_context)
         for i in range(3):
             store.add_block(
-                buffer.topic_id,
+                buffer.topic_key,
                 LogicalBlock(
                     turn=TurnRecord(user_query=f"q{i}", assistant_final_text=f"a{i}"),
                     total_tokens=20,
@@ -232,12 +250,12 @@ class TestPageFoldingThreshold:
             )
 
         folded = store.apply_compaction(
-            buffer.topic_id,
+            buffer.topic_key,
             "summary",
             retain_count=0,
         )
 
-        topic_data = store.get_topic_data(buffer.topic_id, touch=False)
+        topic_data = store.get_topic_data(access_context, buffer.topic_id, touch=False)
         assert topic_data is not None
         assert folded == 3
         assert topic_data.blocks == ()
@@ -246,11 +264,11 @@ class TestPageFoldingThreshold:
 
     def test_store_update_summary_rejects_negative_retain_count(self):
         store = ShortTermMemoryStore()
-        buffer = store.create_buffer(_make_identity().user_id)
+        buffer = store.create_buffer(_access_context())
 
         with pytest.raises(ValueError, match="greater than or equal to 0"):
             store.apply_compaction(
-                buffer.topic_id,
+                buffer.topic_key,
                 "summary",
                 retain_count=-1,
             )
@@ -276,14 +294,16 @@ class TestPageFoldingCumulative:
         layer = _make_layer(fold_token_threshold=50, relay=relay)
         identity = _make_identity()
 
-        topic_id = await layer.create_new_topic(identity)
+        topic_id = await layer.create_new_topic(_access_context(identity))
         for i in range(4):
             await layer.route_and_ingest(
                 topic_id,
                 _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity),
             )
 
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(identity), topic_id, touch=False
+        )
         assert topic_data is not None
         first_summary = topic_data.state_summary
         assert first_summary != ""
@@ -294,7 +314,9 @@ class TestPageFoldingCumulative:
                 _make_payload(f"wave2 q{i} " * 20, f"wave2 a{i} " * 20, identity),
             )
 
-        topic_data = layer._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = layer._short_term_store.get_topic_data(
+            _access_context(identity), topic_id, touch=False
+        )
         assert topic_data is not None
         assert "---" in topic_data.state_summary
         assert first_summary in topic_data.state_summary

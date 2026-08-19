@@ -21,6 +21,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.core.models.interaction import Identity
+from hivememory.core.models.memory import MemoryCreationContext
 from hivememory.core.models.workspace import WorkspaceAccessContext
 
 # ===========================================================================
@@ -200,13 +201,13 @@ class PendingAtomMaterializeTask(BaseModel):
     字段下游流向（不相交）：
         pending_alias / intent_id / source_verb → patchouli 组装 Settlement、分发 mode b/c
         focus   → engine._process_mode_b/c 的提取/合并
-        identity → GenerationRequest.identity
+          creation_context → GenerationRequest 的 owner/provenance 输入
     """
 
     pending_alias: str
     intent_id: str
     source_verb: Literal["WRITE", "UPDATE"]
-    identity: "Identity"
+    creation_context: MemoryCreationContext
     focus: "WriteFocus | UpdateFocus"
     model_config = ConfigDict(frozen=True)
 
@@ -216,7 +217,9 @@ class PendingAtomMaterializeTask(BaseModel):
             pending_alias=pa.pending_alias,
             intent_id=pa.intent_id,
             source_verb=pa.source_verb,
-            identity=pa.identity,
+            creation_context=MemoryCreationContext.from_access_context(
+                pa.runtime_scope.access_context
+            ),
             focus=pa.focus,
         )
 

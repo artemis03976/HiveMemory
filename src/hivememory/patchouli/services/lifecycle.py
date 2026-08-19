@@ -10,7 +10,11 @@ from time import monotonic
 from typing import TYPE_CHECKING, Any, Iterable, List, Tuple
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import (
+    MemoryAtom,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
 from hivememory.utils.uuid import normalize_uuid
 
 if TYPE_CHECKING:
@@ -61,31 +65,61 @@ class LifecycleFamiliar:
         """批量刷新记忆生命力。"""
         return await self.lifecycle_engine.refresh_vitality_batch(memories, persist=persist)
 
-    async def record_hit(self, memory_id: UUID | str, source: str = "system") -> Any:
+    async def record_hit(
+        self,
+        memory_id: UUID | str,
+        *,
+        access_context: WorkspaceAccessContext,
+        source: str = "system",
+    ) -> Any:
         """记录一次命中事件。"""
-        return await self.lifecycle_engine.record_hit(normalize_uuid(memory_id), source=source)
+        return await self.lifecycle_engine.record_hit(
+            require_workspace_access_context(access_context),
+            normalize_uuid(memory_id),
+            source=source,
+        )
 
-    async def record_citation(self, memory_id: UUID | str, source: str = "system") -> Any:
+    async def record_citation(
+        self,
+        memory_id: UUID | str,
+        *,
+        access_context: WorkspaceAccessContext,
+        source: str = "system",
+    ) -> Any:
         """记录一次引用事件。"""
-        return await self.lifecycle_engine.record_citation(normalize_uuid(memory_id), source=source)
+        return await self.lifecycle_engine.record_citation(
+            require_workspace_access_context(access_context),
+            normalize_uuid(memory_id),
+            source=source,
+        )
 
     async def record_feedback(
         self,
         memory_id: UUID | str,
         *,
+        access_context: WorkspaceAccessContext,
         positive: bool,
         source: str = "user",
     ) -> Any:
         """记录用户反馈事件。"""
         return await self.lifecycle_engine.record_feedback(
+            require_workspace_access_context(access_context),
             normalize_uuid(memory_id),
             positive=positive,
             source=source,
         )
 
-    async def revive_memory(self, memory_id: UUID | str) -> None:
+    async def revive_memory(
+        self,
+        memory_id: UUID | str,
+        *,
+        access_context: WorkspaceAccessContext,
+    ) -> None:
         """从长期存储复活记忆到中期存储。"""
-        await self._memory_library.revive(normalize_uuid(memory_id))
+        await self._memory_library.revive(
+            require_workspace_access_context(access_context),
+            normalize_uuid(memory_id),
+        )
 
 
 __all__ = ["LifecycleFamiliar"]

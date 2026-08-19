@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceAccessContext
+from hivememory.core.models import (
+    MemoryAtom,
+    MemoryType,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.utils.uuid import normalize_uuid
@@ -18,12 +24,24 @@ class MemoryManagementService:
     ) -> None:
         self._bus = bus
 
-    async def create_memory(self, atom: MemoryAtom) -> MemoryAtom:
-        return await self._bus.request(PatchouliLocalRoutes.MEMORY_CREATE, atom)
+    async def create_memory(
+        self,
+        access_context: WorkspaceAccessContext,
+        atom: MemoryAtom,
+    ) -> MemoryAtom:
+        access_context = require_workspace_access_context(access_context)
+        if atom.workspace_identity != access_context.workspace_identity:
+            raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
+        return await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_CREATE,
+            access_context,
+            atom,
+        )
 
     async def list_memories(
         self,
         *,
+        access_context: WorkspaceAccessContext,
         query: str | None = None,
         filters: dict[str, str] | None = None,
         limit: int = 20,
@@ -33,6 +51,7 @@ class MemoryManagementService:
         excluded = set(exclude_types or [])
         atoms = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
+            access_context=require_workspace_access_context(access_context),
             query=query,
             filters=filters,
             limit=limit,
@@ -49,11 +68,13 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
+        access_context: WorkspaceAccessContext,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
             normalize_uuid(memory_id),
+            access_context=require_workspace_access_context(access_context),
         )
         if atom is not None and refresh_vitality:
             await self._refresh_vitality_for_response([atom])
@@ -63,6 +84,7 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
+        access_context: WorkspaceAccessContext,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -73,6 +95,7 @@ class MemoryManagementService:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_UPDATE,
             normalize_uuid(memory_id),
+            access_context=require_workspace_access_context(access_context),
             title=title,
             summary=summary,
             content=content,
@@ -81,9 +104,15 @@ class MemoryManagementService:
             agent_config=agent_config,
         )
 
-    async def delete_memory(self, memory_id: UUID | str) -> bool:
+    async def delete_memory(
+        self,
+        memory_id: UUID | str,
+        *,
+        access_context: WorkspaceAccessContext,
+    ) -> bool:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_DELETE,
+            require_workspace_access_context(access_context),
             normalize_uuid(memory_id),
         )
 
@@ -91,12 +120,14 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
+        access_context: WorkspaceAccessContext,
         positive: bool,
         source: str,
     ):
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
             normalize_uuid(memory_id),
+            access_context=require_workspace_access_context(access_context),
             positive=positive,
             source=source,
         )

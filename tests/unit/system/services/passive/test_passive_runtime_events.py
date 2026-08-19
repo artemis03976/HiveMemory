@@ -16,7 +16,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.protocol.gateway import (
@@ -38,6 +37,7 @@ from hivememory.system.services.passive import (
     PassiveMessageIngressor,
 )
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_metadata
 
 SOURCE = "unit_events"
 CONVERSATION = "conv-events"
@@ -81,7 +81,7 @@ def _key() -> PassiveConversationKey:
 
 def _memory(content: str = MEMORY_SECRET) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(user_id="u1", source_agent_id="a1"),
+        meta=make_memory_metadata(user_id="u1", source_agent_id="a1"),
         index=IndexLayer(
             title="observability fixture",
             summary="passive observability test fixture atom",

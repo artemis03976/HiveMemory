@@ -14,7 +14,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
@@ -44,6 +43,7 @@ from hivememory.patchouli.service import (
 )
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
 
 
 def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
@@ -71,7 +71,7 @@ def _decision() -> GatewayDecision:
 def _memory() -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
         index=IndexLayer(
             title="title",
             summary="memory summary",
@@ -118,7 +118,7 @@ def _write_task() -> PendingAtomMaterializeTask:
         pending_alias="draft_active",
         intent_id="intent_active",
         source_verb="WRITE",
-        identity=Identity(user_id="u1", agent_id="a1"),
+        creation_context=make_memory_creation_context(user_id="u1", agent_id="a1"),
         focus=WriteFocus(content="remember this"),
     )
 
@@ -197,13 +197,14 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
         policy=_queue_policy(),
     )
     service = PatchouliService(bus, interaction_queue=queue)
+    prepared = _prepared(memories=[memory, memory])
     finalize_task: asyncio.Task[list] | None = None
 
     try:
         await queue.start()
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
-                _prepared(memories=[memory, memory]),
+                prepared,
                 AgentRunResult(final_text="answer"),
             )
         )
@@ -221,6 +222,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
 
     record_hit_mock.assert_awaited_once_with(
         memory.id,
+        access_context=prepared.access_context,
         source="retrieval.finalize",
     )
 
@@ -237,12 +239,13 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
     queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
     service = PatchouliService(bus, interaction_queue=queue)
+    prepared = _prepared(is_new=True, memories=[_memory()])
 
     try:
         await queue.start()
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
-            await service.finalize_agent_run(
-                _prepared(is_new=True, memories=[_memory()]),
+                await service.finalize_agent_run(
+                    prepared,
                 AgentRunResult(
                     final_text="answer",
                     materialize_tasks=[_write_task()],
@@ -256,7 +259,10 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     assert exc_info.value.error_class == "ConnectionError"
     materialize.assert_not_awaited()
     record_hit.assert_not_awaited()
-    discard.assert_awaited_once_with("topic-1")
+    discard.assert_awaited_once_with(
+        "topic-1",
+        access_context=prepared.access_context,
+    )
 
 
 @pytest.mark.asyncio
@@ -331,7 +337,10 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         apply.assert_not_awaited()
 
         assert await service.cleanup_prepared_agent_run(prepared) is True
-        discard.assert_awaited_once_with(prepared.topic_id)
+        discard.assert_awaited_once_with(
+            prepared.topic_id,
+            access_context=prepared.access_context,
+        )
     finally:
         await queue.stop()
 
@@ -426,7 +435,10 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
         release_apply.set()
         await queue.stop()
 
-    discard.assert_awaited_once_with(prepared.topic_id)
+    discard.assert_awaited_once_with(
+        prepared.topic_id,
+        access_context=prepared.access_context,
+    )
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,12 @@ class TopicManagementService:
             access_context=access_context,
             touch=False,
         )
+        if (
+            topic_data is not None
+            and topic_data.workspace_identity != access_context.workspace_identity
+        ):
+            # 控制面同样隐藏越域资源，不能把下游异常结果升级为可见性泄漏。
+            return None
         return topic_data
 
     async def settle_topic(

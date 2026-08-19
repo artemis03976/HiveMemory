@@ -9,16 +9,17 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
 from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_memory(vitality_score: float = 15.0) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="agent1",
             user_id="user1",
             confidence_score=0.8,
@@ -34,6 +35,13 @@ def _make_memory(vitality_score: float = 15.0) -> MemoryAtom:
     )
 
 
+def _key(memory: MemoryAtom) -> WorkspaceMemoryKey:
+    return WorkspaceMemoryKey(
+        workspace_identity=memory.workspace_identity,
+        memory_id=memory.id,
+    )
+
+
 class TestFileBasedStorageAdapter:
     @pytest.mark.asyncio
     async def test_persist_writes_memory_to_cold_storage(self, tmp_path):
@@ -42,7 +50,7 @@ class TestFileBasedStorageAdapter:
 
         await adapter.persist(memory)
 
-        assert await adapter.is_archived(memory.id) is True
+        assert await adapter.is_archived(_key(memory)) is True
         records = await adapter.query()
         assert records[0].memory_id == memory.id
         assert Path(records[0].storage_path).exists()
@@ -53,7 +61,7 @@ class TestFileBasedStorageAdapter:
         memory = _make_memory()
 
         await adapter.persist(memory)
-        loaded = await adapter.load(memory.id)
+        loaded = await adapter.load(_key(memory))
 
         assert loaded.id == memory.id
         assert loaded.index.title == memory.index.title
@@ -65,9 +73,9 @@ class TestFileBasedStorageAdapter:
         await adapter.persist(memory)
         record = (await adapter.query())[0]
 
-        await adapter.remove(memory.id)
+        await adapter.remove(_key(memory))
 
-        assert await adapter.is_archived(memory.id) is False
+        assert await adapter.is_archived(_key(memory)) is False
         assert not Path(record.storage_path).exists()
 
     @pytest.mark.asyncio
@@ -102,4 +110,4 @@ class TestFileBasedStorageAdapter:
         await adapter.persist(memory)
         restarted = FileBasedStorageAdapter(str(tmp_path), compress=False)
 
-        assert await restarted.is_archived(memory.id) is True
+        assert await restarted.is_archived(_key(memory)) is True

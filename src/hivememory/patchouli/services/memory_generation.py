@@ -7,7 +7,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, PendingAtomResolution, PendingAtomSettlement
+from hivememory.core.models import (
+    MemoryAtom,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     ArtifactRef,
     MemoryEventLog,
@@ -65,10 +72,17 @@ class MemoryGenerationFamiliar:
         )
         return await self._run_generation(spec, interaction_ref=interaction_ref)
 
-    async def create_external_memory(self, atom: MemoryAtom) -> MemoryAtom:
+    async def create_external_memory(
+        self,
+        access_context: WorkspaceAccessContext,
+        atom: MemoryAtom,
+    ) -> MemoryAtom:
         """
         对外部创建的记忆原子进行持久化处理。
         """
+        access_context = require_workspace_access_context(access_context)
+        if atom.workspace_identity != access_context.workspace_identity:
+            raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         await self._attach_memory_artifact(
             atom=atom,
             decision=DuplicateDecision.CREATE,
@@ -85,6 +99,7 @@ class MemoryGenerationFamiliar:
         self,
         memory_id: UUID,
         *,
+        access_context: WorkspaceAccessContext,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -95,7 +110,8 @@ class MemoryGenerationFamiliar:
         """
         对外部手动的记忆编辑进行持久化处理。
         """
-        atom = await self._mid_term.get(memory_id)
+        access_context = require_workspace_access_context(access_context)
+        atom = await self._mid_term.get_for_mutation(access_context, memory_id)
         if atom is None:
             return None
 

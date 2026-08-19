@@ -24,7 +24,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from hivememory.core.models import WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models import (
+    MemoryCreationContext,
+    WorkspaceIdentity,
+    WorkspaceTopicKey,
+)
 
 from hivememory.engines.perception.models import (
     FlushEvent,
@@ -238,7 +242,10 @@ class TriggerManager:
 
         return TopicMaterializeTask(
             topic_id=topic_id,
-            workspace_identity=workspace_identity,
+            creation_context=MemoryCreationContext(
+                actor_identity=blocks_to_settle[-1].identity,
+                workspace_identity=workspace_identity,
+            ),
             topic_title=topic_title,
             topic_summary=topic_summary,
             blocks=blocks_to_settle,

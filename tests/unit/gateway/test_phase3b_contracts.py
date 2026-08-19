@@ -53,7 +53,7 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
     )
     topic = TopicData(
         topic_id="topic-1",
-        user_id="user-1",
+        workspace_identity=make_access_context(user_id="user-1").workspace_identity,
         topic_title="Gateway",
         blocks=[block],
         last_update=1.0,
@@ -76,6 +76,7 @@ def test_topic_snapshot_last_turn_and_identity_are_frozen() -> None:
     snapshot = TopicSnapshot(
         topic_id="topic-1",
         topic_title="Gateway",
+        workspace_identity=make_access_context(user_id="user-1").workspace_identity,
         last_turn=TopicLastTurn(user="问题", assistant="回答"),
     )
 
@@ -116,7 +117,11 @@ def test_public_gateway_result_is_immutable_and_serializable() -> None:
 def test_private_context_contracts_do_not_duplicate_identity() -> None:
     candidates = CandidateTopics(
         topic_snapshots=[
-            TopicSnapshot(topic_id="topic-1", topic_title="Gateway")
+            TopicSnapshot(
+                topic_id="topic-1",
+                topic_title="Gateway",
+                workspace_identity=make_access_context(user_id="user-1").workspace_identity,
+            )
         ],
         active_topics_menu="topic-1: Gateway",
     )

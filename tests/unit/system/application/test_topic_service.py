@@ -58,17 +58,21 @@ class TestTopicApplicationService:
         handler = AsyncMock(return_value=task)
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
-        result = await service.settle_topic(topic_id="t1")
+        result = await service.settle_topic(user_id="u1", topic_id="t1")
 
         assert result == {"success": True, "task_id": "memtask_1", "topic_id": "t1"}
-        handler.assert_awaited_once_with(topic_id="t1")
+        handler.assert_awaited_once()
+        assert handler.await_args.kwargs["topic_id"] == "t1"
+        assert handler.await_args.kwargs["access_context"].workspace_identity.owner_user_id == "u1"
 
     @pytest.mark.asyncio
     async def test_evict_topic_uses_public_route(self, service, bus):
         handler = AsyncMock(return_value={"success": True, "message": "话题 t1 已删除"})
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, handler)
 
-        await service.evict_topic(topic_id="t1")
+        await service.evict_topic(user_id="u1", topic_id="t1")
 
         # evict_topic 是纯透传；约束力来自路由与参数
-        handler.assert_awaited_once_with(topic_id="t1")
+        handler.assert_awaited_once()
+        assert handler.await_args.kwargs["topic_id"] == "t1"
+        assert handler.await_args.kwargs["access_context"].workspace_identity.owner_user_id == "u1"

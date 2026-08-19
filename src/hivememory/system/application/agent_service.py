@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from hivememory.core.models import (
     Artifacts,
+    Identity,
     IndexLayer,
+    MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
+    resolve_default_workspace_access,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -45,9 +49,19 @@ class AgentApplicationService:
         content: str = "",
         tags: list[str],
         agent_config: dict[str, Any] | None = None,
+        user_id: str,
     ) -> MemoryAtom:
+        access_context = resolve_default_workspace_access(
+            Identity(user_id=user_id, agent_id="ui"),
+            interaction_id=f"agent-api-{uuid4()}",
+        )
         atom = MemoryAtom(
-            meta=MetaData(source_agent_id="ui", user_id="default"),
+            meta=MetaData(
+                workspace_identity=access_context.workspace_identity,
+                source_agent_id=access_context.actor_identity.agent_id,
+                source_team_id=access_context.actor_identity.team_id,
+                access_policy=MemoryAccessPolicy.public(),
+            ),
             index=IndexLayer(
                 title=title,
                 summary=summary or self._default_summary(title),
@@ -62,12 +76,23 @@ class AgentApplicationService:
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
+            access_context,
             atom,
         )
 
-    async def list_agent_profiles(self, *, limit: int = 100) -> list[MemoryAtom]:
+    async def list_agent_profiles(
+        self,
+        *,
+        user_id: str,
+        limit: int = 100,
+    ) -> list[MemoryAtom]:
+        access_context = resolve_default_workspace_access(
+            Identity(user_id=user_id, agent_id="ui"),
+            interaction_id=f"agent-api-{uuid4()}",
+        )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
+            access_context=access_context,
             limit=limit,
         )
 

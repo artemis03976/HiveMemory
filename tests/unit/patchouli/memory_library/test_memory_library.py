@@ -20,10 +20,11 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryEventType,
     MemoryType,
-    MetaData,
     PayloadLayer,
     TopicData,
     TurnRecord,
+    WorkspaceMemoryKey,
+    WorkspaceTopicKey,
 )
 from hivememory.patchouli.memory_library import (
     ArtifactStore,
@@ -35,12 +36,14 @@ from hivememory.patchouli.memory_library import (
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_access_context
 
 
 def _make_memory(title="test_memory", memory_id=None) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id or uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
         index=IndexLayer(
             title=title,
             summary=f"This is a summary for {title} with enough characters",
@@ -53,9 +56,10 @@ def _make_memory(title="test_memory", memory_id=None) -> MemoryAtom:
 
 
 def _make_topic_data(topic_id="t1", user_id="u1", blocks=None, last_accessed_at=1.0):
+    access_context = make_access_context(user_id=user_id)
     return TopicData(
         topic_id=topic_id,
-        user_id=user_id,
+        workspace_identity=access_context.workspace_identity,
         topic_title=f"title-{topic_id}",
         topic_summary=f"summary-{topic_id}",
         state_summary=f"state-{topic_id}",
@@ -70,25 +74,29 @@ class FakeShortTermStoragePort(ShortTermStoragePort):
     """Port-only fake; intentionally has no private _*_sync methods."""
 
     def __init__(self) -> None:
-        self.buffers: dict[str, SemanticBuffer] = {}
+        self.buffers: dict[WorkspaceTopicKey, SemanticBuffer] = {}
 
-    def get(self, topic_id: str) -> SemanticBuffer | None:
-        return self.buffers.get(topic_id)
+    def get(self, key: WorkspaceTopicKey) -> SemanticBuffer | None:
+        return self.buffers.get(key)
 
-    def put(self, topic_id: str, buffer: SemanticBuffer) -> None:
-        self.buffers[topic_id] = buffer
+    def put(self, key: WorkspaceTopicKey, buffer: SemanticBuffer) -> None:
+        self.buffers[key] = buffer
 
-    def pop(self, topic_id: str) -> SemanticBuffer | None:
-        return self.buffers.pop(topic_id, None)
+    def pop(self, key: WorkspaceTopicKey) -> SemanticBuffer | None:
+        return self.buffers.pop(key, None)
 
-    def list_by_user(self, user_id: str) -> list[SemanticBuffer]:
-        return [buf for buf in self.buffers.values() if buf.user_id == user_id]
+    def list_by_workspace(self, workspace) -> list[SemanticBuffer]:
+        return [
+            buf
+            for buf in self.buffers.values()
+            if buf.workspace_identity == workspace
+        ]
 
     def list_all(self) -> list[SemanticBuffer]:
         return list(self.buffers.values())
 
-    def count(self) -> int:
-        return len(self.buffers)
+    def count(self, workspace) -> int:
+        return len(self.list_by_workspace(workspace))
 
 
 class TestShortTermMemoryStore:
@@ -96,26 +104,27 @@ class TestShortTermMemoryStore:
 
     def setup_method(self):
         self.store = ShortTermMemoryStore(max_resident_topics=3)
+        self.access_context = make_access_context(user_id="u1")
 
     def test_create_buffer_returns_semantic_buffer(self):
-        buf = self.store.create_buffer("u1", topic_title="Test Topic")
+        buf = self.store.create_buffer(self.access_context, topic_title="Test Topic")
         assert buf.topic_id is not None
         assert buf.user_id == "u1"
         assert buf.topic_title == "Test Topic"
         assert buf.blocks == []
 
     def test_get_topic_data_returns_none_for_missing(self):
-        result = self.store.get_topic_data("missing")
+        result = self.store.get_topic_data(self.access_context, "missing")
         assert result is None
 
     def test_get_topic_data_returns_immutable_topic_data(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
         self.store.add_block(
-            buf.topic_id,
+            buf.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
         )
 
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
 
         assert isinstance(data, TopicData)
         assert data.block_count == 1
@@ -123,7 +132,7 @@ class TestShortTermMemoryStore:
         assert len(data.blocks) == 1
 
     def test_get_topic_data_touch_updates_last_accessed_at(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
         initial = buf.last_accessed_at
         fixed_now = datetime(2027, 1, 1, 12, 0, 0)
 
@@ -131,37 +140,37 @@ class TestShortTermMemoryStore:
             "hivememory.patchouli.memory_library.stores.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value = fixed_now
-            self.store.get_topic_data(buf.topic_id, touch=True)
+            self.store.get_topic_data(self.access_context, buf.topic_id, touch=True)
 
         assert buf.last_accessed_at == fixed_now.timestamp()
         assert buf.last_accessed_at > initial
 
     def test_get_topic_data_reuses_immutable_block_objects(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
         block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
-        self.store.add_block(buf.topic_id, block)
+        self.store.add_block(buf.topic_key, block)
 
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
 
         assert data.blocks[0] is block
 
     def test_topic_exists_returns_true_for_existing(self):
-        buf = self.store.create_buffer("u1")
-        assert self.store.topic_exists(buf.topic_id) is True
+        buf = self.store.create_buffer(self.access_context)
+        assert self.store.topic_exists(self.access_context, buf.topic_id) is True
 
     def test_topic_exists_returns_false_for_missing(self):
-        assert self.store.topic_exists("missing") is False
+        assert self.store.topic_exists(self.access_context, "missing") is False
 
     def test_add_block_appends_and_updates_tokens(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
         block = LogicalBlock(
             turn=TurnRecord(user_query="q", assistant_final_text="a"),
             total_tokens=7,
         )
 
-        self.store.add_block(buf.topic_id, block)
+        self.store.add_block(buf.topic_key, block)
 
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
         assert len(data.blocks) == 1
         assert data.total_tokens == 7
 
@@ -201,121 +210,126 @@ class TestShortTermMemoryStore:
         operation = getattr(self.store, method_name)
 
         with pytest.raises(KeyError, match="topic 'missing' does not exist"):
-            operation("missing", *args, **kwargs)
+            operation(
+                WorkspaceTopicKey.from_access_context(self.access_context, "missing"),
+                *args,
+                **kwargs,
+            )
 
     def test_clear_blocks_removes_all_and_resets_tokens(self):
-        buf = self.store.create_buffer("u1")
-        self.store.add_block(buf.topic_id, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
+        buf = self.store.create_buffer(self.access_context)
+        self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
-        self.store.clear_blocks(buf.topic_id)
+        self.store.clear_blocks(buf.topic_key)
 
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
         assert len(data.blocks) == 0
         assert data.total_tokens == 0
 
     def test_update_summary_writes_state_summary(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
 
-        self.store.update_summary(buf.topic_id, "new summary")
+        self.store.update_summary(buf.topic_key, "new summary")
 
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
         assert data.state_summary == "new summary"
 
     def test_update_title_writes_topic_title(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
 
-        self.store.update_title(buf.topic_id, "new title")
+        self.store.update_title(buf.topic_key, "new title")
 
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
         assert data.topic_title == "new title"
 
     def test_list_topic_data_returns_all_topics(self):
-        self.store.create_buffer("u1")
-        self.store.create_buffer("u1")
+        self.store.create_buffer(self.access_context)
+        self.store.create_buffer(self.access_context)
 
-        topics = self.store.list_topic_data(user_id="u1")
+        topics = self.store.list_topic_data(self.access_context)
 
         assert len(topics) == 2
 
     def test_list_topic_data_include_empty_false_filters_empty(self):
-        buf = self.store.create_buffer("u1")
-        self.store.add_block(buf.topic_id, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
+        buf = self.store.create_buffer(self.access_context)
+        self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
-        topics = self.store.list_topic_data(user_id="u1", include_empty=False)
+        topics = self.store.list_topic_data(self.access_context, include_empty=False)
 
         assert all(not t.is_empty for t in topics)
 
     def test_needs_eviction_false_when_under_limit(self):
-        assert self.store.needs_eviction() is False
+        assert self.store.needs_eviction(self.access_context) is False
 
     def test_needs_eviction_true_when_at_limit(self):
         for i in range(3):
-            self.store.create_buffer("u1")
+            self.store.create_buffer(self.access_context)
 
-        assert self.store.needs_eviction() is True
+        assert self.store.needs_eviction(self.access_context) is True
 
     def test_get_lru_topic_returns_oldest_accessed(self):
-        buf1 = self.store.create_buffer("u1")
-        buf2 = self.store.create_buffer("u1")
+        buf1 = self.store.create_buffer(self.access_context)
+        buf2 = self.store.create_buffer(self.access_context)
 
         # 手动设置时间戳确保顺序
         buf1.last_accessed_at = 100.0
         buf2.last_accessed_at = 200.0
 
-        lru = self.store.get_lru_topic()
+        lru = self.store.get_lru_topic(self.access_context)
 
         assert lru == buf1.topic_id
 
     def test_pop_buffer_removes_and_returns(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
 
-        removed = self.store.pop_buffer(buf.topic_id)
+        removed = self.store.pop_buffer(self.access_context, buf.topic_id)
 
         assert removed is buf
-        assert self.store.topic_exists(buf.topic_id) is False
+        assert self.store.topic_exists(self.access_context, buf.topic_id) is False
 
     def test_reset_topic_content_keeps_topic_but_clears_blocks(self):
-        buf = self.store.create_buffer("u1")
-        self.store.add_block(buf.topic_id, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
+        buf = self.store.create_buffer(self.access_context)
+        self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
-        cleared = self.store.reset_topic_content(buf.topic_id)
+        cleared = self.store.reset_topic_content(buf.topic_key)
 
         assert len(cleared) == 1
-        data = self.store.get_topic_data(buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
         assert len(data.blocks) == 0
 
     def test_get_last_active_topic_records_last_accessed(self):
-        buf = self.store.create_buffer("u1")
+        buf = self.store.create_buffer(self.access_context)
 
-        self.store.get_topic_data(buf.topic_id)
+        self.store.get_topic_data(self.access_context, buf.topic_id)
 
-        assert self.store.get_last_active_topic() == buf.topic_id
+        assert self.store.get_last_active_topic(self.access_context) == buf.topic_id
 
     def test_set_last_active_topic_updates_record(self):
-        self.store.create_buffer("u1")
-        buf2 = self.store.create_buffer("u1")
+        self.store.create_buffer(self.access_context)
+        buf2 = self.store.create_buffer(self.access_context)
 
-        self.store.set_last_active_topic(buf2.topic_id)
+        self.store.set_last_active_topic(self.access_context, buf2.topic_id)
 
-        assert self.store.get_last_active_topic() == buf2.topic_id
+        assert self.store.get_last_active_topic(self.access_context) == buf2.topic_id
 
     def test_store_uses_short_term_port_contract_not_private_adapter_methods(self):
         port = FakeShortTermStoragePort()
         store = ShortTermMemoryStore(port=port, max_resident_topics=2)
+        access_context = make_access_context(user_id="u1")
 
-        buf = store.create_buffer("u1", topic_title="portable")
+        buf = store.create_buffer(access_context, topic_title="portable")
         block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
-        store.add_block(buf.topic_id, block)
+        store.add_block(buf.topic_key, block)
 
-        assert store.get_active_topic_buffer_count() == 1
-        assert store.get_lru_topic() == buf.topic_id
-        data = store.get_topic_data(buf.topic_id)
+        assert store.get_active_topic_buffer_count(access_context) == 1
+        assert store.get_lru_topic(access_context) == buf.topic_id
+        data = store.get_topic_data(access_context, buf.topic_id)
         assert data.topic_title == "portable"
         assert data.blocks == (block,)
 
-        removed = store.pop_buffer(buf.topic_id)
+        removed = store.pop_buffer(access_context, buf.topic_id)
         assert removed is buf
-        assert store.get_active_topic_buffer_count() == 0
+        assert store.get_active_topic_buffer_count(access_context) == 0
 
 
 class TestMidTermMemoryStore:
@@ -355,23 +369,29 @@ class TestMemoryLibraryArchiveRevive:
     @pytest.mark.asyncio
     async def test_archive_moves_memory_from_mid_to_long(self):
         memory = _make_memory()
-        self.mock_mid_term.get = AsyncMock(return_value=memory)
-        self.mock_mid_term.delete = AsyncMock(return_value=True)
+        key = WorkspaceMemoryKey(
+            workspace_identity=memory.workspace_identity,
+            memory_id=memory.id,
+        )
+        self.mock_mid_term.get_by_key = AsyncMock(return_value=memory)
+        self.mock_mid_term.delete_by_key = AsyncMock(return_value=True)
         self.mock_long_term.persist = AsyncMock()
 
-        await self.library.archive(memory.id)
+        await self.library.archive(key)
 
-        self.mock_mid_term.get.assert_awaited_once_with(memory.id)
+        self.mock_mid_term.get_by_key.assert_awaited_once_with(key)
         self.mock_long_term.persist.assert_awaited_once_with(memory)
-        self.mock_mid_term.delete.assert_awaited_once_with(memory.id)
+        self.mock_mid_term.delete_by_key.assert_awaited_once_with(key)
         assert memory.payload.artifacts.events[-1].event_type == MemoryEventType.ARCHIVED
 
     @pytest.mark.asyncio
     async def test_archive_raises_when_memory_not_found(self):
-        self.mock_mid_term.get = AsyncMock(return_value=None)
+        self.mock_mid_term.get_by_key = AsyncMock(return_value=None)
+        access_context = make_access_context(user_id="u1")
+        key = WorkspaceMemoryKey.from_access_context(access_context, uuid4())
 
         with pytest.raises(ValueError, match="not found"):
-            await self.library.archive(uuid4())
+            await self.library.archive(key)
 
     @pytest.mark.asyncio
     async def test_revive_moves_memory_from_long_to_mid(self):
@@ -379,12 +399,14 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_long_term.load = AsyncMock(return_value=memory)
         self.mock_mid_term.upsert = AsyncMock()
         self.mock_long_term.remove = AsyncMock()
+        access_context = make_access_context(user_id="u1", agent_id="a1")
+        key = WorkspaceMemoryKey.from_access_context(access_context, memory.id)
 
-        await self.library.revive(memory.id)
+        await self.library.revive(access_context, memory.id)
 
-        self.mock_long_term.load.assert_awaited_once_with(memory.id)
+        self.mock_long_term.load.assert_awaited_once_with(key)
         self.mock_mid_term.upsert.assert_awaited_once_with(memory)
-        self.mock_long_term.remove.assert_awaited_once_with(memory.id)
+        self.mock_long_term.remove.assert_awaited_once_with(key)
         assert memory.payload.artifacts.events[-1].event_type == MemoryEventType.REVIVED
 
 
@@ -508,13 +530,14 @@ class TestShortTermMemoryLibraryBoundary:
     def test_topic_data_is_read_view_not_semantic_buffer(self):
         """验证 get_topic_data 返回 TopicData 而非 SemanticBuffer"""
         store = ShortTermMemoryStore()
-        topic = store.create_buffer("u1")
+        access_context = make_access_context(user_id="u1")
+        topic = store.create_buffer(access_context)
         store.add_block(
-            topic.topic_id,
+            topic.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
         )
 
-        data = store.get_topic_data(topic.topic_id)
+        data = store.get_topic_data(access_context, topic.topic_id)
 
         assert data is not None
         assert isinstance(data, TopicData)
@@ -524,9 +547,10 @@ class TestShortTermMemoryLibraryBoundary:
     def test_topic_data_is_frozen(self):
         """验证 TopicData 是 frozen 模型，不可修改"""
         store = ShortTermMemoryStore()
-        topic = store.create_buffer("u1")
+        access_context = make_access_context(user_id="u1")
+        topic = store.create_buffer(access_context)
 
-        data = store.get_topic_data(topic.topic_id)
+        data = store.get_topic_data(access_context, topic.topic_id)
 
         with pytest.raises(ValidationError):
             data.topic_title = "modified"
@@ -534,13 +558,14 @@ class TestShortTermMemoryLibraryBoundary:
     def test_to_topic_snapshot_converts_correctly(self):
         """验证 TopicData.to_topic_snapshot 正确转换"""
         store = ShortTermMemoryStore()
-        topic = store.create_buffer("u1")
+        access_context = make_access_context(user_id="u1")
+        topic = store.create_buffer(access_context)
         store.add_block(
-            topic.topic_id,
+            topic.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
         )
 
-        data = store.get_topic_data(topic.topic_id)
+        data = store.get_topic_data(access_context, topic.topic_id)
         snapshot = data.to_topic_snapshot()
 
         assert snapshot.topic_id == data.topic_id

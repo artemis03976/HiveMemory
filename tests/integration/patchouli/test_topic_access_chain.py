@@ -18,12 +18,13 @@ from tests.helpers.workspace import make_access_context
 @pytest.mark.asyncio
 async def test_get_topic_data_does_not_change_topic_access_state():
     store = ShortTermMemoryStore()
-    buffer = store.create_buffer("u1", topic_title="Gateway")
+    access_context = make_access_context(user_id="u1")
+    buffer = store.create_buffer(access_context, topic_title="Gateway")
     initial_accessed_at = buffer.last_accessed_at
     bus = PatchouliBus()
 
     async def get_topic(topic_id: str, *, access_context, touch: bool = True):
-        return store.get_topic_data(topic_id, touch=touch)
+        return store.get_topic_data(access_context, topic_id, touch=touch)
 
     bus.register(PatchouliLocalRoutes.TOPIC_GET, get_topic)
     service = TopicManagementService(bus=bus)
@@ -36,4 +37,4 @@ async def test_get_topic_data_does_not_change_topic_access_state():
     assert result is not None
     assert result.topic_id == buffer.topic_id
     assert buffer.last_accessed_at == initial_accessed_at
-    assert store.get_last_active_topic() is None
+    assert store.get_last_active_topic(access_context) is None

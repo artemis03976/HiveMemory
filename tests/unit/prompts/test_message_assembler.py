@@ -31,7 +31,7 @@ def _make_koakuma_config():
 def _make_topic_data(state_summary="state"):
     return TopicData(
         topic_id="topic_1",
-        user_id="u1",
+        workspace_identity=make_access_context(user_id="u1").workspace_identity,
         topic_title="测试话题",
         state_summary=state_summary,
         blocks=(),

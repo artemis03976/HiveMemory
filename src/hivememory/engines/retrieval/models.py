@@ -9,32 +9,26 @@ HiveMemory - Retrieval 模块数据模型
 from datetime import datetime
 from typing import List, Optional, Tuple
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.models import Identity, MemoryAtom, MemoryType
+from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceAccessContext
 
 
 class QueryFilters(BaseModel):
-    """Structured retrieval filters."""
+    """不含授权语义的结构化业务过滤条件。"""
 
-    identity: Optional[Identity] = None
     memory_type: Optional[MemoryType] = None
+    source_agent_id: Optional[str] = None
     time_range: Optional[Tuple[datetime, datetime]] = None
     tags: List[str] = Field(default_factory=list)
     min_confidence: float = 0.0
 
-    @property
-    def user_id(self) -> Optional[str]:
-        return self.identity.user_id if self.identity else None
-
-    @property
-    def source_agent_id(self) -> Optional[str]:
-        return self.identity.agent_id if self.identity else None
+    model_config = ConfigDict(extra="forbid")
 
     def is_empty(self) -> bool:
         return (
-            self.identity is None
-            and self.memory_type is None
+            self.memory_type is None
+            and self.source_agent_id is None
             and self.time_range is None
             and len(self.tags) == 0
             and self.min_confidence == 0.0
@@ -53,6 +47,7 @@ class RetrievalQuery(BaseModel):
     semantic_query: str  # 用于向量检索的语义查询
     keywords: List[str] = Field(default_factory=list)  # 提取的关键词
     filters: QueryFilters = Field(default_factory=QueryFilters)  # 过滤条件
+    access_context: WorkspaceAccessContext  # Workspace hard boundary
     
     def get_search_text(self) -> str:
         """

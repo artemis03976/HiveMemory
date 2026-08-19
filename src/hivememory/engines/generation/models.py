@@ -12,10 +12,11 @@ HiveMemory Generation 模块数据模型
 """
 from enum import Enum
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from hivememory.core.models import (
     Identity,
+    MemoryCreationContext,
     UpdateFocus,
     WriteFocus,
 )
@@ -124,18 +125,12 @@ class GenerationRequest(BaseModel):
     write_focus: Optional[WriteFocus] = None
     update_focus: Optional[UpdateFocus] = None
     existing_memory: Optional[Any] = None
-    # None = 未显式注入，由 validator 从 context 回退；Mode B/C 由 LibrarianCore 注入
-    identity: Optional[Identity] = None
+    creation_context: MemoryCreationContext
 
-    @model_validator(mode="after")
-    def _resolve_identity(self) -> "GenerationRequest":
-        """未显式注入时从 context.turns[0] 回退；仍无则用默认 Identity()。"""
-        if self.identity is None:
-            if self.context.turns:
-                object.__setattr__(self, "identity", self.context.turns[0].identity)
-            else:
-                object.__setattr__(self, "identity", Identity())
-        return self
+    @property
+    def identity(self) -> Identity:
+        """兼容 actor-only 生成逻辑；Memory ownership 不从此属性推导。"""
+        return self.creation_context.actor_identity
 
     @property
     def is_write(self) -> bool:

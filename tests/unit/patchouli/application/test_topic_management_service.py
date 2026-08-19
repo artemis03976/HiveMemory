@@ -55,7 +55,7 @@ class TestTopicManagementService:
         access_context = make_access_context(user_id="u1")
         bus.request.return_value = TopicData(
             topic_id="t1",
-            user_id="u1",
+            workspace_identity=access_context.workspace_identity,
             topic_title="Gateway",
             last_update=1.0,
             last_accessed_at=2.0,
@@ -82,7 +82,7 @@ class TestTopicManagementService:
         if topic_data == "other-owner":
             topic_data = TopicData(
                 topic_id="t1",
-                user_id="u2",
+                workspace_identity=make_access_context(user_id="u2").workspace_identity,
                 topic_title="Other",
                 last_update=1.0,
                 last_accessed_at=2.0,

@@ -33,7 +33,6 @@ from hivememory.engines.retrieval.models import (
 )
 from hivememory.engines.retrieval.fusion import create_fusion
 from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
-from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
 from hivememory.infrastructure.rerank.base import BaseRerankService
 
 if TYPE_CHECKING:
@@ -41,10 +40,6 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
-
-# Qdrant 过滤器转换器单例
-_qdrant_filter_converter = QdrantFilterConverter()
-
 
 class DenseRetriever(BaseMemoryRetriever):
     """
@@ -90,18 +85,16 @@ class DenseRetriever(BaseMemoryRetriever):
         top_k = top_k or self.config.top_k
         score_threshold = score_threshold or self.config.score_threshold
 
-        # 构建过滤条件
-        filters = _qdrant_filter_converter.convert(query.filters) if query.filters else None
-
         # 获取搜索文本
         search_text = query.get_search_text()
-        logger.info(f"Dense检索: '{search_text[:50]}...', filters={filters}")
+        logger.info(f"Dense检索: '{search_text[:50]}...', filters={query.filters}")
 
         try:
             raw_results = await self.mid_term.search(
+                query.access_context,
                 query=search_text,
                 top_k=top_k,
-                filters=filters,
+                filters=query.filters,
                 mode="dense",
                 score_threshold=score_threshold,
             )
@@ -222,18 +215,16 @@ class SparseRetriever(BaseMemoryRetriever):
         top_k = top_k or self.config.top_k
         score_threshold = score_threshold or self.config.score_threshold
 
-        # 构建过滤条件
-        filters = _qdrant_filter_converter.convert(query.filters) if query.filters else None
-
         # 获取搜索文本
         search_text = query.get_search_text()
-        logger.info(f"Sparse检索: '{search_text[:50]}...', filters={filters}")
+        logger.info(f"Sparse检索: '{search_text[:50]}...', filters={query.filters}")
 
         try:
             raw_results = await self.mid_term.search(
+                query.access_context,
                 query=search_text,
                 top_k=top_k,
-                filters=filters,
+                filters=query.filters,
                 mode="sparse",
                 score_threshold=score_threshold,
             )

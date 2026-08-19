@@ -9,18 +9,27 @@ InMemoryShortTermStorage 单元测试
 
 import threading
 
-from hivememory.core.models import LogicalBlock, TurnRecord
+from hivememory.core.models import LogicalBlock, TurnRecord, WorkspaceTopicKey
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
+from tests.helpers.workspace import make_access_context
 
 
 def _make_buffer(topic_id="t1", user_id="u1") -> SemanticBuffer:
     return SemanticBuffer(
         topic_id=topic_id,
-        user_id=user_id,
+        workspace_identity=_context(user_id).workspace_identity,
         topic_title=f"话题{topic_id}",
         blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
     )
+
+
+def _context(user_id: str):
+    return make_access_context(user_id=user_id)
+
+
+def _key(topic_id: str, user_id: str) -> WorkspaceTopicKey:
+    return WorkspaceTopicKey.from_access_context(_context(user_id), topic_id)
 
 
 class TestInMemoryShortTermStorageBasic:
@@ -30,38 +39,37 @@ class TestInMemoryShortTermStorageBasic:
         self.storage = InMemoryShortTermStorage()
 
     def test_get_returns_none_for_missing(self):
-        result = self.storage.get("missing")
+        result = self.storage.get(_key("missing", "u1"))
         assert result is None
 
     def test_put_and_get(self):
         buf = _make_buffer("t1", "u1")
-        self.storage.put("t1", buf)
+        self.storage.put(_key("t1", "u1"), buf)
 
-        result = self.storage.get("t1")
+        result = self.storage.get(_key("t1", "u1"))
         assert result is buf
 
     def test_put_overwrites_existing(self):
         buf1 = _make_buffer("t1", "u1")
         buf2 = _make_buffer("t1", "u2")
 
-        self.storage.put("t1", buf1)
-        self.storage.put("t1", buf2)
+        self.storage.put(_key("t1", "u1"), buf1)
+        self.storage.put(_key("t1", "u2"), buf2)
 
-        result = self.storage.get("t1")
-        assert result is buf2
-        assert result.user_id == "u2"
+        assert self.storage.get(_key("t1", "u1")) is buf1
+        assert self.storage.get(_key("t1", "u2")) is buf2
 
     def test_pop_returns_and_removes(self):
         buf = _make_buffer("t1", "u1")
-        self.storage.put("t1", buf)
+        self.storage.put(_key("t1", "u1"), buf)
 
-        result = self.storage.pop("t1")
+        result = self.storage.pop(_key("t1", "u1"))
 
         assert result is buf
-        assert self.storage.get("t1") is None
+        assert self.storage.get(_key("t1", "u1")) is None
 
     def test_pop_returns_none_for_missing(self):
-        result = self.storage.pop("missing")
+        result = self.storage.pop(_key("missing", "u1"))
         assert result is None
 
 
@@ -72,23 +80,23 @@ class TestInMemoryShortTermStorageList:
         self.storage = InMemoryShortTermStorage()
 
     def test_list_by_user_returns_user_buffers(self):
-        self.storage.put("t1", _make_buffer("t1", "u1"))
-        self.storage.put("t2", _make_buffer("t2", "u1"))
-        self.storage.put("t3", _make_buffer("t3", "u2"))
+        self.storage.put(_key("t1", "u1"), _make_buffer("t1", "u1"))
+        self.storage.put(_key("t2", "u1"), _make_buffer("t2", "u1"))
+        self.storage.put(_key("t3", "u2"), _make_buffer("t3", "u2"))
 
-        result = self.storage.list_by_user("u1")
+        result = self.storage.list_by_workspace(_context("u1").workspace_identity)
 
         assert len(result) == 2
         topic_ids = {b.topic_id for b in result}
         assert topic_ids == {"t1", "t2"}
 
     def test_list_by_user_returns_empty_for_no_such_user(self):
-        result = self.storage.list_by_user("missing")
+        result = self.storage.list_by_workspace(_context("missing").workspace_identity)
         assert result == []
 
     def test_list_all_returns_all_buffers(self):
-        self.storage.put("t1", _make_buffer("t1", "u1"))
-        self.storage.put("t2", _make_buffer("t2", "u2"))
+        self.storage.put(_key("t1", "u1"), _make_buffer("t1", "u1"))
+        self.storage.put(_key("t2", "u2"), _make_buffer("t2", "u2"))
 
         result = self.storage.list_all()
 
@@ -99,9 +107,10 @@ class TestInMemoryShortTermStorageList:
         assert result == []
 
     def test_count_returns_buffer_count(self):
-        assert self.storage.count() == 0
-        self.storage.put("t1", _make_buffer("t1", "u1"))
-        assert self.storage.count() == 1
+        workspace = _context("u1").workspace_identity
+        assert self.storage.count(workspace) == 0
+        self.storage.put(_key("t1", "u1"), _make_buffer("t1", "u1"))
+        assert self.storage.count(workspace) == 1
 
 
 class TestInMemoryShortTermStorageThreadSafety:
@@ -116,14 +125,14 @@ class TestInMemoryShortTermStorageThreadSafety:
             try:
                 for i in range(100):
                     buf = _make_buffer(f"{topic_id}_{i}", f"user_{topic_id}")
-                    storage.put(f"{topic_id}_{i}", buf)
+                    storage.put(_key(f"{topic_id}_{i}", f"user_{topic_id}"), buf)
             except Exception as e:
                 errors.append(e)
 
         def get_task(topic_id):
             try:
                 for i in range(100):
-                    storage.get(f"{topic_id}_{i}")
+                    storage.get(_key(f"{topic_id}_{i}", f"user_{topic_id}"))
             except Exception as e:
                 errors.append(e)
 
@@ -139,4 +148,7 @@ class TestInMemoryShortTermStorageThreadSafety:
             t.join()
 
         assert errors == [], f"Thread safety errors: {errors}"
-        assert storage.count() == 500
+        assert sum(
+            storage.count(_context(f"user_{topic_id}").workspace_identity)
+            for topic_id in range(5)
+        ) == 500

@@ -41,6 +41,7 @@ from hivememory.core.mtp import (
     MTPFormatter,
     MTPResponse,
 )
+from tests.helpers.memory import make_memory_metadata
 
 
 # ========== ExecutionFrame Tests ==========
@@ -59,7 +60,7 @@ class TestRAGMenuRendering:
 
         agents = [
             MemoryAtom(
-                meta=MetaData(source_agent_id="system", user_id="u1"),
+                meta=make_memory_metadata(source_agent_id="system", user_id="u1"),
                 index=IndexLayer(
                     title="coder_doll",
                     summary="Backend Developer",
@@ -69,7 +70,7 @@ class TestRAGMenuRendering:
                 payload=PayloadLayer(content="Specializes in Python/FastAPI development"),
             ),
             MemoryAtom(
-                meta=MetaData(source_agent_id="system", user_id="u1"),
+                meta=make_memory_metadata(source_agent_id="system", user_id="u1"),
                 index=IndexLayer(
                     title="translator_doll",
                     summary="EN Translator",
@@ -99,7 +100,7 @@ class TestRAGMenuRendering:
 
         agent_empty_hint = get_memory_envelope_text("retrieval_agent_empty_hint", get_default_language().value)
         atom = MemoryAtom(
-            meta=MetaData(source_agent_id="a1", user_id="u1"),
+            meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
             index=IndexLayer(
                 title="regular memory",
                 summary="regular memory summary",

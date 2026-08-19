@@ -183,7 +183,7 @@ class PatchouliService:
             )
         except Exception:
             if is_new and real_topic_id:
-                await self._cleanup_empty_topic_if_needed(real_topic_id)
+                await self._cleanup_empty_topic_if_needed(access_context, real_topic_id)
             raise
 
     async def finalize_agent_run(
@@ -246,7 +246,10 @@ class PatchouliService:
                     or prepared_run.interaction_id in self._detached_finalizations
                 )
             ):
-                await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
+                await self._cleanup_empty_topic_if_needed(
+                    prepared_run.access_context,
+                    prepared_run.topic_id,
+                )
             raise
 
         # Interaction applied 后 Chat 的业务终态已经锁定。后续工作各自结算，
@@ -354,6 +357,7 @@ class PatchouliService:
                 PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
                 tasks,
                 topic_id=prepared_run.topic_id,
+                access_context=prepared_run.access_context,
             )
         except Exception as error:
             logger.warning(
@@ -417,6 +421,8 @@ class PatchouliService:
     async def record_memory_citation(
         self,
         memory_id: str | UUID,
+        *,
+        access_context: WorkspaceAccessContext,
         source: str = "mtp",
     ) -> Any:
         """记录一次记忆引用事件。"""
@@ -425,6 +431,7 @@ class PatchouliService:
         return await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
             normalized_id,
+            access_context=require_workspace_access_context(access_context),
             source=source,
         )
 
@@ -449,7 +456,10 @@ class PatchouliService:
                 prepared_run.interaction_id,
             )
             return False
-        return await self._cleanup_empty_topic_if_needed(prepared_run.topic_id)
+        return await self._cleanup_empty_topic_if_needed(
+            prepared_run.access_context,
+            prepared_run.topic_id,
+        )
 
     async def retrieve_for_decision(
         self,
@@ -495,6 +505,7 @@ class PatchouliService:
                 await self._local_bus.request(
                     PatchouliLocalRoutes.MEMORY_RECORD_HIT,
                     memory_id,
+                    access_context=prepared_run.access_context,
                     source="retrieval.finalize",
                 )
             except Exception:
@@ -504,11 +515,16 @@ class PatchouliService:
                     exc_info=True,
                 )
 
-    async def _cleanup_empty_topic_if_needed(self, topic_id: str) -> bool:
+    async def _cleanup_empty_topic_if_needed(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> bool:
         try:
             cleaned = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
                 topic_id,
+                access_context=access_context,
             )
             if cleaned:
                 logger.info("已清理预创建的空话题: %s", topic_id)
@@ -534,7 +550,7 @@ def _memory_ref_from_atom(memory: MemoryAtom) -> dict[str, Any]:
         "updated_at": memory.meta.updated_at,
         "confidence_score": memory.meta.confidence_score,
         "vitality_score": memory.meta.vitality_score,
-        "user_id": memory.meta.user_id,
+        "user_id": memory.workspace_identity.owner_user_id,
         "access_count": memory.meta.access_count,
     }
 

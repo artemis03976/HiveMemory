@@ -8,7 +8,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     VerificationStatus,
 )
@@ -25,6 +24,7 @@ from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_i
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 from hivememory.i18n import set_default_language
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ def sample_atom():
             tags=["python", "datetime", "utils"],
         ),
         payload=PayloadLayer(content="def parse_date(s):\n    return datetime.strptime(s, '%Y-%m-%d')"),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="test",
             user_id="u1",
             updated_at=datetime.now() - timedelta(hours=2),
@@ -69,7 +69,7 @@ def agent_profile_atom():
             tags=["code", "review"],
         ),
         payload=PayloadLayer(content=""),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="system",
             user_id="u1",
             updated_at=datetime.now(),

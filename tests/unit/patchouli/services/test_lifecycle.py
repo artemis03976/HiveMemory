@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4, UUID
 
 from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+from tests.helpers.workspace import make_access_context
 
 
 class TestLifecycleFamiliar:
@@ -56,8 +57,12 @@ class TestLifecycleFamiliar:
         uuid_obj = uuid4()
         str_id = str(uuid_obj)
 
-        await familiar.record_hit(str_id)
+        await familiar.record_hit(
+            str_id,
+            access_context=make_access_context(user_id="u1", agent_id="a1"),
+        )
 
         call_args = lifecycle.record_hit.call_args
-        assert isinstance(call_args[0][0], UUID)
-        assert str(call_args[0][0]) == str_id
+        assert call_args[0][0].workspace_identity.workspace_id == "main_workspace"
+        assert isinstance(call_args[0][1], UUID)
+        assert str(call_args[0][1]) == str_id

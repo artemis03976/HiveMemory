@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
+from hivememory.core.models import LogicalBlock, TopicData, TurnRecord, WorkspaceTopicKey
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason, TopicMaterializeTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -26,6 +26,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_creation_context
 
 
 class TestPerceptionFamiliar:
@@ -47,7 +48,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic = Mock(return_value="t1")
         store.get_topic_data = Mock(return_value=TopicData(
             topic_id="t1",
-            user_id="u1",
+            workspace_identity=make_access_context(user_id="u1").workspace_identity,
             topic_title="title",
             last_update=1.0,
             last_accessed_at=1.0,
@@ -76,9 +77,11 @@ class TestPerceptionFamiliar:
             turn_events=[],
             access_context=make_access_context(user_id="u1"),
         )
-        settlement = TopicMaterializeTask(topic_id="t1", blocks=[
-            LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
-        ])
+        settlement = TopicMaterializeTask(
+            topic_id="t1",
+            creation_context=make_memory_creation_context(user_id="u1"),
+            blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
+        )
         layer = Mock()
         layer.route_and_ingest = AsyncMock(return_value=("t1", settlement))
         layer.settle_topic = AsyncMock(return_value=None)
@@ -140,7 +143,7 @@ class TestPerceptionFamiliar:
         )
         lru = TopicData(
             topic_id="old_topic",
-            user_id="u1",
+            workspace_identity=make_access_context(user_id="u1").workspace_identity,
             topic_title="old",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="old", assistant_final_text="answer")),),
             last_update=1.0,
@@ -148,6 +151,7 @@ class TestPerceptionFamiliar:
         )
         settlement = TopicMaterializeTask(
             topic_id="old_topic",
+            creation_context=make_memory_creation_context(user_id="u1"),
             blocks=[LogicalBlock(turn=TurnRecord(user_query="old", assistant_final_text="answer"))],
             reason=FlushReason.LRU_EVICTION,
         )
@@ -171,7 +175,10 @@ class TestPerceptionFamiliar:
         result = await familiar.submit_interaction(payload, "NEW_TOPIC")
 
         assert result == "new_topic"
-        layer.settle_topic.assert_awaited_once_with("old_topic", FlushReason.LRU_EVICTION)
+        layer.settle_topic.assert_awaited_once_with(
+            WorkspaceTopicKey.from_access_context(payload.access_context, "old_topic"),
+            FlushReason.LRU_EVICTION,
+        )
         bus.request.assert_awaited_once_with(
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
             settlement,
@@ -185,7 +192,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
             topic_id="t1",
-            user_id="u1",
+            workspace_identity=make_access_context(user_id="u1").workspace_identity,
             topic_title="empty",
             last_update=1.0,
             last_accessed_at=1.0,
@@ -201,7 +208,7 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.manual_settle_topic()
+        result = await familiar.manual_settle_topic(make_access_context(user_id="u1"))
 
         assert result is None
         bus.request.assert_not_awaited()
@@ -216,7 +223,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
             topic_id="t1",
-            user_id="u1",
+            workspace_identity=make_access_context(user_id="u1").workspace_identity,
             topic_title="title",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
             last_update=1.0,
@@ -225,6 +232,7 @@ class TestPerceptionFamiliar:
         layer = Mock()
         layer.settle_topic = AsyncMock(return_value=TopicMaterializeTask(
             topic_id="t1",
+            creation_context=make_memory_creation_context(user_id="u1"),
             topic_title="title",
             topic_summary="",
             blocks=[],
@@ -246,10 +254,14 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.manual_settle_topic()
+        access_context = make_access_context(user_id="u1")
+        result = await familiar.manual_settle_topic(access_context)
 
         assert result is not None
-        layer.settle_topic.assert_awaited_once_with("t1", FlushReason.MANUAL)
+        layer.settle_topic.assert_awaited_once_with(
+            WorkspaceTopicKey.from_access_context(access_context, "t1"),
+            FlushReason.MANUAL,
+        )
         assert (
             bus.request.await_args.args[0]
             == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
@@ -262,10 +274,13 @@ class TestPerceptionFamiliar:
         layer.swap_out_topic = Mock(return_value=True)
         familiar = self._make_familiar(layer=layer)
 
-        result = await familiar.evict_topic("topic_to_evict")
+        access_context = make_access_context(user_id="u1")
+        result = await familiar.evict_topic(access_context, "topic_to_evict")
 
         assert result.success is True
-        layer.swap_out_topic.assert_called_once_with("topic_to_evict")
+        layer.swap_out_topic.assert_called_once_with(
+            WorkspaceTopicKey.from_access_context(access_context, "topic_to_evict")
+        )
 
     @pytest.mark.asyncio
     async def test_scan_idle_buffers_once_skips_non_idle_topics(self):
@@ -273,7 +288,7 @@ class TestPerceptionFamiliar:
         from datetime import datetime
         recent_topic_data = TopicData(
             topic_id="recent_topic",
-            user_id="u1",
+            workspace_identity=make_access_context(user_id="u1").workspace_identity,
             topic_title="recent",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
             last_update=datetime.now().timestamp(),  # 刚刚更新
@@ -282,7 +297,7 @@ class TestPerceptionFamiliar:
         layer = Mock()
         layer.settle_topic = AsyncMock()
         store = Mock()
-        store.list_topic_data = Mock(return_value=[recent_topic_data])
+        store.list_all_topic_data_for_maintenance = Mock(return_value=[recent_topic_data])
 
         bus = Mock()
         familiar = self._make_familiar(layer=layer, store=store, bus=bus, idle_timeout=3600)

@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, WorkspaceAccessContext
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -69,11 +69,20 @@ class MemoryLifecycleEngine:
             results.append((memory.id, vitality))
         return results
 
-    async def record_event(self, event: MemoryEvent) -> ReinforcementResult:
-        return await self.reinforcement_engine.reinforce(event.memory_id, event)
+    async def record_event(
+        self,
+        access_context: WorkspaceAccessContext,
+        event: MemoryEvent,
+    ) -> ReinforcementResult:
+        return await self.reinforcement_engine.reinforce(
+            access_context,
+            event.memory_id,
+            event,
+        )
 
     async def record_hit(
         self,
+        access_context: WorkspaceAccessContext,
         memory_id: UUID,
         source: str = "system",
     ) -> ReinforcementResult:
@@ -82,10 +91,11 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source,
         )
-        return await self.record_event(event)
+        return await self.record_event(access_context, event)
 
     async def record_citation(
         self,
+        access_context: WorkspaceAccessContext,
         memory_id: UUID,
         source: str = "system",
     ) -> ReinforcementResult:
@@ -94,10 +104,11 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source,
         )
-        return await self.record_event(event)
+        return await self.record_event(access_context, event)
 
     async def record_feedback(
         self,
+        access_context: WorkspaceAccessContext,
         memory_id: UUID,
         positive: bool,
         source: str = "user",
@@ -112,10 +123,10 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source
         )
-        return await self.record_event(event)
+        return await self.record_event(access_context, event)
 
     async def run_garbage_collection(self, force: bool = False) -> int:
-        all_memories = await self._mid_term.scroll(limit=10000)
+        all_memories = await self._mid_term.list_all_for_maintenance(limit=10000)
         await self.refresh_vitality_batch(all_memories, persist=True)
         return await self.garbage_collector.collect(all_memories, force=force)
 
@@ -134,7 +145,7 @@ class MemoryLifecycleEngine:
         Returns:
             List[Tuple[UUID, float]]: (memory_id, vitality) 列表，按生命力升序
         """
-        all_memories = await self._mid_term.scroll(limit=10000)
+        all_memories = await self._mid_term.list_all_for_maintenance(limit=10000)
         refreshed = await self.refresh_vitality_batch(all_memories, persist=False)
         results = [
             (memory_id, vitality)

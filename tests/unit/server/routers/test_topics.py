@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.models import TopicLastTurn, TopicSnapshot
+from tests.helpers.workspace import make_access_context
 from hivememory.server.routers.topics import router
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -48,6 +49,7 @@ class _TopicManagementStub:
 
 def _make_snapshot(topic_id="t1", title="Test Topic"):
     return TopicSnapshot(
+        workspace_identity=make_access_context(user_id="test_user").workspace_identity,
         topic_id=topic_id,
         topic_title=title,
         state_summary="summary",
@@ -91,7 +93,7 @@ class TestTopicsRouter:
     def test_archive_topic(self):
         librarian_core = MagicMock()
 
-        async def manual_settle_topic(topic_id=None):
+        async def manual_settle_topic(*, access_context, topic_id=None):
             task_result = MagicMock()
             task_result.task_id = "task-1"
             task_result.topic_id = topic_id

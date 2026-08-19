@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from hivememory.core.models import Identity, TopicData, TurnRecord
+from hivememory.core.models import Identity, TopicData, TurnRecord, WorkspaceTopicKey
 from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,
@@ -10,6 +10,7 @@ from hivememory.engines.perception.models import (
     TopicMaterializeTask,
 )
 from hivememory.engines.perception.trigger_manager import DECISION_MATRIX, TriggerManager
+from tests.helpers.workspace import make_access_context
 
 
 class TestDecisionMatrix:
@@ -54,6 +55,10 @@ class TestTriggerManagerResolveTopic:
         self.manager = TriggerManager(store=self.store, relay_controller=self.relay)
         self.topic_id = "topic_1"
         self.identity = Identity(user_id="user1", agent_id="agent1")
+        self.access_context = make_access_context(actor_identity=self.identity)
+        self.topic_key = WorkspaceTopicKey.from_access_context(
+            self.access_context, self.topic_id
+        )
 
     def _topic_data(self, block_count: int = 3) -> TopicData:
         blocks = tuple(
@@ -69,7 +74,7 @@ class TestTriggerManagerResolveTopic:
         )
         return TopicData(
             topic_id=self.topic_id,
-            user_id=self.identity.user_id,
+            workspace_identity=self.access_context.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Test topic",
             topic_summary="Topic summary",
@@ -82,10 +87,10 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_empty_topic_data_returns_none(self):
-        self.store.get_topic_data.return_value = None
+        self.store.get_topic_data_by_key.return_value = None
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.IDLE_TIMEOUT)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.IDLE_TIMEOUT)
         )
 
         assert result is None
@@ -95,9 +100,9 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_topic_data_without_blocks_returns_none(self):
-        self.store.get_topic_data.return_value = TopicData(
+        self.store.get_topic_data_by_key.return_value = TopicData(
             topic_id=self.topic_id,
-            user_id=self.identity.user_id,
+            workspace_identity=self.access_context.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Empty topic",
             last_update=1.0,
@@ -105,7 +110,7 @@ class TestTriggerManagerResolveTopic:
         )
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.IDLE_TIMEOUT)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.IDLE_TIMEOUT)
         )
 
         assert result is None
@@ -115,12 +120,12 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_token_overflow_compacts_and_returns_no_settlement(self):
-        self.store.get_topic_data.return_value = self._topic_data()
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
         self.relay.generate_summary.return_value = "new summary"
         self.store.apply_compaction.return_value = 1
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.TOKEN_OVERFLOW),
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.TOKEN_OVERFLOW),
             retain_recent_blocks=2,
         )
 
@@ -128,7 +133,7 @@ class TestTriggerManagerResolveTopic:
         folded_blocks = self.relay.generate_summary.call_args.kwargs["blocks_to_fold"]
         assert [block.user_query for block in folded_blocks] == ["Query 0"]
         self.store.apply_compaction.assert_called_once_with(
-            self.topic_id,
+            self.topic_key,
             "new summary",
             retain_count=2,
         )
@@ -137,12 +142,12 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_token_overflow_requires_explicit_retention_policy(self):
-        self.store.get_topic_data.return_value = self._topic_data()
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
 
         with pytest.raises(ValueError, match="requires retain_recent_blocks"):
             await self.manager.resolve_topic(
                 FlushEvent(
-                    topic_id=self.topic_id,
+                    topic_key=self.topic_key,
                     reason=FlushReason.TOKEN_OVERFLOW,
                 )
             )
@@ -153,10 +158,10 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_token_overflow_defers_when_all_blocks_are_retained(self):
-        self.store.get_topic_data.return_value = self._topic_data(block_count=2)
+        self.store.get_topic_data_by_key.return_value = self._topic_data(block_count=2)
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.TOKEN_OVERFLOW),
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.TOKEN_OVERFLOW),
             retain_recent_blocks=3,
         )
 
@@ -168,10 +173,10 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_idle_timeout_returns_settlement_and_evicts(self):
-        self.store.get_topic_data.return_value = self._topic_data()
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.IDLE_TIMEOUT)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.IDLE_TIMEOUT)
         )
 
         assert isinstance(result, TopicMaterializeTask)
@@ -179,69 +184,70 @@ class TestTriggerManagerResolveTopic:
         assert result.reason == FlushReason.IDLE_TIMEOUT
         assert len(result.blocks) == 3
         self.relay.generate_summary.assert_not_called()
-        self.store.clear_blocks.assert_called_once_with(self.topic_id)
-        self.store.pop_buffer.assert_called_once_with(self.topic_id)
+        self.store.clear_blocks.assert_called_once_with(self.topic_key)
+        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
     async def test_lru_eviction_returns_settlement_and_evicts(self):
-        self.store.get_topic_data.return_value = self._topic_data()
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.LRU_EVICTION)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.LRU_EVICTION)
         )
 
         assert isinstance(result, TopicMaterializeTask)
         assert result.reason == FlushReason.LRU_EVICTION
-        self.store.clear_blocks.assert_called_once_with(self.topic_id)
-        self.store.pop_buffer.assert_called_once_with(self.topic_id)
+        self.store.clear_blocks.assert_called_once_with(self.topic_key)
+        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
     async def test_shutdown_returns_settlement_and_evicts(self):
-        self.store.get_topic_data.return_value = self._topic_data()
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.SHUTDOWN)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.SHUTDOWN)
         )
 
         assert isinstance(result, TopicMaterializeTask)
         assert result.reason == FlushReason.SHUTDOWN
-        self.store.clear_blocks.assert_called_once_with(self.topic_id)
-        self.store.pop_buffer.assert_called_once_with(self.topic_id)
+        self.store.clear_blocks.assert_called_once_with(self.topic_key)
+        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
     async def test_manual_returns_settlement_compacts_and_keeps_topic(self):
-        self.store.get_topic_data.return_value = self._topic_data()
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
         self.relay.generate_summary.return_value = "manual summary"
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_id=self.topic_id, reason=FlushReason.MANUAL)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL)
         )
 
         assert isinstance(result, TopicMaterializeTask)
         assert result.reason == FlushReason.MANUAL
         self.relay.generate_summary.assert_called_once()
-        self.store.update_summary.assert_called_once_with(self.topic_id, "manual summary")
-        self.store.clear_blocks.assert_called_once_with(self.topic_id)
-        self.store.pop_buffer.assert_not_called()
+        self.store.update_summary.assert_called_once_with(self.topic_key, "manual summary")
+        self.store.clear_blocks.assert_called_once_with(self.topic_key)
+        self.store.pop_buffer_by_key.assert_not_called()
 
 
 class TestTriggerManagerSettlePayload:
     def setup_method(self):
         self.manager = TriggerManager(store=Mock(), relay_controller=Mock())
+        self.workspace_identity = make_access_context(user_id="u1").workspace_identity
 
     @pytest.mark.asyncio
     async def test_settlement_filters_worth_saving_false(self):
         blocks = [
             LogicalBlock(
-                turn=TurnRecord(user_query="keep", assistant_final_text="keep"),
+                turn=TurnRecord(identity=Identity(user_id="u1"), user_query="keep", assistant_final_text="keep"),
                 worth_saving=True,
             ),
             LogicalBlock(
-                turn=TurnRecord(user_query="drop", assistant_final_text="drop"),
+                turn=TurnRecord(identity=Identity(user_id="u1"), user_query="drop", assistant_final_text="drop"),
                 worth_saving=False,
             ),
             LogicalBlock(
-                turn=TurnRecord(user_query="default", assistant_final_text="default"),
+                turn=TurnRecord(identity=Identity(user_id="u1"), user_query="default", assistant_final_text="default"),
                 worth_saving=None,
             ),
         ]
@@ -251,7 +257,7 @@ class TestTriggerManagerSettlePayload:
             blocks_snapshot=blocks,
             state_summary="summary",
             reason=FlushReason.IDLE_TIMEOUT,
-            user_id="u1",
+            workspace_identity=self.workspace_identity,
         )
 
         assert payload is not None
@@ -264,12 +270,13 @@ class TestTriggerManagerSettlePayload:
             topic_id="topic_1",
             blocks_snapshot=[
                 LogicalBlock(
-                    turn=TurnRecord(user_query="drop", assistant_final_text="drop"),
+                    turn=TurnRecord(identity=Identity(user_id="u1"), user_query="drop", assistant_final_text="drop"),
                     worth_saving=False,
                 )
             ],
             state_summary="summary",
             reason=FlushReason.IDLE_TIMEOUT,
+            workspace_identity=self.workspace_identity,
         )
 
         assert payload is None
@@ -286,13 +293,16 @@ class TestTriggerManagerCompactTopic:
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         ]
 
-        await manager._compact_topic("topic_1", blocks, "previous summary")
+        topic_key = WorkspaceTopicKey.from_access_context(
+            make_access_context(user_id="u1"), "topic_1"
+        )
+        await manager._compact_topic(topic_key, blocks, "previous summary")
 
         relay.generate_summary.assert_called_once_with(
             blocks_to_fold=blocks,
             previous_summary="previous summary",
         )
-        store.update_summary.assert_called_once_with("topic_1", "new summary")
+        store.update_summary.assert_called_once_with(topic_key, "new summary")
 
     @pytest.mark.asyncio
     async def test_compact_summarizes_only_prefix_before_retained_blocks(self):
@@ -308,8 +318,11 @@ class TestTriggerManagerCompactTopic:
             for i in range(4)
         ]
 
+        topic_key = WorkspaceTopicKey.from_access_context(
+            make_access_context(user_id="u1"), "topic_1"
+        )
         folded = await manager._compact_topic(
-            "topic_1",
+            topic_key,
             blocks,
             "previous summary",
             retain_recent_blocks=2,
@@ -319,7 +332,7 @@ class TestTriggerManagerCompactTopic:
         summarized = relay.generate_summary.call_args.kwargs["blocks_to_fold"]
         assert [block.user_query for block in summarized] == ["q0", "q1"]
         store.apply_compaction.assert_called_once_with(
-            "topic_1",
+            topic_key,
             "new summary",
             retain_count=2,
         )

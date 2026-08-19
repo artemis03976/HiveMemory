@@ -12,7 +12,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
@@ -25,6 +24,7 @@ from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.workspace import make_access_context, make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 # ========== Alice ==========
 
@@ -32,7 +32,7 @@ from tests.helpers.workspace import make_access_context, make_runtime_scope
 def _make_memory(alias: str, content: str) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="Test Memory",
             summary="A test memory for public route behavior",

@@ -27,7 +27,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
@@ -36,6 +35,7 @@ from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 # ========== Helpers ==========
 
@@ -47,7 +47,7 @@ def _make_code_memory(
     """创建 CODE_SNIPPET 类型的记忆原子"""
     return MemoryAtom(
         id=mem_id or uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="Test Tool",
             summary="A test code snippet tool",
@@ -63,7 +63,7 @@ def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
     """创建 FACT 类型的记忆原子 (不可执行)"""
     return MemoryAtom(
         id=mem_id or uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="Test Fact",
             summary="A test fact memory",

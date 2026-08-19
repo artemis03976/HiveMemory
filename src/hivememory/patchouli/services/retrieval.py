@@ -21,7 +21,6 @@ from hivememory.core.models import (
     Identity,
     MemoryAtom,
     MemoryType,
-    MemoryVisibility,
     TopicData,
     TopicSnapshot,
     WorkspaceAccessContext,
@@ -129,16 +128,25 @@ class RetrievalFamiliar:
 
     # ========== 中期记忆查询 ==========
 
-    async def get_memory(self, memory_id: UUID | str) -> MemoryAtom | None:
+    async def get_memory(
+        self,
+        memory_id: UUID | str,
+        *,
+        access_context: WorkspaceAccessContext,
+    ) -> MemoryAtom | None:
         """
         根据记忆 ID 读取中期记忆原子。
         """
         normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
-        return await self._memory_library.mid_term.get(normalized_id)
+        return await self._memory_library.mid_term.get(
+            require_workspace_access_context(access_context),
+            normalized_id,
+        )
 
     async def list_memories(
         self,
         *,
+        access_context: WorkspaceAccessContext,
         query: str | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 20,
@@ -146,15 +154,19 @@ class RetrievalFamiliar:
         """
         根据查询和过滤条件列出中期记忆原子。
         """
+        access_context = require_workspace_access_context(access_context)
+        query_filters = self._build_business_filters(filters)
         if query:
             results = await self._memory_library.mid_term.search(
+                access_context,
                 query=query,
                 top_k=limit,
-                filters=filters,
+                filters=query_filters,
             )
             return [result["memory"] for result in results if "memory" in result]
         return await self._memory_library.mid_term.scroll(
-            filters=filters,
+            access_context,
+            filters=query_filters,
             limit=limit,
         )
 
@@ -176,22 +188,13 @@ class RetrievalFamiliar:
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        owner_user_id = access_context.workspace_identity.owner_user_id
         atom = await self._memory_library.mid_term.get_by_alias(
+            access_context,
             normalized_alias,
-            owner_user_id,
         )
         if atom is None:
             raise AliasNotFoundError(
                 message_key="mtp.call.profile_not_found",
-                params={"agent_alias": normalized_alias},
-            )
-        if (
-            atom.meta.user_id != owner_user_id
-            or not self._is_memory_visible_to(atom, identity)
-        ):
-            raise PermissionDeniedError(
-                message_key="mtp.call.profile_permission_denied",
                 params={"agent_alias": normalized_alias},
             )
         if atom.index.memory_type != MemoryType.AGENT_PROFILE:
@@ -208,17 +211,6 @@ class RetrievalFamiliar:
             )
         return profile
 
-    @staticmethod
-    def _is_memory_visible_to(atom: MemoryAtom, identity: Identity) -> bool:
-        """按 actor 的 Agent/Team 策略判断已完成 owner 过滤的记忆。"""
-        if atom.meta.visibility == MemoryVisibility.PUBLIC:
-            return True
-        if atom.meta.visibility == MemoryVisibility.WORKSPACE:
-            return bool(identity.team_id and atom.meta.team_id == identity.team_id)
-        if atom.meta.visibility == MemoryVisibility.PRIVATE:
-            return atom.meta.source_agent_id == identity.agent_id
-        return False
-
     async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
         """
         检索相关记忆，返回原子与元信息
@@ -228,11 +220,7 @@ class RetrievalFamiliar:
         response = RetrievalResponse()
 
         try:
-            # P1 仅保留旧检索器的 actor visibility 适配；owner/workspace
-            # 复合硬过滤由 P2 在资源存储边界统一实现。
-            query_filters = QueryFilters(
-                identity=request.access_context.actor_identity
-            )
+            query_filters = QueryFilters()
 
             # Step 2: 合并 MTP filter (如果有)
             if request.filters is not None:
@@ -248,6 +236,7 @@ class RetrievalFamiliar:
                 semantic_query=request.semantic_query,
                 keywords=request.keywords or [],
                 filters=query_filters,
+                access_context=request.access_context,
             )
 
             engine_result = await self.engine.retrieve(
@@ -297,15 +286,16 @@ class RetrievalFamiliar:
         try:
             memories: list[MemoryAtom] = []
             seen_aliases: set[str] = set()
-            user_id = access_context.workspace_identity.owner_user_id
-
             for alias in aliases:
                 normalized = alias.strip() if alias else ""
                 if not normalized or normalized in seen_aliases:
                     continue
                 seen_aliases.add(normalized)
 
-                atom = await self._memory_library.mid_term.get_by_alias(normalized, user_id)
+                atom = await self._memory_library.mid_term.get_by_alias(
+                    access_context,
+                    normalized,
+                )
                 if atom is None:
                     logger.warning(f"Alias not found during alias retrieval: {normalized}")
                     continue
@@ -335,15 +325,23 @@ class RetrievalFamiliar:
         await self._refresh_vitality_for_memories(response.memories)
         return response
 
-    async def update_access_stats(self, memories: list[MemoryAtom]) -> None:
+    async def update_access_stats(
+        self,
+        access_context: WorkspaceAccessContext,
+        memories: list[MemoryAtom],
+    ) -> None:
         """
         更新被引用记忆的访问统计
 
         当记忆被成功使用时调用，增加访问计数
         """
+        access_context = require_workspace_access_context(access_context)
         for memory in memories:
             try:
-                await self._memory_library.mid_term.update_access_info(memory.id)
+                await self._memory_library.mid_term.update_access_info(
+                    access_context,
+                    memory.id,
+                )
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
 
@@ -382,6 +380,24 @@ class RetrievalFamiliar:
             )
         except Exception as e:
             logger.warning(f"Failed to refresh retrieval vitality scores: {e}")
+
+    @staticmethod
+    def _build_business_filters(filters: dict[str, Any] | None) -> QueryFilters:
+        """只接纳业务维度，拒绝调用方用裸字典覆盖 Workspace hard boundary。"""
+        if not filters:
+            return QueryFilters()
+        allowed = {"index.memory_type", "meta.confidence_score"}
+        unsupported = set(filters) - allowed
+        if unsupported:
+            raise ValueError(f"不支持的 Memory 过滤字段: {sorted(unsupported)}")
+        memory_type = filters.get("index.memory_type")
+        confidence = filters.get("meta.confidence_score", 0.0)
+        if isinstance(confidence, dict):
+            confidence = confidence.get("gte", 0.0)
+        return QueryFilters(
+            memory_type=MemoryType(memory_type) if memory_type else None,
+            min_confidence=float(confidence),
+        )
 
 
 __all__ = [

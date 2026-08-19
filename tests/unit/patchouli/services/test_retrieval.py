@@ -10,6 +10,7 @@ RetrievalFamiliar 单元测试 (Phase C — renderer 解耦后)
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pydantic import ValidationError
 
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
@@ -21,7 +22,6 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     MemoryVisibility,
-    MetaData,
     PayloadLayer,
     TopicData,
 )
@@ -29,7 +29,6 @@ from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
     MemoryTypeMismatchError,
-    PermissionDeniedError,
     StorageReadError,
 )
 from hivememory.core.protocol.models import RetrievalRequest
@@ -38,11 +37,12 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(source_agent_id="a1", user_id="u1", session_id="s1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1", session_id="s1"),
         index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t1"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="内容"),
     )
@@ -58,7 +58,7 @@ def _make_profile_memory(
     agent_config: dict | None = None,
 ) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id=source_agent_id,
             user_id=user_id,
             team_id=team_id,
@@ -112,8 +112,9 @@ def _make_memory_library():
 
 
 def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_accessed_at=1.0):
+    access_context = make_access_context(user_id=user_id)
     return TopicData(
-        topic_id=topic_id, user_id=user_id,
+        topic_id=topic_id, workspace_identity=access_context.workspace_identity,
         topic_title=f"title-{topic_id}", topic_summary=f"summary-{topic_id}",
         state_summary=f"state-{topic_id}",
         blocks=tuple(blocks or []),
@@ -154,8 +155,8 @@ class TestRetrievalFamiliarAgentProfiles:
 
         assert result.persona == "You are a coding specialist."
         self.mock_library.mid_term.get_by_alias.assert_awaited_once_with(
+            make_access_context(actor_identity=identity),
             "coder_doll",
-            "u1",
         )
 
     @pytest.mark.asyncio
@@ -180,41 +181,6 @@ class TestRetrievalFamiliarAgentProfiles:
             )
 
         self.mock_library.mid_term.get_by_alias.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("atom", "identity"),
-        [
-            (
-                _make_profile_memory(user_id="u2"),
-                Identity(user_id="u1", agent_id="omni_doll"),
-            ),
-            (
-                _make_profile_memory(
-                    visibility=MemoryVisibility.WORKSPACE,
-                    team_id="team-a",
-                ),
-                Identity(user_id="u1", agent_id="omni_doll", team_id="team-b"),
-            ),
-            (
-                _make_profile_memory(
-                    visibility=MemoryVisibility.PRIVATE,
-                    source_agent_id="owner_doll",
-                ),
-                Identity(user_id="u1", agent_id="other_doll"),
-            ),
-        ],
-    )
-    async def test_invisible_profile_is_permission_denied(self, atom, identity):
-        self.mock_library.mid_term.get_by_alias.return_value = atom
-
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            await self.familiar.get_agent_profile(
-                "private_doll",
-                access_context=make_access_context(actor_identity=identity),
-            )
-
-        assert exc_info.value.message_key == "mtp.call.profile_permission_denied"
 
     @pytest.mark.asyncio
     async def test_non_profile_alias_is_type_mismatch(self):
@@ -265,13 +231,14 @@ class TestRetrievalFamiliarRetrieve:
         self.familiar = RetrievalFamiliar(engine=self.mock_engine, memory_library=self.mock_library)
 
     @pytest.mark.asyncio
-    async def test_retrieve_user_id_filter(self):
+    async def test_retrieve_propagates_workspace_access_context(self):
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
-        await self.familiar.retrieve(_make_request(user_id="user_abc"))
+        request = _make_request(user_id="user_abc")
+        await self.familiar.retrieve(request)
 
         query = self.mock_engine.retrieve.call_args[1]["query"]
-        assert query.filters.user_id == "user_abc"
+        assert query.access_context == request.access_context
 
     @pytest.mark.asyncio
     async def test_retrieve_no_mtp_filters(self):
@@ -280,7 +247,7 @@ class TestRetrievalFamiliarRetrieve:
         await self.familiar.retrieve(_make_request(filters=None))
 
         query = self.mock_engine.retrieve.call_args[1]["query"]
-        assert query.filters.user_id == "u1"
+        assert query.filters.is_empty()
         assert query.filters.memory_type is None
 
     @pytest.mark.asyncio
@@ -387,8 +354,8 @@ class TestRetrievalFamiliarIdentityPropagation:
         self.mock_engine = AsyncMock()
         self.familiar = RetrievalFamiliar(engine=self.mock_engine, memory_library=self.mock_library)
 
-    def _get_query_filters(self) -> QueryFilters:
-        return self.mock_engine.retrieve.call_args[1]["query"].filters
+    def _get_query(self):
+        return self.mock_engine.retrieve.call_args[1]["query"]
 
     @pytest.mark.asyncio
     async def test_identity_propagated_to_engine(self):
@@ -402,10 +369,8 @@ class TestRetrievalFamiliarIdentityPropagation:
             )
         )
 
-        qf = self._get_query_filters()
-        assert qf.identity.user_id == "u1"
-        assert qf.identity.agent_id == "coder_doll"
-        assert qf.identity.team_id == "team_a"
+        query = self._get_query()
+        assert query.access_context.actor_identity == identity
 
     @pytest.mark.asyncio
     async def test_team_id_none_propagated(self):
@@ -419,26 +384,18 @@ class TestRetrievalFamiliarIdentityPropagation:
             )
         )
 
-        assert self._get_query_filters().identity.team_id is None
+        assert self._get_query().access_context.actor_identity.team_id is None
 
     @pytest.mark.asyncio
-    async def test_mtp_filter_cannot_override_identity(self):
-        identity = Identity(user_id="u1", agent_id="coder_doll")
-        mtp_filters = QueryFilters(identity=Identity(user_id="hacker", agent_id="evil"), memory_type=MemoryType.CODE_SNIPPET)
-        self.mock_engine.retrieve.return_value = _make_engine_result()
-
-        await self.familiar.retrieve(
-            RetrievalRequest(
-                semantic_query="test",
-                access_context=make_access_context(actor_identity=identity),
-                filters=mtp_filters,
+    async def test_mtp_filter_cannot_carry_identity(self):
+        """防止业务过滤条件重新引入第二套授权身份。"""
+        with pytest.raises(ValidationError, match="identity"):
+            QueryFilters.model_validate(
+                {
+                    "identity": {"user_id": "hacker", "agent_id": "evil"},
+                    "memory_type": MemoryType.CODE_SNIPPET,
+                }
             )
-        )
-
-        qf = self._get_query_filters()
-        assert qf.identity.user_id == "u1"
-        assert qf.identity.agent_id == "coder_doll"
-        assert qf.memory_type == MemoryType.CODE_SNIPPET
 
 
 class TestRetrievalFamiliarRetrieveByAliases:
@@ -493,12 +450,12 @@ class TestRetrievalFamiliarAccessStats:
     async def test_update_access_stats_per_item_failure(self):
         m1, m2 = _make_memory("m1"), _make_memory("m2")
         self.mock_library.mid_term.update_access_info.side_effect = [RuntimeError("fail"), None]
-        await self.familiar.update_access_stats([m1, m2])
+        await self.familiar.update_access_stats(make_access_context(user_id="u1"), [m1, m2])
         assert self.mock_library.mid_term.update_access_info.call_count == 2
 
     @pytest.mark.asyncio
     async def test_update_access_stats_empty_list(self):
-        await self.familiar.update_access_stats([])
+        await self.familiar.update_access_stats(make_access_context(user_id="u1"), [])
         self.mock_library.mid_term.update_access_info.assert_not_called()
 
 
@@ -515,12 +472,11 @@ class TestRetrievalFamiliarShortTermTopics:
         new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
         self.mock_library.short_term.list_topic_data.return_value = [old_topic, empty_topic, new_topic]
 
-        snapshots = self.familiar.list_active_topics(
-            access_context=make_access_context(user_id="u1")
-        )
+        access_context = make_access_context(user_id="u1")
+        snapshots = self.familiar.list_active_topics(access_context=access_context)
 
         self.mock_library.short_term.list_topic_data.assert_called_once_with(
-            user_id="u1", include_empty=False
+            access_context, include_empty=False
         )
         assert [s.topic_id for s in snapshots] == ["new", "old"]
 

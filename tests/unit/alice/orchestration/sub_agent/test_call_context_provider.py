@@ -12,11 +12,11 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.mtp import MTPCallRequest
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 
 def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE) -> ExecutionFrame:
@@ -37,7 +37,7 @@ def _atom(title: str, content: str) -> MemoryAtom:
             tags=["context"],
         ),
         payload=PayloadLayer(content=content),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="caller",
             user_id="user-1",
             updated_at=datetime.now(),

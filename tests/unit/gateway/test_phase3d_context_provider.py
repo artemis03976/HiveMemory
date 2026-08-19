@@ -51,6 +51,7 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
             topic_title="Gateway",
             state_summary="正在实现 Phase 3D",
             last_turn=TopicLastTurn(user="继续", assistant="处理中"),
+            workspace_identity=access_context.workspace_identity,
         ),
     )
 
@@ -202,7 +203,13 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
     bus = GlobalSystemBus()
 
     async def list_topics(**_kwargs):
-        return (TopicSnapshot(topic_id="topic-1", topic_title="Gateway"),)
+        return (
+            TopicSnapshot(
+                topic_id="topic-1",
+                topic_title="Gateway",
+                workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            ),
+        )
 
     async def slow_get(**_kwargs):
         await asyncio.sleep(0.05)

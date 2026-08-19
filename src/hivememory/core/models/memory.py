@@ -10,12 +10,15 @@ HiveMemory 核心数据模型 - 记忆领域
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Literal, Optional, Self
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from hivememory.core.errors import OwnerMismatchError
 from hivememory.core.models.artifact import ArtifactRef, MemoryEventLog
+from hivememory.core.models.interaction import Identity
+from hivememory.core.models.workspace import WorkspaceAccessContext, WorkspaceIdentity
 
 
 class MemoryType(str, Enum):
@@ -30,10 +33,112 @@ class MemoryType(str, Enum):
 
 
 class MemoryVisibility(str, Enum):
-    """记忆可见性枚举 - 用于权限控制"""
-    PRIVATE = "PRIVATE"  # 仅创建者Agent可见
-    WORKSPACE = "WORKSPACE"  # 工作组共享
-    PUBLIC = "PUBLIC"  # 全局可见
+    """所属 Workspace 内的执行者读取策略。"""
+
+    PUBLIC = "PUBLIC"  # Workspace 内所有已获准进入的执行者可读
+    PRIVATE = "PRIVATE"  # 仅策略指定的 Agent 可读
+    TEAM = "TEAM"  # 仅策略指定的 Team 可读
+
+
+class MemoryAccessPolicy(BaseModel):
+    """Memory v2 的 Workspace 内读取策略。"""
+
+    visibility: MemoryVisibility
+    target_agent_id: Optional[str] = None
+    target_team_id: Optional[str] = None
+
+    @field_validator("target_agent_id", "target_team_id")
+    @classmethod
+    def _normalize_target(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Memory read policy target 不能为空")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> "MemoryAccessPolicy":
+        if self.visibility == MemoryVisibility.PUBLIC:
+            if self.target_agent_id is not None or self.target_team_id is not None:
+                raise ValueError("PUBLIC policy 不得携带 target")
+        elif self.visibility == MemoryVisibility.PRIVATE:
+            if self.target_agent_id is None or self.target_team_id is not None:
+                raise ValueError("PRIVATE policy 必须且只能携带 target_agent_id")
+        elif self.visibility == MemoryVisibility.TEAM:
+            if self.target_agent_id is not None or self.target_team_id is None:
+                raise ValueError("TEAM policy 必须且只能携带 target_team_id")
+        return self
+
+    @classmethod
+    def public(cls) -> "MemoryAccessPolicy":
+        """显式构造 Workspace-local PUBLIC 策略。"""
+        return cls(visibility=MemoryVisibility.PUBLIC)
+
+
+class MemoryCreationContext(BaseModel):
+    """生成数据面创建 Memory 所需的最小、不可变作用域。"""
+
+    actor_identity: Identity
+    workspace_identity: WorkspaceIdentity
+
+    @model_validator(mode="after")
+    def _require_same_owner(self) -> Self:
+        if self.actor_identity.user_id != self.workspace_identity.owner_user_id:
+            raise OwnerMismatchError(
+                details={
+                    "actor_user_id": self.actor_identity.user_id,
+                    "owner_user_id": self.workspace_identity.owner_user_id,
+                }
+            )
+        return self
+
+    @classmethod
+    def from_access_context(
+        cls,
+        access_context: WorkspaceAccessContext,
+    ) -> "MemoryCreationContext":
+        """从已验证的访问上下文冻结生成所需的 owner 与来源。"""
+        return cls(
+            actor_identity=access_context.actor_identity,
+            workspace_identity=access_context.workspace_identity,
+        )
+
+    model_config = ConfigDict(frozen=True)
+
+
+MemoryReadScope = WorkspaceAccessContext | MemoryCreationContext
+"""读取/检索可使用完整 AccessContext，或生成数据面的窄创建上下文。"""
+
+
+def require_memory_read_scope(scope: MemoryReadScope) -> MemoryReadScope:
+    """拒绝裸 Identity、WorkspaceIdentity 或缺失的 Memory 读取作用域。"""
+    if not isinstance(scope, (WorkspaceAccessContext, MemoryCreationContext)):
+        from hivememory.core.errors import ScopeRequiredError
+
+        raise ScopeRequiredError()
+    return scope
+
+
+class WorkspaceMemoryKey(BaseModel):
+    """已授权内部路径使用的 Memory 复合资源键。"""
+
+    workspace_identity: WorkspaceIdentity
+    memory_id: UUID
+
+    @classmethod
+    def from_access_context(
+        cls,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> "WorkspaceMemoryKey":
+        """从完整访问上下文创建 Memory 复合键。"""
+        return cls(
+            workspace_identity=access_context.workspace_identity,
+            memory_id=memory_id,
+        )
+
+    model_config = ConfigDict(frozen=True)
 
 
 class VerificationStatus(str, Enum):
@@ -48,21 +153,20 @@ class VerificationStatus(str, Enum):
 
 class MetaData(BaseModel):
     """
-    元数据 - 记忆的生命周期与权限管理
+    元数据 - Memory v2 的唯一归属、来源、读取策略与生命周期信息。
     """
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="最后更新时间")
     last_accessed_at: Optional[datetime] = Field(default=None, description="最后访问时间")
 
-    source_agent_id: str = Field(..., description="来源Agent ID")
-    user_id: str = Field(..., description="归属用户ID")
-    team_id: Optional[str] = Field(default=None, description="来源团队 ID（用于执行者可见性策略）")
+    workspace_identity: WorkspaceIdentity = Field(description="Memory 的唯一持久化归属")
+    source_agent_id: str = Field(..., min_length=1, description="创建来源 Agent ID")
+    source_team_id: Optional[str] = Field(default=None, description="创建来源 Team ID")
+
+    # TODO: 会话ID应由artifact保存
     session_id: Optional[str] = Field(default=None, description="原始会话ID")
 
-    visibility: MemoryVisibility = Field(
-        default=MemoryVisibility.PUBLIC,
-        description="可见性级别"
-    )
+    access_policy: MemoryAccessPolicy = Field(description="所属 Workspace 内的执行者读取策略")
     version: int = Field(default=1, description="版本号,用于乐观锁")
 
     # 生命周期管理
@@ -85,10 +189,16 @@ class MetaData(BaseModel):
     )
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "example": {
                 "source_agent_id": "coder_agent_01",
-                "user_id": "user_123",
+                "workspace_identity": {
+                    "owner_user_id": "user_123",
+                    "workspace_key": "main_workspace",
+                    "workspace_id": "main_workspace",
+                },
+                "access_policy": {"visibility": "PUBLIC"},
                 "confidence_score": 0.9,
                 "verification_status": "VERIFIED"
             }
@@ -226,12 +336,21 @@ class MemoryAtom(BaseModel):
     - payload: 内容负载层 (Context注入)
     - relations: 关系图谱层 (预留)
     """
-    id: UUID = Field(default_factory=uuid4, description="全局唯一标识符")
+    schema_version: Literal[2] = Field(
+        default=2,
+        description="Memory 领域与持久化契约版本",
+    )
+    id: UUID = Field(default_factory=uuid4, description="Workspace 内的记忆标识符")
 
     meta: MetaData
     index: IndexLayer
     payload: PayloadLayer
     relations: RelationLayer = Field(default_factory=RelationLayer)
+
+    @property
+    def workspace_identity(self) -> WorkspaceIdentity:
+        """返回唯一的 Memory ownership 权威。"""
+        return self.meta.workspace_identity
 
     def get_alias(self) -> str:
         """
@@ -252,11 +371,23 @@ class MemoryAtom(BaseModel):
 
     def to_qdrant_payload(self) -> Dict[str, Any]:
         """
-        转换为 Qdrant Payload 格式 (不含embedding向量)
+        转换为 Qdrant Payload 格式，并原子投影 Workspace 索引字段。
+
+        平铺字段只服务存储预过滤；领域读取仍以 ``workspace_identity`` 为准。
         """
+        meta_payload = self.meta.model_dump()
+        workspace = self.workspace_identity
+        meta_payload.update(
+            {
+                "owner_user_id": workspace.owner_user_id,
+                "workspace_key": workspace.workspace_key,
+                "workspace_id": workspace.workspace_id,
+            }
+        )
         return {
+            "schema_version": self.schema_version,
             "id": str(self.id),
-            "meta": self.meta.model_dump(),
+            "meta": meta_payload,
             "index": {
                 **self.index.model_dump(),
             },
@@ -269,7 +400,12 @@ class MemoryAtom(BaseModel):
             "example": {
                 "meta": {
                     "source_agent_id": "coder_01",
-                    "user_id": "user_123",
+                    "workspace_identity": {
+                        "owner_user_id": "user_123",
+                        "workspace_key": "main_workspace",
+                        "workspace_id": "main_workspace",
+                    },
+                    "access_policy": {"visibility": "PUBLIC"},
                     "confidence_score": 0.9
                 },
                 "index": {

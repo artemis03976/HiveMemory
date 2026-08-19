@@ -3,6 +3,7 @@
 import pytest
 
 from hivememory.engines.perception.models import TopicMaterializeTask
+from tests.helpers.memory import make_memory_creation_context
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
     InteractionApplyStage,
@@ -11,7 +12,10 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 
 def test_journal_records_all_apply_stages() -> None:
     journal = InMemoryInteractionApplyJournal()
-    settlement = TopicMaterializeTask(topic_id="topic-1")
+    settlement = TopicMaterializeTask(
+        topic_id="topic-1",
+        creation_context=make_memory_creation_context(),
+    )
 
     journal.record_block_applied("interaction-1", "topic-1")
     record = journal.get("interaction-1")

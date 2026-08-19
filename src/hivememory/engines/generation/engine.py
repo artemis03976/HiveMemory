@@ -20,15 +20,17 @@ from datetime import datetime
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from hivememory.core.models import (
-    Identity,
     IndexLayer,
+    MemoryAccessPolicy,
     MemoryAtom,
+    MemoryCreationContext,
     MemoryType,
     MetaData,
     PayloadLayer,
     UpdateFocus,
     WriteFocus,
 )
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import MemoryVersionSnapshot
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -118,7 +120,7 @@ class MemoryGenerationEngine:
 
         从对话中被动提取有价值的记忆。
         """
-        identity = request.identity
+        creation_context = request.creation_context
 
         logger.info(f"[Mode A] 开始处理...")
 
@@ -137,7 +139,7 @@ class MemoryGenerationEngine:
             return []
 
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
-        return await self._dedup_and_resolve(draft, identity)
+        return await self._dedup_and_resolve(draft, creation_context)
 
     async def _process_mode_b(self, request: GenerationRequest) -> List[GenerationOutcome]:
         """
@@ -147,7 +149,7 @@ class MemoryGenerationEngine:
         包含 fallback 机制：LLM 提取失败时直接从 WriteFocus 构建草稿。
         """
         focus = request.write_focus
-        identity = request.identity
+        creation_context = request.creation_context
 
         logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
 
@@ -170,7 +172,7 @@ class MemoryGenerationEngine:
             draft = self._build_fallback_draft(focus)
 
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
-        return await self._dedup_and_resolve(draft, identity)
+        return await self._dedup_and_resolve(draft, creation_context)
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
         """
@@ -202,14 +204,20 @@ class MemoryGenerationEngine:
         包含 fallback 机制：LLM 合并失败时直接拼接。
         """
         uf = request.update_focus
-        identity = request.identity
-
         # 从内存索引中获取原始记忆
         existing = request.existing_memory
 
         if existing is None:
             logger.error("[Mode C] existing_memory 未注入，无法执行 UPDATE")
             return []
+        if existing.workspace_identity != request.creation_context.workspace_identity:
+            raise WorkspaceMismatchError(
+                details={
+                    "memory_id": str(existing.id),
+                    "memory_workspace_id": existing.workspace_identity.workspace_id,
+                    "request_workspace_id": request.creation_context.workspace_identity.workspace_id,
+                }
+            )
 
         logger.info(
             f"[Mode C] UPDATE 合并: alias='{uf.base_alias}', "
@@ -310,13 +318,14 @@ class MemoryGenerationEngine:
     async def _dedup_and_resolve(
         self,
         draft: ExtractedMemoryDraft,
-        identity: Identity,
+        creation_context: MemoryCreationContext,
     ) -> List[GenerationOutcome]:
         """
         查重 → 构建/演化决策 (Mode A/B 共用)
         """
         query_text = f"{draft.title} {draft.summary}"
         candidates = await self._mid_term.search(
+            creation_context,
             query=query_text,
             top_k=1,
             filters=None,
@@ -356,7 +365,7 @@ class MemoryGenerationEngine:
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
-            memory = self._draft_to_memory(draft, identity)
+            memory = self._draft_to_memory(draft, creation_context)
 
             return [GenerationOutcome(
                 atom=memory,
@@ -411,21 +420,20 @@ class MemoryGenerationEngine:
     def _draft_to_memory(
         self,
         draft: ExtractedMemoryDraft,
-        identity: Identity,
+        creation_context: MemoryCreationContext,
     ) -> MemoryAtom:
         """
         将草稿转换为完整的 MemoryAtom
 
         Args:
             draft: 提取的草稿
-            identity: 身份标识
+            creation_context: 已验证的创建来源与 Workspace ownership
 
         Returns:
             MemoryAtom: 记忆原子对象
 
         Examples:
-            >>> identity = Identity(user_id="u1", agent_id="a1")
-            >>> memory = orchestrator._draft_to_memory(draft, identity)
+            >>> memory = orchestrator._draft_to_memory(draft, creation_context)
             >>> memory.index.title
             "Python 快排算法"
         """
@@ -445,8 +453,10 @@ class MemoryGenerationEngine:
 
         return MemoryAtom(
             meta=MetaData(
-                source_agent_id=identity.agent_id,
-                user_id=identity.user_id,
+                workspace_identity=creation_context.workspace_identity,
+                source_agent_id=creation_context.actor_identity.agent_id,
+                source_team_id=creation_context.actor_identity.team_id,
+                access_policy=MemoryAccessPolicy.public(),
                 session_id=None,  # session_id 已从 Identity 中移除
                 confidence_score=draft.confidence_score,
             ),

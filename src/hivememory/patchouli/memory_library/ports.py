@@ -10,14 +10,24 @@ MemoryLibrary 三层存储 Port 接口定义
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models import (
+    MemoryAtom,
+    MemoryReadScope,
+    WorkspaceAccessContext,
+    WorkspaceIdentity,
+    WorkspaceMemoryKey,
+    WorkspaceTopicKey,
+)
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.engines.lifecycle.models import ArchiveRecord
+
+if TYPE_CHECKING:
+    from hivememory.engines.retrieval.models import QueryFilters
 
 
 # ============ ShortTermStoragePort ============
@@ -72,26 +82,56 @@ class MidTermStoragePort(ABC):
     async def upsert(self, memory: MemoryAtom) -> None: ...
 
     @abstractmethod
-    async def get(self, memory_id: UUID) -> Optional[MemoryAtom]: ...
+    async def get(self, scope: MemoryReadScope, memory_id: UUID) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
-    async def get_by_alias(self, alias: str, user_id: Optional[str] = None) -> Optional[MemoryAtom]: ...
+    async def get_by_alias(
+        self,
+        scope: MemoryReadScope,
+        alias: str,
+    ) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
-    async def update_access_info(self, memory_id: UUID) -> None: ...
+    async def get_for_mutation(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
-    async def delete(self, memory_id: UUID) -> bool: ...
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
-    async def batch_delete(self, ids: List[UUID]) -> int: ...
+    async def update_access_info(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> None: ...
+
+    @abstractmethod
+    async def delete(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> bool: ...
+
+    @abstractmethod
+    async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool: ...
+
+    @abstractmethod
+    async def batch_delete(
+        self,
+        access_context: WorkspaceAccessContext,
+        ids: List[UUID],
+    ) -> int: ...
 
     @abstractmethod
     async def search(
         self,
+        scope: MemoryReadScope,
         query: str,
         top_k: int,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional["QueryFilters"] = None,
         mode: str = "dense",
         score_threshold: float = 0.0,
     ) -> List[Dict[str, Any]]: ...
@@ -99,12 +139,20 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def scroll(
         self,
-        filters: Optional[Dict[str, Any]] = None,
+        scope: MemoryReadScope,
+        filters: Optional["QueryFilters"] = None,
         limit: int = 100,
     ) -> List[MemoryAtom]: ...
 
     @abstractmethod
-    async def count(self, filters: Optional[Dict[str, Any]] = None) -> int: ...
+    async def count(
+        self,
+        scope: MemoryReadScope,
+        filters: Optional["QueryFilters"] = None,
+    ) -> int: ...
+
+    @abstractmethod
+    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]: ...
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="mid_term", healthy=True)
@@ -127,13 +175,13 @@ class LongTermStoragePort(ABC):
     async def persist(self, memory: MemoryAtom) -> None: ...
 
     @abstractmethod
-    async def load(self, memory_id: UUID) -> MemoryAtom: ...
+    async def load(self, key: WorkspaceMemoryKey) -> MemoryAtom: ...
 
     @abstractmethod
-    async def remove(self, memory_id: UUID) -> None: ...
+    async def remove(self, key: WorkspaceMemoryKey) -> None: ...
 
     @abstractmethod
-    async def is_archived(self, memory_id: UUID) -> bool: ...
+    async def is_archived(self, key: WorkspaceMemoryKey) -> bool: ...
 
     @abstractmethod
     async def query(

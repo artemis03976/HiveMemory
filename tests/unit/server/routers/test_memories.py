@@ -10,13 +10,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
+    MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
 )
+from hivememory.engines.retrieval.policy import memory_is_readable
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.server.routers.memories import router
+from tests.helpers.memory import make_memory_metadata
 
 
 def _create_test_app(storage, lifecycle_engine=None):
@@ -46,13 +48,14 @@ class _MemoryManagementStub:
         self.storage = storage
         self.lifecycle_engine = lifecycle_engine
 
-    async def create_memory(self, atom):
+    async def create_memory(self, access_context, atom):
         self.storage.upsert_memory(atom)
         return atom
 
     async def list_memories(
         self,
         *,
+        access_context,
         query=None,
         filters=None,
         limit=20,
@@ -72,18 +75,31 @@ class _MemoryManagementStub:
             self.lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
         return [
             atom for atom in atoms
-            if atom.index.memory_type.value not in set(exclude_types or [])
+            if (
+                atom.index.memory_type.value not in set(exclude_types or [])
+                and memory_is_readable(
+                    atom,
+                    workspace_identity=access_context.workspace_identity,
+                    actor_identity=access_context.actor_identity,
+                )
+            )
         ]
 
-    async def get_memory(self, memory_id, *, refresh_vitality=True):
+    async def get_memory(self, memory_id, *, access_context, refresh_vitality=True):
         atom = self.storage.get_memory(memory_id)
+        if atom is not None and not memory_is_readable(
+            atom,
+            workspace_identity=access_context.workspace_identity,
+            actor_identity=access_context.actor_identity,
+        ):
+            return None
         if atom is not None and refresh_vitality and self.lifecycle_engine is not None:
             self.lifecycle_engine.refresh_vitality_batch([atom], persist=False)
         return atom
 
-    async def update_memory(self, memory_id, **updates):
+    async def update_memory(self, memory_id, *, access_context, **updates):
         atom = self.storage.get_memory(memory_id)
-        if atom is None:
+        if atom is None or atom.workspace_identity != access_context.workspace_identity:
             return None
         for key, value in updates.items():
             if value is None:
@@ -103,10 +119,10 @@ class _MemoryManagementStub:
         self.storage.upsert_memory(atom)
         return atom
 
-    async def delete_memory(self, memory_id):
+    async def delete_memory(self, memory_id, *, access_context):
         return self.storage.delete_memory(memory_id)
 
-    async def record_feedback(self, memory_id, *, positive, source):
+    async def record_feedback(self, memory_id, *, access_context, positive, source):
         if self.lifecycle_engine is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
         return self.lifecycle_engine.record_feedback(
@@ -116,10 +132,10 @@ class _MemoryManagementStub:
         )
 
 
-def _make_atom(title="Test", user_id="u1"):
+def _make_atom(title="Test", user_id="default"):
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id=user_id),
+        meta=make_memory_metadata(source_agent_id="a1", user_id=user_id),
         index=IndexLayer(
             title=title,
             summary="A test memory summary",
@@ -163,7 +179,7 @@ class TestMemoriesRouter:
         atom = storage.upsert_memory.call_args.args[0]
         assert isinstance(atom, MemoryAtom)
         assert atom.meta.source_agent_id == "ui"
-        assert atom.meta.user_id == "default"
+        assert atom.workspace_identity.owner_user_id == "default"
         assert atom.index.title == "Created memory"
         assert atom.index.summary == "A sufficiently long memory summary"
         assert atom.index.memory_type == MemoryType.FACT
@@ -259,10 +275,10 @@ class TestMemoriesRouter:
         app = _create_test_app(storage)
         client = TestClient(app)
 
-        response = client.get("/api/v1/memories?user_id=u1&memory_type=FACT&limit=10")
+        response = client.get("/api/v1/memories?memory_type=FACT&limit=10")
         assert response.status_code == 200
         storage.get_all_memories.assert_called_once_with(
-            filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
+            filters={"index.memory_type": "FACT"},
             limit=10,
         )
 

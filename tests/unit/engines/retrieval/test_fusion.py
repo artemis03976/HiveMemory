@@ -12,6 +12,7 @@ from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLaye
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.system.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
 from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, AdaptiveWeightedFusion
+from tests.helpers.memory import make_memory_metadata
 
 class TestReciprocalRankFusion:
     
@@ -29,7 +30,7 @@ class TestReciprocalRankFusion:
         memory = MemoryAtom(
             id=memory_id,
             index=IndexLayer(title=f"Mem {memory_id}", summary="summary must be long enough for validation", memory_type=MemoryType.FACT),
-            meta=MetaData(source_agent_id="test", user_id="user"),
+            meta=make_memory_metadata(source_agent_id="test", user_id="user"),
             payload=PayloadLayer(content="content")
         )
         return SearchResult(
@@ -199,7 +200,7 @@ class TestAdaptiveWeightedFusion:
                 summary="summary must be long enough for validation",
                 memory_type=MemoryType.FACT
             ),
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id="test",
                 user_id="user",
                 confidence_score=confidence,

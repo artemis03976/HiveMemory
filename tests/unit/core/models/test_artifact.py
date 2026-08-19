@@ -1,13 +1,14 @@
 from uuid import uuid4
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, MetaData, PayloadLayer
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.core.models.artifact import MemoryVersionSnapshot
+from tests.helpers.memory import make_memory_metadata
 
 
 def test_memory_version_snapshot_from_memory_atom_captures_mutable_fields():
     atom = MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
         index=IndexLayer(
             title="Test Title",
             summary="A test memory summary",

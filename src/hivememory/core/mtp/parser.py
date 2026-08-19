@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
-from hivememory.core.models import Identity, MemoryType
+from hivememory.core.models import MemoryType
 from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.mtp.exceptions import MTPParseError
 from hivememory.core.mtp.models import (
@@ -272,9 +272,8 @@ class MTPFilterParser:
                 else:
                     warnings.append(warning("mtp.filter.unknown_key", {"key": key}))
 
-            mtp_identity = Identity(agent_id=source_agent_id) if source_agent_id else None
             filters = QueryFilters(
-                identity=mtp_identity,
+                source_agent_id=source_agent_id,
                 memory_type=memory_type,
                 tags=tags,
                 min_confidence=min_confidence,

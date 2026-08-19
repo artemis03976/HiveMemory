@@ -11,11 +11,11 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.system.config import KoakumaConfig
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 from .conftest import (
     make_koakuma_runtime,
@@ -32,7 +32,12 @@ def identity() -> Identity:
 @pytest.fixture
 def sample_memory(identity) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(user_id=identity.user_id, source_agent_id=identity.agent_id, session_id=None, confidence_score=1.0),
+        meta=make_memory_metadata(
+            user_id=identity.user_id,
+            source_agent_id=identity.agent_id,
+            session_id=None,
+            confidence_score=1.0,
+        ),
         index=IndexLayer(title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="端口从 8080 改为 9090"),
     )

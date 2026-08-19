@@ -13,7 +13,6 @@ from hivememory.core.models import (
     LogicalBlock,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     TurnRecord,
 )
@@ -36,12 +35,13 @@ from hivememory.system.runtime.work_queue import (
     WorkPayloadCodecRegistry,
     WorkState,
 )
+from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
 
 
 def _memory_atom() -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="agent-1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="agent-1", user_id="u1"),
         index=IndexLayer(
             title="memory title",
             summary="summary text",
@@ -65,7 +65,10 @@ def _spec(
         topic_id=topic_id,
         label=label,
         source=MemoryGenerationSource.WRITE,
-        request=request or GenerationRequest(context=GenerationContext()),
+        request=request or GenerationRequest(
+            context=GenerationContext(),
+            creation_context=make_memory_creation_context(),
+        ),
         intent_id=intent_id,
         pending_alias=pending_alias,
     )
@@ -101,6 +104,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         request=GenerationRequest(
             context=GenerationContext(state_summary="original summary"),
             existing_memory=atom,
+            creation_context=make_memory_creation_context(),
         ),
         interaction_input=InteractionArtifactInput(
             topic_id="topic-codec",

@@ -30,6 +30,7 @@ from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_creation_context
 
 
 def _payload(message: str = "hello") -> InteractionPayload:
@@ -184,12 +185,12 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     original_fold = layer._maybe_fold_pages
     fold_calls = 0
 
-    async def fail_once_after_add(topic_id: str):
+    async def fail_once_after_add(topic_key):
         nonlocal fold_calls
         fold_calls += 1
         if fold_calls == 1:
             raise TransientInteractionSubmissionError("caller missed apply result")
-        return await original_fold(topic_id)
+        return await original_fold(topic_key)
 
     layer._maybe_fold_pages = fail_once_after_add
     bus = Mock()
@@ -217,10 +218,11 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
     assert outcome.topic_id is not None
-    topic = store.get_topic_data(outcome.topic_id, touch=False)
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic = store.get_topic_data(access_context, outcome.topic_id, touch=False)
     assert topic is not None
     assert topic.block_count == 1
-    assert store.get_last_active_topic() == outcome.topic_id
+    assert store.get_last_active_topic(access_context) == outcome.topic_id
 
     replayed_topic = await asyncio.wait_for(
         familiar.submit_interaction(
@@ -296,7 +298,10 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
         short_term_store=store,
         interaction_journal=interaction_journal,
     )
-    settlement = TopicMaterializeTask(topic_id="topic-settlement")
+    settlement = TopicMaterializeTask(
+        topic_id="topic-settlement",
+        creation_context=make_memory_creation_context(user_id="u1", agent_id="a1"),
+    )
     layer._maybe_fold_pages = AsyncMock(return_value=settlement)
     bus = Mock()
     bus.request = AsyncMock(
@@ -324,7 +329,11 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
 
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
-    topic = store.get_topic_data(outcome.topic_id, touch=False)
+    topic = store.get_topic_data(
+        make_access_context(user_id="u1", agent_id="a1"),
+        outcome.topic_id,
+        touch=False,
+    )
     assert topic is not None
     assert topic.block_count == 1
     assert bus.request.await_count == 2

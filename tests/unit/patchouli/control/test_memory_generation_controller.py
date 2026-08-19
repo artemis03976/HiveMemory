@@ -22,6 +22,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from tests.helpers.memory import make_memory_creation_context
 
 
 def _task_handle(
@@ -50,7 +51,10 @@ def _spec(
         topic_id=topic_id,
         label=label,
         source=source,
-        request=GenerationRequest(context=GenerationContext()),
+        request=GenerationRequest(
+            context=GenerationContext(),
+            creation_context=make_memory_creation_context(),
+        ),
         intent_id=intent_id,
         pending_alias=pending_alias,
     )

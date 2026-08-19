@@ -12,6 +12,7 @@ from hivememory.engines.gateway.topic_router import (
     TopicRouterError,
 )
 from hivememory.system.config import TopicRouterConfig
+from tests.helpers.workspace import make_access_context
 
 
 @pytest.mark.asyncio
@@ -26,7 +27,11 @@ async def test_topic_router_only_returns_topic_routing_fields() -> None:
     result = await router.route(
         "继续实现",
         topic_snapshots=(
-            TopicSnapshot(topic_id="topic-1", topic_title="Gateway"),
+            TopicSnapshot(
+                topic_id="topic-1",
+                topic_title="Gateway",
+                workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            ),
         ),
     )
 

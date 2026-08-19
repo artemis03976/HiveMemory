@@ -568,9 +568,9 @@ class KoakumaRuntime:
             warnings=warnings,
         )
         for _, atom in resolved:
-            await self._record_memory_citation(atom, "mtp.read")
+            await self._record_memory_citation(atom, "mtp.read", context)
         for _, result in resolved_redirects:
-            await self._record_memory_citation(result.atom, "mtp.read")
+            await self._record_memory_citation(result.atom, "mtp.read", context)
         return response
 
     async def _handle_run(
@@ -656,7 +656,7 @@ class KoakumaRuntime:
         if warnings:
             response.warnings = [*warnings, *response.warnings]
         if response.status == MTPResponseStatus.SUCCESS:
-            await self._record_memory_citation(atom, "mtp.run")
+            await self._record_memory_citation(atom, "mtp.run", context)
         return response
 
     async def _handle_write(
@@ -854,13 +854,19 @@ class KoakumaRuntime:
 
     # ========== 辅助方法 ==========
 
-    async def _record_memory_citation(self, atom: MemoryAtom, source: str) -> None:
+    async def _record_memory_citation(
+        self,
+        atom: MemoryAtom,
+        source: str,
+        context: MTPExecutionContext,
+    ) -> None:
         if self._bus is None:
             return
         try:
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
                 memory_id=atom.id,
+                access_context=context.access_context,
                 source=source,
             )
         except Exception:

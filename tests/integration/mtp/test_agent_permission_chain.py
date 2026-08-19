@@ -14,7 +14,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.mtp.exceptions import (
@@ -25,6 +24,7 @@ from hivememory.core.mtp.exceptions import (
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_profile_atom(
@@ -35,11 +35,7 @@ def _make_profile_atom(
     """构建 AGENT_PROFILE 类型的 MemoryAtom"""
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(
-            user_id="system",
-            source_agent_id="system",
-            visibility="PUBLIC",
-        ),
+        meta=make_memory_metadata(user_id="system", source_agent_id="system"),
         index=IndexLayer(
             alias=agent_id,
             title=f"Agent {agent_id}",

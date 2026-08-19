@@ -42,6 +42,10 @@ def _identity() -> Identity:
     return Identity(user_id="u1", agent_id="a1")
 
 
+def _access_context():
+    return make_access_context(actor_identity=_identity())
+
+
 def _turn_event(kind="tool_call", tool_kind="READ", target="alias_x") -> TurnEvent:
     return TurnEvent(
         kind=kind,
@@ -79,7 +83,7 @@ async def test_structured_path_persists_assistant_final_text():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
 
@@ -123,7 +127,7 @@ async def test_structured_path_reduces_turn_events_to_actions():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert len(block.actions) == 1
@@ -148,7 +152,7 @@ async def test_structured_path_persists_payload_mtp_traces():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert [t.action for t in block.semantic_traces] == ["SEARCH"]
@@ -167,7 +171,7 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert block.semantic_traces == ()
@@ -185,7 +189,7 @@ async def test_structured_path_empty_final_text_stays_empty():
 
     topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
 
-    topic_data = store.get_topic_data(topic_id, touch=False)
+    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert block.assistant_final_text == ""

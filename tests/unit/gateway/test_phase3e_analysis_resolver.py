@@ -48,7 +48,7 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
     now = time.time()
     return TopicData(
         topic_id="topic-1",
-        user_id="u1",
+        workspace_identity=make_access_context(user_id="u1").workspace_identity,
         topic_title="三餐推荐",
         blocks=(
             LogicalBlock(

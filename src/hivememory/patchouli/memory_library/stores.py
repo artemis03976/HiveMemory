@@ -31,11 +31,14 @@ from hivememory.core.models import (
     BufferState,
     LogicalBlock,
     MemoryAtom,
+    MemoryReadScope,
     TopicData,
     WorkspaceAccessContext,
     WorkspaceIdentity,
+    WorkspaceMemoryKey,
     WorkspaceTopicKey,
     require_workspace_access_context,
+    require_memory_read_scope,
 )
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
@@ -375,46 +378,109 @@ class MidTermMemoryStore:
         self._secondary: List[MidTermStoragePort] = secondary or []
 
     async def upsert(self, memory: MemoryAtom) -> None:
+        """仅持久化已通过 v2 领域校验的 canonical Memory。"""
         await self._primary.upsert(memory)
         for s in self._secondary:
             await s.upsert(memory)
 
-    async def get(self, memory_id: UUID) -> Optional[MemoryAtom]:
-        return await self._primary.get(memory_id)
+    async def get(
+        self,
+        scope: MemoryReadScope,
+        memory_id: UUID,
+    ) -> Optional[MemoryAtom]:
+        return await self._primary.get(require_memory_read_scope(scope), memory_id)
 
-    async def get_by_alias(self, alias: str, user_id: Optional[str] = None) -> Optional[MemoryAtom]:
-        return await self._primary.get_by_alias(alias, user_id)
+    async def get_by_alias(
+        self,
+        scope: MemoryReadScope,
+        alias: str,
+    ) -> Optional[MemoryAtom]:
+        return await self._primary.get_by_alias(require_memory_read_scope(scope), alias)
 
-    async def update_access_info(self, memory_id: UUID) -> None:
-        await self._primary.update_access_info(memory_id)
+    async def get_for_mutation(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> Optional[MemoryAtom]:
+        access_context = require_workspace_access_context(access_context)
+        return await self._primary.get_for_mutation(access_context, memory_id)
 
-    async def delete(self, memory_id: UUID) -> bool:
-        result = await self._primary.delete(memory_id)
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
+        return await self._primary.get_by_key(key)
+
+    async def update_access_info(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> None:
+        access_context = require_workspace_access_context(access_context)
+        await self._primary.update_access_info(access_context, memory_id)
+
+    async def delete(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: UUID,
+    ) -> bool:
+        access_context = require_workspace_access_context(access_context)
+        result = await self._primary.delete(access_context, memory_id)
         for s in self._secondary:
-            await s.delete(memory_id)
+            await s.delete(access_context, memory_id)
         return result
 
-    async def batch_delete(self, ids: List[UUID]) -> int:
-        count = await self._primary.batch_delete(ids)
+    async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
+        result = await self._primary.delete_by_key(key)
+        for secondary in self._secondary:
+            await secondary.delete_by_key(key)
+        return result
+
+    async def batch_delete(
+        self,
+        access_context: WorkspaceAccessContext,
+        ids: List[UUID],
+    ) -> int:
+        access_context = require_workspace_access_context(access_context)
+        count = await self._primary.batch_delete(access_context, ids)
         for s in self._secondary:
-            await s.batch_delete(ids)
+            await s.batch_delete(access_context, ids)
         return count
 
     async def search(
         self,
+        scope: MemoryReadScope,
         query: str,
         top_k: int,
         filters=None,
         mode: str = "dense",
         score_threshold: float = 0.0,
     ):
-        return await self._primary.search(query, top_k, filters, mode, score_threshold)
+        scope = require_memory_read_scope(scope)
+        return await self._primary.search(
+            scope,
+            query,
+            top_k,
+            filters,
+            mode,
+            score_threshold,
+        )
 
-    async def scroll(self, filters=None, limit: int = 100) -> List[MemoryAtom]:
-        return await self._primary.scroll(filters, limit)
+    async def scroll(
+        self,
+        scope: MemoryReadScope,
+        filters=None,
+        limit: int = 100,
+    ) -> List[MemoryAtom]:
+        return await self._primary.scroll(
+            require_memory_read_scope(scope),
+            filters,
+            limit,
+        )
 
-    async def count(self, filters=None) -> int:
-        return await self._primary.count(filters)
+    async def count(self, scope: MemoryReadScope, filters=None) -> int:
+        return await self._primary.count(require_memory_read_scope(scope), filters)
+
+    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
+        """供进程级生命周期维护遍历，不作为用户授权入口。"""
+        return await self._primary.list_all_for_maintenance(limit)
 
     async def check_health(self) -> StorageHealthComponent:
         primary_health = await self._primary.check_health()
@@ -450,14 +516,14 @@ class LongTermMemoryStore:
     async def persist(self, memory: MemoryAtom) -> None:
         await self._port.persist(memory)
 
-    async def load(self, memory_id: UUID) -> MemoryAtom:
-        return await self._port.load(memory_id)
+    async def load(self, key: WorkspaceMemoryKey) -> MemoryAtom:
+        return await self._port.load(key)
 
-    async def remove(self, memory_id: UUID) -> None:
-        await self._port.remove(memory_id)
+    async def remove(self, key: WorkspaceMemoryKey) -> None:
+        await self._port.remove(key)
 
-    async def is_archived(self, memory_id: UUID) -> bool:
-        return await self._port.is_archived(memory_id)
+    async def is_archived(self, key: WorkspaceMemoryKey) -> bool:
+        return await self._port.is_archived(key)
 
     async def query(
         self,

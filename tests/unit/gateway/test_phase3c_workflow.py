@@ -45,7 +45,11 @@ class _Provider:
         self.prepare_candidate_topics = AsyncMock(
             return_value=CandidateTopics(
                 topic_snapshots=(
-                    TopicSnapshot(topic_id="topic-1", topic_title="Gateway"),
+                    TopicSnapshot(
+                        topic_id="topic-1",
+                        topic_title="Gateway",
+                        workspace_identity=make_access_context(user_id="u1").workspace_identity,
+                    ),
                 ),
                 active_topics_menu="topic-1: Gateway",
             )

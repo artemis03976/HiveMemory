@@ -14,13 +14,14 @@ from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingError,
 )
 from hivememory.system.config import UserQueryAnalysisConfig
+from tests.helpers.workspace import make_access_context
 
 
 def _build_topic_data() -> TopicData:
     now = time.time()
     return TopicData(
         topic_id="topic-1",
-        user_id="u1",
+        workspace_identity=make_access_context(user_id="u1").workspace_identity,
         topic_title="Docker 部署",
         topic_summary="排查 Docker 部署问题",
         state_summary="已定位到内存溢出",
@@ -137,7 +138,7 @@ async def test_analyze_respects_configurable_context_limits() -> None:
     now = time.time()
     topic_data = TopicData(
         topic_id="topic-1",
-        user_id="u1",
+        workspace_identity=make_access_context(user_id="u1").workspace_identity,
         topic_title="三餐推荐",
         blocks=(
             LogicalBlock(

@@ -21,9 +21,9 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
+from tests.helpers.memory import make_memory_metadata
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
@@ -80,7 +80,7 @@ def _ensure_coder_doll_profile(qdrant_store) -> bool:
         )
 
     profile_atom = MemoryAtom(
-        meta=MetaData(source_agent_id="e2e_test", user_id="default"),
+        meta=make_memory_metadata(source_agent_id="e2e_test", user_id="default"),
         index=IndexLayer(
             title="Coder Doll",
             summary="专用于代码生成的子代理",

@@ -12,6 +12,7 @@ MemoryGenerationEngine 单元测试
 """
 
 import pytest
+from functools import partial
 from unittest.mock import Mock, patch, call, AsyncMock
 from uuid import uuid4
 from datetime import datetime
@@ -20,7 +21,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine, MEMORY_
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
-    GenerationRequest,
+    GenerationRequest as GenerationRequestModel,
     GenerationContext,
     GenerationTurn,
     MergeResult,
@@ -30,12 +31,18 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     StreamMessage,
     StreamMessageType,
     UpdateFocus,
     WriteFocus,
+)
+from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
+
+
+GenerationRequest = partial(
+    GenerationRequestModel,
+    creation_context=make_memory_creation_context(),
 )
 
 
@@ -86,7 +93,11 @@ def _make_draft(has_value=True, title="测试记忆", alias_suffix="test_alias")
 
 def _make_memory(title="已有记忆") -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(source_agent_id="a1", user_id="u1", session_id="s1"),
+        meta=make_memory_metadata(
+            source_agent_id="a1",
+            user_id="u1",
+            session_id="s1",
+        ),
         index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="旧内容"),
     )
@@ -422,7 +433,10 @@ class TestGenerationEngineDedup:
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, existing)
 
-        result = await self.engine._dedup_and_resolve(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(
+            draft,
+            make_memory_creation_context(),
+        )
 
         self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is existing
@@ -444,7 +458,10 @@ class TestGenerationEngineDedup:
         )
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
 
-        result = await self.engine._dedup_and_resolve(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(
+            draft,
+            make_memory_creation_context(),
+        )
 
         self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is existing
@@ -466,7 +483,10 @@ class TestGenerationEngineDedup:
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
-        result = await self.engine._dedup_and_resolve(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(
+            draft,
+            make_memory_creation_context(),
+        )
 
         self.mock_storage.upsert.assert_not_called()
         assert len(result) == 1
@@ -478,7 +498,10 @@ class TestGenerationEngineDedup:
         draft = _make_draft()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
 
-        result = await self.engine._dedup_and_resolve(draft, _make_identity())
+        result = await self.engine._dedup_and_resolve(
+            draft,
+            make_memory_creation_context(),
+        )
 
         assert len(result) == 1
         assert result[0].atom is None
@@ -547,20 +570,20 @@ class TestGenerationEngineHelpers:
     def test_draft_to_memory(self):
         """草稿转换为 MemoryAtom"""
         draft = _make_draft(title="测试标题")
-        identity = _make_identity()
+        creation_context = make_memory_creation_context()
 
-        memory = self.engine._draft_to_memory(draft, identity)
+        memory = self.engine._draft_to_memory(draft, creation_context)
 
         assert memory.index.title == "测试标题"
-        assert memory.meta.user_id == "u1"
+        assert memory.workspace_identity.owner_user_id == "u1"
         assert memory.meta.confidence_score == 0.9
 
     def test_draft_to_memory_unknown_type(self):
         """未知记忆类型 fallback 到 FACT"""
         draft = _make_draft()
         draft.memory_type = "INVALID_TYPE"
-        identity = _make_identity()
+        creation_context = make_memory_creation_context()
 
-        memory = self.engine._draft_to_memory(draft, identity)
+        memory = self.engine._draft_to_memory(draft, creation_context)
 
         assert memory.index.memory_type == MemoryType.FACT

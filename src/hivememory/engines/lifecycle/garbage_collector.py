@@ -10,7 +10,7 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.system.config import GarbageCollectorConfig
 
@@ -62,7 +62,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         self,
         memories: Iterable[MemoryAtom],
         vitality_threshold: Optional[float] = None,
-    ) -> List[UUID]:
+    ) -> List[WorkspaceMemoryKey]:
         """
         扫描低生命力记忆
 
@@ -81,7 +81,13 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         logger.info(f"Scanning for memories with vitality <= {threshold}...")
 
         candidates = [
-            (memory.id, memory.meta.vitality_score)
+            (
+                WorkspaceMemoryKey(
+                    workspace_identity=memory.workspace_identity,
+                    memory_id=memory.id,
+                ),
+                memory.meta.vitality_score,
+            )
             for memory in memories
             if memory.meta.vitality_score is not None
             and memory.meta.vitality_score <= threshold
@@ -89,7 +95,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         candidates.sort(key=lambda item: item[1])
 
         logger.info(f"Found {len(candidates)} candidates for archival")
-        return [memory_id for memory_id, _ in candidates]
+        return [memory_key for memory_key, _ in candidates]
 
     async def collect(
         self,
@@ -127,18 +133,18 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         archived_count = 0
         skipped_count = 0
 
-        for memory_id in candidate_ids:
+        for memory_key in candidate_ids:
             try:
-                if await self.memory_library.long_term.is_archived(memory_id):
-                    logger.debug("Memory %s already archived", memory_id)
+                if await self.memory_library.long_term.is_archived(memory_key):
+                    logger.debug("Memory %s already archived", memory_key.memory_id)
                     skipped_count += 1
                     continue
 
-                await self.memory_library.archive(memory_id)
+                await self.memory_library.archive(memory_key)
                 archived_count += 1
-                logger.info(f"Successfully archived {memory_id}")
+                logger.info(f"Successfully archived {memory_key.memory_id}")
             except Exception as exc:
-                logger.error(f"Failed to archive {memory_id}: {exc}")
+                logger.error(f"Failed to archive {memory_key.memory_id}: {exc}")
                 skipped_count += 1
 
         self._update_stats(len(memories), archived_count, skipped_count)

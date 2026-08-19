@@ -27,7 +27,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.mtp import (
@@ -40,6 +39,7 @@ from hivememory.core.mtp import (
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.config import KoakumaConfig
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 # ========== Helpers ==========
 
@@ -52,7 +52,7 @@ def _make_memory(
 ) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title=title, summary=summary, tags=["test"],
             memory_type=memory_type, alias=alias,

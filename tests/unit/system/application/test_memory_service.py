@@ -11,7 +11,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.protocol.gateway import (
@@ -37,6 +36,7 @@ from hivememory.system.application.memory_service import (
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
@@ -134,7 +134,7 @@ def passive_config():
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id=user_id),
+        meta=make_memory_metadata(source_agent_id="a1", user_id=user_id),
         index=IndexLayer(
             title=title,
             summary="A test memory summary",
@@ -166,13 +166,15 @@ class TestMemoryApplicationService:
             memory_type="FACT",
             tags=["created", "ui"],
             alias="created-memory",
+            user_id="u1",
         )
 
         mock_global_bus.request.assert_awaited_once()
-        route, payload = mock_global_bus.request.await_args.args
+        route, access_context, payload = mock_global_bus.request.await_args.args
         assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
         assert payload.meta.source_agent_id == "ui"
-        assert payload.meta.user_id == "default"
+        assert payload.workspace_identity == access_context.workspace_identity
+        assert payload.workspace_identity.owner_user_id == "u1"
         assert payload.index.memory_type == MemoryType.FACT
         assert payload.index.alias == "created-memory"
 
@@ -182,7 +184,7 @@ class TestMemoryApplicationService:
         mock_global_bus.request.return_value = None
 
         with pytest.raises(MemoryNotFoundError):
-            await service.get_memory(uuid4())
+            await service.get_memory(uuid4(), user_id="u1")
 
     @pytest.mark.asyncio
     async def test_record_feedback_without_lifecycle_raises_domain_error(
@@ -195,6 +197,11 @@ class TestMemoryApplicationService:
         )
 
         with pytest.raises(MemoryLifecycleUnavailableError):
-            await service.record_feedback(uuid4(), positive=True, source="ui.memory_ref")
+            await service.record_feedback(
+                uuid4(),
+                user_id="u1",
+                positive=True,
+                source="ui.memory_ref",
+            )
 
 

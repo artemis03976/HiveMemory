@@ -14,7 +14,16 @@ from typing import Any, List, TYPE_CHECKING
 from qdrant_client.models import (
     Filter,
     FieldCondition,
+    IsEmptyCondition,
     MatchValue,
+    PayloadField,
+)
+
+from hivememory.core.models import (
+    MAIN_WORKSPACE_ID,
+    MemoryReadScope,
+    WorkspaceAccessContext,
+    require_memory_read_scope,
 )
 
 if TYPE_CHECKING:
@@ -29,7 +38,11 @@ class FilterConverter(ABC):
     """
 
     @abstractmethod
-    def convert(self, filters: "QueryFilters") -> Any:
+    def convert(
+        self,
+        filters: "QueryFilters",
+        access_context: MemoryReadScope,
+    ) -> Any:
         """
         将 QueryFilters 转换为目标格式
 
@@ -46,16 +59,15 @@ class QdrantFilterConverter(FilterConverter):
     """
     Qdrant 向量数据库的过滤器转换器
 
-    实现 MutiAgentSystem.md §3.3.1 检索拦截:
-      Filter:
-        (visibility == 'PUBLIC')
-        OR (visibility == 'WORKSPACE' AND team_id == current_team_id)
-        OR (visibility == 'PRIVATE' AND source_agent_id == current_active_agent_id)
-
-    同时保留 user_id 作为不可覆盖的安全基线。
+    先建立 owner/workspace hard boundary，再应用 v2 actor read policy；v1
+    compatibility branch 只允许对应用户的 main_workspace。
     """
 
-    def convert(self, filters: "QueryFilters") -> Filter:
+    def convert(
+        self,
+        filters: "QueryFilters",
+        access_context: MemoryReadScope,
+    ) -> Filter:
         """
         转换为 Qdrant Filter 对象
 
@@ -69,45 +81,22 @@ class QdrantFilterConverter(FilterConverter):
         Returns:
             qdrant_client.models.Filter 实例
         """
-        must_conditions: List[FieldCondition] = []
-        should_conditions: List[Filter] = []
-
-        identity = filters.identity
-
-        # ---- 安全基线: user_id 硬过滤 ----
-        if identity and identity.user_id:
-            must_conditions.append(
-                FieldCondition(key="meta.user_id", match=MatchValue(value=identity.user_id))
-            )
-
-        # ---- §3.3.1 Visibility Scope Filtering ----
-        if identity:
-            # PUBLIC: 全局可见
-            scope_public = Filter(must=[
-                FieldCondition(key="meta.visibility", match=MatchValue(value="PUBLIC")),
-            ])
-            should_conditions.append(scope_public)
-
-            # WORKSPACE: team_id 匹配时可见
-            if identity.team_id:
-                scope_workspace = Filter(must=[
-                    FieldCondition(key="meta.visibility", match=MatchValue(value="WORKSPACE")),
-                    FieldCondition(key="meta.team_id", match=MatchValue(value=identity.team_id)),
-                ])
-                should_conditions.append(scope_workspace)
-
-            # PRIVATE: 仅创建者 agent 可见
-            if identity.agent_id:
-                scope_private = Filter(must=[
-                    FieldCondition(key="meta.visibility", match=MatchValue(value="PRIVATE")),
-                    FieldCondition(key="meta.source_agent_id", match=MatchValue(value=identity.agent_id)),
-                ])
-                should_conditions.append(scope_private)
+        access_context = require_memory_read_scope(access_context)
+        must_conditions: List[Any] = [self._ownership_filter(access_context)]
+        must_conditions.append(self._read_policy_filter(access_context))
 
         # ---- 业务过滤维度 ----
         if filters.memory_type is not None:
             must_conditions.append(
                 FieldCondition(key="index.memory_type", match=MatchValue(value=filters.memory_type.value))
+            )
+
+        if filters.source_agent_id is not None:
+            must_conditions.append(
+                FieldCondition(
+                    key="meta.source_agent_id",
+                    match=MatchValue(value=filters.source_agent_id),
+                )
             )
 
         if filters.min_confidence > 0:
@@ -116,11 +105,141 @@ class QdrantFilterConverter(FilterConverter):
             )
 
         # 组装最终 Filter
-        final_must: List = list(must_conditions)
-        if should_conditions:
-            final_must.append(Filter(should=should_conditions))
+        return Filter(must=must_conditions)
 
-        return Filter(must=final_must) if final_must else Filter()
+    @staticmethod
+    def _ownership_filter(access_context: MemoryReadScope) -> Filter:
+        workspace = access_context.workspace_identity
+        current = Filter(
+            must=[
+                FieldCondition(
+                    key="meta.owner_user_id",
+                    match=MatchValue(value=workspace.owner_user_id),
+                ),
+                FieldCondition(
+                    key="meta.workspace_key",
+                    match=MatchValue(value=workspace.workspace_key),
+                ),
+                FieldCondition(
+                    key="meta.workspace_id",
+                    match=MatchValue(value=workspace.workspace_id),
+                ),
+            ]
+        )
+        branches = [current]
+        if workspace.workspace_id == MAIN_WORKSPACE_ID:
+            branches.append(
+                Filter(
+                    must=[
+                        FieldCondition(
+                            key="meta.user_id",
+                            match=MatchValue(value=workspace.owner_user_id),
+                        ),
+                        *[
+                            IsEmptyCondition(is_empty=PayloadField(key=f"meta.{field}"))
+                            for field in (
+                                "owner_user_id",
+                                "workspace_key",
+                                "workspace_id",
+                            )
+                        ],
+                    ]
+                )
+            )
+        return Filter(should=branches)
+
+    @staticmethod
+    def _read_policy_filter(access_context: MemoryReadScope) -> Filter:
+        actor = access_context.actor_identity
+        v2_branches = [
+            Filter(
+                must=[
+                    FieldCondition(key="schema_version", match=MatchValue(value=2)),
+                    FieldCondition(
+                        key="meta.access_policy.visibility",
+                        match=MatchValue(value="PUBLIC"),
+                    ),
+                ]
+            )
+        ]
+        if actor.agent_id:
+            v2_branches.append(
+                Filter(
+                    must=[
+                        FieldCondition(key="schema_version", match=MatchValue(value=2)),
+                        FieldCondition(
+                            key="meta.access_policy.visibility",
+                            match=MatchValue(value="PRIVATE"),
+                        ),
+                        FieldCondition(
+                            key="meta.access_policy.target_agent_id",
+                            match=MatchValue(value=actor.agent_id),
+                        ),
+                    ]
+                )
+            )
+        if actor.team_id:
+            v2_branches.append(
+                Filter(
+                    must=[
+                        FieldCondition(key="schema_version", match=MatchValue(value=2)),
+                        FieldCondition(
+                            key="meta.access_policy.visibility",
+                            match=MatchValue(value="TEAM"),
+                        ),
+                        FieldCondition(
+                            key="meta.access_policy.target_team_id",
+                            match=MatchValue(value=actor.team_id),
+                        ),
+                    ]
+                )
+            )
+
+        legacy_version = IsEmptyCondition(is_empty=PayloadField(key="schema_version"))
+        legacy_branches = [
+            Filter(
+                must=[
+                    legacy_version,
+                    FieldCondition(
+                        key="meta.visibility",
+                        match=MatchValue(value="PUBLIC"),
+                    ),
+                ]
+            )
+        ]
+        if actor.agent_id:
+            legacy_branches.append(
+                Filter(
+                    must=[
+                        legacy_version,
+                        FieldCondition(
+                            key="meta.visibility",
+                            match=MatchValue(value="PRIVATE"),
+                        ),
+                        FieldCondition(
+                            key="meta.source_agent_id",
+                            match=MatchValue(value=actor.agent_id),
+                        ),
+                    ]
+                )
+            )
+        if actor.team_id:
+            legacy_branches.append(
+                Filter(
+                    must=[
+                        legacy_version,
+                        FieldCondition(
+                            key="meta.visibility",
+                            match=MatchValue(value="WORKSPACE"),
+                        ),
+                        FieldCondition(
+                            key="meta.team_id",
+                            match=MatchValue(value=actor.team_id),
+                        ),
+                    ]
+                )
+            )
+        return Filter(should=[*v2_branches, *legacy_branches])
 
 
 # ========== 导出列表 ==========

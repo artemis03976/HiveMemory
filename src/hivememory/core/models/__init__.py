@@ -20,6 +20,9 @@ from .artifact import (
     MemoryEventLog,
 )
 from .memory import (
+    MemoryAccessPolicy,
+    MemoryCreationContext,
+    MemoryReadScope,
     MemoryType,
     MemoryVisibility,
     VerificationStatus,
@@ -29,6 +32,8 @@ from .memory import (
     PayloadLayer,
     RelationLayer,
     MemoryAtom,
+    WorkspaceMemoryKey,
+    require_memory_read_scope,
 )
 from .interaction import (
     ActionReducer,
@@ -90,6 +95,9 @@ __all__ = [
     "MemoryEventLog",
     "MemoryType",
     "MemoryVisibility",
+    "MemoryAccessPolicy",
+    "MemoryCreationContext",
+    "MemoryReadScope",
     "VerificationStatus",
     "MetaData",
     "IndexLayer",
@@ -97,6 +105,8 @@ __all__ = [
     "PayloadLayer",
     "RelationLayer",
     "MemoryAtom",
+    "WorkspaceMemoryKey",
+    "require_memory_read_scope",
     "ActionReducer",
     "TraceReducer",
     "Identity",

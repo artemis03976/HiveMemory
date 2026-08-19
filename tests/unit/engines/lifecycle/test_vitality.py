@@ -12,9 +12,10 @@ import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.system.config import VitalityCalculatorConfig
+from tests.helpers.memory import make_memory_metadata
 
 
 class TestVitalityCalculator:
@@ -161,7 +162,7 @@ class TestVitalityCalculator:
 
         return MemoryAtom(
             id=uuid4(),
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id="test_agent",
                 user_id="test_user",
                 confidence_score=confidence,

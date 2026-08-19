@@ -12,12 +12,12 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     UpdateFocus,
 )
 from hivememory.system.config import KoakumaConfig
 from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 from .conftest import (
     make_koakuma_runtime,
@@ -35,7 +35,7 @@ def identity() -> Identity:
 def existing_memory(identity) -> MemoryAtom:
     """模拟已存在的记忆 (UPDATE 的目标)"""
     return MemoryAtom(
-        meta=MetaData(
+        meta=make_memory_metadata(
             user_id=identity.user_id,
             source_agent_id=identity.agent_id,
             session_id=None,
@@ -140,7 +140,7 @@ class TestKoakumaUpdateValidation:
         validation_koakuma.atom_cache.ingest_atom(
             MemoryAtom(
                 id=uuid4(),
-                meta=MetaData(user_id="test_user", source_agent_id="test"),
+                meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
                 index=IndexLayer(
                     title="API Port Config",
                     summary="API port configuration fact",

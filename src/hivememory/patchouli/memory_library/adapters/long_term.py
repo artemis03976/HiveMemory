@@ -11,6 +11,7 @@ FileBasedStorageAdapter — LongTermStoragePort 的文件系统实现
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -18,8 +19,15 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import (
+    MAIN_WORKSPACE_ID,
+    MemoryAtom,
+    WorkspaceIdentity,
+    WorkspaceMemoryKey,
+)
 from hivememory.engines.lifecycle.models import ArchiveRecord
+from hivememory.engines.retrieval.memory_codec import decode_memory_payload
+from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import LongTermStoragePort
 
@@ -49,12 +57,16 @@ class FileBasedStorageAdapter(LongTermStoragePort):
 
     async def persist(self, memory: MemoryAtom) -> None:
         """将 MemoryAtom 序列化写入文件，更新索引。不负责从中期删除。"""
-        mid = str(memory.id)
-        if mid in self._index:
+        key = WorkspaceMemoryKey(
+            workspace_identity=memory.workspace_identity,
+            memory_id=memory.id,
+        )
+        index_key = self._index_key(key)
+        if index_key in self._index:
             logger.warning(f"Memory {memory.id} already in cold storage, overwriting")
 
         data = memory.model_dump(mode="json")
-        file_path = self._get_file_path(memory.id)
+        file_path = self._get_file_path(memory.workspace_identity, memory.id)
 
         if self._compress:
             file_path = file_path.with_suffix(".json.gz")
@@ -64,7 +76,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
 
-        self._index[mid] = ArchiveRecord(
+        self._index[index_key] = ArchiveRecord(
             memory_id=memory.id,
             original_vitality=memory.meta.vitality_score,
             archived_at=datetime.now(),
@@ -74,36 +86,48 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         self._save_index()
         logger.info(f"持久化记忆到冷存储: {memory.id}")
 
-    async def load(self, memory_id: UUID) -> MemoryAtom:
+    async def load(self, key: WorkspaceMemoryKey) -> MemoryAtom:
         """从文件加载 MemoryAtom，不负责写回中期存储。"""
-        record = self._index.get(str(memory_id))
+        record = self._index.get(self._index_key(key))
+        if record is None and key.workspace_identity.workspace_id == MAIN_WORKSPACE_ID:
+            record = self._index.get(str(key.memory_id))
         if record is None:
-            raise ValueError(f"Memory {memory_id} not found in cold storage")
+            raise ValueError(f"Memory {key.memory_id} not found in cold storage")
 
         file_path = Path(record.storage_path)
         if not file_path.exists():
             raise FileNotFoundError(f"Archive file not found: {file_path}")
 
-        if self._compress or file_path.suffix == ".gz":
+        if file_path.suffix == ".gz":
             with gzip.open(file_path, "rt", encoding="utf-8") as f:
                 data = json.load(f)
         else:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-        return MemoryAtom(**data)
+        memory = decode_memory_payload(data)
+        if not memory_belongs_to_workspace(memory, key.workspace_identity):
+            raise ValueError(f"Memory {key.memory_id} not found in cold storage")
+        return memory
 
-    async def remove(self, memory_id: UUID) -> None:
+    async def remove(self, key: WorkspaceMemoryKey) -> None:
         """从索引和文件系统删除归档记录。"""
-        record = self._index.pop(str(memory_id), None)
+        record = self._index.pop(self._index_key(key), None)
+        if record is None and key.workspace_identity.workspace_id == MAIN_WORKSPACE_ID:
+            record = self._index.pop(str(key.memory_id), None)
         if record is None:
             return
         self._save_index()
         Path(record.storage_path).unlink(missing_ok=True)
-        logger.info(f"从冷存储删除记忆: {memory_id}")
+        logger.info(f"从冷存储删除记忆: {key.memory_id}")
 
-    async def is_archived(self, memory_id: UUID) -> bool:
-        return str(memory_id) in self._index
+    async def is_archived(self, key: WorkspaceMemoryKey) -> bool:
+        if self._index_key(key) in self._index:
+            return True
+        return (
+            key.workspace_identity.workspace_id == MAIN_WORKSPACE_ID
+            and str(key.memory_id) in self._index
+        )
 
     async def query(
         self,
@@ -132,10 +156,35 @@ class FileBasedStorageAdapter(LongTermStoragePort):
 
     # ── 内部辅助 ──
 
-    def _get_file_path(self, memory_id: UUID) -> Path:
-        date_dir = self._archive_dir / datetime.now().strftime("%Y-%m")
-        date_dir.mkdir(exist_ok=True)
+    def _get_file_path(
+        self,
+        workspace_identity: WorkspaceIdentity,
+        memory_id: UUID,
+    ) -> Path:
+        owner_dir = hashlib.sha256(
+            workspace_identity.owner_user_id.encode("utf-8")
+        ).hexdigest()
+        workspace_dir = hashlib.sha256(
+            workspace_identity.workspace_id.encode("utf-8")
+        ).hexdigest()
+        date_dir = (
+            self._archive_dir
+            / owner_dir
+            / workspace_dir
+            / datetime.now().strftime("%Y-%m")
+        )
+        date_dir.mkdir(parents=True, exist_ok=True)
         return date_dir / f"{memory_id}.json"
+
+    @staticmethod
+    def _index_key(key: WorkspaceMemoryKey) -> str:
+        workspace = key.workspace_identity
+        canonical = json.dumps(
+            [workspace.owner_user_id, workspace.workspace_id, str(key.memory_id)],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def _load_index(self) -> Dict[str, ArchiveRecord]:
         if not self._index_path.exists():

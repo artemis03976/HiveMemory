@@ -22,7 +22,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
@@ -32,11 +31,12 @@ from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_metadata
 
 
 def _build_memory_atom() -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="agent-1",
             user_id="u1",
             confidence_score=0.9,

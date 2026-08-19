@@ -32,6 +32,7 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
+from tests.helpers.memory import make_memory_creation_context
 
 
 # ========== Fixtures ==========
@@ -39,6 +40,12 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 @pytest.fixture
 def identity() -> Identity:
     return Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+
+
+@pytest.fixture
+def creation_context():
+    """保护生成入口不从对话 Identity 隐式推导 Memory owner 的回归。"""
+    return make_memory_creation_context(user_id="test_user", agent_id="test_agent")
 
 
 @pytest.fixture
@@ -74,7 +81,7 @@ class TestModeBExtraction:
     """验证 Generation Engine Mode B 路径"""
 
     @pytest.mark.asyncio
-    async def test_mode_b_calls_extractor_with_write_metadata(self, identity, sample_context):
+    async def test_mode_b_calls_extractor_with_write_metadata(self, sample_context, creation_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"],
@@ -90,7 +97,11 @@ class TestModeBExtraction:
         )
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
-        request = GenerationRequest(context=sample_context, write_focus=focus)
+        request = GenerationRequest(
+            context=sample_context,
+            write_focus=focus,
+            creation_context=creation_context,
+        )
 
         result = await engine.process(request=request)
 
@@ -103,7 +114,7 @@ class TestModeBExtraction:
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_mode_a_no_write_metadata(self, sample_context):
+    async def test_mode_a_no_write_metadata(self, sample_context, creation_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Test Memory", summary="这是一条测试记忆，用于验证 Mode A 路径", tags=["test"],
@@ -118,7 +129,10 @@ class TestModeBExtraction:
             mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
-        request = GenerationRequest(context=sample_context)
+        request = GenerationRequest(
+            context=sample_context,
+            creation_context=creation_context,
+        )
         result = await engine.process(request)
 
         call_args = mock_extractor.extract.call_args
@@ -132,7 +146,7 @@ class TestModeBFallback:
     """验证 LLM 提取失败时的 fallback 草稿构建"""
 
     @pytest.mark.asyncio
-    async def test_fallback_when_extractor_returns_none(self, identity, sample_context):
+    async def test_fallback_when_extractor_returns_none(self, sample_context, creation_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None  # LLM 失败
         mock_dedup = MagicMock()
@@ -148,7 +162,11 @@ class TestModeBFallback:
             reason="修复 CORS",
             title="Fix CORS Port",
         )
-        request = GenerationRequest(context=sample_context, write_focus=focus)
+        request = GenerationRequest(
+            context=sample_context,
+            write_focus=focus,
+            creation_context=creation_context,
+        )
 
         result = await engine.process(request=request)
 
@@ -199,7 +217,7 @@ class TestEngineUnifiedAPI:
     """验证 process() 统一使用 GenerationRequest"""
 
     @pytest.mark.asyncio
-    async def test_request_param_mode_a(self, sample_context):
+    async def test_request_param_mode_a(self, sample_context, creation_context):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None
         mock_dedup = MagicMock()
@@ -209,7 +227,10 @@ class TestEngineUnifiedAPI:
             mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
         )
 
-        request = GenerationRequest(context=sample_context)
+        request = GenerationRequest(
+            context=sample_context,
+            creation_context=creation_context,
+        )
         result = await engine.process(request)
         assert result == []
         mock_extractor.extract.assert_called_once()
@@ -219,5 +240,7 @@ class TestEngineUnifiedAPI:
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=AsyncMock(),
         )
-        result = await engine.process(GenerationRequest())
+        result = await engine.process(
+            GenerationRequest(creation_context=make_memory_creation_context())
+        )
         assert result == []

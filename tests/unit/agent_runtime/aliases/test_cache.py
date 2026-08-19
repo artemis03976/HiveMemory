@@ -5,14 +5,15 @@ KoakumaAtomCache 单元测试
 import pytest
 from uuid import uuid4
 from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
+from tests.helpers.memory import make_memory_metadata
 
 
 @pytest.fixture
 def sample_atom():
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
         index=IndexLayer(
             title="Test Memory",
             summary="Test summary",
@@ -46,7 +47,7 @@ def test_ingest_multiple_atoms():
     atoms = [
         MemoryAtom(
             id=uuid4(),
-            meta=MetaData(user_id="test", source_agent_id="test"),
+            meta=make_memory_metadata(user_id="test", source_agent_id="test"),
             index=IndexLayer(
                 title=f"Memory {i}",
                 summary=f"Test summary for memory {i}",
@@ -89,7 +90,7 @@ def test_clear():
     atoms = [
         MemoryAtom(
             id=uuid4(),
-            meta=MetaData(user_id="test", source_agent_id="test"),
+            meta=make_memory_metadata(user_id="test", source_agent_id="test"),
             index=IndexLayer(
                 title=f"Memory {i}",
                 summary=f"Test summary for memory {i}",

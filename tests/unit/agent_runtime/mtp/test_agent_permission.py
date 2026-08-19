@@ -20,7 +20,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.mtp.exceptions import (
@@ -31,6 +30,7 @@ from hivememory.core.mtp.exceptions import (
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_profile_atom(
@@ -41,11 +41,7 @@ def _make_profile_atom(
     """构建 AGENT_PROFILE 类型的 MemoryAtom"""
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(
-            user_id="system",
-            source_agent_id="system",
-            visibility="PUBLIC",
-        ),
+        meta=make_memory_metadata(user_id="system", source_agent_id="system"),
         index=IndexLayer(
             alias=agent_id,
             title=f"Agent {agent_id}",
@@ -215,7 +211,7 @@ class TestProfileLoadingErrors:
         """alias 指向非 AGENT_PROFILE 记忆时显式失败，不回退。"""
         service, get_by_alias = _make_retrieval_familiar()
         get_by_alias.return_value = MemoryAtom(
-            meta=MetaData(user_id="u1", source_agent_id="system"),
+            meta=make_memory_metadata(user_id="u1", source_agent_id="system"),
             index=IndexLayer(
                 alias="custom", title="custom title", summary="not a profile",
                 memory_type=MemoryType.FACT,
@@ -236,7 +232,7 @@ class TestProfileLoadingErrors:
         service, get_by_alias = _make_retrieval_familiar()
         get_by_alias.return_value = MemoryAtom(
             id=uuid4(),
-            meta=MetaData(user_id="u1", source_agent_id="system"),
+            meta=make_memory_metadata(user_id="u1", source_agent_id="system"),
             index=IndexLayer(
                 alias="broken", title="Broken", summary="Broken profile",
                 tags=["agent"], memory_type=MemoryType.AGENT_PROFILE,
@@ -267,4 +263,3 @@ class TestProfileLoadingErrors:
         assert profile.persona == "You are coder_doll."
         assert profile.allowed_mtp_verbs == ["READ", "RUN"]
         assert profile.allowed_sys_tools == ["sys_clock"]
-        get_by_alias.assert_awaited_once_with("coder_doll", "system")

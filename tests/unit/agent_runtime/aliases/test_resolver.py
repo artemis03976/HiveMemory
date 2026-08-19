@@ -11,12 +11,12 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 from tests.unit.agent_runtime.mtp.conftest import make_mock_bus
 
@@ -28,7 +28,7 @@ def _context() -> MTPExecutionContext:
 def _make_memory(alias: str, content: str = "content") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="Test Memory",
             summary="A resolver test memory",

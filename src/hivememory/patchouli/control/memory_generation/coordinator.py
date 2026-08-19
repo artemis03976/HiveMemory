@@ -6,7 +6,12 @@ import asyncio
 import logging
 from uuid import UUID
 
-from hivememory.core.models import LogicalBlock
+from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.models import (
+    LogicalBlock,
+    WorkspaceAccessContext,
+    require_workspace_access_context,
+)
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import TopicMaterializeTask
@@ -55,7 +60,10 @@ class MemoryGenerationCoordinator:
             topic_id=payload.topic_id,
             label=payload.topic_id,
             source=MemoryGenerationSource.ARCHIVE,
-            request=GenerationRequest(context=gen_context),
+            request=GenerationRequest(
+                context=gen_context,
+                creation_context=payload.creation_context,
+            ),
             interaction_input=self._build_interaction_input(
                 topic_id=payload.topic_id,
                 topic_title=payload.topic_title,
@@ -72,14 +80,18 @@ class MemoryGenerationCoordinator:
         self,
         tasks: list[PendingAtomMaterializeTask],
         topic_id: str,
+        *,
+        access_context: WorkspaceAccessContext,
     ) -> list[MemoryGenerationTask]:
         """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。"""
         if not tasks:
             return []
+        access_context = require_workspace_access_context(access_context)
 
         topic_data = await self._bus.request(
             PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
+            access_context=access_context,
         )
         blocks = topic_data.recent_blocks(5) if topic_data is not None else []
         state_summary = topic_data.state_summary if topic_data is not None else ""
@@ -102,6 +114,7 @@ class MemoryGenerationCoordinator:
                     topic_id=topic_id,
                     gen_context=gen_context,
                     interaction_input=interaction_input,
+                    access_context=access_context,
                 )
                 for task in tasks
             ]
@@ -142,6 +155,7 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         gen_context,
         interaction_input: InteractionArtifactInput | None,
+        access_context: WorkspaceAccessContext,
     ) -> MemoryGenerationTaskSpec | None:
         try:
             return await self._build_active_spec(
@@ -149,6 +163,7 @@ class MemoryGenerationCoordinator:
                 topic_id=topic_id,
                 gen_context=gen_context,
                 interaction_input=interaction_input,
+                access_context=access_context,
             )
         except SpecBuildError as exc:
             logger.error(
@@ -172,7 +187,10 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         gen_context,
         interaction_input: InteractionArtifactInput | None,
+        access_context: WorkspaceAccessContext,
     ) -> MemoryGenerationTaskSpec:
+        if task.creation_context.workspace_identity != access_context.workspace_identity:
+            raise WorkspaceMismatchError(details={"pending_alias": task.pending_alias})
         source = MemoryGenerationSource(task.source_verb)
         focus = task.focus
         if source == MemoryGenerationSource.WRITE:
@@ -181,7 +199,7 @@ class MemoryGenerationCoordinator:
             request = GenerationRequest(
                 context=gen_context,
                 write_focus=focus,
-                identity=task.identity,
+                creation_context=task.creation_context,
             )
         elif source == MemoryGenerationSource.UPDATE:
             if not isinstance(focus, UpdateFocus):
@@ -196,6 +214,7 @@ class MemoryGenerationCoordinator:
             existing = await self._bus.request(
                 PatchouliLocalRoutes.MEMORY_GET,
                 base_uuid,
+                access_context=access_context,
             )
             if existing is None:
                 logger.error(f"UPDATE target memory not found: {focus.base_uuid}")
@@ -204,7 +223,7 @@ class MemoryGenerationCoordinator:
                 context=gen_context,
                 update_focus=focus,
                 existing_memory=existing,
-                identity=task.identity,
+                creation_context=task.creation_context,
             )
         else:
             raise ValueError(f"Unsupported active generation source: {source}")

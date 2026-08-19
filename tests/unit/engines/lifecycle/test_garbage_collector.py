@@ -8,17 +8,18 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
 from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollector
 from hivememory.system.config import GarbageCollectorConfig
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_memory(title: str, vitality_score: float | None) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="a",
             user_id="u",
             vitality_score=vitality_score,
@@ -31,6 +32,13 @@ def _make_memory(title: str, vitality_score: float | None) -> MemoryAtom:
             memory_type=MemoryType.FACT,
         ),
         payload=PayloadLayer(content="content"),
+    )
+
+
+def _key(memory: MemoryAtom) -> WorkspaceMemoryKey:
+    return WorkspaceMemoryKey(
+        workspace_identity=memory.workspace_identity,
+        memory_id=memory.id,
     )
 
 
@@ -56,12 +64,12 @@ class TestPeriodicGarbageCollector:
             vitality_threshold=20.0,
         )
 
-        assert candidates == [self.low_vitality_memory.id]
+        assert candidates == [_key(self.low_vitality_memory)]
 
     def test_scan_candidates_uses_default_threshold(self):
         candidates = self.gc.scan_candidates([self.low_vitality_memory])
 
-        assert candidates == [self.low_vitality_memory.id]
+        assert candidates == [_key(self.low_vitality_memory)]
 
     def test_scan_candidates_sorts_lowest_first(self):
         lower = _make_memory("Lower", 5.0)
@@ -69,7 +77,7 @@ class TestPeriodicGarbageCollector:
 
         candidates = self.gc.scan_candidates([higher, lower])
 
-        assert candidates == [lower.id, higher.id]
+        assert candidates == [_key(lower), _key(higher)]
 
     def test_scan_candidates_skips_missing_vitality(self):
         missing = Mock()
@@ -88,7 +96,7 @@ class TestPeriodicGarbageCollector:
 
         assert archived == 1
         self.mock_library.archive.assert_awaited_once_with(
-            self.low_vitality_memory.id
+            _key(self.low_vitality_memory)
         )
 
     @pytest.mark.asyncio
