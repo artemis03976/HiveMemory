@@ -215,7 +215,7 @@ WorkspaceAccessContext
   interaction_id
 ```
 
-`interaction_id` 是一次 Chat run 的唯一关联 ID：在 WorkspaceAccessContext 冻结前由 Chat 入口生成，随后由 ChatGenerationRun、PreparedAgentRun、InteractionPayload、finalize 和相关 work payload 复用。`request_id` 仍可作为 HTTP/transport 层日志追踪字段，但不再作为 WorkspaceAccessContext 的第二个关联字段。该上下文是单次请求/Run 的作用域坐标，不是可绕过资源授权检查的永久 capability token。`WorkspaceIdentity.owner_user_id` 描述 Workspace 的所有者，`Identity.user_id` 描述当前执行者；两者相等是访问条件，不是可以互相覆盖的别名。第一版不需要实现显式 `WorkspaceGrant`；可以暂定同一 user 下的 Agent 均可进入该 user 的 Workspace，但只能访问当前 active Workspace 中符合 actor visibility 的资产。未来如需限制 Agent/Team 可进入哪些 Workspace，再增加独立的多对多 grant，不改变 Identity 或资产归属模型。
+`interaction_id` 是一次 Chat run 的唯一关联 ID：在 WorkspaceAccessContext 冻结前由 Chat 入口生成，随后由 ChatGenerationRun、PreparedAgentRun、InteractionPayload、finalize 和相关 work payload 复用。`request_id` 仍可作为 HTTP/transport 层日志追踪字段，但不再作为 WorkspaceAccessContext 的第二个关联字段。该上下文是单次请求/Run 的作用域坐标，不是可绕过资源授权检查的永久 capability token。`WorkspaceIdentity.owner_user_id` 描述 Workspace 的所有者，`Identity.user_id` 描述当前执行者；两者相等是访问条件，不是可以互相覆盖的别名。第一版不需要实现显式 `WorkspaceGrant`；可以暂定同一 user 下的 Agent 均可进入该 user 的 Workspace，但只能访问当前 active Workspace 中符合 actor read policy 的资产。未来如需限制 Agent/Team 可进入哪些 Workspace，再增加独立的多对多 grant，不改变 Identity 或资产归属模型。
 
 需要特别区分运行时状态和持久化事实：
 
@@ -224,20 +224,22 @@ WorkspaceAccessContext
 - “哪个 Agent/Team 创建了资产”是 provenance；
 - “哪个 Agent/Team 当前可以访问资产”是 authorization。
 
-因此 MemoryAtom 等资产不能只持久化现有 Identity。概念上它们应持有 `WorkspaceIdentity` 作为资产归属，并保存 `source_agent_id/team_id` 作为行为来源；存储模型可以把它平铺为 `owner_user_id + workspace_id`，同时保留必要的 `workspace_key` metadata，但不能重新引入三套独立身份来源。创建者字段记录历史事实，不能单独代替当前访问策略。
+因此 MemoryAtom 等资产不能只持久化现有 Identity。概念上它们应持有 `WorkspaceIdentity` 作为资产归属，并保存 `source_agent_id/source_team_id` 作为行为来源；存储模型可以把 ownership 平铺为 `owner_user_id + workspace_id`，同时保留必要的 `workspace_key` metadata，但不能重新引入三套独立身份来源。对 MemoryAtom，`workspace_id` 明确表示“归属于该 Workspace”，不是一条 Workspace 访问许可；未来跨 Workspace 使用应建立独立 grant/mount/ref，不能改变源 Memory 的 ownership。
+
+AccessContext 可以同时保存 actor user 与 Workspace owner，因为它描述一次操作；MemoryAtom 是物化后的资源事实，只能承认 `workspace_identity.owner_user_id` 这一份 ownership user。`actor_identity.user_id` 不得再复制成并列的 `meta.user_id`；创建者字段记录 provenance，访问目标字段记录 authorization，二者也必须分开。
 
 推荐的访问判定结构为：
 
 ```text
 Allowed
-  = same_user
-  AND same_workspace
-  AND actor_visibility_policy
+  = actor_can_enter_workspace
+  AND resource.workspace_identity == access.workspace_identity
+  AND match_actor_read_policy
 ```
 
-不得使用 `same_user AND (same_workspace OR same_agent OR same_team)`，否则 agent/team 条件会绕过 Workspace 的资产隔离。
+W0 中 `actor_can_enter_workspace` 暂由 actor user 与 Workspace owner 相等来满足；未来可以替换为显式 grant，但不改变资源 ownership。不得使用 `same_user AND (same_workspace OR same_agent OR same_team)`，否则 agent/team 条件会绕过 Workspace 的资产隔离。
 
-当前 `MemoryVisibility.WORKSPACE` 实际通过 `team_id` 做过滤，这一历史名称会与新的 Workspace 概念冲突。Workspace MVP 必须把 Workspace 作为独立的硬过滤轴；现有 visibility 只作为进入当前 Workspace 后的 actor 域访问策略，具体兼容映射见 4.8。
+当前 `MemoryVisibility.WORKSPACE` 实际通过 `team_id` 做过滤，这一历史名称会与新的 Workspace ownership 概念冲突。Workspace MVP 必须把 Workspace 作为独立的硬过滤轴；visibility 反转为进入 owning Workspace 后的 actor read policy，目标枚举固定为 `PUBLIC | PRIVATE | TEAM`，具体兼容映射见 4.8。
 
 ### 4.3 子系统所有权
 
@@ -603,28 +605,60 @@ Gateway 使用的 scope
 ```text
 1. MUST access.workspace_identity.owner_user_id == access.actor_identity.user_id
 2. MUST resource.workspace_identity == access.workspace_identity
-3. MUST match_actor_visibility(access.actor_identity, asset_policy)
+3. MUST match_actor_read_policy(access.actor_identity, asset_policy)
 ```
 
 Workspace hard filter 不受 `agent_id`、`team_id` 或 visibility 结果影响，也不允许拿到 asset/artifact ID 后跳过。第一版没有跨 Workspace 通信，因此任何 workspace mismatch 都直接拒绝。
 
-新的 Workspace 轴会使现有 `MemoryVisibility` 出现语义冲突。推荐的目标语义是：
+Memory dedup/merge 同样属于资源访问与 mutation：候选查询必须先受当前 Workspace hard filter 和 actor read policy 限制。即使两个 Workspace 中内容完全相同，也不能把它们合并或演化为同一个 MemoryAtom。
+
+新的 Workspace ownership 轴会使现有 `MemoryVisibility` 出现语义冲突。设计理念是先用 ownership 决定资源空间，再用 visibility 决定该空间内部的 actor 读取范围；两者不能再用同一个枚举表达。目标语义为：
 
 ```text
-PRIVATE    -> 仅创建 Agent
-TEAM       -> team_id 匹配
-WORKSPACE  -> 当前 Workspace 内的任意合法 Agent
+PUBLIC
+  -> owning Workspace 内所有已获准进入的 actor
+
+PRIVATE
+  -> owning Workspace 内 target_agent_id 匹配的 actor
+
+TEAM
+  -> owning Workspace 内 target_team_id 匹配的 actor
 ```
 
-现有序列化值可以在迁移期解释为：
+`PUBLIC` 是 workspace-local public，不是跨 Workspace 或系统全局公开。visibility 只控制 SEARCH/READ/Context use，不自动授予更新、删除、变更 policy 或转移 ownership 的能力。
+
+provenance 字段与授权目标必须独立：`source_agent_id/source_team_id` 记录谁创建了 Memory，`target_agent_id/target_team_id` 记录当前 policy 指向谁。创建时可以将 source 默认复制为 target，但后续修改 policy 不能篡改 source。目标组合必须满足：
 
 ```text
-现有 PRIVATE    -> PRIVATE
-现有 WORKSPACE  -> TEAM（历史兼容值，未来应改名）
-现有 PUBLIC     -> WORKSPACE
+PUBLIC  -> no target
+PRIVATE -> target_agent_id only
+TEAM    -> target_team_id only
 ```
 
-MVP 不一定要立即修改所有枚举值，但契约必须明确：现有 `WORKSPACE=team_id` 不是新的 Workspace 隔离语义，`PUBLIC` 也不能绕过 user/workspace hard filter。
+W0/P2 未显式指定 read policy 时显式写入 `PUBLIC`，以保持当前创建行为；不能把缺字段交给反序列化默认值暗中决定。`TEAM` 在 MVP 中以 `actor_identity.team_id == target_team_id` 判定，未来多组 membership 只替换 evaluator，不改变 ownership。
+
+现有 schema v1 序列化值在迁移期解释为：
+
+```text
+现有 PRIVATE
+  -> PRIVATE(target_agent_id = source_agent_id)
+
+现有 WORKSPACE
+  -> TEAM(target_team_id = team_id)
+
+现有 PUBLIC
+  -> PUBLIC
+```
+
+映射时保留旧 `source_agent_id`，并把旧 `team_id` 投影为 v2 `source_team_id`。对旧 `WORKSPACE` 记录，历史 `team_id` 还会初始化 `target_team_id`；完成 v2 归一化后 source provenance 与 target policy 不再联动。
+
+旧 `PRIVATE` 缺少 `source_agent_id`，或旧 `WORKSPACE` 缺少有效 `team_id` 时，adapter 不能生成默认授权 target；记录必须 fail closed 并进入迁移诊断清单。
+
+不再引入目标 `WORKSPACE` visibility。P2 新写入必须正式使用 `MemoryAtom.schema_version = 2` 与新 policy；历史批量回填仍在 Workspace MVP 完成隔离验证后执行。兼容期必须通过命名的 v1 decoder/visibility adapter 解释旧 `WORKSPACE=team_id`，`PUBLIC` 也始终不能绕过 owner/workspace hard filter。
+
+CREATE 与 UPDATE 都属于 v2 新写入。首次更新 v1 Memory 时，系统先通过 v1 decoder 归一化，再保留其 canonical Workspace ownership 以 v2 写回；不能把当前 updater 的 Workspace 或 actor 当成新的 owner/source。
+
+版本分派采用 fail-closed 契约：缺少 `schema_version` 的历史记录进入 v1 decoder；版本 2 必须具有完整 WorkspaceIdentity 与合法 target 组合；未知版本拒绝进入领域模型。decoder 不能使用 active Workspace 猜测或补齐部分 ownership。
 
 缓存 key 至少以 `(owner_user_id, workspace_id, ...)` 开头。若缓存内容或 alias resolve 结果受 agent/team visibility 影响，还必须包含相应 actor scope，或者在每次命中后重新授权。缓存命中不能绕过资源所有者的三阶段检查。
 
@@ -754,7 +788,9 @@ AssetProvenance
   created_by_team_id?
 
 AssetAccessPolicy
-  visibility: PRIVATE | TEAM | WORKSPACE
+  visibility: PUBLIC | PRIVATE | TEAM
+  target_agent_id?
+  target_team_id?
 
 WorkspaceAsset
   asset_id
@@ -835,16 +871,27 @@ SourceArtifactPromotion
   artifact_ref
   promotion_status
 
-MemoryMeta / ArtifactMeta / TopicMeta
-  owner_user_id
-  workspace_id
-  workspace_key
-  source_agent_id
-  source_team_id?
-  visibility
+MemoryAtom
+  schema_version: 2
+  meta
+    workspace_identity: WorkspaceIdentity
+    source_agent_id
+    source_team_id?
+    access_policy
+      visibility: PUBLIC | PRIVATE | TEAM
+      target_agent_id?
+      target_team_id?
+
+ArtifactMeta / TopicMeta
+  workspace_identity: WorkspaceIdentity
+  # storage/index adapters may flatten owner_user_id/workspace_key/workspace_id
 ```
 
-`WorkspaceIdentity` 是 Workspace 聚合及其资产归属的统一值对象，应不可变、可序列化并在构造时完成非空和 MVP 等值校验。`AssetOwnership`、`AssetProvenance` 和 `AssetAccessPolicy` 表达三个不同的时间语义：归属定义资产在哪个 user/workspace 命名空间，provenance 记录历史创建者，access policy 决定当前执行者能否访问。实现时可以为了现有存储格式平铺 `owner_user_id/workspace_id/workspace_key`，但领域代码必须从同一份 `WorkspaceIdentity` 投影，不能让各字段分别成为权威来源。
+`WorkspaceIdentity` 是 Workspace 聚合及其资产归属的统一值对象，应不可变、可序列化并在构造时完成非空和 MVP 等值校验。`AssetOwnership`、`AssetProvenance` 和 `AssetAccessPolicy` 表达三个不同的时间语义：归属定义资产在哪个 user/workspace 命名空间，provenance 记录历史创建者，access policy 决定当前执行者能否读取。实现时可以为了现有存储格式平铺 `owner_user_id/workspace_id/workspace_key`，但领域代码必须从同一份 `WorkspaceIdentity` 投影，不能让各字段分别成为权威来源。
+
+MemoryAtom 在实施 P2 时正式进入 schema v2。顶层 `schema_version` 表示领域/持久化契约版本，与现有用于内容演化或乐观锁的 `meta.version` 正交，不能复用。v2 只以 `workspace_identity` 作为 ownership 权威，不同时保存含糊的 `user_id` 和另一套 owner 字段；`PUBLIC | PRIVATE | TEAM` 是 owning Workspace 内部的 read policy。`PRIVATE/TEAM` 的 target 与 source provenance 分开，避免修改访问策略时篡改创建历史。存储 adapter 负责 v2 平铺和 v1 compatibility decode，不能把兼容字段泄漏回新领域模型。
+
+Memory Generation/Materialization 不能只靠裸 `Identity` 构造 v2：创建输入必须携带 `WorkScopeSnapshot` 或窄化的 `MemoryCreationContext`，从 WorkspaceIdentity 取得 ownership、从 actor Identity 取得 provenance，并将选择后的 policy 显式写入新记录。
 
 WorkspaceAsset 与 AssetRepresentation 状态只能通过 WorkspaceAssetStore 的命名迁移改变；asset READY 是 required representation READY 的聚合结果，而不是独立可写布尔值。FAILED 不自动回到 PROCESSING，REMOVED 不允许被晚到解析结果复活。
 
@@ -874,10 +921,10 @@ active Workspace 是请求和 Run 的运行时字段；资源在各自生命周�
 ```text
 MUST access.workspace_identity.owner_user_id == access.actor_identity.user_id
 MUST resource.workspace_identity == access.workspace_identity
-MUST match_actor_visibility(access.actor_identity, ...)
+MUST match_actor_read_policy(access.actor_identity, ...)
 ```
 
-Workspace MVP 不在系统落地前批量改写现有数据。对于尚未转换的历史记录，W0 只提供明确的 compatibility-read/filter projection：根据记录中的 `user_id` 临时构造 `WorkspaceIdentity(owner_user_id=user_id, workspace_key="main_workspace", workspace_id="main_workspace")`，并将缺失的 Workspace 归属解释为默认 Workspace；这只是存储适配器的迁移兼容，不是业务链路允许 `workspace_id or workspace_key` 的通用 fallback。历史 `source_agent_id/team_id` 继续作为 provenance 和兼容访问策略输入，不能替代 Workspace 归属。
+Workspace MVP 不在系统落地前批量改写现有数据。对于尚未转换的历史记录，W0 只提供明确的 compatibility-read/filter projection：根据记录中的 `user_id` 临时构造 `WorkspaceIdentity(owner_user_id=user_id, workspace_key="main_workspace", workspace_id="main_workspace")`，并将缺失的 Workspace 归属解释为默认 Workspace；这只是存储适配器的迁移兼容，不是业务链路允许 `workspace_id or workspace_key` 的通用 fallback。历史 `meta.user_id` 在这里被解释为 legacy resource owner，而不是必须永久保留的 actor provenance。历史 `source_agent_id/team_id` 继续作为 provenance 和 v1 policy target 的迁移输入，不能替代 Workspace 归属。
 
 跨子系统公开方法应逐步从裸 `user_id/agent_id/workspace_id` 参数迁移为完整的 `WorkspaceAccessContext`。可持久化或可重试的 work item 使用其可序列化投影：
 
@@ -894,12 +941,14 @@ scope snapshot 记录目标坐标，不缓存永久授权结果；handler 在每
 
 历史数据转换是 Workspace MVP 基本落地并通过双 Workspace 隔离验收后的后置运维步骤，不属于 W0 的启动前置或主链路副作用。系统先以新模型字段运行并验证作用域正确，再提供一次性、可复跑的转换脚本。
 
-脚本执行前的兼容查询必须满足：只有访问 `main_workspace` 且 `owner_user_id/user_id` 匹配时，查询才可以同时纳入 Workspace 字段缺失的历史记录；访问任何第二 Workspace 时都只能使用精确 `owner_user_id + workspace_id` filter，不能召回缺字段记录。所有 W0 新写入记录必须直接保存完整 WorkspaceIdentity 投影字段，不继续制造历史格式数据。
+脚本执行前的兼容查询必须满足：只有访问 `main_workspace` 且 `owner_user_id/user_id` 匹配时，查询才可以同时纳入 Workspace 字段缺失的历史记录；访问任何第二 Workspace 时都只能使用精确 `owner_user_id + workspace_id` filter，不能召回缺字段记录。P2 之后所有新 Memory 必须直接写为 schema v2 并保存 canonical WorkspaceIdentity，不继续制造历史格式或双写 `meta.user_id`。
 
 脚本至少需要：
 
-- 对关键模型补充 `owner_user_id`、`workspace_key`、`workspace_id` 等新字段，并将缺失值归入对应用户的 `main_workspace`；
-- 将旧的 `MemoryVisibility` 序列化值映射为新枚举语义：旧 `PRIVATE -> PRIVATE`、旧 `WORKSPACE -> TEAM`、旧 `PUBLIC -> WORKSPACE`；
+- 对关键模型补充 `owner_user_id`、`workspace_key`、`workspace_id` 等存储投影，并将缺失值归入对应用户的 `main_workspace`；
+- 将 Memory 正式转换为 `schema_version = 2`，领域 ownership 归一为单一 `WorkspaceIdentity`；
+- 将旧 `MemoryVisibility` 映射为 v2 actor read policy：旧 `PRIVATE -> PRIVATE(target_agent_id=source_agent_id)`、旧 `WORKSPACE -> TEAM(target_team_id=team_id)`、旧 `PUBLIC -> PUBLIC`；
+- 对缺少 PRIVATE/TEAM target 来源或 ownership 冲突的历史记录拒绝猜测转换，并输出可定位诊断；
 - 对 Memory、Artifact、Topic 以及其他已纳入 Workspace 归属的记录执行一致转换，不只转换单一存储层；
 - 提供 dry-run、数量统计、冲突/歧义拒绝、幂等重跑和转换后读回校验；
 - 在实际写入前提供备份或可恢复快照，并记录脚本版本、执行时间和转换摘要；
@@ -990,7 +1039,9 @@ Workspace MVP 不依赖真实上传或解析器，使用测试构造的资产和
 13. WorkspaceAssetRef 在进程重启后允许明确失效，不能解析到同名或复用 ID 的其他资产。
 14. 两个 Workspace 的并发 Chat 在 Gateway、prepare、Alice、finalize、子 Frame、MTP、cancel/status 和 background work 中始终保持各自冻结的 AccessContext，不出现 `current_workspace` 覆盖或默认回退。
 15. 两边使用相同 Agent、alias、文件名和 Topic 标题时，Memory、Artifact、Topic 和 cache 不串扰；任意深层资产操作缺少 Workspace scope 时显式失败。
-16. 脚本执行前，历史缺 Workspace 字段的记录只在对应用户的 `main_workspace` 兼容查询中可见，在第二 Workspace 中不可见；所有新写入记录都包含规范 WorkspaceIdentity 投影字段。
+16. 脚本执行前，历史缺 Workspace 字段的记录只在对应用户的 `main_workspace` 兼容查询中可见，在第二 Workspace 中不可见；所有新 Memory 都是 schema v2，只包含规范 WorkspaceIdentity ownership，并使用 PUBLIC/PRIVATE/TEAM read policy。
+17. 缺少 schema version 的记录只通过 v1 decoder 读取，未知版本和部分 Workspace 投影 fail closed；新写入不会双写 legacy `meta.user_id`。
+18. `PUBLIC` 不能跨 Workspace，`PRIVATE` 只命中 target Agent，`TEAM` 只命中 target Team；修改 policy 不会改写 source provenance。
 
 ### 8.2 W1 Chat Attachments 集成验收
 
@@ -1010,9 +1061,11 @@ W1 在 W0 通过后再验证真实附件链路：
 | user | workspace | agent/team | 预期 |
 |:---|:---|:---|:---|
 | 相同 | 不同 | 相同 Agent | 拒绝跨 Workspace 访问 |
-| 相同 | 相同 | 不同 Agent，Workspace-visible | 允许 |
-| 相同 | 相同 | 不同 Agent，Private | 拒绝 |
-| 相同 | 相同 | 相同 Team，Team-visible | 允许 |
+| 相同 | 相同 | 不同 Agent，`PUBLIC` | 允许 |
+| 相同 | 相同 | 与 target 不同的 Agent，`PRIVATE` | 拒绝 |
+| 相同 | 相同 | 与 target 相同的 Agent，`PRIVATE` | 允许 |
+| 相同 | 相同 | 与 target 相同的 Team，`TEAM` | 允许 |
+| 相同 | 相同 | 与 target 不同的 Team，`TEAM` | 拒绝 |
 | 不同 | `workspace_key` 同名 | 其他条件任意 | 用户硬边界拒绝 |
 | 相同 | 不同 | 显式传入其他 Workspace 的 asset ID | 仍然拒绝，不允许 ID 绕过 scope |
 
@@ -1028,7 +1081,7 @@ Workspace MVP 与 Chat Attachments 应形成两份具有独立目标、非目标
 
 ```text
 Plan W0: Workspace MVP
-  -> scope、System-owned in-process working set、两级状态机、SemanticBuffer binding、lease、幂等、隔离
+  -> scope、Memory schema v2 ownership/read policy、System-owned in-process working set、两级状态机、SemanticBuffer binding、lease、幂等、隔离
   -> 独立完成并通过双 Workspace 验收
 
 Plan W1: Chat Attachments
@@ -1047,7 +1100,7 @@ v0.7.0 Document Ingestion
 
 ### 10.1 Workspace MVP Plan
 
-W0 已转录为 [v0.6.2 W0 Workspace MVP 正式 Plan](../plans/v0.6.2-workspace-mvp.md)。该 Plan 已补齐具体代码落点、P0-P7 迁移顺序、默认 `main_workspace` 解析、AccessContext 传播、Memory/Artifact/Topic/cache/work scope、System-owned WorkspaceAssetStore、两级状态机、SemanticBuffer binding、删除/lease 矩阵、历史兼容读取、双 Workspace 测试和发布回滚边界。
+W0 已转录为 [v0.6.2 W0 Workspace MVP 正式 Plan](../plans/v0.6.2-workspace-mvp.md)。该 Plan 已补齐具体代码落点、P0-P7 迁移顺序、默认 `main_workspace` 解析、AccessContext 传播、Memory/Artifact/Topic/cache/work scope、Memory schema v2 的唯一 Workspace ownership 与 PUBLIC/PRIVATE/TEAM actor read policy、System-owned WorkspaceAssetStore、两级状态机、SemanticBuffer binding、删除/lease 矩阵、历史兼容读取、双 Workspace 测试和发布回滚边界。
 
 正式 Plan 只覆盖 Workspace MVP，不包含独立 ID 生成、Workspace Registry、历史数据批量转换执行、附件上传、真实解析、Context Compiler、cache 所有权迁移或 Artifact promotion。W0 通过验收后，再单独建立历史数据转换脚本的执行说明和回滚步骤；W1 Chat Attachments 也继续使用独立 Plan。
 

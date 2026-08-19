@@ -14,7 +14,15 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
 import logging
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import ActionReducer, BufferState, Identity, LogicalBlock, TurnRecord
+from hivememory.core.models import (
+    ActionReducer,
+    BufferState,
+    LogicalBlock,
+    TurnRecord,
+    WorkspaceAccessContext,
+    WorkspaceTopicKey,
+    require_workspace_access_context,
+)
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
@@ -86,7 +94,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> str:
         """
         确保目标话题存在并返回真实 topic_id。
@@ -100,22 +108,22 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             target_topic_id: "NEW_TOPIC" 或已有 topic_id
             new_topic_title: Gateway 生成的新话题标题
             new_topic_summary: Gateway 生成的新话题摘要
-            identity: 用户身份
+            access_context: 已冻结的 Workspace 访问上下文
 
         Returns:
             str: 可用的真实 topic_id
         """
         if target_topic_id == "NEW_TOPIC":
             topic_id = await self.create_new_topic(
-                identity=identity,
+                access_context=access_context,
                 title=new_topic_title,
                 summary=new_topic_summary,
             )
         else:
-            if not self._short_term_store.topic_exists(target_topic_id):
+            if not self._short_term_store.topic_exists(access_context, target_topic_id):
                 logger.warning(f"话题 {target_topic_id} 不存在，回退到创建新话题")
                 topic_id = await self.create_new_topic(
-                    identity=identity,
+                    access_context=access_context,
                     title=new_topic_title,
                     summary=new_topic_summary,
                 )
@@ -127,15 +135,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     async def create_new_topic(
         self,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
         title: str | None = None,
         summary: str | None = None,
     ) -> str:
         """
         创建新话题。调用方负责在必要时提前执行 LRU 驱逐。
         """
+        access_context = require_workspace_access_context(access_context)
         buffer = self._short_term_store.create_buffer(
-            user_id=identity.user_id,
+            access_context,
             topic_title=title or "新建话题",
             topic_summary=summary or "",
         )
@@ -166,7 +175,10 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     apply_record.topic_id,
                     interaction_id=interaction_id,
                 )
-                self._short_term_store.set_last_active_topic(apply_record.topic_id)
+                self._short_term_store.set_last_active_topic(
+                    payload.access_context,
+                    apply_record.topic_id,
+                )
                 return apply_record.topic_id, settle_payload
 
         # 重新检查创建情况，避免预创建后某些错误导致的异常
@@ -174,14 +186,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             target_topic_id=topic_id,
             new_topic_title=None,
             new_topic_summary=None,
-            identity=payload.identity,
+            access_context=payload.access_context,
         )
         settle_payload = await self.ingest_payload(
             payload,
             topic_id,
             interaction_id=interaction_id,
         )
-        self._short_term_store.set_last_active_topic(topic_id)
+        self._short_term_store.set_last_active_topic(payload.access_context, topic_id)
         return topic_id, settle_payload
 
     async def ingest_payload(
@@ -249,7 +261,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         )
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
-        self._short_term_store.add_block(topic_id, block)
+        topic_key = WorkspaceTopicKey.from_access_context(payload.access_context, topic_id)
+        self._short_term_store.add_block(topic_key, block)
         if interaction_id:
             # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
             self._interaction_journal.record_block_applied(interaction_id, topic_id)
@@ -270,13 +283,17 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """完成 block 写入后的本地义务，并为外层 settlement admission 留存结果。"""
         # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
         if payload.model_used:
-            self._short_term_store.update_model_used(topic_id, payload.model_used)
+            self._short_term_store.update_model_used(
+                WorkspaceTopicKey.from_access_context(payload.access_context, topic_id),
+                payload.model_used,
+            )
 
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
-        settle_payload = await self._maybe_fold_pages(topic_id)
+        topic_key = WorkspaceTopicKey.from_access_context(payload.access_context, topic_id)
+        settle_payload = await self._maybe_fold_pages(topic_key)
 
         # 重置状态
-        self._short_term_store.update_metadata(topic_id, state=BufferState.IDLE)
+        self._short_term_store.update_metadata(topic_key, state=BufferState.IDLE)
 
         if interaction_id:
             self._interaction_journal.record_local_completed(
@@ -289,18 +306,21 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     # ========== 上下文溢出检查 ==========
 
-    async def _maybe_fold_pages(self, topic_id: str) -> TopicMaterializeTask | None:
+    async def _maybe_fold_pages(
+        self,
+        topic_key: WorkspaceTopicKey,
+    ) -> TopicMaterializeTask | None:
         """
         Page Folding: token 溢出时触发 Compact 操作
         """
-        topic_data = self._short_term_store.get_topic_data(topic_id, touch=False)
+        topic_data = self._short_term_store.get_topic_data_by_key(topic_key, touch=False)
         if topic_data is None:
             return None
 
         threshold = self.config.fold_token_threshold
 
         logger.debug(
-            f"_maybe_fold_pages: topic_id={topic_id}, "
+            f"_maybe_fold_pages: topic_id={topic_key.topic_id}, "
             f"total_tokens={topic_data.total_tokens}, threshold={threshold}, "
             f"blocks_count={topic_data.block_count}"
         )
@@ -309,11 +329,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             return None
 
         logger.info(
-            f"Token 溢出: topic_id={topic_id}, "
+            f"Token 溢出: topic_id={topic_key.topic_id}, "
             f"total_tokens={topic_data.total_tokens} > threshold={threshold}"
         )
         return await self._trigger_manager.resolve_topic(
-            FlushEvent(topic_id=topic_id, reason=FlushReason.TOKEN_OVERFLOW),
+            FlushEvent(topic_key=topic_key, reason=FlushReason.TOKEN_OVERFLOW),
             retain_recent_blocks=self.config.fold_retain_recent_blocks,
         )
 
@@ -321,7 +341,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     async def settle_topic(
         self,
-        topic_id: str,
+        topic_key: WorkspaceTopicKey,
         reason: FlushReason = FlushReason.MANUAL,
     ) -> TopicMaterializeTask | None:
         """
@@ -331,20 +351,24 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             TopicMaterializeTask | None
         """
         return await self._trigger_manager.resolve_topic(
-            FlushEvent(topic_id=topic_id, reason=reason)
+            FlushEvent(topic_key=topic_key, reason=reason)
         )
 
-    def swap_out_topic(self, topic_id: str) -> bool:
+    def swap_out_topic(self, topic_key: WorkspaceTopicKey) -> bool:
         """
         显式换出指定话题，返回是否存在该话题。
         """
-        return self._short_term_store.pop_buffer(topic_id) is not None
+        return self._short_term_store.pop_buffer_by_key(topic_key) is not None
 
-    def discard_if_empty(self, topic_id: str) -> bool:
+    def discard_if_empty(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> bool:
         """话题存在且无 blocks 时驱逐并返回 True，否则返回 False。"""
-        info = self._short_term_store.get_buffer_info(topic_id)
+        info = self._short_term_store.get_buffer_info(access_context, topic_id)
         if info.get("exists") and info.get("block_count", 0) == 0:
-            self._short_term_store.pop_buffer(topic_id)
+            self._short_term_store.pop_buffer(access_context, topic_id)
             logger.info(f"已清理无内容话题: {topic_id}")
             return True
         return False
@@ -371,7 +395,7 @@ class NullPerceptionLayer(BasePerceptionLayer):
 
     async def settle_topic(
         self,
-        topic_id: str,
+        topic_key: WorkspaceTopicKey,
         reason: FlushReason = FlushReason.MANUAL,
     ) -> TopicMaterializeTask | None:
         return None
@@ -381,11 +405,11 @@ class NullPerceptionLayer(BasePerceptionLayer):
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        identity: Identity,
+        access_context: WorkspaceAccessContext,
     ) -> str:
         return target_topic_id
 
-    def swap_out_topic(self, topic_id: str) -> None:
+    def swap_out_topic(self, topic_key: WorkspaceTopicKey) -> None:
         return None
 
 

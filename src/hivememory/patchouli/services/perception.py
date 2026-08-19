@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel
 
-from hivememory.core.models import WorkspaceAccessContext, require_workspace_access_context
+from hivememory.core.models import (
+    WorkspaceAccessContext,
+    WorkspaceTopicKey,
+    require_workspace_access_context,
+)
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -148,7 +152,7 @@ class PerceptionFamiliar:
 
         # retry 已有 apply journal 时不能驱逐刚刚写入的目标话题。
         if apply_record is None:
-            await self._maybe_evict_lru(target_topic_id)
+            await self._maybe_evict_lru(payload.access_context, target_topic_id)
 
         if interaction_id is None:
             topic_id, settle_payload = await self.perception_layer.route_and_ingest(
@@ -184,39 +188,54 @@ class PerceptionFamiliar:
         """确保目标短期话题存在，并返回真实 topic_id。"""
         access_context = require_workspace_access_context(access_context)
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
-        await self._maybe_evict_lru(target_topic_id)
+        await self._maybe_evict_lru(access_context, target_topic_id)
 
         return await self.perception_layer.prepare_topic(
             target_topic_id,
             new_topic_title,
             new_topic_summary,
-            access_context.actor_identity,
+            access_context,
         )
 
-    async def _maybe_evict_lru(self, target_topic_id: str) -> None:
+    async def _maybe_evict_lru(
+        self,
+        access_context: WorkspaceAccessContext,
+        target_topic_id: str,
+    ) -> None:
         """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。"""
         # 命中已有话题时无需驱逐
-        if target_topic_id != "NEW_TOPIC" and self._short_term.topic_exists(target_topic_id):
+        if (
+            target_topic_id != "NEW_TOPIC"
+            and self._short_term.topic_exists(access_context, target_topic_id)
+        ):
             return
-        if not self._short_term.needs_eviction():
+        if not self._short_term.needs_eviction(access_context):
             return
 
-        lru_topic_id = self._short_term.get_lru_topic()
+        lru_topic_id = self._short_term.get_lru_topic(access_context)
         if lru_topic_id is None:
             return
 
-        settle_payload = await self.perception_layer.settle_topic(lru_topic_id, FlushReason.LRU_EVICTION)
+        settle_payload = await self.perception_layer.settle_topic(
+            WorkspaceTopicKey.from_access_context(access_context, lru_topic_id),
+            FlushReason.LRU_EVICTION,
+        )
 
         if settle_payload is not None:
             await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)
 
-    async def manual_settle_topic(self, topic_id: Optional[str] = None) -> MemoryGenerationTask | None:
+    async def manual_settle_topic(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: Optional[str] = None,
+    ) -> MemoryGenerationTask | None:
         """手动结算指定话题，返回生成任务句柄（None 表示话题为空无需生成）。"""
-        target_id = topic_id or self._short_term.get_last_active_topic()
+        access_context = require_workspace_access_context(access_context)
+        target_id = topic_id or self._short_term.get_last_active_topic(access_context)
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
 
-        topic = self._short_term.get_topic_data(target_id)
+        topic = self._short_term.get_topic_data(access_context, target_id)
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
@@ -224,7 +243,7 @@ class PerceptionFamiliar:
             return None
 
         settle_payload = await self.perception_layer.settle_topic(
-            target_id, FlushReason.MANUAL
+            topic.topic_key, FlushReason.MANUAL
         )
         if settle_payload is None:
             return None
@@ -239,21 +258,33 @@ class PerceptionFamiliar:
         )
         return task
 
-    async def evict_topic(self, topic_id: str) -> TopicEvictResult:
+    async def evict_topic(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> TopicEvictResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
-        removed = self.perception_layer.swap_out_topic(topic_id)
+        key = WorkspaceTopicKey.from_access_context(
+            require_workspace_access_context(access_context),
+            topic_id,
+        )
+        removed = self.perception_layer.swap_out_topic(key)
         if not removed:
             return TopicEvictResult(success=False, message="话题不存在或已被驱逐")
         return TopicEvictResult(success=True, message=f"话题 {topic_id} 已删除")
 
-    def discard_if_empty(self, topic_id: str) -> bool:
+    def discard_if_empty(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> bool:
         """话题为空时清理该话题。"""
-        return self.perception_layer.discard_if_empty(topic_id)
+        return self.perception_layer.discard_if_empty(access_context, topic_id)
 
     async def scan_idle_buffers_once(self) -> list[str]:
         """扫描并 settle 空闲超时话题，策略由 Familiar 持有。"""
         flushed = []
-        for topic in self._short_term.list_topic_data():
+        for topic in self._short_term.list_all_topic_data_for_maintenance():
             if topic.is_idle(self._idle_timeout_seconds):
                 logger.info(
                     "检测到空闲话题: topic_id=%s, idle_time=%.1fs",
@@ -261,7 +292,7 @@ class PerceptionFamiliar:
                     datetime.now(timezone.utc).timestamp() - topic.last_update,
                 )
                 settle_payload = await self.perception_layer.settle_topic(
-                    topic.topic_id, FlushReason.IDLE_TIMEOUT
+                    topic.topic_key, FlushReason.IDLE_TIMEOUT
                 )
                 if settle_payload is not None:
                     await self._bus.request(
@@ -276,13 +307,13 @@ class PerceptionFamiliar:
         服务关闭前强制结算所有活跃话题。
         """
         flushed, skipped, archived_blocks = [], [], 0
-        for topic in self._short_term.list_topic_data():
+        for topic in self._short_term.list_all_topic_data_for_maintenance():
             if topic.is_empty:
                 skipped.append(topic.topic_id)
                 continue
             archived_blocks += topic.block_count
             settle_payload = await self.perception_layer.settle_topic(
-                topic.topic_id, FlushReason.SHUTDOWN
+                topic.topic_key, FlushReason.SHUTDOWN
             )
             if settle_payload is not None:
                 await self._bus.request(

@@ -98,6 +98,7 @@ class RetrievalFamiliar:
         """
         require_workspace_access_context(access_context)
         return self._memory_library.short_term.get_topic_data(
+            access_context,
             topic_id,
             touch=touch,
         )
@@ -117,7 +118,7 @@ class RetrievalFamiliar:
         """
         access_context = require_workspace_access_context(access_context)
         topics = self._memory_library.short_term.list_topic_data(
-            user_id=access_context.workspace_identity.owner_user_id,
+            access_context,
             include_empty=include_empty,
         )
         if not include_empty:

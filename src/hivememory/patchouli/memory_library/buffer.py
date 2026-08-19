@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from hivememory.core.models import BufferState, LogicalBlock
+from hivememory.core.models import BufferState, LogicalBlock, WorkspaceIdentity, WorkspaceTopicKey
 
 
 class SemanticBuffer(BaseModel):
@@ -27,7 +27,7 @@ class SemanticBuffer(BaseModel):
         Pages = blocks (List[LogicalBlock])
     """
     topic_id: str = Field(default_factory=lambda: str(uuid4()), description="话题唯一标识")
-    user_id: str = Field(default="default", description="用户标识")
+    workspace_identity: WorkspaceIdentity
 
     current_agent_id: str = Field(default="default", description="当前话题挂载的活跃 Agent 别名")
 
@@ -45,6 +45,20 @@ class SemanticBuffer(BaseModel):
     model_used: str = Field(default="", description="最近 run 使用的模型展示名")
 
     model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)
+
+    @property
+    def topic_key(self) -> WorkspaceTopicKey:
+        """返回此 buffer 的权威复合键。"""
+        return WorkspaceTopicKey(
+            owner_user_id=self.workspace_identity.owner_user_id,
+            workspace_id=self.workspace_identity.workspace_id,
+            topic_id=self.topic_id,
+        )
+
+    @property
+    def user_id(self) -> str:
+        """兼容旧展示字段；内部存储不再以裸 user_id 寻址。"""
+        return self.workspace_identity.owner_user_id
 
     def clear(self) -> None:
         self.blocks.clear()

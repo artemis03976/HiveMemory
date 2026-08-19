@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, WorkspaceIdentity, WorkspaceTopicKey
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
@@ -24,7 +24,7 @@ from hivememory.engines.lifecycle.models import ArchiveRecord
 
 class ShortTermStoragePort(ABC):
     """
-    短期存储 Port — topic_id → SemanticBuffer 的键值映射。
+    短期存储 Port — WorkspaceTopicKey → SemanticBuffer 的键值映射。
 
     ShortTermMemoryStore exposes synchronous APIs to the perception layer, so the
     short-term port is synchronous as well. Async backends should hide their I/O
@@ -36,22 +36,22 @@ class ShortTermStoragePort(ABC):
     """
 
     @abstractmethod
-    def get(self, topic_id: str) -> Optional[SemanticBuffer]: ...
+    def get(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]: ...
 
     @abstractmethod
-    def put(self, topic_id: str, buffer: SemanticBuffer) -> None: ...
+    def put(self, key: WorkspaceTopicKey, buffer: SemanticBuffer) -> None: ...
 
     @abstractmethod
-    def pop(self, topic_id: str) -> Optional[SemanticBuffer]: ...
+    def pop(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]: ...
 
     @abstractmethod
-    def list_by_user(self, user_id: str) -> List[SemanticBuffer]: ...
+    def list_by_workspace(self, workspace: WorkspaceIdentity) -> List[SemanticBuffer]: ...
 
     @abstractmethod
     def list_all(self) -> List[SemanticBuffer]: ...
 
     @abstractmethod
-    def count(self) -> int: ...
+    def count(self, workspace: WorkspaceIdentity) -> int: ...
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="short_term", healthy=True)

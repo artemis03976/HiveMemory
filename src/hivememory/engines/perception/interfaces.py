@@ -19,7 +19,7 @@ from hivememory.engines.perception.models import (
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
-    from hivememory.core.models import Identity
+    from hivememory.core.models import WorkspaceAccessContext, WorkspaceTopicKey
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     async def settle_topic(
         self,
-        topic_id: str,
+        topic_key: "WorkspaceTopicKey",
         reason: FlushReason = FlushReason.MANUAL,
     ) -> Optional[TopicMaterializeTask]:
         """原子话题结算，不含任何策略判断。话题不存在或为空时返回 None。"""
@@ -91,12 +91,12 @@ class BasePerceptionLayer(ABC):
         target_topic_id: str,
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
-        identity: "Identity",
+        access_context: "WorkspaceAccessContext",
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
 
     @abstractmethod
-    def swap_out_topic(self, topic_id: str) -> bool:
+    def swap_out_topic(self, topic_key: "WorkspaceTopicKey") -> bool:
         """显式换出指定话题，不触发结算。返回是否存在该话题。"""
 
 

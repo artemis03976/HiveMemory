@@ -26,6 +26,8 @@ from hivememory.core.models import (
     TopicSnapshot,
     TurnEvent,
     TurnRecord,
+    WorkspaceIdentity,
+    WorkspaceTopicKey,
 )
 
 
@@ -47,11 +49,16 @@ class FlushEvent(BaseModel):
     话题结算触发指令，TriggerManager.resolve_topic 的统一输入协议。
 
     Attributes:
-        topic_id: 目标话题 ID
+        topic_key: 已验证的目标话题复合键
         reason: 触发结算的原因
     """
-    topic_id: str
+    topic_key: WorkspaceTopicKey
     reason: FlushReason
+
+    @property
+    def topic_id(self) -> str:
+        """返回展示用 topic ID；Store 寻址必须使用 topic_key。"""
+        return self.topic_key.topic_id
 
 
 # ============ 话题结算载荷 (Perception -> Generation) ============
@@ -64,10 +71,9 @@ class TopicMaterializeTask(BaseModel):
     发送给 Generation 模块进行记忆生成。
     """
     topic_id: str = Field(..., description="话题 ID")
+    workspace_identity: WorkspaceIdentity
     topic_title: str = Field(default="", description="话题标题")
     topic_summary: str = Field(default="", description="话题展示摘要")
-
-    user_id: Optional[str] = Field(default=None, description="用户 ID")
 
     blocks: List[LogicalBlock] = Field(default_factory=list, description="话题内容块列表")
     state_summary: str = Field(default="", description="话题状态摘要")
@@ -75,6 +81,11 @@ class TopicMaterializeTask(BaseModel):
     reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="话题结算触发原因")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @property
+    def user_id(self) -> str:
+        """兼容生成层旧展示字段；归属以 workspace_identity 为准。"""
+        return self.workspace_identity.owner_user_id
 
 
 __all__ = [

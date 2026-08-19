@@ -42,18 +42,20 @@ async def list_topics(
 @router.post("/topics/{topic_id}/settle", response_model=TriggerResponse)
 async def settle_topic(
     topic_id: str,
+    user_id: str = Depends(get_user_id),
     service: TopicApplicationService = Depends(get_topic_service),
 ):
     """手动结算话题"""
-    result = await service.settle_topic(topic_id=topic_id)
+    result = await service.settle_topic(user_id=user_id, topic_id=topic_id)
     return TriggerResponse(**result)
 
 
 @router.delete("/topics/{topic_id}", response_model=DeleteResponse)
 async def delete_topic(
     topic_id: str,
+    user_id: str = Depends(get_user_id),
     service: TopicApplicationService = Depends(get_topic_service),
 ):
     """从活跃池驱逐话题（不归档，不写长期记忆）"""
-    result = await service.evict_topic(topic_id=topic_id)
+    result = await service.evict_topic(user_id=user_id, topic_id=topic_id)
     return DeleteResponse(**result)

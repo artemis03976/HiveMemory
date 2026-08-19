@@ -46,18 +46,31 @@ class TopicManagementService:
             access_context=access_context,
             touch=False,
         )
-        if (
-            topic_data is None
-            or topic_data.user_id != access_context.workspace_identity.owner_user_id
-        ):
-            return None
         return topic_data
 
-    async def settle_topic(self, *, topic_id: str | None = None) -> MemoryGenerationTask | None:
-        return await self._bus.request(PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, topic_id)
+    async def settle_topic(
+        self,
+        *,
+        access_context: WorkspaceAccessContext,
+        topic_id: str | None = None,
+    ) -> MemoryGenerationTask | None:
+        return await self._bus.request(
+            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
+            access_context,
+            topic_id,
+        )
 
-    async def evict_topic(self, *, topic_id: str) -> dict:
-        return await self._bus.request(PatchouliLocalRoutes.TOPIC_EVICT, topic_id)
+    async def evict_topic(
+        self,
+        *,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> dict:
+        return await self._bus.request(
+            PatchouliLocalRoutes.TOPIC_EVICT,
+            access_context,
+            topic_id,
+        )
 
     async def prepare_topic(
         self,

@@ -27,7 +27,16 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from hivememory.core.models import BufferState, LogicalBlock, MemoryAtom, TopicData
+from hivememory.core.models import (
+    BufferState,
+    LogicalBlock,
+    MemoryAtom,
+    TopicData,
+    WorkspaceAccessContext,
+    WorkspaceIdentity,
+    WorkspaceTopicKey,
+    require_workspace_access_context,
+)
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
@@ -62,108 +71,182 @@ class ShortTermMemoryStore:
     ) -> None:
         self._port: ShortTermStoragePort = port or InMemoryShortTermStorage()
         self.max_resident_topics = max_resident_topics
-        self._last_active_topic_id: Optional[str] = None
+        self._last_active_topic_keys: dict[tuple[str, str], WorkspaceTopicKey] = {}
         logger.info(f"ShortTermMemoryStore 初始化, max_resident={max_resident_topics}")
 
     # ========== 最后活跃话题记录 ==========
 
-    def get_last_active_topic(self) -> Optional[str]:
-        return self._last_active_topic_id
+    @staticmethod
+    def _scope(workspace: WorkspaceIdentity) -> tuple[str, str]:
+        return workspace.owner_user_id, workspace.workspace_id
 
-    def set_last_active_topic(self, topic_id: str) -> None:
-        self._last_active_topic_id = topic_id
+    @staticmethod
+    def _key(
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> WorkspaceTopicKey:
+        access_context = require_workspace_access_context(access_context)
+        return WorkspaceTopicKey.from_access_context(access_context, topic_id)
 
-    def _require_buffer(self, topic_id: str) -> SemanticBuffer:
+    def get_last_active_topic(
+        self,
+        access_context: WorkspaceAccessContext,
+    ) -> Optional[str]:
+        """返回当前 Workspace 最后活跃的 topic ID。"""
+        access_context = require_workspace_access_context(access_context)
+        key = self._last_active_topic_keys.get(self._scope(access_context.workspace_identity))
+        return key.topic_id if key is not None else None
+
+    def set_last_active_topic(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> None:
+        key = self._key(access_context, topic_id)
+        if self._port.get(key) is None:
+            raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
+        self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
+
+    def _require_buffer(self, key: WorkspaceTopicKey) -> SemanticBuffer:
         """返回必须存在的话题 buffer；写命令不得静默忽略缺失 topic。"""
-        buf = self._port.get(topic_id)
+        buf = self._port.get(key)
         if buf is None:
-            raise KeyError(f"topic '{topic_id}' does not exist")
+            raise KeyError(f"topic '{key.topic_id}' does not exist in requested Workspace")
         return buf
 
     # ========== CRUD ==========
 
     def get_topic_data(
         self,
+        access_context: WorkspaceAccessContext,
         topic_id: str,
         *,
         touch: bool = True,
     ) -> Optional[TopicData]:
         """Return an immutable topic read view without exposing SemanticBuffer."""
-        buf = self._port.get(topic_id)
+        key = self._key(access_context, topic_id)
+        buf = self._port.get(key)
         if buf is None:
             return None
         if touch:
             buf.last_accessed_at = datetime.now().timestamp()
-            self._last_active_topic_id = topic_id
+            self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
+        return self._to_topic_data(buf)
+
+    def get_topic_data_by_key(
+        self,
+        key: WorkspaceTopicKey,
+        *,
+        touch: bool = True,
+    ) -> Optional[TopicData]:
+        """由持有已验证复合键的内部协调器读取 Topic。"""
+        buf = self._port.get(key)
+        if buf is None:
+            return None
+        if touch:
+            buf.last_accessed_at = datetime.now().timestamp()
+            workspace = buf.workspace_identity
+            self._last_active_topic_keys[self._scope(workspace)] = key
         return self._to_topic_data(buf)
 
     def list_topic_data(
         self,
-        user_id: Optional[str] = None,
+        access_context: WorkspaceAccessContext,
         *,
         include_empty: bool = True,
     ) -> List[TopicData]:
         """Return immutable read views for active topics."""
-        if user_id is None:
-            buffers = self._port.list_all()
-        else:
-            buffers = self._port.list_by_user(user_id)
+        access_context = require_workspace_access_context(access_context)
+        buffers = self._port.list_by_workspace(access_context.workspace_identity)
         if not include_empty:
             buffers = [buf for buf in buffers if buf.blocks]
         return [self._to_topic_data(buf) for buf in buffers]
 
-    def topic_exists(self, topic_id: str, *, touch: bool = True) -> bool:
-        return self.get_topic_data(topic_id, touch=touch) is not None
+    def topic_exists(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+        *,
+        touch: bool = True,
+    ) -> bool:
+        return self.get_topic_data(access_context, topic_id, touch=touch) is not None
 
-    def has_blocks(self, topic_id: str) -> bool:
-        data = self.get_topic_data(topic_id, touch=False)
+    def has_blocks(self, access_context: WorkspaceAccessContext, topic_id: str) -> bool:
+        data = self.get_topic_data(access_context, topic_id, touch=False)
         return bool(data and data.blocks)
 
     def create_buffer(
         self,
-        user_id: str,
+        access_context: WorkspaceAccessContext,
         topic_title: str = "新建话题",
         topic_summary: str = "",
     ) -> SemanticBuffer:
-        buf = SemanticBuffer(user_id=user_id, topic_title=topic_title, topic_summary=topic_summary)
-        self._port.put(buf.topic_id, buf)
-        logger.debug(f"创建话题段: topic_id={buf.topic_id}, owner={user_id}")
+        access_context = require_workspace_access_context(access_context)
+        buf = SemanticBuffer(
+            workspace_identity=access_context.workspace_identity,
+            topic_title=topic_title,
+            topic_summary=topic_summary,
+        )
+        self._port.put(buf.topic_key, buf)
+        logger.debug(
+            "创建话题段: topic_id=%s, owner=%s, workspace=%s",
+            buf.topic_id,
+            buf.workspace_identity.owner_user_id,
+            buf.workspace_identity.workspace_id,
+        )
         return buf
 
-    def pop_buffer(self, topic_id: str) -> Optional[SemanticBuffer]:
-        buf = self._port.pop(topic_id)
+    def pop_buffer(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> Optional[SemanticBuffer]:
+        key = self._key(access_context, topic_id)
+        buf = self._port.pop(key)
         if buf is not None:
             logger.info(f"移除话题段: topic_id={topic_id}")
+            scope = self._scope(access_context.workspace_identity)
+            if self._last_active_topic_keys.get(scope) == key:
+                self._last_active_topic_keys.pop(scope, None)
+        return buf
+
+    def pop_buffer_by_key(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]:
+        """由持有已验证复合键的内部结算流程驱逐 Topic。"""
+        buf = self._port.pop(key)
+        if buf is not None:
+            scope = self._scope(buf.workspace_identity)
+            if self._last_active_topic_keys.get(scope) == key:
+                self._last_active_topic_keys.pop(scope, None)
         return buf
 
     # ========== 写操作（命名方法，禁止调用方直接写 buffer 字段）==========
 
-    def add_block(self, topic_id: str, block: LogicalBlock) -> None:
-        buf = self._require_buffer(topic_id)
+    def add_block(self, key: WorkspaceTopicKey, block: LogicalBlock) -> None:
+        buf = self._require_buffer(key)
         buf.blocks.append(block)
         buf.total_tokens += block.total_tokens
         buf.last_update = datetime.now().timestamp()
 
-    def clear_blocks(self, topic_id: str) -> None:
+    def clear_blocks(self, key: WorkspaceTopicKey) -> None:
         """清空 blocks 并重置 token 计数（替代 buffer.blocks.clear() + total_tokens=0）。"""
-        buf = self._require_buffer(topic_id)
+        buf = self._require_buffer(key)
         buf.blocks.clear()
         buf.total_tokens = 0
         buf.last_update = datetime.now().timestamp()
 
     def update_summary(
         self,
-        topic_id: str,
+        key: WorkspaceTopicKey,
         summary: str,
     ) -> None:
         """只更新 state summary，不改变当前 blocks。"""
-        buf = self._require_buffer(topic_id)
+        buf = self._require_buffer(key)
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
 
     def apply_compaction(
         self,
-        topic_id: str,
+        key: WorkspaceTopicKey,
         summary: str,
         *,
         retain_count: int,
@@ -172,7 +255,7 @@ class ShortTermMemoryStore:
         if retain_count < 0:
             raise ValueError("retain_count must be greater than or equal to 0")
 
-        buf = self._require_buffer(topic_id)
+        buf = self._require_buffer(key)
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
         if retain_count == 0:
@@ -187,14 +270,14 @@ class ShortTermMemoryStore:
         buf.total_tokens = sum(b.total_tokens for b in buf.blocks)
         return folded
 
-    def update_title(self, topic_id: str, title: str) -> None:
+    def update_title(self, key: WorkspaceTopicKey, title: str) -> None:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
-        buf = self._require_buffer(topic_id)
+        buf = self._require_buffer(key)
         buf.topic_title = title
 
-    def reset_topic_content(self, topic_id: str) -> List[LogicalBlock]:
+    def reset_topic_content(self, key: WorkspaceTopicKey) -> List[LogicalBlock]:
         """清空 blocks 与 state summary，保留话题在活跃池中。"""
-        buf = self._require_buffer(topic_id)
+        buf = self._require_buffer(key)
         cleared = buf.blocks.copy()
         buf.blocks.clear()
         buf.total_tokens = 0
@@ -202,36 +285,43 @@ class ShortTermMemoryStore:
         buf.last_update = datetime.now().timestamp()
         return cleared
 
-    def update_metadata(self, topic_id: str, state: Optional[BufferState] = None) -> None:
-        buf = self._require_buffer(topic_id)
+    def update_metadata(self, key: WorkspaceTopicKey, state: Optional[BufferState] = None) -> None:
+        buf = self._require_buffer(key)
         if state is not None:
             buf.state = state
         buf.last_update = datetime.now().timestamp()
 
-    def update_model_used(self, topic_id: str, model_used: str) -> None:
+    def update_model_used(self, key: WorkspaceTopicKey, model_used: str) -> None:
         """写入最近一次 run 使用的模型展示名。"""
-        buf = self._require_buffer(topic_id)
+        buf = self._require_buffer(key)
         buf.model_used = model_used
 
     # ========== LRU ==========
 
-    def get_lru_topic(self) -> Optional[str]:
+    def get_lru_topic(self, access_context: WorkspaceAccessContext) -> Optional[str]:
         """返回访问时间最久远的话题 topic_id，无话题时返回 None。"""
-        bufs = self._port.list_all()
+        access_context = require_workspace_access_context(access_context)
+        bufs = self._port.list_by_workspace(access_context.workspace_identity)
         if not bufs:
             return None
         return min(bufs, key=lambda b: b.last_accessed_at).topic_id
 
-    def needs_eviction(self) -> bool:
-        return self._port.count() >= self.max_resident_topics
+    def needs_eviction(self, access_context: WorkspaceAccessContext) -> bool:
+        access_context = require_workspace_access_context(access_context)
+        return self._port.count(access_context.workspace_identity) >= self.max_resident_topics
 
-    def get_active_topic_buffer_count(self) -> int:
-        return self._port.count()
+    def get_active_topic_buffer_count(self, access_context: WorkspaceAccessContext) -> int:
+        access_context = require_workspace_access_context(access_context)
+        return self._port.count(access_context.workspace_identity)
 
     # ========== info ==========
 
-    def get_buffer_info(self, topic_id: str) -> Dict[str, Any]:
-        buf = self._port.get(topic_id)
+    def get_buffer_info(
+        self,
+        access_context: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> Dict[str, Any]:
+        buf = self._port.get(self._key(access_context, topic_id))
         if buf:
             return {
                 "exists": True,
@@ -245,7 +335,7 @@ class ShortTermMemoryStore:
     def _to_topic_data(self, buf: SemanticBuffer) -> TopicData:
         return TopicData(
             topic_id=buf.topic_id,
-            user_id=buf.user_id,
+            workspace_identity=buf.workspace_identity,
             current_agent_id=buf.current_agent_id,
             topic_title=buf.topic_title,
             topic_summary=buf.topic_summary,
@@ -257,6 +347,10 @@ class ShortTermMemoryStore:
             total_tokens=buf.total_tokens,
             model_used=buf.model_used,
         )
+
+    def list_all_topic_data_for_maintenance(self) -> List[TopicData]:
+        """供进程级 idle/shutdown 协调器遍历，不作为用户授权入口。"""
+        return [self._to_topic_data(buf) for buf in self._port.list_all()]
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()

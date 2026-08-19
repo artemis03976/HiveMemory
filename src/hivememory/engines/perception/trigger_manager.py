@@ -24,6 +24,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from hivememory.core.models import WorkspaceIdentity, WorkspaceTopicKey
+
 from hivememory.engines.perception.models import (
     FlushEvent,
     FlushReason,
@@ -134,7 +136,7 @@ class TriggerManager:
         Returns:
             TopicMaterializeTask 供上层提交给生成链路；如无需结算则返回 None
         """
-        topic_data = self._store.get_topic_data(trigger.topic_id)
+        topic_data = self._store.get_topic_data_by_key(trigger.topic_key)
         if topic_data is None or topic_data.is_empty:
             logger.debug("resolve_topic: topic_data 为空或不存在，跳过结算")
             return None
@@ -166,7 +168,7 @@ class TriggerManager:
                 blocks_snapshot=blocks_snapshot,
                 state_summary=topic_data.state_summary,
                 reason=trigger.reason,
-                user_id=topic_data.user_id,
+                workspace_identity=topic_data.workspace_identity,
                 topic_title=topic_data.topic_title,
                 topic_summary=topic_data.topic_summary,
             )
@@ -181,7 +183,7 @@ class TriggerManager:
                     "TOKEN_OVERFLOW requires retain_recent_blocks"
                 )
             await self._compact_topic(
-                trigger.topic_id,
+                trigger.topic_key,
                 blocks_snapshot,
                 topic_data.state_summary,
                 retain_recent_blocks=(
@@ -193,11 +195,11 @@ class TriggerManager:
 
         # Settle 之后旧 Blocks 必须清空；纯 Compact 则由 fold 操作保留最近工作集。
         if need_settle:
-            self._store.clear_blocks(trigger.topic_id)
+            self._store.clear_blocks(trigger.topic_key)
 
         # Action 3: Evict（内存清理）
         if need_evict:
-            self._store.pop_buffer(trigger.topic_id)
+            self._store.pop_buffer_by_key(trigger.topic_key)
 
         return settle_payload
 
@@ -209,7 +211,7 @@ class TriggerManager:
         blocks_snapshot: List[LogicalBlock],
         state_summary: str,
         reason: FlushReason,
-        user_id: Optional[str] = None,
+        workspace_identity: WorkspaceIdentity,
         topic_title: str = "",
         topic_summary: str = "",
     ) -> Optional[TopicMaterializeTask]:
@@ -236,9 +238,9 @@ class TriggerManager:
 
         return TopicMaterializeTask(
             topic_id=topic_id,
+            workspace_identity=workspace_identity,
             topic_title=topic_title,
             topic_summary=topic_summary,
-            user_id=user_id,
             blocks=blocks_to_settle,
             state_summary=state_summary,
             reason=reason,
@@ -246,7 +248,7 @@ class TriggerManager:
 
     async def _compact_topic(
         self,
-        topic_id: str,
+        topic_key: WorkspaceTopicKey,
         blocks_to_fold: List[LogicalBlock],
         previous_summary: str,
         *,
@@ -269,7 +271,7 @@ class TriggerManager:
                 logger.warning(
                     "Compact skipped: no blocks older than retained working set, "
                     "topic_id=%s, blocks=%d, retain_recent_blocks=%d",
-                    topic_id,
+                    topic_key.topic_id,
                     len(blocks_to_fold),
                     retain_recent_blocks,
                 )
@@ -284,18 +286,18 @@ class TriggerManager:
 
         # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
         if retain_recent_blocks is None:
-            self._store.update_summary(topic_id, new_summary)
+            self._store.update_summary(topic_key, new_summary)
             folded = 0
         else:
             folded = self._store.apply_compaction(
-                topic_id,
+                topic_key,
                 new_summary,
                 retain_count=retain_recent_blocks,
             )
 
         logger.debug(
             "Compact: 生成新摘要，topic_id=%s, folded=%d, retained=%s",
-            topic_id,
+            topic_key.topic_id,
             folded,
             retain_recent_blocks,
         )
