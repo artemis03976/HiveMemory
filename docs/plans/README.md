@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # Plans
@@ -12,7 +12,7 @@ last_reviewed: 2026-08-18
 
 当前尚无已经正式建立的实施 Plan。`v0.6.2` 将使用两份独立 Plan：首先实施 W0 Workspace MVP，完成 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离和进程内 WorkspaceAsset foundation；随后 W1 Chat Attachments 把 W0 已完成作为硬前置，再实现上传、解析、Context Compiler 和 Artifact promotion。
 
-[Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)已经裁定 Workspace 使用 `WorkspaceIdentity(owner_user_id, workspace_key, workspace_id)` 统一持有身份，MVP 固定 `workspace_id == workspace_key`，默认值为 `main_workspace`，并且 WorkspaceAsset 只承诺进程内生命周期。W0 待 AccessContext 公共模型、现有资产迁移、WorkspaceAssetStore/lease、失败矩阵和测试出口冻结后进入本目录；DocumentArtifact promotion 失败语义不再阻塞 W0，而由 W1 的独立 Plan 裁定。
+[Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)已经裁定 Workspace 使用 `WorkspaceIdentity(owner_user_id, workspace_key, workspace_id)` 统一持有身份，MVP 固定 `workspace_id == workspace_key`，默认值为 `main_workspace`，并且 WorkspaceAsset 只承诺进程内生命周期。`WorkspaceAccessContext` 使用唯一 `interaction_id` 关联一次 Chat run，不同时保存 request/run 两套关联 ID；其模型字段和传递链已经冻结。W0 的 WorkspaceAssetStore 由 System runtime 持有，可由极薄的单例 WorkspaceRuntime 聚合；WorkspaceAsset/AssetRepresentation 使用两级状态机，只有 READY 资产可进入 Chat/Topic binding，binding 则跟随 Patchouli SemanticBuffer。W0 待这些契约的代码落点、依赖注入、历史记录兼容投影、删除/lease/settle 矩阵和测试出口补齐后进入本目录；真实上传解析、用户重传、ContextAssetUse 与 DocumentArtifact promotion 由 W1 处理，历史数据批量转换则在 W0 基本落地和隔离验证通过后通过独立脚本执行。
 
 最近完成的 [v0.6.1 Local Work Queue Runtime](../archive/plans/v0.6.1-local-work-queue-runtime.md)
 已归档；当前运行时事实由 [System 运行时与总线](../system/runtime-and-bus.md#3-local-work-queue-runtime)

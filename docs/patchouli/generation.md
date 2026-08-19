@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_ideas:
   - docs/ideas/workspace-mvp-chat-attachments-design.md
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # 记忆生成
@@ -121,7 +121,7 @@ MemoryGenerationFamiliar 执行：
 
 Artifact 写入是 best effort，Qdrant upsert 失败则任务失败。详见[Artifacts 与来源追踪](./artifacts.md)。
 
-`v0.6.2` 候选设计不会在附件上传时创建 Artifact。Chat Attachments 接入后，GenerationRequest 将携带 Context Compiler 冻结的 `ContextAssetUse(representation revision/hash)`；Engine 得到 CREATE/UPDATE 后，Familiar 才把实际参与生成的文档 representation 提升为 DocumentArtifact，并将同一来源 ref 交给后续 MemoryCreation/Version Artifact。TOUCH、DISCARD、未进入上下文的选择都不执行 promotion。同一次 Materialization 产生多条 Memory 时复用同一来源 Artifact，重试也不得重复追加等价快照。
+`v0.6.2` 候选设计不会在附件上传时创建 Artifact。Chat Attachments 接入后，GenerationRequest 将携带随 Interaction/LogicalBlock 冻结的 `ContextAssetUse(representation revision/hash + hold)`；Engine/Familiar 不得回查可能已经随 Topic 消失的 TopicAssetBinding，也不得读取 System-owned WorkspaceAssetStore 中的“最新版本”。Engine 得到 CREATE/UPDATE 后，Familiar 才把实际参与生成的文档 representation 提升为 DocumentArtifact，并将同一来源 ref 交给后续 MemoryCreation/Version Artifact。TOUCH、DISCARD、未进入上下文的选择都不执行 promotion。同一次 Materialization 产生多条 Memory 时复用同一来源 Artifact，重试也不得重复追加等价快照。
 
 该链路尚未实现。正式 Plan 还必须裁定外源 promotion 失败时阻止 Memory upsert，还是显式保存 `provenance_incomplete`；当前 best-effort 行为不能被默认解释为来源完整。WorkspaceAsset 本身仍只是进程内工作资源，不进入 MemoryLibrary 的持久化层。完整候选契约见 [Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)。
 

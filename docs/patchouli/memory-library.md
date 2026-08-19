@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_ideas:
   - docs/ideas/workspace-mvp-chat-attachments-design.md
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # MemoryLibrary 与存储层
@@ -66,11 +66,14 @@ ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文
 
 `v0.6.2` 规划中的 WorkspaceAsset 不属于四种存储角色，也不是短期/中期/长期之间的新层级。它是按 user/workspace 逻辑分区的运行期工作资源，保存用户可通过 `WorkspaceAssetRef` 选择的附件及 RAW、EXTRACTED_TEXT 等 representations。MVP 只承诺当前进程内生命周期，不要求 ArtifactStore、LongTermMemoryStore 或另一个 durable adapter 保存它。
 
-WorkspaceAsset working set 可以由 Patchouli 在同一 Runtime 组合边界内统一管理，但不能被误写成 MemoryLibrary 的第五种持久化层：
+WorkspaceAssetStore 不由 Patchouli Runtime 或 MemoryLibrary 持有。`v0.6.2 W0` 将其装配在 System runtime 的进程级 Workspace 资源边界中，内部按 owner user + workspace 逻辑分区；MVP 可以使用极薄的单例 WorkspaceRuntime 聚合，也可以由 System runtime bundle 直接持有。Patchouli 只持有与自身 Topic 生命周期一致的关系和后续记忆副作用：
 
-- 上传成功只表示当前进程内的 asset/ref 可解析；
+- WorkspaceAsset/AssetRepresentation 的 PROCESSING、READY、FAILED、REMOVED 与 parse state 由 System-owned Store 维护；
+- 只有 required representation READY 的资产才能建立 Topic binding 或进入 Chat；解析失败不自动重试；
 - 进程重启后 ref 可以明确失效；
-- Topic binding 只建立可重复选择关系，不自动写 Artifact；
+- Topic binding 作为 SemanticBuffer 子关系只建立可重复选择关系，不自动写 Artifact；
+- manual settle/compact 后 Topic 仍存在时保留 binding，Topic pop/evict/delete 时随 buffer 清除；
+- 真正的来源记录是随 Interaction/LogicalBlock 进入 Materialization 的 ContextAssetUse，不是 binding；
 - 只有实际参与 Memory CREATE/UPDATE 的 representation，才在 Materialization 时创建独立 Artifact 快照；
 - Artifact 创建后按 ArtifactStore 契约存在，不依赖 WorkspaceAsset 是否仍在内存中。
 
@@ -93,7 +96,7 @@ SemanticBuffer
 
 这种设计保留了一个重要区分：话题结算只是提供候选材料，不等于每组 blocks 必然产生正式记忆。
 
-Chat Attachments 接入后，GenerationRequest 还会携带从 `ContextAssetUse` 冻结的 representation revision/hash。`DISCARD` 不提升附件来源；CREATE/UPDATE 只对真正参与生成的内容创建 DocumentArtifact 或其他来源 Artifact。该行为尚未实现，并且必须在正式 Plan 中裁定 promotion 失败时阻止 Memory 写入还是显式标记 provenance 不完整。
+Chat Attachments 接入后，Interaction/LogicalBlock 和结算 payload 会携带从 `ContextAssetUse` 冻结的 representation revision/hash 与有效 hold。TopicAssetBinding 可以在 Topic evict 时消失，Generation 不得回查 binding 或读取 WorkspaceAsset 的“最新版本”。`DISCARD` 不提升附件来源；CREATE/UPDATE 只对真正参与生成的内容创建 DocumentArtifact 或其他来源 Artifact。该行为尚未实现，并且必须在正式 Plan 中裁定 promotion 失败时阻止 Memory 写入还是显式标记 provenance 不完整。
 
 ### 2.2 中期到长期：archive
 

@@ -14,7 +14,7 @@ related_ideas:
   - ./ae2-hivememory-architecture-analogy.md
 related_plans:
   - ../plans/README.md
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # Workspace MVP 与 Chat Attachments 初步设计
@@ -79,13 +79,14 @@ Workspace、Topic Working Set 和 Run 必须分开建模：
 
 ### 2.3 WorkspaceAsset 的 MVP 生命周期
 
-Workspace 命名空间可以长期存在，但 MVP 中的 `WorkspaceAsset` 只承诺进程内生命周期。上传成功仅表示资产及其 runtime representations 已进入当前服务进程的 Workspace working set，并可在该进程仍存活时解析；它不表示原文件、解析结果、资产目录或引用已经跨重启持久化。
+Workspace 命名空间可以长期存在，但 MVP 中的 `WorkspaceAsset` 只承诺进程内生命周期。该 working set 由 System 层的进程级 Workspace 运行时资源持有，而不是由 Patchouli Runtime 或 MemoryLibrary 持有。上传成功仅表示资产及其 runtime representations 已进入当前服务进程，并在所需解析结果 READY 后可通过 ref 解析；它不表示原文件、解析结果、资产目录或引用已经跨重启持久化。
 
 这一限制与当前 Topic/SemanticBuffer 只存在于内存中的事实一致。MVP 必须保证：
 
 - `WorkspaceAssetRef` 在进程重启后允许失效，调用方应得到明确的 `ASSET_NOT_FOUND` 或 `ASSET_EXPIRED`，不能静默取得其他同名资产；
 - 已被 Topic/Interaction 引用的 asset 和 representation，至少保持到相关 Materialization 完成；
 - 零 Topic binding 的资产仍是合法的 Workspace 运行期资源，但可以随进程结束一起消失；
+- PROCESSING 或 FAILED 的资产可以暂时存在于 WorkspaceAssetStore，但不能建立 Topic binding 或进入 Chat run；
 - 一旦 representation 已提升为 Artifact，Artifact 按自己的持久化和不可变契约独立存在，不再依赖源 WorkspaceAsset 是否仍在内存中。
 
 MVP 可以使用内存对象保存小型文本内容，不要求先建设 durable Blob/Object Store。进程内生命周期是明确的产品契约，不应由实现细节含糊决定。
@@ -94,13 +95,15 @@ MVP 可以使用内存对象保存小型文本内容，不要求先建设 durabl
 
 ```mermaid
 flowchart LR
-    U["上传原始文件"] --> A["WorkspaceAsset<br/>稳定逻辑身份"]
-    A --> R["RAW representation<br/>进程内对象"]
-    R --> P["EXTRACTED_TEXT representation<br/>进程内解析结果"]
-    A -->|"首次 Chat 引用被接纳"| B["TopicAssetBinding<br/>当前话题可引用"]
+    U["上传原始文件"] --> S["System-owned WorkspaceRuntime<br/>WorkspaceAssetStore"]
+    S --> A["WorkspaceAsset<br/>PROCESSING"]
+    A --> R["RAW representation<br/>READY"]
+    R --> P["EXTRACTED_TEXT representation<br/>PENDING -> PROCESSING -> READY / FAILED"]
+    P -->|"解析成功"| AR["WorkspaceAsset<br/>READY"]
+    P -->|"解析失败"| AF["WorkspaceAsset<br/>FAILED，用户重新上传"]
+    AR -->|"Chat 路由完成后首次接纳"| B["SemanticBuffer.TopicAssetBinding<br/>当前话题可引用"]
     B --> C["Context Compiler<br/>授权、选择、预算、定位"]
-    R --> C
-    P --> C
+    P -->|"READY content"| C
     C --> V["Run-local Context View"]
     V --> PA["Prompt Assembler"]
     PA --> AG["Agent"]
@@ -117,7 +120,8 @@ flowchart LR
 2. 原始文件和解析文本是同一 WorkspaceAsset 内不同的 runtime representation；
 3. 话题绑定只提供可引用性，不代表自动注入；
 4. `ContextAssetUse` 只记录本轮实际进入上下文的 representation revision/hash，不记录所有曾经绑定或选择的资产；
-5. Artifact 在 Materialization 边界按需创建，不是把可变的 WorkspaceAsset 原地改名或搬运。
+5. WorkspaceAssetStore 是 System-owned 运行时资源，Topic binding 则跟随 Patchouli 的 SemanticBuffer；
+6. Artifact 在 Materialization 边界按需创建，不是把可变的 WorkspaceAsset 原地改名或搬运。
 
 ## 4. 必须在 Workspace MVP 中裁定的问题
 
@@ -208,11 +212,10 @@ Identity
 WorkspaceAccessContext
   actor_identity: Identity
   workspace_identity: WorkspaceIdentity
-  request_id?
-  interaction_id?
+  interaction_id
 ```
 
-该上下文是单次请求/Run 的作用域坐标，不是可绕过资源授权检查的永久 capability token。`WorkspaceIdentity.owner_user_id` 描述 Workspace 的所有者，`Identity.user_id` 描述当前执行者；两者相等是访问条件，不是可以互相覆盖的别名。第一版不需要实现显式 `WorkspaceGrant`；可以暂定同一 user 下的 Agent 均可进入该 user 的 Workspace，但只能访问当前 active Workspace 中符合 actor visibility 的资产。未来如需限制 Agent/Team 可进入哪些 Workspace，再增加独立的多对多 grant，不改变 Identity 或资产归属模型。
+`interaction_id` 是一次 Chat run 的唯一关联 ID：在 WorkspaceAccessContext 冻结前由 Chat 入口生成，随后由 ChatGenerationRun、PreparedAgentRun、InteractionPayload、finalize 和相关 work payload 复用。`request_id` 仍可作为 HTTP/transport 层日志追踪字段，但不再作为 WorkspaceAccessContext 的第二个关联字段。该上下文是单次请求/Run 的作用域坐标，不是可绕过资源授权检查的永久 capability token。`WorkspaceIdentity.owner_user_id` 描述 Workspace 的所有者，`Identity.user_id` 描述当前执行者；两者相等是访问条件，不是可以互相覆盖的别名。第一版不需要实现显式 `WorkspaceGrant`；可以暂定同一 user 下的 Agent 均可进入该 user 的 Workspace，但只能访问当前 active Workspace 中符合 actor visibility 的资产。未来如需限制 Agent/Team 可进入哪些 Workspace，再增加独立的多对多 grant，不改变 Identity 或资产归属模型。
 
 需要特别区分运行时状态和持久化事实：
 
@@ -248,6 +251,7 @@ HiveMemorySystem
   ├─ one PatchouliSystem
   │    └─ one MemoryLibrary
   ├─ one AliceSystem
+  ├─ one WorkspaceRuntime（MVP 可退化为 System 直接持有 WorkspaceAssetStore）
   ├─ one Work Queue Runtime
   ├─ one RuntimeEventBus
   └─ one Workspace Resolver（MVP 确定性构造，无持久化 Registry）
@@ -263,9 +267,11 @@ HiveMemorySystem
 | 状态 | 权威所有者 | Workspace MVP 中的职责 |
 |:---|:---|:---|
 | Workspace Resolver / 默认 Workspace | System | 确定性构造身份、解析默认值并建立访问上下文 |
-| WorkspaceAsset / representation / Topic binding | Patchouli runtime | 进程内资产 working set、话题工作集和读取路由 |
+| WorkspaceAsset / representation / parse state / lease | System / WorkspaceRuntime | 进程内资产 working set、解析结果状态、读取授权和删除可用性真相 |
+| TopicAssetBinding | Patchouli ShortTermMemoryStore / SemanticBuffer | Topic 内重复选择关系，随 Topic 的真实存在期存活 |
+| RunAssetSelection / ContextAssetUse | Chat run / Interaction / LogicalBlock | 单次 Run 的选择与实际使用快照，随 Materialization payload 继续存活 |
 | Artifact / Memory provenance | Patchouli / ArtifactStore | 持久化证据快照、创建与版本来源链 |
-| Context Compiler 输入视图 | Patchouli | 解析引用并生成本轮只读上下文 |
+| Context Compiler 输入视图 | Chat/prepare orchestration | 通过只读 AssetReader 或冻结 snapshot 解析引用，不取得 WorkspaceAssetStore 所有权 |
 | Run / Frame / PendingAtom | Alice | 运行期状态，不取得长期资产所有权 |
 | Chat run registry / WorkRecord | System / Work Queue | 控制状态，不属于 Workspace cache |
 | Prompt rendering | Alice prompt layer | 只渲染已编译上下文，不负责 I/O 和授权 |
@@ -282,6 +288,7 @@ HiveMemorySystem
 | Work Queue Runtime | 是 | payload、idempotency、ordering 和 retry 携带 scope |
 | RuntimeEventBus | 是 | event 投影可携带 Workspace，只用于观测 |
 | Provider/Model/Parser registry | 是 | MVP 继续作为全局能力定义 |
+| WorkspaceRuntime / WorkspaceAssetStore | 是 | 单个进程级容器，内部使用 owner user + workspace 逻辑分区 |
 | cache | 共享容器 | key 包含 scope，命中后由资源所有者重新授权 |
 | Run/Frame | 每次 Run 独立 | 保存冻结 scope，不成为 Workspace 长期资产 |
 
@@ -319,15 +326,34 @@ Workspace MVP 冻结以下规则：
 
 这与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)中“request/run/frame/work item 携带不可变身份快照和 scope”“资源所有者重验”“缓存不承载授权”的规则一致。Workspace MVP 需要把这些治理要求从后续目标提升为本功能的前置不变量，否则新增的资产轴会放大现有身份和缓存污染风险。
 
+#### 4.3.3 System-owned WorkspaceRuntime
+
+WorkspaceAsset 是用户在一次或多次 Topic/Run 中可能使用、也可能始终不使用的工作资源。它在上传和解析阶段尚未进入记忆生成链，因此不应由以 Perception、Retrieval、Generation、Lifecycle 和 MemoryLibrary 为中心的 Patchouli Runtime 持有。MVP 的权威所有者是 System runtime：`SystemAssembler._build_runtime()` 构造一个进程级、逻辑分区的 WorkspaceAssetStore，并将所需的窄接口显式注入应用服务或消费者。
+
+推荐的轻量组合为：
+
+```text
+_RuntimeBundle
+  workspace_runtime: WorkspaceRuntime
+
+WorkspaceRuntime
+  asset_store: WorkspaceAssetStore
+```
+
+如果 W0 为减少改动而暂时直接使用 `_RuntimeBundle.workspace_asset_store` 也可以接受，只要 Store 本身没有 Patchouli/Alice 依赖，且以后包入 WorkspaceRuntime 不改变公共契约。`WorkspaceRuntime` 只能有一个进程级实例，内部按 `(owner_user_id, workspace_id)` 逻辑分区；它不是“每个 Workspace 一个 Runtime”，不得保存 `current_workspace`，也不得演化为可被各层任意查询的 service locator。
+
+Parser/Provider registry 继续作为共享能力定义；解析器通过 WorkspaceAssetStore 的命名状态迁移提交结果，而不取得 Store 所有权。AtomCache、ProfileCache 等未来可以迁入这个进程级资源边界，但不属于 W0：迁移前必须先补齐 Workspace/actor-aware cache key、命中后重验和显式依赖注入，不能用“搬了容器”代替隔离治理。
+
 ### 4.4 Workspace、Topic 和 Run 的边界
 
 WorkspaceAsset、Topic 和单次 Chat Run 只通过显式引用建立关系。上传本身只创建 Workspace 资产，不创建 Topic 或 Run 关系。
 
-需要区分四种状态事实：
+需要区分五种状态事实：
 
 | 事实 | 建立时机 | 生命周期 | 推荐载体 |
 |:---|:---|:---|:---|
-| 资产存在于 Workspace | 上传完成 | 当前进程 / Workspace 级 | `WorkspaceAsset` |
+| 资产注册于 Workspace | upload operation 被接纳 | 当前进程 / Workspace 级 | `WorkspaceAsset` |
+| 资产已可用于 Chat | required representation READY | 当前进程 / Workspace 级 | `WorkspaceAsset.state` |
 | 用户为本轮选择资产 | 发送 ChatRequest | Run/Interaction 级 | `ChatRequest.asset_refs` / `RunAssetSelection` |
 | 资产与 Topic 关联 | 引用首次被该 Topic 接纳 | Topic 级 | `TopicAssetBinding` |
 | 内容被本轮实际使用 | Context Compiler 成功选入上下文 | Run/Interaction 级 | `ContextAssetUse` |
@@ -363,20 +389,20 @@ upload
 
 ```text
 chat(message, asset_refs, target=NEW_TOPIC)
-  -> 预校验 asset refs 的 user/workspace 归属和资源状态
+  -> 预校验 asset refs 的 user/workspace 归属和 READY 状态
   -> Gateway/Patchouli 确定唯一 Topic
   -> ensure TopicAssetBinding
   -> Context Compiler 编译本轮资产
   -> Alice 执行 Agent run
 ```
 
-路由前可以验证资产是否存在、是否属于当前 user/workspace、是否已删除，以及引用格式是否合法；但不建立 Topic binding，也不读取附件正文参与路由。
+路由前可以验证资产是否存在、是否属于当前 user/workspace、是否已 READY、是否已删除，以及引用格式是否合法；但不建立 Topic binding，也不读取附件正文参与路由。MVP 的文档附件只有在所需 `EXTRACTED_TEXT` representation 解析成功后才能参与 Chat；PROCESSING、FAILED 或 REMOVED 资产必须返回稳定错误并拒绝本轮接纳。
 
 TopicAssetBinding 的建立边界定义为：
 
-> 资产引用已经通过 user/workspace 校验，并被一个已完成路由的 ChatRequest 接纳。
+> 资产引用已经通过 user/workspace 与 READY 状态校验，并被一个已完成路由的 ChatRequest 接纳。
 
-不必等待 Agent 成功回复，也不必等待模型实际消费内容。解析失败、模型失败或 Run 被取消后，binding 默认保留，因为它记录用户已经把该资产带入这一 Topic 的意图；真正被模型消费的内容另由 `ContextAssetUse` 表达。无效、越权、已删除或完整性校验失败的引用不能建立 binding。
+不必等待 Agent 成功回复，也不必等待模型实际消费内容。binding 建立后，即使模型失败或 Run 被取消也默认保留，因为它记录用户已经把一个可用资产带入这一 Topic 的意图；真正被模型消费的内容另由 `ContextAssetUse` 表达。解析未完成、解析失败、越权、已删除或完整性校验失败的引用不能建立 binding。解析失败由明确状态返回给用户，MVP 不自动重试；用户再次上传时创建新的逻辑 WorkspaceAsset。
 
 Topic binding 必须幂等：
 
@@ -385,6 +411,16 @@ UNIQUE(owner_user_id, workspace_id, topic_id, asset_id)
 ```
 
 两个并发 Chat Run 首次引用同一资产时只能产生一条 binding。同一 WorkspaceAsset 可以分别绑定多个 Topic；从某个 Topic detach 只删除对应 binding，不删除进程内资产、其他 Topic 的关系或已经独立生成的 Artifact。
+
+MVP 中 `TopicAssetBinding` 跟随 `SemanticBuffer` 保存，由 `ShortTermMemoryStore` 通过 `ensure_asset_binding`、`detach_asset_binding` 和只读投影管理，调用方不得直接修改 buffer。binding 的生命周期跟随 Topic 是否真实存在，而不是跟随所有名为 settle 的动作：
+
+- IDLE/LRU/SHUTDOWN settle 随 Topic pop/evict 一并清除 binding；
+- manual settle 当前只 compact、不 evict，Topic 仍存在，因此 binding 保留；
+- token overflow 只 compact，binding 保留；
+- 显式 Topic delete/pop 清除整个 Topic working set；
+- 清空 blocks 或 reset content 默认不隐式 detach，除非产品用例明确要求删除 Topic。
+
+WorkspaceAsset 被删除时，System AssetStore 先使其不可再 resolve/bind；SemanticBuffer 中可能残留的 binding 不构成授权或可用性真相，应由应用服务幂等清理，或在读取 Topic assets 时过滤并顺手移除。
 
 #### 4.4.3 Run 选择与实际使用
 
@@ -403,7 +439,9 @@ ContextAssetUse
 
 `RunAssetSelection` 应关联稳定的 `interaction_id` 或 Chat operation identity，而不是只依赖低层 `frame_id`。`ContextAssetUse` 记录实际 representation 的 revision/hash、locator、token 数和编译状态，并作为 Materialization 的来源输入；在提升完成前它不持有 Artifact 身份。
 
-如果用户选择了附件，但解析失败或预算裁剪导致内容没有进入 Agent 上下文，该资产仍可以存在于 Topic Working Set，但不能被记录为本轮回答的有效来源。
+只有 READY 资产才允许形成 `RunAssetSelection` 和 Topic binding。如果用户选择的 READY 资产因预算裁剪或编译失败没有进入 Agent 上下文，binding 可以保留，但不能形成成功的 `ContextAssetUse`，也不能被记录为本轮回答的有效来源。
+
+TopicAssetBinding 不承担 provenance。`ContextAssetUse` 必须随对应 Interaction/LogicalBlock 被快照进 Topic Materialization payload；即使随后 Topic 被结算并 evict、binding 消失或用户删除 WorkspaceAsset，Materialization 仍通过冻结的 representation revision/hash 和有效 lease 得到本轮实际来源。
 
 #### 4.4.4 零 binding 资产与附件路由限制
 
@@ -496,6 +534,8 @@ HTTP / other adapter
 
 “锁定”表示一次 Run 的 user/agent/team/workspace 坐标不可被下游替换，不表示后续可以省略授权。资源所有者仍需根据该上下文重新验证 Workspace 状态和资源归属。
 
+一次 Active Chat 使用一个且仅一个 `interaction_id` 作为 Run 关联 ID。它必须在冻结 `WorkspaceAccessContext` 之前生成，并贯穿 ChatGenerationRun、Gateway、Patchouli prepare、Alice、finalize、InteractionPayload 和后台 work。HTTP `request_id` 可以继续存在于 transport/logging 层，但不进入该上下文模型。
+
 Active Chat 至少需要经过以下载体：
 
 ```text
@@ -515,8 +555,8 @@ WorkspaceAccessContext
 
 | 阶段 | Workspace scope 职责 |
 |:---|:---|
-| ChatApplicationService | 解析默认 Workspace，创建唯一不可变 AccessContext |
-| ChatGenerationRun | 保存 scope 或 scope fingerprint，供 cancel/status/event 校验 |
+| ChatApplicationService | 生成唯一 `interaction_id`，解析默认 Workspace，创建不可变 AccessContext |
+| ChatGenerationRun | 保存同一个 `interaction_id` 与 scope/fingerprint，供 cancel/status/event 校验 |
 | GatewayExecutionState | 将 AccessContext 作为初始化后不可覆盖的请求事实 |
 | Patchouli prepare | 在该 scope 内路由 Topic、检索 Memory、绑定资产和编译上下文 |
 | PreparedAgentRun | 冻结 prepare 结果与原始 AccessContext，供 finalize/cleanup 复用 |
@@ -595,12 +635,42 @@ MVP 不一定要立即修改所有枚举值，但契约必须明确：现有 `WO
 - 上传幂等键：`owner_user_id + workspace_id + actor + client_operation_id`；
 - 内容完整性：raw content hash；
 - 解析结果身份：`raw_hash + parser_id + parser_version + options_hash`；
-- Topic binding 唯一键：`workspace_id + topic_id + asset_id`；
+- Topic binding 唯一键：`owner_user_id + workspace_id + topic_id + asset_id`；
 - Artifact promotion 幂等键：`materialization_operation_id + representation_revision/hash + artifact_role`。
 
 同一进程内，相同 upload operation 重试应返回同一个 WorkspaceAsset。相同内容 hash 可以用于运行期内容对象去重，但不能自动合并两个用户层面的逻辑资产，也不形成跨重启恢复承诺。
 
-附件上传成功的必要条件是 WorkspaceAsset 及其 MVP 所需 runtime representations 已原子地进入当前进程 working set，并可立即通过返回的 ref 解析。上传路径不创建 Artifact，也不要求内容对象或资产目录耐久落盘。若注册资产后解析失败，应通过明确的 representation state 表达，不得返回一个看似可用但无法区分失败原因的引用。
+#### 4.9.1 Representation 与 Asset 两级状态机
+
+WorkspaceAssetStore 是两级状态的唯一写入者。`AssetRepresentation` 表达具体内容对象的生成过程：
+
+```text
+PENDING -> PROCESSING -> READY
+                      -> FAILED
+```
+
+- RAW representation 注册完成后可以直接是 READY；
+- EXTRACTED_TEXT 初始为 PENDING，解析开始后进入 PROCESSING；
+- READY 必须同时冻结 content object、content hash、producer/version 和 revision；
+- FAILED 在 MVP 中为终态，只保留稳定 error code 和可向用户披露的简短说明，不保存底层异常栈；
+- MVP 不实现 FAILED 到 PROCESSING 的自动 retry、retry wait、backoff 或 parser fallback；用户重新上传会创建新的逻辑 WorkspaceAsset。
+
+`WorkspaceAsset` 表达该逻辑资源能否被用户使用：
+
+```text
+PROCESSING -> READY
+           -> FAILED
+
+PROCESSING / READY / FAILED -> REMOVED
+```
+
+MVP 的文档资产明确 `required_representation_kind=EXTRACTED_TEXT`。RAW 已 READY 不能单独令 WorkspaceAsset READY；只有 required representation READY 后，asset ref 才能进入 Chat、Topic binding 和 Context Compiler。WorkspaceAsset state 由 Store 根据 required representation 和删除标记原子维护或推导，调用方不得分别修改两份状态。
+
+W1 的同步上传接口只有在 WorkspaceAsset 及所需 representation 已原子进入 working set 且 asset state 为 READY 时才返回可立即使用的 ref。若以后改成异步解析，可以返回 PROCESSING 状态供查询，但 ChatRequest 仍必须拒绝非 READY 资产。解析失败直接形成稳定错误并由用户决定是否重新上传，不触发后台自动重试。
+
+删除与解析完成可能并发。解析提交必须携带预期 asset/representation revision 或 parse operation token；WorkspaceAsset 已 REMOVED 后，晚到的 READY/FAILED 回调只能被拒绝或丢弃，不能把资产复活。FAILED 资产可以保留少量状态 metadata 供用户读取错误，但大块失败内容应在没有 lease 时尽快释放，并受进程内容量限制约束。
+
+同一 `client_operation_id` 的网络重放仍返回第一次创建的资产及其权威状态；这属于入口幂等，不是解析自动重试。用户显式重新上传必须使用新的 operation identity，并得到新的 asset ID。
 
 Materialization promotion 是另一条提交边界。它必须以记录的 representation revision/hash 建立幂等 Artifact 快照；重试不得读取更新后的 runtime representation，也不得重复追加同义 Artifact。
 
@@ -614,11 +684,20 @@ Materialization promotion 是另一条提交边界。它必须以记录的 repre
 - 进程结束：所有未提升的 WorkspaceAsset 和 representations 都可以消失；
 - Artifact retention：由持久化 provenance 自己的 append-oriented 保留策略管理。
 
-MVP 不需要为 WorkspaceAsset 设计跨重启 soft delete、tombstone 或完整垃圾回收。它只需要一个 in-process lease/hold 语义：已经被 `ContextAssetUse` 锁定且 Materialization 尚未完成的 representation 不能在处理中被删除。若内容已提升为 Artifact，用户后来取消选择、Topic detach、删除 WorkspaceAsset 或进程结束都不能删除既有 provenance；若只参与回答而没有生成 Memory，则不因此承诺形成持久化 Artifact。
+WorkspaceAssetStore 是资产可用性的唯一真相。删除跨越 System-owned AssetStore 与 Patchouli-owned Topic binding 时不建立伪跨 Store 事务，按以下顺序收敛：
+
+1. AssetStore 先把资产标记为 REMOVED，立即拒绝新的 resolve、bind 和 selection；
+2. System 应用服务再幂等请求清理各 SemanticBuffer 中的 binding；
+3. 清理失败留下的 dangling binding 不构成授权，`list_topic_assets` 必须过滤已 REMOVED/不存在的资产，并可顺手清除关系；
+4. 无活跃 lease 时释放内容对象；仍被进行中 Materialization 持有时只对用户隐藏，延迟到最后一个 hold 释放后回收。
+
+MVP 不需要跨重启 soft delete、durable tombstone 或完整垃圾回收；REMOVED 只是进程内并发控制状态。已经被 `ContextAssetUse` 锁定且 Materialization 尚未完成的 representation 不能在处理中被物理删除。若内容已提升为 Artifact，用户后来取消选择、Topic detach、删除 WorkspaceAsset 或进程结束都不能删除既有 provenance；若只参与回答而没有生成 Memory，则不因此承诺形成持久化 Artifact。
+
+Topic delete/pop 会自然丢弃 SemanticBuffer 内的 binding，但不回收 WorkspaceAsset。已经冻结的 `ContextAssetUse` 和 lease 也不随 binding 消失；当前 Run 是否因 Topic/Asset 删除而取消，由 Chat run control 的显式策略决定，不能由 binding 是否存在隐式决定。
 
 ### 4.11 Context Compiler 的读取契约
 
-当前 Patchouli 在 prepare 阶段编译 `memory_context`，Prompt Assembler 只负责将已准备内容渲染成消息。附件应复用相同分工。
+当前 Patchouli 在 prepare 阶段编译 `memory_context`，Prompt Assembler 只负责将已准备内容渲染成消息。附件应复用“先解析为只读上下文、再渲染”的分工，但 WorkspaceAssetStore 的 System 所有权并不强制 Context Compiler 也成为 Store 或 Patchouli 的一部分。W1 可以在 Chat/prepare orchestration 中放置编译器，并向其注入窄化的 `WorkspaceAssetReader`；不得让编译器通过 HiveMemorySystem 全局查找 Store。
 
 Context Compiler 负责：
 
@@ -636,10 +715,10 @@ Workspace MVP 不必实现完整的长文档编译器，但至少应冻结以下
 ```text
 resolve_asset(access_context, asset_ref)
 list_topic_assets(access_context, topic_id)
-resolve_representation(access_context, asset_id, preference)
+acquire_ready_representation(access_context, asset_id, preference)
 ```
 
-`resolve_representation` 返回的内容视图应在本轮编译期间保持稳定；Context Compiler 不能把“取最新”语义留给后续 Materialization。Prompt Assembler 只消费编译后的只读内容，不接收 WorkspaceAssetStore 或 ArtifactStore 句柄。
+`acquire_ready_representation` 原子验证 owner/workspace、asset READY、representation revision/hash 和读取权限，并返回本轮稳定 snapshot/lease。Context Compiler 不能把“取最新”语义留给后续 Materialization；Patchouli promotion 若需要内容，只能消费冻结的 `ContextAssetUse` 及其窄化 snapshot resolver/lease，不能回查 TopicAssetBinding，也不能取得可变 WorkspaceAssetStore。Prompt Assembler 只消费编译后的只读内容，不接收 WorkspaceAssetStore、WorkspaceRuntime 或 ArtifactStore 句柄。
 
 ## 5. 最小数据模型草案
 
@@ -661,8 +740,11 @@ WorkspaceIdentity
 WorkspaceAccessContext
   actor_identity: Identity
   workspace_identity: WorkspaceIdentity
-  request_id?
-  interaction_id?
+  interaction_id
+
+WorkspaceRuntime
+  asset_store: WorkspaceAssetStore
+  # one process-level instance; no current_workspace
 
 AssetOwnership
   workspace_identity: WorkspaceIdentity
@@ -683,8 +765,11 @@ WorkspaceAsset
   display_name
   media_type
   size_bytes
+  required_representation_kind: EXTRACTED_TEXT
   representations[]
-  lifecycle_state
+  state: PROCESSING | READY | FAILED | REMOVED
+  safe_error_code?
+  safe_error_message?
   created_at
 
 AssetRepresentation
@@ -698,7 +783,14 @@ AssetRepresentation
   derived_from_representation_id?
   producer
   producer_version
-  state
+  parse_operation_id?
+  state: PENDING | PROCESSING | READY | FAILED
+
+SemanticBuffer
+  workspace_identity
+  topic_id
+  blocks[]
+  topic_asset_bindings[]
 
 TopicAssetBinding
   workspace_identity
@@ -730,6 +822,10 @@ ContextAssetUse
   locators
   included_tokens
   compile_status
+  representation_lease_id?
+
+LogicalBlock / TopicMaterializeTask
+  context_asset_uses[]
 
 SourceArtifactPromotion
   materialization_operation_id
@@ -750,7 +846,9 @@ MemoryMeta / ArtifactMeta / TopicMeta
 
 `WorkspaceIdentity` 是 Workspace 聚合及其资产归属的统一值对象，应不可变、可序列化并在构造时完成非空和 MVP 等值校验。`AssetOwnership`、`AssetProvenance` 和 `AssetAccessPolicy` 表达三个不同的时间语义：归属定义资产在哪个 user/workspace 命名空间，provenance 记录历史创建者，access policy 决定当前执行者能否访问。实现时可以为了现有存储格式平铺 `owner_user_id/workspace_id/workspace_key`，但领域代码必须从同一份 `WorkspaceIdentity` 投影，不能让各字段分别成为权威来源。
 
-`RunAssetSelection` 表达用户请求选择，`ContextAssetUse` 表达系统实际送入 Agent 上下文的内容；二者不能合并。它们都应优先关联稳定的 `interaction_id`，低层 `run_id` 只作为可选运行坐标。MVP 中它们可以随当前 Topic/Interaction 保存在进程内，但 `ContextAssetUse` 至少要存活到 Materialization 完成，并冻结 representation revision/hash。
+WorkspaceAsset 与 AssetRepresentation 状态只能通过 WorkspaceAssetStore 的命名迁移改变；asset READY 是 required representation READY 的聚合结果，而不是独立可写布尔值。FAILED 不自动回到 PROCESSING，REMOVED 不允许被晚到解析结果复活。
+
+`TopicAssetBinding` 作为 SemanticBuffer 的子关系跟随 Topic working set；完整 owner/workspace 坐标由 buffer 与绑定写入时的 AccessContext 共同验证。`RunAssetSelection` 表达用户请求选择，`ContextAssetUse` 表达系统实际送入 Agent 上下文的内容；二者不能合并。它们都应优先关联稳定的 `interaction_id`，低层 `run_id` 只作为可选运行坐标。MVP 中它们可以随当前 Topic/Interaction 保存在进程内，但 `ContextAssetUse` 必须随 LogicalBlock/TopicMaterializeTask 至少存活到 Materialization 完成，并冻结 representation revision/hash 与对应 hold。
 
 `SourceArtifactPromotion` 是 Materialization 的幂等结果映射，不是用户可操作资源。实现可以把它并入 generation operation record，但必须能够在 retry 时判断同一来源快照是否已经生成 Artifact。WorkspaceAsset/representation 不保存反向 `artifact_ref` 作为生命周期依赖；需要审计时从 Memory provenance 或 promotion record 读取。
 
@@ -779,7 +877,7 @@ MUST resource.workspace_identity == access.workspace_identity
 MUST match_actor_visibility(access.actor_identity, ...)
 ```
 
-如果现有历史数据没有 Workspace 字段，应根据其 `user_id` 统一回填 `workspace_id="main_workspace"`，并在需要完整聚合时构造 `WorkspaceIdentity(owner_user_id=user_id, workspace_key="main_workspace", workspace_id="main_workspace")`，而不是长期保留可空字段。历史 `source_agent_id/team_id` 继续作为 provenance 和兼容访问策略输入，不能替代 Workspace 归属。
+Workspace MVP 不在系统落地前批量改写现有数据。对于尚未转换的历史记录，W0 只提供明确的 compatibility-read/filter projection：根据记录中的 `user_id` 临时构造 `WorkspaceIdentity(owner_user_id=user_id, workspace_key="main_workspace", workspace_id="main_workspace")`，并将缺失的 Workspace 归属解释为默认 Workspace；这只是存储适配器的迁移兼容，不是业务链路允许 `workspace_id or workspace_key` 的通用 fallback。历史 `source_agent_id/team_id` 继续作为 provenance 和兼容访问策略输入，不能替代 Workspace 归属。
 
 跨子系统公开方法应逐步从裸 `user_id/agent_id/workspace_id` 参数迁移为完整的 `WorkspaceAccessContext`。可持久化或可重试的 work item 使用其可序列化投影：
 
@@ -791,6 +889,23 @@ WorkScopeSnapshot
 ```
 
 scope snapshot 记录目标坐标，不缓存永久授权结果；handler 在每次 attempt 仍由资源所有者重验。
+
+#### 6.1.1 历史数据转换时机与脚本
+
+历史数据转换是 Workspace MVP 基本落地并通过双 Workspace 隔离验收后的后置运维步骤，不属于 W0 的启动前置或主链路副作用。系统先以新模型字段运行并验证作用域正确，再提供一次性、可复跑的转换脚本。
+
+脚本执行前的兼容查询必须满足：只有访问 `main_workspace` 且 `owner_user_id/user_id` 匹配时，查询才可以同时纳入 Workspace 字段缺失的历史记录；访问任何第二 Workspace 时都只能使用精确 `owner_user_id + workspace_id` filter，不能召回缺字段记录。所有 W0 新写入记录必须直接保存完整 WorkspaceIdentity 投影字段，不继续制造历史格式数据。
+
+脚本至少需要：
+
+- 对关键模型补充 `owner_user_id`、`workspace_key`、`workspace_id` 等新字段，并将缺失值归入对应用户的 `main_workspace`；
+- 将旧的 `MemoryVisibility` 序列化值映射为新枚举语义：旧 `PRIVATE -> PRIVATE`、旧 `WORKSPACE -> TEAM`、旧 `PUBLIC -> WORKSPACE`；
+- 对 Memory、Artifact、Topic 以及其他已纳入 Workspace 归属的记录执行一致转换，不只转换单一存储层；
+- 提供 dry-run、数量统计、冲突/歧义拒绝、幂等重跑和转换后读回校验；
+- 在实际写入前提供备份或可恢复快照，并记录脚本版本、执行时间和转换摘要；
+- 转换完成后再次运行只报告已完成，不重复追加枚举或覆盖已经确认的 WorkspaceIdentity。
+
+脚本完成前，兼容读取路径必须保持可观测；脚本完成并验证后，才能在后续维护中移除历史缺字段的兼容投影。Workspace MVP Plan 只冻结兼容投影和脚本契约，不把这次数据转换本身列为实现完成条件。
 
 ### 6.2 需要逻辑分区的缓存
 
@@ -830,9 +945,10 @@ Alias resolution cache key
 
 - 引入稳定的 Workspace/default Workspace 作用域；
 - 建立 WorkspaceAccessContext；
-- 建立只承诺进程内生命周期的 WorkspaceAsset working set；
-- 建立 RAW / EXTRACTED_TEXT runtime representation 与 revision/hash 契约；
-- 建立 TopicAssetBinding 和 asset reference；
+- 由 System runtime 建立只承诺进程内生命周期、按 WorkspaceIdentity 逻辑分区的 WorkspaceAssetStore；
+- 允许以极薄的单例 WorkspaceRuntime 聚合该 Store，但不建立每 Workspace 一套 Runtime；
+- 建立 WorkspaceAsset 与 AssetRepresentation 两级状态机、READY-only 使用规则、revision/hash 和进程内 lease 契约；
+- 在 SemanticBuffer/ShortTermMemoryStore 中建立 TopicAssetBinding 和 asset reference；
 - 让两个 Workspace 在同一进程内资源、Topic、Memory 和 cache 不串扰；
 - 为 Context Compiler、Materialization promotion 和 provenance 预留稳定读取契约。
 
@@ -841,6 +957,7 @@ Alias resolution cache key
 - multipart 上传界面；
 - 完整 MIME/parser registry；
 - PDF、DOCX、OCR 或多模态解析；
+- 解析失败后的自动 retry、backoff 或 parser fallback；
 - 长文档异步任务；
 - chunk、embedding、evidence 检索和候选记忆；
 - WorkspaceAsset、原始附件和解析结果的跨进程持久化与重启恢复；
@@ -848,37 +965,45 @@ Alias resolution cache key
 - Workspace Mount/Bridge；
 - 父子 Workspace 和 Capability Subnet；
 - 独立 Tool Registry、执行环境、预算和队列；
+- AtomCache、ProfileCache 等现有缓存的实际迁移；
 - 完整 RBAC、跨组织协作和多租户认证产品面；
 - 为每个 Workspace 实例化一套 Alice/Patchouli Runtime。
 
 ## 8. Walking Skeleton 验收
 
-Workspace MVP 至少应通过以下纵向场景：
+### 8.1 W0 Workspace MVP
 
-1. 为同一个 user 创建 `main_workspace` 和第二个仅供后端验证的 Workspace。
-2. 两个 Workspace 各自建立一个 Topic。
-3. 使用同一个 Agent，在两个 Workspace 分别注册同名的纯文本 WorkspaceAsset。
-4. 验证上传完成后资产的 Topic binding 数量为零。
-5. Chat Composer 自动把新上传的 asset ref 加入当前草稿，但服务端不存在 Workspace 级 pending attachment。
-6. ChatRequest 显式提交 asset refs，系统完成 Topic 路由后才幂等建立 TopicAssetBinding。
-7. 同一 Topic 的下一轮不自动注入已绑定资产；用户重新选择后才再次 resolve 内容。
-8. 验证 RunAssetSelection 与 ContextAssetUse 分离：选择但未成功编译的资产不形成 `ContextAssetUse`，也不被声明为回答来源。
-9. 同一 WorkspaceAsset 在另一个 Topic 首次使用时建立第二条独立 binding。
-10. 使用 Workspace A 的上下文访问 Workspace B 的 asset ID 被拒绝且不产生 binding。
-11. 两边使用相同 Agent、alias、文件名和 Topic 标题时，Memory 和 cache 不串扰。
-12. 两个并发 Run 首次引用同一 Topic/Asset 时只产生一条 binding。
-13. 同一进程内重复相同 upload operation 只产生一个逻辑资产，不在上传路径生成 Artifact。
-14. Topic detach 后，当前进程内的 WorkspaceAsset 和其他 Topic binding 仍然存在；已经提升的 Artifact 也不受影响。
-15. 零 binding 资产在当前进程中仍可再次选择，但不承诺跨重启存在。
-16. WorkspaceAssetRef 在进程重启后允许明确失效，不能解析到同名或复用 ID 的其他资产。
-17. `ContextAssetUse` 锁定 representation revision/hash；Materialization 不能改读最新内容，处理完成前相关对象不会被回收。
-18. Generation `DISCARD` 不生成外源 Artifact；Memory CREATE/UPDATE 只提升实际使用的文档 representation 为 `DocumentArtifact`。
-19. 同一 materialization retry 不重复创建来源 Artifact；promotion 完成后，源 WorkspaceAsset 消失不影响 Artifact 与 Memory provenance。
-20. 两个 Workspace 的并发 Chat 共用同一套 Gateway、Patchouli、Alice、MemoryLibrary 和 Work Queue 实例。
-21. 并发 Chat 的 Gateway、prepare、Alice、finalize 始终保持各自冻结的 AccessContext，不出现进程级 `current_workspace` 覆盖。
-22. 使用 Workspace A 的身份请求取消或查询 Workspace B 的 generation 被拒绝。
-23. 子 Frame、MTP 和 background retry 继承原 Run 的 user/workspace scope，不能回退到 `main_workspace` 或切换 Workspace。
-24. 任意深层资产操作缺少 Workspace scope 时显式失败，不静默选择默认 Workspace。
+Workspace MVP 不依赖真实上传或解析器，使用测试构造的资产和显式状态迁移验证以下场景：
+
+1. SystemAssembler 只构造一个进程级 WorkspaceRuntime/WorkspaceAssetStore；Gateway、Patchouli、Alice、MemoryLibrary、Work Queue 和总线也各只有一套共享实例。
+2. 为同一个 user 构造 `main_workspace` 和第二个仅供后端验证的 Workspace，并在两边各建立一个 Topic。
+3. 同一个 Agent 在两个 Workspace 注册同名纯文本 WorkspaceAsset，Store key、列表、resolve 和删除均不串扰。
+4. 新资产以 PROCESSING 开始；RAW 可以 READY，但 required EXTRACTED_TEXT 未 READY 时 asset 仍不可用。
+5. representation 按 PENDING -> PROCESSING -> READY/FAILED 单向迁移；required representation READY 原子推动 asset READY，FAILED 则推动 asset FAILED。
+6. PROCESSING、FAILED、REMOVED 和跨 Workspace asset ref 均不能建立 TopicAssetBinding、RunAssetSelection 或 representation lease。
+7. READY asset 在 Topic 路由完成后才能通过 ShortTermMemoryStore 幂等写入当前 SemanticBuffer；两个并发首次引用只产生一条 binding。
+8. manual settle 和 token-overflow compact 保留仍存在 Topic 的 binding；IDLE/LRU/SHUTDOWN evict 及显式 Topic delete/pop 自动清除该 buffer 的 binding。
+9. Topic detach 只删除对应 binding，不删除 WorkspaceAsset、其他 Topic binding 或既有 Artifact；零 binding 资产仍是合法进程内资源。
+10. WorkspaceAsset delete 先令资产 REMOVED 并拒绝新访问，再幂等清理 binding；残留 dangling binding 在读取时被过滤，不能恢复可用性。
+11. 删除与解析完成并发时，晚到 parse callback 不能把 REMOVED 资产复活；FAILED 不自动回到 PROCESSING。
+12. 已取得 lease 的 representation 在进行中 Materialization hold 结束前不会物理回收，但资产删除后不接受新的 resolve/bind。
+13. WorkspaceAssetRef 在进程重启后允许明确失效，不能解析到同名或复用 ID 的其他资产。
+14. 两个 Workspace 的并发 Chat 在 Gateway、prepare、Alice、finalize、子 Frame、MTP、cancel/status 和 background work 中始终保持各自冻结的 AccessContext，不出现 `current_workspace` 覆盖或默认回退。
+15. 两边使用相同 Agent、alias、文件名和 Topic 标题时，Memory、Artifact、Topic 和 cache 不串扰；任意深层资产操作缺少 Workspace scope 时显式失败。
+16. 脚本执行前，历史缺 Workspace 字段的记录只在对应用户的 `main_workspace` 兼容查询中可见，在第二 Workspace 中不可见；所有新写入记录都包含规范 WorkspaceIdentity 投影字段。
+
+### 8.2 W1 Chat Attachments 集成验收
+
+W1 在 W0 通过后再验证真实附件链路：
+
+1. 上传完成且 required representation READY 后才返回可用于 Chat 的 ref；解析失败返回稳定错误且不自动重试，用户重新上传得到新 asset ID。
+2. 相同 client upload operation 的网络重放返回同一逻辑资产及其权威状态，不在上传路径创建 Artifact。
+3. Chat Composer 自动把新上传 ref 加入当前草稿，但服务端不存在 Workspace 级 pending attachment；ChatRequest 显式提交本轮 asset refs。
+4. Topic binding 只提供后续重复选择，不自动把所有绑定资产注入下一轮；RunAssetSelection 与 ContextAssetUse 保持分离。
+5. 选择但未成功编译的 READY 资产可以保留 binding，但不形成成功 ContextAssetUse，也不被声明为回答来源。
+6. ContextAssetUse 锁定 representation revision/hash 与 hold，并随 Interaction/LogicalBlock 进入 TopicMaterializeTask；Topic/binding 随后消失不影响已接纳的 Materialization。
+7. Generation DISCARD 不生成外源 Artifact；Memory CREATE/UPDATE 只提升实际使用的文档 representation 为 DocumentArtifact。
+8. 同一 materialization retry 不重复创建来源 Artifact；promotion 完成后，源 WorkspaceAsset 消失不影响 Artifact 与 Memory provenance。
 
 权限和串扰矩阵至少包含：
 
@@ -895,7 +1020,7 @@ Workspace MVP 至少应通过以下纵向场景：
 
 核心成功条件是：
 
-> 两个 Workspace 通过同一套单例子系统并发运行时，Active Chat、Topic、Memory、Artifact、alias cache、background work 和 asset reference 都不会发生串扰；WorkspaceAsset 只存在于当前进程，而被提升的 Artifact 独立遵循持久化 provenance 契约。
+> 两个 Workspace 通过同一套单例子系统和 System-owned WorkspaceAssetStore 并发运行时，Active Chat、Topic、Memory、Artifact、alias cache、background work 和 asset reference 都不会发生串扰；Topic binding 跟随 SemanticBuffer，ContextAssetUse 跟随 Run/Materialization，而被提升的 Artifact 独立遵循持久化 provenance 契约。
 
 ## 9. Roadmap 建议
 
@@ -903,7 +1028,7 @@ Workspace MVP 与 Chat Attachments 应形成两份具有独立目标、非目标
 
 ```text
 Plan W0: Workspace MVP
-  -> scope、in-process working set、runtime representations、binding、幂等、隔离
+  -> scope、System-owned in-process working set、两级状态机、SemanticBuffer binding、lease、幂等、隔离
   -> 独立完成并通过双 Workspace 验收
 
 Plan W1: Chat Attachments
@@ -922,26 +1047,30 @@ v0.7.0 Document Ingestion
 
 ### 10.1 Workspace MVP Plan
 
-当前首先建立的正式 Plan 只覆盖 Workspace MVP。`WorkspaceIdentity` 的字段、默认值和 MVP 等值不变量已经在 4.1 冻结，不再把独立 ID 生成、Workspace Registry、附件上传、Context Compiler 或 Artifact promotion 作为本 Plan 的完成条件。
+当前首先建立的正式 Plan 只覆盖 Workspace MVP。`WorkspaceIdentity` 的字段、默认值和 MVP 等值不变量已经在 4.1 冻结；System-owned WorkspaceRuntime/WorkspaceAssetStore 与 SemanticBuffer-owned binding 已在 4.3/4.4 冻结；两级状态机、READY-only 使用和无自动解析重试已在 4.9 冻结；`WorkspaceAccessContext` 的三个字段和唯一 `interaction_id` 已在 4.2 冻结；端到端传递链已在 4.7 冻结；历史数据脚本的后置时机已在 6.1.1 冻结。不再把独立 ID 生成、Workspace Registry、数据批量转换、附件上传、真实解析、Context Compiler、缓存迁移或 Artifact promotion 作为本 Plan 的完成条件。
 
 Workspace MVP Plan 进入 `docs/plans` 前仍需补齐：
 
 - 具体受影响模块和迁移顺序；
-- `WorkspaceAccessContext = actor Identity + WorkspaceIdentity + request/run correlation` 的公共模型与 route 变更清单；
-- 默认 `main_workspace` 的入口解析、历史数据回填和第二 Workspace 测试构造方案；
+- 将已经冻结的 WorkspaceAccessContext 模型和 4.7 传递链映射到具体代码入口、DTO、route 签名和实施顺序；
+- 默认 `main_workspace` 入口解析、历史记录兼容 filter/projection 和第二 Workspace 测试构造的具体落点；
 - Memory、Artifact、Topic、cache 与 Work payload 从裸字段迁移到规范 Workspace 身份投影的方案；
-- 现有 `MemoryVisibility.WORKSPACE/PUBLIC` 与新 Workspace hard boundary 的兼容映射；
-- WorkspaceAsset in-process store、representation revision/hash 与生命周期 lease 的具体选型；
-- WorkspaceAsset 注册、Topic binding、删除和进程内重试的失败矩阵；
+- 将已冻结的 visibility 枚举映射落实到新枚举定义、兼容读取和后置转换脚本的模块清单；
+- 将已冻结的 System-owned WorkspaceAssetStore/可选薄 WorkspaceRuntime 映射到 `_RuntimeBundle`、Port、依赖注入和启停顺序；
+- 将已冻结的两级状态机、READY-only binding、late parse rejection、删除清理和 lease 契约映射到具体命令/API；
+- 将 TopicAssetBinding 落到 SemanticBuffer/ShortTermMemoryStore 命名方法、只读 Topic 投影和 settle/evict/delete 矩阵；
 - 两 Workspace 隔离、cache 污染、幂等和 provenance hold 的测试计划；
 - 完成后需要同步更新的当前设计文档、contracts 和 Roadmap 条目；
-- 将 `identity-and-execution-safety.md` 中的身份结构明确为 `AccessContext = actor Identity + WorkspaceIdentity + request/run correlation`，避免继续把执行者域与资产域写成同一个 Identity 层级。
+- 将 `identity-and-execution-safety.md` 中的身份结构明确为 `AccessContext = actor Identity + WorkspaceIdentity + interaction_id`，避免继续把执行者域与资产域写成同一个 Identity 层级。
+
+W0 通过验收后，再单独建立历史数据转换脚本的执行说明和回滚步骤；该脚本不是 Workspace MVP 主链路的一部分。
 
 ### 10.2 Chat Attachments Plan
 
 Chat Attachments 使用独立 Plan，并把“Workspace MVP 已完成且公共契约稳定”列为硬前置。以下问题不阻塞 Workspace MVP Plan，但必须在 Chat Attachments Plan 中冻结：
 
 - 上传 API、MIME/编码限制、解析器和内存资源预算；
+- 同步上传或异步 PROCESSING 查询协议，以及用户重新上传时的错误披露；
 - `ChatRequest.asset_refs`、Composer 默认选择和 Topic 复用协议；
 - `ContextAssetUse` 如何随 Interaction/LogicalBlock 进入 Topic Materialization；
 - Materialization promotion 的内容粒度、幂等和跨 Memory 复用；
@@ -961,7 +1090,7 @@ AccessContext
        -> owner_user_id
        -> workspace_key
        -> workspace_id
-  -> request/run correlation
+  -> interaction_id
 ```
 
 这不是推翻已有身份治理，而是把其中“不可变身份快照和 scope”原则具体化：Identity 描述执行者，WorkspaceIdentity 描述资产域，AccessContext 在一次 request/run 中冻结两者。

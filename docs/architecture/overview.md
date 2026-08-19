@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # HiveMemory 当前系统架构
@@ -43,7 +43,7 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 
 - 最新已发布 Git 标签：`v0.6.1`；
 - 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2`，状态为 Candidate；先建立独立的 W0 Workspace MVP Plan，W1 Chat Attachments 以其完成为硬前置；WorkspaceAsset 仅承诺进程内生命周期；
+- 下一计划版本：`v0.6.2`，状态为 Candidate；W0 先建立 System-owned WorkspaceAssetStore、Workspace scope、两级状态机和 SemanticBuffer binding，W1 Chat Attachments 以其完成为硬前置；WorkspaceAsset 仅承诺进程内生命周期；
 - 当前代码、构建与运行时版本：`0.6.1`，唯一声明位于 `src/hivememory/_version.py`；
 - 当前发布基线已经包含独立 Gateway、全局命令、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。

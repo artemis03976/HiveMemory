@@ -11,7 +11,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/passive-ingress.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-08-19
 ---
 
 # 感知与短期话题
@@ -47,6 +47,8 @@ LogicalBlock = TurnRecord + perception metadata
 ### 1.3 话题工作区：SemanticBuffer
 
 SemanticBuffer 是短期话题的可变工作区，保存 blocks、展示 title/summary、Page Folding 产生的 `state_summary`、状态、token 总量、最近访问时间和最近模型名。ShortTermMemoryStore 持有它；外部只读取不可变 `TopicData` / `TopicSnapshot`。
+
+`v0.6.2 W0` 候选设计将 `TopicAssetBinding` 作为 SemanticBuffer 的子关系，由 ShortTermMemoryStore 的命名方法幂等维护。它只记录 Topic 后续可重复选择哪些 READY WorkspaceAsset，不拥有 System-level WorkspaceAssetStore，也不承担 Artifact provenance。binding 跟随 Topic 的真实存在期：manual settle 和 token-overflow compact 不 evict Topic，因此保留；IDLE/LRU/SHUTDOWN evict 与显式 delete/pop 则随整个 buffer 清除。真正参与回答的 representation 由 `ContextAssetUse` 随 Interaction/LogicalBlock 快照进入结算载荷。该能力尚未实现。
 
 ## 2. 结构化摄入
 

@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_ideas:
   - docs/ideas/workspace-mvp-chat-attachments-design.md
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # Artifacts 与来源追踪
@@ -37,7 +37,7 @@ ArtifactStore
 
 Artifact 不进入普通向量检索，不承担 alias，也不因为某条记忆被合并就随之改写。相反，一份原始 InteractionArtifact 可以成为记忆创建或更新的 source artifact；一个 MemoryVersionArtifact 又可以记录某次完整状态变化。
 
-`WorkspaceAsset` 不属于 Artifact 层。它是 Chat Attachments 规划中的 Workspace 运行期工作资源，用户通过 `WorkspaceAssetRef` 选择，MVP 只承诺进程内生命周期。上传形成的 RAW、EXTRACTED_TEXT 等 runtime representation 不因为“可能成为证据”就预先写成 Artifact；`ArtifactRef` 也不作为用户可选择的附件引用。两者只在 Memory Materialization 时通过显式 promotion 建立单向关系，详见 [Workspace MVP 设计](../ideas/workspace-mvp-chat-attachments-design.md)。
+`WorkspaceAsset` 不属于 Artifact 层，也不由 Patchouli Runtime 持有。它是 System-owned Workspace runtime 中的工作资源，用户通过 `WorkspaceAssetRef` 选择，MVP 只承诺进程内生命周期。上传形成的 RAW、EXTRACTED_TEXT 等 runtime representation 不因为“可能成为证据”就预先写成 Artifact；`ArtifactRef` 也不作为用户可选择的附件引用。两者只在 Memory Materialization 时通过显式 promotion 建立单向关系，详见 [Workspace MVP 设计](../ideas/workspace-mvp-chat-attachments-design.md)。
 
 ## 2. 当前四种类型
 
@@ -119,7 +119,7 @@ WorkspaceAssetRef
 
 promotion 是创建新的不可变证据记录，不是把 WorkspaceAsset 原地改造成 Artifact。它只接受实际编译进上下文并参与该次 Memory CREATE/UPDATE 的 representation；仅上传、仅 Topic binding、本轮选择后被预算裁剪，或解析失败的内容都不能被宣称为记忆来源。
 
-`ContextAssetUse` 必须冻结 representation revision/hash，Materialization 不得回头读取 WorkspaceAsset 的“最新版本”。相同 materialization operation 的重试必须返回已有 promotion 结果，不能重复追加等价 Artifact；同一次 Materialization 产生多条 Memory 时，这些 Memory 的 creation/version records 应复用同一个已提升来源 Artifact。Artifact 一旦创建，便独立于进程内 WorkspaceAsset 的生命周期。
+`ContextAssetUse` 必须冻结 representation revision/hash 并随 Interaction/LogicalBlock 进入 Materialization；TopicAssetBinding 只用于重复选择，不能作为 provenance 或 promotion 输入。Materialization 不得回头读取 WorkspaceAsset 的“最新版本”。相同 materialization operation 的重试必须返回已有 promotion 结果，不能重复追加等价 Artifact；同一次 Materialization 产生多条 Memory 时，这些 Memory 的 creation/version records 应复用同一个已提升来源 Artifact。Artifact 一旦创建，便独立于 Topic binding 和进程内 WorkspaceAsset 的生命周期。
 
 ## 4. 存储与完整性
 

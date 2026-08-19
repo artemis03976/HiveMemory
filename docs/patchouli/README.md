@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # Patchouli
@@ -42,7 +42,7 @@ Patchouli 当前拥有：
 
 这里的“拥有”不是指每个模型都必须定义在 `patchouli/` 目录下。`TurnRecord`、`MemoryAtom`、`PendingAtomSettlement` 等跨模块模型位于 `core`，底层算法仍位于 `engines`；所有权指的是谁决定这些对象如何进入长期状态、谁负责持久化与演化，以及发生冲突时由谁维护权威事实。
 
-`v0.6.2` 候选设计拟把 WorkspaceAsset working set 与附件读取路由放在 Patchouli 的共享 Runtime 边界内，但该能力尚未实现。它不会成为每 Workspace 一套 Patchouli 实例，也不是 MemoryLibrary 的持久化第五层或 Artifact 的别名；MVP 仅承诺进程内生命周期，只有实际参与 Memory CREATE/UPDATE 的 representation 才在 Materialization 时提升为 Artifact。具体边界见 [Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)。
+`v0.6.2` 候选设计不会把 WorkspaceAsset working set 放进 Patchouli Runtime。WorkspaceAssetStore、representation parse state 与 lease 由 System runtime 的进程级 Workspace 资源边界持有；Patchouli 只在 SemanticBuffer 中拥有 TopicAssetBinding，并在 Materialization 时消费随 Interaction/LogicalBlock 冻结的 ContextAssetUse。它不会成为每 Workspace 一套 Patchouli 实例，也不是 MemoryLibrary 的持久化第五层或 Artifact 的别名；只有实际参与 Memory CREATE/UPDATE 的 representation 才提升为 Artifact。该能力尚未实现，具体边界见 [Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)。
 
 ### 1.2 Patchouli 不拥有什么
 
@@ -51,6 +51,7 @@ Patchouli 不负责：
 - 解释原始入口消息、识别系统命令或形成 `GatewayDecision`；
 - 运行 Agent loop、控制模型生成、执行工具或编排子 Agent；
 - 拥有 System 的 chat/passive ingress 用例、全局维护时钟或跨系统取消；
+- 持有 WorkspaceAssetStore、执行附件上传/解析重试，或把 TopicAssetBinding 当作 Artifact provenance；
 - 把检索结果无条件解释为正确事实；
 - 把 `WRITE` / `UPDATE` 的即时 ACK 当作正式记忆已经持久化；
 - 为任意不受信任内容提供执行沙箱。

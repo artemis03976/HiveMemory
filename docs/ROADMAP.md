@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-18
+last_reviewed: 2026-08-19
 ---
 
 # HiveMemory 开发路线图
@@ -116,7 +116,7 @@ last_reviewed: 2026-08-18
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.2 W0` Workspace MVP | Candidate | 建立 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 逻辑隔离和仅承诺进程内生命周期的 WorkspaceAsset foundation | 依赖 v0.6.1 与 Identity scope；[Workspace MVP 设计](./ideas/workspace-mvp-chat-attachments-design.md)，独立正式 Plan 待建立 |
+| `v0.6.2 W0` Workspace MVP | Candidate | 建立 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 SemanticBuffer binding | 依赖 v0.6.1 与 Identity scope；[Workspace MVP 设计](./ideas/workspace-mvp-chat-attachments-design.md)，独立正式 Plan 待建立 |
 | `v0.6.2 W1` Chat Attachments | Candidate | 在已经验收的 Workspace 公共契约上实现上传、文本解析、asset refs、Context Compiler 与按需 Artifact promotion | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；独立正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -148,15 +148,17 @@ last_reviewed: 2026-08-18
 
 Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspace_id)` 统一持有身份。MVP 不启用独立 ID 生成器，固定 `workspace_id == workspace_key`；默认身份使用 `workspace_key=workspace_id="main_workspace"`。完整资源坐标是 `(owner_user_id, workspace_id)`，所有对外协议、store、cache、filter、event 和 work payload 只使用非空 `workspace_id` 寻址，不允许在内部执行 `workspace_id or workspace_key` fallback。
 
-普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。进入 Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 后，`WorkspaceAccessContext` 必须冻结 actor Identity 与 WorkspaceIdentity；同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
+普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。一次 Chat run 使用唯一 `interaction_id`，并由 `WorkspaceAccessContext` 与 actor Identity、WorkspaceIdentity 一起冻结；Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 必须复用同一上下文。同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
 
-W0 还负责建立进程内 WorkspaceAsset working set、runtime representation、Topic binding 和引用基础，但不实现真实附件上传、解析、Context Compiler 或 Artifact promotion。WorkspaceAsset 只承诺当前进程内生命周期。
+W0 还负责由 System runtime 建立一个进程级、按 WorkspaceIdentity 逻辑分区的 WorkspaceAssetStore；实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease，并把 TopicAssetBinding 放入 Patchouli 的 SemanticBuffer/ShortTermMemoryStore。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
+
+现有持久化数据不在 W0 落地前批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`；待系统基本落地且双 Workspace 隔离验证通过后，再提供独立转换脚本，应用新的 visibility 枚举值并补齐 Memory、Artifact、Topic 等关键记录的 WorkspaceIdentity 投影字段。
 
 #### 4.2.2 W1 Chat Attachments
 
-W1 把上传文件注册到 W0 已建立的 `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations，由 `WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。
+W1 把上传文件注册到 W0 已建立的 System-owned `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations；只有 required representation 解析 READY 后，asset ref 才能进入 Chat 和 Topic binding。解析失败直接向用户返回稳定错误且不自动重试，用户重新上传创建新的逻辑资产。`WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。
 
-上传、Topic binding 和本轮选择都不创建 Artifact。Context Compiler 必须记录实际进入 Agent 上下文的 representation revision/hash；当 Topic Materialization 得到 Memory CREATE/UPDATE 时，再将真正参与该次记忆生成的内容提升为不可变来源 Artifact，并挂入 Memory creation/version provenance。`DISCARD`、未编译成功或只绑定未使用的附件不产生外源 Artifact。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；WorkspaceAsset 随进程消失后，已提升 Artifact 仍按持久化证据契约存在。
+上传、Topic binding 和本轮选择都不创建 Artifact。Topic binding 跟随 SemanticBuffer，只服务 Topic 内重复选择；Context Compiler 必须形成随 Interaction/LogicalBlock 进入 Materialization 的 `ContextAssetUse`，记录实际进入 Agent 上下文的 representation revision/hash 与 hold。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，再将真正参与该次记忆生成的内容提升为不可变来源 Artifact，并挂入 Memory creation/version provenance。`DISCARD`、未编译成功或只绑定未使用的附件不产生外源 Artifact。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；Topic/binding 或 WorkspaceAsset 随进程消失后，已接纳的 ContextAssetUse 与已提升 Artifact 分别按自身契约存在。
 
 当前只支持的文档型附件在提升时复用 `DocumentArtifact`，并通过 `origin=CHAT_ATTACHMENT`、源 asset/revision、parser version 和 content hash 等 metadata 与 `v0.7.0` Document Ingestion 区分入口。Artifact 类型按内容语义而不是入口选择；未来非文档附件不能被强塞进 DocumentArtifact。附件还必须复用 v0.6.1 的 operation identity 与重试语义：同一进程内相同 upload operation 只返回一个逻辑资产，同一 materialization retry 不重复生成来源 Artifact。
 
