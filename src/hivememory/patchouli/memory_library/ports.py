@@ -22,9 +22,12 @@ from hivememory.core.models import (
     WorkspaceTopicKey,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
-from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.engines.lifecycle.models import ArchiveRecord
+from hivememory.patchouli.memory_library.buffer import SemanticBuffer
+from hivememory.patchouli.memory_library.models import (
+    ArtifactIntegrityResult,
+    StorageHealthComponent,
+)
 
 if TYPE_CHECKING:
     from hivememory.engines.retrieval.models import QueryFilters
@@ -209,20 +212,33 @@ class ArtifactStoragePort(ABC):
     async def put(self, artifact: BaseArtifact) -> ArtifactRef: ...
 
     @abstractmethod
-    async def get(self, ref_or_id: "ArtifactRef | str") -> Dict[str, Any]: ...
+    async def get(
+        self,
+        access_context: WorkspaceAccessContext,
+        ref_or_id: "ArtifactRef | str",
+    ) -> Dict[str, Any]: ...
 
     @abstractmethod
-    async def exists(self, artifact_id: str) -> bool: ...
+    async def exists(
+        self,
+        access_context: WorkspaceAccessContext,
+        artifact_id: str,
+    ) -> bool: ...
 
     @abstractmethod
     async def list_by_memory(
         self,
+        access_context: WorkspaceAccessContext,
         memory_id: str,
         artifact_type: Optional[ArtifactType] = None,
     ) -> List[ArtifactRef]: ...
 
     @abstractmethod
-    async def verify(self, ref: ArtifactRef) -> "ArtifactIntegrityResult": ...
+    async def verify(
+        self,
+        access_context: WorkspaceAccessContext,
+        ref: ArtifactRef,
+    ) -> ArtifactIntegrityResult: ...
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="artifact", healthy=True, required=False)

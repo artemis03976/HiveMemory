@@ -7,14 +7,15 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     MemoryAtom,
+    MemoryCreationContext,
     PendingAtomResolution,
     PendingAtomSettlement,
     WorkspaceAccessContext,
     require_workspace_access_context,
 )
-from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     ArtifactRef,
     MemoryEventLog,
@@ -69,8 +70,12 @@ class MemoryGenerationFamiliar:
         """
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
+            spec.request.creation_context,
         )
-        return await self._run_generation(spec, interaction_ref=interaction_ref)
+        return await self._run_generation(
+            spec,
+            interaction_ref=interaction_ref,
+        )
 
     async def create_external_memory(
         self,
@@ -280,6 +285,7 @@ class MemoryGenerationFamiliar:
     async def _capture_interaction_artifact(
         self,
         interaction_input: InteractionArtifactInput | None,
+        creation_context: MemoryCreationContext,
     ) -> ArtifactRef | None:
         """
         构建原始交互 artifact。
@@ -294,6 +300,7 @@ class MemoryGenerationFamiliar:
                 topic_title=interaction_input.topic_title,
                 topic_summary=interaction_input.topic_summary,
                 blocks=interaction_input.blocks,
+                creation_context=creation_context,
             )
         except Exception:
             logger.warning("Failed to build interaction artifact", exc_info=True)
@@ -436,6 +443,8 @@ class MemoryGenerationFamiliar:
     def _append_artifact_ref_once(atom: MemoryAtom, ref: ArtifactRef | None) -> None:
         if ref is None:
             return
+        if ref.workspace_identity != atom.workspace_identity:
+            raise WorkspaceMismatchError(details={"artifact_id": ref.artifact_id})
         refs = atom.payload.artifacts.refs
         exists = any(
             existing.artifact_id == ref.artifact_id

@@ -1,193 +1,145 @@
-"""
-MemoryArtifactBuilder 单元测试
+"""Memory Artifact Builder 的 Workspace 归属与 provenance 行为测试。"""
 
-覆盖：
-- build_for_create: v1 VersionArtifact 先写, CreationArtifact 后写, initial_version_ref 正确
-- build_for_create: MemoryCreationArtifact 不含 alias/title/tags
-- build_for_create: snapshot_after 保存全量可变字段
-- build_for_update: snapshot_before/after 正确, 返回 ArtifactRef
-"""
-
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import pytest
+
+from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+)
 from hivememory.core.models.artifact import (
-    ArtifactRef, ArtifactType,
-    MemoryCreationArtifact, MemoryVersionArtifact, MemoryVersionSnapshot,
+    ArtifactType,
+    InteractionArtifact,
+    MemoryVersionSnapshot,
 )
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
 from hivememory.engines.generation.models import GenerationContext
+from hivememory.patchouli.memory_library.adapters.artifact import (
+    FilesystemArtifactStorageAdapter,
+)
+from hivememory.patchouli.memory_library.stores import ArtifactStore
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_access_context
 
 
-def _ref(artifact_type: ArtifactType = ArtifactType.MEMORY_VERSION) -> ArtifactRef:
-    return ArtifactRef(
-        artifact_id=str(uuid4()),
-        artifact_type=artifact_type,
-        uri="/tmp/fake.json",
-        sha256="abc123",
-        created_at=datetime.now(),
+@pytest.fixture
+def access():
+    return make_access_context(
+        user_id="u1",
+        agent_id="source-agent",
+        workspace_id="main_workspace",
     )
 
 
-def _make_atom():
-    from hivememory.core.models.memory import MemoryAtom, IndexLayer, PayloadLayer, MetaData, Artifacts
-    from hivememory.core.models import MemoryType, Identity
-    atom = MagicMock()
-    atom.id = uuid4()
-    atom.meta = MagicMock()
-    atom.meta.version = 1
-    atom.index = MagicMock()
-    atom.index.alias = "my-alias"
-    atom.index.title = "Test Title"
-    atom.index.summary = "Test summary"
-    atom.index.tags = ["tag1", "tag2"]
-    atom.index.memory_type = MagicMock()
-    atom.index.memory_type.value = "FACT"
-    atom.payload = MagicMock()
-    atom.payload.content = "Initial content"
-    return atom
-
-
-def _make_context() -> GenerationContext:
-    ctx = MagicMock(spec=GenerationContext)
-    ctx.model_dump.return_value = {"turns": [], "state_summary": ""}
-    return ctx
-
-
 @pytest.fixture
-def store():
-    """Mock ArtifactStore that records put calls."""
-    store = MagicMock()
-    call_order = []
-
-    async def put(artifact, *, namespace=None):
-        call_order.append(type(artifact).__name__)
-        ref = _ref(artifact.artifact_type)
-        return ref
-
-    store.put = AsyncMock(side_effect=put)
-    store._call_order = call_order
-    return store
+def store(tmp_path):
+    return ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
 
 
-@pytest.fixture
-def builder(store):
-    return MemoryArtifactBuilder(store)
+def _make_atom(access, *, memory_id=None, source_agent_id="source-agent") -> MemoryAtom:
+    return MemoryAtom(
+        id=memory_id or uuid4(),
+        meta=make_memory_metadata(
+            source_agent_id=source_agent_id,
+            user_id=access.workspace_identity.owner_user_id,
+            workspace_id=access.workspace_identity.workspace_id,
+        ),
+        index=IndexLayer(
+            title="Test Title",
+            summary="A test memory summary with enough detail",
+            tags=["tag1", "tag2"],
+            memory_type=MemoryType.FACT,
+            alias="my-alias",
+        ),
+        payload=PayloadLayer(content="Initial content"),
+    )
 
-
-# ── build_for_create ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_build_for_create_returns_bundle(builder):
-    atom = _make_atom()
+async def test_build_for_create_persists_scoped_artifacts_and_links_initial_version(
+    store,
+    access,
+):
+    atom = _make_atom(access)
+    builder = MemoryArtifactBuilder(store)
+
     bundle = await builder.build_for_create(
         memory=atom,
-        context=_make_context(),
+        context=GenerationContext(),
         source_intent="WRITE",
         source_artifact_refs=[],
     )
+
     assert isinstance(bundle, MemoryCreationBundle)
-    assert bundle.initial_version_ref.artifact_type == ArtifactType.MEMORY_VERSION
-    assert bundle.creation_ref.artifact_type == ArtifactType.MEMORY_CREATION
-    assert bundle.refs == [bundle.initial_version_ref, bundle.creation_ref]
-
-
-def test_empty_creation_bundle_has_no_refs():
-    assert MemoryCreationBundle().refs == []
-
-
-@pytest.mark.asyncio
-async def test_build_for_create_v1_written_before_creation(builder, store):
-    """v1 MemoryVersionArtifact 必须先于 MemoryCreationArtifact 写入。"""
-    atom = _make_atom()
-    await builder.build_for_create(
-        memory=atom, context=_make_context(),
-        source_intent="ARCHIVE", source_artifact_refs=[],
-    )
-    assert store._call_order == ["MemoryVersionArtifact", "MemoryCreationArtifact"]
-
-
-@pytest.mark.asyncio
-async def test_build_for_create_initial_version_ref_set(builder, store):
-    """MemoryCreationArtifact.initial_version_ref 指向 v1 ref。"""
-    written = []
-
-    async def capture(artifact, *, namespace=None):
-        written.append(artifact)
-        return _ref(artifact.artifact_type)
-
-    store.put = AsyncMock(side_effect=capture)
-    atom = _make_atom()
-    bundle = await builder.build_for_create(
-        memory=atom, context=_make_context(),
-        source_intent="WRITE", source_artifact_refs=[],
-    )
-    creation: MemoryCreationArtifact = written[1]
-    assert creation.initial_version_ref.artifact_id == bundle.initial_version_ref.artifact_id
+    version = await store.get(access, bundle.initial_version_ref)
+    creation = await store.get(access, bundle.creation_ref)
+    assert version["artifact_type"] == ArtifactType.MEMORY_VERSION.value
+    assert creation["artifact_type"] == ArtifactType.MEMORY_CREATION.value
+    assert version["workspace_identity"] == access.workspace_identity.model_dump()
+    assert creation["initial_version_ref"]["artifact_id"] == bundle.initial_version_ref.artifact_id
+    assert version["owner_agent_id"] == "source-agent"
+    assert creation["owner_agent_id"] == "source-agent"
+    assert version["snapshot_after"]["content"] == "Initial content"
+    assert version["snapshot_after"]["alias"] == "my-alias"
+    assert version["snapshot_after"]["title"] == "Test Title"
+    assert set(version["snapshot_after"]["tags"]) == {"tag1", "tag2"}
+    assert version["snapshot_after"]["memory_type"] == "FACT"
+    assert creation["title"] == ""
+    assert "alias" not in creation
+    assert "tags" not in creation
 
 
 @pytest.mark.asyncio
-async def test_build_for_create_snapshot_captures_all_fields(builder, store):
-    """v1 snapshot_after 包含所有可变字段。"""
-    captured = []
+async def test_build_for_update_keeps_memory_provenance_and_scope(store, access):
+    atom = _make_atom(access)
+    atom.meta.version = 3
+    builder = MemoryArtifactBuilder(store)
 
-    async def capture(artifact, *, namespace=None):
-        captured.append(artifact)
-        return _ref(artifact.artifact_type)
-
-    store.put = AsyncMock(side_effect=capture)
-    atom = _make_atom()
-    await builder.build_for_create(
-        memory=atom, context=_make_context(),
-        source_intent="WRITE", source_artifact_refs=[],
-    )
-    v1: MemoryVersionArtifact = captured[0]
-    snap = v1.snapshot_after
-    assert snap.content == "Initial content"
-    assert snap.alias == "my-alias"
-    assert snap.title == "Test Title"
-    assert snap.tags == ["tag1", "tag2"]
-    assert snap.memory_type == "FACT"
-    assert v1.snapshot_before is None
-
-
-# ── build_for_update ─────────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_build_for_update_returns_ref(builder):
-    atom = _make_atom()
-    atom.meta.version = 2
-    snapshot_before = MemoryVersionSnapshot(content="old content", title="Old Title")
     ref = await builder.build_for_update(
         memory_after=atom,
-        snapshot_before=snapshot_before,
-        update_source="UPDATE",
+        snapshot_before=MemoryVersionSnapshot(content="old", title="Old"),
+        update_source="MERGE",
         changelog="Updated reason",
     )
-    assert ref.artifact_type == ArtifactType.MEMORY_VERSION
+
+    data = await store.get(access, ref)
+    assert data["artifact_type"] == ArtifactType.MEMORY_VERSION.value
+    assert data["version_number"] == 3
+    assert data["update_source"] == "MERGE"
+    assert data["workspace_identity"] == access.workspace_identity.model_dump()
+    assert data["owner_agent_id"] == atom.meta.source_agent_id
 
 
 @pytest.mark.asyncio
-async def test_build_for_update_snapshot_before_and_after(builder, store):
-    captured = []
-
-    async def capture(artifact, *, namespace=None):
-        captured.append(artifact)
-        return _ref(artifact.artifact_type)
-
-    store.put = AsyncMock(side_effect=capture)
-    atom = _make_atom()
-    atom.meta.version = 3
-    snapshot_before = MemoryVersionSnapshot(content="old", title="Old")
-    await builder.build_for_update(
-        memory_after=atom,
-        snapshot_before=snapshot_before,
-        update_source="MERGE",
+async def test_builder_rejects_source_ref_from_another_workspace(store, access):
+    other = make_access_context(
+        user_id="u1",
+        agent_id="other-agent",
+        workspace_id="isolation_workspace",
     )
-    v: MemoryVersionArtifact = captured[0]
-    assert v.snapshot_before.content == "old"
-    assert v.snapshot_after.content == "Initial content"
-    assert v.version_number == 3
-    assert v.update_source == "MERGE"
+    source = await store.put(
+        InteractionArtifact(
+            artifact_id="source-artifact",
+            workspace_identity=other.workspace_identity,
+            owner_agent_id="other-agent",
+            topic_id="other-topic",
+            created_at=datetime(2026, 1, 1),
+        )
+    )
+    atom = _make_atom(access)
+    builder = MemoryArtifactBuilder(store)
+
+    with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
+        await builder.build_for_create(
+            memory=atom,
+            context=GenerationContext(),
+            source_intent="WRITE",
+            source_artifact_refs=[source],
+        )
+
+    assert await store.list_by_memory(access, str(atom.id)) == []

@@ -37,13 +37,15 @@ from hivememory.core.models import (
     WorkspaceIdentity,
     WorkspaceMemoryKey,
     WorkspaceTopicKey,
-    require_workspace_access_context,
     require_memory_read_scope,
+    require_workspace_access_context,
 )
+from hivememory.core.models.artifact import ArtifactRef
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import (
+    ArtifactIntegrityResult,
     StorageHealthComponent,
 )
 from hivememory.patchouli.memory_library.ports import (
@@ -544,20 +546,37 @@ class ArtifactStore:
     def __init__(self, port: ArtifactStoragePort) -> None:
         self._port = port
 
-    async def put(self, artifact) -> "ArtifactRef":
+    async def put(self, artifact) -> ArtifactRef:
         return await self._port.put(artifact)
 
-    async def get(self, ref_or_id) -> dict:
-        return await self._port.get(ref_or_id)
+    async def get(self, access_context: WorkspaceAccessContext, ref_or_id) -> dict:
+        access_context = require_workspace_access_context(access_context)
+        return await self._port.get(access_context, ref_or_id)
 
-    async def exists(self, artifact_id: str) -> bool:
-        return await self._port.exists(artifact_id)
+    async def exists(
+        self,
+        access_context: WorkspaceAccessContext,
+        artifact_id: str,
+    ) -> bool:
+        access_context = require_workspace_access_context(access_context)
+        return await self._port.exists(access_context, artifact_id)
 
-    async def list_by_memory(self, memory_id: str, artifact_type=None) -> list:
-        return await self._port.list_by_memory(memory_id, artifact_type)
+    async def list_by_memory(
+        self,
+        access_context: WorkspaceAccessContext,
+        memory_id: str,
+        artifact_type=None,
+    ) -> list:
+        access_context = require_workspace_access_context(access_context)
+        return await self._port.list_by_memory(access_context, memory_id, artifact_type)
 
-    async def verify(self, ref) -> "ArtifactIntegrityResult":
-        return await self._port.verify(ref)
+    async def verify(
+        self,
+        access_context: WorkspaceAccessContext,
+        ref,
+    ) -> ArtifactIntegrityResult:
+        access_context = require_workspace_access_context(access_context)
+        return await self._port.verify(access_context, ref)
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()

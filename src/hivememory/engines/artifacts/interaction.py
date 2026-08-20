@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Sequence
 
-from hivememory.core.models import LogicalBlock
+from hivememory.core.models import LogicalBlock, MemoryCreationContext
 from hivememory.core.models.artifact import (
     ArtifactRef,
     InteractionArtifact,
@@ -29,8 +29,11 @@ class InteractionArtifactBuilder:
         topic_title: str = "",
         topic_summary: str = "",
         blocks: Sequence[LogicalBlock],
+        creation_context: MemoryCreationContext,
     ) -> ArtifactRef | None:
         artifact = InteractionArtifact(
+            workspace_identity=creation_context.workspace_identity,
+            owner_agent_id=creation_context.actor_identity.agent_id,
             topic_id=topic_id,
             topic_title=topic_title,
             topic_summary=topic_summary,
@@ -48,6 +51,7 @@ class NoOpInteractionArtifactBuilder:
         topic_title: str = "",
         topic_summary: str = "",
         blocks: Sequence[LogicalBlock],
+        creation_context: MemoryCreationContext,
     ) -> ArtifactRef | None:
         return None
 

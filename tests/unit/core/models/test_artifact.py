@@ -1,7 +1,10 @@
 from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
+
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from hivememory.core.models.artifact import MemoryVersionSnapshot
+from hivememory.core.models.artifact import InteractionArtifact, MemoryVersionSnapshot
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -27,3 +30,9 @@ def test_memory_version_snapshot_from_memory_atom_captures_mutable_fields():
     assert snapshot.summary == "A test memory summary"
     assert set(snapshot.tags) == {"tag1", "tag2"}
     assert snapshot.memory_type == "FACT"
+
+
+def test_artifact_requires_canonical_workspace_ownership():
+    """新 Artifact 缺少 Workspace 归属时必须在领域边界拒绝。"""
+    with pytest.raises(ValidationError, match="workspace_identity"):
+        InteractionArtifact(topic_id="topic-1")

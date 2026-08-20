@@ -7,6 +7,7 @@ HiveMemory 核心数据模型
 from .artifact import (
     ArtifactType,
     ArtifactRef,
+    WorkspaceArtifactKey,
     BaseArtifact,
     InteractionTurnSnapshot,
     InteractionArtifact,
@@ -82,6 +83,7 @@ from .workspace import (
 __all__ = [
     "ArtifactType",
     "ArtifactRef",
+    "WorkspaceArtifactKey",
     "BaseArtifact",
     "InteractionTurnSnapshot",
     "InteractionArtifact",

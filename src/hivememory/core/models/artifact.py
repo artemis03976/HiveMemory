@@ -7,10 +7,12 @@ docs/archive/plans/implementation/v0.5.0-data-durability-and-async-cold-path.md�
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from hivememory.core.models.workspace import WorkspaceAccessContext, WorkspaceIdentity
 
 
 class ArtifactType(str, Enum):
@@ -19,35 +21,58 @@ class ArtifactType(str, Enum):
     MEMORY_CREATION = "memory_creation"
     MEMORY_VERSION = "memory_version"
 
+
+class WorkspaceArtifactKey(BaseModel):
+    """Artifact 在存储层使用的 owner/workspace/ID 复合资源键。"""
+
+    workspace_identity: WorkspaceIdentity
+    artifact_id: str = Field(min_length=1)
+
+    @classmethod
+    def from_access_context(
+        cls,
+        access_context: WorkspaceAccessContext,
+        artifact_id: str,
+    ) -> Self:
+        """从已验证的访问上下文构造 Artifact 复合键。"""
+        return cls(
+            workspace_identity=access_context.workspace_identity,
+            artifact_id=artifact_id,
+        )
+
+    model_config = ConfigDict(frozen=True)
+
 # ============ 轻量引用 ============
 
 class ArtifactRef(BaseModel):
     """Artifact 轻量引用指针 - 存储在 MemoryAtom.payload.artifacts.refs 中"""
-    artifact_id: str
+    artifact_id: str = Field(min_length=1)
     artifact_type: ArtifactType
+
+    workspace_identity: WorkspaceIdentity
 
     uri: str = Field(default="", description="文件系统路径或远程 URI")
     sha256: str = ""
 
     created_at: datetime = Field(default_factory=datetime.now)
-    
+
     summary: str = ""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
 
 # ============ 基础模型 ============
 
 class BaseArtifact(BaseModel):
     """所有 Artifact 共有元数据。写入后不再修改（append-only）。"""
-    artifact_id: str = Field(default_factory=lambda: f"art_{uuid4().hex}")
+    artifact_id: str = Field(default_factory=lambda: f"art_{uuid4().hex}", min_length=1)
     artifact_type: ArtifactType
 
     schema_version: str = "1"
     created_at: datetime = Field(default_factory=datetime.now)
     content_hash: Optional[str] = None  # 由 ArtifactStore 在写入时填充
 
-    owner_user_id: str = ""
+    workspace_identity: WorkspaceIdentity
     owner_agent_id: str = ""
 
     title: str = ""
