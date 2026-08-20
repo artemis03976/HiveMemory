@@ -19,7 +19,7 @@ from hivememory.engines.perception.models import (
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
-    from hivememory.core.models import WorkspaceAccessContext, WorkspaceTopicKey
+    from hivememory.core.models import IdentityScope, WorkspaceAccessContext, WorkspaceTopicKey
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,8 @@ class BasePerceptionLayer(ABC):
         self,
         payload: InteractionPayload,
         topic_id: str,
+        *,
+        identity_scope: "IdentityScope",
         interaction_id: str | None = None,
     ) -> Optional[TopicMaterializeTask]:
         """
@@ -76,6 +78,8 @@ class BasePerceptionLayer(ABC):
         self,
         topic_id: str,
         payload: InteractionPayload,
+        *,
+        identity_scope: "IdentityScope",
         interaction_id: str | None = None,
     ) -> Tuple[str, Optional[TopicMaterializeTask]]:
         """

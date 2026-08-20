@@ -14,7 +14,6 @@ GenerationTranscriptBuilder / GenerationContext 单测
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pydantic import ValidationError
 
 from hivememory.core.models import Identity, LogicalBlock, TraceItem, TurnRecord, WriteFocus
 from hivememory.engines.generation.models import (
@@ -32,10 +31,7 @@ def _identity(agent_id: str = "a1") -> Identity:
 
 
 def _request(**values) -> GenerationRequest:
-    return GenerationRequest(
-        creation_context=make_memory_creation_context(),
-        **values,
-    )
+    return GenerationRequest(**values)
 
 
 def _block(
@@ -247,21 +243,11 @@ class TestGenerationRequestHasContext:
 
 
 class TestGenerationRequestIdentity:
-    def test_request_rejects_missing_creation_scope(self):
-        """捕获生成入口从 turn Identity 或进程默认值猜测 ownership 的缺陷。"""
-        with pytest.raises(ValidationError):
-            GenerationRequest()
-
-    def test_identity_projects_creation_actor_not_context_turn(self):
-        """捕获对话 turn 的 actor 覆盖已冻结创建来源的缺陷。"""
-        ctx = GenerationContext(
-            turns=[GenerationTurn(user_query="q", identity=_identity("context-agent"))]
-        )
-        request = GenerationRequest(
-            context=ctx,
-            creation_context=make_memory_creation_context(agent_id="creation-agent"),
-        )
-        assert request.identity.agent_id == "creation-agent"
+    def test_request_is_identity_agnostic(self):
+        """捕获 GenerationRequest 重新持有权限/ownership 字段的缺陷。"""
+        request = GenerationRequest(context=GenerationContext())
+        assert not hasattr(request, "creation_context")
+        assert not hasattr(request, "identity")
 
 
 # ============ 6. MemoryGenerationEngine 新路径集成测试 ============
@@ -303,7 +289,7 @@ class TestEngineWithGenerationContext:
             turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
         )
         req = _request(context=ctx)
-        await engine.process(req)
+        await engine.process(req, identity_scope=make_memory_creation_context())
         extractor.extract.assert_called_once()
         transcript = extractor.extract.call_args[1]["transcript"]
         assert "[Turn 1]" in transcript
@@ -315,7 +301,7 @@ class TestEngineWithGenerationContext:
         """context 为空时跳过 extractor"""
         engine, extractor, _ = self._make_engine()
         req = _request(context=GenerationContext())  # no turns
-        result = await engine.process(req)
+        result = await engine.process(req, identity_scope=make_memory_creation_context())
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -324,7 +310,7 @@ class TestEngineWithGenerationContext:
         """无上下文且无 focus 时直接跳过"""
         engine, extractor, _ = self._make_engine()
         req = _request()
-        result = await engine.process(req)
+        result = await engine.process(req, identity_scope=make_memory_creation_context())
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -346,7 +332,7 @@ class TestEngineWithGenerationContext:
         ])
         focus = WriteFocus(content="content to write")
         req = _request(context=ctx, write_focus=focus)
-        await engine.process(req)
+        await engine.process(req, identity_scope=make_memory_creation_context())
 
         extractor.extract.assert_called_once()
         call_kwargs = extractor.extract.call_args[1]

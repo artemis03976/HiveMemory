@@ -58,7 +58,7 @@ def _write_task(alias="draft_001"):
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="WRITE",
-        creation_context=_creation_context(),
+        identity_scope=_creation_context(),
         focus=WriteFocus(content="test content"),
     )
 
@@ -68,7 +68,7 @@ def _update_task(base_uuid: str, alias="draft_update"):
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="UPDATE",
-        creation_context=_creation_context(),
+        identity_scope=_creation_context(),
         focus=UpdateFocus(
             instruction="merge update",
             content="new content",
@@ -177,7 +177,7 @@ class TestMemoryGenerationCoordinator:
             topic_summary="summary",
             blocks=[_topic_block()],
             state_summary="state",
-            creation_context=_creation_context(),
+            identity_scope=_creation_context(),
         )
 
         task = await coordinator.submit_settlement(payload)
@@ -200,7 +200,7 @@ class TestMemoryGenerationCoordinator:
             topic_title="empty",
             blocks=[],
             state_summary="state",
-            creation_context=_creation_context(),
+            identity_scope=_creation_context(),
         )
 
         task = await coordinator.submit_settlement(payload)
@@ -253,7 +253,7 @@ class TestMemoryGenerationCoordinator:
         assert spec.source == MemoryGenerationSource.WRITE
         assert spec.pending_alias == "draft_1"
         assert spec.request.is_write is True
-        assert spec.request.identity.user_id == "test_user"
+        assert spec.identity_scope.actor_identity.user_id == "test_user"
         assert spec.interaction_input.topic_title == "title"
 
     @pytest.mark.asyncio

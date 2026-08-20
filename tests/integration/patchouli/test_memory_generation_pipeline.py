@@ -92,7 +92,7 @@ def _write_task(alias="draft_write") -> PendingAtomMaterializeTask:
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="WRITE",
-        creation_context=_creation_context(),
+        identity_scope=_creation_context(),
         focus=WriteFocus(content="remember this"),
     )
 
@@ -102,7 +102,7 @@ def _update_task(base_uuid: str, alias="draft_update") -> PendingAtomMaterialize
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="UPDATE",
-        creation_context=_creation_context(),
+        identity_scope=_creation_context(),
         focus=UpdateFocus(
             instruction="merge this",
             content="new content",
@@ -170,7 +170,7 @@ async def test_passive_settlement_routes_archive_spec_through_task_controller():
                 )
             ],
             state_summary="state summary",
-            creation_context=_creation_context(),
+            identity_scope=_creation_context(),
         )
     )
     await controller.wait_task(memory_task.task_id)
@@ -382,7 +382,7 @@ class _StubGenerationEngine:
         self._outcomes = outcomes
         self.requests: list = []
 
-    async def process(self, request):
+    async def process(self, request, *, identity_scope=None):
         self.requests.append(request)
         return self._outcomes
 
@@ -445,7 +445,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library):
                 )
             ],
             state_summary="state summary",
-            creation_context=_creation_context(),
+            identity_scope=_creation_context(),
         )
     )
     await controller.wait_task(memory_task.task_id)

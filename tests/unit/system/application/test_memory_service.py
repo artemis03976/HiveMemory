@@ -55,7 +55,8 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
     )
     defaults = dict(
         agent_run_context=AgentRunContext(
-            access_context=access_context,
+            identity_scope=access_context,
+            interaction_id="test-interaction",
             topic_id="topic_1",
             user_message="hi",
             topic_context=None,

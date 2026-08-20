@@ -96,7 +96,7 @@ class AgentRunService:
             messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
             frame = self._create_root_frame(
                 messages=messages,
-                access_context=agent_run_context.access_context,
+                access_context=agent_run_context.identity_scope,
                 topic_id=agent_run_context.topic_id,
                 session=session,
                 agent_profile=agent_run_context.agent_profile,
@@ -145,7 +145,7 @@ class AgentRunService:
             agent_stream = self._stream_adapter.create(session)
             frame = self._create_root_frame(
                 messages=messages,
-                access_context=agent_run_context.access_context,
+                access_context=agent_run_context.identity_scope,
                 topic_id=agent_run_context.topic_id,
                 session=session,
                 agent_profile=agent_run_context.agent_profile,

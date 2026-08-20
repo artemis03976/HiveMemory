@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from hivememory.core.models import (
     Artifacts,
@@ -291,5 +291,4 @@ class MemoryApplicationService:
         """HTTP/System 顶层为当前用户一次性解析默认 Workspace。"""
         return resolve_default_workspace_access(
             Identity(user_id=user_id, agent_id="ui"),
-            interaction_id=f"memory-api-{uuid4()}",
         )

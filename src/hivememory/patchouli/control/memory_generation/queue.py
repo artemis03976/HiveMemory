@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from hivememory.core.models import LogicalBlock, MemoryAtom
+from hivememory.core.models import IdentityScope, LogicalBlock, MemoryAtom
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from hivememory.patchouli.control.memory_generation.models import (
@@ -103,6 +103,7 @@ class _MemoryGenerationWorkAdapter:
         return {
             "task_id": work.task_id,
             "spec": {
+                "identity_scope": spec.identity_scope.model_dump(mode="json"),
                 "topic_id": spec.topic_id,
                 "label": spec.label,
                 "source": spec.source.value,
@@ -124,8 +125,11 @@ class _MemoryGenerationWorkAdapter:
         if not isinstance(raw_spec, dict):
             raise TypeError("memory generation payload.spec must be an object")
         raw_request = raw_spec.get("request")
+        raw_scope = raw_spec.get("identity_scope")
         if not isinstance(raw_request, dict):
             raise TypeError("memory generation payload.spec.request must be an object")
+        if not isinstance(raw_scope, dict):
+            raise TypeError("memory generation payload.spec.identity_scope must be an object")
 
         request_data = dict(raw_request)
         existing_memory = request_data.get("existing_memory")
@@ -139,6 +143,7 @@ class _MemoryGenerationWorkAdapter:
         return _MemoryGenerationWork(
             task_id=_require_text(payload.get("task_id"), field_name="task_id"),
             spec=MemoryGenerationTaskSpec(
+                identity_scope=IdentityScope.model_validate(raw_scope),
                 topic_id=_require_text(
                     raw_spec.get("topic_id"),
                     field_name="topic_id",

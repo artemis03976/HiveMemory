@@ -14,13 +14,16 @@ def make_access_context(
     user_id: str = "test_user",
     agent_id: str = "test_agent",
     workspace_id: str = "main_workspace",
-    interaction_id: str = "test_interaction",
+    interaction_id: str | None = None,
 ) -> WorkspaceAccessContext:
-    """显式构造测试 scope，绝不读取进程当前 Workspace。"""
+    """显式构造测试 scope，绝不读取进程当前 Workspace。
+
+    P2.5 起 ``interaction_id`` 不再属于 IdentityScope，该参数仅为兼容旧测试
+    保留，构造结果中不会携带它。
+    """
     return build_internal_workspace_access(
         actor_identity or Identity(user_id=user_id, agent_id=agent_id),
         workspace_id,
-        interaction_id,
     )
 
 
@@ -32,7 +35,7 @@ def make_runtime_scope(
     run_id: str = "test_run",
     frame_id: str = "test_frame",
     workspace_id: str = "main_workspace",
-    interaction_id: str = "test_interaction",
+    interaction_id: str | None = None,
 ) -> RuntimeScope:
     """构造携带完整 Workspace hard boundary 的 Alice 执行坐标。"""
     return RuntimeScope(

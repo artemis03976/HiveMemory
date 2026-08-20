@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from hivememory.core.models import (
     Artifacts,
@@ -51,9 +50,9 @@ class AgentApplicationService:
         agent_config: dict[str, Any] | None = None,
         user_id: str,
     ) -> MemoryAtom:
+        # TODO: 复核 agent_id 的手写来源
         access_context = resolve_default_workspace_access(
             Identity(user_id=user_id, agent_id="ui"),
-            interaction_id=f"agent-api-{uuid4()}",
         )
         atom = MemoryAtom(
             meta=MetaData(
@@ -88,7 +87,6 @@ class AgentApplicationService:
     ) -> list[MemoryAtom]:
         access_context = resolve_default_workspace_access(
             Identity(user_id=user_id, agent_id="ui"),
-            interaction_id=f"agent-api-{uuid4()}",
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,

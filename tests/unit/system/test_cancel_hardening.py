@@ -37,21 +37,21 @@ class TestChatGenerationRunRegistry:
         self.registry = ChatGenerationRunRegistry()
 
     def test_cancel_records_stop_and_returns_result(self):
-        run = ChatGenerationRun(generation_id="gen-1", access_context=make_access_context())
+        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-1")
         self.registry.register(run)
 
-        result = self.registry.cancel("gen-1", run.access_context)
+        result = self.registry.cancel("gen-1", run.identity_scope)
 
         assert result.cancelled is True
         assert result.status == ChatRunOutcome.STOP_REQUESTED.value
         assert run.outcome is ChatRunOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
-        run = ChatGenerationRun(generation_id="gen-2", access_context=make_access_context())
+        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-2")
         self.registry.register(run)
 
-        r1 = self.registry.cancel("gen-2", run.access_context)
-        r2 = self.registry.cancel("gen-2", run.access_context)
+        r1 = self.registry.cancel("gen-2", run.identity_scope)
+        r2 = self.registry.cancel("gen-2", run.identity_scope)
 
         assert r1.cancelled is True
         assert r2.cancelled is True  # 重复 cancel 不报错
@@ -63,13 +63,13 @@ class TestChatGenerationRunRegistry:
         assert result.status == "not_found"
 
     def test_close_removes_run(self):
-        run = ChatGenerationRun(generation_id="gen-3", access_context=make_access_context())
+        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-3")
         self.registry.register(run)
         self.registry.close(run)
-        assert self.registry.get("gen-3", run.access_context) is None
+        assert self.registry.get("gen-3", run.identity_scope) is None
 
     def test_run_stop_outcome(self):
-        run = ChatGenerationRun(generation_id="gen-4", access_context=make_access_context())
+        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-4")
         assert run.outcome is ChatRunOutcome.RUNNING
         run.enter_phase(ChatRunPhase.ALICE)
         run.request_stop()
@@ -109,7 +109,8 @@ class TestChatServiceCancelPath:
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
                 return PreparedAgentRun(
                     agent_run_context=AgentRunContext(
-                        access_context=kwargs["access_context"],
+                        identity_scope=kwargs["identity_scope"],
+                        interaction_id=kwargs["interaction_id"],
                         topic_id="t1",
                         user_message="hello",
                         agent_profile=OMNI_DOLL_PROFILE,

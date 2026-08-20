@@ -101,9 +101,8 @@ async def test_passive_final_enters_common_submission_queue() -> None:
     assert outcome.kind == "user"
     assert len(queue.submissions) == 1
     submission = queue.submissions[0]
-    assert submission.interaction_id == (
-        submission.payload.access_context.interaction_id
-    )
+    assert submission.interaction_id.startswith("passive_")
+    assert submission.identity_scope.actor_identity.user_id == "u1"
     assert submission.origin == "passive_memory"
     assert submission.requested_topic_id == "topic-1"
     assert submission.ordering_key == (

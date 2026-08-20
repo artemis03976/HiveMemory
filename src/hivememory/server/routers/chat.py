@@ -42,14 +42,13 @@ async def chat(
     service: ChatApplicationService = Depends(get_chat_service),
 ):
     """Stream an active chat run over SSE."""
-    generation_id = str(uuid.uuid4())
-    access_context = resolve_default_workspace_access(
+    interaction_id = f"interaction_{uuid.uuid4().hex}"
+    identity_scope = resolve_default_workspace_access(
         Identity(
             user_id=body.user_id,
             agent_id=body.agent_id,
             session_id=body.session_id,
         ),
-        f"interaction_{uuid.uuid4().hex}",
     )
 
     async def event_generator():
@@ -58,14 +57,14 @@ async def chat(
         try:
             stream = service.chat_stream_scoped(
                 user_message=body.message,
-                access_context=access_context,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
                 generation_options=(
                     body.generation_options.model_dump(exclude_none=True)
                     if body.generation_options
                     else None
                 ),
-                generation_id=generation_id,
             )
 
             while True:
@@ -74,8 +73,8 @@ async def chat(
                     while not pull_task.done():
                         if await request.is_disconnected():
                             service.cancel_generation_scoped(
-                                generation_id,
-                                access_context=access_context,
+                                interaction_id,
+                                identity_scope=identity_scope,
                                 reason="client_disconnected",
                             )
                             return
@@ -90,8 +89,8 @@ async def chat(
 
                     if await request.is_disconnected():
                         service.cancel_generation_scoped(
-                            generation_id,
-                            access_context=access_context,
+                            interaction_id,
+                            identity_scope=identity_scope,
                             reason="client_disconnected",
                         )
                         break
@@ -99,8 +98,8 @@ async def chat(
                     break
                 except asyncio.CancelledError:
                     service.cancel_generation_scoped(
-                        generation_id,
-                        access_context=access_context,
+                        interaction_id,
+                        identity_scope=identity_scope,
                         reason="client_disconnected",
                     )
                     raise
@@ -132,13 +131,12 @@ async def stop_chat(
     service: ChatApplicationService = Depends(get_chat_service),
 ):
     """Idempotently cancel an active streaming generation."""
-    access_context = resolve_default_workspace_access(
+    identity_scope = resolve_default_workspace_access(
         Identity(user_id=request.user_id, agent_id=request.agent_id),
-        f"control_{uuid.uuid4().hex}",
     )
     result = service.cancel_generation_scoped(
         request.generation_id,
-        access_context=access_context,
+        identity_scope=identity_scope,
     )
     return {
         "generation_id": result.generation_id,

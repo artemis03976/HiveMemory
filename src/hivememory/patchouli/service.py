@@ -7,6 +7,7 @@ from uuid import UUID
 
 from hivememory.core.models import (
     ActionReducer,
+    IdentityScope,
     MemoryAtom,
     TraceReducer,
     WorkspaceAccessContext,
@@ -102,14 +103,15 @@ class PatchouliService:
         self,
         user_message: str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         gateway_decision: GatewayDecision,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
     ) -> PreparedAgentRun:
         """根据 GatewayDecision 准备一次完整的 Agent 运行上下文。"""
-        access_context = require_workspace_access_context(access_context)
-        identity = access_context.actor_identity
+        identity_scope = require_workspace_access_context(identity_scope)
+        identity = identity_scope.actor_identity
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
 
@@ -117,29 +119,29 @@ class PatchouliService:
             agent_profile = await self._local_bus.request(
                 PatchouliLocalRoutes.GET_AGENT_PROFILE,
                 identity.agent_id,
-                access_context=access_context,
+                access_context=identity_scope,
             )
             real_topic_id = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_PREPARE,
                 target_topic_id=gateway_decision.target_topic_id,
                 new_topic_title=gateway_decision.new_topic_title,
                 new_topic_summary=gateway_decision.new_topic_summary,
-                access_context=access_context,
+                access_context=identity_scope,
             )
             pool_topics = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-                access_context=access_context,
+                access_context=identity_scope,
                 include_empty=True,
             )
             topic_context = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_GET,
                 real_topic_id,
-                access_context=access_context,
+                access_context=identity_scope,
             )
 
             retrieval_result = await self.retrieve_for_decision(
                 gateway_decision,
-                access_context=access_context,
+                access_context=identity_scope,
                 enable_retrieval=enable_memory_retrieval,
             )
             memory_context = (
@@ -157,7 +159,8 @@ class PatchouliService:
             )
 
             agent_run_context = AgentRunContext(
-                access_context=access_context,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 topic_id=real_topic_id,
                 user_message=user_message,
                 topic_context=topic_context,
@@ -183,7 +186,7 @@ class PatchouliService:
             )
         except Exception:
             if is_new and real_topic_id:
-                await self._cleanup_empty_topic_if_needed(access_context, real_topic_id)
+                await self._cleanup_empty_topic_if_needed(identity_scope, real_topic_id)
             raise
 
     async def finalize_agent_run(
@@ -198,7 +201,6 @@ class PatchouliService:
         actions = ActionReducer.reduce(loop_result.turn_events)
         mtp_traces = TraceReducer.reduce(actions)
         payload = InteractionPayload(
-            access_context=prepared_run.access_context,
             user_message=agent_context.user_message,
             mtp_traces=mtp_traces,
             materialize_tasks=loop_result.materialize_tasks,
@@ -247,7 +249,7 @@ class PatchouliService:
                 )
             ):
                 await self._cleanup_empty_topic_if_needed(
-                    prepared_run.access_context,
+                    prepared_run.identity_scope,
                     prepared_run.topic_id,
                 )
             raise
@@ -279,6 +281,7 @@ class PatchouliService:
         try:
             receipt = await self._interaction_queue.submit(
                 InteractionSubmission(
+                    identity_scope=prepared_run.identity_scope,
                     interaction_id=prepared_run.interaction_id,
                     payload=payload,
                     requested_topic_id=topic_id,
@@ -357,7 +360,7 @@ class PatchouliService:
                 PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
                 tasks,
                 topic_id=prepared_run.topic_id,
-                access_context=prepared_run.access_context,
+                access_context=prepared_run.identity_scope,
             )
         except Exception as error:
             logger.warning(
@@ -457,7 +460,7 @@ class PatchouliService:
             )
             return False
         return await self._cleanup_empty_topic_if_needed(
-            prepared_run.access_context,
+            prepared_run.identity_scope,
             prepared_run.topic_id,
         )
 
@@ -505,7 +508,7 @@ class PatchouliService:
                 await self._local_bus.request(
                     PatchouliLocalRoutes.MEMORY_RECORD_HIT,
                     memory_id,
-                    access_context=prepared_run.access_context,
+                    access_context=prepared_run.identity_scope,
                     source="retrieval.finalize",
                 )
             except Exception:

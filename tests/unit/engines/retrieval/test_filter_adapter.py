@@ -15,7 +15,6 @@ def _access(workspace_id: str = "main_workspace"):
     return build_internal_workspace_access(
         Identity(user_id="u1", agent_id="agent-a", team_id="team-a"),
         workspace_id,
-        f"filter-{workspace_id}",
     )
 
 

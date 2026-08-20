@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from hivememory.core.models import (
     ActionReducer,
     BufferState,
+    IdentityScope,
     LogicalBlock,
     TurnRecord,
     WorkspaceAccessContext,
@@ -156,6 +157,8 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         payload: InteractionPayload,
+        *,
+        identity_scope: IdentityScope,
         interaction_id: str | None = None,
     ) -> tuple[str, TopicMaterializeTask | None]:
         """
@@ -173,10 +176,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 settle_payload = await self.ingest_payload(
                     payload,
                     apply_record.topic_id,
+                    identity_scope=identity_scope,
                     interaction_id=interaction_id,
                 )
                 self._short_term_store.set_last_active_topic(
-                    payload.access_context,
+                    identity_scope,
                     apply_record.topic_id,
                 )
                 return apply_record.topic_id, settle_payload
@@ -186,20 +190,23 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             target_topic_id=topic_id,
             new_topic_title=None,
             new_topic_summary=None,
-            access_context=payload.access_context,
+            access_context=identity_scope,
         )
         settle_payload = await self.ingest_payload(
             payload,
             topic_id,
+            identity_scope=identity_scope,
             interaction_id=interaction_id,
         )
-        self._short_term_store.set_last_active_topic(payload.access_context, topic_id)
+        self._short_term_store.set_last_active_topic(identity_scope, topic_id)
         return topic_id, settle_payload
 
     async def ingest_payload(
         self,
         payload: InteractionPayload,
         topic_id: str,
+        *,
+        identity_scope: IdentityScope,
         interaction_id: str | None = None,
     ) -> TopicMaterializeTask | None:
         """
@@ -222,6 +229,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 return await self._complete_interaction_post_apply(
                     payload,
                     topic_id,
+                    identity_scope=identity_scope,
                     interaction_id=interaction_id,
                 )
 
@@ -237,7 +245,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
         # 2. 先构建只读 TurnRecord，再一次性构建 LogicalBlock
         turn = TurnRecord(
-            identity=payload.identity,
+            identity=identity_scope.actor_identity,
             user_query=payload.user_message,
             rewritten_query=payload.rewritten_query,
             assistant_final_text=payload.assistant_final_text or clean_text,
@@ -261,7 +269,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         )
 
         # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
-        topic_key = WorkspaceTopicKey.from_access_context(payload.access_context, topic_id)
+        topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
         self._short_term_store.add_block(topic_key, block)
         if interaction_id:
             # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
@@ -270,6 +278,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         return await self._complete_interaction_post_apply(
             payload,
             topic_id,
+            identity_scope=identity_scope,
             interaction_id=interaction_id,
         )
 
@@ -278,18 +287,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         payload: InteractionPayload,
         topic_id: str,
         *,
+        identity_scope: IdentityScope,
         interaction_id: str | None,
     ) -> TopicMaterializeTask | None:
         """完成 block 写入后的本地义务，并为外层 settlement admission 留存结果。"""
         # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
         if payload.model_used:
             self._short_term_store.update_model_used(
-                WorkspaceTopicKey.from_access_context(payload.access_context, topic_id),
+                WorkspaceTopicKey.from_access_context(identity_scope, topic_id),
                 payload.model_used,
             )
 
         # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
-        topic_key = WorkspaceTopicKey.from_access_context(payload.access_context, topic_id)
+        topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
         settle_payload = await self._maybe_fold_pages(topic_key)
 
         # 重置状态
@@ -381,6 +391,8 @@ class NullPerceptionLayer(BasePerceptionLayer):
         self,
         payload: InteractionPayload,
         topic_id: str,
+        *,
+        identity_scope: IdentityScope,
         interaction_id: str | None = None,
     ) -> None:
         return None
@@ -389,6 +401,8 @@ class NullPerceptionLayer(BasePerceptionLayer):
         self,
         topic_id: str,
         payload: InteractionPayload,
+        *,
+        identity_scope: IdentityScope,
         interaction_id: str | None = None,
     ) -> tuple[str, None]:
         return topic_id, None

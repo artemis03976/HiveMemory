@@ -63,11 +63,10 @@ async def test_missing_turn_events_raises_error():
     layer, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
-        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[],
     )
     with pytest.raises(ValueError, match="turn_events is required"):
-        await layer.route_and_ingest("NEW_TOPIC", payload)
+        await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
 
 
 @pytest.mark.asyncio
@@ -77,11 +76,10 @@ async def test_structured_path_persists_assistant_final_text():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean reply",
-        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[turn_event],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
 
     topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
@@ -99,7 +97,6 @@ async def test_structured_path_reduces_turn_events_to_actions():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean reply",
-        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[
             TurnEvent(
                 kind="tool_call",
@@ -125,7 +122,7 @@ async def test_structured_path_reduces_turn_events_to_actions():
         ],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
 
     topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
@@ -145,12 +142,11 @@ async def test_structured_path_persists_payload_mtp_traces():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean",
-        access_context=make_access_context(actor_identity=_identity()),
         mtp_traces=[trace],
         turn_events=[_turn_event()],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
 
     topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
@@ -164,12 +160,11 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean",
-        access_context=make_access_context(actor_identity=_identity()),
         mtp_traces=[],
         turn_events=[_turn_event()],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
 
     topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None
@@ -183,11 +178,10 @@ async def test_structured_path_empty_final_text_stays_empty():
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="",
-        access_context=make_access_context(actor_identity=_identity()),
         turn_events=[_turn_event()],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload)
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
 
     topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
     assert topic_data is not None

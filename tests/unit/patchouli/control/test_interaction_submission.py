@@ -35,7 +35,6 @@ from tests.helpers.memory import make_memory_creation_context
 
 def _payload(message: str = "hello") -> InteractionPayload:
     return InteractionPayload(
-        access_context=make_access_context(user_id="u1", agent_id="a1"),
         user_message=message,
         assistant_final_text=f"answer:{message}",
         turn_events=[
@@ -57,6 +56,7 @@ def _submission(
     payload: InteractionPayload | None = None,
 ) -> InteractionSubmission:
     return InteractionSubmission(
+        identity_scope=make_access_context(user_id="u1", agent_id="a1"),
         interaction_id=interaction_id,
         payload=payload or _payload(message or interaction_id),
         requested_topic_id="NEW_TOPIC",
@@ -70,7 +70,7 @@ def _submission(
 async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> None:
     attempts: list[InteractionPayload] = []
 
-    async def submit(payload, *, target_topic_id, interaction_id):
+    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
         attempts.append(payload)
         if len(attempts) == 1:
             payload.user_message = "attempt-local-mutation"
@@ -111,7 +111,7 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
     calls: list[str] = []
     first_attempt = 0
 
-    async def submit(payload, *, target_topic_id, interaction_id):
+    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
         nonlocal first_attempt
         calls.append(payload.user_message)
         if payload.user_message == "first":
@@ -140,7 +140,7 @@ async def test_different_ordering_keys_can_execute_concurrently() -> None:
     second_started = asyncio.Event()
     release = asyncio.Event()
 
-    async def submit(payload, *, target_topic_id, interaction_id):
+    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
         if payload.user_message == "first":
             first_started.set()
         else:
@@ -227,6 +227,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     replayed_topic = await asyncio.wait_for(
         familiar.submit_interaction(
             _payload("interaction-ambiguous"),
+            identity_scope=make_access_context(user_id="u1", agent_id="a1"),
             target_topic_id=outcome.topic_id,
             interaction_id="interaction-ambiguous",
         ),
@@ -258,7 +259,7 @@ async def test_unclassified_failure_is_not_retried() -> None:
 async def test_handler_timeout_is_not_retried() -> None:
     attempts = 0
 
-    async def submit(payload, *, target_topic_id, interaction_id):
+    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
         nonlocal attempts
         attempts += 1
         await asyncio.Event().wait()
@@ -300,7 +301,7 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
     )
     settlement = TopicMaterializeTask(
         topic_id="topic-settlement",
-        creation_context=make_memory_creation_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_memory_creation_context(user_id="u1", agent_id="a1"),
     )
     layer._maybe_fold_pages = AsyncMock(return_value=settlement)
     bus = Mock()
@@ -362,11 +363,13 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
 
     topic_id = await familiar.submit_interaction(
         _payload(),
+        identity_scope=make_access_context(user_id="u1", agent_id="a1"),
         interaction_id="interaction-disabled",
     )
     replayed_topic_id = await asyncio.wait_for(
         familiar.submit_interaction(
             _payload(),
+            identity_scope=make_access_context(user_id="u1", agent_id="a1"),
             interaction_id="interaction-disabled",
         ),
         timeout=1,

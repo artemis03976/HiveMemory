@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 
-from hivememory.core.models import LogicalBlock, PendingAtomSettlement
+from hivememory.core.models import IdentityScope, LogicalBlock, PendingAtomSettlement
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.system.runtime.work_queue import TaskOutcome, WorkState
 
@@ -73,8 +73,12 @@ class InteractionArtifactInput:
 
 @dataclass(frozen=True)
 class MemoryGenerationTaskSpec:
-    """记忆生成控制面与数据面共享的规范化输入。"""
+    """记忆生成控制面与数据面共享的规范化输入。
 
+    ``identity_scope`` 是唯一的身份/ownership 来源；GenerationRequest 不再携带权限字段。
+    """
+
+    identity_scope: IdentityScope
     topic_id: str
     label: str
     source: MemoryGenerationSource

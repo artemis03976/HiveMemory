@@ -1,4 +1,4 @@
-﻿"""
+"""
 HiveMemory Generation 模块数据模型
 
 仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field
 
 from hivememory.core.models import (
     Identity,
-    MemoryCreationContext,
     UpdateFocus,
     WriteFocus,
 )
@@ -117,6 +116,9 @@ class GenerationRequest(BaseModel):
     Mode A (被动观察): write_focus=None, update_focus=None
     Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
     Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
+
+    P2.5 起本协议不再携带 creation_context 或任何权限/ownership 字段；
+    Memory ownership 由调用方通过 ``MemoryGenerationTaskSpec.identity_scope`` 传入。
     """
     context: GenerationContext = Field(
         default_factory=lambda: GenerationContext(),
@@ -125,12 +127,6 @@ class GenerationRequest(BaseModel):
     write_focus: Optional[WriteFocus] = None
     update_focus: Optional[UpdateFocus] = None
     existing_memory: Optional[Any] = None
-    creation_context: MemoryCreationContext
-
-    @property
-    def identity(self) -> Identity:
-        """兼容 actor-only 生成逻辑；Memory ownership 不从此属性推导。"""
-        return self.creation_context.actor_identity
 
     @property
     def is_write(self) -> bool:

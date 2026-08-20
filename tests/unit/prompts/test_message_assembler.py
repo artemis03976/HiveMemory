@@ -49,7 +49,8 @@ def test_build_main_agent_messages_from_context():
         language="zh",
     )
     context = AgentRunContext(
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
         topic_context=_make_topic_data("state"),
@@ -78,7 +79,8 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
         language="zh",
     )
     context = AgentRunContext(
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,

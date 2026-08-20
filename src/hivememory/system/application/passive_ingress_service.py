@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
 from hivememory.core.constants import DEFAULT_AGENT_ID
 from hivememory.core.models import Identity, resolve_default_workspace_access
@@ -205,10 +204,7 @@ class PassiveIngressService:
         key = PassiveConversationKey.build(
             source=source,
             external_conversation_id=external_conversation_id,
-            access_context=resolve_default_workspace_access(
-                identity,
-                f"passive_flush_{uuid4().hex}",
-            ),
+            access_context=resolve_default_workspace_access(identity),
         )
         submitted = await self._ingressor.flush_conversation(key)
         return submitted > 0

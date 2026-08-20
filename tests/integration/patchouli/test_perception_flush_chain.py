@@ -41,8 +41,7 @@ def _make_identity(user="u1", agent="a1"):
     return Identity(user_id=user, agent_id=agent)
 
 
-def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
-    identity = identity or _make_identity()
+def _make_payload(user_msg="hello", assistant_msg="world"):
     return InteractionPayload(
         user_message=user_msg,
         assistant_final_text=assistant_msg,
@@ -54,7 +53,6 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None):
                 content=assistant_msg,
             )
         ],
-        access_context=make_access_context(actor_identity=identity),
     )
 
 
@@ -119,7 +117,11 @@ def _fast_forward_idle():
 async def test_idle_flush_swaps_out_topic():
     familiar, _, store, bus = _make_real_familiar(idle_timeout_seconds=1)
     access_context = make_access_context(user_id="u1", agent_id="a1")
-    await familiar.submit_interaction(_make_payload("question", "answer"), "NEW_TOPIC")
+    await familiar.submit_interaction(
+        _make_payload("question", "answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
     assert len(store.list_topic_data(access_context)) == 1
 
     with _fast_forward_idle():
@@ -152,23 +154,43 @@ async def test_idle_flush_frees_slot():
         idle_timeout_seconds=1,
         max_resident_topics=2,
     )
-    await familiar.submit_interaction(_make_payload("q1", "a1", _make_identity("u1", "a1")), "NEW_TOPIC")
-    await familiar.submit_interaction(_make_payload("q2", "a2", _make_identity("u2", "a2")), "NEW_TOPIC")
+    await familiar.submit_interaction(
+        _make_payload("q1", "a1"),
+        identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+        target_topic_id="NEW_TOPIC",
+    )
+    await familiar.submit_interaction(
+        _make_payload("q2", "a2"),
+        identity_scope=make_access_context(user_id="u2", agent_id="a2"),
+        target_topic_id="NEW_TOPIC",
+    )
     assert len(store.list_topic_data(make_access_context(user_id="u1", agent_id="a1"))) == 1
     assert len(store.list_topic_data(make_access_context(user_id="u2", agent_id="a2"))) == 1
 
     with _fast_forward_idle():
         assert len(await familiar.scan_idle_buffers_once()) == 2
 
-    await familiar.submit_interaction(_make_payload("q3", "a3", _make_identity("u3", "a3")), "NEW_TOPIC")
+    await familiar.submit_interaction(
+        _make_payload("q3", "a3"),
+        identity_scope=make_access_context(user_id="u3", agent_id="a3"),
+        target_topic_id="NEW_TOPIC",
+    )
     assert len(store.list_topic_data(make_access_context(user_id="u3", agent_id="a3"))) == 1
 
 
 @pytest.mark.asyncio
 async def test_shutdown_flush_archives_and_swaps_out_all_topics():
     familiar, _, store, bus = _make_real_familiar(max_resident_topics=4)
-    await familiar.submit_interaction(_make_payload("q1", "a1", _make_identity("u1", "a1")), "NEW_TOPIC")
-    await familiar.submit_interaction(_make_payload("q2", "a2", _make_identity("u2", "a2")), "NEW_TOPIC")
+    await familiar.submit_interaction(
+        _make_payload("q1", "a1"),
+        identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+        target_topic_id="NEW_TOPIC",
+    )
+    await familiar.submit_interaction(
+        _make_payload("q2", "a2"),
+        identity_scope=make_access_context(user_id="u2", agent_id="a2"),
+        target_topic_id="NEW_TOPIC",
+    )
 
     result = await familiar.flush_all_for_shutdown()
 
@@ -191,6 +213,7 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
         fold_retain_recent_blocks=1,
     )
     identity = _make_identity("u-fold", "a-fold")
+    identity_scope = make_access_context(actor_identity=identity)
     topic_id = "NEW_TOPIC"
 
     for i in range(3):
@@ -198,9 +221,9 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
             _make_payload(
                 f"question-{i}-" * 80,
                 f"answer-{i}",
-                identity,
             ),
-            topic_id,
+            identity_scope=identity_scope,
+            target_topic_id=topic_id,
         )
 
     access_context = make_access_context(actor_identity=identity)

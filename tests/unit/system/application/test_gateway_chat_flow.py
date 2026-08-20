@@ -50,8 +50,8 @@ def _command_outcome() -> GatewayCommandOutcome:
 
 
 def _scoped_prepared_route(prepared):
-    async def route(*, access_context, **_kwargs):
-        prepared.access_context = access_context
+    async def route(*, identity_scope, **_kwargs):
+        prepared.identity_scope = identity_scope
         return prepared
 
     return route
@@ -86,7 +86,7 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
     async def prepare(**kwargs):
         calls.append("prepare")
         assert kwargs["gateway_decision"] == _decision_outcome().decision
-        prepared.access_context = kwargs["access_context"]
+        prepared.identity_scope = kwargs["identity_scope"]
         return prepared
 
     async def run_agent(**_kwargs):
@@ -267,7 +267,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
     prepared.generation_options = None
     prepared.topic_id = "topic-1"
 
-    async def prepare(*, access_context, **_kwargs):
+    async def prepare(*, identity_scope, **_kwargs):
         nonlocal prepare_cancelled
         prepare_started.set()
         try:
@@ -275,7 +275,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
         except asyncio.CancelledError:
             prepare_cancelled = True
             raise
-        prepared.access_context = access_context
+        prepared.identity_scope = identity_scope
         return prepared
 
     alice = AsyncMock()

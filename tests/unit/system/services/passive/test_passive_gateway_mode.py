@@ -114,7 +114,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     submission = submitted[0]
     assert submission.requested_topic_id == "topic-passive"
     assert submission.correlation["seal_reason"] == "manual_flush"
-    assert submission.payload.access_context.workspace_identity.workspace_id == (
+    assert submission.identity_scope.workspace_identity.workspace_id == (
         "main_workspace"
     )
 
@@ -133,31 +133,33 @@ async def test_scoped_passive_seam_keeps_workspace_in_key_and_payload() -> None:
         bus,
         interaction_queue=_SubmissionQueueRecorder(submitted),
     )
-    access_context = make_access_context(
+    identity_scope = make_access_context(
         user_id="u1",
         workspace_id="isolation_workspace",
-        interaction_id="passive-top-level",
     )
+    interaction_id = "passive-top-level"
 
     await ingressor.route_event_scoped(
         _event("user", "被动原问题"),
-        access_context,
+        identity_scope,
+        interaction_id,
     )
     await ingressor.route_event_scoped(
         _event("assistant", "回答", is_final=True),
-        access_context,
+        identity_scope,
+        interaction_id,
     )
 
     assert len(submitted) == 1
     submission = submitted[0]
     assert ":isolation_workspace:" in submission.ordering_key
-    assert submission.payload.access_context.workspace_identity == (
-        access_context.workspace_identity
+    assert submission.identity_scope.workspace_identity == (
+        identity_scope.workspace_identity
     )
-    assert submission.payload.access_context.actor_identity == (
-        access_context.actor_identity
+    assert submission.identity_scope.actor_identity == (
+        identity_scope.actor_identity
     )
-    assert submission.payload.access_context == access_context
+    assert submission.identity_scope == identity_scope
     assert submission.payload.rewritten_query == "被动原问题"
     assert submission.payload.worth_saving is True
 

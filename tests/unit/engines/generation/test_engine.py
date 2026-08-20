@@ -12,7 +12,6 @@ MemoryGenerationEngine 单元测试
 """
 
 import pytest
-from functools import partial
 from unittest.mock import Mock, patch, call, AsyncMock
 from uuid import uuid4
 from datetime import datetime
@@ -40,10 +39,7 @@ from hivememory.core.models import (
 from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
 
 
-GenerationRequest = partial(
-    GenerationRequestModel,
-    creation_context=make_memory_creation_context(),
-)
+GenerationRequest = GenerationRequestModel
 
 
 def _make_identity() -> Identity:
@@ -123,7 +119,7 @@ class TestGenerationEngineRouting:
     async def test_empty_messages_no_focus_returns_empty(self):
         """空消息且无 focus 时早返回"""
         request = GenerationRequest()
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
         assert result == []
         self.mock_extractor.extract.assert_not_called()
 
@@ -137,7 +133,7 @@ class TestGenerationEngineRouting:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         self.mock_extractor.extract.assert_called_once()
         assert len(result) == 1
@@ -152,7 +148,7 @@ class TestGenerationEngineRouting:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         call_kwargs = self.mock_extractor.extract.call_args
         assert call_kwargs[1]["metadata"]["mode"] == "write"
@@ -177,7 +173,7 @@ class TestGenerationEngineRouting:
             update_focus=uf,
             existing_memory=existing,
         )
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         self.mock_extractor.merge.assert_called_once()
         assert len(result) == 1
@@ -209,7 +205,7 @@ class TestGenerationEngineModeA:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
@@ -222,7 +218,7 @@ class TestGenerationEngineModeA:
         self.mock_extractor.extract.return_value = draft
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert result == []
         self.mock_deduplicator.check_duplicate.assert_not_called()
@@ -234,7 +230,7 @@ class TestGenerationEngineModeA:
         self.mock_extractor.extract.return_value = None
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert result == []
 
@@ -242,7 +238,7 @@ class TestGenerationEngineModeA:
     async def test_mode_a_empty_messages(self):
         """Mode A 空消息列表返回空"""
         request = GenerationRequest()
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
         assert result == []
 
 
@@ -272,7 +268,7 @@ class TestGenerationEngineModeB:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert len(result) == 1
 
@@ -285,7 +281,7 @@ class TestGenerationEngineModeB:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         # fallback 应保证内容不丢失
         assert len(result) == 1
@@ -349,7 +345,7 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request()
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "合并后内容"
@@ -363,7 +359,7 @@ class TestGenerationEngineModeC:
             base_alias="fact_test",
         )
         request = GenerationRequest(context=GenerationContext(), update_focus=uf)
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert result == []
         self.mock_extractor.merge.assert_not_called()
@@ -375,7 +371,7 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(content="追加内容")
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert len(result) == 1
         assert "追加内容" in result[0].atom.payload.content
@@ -388,7 +384,7 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(existing=existing, content=None)
-        result = await self.engine.process(request)
+        result = await self.engine.process(request, identity_scope=make_memory_creation_context())
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "旧内容"

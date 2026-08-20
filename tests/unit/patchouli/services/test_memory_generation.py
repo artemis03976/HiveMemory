@@ -93,13 +93,13 @@ def _make_outcome(
 
 def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_interaction_input=True):
     spec = MemoryGenerationTaskSpec(
+        identity_scope=make_memory_creation_context(),
         topic_id=topic_id,
         label="test",
         source=source,
         request=GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="remember this"),
-            creation_context=_creation_context(),
         ),
         interaction_input=InteractionArtifactInput(
             topic_id=topic_id,
@@ -239,10 +239,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            creation_context=_creation_context(),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_creation_context(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -255,7 +255,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         assert len(results) == 1
         assert results[0].canonical_alias is None
         assert results[0].settlement is None
-        gen_engine.process.assert_awaited_once_with(request)
+        gen_engine.process.assert_awaited_once_with(request, identity_scope=spec.identity_scope)
 
     @pytest.mark.asyncio
     async def test_run_generation_upserts_created_atoms(self):
@@ -273,10 +273,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            creation_context=_creation_context(),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_creation_context(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -304,10 +304,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            creation_context=_creation_context(),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_creation_context(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -334,10 +334,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            creation_context=_creation_context(),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_creation_context(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -365,10 +365,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            creation_context=_creation_context(),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_creation_context(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,

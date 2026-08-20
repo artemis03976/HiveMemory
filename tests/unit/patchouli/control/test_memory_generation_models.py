@@ -41,12 +41,12 @@ def _task_snapshot(**updates):
 
 def _spec():
     return MemoryGenerationTaskSpec(
+        identity_scope=make_memory_creation_context(),
         topic_id="t1",
         label="task",
         source=MemoryGenerationSource.WRITE,
         request=GenerationRequest(
             context=GenerationContext(),
-            creation_context=make_memory_creation_context(),
         ),
     )
 
@@ -143,12 +143,12 @@ def test_memory_generation_task_hides_queue_terminal_before_finalize():
 
 def test_memory_generation_task_projects_result_and_cancel_metadata():
     spec = MemoryGenerationTaskSpec(
+        identity_scope=make_memory_creation_context(),
         topic_id="t1",
         label="task",
         source=MemoryGenerationSource.WRITE,
         request=GenerationRequest(
             context=GenerationContext(),
-            creation_context=make_memory_creation_context(),
         ),
         pending_alias="draft-target",
     )

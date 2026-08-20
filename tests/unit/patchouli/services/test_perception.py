@@ -75,11 +75,10 @@ class TestPerceptionFamiliar:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            access_context=make_access_context(user_id="u1"),
         )
         settlement = TopicMaterializeTask(
             topic_id="t1",
-            creation_context=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_creation_context(user_id="u1"),
             blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
         )
         layer = Mock()
@@ -99,10 +98,18 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.submit_interaction(payload, "t1")
+        result = await familiar.submit_interaction(
+            payload,
+            identity_scope=make_access_context(user_id="u1"),
+            target_topic_id="t1",
+        )
 
         assert result == "t1"
-        layer.route_and_ingest.assert_awaited_once_with("t1", payload)
+        layer.route_and_ingest.assert_awaited_once_with(
+            "t1",
+            payload,
+            identity_scope=make_access_context(user_id="u1"),
+        )
         bus.request.assert_awaited_once_with(
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
             settlement,
@@ -115,7 +122,6 @@ class TestPerceptionFamiliar:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            access_context=make_access_context(user_id="u1"),
         )
         layer = Mock()
         layer.route_and_ingest = AsyncMock(return_value=("t1", None))  # 无 settlement
@@ -128,7 +134,11 @@ class TestPerceptionFamiliar:
 
         familiar = self._make_familiar(layer=layer, store=store, bus=bus)
 
-        result = await familiar.submit_interaction(payload, "t1")
+        result = await familiar.submit_interaction(
+            payload,
+            identity_scope=make_access_context(user_id="u1"),
+            target_topic_id="t1",
+        )
 
         assert result == "t1"
         bus.request.assert_not_awaited()
@@ -139,7 +149,6 @@ class TestPerceptionFamiliar:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            access_context=make_access_context(user_id="u1"),
         )
         lru = TopicData(
             topic_id="old_topic",
@@ -151,7 +160,7 @@ class TestPerceptionFamiliar:
         )
         settlement = TopicMaterializeTask(
             topic_id="old_topic",
-            creation_context=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_creation_context(user_id="u1"),
             blocks=[LogicalBlock(turn=TurnRecord(user_query="old", assistant_final_text="answer"))],
             reason=FlushReason.LRU_EVICTION,
         )
@@ -172,18 +181,26 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.submit_interaction(payload, "NEW_TOPIC")
+        result = await familiar.submit_interaction(
+            payload,
+            identity_scope=make_access_context(user_id="u1"),
+            target_topic_id="NEW_TOPIC",
+        )
 
         assert result == "new_topic"
         layer.settle_topic.assert_awaited_once_with(
-            WorkspaceTopicKey.from_access_context(payload.access_context, "old_topic"),
+            WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "old_topic"),
             FlushReason.LRU_EVICTION,
         )
         bus.request.assert_awaited_once_with(
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
             settlement,
         )
-        layer.route_and_ingest.assert_awaited_once_with("NEW_TOPIC", payload)
+        layer.route_and_ingest.assert_awaited_once_with(
+            "NEW_TOPIC",
+            payload,
+            identity_scope=make_access_context(user_id="u1"),
+        )
 
     @pytest.mark.asyncio
     async def test_manual_settle_returns_none_for_empty_topic(self):
@@ -232,7 +249,7 @@ class TestPerceptionFamiliar:
         layer = Mock()
         layer.settle_topic = AsyncMock(return_value=TopicMaterializeTask(
             topic_id="t1",
-            creation_context=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_creation_context(user_id="u1"),
             topic_title="title",
             topic_summary="",
             blocks=[],

@@ -58,7 +58,6 @@ def _access(
     return build_internal_workspace_access(
         Identity(user_id=user_id, agent_id=agent_id, team_id="team-a"),
         workspace_id,
-        f"memory-integration-{workspace_id}-{agent_id}",
     )
 
 

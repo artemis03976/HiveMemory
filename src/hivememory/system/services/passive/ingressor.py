@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from hivememory.core.models import (
     Identity,
-    WorkspaceAccessContext,
+    IdentityScope,
     require_workspace_access_context,
     resolve_default_workspace_access,
 )
@@ -112,14 +112,16 @@ class PassiveMessageIngressor:
             return False
 
         interaction_id = buffer.interaction_id
-        if interaction_id is None:
+        identity_scope = buffer.identity_scope
+        if interaction_id is None or identity_scope is None:
             raise RuntimeError(
-                f"pending passive turn is missing interaction_id: conversation={key.label}"
+                f"pending passive turn is missing identity: conversation={key.label}"
             )
 
         payload, target_topic = prepared
         await self._interaction_queue.submit(
             InteractionSubmission(
+                identity_scope=identity_scope,
                 interaction_id=interaction_id,
                 payload=payload,
                 requested_topic_id=target_topic or "NEW_TOPIC",
@@ -147,29 +149,29 @@ class PassiveMessageIngressor:
         event: PassiveIngressEvent,
         identity: Identity,
     ) -> PassiveIngressOutcome:
-        """公共 passive 入口：为每个顶层事件解析默认 Workspace。"""
-        access_context = resolve_default_workspace_access(
-            identity,
-            f"passive_{uuid4().hex}",
-        )
-        return await self.route_event_scoped(event, access_context)
+        """公共 passive 入口：为每个顶层事件解析默认 Workspace 与 interaction_id。"""
+        identity_scope = resolve_default_workspace_access(identity)
+        interaction_id = f"passive_{uuid4().hex}"
+        return await self.route_event_scoped(event, identity_scope, interaction_id)
 
     async def route_event_scoped(
         self,
         event: PassiveIngressEvent,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
     ) -> PassiveIngressOutcome:
         """供内部 walking skeleton 使用的显式 scope 入口。"""
-        access_context = require_workspace_access_context(access_context)
-        key = event.conversation_key(access_context)
+        identity_scope = require_workspace_access_context(identity_scope)
+        key = event.conversation_key(identity_scope)
 
         async with self._serial_gate.hold(key):
-            return await self._route_event_serialized(event, access_context, key)
+            return await self._route_event_serialized(event, identity_scope, interaction_id, key)
 
     async def _route_event_serialized(
         self,
         event: PassiveIngressEvent,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
         """在当前会话串行门内完成一次事件的全部状态变更。"""
@@ -212,17 +214,18 @@ class PassiveMessageIngressor:
         )
 
         if event.role == "user":
-            return await self._handle_user(event, access_context, key)
+            return await self._handle_user(event, identity_scope, interaction_id, key)
 
         if event.role in ("assistant", "tool_call", "tool_result"):
-            return await self._handle_buffered(event, access_context, key)
+            return await self._handle_buffered(event, identity_scope, key)
 
         return PassiveIngressOutcome(kind="ignored")
 
     async def _handle_user(
         self,
         event: PassiveIngressEvent,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
         # 先把上一轮移交队列，再分析新 user。admission 失败时不覆盖旧 accumulator，
@@ -234,13 +237,14 @@ class PassiveMessageIngressor:
             raise
 
         # Gateway/retrieval 的可恢复失败在 provider 内收敛为降级结果。
-        attempt = await self._memory_context.prepare(event, access_context, key)
+        attempt = await self._memory_context.prepare(event, identity_scope, key)
 
         buffer = self._buffers.get_buffer(key)
         buffer.accept_user(
             content=event.content,
             gateway_decision=attempt.decision,
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
             turn_id=event.turn_id,
         )
 
@@ -260,7 +264,7 @@ class PassiveMessageIngressor:
     async def _handle_buffered(
         self,
         event: PassiveIngressEvent,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         key: PassiveConversationKey,
     ) -> PassiveIngressOutcome:
         buffer = self._buffers.get_buffer(key)

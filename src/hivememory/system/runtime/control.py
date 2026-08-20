@@ -8,7 +8,7 @@ from enum import Enum
 
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
-    WorkspaceAccessContext,
+    IdentityScope,
     require_workspace_access_context,
 )
 
@@ -64,19 +64,28 @@ class ChatRunStatusSnapshot:
 
 @dataclass
 class ChatGenerationRun:
-    """一次 Chat Run 的阶段引用与终态事实。"""
+    """一次 Chat Run 的阶段引用与终态事实。
 
-    generation_id: str
-    access_context: WorkspaceAccessContext
+    ``generation_id`` 只是 ``interaction_id`` 的只读兼容投影，进程内不再保存
+    第二份生成事实；registry 的稳定键即为 ``interaction_id``。
+    """
+
+    identity_scope: IdentityScope
+    interaction_id: str
     phase: ChatRunPhase = ChatRunPhase.CREATED
     outcome: ChatRunOutcome = ChatRunOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
 
     @property
+    def generation_id(self) -> str:
+        """旧 Chat 控制 API 的兼容句柄，只读派生自 interaction_id。"""
+        return self.interaction_id
+
+    @property
     def scope_fingerprint(self) -> str:
-        """保存注册时冻结的完整访问上下文指纹。"""
-        return self.access_context.scope_fingerprint
+        """保存注册时冻结的完整身份作用域指纹。"""
+        return self.identity_scope.scope_fingerprint
 
     def bind_phase(self, phase: ChatRunPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
@@ -159,34 +168,34 @@ class ChatGenerationRunRegistry:
         self._runs: dict[str, ChatGenerationRun] = {}
 
     def register(self, run: ChatGenerationRun) -> None:
-        require_workspace_access_context(run.access_context)
-        existing = self._runs.get(run.generation_id)
+        require_workspace_access_context(run.identity_scope)
+        existing = self._runs.get(run.interaction_id)
         if existing is not None:
             raise WorkspaceDomainError(
-                "generation_id 已被注册，拒绝覆盖现有 Chat Run",
-                details={"generation_id": run.generation_id},
+                "interaction_id 已被注册，拒绝覆盖现有 Chat Run",
+                details={"interaction_id": run.interaction_id},
             )
-        self._runs[run.generation_id] = run
+        self._runs[run.interaction_id] = run
 
     def get(
         self,
         generation_id: str,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> ChatGenerationRun | None:
         """只向同 owner/workspace 的控制请求暴露 run。"""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_workspace_access_context(identity_scope)
         run = self._runs.get(generation_id)
-        if run is None or not self._same_resource_scope(run.access_context, access_context):
+        if run is None or not self._same_resource_scope(run.identity_scope, identity_scope):
             return None
         return run
 
     def cancel(
         self,
         generation_id: str,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         reason: str = "user_requested",
     ) -> CancelResult:
-        run = self.get(generation_id, access_context)
+        run = self.get(generation_id, identity_scope)
         if run is None:
             return CancelResult(
                 generation_id=generation_id,
@@ -206,10 +215,10 @@ class ChatGenerationRunRegistry:
     def status(
         self,
         generation_id: str,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> ChatRunStatusSnapshot | None:
         """查询 scoped 状态；跨 scope 与不存在统一返回 ``None``。"""
-        run = self.get(generation_id, access_context)
+        run = self.get(generation_id, identity_scope)
         if run is None:
             return None
         return ChatRunStatusSnapshot(
@@ -221,13 +230,13 @@ class ChatGenerationRunRegistry:
 
     def close(self, run: ChatGenerationRun) -> None:
         """移除已由 Chat application 记录终态的 run。"""
-        if self._runs.get(run.generation_id) is run:
-            self._runs.pop(run.generation_id, None)
+        if self._runs.get(run.interaction_id) is run:
+            self._runs.pop(run.interaction_id, None)
 
     @staticmethod
     def _same_resource_scope(
-        registered: WorkspaceAccessContext,
-        requested: WorkspaceAccessContext,
+        registered: IdentityScope,
+        requested: IdentityScope,
     ) -> bool:
         return registered.workspace_identity == requested.workspace_identity
 

@@ -100,10 +100,9 @@ class TestModeBExtraction:
         request = GenerationRequest(
             context=sample_context,
             write_focus=focus,
-            creation_context=creation_context,
         )
 
-        result = await engine.process(request=request)
+        result = await engine.process(request=request, identity_scope=creation_context)
 
         # 验证 extractor 被调用时 metadata 包含 mode=write
         call_args = mock_extractor.extract.call_args
@@ -131,9 +130,8 @@ class TestModeBExtraction:
 
         request = GenerationRequest(
             context=sample_context,
-            creation_context=creation_context,
         )
-        result = await engine.process(request)
+        result = await engine.process(request, identity_scope=creation_context)
 
         call_args = mock_extractor.extract.call_args
         metadata = call_args[1]["metadata"] if "metadata" in call_args[1] else call_args[0][1]
@@ -165,10 +163,9 @@ class TestModeBFallback:
         request = GenerationRequest(
             context=sample_context,
             write_focus=focus,
-            creation_context=creation_context,
         )
 
-        result = await engine.process(request=request)
+        result = await engine.process(request=request, identity_scope=creation_context)
 
         # fallback 应该保底生成 atom
         assert len(result) == 1
@@ -229,9 +226,8 @@ class TestEngineUnifiedAPI:
 
         request = GenerationRequest(
             context=sample_context,
-            creation_context=creation_context,
         )
-        result = await engine.process(request)
+        result = await engine.process(request, identity_scope=creation_context)
         assert result == []
         mock_extractor.extract.assert_called_once()
 
@@ -240,7 +236,5 @@ class TestEngineUnifiedAPI:
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=AsyncMock(),
         )
-        result = await engine.process(
-            GenerationRequest(creation_context=make_memory_creation_context())
-        )
+        result = await engine.process(GenerationRequest(), identity_scope=make_memory_creation_context())
         assert result == []

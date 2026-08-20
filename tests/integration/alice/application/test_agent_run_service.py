@@ -57,7 +57,8 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     return AgentRunContext(
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="interaction-test",
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,
@@ -126,12 +127,12 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
     runtime, service = _build_service()
     context = _build_agent_run_context(_build_memory_atom()).model_copy(
         update={
-            "access_context": make_access_context(
+            "identity_scope": make_access_context(
                 user_id="u1",
                 agent_id="omni_doll",
                 workspace_id="isolation_workspace",
-                interaction_id="interaction-isolation",
-            )
+            ),
+            "interaction_id": "interaction-isolation",
         }
     )
     _stub_terminal_execution(runtime)
@@ -139,9 +140,9 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
     await service.run_agent(context)
 
     frame = runtime._agent_runtime.run_frame.await_args.args[0]
-    assert frame.access_context == context.access_context
+    assert frame.access_context == context.identity_scope
     assert frame.runtime_scope.access_context.scope_fingerprint == (
-        context.access_context.scope_fingerprint
+        context.identity_scope.scope_fingerprint
     )
 
 

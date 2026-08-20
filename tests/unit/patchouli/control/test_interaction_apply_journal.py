@@ -14,7 +14,7 @@ def test_journal_records_all_apply_stages() -> None:
     journal = InMemoryInteractionApplyJournal()
     settlement = TopicMaterializeTask(
         topic_id="topic-1",
-        creation_context=make_memory_creation_context(),
+        identity_scope=make_memory_creation_context(),
     )
 
     journal.record_block_applied("interaction-1", "topic-1")

@@ -22,8 +22,8 @@ from hivememory.core.models import (
     AgentAction,
     LogicalBlock,
     Identity,
+    IdentityScope,
     TraceItem,
-    MemoryCreationContext,
     TopicSnapshot,
     TurnEvent,
     TurnRecord,
@@ -72,7 +72,7 @@ class TopicMaterializeTask(BaseModel):
     发送给 Generation 模块进行记忆生成。
     """
     topic_id: str = Field(..., description="话题 ID")
-    creation_context: MemoryCreationContext
+    identity_scope: IdentityScope
     topic_title: str = Field(default="", description="话题标题")
     topic_summary: str = Field(default="", description="话题展示摘要")
 
@@ -91,7 +91,7 @@ class TopicMaterializeTask(BaseModel):
     @property
     def workspace_identity(self) -> WorkspaceIdentity:
         """返回生成输入中唯一的 Workspace ownership。"""
-        return self.creation_context.workspace_identity
+        return self.identity_scope.workspace_identity
 
 
 __all__ = [

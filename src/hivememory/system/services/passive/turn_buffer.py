@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from hivememory.core.models import WorkspaceAccessContext
+from hivememory.core.models import IdentityScope
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
@@ -43,7 +43,8 @@ class MessageTurnBuffer:
 
     def _reset(self) -> None:
         self._state = MessageBufferState.IDLE
-        self._access_context: WorkspaceAccessContext | None = None
+        self._identity_scope: IdentityScope | None = None
+        self._interaction_id: str | None = None
         self._user_content: str | None = None
         self._assistant_parts: list[str] = []
         self._turn_events: list[TurnEvent] = []
@@ -87,11 +88,12 @@ class MessageTurnBuffer:
     @property
     def interaction_id(self) -> str | None:
         """当前 turn 的稳定提交标识；只有队列接收成功后才会被清除。"""
-        return (
-            self._access_context.interaction_id
-            if self._access_context is not None
-            else None
-        )
+        return self._interaction_id
+
+    @property
+    def identity_scope(self) -> IdentityScope | None:
+        """当前 turn 冻结的身份作用域；由顶层 ingress 一次性生成。"""
+        return self._identity_scope
 
     @property
     def pending_final_event_key(self) -> tuple[str, str] | None:
@@ -131,7 +133,8 @@ class MessageTurnBuffer:
         content: str,
         gateway_decision: GatewayDecision | None = None,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         turn_id: str | None = None,
     ) -> None:
         """开启新一轮；调用方必须先完成上一轮的队列 admission。"""
@@ -142,8 +145,9 @@ class MessageTurnBuffer:
                 f"interaction_id={self.interaction_id}"
             )
 
-        # 顶层 ingress 已生成本轮 interaction_id；buffer 不得另造第二份 scope。
-        self._access_context = access_context
+        # 顶层 ingress 已生成本轮 interaction_id；buffer 不得另造第二份身份事实。
+        self._identity_scope = identity_scope
+        self._interaction_id = interaction_id
         self._user_content = content
         self._gateway_decision = gateway_decision
         self._target_topic = (
@@ -287,11 +291,7 @@ class MessageTurnBuffer:
             "\n".join(self._assistant_parts) if self._assistant_parts else ""
         )
 
-        access_context = self._access_context
-        if access_context is None:
-            raise RuntimeError("构建 passive payload 时缺少 WorkspaceAccessContext")
         return InteractionPayload(
-            access_context=access_context,
             user_message=self._user_content or "",
             assistant_final_text=assistant_final_text or None,
             turn_events=list(self._turn_events),

@@ -48,12 +48,12 @@ def _spec(
     pending_alias=None,
 ):
     return MemoryGenerationTaskSpec(
+        identity_scope=make_memory_creation_context(),
         topic_id=topic_id,
         label=label,
         source=source,
         request=GenerationRequest(
             context=GenerationContext(),
-            creation_context=make_memory_creation_context(),
         ),
         intent_id=intent_id,
         pending_alias=pending_alias,

@@ -28,7 +28,6 @@ def _make_payload(user_msg="msg", assistant_msg="reply", identity=None):
                 content=assistant_msg,
             )
         ],
-        access_context=make_access_context(actor_identity=identity),
     )
 
 
@@ -51,6 +50,7 @@ class TestSemanticFlowPerceptionLayer:
         topic_id, settle_payload = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("hi", "hello", identity),
+            identity_scope=make_access_context(actor_identity=identity),
         )
 
         assert settle_payload is None
@@ -67,11 +67,13 @@ class TestSemanticFlowPerceptionLayer:
         topic_id, _ = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("old topic", "old response", identity),
+            identity_scope=make_access_context(actor_identity=identity),
         )
 
         real_topic_id, settle_payload = await self.layer.route_and_ingest(
             topic_id,
             _make_payload("new topic", "new response", identity),
+            identity_scope=make_access_context(actor_identity=identity),
         )
 
         assert real_topic_id == topic_id
@@ -92,17 +94,21 @@ class TestSemanticFlowPerceptionLayer:
             user_message="hi",
             assistant_final_text="hello",
             turn_events=[],
-            access_context=make_access_context(actor_identity=identity),
         )
 
         with pytest.raises(ValueError, match="turn_events is required"):
-            await self.layer.ingest_payload(payload, topic_id)
+            await self.layer.ingest_payload(
+                payload,
+                topic_id,
+                identity_scope=make_access_context(actor_identity=identity),
+            )
 
     @pytest.mark.asyncio
     async def test_clear_buffer_keeps_topic_shell(self):
         topic_id, _ = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("hi", "hello"),
+            identity_scope=make_access_context(user_id="u1", agent_id="a1"),
         )
 
         access_context = make_access_context(user_id="u1", agent_id="a1")

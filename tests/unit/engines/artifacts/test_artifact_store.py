@@ -355,7 +355,7 @@ async def test_noop_artifact_engine_returns_empty_results():
     interaction_ref = await engine.interaction.build_and_store(
         topic_id="topic-1",
         blocks=[],
-        creation_context=context,
+        identity_scope=context,
     )
     memory_bundle = await engine.memory.build_for_create(
         memory=object(),

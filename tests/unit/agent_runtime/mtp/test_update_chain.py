@@ -133,9 +133,8 @@ class TestModeCMergePrompt:
             context=sample_context,
             update_focus=uf,
             existing_memory=existing_memory,
-            creation_context=creation_context,
         )
-        result = await engine.process(request=request)
+        result = await engine.process(request=request, identity_scope=creation_context)
 
         # merge() 被调用，extract() 不被调用（Mode C 路由契约）
         mock_extractor.merge.assert_called_once()
@@ -167,9 +166,8 @@ class TestModeCMergePrompt:
         request = GenerationRequest(
             update_focus=uf,
             existing_memory=existing_memory,
-            creation_context=creation_context,
         )
-        result = await engine.process(request=request)
+        result = await engine.process(request=request, identity_scope=creation_context)
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
@@ -201,9 +199,8 @@ class TestModeCFallback:
         request = GenerationRequest(
             update_focus=uf,
             existing_memory=existing_memory,
-            creation_context=creation_context,
         )
-        result = await engine.process(request=request)
+        result = await engine.process(request=request, identity_scope=creation_context)
 
         # fallback 应该保底入库
         assert len(result) == 1
@@ -262,8 +259,8 @@ class TestModeCFallback:
         )
         # 不注入 existing_memory (默认 None)
 
-        request = GenerationRequest(update_focus=uf, creation_context=creation_context)
-        result = await engine.process(request=request)
+        request = GenerationRequest(update_focus=uf)
+        result = await engine.process(request=request, identity_scope=creation_context)
 
         assert result == []
         mock_extractor.merge.assert_not_called()

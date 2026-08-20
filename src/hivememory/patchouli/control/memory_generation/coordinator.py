@@ -57,12 +57,12 @@ class MemoryGenerationCoordinator:
             return None
 
         spec = MemoryGenerationTaskSpec(
+            identity_scope=payload.identity_scope,
             topic_id=payload.topic_id,
             label=payload.topic_id,
             source=MemoryGenerationSource.ARCHIVE,
             request=GenerationRequest(
                 context=gen_context,
-                creation_context=payload.creation_context,
             ),
             interaction_input=self._build_interaction_input(
                 topic_id=payload.topic_id,
@@ -189,7 +189,7 @@ class MemoryGenerationCoordinator:
         interaction_input: InteractionArtifactInput | None,
         access_context: WorkspaceAccessContext,
     ) -> MemoryGenerationTaskSpec:
-        if task.creation_context.workspace_identity != access_context.workspace_identity:
+        if task.identity_scope.workspace_identity != access_context.workspace_identity:
             raise WorkspaceMismatchError(details={"pending_alias": task.pending_alias})
         source = MemoryGenerationSource(task.source_verb)
         focus = task.focus
@@ -199,7 +199,6 @@ class MemoryGenerationCoordinator:
             request = GenerationRequest(
                 context=gen_context,
                 write_focus=focus,
-                creation_context=task.creation_context,
             )
         elif source == MemoryGenerationSource.UPDATE:
             if not isinstance(focus, UpdateFocus):
@@ -223,12 +222,12 @@ class MemoryGenerationCoordinator:
                 context=gen_context,
                 update_focus=focus,
                 existing_memory=existing,
-                creation_context=task.creation_context,
             )
         else:
             raise ValueError(f"Unsupported active generation source: {source}")
 
         return MemoryGenerationTaskSpec(
+            identity_scope=task.identity_scope,
             topic_id=topic_id,
             label=task.pending_alias,
             source=source,

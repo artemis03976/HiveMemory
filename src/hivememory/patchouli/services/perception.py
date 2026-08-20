@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Optional
 from pydantic import BaseModel
 
 from hivememory.core.models import (
+    IdentityScope,
     WorkspaceAccessContext,
     WorkspaceTopicKey,
     require_workspace_access_context,
@@ -85,6 +86,8 @@ class PerceptionFamiliar:
     async def submit_interaction(
         self,
         payload: InteractionPayload,
+        *,
+        identity_scope: IdentityScope,
         target_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
     ) -> str:
@@ -95,13 +98,19 @@ class PerceptionFamiliar:
                 async with gate.lock:
                     return await self._submit_interaction_once(
                         payload,
+                        identity_scope,
                         target_topic_id,
                         interaction_id,
                     )
             finally:
                 await self._release_interaction_gate(interaction_id, gate)
 
-        return await self._submit_interaction_once(payload, target_topic_id, None)
+        return await self._submit_interaction_once(
+            payload,
+            identity_scope,
+            target_topic_id,
+            None,
+        )
 
     async def _acquire_interaction_gate(
         self,
@@ -131,6 +140,7 @@ class PerceptionFamiliar:
     async def _submit_interaction_once(
         self,
         payload: InteractionPayload,
+        identity_scope: IdentityScope,
         target_topic_id: str,
         interaction_id: str | None,
     ) -> str:
@@ -152,17 +162,19 @@ class PerceptionFamiliar:
 
         # retry 已有 apply journal 时不能驱逐刚刚写入的目标话题。
         if apply_record is None:
-            await self._maybe_evict_lru(payload.access_context, target_topic_id)
+            await self._maybe_evict_lru(identity_scope, target_topic_id)
 
         if interaction_id is None:
             topic_id, settle_payload = await self.perception_layer.route_and_ingest(
                 target_topic_id,
                 payload,
+                identity_scope=identity_scope,
             )
         else:
             topic_id, settle_payload = await self.perception_layer.route_and_ingest(
                 target_topic_id,
                 payload,
+                identity_scope=identity_scope,
                 interaction_id=interaction_id,
             )
 

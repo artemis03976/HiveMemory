@@ -339,11 +339,11 @@ class TestChatRouter:
         with pytest.raises(StopAsyncIteration):
             await response.body_iterator.__anext__()
 
-        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["generation_id"]
-        access_context = mock_service.chat_stream_scoped.call_args.kwargs["access_context"]
+        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["interaction_id"]
+        identity_scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
         mock_service.cancel_generation_scoped.assert_called_once_with(
             generation_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             reason="client_disconnected",
         )
 
@@ -356,7 +356,7 @@ class TestChatRouter:
         async def fake_stream(**kwargs):
             stream_started.set()
             await blocker.wait()
-            yield {"event": "generation_id", "data": {"generation_id": kwargs["generation_id"]}}
+            yield {"event": "generation_id", "data": {"generation_id": kwargs["interaction_id"]}}
 
         disconnect_checks = 0
 
@@ -379,11 +379,11 @@ class TestChatRouter:
             await response.body_iterator.__anext__()
 
         assert stream_started.is_set()
-        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["generation_id"]
-        access_context = mock_service.chat_stream_scoped.call_args.kwargs["access_context"]
+        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["interaction_id"]
+        identity_scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
         mock_service.cancel_generation_scoped.assert_called_once_with(
             generation_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             reason="client_disconnected",
         )
 
@@ -398,7 +398,7 @@ class TestChatRouter:
             nonlocal pull_task
             yield {
                 "event": "generation_id",
-                "data": {"generation_id": kwargs["generation_id"]},
+                "data": {"generation_id": kwargs["interaction_id"]},
             }
             pull_task = asyncio.current_task()
             pull_started.set()
@@ -434,11 +434,11 @@ class TestChatRouter:
         assert pull_task is not None
         assert pull_task.done()
         assert pull_task.cancelled()
-        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["generation_id"]
-        access_context = mock_service.chat_stream_scoped.call_args.kwargs["access_context"]
+        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["interaction_id"]
+        identity_scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
         mock_service.cancel_generation_scoped.assert_called_once_with(
             generation_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             reason="client_disconnected",
         )
 
@@ -451,7 +451,7 @@ class TestChatRouter:
             try:
                 yield {
                     "event": "generation_id",
-                    "data": {"generation_id": kwargs["generation_id"]},
+                    "data": {"generation_id": kwargs["interaction_id"]},
                 }
                 yield {"event": "token", "data": {"content": "late"}}
             finally:

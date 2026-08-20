@@ -19,7 +19,7 @@ from hivememory.core.models import (
     ISOLATION_WORKSPACE_ID,
     MAIN_WORKSPACE_ID,
     Identity,
-    WorkScopeSnapshot,
+    IdentityScope,
     WorkspaceAccessContext,
     WorkspaceIdentity,
     WorkspaceTopicKey,
@@ -53,34 +53,33 @@ def test_workspace_identity_rejects_different_key_and_id():
         )
 
 
-def test_workspace_access_context_round_trip_preserves_scope_and_fingerprint():
-    """防止序列化重建时丢失 actor、Workspace 或 interaction 坐标。"""
+def test_identity_scope_round_trip_preserves_scope_and_fingerprint():
+    """防止序列化重建时丢失 actor 或 Workspace 坐标。"""
     original = resolve_default_workspace_access(
         Identity(user_id="user-a", agent_id="agent-a", team_id="team-a"),
-        "interaction-a",
     )
 
-    restored = WorkspaceAccessContext.model_validate_json(original.model_dump_json())
+    restored = IdentityScope.model_validate_json(original.model_dump_json())
 
     assert restored == original
     assert restored.scope_fingerprint == original.scope_fingerprint
 
 
-def test_workspace_values_are_frozen():
-    """防止 Run 传播过程中原地改写 Workspace hard boundary。"""
-    context = resolve_default_workspace_access(Identity(user_id="user-a"), "interaction-a")
+def test_identity_scope_is_frozen_and_recursively_immutable():
+    """防止 Run 传播过程中原地改写 IdentityScope 的 hard boundary。"""
+    scope = resolve_default_workspace_access(Identity(user_id="user-a"))
 
     with pytest.raises(ValidationError, match="frozen"):
-        context.interaction_id = "interaction-b"
+        scope.actor_identity = Identity(user_id="user-b")
     with pytest.raises(ValidationError, match="frozen"):
-        context.workspace_identity.workspace_id = "other"
+        scope.workspace_identity.workspace_id = "other"
 
 
 def test_default_resolver_builds_current_users_main_workspace():
     """防止公共入口把默认 Workspace 解析到其他 owner 或非规范名称。"""
-    context = resolve_default_workspace_access(Identity(user_id="user-a"), "interaction-a")
+    scope = resolve_default_workspace_access(Identity(user_id="user-a"))
 
-    assert context.workspace_identity == WorkspaceIdentity(
+    assert scope.workspace_identity == WorkspaceIdentity(
         owner_user_id="user-a",
         workspace_key=MAIN_WORKSPACE_ID,
         workspace_id=MAIN_WORKSPACE_ID,
@@ -89,17 +88,16 @@ def test_default_resolver_builds_current_users_main_workspace():
 
 def test_internal_builder_can_address_isolation_workspace_explicitly():
     """防止双 Workspace 验收 seam 偷偷回退到 main_workspace。"""
-    context = build_internal_workspace_access(
+    scope = build_internal_workspace_access(
         Identity(user_id="user-a"),
         ISOLATION_WORKSPACE_ID,
-        "interaction-b",
     )
 
-    assert context.workspace_identity.workspace_id == ISOLATION_WORKSPACE_ID
-    assert context.workspace_identity.owner_user_id == "user-a"
+    assert scope.workspace_identity.workspace_id == ISOLATION_WORKSPACE_ID
+    assert scope.workspace_identity.owner_user_id == "user-a"
 
 
-def test_access_context_rejects_cross_owner_actor():
+def test_identity_scope_rejects_cross_owner_actor():
     """防止 actor user 借用另一用户的 Workspace 资源域。"""
     workspace = WorkspaceIdentity(
         owner_user_id="owner-a",
@@ -108,29 +106,40 @@ def test_access_context_rejects_cross_owner_actor():
     )
 
     with pytest.raises(OwnerMismatchError) as caught:
-        WorkspaceAccessContext(
+        IdentityScope(
             actor_identity=Identity(user_id="attacker"),
             workspace_identity=workspace,
-            interaction_id="interaction-a",
         )
 
     assert caught.value.code == "workspace.owner_mismatch"
 
 
-def test_access_context_rejects_blank_interaction_id():
-    """防止控制面无法关联同一次 Chat run 的 scope。"""
-    with pytest.raises(ValidationError, match="interaction_id 不能为空"):
-        resolve_default_workspace_access(Identity(user_id="user-a"), " ")
+def test_identity_scope_rejects_interaction_id():
+    """防止公共身份载体重新承载 interaction_id 等关联 ID。"""
+    with pytest.raises(ValidationError):
+        IdentityScope(
+            actor_identity=Identity(user_id="user-a"),
+            workspace_identity=WorkspaceIdentity(
+                owner_user_id="user-a",
+                workspace_key=MAIN_WORKSPACE_ID,
+                workspace_id=MAIN_WORKSPACE_ID,
+            ),
+            interaction_id="interaction-a",
+        )
+
+
+def test_workspace_access_context_is_direct_identity_scope_alias():
+    """防止旧名称继续产生第二套模型或保留旧 wire schema。"""
+    assert WorkspaceAccessContext is IdentityScope
 
 
 def test_workspace_topic_key_round_trip_keeps_owner_and_workspace():
     """防止 Topic key 序列化后退化为裸 topic_id。"""
-    context = build_internal_workspace_access(
+    scope = build_internal_workspace_access(
         Identity(user_id="user-a"),
         ISOLATION_WORKSPACE_ID,
-        "interaction-a",
     )
-    original = WorkspaceTopicKey.from_access_context(context, "topic-a")
+    original = WorkspaceTopicKey.from_access_context(scope, "topic-a")
 
     restored = WorkspaceTopicKey.model_validate_json(original.model_dump_json())
 
@@ -139,45 +148,6 @@ def test_workspace_topic_key_round_trip_keeps_owner_and_workspace():
         workspace_id=ISOLATION_WORKSPACE_ID,
         topic_id="topic-a",
     )
-
-
-@pytest.mark.parametrize(
-    ("interaction_id", "operation_id"),
-    [(None, None), ("interaction-a", "operation-a")],
-)
-def test_work_scope_requires_exactly_one_correlation_id(
-    interaction_id: str | None,
-    operation_id: str | None,
-):
-    """防止 retry payload 无关联坐标或携带两个相互冲突的坐标。"""
-    with pytest.raises(ValidationError, match="必须且只能包含"):
-        WorkScopeSnapshot(
-            actor_identity=Identity(user_id="user-a"),
-            workspace_identity=WorkspaceIdentity(
-                owner_user_id="user-a",
-                workspace_key=MAIN_WORKSPACE_ID,
-                workspace_id=MAIN_WORKSPACE_ID,
-            ),
-            interaction_id=interaction_id,
-            operation_id=operation_id,
-        )
-
-
-def test_work_scope_round_trip_preserves_access_context_scope():
-    """防止后台重试从进程当前状态重建错误 Workspace。"""
-    context = build_internal_workspace_access(
-        Identity(user_id="user-a", agent_id="agent-a"),
-        ISOLATION_WORKSPACE_ID,
-        "interaction-a",
-    )
-    original = WorkScopeSnapshot.from_access_context(context)
-
-    restored = WorkScopeSnapshot.model_validate_json(original.model_dump_json())
-
-    assert restored.actor_identity == context.actor_identity
-    assert restored.workspace_identity == context.workspace_identity
-    assert restored.interaction_id == context.interaction_id
-    assert restored.operation_id is None
 
 
 def test_internal_boundary_rejects_missing_scope_with_stable_code():

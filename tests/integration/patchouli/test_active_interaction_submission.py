@@ -90,13 +90,13 @@ def _prepared(
     memories: list[MemoryAtom] | None = None,
 ) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="a1", session_id="session-1")
-    access_context = make_access_context(
+    identity_scope = make_access_context(
         actor_identity=identity,
-        interaction_id=interaction_id,
     )
     return PreparedAgentRun(
         agent_run_context=AgentRunContext(
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
             topic_id="topic-1",
             user_message="question",
             topic_context=None,
@@ -118,7 +118,7 @@ def _write_task() -> PendingAtomMaterializeTask:
         pending_alias="draft_active",
         intent_id="intent_active",
         source_verb="WRITE",
-        creation_context=make_memory_creation_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_memory_creation_context(user_id="u1", agent_id="a1"),
         focus=WriteFocus(content="remember this"),
     )
 
@@ -129,7 +129,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, target_topic_id, interaction_id):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
         calls.append("apply_started")
         apply_started.set()
         await release_apply.wait()
@@ -164,7 +164,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         submission = submit_spy.await_args.args[0]
         assert isinstance(submission, InteractionSubmission)
         assert submission.origin == "active_chat"
-        assert submission.payload.access_context == prepared.access_context
+        assert submission.identity_scope == prepared.identity_scope
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply", "materialize"]
@@ -222,7 +222,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
 
     record_hit_mock.assert_awaited_once_with(
         memory.id,
-        access_context=prepared.access_context,
+        access_context=prepared.identity_scope,
         source="retrieval.finalize",
     )
 
@@ -261,7 +261,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     record_hit.assert_not_awaited()
     discard.assert_awaited_once_with(
         "topic-1",
-        access_context=prepared.access_context,
+        access_context=prepared.identity_scope,
     )
 
 
@@ -304,13 +304,12 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
 
     await queue.submit(
         InteractionSubmission(
+            identity_scope=make_access_context(
+                user_id="u1",
+                agent_id="a1",
+            ),
             interaction_id="passive-pending",
             payload=InteractionPayload(
-                access_context=make_access_context(
-                    user_id="u1",
-                    agent_id="a1",
-                    interaction_id="passive-pending",
-                ),
                 user_message="passive question",
                 assistant_final_text="passive answer",
             ),
@@ -339,7 +338,7 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         assert await service.cleanup_prepared_agent_run(prepared) is True
         discard.assert_awaited_once_with(
             prepared.topic_id,
-            access_context=prepared.access_context,
+            access_context=prepared.identity_scope,
         )
     finally:
         await queue.stop()
@@ -350,7 +349,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, target_topic_id, interaction_id):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
         apply_started.set()
         await release_apply.wait()
         return target_topic_id
@@ -402,7 +401,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, target_topic_id, interaction_id):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
         apply_started.set()
         await release_apply.wait()
         raise ConnectionError("interaction store unavailable")
@@ -437,7 +436,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
 
     discard.assert_awaited_once_with(
         prepared.topic_id,
-        access_context=prepared.access_context,
+        access_context=prepared.identity_scope,
     )
 
 

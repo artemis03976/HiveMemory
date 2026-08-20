@@ -15,10 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from hivememory.core.errors import OwnerMismatchError
 from hivememory.core.models.artifact import ArtifactRef, MemoryEventLog
-from hivememory.core.models.interaction import Identity
-from hivememory.core.models.workspace import WorkspaceAccessContext, WorkspaceIdentity
+from hivememory.core.models.workspace import IdentityScope, WorkspaceIdentity
 
 
 class MemoryType(str, Enum):
@@ -76,44 +74,18 @@ class MemoryAccessPolicy(BaseModel):
         return cls(visibility=MemoryVisibility.PUBLIC)
 
 
-class MemoryCreationContext(BaseModel):
-    """生成数据面创建 Memory 所需的最小、不可变作用域。"""
-
-    actor_identity: Identity
-    workspace_identity: WorkspaceIdentity
-
-    @model_validator(mode="after")
-    def _require_same_owner(self) -> Self:
-        if self.actor_identity.user_id != self.workspace_identity.owner_user_id:
-            raise OwnerMismatchError(
-                details={
-                    "actor_user_id": self.actor_identity.user_id,
-                    "owner_user_id": self.workspace_identity.owner_user_id,
-                }
-            )
-        return self
-
-    @classmethod
-    def from_access_context(
-        cls,
-        access_context: WorkspaceAccessContext,
-    ) -> "MemoryCreationContext":
-        """从已验证的访问上下文冻结生成所需的 owner 与来源。"""
-        return cls(
-            actor_identity=access_context.actor_identity,
-            workspace_identity=access_context.workspace_identity,
-        )
-
-    model_config = ConfigDict(frozen=True)
+# P2.5 兼容别名：MemoryCreationContext 收敛为 IdentityScope，不再持有自己的
+# 字段、validator 或 wire schema。生成数据面从 TaskSpec 的 IdentityScope 取得唯一来源。
+MemoryCreationContext = IdentityScope
 
 
-MemoryReadScope = WorkspaceAccessContext | MemoryCreationContext
-"""读取/检索可使用完整 AccessContext，或生成数据面的窄创建上下文。"""
+MemoryReadScope = IdentityScope
+"""读取/检索所需的完整 IdentityScope。"""
 
 
 def require_memory_read_scope(scope: MemoryReadScope) -> MemoryReadScope:
-    """拒绝裸 Identity、WorkspaceIdentity 或缺失的 Memory 读取作用域。"""
-    if not isinstance(scope, (WorkspaceAccessContext, MemoryCreationContext)):
+    """拒绝缺失或错误类型的 Memory 读取作用域。"""
+    if not isinstance(scope, IdentityScope):
         from hivememory.core.errors import ScopeRequiredError
 
         raise ScopeRequiredError()
@@ -129,10 +101,10 @@ class WorkspaceMemoryKey(BaseModel):
     @classmethod
     def from_access_context(
         cls,
-        access_context: WorkspaceAccessContext,
+        access_context: IdentityScope,
         memory_id: UUID,
     ) -> "WorkspaceMemoryKey":
-        """从完整访问上下文创建 Memory 复合键。"""
+        """从完整访问作用域创建 Memory 复合键。"""
         return cls(
             workspace_identity=access_context.workspace_identity,
             memory_id=memory_id,

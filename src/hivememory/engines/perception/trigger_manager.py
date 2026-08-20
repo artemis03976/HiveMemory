@@ -25,7 +25,7 @@ import logging
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from hivememory.core.models import (
-    MemoryCreationContext,
+    IdentityScope,
     WorkspaceIdentity,
     WorkspaceTopicKey,
 )
@@ -242,7 +242,7 @@ class TriggerManager:
 
         return TopicMaterializeTask(
             topic_id=topic_id,
-            creation_context=MemoryCreationContext(
+            identity_scope=IdentityScope(
                 actor_identity=blocks_to_settle[-1].identity,
                 workspace_identity=workspace_identity,
             ),

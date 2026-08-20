@@ -86,21 +86,22 @@ async def test_prepare_explicit_missing_profile_fails_before_topic_creation() ->
     bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, get_profile)
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
 
-    access_context = make_access_context(
+    identity_scope = make_access_context(
         user_id="u1",
         agent_id="missing_doll",
     )
     with pytest.raises(AliasNotFoundError) as exc_info:
         await _service(bus, AsyncMock(return_value="topic-1")).prepare_agent_run(
             "hello",
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id="interaction-test",
             gateway_decision=_decision(),
         )
 
     assert exc_info.value is failure
     get_profile.assert_awaited_once_with(
         "missing_doll",
-        access_context=access_context,
+        access_context=identity_scope,
     )
     prepare_topic.assert_not_awaited()
 
@@ -112,7 +113,8 @@ async def test_prepare_stores_decision_and_derives_retrieval_request() -> None:
 
     prepared = await _service(bus, _submit).prepare_agent_run(
         "原问题",
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="interaction-test",
         gateway_decision=decision,
     )
 
@@ -136,7 +138,8 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
 
     prepared = await _service(bus, _submit).prepare_agent_run(
         "你好",
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="interaction-test",
         gateway_decision=decision,
     )
 
@@ -152,7 +155,8 @@ async def test_finalize_uses_saved_decision_instead_of_legacy_gaze() -> None:
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
         "原问题",
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="interaction-test",
         gateway_decision=decision,
     )
 

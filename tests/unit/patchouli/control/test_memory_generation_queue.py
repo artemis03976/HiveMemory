@@ -62,12 +62,12 @@ def _spec(
     pending_alias: str | None = None,
 ) -> MemoryGenerationTaskSpec:
     return MemoryGenerationTaskSpec(
+        identity_scope=make_memory_creation_context(),
         topic_id=topic_id,
         label=label,
         source=MemoryGenerationSource.WRITE,
         request=request or GenerationRequest(
             context=GenerationContext(),
-            creation_context=make_memory_creation_context(),
         ),
         intent_id=intent_id,
         pending_alias=pending_alias,
@@ -98,13 +98,13 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         turn=TurnRecord(user_query="question", assistant_final_text="answer")
     )
     spec = MemoryGenerationTaskSpec(
+        identity_scope=make_memory_creation_context(),
         topic_id="topic-codec",
         label="codec",
         source=MemoryGenerationSource.UPDATE,
         request=GenerationRequest(
             context=GenerationContext(state_summary="original summary"),
             existing_memory=atom,
-            creation_context=make_memory_creation_context(),
         ),
         interaction_input=InteractionArtifactInput(
             topic_id="topic-codec",

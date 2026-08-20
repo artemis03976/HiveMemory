@@ -9,8 +9,8 @@ from uuid import UUID
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
+    IdentityScope,
     MemoryAtom,
-    MemoryCreationContext,
     PendingAtomResolution,
     PendingAtomSettlement,
     WorkspaceAccessContext,
@@ -70,7 +70,7 @@ class MemoryGenerationFamiliar:
         """
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
-            spec.request.creation_context,
+            spec.identity_scope,
         )
         return await self._run_generation(
             spec,
@@ -187,7 +187,10 @@ class MemoryGenerationFamiliar:
         执行 compute -> artifacts -> persist 三步流水线。
         """
         # Step 1：纯计算，GenerationEngine 不负责持久化。
-        outcomes = await self._generation_engine.process(spec.request)
+        outcomes = await self._generation_engine.process(
+            spec.request,
+            identity_scope=spec.identity_scope,
+        )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
         logger.info(
@@ -285,7 +288,7 @@ class MemoryGenerationFamiliar:
     async def _capture_interaction_artifact(
         self,
         interaction_input: InteractionArtifactInput | None,
-        creation_context: MemoryCreationContext,
+        identity_scope: IdentityScope,
     ) -> ArtifactRef | None:
         """
         构建原始交互 artifact。
@@ -300,7 +303,7 @@ class MemoryGenerationFamiliar:
                 topic_title=interaction_input.topic_title,
                 topic_summary=interaction_input.topic_summary,
                 blocks=interaction_input.blocks,
-                creation_context=creation_context,
+                identity_scope=identity_scope,
             )
         except Exception:
             logger.warning("Failed to build interaction artifact", exc_info=True)

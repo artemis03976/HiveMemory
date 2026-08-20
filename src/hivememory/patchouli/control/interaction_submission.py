@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from hivememory.system.runtime.events import RuntimeEventSink
@@ -40,8 +41,13 @@ def _require_text(value: str, *, field_name: str) -> None:
 
 @dataclass(frozen=True)
 class InteractionSubmission:
-    """进入 Patchouli 摄入队列的一次交互提交快照。"""
+    """进入 Patchouli 摄入队列的一次交互提交快照。
 
+    ``identity_scope`` 是唯一身份来源；``payload`` 只承载内容与生成意图，
+    不再内嵌第二份身份事实。
+    """
+
+    identity_scope: IdentityScope
     interaction_id: str
     payload: InteractionPayload
     requested_topic_id: str
@@ -50,6 +56,8 @@ class InteractionSubmission:
     correlation: Mapping[str, str]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.identity_scope, IdentityScope):
+            raise TypeError("identity_scope must be an IdentityScope")
         _require_text(self.interaction_id, field_name="interaction_id")
         _require_text(self.requested_topic_id, field_name="requested_topic_id")
         _require_text(self.ordering_key, field_name="ordering_key")
@@ -75,6 +83,7 @@ class InteractionSubmissionCodec:
         if not isinstance(submission, InteractionSubmission):
             raise TypeError("interaction submission payload has an unexpected type")
         return {
+            "identity_scope": submission.identity_scope.model_dump(mode="json"),
             "interaction_id": submission.interaction_id,
             "payload": submission.payload.model_dump(mode="json"),
             "requested_topic_id": submission.requested_topic_id,
@@ -87,12 +96,16 @@ class InteractionSubmissionCodec:
         if not isinstance(payload, dict):
             raise TypeError("interaction submission payload must be an object")
         raw_payload = payload.get("payload")
+        raw_scope = payload.get("identity_scope")
         correlation = payload.get("correlation", {})
         if not isinstance(raw_payload, dict):
             raise TypeError("interaction submission payload.payload must be an object")
+        if not isinstance(raw_scope, dict):
+            raise TypeError("interaction submission payload.identity_scope must be an object")
         if not isinstance(correlation, dict):
             raise TypeError("interaction submission payload.correlation must be an object")
         return InteractionSubmission(
+            identity_scope=IdentityScope.model_validate(raw_scope),
             interaction_id=payload["interaction_id"],
             payload=InteractionPayload.model_validate(raw_payload),
             requested_topic_id=payload["requested_topic_id"],
@@ -158,6 +171,7 @@ class InteractionSubmissionHandler(
     ) -> InteractionSubmissionResult:
         topic_id = await self._submit_interaction(
             payload.payload,
+            identity_scope=payload.identity_scope,
             target_topic_id=payload.requested_topic_id,
             interaction_id=payload.interaction_id,
         )

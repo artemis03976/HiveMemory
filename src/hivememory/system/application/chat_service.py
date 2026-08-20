@@ -1,4 +1,4 @@
-﻿"""
+"""
 ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 
 v0.4.0 Phase 1 变更：
@@ -20,7 +20,7 @@ from typing import Any, Literal
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     Identity,
-    WorkspaceAccessContext,
+    IdentityScope,
     require_workspace_access_context,
     resolve_default_workspace_access,
 )
@@ -104,17 +104,17 @@ async def _run_interruptible(
 
 def _require_prepared_scope(
     prepared: Any,
-    access_context: WorkspaceAccessContext,
+    identity_scope: IdentityScope,
 ) -> None:
     """拒绝 prepare 返回与 control registry 不一致的请求级 scope。"""
-    prepared_context = getattr(prepared, "access_context", None)
+    prepared_scope = getattr(prepared, "identity_scope", None)
     if (
-        not isinstance(prepared_context, WorkspaceAccessContext)
-        or prepared_context.scope_fingerprint != access_context.scope_fingerprint
+        not isinstance(prepared_scope, IdentityScope)
+        or prepared_scope.scope_fingerprint != identity_scope.scope_fingerprint
     ):
         raise WorkspaceMismatchError(
-            "PreparedAgentRun 与 ChatGenerationRun 的访问上下文不一致",
-            details={"generation_scope": access_context.scope_fingerprint},
+            "PreparedAgentRun 与 ChatGenerationRun 的身份作用域不一致",
+            details={"generation_scope": identity_scope.scope_fingerprint},
         )
 
 
@@ -169,36 +169,34 @@ class ChatApplicationService:
             agent_id=agent_id,
             session_id=session_id,
         )
-        access_context = resolve_default_workspace_access(
-            identity,
-            f"interaction_{uuid.uuid4().hex}",
-        )
+        identity_scope = resolve_default_workspace_access(identity)
+        interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
         return await self.chat_scoped(
             user_message=user_message,
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
             enable_memory_retrieval=enable_memory_retrieval,
             generation_options=generation_options,
-            generation_id=generation_id,
         )
 
     async def chat_scoped(
         self,
         user_message: str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
-        generation_id: str | None = None,
     ) -> NonStreamingChatResult:
         """显式 scope 的内部非流式入口。"""
-        access_context = require_workspace_access_context(access_context)
-        identity = access_context.actor_identity
+        identity_scope = require_workspace_access_context(identity_scope)
+        identity = identity_scope.actor_identity
         agent_id = identity.agent_id
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
         run = ChatGenerationRun(
-            generation_id=generation_id or str(uuid.uuid4()),
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
         )
         prepared = None
         prepared_finalized = False
@@ -218,7 +216,7 @@ class ChatApplicationService:
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
-                    access_context=access_context,
+                    access_context=identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
@@ -245,12 +243,13 @@ class ChatApplicationService:
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
-                access_context=access_context,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
             )
-            _require_prepared_scope(prepared, access_context)
+            _require_prepared_scope(prepared, identity_scope)
 
             if run.outcome is ChatRunOutcome.STOP_REQUESTED:
                 raise _ChatRunCancelled(
@@ -375,16 +374,14 @@ class ChatApplicationService:
             agent_id=agent_id,
             session_id=session_id,
         )
-        access_context = resolve_default_workspace_access(
-            identity,
-            f"interaction_{uuid.uuid4().hex}",
-        )
+        identity_scope = resolve_default_workspace_access(identity)
+        interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
         async for event in self.chat_stream_scoped(
             user_message=user_message,
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
             enable_memory_retrieval=enable_memory_retrieval,
             generation_options=generation_options,
-            generation_id=generation_id,
         ):
             yield event
 
@@ -392,26 +389,26 @@ class ChatApplicationService:
         self,
         user_message: str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
-        generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         显式 scope 的内部流式 chat 入口。
 
-        编排骨架: generation_id -> prepare -> prelude events -> run_agent_stream
+        编排骨架: interaction_id -> prepare -> prelude events -> run_agent_stream
                   -> [finalize if not cancelled] -> done
         """
         trace_id = generate_trace_id("stream")
         tokens = None
 
-        access_context = require_workspace_access_context(access_context)
-        identity = access_context.actor_identity
+        identity_scope = require_workspace_access_context(identity_scope)
+        identity = identity_scope.actor_identity
         agent_id = identity.agent_id
         run = ChatGenerationRun(
-            generation_id=generation_id or str(uuid.uuid4()),
-            access_context=access_context,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
         )
         prepared = None
         stream = None
@@ -439,7 +436,7 @@ class ChatApplicationService:
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
-                    access_context=access_context,
+                    access_context=identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
@@ -472,12 +469,13 @@ class ChatApplicationService:
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
-                access_context=access_context,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
             )
-            _require_prepared_scope(prepared, access_context)
+            _require_prepared_scope(prepared, identity_scope)
 
             if run.outcome is ChatRunOutcome.STOP_REQUESTED:
                 raise _ChatRunCancelled(
@@ -684,13 +682,12 @@ class ChatApplicationService:
         reason: str = "user_requested",
     ) -> CancelResult:
         """公共默认 Workspace 的幂等取消入口。"""
-        access_context = resolve_default_workspace_access(
+        identity_scope = resolve_default_workspace_access(
             Identity(user_id=user_id, agent_id=agent_id),
-            f"control_{uuid.uuid4().hex}",
         )
         return self.cancel_generation_scoped(
             generation_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             reason=reason,
         )
 
@@ -698,17 +695,17 @@ class ChatApplicationService:
         self,
         generation_id: str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         reason: str = "user_requested",
     ) -> CancelResult:
         """按 owner/workspace 校验的内部取消入口。"""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_workspace_access_context(identity_scope)
         result = self._registry.cancel(
             generation_id,
-            access_context,
+            identity_scope,
             reason=reason,
         )
-        run = self._registry.get(generation_id, access_context)
+        run = self._registry.get(generation_id, identity_scope)
         self._events.emit(
             RuntimeEvent(
                 event_type=RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
@@ -726,12 +723,12 @@ class ChatApplicationService:
         self,
         generation_id: str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> ChatRunStatusSnapshot | None:
         """返回 scoped Chat 状态；错误 scope 与不存在统一为 ``None``。"""
         return self._registry.status(
             generation_id,
-            require_workspace_access_context(access_context),
+            require_workspace_access_context(identity_scope),
         )
 
     # ========== 内部辅助 ==========
@@ -860,7 +857,7 @@ class ChatApplicationService:
         try:
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
-                access_context=prepared_run.access_context,
+                access_context=prepared_run.identity_scope,
                 include_empty=True,
             )
         except Exception:

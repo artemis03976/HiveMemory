@@ -1,4 +1,4 @@
-﻿"""
+"""
 模块间通信协议模型
 
 定义 Eye 与 Kernel 之间，以及 Kernel 内部微服务之间的通信协议。
@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivememory.core.models import (
     AgentProfile,
     Identity,
+    IdentityScope,
     MemoryAtom,
     TraceItem,
     TurnEvent,
@@ -108,7 +109,6 @@ class RetrievalRequest(ProtocolMessage):
         ...     keywords=["部署", "贪吃蛇", "游戏"],
         ...     access_context=resolve_default_workspace_access(
         ...         Identity(user_id="user123"),
-        ...         "interaction-example",
         ...     )
         ... )
     """
@@ -158,7 +158,8 @@ class RetrievalResponse(ProtocolMessage):
 class AgentRunContext(BaseModel):
     """供 Alice 组装并执行 Agent run 的中立上下文。"""
 
-    access_context: WorkspaceAccessContext
+    identity_scope: IdentityScope
+    interaction_id: str = Field(description="本次 Chat Interaction 的稳定关联 ID")
     topic_id: str = Field(default="")
     user_message: str = Field(default="")
     topic_context: TopicData | None = Field(default=None)
@@ -173,8 +174,8 @@ class AgentRunContext(BaseModel):
 
     @property
     def identity(self) -> Identity:
-        """兼容读取 actor identity；访问边界仍以完整 AccessContext 为准。"""
-        return self.access_context.actor_identity
+        """兼容读取 actor identity；访问边界仍以完整 IdentityScope 为准。"""
+        return self.identity_scope.actor_identity
 
 
 class MTPExecutionResult(BaseModel):
@@ -231,15 +232,15 @@ class InteractionPayload(BaseModel):
         user_message: 原始用户消息
         mtp_traces: Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表
         materialize_tasks: 本 run 产出的不可变物化请求，由 finalize 分发 mode b/c
-        access_context: 本轮交互冻结的身份与 Workspace hard boundary
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断
         assistant_final_text: 最终自然语言回复
         turn_events: 结构化轮次事件列表
-    """
-    # 一次交互的唯一访问坐标；handler 不得从进程当前状态重建。
-    access_context: WorkspaceAccessContext
 
+    Note:
+        P2.5 起不再内嵌 ``access_context``；身份坐标由 ``InteractionSubmission``
+        的 ``identity_scope`` 单独承载，避免 payload 成为第二份身份事实。
+    """
     user_message: str = Field(..., description="原始用户消息")
 
     rewritten_query: str | None = Field(
@@ -281,11 +282,6 @@ class InteractionPayload(BaseModel):
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @property
-    def identity(self) -> Identity:
-        """兼容读取 actor identity；资源过滤使用完整 AccessContext。"""
-        return self.access_context.actor_identity
 
 
 __all__ = [

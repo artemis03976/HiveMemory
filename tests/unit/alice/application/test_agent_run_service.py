@@ -54,7 +54,8 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     return AgentRunContext(
-        access_context=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,

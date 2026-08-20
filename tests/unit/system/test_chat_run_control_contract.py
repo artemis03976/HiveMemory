@@ -20,8 +20,8 @@ from tests.helpers.workspace import make_access_context
 
 def _run(generation_id: str) -> ChatGenerationRun:
     return ChatGenerationRun(
-        generation_id=generation_id,
-        access_context=make_access_context(interaction_id=f"interaction-{generation_id}"),
+        identity_scope=make_access_context(),
+        interaction_id=generation_id,
     )
 
 
@@ -105,7 +105,7 @@ def test_registry_not_found_and_terminal_results_are_stable() -> None:
     run.outcome = ChatRunOutcome.FAILED
     registry.register(run)
 
-    terminal = registry.cancel(run.generation_id, run.access_context)
+    terminal = registry.cancel(run.generation_id, run.identity_scope)
     assert terminal.cancelled is False
     assert terminal.reason == "already_terminal"
     assert run.outcome is ChatRunOutcome.FAILED
@@ -155,8 +155,8 @@ def test_registry_hides_run_from_different_workspace_control_plane() -> None:
         interaction_id="interaction-isolation",
     )
     run = ChatGenerationRun(
-        generation_id="shared-generation-id",
-        access_context=owner_context,
+        identity_scope=owner_context,
+        interaction_id="shared-generation-id",
     )
     registry.register(run)
 
@@ -173,16 +173,15 @@ def test_registry_rejects_generation_id_collision_without_overwriting_owner() ->
     registry = ChatGenerationRunRegistry()
     original = _run("collision")
     replacement = ChatGenerationRun(
-        generation_id="collision",
-        access_context=make_access_context(
+        identity_scope=make_access_context(
             workspace_id="isolation_workspace",
-            interaction_id="replacement",
         ),
+        interaction_id="collision",
     )
     registry.register(original)
 
     with pytest.raises(WorkspaceDomainError, match="拒绝覆盖"):
         registry.register(replacement)
 
-    assert registry.get("collision", original.access_context) is original
-    assert registry.get("collision", replacement.access_context) is None
+    assert registry.get("collision", original.identity_scope) is original
+    assert registry.get("collision", replacement.identity_scope) is None

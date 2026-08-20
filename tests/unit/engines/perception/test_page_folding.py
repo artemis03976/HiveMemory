@@ -37,7 +37,6 @@ def _make_payload(user_msg="hello", assistant_msg="world", identity=None, traces
                 content=assistant_msg,
             )
         ],
-        access_context=make_access_context(actor_identity=identity),
         mtp_traces=traces or [],
     )
 
@@ -71,6 +70,7 @@ class TestBlockTokenComputation:
         topic_id, settle_payload = await layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("What is Python?", "Python is a language"),
+            identity_scope=_access_context(),
         )
 
         assert settle_payload is None
@@ -92,6 +92,7 @@ class TestBlockTokenComputation:
                 TraceItem(action="SEARCH", query="how to sort a list"),
                 TraceItem(action="READ", target="my_notes_alias"),
             ]),
+            identity_scope=_access_context(),
         )
 
         assert settle_payload is None
@@ -105,6 +106,7 @@ class TestBlockTokenComputation:
         topic_id2, _ = await layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("q", "a"),
+            identity_scope=_access_context(),
         )
         without_traces_data = layer._short_term_store.get_topic_data(
             _access_context(), topic_id2, touch=False
@@ -126,6 +128,7 @@ class TestPageFoldingThreshold:
             topic_id, settle_payload = await layer.route_and_ingest(
                 target,
                 _make_payload(f"msg{i}", f"reply{i}", identity),
+                identity_scope=_access_context(identity),
             )
 
         assert settle_payload is None
@@ -153,6 +156,7 @@ class TestPageFoldingThreshold:
             _, settle_payload = await layer.route_and_ingest(
                 topic_id,
                 _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
+                identity_scope=_access_context(),
             )
 
         assert settle_payload is None
@@ -189,6 +193,7 @@ class TestPageFoldingThreshold:
             await layer.route_and_ingest(
                 topic_id,
                 _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
+                identity_scope=_access_context(),
             )
 
         topic_data = layer._short_term_store.get_topic_data(
@@ -299,6 +304,7 @@ class TestPageFoldingCumulative:
             await layer.route_and_ingest(
                 topic_id,
                 _make_payload(f"wave1 q{i} " * 20, f"wave1 a{i} " * 20, identity),
+                identity_scope=_access_context(identity),
             )
 
         topic_data = layer._short_term_store.get_topic_data(
@@ -312,6 +318,7 @@ class TestPageFoldingCumulative:
             await layer.route_and_ingest(
                 topic_id,
                 _make_payload(f"wave2 q{i} " * 20, f"wave2 a{i} " * 20, identity),
+                identity_scope=_access_context(identity),
             )
 
         topic_data = layer._short_term_store.get_topic_data(
