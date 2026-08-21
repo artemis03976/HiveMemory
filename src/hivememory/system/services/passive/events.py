@@ -55,6 +55,7 @@ class PassiveIngressEventEmitter:
                 event_type=event_type,
                 task_type="foreground",
                 agent_id=key.agent_id,
+                workspace_id=key.workspace_id,
                 topic_id=topic_id,
                 status=status,
                 reason=reason,

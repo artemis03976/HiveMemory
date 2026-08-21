@@ -315,6 +315,7 @@ class AgentRunService:
             generation_id=session.generation_id,
             topic_id=agent_run_context.topic_id,
             agent_id=agent_run_context.identity.agent_id,
+            workspace_id=agent_run_context.identity_scope.workspace_identity.workspace_id,
         )
 
 

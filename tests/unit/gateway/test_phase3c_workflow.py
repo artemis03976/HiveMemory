@@ -231,6 +231,7 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
     assert events.events[-1].event_type == (
         RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value
     )
+    assert {event.workspace_id for event in events.events} == {"main_workspace"}
     completed = [
         event
         for event in events.events

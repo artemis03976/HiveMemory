@@ -23,19 +23,21 @@ class RuntimeEventResponse(BaseModel):
     component: str | None = None
     severity: Literal["debug", "info", "warning", "error"] = "info"
     generation_id: str | None = None
+    interaction_id: str | None = None
     agent_run_id: str | None = None
     task_id: str | None = None
     agent_id: str | None = None
     frame_id: str | None = None
     topic_id: str | None = None
     atom_id: str | None = None
+    workspace_id: str | None = None
     status: str | None = None
     reason: str | None = None
     message: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_domain(cls, event: RuntimeEvent) -> "RuntimeEventResponse":
+    def from_domain(cls, event: RuntimeEvent) -> RuntimeEventResponse:
         return cls.model_validate(event.model_dump(mode="json"))
 
 

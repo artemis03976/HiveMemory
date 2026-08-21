@@ -69,6 +69,36 @@ def _require_text(value: object, *, field_name: str) -> str:
     return value
 
 
+def _require_string(value: object, *, field_name: str) -> str:
+    """校验允许为空但不允许改变类型的展示文本。"""
+    if not isinstance(value, str):
+        raise TypeError(f"{field_name} must be a string")
+    return value
+
+
+def _require_optional_text(value: object, *, field_name: str) -> str | None:
+    """校验可选领域 ID；存在时必须是非空字符串。"""
+    if value is None:
+        return None
+    return _require_text(value, field_name=field_name)
+
+
+def _require_exact_keys(
+    payload: dict[object, object],
+    *,
+    expected: set[str],
+    field_name: str,
+) -> None:
+    """拒绝缺失/额外字段，避免 codec 接受第二份平铺身份投影。"""
+    actual = set(payload)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(str(key) for key in actual - expected)
+        raise ValueError(
+            f"{field_name} schema mismatch: missing={missing}, extra={extra}"
+        )
+
+
 class _MemoryGenerationWorkAdapter:
     """Memory Generation 私有工作信封 v1 的队列适配器。
 
@@ -100,6 +130,8 @@ class _MemoryGenerationWorkAdapter:
         _require_text(work.task_id, field_name="task_id")
         _require_text(spec.topic_id, field_name="topic_id")
         _require_text(spec.label, field_name="label")
+        _require_optional_text(spec.intent_id, field_name="intent_id")
+        _require_optional_text(spec.pending_alias, field_name="pending_alias")
         return {
             "task_id": work.task_id,
             "spec": {
@@ -121,9 +153,28 @@ class _MemoryGenerationWorkAdapter:
 
         if not isinstance(payload, dict):
             raise TypeError("memory generation payload must be an object")
+        _require_exact_keys(
+            payload,
+            expected={"task_id", "spec"},
+            field_name="memory generation payload",
+        )
         raw_spec = payload.get("spec")
         if not isinstance(raw_spec, dict):
             raise TypeError("memory generation payload.spec must be an object")
+        _require_exact_keys(
+            raw_spec,
+            expected={
+                "identity_scope",
+                "topic_id",
+                "label",
+                "source",
+                "request",
+                "interaction_input",
+                "intent_id",
+                "pending_alias",
+            },
+            field_name="memory generation payload.spec",
+        )
         raw_request = raw_spec.get("request")
         raw_scope = raw_spec.get("identity_scope")
         if not isinstance(raw_request, dict):
@@ -140,7 +191,7 @@ class _MemoryGenerationWorkAdapter:
             # 边界显式恢复领域类型，避免数据面收到普通 dict。
             request_data["existing_memory"] = MemoryAtom.model_validate(existing_memory)
 
-        return _MemoryGenerationWork(
+        work = _MemoryGenerationWork(
             task_id=_require_text(payload.get("task_id"), field_name="task_id"),
             spec=MemoryGenerationTaskSpec(
                 identity_scope=IdentityScope.model_validate(raw_scope),
@@ -154,10 +205,21 @@ class _MemoryGenerationWorkAdapter:
                 interaction_input=self._decode_interaction_input(
                     raw_spec.get("interaction_input")
                 ),
-                intent_id=raw_spec.get("intent_id"),
-                pending_alias=raw_spec.get("pending_alias"),
+                intent_id=_require_optional_text(
+                    raw_spec.get("intent_id"),
+                    field_name="intent_id",
+                ),
+                pending_alias=_require_optional_text(
+                    raw_spec.get("pending_alias"),
+                    field_name="pending_alias",
+                ),
             ),
         )
+        # 重新编码并比较整个领域 DTO，拒绝嵌套模型为兼容旧入口而忽略的额外
+        # 字段，也拒绝缺字段经默认值补齐后继续执行。
+        if self.encode(work) != payload:
+            raise ValueError("memory generation payload is not canonical")
+        return work
 
     @staticmethod
     def _encode_interaction_input(
@@ -186,8 +248,14 @@ class _MemoryGenerationWorkAdapter:
                 payload.get("topic_id"),
                 field_name="interaction_input.topic_id",
             ),
-            topic_title=payload.get("topic_title", ""),
-            topic_summary=payload.get("topic_summary", ""),
+            topic_title=_require_string(
+                payload.get("topic_title"),
+                field_name="interaction_input.topic_title",
+            ),
+            topic_summary=_require_string(
+                payload.get("topic_summary"),
+                field_name="interaction_input.topic_summary",
+            ),
             blocks=tuple(LogicalBlock.model_validate(block) for block in raw_blocks),
         )
 

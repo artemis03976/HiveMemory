@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -57,6 +58,34 @@ async def test_runtime_events_stream_returns_sse_replay():
     assert response.media_type == "text/event-stream"
     assert "event: runtime_event" in chunk
     assert "chat.run.created" in chunk
+
+    await response.body_iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_events_stream_preserves_workspace_correlations():
+    """确认 SSE 重放保留观测所需的 Workspace 与 Interaction 投影。"""
+    bus = RuntimeEventBus()
+    bus.emit(
+        RuntimeEvent(
+            event_type=RuntimeEventType.CHAT_RUN_CREATED,
+            interaction_id="interaction-isolated",
+            workspace_id="isolation_workspace",
+        )
+    )
+    system = SimpleNamespace(
+        runtime_events=bus,
+        config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
+    )
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+
+    response = await stream_runtime_events(request=request, system=system)
+    chunk = await response.body_iterator.__anext__()
+    data_line = next(line for line in chunk.splitlines() if line.startswith("data: "))
+    payload = json.loads(data_line.removeprefix("data: "))
+
+    assert payload["interaction_id"] == "interaction-isolated"
+    assert payload["workspace_id"] == "isolation_workspace"
 
     await response.body_iterator.aclose()
 

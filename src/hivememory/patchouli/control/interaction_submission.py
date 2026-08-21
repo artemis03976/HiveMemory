@@ -39,6 +39,22 @@ def _require_text(value: str, *, field_name: str) -> None:
         raise ValueError(f"{field_name} must not be blank")
 
 
+def _require_exact_keys(
+    payload: dict[object, object],
+    *,
+    expected: set[str],
+    field_name: str,
+) -> None:
+    """拒绝缺字段和冲突投影，确保 versioned payload 只有一份身份事实。"""
+    actual = set(payload)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(str(key) for key in actual - expected)
+        raise ValueError(
+            f"{field_name} schema mismatch: missing={missing}, extra={extra}"
+        )
+
+
 @dataclass(frozen=True)
 class InteractionSubmission:
     """进入 Patchouli 摄入队列的一次交互提交快照。
@@ -95,16 +111,29 @@ class InteractionSubmissionCodec:
     def decode(self, payload: object) -> InteractionSubmission:
         if not isinstance(payload, dict):
             raise TypeError("interaction submission payload must be an object")
+        _require_exact_keys(
+            payload,
+            expected={
+                "identity_scope",
+                "interaction_id",
+                "payload",
+                "requested_topic_id",
+                "ordering_key",
+                "origin",
+                "correlation",
+            },
+            field_name="interaction submission payload",
+        )
         raw_payload = payload.get("payload")
         raw_scope = payload.get("identity_scope")
-        correlation = payload.get("correlation", {})
+        correlation = payload.get("correlation")
         if not isinstance(raw_payload, dict):
             raise TypeError("interaction submission payload.payload must be an object")
         if not isinstance(raw_scope, dict):
             raise TypeError("interaction submission payload.identity_scope must be an object")
         if not isinstance(correlation, dict):
             raise TypeError("interaction submission payload.correlation must be an object")
-        return InteractionSubmission(
+        submission = InteractionSubmission(
             identity_scope=IdentityScope.model_validate(raw_scope),
             interaction_id=payload["interaction_id"],
             payload=InteractionPayload.model_validate(raw_payload),
@@ -113,6 +142,11 @@ class InteractionSubmissionCodec:
             origin=payload["origin"],
             correlation=correlation,
         )
+        # 部分嵌套 Pydantic DTO 为兼容历史入口会忽略额外字段；codec 边界必须
+        # 重新编码完整领域对象并要求规范等值，防止任何层级的篡改被静默吞掉。
+        if self.encode(submission) != payload:
+            raise ValueError("interaction submission payload is not canonical")
+        return submission
 
 
 @dataclass(frozen=True)

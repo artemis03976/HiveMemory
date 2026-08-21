@@ -95,12 +95,15 @@ class RuntimeEvent(BaseModel):
     severity: Literal["debug", "info", "warning", "error"] = "info"
 
     generation_id: str | None = None
+    interaction_id: str | None = None
     agent_run_id: str | None = None
     task_id: str | None = None
     agent_id: str | None = None
     frame_id: str | None = None
     topic_id: str | None = None
     atom_id: str | None = None
+    # 观测投影：只标识资源归属域，不参与授权或业务幂等。
+    workspace_id: str | None = None
 
     status: str | None = None
     reason: str | None = None

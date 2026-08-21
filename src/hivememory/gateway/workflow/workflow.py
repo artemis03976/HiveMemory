@@ -59,6 +59,7 @@ class GatewayWorkflow:
             access_context=require_workspace_access_context(access_context),
             ingress_mode=ingress_mode,
         )
+        workspace_id = state.access_context.workspace_identity.workspace_id
         current_step_id: str | None = None
         completed_steps = 0
         loop = asyncio.get_running_loop()
@@ -69,6 +70,7 @@ class GatewayWorkflow:
         )
         self._emit(
             RuntimeEventType.GATEWAY_WORKFLOW_STARTED,
+            workspace_id=workspace_id,
             data={"ingress_mode": ingress_mode.value},
         )
 
@@ -100,7 +102,12 @@ class GatewayWorkflow:
                     deadline = 0.0
                 completed_steps += 1
                 outcome = state.finalize()
-                self._emit_completed(outcome, completed_steps, started_at)
+                self._emit_completed(
+                    outcome,
+                    completed_steps,
+                    started_at,
+                    workspace_id=workspace_id,
+                )
                 return outcome
 
             for step in self._decision_prefix:
@@ -133,11 +140,17 @@ class GatewayWorkflow:
             completed_steps += 1
 
             outcome = state.finalize()
-            self._emit_completed(outcome, completed_steps, started_at)
+            self._emit_completed(
+                outcome,
+                completed_steps,
+                started_at,
+                workspace_id=workspace_id,
+            )
             return outcome
         except Exception as exc:
             self._emit(
                 RuntimeEventType.GATEWAY_WORKFLOW_FAILED,
+                workspace_id=workspace_id,
                 severity="error",
                 reason=type(exc).__name__,
                 message=str(exc),
@@ -190,6 +203,7 @@ class GatewayWorkflow:
                 is_fallback=is_fallback,
                 fallback_reason=fallback_reason,
                 flow_end_reason=flow_end_reason,
+                workspace_id=state.access_context.workspace_identity.workspace_id,
             )
             return True
 
@@ -253,6 +267,7 @@ class GatewayWorkflow:
             is_fallback=is_fallback,
             fallback_reason=fallback_reason,
             flow_end_reason=flow_end_reason,
+            workspace_id=state.access_context.workspace_identity.workspace_id,
         )
         return is_fallback and fallback_reason == "GatewayTimeoutError"
 
@@ -271,9 +286,11 @@ class GatewayWorkflow:
         is_fallback: bool,
         fallback_reason: str | None,
         flow_end_reason: str | None,
+        workspace_id: str,
     ) -> None:
         self._emit(
             RuntimeEventType.GATEWAY_STEP_COMPLETED,
+            workspace_id=workspace_id,
             data={
                 "step_id": step.step_id,
                 "step_index": step_index,
@@ -289,6 +306,8 @@ class GatewayWorkflow:
         outcome: GatewayProcessResult,
         completed_steps: int,
         started_at: float,
+        *,
+        workspace_id: str,
     ) -> None:
         data: dict[str, Any] = {
             "duration_ms": _elapsed_ms(started_at),
@@ -305,7 +324,11 @@ class GatewayWorkflow:
             )
         else:
             data["command_id"] = outcome.command_execution_result.command_id
-        self._emit(RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED, data=data)
+        self._emit(
+            RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED,
+            workspace_id=workspace_id,
+            data=data,
+        )
 
     def _emit(
         self,
@@ -315,6 +338,7 @@ class GatewayWorkflow:
         reason: str | None = None,
         message: str | None = None,
         data: dict[str, Any] | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """事件仅用于观测，sink 异常不得改变业务结果。"""
 
@@ -327,6 +351,7 @@ class GatewayWorkflow:
                     severity=severity,
                     reason=reason,
                     message=message,
+                    workspace_id=workspace_id,
                     data=data or {},
                 )
             )

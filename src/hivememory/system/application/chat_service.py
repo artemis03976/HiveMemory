@@ -710,6 +710,8 @@ class ChatApplicationService:
             RuntimeEvent(
                 event_type=RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
                 generation_id=generation_id,
+                interaction_id=generation_id,
+                workspace_id=identity_scope.workspace_identity.workspace_id,
                 status=result.status,
                 reason=result.reason,
                 data={"cancelled": result.cancelled},
@@ -830,6 +832,8 @@ class ChatApplicationService:
                 trace_id=trace_id,
                 task_type="foreground",
                 generation_id=run.generation_id,
+                interaction_id=run.interaction_id,
+                workspace_id=run.identity_scope.workspace_identity.workspace_id,
                 agent_id=agent_id,
                 topic_id=topic_id,
                 status=self._event_status(run),

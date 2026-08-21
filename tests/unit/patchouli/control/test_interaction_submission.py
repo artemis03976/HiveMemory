@@ -21,6 +21,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
+    InteractionSubmissionCodec,
     InteractionSubmissionQueue,
     TransientInteractionSubmissionError,
 )
@@ -28,9 +29,15 @@ from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
-from tests.helpers.workspace import make_access_context
+from hivememory.system.runtime.work_queue import (
+    QueuePolicy,
+    WorkPayloadCodecRegistry,
+    WorkPayloadDecodeError,
+    WorkState,
+    encode_canonical_json,
+)
 from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.workspace import make_access_context
 
 
 def _payload(message: str = "hello") -> InteractionPayload:
@@ -69,9 +76,11 @@ def _submission(
 @pytest.mark.asyncio
 async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> None:
     attempts: list[InteractionPayload] = []
+    attempt_scopes = []
 
     async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
         attempts.append(payload)
+        attempt_scopes.append(identity_scope)
         if len(attempts) == 1:
             payload.user_message = "attempt-local-mutation"
             payload.turn_events.clear()
@@ -104,6 +113,8 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     assert attempts[0] is not attempts[1]
     assert attempts[1].user_message == "original"
     assert len(attempts[1].turn_events) == 1
+    assert attempt_scopes == [submission.identity_scope, submission.identity_scope]
+    assert attempt_scopes[0] is not attempt_scopes[1]
 
 
 @pytest.mark.asyncio
@@ -430,3 +441,39 @@ async def test_duplicate_interaction_id_is_idempotent_but_rejects_another_payloa
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
     submit.assert_awaited_once()
+
+
+def test_codec_rejects_flattened_identity_projection() -> None:
+    """捕获 work payload 同时接受嵌套 scope 与平铺 workspace_id 的缺陷。"""
+    codec = InteractionSubmissionCodec()
+    encoded = codec.encode(_submission("interaction-tampered"))
+    encoded["workspace_id"] = "isolation_workspace"
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(codec)
+
+    with pytest.raises(WorkPayloadDecodeError):
+        codecs.decode(
+            codec.kind,
+            codec.schema_version,
+            encode_canonical_json(encoded),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["extra", "missing"])
+def test_codec_rejects_nested_noncanonical_payload(mutation: str) -> None:
+    """捕获 InteractionPayload 嵌套字段被 Pydantic 静默忽略或补默认值的缺陷。"""
+    codec = InteractionSubmissionCodec()
+    encoded = codec.encode(_submission("interaction-nested-tamper"))
+    if mutation == "extra":
+        encoded["payload"]["workspace_id"] = "isolation_workspace"
+    else:
+        del encoded["payload"]["model_used"]
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(codec)
+
+    with pytest.raises(WorkPayloadDecodeError):
+        codecs.decode(
+            codec.kind,
+            codec.schema_version,
+            encode_canonical_json(encoded),
+        )

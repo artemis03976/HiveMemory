@@ -33,7 +33,9 @@ from hivememory.patchouli.control.memory_generation.queue import (
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
     WorkPayloadCodecRegistry,
+    WorkPayloadDecodeError,
     WorkState,
+    encode_canonical_json,
 )
 from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
 
@@ -139,6 +141,9 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     )
 
     assert first.task_id == "task-codec"
+    assert first.spec.identity_scope == spec.identity_scope
+    assert first.spec.identity_scope is not spec.identity_scope
+    assert first.spec.identity_scope is not second.spec.identity_scope
     assert first.spec.request.context.state_summary == "original summary"
     assert isinstance(first.spec.request.existing_memory, MemoryAtom)
     assert first.spec.request.existing_memory.payload.content == "original content"
@@ -146,6 +151,48 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
     first.spec.request.context.state_summary = "attempt-local mutation"
     assert second.spec.request.context.state_summary == "original summary"
+
+
+def test_memory_generation_codec_rejects_flattened_owner_projection() -> None:
+    """捕获 codec 接受 TaskSpec 内第二份 owner_user_id 身份事实的缺陷。"""
+    adapter = _MemoryGenerationWorkAdapter()
+    encoded = adapter.encode(
+        _MemoryGenerationWork(task_id="tampered-task", spec=_spec())
+    )
+    encoded["spec"]["owner_user_id"] = "attacker"
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(adapter)
+
+    with pytest.raises(WorkPayloadDecodeError):
+        codecs.decode(
+            adapter.kind,
+            adapter.schema_version,
+            encode_canonical_json(encoded),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["extra", "missing"])
+def test_memory_generation_codec_rejects_nested_noncanonical_request(
+    mutation: str,
+) -> None:
+    """捕获 GenerationRequest 嵌套字段被静默忽略或补默认值的缺陷。"""
+    adapter = _MemoryGenerationWorkAdapter()
+    encoded = adapter.encode(
+        _MemoryGenerationWork(task_id="nested-tamper", spec=_spec())
+    )
+    if mutation == "extra":
+        encoded["spec"]["request"]["workspace_id"] = "isolation_workspace"
+    else:
+        del encoded["spec"]["request"]["write_focus"]
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(adapter)
+
+    with pytest.raises(WorkPayloadDecodeError):
+        codecs.decode(
+            adapter.kind,
+            adapter.schema_version,
+            encode_canonical_json(encoded),
+        )
 
 
 @pytest.mark.asyncio

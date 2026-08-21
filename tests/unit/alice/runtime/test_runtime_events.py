@@ -20,6 +20,7 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
         generation_id="generation-1",
         topic_id="topic-1",
         agent_id="agent-1",
+        workspace_id="isolation_workspace",
     )
     result = AgentRunResult(
         status=AgentRunStatus.COMPLETED,
@@ -38,6 +39,8 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
     assert all(event.component == "agent_run_service" for event in sink.events)
     assert all(event.agent_run_id == "run-1" for event in sink.events)
     assert all(event.generation_id == "generation-1" for event in sink.events)
+    assert all(event.interaction_id == "generation-1" for event in sink.events)
+    assert all(event.workspace_id == "isolation_workspace" for event in sink.events)
     assert all(event.task_type == "foreground" for event in sink.events)
     assert sink.events[-1].data == {
         "mtp_iterations": 2,
