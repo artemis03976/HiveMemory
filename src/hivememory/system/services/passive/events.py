@@ -49,13 +49,16 @@ class PassiveIngressEventEmitter:
         status: str | None = None,
         reason: str | None = None,
         topic_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         self._sink.emit(
             RuntimeEvent(
                 event_type=event_type,
                 task_type="foreground",
                 agent_id=key.agent_id,
-                workspace_id=key.workspace_id,
+                # Workspace 仅作为观测标签显式传入，不能从 conversation key
+                # 派生或参与 EventBus 的 routing/sequence 语义。
+                workspace_id=workspace_id,
                 topic_id=topic_id,
                 status=status,
                 reason=reason,
@@ -77,10 +80,12 @@ class PassiveIngressEventEmitter:
         turn_id: str | None = None,
         sequence: int | None = None,
         is_final: bool = False,
+        workspace_id: str | None = None,
     ) -> None:
         self._emit(
             RuntimeEventType.PASSIVE_INGRESS_EVENT_ACCEPTED,
             key=key,
+            workspace_id=workspace_id,
             status="accepted",
             data={
                 "external_event_id": external_event_id,
@@ -97,10 +102,12 @@ class PassiveIngressEventEmitter:
         key: PassiveConversationKey,
         external_event_id: str,
         role: str,
+        workspace_id: str | None = None,
     ) -> None:
         self._emit(
             RuntimeEventType.PASSIVE_INGRESS_DUPLICATE_IGNORED,
             key=key,
+            workspace_id=workspace_id,
             status="duplicate",
             reason="external_event_id_already_seen",
             data={
@@ -121,6 +128,7 @@ class PassiveIngressEventEmitter:
         failed_stage: str | None = None,
         error_class: str | None = None,
         topic_id: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         """memory context 就绪或降级。
 
@@ -131,6 +139,7 @@ class PassiveIngressEventEmitter:
             RuntimeEventType.PASSIVE_MEMORY_CONTEXT_PREPARED,
             key=key,
             topic_id=topic_id,
+            workspace_id=workspace_id,
             severity="warning" if degraded else "info",
             status="degraded" if degraded else "prepared",
             reason=error_class,

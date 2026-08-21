@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -105,9 +106,7 @@ async def test_passive_final_enters_common_submission_queue() -> None:
     assert submission.identity_scope.actor_identity.user_id == "u1"
     assert submission.origin == "passive_memory"
     assert submission.requested_topic_id == "topic-1"
-    assert submission.ordering_key == (
-        "codex/conversation-1@u1:main_workspace:a1:<no-team>"
-    )
+    assert submission.ordering_key == "codex/conversation-1@u1:a1:<no-team>"
     assert submission.correlation == {
         "source": "codex",
         "external_conversation_id": "conversation-1",
@@ -115,6 +114,73 @@ async def test_passive_final_enters_common_submission_queue() -> None:
         "seal_reason": "explicit_final",
     }
     assert not ingressor.buffers.peek_buffer(_key()).has_pending_round
+
+
+def test_conversation_key_does_not_partition_by_workspace() -> None:
+    """捕获相同 passive 领域会话因 IdentityScope 不同而被隐式分区的缺陷。"""
+    main = PassiveConversationKey.build(
+        source="codex",
+        external_conversation_id="conversation-shared",
+        access_context=make_access_context(
+            user_id="u1",
+            agent_id="a1",
+            workspace_id="main_workspace",
+        ),
+    )
+    isolated = PassiveConversationKey.build(
+        source="codex",
+        external_conversation_id="conversation-shared",
+        access_context=make_access_context(
+            user_id="u1",
+            agent_id="a1",
+            workspace_id="isolation_workspace",
+        ),
+    )
+
+    assert main == isolated
+    assert main.ordering_key == isolated.ordering_key
+
+
+@pytest.mark.asyncio
+async def test_pending_turn_rejects_workspace_scope_drift() -> None:
+    """捕获共享 conversation key 把另一 Workspace 事件混入原 turn 的缺陷。"""
+    ingressor, queue = _build()
+    main_scope = make_access_context(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="main_workspace",
+    )
+    isolated_scope = make_access_context(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="isolation_workspace",
+    )
+
+    await ingressor.route_event_scoped(
+        _event("user", "main user", external_event_id="event-main"),
+        main_scope,
+        "interaction-main",
+    )
+
+    with pytest.raises(WorkspaceMismatchError) as exc_info:
+        await ingressor.route_event_scoped(
+            _event(
+                "assistant",
+                "isolated assistant",
+                external_event_id="event-isolated",
+                is_final=True,
+            ),
+            isolated_scope,
+            "interaction-isolated",
+        )
+
+    buffer = ingressor.buffers.peek_buffer(_key())
+    prepared = buffer.prepare_flush()
+    assert exc_info.value.code == "workspace.mismatch"
+    assert prepared is not None
+    assert prepared[0].user_message == "main user"
+    assert prepared[0].assistant_final_text is None
+    assert queue.submissions == []
 
 
 @pytest.mark.asyncio

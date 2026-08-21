@@ -2,10 +2,12 @@
 KoakumaAtomCache 单元测试
 """
 
-import pytest
 from uuid import uuid4
+
+import pytest
+
 from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
-from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -115,3 +117,22 @@ def test_alias_maps_to_cached_atom(sample_atom):
     atom = cache.get_atom_by_alias("fact_test_memory")
     assert atom is not None
     assert cache.get_atom_by_uuid(str(atom.id)) is atom
+
+
+def test_same_alias_keeps_existing_global_cache_semantics(sample_atom):
+    """捕获 Atom cache 被 IdentityScope 或 Workspace 隐式分区的缺陷。"""
+    replacement = sample_atom.model_copy(deep=True)
+    replacement.id = uuid4()
+    replacement.meta.workspace_identity = replacement.meta.workspace_identity.model_copy(
+        update={
+            "workspace_key": "isolation_workspace",
+            "workspace_id": "isolation_workspace",
+        }
+    )
+    cache = KoakumaAtomCache()
+
+    cache.ingest_atom(sample_atom)
+    cache.ingest_atom(replacement)
+
+    assert cache.get_atom_by_alias("fact_test_memory") is replacement
+    assert cache.get_atom_by_uuid(str(sample_atom.id)) is sample_atom

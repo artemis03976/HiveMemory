@@ -107,6 +107,7 @@ class MemoryContextProvider:
             topic_id=(
                 attempt.decision.target_topic_id if attempt.decision else None
             ),
+            workspace_id=access_context.workspace_identity.workspace_id,
         )
         return attempt
 

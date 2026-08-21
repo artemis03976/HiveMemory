@@ -27,7 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 class AgentProfileCache:
-    """按授权 Identity 作用域隔离的人偶图纸 LRU 缓存。"""
+    """按既有 ActorIdentity key 保存人偶图纸的 LRU 缓存。
+
+    Workspace scope 只随解析请求传播，不改变该共享 cache 的 key、owner 或
+    生命周期。
+    """
 
     def __init__(self, max_size: int = 32):
         self._max_size = max_size
@@ -58,7 +62,7 @@ class AgentProfileCache:
 
 
 class AgentProfileResolver:
-    """把可读 agent alias 解析为人偶图纸，并按 Identity 作用域缓存。"""
+    """把可读 agent alias 解析为人偶图纸，并按既有 actor key 缓存。"""
 
     def __init__(self, local_bus: AliceBus) -> None:
         self._local_bus = local_bus
@@ -81,8 +85,8 @@ class AgentProfileResolver:
         if cached is not None:
             return cached
 
-        # 并发 cache miss 通过锁串行复查，避免一个身份的授权结果污染另一个请求的
-        # 缓存条目；cache key 本身已按 Identity 作用域隔离。
+        # 并发 cache miss 通过锁串行复查，避免一个 actor 的结果污染另一个
+        # actor 条目；Workspace 不参与这份既有 cache key。
         async with self._load_lock:
             cached = self._cache.get(normalized_alias, identity)
             if cached is not None:

@@ -229,7 +229,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_settlement_refreshes_alice_l1_atom_cache(self):
-        """结算事件只用原 PendingAtom 的身份边界刷新对应缓存分区。"""
+        """结算事件以原 scope 查询资源 owner，再刷新共享 L1 cache。"""
         from hivememory.core.models import Identity
 
         stale_atom = _make_memory("fact_canonical", "stale content")
@@ -248,15 +248,16 @@ class TestAlicePublicRoutes:
         await system.start()
         identity = Identity(user_id="test_user", agent_id="test_agent")
         access_context = make_access_context(actor_identity=identity)
-        pending = system.runtime._pending_runtime.register_write(
+        pending_runtime = system.runtime.alias_resolver.pending_runtime
+        pending = pending_runtime.register_write(
             content="draft",
             title="Draft",
             reason=None,
             identity=identity,
             runtime_scope=make_runtime_scope(actor_identity=identity, run_id="run-1"),
         )
-        system.runtime._pending_runtime.start_materializing(pending.pending_alias)
-        system.runtime._atom_cache.ingest_atom(stale_atom)
+        pending_runtime.start_materializing(pending.pending_alias)
+        system.runtime.atom_cache.ingest_atom(stale_atom)
 
         settlement = PendingAtomSettlement(
             pending_alias=pending.pending_alias,
@@ -272,17 +273,10 @@ class TestAlicePublicRoutes:
         )
 
         assert refresh_requests == [(["fact_canonical"], access_context)]
+        assert system.runtime.atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
         assert (
-            system.runtime._atom_cache.get_atom_by_alias(
-                "fact_canonical",
-                access_context,
-            )
-            is fresh_atom
-        )
-        assert (
-            system.runtime._atom_cache.get_atom_by_uuid(
+            system.runtime.atom_cache.get_atom_by_uuid(
                 str(stale_atom.id),
-                access_context,
             )
             is None
         )

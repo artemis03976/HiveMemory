@@ -31,13 +31,13 @@ class PassiveConversationKey:
     """被动 ingress 的外部会话分桶键。
 
     外部来源与外部会话 ID 一起构成命名空间，再叠加 HiveMemory 身份维度，
-    确保不同 connector 的同名会话 ID 不会互相污染。
+    确保不同 connector 的同名会话 ID 不会互相污染。Workspace 只随领域
+    payload 传播，不参与共享 buffer、gate 或 ordering 的命名域。
     """
 
     source: str
     external_conversation_id: str
-    owner_user_id: str
-    workspace_id: str
+    user_id: str
     agent_id: str
     team_id: str | None = None
 
@@ -52,8 +52,7 @@ class PassiveConversationKey:
         return cls(
             source=source,
             external_conversation_id=external_conversation_id,
-            owner_user_id=access_context.workspace_identity.owner_user_id,
-            workspace_id=access_context.workspace_identity.workspace_id,
+            user_id=access_context.actor_identity.user_id,
             agent_id=access_context.actor_identity.agent_id,
             team_id=access_context.actor_identity.team_id,
         )
@@ -63,7 +62,7 @@ class PassiveConversationKey:
         team = self.team_id or "<no-team>"
         return (
             f"{self.source}/{self.external_conversation_id}"
-            f"@{self.owner_user_id}:{self.workspace_id}:{self.agent_id}:{team}"
+            f"@{self.user_id}:{self.agent_id}:{team}"
         )
 
     @property

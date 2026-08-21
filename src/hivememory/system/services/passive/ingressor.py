@@ -10,6 +10,7 @@ import logging
 from typing import Any
 from uuid import uuid4
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     Identity,
     IdentityScope,
@@ -176,6 +177,31 @@ class PassiveMessageIngressor:
     ) -> PassiveIngressOutcome:
         """在当前会话串行门内完成一次事件的全部状态变更。"""
         buffer = self._buffers.peek_buffer(key)
+        if buffer is not None and buffer.has_pending_round:
+            buffered_scope = buffer.identity_scope
+            if buffered_scope is None:
+                raise RuntimeError(
+                    f"pending passive turn is missing identity: conversation={key.label}"
+                )
+            if (
+                buffered_scope.workspace_identity
+                != identity_scope.workspace_identity
+            ):
+                # conversation key 维持既有领域命名域；scope 只作为 turn payload
+                # 保存。相同 key 的在途 payload 若发生 Workspace 漂移必须拒绝，
+                # 不能通过重新分桶掩盖冲突，也不能把事件混入原 turn。
+                raise WorkspaceMismatchError(
+                    "passive turn 已绑定另一 Workspace，拒绝追加事件",
+                    details={
+                        "conversation": key.label,
+                        "expected_workspace_id": (
+                            buffered_scope.workspace_identity.workspace_id
+                        ),
+                        "actual_workspace_id": (
+                            identity_scope.workspace_identity.workspace_id
+                        ),
+                    },
+                )
         if (
             event.is_final
             and buffer is not None
@@ -201,6 +227,7 @@ class PassiveMessageIngressor:
                 key=key,
                 external_event_id=event.external_event_id,
                 role=event.role,
+                workspace_id=identity_scope.workspace_identity.workspace_id,
             )
             return PassiveIngressOutcome(kind="duplicate")
 
@@ -211,6 +238,7 @@ class PassiveMessageIngressor:
             turn_id=event.turn_id,
             sequence=event.sequence,
             is_final=event.is_final,
+            workspace_id=identity_scope.workspace_identity.workspace_id,
         )
 
         if event.role == "user":

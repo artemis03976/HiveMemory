@@ -120,8 +120,8 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scoped_passive_seam_keeps_workspace_in_key_and_payload() -> None:
-    """防止 passive 内部 seam 复用同名会话时退回 main Workspace 分桶。"""
+async def test_scoped_passive_seam_keeps_workspace_only_in_payload() -> None:
+    """确保显式 scope 进入 payload，但不污染 passive ordering 命名域。"""
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(
@@ -152,7 +152,7 @@ async def test_scoped_passive_seam_keeps_workspace_in_key_and_payload() -> None:
 
     assert len(submitted) == 1
     submission = submitted[0]
-    assert ":isolation_workspace:" in submission.ordering_key
+    assert submission.ordering_key == "unit_test/conv-1@u1:test_agent:<no-team>"
     assert submission.identity_scope.workspace_identity == (
         identity_scope.workspace_identity
     )

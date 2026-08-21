@@ -21,14 +21,25 @@ from tests.helpers.workspace import make_runtime_scope
 from tests.unit.agent_runtime.mtp.conftest import make_mock_bus
 
 
-def _context() -> MTPExecutionContext:
-    return MTPExecutionContext(runtime_scope=make_runtime_scope())
+def _context(*, workspace_id: str = "main_workspace") -> MTPExecutionContext:
+    return MTPExecutionContext(
+        runtime_scope=make_runtime_scope(workspace_id=workspace_id)
+    )
 
 
-def _make_memory(alias: str, content: str = "content") -> MemoryAtom:
+def _make_memory(
+    alias: str,
+    content: str = "content",
+    *,
+    workspace_id: str = "main_workspace",
+) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(
+            user_id="test_user",
+            source_agent_id="test_agent",
+            workspace_id=workspace_id,
+        ),
         index=IndexLayer(
             title="Test Memory",
             summary="A resolver test memory",
@@ -177,6 +188,30 @@ async def test_resolve_l1_atom_hit(resolver_parts):
     assert result.kind == "atom"
     assert result.atom is atom
     bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_l1_hit_revalidates_workspace_without_partitioning_cache(resolver_parts):
+    """捕获共享 alias cache 命中被误作 Workspace 授权结果的缺陷。"""
+    resolver, _pending_runtime, atom_cache, bus = resolver_parts
+    cached = _make_memory(
+        alias="fact_shared",
+        content="isolated",
+        workspace_id="isolation_workspace",
+    )
+    authorized = _make_memory(
+        alias="fact_shared",
+        content="main",
+        workspace_id="main_workspace",
+    )
+    atom_cache.ingest_atom(cached)
+    bus._mock_storage.get_memory_by_alias.return_value = authorized
+
+    result = await resolver.resolve("fact_shared", context=_context())
+
+    assert result.kind == "atom"
+    assert result.atom is authorized
+    assert atom_cache.get_atom_by_alias("fact_shared") is authorized
 
 
 @pytest.mark.asyncio

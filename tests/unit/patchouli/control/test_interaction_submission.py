@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -441,6 +442,31 @@ async def test_duplicate_interaction_id_is_idempotent_but_rejects_another_payloa
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
     submit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> None:
+    """捕获 payload scope 把同一 interaction work 隐式拆成两个分区的缺陷。"""
+    queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-real"))
+    first = _submission("interaction-shared")
+    different_scope = replace(
+        first,
+        identity_scope=make_access_context(
+            user_id="u1",
+            agent_id="a1",
+            workspace_id="isolation_workspace",
+        ),
+    )
+
+    try:
+        receipt = await queue.submit(first)
+        with pytest.raises(ValueError, match="already belongs"):
+            await queue.submit(different_scope)
+    finally:
+        await queue.stop()
+
+    assert receipt.work_id == "interaction:interaction-shared"
+    assert await queue.pending_count() == 1
 
 
 def test_codec_rejects_flattened_identity_projection() -> None:

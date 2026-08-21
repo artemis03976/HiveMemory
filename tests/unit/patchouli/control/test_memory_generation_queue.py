@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -27,6 +28,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.patchouli.control.memory_generation.queue import (
+    MemoryGenerationQueue,
     _MemoryGenerationWork,
     _MemoryGenerationWorkAdapter,
 )
@@ -151,6 +153,28 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
     first.spec.request.context.state_summary = "attempt-local mutation"
     assert second.spec.request.context.state_summary == "original summary"
+
+
+@pytest.mark.asyncio
+async def test_queue_identity_does_not_partition_by_payload_scope() -> None:
+    """捕获 IdentityScope 被用于 memory work 调度与幂等 key 的缺陷。"""
+    queue = MemoryGenerationQueue(AsyncMock(return_value=[]))
+    main_spec = _spec(intent_id="intent-shared", pending_alias="draft-shared")
+    isolated_spec = replace(
+        main_spec,
+        identity_scope=make_memory_creation_context(
+            workspace_id="isolation_workspace"
+        ),
+    )
+
+    try:
+        handle = await queue.submit("task-shared", main_spec)
+        with pytest.raises(ValueError, match="different payload"):
+            await queue.submit("task-shared", isolated_spec)
+    finally:
+        await queue.stop()
+
+    assert handle.work_id == "memory_generation:task-shared"
 
 
 def test_memory_generation_codec_rejects_flattened_owner_projection() -> None:

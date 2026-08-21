@@ -53,6 +53,39 @@ async def test_resolve_loads_profile_from_bus_and_caches():
 
 
 @pytest.mark.asyncio
+async def test_same_actor_profile_cache_is_shared_across_workspaces():
+    """捕获 Profile cache 因 Workspace scope 被隐式拆分的缺陷。"""
+    class _ProfileBus:
+        def __init__(self) -> None:
+            self.load_count = 0
+
+        async def request(self, _route, alias, *, access_context):
+            del access_context
+            self.load_count += 1
+            return AgentProfile(persona=f"{alias}:load-{self.load_count}")
+
+    bus = _ProfileBus()
+    resolver = AgentProfileResolver(local_bus=bus)
+    main = make_access_context(
+        user_id="u1",
+        agent_id="omni_doll",
+        workspace_id="main_workspace",
+    )
+    isolated = make_access_context(
+        user_id="u1",
+        agent_id="omni_doll",
+        workspace_id="isolation_workspace",
+    )
+
+    first = await resolver.resolve("coder_doll", access_context=main)
+    second = await resolver.resolve("coder_doll", access_context=isolated)
+
+    assert second is first
+    assert second.persona == "coder_doll:load-1"
+    assert bus.load_count == 1
+
+
+@pytest.mark.asyncio
 async def test_resolve_missing_profile_fails_explicitly():
     bus = MagicMock()
     bus.request = AsyncMock(return_value=None)
