@@ -29,7 +29,7 @@ def _task_handle(
     *,
     task_id="j1",
     topic_id="t1",
-    source=MemoryGenerationSource.ARCHIVE,
+    source=MemoryGenerationSource.SETTLE,
 ):
     return MemoryGenerationTask(
         task_id=task_id,
@@ -43,7 +43,7 @@ def _spec(
     *,
     topic_id="t1",
     label="t1",
-    source=MemoryGenerationSource.ARCHIVE,
+    source=MemoryGenerationSource.SETTLE,
     intent_id=None,
     pending_alias=None,
 ):

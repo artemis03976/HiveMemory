@@ -69,13 +69,25 @@ class SemanticBuffer(BaseModel):
     def get_block_count(self) -> int:
         return len(self.blocks)
 
+    @property
+    def has_blocks(self) -> bool:
+        """是否存在原始 block（窄语义，不等价于 has_content）。"""
+        return bool(self.blocks)
+
+    @property
+    def has_content(self) -> bool:
+        """是否存在可参与路由与生命周期判断的内容（原始 blocks 或非空白折叠摘要）。"""
+        return bool(self.blocks) or bool(self.state_summary.strip())
+
     def get_topic_summary(self) -> str:
-        if not self.blocks:
-            return "空缓冲区"
-        user_queries = [b.anchor_text for b in self.blocks if b.anchor_text]
-        if user_queries:
-            return f"包含 {len(user_queries)} 个用户查询"
-        return f"{len(self.blocks)} 个 Block"
+        if self.blocks:
+            user_queries = [b.anchor_text for b in self.blocks if b.anchor_text]
+            if user_queries:
+                return f"包含 {len(user_queries)} 个用户查询"
+            return f"{len(self.blocks)} 个 Block"
+        if self.state_summary.strip():
+            return "已折叠历史内容"
+        return "空缓冲区"
 
     def is_idle(self, timeout_seconds: int = 900) -> bool:
         return (datetime.now().timestamp() - self.last_update) > timeout_seconds

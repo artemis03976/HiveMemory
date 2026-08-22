@@ -283,7 +283,7 @@ class TestPageFolding:
     def test_fold_does_not_persist_to_qdrant(self, e2e_system, clean_user, qdrant_store):
         """
         验证 Page Folding 不触发 Generation — 折叠过程中不应产生 Qdrant 记忆。
-        只有后续的 flush (MANUAL/IDLE/LRU) 才会触发 Generation。
+        只有后续的 flush (MANUAL_SETTLE/IDLE/LRU) 才会触发 Generation。
 
         1. 临时降低阈值
         2. 摄入多轮大消息触发折叠

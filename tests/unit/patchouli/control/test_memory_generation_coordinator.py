@@ -43,7 +43,7 @@ def _task_handle(
     *,
     task_id="j1",
     topic_id="t1",
-    source=MemoryGenerationSource.ARCHIVE,
+    source=MemoryGenerationSource.SETTLE,
 ):
     return MemoryGenerationTask(
         task_id=task_id,
@@ -167,7 +167,7 @@ class TestMemoryGenerationCoordinator:
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_submit_settlement_builds_archive_spec(self):
+    async def test_submit_settlement_builds_settle_spec(self):
         bus = Mock()
         bus.request = AsyncMock(return_value=_task_handle())
         coordinator = MemoryGenerationCoordinator(bus=bus)
@@ -186,7 +186,7 @@ class TestMemoryGenerationCoordinator:
         route, spec = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION
         assert spec.topic_id == "t1"
-        assert spec.source == MemoryGenerationSource.ARCHIVE
+        assert spec.source == MemoryGenerationSource.SETTLE
         assert spec.request.context.state_summary == "state"
         assert spec.interaction_input.topic_title == "title"
 

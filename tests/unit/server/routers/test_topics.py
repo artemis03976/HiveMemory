@@ -90,14 +90,43 @@ class TestTopicsRouter:
         assert response.status_code == 200
         assert response.json()["topics"] == []
 
-    def test_archive_topic(self):
+    def test_settle_topic(self):
         librarian_core = MagicMock()
 
+        from hivememory.patchouli.services.perception import ManualSettleResult
+
+        async def manual_settle_result(*, access_context, topic_id=None):
+            return ManualSettleResult(
+                success=True,
+                topic_id=topic_id,
+                task_id="task-1",
+                generation_submitted=True,
+            )
+
+        app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_result)
+        client = TestClient(app)
+
+        response = client.post("/api/v1/topics/t1/settle")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["topic_id"] == "t1"
+        assert data["task_id"] == "task-1"
+        assert data["generation_submitted"] is True
+
+    def test_settle_topic_without_generation_task(self):
+        """settle 成功不依赖是否存在 generation task。"""
+        librarian_core = MagicMock()
+
+        from hivememory.patchouli.services.perception import ManualSettleResult
+
         async def manual_settle_topic(*, access_context, topic_id=None):
-            task_result = MagicMock()
-            task_result.task_id = "task-1"
-            task_result.topic_id = topic_id
-            return task_result
+            return ManualSettleResult(
+                success=True,
+                topic_id=topic_id,
+                task_id=None,
+                generation_submitted=False,
+            )
 
         app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_topic)
         client = TestClient(app)
@@ -107,6 +136,8 @@ class TestTopicsRouter:
         data = response.json()
         assert data["success"] is True
         assert data["topic_id"] == "t1"
+        assert data["task_id"] is None
+        assert data["generation_submitted"] is False
 
     def test_delete_topic(self):
         librarian_core = MagicMock()

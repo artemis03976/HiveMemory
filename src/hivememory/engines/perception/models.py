@@ -38,9 +38,11 @@ class FlushReason(str, Enum):
     """缓冲区刷新原因枚举"""
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
-    MANUAL = "manual"  # 手动触发
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
-    SHUTDOWN = "shutdown"  # 进程关闭时的全局强制归档
+    SHUTDOWN = "shutdown"  # 进程关闭时的全局强制结算
+    MANUAL_SETTLE = "manual_settle"  # 用户手动结算：结算为记忆资产并结束 Topic
+    MANUAL_COMPACT = "manual_compact"  # 用户手动压缩：只压缩工作集，不结算、不驱逐
+    MANUAL_DELETE = "manual_delete"  # 用户手动删除：丢弃 Topic，不写记忆
 
 
 # ============ Flush 事件 ============

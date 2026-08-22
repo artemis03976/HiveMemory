@@ -8,10 +8,14 @@ Perception 感知链路集成测试。
 
 覆盖：
 - IDLE 超时结算并驱逐话题
-- IDLE 空话题跳过 settlement 提交
+- IDLE 空话题跳过 settlement 提交但仍按矩阵 evict
 - IDLE 释放容量后新话题可入池
-- SHUTDOWN 全量结算 + 驱逐
+- SHUTDOWN 全量结算 + 驱逐（含真正空 Topic）
 - folding 后的 shutdown 结算保留 state_summary 与 retained block
+- summary-only Topic 的列表、路由与 discard 语义
+- manual settle / compact / delete 三个互不混杂的用例
+- manual settle prepare -> admission -> evict 顺序与失败可重试
+- compact 路径 retain_recent_blocks >= 1 的输入边界
 """
 
 import time
@@ -20,9 +24,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from hivememory.core.models import Identity, TurnEvent
+from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord, WorkspaceTopicKey
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import FlushReason
+from hivememory.engines.perception.models import FlushEvent, FlushReason
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
@@ -30,9 +34,16 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
+from hivememory.patchouli.control.memory_generation.models import (
+    MemoryGenerationSource,
+    MemoryGenerationTask,
+)
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.patchouli.services.perception import PerceptionFamiliar
+from hivememory.patchouli.services.perception import (
+    ManualSettleAdmissionError,
+    PerceptionFamiliar,
+)
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from tests.helpers.workspace import make_access_context
 
@@ -145,7 +156,9 @@ async def test_idle_flush_skips_empty_settlement_submission():
         flushed = await familiar.scan_idle_buffers_once()
 
     assert flushed == [topic_id]
+    # 真正空 Topic：不提交 settlement，但按 IDLE 矩阵 evict
     bus.request.assert_not_awaited()
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
 
 
 @pytest.mark.asyncio
@@ -248,3 +261,258 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
     assert [block.user_query for block in settlement.blocks] == [
         "question-2-" * 80
     ]
+
+
+# ========== summary-only 内容判空语义 ==========
+
+@pytest.mark.asyncio
+async def test_summary_only_topic_stays_in_non_empty_active_list():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+    store.update_summary(
+        WorkspaceTopicKey.from_access_context(access_context, topic_id),
+        "已经折叠的历史内容",
+    )
+
+    topics = store.list_topic_data(access_context, include_empty=False)
+
+    assert [t.topic_id for t in topics] == [topic_id]
+    assert topics[0].blocks == ()
+    assert topics[0].is_empty is False
+
+
+@pytest.mark.asyncio
+async def test_discard_if_empty_keeps_summary_only_topic():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+    store.update_summary(
+        WorkspaceTopicKey.from_access_context(access_context, topic_id),
+        "折叠历史",
+    )
+
+    discarded = layer.discard_if_empty(access_context, topic_id)
+
+    assert discarded is False
+    assert store.get_topic_data(access_context, topic_id, touch=False) is not None
+
+
+@pytest.mark.asyncio
+async def test_discard_if_empty_evicts_truly_empty_topic():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+
+    discarded = layer.discard_if_empty(access_context, topic_id)
+
+    assert discarded is True
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+
+
+# ========== 真正空 Topic 仍按矩阵 evict ==========
+
+@pytest.mark.asyncio
+async def test_shutdown_evicts_truly_empty_topic():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+
+    result = await familiar.flush_all_for_shutdown()
+
+    assert topic_id in result.flushed_topics
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_manual_settle_evicts_truly_empty_topic():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+
+    result = await familiar.manual_settle_topic(access_context, topic_id)
+
+    assert result.success is True
+    assert result.generation_submitted is False
+    assert result.task_id is None
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+# ========== manual settle: prepare -> admission -> evict ==========
+
+@pytest.mark.asyncio
+async def test_manual_settle_admits_generation_task_before_evicting():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await familiar.submit_interaction(
+        _make_payload("question", "answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+    accepted = MemoryGenerationTask(
+        task_id="memtask-1",
+        topic_id=topic_id,
+        label=topic_id,
+        source=MemoryGenerationSource.SETTLE,
+    )
+    bus.request = AsyncMock(return_value=accepted)
+
+    result = await familiar.manual_settle_topic(access_context, topic_id)
+
+    assert result.success is True
+    assert result.task_id == "memtask-1"
+    assert result.generation_submitted is True
+    assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+    # 接纳成功后 Topic 才从池中移除
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+
+
+@pytest.mark.asyncio
+async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await familiar.submit_interaction(
+        _make_payload("question", "answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+    before = store.get_topic_data(access_context, topic_id, touch=False)
+    bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
+
+    with pytest.raises(ManualSettleAdmissionError, match="可重试"):
+        await familiar.manual_settle_topic(access_context, topic_id)
+
+    after = store.get_topic_data(access_context, topic_id, touch=False)
+    assert after is not None
+    assert [b.user_query for b in after.blocks] == [b.user_query for b in before.blocks]
+    assert after.state_summary == before.state_summary
+
+    # 修复 admission 后可再次重试并成功结束生命周期
+    bus.request = AsyncMock(return_value=None)
+    result = await familiar.manual_settle_topic(access_context, topic_id)
+    assert result.success is True
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+
+
+@pytest.mark.asyncio
+async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
+    """blocks 均被 worth_saving=False 过滤：无任务但生命周期仍正常结束。"""
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+    store.add_block(
+        WorkspaceTopicKey.from_access_context(access_context, topic_id),
+        LogicalBlock(
+            turn=TurnRecord(user_query="q", assistant_final_text="a"),
+            worth_saving=False,
+        ),
+    )
+
+    result = await familiar.manual_settle_topic(access_context, topic_id)
+
+    assert result.success is True
+    assert result.generation_submitted is False
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+# ========== manual delete: 只驱逐，不写记忆 ==========
+
+@pytest.mark.asyncio
+async def test_manual_delete_evicts_without_generation_task():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await familiar.submit_interaction(
+        _make_payload("question", "answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+
+    removed = await familiar.evict_topic(access_context, topic_id)
+
+    assert removed.success is True
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+# ========== manual compact: 只压缩工作集 ==========
+
+@pytest.mark.asyncio
+async def test_manual_compact_updates_summary_trims_prefix_keeps_topic():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = "NEW_TOPIC"
+    for i in range(3):
+        topic_id = await familiar.submit_interaction(
+            _make_payload(f"q{i}", f"a{i}"),
+            identity_scope=access_context,
+            target_topic_id=topic_id,
+        )
+    topic_key = WorkspaceTopicKey.from_access_context(access_context, topic_id)
+
+    payload = await layer._trigger_manager.resolve_topic(
+        FlushEvent(topic_key=topic_key, reason=FlushReason.MANUAL_COMPACT),
+        retain_recent_blocks=1,
+    )
+
+    assert payload is None
+    data = store.get_topic_data(access_context, topic_id, touch=False)
+    assert data is not None
+    assert data.state_summary == "folded:2"
+    assert [b.user_query for b in data.blocks] == ["q2"]
+    # 同一旧前缀不得同时残留在 summary 与 blocks 中
+    assert "q0" not in data.state_summary
+    assert "q1" not in data.state_summary
+    # compact 不触发记忆生成、不驱逐
+    bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_manual_compact_is_noop_when_blocks_not_exceeding_retain():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await familiar.submit_interaction(
+        _make_payload("q", "a"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+    topic_key = WorkspaceTopicKey.from_access_context(access_context, topic_id)
+
+    payload = await layer._trigger_manager.resolve_topic(
+        FlushEvent(topic_key=topic_key, reason=FlushReason.MANUAL_COMPACT),
+        retain_recent_blocks=5,
+    )
+
+    assert payload is None
+    data = store.get_topic_data(access_context, topic_id, touch=False)
+    assert data.state_summary == ""
+    assert len(data.blocks) == 1
+
+
+# ========== compact 输入边界：retain_recent_blocks >= 1 ==========
+
+@pytest.mark.asyncio
+async def test_compact_entries_reject_retain_below_one():
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await familiar.submit_interaction(
+        _make_payload("q", "a"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+    topic_key = WorkspaceTopicKey.from_access_context(access_context, topic_id)
+
+    for reason in (FlushReason.MANUAL_COMPACT, FlushReason.TOKEN_OVERFLOW):
+        for bad in (0, -1):
+            with pytest.raises(
+                ValueError, match="retain_recent_blocks must be >= 1"
+            ):
+                await layer._trigger_manager.resolve_topic(
+                    FlushEvent(topic_key=topic_key, reason=reason),
+                    retain_recent_blocks=bad,
+                )
+    data = store.get_topic_data(access_context, topic_id, touch=False)
+    assert data is not None
+    assert len(data.blocks) == 1

@@ -469,8 +469,12 @@ class TestRetrievalFamiliarShortTermTopics:
         block = LogicalBlock()
         old_topic = _make_topic_data("old", blocks=[block], last_accessed_at=1.0)
         empty_topic = _make_topic_data("empty", blocks=[], last_accessed_at=3.0)
+        empty_topic = empty_topic.model_copy(update={"state_summary": ""})
+        summary_only = _make_topic_data("summary-only", blocks=[], last_accessed_at=4.0)
         new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
-        self.mock_library.short_term.list_topic_data.return_value = [old_topic, empty_topic, new_topic]
+        self.mock_library.short_term.list_topic_data.return_value = [
+            old_topic, empty_topic, summary_only, new_topic,
+        ]
 
         access_context = make_access_context(user_id="u1")
         snapshots = self.familiar.list_active_topics(access_context=access_context)
@@ -478,5 +482,6 @@ class TestRetrievalFamiliarShortTermTopics:
         self.mock_library.short_term.list_topic_data.assert_called_once_with(
             access_context, include_empty=False
         )
-        assert [s.topic_id for s in snapshots] == ["new", "old"]
+        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按访问时间排序
+        assert [s.topic_id for s in snapshots] == ["summary-only", "new", "old"]
 

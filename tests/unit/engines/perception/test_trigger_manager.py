@@ -30,9 +30,21 @@ class TestDecisionMatrix:
         actions = DECISION_MATRIX[FlushReason.SHUTDOWN]
         assert actions == {"settle": True, "compact": False, "evict": True}
 
-    def test_manual_settles_and_compacts_without_evict(self):
-        actions = DECISION_MATRIX[FlushReason.MANUAL]
-        assert actions == {"settle": True, "compact": True, "evict": False}
+    def test_manual_settle_settles_and_evicts_without_compact(self):
+        actions = DECISION_MATRIX[FlushReason.MANUAL_SETTLE]
+        assert actions == {"settle": True, "compact": False, "evict": True}
+
+    def test_manual_compact_compacts_only(self):
+        actions = DECISION_MATRIX[FlushReason.MANUAL_COMPACT]
+        assert actions == {"settle": False, "compact": True, "evict": False}
+
+    def test_manual_delete_evicts_only(self):
+        actions = DECISION_MATRIX[FlushReason.MANUAL_DELETE]
+        assert actions == {"settle": False, "compact": False, "evict": True}
+
+    def test_legacy_manual_reason_is_removed(self):
+        assert "MANUAL" not in {reason.name for reason in FlushReason}
+        assert "MANUAL" not in {reason.name for reason in DECISION_MATRIX}
 
     def test_active_write_reasons_are_not_perception_flush_reasons(self):
         reason_names = {reason.name for reason in FlushReason}
@@ -97,9 +109,11 @@ class TestTriggerManagerResolveTopic:
         self.relay.generate_summary.assert_not_called()
         self.store.clear_blocks.assert_not_called()
         self.store.pop_buffer.assert_not_called()
+        self.store.pop_buffer_by_key.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_topic_data_without_blocks_returns_none(self):
+    async def test_truly_empty_topic_is_evicted_when_matrix_says_evict(self):
+        """真正空 Topic 没有 settle/compact 材料，但仍需按矩阵执行 evict。"""
         self.store.get_topic_data_by_key.return_value = TopicData(
             topic_id=self.topic_id,
             workspace_identity=self.access_context.workspace_identity,
@@ -116,7 +130,28 @@ class TestTriggerManagerResolveTopic:
         assert result is None
         self.relay.generate_summary.assert_not_called()
         self.store.clear_blocks.assert_not_called()
-        self.store.pop_buffer.assert_not_called()
+        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+
+    @pytest.mark.asyncio
+    async def test_truly_empty_topic_without_evict_stays_untouched(self):
+        """TOKEN_OVERFLOW（evict=False）下空 Topic 不应被修改。"""
+        self.store.get_topic_data_by_key.return_value = TopicData(
+            topic_id=self.topic_id,
+            workspace_identity=self.access_context.workspace_identity,
+            current_agent_id=self.identity.agent_id,
+            topic_title="Empty topic",
+            last_update=1.0,
+            last_accessed_at=1.0,
+        )
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.TOKEN_OVERFLOW),
+            retain_recent_blocks=1,
+        )
+
+        assert result is None
+        self.store.pop_buffer_by_key.assert_not_called()
+        self.store.apply_compaction.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_token_overflow_compacts_and_returns_no_settlement(self):
@@ -214,19 +249,114 @@ class TestTriggerManagerResolveTopic:
         self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
-    async def test_manual_returns_settlement_compacts_and_keeps_topic(self):
+    async def test_manual_settle_returns_settlement_and_evicts(self):
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
+        )
+
+        assert isinstance(result, TopicMaterializeTask)
+        assert result.reason == FlushReason.MANUAL_SETTLE
+        self.relay.generate_summary.assert_not_called()
+        self.store.clear_blocks.assert_called_once_with(self.topic_key)
+        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+
+    @pytest.mark.asyncio
+    async def test_manual_compact_compacts_only_and_keeps_topic(self):
         self.store.get_topic_data_by_key.return_value = self._topic_data()
         self.relay.generate_summary.return_value = "manual summary"
 
         result = await self.manager.resolve_topic(
-            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL)
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_COMPACT),
+            retain_recent_blocks=1,
         )
 
-        assert isinstance(result, TopicMaterializeTask)
-        assert result.reason == FlushReason.MANUAL
-        self.relay.generate_summary.assert_called_once()
-        self.store.update_summary.assert_called_once_with(self.topic_key, "manual summary")
-        self.store.clear_blocks.assert_called_once_with(self.topic_key)
+        assert result is None
+        summarized = self.relay.generate_summary.call_args.kwargs["blocks_to_fold"]
+        assert [block.user_query for block in summarized] == ["Query 0", "Query 1"]
+        self.store.apply_compaction.assert_called_once_with(
+            self.topic_key,
+            "manual summary",
+            retain_count=1,
+        )
+        self.store.clear_blocks.assert_not_called()
+        self.store.pop_buffer_by_key.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_manual_compact_requires_retention_policy(self):
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
+
+        with pytest.raises(ValueError, match="requires retain_recent_blocks"):
+            await self.manager.resolve_topic(
+                FlushEvent(
+                    topic_key=self.topic_key,
+                    reason=FlushReason.MANUAL_COMPACT,
+                )
+            )
+
+        self.relay.generate_summary.assert_not_called()
+        self.store.apply_compaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_manual_compact_rejects_retain_below_one(self):
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
+
+        with pytest.raises(ValueError, match="retain_recent_blocks must be >= 1"):
+            await self.manager.resolve_topic(
+                FlushEvent(
+                    topic_key=self.topic_key,
+                    reason=FlushReason.MANUAL_COMPACT,
+                ),
+                retain_recent_blocks=0,
+            )
+
+        self.relay.generate_summary.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_manual_delete_evicts_without_settlement_or_compact(self):
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
+
+        result = await self.manager.resolve_topic(
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_DELETE)
+        )
+
+        assert result is None
+        self.relay.generate_summary.assert_not_called()
+        self.store.clear_blocks.assert_not_called()
+        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+
+    @pytest.mark.asyncio
+    async def test_build_settle_payload_is_non_destructive(self):
+        """manual settle 的 prepare 阶段只冻结材料，不修改 buffer。"""
+        self.store.get_topic_data_by_key.return_value = self._topic_data()
+
+        payload = self.manager.build_settle_payload(
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
+        )
+
+        assert isinstance(payload, TopicMaterializeTask)
+        assert len(payload.blocks) == 3
+        self.store.clear_blocks.assert_not_called()
+        self.store.pop_buffer_by_key.assert_not_called()
+        self.store.apply_compaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_build_settle_payload_returns_none_for_empty_topic(self):
+        self.store.get_topic_data_by_key.return_value = TopicData(
+            topic_id=self.topic_id,
+            workspace_identity=self.access_context.workspace_identity,
+            current_agent_id=self.identity.agent_id,
+            topic_title="Empty topic",
+            last_update=1.0,
+            last_accessed_at=1.0,
+        )
+
+        payload = self.manager.build_settle_payload(
+            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
+        )
+
+        assert payload is None
         self.store.pop_buffer_by_key.assert_not_called()
 
 
@@ -284,10 +414,59 @@ class TestTriggerManagerSettlePayload:
 
 class TestTriggerManagerCompactTopic:
     @pytest.mark.asyncio
-    async def test_compact_updates_state_summary(self):
+    async def test_compact_updates_state_summary_and_trims_old_prefix(self):
         store = Mock()
+        store.apply_compaction.return_value = 1
         relay = Mock()
         relay.generate_summary.return_value = "new summary"
+        manager = TriggerManager(store=store, relay_controller=relay)
+        blocks = [
+            LogicalBlock(turn=TurnRecord(user_query="q0", assistant_final_text="a0")),
+            LogicalBlock(turn=TurnRecord(user_query="q1", assistant_final_text="a1")),
+        ]
+
+        topic_key = WorkspaceTopicKey.from_access_context(
+            make_access_context(user_id="u1"), "topic_1"
+        )
+        folded = await manager._compact_topic(
+            topic_key, blocks, "previous summary", retain_recent_blocks=1
+        )
+
+        assert folded == 1
+        relay.generate_summary.assert_called_once_with(
+            blocks_to_fold=[blocks[0]],
+            previous_summary="previous summary",
+        )
+        store.apply_compaction.assert_called_once_with(
+            topic_key,
+            "new summary",
+            retain_count=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_compact_rejects_retain_below_one(self):
+        store = Mock()
+        relay = Mock()
+        manager = TriggerManager(store=store, relay_controller=relay)
+        topic_key = WorkspaceTopicKey.from_access_context(
+            make_access_context(user_id="u1"), "topic_1"
+        )
+
+        for bad in (0, -1):
+            with pytest.raises(ValueError, match="retain_recent_blocks must be >= 1"):
+                await manager._compact_topic(
+                    topic_key,
+                    [LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
+                    "previous summary",
+                    retain_recent_blocks=bad,
+                )
+        relay.generate_summary.assert_not_called()
+        store.apply_compaction.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_compact_is_noop_when_blocks_not_exceeding_retain(self):
+        store = Mock()
+        relay = Mock()
         manager = TriggerManager(store=store, relay_controller=relay)
         blocks = [
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
@@ -296,13 +475,13 @@ class TestTriggerManagerCompactTopic:
         topic_key = WorkspaceTopicKey.from_access_context(
             make_access_context(user_id="u1"), "topic_1"
         )
-        await manager._compact_topic(topic_key, blocks, "previous summary")
-
-        relay.generate_summary.assert_called_once_with(
-            blocks_to_fold=blocks,
-            previous_summary="previous summary",
+        folded = await manager._compact_topic(
+            topic_key, blocks, "previous summary", retain_recent_blocks=2
         )
-        store.update_summary.assert_called_once_with(topic_key, "new summary")
+
+        assert folded == 0
+        relay.generate_summary.assert_not_called()
+        store.apply_compaction.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_compact_summarizes_only_prefix_before_retained_blocks(self):

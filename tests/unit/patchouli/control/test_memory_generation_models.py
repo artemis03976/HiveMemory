@@ -22,7 +22,7 @@ from tests.helpers.memory import make_memory_creation_context
 
 
 def test_memory_generation_source_derives_artifact_semantics():
-    assert MemoryGenerationSource.ARCHIVE.creation_artifact_intent == "ARCHIVE"
+    assert MemoryGenerationSource.SETTLE.creation_artifact_intent == "SYSTEM"
     assert MemoryGenerationSource.WRITE.creation_artifact_intent == "WRITE"
     assert MemoryGenerationSource.UPDATE.creation_artifact_intent == "SYSTEM"
     assert MemoryGenerationSource.UPDATE.version_update_source == "UPDATE"
@@ -33,7 +33,7 @@ def _task_snapshot(**updates):
         "task_id": "j1",
         "topic_id": "t1",
         "label": "t1",
-        "source": MemoryGenerationSource.ARCHIVE,
+        "source": MemoryGenerationSource.SETTLE,
     }
     values.update(updates)
     return MemoryGenerationTask(**values)
@@ -210,7 +210,7 @@ def test_memory_task_to_payload_contains_public_fields():
 
     assert payload["task_id"] == "j1"
     assert payload["topic_id"] == "t1"
-    assert payload["source"] == "ARCHIVE"
+    assert payload["source"] == "SETTLE"
     assert payload["status"] == "pending"
     assert payload["cancel_requested"] is True
     assert payload["cancelled"] is False

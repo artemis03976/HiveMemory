@@ -203,8 +203,8 @@ class TestPerceptionFamiliar:
         )
 
     @pytest.mark.asyncio
-    async def test_manual_settle_returns_none_for_empty_topic(self):
-        """验证手动结算空话题时返回 None"""
+    async def test_manual_settle_evicts_empty_topic_without_generation(self):
+        """真正空 Topic 无可提交材料：不触发生成，但仍结束生命周期并返回成功。"""
         store = Mock()
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
@@ -215,6 +215,8 @@ class TestPerceptionFamiliar:
             last_accessed_at=1.0,
         )
         layer = Mock()
+        layer.prepare_settlement = AsyncMock(return_value=None)
+        layer.swap_out_topic = Mock(return_value=True)
         bus = Mock()
         bus.request = AsyncMock()
         familiar = PerceptionFamiliar(
@@ -227,14 +229,21 @@ class TestPerceptionFamiliar:
 
         result = await familiar.manual_settle_topic(make_access_context(user_id="u1"))
 
-        assert result is None
+        assert result.success is True
+        assert result.topic_id == "t1"
+        assert result.generation_submitted is False
+        assert result.task_id is None
         bus.request.assert_not_awaited()
+        layer.swap_out_topic.assert_called_once_with(
+            WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "t1")
+        )
 
     @pytest.mark.asyncio
-    async def test_manual_settle_returns_task_for_non_empty_topic(self):
-        """验证手动结算非空话题时返回任务"""
+    async def test_manual_settle_admits_task_then_evicts(self):
+        """manual settle：先接纳 generation task，成功后才驱逐 Topic。"""
         from hivememory.patchouli.control.memory_generation.models import (
             MemoryGenerationTask,
+            MemoryGenerationSource,
         )
         store = Mock()
         store.get_last_active_topic.return_value = "t1"
@@ -247,7 +256,7 @@ class TestPerceptionFamiliar:
             last_accessed_at=1.0,
         )
         layer = Mock()
-        layer.settle_topic = AsyncMock(return_value=TopicMaterializeTask(
+        layer.prepare_settlement = AsyncMock(return_value=TopicMaterializeTask(
             topic_id="t1",
             identity_scope=make_memory_creation_context(user_id="u1"),
             topic_title="title",
@@ -255,12 +264,13 @@ class TestPerceptionFamiliar:
             blocks=[],
             state_summary="",
         ))
+        layer.swap_out_topic = Mock(return_value=True)
         bus = Mock()
         expected_task = MemoryGenerationTask(
             task_id="task-1",
             topic_id="t1",
             label="t1",
-            source=Mock(value="ARCHIVE"),
+            source=MemoryGenerationSource.SETTLE,
         )
         bus.request = AsyncMock(return_value=expected_task)
         familiar = PerceptionFamiliar(
@@ -274,15 +284,60 @@ class TestPerceptionFamiliar:
         access_context = make_access_context(user_id="u1")
         result = await familiar.manual_settle_topic(access_context)
 
-        assert result is not None
-        layer.settle_topic.assert_awaited_once_with(
-            WorkspaceTopicKey.from_access_context(access_context, "t1"),
-            FlushReason.MANUAL,
+        assert result.success is True
+        assert result.task_id == "task-1"
+        assert result.generation_submitted is True
+        layer.prepare_settlement.assert_awaited_once_with(
+            WorkspaceTopicKey.from_access_context(access_context, "t1")
         )
         assert (
             bus.request.await_args.args[0]
             == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         )
+        layer.swap_out_topic.assert_called_once_with(
+            WorkspaceTopicKey.from_access_context(access_context, "t1")
+        )
+
+    @pytest.mark.asyncio
+    async def test_manual_settle_admission_failure_keeps_topic_intact(self):
+        """admission 失败：抛出受控错误，且 Topic 不被驱逐、材料不被清空。"""
+        from hivememory.patchouli.services.perception import (
+            ManualSettleAdmissionError,
+        )
+        store = Mock()
+        store.get_last_active_topic.return_value = "t1"
+        store.get_topic_data.return_value = TopicData(
+            topic_id="t1",
+            workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            topic_title="title",
+            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+            last_update=1.0,
+            last_accessed_at=1.0,
+        )
+        layer = Mock()
+        layer.prepare_settlement = AsyncMock(return_value=TopicMaterializeTask(
+            topic_id="t1",
+            identity_scope=make_memory_creation_context(user_id="u1"),
+            topic_title="title",
+            blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
+        ))
+        layer.swap_out_topic = Mock(return_value=True)
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
+        familiar = PerceptionFamiliar(
+            perception_layer=layer,
+            bus=bus,
+            config=SimpleNamespace(idle_timeout_seconds=30),
+            memory_library=SimpleNamespace(short_term=store),
+            interaction_journal=InMemoryInteractionApplyJournal(),
+        )
+
+        with pytest.raises(ManualSettleAdmissionError, match="可重试"):
+            await familiar.manual_settle_topic(make_access_context(user_id="u1"))
+
+        layer.swap_out_topic.assert_not_called()
+        store.get_topic_data.assert_called()
+        store.clear_blocks.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_evict_topic_calls_layer_swap_out(self):

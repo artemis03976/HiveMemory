@@ -383,7 +383,7 @@ class FlushEventRecorder:
         >>> librarian_core.add_flush_observer(recorder)
         >>> # ... 测试代码 ...
         >>> assert recorder.count > 0
-        >>> manual_events = recorder.get_events_by_reason(FlushReason.MANUAL)
+        >>> manual_events = recorder.get_events_by_reason(FlushReason.MANUAL_SETTLE)
     """
 
     def __init__(self):

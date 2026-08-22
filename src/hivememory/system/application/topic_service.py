@@ -38,18 +38,21 @@ class TopicApplicationService:
         )
 
     async def settle_topic(self, *, user_id: str, topic_id: str | None = None) -> dict:
-        from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
+        from hivememory.patchouli.services.perception import ManualSettleResult
         access_context = resolve_default_workspace_access(
             Identity(user_id=user_id),
         )
-        task: MemoryGenerationTask | None = await self._global_bus.request(
+        result: ManualSettleResult = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
             access_context=access_context,
             topic_id=topic_id,
         )
-        if task is None:
-            return {"success": False, "message": "话题为空，无需生成"}
-        return {"success": True, "task_id": task.task_id, "topic_id": task.topic_id}
+        return {
+            "success": result.success,
+            "topic_id": result.topic_id,
+            "task_id": result.task_id,
+            "generation_submitted": result.generation_submitted,
+        }
 
     async def evict_topic(self, *, user_id: str, topic_id: str) -> dict:
         access_context = resolve_default_workspace_access(

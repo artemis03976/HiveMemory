@@ -149,7 +149,7 @@ async def _capture_event(target: list, **kwargs) -> None:
 
 
 @pytest.mark.asyncio
-async def test_passive_settlement_routes_archive_spec_through_task_controller():
+async def test_passive_settlement_routes_settle_spec_through_task_controller():
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
     await controller.start()
@@ -178,8 +178,8 @@ async def test_passive_settlement_routes_archive_spec_through_task_controller():
 
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     spec = execute_spec.await_args.args[0]
-    assert spec.source == MemoryGenerationSource.ARCHIVE
-    assert spec.source.creation_artifact_intent == "ARCHIVE"
+    assert spec.source == MemoryGenerationSource.SETTLE
+    assert spec.source.creation_artifact_intent == "SYSTEM"
     assert spec.interaction_input.topic_id == "topic_1"
     assert spec.request.context.state_summary == "state summary"
 

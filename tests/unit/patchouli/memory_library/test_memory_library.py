@@ -186,7 +186,6 @@ class TestShortTermMemoryStore:
             ("update_summary", ("summary",), {}),
             ("apply_compaction", ("summary",), {"retain_count": 1}),
             ("update_title", ("title",), {}),
-            ("reset_topic_content", (), {}),
             ("update_metadata", (), {}),
             ("update_model_used", ("model",), {}),
         ],
@@ -196,7 +195,6 @@ class TestShortTermMemoryStore:
             "update-summary",
             "apply-compaction",
             "update-title",
-            "reset-topic-content",
             "update-metadata",
             "update-model-used",
         ],
@@ -250,13 +248,33 @@ class TestShortTermMemoryStore:
 
         assert len(topics) == 2
 
-    def test_list_topic_data_include_empty_false_filters_empty(self):
+    def test_list_topic_data_include_empty_false_filters_truly_empty(self):
         buf = self.store.create_buffer(self.access_context)
         self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
         topics = self.store.list_topic_data(self.access_context, include_empty=False)
 
         assert all(not t.is_empty for t in topics)
+
+    def test_list_topic_data_include_empty_false_keeps_summary_only(self):
+        """summary-only Topic（折叠历史）必须保留在非空活跃列表中。"""
+        self.store.create_buffer(self.access_context)
+        summary_only = self.store.create_buffer(self.access_context)
+        self.store.update_summary(summary_only.topic_key, "已经折叠的历史内容")
+
+        topics = self.store.list_topic_data(self.access_context, include_empty=False)
+
+        assert [t.topic_id for t in topics] == [summary_only.topic_id]
+        assert topics[0].blocks == ()
+        assert topics[0].is_empty is False
+
+    def test_list_topic_data_include_empty_true_returns_all(self):
+        self.store.create_buffer(self.access_context)
+        self.store.create_buffer(self.access_context)
+
+        topics = self.store.list_topic_data(self.access_context, include_empty=True)
+
+        assert len(topics) == 2
 
     def test_needs_eviction_false_when_under_limit(self):
         assert self.store.needs_eviction(self.access_context) is False
@@ -287,15 +305,65 @@ class TestShortTermMemoryStore:
         assert removed is buf
         assert self.store.topic_exists(self.access_context, buf.topic_id) is False
 
-    def test_reset_topic_content_keeps_topic_but_clears_blocks(self):
+    def test_apply_compaction_trims_old_blocks_and_rewrites_tokens(self):
         buf = self.store.create_buffer(self.access_context)
-        self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
+        for i in range(3):
+            self.store.add_block(
+                buf.topic_key,
+                LogicalBlock(
+                    turn=TurnRecord(user_query=f"q{i}", assistant_final_text=f"a{i}"),
+                    total_tokens=10,
+                ),
+            )
 
-        cleared = self.store.reset_topic_content(buf.topic_key)
+        folded = self.store.apply_compaction(
+            buf.topic_key, "new summary", retain_count=1
+        )
 
-        assert len(cleared) == 1
+        assert folded == 2
         data = self.store.get_topic_data(self.access_context, buf.topic_id)
-        assert len(data.blocks) == 0
+        assert data.state_summary == "new summary"
+        assert [b.user_query for b in data.blocks] == ["q2"]
+        assert data.total_tokens == 10
+
+    @pytest.mark.parametrize("retain_count", [0, -1])
+    def test_apply_compaction_rejects_retain_below_one(self, retain_count):
+        buf = self.store.create_buffer(self.access_context)
+        self.store.add_block(
+            buf.topic_key,
+            LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
+        )
+
+        with pytest.raises(ValueError, match="retain_count must be >= 1"):
+            self.store.apply_compaction(
+                buf.topic_key, "summary", retain_count=retain_count
+            )
+
+    def test_apply_compaction_is_noop_when_blocks_not_exceeding_retain(self):
+        buf = self.store.create_buffer(self.access_context)
+        self.store.add_block(
+            buf.topic_key,
+            LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
+        )
+
+        folded = self.store.apply_compaction(
+            buf.topic_key, "summary", retain_count=2
+        )
+
+        assert folded == 0
+        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        assert data.state_summary == "summary"
+        assert len(data.blocks) == 1
+
+    def test_get_buffer_info_reports_has_content(self):
+        summary_only = self.store.create_buffer(self.access_context)
+        self.store.update_summary(summary_only.topic_key, "折叠历史")
+
+        info = self.store.get_buffer_info(self.access_context, summary_only.topic_id)
+
+        assert info["exists"] is True
+        assert info["has_content"] is True
+        assert info["block_count"] == 0
 
     def test_get_last_active_topic_records_last_accessed(self):
         buf = self.store.create_buffer(self.access_context)

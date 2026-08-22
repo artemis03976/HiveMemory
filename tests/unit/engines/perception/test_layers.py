@@ -104,7 +104,7 @@ class TestSemanticFlowPerceptionLayer:
             )
 
     @pytest.mark.asyncio
-    async def test_clear_buffer_keeps_topic_shell(self):
+    async def test_clear_blocks_keeps_topic_shell(self):
         topic_id, _ = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("hi", "hello"),
@@ -112,11 +112,10 @@ class TestSemanticFlowPerceptionLayer:
         )
 
         access_context = make_access_context(user_id="u1", agent_id="a1")
-        cleared = self.store.reset_topic_content(
+        self.store.clear_blocks(
             WorkspaceTopicKey.from_access_context(access_context, topic_id)
         )
 
-        assert len(cleared) == 1
         topic_data = self.store.get_topic_data(access_context, topic_id, touch=False)
         assert topic_data is not None
         assert topic_data.blocks == ()

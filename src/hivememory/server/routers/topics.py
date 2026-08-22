@@ -56,6 +56,6 @@ async def delete_topic(
     user_id: str = Depends(get_user_id),
     service: TopicApplicationService = Depends(get_topic_service),
 ):
-    """从活跃池驱逐话题（不归档，不写长期记忆）"""
+    """从活跃池驱逐话题（不结算，不写记忆）"""
     result = await service.evict_topic(user_id=user_id, topic_id=topic_id)
     return DeleteResponse(**result)

@@ -43,12 +43,29 @@ class TopicEvictResult(BaseModel):
     message: str
 
 
+class ManualSettleResult(BaseModel):
+    """手动结算的领域结果。
+
+    ``generation_submitted=False`` 表示没有可提交的结算材料（真正空 Topic 或
+    blocks 均被 ``worth_saving=False`` 过滤），但 Topic 生命周期已按契约结束。
+    """
+
+    success: bool
+    topic_id: str
+    task_id: str | None = None
+    generation_submitted: bool = False
+
+
 class ShutdownFlushResult(BaseModel):
     success: bool
     trigger_reason: str
     flushed_topics: list[str]
     skipped_topics: list[str]
     archived_blocks: int
+
+
+class ManualSettleAdmissionError(RuntimeError):
+    """settlement admission 失败；Topic、blocks 与 state_summary 保持完整可重试。"""
 
 
 @dataclass
@@ -240,8 +257,13 @@ class PerceptionFamiliar:
         self,
         access_context: WorkspaceAccessContext,
         topic_id: Optional[str] = None,
-    ) -> MemoryGenerationTask | None:
-        """手动结算指定话题，返回生成任务句柄（None 表示话题为空无需生成）。"""
+    ) -> ManualSettleResult:
+        """手动结算指定话题：prepare -> admission -> evict。
+
+        冻结 settlement 材料，存在可写材料时先可靠接纳 memory generation task，
+        接纳成功（或没有可提交材料）后再结束 Topic 生命周期。admission 失败时
+        抛出受控错误，Topic、blocks 与 state_summary 保持完整可重试。
+        """
         access_context = require_workspace_access_context(access_context)
         target_id = topic_id or self._short_term.get_last_active_topic(access_context)
         if not target_id:
@@ -251,24 +273,40 @@ class PerceptionFamiliar:
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
-        if topic.is_empty:
-            return None
-
-        settle_payload = await self.perception_layer.settle_topic(
-            topic.topic_key, FlushReason.MANUAL
+        # 1. prepare：只冻结材料，不清 blocks、不驱逐
+        settle_payload = await self.perception_layer.prepare_settlement(
+            topic.topic_key
         )
-        if settle_payload is None:
-            return None
 
-        task: MemoryGenerationTask | None = await self._bus.request(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-            settle_payload,
-        )
+        # 2. admission：存在可提交材料时必须先可靠接纳
+        task: MemoryGenerationTask | None = None
+        if settle_payload is not None:
+            try:
+                task = await self._bus.request(
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+                    settle_payload,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "manual settle admission 失败: topic_id=%s", target_id,
+                    exc_info=True,
+                )
+                raise ManualSettleAdmissionError(
+                    f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
+                ) from exc
+
+        # 3. evict：接纳成功或无可提交材料后结束 Topic 生命周期
+        self.perception_layer.swap_out_topic(topic.topic_key)
         logger.info(
             "manual_settle_topic 完成: topic_id=%s, task_id=%s",
             target_id, task.task_id if task else None,
         )
-        return task
+        return ManualSettleResult(
+            success=True,
+            topic_id=target_id,
+            task_id=task.task_id if task else None,
+            generation_submitted=task is not None,
+        )
 
     async def evict_topic(
         self,
@@ -316,13 +354,13 @@ class PerceptionFamiliar:
 
     async def flush_all_for_shutdown(self) -> ShutdownFlushResult:
         """
-        服务关闭前强制结算所有活跃话题。
+        服务关闭前强制结算并驱逐所有活跃话题。
+
+        真正空 Topic 没有可提交的结算材料，但仍按 SHUTDOWN 矩阵执行 evict，
+        不留在活跃池中。
         """
         flushed, skipped, archived_blocks = [], [], 0
         for topic in self._short_term.list_all_topic_data_for_maintenance():
-            if topic.is_empty:
-                skipped.append(topic.topic_id)
-                continue
             archived_blocks += topic.block_count
             settle_payload = await self.perception_layer.settle_topic(
                 topic.topic_key, FlushReason.SHUTDOWN
@@ -351,5 +389,7 @@ class PerceptionFamiliar:
 __all__ = [
     "PerceptionFamiliar",
     "TopicEvictResult",
+    "ManualSettleResult",
+    "ManualSettleAdmissionError",
     "ShutdownFlushResult"
 ]

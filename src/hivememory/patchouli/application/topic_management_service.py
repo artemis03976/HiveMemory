@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
+from hivememory.patchouli.services.perception import ManualSettleResult
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -59,7 +59,7 @@ class TopicManagementService:
         *,
         access_context: WorkspaceAccessContext,
         topic_id: str | None = None,
-    ) -> MemoryGenerationTask | None:
+    ) -> ManualSettleResult:
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
             access_context,

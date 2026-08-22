@@ -352,7 +352,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
     async def settle_topic(
         self,
         topic_key: WorkspaceTopicKey,
-        reason: FlushReason = FlushReason.MANUAL,
+        reason: FlushReason = FlushReason.MANUAL_SETTLE,
     ) -> TopicMaterializeTask | None:
         """
         原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。
@@ -362,6 +362,20 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         return await self._trigger_manager.resolve_topic(
             FlushEvent(topic_key=topic_key, reason=reason)
+        )
+
+    async def prepare_settlement(
+        self,
+        topic_key: WorkspaceTopicKey,
+    ) -> TopicMaterializeTask | None:
+        """
+        冻结手动结算材料，不修改 buffer（prepare 阶段）。
+
+        manual settle 使用 prepare -> admission -> evict 顺序；调用方在
+        generation admission 成功后才驱逐 Topic，失败时保持 Topic 内容完整。
+        """
+        return self._trigger_manager.build_settle_payload(
+            FlushEvent(topic_key=topic_key, reason=FlushReason.MANUAL_SETTLE)
         )
 
     def swap_out_topic(self, topic_key: WorkspaceTopicKey) -> bool:
@@ -375,9 +389,11 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         access_context: WorkspaceAccessContext,
         topic_id: str,
     ) -> bool:
-        """话题存在且无 blocks 时驱逐并返回 True，否则返回 False。"""
-        info = self._short_term_store.get_buffer_info(access_context, topic_id)
-        if info.get("exists") and info.get("block_count", 0) == 0:
+        """话题真正为空（无 blocks 且无非空白折叠摘要）时驱逐并返回 True。"""
+        data = self._short_term_store.get_topic_data(
+            access_context, topic_id, touch=False
+        )
+        if data is not None and data.is_empty:
             self._short_term_store.pop_buffer(access_context, topic_id)
             logger.info(f"已清理无内容话题: {topic_id}")
             return True
@@ -410,7 +426,13 @@ class NullPerceptionLayer(BasePerceptionLayer):
     async def settle_topic(
         self,
         topic_key: WorkspaceTopicKey,
-        reason: FlushReason = FlushReason.MANUAL,
+        reason: FlushReason = FlushReason.MANUAL_SETTLE,
+    ) -> TopicMaterializeTask | None:
+        return None
+
+    async def prepare_settlement(
+        self,
+        topic_key: WorkspaceTopicKey,
     ) -> TopicMaterializeTask | None:
         return None
 

@@ -22,7 +22,8 @@ class TriggerResponse(BaseModel):
     success: bool
     topic_id: Optional[str] = None
     message: str = ""
-    blocks_archived: Optional[int] = None
+    task_id: Optional[str] = None
+    generation_submitted: bool = False
 
 
 class DeleteResponse(BaseModel):

@@ -164,7 +164,7 @@ class ShortTermMemoryStore:
         access_context = require_workspace_access_context(access_context)
         buffers = self._port.list_by_workspace(access_context.workspace_identity)
         if not include_empty:
-            buffers = [buf for buf in buffers if buf.blocks]
+            buffers = [buf for buf in buffers if buf.has_content]
         return [self._to_topic_data(buf) for buf in buffers]
 
     def topic_exists(
@@ -256,18 +256,17 @@ class ShortTermMemoryStore:
         *,
         retain_count: int,
     ) -> int:
-        """写入摘要并保留最近 N 个 blocks，返回被裁剪的 block 数。"""
-        if retain_count < 0:
-            raise ValueError("retain_count must be greater than or equal to 0")
+        """写入摘要并保留最近 N 个 blocks，返回被裁剪的 block 数。
+
+        所有 compact 路径都必须保证至少保留一个最新 block；传入小于 1 的
+        ``retain_count`` 在输入边界以具体异常拒绝，不静默提升。
+        """
+        if retain_count < 1:
+            raise ValueError("retain_count must be >= 1")
 
         buf = self._require_buffer(key)
         buf.state_summary = summary
         buf.last_update = datetime.now().timestamp()
-        if retain_count == 0:
-            folded = len(buf.blocks)
-            buf.blocks.clear()
-            buf.total_tokens = 0
-            return folded
         if len(buf.blocks) <= retain_count:
             return 0
         folded = len(buf.blocks) - retain_count
@@ -279,16 +278,6 @@ class ShortTermMemoryStore:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
         buf = self._require_buffer(key)
         buf.topic_title = title
-
-    def reset_topic_content(self, key: WorkspaceTopicKey) -> List[LogicalBlock]:
-        """清空 blocks 与 state summary，保留话题在活跃池中。"""
-        buf = self._require_buffer(key)
-        cleared = buf.blocks.copy()
-        buf.blocks.clear()
-        buf.total_tokens = 0
-        buf.state_summary = ""
-        buf.last_update = datetime.now().timestamp()
-        return cleared
 
     def update_metadata(self, key: WorkspaceTopicKey, state: Optional[BufferState] = None) -> None:
         buf = self._require_buffer(key)
@@ -333,6 +322,7 @@ class ShortTermMemoryStore:
                 "topic_id": buf.topic_id,
                 "block_count": len(buf.blocks),
                 "total_tokens": buf.total_tokens,
+                "has_content": buf.has_content,
                 "state": buf.state.value if hasattr(buf.state, "value") else buf.state,
             }
         return {"exists": False}

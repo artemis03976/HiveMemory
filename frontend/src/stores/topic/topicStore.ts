@@ -3,12 +3,12 @@
  *
  * Features:
  * - Fetch active topics from backend
- * - Optimistic archive / delete with rollback on error
+ * - Optimistic settle / delete with rollback on error
  */
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { fetchTopics, archiveTopic, deleteTopic, mapTopic } from '@/services/topicApi';
+import { fetchTopics, settleTopic, deleteTopic, mapTopic } from '@/services/topicApi';
 import type { Topic } from '@/types';
 import type { TopicPoolInfo } from '@/types/chat';
 
@@ -18,7 +18,7 @@ interface TopicStore {
   error: string | null;
 
   fetchTopics: () => Promise<void>;
-  archiveTopic: (topicId: string) => Promise<void>;
+  settleTopic: (topicId: string) => Promise<void>;
   deleteTopic: (topicId: string) => Promise<void>;
   setTopicsFromPool: (pool: TopicPoolInfo, activeTopicId: string) => void;
 }
@@ -40,13 +40,13 @@ export const useTopicStore = create<TopicStore>()(
         }
       },
 
-      archiveTopic: async (topicId: string) => {
+      settleTopic: async (topicId: string) => {
         const prev = get().topics;
         set({ topics: prev.filter((t) => t.id !== topicId) });
         try {
-          await archiveTopic(topicId);
+          await settleTopic(topicId);
         } catch (e) {
-          set({ topics: prev, error: e instanceof Error ? e.message : '归档失败' });
+          set({ topics: prev, error: e instanceof Error ? e.message : '结算失败' });
         }
       },
 

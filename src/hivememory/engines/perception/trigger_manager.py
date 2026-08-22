@@ -66,10 +66,20 @@ DECISION_MATRIX: Dict[FlushReason, Dict[str, bool]] = {
         "compact": False,
         "evict": True,    # 清空内存态话题
     },
-    FlushReason.MANUAL: {
-        "settle": True,   # 立即结算到 Librarian
-        "compact": True,  # 生成摘要保持上下文连续性
-        "evict": False,   # 保留话题在活跃池中
+    FlushReason.MANUAL_SETTLE: {
+        "settle": True,   # 冻结材料并结算为记忆资产
+        "compact": False, # 手动 settle 不再 compact
+        "evict": True,    # 接纳成功后结束 Topic 生命周期
+    },
+    FlushReason.MANUAL_COMPACT: {
+        "settle": False,  # 只压缩工作集
+        "compact": True,  # 合并 previous summary 与旧前缀
+        "evict": False,   # 保留 Topic
+    },
+    FlushReason.MANUAL_DELETE: {
+        "settle": False,  # 不构造 settlement
+        "compact": False, # 不生成摘要
+        "evict": True,    # 丢弃 Topic
     },
 }
 
@@ -84,13 +94,15 @@ class TriggerManager:
         - Evict: 从活跃池移除 buffer
 
     决策矩阵 (DECISION_MATRIX):
-        | Trigger Reason   | Settle | Compact | Evict |
-        |------------------|--------|---------|-------|
-        | TOKEN_OVERFLOW   | ❌     | ✅      | ❌    |
-        | IDLE_TIMEOUT     | ✅     | ❌      | ✅    |
-        | LRU_EVICTION     | ✅     | ❌      | ✅    |
-        | SHUTDOWN         | ✅     | ❌      | ✅    |
-        | MANUAL           | ✅     | ✅      | ❌    |
+        | Trigger Reason    | Settle | Compact | Evict |
+        |-------------------|--------|---------|-------|
+        | TOKEN_OVERFLOW    | ❌     | ✅      | ❌    |
+        | IDLE_TIMEOUT      | ✅     | ❌      | ✅    |
+        | LRU_EVICTION      | ✅     | ❌      | ✅    |
+        | SHUTDOWN          | ✅     | ❌      | ✅    |
+        | MANUAL_SETTLE     | ✅     | ❌      | ✅    |
+        | MANUAL_COMPACT    | ❌     | ✅      | ❌    |
+        | MANUAL_DELETE     | ❌     | ❌      | ✅    |
 
     依赖:
         - ShortTermMemoryStore: 读取 buffer 状态、执行 evict
@@ -134,15 +146,15 @@ class TriggerManager:
 
         Args:
             trigger: 结算触发指令（包含 topic_id 与 reason）
-            retain_recent_blocks: TOKEN_OVERFLOW 时必须提供的最近工作集大小；
-                其他触发原因忽略该值
+            retain_recent_blocks: compact 路径（TOKEN_OVERFLOW / MANUAL_COMPACT）
+                必须提供的最近工作集大小，必须 >= 1；其他触发原因忽略该值
 
         Returns:
             TopicMaterializeTask 供上层提交给生成链路；如无需结算则返回 None
         """
         topic_data = self._store.get_topic_data_by_key(trigger.topic_key)
-        if topic_data is None or topic_data.is_empty:
-            logger.debug("resolve_topic: topic_data 为空或不存在，跳过结算")
+        if topic_data is None:
+            logger.debug("resolve_topic: topic 不存在，跳过结算")
             return None
 
         # 1. 查表：决策开关
@@ -154,6 +166,20 @@ class TriggerManager:
         need_settle = actions["settle"]
         need_compact = actions["compact"]
         need_evict = actions["evict"]
+
+        # 真正空 Topic：没有可 settle/compact 的内容，但生命周期动作仍需按矩阵执行。
+        # “没有可结算材料”不等于“没有需要执行的生命周期动作”。
+        if topic_data.is_empty:
+            logger.debug(
+                "resolve_topic: topic 内容为空，仅按矩阵执行 evict=%s, "
+                "topic_id=%s, reason=%s",
+                need_evict,
+                trigger.topic_id,
+                trigger.reason,
+            )
+            if need_evict:
+                self._store.pop_buffer_by_key(trigger.topic_key)
+            return None
 
         logger.info(
             f"resolve_topic: topic_id={trigger.topic_id}, "
@@ -179,22 +205,15 @@ class TriggerManager:
 
         # Action 2: Compact（同步阻塞）
         if need_compact:
-            if (
-                trigger.reason == FlushReason.TOKEN_OVERFLOW
-                and retain_recent_blocks is None
-            ):
+            if retain_recent_blocks is None:
                 raise ValueError(
-                    "TOKEN_OVERFLOW requires retain_recent_blocks"
+                    f"{trigger.reason.value} requires retain_recent_blocks"
                 )
             await self._compact_topic(
                 trigger.topic_key,
                 blocks_snapshot,
                 topic_data.state_summary,
-                retain_recent_blocks=(
-                    retain_recent_blocks
-                    if trigger.reason == FlushReason.TOKEN_OVERFLOW
-                    else None
-                ),
+                retain_recent_blocks=retain_recent_blocks,
             )
 
         # Settle 之后旧 Blocks 必须清空；纯 Compact 则由 fold 操作保留最近工作集。
@@ -206,6 +225,30 @@ class TriggerManager:
             self._store.pop_buffer_by_key(trigger.topic_key)
 
         return settle_payload
+
+    def build_settle_payload(
+        self,
+        trigger: FlushEvent,
+    ) -> Optional[TopicMaterializeTask]:
+        """
+        只冻结手动结算材料，不修改 buffer。
+
+        manual settle 使用 prepare -> admission -> evict 顺序：本方法负责
+        prepare，调用方在 generation admission 成功后才 evict；admission 失败时
+        Topic、blocks 与 state_summary 保持完整可重试。
+        """
+        topic_data = self._store.get_topic_data_by_key(trigger.topic_key)
+        if topic_data is None or topic_data.is_empty:
+            return None
+        return self._build_settle_payload(
+            topic_id=trigger.topic_id,
+            blocks_snapshot=list(topic_data.blocks),
+            state_summary=topic_data.state_summary,
+            reason=trigger.reason,
+            workspace_identity=topic_data.workspace_identity,
+            topic_title=topic_data.topic_title,
+            topic_summary=topic_data.topic_summary,
+        )
 
     # ========== 原子操作 ==========
 
@@ -259,31 +302,29 @@ class TriggerManager:
         blocks_to_fold: List[LogicalBlock],
         previous_summary: str,
         *,
-        retain_recent_blocks: Optional[int] = None,
+        retain_recent_blocks: int,
     ) -> int:
         """
         Compact 原子操作：总结待折叠前缀并更新 buffer（同步阻塞）。
 
-        ``retain_recent_blocks=None`` 用于 MANUAL 等“总结后结算清空”的路径；
-        TOKEN_OVERFLOW 必须传入非负值，只总结保留后缀之前的旧 blocks，避免
-        state_summary 与 recent blocks 重复。
+        所有 compact 路径都必须至少保留一个最新 block；``retain_recent_blocks``
+        必须 >= 1，小于 1 的值在输入边界以具体异常拒绝。只总结保留后缀之前的
+        旧 blocks，避免 state_summary 与 recent blocks 重复承载同一轮事实。
         """
-        if retain_recent_blocks is not None:
-            if retain_recent_blocks < 0:
-                raise ValueError(
-                    "retain_recent_blocks must be greater than or equal to 0"
-                )
-            fold_count = max(0, len(blocks_to_fold) - retain_recent_blocks)
-            if fold_count == 0:
-                logger.warning(
-                    "Compact skipped: no blocks older than retained working set, "
-                    "topic_id=%s, blocks=%d, retain_recent_blocks=%d",
-                    topic_key.topic_id,
-                    len(blocks_to_fold),
-                    retain_recent_blocks,
-                )
-                return 0
-            blocks_to_fold = blocks_to_fold[:fold_count]
+        if retain_recent_blocks < 1:
+            raise ValueError("retain_recent_blocks must be >= 1")
+
+        fold_count = max(0, len(blocks_to_fold) - retain_recent_blocks)
+        if fold_count == 0:
+            logger.warning(
+                "Compact skipped: no blocks older than retained working set, "
+                "topic_id=%s, blocks=%d, retain_recent_blocks=%d",
+                topic_key.topic_id,
+                len(blocks_to_fold),
+                retain_recent_blocks,
+            )
+            return 0
+        blocks_to_fold = blocks_to_fold[:fold_count]
 
         # 调用 RelayController 生成摘要（已包含 previous_summary 合并逻辑）
         new_summary = self._relay_controller.generate_summary(
@@ -292,15 +333,11 @@ class TriggerManager:
         )
 
         # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
-        if retain_recent_blocks is None:
-            self._store.update_summary(topic_key, new_summary)
-            folded = 0
-        else:
-            folded = self._store.apply_compaction(
-                topic_key,
-                new_summary,
-                retain_count=retain_recent_blocks,
-            )
+        folded = self._store.apply_compaction(
+            topic_key,
+            new_summary,
+            retain_count=retain_recent_blocks,
+        )
 
         logger.debug(
             "Compact: 生成新摘要，topic_id=%s, folded=%d, retained=%s",

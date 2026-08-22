@@ -241,7 +241,8 @@ class TestPageFoldingThreshold:
         assert topic_data.total_tokens == 40
 
     @pytest.mark.asyncio
-    async def test_store_update_summary_zero_clears_all_blocks(self):
+    async def test_store_rejects_zero_retain_count(self):
+        """compact 必须至少保留一个最新 block；0 在输入边界以具体异常拒绝。"""
         store = ShortTermMemoryStore()
         access_context = _access_context()
         buffer = store.create_buffer(access_context)
@@ -254,24 +255,23 @@ class TestPageFoldingThreshold:
                 ),
             )
 
-        folded = store.apply_compaction(
-            buffer.topic_key,
-            "summary",
-            retain_count=0,
-        )
+        with pytest.raises(ValueError, match="retain_count must be >= 1"):
+            store.apply_compaction(
+                buffer.topic_key,
+                "summary",
+                retain_count=0,
+            )
 
         topic_data = store.get_topic_data(access_context, buffer.topic_id, touch=False)
         assert topic_data is not None
-        assert folded == 3
-        assert topic_data.blocks == ()
-        assert topic_data.total_tokens == 0
-        assert topic_data.state_summary == "summary"
+        assert len(topic_data.blocks) == 3
+        assert topic_data.state_summary == ""
 
     def test_store_update_summary_rejects_negative_retain_count(self):
         store = ShortTermMemoryStore()
         buffer = store.create_buffer(_access_context())
 
-        with pytest.raises(ValueError, match="greater than or equal to 0"):
+        with pytest.raises(ValueError, match="retain_count must be >= 1"):
             store.apply_compaction(
                 buffer.topic_key,
                 "summary",

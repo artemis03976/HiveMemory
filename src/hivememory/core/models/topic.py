@@ -136,8 +136,19 @@ class TopicData(BaseModel):
         return len(self.blocks)
 
     @property
+    def has_blocks(self) -> bool:
+        """是否存在原始 block（窄语义，不等价于 has_content）。"""
+        return bool(self.blocks)
+
+    @property
+    def has_content(self) -> bool:
+        """是否存在可参与路由与生命周期判断的内容（原始 blocks 或非空白折叠摘要）。"""
+        return bool(self.blocks) or bool(self.state_summary.strip())
+
+    @property
     def is_empty(self) -> bool:
-        return not self.blocks
+        """Topic 是否真正为空：blocks 与非空白 state_summary 均无有效内容。"""
+        return not self.has_content
 
     def recent_blocks(self, limit: int) -> tuple[LogicalBlock, ...]:
         if limit <= 0:

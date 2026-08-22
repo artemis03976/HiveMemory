@@ -54,16 +54,48 @@ class TestTopicApplicationService:
 
     @pytest.mark.asyncio
     async def test_settle_topic_uses_public_route(self, service, bus):
-        task = MagicMock(task_id="memtask_1", topic_id="t1")
-        handler = AsyncMock(return_value=task)
+        from hivememory.patchouli.services.perception import ManualSettleResult
+        handler = AsyncMock(
+            return_value=ManualSettleResult(
+                success=True,
+                topic_id="t1",
+                task_id="memtask_1",
+                generation_submitted=True,
+            )
+        )
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
         result = await service.settle_topic(user_id="u1", topic_id="t1")
 
-        assert result == {"success": True, "task_id": "memtask_1", "topic_id": "t1"}
+        assert result == {
+            "success": True,
+            "topic_id": "t1",
+            "task_id": "memtask_1",
+            "generation_submitted": True,
+        }
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
         assert handler.await_args.kwargs["access_context"].workspace_identity.owner_user_id == "u1"
+
+    @pytest.mark.asyncio
+    async def test_settle_topic_without_generation_still_reports_success(self, service, bus):
+        """无任务时的 settle（空话题/材料被过滤）不被误报为生命周期失败。"""
+        from hivememory.patchouli.services.perception import ManualSettleResult
+        handler = AsyncMock(
+            return_value=ManualSettleResult(
+                success=True,
+                topic_id="t1",
+                task_id=None,
+                generation_submitted=False,
+            )
+        )
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
+
+        result = await service.settle_topic(user_id="u1", topic_id="t1")
+
+        assert result["success"] is True
+        assert result["task_id"] is None
+        assert result["generation_submitted"] is False
 
     @pytest.mark.asyncio
     async def test_evict_topic_uses_public_route(self, service, bus):

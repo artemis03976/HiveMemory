@@ -15,7 +15,7 @@ export default function TopicTab({
   activeTopicId,
   onTopicSelect
 }: TopicTabProps) {
-  const { isLoading, archiveTopic, deleteTopic } = useTopicStore();
+  const { isLoading, settleTopic, deleteTopic } = useTopicStore();
 
   if (isLoading) {
     return (
@@ -50,7 +50,7 @@ export default function TopicTab({
             topic={topic}
             isActive={topic.id === activeTopicId}
             onClick={() => onTopicSelect(topic.id)}
-            onArchive={() => archiveTopic(topic.id)}
+            onSettle={() => settleTopic(topic.id)}
             onDelete={() => deleteTopic(topic.id)}
           />
         </motion.div>

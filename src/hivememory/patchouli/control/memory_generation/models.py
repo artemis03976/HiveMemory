@@ -38,7 +38,7 @@ class MemoryGenerationSource(str, Enum):
 
     WRITE = "WRITE"
     UPDATE = "UPDATE"
-    ARCHIVE = "ARCHIVE"
+    SETTLE = "SETTLE"
 
     @property
     def creation_artifact_intent(
@@ -46,8 +46,8 @@ class MemoryGenerationSource(str, Enum):
     ) -> Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"]:
         """映射新建记忆制品使用的来源意图。"""
 
-        if self == MemoryGenerationSource.ARCHIVE:
-            return "ARCHIVE"
+        if self == MemoryGenerationSource.SETTLE:
+            return "SYSTEM"
         if self == MemoryGenerationSource.WRITE:
             return "WRITE"
         return "SYSTEM"

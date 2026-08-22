@@ -49,9 +49,16 @@ class BasePerceptionLayer(ABC):
     async def settle_topic(
         self,
         topic_key: "WorkspaceTopicKey",
-        reason: FlushReason = FlushReason.MANUAL,
+        reason: FlushReason = FlushReason.MANUAL_SETTLE,
     ) -> Optional[TopicMaterializeTask]:
         """原子话题结算，不含任何策略判断。话题不存在或为空时返回 None。"""
+
+    @abstractmethod
+    async def prepare_settlement(
+        self,
+        topic_key: "WorkspaceTopicKey",
+    ) -> Optional[TopicMaterializeTask]:
+        """只冻结手动结算材料，不修改 buffer；由 manual settle 的 prepare 阶段使用。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 

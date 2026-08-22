@@ -60,7 +60,7 @@ class MemoryGenerationCoordinator:
             identity_scope=payload.identity_scope,
             topic_id=payload.topic_id,
             label=payload.topic_id,
-            source=MemoryGenerationSource.ARCHIVE,
+            source=MemoryGenerationSource.SETTLE,
             request=GenerationRequest(
                 context=gen_context,
             ),

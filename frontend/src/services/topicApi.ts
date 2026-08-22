@@ -47,11 +47,11 @@ export async function fetchTopics(userId: string = DEFAULT_USER_ID): Promise<Top
   return data.topics.map((topic) => mapTopic(topic));
 }
 
-export async function archiveTopic(topicId: string): Promise<void> {
+export async function settleTopic(topicId: string): Promise<void> {
   const res = await fetch(`/api/v1/topics/${encodeURIComponent(topicId)}/settle`, {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(`archiveTopic failed: ${res.status}`);
+  if (!res.ok) throw new Error(`settleTopic failed: ${res.status}`);
 }
 
 export async function deleteTopic(topicId: string): Promise<void> {
