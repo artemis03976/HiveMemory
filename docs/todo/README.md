@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-08-14
+last_reviewed: 2026-08-22
 ---
 
 # Todo
@@ -12,6 +12,8 @@ last_reviewed: 2026-08-14
 
 当前事项：
 
+- [Topic 内容判空与手动生命周期语义修复](./topic-content-emptiness-and-manual-lifecycle.md)；
+- [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；
 - [Page Folding 跨入口上下文与证据后续技术债](./page-folding-cross-ingress-follow-ups.md)；
