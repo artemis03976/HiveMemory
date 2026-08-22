@@ -1,0 +1,4 @@
+interface:
+  display_name: "HiveMemory Documentation Governance"
+  short_description: "Enforce content-first documentation truth boundaries"
+  default_prompt: "Use $enforce-documentation-governance to update HiveMemory documentation without mixing current facts and unfinished design."
