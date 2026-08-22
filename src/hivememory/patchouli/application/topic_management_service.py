@@ -4,14 +4,17 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.services.perception import ManualSettleResult
+from hivememory.patchouli.contracts.topic_management import (
+    TopicEvictionResult,
+    TopicSettleResult,
+)
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 class TopicManagementService:
-    """Patchouli public topic management application service."""
+    """Patchouli 对外提供的 Topic 管理应用服务。"""
 
     def __init__(self, *, bus: PatchouliBus) -> None:
         # Topic public API 只通过 local bus 组合 topic primitives，不直接持有 familiar。
@@ -59,7 +62,9 @@ class TopicManagementService:
         *,
         access_context: WorkspaceAccessContext,
         topic_id: str | None = None,
-    ) -> ManualSettleResult:
+    ) -> TopicSettleResult:
+        """通过本地总线结算 Topic，并返回稳定业务结果。"""
+
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
             access_context,
@@ -71,7 +76,9 @@ class TopicManagementService:
         *,
         access_context: WorkspaceAccessContext,
         topic_id: str,
-    ) -> dict:
+    ) -> TopicEvictionResult:
+        """通过本地总线驱逐 Topic，不触发记忆结算。"""
+
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_EVICT,
             access_context,

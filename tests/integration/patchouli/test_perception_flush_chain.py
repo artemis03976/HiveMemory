@@ -19,6 +19,7 @@ Perception 感知链路集成测试。
 """
 
 import time
+from datetime import UTC
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -38,12 +39,10 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
+from hivememory.patchouli.errors import TopicSettleAdmissionError
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.patchouli.services.perception import (
-    ManualSettleAdmissionError,
-    PerceptionFamiliar,
-)
+from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from tests.helpers.workspace import make_access_context
 
@@ -109,13 +108,13 @@ def _make_real_familiar(
 
 def _fast_forward_idle():
     """把模型层时间源前移，使已驻留话题进入 idle 判定（替代固定 sleep）。"""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     real_now = time.time()
 
     class _ShiftedDatetime(datetime):
         @classmethod
-        def now(cls, tz=timezone.utc):
+        def now(cls, tz=UTC):
             return datetime.fromtimestamp(real_now + 100, tz)
 
     return patch(
@@ -192,7 +191,7 @@ async def test_idle_flush_frees_slot():
 
 
 @pytest.mark.asyncio
-async def test_shutdown_flush_archives_and_swaps_out_all_topics():
+async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     familiar, _, store, bus = _make_real_familiar(max_resident_topics=4)
     await familiar.submit_interaction(
         _make_payload("q1", "a1"),
@@ -207,9 +206,8 @@ async def test_shutdown_flush_archives_and_swaps_out_all_topics():
 
     result = await familiar.flush_all_for_shutdown()
 
-    assert result.trigger_reason == FlushReason.SHUTDOWN.value
-    assert len(result.flushed_topics) == 2
-    assert result.archived_blocks == 2
+    assert len(result.settled_topic_ids) == 2
+    assert result.resident_block_count == 2
     assert store.list_topic_data(make_access_context(user_id="u1", agent_id="a1")) == []
     assert store.list_topic_data(make_access_context(user_id="u2", agent_id="a2")) == []
     assert bus.request.await_count == 2
@@ -250,8 +248,8 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
 
     result = await familiar.flush_all_for_shutdown()
 
-    assert result.flushed_topics == [topic_id]
-    assert result.archived_blocks == 1
+    assert result.settled_topic_ids == (topic_id,)
+    assert result.resident_block_count == 1
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_awaited_once()
     route, settlement = bus.request.await_args.args
@@ -320,7 +318,7 @@ async def test_shutdown_evicts_truly_empty_topic():
 
     result = await familiar.flush_all_for_shutdown()
 
-    assert topic_id in result.flushed_topics
+    assert topic_id in result.settled_topic_ids
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_not_awaited()
 
@@ -333,9 +331,9 @@ async def test_manual_settle_evicts_truly_empty_topic():
 
     result = await familiar.manual_settle_topic(access_context, topic_id)
 
-    assert result.success is True
+    assert result.topic_id == topic_id
     assert result.generation_submitted is False
-    assert result.task_id is None
+    assert result.generation_task_id is None
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_not_awaited()
 
@@ -361,8 +359,8 @@ async def test_manual_settle_admits_generation_task_before_evicting():
 
     result = await familiar.manual_settle_topic(access_context, topic_id)
 
-    assert result.success is True
-    assert result.task_id == "memtask-1"
+    assert result.topic_id == topic_id
+    assert result.generation_task_id == "memtask-1"
     assert result.generation_submitted is True
     assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
     # 接纳成功后 Topic 才从池中移除
@@ -381,7 +379,7 @@ async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_ret
     before = store.get_topic_data(access_context, topic_id, touch=False)
     bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
 
-    with pytest.raises(ManualSettleAdmissionError, match="可重试"):
+    with pytest.raises(TopicSettleAdmissionError, match="可重试"):
         await familiar.manual_settle_topic(access_context, topic_id)
 
     after = store.get_topic_data(access_context, topic_id, touch=False)
@@ -392,7 +390,7 @@ async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_ret
     # 修复 admission 后可再次重试并成功结束生命周期
     bus.request = AsyncMock(return_value=None)
     result = await familiar.manual_settle_topic(access_context, topic_id)
-    assert result.success is True
+    assert result.topic_id == topic_id
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
 
 
@@ -412,7 +410,7 @@ async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
 
     result = await familiar.manual_settle_topic(access_context, topic_id)
 
-    assert result.success is True
+    assert result.topic_id == topic_id
     assert result.generation_submitted is False
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_not_awaited()
@@ -432,7 +430,8 @@ async def test_manual_delete_evicts_without_generation_task():
 
     removed = await familiar.evict_topic(access_context, topic_id)
 
-    assert removed.success is True
+    assert removed.topic_id == topic_id
+    assert removed.removed is True
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_not_awaited()
 

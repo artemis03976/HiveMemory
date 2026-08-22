@@ -13,14 +13,14 @@ export interface ApiTopicSnapshot {
   title?: string;
   topic_summary?: string;
   state_summary?: string;
-  last_turn?: { role: string; content: string } | Record<string, string> | null;
+  last_turn?: { user: string; assistant: string } | null;
   block_count?: number;
   last_accessed_at?: number;
   total_tokens?: number;
   model_used?: string;
 }
 
-interface TopicListResponse {
+interface ActiveTopicListResponse {
   topics: ApiTopicSnapshot[];
 }
 
@@ -43,7 +43,7 @@ export function mapTopic(raw: ApiTopicSnapshot, activeTopicId?: string): Topic {
 export async function fetchTopics(userId: string = DEFAULT_USER_ID): Promise<Topic[]> {
   const res = await fetch(`/api/v1/topics?user_id=${encodeURIComponent(userId)}`);
   if (!res.ok) throw new Error(`fetchTopics failed: ${res.status}`);
-  const data: TopicListResponse = await res.json();
+  const data: ActiveTopicListResponse = await res.json();
   return data.topics.map((topic) => mapTopic(topic));
 }
 

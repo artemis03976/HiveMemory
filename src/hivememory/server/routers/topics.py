@@ -1,61 +1,58 @@
 """Topics 路由 — 话题管理"""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.patchouli.errors import TopicSettleAdmissionError
 from hivememory.server.deps import get_topic_service, get_user_id
 from hivememory.server.models.topic import (
-    DeleteResponse,
-    TopicListResponse,
-    TopicSnapshotResponse,
-    TriggerResponse,
+    ActiveTopicListResponse,
+    ActiveTopicResponse,
+    TopicDeleteResponse,
+    TopicSettleResponse,
 )
 from hivememory.system.application.topic_service import TopicApplicationService
 
 router = APIRouter(tags=["topics"])
 
 
-@router.get("/topics", response_model=TopicListResponse)
+@router.get("/topics", response_model=ActiveTopicListResponse)
 async def list_topics(
     user_id: str = Depends(get_user_id),
     service: TopicApplicationService = Depends(get_topic_service),
-):
+) -> ActiveTopicListResponse:
     """获取活跃话题列表"""
     snapshots = await service.list_active_topics(user_id=user_id)
 
-    topics = []
-    for snapshot in snapshots:
-        last_turn = getattr(snapshot, "last_turn", None)
-        topics.append(
-            TopicSnapshotResponse(
-                topic_id=snapshot.topic_id,
-                topic_title=snapshot.topic_title,
-                state_summary=getattr(snapshot, "state_summary", ""),
-                last_turn=last_turn.model_dump() if last_turn is not None else None,
-                total_tokens=getattr(snapshot, "total_tokens", 0),
-                model_used=getattr(snapshot, "model_used", ""),
-            )
-        )
-
-    return TopicListResponse(topics=topics)
+    return ActiveTopicListResponse(
+        topics=[ActiveTopicResponse.from_domain(snapshot) for snapshot in snapshots]
+    )
 
 
-@router.post("/topics/{topic_id}/settle", response_model=TriggerResponse)
+@router.post("/topics/{topic_id}/settle", response_model=TopicSettleResponse)
 async def settle_topic(
     topic_id: str,
     user_id: str = Depends(get_user_id),
     service: TopicApplicationService = Depends(get_topic_service),
-):
+) -> TopicSettleResponse:
     """手动结算话题"""
-    result = await service.settle_topic(user_id=user_id, topic_id=topic_id)
-    return TriggerResponse(**result)
+    try:
+        result = await service.settle_topic(user_id=user_id, topic_id=topic_id)
+    except TopicSettleAdmissionError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="结算材料暂未被生成队列接纳，话题内容已保留，可重试",
+        ) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="话题不存在") from exc
+    return TopicSettleResponse.from_domain(result)
 
 
-@router.delete("/topics/{topic_id}", response_model=DeleteResponse)
+@router.delete("/topics/{topic_id}", response_model=TopicDeleteResponse)
 async def delete_topic(
     topic_id: str,
     user_id: str = Depends(get_user_id),
     service: TopicApplicationService = Depends(get_topic_service),
-):
+) -> TopicDeleteResponse:
     """从活跃池驱逐话题（不结算，不写记忆）"""
     result = await service.evict_topic(user_id=user_id, topic_id=topic_id)
-    return DeleteResponse(**result)
+    return TopicDeleteResponse.from_domain(result)

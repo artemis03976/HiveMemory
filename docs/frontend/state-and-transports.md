@@ -51,7 +51,7 @@ Chat tokens / logs / RuntimeEvents
 | `kernel-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |
 | `topic-store` | 无 | Topic 池、loading、error |
 
-Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢复。Topic archive/delete 使用乐观移除并在失败时回滚；Memory delete 当前不回滚，是需要修正的不一致。
+Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢复。Topic settle/delete 使用乐观移除并在失败时回滚；Memory delete 当前不回滚，是需要修正的不一致。
 
 ## 3. 当前传输
 

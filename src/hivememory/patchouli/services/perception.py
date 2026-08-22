@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
-from pydantic import BaseModel
-
 from hivememory.core.models import (
     IdentityScope,
     WorkspaceAccessContext,
@@ -22,10 +20,16 @@ from hivememory.core.models import (
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.topic_management import (
+    TopicEvictionResult,
+    TopicSettleResult,
+)
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
+from hivememory.patchouli.errors import TopicSettleAdmissionError
+from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 
 if TYPE_CHECKING:
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -34,38 +38,6 @@ if TYPE_CHECKING:
     from hivememory.system.config.patchouli import MemoryPerceptionConfig
 
 logger = logging.getLogger(__name__)
-
-
-# ========== Application-level response models ==========
-
-class TopicEvictResult(BaseModel):
-    success: bool
-    message: str
-
-
-class ManualSettleResult(BaseModel):
-    """手动结算的领域结果。
-
-    ``generation_submitted=False`` 表示没有可提交的结算材料（真正空 Topic 或
-    blocks 均被 ``worth_saving=False`` 过滤），但 Topic 生命周期已按契约结束。
-    """
-
-    success: bool
-    topic_id: str
-    task_id: str | None = None
-    generation_submitted: bool = False
-
-
-class ShutdownFlushResult(BaseModel):
-    success: bool
-    trigger_reason: str
-    flushed_topics: list[str]
-    skipped_topics: list[str]
-    archived_blocks: int
-
-
-class ManualSettleAdmissionError(RuntimeError):
-    """settlement admission 失败；Topic、blocks 与 state_summary 保持完整可重试。"""
 
 
 @dataclass
@@ -257,7 +229,7 @@ class PerceptionFamiliar:
         self,
         access_context: WorkspaceAccessContext,
         topic_id: Optional[str] = None,
-    ) -> ManualSettleResult:
+    ) -> TopicSettleResult:
         """手动结算指定话题：prepare -> admission -> evict。
 
         冻结 settlement 材料，存在可写材料时先可靠接纳 memory generation task，
@@ -291,7 +263,7 @@ class PerceptionFamiliar:
                     "manual settle admission 失败: topic_id=%s", target_id,
                     exc_info=True,
                 )
-                raise ManualSettleAdmissionError(
+                raise TopicSettleAdmissionError(
                     f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
                 ) from exc
 
@@ -301,27 +273,23 @@ class PerceptionFamiliar:
             "manual_settle_topic 完成: topic_id=%s, task_id=%s",
             target_id, task.task_id if task else None,
         )
-        return ManualSettleResult(
-            success=True,
+        return TopicSettleResult(
             topic_id=target_id,
-            task_id=task.task_id if task else None,
-            generation_submitted=task is not None,
+            generation_task_id=task.task_id if task else None,
         )
 
     async def evict_topic(
         self,
         access_context: WorkspaceAccessContext,
         topic_id: str,
-    ) -> TopicEvictResult:
+    ) -> TopicEvictionResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
         key = WorkspaceTopicKey.from_access_context(
             require_workspace_access_context(access_context),
             topic_id,
         )
         removed = self.perception_layer.swap_out_topic(key)
-        if not removed:
-            return TopicEvictResult(success=False, message="话题不存在或已被驱逐")
-        return TopicEvictResult(success=True, message=f"话题 {topic_id} 已删除")
+        return TopicEvictionResult(topic_id=topic_id, removed=removed)
 
     def discard_if_empty(
         self,
@@ -352,16 +320,17 @@ class PerceptionFamiliar:
                 flushed.append(topic.topic_id)
         return flushed
 
-    async def flush_all_for_shutdown(self) -> ShutdownFlushResult:
+    async def flush_all_for_shutdown(self) -> TopicShutdownFlushReport:
         """
         服务关闭前强制结算并驱逐所有活跃话题。
 
         真正空 Topic 没有可提交的结算材料，但仍按 SHUTDOWN 矩阵执行 evict，
         不留在活跃池中。
         """
-        flushed, skipped, archived_blocks = [], [], 0
+        settled_topic_ids: list[str] = []
+        resident_block_count = 0
         for topic in self._short_term.list_all_topic_data_for_maintenance():
-            archived_blocks += topic.block_count
+            resident_block_count += topic.block_count
             settle_payload = await self.perception_layer.settle_topic(
                 topic.topic_key, FlushReason.SHUTDOWN
             )
@@ -370,26 +339,19 @@ class PerceptionFamiliar:
                     PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
                     settle_payload
                 )
-            flushed.append(topic.topic_id)
+            settled_topic_ids.append(topic.topic_id)
 
         logger.info(
-            "shutdown flush 完成: flushed=%d, skipped=%d, archived_blocks=%d",
-            len(flushed), len(skipped), archived_blocks,
+            "shutdown flush 完成: settled=%d, resident_blocks=%d",
+            len(settled_topic_ids), resident_block_count,
         )
 
-        return ShutdownFlushResult(
-            success=True,
-            trigger_reason=FlushReason.SHUTDOWN.value,
-            flushed_topics=flushed,
-            skipped_topics=skipped,
-            archived_blocks=archived_blocks,
+        return TopicShutdownFlushReport(
+            settled_topic_ids=tuple(settled_topic_ids),
+            resident_block_count=resident_block_count,
         )
 
 
 __all__ = [
     "PerceptionFamiliar",
-    "TopicEvictResult",
-    "ManualSettleResult",
-    "ManualSettleAdmissionError",
-    "ShutdownFlushResult"
 ]

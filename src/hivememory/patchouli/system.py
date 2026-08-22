@@ -66,7 +66,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     架构:
         - PatchouliRuntime (帕秋莉运行时): 记忆域运行时宿主
-            - PerceptionFamiliar (感知使魔): 话题缓冲与归档触发
+            - PerceptionFamiliar (感知使魔): 话题缓冲与结算触发
             - RetrievalFamiliar (检索使魔): 上下文检索 (Hot)
             - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
             - LifecycleFamiliar (生命周期使魔): 活力维护与园艺任务

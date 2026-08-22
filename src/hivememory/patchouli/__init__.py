@@ -6,7 +6,7 @@ HiveMemory 的分布式智能架构 v3.0。
 架构:
     - PatchouliSystem (The Facility): 外层容器，持有 Patchouli Runtime
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
-        - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
+        - PerceptionFamiliar (感知使魔): 话题缓冲、结算触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
         - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
         - LifecycleFamiliar (生命周期使魔): 活力维护、园艺任务

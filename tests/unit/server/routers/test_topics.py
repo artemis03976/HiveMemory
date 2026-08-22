@@ -8,11 +8,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.models import TopicLastTurn, TopicSnapshot
-from tests.helpers.workspace import make_access_context
+from hivememory.patchouli.contracts.topic_management import (
+    TopicEvictionResult,
+    TopicSettleResult,
+)
+from hivememory.patchouli.errors import TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_access_context
 
 
 def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
@@ -54,7 +59,11 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
         topic_title=title,
         state_summary="summary",
         last_turn=TopicLastTurn(user="hi", assistant="hello"),
+        block_count=3,
         total_tokens=100,
+        last_accessed_at=123.5,
+        topic_summary="topic summary",
+        model_used="model-a",
     )
 
 
@@ -75,9 +84,14 @@ class TestTopicsRouter:
         assert len(data["topics"]) == 2
         assert data["topics"][0]["topic_id"] == "t1"
         assert data["topics"][0]["topic_title"] == "Topic 1"
+        assert data["topics"][0]["topic_summary"] == "topic summary"
         assert data["topics"][0]["state_summary"] == "summary"
         assert data["topics"][0]["last_turn"] == {"user": "hi", "assistant": "hello"}
+        assert data["topics"][0]["block_count"] == 3
         assert data["topics"][0]["total_tokens"] == 100
+        assert data["topics"][0]["last_accessed_at"] == 123.5
+        assert data["topics"][0]["model_used"] == "model-a"
+        assert "workspace_identity" not in data["topics"][0]
 
     def test_list_topics_empty(self):
         librarian_core = MagicMock()
@@ -93,14 +107,10 @@ class TestTopicsRouter:
     def test_settle_topic(self):
         librarian_core = MagicMock()
 
-        from hivememory.patchouli.services.perception import ManualSettleResult
-
         async def manual_settle_result(*, access_context, topic_id=None):
-            return ManualSettleResult(
-                success=True,
+            return TopicSettleResult(
                 topic_id=topic_id,
-                task_id="task-1",
-                generation_submitted=True,
+                generation_task_id="task-1",
             )
 
         app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_result)
@@ -109,23 +119,17 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/t1/settle")
         assert response.status_code == 200
         data = response.json()
-        assert data["success"] is True
         assert data["topic_id"] == "t1"
-        assert data["task_id"] == "task-1"
+        assert data["generation_task_id"] == "task-1"
         assert data["generation_submitted"] is True
 
     def test_settle_topic_without_generation_task(self):
         """settle 成功不依赖是否存在 generation task。"""
         librarian_core = MagicMock()
 
-        from hivememory.patchouli.services.perception import ManualSettleResult
-
         async def manual_settle_topic(*, access_context, topic_id=None):
-            return ManualSettleResult(
-                success=True,
+            return TopicSettleResult(
                 topic_id=topic_id,
-                task_id=None,
-                generation_submitted=False,
             )
 
         app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_topic)
@@ -134,35 +138,66 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/t1/settle")
         assert response.status_code == 200
         data = response.json()
-        assert data["success"] is True
         assert data["topic_id"] == "t1"
-        assert data["task_id"] is None
+        assert data["generation_task_id"] is None
         assert data["generation_submitted"] is False
+
+    def test_settle_topic_admission_failure_returns_retryable_service_error(self):
+        """生成队列拒绝接纳时，HTTP 边界应保留可重试语义。"""
+        librarian_core = MagicMock()
+
+        async def reject_settlement(*, access_context, topic_id=None):
+            raise TopicSettleAdmissionError("话题内容已保留，可重试")
+
+        app = _create_test_app(
+            librarian_core,
+            manual_settle_topic=reject_settlement,
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/v1/topics/t1/settle")
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试"
+        }
+
+    def test_settle_topic_missing_returns_not_found(self):
+        """不存在的 Topic 应在 HTTP 边界映射为 404。"""
+        librarian_core = MagicMock()
+
+        async def reject_missing_topic(*, access_context, topic_id=None):
+            raise KeyError(topic_id)
+
+        app = _create_test_app(
+            librarian_core,
+            manual_settle_topic=reject_missing_topic,
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/v1/topics/missing/settle")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "话题不存在"}
 
     def test_delete_topic(self):
         librarian_core = MagicMock()
-        evict_topic = AsyncMock(return_value={
-            "success": True,
-            "message": "话题 t1 已删除",
-        })
+        evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
 
         app = _create_test_app(librarian_core, evict_topic=evict_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/t1")
         assert response.status_code == 200
-        assert response.json() == {"success": True, "message": "话题 t1 已删除"}
+        assert response.json() == {"topic_id": "t1", "removed": True}
 
     def test_delete_topic_missing(self):
         librarian_core = MagicMock()
-        evict_topic = AsyncMock(return_value={
-            "success": False,
-            "message": "话题不存在或已被驱逐",
-        })
+        evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="missing", removed=False))
 
         app = _create_test_app(librarian_core, evict_topic=evict_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/missing")
         assert response.status_code == 200
-        assert response.json() == {"success": False, "message": "话题不存在或已被驱逐"}
+        assert response.json() == {"topic_id": "missing", "removed": False}

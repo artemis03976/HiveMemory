@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import Identity, resolve_default_workspace_access
+from hivememory.core.models import (
+    Identity,
+    TopicSnapshot,
+    resolve_default_workspace_access,
+)
+from hivememory.patchouli.contracts.topic_management import (
+    TopicEvictionResult,
+    TopicSettleResult,
+)
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
@@ -11,25 +19,27 @@ if TYPE_CHECKING:
 
 
 class TopicApplicationService:
-    """Topic API use-case service.
+    """Topic HTTP 用例对应的系统应用服务。
 
-    Phase 1 only establishes the dependency boundary. Router behavior will be
-    migrated into this service in later phases.
+    本层只负责把用户身份转换为默认 Workspace 访问上下文，并通过全局总线
+    调用 Patchouli 公共能力；业务结果保持强类型，不在这里包装 HTTP 字典。
     """
 
     def __init__(
         self,
-        global_bus: "GlobalSystemBus",
-        config: "HiveMemoryConfig",
+        global_bus: GlobalSystemBus,
+        config: HiveMemoryConfig,
     ) -> None:
         self._global_bus = global_bus
         self._config = config
 
     @property
-    def config(self) -> "HiveMemoryConfig":
+    def config(self) -> HiveMemoryConfig:
         return self._config
 
-    async def list_active_topics(self, *, user_id: str):
+    async def list_active_topics(self, *, user_id: str) -> tuple[TopicSnapshot, ...]:
+        """列出用户默认 Workspace 中的活跃 Topic 快照。"""
+
         identity = Identity(user_id=user_id)
         access_context = resolve_default_workspace_access(identity)
         return await self._global_bus.request(
@@ -37,24 +47,31 @@ class TopicApplicationService:
             access_context=access_context,
         )
 
-    async def settle_topic(self, *, user_id: str, topic_id: str | None = None) -> dict:
-        from hivememory.patchouli.services.perception import ManualSettleResult
+    async def settle_topic(
+        self,
+        *,
+        user_id: str,
+        topic_id: str | None = None,
+    ) -> TopicSettleResult:
+        """结算 Topic，并原样返回 Patchouli 的业务结果。"""
+
         access_context = resolve_default_workspace_access(
             Identity(user_id=user_id),
         )
-        result: ManualSettleResult = await self._global_bus.request(
+        return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
             access_context=access_context,
             topic_id=topic_id,
         )
-        return {
-            "success": result.success,
-            "topic_id": result.topic_id,
-            "task_id": result.task_id,
-            "generation_submitted": result.generation_submitted,
-        }
 
-    async def evict_topic(self, *, user_id: str, topic_id: str) -> dict:
+    async def evict_topic(
+        self,
+        *,
+        user_id: str,
+        topic_id: str,
+    ) -> TopicEvictionResult:
+        """删除 Topic，并原样返回 Patchouli 的驱逐结果。"""
+
         access_context = resolve_default_workspace_access(
             Identity(user_id=user_id),
         )

@@ -24,9 +24,10 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
+from hivememory.patchouli.errors import TopicSettleAdmissionError
 from hivememory.patchouli.services.perception import PerceptionFamiliar
-from tests.helpers.workspace import make_access_context
 from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.workspace import make_access_context
 
 
 class TestPerceptionFamiliar:
@@ -150,14 +151,6 @@ class TestPerceptionFamiliar:
             assistant_final_text="hello",
             turn_events=[],
         )
-        lru = TopicData(
-            topic_id="old_topic",
-            workspace_identity=make_access_context(user_id="u1").workspace_identity,
-            topic_title="old",
-            blocks=(LogicalBlock(turn=TurnRecord(user_query="old", assistant_final_text="answer")),),
-            last_update=1.0,
-            last_accessed_at=1.0,
-        )
         settlement = TopicMaterializeTask(
             topic_id="old_topic",
             identity_scope=make_memory_creation_context(user_id="u1"),
@@ -229,10 +222,9 @@ class TestPerceptionFamiliar:
 
         result = await familiar.manual_settle_topic(make_access_context(user_id="u1"))
 
-        assert result.success is True
         assert result.topic_id == "t1"
         assert result.generation_submitted is False
-        assert result.task_id is None
+        assert result.generation_task_id is None
         bus.request.assert_not_awaited()
         layer.swap_out_topic.assert_called_once_with(
             WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "t1")
@@ -242,8 +234,8 @@ class TestPerceptionFamiliar:
     async def test_manual_settle_admits_task_then_evicts(self):
         """manual settle：先接纳 generation task，成功后才驱逐 Topic。"""
         from hivememory.patchouli.control.memory_generation.models import (
-            MemoryGenerationTask,
             MemoryGenerationSource,
+            MemoryGenerationTask,
         )
         store = Mock()
         store.get_last_active_topic.return_value = "t1"
@@ -284,8 +276,8 @@ class TestPerceptionFamiliar:
         access_context = make_access_context(user_id="u1")
         result = await familiar.manual_settle_topic(access_context)
 
-        assert result.success is True
-        assert result.task_id == "task-1"
+        assert result.topic_id == "t1"
+        assert result.generation_task_id == "task-1"
         assert result.generation_submitted is True
         layer.prepare_settlement.assert_awaited_once_with(
             WorkspaceTopicKey.from_access_context(access_context, "t1")
@@ -301,9 +293,6 @@ class TestPerceptionFamiliar:
     @pytest.mark.asyncio
     async def test_manual_settle_admission_failure_keeps_topic_intact(self):
         """admission 失败：抛出受控错误，且 Topic 不被驱逐、材料不被清空。"""
-        from hivememory.patchouli.services.perception import (
-            ManualSettleAdmissionError,
-        )
         store = Mock()
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
@@ -332,7 +321,7 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        with pytest.raises(ManualSettleAdmissionError, match="可重试"):
+        with pytest.raises(TopicSettleAdmissionError, match="可重试"):
             await familiar.manual_settle_topic(make_access_context(user_id="u1"))
 
         layer.swap_out_topic.assert_not_called()
@@ -349,7 +338,8 @@ class TestPerceptionFamiliar:
         access_context = make_access_context(user_id="u1")
         result = await familiar.evict_topic(access_context, "topic_to_evict")
 
-        assert result.success is True
+        assert result.topic_id == "topic_to_evict"
+        assert result.removed is True
         layer.swap_out_topic.assert_called_once_with(
             WorkspaceTopicKey.from_access_context(access_context, "topic_to_evict")
         )

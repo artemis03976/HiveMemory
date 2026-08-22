@@ -5,7 +5,7 @@ HiveMemory - 分布式记忆管理系统
     - PatchouliSystem (The Facility): 记忆域容器，持有 Patchouli Runtime
     - GatewaySystem: Gateway 子系统，承载决策工作流入口
     - PatchouliRuntime (帕秋莉运行时): 中心调度器，管理微服务
-        - PerceptionFamiliar (感知使魔): 话题缓冲、归档触发
+        - PerceptionFamiliar (感知使魔): 话题缓冲、结算触发
         - RetrievalFamiliar (检索使魔): 混合检索、重排序、上下文渲染
         - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
         - LifecycleFamiliar (生命周期使魔): 活力维护、园艺任务
@@ -192,9 +192,10 @@ from hivememory.server.models import (
     PassiveIngressResponse,
     MemoryResponse,
     MemoryListResponse,
-    TopicSnapshotResponse,
-    TopicListResponse,
-    TriggerResponse,
+    ActiveTopicListResponse,
+    ActiveTopicResponse,
+    TopicDeleteResponse,
+    TopicSettleResponse,
 )
 
 
@@ -385,9 +386,10 @@ __all__ = [
     "PassiveIngressResponse",
     "MemoryResponse",
     "MemoryListResponse",
-    "TopicSnapshotResponse",
-    "TopicListResponse",
-    "TriggerResponse",
+    "ActiveTopicListResponse",
+    "ActiveTopicResponse",
+    "TopicDeleteResponse",
+    "TopicSettleResponse",
     # ========== 懒加载组件 ==========
     "PatchouliRuntime",
     "PatchouliService",

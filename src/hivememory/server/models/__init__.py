@@ -40,9 +40,11 @@ from hivememory.server.models.runtime_event import (
     RuntimeEventStatusResponse,
 )
 from hivememory.server.models.topic import (
-    TopicListResponse,
-    TopicSnapshotResponse,
-    TriggerResponse,
+    ActiveTopicListResponse,
+    ActiveTopicResponse,
+    TopicDeleteResponse,
+    TopicLastTurnResponse,
+    TopicSettleResponse,
 )
 
 __all__ = [
@@ -65,9 +67,11 @@ __all__ = [
     "RuntimeEventDisabledResponse",
     "RuntimeEventResponse",
     "RuntimeEventStatusResponse",
-    "TopicSnapshotResponse",
-    "TopicListResponse",
-    "TriggerResponse",
+    "ActiveTopicListResponse",
+    "ActiveTopicResponse",
+    "TopicDeleteResponse",
+    "TopicLastTurnResponse",
+    "TopicSettleResponse",
     "ProviderResponse",
     "ProviderUpsertRequest",
     "ConfigResponse",
