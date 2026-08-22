@@ -52,6 +52,7 @@ class HiveMemorySystem:
         # 运行时基础设施
         self._global_bus = runtime.global_bus
         self._scheduler = runtime.scheduler
+        self._workspace_asset_store = runtime.workspace_asset_store
         self._runtime_events = runtime.event_bus
         self._runtime_event_sink = runtime.event_sink
 
@@ -89,6 +90,9 @@ class HiveMemorySystem:
     # ========== 生命周期 ==========
 
     async def start(self) -> None:
+        if self._workspace_asset_store.is_closed:
+            # stop 后的 Store 不提供 reopen；重启必须重新装配新的 System。
+            raise RuntimeError("HiveMemorySystem 已停止，不能重新启动已关闭的 AssetStore")
         start_time = monotonic()
         completed_steps: list[str] = []
         if self._started:
@@ -183,6 +187,7 @@ class HiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
+            "workspace_asset_store.close_and_clear",
         ]
         self._emit_lifecycle_event(
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
@@ -203,6 +208,8 @@ class HiveMemorySystem:
             passive_shutdown_drain = await self._ingress_service.shutdown_drain()
             completed_steps.append("passive_ingress.shutdown_drain")
             if not was_started:
+                self._workspace_asset_store.close_and_clear()
+                completed_steps.append("workspace_asset_store.close_and_clear")
                 self._emit_lifecycle_event(
                     RuntimeEventType.SYSTEM_STOPPED,
                     status="stopped",
@@ -223,6 +230,9 @@ class HiveMemorySystem:
             completed_steps.append("patchouli.stop")
             await self._gateway.stop()
             completed_steps.append("gateway.stop")
+            # 最终清理必须晚于 Patchouli Topic settlement/generation drain 与剩余消费者。
+            self._workspace_asset_store.close_and_clear()
+            completed_steps.append("workspace_asset_store.close_and_clear")
             self._started = False
         except Exception as exc:
             self._emit_lifecycle_event(

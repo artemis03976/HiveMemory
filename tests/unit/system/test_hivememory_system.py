@@ -17,6 +17,7 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.system import HiveMemorySystem
 
 
@@ -72,6 +73,7 @@ def system(mock_patchouli):
     runtime = _RuntimeBundle(
         global_bus=global_bus,
         scheduler=scheduler,
+        workspace_asset_store=InMemoryWorkspaceAssetStore(),
         event_bus=None,
         event_sink=runtime_events,
         event_publisher=RuntimeEventPublisher(runtime_events),
@@ -206,6 +208,7 @@ class TestHiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
+            "workspace_asset_store.close_and_clear",
         ]
         assert stopped.data["scheduler_stopped"] is True
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
@@ -227,12 +230,24 @@ class TestHiveMemorySystem:
         assert stopped.data["completed_steps"] == [
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "workspace_asset_store.close_and_clear",
         ]
         assert stopped.data["scheduler_stopped"] is False
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         system._alice.stop.assert_not_called()
         system._patchouli.stop.assert_not_called()
         system._scheduler.stop.assert_not_called()
+        assert system._workspace_asset_store.is_closed is True
+
+    @pytest.mark.asyncio
+    async def test_stopped_system_rejects_restart_instead_of_reopening_store(self, system):
+        system._scheduler.start = MagicMock()
+        system._scheduler.stop = AsyncMock()
+        await system.start()
+        await system.stop()
+
+        with pytest.raises(RuntimeError, match="不能重新启动已关闭的 AssetStore"):
+            await system.start()
 
     @pytest.mark.asyncio
     async def test_stop_failure_emits_failed_lifecycle_event(self, system):

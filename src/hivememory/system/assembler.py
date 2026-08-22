@@ -2,7 +2,7 @@
 HiveMemory 系统装配器
 
 将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：
-  - _build_runtime     : 总线 / 事件 / 调度器
+  - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
   - _build_subsystems  : Gateway + Patchouli + Alice
   - _build_services    : 全部应用服务
@@ -35,6 +35,7 @@ from hivememory.system.runtime.events import (
 )
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -45,6 +46,7 @@ from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenan
 class _RuntimeBundle:
     global_bus: GlobalSystemBus
     scheduler: GlobalMaintenanceScheduler
+    workspace_asset_store: InMemoryWorkspaceAssetStore
     event_bus: RuntimeEventBus | None
     event_sink: RuntimeEventSink
     event_publisher: RuntimeEventPublisher
@@ -116,6 +118,8 @@ class SystemAssembler:
 
     def _build_runtime(self) -> _RuntimeBundle:
         global_bus = GlobalSystemBus()
+        # WorkspaceAsset 是 System-owned working set；整个进程只装配一个 Store。
+        workspace_asset_store = InMemoryWorkspaceAssetStore()
 
         runtime_events_config = getattr(self._config, "runtime_events", None)
         if not isinstance(runtime_events_config, RuntimeEventsConfig):
@@ -144,6 +148,7 @@ class SystemAssembler:
         return _RuntimeBundle(
             global_bus=global_bus,
             scheduler=scheduler,
+            workspace_asset_store=workspace_asset_store,
             event_bus=event_bus,
             event_sink=event_sink,
             event_publisher=event_publisher,

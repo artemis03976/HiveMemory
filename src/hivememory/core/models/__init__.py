@@ -80,6 +80,21 @@ from .workspace import (
     resolve_default_workspace_access,
     resolve_default_workspace_identity,
 )
+from .workspace_asset import (
+    AssetRepresentation,
+    AssetRepresentationKind,
+    AssetRepresentationState,
+    AssetSafeError,
+    RepresentationLease,
+    RepresentationPreference,
+    WorkspaceAsset,
+    WorkspaceAssetClearSummary,
+    WorkspaceAssetHandle,
+    WorkspaceAssetKey,
+    WorkspaceAssetMetadata,
+    WorkspaceAssetRef,
+    WorkspaceAssetState,
+)
 
 __all__ = [
     "ArtifactType",
@@ -152,4 +167,17 @@ __all__ = [
     "resolve_default_workspace_access",
     "build_internal_workspace_access",
     "require_workspace_access_context",
+    "AssetRepresentation",
+    "AssetRepresentationKind",
+    "AssetRepresentationState",
+    "AssetSafeError",
+    "RepresentationLease",
+    "RepresentationPreference",
+    "WorkspaceAsset",
+    "WorkspaceAssetClearSummary",
+    "WorkspaceAssetHandle",
+    "WorkspaceAssetKey",
+    "WorkspaceAssetMetadata",
+    "WorkspaceAssetRef",
+    "WorkspaceAssetState",
 ]
