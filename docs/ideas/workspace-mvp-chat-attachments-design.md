@@ -10,7 +10,7 @@ related_current:
   - ../patchouli/memory-library.md
 related_plans:
   - ../plans/v0.6.2-workspace-mvp.md
-last_reviewed: 2026-08-20
+last_reviewed: 2026-08-22
 ---
 
 # Chat Attachments 初步设计备忘
@@ -21,7 +21,7 @@ last_reviewed: 2026-08-20
 
 当前 Agent 尚不支持多模态，对图像的记忆化能力也未建立，因此附件 MVP 以文字内容为主。用户可以在 Chat 中上传文件，系统解析出可供 Agent 使用的文字表示；附件本身不立即成为 Memory，也不承诺永久持久化。
 
-目标是让附件在一个话题和相关对话过程中能够被反复引用，而不是上传后只在一次请求中解析并一次性塞入上下文。用户引用的是稳定的 `AttachmentRef`，Context Compiler 在每次需要时读取已确认可用的解析表示并组装上下文。
+目标是让附件在一个话题和相关对话过程中能够被反复引用，而不是上传后只在一次请求中解析并一次性塞入上下文。用户引用的是当前 Store 存活期内稳定的 `AttachmentRef`，Context Compiler 在每次需要时读取已确认可用的解析表示并组装上下文。
 
 ## 2. 功能边界
 
@@ -54,7 +54,9 @@ upload
   -> READY / FAILED
   -> AttachmentRef
   -> Context Compiler
-  -> ContextAttachmentUse
+  -> successful interaction commit
+  -> TopicAssetBinding
+  -> optional ContextAttachmentUse detail
   -> optional Materialization promotion
 ```
 
@@ -64,18 +66,33 @@ upload
 - 只有 `READY` representation 可以被引用和编译；
 - 解析失败直接反馈给用户，MVP 不自动重试；用户重新上传时创建新的逻辑附件；
 - representation 必须具有固定的 revision 和 content hash；编译与物化不能回查“最新内容”；
-- 附件移除或进程结束后，旧 ref 可以明确失效，不得解析到同名或复用 ID 的其他内容；
+- 附件移除或进程结束会终止对应 ref 的生命周期；系统不保留可在新进程恢复的既有 asset/ref，用户必须重新上传并建立新关系；
 - Materialization 使用的 representation 需要冻结其 revision/hash，以便后续 provenance 可重现。
 
 ## 4. Attachment 与 Chat、Topic、Run
 
-上传后附件不自动绑定到某个 Topic。只有在 Chat 路由已经确定、并且某次 Chat run 首次选择或实际使用该 ref 时，才创建该附件与当前 Topic/Interaction 的关系。因此 Topic 是否在上传时已经存在，不影响附件先被接纳为可引用内容。
+上传后附件不自动绑定到某个 Topic。零 binding 的 WorkspaceAsset 是关系图中的合法
+orphan：它不是失败资产，也不因此立即回收，但在用户真正通过一轮对话使用前不能建立
+任何 Topic 关系。上传、最近资产、当前活跃 Topic 或进程级 pending list 都不能替用户
+猜测关系。
 
-当前 run 中新上传的附件可以语义上自动挂载一次，方便用户立即使用；之后用户仍可自由选择是否再次挂载。选择记录与实际编译使用记录应分离：前者表示用户意图，后者表示某一版本 representation 真的进入了上下文。
+`TopicAssetBinding` 是 Topic 级“真实使用过”的权威事实。只有 Chat 路由已经确定、
+用户在本轮显式选择 READY ref、并且该轮对话成功完成后，才把 ref 与本轮 block 在同一个
+Interaction commit 中绑定到最终 Topic。同一 Topic 再次使用同一资产只幂等命中既有
+关系。新上传附件不能仅因上传动作自动挂载；如果产品希望上传后立即使用，前端必须把它
+作为本轮显式选择提交，并且仍要等该轮成功完成后建立 binding。
+
+`ContextAttachmentUse` 可以记录具体 representation revision、content hash、locator、
+纳入 token 数和 compile 诊断，但不再承担一套与 `TopicAssetBinding` 竞争“是否使用过”
+的判定。若某个 ref 未被本轮有效接纳，当前 Interaction 必须失败或明确拒绝该选择，不能
+一边完成对话一边把它留在模糊的“选择过但未使用”中间状态。
 
 附件记录只在确实需要时携带稳定的 `interaction_id`；不为没有实际消费者的裸 `run_id` 预留字段。若未来需要记录某个 Agent 执行实例，应使用明确命名的 provenance 字段，而不是改变附件引用的业务语义。
 
-Topic 删除、结算或短期内容清理可以使 Topic 关系消失，但不应改写已经在 Materialization 中冻结的附件内容快照。附件自身的可用性、移除和过期由其运行时生命周期负责。
+Topic compact 保留 binding；Topic 删除、结算或真实 evict 会使关系随整个
+SemanticBuffer 消失。settlement 必须在 buffer 清理前把全部 binding refs 冻结进任务，
+因此后续 Materialization 不再依赖 Topic 存活。附件自身的可用性、移除和过期由其
+运行时生命周期负责，也不应改写已经由 task/lease 冻结的消费事实。
 
 ## 5. AttachmentRef 与解析 representation
 
@@ -107,7 +124,7 @@ AttachmentRef
   representation_id?
 ```
 
-系统使用记录：
+系统使用明细（可选，不取代 TopicAssetBinding）：
 
 ```text
 ContextAttachmentUse
@@ -121,7 +138,11 @@ ContextAttachmentUse
   compile_status
 ```
 
-`AttachmentRef` 只表示用户选择的内容入口，不应携带未经验证的物理路径或任意内容。系统解析 ref 后必须再次确认附件仍存在、representation 属于该附件、状态为 READY 且 revision/hash 一致。
+`AttachmentRef` 只表示用户选择的内容入口，不应携带未经验证的物理路径或任意内容。
+系统解析 ref 后必须再次确认附件仍存在、representation 属于该附件、状态为 READY 且
+revision/hash 一致。成功 Interaction 的 Topic binding 保存当前 Store 存活期内的 opaque
+ref；settlement task 复制该 ref，Materialization consumer 再通过 Store 反查内容并在
+消费期间持有 representation lease。
 
 ## 6. Context Compiler
 

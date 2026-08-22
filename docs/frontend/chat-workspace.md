@@ -106,7 +106,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 
 尚未接线：
 
-- Paperclip 附件与 `#` 话题引用按钮；
+- `#` 话题引用按钮；
 - assistant message 下方的复制、点赞和重新生成按钮；
 - 输入草稿恢复；
 - Topic 历史消息加载与真正切换；

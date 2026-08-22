@@ -11,8 +11,6 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-related_ideas:
-  - docs/ideas/workspace-mvp-chat-attachments-design.md
 last_reviewed: 2026-08-19
 ---
 
@@ -37,8 +35,6 @@ ArtifactStore
 
 Artifact 不进入普通向量检索，不承担 alias，也不因为某条记忆被合并就随之改写。相反，一份原始 InteractionArtifact 可以成为记忆创建或更新的 source artifact；一个 MemoryVersionArtifact 又可以记录某次完整状态变化。
 
-`WorkspaceAsset` 不属于 Artifact 层，也不由 Patchouli Runtime 持有。它是 System-owned Workspace runtime 中的工作资源，用户通过 `WorkspaceAssetRef` 选择，MVP 只承诺进程内生命周期。上传形成的 RAW、EXTRACTED_TEXT 等 runtime representation 不因为“可能成为证据”就预先写成 Artifact；`ArtifactRef` 也不作为用户可选择的附件引用。两者只在 Memory Materialization 时通过显式 promotion 建立单向关系，详见 [Workspace MVP 设计](../ideas/workspace-mvp-chat-attachments-design.md)。
-
 ## 2. 当前四种类型
 
 ### 2.1 InteractionArtifact
@@ -59,8 +55,6 @@ InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary
 DocumentArtifact 表达某一时点的外源文档引用，可保存 source/canonical URI、MIME、retrieved time、etag、last-modified、原始快照地址、提取文本地址和页码/标题路径/行号/quote 等定位符。
 
 当前已经有 model、builder 和 filesystem persistence，但完整 Document Ingestion 尚未接入当前主流程。因此它是已落地的数据基础，不等于系统已经能够抓取、切分、审核和生成文档记忆。
-
-在 `v0.6.2` 规划中，文档型 Chat Attachment 只有实际进入 Agent 上下文并参与 Memory CREATE/UPDATE 时，才会从锁定的 Workspace representation 创建一份 DocumentArtifact 快照。它与未来 Document Ingestion 共享“外源文档证据”这一内容语义，但通过 `origin=CHAT_ATTACHMENT | DOCUMENT_INGESTION`、源 asset/revision、parser version 与 content hash 等 metadata 区分入口和处理历史。非文档 WorkspaceAsset 未来应提升为相应的来源 Artifact 类型，不能仅因来自附件入口就塞入 DocumentArtifact。
 
 DocumentArtifact 是完整来源快照；某条 Memory 精确使用了哪些页码、行号或 quote，长期更适合由 Memory/Artifact 之间的细粒度 `SourceEvidenceRef` 表达。该 locator 归属会在 `v0.7.0` provenance contract 中最终裁定，当前模型字段保持兼容。
 
@@ -98,29 +92,6 @@ CREATE 会挂载 v1、creation 和 interaction refs，并追加 CREATED event；
 
 手工创建/编辑也经过 MemoryGenerationFamiliar：手工创建使用 `MANUAL` creation intent，手工编辑生成 `MANUAL_EDIT` version artifact，而不是绕过 provenance 直接写 Qdrant。
 
-### 3.1 Chat Attachment 的规划接入点
-
-Chat Attachments 尚未接入当前生成链。计划中的顺序是：
-
-```text
-WorkspaceAssetRef
-  -> Context Compiler
-  -> ContextAssetUse(representation_id, revision, hash, locators)
-  -> Topic Materialization
-  -> Generation Outcome
-       DISCARD
-         -> no external-source Artifact
-       CREATE / UPDATE
-         -> snapshot the actually used representation
-         -> DocumentArtifact / other source Artifact
-         -> attach as source ref of MemoryCreation/Version Artifact
-         -> upsert MemoryAtom
-```
-
-promotion 是创建新的不可变证据记录，不是把 WorkspaceAsset 原地改造成 Artifact。它只接受实际编译进上下文并参与该次 Memory CREATE/UPDATE 的 representation；仅上传、仅 Topic binding、本轮选择后被预算裁剪，或解析失败的内容都不能被宣称为记忆来源。
-
-`ContextAssetUse` 必须冻结 representation revision/hash 并随 Interaction/LogicalBlock 进入 Materialization；TopicAssetBinding 只用于重复选择，不能作为 provenance 或 promotion 输入。Materialization 不得回头读取 WorkspaceAsset 的“最新版本”。相同 materialization operation 的重试必须返回已有 promotion 结果，不能重复追加等价 Artifact；同一次 Materialization 产生多条 Memory 时，这些 Memory 的 creation/version records 应复用同一个已提升来源 Artifact。Artifact 一旦创建，便独立于 Topic binding 和进程内 WorkspaceAsset 的生命周期。
-
 ## 4. 存储与完整性
 
 默认 filesystem adapter 使用布局：
@@ -145,8 +116,6 @@ Artifacts 可整体或按 interaction/document/memory builder 关闭；关闭后
 
 任何调用方都不能把 `payload.artifacts.refs` 非空当作“来源绝对完整”的证明；它只能说明已挂载的引用可以继续验证。
 
-上述 best-effort 语义是当前实现事实，不自动适用于计划中的外源 promotion。正式 Chat Attachments Plan 必须选择并实现以下一种可观察语义：外源 Artifact 创建失败时阻止依赖该来源的 Memory 写入，或者允许写入但显式标记 `provenance_incomplete`。不得静默丢失已使用的外源内容后仍声称来源链完整。
-
 ## 6. 双视图与结构化事实
 
 同一轮 Agent 事实以 `TurnEvent -> AgentAction -> TraceItem -> TurnRecord` 保存。消费方随后产生两个不同视图：
@@ -161,8 +130,6 @@ Artifacts 可整体或按 interaction/document/memory builder 关闭；关闭后
 
 - `ArtifactStoragePort.list_by_memory()` 的 filesystem 实现仍返回空列表，尚无 artifact index；
 - DocumentArtifact builder 尚未接入完整文档摄入用例；
-- WorkspaceAsset、ContextAssetUse 和 on-materialization promotion 尚未实现；
-- 当前 DocumentArtifact 尚无统一的 `origin`、源 asset revision 和 promotion 幂等记录；
 - 没有 orphan/ref consistency scanner、保留策略或垃圾回收；
 - 没有把 MTP trace 中每条 READ/RUN 证据自动提升为细粒度 source memory/document refs；
 - artifacts 与 Qdrant 写入不是原子事务；

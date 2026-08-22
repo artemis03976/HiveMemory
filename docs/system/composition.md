@@ -72,12 +72,6 @@ HiveMemorySystem.build(config)
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由应用服务通过 `GlobalSystemBus` 发起。
 
-### 1.4 v0.6.2 Workspace runtime 候选边界
-
-`v0.6.2 W0` 计划把 WorkspaceAssetStore 作为 System-owned 进程级资源加入 runtime bundle，而不是放入 Patchouli 或 Alice Runtime。实现可以先由 `_RuntimeBundle` 直接持有，也可以使用只含 `asset_store` 的极薄单例 WorkspaceRuntime；无论哪种形式，都只在 Store 内按 `(owner_user_id, workspace_id)` 逻辑分区，不为每个 Workspace 建立独立 Runtime，也不保存 `current_workspace`。
-
-WorkspaceAsset、representation parse state、删除可用性和 lease 由该 Store 维护；Patchouli 只在 SemanticBuffer 中拥有 TopicAssetBinding，并消费随 Interaction/LogicalBlock 冻结的 ContextAssetUse。使用者通过显式注入的 Port/Reader 访问资源，不能把 HiveMemorySystem 或 WorkspaceRuntime 变成全局 service locator。AtomCache/ProfileCache 的迁移不属于 W0。该段描述候选装配边界，不代表当前代码已经实现 Workspace。
-
 ## 2. 启动顺序
 
 当前 `HiveMemorySystem.start()` 的有效顺序是：

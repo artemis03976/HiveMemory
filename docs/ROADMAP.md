@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-19
+last_reviewed: 2026-08-22
 ---
 
 # HiveMemory 开发路线图
@@ -148,7 +148,7 @@ last_reviewed: 2026-08-19
 
 Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspace_id)` 统一持有身份。MVP 不启用独立 ID 生成器，固定 `workspace_id == workspace_key`；默认身份使用 `workspace_key=workspace_id="main_workspace"`。完整资源坐标是 `(owner_user_id, workspace_id)`，所有对外协议、store、cache、filter、event 和 work payload 只使用非空 `workspace_id` 寻址，不允许在内部执行 `workspace_id or workspace_key` fallback。
 
-普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。一次 Chat run 使用唯一 `interaction_id`，并由 `WorkspaceAccessContext` 与 actor Identity、WorkspaceIdentity 一起冻结；Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 必须复用同一上下文。同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
+普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。一次 Chat run 使用唯一 `interaction_id`，并由 `IdentityScope` 将 actor identity 与 WorkspaceIdentity 一起冻结；Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 必须复用同一 scope。同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
 
 W0 还负责由 System runtime 建立一个进程级、按 WorkspaceIdentity 逻辑分区的 WorkspaceAssetStore；实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease，并把 TopicAssetBinding 放入 Patchouli 的 SemanticBuffer/ShortTermMemoryStore。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
 
@@ -156,13 +156,13 @@ W0 还负责由 System runtime 建立一个进程级、按 WorkspaceIdentity 逻
 
 #### 4.2.2 W1 Chat Attachments
 
-W1 把上传文件注册到 W0 已建立的 System-owned `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations；只有 required representation 解析 READY 后，asset ref 才能进入 Chat 和 Topic binding。解析失败直接向用户返回稳定错误且不自动重试，用户重新上传创建新的逻辑资产。`WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。
+W1 把上传文件注册到 W0 已建立的 System-owned `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations；只有 required representation 解析 READY 后，asset ref 才能进入 Chat。解析失败直接向用户返回稳定错误且不自动重试，用户重新上传创建新的逻辑资产。`WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。
 
-上传、Topic binding 和本轮选择都不创建 Artifact。Topic binding 跟随 SemanticBuffer，只服务 Topic 内重复选择；Context Compiler 必须形成随 Interaction/LogicalBlock 进入 Materialization 的 `ContextAssetUse`，记录实际进入 Agent 上下文的 representation revision/hash 与 hold。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，再将真正参与该次记忆生成的内容提升为不可变来源 Artifact，并挂入 Memory creation/version provenance。`DISCARD`、未编译成功或只绑定未使用的附件不产生外源 Artifact。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；Topic/binding 或 WorkspaceAsset 随进程消失后，已接纳的 ContextAssetUse 与已提升 Artifact 分别按自身契约存在。
+上传和 UI 选择本身都不创建 Topic 关系或 Artifact。只有用户显式选择 READY ref 且本轮 Interaction 成功完成，系统才把 block 与 `TopicAssetBinding` 原子提交；binding 是 Topic 真实使用过该资产的权威事实，不存在“只绑定但未使用”的第二状态。Topic settlement 在清理 SemanticBuffer 前把全部 binding refs 冻结进 Materialization task；可选 `ContextAttachmentUse` 只补充实际 representation revision/hash、locator、token 与 compile 诊断。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，consumer 用 task ref 反查 WorkspaceAssetStore、持有 lease，并将对应内容提升为不可变来源 Artifact；`DISCARD` 不执行 promotion。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；task/ref 只在当前进程和 Store 存活期内结算，已提升 Artifact 才按自身持久化契约存在。
 
 当前只支持的文档型附件在提升时复用 `DocumentArtifact`，并通过 `origin=CHAT_ATTACHMENT`、源 asset/revision、parser version 和 content hash 等 metadata 与 `v0.7.0` Document Ingestion 区分入口。Artifact 类型按内容语义而不是入口选择；未来非文档附件不能被强塞进 DocumentArtifact。附件还必须复用 v0.6.1 的 operation identity 与重试语义：同一进程内相同 upload operation 只返回一个逻辑资产，同一 materialization retry 不重复生成来源 Artifact。
 
-W1 只消费 W0 已经稳定的 `WorkspaceIdentity`、`WorkspaceAccessContext`、WorkspaceAssetStore 和 Topic binding 契约，不重新定义 Workspace 所有权或 fallback。大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。
+W1 只消费 W0 已经稳定的 `WorkspaceIdentity`、`IdentityScope`、WorkspaceAssetStore 和 Topic binding 契约，不重新定义 Workspace 所有权或 fallback。大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。
 
 ### 4.3 Frontend Reliability（并行工作流）
 

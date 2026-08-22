@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-08-19
+last_reviewed: 2026-08-22
 ---
 
 # Plans
@@ -16,7 +16,7 @@ last_reviewed: 2026-08-19
 |:---|:---:|:---|
 | [v0.6.2 W0 Workspace MVP](./v0.6.2-workspace-mvp.md) | Planned | 建立 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding |
 
-`v0.6.2` 继续使用两份独立 Plan。当前只建立并实施 W0；W1 Chat Attachments 必须把 W0 的完成验收作为硬前置，再独立规划上传、解析、Context Compiler、ContextAssetUse 和 Artifact promotion。历史数据批量转换也不在 W0 主链路中执行，而是在 W0 基本落地和双 Workspace 隔离验证通过后通过独立脚本完成。
+`v0.6.2` 继续使用两份独立 Plan。当前只建立并实施 W0；W1 Chat Attachments 必须把 W0 的完成验收作为硬前置，再独立规划上传、解析、Context Compiler、可选 ContextAttachmentUse 明细和 Artifact promotion。历史数据批量转换也不在 W0 主链路中执行，而是在 W0 基本落地和双 Workspace 隔离验证通过后通过独立脚本完成。
 
 [Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)继续保存 W0/W1 的设计推导和 W1 开放问题；W0 的实施顺序、代码落点、兼容策略、删除/lease/settle 矩阵和测试出口以正式 Plan 为准。
 
