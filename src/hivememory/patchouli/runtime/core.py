@@ -240,6 +240,7 @@ class PatchouliRuntime:
                 "success": True,
                 "perception": {
                     "settled_topic_ids": [],
+                    "generation_skipped_topic_ids": [],
                     "resident_block_count": 0,
                 },
                 "generation": generation_summary,

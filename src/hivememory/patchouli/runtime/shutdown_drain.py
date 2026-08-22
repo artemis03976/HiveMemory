@@ -99,14 +99,22 @@ def summarize_shutdown_drain_failure(exc: BaseException) -> dict[str, Any]:
 def summarize_shutdown_drain_perception(perception_result: Any) -> dict[str, Any]:
     if isinstance(perception_result, dict):
         settled_topics = perception_result.get("settled_topic_ids") or []
+        generation_skipped_topics = (
+            perception_result.get("generation_skipped_topic_ids") or []
+        )
         return {
             "settled_topic_count": len(settled_topics),
+            "generation_skipped_topic_count": len(generation_skipped_topics),
             "resident_block_count": perception_result.get("resident_block_count"),
         }
+    generation_skipped_topics = (
+        getattr(perception_result, "generation_skipped_topic_ids", []) or []
+    )
     return {
         "settled_topic_count": len(
             getattr(perception_result, "settled_topic_ids", []) or []
         ),
+        "generation_skipped_topic_count": len(generation_skipped_topics),
         "resident_block_count": getattr(
             perception_result, "resident_block_count", None
         ),

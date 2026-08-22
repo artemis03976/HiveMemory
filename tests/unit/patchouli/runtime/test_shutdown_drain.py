@@ -17,6 +17,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 def test_summarize_shutdown_drain_result_uses_counts_only():
     perception = TopicShutdownFlushReport(
         settled_topic_ids=("topic-a", "topic-b"),
+        generation_skipped_topic_ids=("topic-b",),
         resident_block_count=3,
     )
     generation = build_shutdown_generation_summary(
@@ -44,6 +45,7 @@ def test_summarize_shutdown_drain_result_uses_counts_only():
 
     assert summary["perception"] == {
         "settled_topic_count": 2,
+        "generation_skipped_topic_count": 1,
         "resident_block_count": 3,
     }
     assert summary["generation"]["running"] == 1
@@ -59,12 +61,14 @@ def test_summarize_shutdown_drain_perception_accepts_reentrant_dict():
     summary = summarize_shutdown_drain_perception(
         {
             "settled_topic_ids": [],
+            "generation_skipped_topic_ids": [],
             "resident_block_count": 0,
         }
     )
 
     assert summary == {
         "settled_topic_count": 0,
+        "generation_skipped_topic_count": 0,
         "resident_block_count": 0,
     }
 

@@ -12,7 +12,7 @@ last_reviewed: 2026-08-22
 
 当前事项：
 
-- [Topic 内容判空与手动生命周期语义修复](./topic-content-emptiness-and-manual-lifecycle.md)；
+- [Topic shutdown 逐 Topic 失败隔离](./topic-shutdown-per-topic-failure-isolation.md)；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；

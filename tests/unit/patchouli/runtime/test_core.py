@@ -80,8 +80,9 @@ class TestRuntimeShutdownDrain:
         runtime = _create_runtime()
         runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
             return_value=TopicShutdownFlushReport(
-                settled_topic_ids=("t1",),
-                resident_block_count=1,
+                settled_topic_ids=("t1", "t2"),
+                generation_skipped_topic_ids=("t2",),
+                resident_block_count=2,
             )
         )
 
@@ -91,7 +92,8 @@ class TestRuntimeShutdownDrain:
         runtime._task_controller.wait_all.assert_awaited_once_with(timeout=30.0)
         runtime._task_controller.cancel_many.assert_not_awaited()
         assert result["reentrant"] is False
-        assert result["perception"].settled_topic_ids == ("t1",)
+        assert result["perception"].settled_topic_ids == ("t1", "t2")
+        assert result["perception"].generation_skipped_topic_ids == ("t2",)
         assert result["generation"]["timed_out"] == 0
         assert result["generation_cancelled_after_timeout"] == 0
         events = runtime._test_runtime_events.events
@@ -111,8 +113,9 @@ class TestRuntimeShutdownDrain:
         assert completed.data["operation_key"] == "patchouli.shutdown_drain"
         assert completed.data["success"] is True
         assert completed.data["perception"] == {
-            "settled_topic_count": 1,
-            "resident_block_count": 1,
+            "settled_topic_count": 2,
+            "generation_skipped_topic_count": 1,
+            "resident_block_count": 2,
         }
         assert completed.data["generation"]["timed_out"] == 0
         assert isinstance(completed.data["duration_ms"], float)

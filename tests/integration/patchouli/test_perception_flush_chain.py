@@ -11,6 +11,7 @@ Perception 感知链路集成测试。
 - IDLE 空话题跳过 settlement 提交但仍按矩阵 evict
 - IDLE 释放容量后新话题可入池
 - SHUTDOWN 全量结算 + 驱逐（含真正空 Topic）
+- SHUTDOWN 正常 generation skip 与 admission 异常传播
 - folding 后的 shutdown 结算保留 state_summary 与 retained block
 - summary-only Topic 的列表、路由与 discard 语义
 - manual settle / compact / delete 三个互不混杂的用例
@@ -104,6 +105,17 @@ def _make_real_familiar(
         interaction_journal=interaction_journal,
     )
     return familiar, layer, store, bus
+
+
+def _accept_settlement_task(route, payload):
+    """在 generation 边界返回确定性的已接纳任务快照。"""
+
+    return MemoryGenerationTask(
+        task_id=f"memtask-{payload.topic_id}",
+        topic_id=payload.topic_id,
+        label=payload.topic_id,
+        source=MemoryGenerationSource.SETTLE,
+    )
 
 
 def _fast_forward_idle():
@@ -203,10 +215,12 @@ async def test_shutdown_flush_settles_and_swaps_out_all_topics():
         identity_scope=make_access_context(user_id="u2", agent_id="a2"),
         target_topic_id="NEW_TOPIC",
     )
+    bus.request.side_effect = _accept_settlement_task
 
     result = await familiar.flush_all_for_shutdown()
 
     assert len(result.settled_topic_ids) == 2
+    assert result.generation_skipped_topic_ids == ()
     assert result.resident_block_count == 2
     assert store.list_topic_data(make_access_context(user_id="u1", agent_id="a1")) == []
     assert store.list_topic_data(make_access_context(user_id="u2", agent_id="a2")) == []
@@ -245,10 +259,12 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
         "question-2-" * 80
     ]
     assert bus.request.await_count == 0
+    bus.request.side_effect = _accept_settlement_task
 
     result = await familiar.flush_all_for_shutdown()
 
     assert result.settled_topic_ids == (topic_id,)
+    assert result.generation_skipped_topic_ids == ()
     assert result.resident_block_count == 1
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_awaited_once()
@@ -311,7 +327,7 @@ async def test_discard_if_empty_evicts_truly_empty_topic():
 # ========== 真正空 Topic 仍按矩阵 evict ==========
 
 @pytest.mark.asyncio
-async def test_shutdown_evicts_truly_empty_topic():
+async def test_shutdown_evicts_truly_empty_topic_and_marks_generation_skip():
     familiar, layer, store, bus = _make_real_familiar()
     access_context = make_access_context(user_id="u1", agent_id="a1")
     topic_id = await layer.create_new_topic(access_context)
@@ -319,6 +335,64 @@ async def test_shutdown_evicts_truly_empty_topic():
     result = await familiar.flush_all_for_shutdown()
 
     assert topic_id in result.settled_topic_ids
+    assert result.generation_skipped_topic_ids == (topic_id,)
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_marks_generation_skip_when_submission_builds_no_task():
+    """下游正常返回无任务时，Topic 已结算但 generation 被跳过。"""
+    familiar, _, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await familiar.submit_interaction(
+        _make_payload("question", "answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+
+    result = await familiar.flush_all_for_shutdown()
+
+    assert result.settled_topic_ids == (topic_id,)
+    assert result.generation_skipped_topic_ids == (topic_id,)
+    assert store.get_topic_data(access_context, topic_id, touch=False) is None
+
+
+@pytest.mark.asyncio
+async def test_shutdown_propagates_submission_failure_instead_of_marking_skip():
+    """generation admission 异常必须向上游传播，不能降级为正常 skip。"""
+    familiar, _, _, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    await familiar.submit_interaction(
+        _make_payload("question", "answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+    bus.request.side_effect = RuntimeError("generation admission failed")
+
+    with pytest.raises(RuntimeError, match="generation admission failed"):
+        await familiar.flush_all_for_shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it():
+    """全部 blocks 被过滤时不能因为 block_count 非零而漏报 skip。"""
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+    store.add_block(
+        WorkspaceTopicKey.from_access_context(access_context, topic_id),
+        LogicalBlock(
+            turn=TurnRecord(user_query="q", assistant_final_text="a"),
+            worth_saving=False,
+        ),
+    )
+
+    result = await familiar.flush_all_for_shutdown()
+
+    assert result.settled_topic_ids == (topic_id,)
+    assert result.generation_skipped_topic_ids == (topic_id,)
+    assert result.resident_block_count == 1
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
     bus.request.assert_not_awaited()
 

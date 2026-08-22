@@ -325,29 +325,38 @@ class PerceptionFamiliar:
         服务关闭前强制结算并驱逐所有活跃话题。
 
         真正空 Topic 没有可提交的结算材料，但仍按 SHUTDOWN 矩阵执行 evict，
-        不留在活跃池中。
+        不留在活跃池中。没有建立 generation task 属于正常 skip；异常仍向上
+        传播，不能伪装成 skip。
         """
         settled_topic_ids: list[str] = []
+        generation_skipped_topic_ids: list[str] = []
         resident_block_count = 0
         for topic in self._short_term.list_all_topic_data_for_maintenance():
             resident_block_count += topic.block_count
             settle_payload = await self.perception_layer.settle_topic(
                 topic.topic_key, FlushReason.SHUTDOWN
             )
+            task: MemoryGenerationTask | None = None
             if settle_payload is not None:
-                await self._bus.request(
+                task = await self._bus.request(
                     PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
                     settle_payload
                 )
             settled_topic_ids.append(topic.topic_id)
+            if task is None:
+                generation_skipped_topic_ids.append(topic.topic_id)
 
         logger.info(
-            "shutdown flush 完成: settled=%d, resident_blocks=%d",
-            len(settled_topic_ids), resident_block_count,
+            "shutdown flush 完成: settled=%d, generation_skipped=%d, "
+            "resident_blocks=%d",
+            len(settled_topic_ids),
+            len(generation_skipped_topic_ids),
+            resident_block_count,
         )
 
         return TopicShutdownFlushReport(
             settled_topic_ids=tuple(settled_topic_ids),
+            generation_skipped_topic_ids=tuple(generation_skipped_topic_ids),
             resident_block_count=resident_block_count,
         )
 

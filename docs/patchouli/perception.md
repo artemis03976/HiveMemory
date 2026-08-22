@@ -139,7 +139,7 @@ Perception engine 由 Runtime 按配置创建并注入 ShortTermMemoryStore。�
 
 全局 scheduler 定期调用 `scan_idle_buffers_once()`；Familiar 按 `idle_timeout_seconds` 选择话题并逐个结算。关闭时 `flush_all_for_shutdown()` 结算并驱逐所有活跃话题；真正空 Topic 没有可提交材料，但仍按 SHUTDOWN 矩阵执行 evict，不留在活跃池中。
 
-手动 settle 返回 `TopicSettleResult`，通过可选 `generation_task_id` 与派生的 `generation_submitted` 表达是否建立后台任务；无任务不等于生命周期失败。手动 evict（删除话题）返回 `TopicEvictionResult`，明确“不触发结算、不写记忆”，适合用户主动丢弃短期话题；manual compact 只压缩工作集，不结算、不驱逐。三种手动操作互不混用。Patchouli 业务结果不再放在 `services/perception.py`，server 层只在 HTTP 边界投影为响应模型。shutdown 批处理使用 `runtime.models.TopicShutdownFlushReport` 记录已结算 Topic 与结算前驻留 block 数量，该运行时报告不进入 HTTP 链路。
+手动 settle 返回 `TopicSettleResult`，通过可选 `generation_task_id` 与派生的 `generation_submitted` 表达是否建立后台任务；无任务不等于生命周期失败。手动 evict（删除话题）返回 `TopicEvictionResult`，明确“不触发结算、不写记忆”，适合用户主动丢弃短期话题；manual compact 只压缩工作集，不结算、不驱逐。三种手动操作互不混用。Patchouli 业务结果不再放在 `services/perception.py`，server 层只在 HTTP 边界投影为响应模型。shutdown 批处理使用 `runtime.models.TopicShutdownFlushReport` 记录已结算 Topic、未建立 generation task 的正常 skip 子集，以及结算前驻留 block 数量；该运行时报告不进入 HTTP 链路，异常也不会被归入正常 skip。
 
 ## 8. 当前限制
 
