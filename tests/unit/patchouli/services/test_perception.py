@@ -110,6 +110,7 @@ class TestPerceptionFamiliar:
             "t1",
             payload,
             identity_scope=make_access_context(user_id="u1"),
+            asset_id_and_refs=(),
         )
         bus.request.assert_awaited_once_with(
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
@@ -193,6 +194,7 @@ class TestPerceptionFamiliar:
             "NEW_TOPIC",
             payload,
             identity_scope=make_access_context(user_id="u1"),
+            asset_id_and_refs=(),
         )
 
     @pytest.mark.asyncio
@@ -209,7 +211,7 @@ class TestPerceptionFamiliar:
         )
         layer = Mock()
         layer.prepare_settlement = AsyncMock(return_value=None)
-        layer.swap_out_topic = Mock(return_value=True)
+        layer.commit_settlement = Mock(return_value=True)
         bus = Mock()
         bus.request = AsyncMock()
         familiar = PerceptionFamiliar(
@@ -226,7 +228,7 @@ class TestPerceptionFamiliar:
         assert result.generation_submitted is False
         assert result.generation_task_id is None
         bus.request.assert_not_awaited()
-        layer.swap_out_topic.assert_called_once_with(
+        layer.commit_settlement.assert_called_once_with(
             WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "t1")
         )
 
@@ -256,7 +258,7 @@ class TestPerceptionFamiliar:
             blocks=[],
             state_summary="",
         ))
-        layer.swap_out_topic = Mock(return_value=True)
+        layer.commit_settlement = Mock(return_value=True)
         bus = Mock()
         expected_task = MemoryGenerationTask(
             task_id="task-1",
@@ -286,7 +288,7 @@ class TestPerceptionFamiliar:
             bus.request.await_args.args[0]
             == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         )
-        layer.swap_out_topic.assert_called_once_with(
+        layer.commit_settlement.assert_called_once_with(
             WorkspaceTopicKey.from_access_context(access_context, "t1")
         )
 
@@ -310,7 +312,8 @@ class TestPerceptionFamiliar:
             topic_title="title",
             blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
         ))
-        layer.swap_out_topic = Mock(return_value=True)
+        layer.abort_settlement = Mock(return_value=None)
+        layer.commit_settlement = Mock(return_value=True)
         bus = Mock()
         bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
         familiar = PerceptionFamiliar(
@@ -324,8 +327,10 @@ class TestPerceptionFamiliar:
         with pytest.raises(TopicSettleAdmissionError, match="可重试"):
             await familiar.manual_settle_topic(make_access_context(user_id="u1"))
 
-        layer.swap_out_topic.assert_not_called()
-        store.get_topic_data.assert_called()
+        layer.abort_settlement.assert_called_once_with(
+            WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "t1")
+        )
+        layer.commit_settlement.assert_not_called()
         store.clear_blocks.assert_not_called()
 
     @pytest.mark.asyncio

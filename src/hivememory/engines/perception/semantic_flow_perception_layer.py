@@ -11,16 +11,18 @@ HiveMemory - 语义流感知层 / MMU (Semantic Flow Perception Layer / Memory M
 版本: 5.0.0
 """
 
+import hashlib
+import json
 import logging
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
     ActionReducer,
-    BufferState,
     IdentityScope,
     LogicalBlock,
     TurnRecord,
     WorkspaceAccessContext,
+    WorkspaceAssetRef,
     WorkspaceTopicKey,
     require_workspace_access_context,
 )
@@ -37,6 +39,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
     InteractionApplyStage,
 )
+from hivememory.patchouli.errors import TopicBusyError
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.utils.token_estimator import estimate_tokens
 
@@ -44,6 +47,42 @@ if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_apply_digest(
+    block: LogicalBlock,
+    asset_id_and_refs,
+    model_used: str | None,
+) -> str:
+    """计算一次 Interaction apply 的稳定输入摘要。
+
+    digest 只覆盖可稳定重建的 canonical 输入（block 事实、binding refs 与参与
+    原子 apply 的 metadata），刻意排除 ``block_id``/``created_at``/``bound_at``
+    等 retry 时重新生成的随机或时钟值。它只用于判断同一 ``interaction_id`` 的
+    retry 是否等价，不可作为 used refs 或 settlement 查询依据。
+    """
+    turn_dump = block.turn.model_dump(mode="json")
+    # turn_id 与 block_id/created_at 一样，是 retry 时重新生成的随机标识，
+    # 不参与等价性判断。
+    turn_dump.pop("turn_id", None)
+    canonical = {
+        "turn": turn_dump,
+        "total_tokens": block.total_tokens,
+        "worth_saving": block.worth_saving,
+        "gateway_intent": block.gateway_intent,
+        "model_used": model_used or "",
+        "asset_refs": sorted(
+            (asset_id, asset_ref.token)
+            for asset_id, asset_ref in asset_id_and_refs
+        ),
+    }
+    payload = json.dumps(
+        canonical,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class SemanticFlowPerceptionLayer(BasePerceptionLayer):
@@ -144,12 +183,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         创建新话题。调用方负责在必要时提前执行 LRU 驱逐。
         """
         access_context = require_workspace_access_context(access_context)
-        buffer = self._short_term_store.create_buffer(
+        data = self._short_term_store.create_buffer(
             access_context,
             topic_title=title or "新建话题",
             topic_summary=summary or "",
         )
-        return buffer.topic_id
+        return data.topic_id
 
     # ========== 短期记忆上下文摄入 ==========
 
@@ -160,6 +199,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         *,
         identity_scope: IdentityScope,
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> tuple[str, TopicMaterializeTask | None]:
         """
         MMU 核心方法：路由到指定话题并摄入载荷。
@@ -178,6 +218,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     apply_record.topic_id,
                     identity_scope=identity_scope,
                     interaction_id=interaction_id,
+                    asset_id_and_refs=asset_id_and_refs,
                 )
                 self._short_term_store.set_last_active_topic(
                     identity_scope,
@@ -197,6 +238,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             topic_id,
             identity_scope=identity_scope,
             interaction_id=interaction_id,
+            asset_id_and_refs=asset_id_and_refs,
         )
         self._short_term_store.set_last_active_topic(identity_scope, topic_id)
         return topic_id, settle_payload
@@ -208,6 +250,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         *,
         identity_scope: IdentityScope,
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> TopicMaterializeTask | None:
         """
         摄入完整交互载荷。
@@ -215,13 +258,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         Returns:
             如发生 TOKEN_OVERFLOW 结算则返回 TopicMaterializeTask，否则 None
         """
+        if not payload.turn_events:
+            raise ValueError(
+                "InteractionPayload.turn_events is required; "
+                "legacy assistant_message fallback has been removed."
+            )
+
+        block = self._build_block(payload, identity_scope)
+        digest = _compute_apply_digest(block, asset_id_and_refs, payload.model_used)
+
         if interaction_id:
             apply_record = self._interaction_journal.get(interaction_id)
             if apply_record is not None:
-                if apply_record.topic_id != topic_id:
-                    raise ValueError(
-                        f"interaction '{interaction_id}' was already applied to another topic"
-                    )
+                self._require_equivalent_retry(apply_record, topic_id, interaction_id, digest)
                 if apply_record.stage is InteractionApplyStage.COMPLETED:
                     return None
                 if apply_record.stage is InteractionApplyStage.LOCAL_COMPLETED:
@@ -233,17 +282,51 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     interaction_id=interaction_id,
                 )
 
-        if not payload.turn_events:
-            raise ValueError(
-                "InteractionPayload.turn_events is required; "
-                "legacy assistant_message fallback has been removed."
+        topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
+        if not self._short_term_store.reserve_processing(topic_key):
+            raise TopicBusyError(
+                f"topic '{topic_id}' 正忙，无法原子摄入 interaction，可稍后重试"
             )
 
+        try:
+            # 在单个 Store 临界区内原子提交 block + 首次 bindings + metadata。
+            self._short_term_store.apply_interaction(
+                identity_scope,
+                topic_id,
+                interaction_id,
+                block,
+                asset_id_and_refs=asset_id_and_refs,
+                model_used=payload.model_used,
+            )
+        except Exception:
+            self._short_term_store.release_processing(topic_key)
+            raise
+
+        if interaction_id:
+            # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
+            self._interaction_journal.record_interaction_applied(
+                interaction_id,
+                topic_id,
+                digest,
+            )
+
+        return await self._complete_interaction_post_apply(
+            payload,
+            topic_id,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
+        )
+
+    def _build_block(
+        self,
+        payload: InteractionPayload,
+        identity_scope: IdentityScope,
+    ) -> LogicalBlock:
+        """从 payload 构造本轮不可变逻辑块（block_id/created_at 不在 digest 内）。"""
         clean_text = payload.assistant_final_text or ""
         actions = ActionReducer.reduce(payload.turn_events)
         traces = payload.mtp_traces
 
-        # 2. 先构建只读 TurnRecord，再一次性构建 LogicalBlock
         turn = TurnRecord(
             identity=identity_scope.actor_identity,
             user_query=payload.user_message,
@@ -262,25 +345,28 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                 for trace in turn.semantic_traces
             )
         )
-        block = LogicalBlock(
+        return LogicalBlock(
             turn=turn,
             total_tokens=total_tokens,
             worth_saving=payload.worth_saving,
         )
 
-        # 3. 添加 block（被动流；主动生成由 finalize 直驱，不经此路径）
-        topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
-        self._short_term_store.add_block(topic_key, block)
-        if interaction_id:
-            # journal 必须紧跟实际写入点；后续 folding/总线异常发生时，retry 仍能去重。
-            self._interaction_journal.record_block_applied(interaction_id, topic_id)
-
-        return await self._complete_interaction_post_apply(
-            payload,
-            topic_id,
-            identity_scope=identity_scope,
-            interaction_id=interaction_id,
-        )
+    @staticmethod
+    def _require_equivalent_retry(
+        apply_record,
+        topic_id: str,
+        interaction_id: str,
+        digest: str,
+    ) -> None:
+        """校验 retry 与已记录 apply 等价：topic 一致且 input digest 一致。"""
+        if apply_record.topic_id != topic_id:
+            raise ValueError(
+                f"interaction '{interaction_id}' was already applied to another topic"
+            )
+        if apply_record.input_digest != digest:
+            raise ValueError(
+                f"interaction '{interaction_id}' was already applied with different input"
+            )
 
     async def _complete_interaction_post_apply(
         self,
@@ -291,19 +377,13 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         interaction_id: str | None,
     ) -> TopicMaterializeTask | None:
         """完成 block 写入后的本地义务，并为外层 settlement admission 留存结果。"""
-        # 3.1 若 payload 携带了 model_used（来自 ModelRegistry 解析结果），更新到 buffer
-        if payload.model_used:
-            self._short_term_store.update_model_used(
-                WorkspaceTopicKey.from_access_context(identity_scope, topic_id),
-                payload.model_used,
-            )
-
-        # 4. Page Folding 检查（token 溢出时压缩旧 blocks）
         topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
+
+        # Page Folding 检查（token 溢出时压缩旧 blocks，复用当前 PROCESSING 预约）
         settle_payload = await self._maybe_fold_pages(topic_key)
 
-        # 重置状态
-        self._short_term_store.update_metadata(topic_key, state=BufferState.IDLE)
+        # 释放 PROCESSING -> IDLE
+        self._short_term_store.release_processing(topic_key)
 
         if interaction_id:
             self._interaction_journal.record_local_completed(
@@ -355,14 +435,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         reason: FlushReason = FlushReason.MANUAL_SETTLE,
     ) -> TopicMaterializeTask | None:
         """
-        原子话题结算，不含策略判断。由 PerceptionFamiliar 调用。
+        原子话题结算（automatic：IDLE/LRU/SHUTDOWN），不含策略判断。
 
         Returns:
             TopicMaterializeTask | None
         """
-        return await self._trigger_manager.resolve_topic(
-            FlushEvent(topic_key=topic_key, reason=reason)
-        )
+        return self._trigger_manager.settle_and_evict(topic_key, reason)
 
     async def prepare_settlement(
         self,
@@ -371,12 +449,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         冻结手动结算材料，不修改 buffer（prepare 阶段）。
 
-        manual settle 使用 prepare -> admission -> evict 顺序；调用方在
-        generation admission 成功后才驱逐 Topic，失败时保持 Topic 内容完整。
+        manual settle 使用 FLUSHING 预约保护 prepare -> admission -> evict 窗口；
+        本方法只取得 FLUSHING 并冻结 payload，admission 成功后由
+        ``commit_settlement`` 驱逐，失败由 ``abort_settlement`` 恢复 IDLE。
         """
-        return self._trigger_manager.build_settle_payload(
-            FlushEvent(topic_key=topic_key, reason=FlushReason.MANUAL_SETTLE)
-        )
+        return self._trigger_manager.prepare_manual_settle(topic_key)
+
+    def commit_settlement(self, topic_key: WorkspaceTopicKey) -> bool:
+        """manual settle admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
+        return self._trigger_manager.commit_manual_settle(topic_key)
+
+    def abort_settlement(self, topic_key: WorkspaceTopicKey) -> None:
+        """manual settle admission 失败后恢复 FLUSHING Topic 为 IDLE。"""
+        self._trigger_manager.abort_manual_settle(topic_key)
 
     def swap_out_topic(self, topic_key: WorkspaceTopicKey) -> bool:
         """
@@ -410,6 +495,7 @@ class NullPerceptionLayer(BasePerceptionLayer):
         *,
         identity_scope: IdentityScope,
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> None:
         return None
 
@@ -420,6 +506,7 @@ class NullPerceptionLayer(BasePerceptionLayer):
         *,
         identity_scope: IdentityScope,
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> tuple[str, None]:
         return topic_id, None
 
@@ -434,6 +521,12 @@ class NullPerceptionLayer(BasePerceptionLayer):
         self,
         topic_key: WorkspaceTopicKey,
     ) -> TopicMaterializeTask | None:
+        return None
+
+    def commit_settlement(self, topic_key: WorkspaceTopicKey) -> bool:
+        return False
+
+    def abort_settlement(self, topic_key: WorkspaceTopicKey) -> None:
         return None
 
     async def prepare_topic(

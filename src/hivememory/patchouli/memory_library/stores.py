@@ -5,9 +5,10 @@ MemoryLibrary 三层 Store
 
 ShortTermMemoryStore:
     - 持有 InMemoryShortTermStorage（Phase 1），future 可替换为 RedisShortTermStorage
-    - 承接短期话题调度方法（add_block / update_summary / LRU 等）
-    - 新增命名写入方法：clear_blocks / update_summary / update_title
+    - 承接短期话题调度方法（apply_interaction / apply_compaction / LRU 等）
     - 所有 buffer 字段写操作必须通过命名方法，不允许调用方直接写字段
+    - P5 起以单一 RLock 作为 SemanticBuffer 的唯一同步与变更边界，公开读取只返回
+      冻结的 TopicData 快照，SemanticBuffer 不再越过 Store 边界
 
 MidTermMemoryStore:
     - 持有 primary（向量库）和 optional secondary（图库等）Port
@@ -23,6 +24,7 @@ LongTermMemoryStore:
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -32,8 +34,10 @@ from hivememory.core.models import (
     LogicalBlock,
     MemoryAtom,
     MemoryReadScope,
+    TopicAssetBinding,
     TopicData,
     WorkspaceAccessContext,
+    WorkspaceAssetRef,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
     WorkspaceTopicKey,
@@ -42,6 +46,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import ArtifactRef
 from hivememory.engines.lifecycle.models import ArchiveRecord
+from hivememory.patchouli.errors import TopicBusyError
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import (
@@ -67,6 +72,11 @@ class ShortTermMemoryStore:
     持有 ShortTermStoragePort 实现，提供 buffer CRUD 与上层调度方法。
     Port contract is synchronous because the perception layer uses this store on
     its hot path without await points.
+
+    P5 起 ``SemanticBuffer`` 的全部字段、Topic pool 与 last-active 索引都由本
+    Store 的单一 ``threading.RLock`` 保护；公开读取只在锁内构造冻结快照，任何
+    方法都不再向调用方泄漏可变 buffer。同一 Topic 的写入通过
+    ``PROCESSING``/``FLUSHING`` 状态预约串行化，不引入 per-topic lock 或 CAS。
     """
 
     def __init__(
@@ -77,9 +87,10 @@ class ShortTermMemoryStore:
         self._port: ShortTermStoragePort = port or InMemoryShortTermStorage()
         self.max_resident_topics = max_resident_topics
         self._last_active_topic_keys: dict[tuple[str, str], WorkspaceTopicKey] = {}
+        self._lock = threading.RLock()
         logger.info(f"ShortTermMemoryStore 初始化, max_resident={max_resident_topics}")
 
-    # ========== 最后活跃话题记录 ==========
+    # ========== 辅助（锁内调用） ==========
 
     @staticmethod
     def _scope(workspace: WorkspaceIdentity) -> tuple[str, str]:
@@ -93,14 +104,32 @@ class ShortTermMemoryStore:
         access_context = require_workspace_access_context(access_context)
         return WorkspaceTopicKey.from_access_context(access_context, topic_id)
 
+    def _require_buffer_locked(self, key: WorkspaceTopicKey) -> SemanticBuffer:
+        """返回必须存在的话题 buffer；写命令不得静默忽略缺失 topic。"""
+        buf = self._port.get(key)
+        if buf is None:
+            raise KeyError(f"topic '{key.topic_id}' does not exist in requested Workspace")
+        return buf
+
+    def _evict_locked(self, key: WorkspaceTopicKey) -> None:
+        """从 Topic pool 移除 buffer，并修正 last-active 索引（锁内调用）。"""
+        buf = self._port.pop(key)
+        if buf is not None:
+            scope = self._scope(buf.workspace_identity)
+            if self._last_active_topic_keys.get(scope) == key:
+                self._last_active_topic_keys.pop(scope, None)
+
+    # ========== 最后活跃话题记录 ==========
+
     def get_last_active_topic(
         self,
         access_context: WorkspaceAccessContext,
     ) -> Optional[str]:
         """返回当前 Workspace 最后活跃的 topic ID。"""
         access_context = require_workspace_access_context(access_context)
-        key = self._last_active_topic_keys.get(self._scope(access_context.workspace_identity))
-        return key.topic_id if key is not None else None
+        with self._lock:
+            key = self._last_active_topic_keys.get(self._scope(access_context.workspace_identity))
+            return key.topic_id if key is not None else None
 
     def set_last_active_topic(
         self,
@@ -108,16 +137,10 @@ class ShortTermMemoryStore:
         topic_id: str,
     ) -> None:
         key = self._key(access_context, topic_id)
-        if self._port.get(key) is None:
-            raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
-        self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
-
-    def _require_buffer(self, key: WorkspaceTopicKey) -> SemanticBuffer:
-        """返回必须存在的话题 buffer；写命令不得静默忽略缺失 topic。"""
-        buf = self._port.get(key)
-        if buf is None:
-            raise KeyError(f"topic '{key.topic_id}' does not exist in requested Workspace")
-        return buf
+        with self._lock:
+            if self._port.get(key) is None:
+                raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
+            self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
 
     # ========== CRUD ==========
 
@@ -130,13 +153,14 @@ class ShortTermMemoryStore:
     ) -> Optional[TopicData]:
         """Return an immutable topic read view without exposing SemanticBuffer."""
         key = self._key(access_context, topic_id)
-        buf = self._port.get(key)
-        if buf is None:
-            return None
-        if touch:
-            buf.last_accessed_at = datetime.now().timestamp()
-            self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
-        return self._to_topic_data(buf)
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None:
+                return None
+            if touch:
+                buf.last_accessed_at = datetime.now().timestamp()
+                self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
+            return self._to_topic_data(buf)
 
     def get_topic_data_by_key(
         self,
@@ -145,14 +169,14 @@ class ShortTermMemoryStore:
         touch: bool = True,
     ) -> Optional[TopicData]:
         """由持有已验证复合键的内部协调器读取 Topic。"""
-        buf = self._port.get(key)
-        if buf is None:
-            return None
-        if touch:
-            buf.last_accessed_at = datetime.now().timestamp()
-            workspace = buf.workspace_identity
-            self._last_active_topic_keys[self._scope(workspace)] = key
-        return self._to_topic_data(buf)
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None:
+                return None
+            if touch:
+                buf.last_accessed_at = datetime.now().timestamp()
+                self._last_active_topic_keys[self._scope(buf.workspace_identity)] = key
+            return self._to_topic_data(buf)
 
     def list_topic_data(
         self,
@@ -162,10 +186,11 @@ class ShortTermMemoryStore:
     ) -> List[TopicData]:
         """Return immutable read views for active topics."""
         access_context = require_workspace_access_context(access_context)
-        buffers = self._port.list_by_workspace(access_context.workspace_identity)
-        if not include_empty:
-            buffers = [buf for buf in buffers if buf.has_content]
-        return [self._to_topic_data(buf) for buf in buffers]
+        with self._lock:
+            buffers = self._port.list_by_workspace(access_context.workspace_identity)
+            if not include_empty:
+                buffers = [buf for buf in buffers if buf.has_content]
+            return [self._to_topic_data(buf) for buf in buffers]
 
     def topic_exists(
         self,
@@ -185,59 +210,66 @@ class ShortTermMemoryStore:
         access_context: WorkspaceAccessContext,
         topic_title: str = "新建话题",
         topic_summary: str = "",
-    ) -> SemanticBuffer:
+    ) -> TopicData:
+        """创建话题并返回其冻结只读快照，不向调用方泄漏可变 SemanticBuffer。"""
         access_context = require_workspace_access_context(access_context)
-        buf = SemanticBuffer(
-            workspace_identity=access_context.workspace_identity,
-            topic_title=topic_title,
-            topic_summary=topic_summary,
-        )
-        self._port.put(buf.topic_key, buf)
-        logger.debug(
-            "创建话题段: topic_id=%s, owner=%s, workspace=%s",
-            buf.topic_id,
-            buf.workspace_identity.owner_user_id,
-            buf.workspace_identity.workspace_id,
-        )
-        return buf
+        with self._lock:
+            buf = SemanticBuffer(
+                workspace_identity=access_context.workspace_identity,
+                topic_title=topic_title,
+                topic_summary=topic_summary,
+            )
+            self._port.put(buf.topic_key, buf)
+            logger.debug(
+                "创建话题段: topic_id=%s, owner=%s, workspace=%s",
+                buf.topic_id,
+                buf.workspace_identity.owner_user_id,
+                buf.workspace_identity.workspace_id,
+            )
+            return self._to_topic_data(buf)
 
     def pop_buffer(
         self,
         access_context: WorkspaceAccessContext,
         topic_id: str,
-    ) -> Optional[SemanticBuffer]:
+    ) -> Optional[TopicData]:
+        """移除话题并返回移除前的冻结快照；不存在时返回 None。"""
         key = self._key(access_context, topic_id)
-        buf = self._port.pop(key)
-        if buf is not None:
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None:
+                return None
+            snapshot = self._to_topic_data(buf)
+            self._evict_locked(key)
             logger.info(f"移除话题段: topic_id={topic_id}")
-            scope = self._scope(access_context.workspace_identity)
-            if self._last_active_topic_keys.get(scope) == key:
-                self._last_active_topic_keys.pop(scope, None)
-        return buf
+            return snapshot
 
-    def pop_buffer_by_key(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]:
+    def pop_buffer_by_key(self, key: WorkspaceTopicKey) -> Optional[TopicData]:
         """由持有已验证复合键的内部结算流程驱逐 Topic。"""
-        buf = self._port.pop(key)
-        if buf is not None:
-            scope = self._scope(buf.workspace_identity)
-            if self._last_active_topic_keys.get(scope) == key:
-                self._last_active_topic_keys.pop(scope, None)
-        return buf
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None:
+                return None
+            snapshot = self._to_topic_data(buf)
+            self._evict_locked(key)
+            return snapshot
 
     # ========== 写操作（命名方法，禁止调用方直接写 buffer 字段）==========
 
     def add_block(self, key: WorkspaceTopicKey, block: LogicalBlock) -> None:
-        buf = self._require_buffer(key)
-        buf.blocks.append(block)
-        buf.total_tokens += block.total_tokens
-        buf.last_update = datetime.now().timestamp()
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            buf.blocks.append(block)
+            buf.total_tokens += block.total_tokens
+            buf.last_update = datetime.now().timestamp()
 
     def clear_blocks(self, key: WorkspaceTopicKey) -> None:
-        """清空 blocks 并重置 token 计数（替代 buffer.blocks.clear() + total_tokens=0）。"""
-        buf = self._require_buffer(key)
-        buf.blocks.clear()
-        buf.total_tokens = 0
-        buf.last_update = datetime.now().timestamp()
+        """清空 blocks 并重置 token 计数（settle 内部的瞬时步骤，非生命周期入口）。"""
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            buf.blocks.clear()
+            buf.total_tokens = 0
+            buf.last_update = datetime.now().timestamp()
 
     def update_summary(
         self,
@@ -245,9 +277,10 @@ class ShortTermMemoryStore:
         summary: str,
     ) -> None:
         """只更新 state summary，不改变当前 blocks。"""
-        buf = self._require_buffer(key)
-        buf.state_summary = summary
-        buf.last_update = datetime.now().timestamp()
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            buf.state_summary = summary
+            buf.last_update = datetime.now().timestamp()
 
     def apply_compaction(
         self,
@@ -256,7 +289,7 @@ class ShortTermMemoryStore:
         *,
         retain_count: int,
     ) -> int:
-        """写入摘要并保留最近 N 个 blocks，返回被裁剪的 block 数。
+        """在持有 PROCESSING 时应用 compact 结果，返回被裁剪的 block 数。
 
         所有 compact 路径都必须保证至少保留一个最新 block；传入小于 1 的
         ``retain_count`` 在输入边界以具体异常拒绝，不静默提升。
@@ -264,49 +297,201 @@ class ShortTermMemoryStore:
         if retain_count < 1:
             raise ValueError("retain_count must be >= 1")
 
-        buf = self._require_buffer(key)
-        buf.state_summary = summary
-        buf.last_update = datetime.now().timestamp()
-        if len(buf.blocks) <= retain_count:
-            return 0
-        folded = len(buf.blocks) - retain_count
-        buf.blocks = buf.blocks[-retain_count:]
-        buf.total_tokens = sum(b.total_tokens for b in buf.blocks)
-        return folded
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            if buf.state is not BufferState.PROCESSING:
+                raise TopicBusyError(
+                    f"topic '{key.topic_id}' 未持有 PROCESSING 预约，不能应用 compact"
+                )
+            buf.state_summary = summary
+            buf.last_update = datetime.now().timestamp()
+            if len(buf.blocks) <= retain_count:
+                return 0
+            folded = len(buf.blocks) - retain_count
+            buf.blocks = buf.blocks[-retain_count:]
+            buf.total_tokens = sum(b.total_tokens for b in buf.blocks)
+            return folded
 
     def update_title(self, key: WorkspaceTopicKey, title: str) -> None:
         """写入 topic_title（替代 buffer.topic_title = title）。"""
-        buf = self._require_buffer(key)
-        buf.topic_title = title
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            buf.topic_title = title
 
     def update_metadata(self, key: WorkspaceTopicKey, state: Optional[BufferState] = None) -> None:
-        buf = self._require_buffer(key)
-        if state is not None:
-            buf.state = state
-        buf.last_update = datetime.now().timestamp()
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            if state is not None:
+                buf.state = state
+            buf.last_update = datetime.now().timestamp()
 
     def update_model_used(self, key: WorkspaceTopicKey, model_used: str) -> None:
         """写入最近一次 run 使用的模型展示名。"""
-        buf = self._require_buffer(key)
-        buf.model_used = model_used
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            buf.model_used = model_used
+
+    # ========== P5：单写者预约 ==========
+
+    def reserve_processing(self, key: WorkspaceTopicKey) -> bool:
+        """IDLE -> PROCESSING；仅 IDLE Topic 可预约，busy 或缺失返回 False。"""
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None or buf.state is not BufferState.IDLE:
+                return False
+            buf.state = BufferState.PROCESSING
+            return True
+
+    def release_processing(self, key: WorkspaceTopicKey) -> None:
+        """PROCESSING -> IDLE；幂等，仅在当前处于 PROCESSING 时释放。"""
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is not None and buf.state is BufferState.PROCESSING:
+                buf.state = BufferState.IDLE
+
+    def reserve_flushing(self, key: WorkspaceTopicKey) -> bool:
+        """IDLE -> FLUSHING；仅 IDLE Topic 可进入 manual settle 窗口。"""
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None or buf.state is not BufferState.IDLE:
+                return False
+            buf.state = BufferState.FLUSHING
+            return True
+
+    def commit_flushing(self, key: WorkspaceTopicKey) -> bool:
+        """FLUSHING -> 驱逐；返回是否实际结束了 Topic 生命周期。"""
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None or buf.state is not BufferState.FLUSHING:
+                return False
+            self._evict_locked(key)
+            return True
+
+    def abort_flushing(self, key: WorkspaceTopicKey) -> None:
+        """FLUSHING -> IDLE；admission 失败时恢复可写状态，保留 Topic 内容。"""
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is not None and buf.state is BufferState.FLUSHING:
+                buf.state = BufferState.IDLE
+
+    # ========== P5：原子 apply 与 binding ==========
+
+    def apply_interaction(
+        self,
+        identity_scope: WorkspaceAccessContext,
+        topic_id: str,
+        interaction_id: str | None,
+        block: LogicalBlock,
+        *,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
+        model_used: str | None = None,
+    ) -> TopicData:
+        """在单个临界区内原子提交本轮 block、首次 bindings 与 metadata。
+
+        前置：目标 Topic 必须已持有 ``PROCESSING`` 预约。binding 只在本轮
+        Interaction 显式携带且尚未绑定的 ``asset_id`` 上首次建立，重复使用同一
+        资产只幂等命中既有关系，不覆盖首次 Interaction 或首次绑定时间。
+        """
+        key = WorkspaceTopicKey.from_access_context(
+            require_workspace_access_context(identity_scope),
+            topic_id,
+        )
+        normalized_refs = self._normalize_asset_id_and_refs(asset_id_and_refs)
+        if normalized_refs and not interaction_id:
+            raise ValueError("建立 asset binding 必须携带 interaction_id")
+
+        with self._lock:
+            buf = self._require_buffer_locked(key)
+            if buf.state is not BufferState.PROCESSING:
+                raise TopicBusyError(
+                    f"topic '{topic_id}' 未持有 PROCESSING 预约，不能原子 apply interaction"
+                )
+
+            buf.blocks.append(block)
+            buf.total_tokens += block.total_tokens
+
+            now = datetime.now().timestamp()
+            existing_ids = {binding.asset_id for binding in buf.bindings}
+            for asset_id, asset_ref in normalized_refs:
+                if asset_id in existing_ids:
+                    continue
+                buf.bindings.append(
+                    TopicAssetBinding(
+                        asset_id=asset_id,
+                        asset_ref=asset_ref,
+                        first_bound_interaction_id=interaction_id,
+                        bound_at=datetime.fromtimestamp(now),
+                    )
+                )
+                existing_ids.add(asset_id)
+
+            if model_used:
+                buf.model_used = model_used
+            buf.last_update = now
+            return self._to_topic_data(buf)
+
+    def list_asset_bindings(
+        self,
+        identity_scope: WorkspaceAccessContext,
+        topic_id: str,
+    ) -> tuple[TopicAssetBinding, ...]:
+        """返回 Topic 当前冻结的资产使用关系；不存在 Topic 时返回空元组。"""
+        key = self._key(identity_scope, topic_id)
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None:
+                return ()
+            return tuple(buf.bindings)
+
+    def freeze_and_evict(self, key: WorkspaceTopicKey) -> Optional[TopicData]:
+        """automatic settle 的原子 freeze-and-evict：仅接受 IDLE Topic。
+
+        在一个临界区内冻结 blocks/state summary/binding refs、移除 buffer 并修正
+        last-active 索引；检测到 PROCESSING/FLUSHING 或缺失时返回 None，由调用方
+        跳过或改选候选。
+        """
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None or buf.state is not BufferState.IDLE:
+                return None
+            snapshot = self._to_topic_data(buf)
+            self._evict_locked(key)
+            return snapshot
+
+    def freeze_for_manual_settle(self, key: WorkspaceTopicKey) -> Optional[TopicData]:
+        """manual settle 的 FLUSHING prepare：IDLE -> FLUSHING 并冻结快照。
+
+        不清除 blocks、不驱逐 buffer；admission 成功后由 ``commit_flushing`` 驱逐，
+        失败由 ``abort_flushing`` 恢复 IDLE。
+        """
+        with self._lock:
+            buf = self._port.get(key)
+            if buf is None or buf.state is not BufferState.IDLE:
+                return None
+            buf.state = BufferState.FLUSHING
+            return self._to_topic_data(buf)
 
     # ========== LRU ==========
 
     def get_lru_topic(self, access_context: WorkspaceAccessContext) -> Optional[str]:
-        """返回访问时间最久远的话题 topic_id，无话题时返回 None。"""
+        """返回访问时间最久远的 IDLE 话题 topic_id，跳过 busy 候选，无候选返回 None。"""
         access_context = require_workspace_access_context(access_context)
-        bufs = self._port.list_by_workspace(access_context.workspace_identity)
-        if not bufs:
-            return None
-        return min(bufs, key=lambda b: b.last_accessed_at).topic_id
+        with self._lock:
+            bufs = self._port.list_by_workspace(access_context.workspace_identity)
+            idle = [buf for buf in bufs if buf.state is BufferState.IDLE]
+            if not idle:
+                return None
+            return min(idle, key=lambda b: b.last_accessed_at).topic_id
 
     def needs_eviction(self, access_context: WorkspaceAccessContext) -> bool:
         access_context = require_workspace_access_context(access_context)
-        return self._port.count(access_context.workspace_identity) >= self.max_resident_topics
+        with self._lock:
+            return self._port.count(access_context.workspace_identity) >= self.max_resident_topics
 
     def get_active_topic_buffer_count(self, access_context: WorkspaceAccessContext) -> int:
         access_context = require_workspace_access_context(access_context)
-        return self._port.count(access_context.workspace_identity)
+        with self._lock:
+            return self._port.count(access_context.workspace_identity)
 
     # ========== info ==========
 
@@ -315,17 +500,18 @@ class ShortTermMemoryStore:
         access_context: WorkspaceAccessContext,
         topic_id: str,
     ) -> Dict[str, Any]:
-        buf = self._port.get(self._key(access_context, topic_id))
-        if buf:
-            return {
-                "exists": True,
-                "topic_id": buf.topic_id,
-                "block_count": len(buf.blocks),
-                "total_tokens": buf.total_tokens,
-                "has_content": buf.has_content,
-                "state": buf.state.value if hasattr(buf.state, "value") else buf.state,
-            }
-        return {"exists": False}
+        with self._lock:
+            buf = self._port.get(self._key(access_context, topic_id))
+            if buf:
+                return {
+                    "exists": True,
+                    "topic_id": buf.topic_id,
+                    "block_count": len(buf.blocks),
+                    "total_tokens": buf.total_tokens,
+                    "has_content": buf.has_content,
+                    "state": buf.state.value if hasattr(buf.state, "value") else buf.state,
+                }
+            return {"exists": False}
 
     def _to_topic_data(self, buf: SemanticBuffer) -> TopicData:
         return TopicData(
@@ -336,6 +522,7 @@ class ShortTermMemoryStore:
             topic_summary=buf.topic_summary,
             state_summary=buf.state_summary,
             blocks=tuple(buf.blocks),
+            bindings=tuple(buf.bindings),
             state=buf.state,
             last_update=buf.last_update,
             last_accessed_at=buf.last_accessed_at,
@@ -345,10 +532,26 @@ class ShortTermMemoryStore:
 
     def list_all_topic_data_for_maintenance(self) -> List[TopicData]:
         """供进程级 idle/shutdown 协调器遍历，不作为用户授权入口。"""
-        return [self._to_topic_data(buf) for buf in self._port.list_all()]
+        with self._lock:
+            return [self._to_topic_data(buf) for buf in self._port.list_all()]
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()
+
+    @staticmethod
+    def _normalize_asset_id_and_refs(
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...],
+    ) -> list[tuple[str, WorkspaceAssetRef]]:
+        """校验 asset_id + asset_ref 关系输入，拒绝空白 ID 与非 WorkspaceAssetRef。"""
+        result: list[tuple[str, WorkspaceAssetRef]] = []
+        for item in asset_id_and_refs:
+            asset_id, asset_ref = item
+            if not isinstance(asset_id, str) or not asset_id.strip():
+                raise ValueError("asset_id 不能为空")
+            if not isinstance(asset_ref, WorkspaceAssetRef):
+                raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
+            result.append((asset_id.strip(), asset_ref))
+        return result
 
 
 # ============ MidTermMemoryStore ============

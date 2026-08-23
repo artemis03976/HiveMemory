@@ -227,11 +227,13 @@ class TestPageFoldingThreshold:
                 ),
             )
 
+        assert store.reserve_processing(buffer.topic_key)
         folded = store.apply_compaction(
             buffer.topic_key,
             "Test summary",
             retain_count=2,
         )
+        store.release_processing(buffer.topic_key)
 
         topic_data = store.get_topic_data(access_context, topic_id, touch=False)
         assert topic_data is not None

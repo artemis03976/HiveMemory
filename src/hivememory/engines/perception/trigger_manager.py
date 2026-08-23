@@ -9,7 +9,7 @@ HiveMemory Trigger Manager
     - 返回 TopicMaterializeTask 供上层提交给生成链路（不主动触发）
 
 核心概念:
-    - Settle (结算): 将 blocks 打包为 TopicMaterializeTask 返回给调用方
+    - Settle (结算): 将 blocks 与 binding 打包为 TopicMaterializeTask 返回给调用方
     - Compact (压缩): 生成 state_summary（同步阻塞）
     - Evict (驱逐): 从活跃池移除 buffer
 
@@ -22,13 +22,15 @@ HiveMemory Trigger Manager
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from hivememory.core.models import (
     IdentityScope,
+    TopicData,
     WorkspaceIdentity,
     WorkspaceTopicKey,
 )
+from hivememory.patchouli.errors import TopicBusyError
 
 from hivememory.engines.perception.models import (
     FlushEvent,
@@ -145,19 +147,13 @@ class TriggerManager:
         统一的话题结算调度器。
 
         Args:
-            trigger: 结算触发指令（包含 topic_id 与 reason）
+            trigger: 结算触发指令（包含 topic_key 与 reason）
             retain_recent_blocks: compact 路径（TOKEN_OVERFLOW / MANUAL_COMPACT）
                 必须提供的最近工作集大小，必须 >= 1；其他触发原因忽略该值
 
         Returns:
             TopicMaterializeTask 供上层提交给生成链路；如无需结算则返回 None
         """
-        topic_data = self._store.get_topic_data_by_key(trigger.topic_key)
-        if topic_data is None:
-            logger.debug("resolve_topic: topic 不存在，跳过结算")
-            return None
-
-        # 1. 查表：决策开关
         actions = DECISION_MATRIX.get(trigger.reason)
         if not actions:
             logger.error(f"未知的触发原因: {trigger.reason}")
@@ -167,90 +163,129 @@ class TriggerManager:
         need_compact = actions["compact"]
         need_evict = actions["evict"]
 
-        # 真正空 Topic：没有可 settle/compact 的内容，但生命周期动作仍需按矩阵执行。
-        # “没有可结算材料”不等于“没有需要执行的生命周期动作”。
-        if topic_data.is_empty:
-            logger.debug(
-                "resolve_topic: topic 内容为空，仅按矩阵执行 evict=%s, "
-                "topic_id=%s, reason=%s",
-                need_evict,
-                trigger.topic_id,
-                trigger.reason,
-            )
-            if need_evict:
-                self._store.pop_buffer_by_key(trigger.topic_key)
+        if trigger.reason is FlushReason.MANUAL_SETTLE:
+            # manual settle 使用 FLUSHING prepare -> admission -> evict，不走本调度器。
+            raise ValueError("MANUAL_SETTLE 必须通过 prepare_manual_settle 处理")
+
+        if need_settle and need_evict:
+            # IDLE/LRU/SHUTDOWN：automatic settle 走原子 freeze-and-evict。
+            return self.settle_and_evict(trigger.topic_key, trigger.reason)
+
+        if need_compact:
+            # TOKEN_OVERFLOW 复用 Interaction 已持有的 PROCESSING；
+            # MANUAL_COMPACT 需要自行预约 PROCESSING。
+            return await self._compact_path(trigger, retain_recent_blocks)
+
+        if need_evict:
+            # MANUAL_DELETE：只丢弃 Topic，不构造 settlement。
+            self._store.pop_buffer_by_key(trigger.topic_key)
             return None
 
-        logger.info(
-            f"resolve_topic: topic_id={trigger.topic_id}, "
-            f"reason={trigger.reason}, "
-            f"actions=[Settle={need_settle}, Compact={need_compact}, Evict={need_evict}], "
-            f"blocks={topic_data.block_count}"
+        return None
+
+    def settle_and_evict(
+        self,
+        topic_key: WorkspaceTopicKey,
+        reason: FlushReason,
+    ) -> Optional[TopicMaterializeTask]:
+        """automatic settle：只接受 IDLE Topic，原子 freeze-and-evict 后冻结载荷。
+
+        ``freeze_and_evict`` 在 Store 临界区内冻结 blocks/state summary/binding
+        refs 并移除 buffer；busy（PROCESSING/FLUSHING）或缺失时返回 None，由调用方
+        跳过或改选候选，不把已预定离开的 Topic 重新插回池中。
+        """
+        snapshot = self._store.freeze_and_evict(topic_key)
+        if snapshot is None:
+            logger.debug("settle_and_evict: topic busy 或不存在，跳过结算")
+            return None
+        if snapshot.is_empty:
+            logger.debug("settle_and_evict: topic 内容为空，已驱逐但无可结算材料")
+            return None
+        return self._build_settle_payload_from_snapshot(snapshot, reason)
+
+    def prepare_manual_settle(
+        self,
+        topic_key: WorkspaceTopicKey,
+    ) -> Optional[TopicMaterializeTask]:
+        """manual settle 的 FLUSHING prepare：冻结材料但不驱逐，不清 blocks。
+
+        只接受 IDLE Topic；成功取得 FLUSHING 后冻结 payload 并返回。admission
+        失败由 ``abort_manual_settle`` 恢复 IDLE，成功由 ``commit_manual_settle``
+        驱逐。
+        """
+        snapshot = self._store.freeze_for_manual_settle(topic_key)
+        if snapshot is None:
+            raise TopicBusyError(
+                f"topic '{topic_key.topic_id}' 正忙，无法开始 manual settle"
+            )
+        if snapshot.is_empty:
+            return None
+        return self._build_settle_payload_from_snapshot(
+            snapshot,
+            FlushReason.MANUAL_SETTLE,
         )
 
-        blocks_snapshot = list(topic_data.blocks)
-        settle_payload: Optional[TopicMaterializeTask] = None
+    def commit_manual_settle(self, topic_key: WorkspaceTopicKey) -> bool:
+        """admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
+        return self._store.commit_flushing(topic_key)
 
-        # Action 1: Settle — 构建载荷并返回给调用方
-        if need_settle:
-            settle_payload = self._build_settle_payload(
-                topic_id=trigger.topic_id,
-                blocks_snapshot=blocks_snapshot,
-                state_summary=topic_data.state_summary,
-                reason=trigger.reason,
-                workspace_identity=topic_data.workspace_identity,
-                topic_title=topic_data.topic_title,
-                topic_summary=topic_data.topic_summary,
+    def abort_manual_settle(self, topic_key: WorkspaceTopicKey) -> None:
+        """admission 失败后恢复 FLUSHING Topic 为 IDLE，保留可重试内容。"""
+        self._store.abort_flushing(topic_key)
+
+    # ========== compact 路径 ==========
+
+    async def _compact_path(
+        self,
+        trigger: FlushEvent,
+        retain_recent_blocks: Optional[int],
+    ) -> Optional[TopicMaterializeTask]:
+        """执行 compact；TOKEN_OVERFLOW 复用已持有预约，MANUAL_COMPACT 自行预约。"""
+        if retain_recent_blocks is None:
+            raise ValueError(f"{trigger.reason.value} requires retain_recent_blocks")
+
+        topic_key = trigger.topic_key
+        manual = trigger.reason is FlushReason.MANUAL_COMPACT
+        if manual and not self._store.reserve_processing(topic_key):
+            raise TopicBusyError(
+                f"topic '{topic_key.topic_id}' 正忙，无法开始 manual compact"
             )
 
-        # Action 2: Compact（同步阻塞）
-        if need_compact:
-            if retain_recent_blocks is None:
-                raise ValueError(
-                    f"{trigger.reason.value} requires retain_recent_blocks"
-                )
+        try:
+            topic_data = self._store.get_topic_data_by_key(topic_key, touch=False)
+            if topic_data is None:
+                return None
+            if topic_data.is_empty:
+                return None
             await self._compact_topic(
-                trigger.topic_key,
-                blocks_snapshot,
+                topic_key,
+                list(topic_data.blocks),
                 topic_data.state_summary,
                 retain_recent_blocks=retain_recent_blocks,
             )
-
-        # Settle 之后旧 Blocks 必须清空；纯 Compact 则由 fold 操作保留最近工作集。
-        if need_settle:
-            self._store.clear_blocks(trigger.topic_key)
-
-        # Action 3: Evict（内存清理）
-        if need_evict:
-            self._store.pop_buffer_by_key(trigger.topic_key)
-
-        return settle_payload
-
-    def build_settle_payload(
-        self,
-        trigger: FlushEvent,
-    ) -> Optional[TopicMaterializeTask]:
-        """
-        只冻结手动结算材料，不修改 buffer。
-
-        manual settle 使用 prepare -> admission -> evict 顺序：本方法负责
-        prepare，调用方在 generation admission 成功后才 evict；admission 失败时
-        Topic、blocks 与 state_summary 保持完整可重试。
-        """
-        topic_data = self._store.get_topic_data_by_key(trigger.topic_key)
-        if topic_data is None or topic_data.is_empty:
             return None
-        return self._build_settle_payload(
-            topic_id=trigger.topic_id,
-            blocks_snapshot=list(topic_data.blocks),
-            state_summary=topic_data.state_summary,
-            reason=trigger.reason,
-            workspace_identity=topic_data.workspace_identity,
-            topic_title=topic_data.topic_title,
-            topic_summary=topic_data.topic_summary,
-        )
+        finally:
+            if manual:
+                self._store.release_processing(topic_key)
 
     # ========== 原子操作 ==========
+
+    def _build_settle_payload_from_snapshot(
+        self,
+        snapshot: TopicData,
+        reason: FlushReason,
+    ) -> Optional[TopicMaterializeTask]:
+        """从冻结 TopicData 快照构建 settle 载荷，并冻结 binding refs。"""
+        return self._build_settle_payload(
+            topic_id=snapshot.topic_id,
+            blocks_snapshot=list(snapshot.blocks),
+            state_summary=snapshot.state_summary,
+            reason=reason,
+            workspace_identity=snapshot.workspace_identity,
+            topic_title=snapshot.topic_title,
+            topic_summary=snapshot.topic_summary,
+            asset_bindings=snapshot.bindings,
+        )
 
     def _build_settle_payload(
         self,
@@ -261,9 +296,13 @@ class TriggerManager:
         workspace_identity: WorkspaceIdentity,
         topic_title: str = "",
         topic_summary: str = "",
+        asset_bindings: tuple = (),
     ) -> Optional[TopicMaterializeTask]:
         """
         Settle 原子操作：过滤 blocks 并构建 TopicMaterializeTask。
+
+        ``asset_bindings`` 在 buffer 清理前冻结进 task，进入 queue 后不再依赖
+        SemanticBuffer；后续 codec/retry 必须原样保留 ref。
 
         Returns:
             TopicMaterializeTask；若所有 blocks 均被过滤则返回 None
@@ -293,6 +332,7 @@ class TriggerManager:
             topic_summary=topic_summary,
             blocks=blocks_to_settle,
             state_summary=state_summary,
+            asset_bindings=tuple(asset_bindings),
             reason=reason,
         )
 

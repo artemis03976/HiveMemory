@@ -17,16 +17,18 @@ def test_journal_records_all_apply_stages() -> None:
         identity_scope=make_memory_creation_context(),
     )
 
-    journal.record_block_applied("interaction-1", "topic-1")
+    journal.record_interaction_applied("interaction-1", "topic-1", "digest-1")
     record = journal.get("interaction-1")
     assert record is not None
-    assert record.stage is InteractionApplyStage.BLOCK_APPLIED
+    assert record.stage is InteractionApplyStage.INTERACTION_APPLIED
+    assert record.input_digest == "digest-1"
 
     journal.record_local_completed("interaction-1", "topic-1", settlement)
     record = journal.get("interaction-1")
     assert record is not None
     assert record.stage is InteractionApplyStage.LOCAL_COMPLETED
     assert record.settlement_to_submit is settlement
+    assert record.input_digest == "digest-1"
 
     journal.complete("interaction-1", "topic-1")
     record = journal.get("interaction-1")
@@ -37,15 +39,29 @@ def test_journal_records_all_apply_stages() -> None:
 
 def test_journal_rejects_same_interaction_for_another_topic() -> None:
     journal = InMemoryInteractionApplyJournal()
-    journal.record_block_applied("interaction-1", "topic-1")
+    journal.record_interaction_applied("interaction-1", "topic-1", "digest-1")
 
     with pytest.raises(ValueError, match="already applied to topic 'topic-1'"):
-        journal.record_block_applied("interaction-1", "topic-2")
+        journal.record_interaction_applied("interaction-1", "topic-2", "digest-1")
+
+
+def test_journal_rejects_same_interaction_with_different_digest() -> None:
+    journal = InMemoryInteractionApplyJournal()
+    journal.record_interaction_applied("interaction-1", "topic-1", "digest-1")
+
+    with pytest.raises(ValueError, match="different input digest"):
+        journal.record_interaction_applied("interaction-1", "topic-1", "digest-2")
+
+
+def test_journal_rejects_blank_digest() -> None:
+    journal = InMemoryInteractionApplyJournal()
+    with pytest.raises(ValueError, match="input_digest"):
+        journal.record_interaction_applied("interaction-1", "topic-1", "  ")
 
 
 def test_journal_cannot_complete_before_local_obligations() -> None:
     journal = InMemoryInteractionApplyJournal()
-    journal.record_block_applied("interaction-1", "topic-1")
+    journal.record_interaction_applied("interaction-1", "topic-1", "digest-1")
 
     with pytest.raises(RuntimeError, match="local obligations are not completed"):
         journal.complete("interaction-1", "topic-1")
@@ -67,7 +83,7 @@ def test_journal_has_a_bounded_idempotency_window() -> None:
     for index in range(3):
         interaction_id = f"interaction-{index}"
         topic_id = f"topic-{index}"
-        journal.record_block_applied(interaction_id, topic_id)
+        journal.record_interaction_applied(interaction_id, topic_id, f"digest-{index}")
         journal.record_local_completed(interaction_id, topic_id, None)
         journal.complete(interaction_id, topic_id)
 

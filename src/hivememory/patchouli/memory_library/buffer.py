@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from hivememory.core.models import BufferState, LogicalBlock, WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models import BufferState, LogicalBlock, TopicAssetBinding, WorkspaceIdentity, WorkspaceTopicKey
 
 
 class SemanticBuffer(BaseModel):
@@ -36,6 +36,9 @@ class SemanticBuffer(BaseModel):
     state_summary: str = Field(default="", description="页折叠后的状态摘要")
 
     blocks: List[LogicalBlock] = Field(default_factory=list)
+
+    # 本 Topic 真实使用过的资产关系事实；不保存 WorkspaceAsset 快照或 actor-policy 字段。
+    bindings: List[TopicAssetBinding] = Field(default_factory=list)
 
     state: BufferState = BufferState.IDLE
     last_update: float = Field(default_factory=lambda: datetime.now().timestamp())

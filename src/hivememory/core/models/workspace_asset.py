@@ -218,6 +218,29 @@ class WorkspaceAssetHandle(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
 
+class TopicAssetBinding(BaseModel):
+    """冻结的 Topic 级资产真实使用关系事实。
+
+    由 ``ShortTermMemoryStore`` 在一次成功 Interaction 的原子 apply 中幂等维护。
+    只保存 ``asset_id`` 与 opaque ``asset_ref`` 的关系坐标，不保存
+    ``WorkspaceAsset`` 快照、representation 内容或 actor-policy 字段；
+    ``workspace_identity`` 与 ``topic_id`` 由所属 ``SemanticBuffer`` 提供，
+    不在 binding 内保存第二份可漂移的资源坐标。
+    """
+
+    asset_id: str = Field(min_length=1)
+    asset_ref: WorkspaceAssetRef
+    first_bound_interaction_id: str = Field(min_length=1)
+    bound_at: datetime
+
+    @field_validator("asset_id", "first_bound_interaction_id")
+    @classmethod
+    def _normalize_required_text(cls, value: str, info: Any) -> str:
+        return _validate_non_empty(value, info.field_name)
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
 class RepresentationPreference(BaseModel):
     """按顺序选择 READY representation 的偏好。"""
 
@@ -271,6 +294,7 @@ __all__ = [
     "AssetSafeError",
     "RepresentationLease",
     "RepresentationPreference",
+    "TopicAssetBinding",
     "WorkspaceAsset",
     "WorkspaceAssetClearSummary",
     "WorkspaceAssetHandle",

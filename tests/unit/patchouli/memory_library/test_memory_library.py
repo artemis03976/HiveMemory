@@ -106,44 +106,44 @@ class TestShortTermMemoryStore:
         self.store = ShortTermMemoryStore(max_resident_topics=3)
         self.access_context = make_access_context(user_id="u1")
 
-    def test_create_buffer_returns_semantic_buffer(self):
+    def test_create_buffer_returns_topic_data(self):
         buf = self.store.create_buffer(self.access_context, topic_title="Test Topic")
+        assert isinstance(buf, TopicData)
         assert buf.topic_id is not None
         assert buf.user_id == "u1"
         assert buf.topic_title == "Test Topic"
-        assert buf.blocks == []
+        assert buf.blocks == ()
 
     def test_get_topic_data_returns_none_for_missing(self):
         result = self.store.get_topic_data(self.access_context, "missing")
         assert result is None
 
     def test_get_topic_data_returns_immutable_topic_data(self):
-        buf = self.store.create_buffer(self.access_context)
-        self.store.add_block(
-            buf.topic_key,
-            LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
-        )
+        topic = self.store.create_buffer(self.access_context)
+        block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
+        self.store.add_block(topic.topic_key, block)
 
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, topic.topic_id)
 
         assert isinstance(data, TopicData)
         assert data.block_count == 1
-        assert data.blocks[0] is buf.blocks[0]
+        assert data.blocks[0] is block
         assert len(data.blocks) == 1
 
     def test_get_topic_data_touch_updates_last_accessed_at(self):
-        buf = self.store.create_buffer(self.access_context)
-        initial = buf.last_accessed_at
+        topic = self.store.create_buffer(self.access_context)
+        initial = topic.last_accessed_at
         fixed_now = datetime(2027, 1, 1, 12, 0, 0)
 
         with patch(
             "hivememory.patchouli.memory_library.stores.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value = fixed_now
-            self.store.get_topic_data(self.access_context, buf.topic_id, touch=True)
+            self.store.get_topic_data(self.access_context, topic.topic_id, touch=True)
 
-        assert buf.last_accessed_at == fixed_now.timestamp()
-        assert buf.last_accessed_at > initial
+        data = self.store.get_topic_data(self.access_context, topic.topic_id, touch=False)
+        assert data.last_accessed_at == fixed_now.timestamp()
+        assert data.last_accessed_at > initial
 
     def test_get_topic_data_reuses_immutable_block_objects(self):
         buf = self.store.create_buffer(self.access_context)
@@ -289,39 +289,49 @@ class TestShortTermMemoryStore:
         buf1 = self.store.create_buffer(self.access_context)
         buf2 = self.store.create_buffer(self.access_context)
 
-        # 手动设置时间戳确保顺序
-        buf1.last_accessed_at = 100.0
-        buf2.last_accessed_at = 200.0
+        # 通过 touch 设置不同的访问时间戳，避免直接写冻结快照字段。
+        t1 = datetime(2026, 1, 1, 12, 0, 0)
+        t2 = datetime(2026, 1, 1, 13, 0, 0)
+        with patch(
+            "hivememory.patchouli.memory_library.stores.datetime"
+        ) as mock_datetime:
+            mock_datetime.now.return_value = t1
+            self.store.get_topic_data(self.access_context, buf1.topic_id, touch=True)
+            mock_datetime.now.return_value = t2
+            self.store.get_topic_data(self.access_context, buf2.topic_id, touch=True)
 
         lru = self.store.get_lru_topic(self.access_context)
 
         assert lru == buf1.topic_id
 
     def test_pop_buffer_removes_and_returns(self):
-        buf = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.access_context)
 
-        removed = self.store.pop_buffer(self.access_context, buf.topic_id)
+        removed = self.store.pop_buffer(self.access_context, topic.topic_id)
 
-        assert removed is buf
-        assert self.store.topic_exists(self.access_context, buf.topic_id) is False
+        assert removed is not None
+        assert removed.topic_id == topic.topic_id
+        assert self.store.topic_exists(self.access_context, topic.topic_id) is False
 
     def test_apply_compaction_trims_old_blocks_and_rewrites_tokens(self):
-        buf = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.access_context)
         for i in range(3):
             self.store.add_block(
-                buf.topic_key,
+                topic.topic_key,
                 LogicalBlock(
                     turn=TurnRecord(user_query=f"q{i}", assistant_final_text=f"a{i}"),
                     total_tokens=10,
                 ),
             )
 
+        assert self.store.reserve_processing(topic.topic_key)
         folded = self.store.apply_compaction(
-            buf.topic_key, "new summary", retain_count=1
+            topic.topic_key, "new summary", retain_count=1
         )
+        self.store.release_processing(topic.topic_key)
 
         assert folded == 2
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, topic.topic_id)
         assert data.state_summary == "new summary"
         assert [b.user_query for b in data.blocks] == ["q2"]
         assert data.total_tokens == 10
@@ -340,18 +350,20 @@ class TestShortTermMemoryStore:
             )
 
     def test_apply_compaction_is_noop_when_blocks_not_exceeding_retain(self):
-        buf = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.access_context)
         self.store.add_block(
-            buf.topic_key,
+            topic.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
         )
 
+        assert self.store.reserve_processing(topic.topic_key)
         folded = self.store.apply_compaction(
-            buf.topic_key, "summary", retain_count=2
+            topic.topic_key, "summary", retain_count=2
         )
+        self.store.release_processing(topic.topic_key)
 
         assert folded == 0
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.access_context, topic.topic_id)
         assert data.state_summary == "summary"
         assert len(data.blocks) == 1
 
@@ -396,7 +408,8 @@ class TestShortTermMemoryStore:
         assert data.blocks == (block,)
 
         removed = store.pop_buffer(access_context, buf.topic_id)
-        assert removed is buf
+        assert removed is not None
+        assert removed.topic_id == buf.topic_id
         assert store.get_active_topic_buffer_count(access_context) == 0
 
 

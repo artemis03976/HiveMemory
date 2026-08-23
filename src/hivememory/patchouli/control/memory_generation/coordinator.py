@@ -69,6 +69,7 @@ class MemoryGenerationCoordinator:
                 topic_title=payload.topic_title,
                 topic_summary=payload.topic_summary,
                 blocks=payload.blocks,
+                asset_bindings=payload.asset_bindings,
             ),
         )
         return await self._bus.request(
@@ -244,6 +245,7 @@ class MemoryGenerationCoordinator:
         topic_title: str,
         topic_summary: str,
         blocks: list[LogicalBlock],
+        asset_bindings: tuple = (),
     ) -> InteractionArtifactInput | None:
         """将原始交互数据冻结为生成数据平面的交互输入。"""
         if not blocks:
@@ -253,6 +255,7 @@ class MemoryGenerationCoordinator:
             topic_title=topic_title,
             topic_summary=topic_summary,
             blocks=tuple(blocks),
+            asset_bindings=tuple(asset_bindings),
         )
 
 __all__ = ["MemoryGenerationCoordinator"]

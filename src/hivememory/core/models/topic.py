@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.interaction import TurnRecord
 from hivememory.core.models.workspace import WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models.workspace_asset import TopicAssetBinding
 
 
 class BufferState(str, Enum):
@@ -109,6 +110,7 @@ class TopicData(BaseModel):
     topic_summary: str = ""
     state_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = Field(default_factory=tuple)
+    bindings: tuple[TopicAssetBinding, ...] = Field(default_factory=tuple)
     state: BufferState = BufferState.IDLE
     last_update: float
     last_accessed_at: float

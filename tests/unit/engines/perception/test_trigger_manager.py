@@ -10,6 +10,7 @@ from hivememory.engines.perception.models import (
     TopicMaterializeTask,
 )
 from hivememory.engines.perception.trigger_manager import DECISION_MATRIX, TriggerManager
+from hivememory.patchouli.errors import TopicBusyError
 from tests.helpers.workspace import make_access_context
 
 
@@ -114,7 +115,7 @@ class TestTriggerManagerResolveTopic:
     @pytest.mark.asyncio
     async def test_truly_empty_topic_is_evicted_when_matrix_says_evict(self):
         """真正空 Topic 没有 settle/compact 材料，但仍需按矩阵执行 evict。"""
-        self.store.get_topic_data_by_key.return_value = TopicData(
+        self.store.freeze_and_evict.return_value = TopicData(
             topic_id=self.topic_id,
             workspace_identity=self.access_context.workspace_identity,
             current_agent_id=self.identity.agent_id,
@@ -129,8 +130,8 @@ class TestTriggerManagerResolveTopic:
 
         assert result is None
         self.relay.generate_summary.assert_not_called()
-        self.store.clear_blocks.assert_not_called()
-        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+        self.store.freeze_and_evict.assert_called_once_with(self.topic_key)
+        self.store.pop_buffer_by_key.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_truly_empty_topic_without_evict_stays_untouched(self):
@@ -208,7 +209,7 @@ class TestTriggerManagerResolveTopic:
 
     @pytest.mark.asyncio
     async def test_idle_timeout_returns_settlement_and_evicts(self):
-        self.store.get_topic_data_by_key.return_value = self._topic_data()
+        self.store.freeze_and_evict.return_value = self._topic_data()
 
         result = await self.manager.resolve_topic(
             FlushEvent(topic_key=self.topic_key, reason=FlushReason.IDLE_TIMEOUT)
@@ -219,12 +220,11 @@ class TestTriggerManagerResolveTopic:
         assert result.reason == FlushReason.IDLE_TIMEOUT
         assert len(result.blocks) == 3
         self.relay.generate_summary.assert_not_called()
-        self.store.clear_blocks.assert_called_once_with(self.topic_key)
-        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+        self.store.freeze_and_evict.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
     async def test_lru_eviction_returns_settlement_and_evicts(self):
-        self.store.get_topic_data_by_key.return_value = self._topic_data()
+        self.store.freeze_and_evict.return_value = self._topic_data()
 
         result = await self.manager.resolve_topic(
             FlushEvent(topic_key=self.topic_key, reason=FlushReason.LRU_EVICTION)
@@ -232,12 +232,11 @@ class TestTriggerManagerResolveTopic:
 
         assert isinstance(result, TopicMaterializeTask)
         assert result.reason == FlushReason.LRU_EVICTION
-        self.store.clear_blocks.assert_called_once_with(self.topic_key)
-        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+        self.store.freeze_and_evict.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
     async def test_shutdown_returns_settlement_and_evicts(self):
-        self.store.get_topic_data_by_key.return_value = self._topic_data()
+        self.store.freeze_and_evict.return_value = self._topic_data()
 
         result = await self.manager.resolve_topic(
             FlushEvent(topic_key=self.topic_key, reason=FlushReason.SHUTDOWN)
@@ -245,22 +244,15 @@ class TestTriggerManagerResolveTopic:
 
         assert isinstance(result, TopicMaterializeTask)
         assert result.reason == FlushReason.SHUTDOWN
-        self.store.clear_blocks.assert_called_once_with(self.topic_key)
-        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+        self.store.freeze_and_evict.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
-    async def test_manual_settle_returns_settlement_and_evicts(self):
-        self.store.get_topic_data_by_key.return_value = self._topic_data()
-
-        result = await self.manager.resolve_topic(
-            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
-        )
-
-        assert isinstance(result, TopicMaterializeTask)
-        assert result.reason == FlushReason.MANUAL_SETTLE
-        self.relay.generate_summary.assert_not_called()
-        self.store.clear_blocks.assert_called_once_with(self.topic_key)
-        self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
+    async def test_manual_settle_is_not_dispatched_through_resolve_topic(self):
+        """manual settle 必须走 FLUSHING prepare，不能经 resolve_topic 冻结驱逐。"""
+        with pytest.raises(ValueError, match="prepare_manual_settle"):
+            await self.manager.resolve_topic(
+                FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
+            )
 
     @pytest.mark.asyncio
     async def test_manual_compact_compacts_only_and_keeps_topic(self):
@@ -327,23 +319,22 @@ class TestTriggerManagerResolveTopic:
         self.store.pop_buffer_by_key.assert_called_once_with(self.topic_key)
 
     @pytest.mark.asyncio
-    async def test_build_settle_payload_is_non_destructive(self):
+    async def test_prepare_manual_settle_is_non_destructive(self):
         """manual settle 的 prepare 阶段只冻结材料，不修改 buffer。"""
-        self.store.get_topic_data_by_key.return_value = self._topic_data()
+        self.store.freeze_for_manual_settle.return_value = self._topic_data()
 
-        payload = self.manager.build_settle_payload(
-            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
-        )
+        payload = self.manager.prepare_manual_settle(self.topic_key)
 
         assert isinstance(payload, TopicMaterializeTask)
         assert len(payload.blocks) == 3
-        self.store.clear_blocks.assert_not_called()
+        assert payload.reason == FlushReason.MANUAL_SETTLE
+        self.store.freeze_for_manual_settle.assert_called_once_with(self.topic_key)
         self.store.pop_buffer_by_key.assert_not_called()
         self.store.apply_compaction.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_build_settle_payload_returns_none_for_empty_topic(self):
-        self.store.get_topic_data_by_key.return_value = TopicData(
+    async def test_prepare_manual_settle_returns_none_for_empty_topic(self):
+        self.store.freeze_for_manual_settle.return_value = TopicData(
             topic_id=self.topic_id,
             workspace_identity=self.access_context.workspace_identity,
             current_agent_id=self.identity.agent_id,
@@ -352,12 +343,18 @@ class TestTriggerManagerResolveTopic:
             last_accessed_at=1.0,
         )
 
-        payload = self.manager.build_settle_payload(
-            FlushEvent(topic_key=self.topic_key, reason=FlushReason.MANUAL_SETTLE)
-        )
+        payload = self.manager.prepare_manual_settle(self.topic_key)
 
         assert payload is None
         self.store.pop_buffer_by_key.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_prepare_manual_settle_raises_on_busy_topic(self):
+        """busy（非 IDLE）Topic 无法取得 FLUSHING，必须显式报 busy。"""
+        self.store.freeze_for_manual_settle.return_value = None
+
+        with pytest.raises(TopicBusyError):
+            self.manager.prepare_manual_settle(self.topic_key)
 
 
 class TestTriggerManagerSettlePayload:

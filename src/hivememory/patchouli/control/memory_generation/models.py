@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 
-from hivememory.core.models import IdentityScope, LogicalBlock, PendingAtomSettlement
+from hivememory.core.models import IdentityScope, LogicalBlock, PendingAtomSettlement, TopicAssetBinding
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.system.runtime.work_queue import TaskOutcome, WorkState
 
@@ -69,6 +69,8 @@ class InteractionArtifactInput:
     topic_title: str = ""
     topic_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = ()
+    # settle 前冻结的 Topic 真实使用资产关系；进入 queue 后不再依赖 SemanticBuffer。
+    asset_bindings: tuple[TopicAssetBinding, ...] = ()
 
 
 @dataclass(frozen=True)

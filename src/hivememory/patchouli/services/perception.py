@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Optional
 from hivememory.core.models import (
     IdentityScope,
     WorkspaceAccessContext,
+    WorkspaceAssetRef,
     WorkspaceTopicKey,
     require_workspace_access_context,
 )
@@ -28,7 +29,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
-from hivememory.patchouli.errors import TopicSettleAdmissionError
+from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 
 if TYPE_CHECKING:
@@ -79,6 +80,7 @@ class PerceptionFamiliar:
         identity_scope: IdentityScope,
         target_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> str:
         """摄入完整交互载荷，并交给感知层完成话题路由。"""
         if interaction_id:
@@ -90,6 +92,7 @@ class PerceptionFamiliar:
                         identity_scope,
                         target_topic_id,
                         interaction_id,
+                        asset_id_and_refs,
                     )
             finally:
                 await self._release_interaction_gate(interaction_id, gate)
@@ -99,6 +102,7 @@ class PerceptionFamiliar:
             identity_scope,
             target_topic_id,
             None,
+            asset_id_and_refs,
         )
 
     async def _acquire_interaction_gate(
@@ -132,6 +136,7 @@ class PerceptionFamiliar:
         identity_scope: IdentityScope,
         target_topic_id: str,
         interaction_id: str | None,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> str:
         """执行一次实际摄入；分阶段幂等真相由 raw perception journal 保存。"""
         apply_record = (
@@ -158,6 +163,7 @@ class PerceptionFamiliar:
                 target_topic_id,
                 payload,
                 identity_scope=identity_scope,
+                asset_id_and_refs=asset_id_and_refs,
             )
         else:
             topic_id, settle_payload = await self.perception_layer.route_and_ingest(
@@ -165,6 +171,7 @@ class PerceptionFamiliar:
                 payload,
                 identity_scope=identity_scope,
                 interaction_id=interaction_id,
+                asset_id_and_refs=asset_id_and_refs,
             )
 
         if settle_payload is not None:
@@ -215,7 +222,9 @@ class PerceptionFamiliar:
 
         lru_topic_id = self._short_term.get_lru_topic(access_context)
         if lru_topic_id is None:
-            return
+            # 池满但无 IDLE 候选（均被 PROCESSING/FLUSHING 占用），无法驱逐，
+            # 新 Topic 创建应作为可重试 busy 失败，而不是静默放行。
+            raise TopicBusyError("LRU 驱逐无 IDLE 候选，稍后重试")
 
         settle_payload = await self.perception_layer.settle_topic(
             WorkspaceTopicKey.from_access_context(access_context, lru_topic_id),
@@ -230,11 +239,12 @@ class PerceptionFamiliar:
         access_context: WorkspaceAccessContext,
         topic_id: Optional[str] = None,
     ) -> TopicSettleResult:
-        """手动结算指定话题：prepare -> admission -> evict。
+        """手动结算指定话题：FLUSHING prepare -> admission -> commit/abort。
 
-        冻结 settlement 材料，存在可写材料时先可靠接纳 memory generation task，
-        接纳成功（或没有可提交材料）后再结束 Topic 生命周期。admission 失败时
-        抛出受控错误，Topic、blocks 与 state_summary 保持完整可重试。
+        先取得 FLUSHING 预约并冻结 settlement 材料，存在可写材料时先可靠接纳
+        memory generation task，接纳成功（或没有可提交材料）后再结束 Topic 生命
+        周期。admission 失败时 abort 恢复 IDLE，Topic、blocks 与 state_summary
+        保持完整可重试。
         """
         access_context = require_workspace_access_context(access_context)
         target_id = topic_id or self._short_term.get_last_active_topic(access_context)
@@ -245,7 +255,7 @@ class PerceptionFamiliar:
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
-        # 1. prepare：只冻结材料，不清 blocks、不驱逐
+        # 1. prepare：取得 FLUSHING 并只冻结材料，不清 blocks、不驱逐
         settle_payload = await self.perception_layer.prepare_settlement(
             topic.topic_key
         )
@@ -263,12 +273,13 @@ class PerceptionFamiliar:
                     "manual settle admission 失败: topic_id=%s", target_id,
                     exc_info=True,
                 )
+                self.perception_layer.abort_settlement(topic.topic_key)
                 raise TopicSettleAdmissionError(
                     f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
                 ) from exc
 
-        # 3. evict：接纳成功或无可提交材料后结束 Topic 生命周期
-        self.perception_layer.swap_out_topic(topic.topic_key)
+        # 3. commit：接纳成功或正常 skip 后结束 Topic 生命周期
+        self.perception_layer.commit_settlement(topic.topic_key)
         logger.info(
             "manual_settle_topic 完成: topic_id=%s, task_id=%s",
             target_id, task.task_id if task else None,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -15,7 +16,9 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    TopicAssetBinding,
     TurnRecord,
+    WorkspaceAssetRef,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
 from hivememory.patchouli.control.memory_generation.controller import (
@@ -153,6 +156,36 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
     first.spec.request.context.state_summary = "attempt-local mutation"
     assert second.spec.request.context.state_summary == "original summary"
+
+
+def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
+    """settle 冻结的 binding refs 必须原样通过 codec/retry 保留。"""
+    binding = TopicAssetBinding(
+        asset_id="asset-1",
+        asset_ref=WorkspaceAssetRef(token="token-1"),
+        first_bound_interaction_id="i1",
+        bound_at=datetime.now(UTC),
+    )
+    spec = _spec(topic_id="topic-bind")
+    spec = replace(
+        spec,
+        interaction_input=InteractionArtifactInput(
+            topic_id="topic-bind",
+            blocks=(
+                LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
+            ),
+            asset_bindings=(binding,),
+        ),
+    )
+    adapter = _MemoryGenerationWorkAdapter()
+    work = _MemoryGenerationWork(task_id="task-bind", spec=spec)
+
+    encoded = adapter.encode(work)
+    decoded = adapter.decode(encoded)
+
+    assert decoded.spec.interaction_input is not None
+    assert decoded.spec.interaction_input.asset_bindings == (binding,)
+    assert decoded.spec.interaction_input.asset_bindings[0].asset_ref.token == "token-1"
 
 
 @pytest.mark.asyncio

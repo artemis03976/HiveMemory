@@ -60,6 +60,14 @@ class BasePerceptionLayer(ABC):
     ) -> Optional[TopicMaterializeTask]:
         """只冻结手动结算材料，不修改 buffer；由 manual settle 的 prepare 阶段使用。"""
 
+    @abstractmethod
+    def commit_settlement(self, topic_key: "WorkspaceTopicKey") -> bool:
+        """manual settle admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
+
+    @abstractmethod
+    def abort_settlement(self, topic_key: "WorkspaceTopicKey") -> None:
+        """manual settle admission 失败后恢复 FLUSHING Topic 为 IDLE。"""
+
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
     @abstractmethod
@@ -70,6 +78,7 @@ class BasePerceptionLayer(ABC):
         *,
         identity_scope: "IdentityScope",
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple = (),
     ) -> Optional[TopicMaterializeTask]:
         """
         摄入完整交互载荷。
@@ -88,6 +97,7 @@ class BasePerceptionLayer(ABC):
         *,
         identity_scope: "IdentityScope",
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple = (),
     ) -> Tuple[str, Optional[TopicMaterializeTask]]:
         """
         路由到指定话题并摄入载荷。

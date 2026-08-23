@@ -23,6 +23,7 @@ from hivememory.core.models import (
     LogicalBlock,
     Identity,
     IdentityScope,
+    TopicAssetBinding,
     TraceItem,
     TopicSnapshot,
     TurnEvent,
@@ -80,6 +81,13 @@ class TopicMaterializeTask(BaseModel):
 
     blocks: List[LogicalBlock] = Field(default_factory=list, description="话题内容块列表")
     state_summary: str = Field(default="", description="话题状态摘要")
+
+    # 结束 Topic 生命周期的 settle 在清除 buffer 前冻结的资产关系事实。进入 queue
+    # 后不再依赖 SemanticBuffer；codec/retry 必须原样保留 ref，不从最近资产重推导。
+    asset_bindings: tuple[TopicAssetBinding, ...] = Field(
+        default_factory=tuple,
+        description="settle 前冻结的 Topic 真实使用资产关系",
+    )
 
     reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="话题结算触发原因")
 

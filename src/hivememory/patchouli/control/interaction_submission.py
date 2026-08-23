@@ -17,6 +17,7 @@ from typing import Literal
 from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
+from hivememory.patchouli.errors import TopicBusyError
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.work_queue import (
     FailureAction,
@@ -221,7 +222,7 @@ class InteractionSubmissionHandler(
     ) -> FailureDecision:
         """仅重试已明确分类、且可复用同一 interaction identity 的失败。"""
 
-        if isinstance(error, (ConnectionError, TransientInteractionSubmissionError)):
+        if isinstance(error, (ConnectionError, TransientInteractionSubmissionError, TopicBusyError)):
             return FailureDecision(
                 action=FailureAction.RETRY,
                 retry_after_seconds=0.05,
