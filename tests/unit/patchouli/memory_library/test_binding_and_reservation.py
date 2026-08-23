@@ -182,9 +182,20 @@ class TestSingleWriterReservation:
         assert self.store.commit_flushing(self.key) is True
         assert self.store.topic_exists(self.access_context, self.topic.topic_id) is False
 
-    def test_freeze_and_evict_skips_busy_topic(self):
+    def test_freeze_and_evict_rejects_busy_topic(self):
+        """automatic settle 必须显式区分 busy，不能把它伪装成正常 skip。"""
         assert self.store.reserve_processing(self.key)
-        assert self.store.freeze_and_evict(self.key) is None
+        with pytest.raises(TopicBusyError, match="正忙"):
+            self.store.freeze_and_evict(self.key)
+
+        # 拒绝 freeze 后 Topic 仍保留，原预约也没有被越权释放。
+        data = self.store.get_topic_data(
+            self.access_context,
+            self.topic.topic_id,
+            touch=False,
+        )
+        assert data is not None
+        assert data.state is BufferState.PROCESSING
         self.store.release_processing(self.key)
         assert self.store.freeze_and_evict(self.key) is not None
         assert self.store.topic_exists(self.access_context, self.topic.topic_id) is False

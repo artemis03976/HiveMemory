@@ -98,6 +98,37 @@ class TestTriggerManagerResolveTopic:
             state_summary="previous summary",
         )
 
+    def test_automatic_settle_reports_missing_without_eviction(self):
+        """目标缺失与已驱逐空 Topic 必须是两个不同结果。"""
+        self.store.freeze_and_evict.return_value = None
+
+        result = self.manager.settle_and_evict(
+            self.topic_key,
+            FlushReason.IDLE_TIMEOUT,
+        )
+
+        assert result.evicted is False
+        assert result.settlement is None
+
+    def test_automatic_settle_reports_empty_topic_as_evicted_without_payload(self):
+        """空 Topic 已完成生命周期，只是没有 generation 材料。"""
+        self.store.freeze_and_evict.return_value = TopicData(
+            topic_id=self.topic_id,
+            workspace_identity=self.access_context.workspace_identity,
+            current_agent_id=self.identity.agent_id,
+            topic_title="Empty topic",
+            last_update=1.0,
+            last_accessed_at=1.0,
+        )
+
+        result = self.manager.settle_and_evict(
+            self.topic_key,
+            FlushReason.IDLE_TIMEOUT,
+        )
+
+        assert result.evicted is True
+        assert result.settlement is None
+
     @pytest.mark.asyncio
     async def test_empty_topic_data_returns_none(self):
         self.store.get_topic_data_by_key.return_value = None

@@ -13,6 +13,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Tuple, TYPE_CHECKING
 from hivememory.engines.perception.models import (
+    AutomaticSettleResult,
     FlushReason,
     TopicMaterializeTask,
 )
@@ -50,8 +51,8 @@ class BasePerceptionLayer(ABC):
         self,
         topic_key: "WorkspaceTopicKey",
         reason: FlushReason = FlushReason.MANUAL_SETTLE,
-    ) -> Optional[TopicMaterializeTask]:
-        """原子话题结算，不含任何策略判断。话题不存在或为空时返回 None。"""
+    ) -> AutomaticSettleResult:
+        """原子 automatic settle；busy 抛错，返回值区分驱逐与目标缺失。"""
 
     @abstractmethod
     async def prepare_settlement(

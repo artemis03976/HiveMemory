@@ -220,19 +220,33 @@ class PerceptionFamiliar:
         if not self._short_term.needs_eviction(access_context):
             return
 
-        lru_topic_id = self._short_term.get_lru_topic(access_context)
-        if lru_topic_id is None:
-            # 池满但无 IDLE 候选（均被 PROCESSING/FLUSHING 占用），无法驱逐，
-            # 新 Topic 创建应作为可重试 busy 失败，而不是静默放行。
-            raise TopicBusyError("LRU 驱逐无 IDLE 候选，稍后重试")
+        attempted_topic_ids: set[str] = set()
+        while self._short_term.needs_eviction(access_context):
+            lru_topic_id = self._short_term.get_lru_topic(access_context)
+            if lru_topic_id is None or lru_topic_id in attempted_topic_ids:
+                # 池满但无未尝试的 IDLE 候选，无法安全驱逐。
+                raise TopicBusyError("LRU 驱逐无 IDLE 候选，稍后重试")
 
-        settle_payload = await self.perception_layer.settle_topic(
-            WorkspaceTopicKey.from_access_context(access_context, lru_topic_id),
-            FlushReason.LRU_EVICTION,
-        )
+            try:
+                settle_result = await self.perception_layer.settle_topic(
+                    WorkspaceTopicKey.from_access_context(access_context, lru_topic_id),
+                    FlushReason.LRU_EVICTION,
+                )
+            except TopicBusyError:
+                # 候选在选择后进入 busy，重新读取 Store 以改选其他 IDLE Topic。
+                attempted_topic_ids.add(lru_topic_id)
+                continue
 
-        if settle_payload is not None:
-            await self._bus.request(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, settle_payload)
+            if not settle_result.evicted:
+                # 候选已被其他生命周期操作移除；重新检查容量，而不是误报驱逐成功。
+                attempted_topic_ids.add(lru_topic_id)
+                continue
+            if settle_result.settlement is not None:
+                await self._bus.request(
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+                    settle_result.settlement,
+                )
+            return
 
     async def manual_settle_topic(
         self,
@@ -320,13 +334,19 @@ class PerceptionFamiliar:
                     topic.topic_id,
                     datetime.now(timezone.utc).timestamp() - topic.last_update,
                 )
-                settle_payload = await self.perception_layer.settle_topic(
-                    topic.topic_key, FlushReason.IDLE_TIMEOUT
-                )
-                if settle_payload is not None:
+                try:
+                    settle_result = await self.perception_layer.settle_topic(
+                        topic.topic_key, FlushReason.IDLE_TIMEOUT
+                    )
+                except TopicBusyError:
+                    # snapshot 后进入 busy 的 Topic 留给后续维护轮次处理。
+                    continue
+                if not settle_result.evicted:
+                    continue
+                if settle_result.settlement is not None:
                     await self._bus.request(
                         PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                        settle_payload
+                        settle_result.settlement,
                     )
                 flushed.append(topic.topic_id)
         return flushed
@@ -344,14 +364,17 @@ class PerceptionFamiliar:
         resident_block_count = 0
         for topic in self._short_term.list_all_topic_data_for_maintenance():
             resident_block_count += topic.block_count
-            settle_payload = await self.perception_layer.settle_topic(
+            settle_result = await self.perception_layer.settle_topic(
                 topic.topic_key, FlushReason.SHUTDOWN
             )
+            if not settle_result.evicted:
+                # 目标已由其他生命周期操作移除，不把它伪装成本次 settled。
+                continue
             task: MemoryGenerationTask | None = None
-            if settle_payload is not None:
+            if settle_result.settlement is not None:
                 task = await self._bus.request(
                     PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                    settle_payload
+                    settle_result.settlement,
                 )
             settled_topic_ids.append(topic.topic_id)
             if task is None:

@@ -29,6 +29,7 @@ from hivememory.core.models import (
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import (
+    AutomaticSettleResult,
     FlushEvent,
     FlushReason,
     TopicMaterializeTask,
@@ -275,6 +276,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     return None
                 if apply_record.stage is InteractionApplyStage.LOCAL_COMPLETED:
                     return apply_record.settlement_to_submit
+                topic_key = WorkspaceTopicKey.from_access_context(
+                    identity_scope,
+                    topic_id,
+                )
+                if not self._short_term_store.reserve_processing(topic_key):
+                    raise TopicBusyError(
+                        f"topic '{topic_id}' 正忙，无法继续 interaction 后置义务，可稍后重试"
+                    )
                 return await self._complete_interaction_post_apply(
                     payload,
                     topic_id,
@@ -379,11 +388,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """完成 block 写入后的本地义务，并为外层 settlement admission 留存结果。"""
         topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
 
-        # Page Folding 检查（token 溢出时压缩旧 blocks，复用当前 PROCESSING 预约）
-        settle_payload = await self._maybe_fold_pages(topic_key)
-
-        # 释放 PROCESSING -> IDLE
-        self._short_term_store.release_processing(topic_key)
+        try:
+            # Page Folding 检查（token 溢出时压缩旧 blocks，复用当前 PROCESSING 预约）
+            settle_payload = await self._maybe_fold_pages(topic_key)
+        finally:
+            # 摘要生成或 compact 应用失败也必须结束本次预约，避免 Topic 永久 busy。
+            self._short_term_store.release_processing(topic_key)
 
         if interaction_id:
             self._interaction_journal.record_local_completed(
@@ -433,12 +443,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         self,
         topic_key: WorkspaceTopicKey,
         reason: FlushReason = FlushReason.MANUAL_SETTLE,
-    ) -> TopicMaterializeTask | None:
+    ) -> AutomaticSettleResult:
         """
         原子话题结算（automatic：IDLE/LRU/SHUTDOWN），不含策略判断。
 
-        Returns:
-            TopicMaterializeTask | None
+        busy 通过 ``TopicBusyError`` 显式报告；返回值区分实际驱逐、目标缺失与
+        已驱逐但没有 generation 材料。
         """
         return self._trigger_manager.settle_and_evict(topic_key, reason)
 
@@ -514,8 +524,8 @@ class NullPerceptionLayer(BasePerceptionLayer):
         self,
         topic_key: WorkspaceTopicKey,
         reason: FlushReason = FlushReason.MANUAL_SETTLE,
-    ) -> TopicMaterializeTask | None:
-        return None
+    ) -> AutomaticSettleResult:
+        return AutomaticSettleResult(evicted=False)
 
     async def prepare_settlement(
         self,

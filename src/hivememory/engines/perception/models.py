@@ -12,6 +12,7 @@ Note: SemanticBuffer / BufferState 已迁移至
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
@@ -104,7 +105,24 @@ class TopicMaterializeTask(BaseModel):
         return self.identity_scope.workspace_identity
 
 
+@dataclass(frozen=True)
+class AutomaticSettleResult:
+    """automatic settle 的内部结果，区分实际驱逐与目标已缺失。
+
+    busy 不属于正常返回值，由 ``TopicBusyError`` 显式表达；``settlement`` 为
+    ``None`` 仅表示 Topic 已驱逐但没有可提交的生成材料，不能再被解释为 busy。
+    """
+
+    evicted: bool
+    settlement: TopicMaterializeTask | None = None
+
+    def __post_init__(self) -> None:
+        if self.settlement is not None and not self.evicted:
+            raise ValueError("未驱逐 Topic 不能携带 settlement payload")
+
+
 __all__ = [
+    "AutomaticSettleResult",
     "FlushReason",
     "FlushEvent",
     "TurnEvent",

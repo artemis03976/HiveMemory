@@ -33,6 +33,7 @@ from hivememory.core.models import (
 from hivememory.patchouli.errors import TopicBusyError
 
 from hivememory.engines.perception.models import (
+    AutomaticSettleResult,
     FlushEvent,
     FlushReason,
     LogicalBlock,
@@ -169,7 +170,10 @@ class TriggerManager:
 
         if need_settle and need_evict:
             # IDLE/LRU/SHUTDOWN：automatic settle 走原子 freeze-and-evict。
-            return self.settle_and_evict(trigger.topic_key, trigger.reason)
+            return self.settle_and_evict(
+                trigger.topic_key,
+                trigger.reason,
+            ).settlement
 
         if need_compact:
             # TOKEN_OVERFLOW 复用 Interaction 已持有的 PROCESSING；
@@ -187,21 +191,24 @@ class TriggerManager:
         self,
         topic_key: WorkspaceTopicKey,
         reason: FlushReason,
-    ) -> Optional[TopicMaterializeTask]:
+    ) -> AutomaticSettleResult:
         """automatic settle：只接受 IDLE Topic，原子 freeze-and-evict 后冻结载荷。
 
         ``freeze_and_evict`` 在 Store 临界区内冻结 blocks/state summary/binding
-        refs 并移除 buffer；busy（PROCESSING/FLUSHING）或缺失时返回 None，由调用方
-        跳过或改选候选，不把已预定离开的 Topic 重新插回池中。
+        refs 并移除 buffer；busy（PROCESSING/FLUSHING）显式抛错，缺失与已驱逐但
+        无生成材料分别由 ``evicted`` 和 ``settlement`` 表达。
         """
         snapshot = self._store.freeze_and_evict(topic_key)
         if snapshot is None:
-            logger.debug("settle_and_evict: topic busy 或不存在，跳过结算")
-            return None
+            logger.debug("settle_and_evict: topic 已不存在，不执行结算")
+            return AutomaticSettleResult(evicted=False)
         if snapshot.is_empty:
             logger.debug("settle_and_evict: topic 内容为空，已驱逐但无可结算材料")
-            return None
-        return self._build_settle_payload_from_snapshot(snapshot, reason)
+            return AutomaticSettleResult(evicted=True)
+        return AutomaticSettleResult(
+            evicted=True,
+            settlement=self._build_settle_payload_from_snapshot(snapshot, reason),
+        )
 
     def prepare_manual_settle(
         self,

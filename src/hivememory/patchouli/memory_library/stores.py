@@ -447,13 +447,17 @@ class ShortTermMemoryStore:
         """automatic settle 的原子 freeze-and-evict：仅接受 IDLE Topic。
 
         在一个临界区内冻结 blocks/state summary/binding refs、移除 buffer 并修正
-        last-active 索引；检测到 PROCESSING/FLUSHING 或缺失时返回 None，由调用方
-        跳过或改选候选。
+        last-active 索引；缺失时返回 None，检测到 PROCESSING/FLUSHING 时显式抛出
+        ``TopicBusyError``，避免上层把状态冲突误判为正常 generation skip。
         """
         with self._lock:
             buf = self._port.get(key)
-            if buf is None or buf.state is not BufferState.IDLE:
+            if buf is None:
                 return None
+            if buf.state is not BufferState.IDLE:
+                raise TopicBusyError(
+                    f"topic '{key.topic_id}' 正忙，无法执行 automatic settle"
+                )
             snapshot = self._to_topic_data(buf)
             self._evict_locked(key)
             return snapshot

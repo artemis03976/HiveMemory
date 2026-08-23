@@ -19,7 +19,11 @@ import pytest
 
 from hivememory.core.models import LogicalBlock, TopicData, TurnRecord, WorkspaceTopicKey
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import FlushReason, TopicMaterializeTask
+from hivememory.engines.perception.models import (
+    AutomaticSettleResult,
+    FlushReason,
+    TopicMaterializeTask,
+)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
@@ -37,7 +41,9 @@ class TestPerceptionFamiliar:
         layer = layer or Mock()
         layer.route_and_ingest = AsyncMock(return_value=("t1", None))
         layer.prepare_topic = AsyncMock(return_value="t1")
-        layer.settle_topic = AsyncMock(return_value=None)
+        layer.settle_topic = AsyncMock(
+            return_value=AutomaticSettleResult(evicted=False)
+        )
         layer.swap_out_topic = Mock(return_value=True)
         layer.discard_if_empty = Mock(return_value=True)
 
@@ -84,7 +90,9 @@ class TestPerceptionFamiliar:
         )
         layer = Mock()
         layer.route_and_ingest = AsyncMock(return_value=("t1", settlement))
-        layer.settle_topic = AsyncMock(return_value=None)
+        layer.settle_topic = AsyncMock(
+            return_value=AutomaticSettleResult(evicted=False)
+        )
         layer.prepare_topic = AsyncMock(return_value="t1")
         store = Mock()
         store.topic_exists.return_value = True
@@ -160,7 +168,12 @@ class TestPerceptionFamiliar:
         )
         layer = Mock()
         layer.route_and_ingest = AsyncMock(return_value=("new_topic", None))
-        layer.settle_topic = AsyncMock(return_value=settlement)
+        layer.settle_topic = AsyncMock(
+            return_value=AutomaticSettleResult(
+                evicted=True,
+                settlement=settlement,
+            )
+        )
         store = Mock()
         store.topic_exists.return_value = False
         store.needs_eviction.return_value = True

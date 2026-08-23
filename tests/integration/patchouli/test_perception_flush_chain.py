@@ -40,7 +40,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
-from hivememory.patchouli.errors import TopicSettleAdmissionError
+from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
@@ -173,6 +173,25 @@ async def test_idle_flush_skips_empty_settlement_submission():
 
 
 @pytest.mark.asyncio
+async def test_idle_scan_skips_topic_that_becomes_busy_before_settlement():
+    """维护快照之后进入 PROCESSING 的 Topic 留给下一轮扫描。"""
+    familiar, layer, store, bus = _make_real_familiar(idle_timeout_seconds=1)
+    access_context = make_access_context(user_id="u-busy", agent_id="a-busy")
+    topic_id = await layer.create_new_topic(access_context)
+    topic_key = WorkspaceTopicKey.from_access_context(access_context, topic_id)
+    assert store.reserve_processing(topic_key) is True
+
+    with _fast_forward_idle():
+        flushed = await familiar.scan_idle_buffers_once()
+
+    assert flushed == []
+    remaining = store.get_topic_data(access_context, topic_id, touch=False)
+    assert remaining is not None
+    assert remaining.state.value == "processing"
+    bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_idle_flush_frees_slot():
     familiar, _, store, _ = _make_real_familiar(
         idle_timeout_seconds=1,
@@ -203,6 +222,47 @@ async def test_idle_flush_frees_slot():
 
 
 @pytest.mark.asyncio
+async def test_lru_reselects_another_idle_topic_when_first_candidate_becomes_busy():
+    """LRU 候选选择后的状态竞态不能导致超额创建或误报驱逐成功。"""
+    familiar, layer, store, bus = _make_real_familiar(max_resident_topics=2)
+    access_context = make_access_context(user_id="u-lru", agent_id="a-lru")
+    first_id = await layer.create_new_topic(access_context)
+    second_id = await layer.create_new_topic(access_context)
+    first_candidate_id = store.get_lru_topic(access_context)
+    assert first_candidate_id in {first_id, second_id}
+    fallback_id = second_id if first_candidate_id == first_id else first_id
+
+    original_settle = layer.settle_topic
+    first_candidate_key = WorkspaceTopicKey.from_access_context(
+        access_context,
+        first_candidate_id,
+    )
+
+    async def settle_with_candidate_race(topic_key, reason):
+        if topic_key == first_candidate_key:
+            assert store.reserve_processing(topic_key) is True
+            return await original_settle(topic_key, reason)
+
+        result = await original_settle(topic_key, reason)
+        store.release_processing(first_candidate_key)
+        return result
+
+    layer.settle_topic = settle_with_candidate_race
+
+    new_id = await familiar.submit_interaction(
+        _make_payload("new question", "new answer"),
+        identity_scope=access_context,
+        target_topic_id="NEW_TOPIC",
+    )
+
+    resident = store.list_topic_data(access_context)
+    assert {topic.topic_id for topic in resident} == {first_candidate_id, new_id}
+    assert all(topic.state.value == "idle" for topic in resident)
+    assert store.get_topic_data(access_context, fallback_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     familiar, _, store, bus = _make_real_familiar(max_resident_topics=4)
     await familiar.submit_interaction(
@@ -228,6 +288,23 @@ async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     for call in bus.request.await_args_list:
         assert call.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert call.args[1].reason == FlushReason.SHUTDOWN
+
+
+@pytest.mark.asyncio
+async def test_shutdown_reports_busy_topic_instead_of_marking_generation_skip():
+    """drain 后仍 busy 属于关闭顺序缺陷，不能计入 settled 或正常 skip。"""
+    familiar, _, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u-busy", agent_id="a-busy")
+    topic = store.create_buffer(access_context)
+    assert store.reserve_processing(topic.topic_key) is True
+
+    with pytest.raises(TopicBusyError, match="正忙"):
+        await familiar.flush_all_for_shutdown()
+
+    remaining = store.get_topic_data(access_context, topic.topic_id, touch=False)
+    assert remaining is not None
+    assert remaining.state.value == "processing"
+    bus.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio

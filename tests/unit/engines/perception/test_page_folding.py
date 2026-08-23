@@ -209,6 +209,63 @@ class TestPageFoldingThreshold:
         relay.generate_summary.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_fold_failure_releases_processing_and_retry_resumes_without_duplicate(self):
+        """摘要失败后释放单写者预约；等价 retry 重新预约并继续后置义务。"""
+        relay = Mock()
+        relay.should_relay.return_value = None
+        relay.generate_summary.side_effect = [
+            RuntimeError("fold failed"),
+            "recovered summary",
+        ]
+        store = ShortTermMemoryStore()
+        layer = _make_layer(
+            fold_token_threshold=10,
+            fold_retain_recent_blocks=1,
+            relay=relay,
+            store=store,
+        )
+        access_context = _access_context()
+        topic_id = await layer.create_new_topic(access_context)
+        await layer.route_and_ingest(
+            topic_id,
+            _make_payload("first-" * 80, "answer-1"),
+            identity_scope=access_context,
+            interaction_id="interaction-1",
+        )
+        retry_payload = _make_payload("second-" * 80, "answer-2")
+
+        with pytest.raises(RuntimeError, match="fold failed"):
+            await layer.route_and_ingest(
+                topic_id,
+                retry_payload,
+                identity_scope=access_context,
+                interaction_id="interaction-2",
+            )
+
+        after_failure = store.get_topic_data(access_context, topic_id, touch=False)
+        assert after_failure is not None
+        assert after_failure.state.value == "idle"
+        assert [block.user_query for block in after_failure.blocks] == [
+            "first-" * 80,
+            "second-" * 80,
+        ]
+
+        retried_topic_id, settlement = await layer.route_and_ingest(
+            topic_id,
+            retry_payload,
+            identity_scope=access_context,
+            interaction_id="interaction-2",
+        )
+
+        assert retried_topic_id == topic_id
+        assert settlement is None
+        after_retry = store.get_topic_data(access_context, topic_id, touch=False)
+        assert after_retry is not None
+        assert after_retry.state.value == "idle"
+        assert after_retry.state_summary == "recovered summary"
+        assert [block.user_query for block in after_retry.blocks] == ["second-" * 80]
+
+    @pytest.mark.asyncio
     async def test_store_update_summary_can_retain_recent_blocks_independently(self):
         store = ShortTermMemoryStore()
         access_context = _access_context()
