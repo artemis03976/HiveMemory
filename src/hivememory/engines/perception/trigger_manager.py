@@ -253,15 +253,20 @@ class TriggerManager:
 
         topic_key = trigger.topic_key
         manual = trigger.reason is FlushReason.MANUAL_COMPACT
+        topic_data = self._store.get_topic_data_by_key(topic_key, touch=False)
+        if topic_data is None:
+            if manual:
+                # 缺失与跨 Workspace 目标统一隐藏归属，不能误报为 busy 或创建新 Topic。
+                raise KeyError(
+                    f"topic '{topic_key.topic_id}' does not exist in requested Workspace"
+                )
+            return None
         if manual and not self._store.reserve_processing(topic_key):
             raise TopicBusyError(
                 f"topic '{topic_key.topic_id}' 正忙，无法开始 manual compact"
             )
 
         try:
-            topic_data = self._store.get_topic_data_by_key(topic_key, touch=False)
-            if topic_data is None:
-                return None
             if topic_data.is_empty:
                 return None
             await self._compact_topic(

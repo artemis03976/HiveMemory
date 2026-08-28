@@ -6,6 +6,10 @@ from typing import Any
 
 import pytest
 
+from hivememory.core.errors import (
+    AssetNotFoundError,
+    AssetRemovedError,
+)
 from hivememory.core.models import (
     ActorIdentity,
     AssetRepresentationKind,
@@ -246,6 +250,64 @@ def test_assembler_constructs_one_store_implementing_both_narrow_ports() -> None
     assert isinstance(runtime.workspace_asset_store, InMemoryWorkspaceAssetStore)
     assert isinstance(runtime.workspace_asset_store, WorkspaceAssetReaderPort)
     assert isinstance(runtime.workspace_asset_store, WorkspaceAssetCommandPort)
+
+
+def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
+    """捕获同名资产或 opaque ref 被错误合并、跨域读取或删除的缺陷。"""
+    store = InMemoryWorkspaceAssetStore()
+    main = _scope()
+    isolated = IdentityScope(
+        actor_identity=ActorIdentity(user_id="user-1", agent_id="agent-1"),
+        workspace_identity=WorkspaceIdentity(
+            owner_user_id="user-1",
+            workspace_key="isolation_workspace",
+            workspace_id="isolation_workspace",
+        ),
+    )
+    other_owner = IdentityScope(
+        actor_identity=ActorIdentity(user_id="user-2", agent_id="agent-1"),
+        workspace_identity=WorkspaceIdentity(
+            owner_user_id="user-2",
+            workspace_key="main_workspace",
+            workspace_id="main_workspace",
+        ),
+    )
+    main_handle = _ready_asset(store, main)
+    isolated_handle = _ready_asset(store, isolated)
+
+    assert main_handle.asset.asset_id != isolated_handle.asset.asset_id
+    assert main_handle.asset_ref != isolated_handle.asset_ref
+    assert [handle.asset.asset_id for handle in store.list_workspace_assets(main)] == [
+        main_handle.asset.asset_id
+    ]
+    assert [
+        handle.asset.asset_id for handle in store.list_workspace_assets(isolated)
+    ] == [isolated_handle.asset.asset_id]
+
+    with pytest.raises(AssetNotFoundError):
+        store.resolve_asset(isolated, main_handle.asset_ref)
+    with pytest.raises(AssetNotFoundError):
+        store.acquire_ready_representation(isolated, main_handle.asset_ref)
+    assert store.list_workspace_assets(other_owner) == []
+    with pytest.raises(AssetNotFoundError):
+        store.resolve_asset(other_owner, main_handle.asset_ref)
+
+    removed = store.remove_asset(main, main_handle.asset_ref)
+    assert removed.state.value == "removed"
+    assert store.list_workspace_assets(main) == []
+    assert [
+        handle.asset.asset_id for handle in store.list_workspace_assets(isolated)
+    ] == [isolated_handle.asset.asset_id]
+    with pytest.raises(AssetRemovedError):
+        store.acquire_ready_representation(main, main_handle.asset_ref)
+    assert store.resolve_asset(isolated, isolated_handle.asset_ref).asset_id == (
+        isolated_handle.asset.asset_id
+    )
+
+    # Store 是进程内 working set；新建实例不应恢复旧 ref 或旧资产。
+    fresh_store = InMemoryWorkspaceAssetStore()
+    with pytest.raises(AssetNotFoundError):
+        fresh_store.resolve_asset(main, main_handle.asset_ref)
 
 
 @pytest.mark.asyncio

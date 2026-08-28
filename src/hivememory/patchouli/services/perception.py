@@ -211,11 +211,17 @@ class PerceptionFamiliar:
         target_topic_id: str,
     ) -> None:
         """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。"""
-        # 命中已有话题时无需驱逐
-        if (
-            target_topic_id != "NEW_TOPIC"
-            and self._short_term.topic_exists(access_context, target_topic_id)
-        ):
+        # 已有话题无需驱逐；未知目标必须直接拒绝，不能被误当成 NEW_TOPIC。
+        # 该检查位于 LRU 操作之前，保证跨 Workspace ID 不会产生本域副作用。
+        if target_topic_id != "NEW_TOPIC":
+            if not self._short_term.topic_exists(
+                access_context,
+                target_topic_id,
+                touch=False,
+            ):
+                raise KeyError(
+                    f"topic '{target_topic_id}' does not exist in requested Workspace"
+                )
             return
         if not self._short_term.needs_eviction(access_context):
             return

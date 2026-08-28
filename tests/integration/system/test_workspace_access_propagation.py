@@ -177,3 +177,88 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
         )
 
     assert cleaned == [drifted]
+
+
+@pytest.mark.asyncio
+async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
+    """捕获共享 Chat registry 以裸 generation_id 取消异域运行的缺陷。"""
+    bus = GlobalSystemBus()
+    service = ChatApplicationService(bus)
+    both_gateway_calls_started = asyncio.Event()
+    release_gateway = asyncio.Event()
+    gateway_calls = 0
+
+    async def gateway(*, access_context, **_kwargs):
+        nonlocal gateway_calls
+        gateway_calls += 1
+        if gateway_calls == 2:
+            both_gateway_calls_started.set()
+        await release_gateway.wait()
+        return _decision()
+
+    async def prepare(*, identity_scope, **_kwargs):
+        return _prepared(identity_scope)
+
+    async def alice(*, agent_run_context, **_kwargs):
+        return AgentRunResult(
+            final_text=agent_run_context.identity_scope.workspace_identity.workspace_id,
+        )
+
+    async def finalize(*, prepared_run, **_kwargs):
+        return []
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+
+    main = make_access_context(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="main_workspace",
+    )
+    isolated = make_access_context(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="isolation_workspace",
+    )
+    main_task = asyncio.create_task(
+        service.chat_scoped(
+            "main",
+            identity_scope=main,
+            interaction_id="run-main",
+        )
+    )
+    isolated_task = asyncio.create_task(
+        service.chat_scoped(
+            "isolated",
+            identity_scope=isolated,
+            interaction_id="run-isolated",
+        )
+    )
+
+    try:
+        await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
+        cross_scope_cancel = service.cancel_generation_scoped(
+            "run-isolated",
+            identity_scope=main,
+        )
+
+        assert cross_scope_cancel.cancelled is False
+        assert cross_scope_cancel.status == "not_found"
+        isolated_status = service.generation_status_scoped(
+            "run-isolated",
+            identity_scope=isolated,
+        )
+        assert isolated_status.status == "running"
+        assert service.generation_status_scoped(
+            "run-isolated",
+            identity_scope=main,
+        ) is None
+    finally:
+        release_gateway.set()
+        await asyncio.wait_for(asyncio.gather(main_task, isolated_task), timeout=1)
+
+    main_result, isolated_result = main_task.result(), isolated_task.result()
+    assert main_result.agent_run_result.final_text == "main_workspace"
+    assert isolated_result.agent_run_result.final_text == "isolation_workspace"

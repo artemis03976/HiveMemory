@@ -166,15 +166,14 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
         else:
             if not self._short_term_store.topic_exists(access_context, target_topic_id):
-                logger.warning(f"话题 {target_topic_id} 不存在，回退到创建新话题")
-                topic_id = await self.create_new_topic(
-                    access_context=access_context,
-                    title=new_topic_title,
-                    summary=new_topic_summary,
+                # Topic ID 是全局身份，未知目标不能被投影成当前 Workspace 的新话题。
+                # 否则跨 Workspace 的真实 ID 会造成隐式副作用（容量紧张时还可能先
+                # 驱逐本域 LRU），并掩盖调用方的寻址/授权错误。
+                raise KeyError(
+                    f"topic '{target_topic_id}' does not exist in requested Workspace"
                 )
-            else:
-                # 已有话题：刷新访问时间（置顶）
-                topic_id = target_topic_id
+            # 已有话题：返回其全局 ID；访问顺序由上层显式 touch/active 更新维护。
+            topic_id = target_topic_id
 
         return topic_id
 
