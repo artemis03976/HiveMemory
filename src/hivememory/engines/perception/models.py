@@ -13,26 +13,19 @@ Note: SemanticBuffer / BufferState 已迁移至
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
-from typing import List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
-    AgentAction,
-    LogicalBlock,
-    Identity,
     IdentityScope,
+    LogicalBlock,
     TopicAssetBinding,
     TraceItem,
-    TopicSnapshot,
     TurnEvent,
-    TurnRecord,
     WorkspaceIdentity,
     WorkspaceTopicKey,
 )
-
 
 # ============ 枚举定义 ============
 
@@ -80,7 +73,10 @@ class TopicMaterializeTask(BaseModel):
     topic_title: str = Field(default="", description="话题标题")
     topic_summary: str = Field(default="", description="话题展示摘要")
 
-    blocks: List[LogicalBlock] = Field(default_factory=list, description="话题内容块列表")
+    blocks: tuple[LogicalBlock, ...] = Field(
+        default_factory=tuple,
+        description="话题内容块不可变快照",
+    )
     state_summary: str = Field(default="", description="话题状态摘要")
 
     # 结束 Topic 生命周期的 settle 在清除 buffer 前冻结的资产关系事实。进入 queue
@@ -92,7 +88,9 @@ class TopicMaterializeTask(BaseModel):
 
     reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="话题结算触发原因")
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # task 会跨越 journal 与 queue admission 边界；禁止字段重新赋值，并使用
+    # tuple 承载 blocks，避免冻结模型内部仍可被原地 append。
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 
     @property
     def user_id(self) -> str:

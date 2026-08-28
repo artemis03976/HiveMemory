@@ -245,11 +245,15 @@ class ShortTermMemoryStore:
             return snapshot
 
     def pop_buffer_by_key(self, key: WorkspaceTopicKey) -> Optional[TopicData]:
-        """由持有已验证复合键的内部结算流程驱逐 Topic。"""
+        """从显式生命周期入口驱逐 IDLE Topic；busy 时拒绝删除。"""
         with self._lock:
             buf = self._port.get(key)
             if buf is None:
                 return None
+            if buf.state is not BufferState.IDLE:
+                raise TopicBusyError(
+                    f"topic '{key.topic_id}' 正忙，无法执行显式驱逐"
+                )
             snapshot = self._to_topic_data(buf)
             self._evict_locked(key)
             return snapshot

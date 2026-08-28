@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
+from pydantic import ValidationError
 
 from hivememory.core.models import Identity, TopicData, TurnRecord, WorkspaceTopicKey
 from hivememory.engines.perception.models import (
@@ -438,6 +439,62 @@ class TestTriggerManagerSettlePayload:
         )
 
         assert payload is None
+
+    def test_settlement_task_rejects_field_reassignment(self):
+        """进入 journal/queue 的 settlement 快照不能被调用方原地改写。"""
+        payload = self.manager._build_settle_payload(
+            topic_id="topic_1",
+            blocks_snapshot=[
+                LogicalBlock(
+                    turn=TurnRecord(
+                        identity=Identity(user_id="u1"),
+                        user_query="keep",
+                        assistant_final_text="answer",
+                    )
+                )
+            ],
+            state_summary="summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+            workspace_identity=self.workspace_identity,
+        )
+        assert payload is not None
+
+        with pytest.raises(ValidationError, match="frozen"):
+            payload.topic_title = "mutated"
+
+        assert payload.topic_title == ""
+
+    def test_settlement_task_blocks_cannot_be_mutated_in_place(self):
+        """冻结模型还必须冻结 blocks 容器，不能只禁止字段重新赋值。"""
+        payload = self.manager._build_settle_payload(
+            topic_id="topic_1",
+            blocks_snapshot=[
+                LogicalBlock(
+                    turn=TurnRecord(
+                        identity=Identity(user_id="u1"),
+                        user_query="keep",
+                        assistant_final_text="answer",
+                    )
+                )
+            ],
+            state_summary="summary",
+            reason=FlushReason.IDLE_TIMEOUT,
+            workspace_identity=self.workspace_identity,
+        )
+        assert payload is not None
+
+        with pytest.raises(AttributeError, match="append"):
+            payload.blocks.append(
+                LogicalBlock(
+                    turn=TurnRecord(
+                        identity=Identity(user_id="u1"),
+                        user_query="late",
+                        assistant_final_text="mutation",
+                    )
+                )
+            )
+
+        assert [block.user_query for block in payload.blocks] == ["keep"]
 
 
 class TestTriggerManagerCompactTopic:

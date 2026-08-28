@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from hivememory.patchouli.errors import TopicSettleAdmissionError
+from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.deps import get_topic_service, get_user_id
 from hivememory.server.models.topic import (
     ActiveTopicListResponse,
@@ -42,6 +42,11 @@ async def settle_topic(
             status_code=503,
             detail="结算材料暂未被生成队列接纳，话题内容已保留，可重试",
         ) from exc
+    except TopicBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="话题正在处理，请稍后重试",
+        ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="话题不存在") from exc
     return TopicSettleResponse.from_domain(result)
@@ -54,5 +59,11 @@ async def delete_topic(
     service: TopicApplicationService = Depends(get_topic_service),
 ) -> TopicDeleteResponse:
     """从活跃池驱逐话题（不结算，不写记忆）"""
-    result = await service.evict_topic(user_id=user_id, topic_id=topic_id)
+    try:
+        result = await service.evict_topic(user_id=user_id, topic_id=topic_id)
+    except TopicBusyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="话题正在处理，请稍后重试",
+        ) from exc
     return TopicDeleteResponse.from_domain(result)

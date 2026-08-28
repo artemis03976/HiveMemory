@@ -12,7 +12,7 @@ from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
 )
-from hivememory.patchouli.errors import TopicSettleAdmissionError
+from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -180,6 +180,24 @@ class TestTopicsRouter:
         assert response.status_code == 404
         assert response.json() == {"detail": "话题不存在"}
 
+    def test_settle_topic_busy_returns_conflict(self):
+        """手动结算与其他 Topic 写入冲突时应提供可重试的 HTTP 409。"""
+        librarian_core = MagicMock()
+
+        async def reject_busy_topic(*, access_context, topic_id=None):
+            raise TopicBusyError(f"topic '{topic_id}' 正忙")
+
+        app = _create_test_app(
+            librarian_core,
+            manual_settle_topic=reject_busy_topic,
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post("/api/v1/topics/t1/settle")
+
+        assert response.status_code == 409
+        assert response.json() == {"detail": "话题正在处理，请稍后重试"}
+
     def test_delete_topic(self):
         librarian_core = MagicMock()
         evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
@@ -201,3 +219,18 @@ class TestTopicsRouter:
         response = client.delete("/api/v1/topics/missing")
         assert response.status_code == 200
         assert response.json() == {"topic_id": "missing", "removed": False}
+
+    def test_delete_topic_busy_returns_conflict(self):
+        """手动删除不得把正在处理中的 Topic 当作普通服务器错误。"""
+        librarian_core = MagicMock()
+
+        async def reject_busy_topic(*, access_context, topic_id):
+            raise TopicBusyError(f"topic '{topic_id}' 正忙")
+
+        app = _create_test_app(librarian_core, evict_topic=reject_busy_topic)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.delete("/api/v1/topics/t1")
+
+        assert response.status_code == 409
+        assert response.json() == {"detail": "话题正在处理，请稍后重试"}

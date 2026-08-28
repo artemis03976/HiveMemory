@@ -54,6 +54,7 @@ def _compute_apply_digest(
     block: LogicalBlock,
     asset_id_and_refs,
     model_used: str | None,
+    identity_scope: IdentityScope,
 ) -> str:
     """计算一次 Interaction apply 的稳定输入摘要。
 
@@ -67,6 +68,9 @@ def _compute_apply_digest(
     # 不参与等价性判断。
     turn_dump.pop("turn_id", None)
     canonical = {
+        # Workspace 是 Store apply 的寻址边界；只依赖 block 内的 actor identity
+        # 会把同一 interaction 在不同 Workspace 的提交误判为等价 retry。
+        "identity_scope": identity_scope.model_dump(mode="json"),
         "turn": turn_dump,
         "total_tokens": block.total_tokens,
         "worth_saving": block.worth_saving,
@@ -266,7 +270,12 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             )
 
         block = self._build_block(payload, identity_scope)
-        digest = _compute_apply_digest(block, asset_id_and_refs, payload.model_used)
+        digest = _compute_apply_digest(
+            block,
+            asset_id_and_refs,
+            payload.model_used,
+            identity_scope,
+        )
 
         if interaction_id:
             apply_record = self._interaction_journal.get(interaction_id)

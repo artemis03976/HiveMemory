@@ -263,6 +263,43 @@ async def test_lru_reselects_another_idle_topic_when_first_candidate_becomes_bus
 
 
 @pytest.mark.asyncio
+async def test_interaction_retry_rejects_same_content_from_another_workspace():
+    """同一 interaction_id 不能跨 Workspace 复用已完成的 apply 记录。"""
+    familiar, _, store, _ = _make_real_familiar()
+    main_scope = make_access_context(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="main_workspace",
+    )
+    isolated_scope = make_access_context(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="isolated_workspace",
+    )
+    payload = _make_payload("same question", "same answer")
+
+    topic_id = await familiar.submit_interaction(
+        payload,
+        identity_scope=main_scope,
+        target_topic_id="NEW_TOPIC",
+        interaction_id="interaction-shared",
+    )
+
+    with pytest.raises(ValueError, match="different input"):
+        await familiar.submit_interaction(
+            payload,
+            identity_scope=isolated_scope,
+            target_topic_id="NEW_TOPIC",
+            interaction_id="interaction-shared",
+        )
+
+    original = store.get_topic_data(main_scope, topic_id, touch=False)
+    assert original is not None
+    assert [block.user_query for block in original.blocks] == ["same question"]
+    assert store.list_topic_data(isolated_scope) == []
+
+
+@pytest.mark.asyncio
 async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     familiar, _, store, bus = _make_real_familiar(max_resident_topics=4)
     await familiar.submit_interaction(
@@ -584,6 +621,34 @@ async def test_manual_delete_evicts_without_generation_task():
     assert removed.topic_id == topic_id
     assert removed.removed is True
     assert store.get_topic_data(access_context, topic_id, touch=False) is None
+    bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reserve_method", "expected_state"),
+    [
+        ("reserve_processing", "processing"),
+        ("reserve_flushing", "flushing"),
+    ],
+)
+async def test_manual_delete_rejects_busy_topic_without_removing_it(
+    reserve_method,
+    expected_state,
+):
+    """Topic 持有任一种单写者预约时，手动删除必须报告 busy 并保留它。"""
+    familiar, layer, store, bus = _make_real_familiar()
+    access_context = make_access_context(user_id="u1", agent_id="a1")
+    topic_id = await layer.create_new_topic(access_context)
+    topic_key = WorkspaceTopicKey.from_access_context(access_context, topic_id)
+    assert getattr(store, reserve_method)(topic_key) is True
+
+    with pytest.raises(TopicBusyError, match="正忙"):
+        await familiar.evict_topic(access_context, topic_id)
+
+    remaining = store.get_topic_data(access_context, topic_id, touch=False)
+    assert remaining is not None
+    assert remaining.state.value == expected_state
     bus.request.assert_not_awaited()
 
 
