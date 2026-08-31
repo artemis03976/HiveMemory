@@ -2,10 +2,8 @@
 过滤器适配器模块
 
 职责:
-    将 QueryFilters 数据模型转换为不同存储系统的过滤条件格式
-    实现 MutiAgentSystem.md §3.3 记忆作用域过滤 (Visibility Scopes Filtering)
-
-对应设计文档: PROJECT.md 5.2 节, MutiAgentSystem.md §3.3
+    将 QueryFilters 与 IdentityScope 转换为不同存储系统的过滤条件格式。
+    先落实 Workspace 所有权边界，再落实记忆的 actor 读取策略。
 """
 
 from abc import ABC, abstractmethod
@@ -71,8 +69,10 @@ class QdrantFilterConverter(FilterConverter):
         转换为 Qdrant Filter 对象
 
         构建逻辑:
-        1. must 条件: user_id 安全基线 + memory_type / min_confidence 等业务过滤
-        2. should 条件: 可见性作用域 (Global OR Workspace OR Private)
+        1. must 条件：Workspace 所有权 hard boundary；main Workspace 额外受控读取
+           legacy 记录；随后叠加 Memory v2 的 actor 读取策略。
+        2. 业务过滤条件：按 memory_type、source_agent_id、min_confidence 等字段
+           进一步缩小候选集合。legacy ``WORKSPACE`` 仅在兼容分支中解释为团队可见。
 
         Args:
             filters: 查询过滤器数据模型

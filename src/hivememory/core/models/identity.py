@@ -36,8 +36,9 @@ class ActorIdentity(BaseModel):
     用于替代散落的 user_id, agent_id 参数，
     提供统一的执行者身份标识和便捷的操作方法。
 
-    注意：session_id 已被移除，其功能被 topic_id 替代。
-    话题的生命周期由 PerceptionLayer 的 topic_id 管理。
+    ``session_id`` 仅作为旧协议/旧调用的兼容字段保留；当前 Topic
+    生命周期不依赖它，也不应将其用作 Workspace、Topic 或资源身份。话题的
+    生命周期由 PerceptionLayer 的 ``topic_id`` 管理。
 
     Attributes:
         user_id: 用户标识符
@@ -71,8 +72,8 @@ class ActorIdentity(BaseModel):
     )
 
 
-# P2.5 兼容别名：历史代码可继续使用 ``Identity``，但它就是 ``ActorIdentity``，
-# 不再代表包含 Workspace 坐标的访问上下文。
+# P2.5 兼容别名：历史代码可继续使用 ``Identity``，但它就是 ``ActorIdentity``；
+# 访问 Workspace 时仍须显式使用 ``IdentityScope`` 携带完整作用域。
 Identity = ActorIdentity
 
 

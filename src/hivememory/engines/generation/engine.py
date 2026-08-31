@@ -472,7 +472,7 @@ class MemoryGenerationEngine:
                 source_agent_id=identity_scope.actor_identity.agent_id,
                 source_team_id=identity_scope.actor_identity.team_id,
                 access_policy=MemoryAccessPolicy.public(),
-                session_id=None,  # session_id 已从 Identity 中移除
+                session_id=None,  # session_id 仅为兼容字段，不参与当前身份作用域传播
                 confidence_score=draft.confidence_score,
             ),
             index=IndexLayer(

@@ -93,7 +93,7 @@ class TestDenseRetriever:
         
         await self.retriever.retrieve(query)
         
-        # 过滤条件属于业务查询；授权 scope 由独立 AccessContext 传递。
+        # 过滤条件属于业务查询；授权作用域由独立 IdentityScope 传递。
         call_args = self.mock_storage.search.call_args
         assert call_args.args[0] == query.identity_scope
         assert call_args.kwargs["filters"] == filters

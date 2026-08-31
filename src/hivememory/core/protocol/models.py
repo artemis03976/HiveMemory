@@ -130,7 +130,7 @@ class RetrievalRequest(ProtocolMessage):
 
     @property
     def identity(self) -> Identity:
-        """兼容读取 actor identity；检索 hard filter 使用完整 AccessContext。"""
+        """兼容读取 actor identity；检索 hard filter 使用完整 IdentityScope。"""
         return self.identity_scope.actor_identity
 
 

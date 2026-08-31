@@ -73,7 +73,7 @@ def existing_memory(identity) -> MemoryAtom:
         meta=make_memory_metadata(
             user_id=identity.user_id,
             source_agent_id=identity.agent_id,
-            session_id=None,  # session_id 已从 Identity 中移除
+            session_id=None,  # session_id 仅为兼容字段，不参与当前身份作用域传播
             confidence_score=0.85,
             version=1,
         ),

@@ -18,8 +18,8 @@ def make_identity_scope(
 ) -> IdentityScope:
     """显式构造测试 scope，绝不读取进程当前 Workspace。
 
-    P2.5 起 ``interaction_id`` 不再属于 IdentityScope，该参数仅为兼容旧测试
-    保留，构造结果中不会携带它。
+    ``interaction_id`` 仅为兼容现有测试调用签名而接收；它不会写入
+    ``IdentityScope``。需要保存 interaction ID 的测试载体应独立持有该字段。
     """
     return build_internal_identity_scope(
         actor_identity or Identity(user_id=user_id, agent_id=agent_id),

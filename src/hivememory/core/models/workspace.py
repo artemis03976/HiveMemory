@@ -1,4 +1,4 @@
-"""Workspace 资源键、默认作用域解析与兼容别名。"""
+"""Workspace 资源键、默认作用域解析与严格作用域校验。"""
 
 from typing import Any, Self
 
