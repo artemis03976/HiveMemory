@@ -36,7 +36,7 @@ from hivememory.engines.retrieval.models import QueryFilters, SearchResult, Sear
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -94,7 +94,7 @@ def _make_engine_result(memories=None, is_empty=False):
 def _make_request(query="测试查询", user_id="u1", filters=None):
     return RetrievalRequest(
         semantic_query=query,
-        access_context=make_access_context(user_id=user_id),
+        identity_scope=make_identity_scope(user_id=user_id),
         filters=filters,
     )
 
@@ -112,9 +112,9 @@ def _make_memory_library():
 
 
 def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_accessed_at=1.0):
-    access_context = make_access_context(user_id=user_id)
+    identity_scope = make_identity_scope(user_id=user_id)
     return TopicData(
-        topic_id=topic_id, workspace_identity=access_context.workspace_identity,
+        topic_id=topic_id, workspace_identity=identity_scope.workspace_identity,
         topic_title=f"title-{topic_id}", topic_summary=f"summary-{topic_id}",
         state_summary=f"state-{topic_id}",
         blocks=tuple(blocks or []),
@@ -136,7 +136,7 @@ class TestRetrievalFamiliarAgentProfiles:
     async def test_unspecified_or_builtin_profile_uses_explicit_fallback(self, alias):
         result = await self.familiar.get_agent_profile(
             alias,
-            access_context=make_access_context(),
+            identity_scope=make_identity_scope(),
         )
 
         assert result is OMNI_DOLL_PROFILE
@@ -150,12 +150,12 @@ class TestRetrievalFamiliarAgentProfiles:
 
         result = await self.familiar.get_agent_profile(
             "coder_doll",
-            access_context=make_access_context(actor_identity=identity),
+            identity_scope=make_identity_scope(actor_identity=identity),
         )
 
         assert result.persona == "You are a coding specialist."
         self.mock_library.mid_term.get_by_alias.assert_awaited_once_with(
-            make_access_context(actor_identity=identity),
+            make_identity_scope(actor_identity=identity),
             "coder_doll",
         )
 
@@ -166,7 +166,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(AliasNotFoundError) as exc_info:
             await self.familiar.get_agent_profile(
                 "missing_doll",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
@@ -177,7 +177,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(ScopeRequiredError):
             await self.familiar.get_agent_profile(
                 "private_doll",
-                access_context=None,  # type: ignore[arg-type]
+                identity_scope=None,  # type: ignore[arg-type]
             )
 
         self.mock_library.mid_term.get_by_alias.assert_not_awaited()
@@ -189,7 +189,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
             await self.familiar.get_agent_profile(
                 "fact_alias",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
@@ -203,7 +203,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(InvalidArgumentError) as exc_info:
             await self.familiar.get_agent_profile(
                 "broken_doll",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
@@ -216,7 +216,7 @@ class TestRetrievalFamiliarAgentProfiles:
         with pytest.raises(StorageReadError) as exc_info:
             await self.familiar.get_agent_profile(
                 "coder_doll",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value is failure
@@ -231,14 +231,14 @@ class TestRetrievalFamiliarRetrieve:
         self.familiar = RetrievalFamiliar(engine=self.mock_engine, memory_library=self.mock_library)
 
     @pytest.mark.asyncio
-    async def test_retrieve_propagates_workspace_access_context(self):
+    async def test_retrieve_propagates_identity_scope(self):
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
         request = _make_request(user_id="user_abc")
         await self.familiar.retrieve(request)
 
         query = self.mock_engine.retrieve.call_args[1]["query"]
-        assert query.access_context == request.access_context
+        assert query.identity_scope == request.identity_scope
 
     @pytest.mark.asyncio
     async def test_retrieve_no_mtp_filters(self):
@@ -365,12 +365,12 @@ class TestRetrievalFamiliarIdentityPropagation:
         await self.familiar.retrieve(
             RetrievalRequest(
                 semantic_query="test",
-                access_context=make_access_context(actor_identity=identity),
+                identity_scope=make_identity_scope(actor_identity=identity),
             )
         )
 
         query = self._get_query()
-        assert query.access_context.actor_identity == identity
+        assert query.identity_scope.actor_identity == identity
 
     @pytest.mark.asyncio
     async def test_team_id_none_propagated(self):
@@ -380,11 +380,11 @@ class TestRetrievalFamiliarIdentityPropagation:
         await self.familiar.retrieve(
             RetrievalRequest(
                 semantic_query="test",
-                access_context=make_access_context(actor_identity=identity),
+                identity_scope=make_identity_scope(actor_identity=identity),
             )
         )
 
-        assert self._get_query().access_context.actor_identity.team_id is None
+        assert self._get_query().identity_scope.actor_identity.team_id is None
 
     @pytest.mark.asyncio
     async def test_mtp_filter_cannot_carry_identity(self):
@@ -420,7 +420,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
 
         response = await familiar.retrieve_by_aliases_async(
             aliases=["fact_a"],
-            access_context=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
         )
 
         refresh.assert_awaited_once_with([mem], persist=False)
@@ -433,7 +433,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
 
         response = await self.familiar.retrieve_by_aliases(
             aliases=["fact_a", "fact_a", "", "fact_missing"],
-            access_context=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
         )
 
         assert self.mock_library.mid_term.get_by_alias.call_count == 2
@@ -450,12 +450,12 @@ class TestRetrievalFamiliarAccessStats:
     async def test_update_access_stats_per_item_failure(self):
         m1, m2 = _make_memory("m1"), _make_memory("m2")
         self.mock_library.mid_term.update_access_info.side_effect = [RuntimeError("fail"), None]
-        await self.familiar.update_access_stats(make_access_context(user_id="u1"), [m1, m2])
+        await self.familiar.update_access_stats(make_identity_scope(user_id="u1"), [m1, m2])
         assert self.mock_library.mid_term.update_access_info.call_count == 2
 
     @pytest.mark.asyncio
     async def test_update_access_stats_empty_list(self):
-        await self.familiar.update_access_stats(make_access_context(user_id="u1"), [])
+        await self.familiar.update_access_stats(make_identity_scope(user_id="u1"), [])
         self.mock_library.mid_term.update_access_info.assert_not_called()
 
 
@@ -476,11 +476,11 @@ class TestRetrievalFamiliarShortTermTopics:
             old_topic, empty_topic, summary_only, new_topic,
         ]
 
-        access_context = make_access_context(user_id="u1")
-        snapshots = self.familiar.list_active_topics(access_context=access_context)
+        identity_scope = make_identity_scope(user_id="u1")
+        snapshots = self.familiar.list_active_topics(identity_scope=identity_scope)
 
         self.mock_library.short_term.list_topic_data.assert_called_once_with(
-            access_context, include_empty=False
+            identity_scope, include_empty=False
         )
         # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按访问时间排序
         assert [s.topic_id for s in snapshots] == ["summary-only", "new", "old"]

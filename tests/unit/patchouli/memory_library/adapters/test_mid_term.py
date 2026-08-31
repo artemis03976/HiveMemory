@@ -14,7 +14,7 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 class _LeakySearchStore:
@@ -53,7 +53,7 @@ def _private_memory() -> MemoryAtom:
 @pytest.mark.asyncio
 async def test_search_discards_private_hit_not_authorized_for_actor() -> None:
     """捕获 Qdrant 预过滤失效后 PRIVATE Memory 直接泄漏给错误 Agent 的缺陷。"""
-    reader_access = make_access_context(user_id="u1", agent_id="other-agent")
+    reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_LeakySearchStore(_private_memory()))
 
     hits = await adapter.search(reader_access, query="private", top_k=1)
@@ -64,7 +64,7 @@ async def test_search_discards_private_hit_not_authorized_for_actor() -> None:
 @pytest.mark.asyncio
 async def test_scroll_discards_private_memory_not_authorized_for_actor() -> None:
     """捕获 scroll 路径绕开 Memory actor policy 重验的缺陷。"""
-    reader_access = make_access_context(user_id="u1", agent_id="other-agent")
+    reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_LeakySearchStore(_private_memory()))
 
     memories = await adapter.scroll(reader_access)

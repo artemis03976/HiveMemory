@@ -14,14 +14,14 @@ from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.system.config import HiveMemoryConfig
-from tests.helpers.workspace import make_access_context, make_runtime_scope
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
 def _frame(run_id: str, frame_id: str) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
             runtime_scope=FrameFactory.scope(
-                access_context=make_access_context(user_id="user"),
+                identity_scope=make_identity_scope(user_id="user"),
                 run_id=run_id,
                 frame_id=frame_id,
             ),
@@ -113,6 +113,6 @@ def test_mtp_context_contains_workspace_and_frame_coordinates() -> None:
 
     assert context.runtime_scope.run_id == "test_run"
     assert context.runtime_scope.frame_id == "test_frame"
-    assert context.access_context.workspace_identity.workspace_id == "main_workspace"
+    assert context.identity_scope.workspace_identity.workspace_id == "main_workspace"
     # 架构护栏：执行上下文不携带父子拓扑元数据
     assert not hasattr(context.runtime_scope, "depth")

@@ -30,7 +30,7 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
     MemoryAtom,
-    MemoryReadScope,
+    IdentityScope,
     MemoryType,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
@@ -314,7 +314,7 @@ class QdrantMemoryStore:
 
     async def get_agent_profile(
         self,
-        scope: MemoryReadScope,
+        scope: IdentityScope,
         agent_alias: str | None,
     ) -> AgentProfile:
         """在显式 Memory scope 内读取 Agent profile。"""

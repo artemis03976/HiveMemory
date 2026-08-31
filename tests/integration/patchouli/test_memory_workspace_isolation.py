@@ -15,7 +15,7 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
-    build_internal_workspace_access,
+    build_internal_identity_scope,
 )
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
@@ -49,25 +49,25 @@ async def memory_store():
         await qdrant.client.close()
 
 
-def _access(
+def _identity_scope(
     workspace_id: str,
     *,
     user_id: str = "u1",
     agent_id: str = "agent-a",
 ):
-    return build_internal_workspace_access(
+    return build_internal_identity_scope(
         Identity(user_id=user_id, agent_id=agent_id, team_id="team-a"),
         workspace_id,
     )
 
 
-def _memory(access, *, memory_id: UUID, content: str, alias: str) -> MemoryAtom:
+def _memory(identity_scope, *, memory_id: UUID, content: str, alias: str) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id,
         meta=MetaData(
-            workspace_identity=access.workspace_identity,
-            source_agent_id=access.actor_identity.agent_id,
-            source_team_id=access.actor_identity.team_id,
+            workspace_identity=identity_scope.workspace_identity,
+            source_agent_id=identity_scope.actor_identity.agent_id,
+            source_team_id=identity_scope.actor_identity.team_id,
             access_policy=MemoryAccessPolicy.public(),
         ),
         index=IndexLayer(
@@ -84,8 +84,8 @@ def _memory(access, *, memory_id: UUID, content: str, alias: str) -> MemoryAtom:
 async def test_same_uuid_and_alias_are_independent_between_workspaces(memory_store) -> None:
     """捕获 Qdrant 仍以裸 UUID/alias 全局寻址、导致覆盖或串读的缺陷。"""
     store, _ = memory_store
-    main = _access("main_workspace")
-    isolation = _access("isolation_workspace")
+    main = _identity_scope("main_workspace")
+    isolation = _identity_scope("isolation_workspace")
     shared_id = uuid4()
     await store.upsert(
         _memory(main, memory_id=shared_id, content="main content", alias="fact_collision")
@@ -114,8 +114,8 @@ async def test_same_uuid_and_alias_are_independent_between_workspaces(memory_sto
 async def test_public_memory_is_not_visible_from_another_workspace(memory_store) -> None:
     """捕获 PUBLIC policy 在 ownership hard filter 之前生效的缺陷。"""
     store, _ = memory_store
-    main = _access("main_workspace")
-    isolation = _access("isolation_workspace")
+    main = _identity_scope("main_workspace")
+    isolation = _identity_scope("isolation_workspace")
     memory_id = uuid4()
     await store.upsert(
         _memory(main, memory_id=memory_id, content="main only", alias="fact_public")
@@ -129,8 +129,8 @@ async def test_public_memory_is_not_visible_from_another_workspace(memory_store)
 async def test_legacy_record_is_readable_only_in_owner_main_workspace(memory_store) -> None:
     """捕获 legacy user_id 记录被第二 Workspace compatibility-read 召回的缺陷。"""
     store, qdrant = memory_store
-    main = _access("main_workspace")
-    isolation = _access("isolation_workspace")
+    main = _identity_scope("main_workspace")
+    isolation = _identity_scope("isolation_workspace")
     memory_id = uuid4()
     legacy_payload = {
         "id": str(memory_id),
@@ -172,8 +172,8 @@ async def test_legacy_record_is_readable_only_in_owner_main_workspace(memory_sto
 async def test_legacy_uuid_cleanup_preserves_same_id_in_foreign_workspace(memory_store) -> None:
     """捕获 v2 写入或删除无条件回收异域 legacy UUID 点的越权缺陷。"""
     store, qdrant = memory_store
-    current = _access("isolation_workspace", user_id="u1")
-    foreign_main = _access("main_workspace", user_id="u2")
+    current = _identity_scope("isolation_workspace", user_id="u1")
+    foreign_main = _identity_scope("main_workspace", user_id="u2")
     memory_id = uuid4()
     legacy_payload = {
         "id": str(memory_id),

@@ -21,9 +21,8 @@ from qdrant_client.models import (
 
 from hivememory.core.models import (
     MAIN_WORKSPACE_ID,
-    MemoryReadScope,
-    WorkspaceAccessContext,
-    require_memory_read_scope,
+    IdentityScope,
+    require_identity_scope,
 )
 
 if TYPE_CHECKING:
@@ -41,7 +40,7 @@ class FilterConverter(ABC):
     def convert(
         self,
         filters: "QueryFilters",
-        access_context: MemoryReadScope,
+        identity_scope: IdentityScope,
     ) -> Any:
         """
         将 QueryFilters 转换为目标格式
@@ -66,7 +65,7 @@ class QdrantFilterConverter(FilterConverter):
     def convert(
         self,
         filters: "QueryFilters",
-        access_context: MemoryReadScope,
+        identity_scope: IdentityScope,
     ) -> Filter:
         """
         转换为 Qdrant Filter 对象
@@ -81,9 +80,9 @@ class QdrantFilterConverter(FilterConverter):
         Returns:
             qdrant_client.models.Filter 实例
         """
-        access_context = require_memory_read_scope(access_context)
-        must_conditions: List[Any] = [self._ownership_filter(access_context)]
-        must_conditions.append(self._read_policy_filter(access_context))
+        identity_scope = require_identity_scope(identity_scope)
+        must_conditions: List[Any] = [self._ownership_filter(identity_scope)]
+        must_conditions.append(self._read_policy_filter(identity_scope))
 
         # ---- 业务过滤维度 ----
         if filters.memory_type is not None:
@@ -108,8 +107,8 @@ class QdrantFilterConverter(FilterConverter):
         return Filter(must=must_conditions)
 
     @staticmethod
-    def _ownership_filter(access_context: MemoryReadScope) -> Filter:
-        workspace = access_context.workspace_identity
+    def _ownership_filter(identity_scope: IdentityScope) -> Filter:
+        workspace = identity_scope.workspace_identity
         current = Filter(
             must=[
                 FieldCondition(
@@ -149,8 +148,8 @@ class QdrantFilterConverter(FilterConverter):
         return Filter(should=branches)
 
     @staticmethod
-    def _read_policy_filter(access_context: MemoryReadScope) -> Filter:
-        actor = access_context.actor_identity
+    def _read_policy_filter(identity_scope: IdentityScope) -> Filter:
+        actor = identity_scope.actor_identity
         v2_branches = [
             Filter(
                 must=[

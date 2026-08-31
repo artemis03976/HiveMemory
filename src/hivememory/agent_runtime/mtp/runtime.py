@@ -241,7 +241,7 @@ class KoakumaRuntime:
         """
         start_time = time.time()
         if context is None:
-            raise ScopeRequiredError("MTP 执行缺少 WorkspaceAccessContext")
+            raise ScopeRequiredError("MTP 执行缺少 IdentityScope")
 
         try:
             language = _resolve_context_language(context)
@@ -432,7 +432,7 @@ class KoakumaRuntime:
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=query,
-                access_context=context.access_context,
+                identity_scope=context.identity_scope,
                 filters=parsed_filters,
             ),
         )
@@ -866,7 +866,7 @@ class KoakumaRuntime:
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
                 memory_id=atom.id,
-                access_context=context.access_context,
+                identity_scope=context.identity_scope,
                 source=source,
             )
         except Exception:

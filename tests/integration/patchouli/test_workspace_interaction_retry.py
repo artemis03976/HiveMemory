@@ -31,7 +31,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 class _DeterministicRelay:
@@ -101,12 +101,12 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
         interaction_journal=journal,
     )
 
-    scope = make_access_context(
+    scope = make_identity_scope(
         user_id="u-retry",
         agent_id="agent-a",
         workspace_id="isolation_workspace",
     )
-    other_scope = make_access_context(
+    other_scope = make_identity_scope(
         user_id="u-retry",
         agent_id="agent-a",
         workspace_id="main_workspace",

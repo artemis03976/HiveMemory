@@ -47,7 +47,7 @@ class CallContextProvider:
         """按 caller identity 解析目标 profile 与受控共享上下文。"""
         profile = await self._profile_resolver.resolve(
             request.target_alias,
-            access_context=caller_frame.access_context,
+            identity_scope=caller_frame.identity_scope,
         )
         shared_context = await self._resolve_shared_context(
             aliases=request.context_refs,

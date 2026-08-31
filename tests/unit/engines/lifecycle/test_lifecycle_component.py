@@ -87,7 +87,7 @@ from tests.fixtures.lifecycle_test_data import (
     get_reinforcement_test_by_id,
     get_archiving_test_by_id,
 )
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 console = Console(force_terminal=True, legacy_windows=False)
 
@@ -105,9 +105,9 @@ class _MockMidTermAdapter:
     async def get_by_alias(self, scope, alias: str) -> Optional[MemoryAtom]:
         return None
 
-    async def get_for_mutation(self, access_context, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> Optional[MemoryAtom]:
         memory = await self._storage.get_memory(memory_id)
-        if memory is None or memory.workspace_identity != access_context.workspace_identity:
+        if memory is None or memory.workspace_identity != identity_scope.workspace_identity:
             return None
         return memory
 
@@ -117,19 +117,19 @@ class _MockMidTermAdapter:
             return None
         return memory
 
-    async def update_access_info(self, access_context, memory_id: UUID) -> None:
+    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
         return None
 
-    async def delete(self, access_context, memory_id: UUID) -> bool:
+    async def delete(self, identity_scope, memory_id: UUID) -> bool:
         return await self._storage.delete_memory(memory_id)
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         return await self._storage.delete_memory(key.memory_id)
 
-    async def batch_delete(self, access_context, ids: List[UUID]) -> int:
+    async def batch_delete(self, identity_scope, ids: List[UUID]) -> int:
         count = 0
         for memory_id in ids:
-            if await self.delete(access_context, memory_id):
+            if await self.delete(identity_scope, memory_id):
                 count += 1
         return count
 
@@ -163,19 +163,19 @@ class _LegacyArchiverFixture:
     async def resurrect(self, memory_id: UUID) -> MemoryAtom:
         key = self._memory_key(memory_id)
         memory = await self._library.long_term.load(key)
-        await self._library.revive(self._access_context(), memory_id)
+        await self._library.revive(self._identity_scope(), memory_id)
         return memory
 
     async def is_archived(self, memory_id: UUID) -> bool:
         return await self._library.long_term.is_archived(self._memory_key(memory_id))
 
     @staticmethod
-    def _access_context():
-        return make_access_context(user_id="test_user", agent_id="test_agent")
+    def _identity_scope():
+        return make_identity_scope(user_id="test_user", agent_id="test_agent")
 
     @classmethod
     def _memory_key(cls, memory_id: UUID) -> WorkspaceMemoryKey:
-        return WorkspaceMemoryKey.from_access_context(cls._access_context(), memory_id)
+        return WorkspaceMemoryKey.from_identity_scope(cls._identity_scope(), memory_id)
 
     async def get_archive_record(self, memory_id: UUID) -> Optional[ArchiveRecord]:
         records = await self._library.long_term.query(limit=100)
@@ -522,7 +522,7 @@ class TestReinforcement:
             source="test_retrieval_hit",
         )
         result = await reinforcement_engine.reinforce(
-            make_access_context(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
             memory.id,
             event,
         )
@@ -593,7 +593,7 @@ class TestReinforcement:
             source="test",
         )
         result = await reinforcement_engine.reinforce(
-            make_access_context(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
             memory.id,
             event,
         )
@@ -645,7 +645,7 @@ class TestReinforcement:
             source="test",
         )
         result = await reinforcement_engine.reinforce(
-            make_access_context(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
             old_memory.id,
             event,
         )
@@ -699,7 +699,7 @@ class TestReinforcement:
             source="user",
         )
         result = await reinforcement_engine.reinforce(
-            make_access_context(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
             memory.id,
             event,
         )
@@ -749,7 +749,7 @@ class TestReinforcement:
             source="user",
         )
         result = await reinforcement_engine.reinforce(
-            make_access_context(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
             memory.id,
             event,
         )

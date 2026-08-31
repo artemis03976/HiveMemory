@@ -11,7 +11,7 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
-    resolve_default_workspace_access,
+    resolve_default_identity_scope,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -51,14 +51,14 @@ class AgentApplicationService:
         user_id: str,
     ) -> MemoryAtom:
         # TODO: 复核 agent_id 的手写来源
-        access_context = resolve_default_workspace_access(
+        identity_scope = resolve_default_identity_scope(
             Identity(user_id=user_id, agent_id="ui"),
         )
         atom = MemoryAtom(
             meta=MetaData(
-                workspace_identity=access_context.workspace_identity,
-                source_agent_id=access_context.actor_identity.agent_id,
-                source_team_id=access_context.actor_identity.team_id,
+                workspace_identity=identity_scope.workspace_identity,
+                source_agent_id=identity_scope.actor_identity.agent_id,
+                source_team_id=identity_scope.actor_identity.team_id,
                 access_policy=MemoryAccessPolicy.public(),
             ),
             index=IndexLayer(
@@ -75,7 +75,7 @@ class AgentApplicationService:
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
-            access_context,
+            identity_scope,
             atom,
         )
 
@@ -85,12 +85,12 @@ class AgentApplicationService:
         user_id: str,
         limit: int = 100,
     ) -> list[MemoryAtom]:
-        access_context = resolve_default_workspace_access(
+        identity_scope = resolve_default_identity_scope(
             Identity(user_id=user_id, agent_id="ui"),
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
-            access_context=access_context,
+            identity_scope=identity_scope,
             limit=limit,
         )
 

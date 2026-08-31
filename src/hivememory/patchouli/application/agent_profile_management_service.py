@@ -6,8 +6,8 @@ from hivememory.core.models import (
     AgentProfile,
     MemoryAtom,
     MemoryType,
-    WorkspaceAccessContext,
-    require_workspace_access_context,
+    IdentityScope,
+    require_identity_scope,
 )
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -21,16 +21,16 @@ class AgentProfileManagementService:
 
     async def create_agent_profile(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         atom: MemoryAtom,
     ) -> MemoryAtom:
-        access_context = require_workspace_access_context(access_context)
-        if atom.workspace_identity != access_context.workspace_identity:
+        identity_scope = require_identity_scope(identity_scope)
+        if atom.workspace_identity != identity_scope.workspace_identity:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         atom.index.memory_type = MemoryType.AGENT_PROFILE
         await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
-            access_context,
+            identity_scope,
             atom,
         )
         return atom
@@ -38,12 +38,12 @@ class AgentProfileManagementService:
     async def list_agent_profiles(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         limit: int = 100,
     ) -> list[MemoryAtom]:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=limit,
         )
@@ -52,10 +52,10 @@ class AgentProfileManagementService:
         self,
         agent_alias: str | None,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> AgentProfile:
         return await self._bus.request(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             agent_alias,
-            access_context=access_context,
+            identity_scope=identity_scope,
         )

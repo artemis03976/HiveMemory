@@ -1,4 +1,4 @@
-"""Chat application 经共享总线并发传播 WorkspaceAccessContext 的集成测试。"""
+"""Chat application 经共享总线并发传播 IdentityScope 的集成测试。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _decision() -> GatewayDecisionOutcome:
@@ -69,8 +69,8 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     gateway_contexts = []
     finalized_contexts = []
 
-    async def gateway(*, access_context, **_kwargs):
-        gateway_contexts.append(access_context)
+    async def gateway(*, identity_scope, **_kwargs):
+        gateway_contexts.append(identity_scope)
         if len(gateway_contexts) == 2:
             both_gateway_calls_started.set()
         await release_gateway.wait()
@@ -91,11 +91,11 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    main_context = make_access_context(
+    main_context = make_identity_scope(
         user_id="u1",
         workspace_id="main_workspace",
     )
-    isolation_context = make_access_context(
+    isolation_context = make_identity_scope(
         user_id="u1",
         workspace_id="isolation_workspace",
     )
@@ -146,11 +146,11 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
 async def test_chat_rejects_prepared_run_from_different_workspace_before_alice() -> None:
     """防止 prepare 返回漂移 scope 后继续执行 Alice 或 finalize 写入。"""
     bus = GlobalSystemBus()
-    requested = make_access_context(
+    requested = make_identity_scope(
         user_id="u1",
         workspace_id="main_workspace",
     )
-    drifted = make_access_context(
+    drifted = make_identity_scope(
         user_id="u1",
         workspace_id="isolation_workspace",
     )
@@ -188,7 +188,7 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     release_gateway = asyncio.Event()
     gateway_calls = 0
 
-    async def gateway(*, access_context, **_kwargs):
+    async def gateway(*, identity_scope, **_kwargs):
         nonlocal gateway_calls
         gateway_calls += 1
         if gateway_calls == 2:
@@ -212,12 +212,12 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    main = make_access_context(
+    main = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="main_workspace",
     )
-    isolated = make_access_context(
+    isolated = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="isolation_workspace",

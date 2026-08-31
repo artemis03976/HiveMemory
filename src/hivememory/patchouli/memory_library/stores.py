@@ -33,16 +33,14 @@ from hivememory.core.models import (
     BufferState,
     LogicalBlock,
     MemoryAtom,
-    MemoryReadScope,
     TopicAssetBinding,
     TopicData,
-    WorkspaceAccessContext,
+    IdentityScope,
     WorkspaceAssetRef,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
     WorkspaceTopicKey,
-    require_memory_read_scope,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 from hivememory.core.models.artifact import ArtifactRef
 from hivememory.engines.lifecycle.models import ArchiveRecord
@@ -98,11 +96,11 @@ class ShortTermMemoryStore:
 
     @staticmethod
     def _key(
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> WorkspaceTopicKey:
-        access_context = require_workspace_access_context(access_context)
-        return WorkspaceTopicKey.from_access_context(access_context, topic_id)
+        identity_scope = require_identity_scope(identity_scope)
+        return WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
 
     def _require_buffer_locked(self, key: WorkspaceTopicKey) -> SemanticBuffer:
         """返回必须存在的话题 buffer；写命令不得静默忽略缺失 topic。"""
@@ -123,43 +121,43 @@ class ShortTermMemoryStore:
 
     def get_last_active_topic(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> Optional[str]:
         """返回当前 Workspace 最后活跃的 topic ID。"""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            key = self._last_active_topic_keys.get(self._scope(access_context.workspace_identity))
+            key = self._last_active_topic_keys.get(self._scope(identity_scope.workspace_identity))
             return key.topic_id if key is not None else None
 
     def set_last_active_topic(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> None:
-        key = self._key(access_context, topic_id)
+        key = self._key(identity_scope, topic_id)
         with self._lock:
             if self._port.get(key) is None:
                 raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
-            self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
+            self._last_active_topic_keys[self._scope(identity_scope.workspace_identity)] = key
 
     # ========== CRUD ==========
 
     def get_topic_data(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
         *,
         touch: bool = True,
     ) -> Optional[TopicData]:
         """Return an immutable topic read view without exposing SemanticBuffer."""
-        key = self._key(access_context, topic_id)
+        key = self._key(identity_scope, topic_id)
         with self._lock:
             buf = self._port.get(key)
             if buf is None:
                 return None
             if touch:
                 buf.last_accessed_at = datetime.now().timestamp()
-                self._last_active_topic_keys[self._scope(access_context.workspace_identity)] = key
+                self._last_active_topic_keys[self._scope(identity_scope.workspace_identity)] = key
             return self._to_topic_data(buf)
 
     def get_topic_data_by_key(
@@ -180,42 +178,42 @@ class ShortTermMemoryStore:
 
     def list_topic_data(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         *,
         include_empty: bool = True,
     ) -> List[TopicData]:
         """Return immutable read views for active topics."""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            buffers = self._port.list_by_workspace(access_context.workspace_identity)
+            buffers = self._port.list_by_workspace(identity_scope.workspace_identity)
             if not include_empty:
                 buffers = [buf for buf in buffers if buf.has_content]
             return [self._to_topic_data(buf) for buf in buffers]
 
     def topic_exists(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
         *,
         touch: bool = True,
     ) -> bool:
-        return self.get_topic_data(access_context, topic_id, touch=touch) is not None
+        return self.get_topic_data(identity_scope, topic_id, touch=touch) is not None
 
-    def has_blocks(self, access_context: WorkspaceAccessContext, topic_id: str) -> bool:
-        data = self.get_topic_data(access_context, topic_id, touch=False)
+    def has_blocks(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+        data = self.get_topic_data(identity_scope, topic_id, touch=False)
         return bool(data and data.blocks)
 
     def create_buffer(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_title: str = "新建话题",
         topic_summary: str = "",
     ) -> TopicData:
         """创建话题并返回其冻结只读快照，不向调用方泄漏可变 SemanticBuffer。"""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
             buf = SemanticBuffer(
-                workspace_identity=access_context.workspace_identity,
+                workspace_identity=identity_scope.workspace_identity,
                 topic_title=topic_title,
                 topic_summary=topic_summary,
             )
@@ -230,11 +228,11 @@ class ShortTermMemoryStore:
 
     def pop_buffer(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> Optional[TopicData]:
         """移除话题并返回移除前的冻结快照；不存在时返回 None。"""
-        key = self._key(access_context, topic_id)
+        key = self._key(identity_scope, topic_id)
         with self._lock:
             buf = self._port.get(key)
             if buf is None:
@@ -382,7 +380,7 @@ class ShortTermMemoryStore:
 
     def apply_interaction(
         self,
-        identity_scope: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
         interaction_id: str | None,
         block: LogicalBlock,
@@ -396,8 +394,8 @@ class ShortTermMemoryStore:
         Interaction 显式携带且尚未绑定的 ``asset_id`` 上首次建立，重复使用同一
         资产只幂等命中既有关系，不覆盖首次 Interaction 或首次绑定时间。
         """
-        key = WorkspaceTopicKey.from_access_context(
-            require_workspace_access_context(identity_scope),
+        key = WorkspaceTopicKey.from_identity_scope(
+            require_identity_scope(identity_scope),
             topic_id,
         )
         normalized_refs = self._normalize_asset_id_and_refs(asset_id_and_refs)
@@ -436,7 +434,7 @@ class ShortTermMemoryStore:
 
     def list_asset_bindings(
         self,
-        identity_scope: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> tuple[TopicAssetBinding, ...]:
         """返回 Topic 当前冻结的资产使用关系；不存在 Topic 时返回空元组。"""
@@ -481,35 +479,35 @@ class ShortTermMemoryStore:
 
     # ========== LRU ==========
 
-    def get_lru_topic(self, access_context: WorkspaceAccessContext) -> Optional[str]:
+    def get_lru_topic(self, identity_scope: IdentityScope) -> Optional[str]:
         """返回访问时间最久远的 IDLE 话题 topic_id，跳过 busy 候选，无候选返回 None。"""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            bufs = self._port.list_by_workspace(access_context.workspace_identity)
+            bufs = self._port.list_by_workspace(identity_scope.workspace_identity)
             idle = [buf for buf in bufs if buf.state is BufferState.IDLE]
             if not idle:
                 return None
             return min(idle, key=lambda b: b.last_accessed_at).topic_id
 
-    def needs_eviction(self, access_context: WorkspaceAccessContext) -> bool:
-        access_context = require_workspace_access_context(access_context)
+    def needs_eviction(self, identity_scope: IdentityScope) -> bool:
+        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            return self._port.count(access_context.workspace_identity) >= self.max_resident_topics
+            return self._port.count(identity_scope.workspace_identity) >= self.max_resident_topics
 
-    def get_active_topic_buffer_count(self, access_context: WorkspaceAccessContext) -> int:
-        access_context = require_workspace_access_context(access_context)
+    def get_active_topic_buffer_count(self, identity_scope: IdentityScope) -> int:
+        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            return self._port.count(access_context.workspace_identity)
+            return self._port.count(identity_scope.workspace_identity)
 
     # ========== info ==========
 
     def get_buffer_info(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> Dict[str, Any]:
         with self._lock:
-            buf = self._port.get(self._key(access_context, topic_id))
+            buf = self._port.get(self._key(identity_scope, topic_id))
             if buf:
                 return {
                     "exists": True,
@@ -588,46 +586,46 @@ class MidTermMemoryStore:
 
     async def get(
         self,
-        scope: MemoryReadScope,
+        scope: IdentityScope,
         memory_id: UUID,
     ) -> Optional[MemoryAtom]:
-        return await self._primary.get(require_memory_read_scope(scope), memory_id)
+        return await self._primary.get(require_identity_scope(scope), memory_id)
 
     async def get_by_alias(
         self,
-        scope: MemoryReadScope,
+        scope: IdentityScope,
         alias: str,
     ) -> Optional[MemoryAtom]:
-        return await self._primary.get_by_alias(require_memory_read_scope(scope), alias)
+        return await self._primary.get_by_alias(require_identity_scope(scope), alias)
 
     async def get_for_mutation(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> Optional[MemoryAtom]:
-        access_context = require_workspace_access_context(access_context)
-        return await self._primary.get_for_mutation(access_context, memory_id)
+        identity_scope = require_identity_scope(identity_scope)
+        return await self._primary.get_for_mutation(identity_scope, memory_id)
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
         return await self._primary.get_by_key(key)
 
     async def update_access_info(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> None:
-        access_context = require_workspace_access_context(access_context)
-        await self._primary.update_access_info(access_context, memory_id)
+        identity_scope = require_identity_scope(identity_scope)
+        await self._primary.update_access_info(identity_scope, memory_id)
 
     async def delete(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> bool:
-        access_context = require_workspace_access_context(access_context)
-        result = await self._primary.delete(access_context, memory_id)
+        identity_scope = require_identity_scope(identity_scope)
+        result = await self._primary.delete(identity_scope, memory_id)
         for s in self._secondary:
-            await s.delete(access_context, memory_id)
+            await s.delete(identity_scope, memory_id)
         return result
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
@@ -638,25 +636,25 @@ class MidTermMemoryStore:
 
     async def batch_delete(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ids: List[UUID],
     ) -> int:
-        access_context = require_workspace_access_context(access_context)
-        count = await self._primary.batch_delete(access_context, ids)
+        identity_scope = require_identity_scope(identity_scope)
+        count = await self._primary.batch_delete(identity_scope, ids)
         for s in self._secondary:
-            await s.batch_delete(access_context, ids)
+            await s.batch_delete(identity_scope, ids)
         return count
 
     async def search(
         self,
-        scope: MemoryReadScope,
+        scope: IdentityScope,
         query: str,
         top_k: int,
         filters=None,
         mode: str = "dense",
         score_threshold: float = 0.0,
     ):
-        scope = require_memory_read_scope(scope)
+        scope = require_identity_scope(scope)
         return await self._primary.search(
             scope,
             query,
@@ -668,18 +666,18 @@ class MidTermMemoryStore:
 
     async def scroll(
         self,
-        scope: MemoryReadScope,
+        scope: IdentityScope,
         filters=None,
         limit: int = 100,
     ) -> List[MemoryAtom]:
         return await self._primary.scroll(
-            require_memory_read_scope(scope),
+            require_identity_scope(scope),
             filters,
             limit,
         )
 
-    async def count(self, scope: MemoryReadScope, filters=None) -> int:
-        return await self._primary.count(require_memory_read_scope(scope), filters)
+    async def count(self, scope: IdentityScope, filters=None) -> int:
+        return await self._primary.count(require_identity_scope(scope), filters)
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
         """供进程级生命周期维护遍历，不作为用户授权入口。"""
@@ -750,34 +748,34 @@ class ArtifactStore:
     async def put(self, artifact) -> ArtifactRef:
         return await self._port.put(artifact)
 
-    async def get(self, access_context: WorkspaceAccessContext, ref_or_id) -> dict:
-        access_context = require_workspace_access_context(access_context)
-        return await self._port.get(access_context, ref_or_id)
+    async def get(self, identity_scope: IdentityScope, ref_or_id) -> dict:
+        identity_scope = require_identity_scope(identity_scope)
+        return await self._port.get(identity_scope, ref_or_id)
 
     async def exists(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         artifact_id: str,
     ) -> bool:
-        access_context = require_workspace_access_context(access_context)
-        return await self._port.exists(access_context, artifact_id)
+        identity_scope = require_identity_scope(identity_scope)
+        return await self._port.exists(identity_scope, artifact_id)
 
     async def list_by_memory(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: str,
         artifact_type=None,
     ) -> list:
-        access_context = require_workspace_access_context(access_context)
-        return await self._port.list_by_memory(access_context, memory_id, artifact_type)
+        identity_scope = require_identity_scope(identity_scope)
+        return await self._port.list_by_memory(identity_scope, memory_id, artifact_type)
 
     async def verify(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ref,
     ) -> ArtifactIntegrityResult:
-        access_context = require_workspace_access_context(access_context)
-        return await self._port.verify(access_context, ref)
+        identity_scope = require_identity_scope(identity_scope)
+        return await self._port.verify(identity_scope, ref)
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()

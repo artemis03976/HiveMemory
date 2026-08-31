@@ -13,7 +13,7 @@ from hivememory.gateway.service import GatewayService
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.mark.asyncio
@@ -47,7 +47,7 @@ async def test_gateway_service_runs_fallback_workflow() -> None:
     result = await global_bus.request(
         GatewayPublicRoutes.PROCESS,
         message="hello",
-        access_context=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -70,7 +70,7 @@ async def test_gateway_service_rejects_missing_workspace_scope() -> None:
     with pytest.raises(ScopeRequiredError):
         await GatewayService(runtime).process(
             "hello",
-            access_context=None,
+            identity_scope=None,
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         )
 

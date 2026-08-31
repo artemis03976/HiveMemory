@@ -23,7 +23,7 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _decision(
@@ -86,7 +86,7 @@ async def test_prepare_explicit_missing_profile_fails_before_topic_creation() ->
     bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, get_profile)
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
 
-    identity_scope = make_access_context(
+    identity_scope = make_identity_scope(
         user_id="u1",
         agent_id="missing_doll",
     )
@@ -101,7 +101,7 @@ async def test_prepare_explicit_missing_profile_fails_before_topic_creation() ->
     assert exc_info.value is failure
     get_profile.assert_awaited_once_with(
         "missing_doll",
-        access_context=identity_scope,
+        identity_scope=identity_scope,
     )
     prepare_topic.assert_not_awaited()
 
@@ -113,7 +113,7 @@ async def test_prepare_stores_decision_and_derives_retrieval_request() -> None:
 
     prepared = await _service(bus, _submit).prepare_agent_run(
         "原问题",
-        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         gateway_decision=decision,
     )
@@ -138,7 +138,7 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
 
     prepared = await _service(bus, _submit).prepare_agent_run(
         "你好",
-        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         gateway_decision=decision,
     )
@@ -155,7 +155,7 @@ async def test_finalize_uses_saved_decision_instead_of_legacy_gaze() -> None:
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
         "原问题",
-        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         gateway_decision=decision,
     )
@@ -185,5 +185,5 @@ async def test_retrieval_boundary_rejects_missing_scope_even_when_skipped() -> N
     with pytest.raises(ScopeRequiredError):
         await service.retrieve_for_decision(
             _decision(mode=RetrievalMode.SKIP, top_k=0),
-            access_context=None,
+            identity_scope=None,
         )

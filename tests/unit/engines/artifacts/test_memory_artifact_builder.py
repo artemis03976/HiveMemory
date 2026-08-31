@@ -24,12 +24,12 @@ from hivememory.patchouli.memory_library.adapters.artifact import (
 )
 from hivememory.patchouli.memory_library.stores import ArtifactStore
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.fixture
-def access():
-    return make_access_context(
+def identity_scope():
+    return make_identity_scope(
         user_id="u1",
         agent_id="source-agent",
         workspace_id="main_workspace",
@@ -41,13 +41,13 @@ def store(tmp_path):
     return ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
 
 
-def _make_atom(access, *, memory_id=None, source_agent_id="source-agent") -> MemoryAtom:
+def _make_atom(identity_scope, *, memory_id=None, source_agent_id="source-agent") -> MemoryAtom:
     return MemoryAtom(
         id=memory_id or uuid4(),
         meta=make_memory_metadata(
             source_agent_id=source_agent_id,
-            user_id=access.workspace_identity.owner_user_id,
-            workspace_id=access.workspace_identity.workspace_id,
+            user_id=identity_scope.workspace_identity.owner_user_id,
+            workspace_id=identity_scope.workspace_identity.workspace_id,
         ),
         index=IndexLayer(
             title="Test Title",
@@ -63,9 +63,9 @@ def _make_atom(access, *, memory_id=None, source_agent_id="source-agent") -> Mem
 @pytest.mark.asyncio
 async def test_build_for_create_persists_scoped_artifacts_and_links_initial_version(
     store,
-    access,
+    identity_scope,
 ):
-    atom = _make_atom(access)
+    atom = _make_atom(identity_scope)
     builder = MemoryArtifactBuilder(store)
 
     bundle = await builder.build_for_create(
@@ -76,11 +76,11 @@ async def test_build_for_create_persists_scoped_artifacts_and_links_initial_vers
     )
 
     assert isinstance(bundle, MemoryCreationBundle)
-    version = await store.get(access, bundle.initial_version_ref)
-    creation = await store.get(access, bundle.creation_ref)
+    version = await store.get(identity_scope, bundle.initial_version_ref)
+    creation = await store.get(identity_scope, bundle.creation_ref)
     assert version["artifact_type"] == ArtifactType.MEMORY_VERSION.value
     assert creation["artifact_type"] == ArtifactType.MEMORY_CREATION.value
-    assert version["workspace_identity"] == access.workspace_identity.model_dump()
+    assert version["workspace_identity"] == identity_scope.workspace_identity.model_dump()
     assert creation["initial_version_ref"]["artifact_id"] == bundle.initial_version_ref.artifact_id
     assert version["owner_agent_id"] == "source-agent"
     assert creation["owner_agent_id"] == "source-agent"
@@ -95,8 +95,8 @@ async def test_build_for_create_persists_scoped_artifacts_and_links_initial_vers
 
 
 @pytest.mark.asyncio
-async def test_build_for_update_keeps_memory_provenance_and_scope(store, access):
-    atom = _make_atom(access)
+async def test_build_for_update_keeps_memory_provenance_and_scope(store, identity_scope):
+    atom = _make_atom(identity_scope)
     atom.meta.version = 3
     builder = MemoryArtifactBuilder(store)
 
@@ -107,17 +107,17 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, access)
         changelog="Updated reason",
     )
 
-    data = await store.get(access, ref)
+    data = await store.get(identity_scope, ref)
     assert data["artifact_type"] == ArtifactType.MEMORY_VERSION.value
     assert data["version_number"] == 3
     assert data["update_source"] == "MERGE"
-    assert data["workspace_identity"] == access.workspace_identity.model_dump()
+    assert data["workspace_identity"] == identity_scope.workspace_identity.model_dump()
     assert data["owner_agent_id"] == atom.meta.source_agent_id
 
 
 @pytest.mark.asyncio
-async def test_builder_rejects_source_ref_from_another_workspace(store, access):
-    other = make_access_context(
+async def test_builder_rejects_source_ref_from_another_workspace(store, identity_scope):
+    other = make_identity_scope(
         user_id="u1",
         agent_id="other-agent",
         workspace_id="isolation_workspace",
@@ -131,7 +131,7 @@ async def test_builder_rejects_source_ref_from_another_workspace(store, access):
             created_at=datetime(2026, 1, 1),
         )
     )
-    atom = _make_atom(access)
+    atom = _make_atom(identity_scope)
     builder = MemoryArtifactBuilder(store)
 
     with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
@@ -142,4 +142,4 @@ async def test_builder_rejects_source_ref_from_another_workspace(store, access):
             source_artifact_refs=[source],
         )
 
-    assert await store.list_by_memory(access, str(atom.id)) == []
+    assert await store.list_by_memory(identity_scope, str(atom.id)) == []

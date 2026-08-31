@@ -22,7 +22,7 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.memory import make_memory_identity_scope
 
 # ============ 辅助工厂 ============
 
@@ -246,7 +246,7 @@ class TestGenerationRequestIdentity:
     def test_request_is_identity_agnostic(self):
         """捕获 GenerationRequest 重新持有权限/ownership 字段的缺陷。"""
         request = GenerationRequest(context=GenerationContext())
-        assert not hasattr(request, "creation_context")
+        assert not hasattr(request, "identity_scope")
         assert not hasattr(request, "identity")
 
 
@@ -289,7 +289,7 @@ class TestEngineWithGenerationContext:
             turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
         )
         req = _request(context=ctx)
-        await engine.process(req, identity_scope=make_memory_creation_context())
+        await engine.process(req, identity_scope=make_memory_identity_scope())
         extractor.extract.assert_called_once()
         transcript = extractor.extract.call_args[1]["transcript"]
         assert "[Turn 1]" in transcript
@@ -301,7 +301,7 @@ class TestEngineWithGenerationContext:
         """context 为空时跳过 extractor"""
         engine, extractor, _ = self._make_engine()
         req = _request(context=GenerationContext())  # no turns
-        result = await engine.process(req, identity_scope=make_memory_creation_context())
+        result = await engine.process(req, identity_scope=make_memory_identity_scope())
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -310,7 +310,7 @@ class TestEngineWithGenerationContext:
         """无上下文且无 focus 时直接跳过"""
         engine, extractor, _ = self._make_engine()
         req = _request()
-        result = await engine.process(req, identity_scope=make_memory_creation_context())
+        result = await engine.process(req, identity_scope=make_memory_identity_scope())
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -332,7 +332,7 @@ class TestEngineWithGenerationContext:
         ])
         focus = WriteFocus(content="content to write")
         req = _request(context=ctx, write_focus=focus)
-        await engine.process(req, identity_scope=make_memory_creation_context())
+        await engine.process(req, identity_scope=make_memory_identity_scope())
 
         extractor.extract.assert_called_once()
         call_kwargs = extractor.extract.call_args[1]

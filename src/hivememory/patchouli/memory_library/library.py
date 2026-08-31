@@ -21,7 +21,7 @@ from uuid import UUID
 from hivememory.core.models import (
     MemoryEventLog,
     MemoryEventType,
-    WorkspaceAccessContext,
+    IdentityScope,
     WorkspaceMemoryKey,
 )
 from hivememory.patchouli.memory_library.models import (
@@ -83,7 +83,7 @@ class MemoryLibrary:
 
     async def revive(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> None:
         """
@@ -91,7 +91,7 @@ class MemoryLibrary:
 
         流程: LongTermStore.load() → MidTermStore.upsert() → LongTermStore.remove()
         """
-        key = WorkspaceMemoryKey.from_access_context(access_context, memory_id)
+        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
         memory = await self.long_term.load(key)
         memory.payload.artifacts.events.append(
             MemoryEventLog(event_type=MemoryEventType.REVIVED)

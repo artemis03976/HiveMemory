@@ -30,7 +30,7 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -54,7 +54,7 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     return AgentRunContext(
-        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",

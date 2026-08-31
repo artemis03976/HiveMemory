@@ -30,8 +30,8 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.errors import TopicSettleAdmissionError
 from hivememory.patchouli.services.perception import PerceptionFamiliar
-from tests.helpers.memory import make_memory_creation_context
-from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_identity_scope
+from tests.helpers.workspace import make_identity_scope
 
 
 class TestPerceptionFamiliar:
@@ -55,7 +55,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic = Mock(return_value="t1")
         store.get_topic_data = Mock(return_value=TopicData(
             topic_id="t1",
-            workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
             topic_title="title",
             last_update=1.0,
             last_accessed_at=1.0,
@@ -85,7 +85,7 @@ class TestPerceptionFamiliar:
         )
         settlement = TopicMaterializeTask(
             topic_id="t1",
-            identity_scope=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_identity_scope(user_id="u1"),
             blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
         )
         layer = Mock()
@@ -109,7 +109,7 @@ class TestPerceptionFamiliar:
 
         result = await familiar.submit_interaction(
             payload,
-            identity_scope=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             target_topic_id="t1",
         )
 
@@ -117,7 +117,7 @@ class TestPerceptionFamiliar:
         layer.route_and_ingest.assert_awaited_once_with(
             "t1",
             payload,
-            identity_scope=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             asset_id_and_refs=(),
         )
         bus.request.assert_awaited_once_with(
@@ -146,7 +146,7 @@ class TestPerceptionFamiliar:
 
         result = await familiar.submit_interaction(
             payload,
-            identity_scope=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             target_topic_id="t1",
         )
 
@@ -162,7 +162,7 @@ class TestPerceptionFamiliar:
         )
         settlement = TopicMaterializeTask(
             topic_id="old_topic",
-            identity_scope=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_identity_scope(user_id="u1"),
             blocks=[LogicalBlock(turn=TurnRecord(user_query="old", assistant_final_text="answer"))],
             reason=FlushReason.LRU_EVICTION,
         )
@@ -190,13 +190,13 @@ class TestPerceptionFamiliar:
 
         result = await familiar.submit_interaction(
             payload,
-            identity_scope=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             target_topic_id="NEW_TOPIC",
         )
 
         assert result == "new_topic"
         layer.settle_topic.assert_awaited_once_with(
-            WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "old_topic"),
+            WorkspaceTopicKey.from_identity_scope(make_identity_scope(user_id="u1"), "old_topic"),
             FlushReason.LRU_EVICTION,
         )
         bus.request.assert_awaited_once_with(
@@ -206,7 +206,7 @@ class TestPerceptionFamiliar:
         layer.route_and_ingest.assert_awaited_once_with(
             "NEW_TOPIC",
             payload,
-            identity_scope=make_access_context(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             asset_id_and_refs=(),
         )
 
@@ -217,7 +217,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
             topic_id="t1",
-            workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
             topic_title="empty",
             last_update=1.0,
             last_accessed_at=1.0,
@@ -235,14 +235,14 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.manual_settle_topic(make_access_context(user_id="u1"))
+        result = await familiar.manual_settle_topic(make_identity_scope(user_id="u1"))
 
         assert result.topic_id == "t1"
         assert result.generation_submitted is False
         assert result.generation_task_id is None
         bus.request.assert_not_awaited()
         layer.commit_settlement.assert_called_once_with(
-            WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "t1")
+            WorkspaceTopicKey.from_identity_scope(make_identity_scope(user_id="u1"), "t1")
         )
 
     @pytest.mark.asyncio
@@ -256,7 +256,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
             topic_id="t1",
-            workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
             topic_title="title",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
             last_update=1.0,
@@ -265,7 +265,7 @@ class TestPerceptionFamiliar:
         layer = Mock()
         layer.prepare_settlement = AsyncMock(return_value=TopicMaterializeTask(
             topic_id="t1",
-            identity_scope=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_identity_scope(user_id="u1"),
             topic_title="title",
             topic_summary="",
             blocks=[],
@@ -288,21 +288,21 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        access_context = make_access_context(user_id="u1")
-        result = await familiar.manual_settle_topic(access_context)
+        identity_scope = make_identity_scope(user_id="u1")
+        result = await familiar.manual_settle_topic(identity_scope)
 
         assert result.topic_id == "t1"
         assert result.generation_task_id == "task-1"
         assert result.generation_submitted is True
         layer.prepare_settlement.assert_awaited_once_with(
-            WorkspaceTopicKey.from_access_context(access_context, "t1")
+            WorkspaceTopicKey.from_identity_scope(identity_scope, "t1")
         )
         assert (
             bus.request.await_args.args[0]
             == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         )
         layer.commit_settlement.assert_called_once_with(
-            WorkspaceTopicKey.from_access_context(access_context, "t1")
+            WorkspaceTopicKey.from_identity_scope(identity_scope, "t1")
         )
 
     @pytest.mark.asyncio
@@ -312,7 +312,7 @@ class TestPerceptionFamiliar:
         store.get_last_active_topic.return_value = "t1"
         store.get_topic_data.return_value = TopicData(
             topic_id="t1",
-            workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
             topic_title="title",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
             last_update=1.0,
@@ -321,7 +321,7 @@ class TestPerceptionFamiliar:
         layer = Mock()
         layer.prepare_settlement = AsyncMock(return_value=TopicMaterializeTask(
             topic_id="t1",
-            identity_scope=make_memory_creation_context(user_id="u1"),
+            identity_scope=make_memory_identity_scope(user_id="u1"),
             topic_title="title",
             blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
         ))
@@ -338,10 +338,10 @@ class TestPerceptionFamiliar:
         )
 
         with pytest.raises(TopicSettleAdmissionError, match="可重试"):
-            await familiar.manual_settle_topic(make_access_context(user_id="u1"))
+            await familiar.manual_settle_topic(make_identity_scope(user_id="u1"))
 
         layer.abort_settlement.assert_called_once_with(
-            WorkspaceTopicKey.from_access_context(make_access_context(user_id="u1"), "t1")
+            WorkspaceTopicKey.from_identity_scope(make_identity_scope(user_id="u1"), "t1")
         )
         layer.commit_settlement.assert_not_called()
         store.clear_blocks.assert_not_called()
@@ -353,13 +353,13 @@ class TestPerceptionFamiliar:
         layer.swap_out_topic = Mock(return_value=True)
         familiar = self._make_familiar(layer=layer)
 
-        access_context = make_access_context(user_id="u1")
-        result = await familiar.evict_topic(access_context, "topic_to_evict")
+        identity_scope = make_identity_scope(user_id="u1")
+        result = await familiar.evict_topic(identity_scope, "topic_to_evict")
 
         assert result.topic_id == "topic_to_evict"
         assert result.removed is True
         layer.swap_out_topic.assert_called_once_with(
-            WorkspaceTopicKey.from_access_context(access_context, "topic_to_evict")
+            WorkspaceTopicKey.from_identity_scope(identity_scope, "topic_to_evict")
         )
 
     @pytest.mark.asyncio
@@ -368,7 +368,7 @@ class TestPerceptionFamiliar:
         from datetime import datetime
         recent_topic_data = TopicData(
             topic_id="recent_topic",
-            workspace_identity=make_access_context(user_id="u1").workspace_identity,
+            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
             topic_title="recent",
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
             last_update=datetime.now().timestamp(),  # 刚刚更新

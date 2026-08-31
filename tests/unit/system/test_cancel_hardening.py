@@ -28,7 +28,7 @@ from hivememory.system.runtime.control import (
     ChatRunOutcome,
     ChatRunPhase,
 )
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ class TestChatGenerationRunRegistry:
         self.registry = ChatGenerationRunRegistry()
 
     def test_cancel_records_stop_and_returns_result(self):
-        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-1")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-1")
         self.registry.register(run)
 
         result = self.registry.cancel("gen-1", run.identity_scope)
@@ -47,7 +47,7 @@ class TestChatGenerationRunRegistry:
         assert run.outcome is ChatRunOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
-        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-2")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-2")
         self.registry.register(run)
 
         r1 = self.registry.cancel("gen-2", run.identity_scope)
@@ -58,18 +58,18 @@ class TestChatGenerationRunRegistry:
         assert r2.reason == r1.reason
 
     def test_cancel_unknown_generation_id_returns_not_found(self):
-        result = self.registry.cancel("nonexistent", make_access_context())
+        result = self.registry.cancel("nonexistent", make_identity_scope())
         assert result.cancelled is False
         assert result.status == "not_found"
 
     def test_close_removes_run(self):
-        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-3")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-3")
         self.registry.register(run)
         self.registry.close(run)
         assert self.registry.get("gen-3", run.identity_scope) is None
 
     def test_run_stop_outcome(self):
-        run = ChatGenerationRun(identity_scope=make_access_context(), interaction_id="gen-4")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-4")
         assert run.outcome is ChatRunOutcome.RUNNING
         run.enter_phase(ChatRunPhase.ALICE)
         run.request_stop()

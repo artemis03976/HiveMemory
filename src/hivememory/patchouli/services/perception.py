@@ -13,10 +13,9 @@ from typing import TYPE_CHECKING, Optional
 
 from hivememory.core.models import (
     IdentityScope,
-    WorkspaceAccessContext,
     WorkspaceAssetRef,
     WorkspaceTopicKey,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.models import FlushReason
@@ -191,23 +190,23 @@ class PerceptionFamiliar:
         target_topic_id: str,
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
-        await self._maybe_evict_lru(access_context, target_topic_id)
+        await self._maybe_evict_lru(identity_scope, target_topic_id)
 
         return await self.perception_layer.prepare_topic(
             target_topic_id,
             new_topic_title,
             new_topic_summary,
-            access_context,
+            identity_scope,
         )
 
     async def _maybe_evict_lru(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         target_topic_id: str,
     ) -> None:
         """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。"""
@@ -215,7 +214,7 @@ class PerceptionFamiliar:
         # 该检查位于 LRU 操作之前，保证跨 Workspace ID 不会产生本域副作用。
         if target_topic_id != "NEW_TOPIC":
             if not self._short_term.topic_exists(
-                access_context,
+                identity_scope,
                 target_topic_id,
                 touch=False,
             ):
@@ -223,19 +222,19 @@ class PerceptionFamiliar:
                     f"topic '{target_topic_id}' does not exist in requested Workspace"
                 )
             return
-        if not self._short_term.needs_eviction(access_context):
+        if not self._short_term.needs_eviction(identity_scope):
             return
 
         attempted_topic_ids: set[str] = set()
-        while self._short_term.needs_eviction(access_context):
-            lru_topic_id = self._short_term.get_lru_topic(access_context)
+        while self._short_term.needs_eviction(identity_scope):
+            lru_topic_id = self._short_term.get_lru_topic(identity_scope)
             if lru_topic_id is None or lru_topic_id in attempted_topic_ids:
                 # 池满但无未尝试的 IDLE 候选，无法安全驱逐。
                 raise TopicBusyError("LRU 驱逐无 IDLE 候选，稍后重试")
 
             try:
                 settle_result = await self.perception_layer.settle_topic(
-                    WorkspaceTopicKey.from_access_context(access_context, lru_topic_id),
+                    WorkspaceTopicKey.from_identity_scope(identity_scope, lru_topic_id),
                     FlushReason.LRU_EVICTION,
                 )
             except TopicBusyError:
@@ -256,7 +255,7 @@ class PerceptionFamiliar:
 
     async def manual_settle_topic(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: Optional[str] = None,
     ) -> TopicSettleResult:
         """手动结算指定话题：FLUSHING prepare -> admission -> commit/abort。
@@ -266,12 +265,12 @@ class PerceptionFamiliar:
         周期。admission 失败时 abort 恢复 IDLE，Topic、blocks 与 state_summary
         保持完整可重试。
         """
-        access_context = require_workspace_access_context(access_context)
-        target_id = topic_id or self._short_term.get_last_active_topic(access_context)
+        identity_scope = require_identity_scope(identity_scope)
+        target_id = topic_id or self._short_term.get_last_active_topic(identity_scope)
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
 
-        topic = self._short_term.get_topic_data(access_context, target_id)
+        topic = self._short_term.get_topic_data(identity_scope, target_id)
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
@@ -311,12 +310,12 @@ class PerceptionFamiliar:
 
     async def evict_topic(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicEvictionResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
-        key = WorkspaceTopicKey.from_access_context(
-            require_workspace_access_context(access_context),
+        key = WorkspaceTopicKey.from_identity_scope(
+            require_identity_scope(identity_scope),
             topic_id,
         )
         removed = self.perception_layer.swap_out_topic(key)
@@ -324,11 +323,11 @@ class PerceptionFamiliar:
 
     def discard_if_empty(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> bool:
         """话题为空时清理该话题。"""
-        return self.perception_layer.discard_if_empty(access_context, topic_id)
+        return self.perception_layer.discard_if_empty(identity_scope, topic_id)
 
     async def scan_idle_buffers_once(self) -> list[str]:
         """扫描并 settle 空闲超时话题，策略由 Familiar 持有。"""

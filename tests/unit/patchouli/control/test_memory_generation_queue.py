@@ -42,7 +42,7 @@ from hivememory.system.runtime.work_queue import (
     WorkState,
     encode_canonical_json,
 )
-from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 
 def _memory_atom() -> MemoryAtom:
@@ -69,7 +69,7 @@ def _spec(
     pending_alias: str | None = None,
 ) -> MemoryGenerationTaskSpec:
     return MemoryGenerationTaskSpec(
-        identity_scope=make_memory_creation_context(),
+        identity_scope=make_memory_identity_scope(),
         topic_id=topic_id,
         label=label,
         source=MemoryGenerationSource.WRITE,
@@ -105,7 +105,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         turn=TurnRecord(user_query="question", assistant_final_text="answer")
     )
     spec = MemoryGenerationTaskSpec(
-        identity_scope=make_memory_creation_context(),
+        identity_scope=make_memory_identity_scope(),
         topic_id="topic-codec",
         label="codec",
         source=MemoryGenerationSource.UPDATE,
@@ -195,7 +195,7 @@ async def test_queue_identity_does_not_partition_by_payload_scope() -> None:
     main_spec = _spec(intent_id="intent-shared", pending_alias="draft-shared")
     isolated_spec = replace(
         main_spec,
-        identity_scope=make_memory_creation_context(
+        identity_scope=make_memory_identity_scope(
             workspace_id="isolation_workspace"
         ),
     )

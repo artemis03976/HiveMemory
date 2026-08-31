@@ -47,7 +47,7 @@ def _frame(
 
 def _context(frame: ExecutionFrame) -> AgentRunContext:
     return AgentRunContext(
-        identity_scope=frame.access_context,
+        identity_scope=frame.identity_scope,
         interaction_id="interaction-test",
         topic_id=frame.topic_id,
         user_message="hello",

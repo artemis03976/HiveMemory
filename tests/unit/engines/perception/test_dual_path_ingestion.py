@@ -21,7 +21,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_layer() -> tuple[SemanticFlowPerceptionLayer, ShortTermMemoryStore]:
@@ -42,8 +42,8 @@ def _identity() -> Identity:
     return Identity(user_id="u1", agent_id="a1")
 
 
-def _access_context():
-    return make_access_context(actor_identity=_identity())
+def _identity_scope():
+    return make_identity_scope(actor_identity=_identity())
 
 
 def _turn_event(kind="tool_call", tool_kind="READ", target="alias_x") -> TurnEvent:
@@ -66,7 +66,7 @@ async def test_missing_turn_events_raises_error():
         turn_events=[],
     )
     with pytest.raises(ValueError, match="turn_events is required"):
-        await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
+        await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_identity_scope())
 
 
 @pytest.mark.asyncio
@@ -79,9 +79,9 @@ async def test_structured_path_persists_assistant_final_text():
         turn_events=[turn_event],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_identity_scope())
 
-    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
+    topic_data = store.get_topic_data(_identity_scope(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
 
@@ -122,9 +122,9 @@ async def test_structured_path_reduces_turn_events_to_actions():
         ],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_identity_scope())
 
-    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
+    topic_data = store.get_topic_data(_identity_scope(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert len(block.actions) == 1
@@ -146,9 +146,9 @@ async def test_structured_path_persists_payload_mtp_traces():
         turn_events=[_turn_event()],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_identity_scope())
 
-    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
+    topic_data = store.get_topic_data(_identity_scope(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert [t.action for t in block.semantic_traces] == ["SEARCH"]
@@ -164,9 +164,9 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
         turn_events=[_turn_event()],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_identity_scope())
 
-    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
+    topic_data = store.get_topic_data(_identity_scope(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert block.semantic_traces == ()
@@ -181,9 +181,9 @@ async def test_structured_path_empty_final_text_stays_empty():
         turn_events=[_turn_event()],
     )
 
-    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_access_context())
+    topic_id, _ = await layer.route_and_ingest("NEW_TOPIC", payload, identity_scope=_identity_scope())
 
-    topic_data = store.get_topic_data(_access_context(), topic_id, touch=False)
+    topic_data = store.get_topic_data(_identity_scope(), topic_id, touch=False)
     assert topic_data is not None
     block = topic_data.blocks[0]
     assert block.assistant_final_text == ""

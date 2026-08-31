@@ -32,7 +32,7 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.memory import make_memory_identity_scope
 
 
 # ========== Fixtures ==========
@@ -43,9 +43,9 @@ def identity() -> Identity:
 
 
 @pytest.fixture
-def creation_context():
+def identity_scope():
     """保护生成入口不从对话 Identity 隐式推导 Memory owner 的回归。"""
-    return make_memory_creation_context(user_id="test_user", agent_id="test_agent")
+    return make_memory_identity_scope(user_id="test_user", agent_id="test_agent")
 
 
 @pytest.fixture
@@ -81,7 +81,7 @@ class TestModeBExtraction:
     """验证 Generation Engine Mode B 路径"""
 
     @pytest.mark.asyncio
-    async def test_mode_b_calls_extractor_with_write_metadata(self, sample_context, creation_context):
+    async def test_mode_b_calls_extractor_with_write_metadata(self, sample_context, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"],
@@ -102,7 +102,7 @@ class TestModeBExtraction:
             write_focus=focus,
         )
 
-        result = await engine.process(request=request, identity_scope=creation_context)
+        result = await engine.process(request=request, identity_scope=identity_scope)
 
         # 验证 extractor 被调用时 metadata 包含 mode=write
         call_args = mock_extractor.extract.call_args
@@ -113,7 +113,7 @@ class TestModeBExtraction:
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_mode_a_no_write_metadata(self, sample_context, creation_context):
+    async def test_mode_a_no_write_metadata(self, sample_context, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
             title="Test Memory", summary="这是一条测试记忆，用于验证 Mode A 路径", tags=["test"],
@@ -131,7 +131,7 @@ class TestModeBExtraction:
         request = GenerationRequest(
             context=sample_context,
         )
-        result = await engine.process(request, identity_scope=creation_context)
+        result = await engine.process(request, identity_scope=identity_scope)
 
         call_args = mock_extractor.extract.call_args
         metadata = call_args[1]["metadata"] if "metadata" in call_args[1] else call_args[0][1]
@@ -144,7 +144,7 @@ class TestModeBFallback:
     """验证 LLM 提取失败时的 fallback 草稿构建"""
 
     @pytest.mark.asyncio
-    async def test_fallback_when_extractor_returns_none(self, sample_context, creation_context):
+    async def test_fallback_when_extractor_returns_none(self, sample_context, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None  # LLM 失败
         mock_dedup = MagicMock()
@@ -165,7 +165,7 @@ class TestModeBFallback:
             write_focus=focus,
         )
 
-        result = await engine.process(request=request, identity_scope=creation_context)
+        result = await engine.process(request=request, identity_scope=identity_scope)
 
         # fallback 应该保底生成 atom
         assert len(result) == 1
@@ -214,7 +214,7 @@ class TestEngineUnifiedAPI:
     """验证 process() 统一使用 GenerationRequest"""
 
     @pytest.mark.asyncio
-    async def test_request_param_mode_a(self, sample_context, creation_context):
+    async def test_request_param_mode_a(self, sample_context, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = None
         mock_dedup = MagicMock()
@@ -227,7 +227,7 @@ class TestEngineUnifiedAPI:
         request = GenerationRequest(
             context=sample_context,
         )
-        result = await engine.process(request, identity_scope=creation_context)
+        result = await engine.process(request, identity_scope=identity_scope)
         assert result == []
         mock_extractor.extract.assert_called_once()
 
@@ -236,5 +236,5 @@ class TestEngineUnifiedAPI:
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=AsyncMock(),
         )
-        result = await engine.process(GenerationRequest(), identity_scope=make_memory_creation_context())
+        result = await engine.process(GenerationRequest(), identity_scope=make_memory_identity_scope())
         assert result == []

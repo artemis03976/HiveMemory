@@ -34,7 +34,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 class _DeterministicRelay:
@@ -122,39 +122,39 @@ def _topic_boundary(*, max_resident_topics: int = 5):
 @pytest.mark.asyncio
 async def test_get_topic_data_does_not_change_topic_access_state():
     store = ShortTermMemoryStore()
-    access_context = make_access_context(user_id="u1")
-    buffer = store.create_buffer(access_context, topic_title="Gateway")
+    identity_scope = make_identity_scope(user_id="u1")
+    buffer = store.create_buffer(identity_scope, topic_title="Gateway")
     initial_accessed_at = buffer.last_accessed_at
     bus = PatchouliBus()
 
-    async def get_topic(topic_id: str, *, access_context, touch: bool = True):
-        return store.get_topic_data(access_context, topic_id, touch=touch)
+    async def get_topic(topic_id: str, *, identity_scope, touch: bool = True):
+        return store.get_topic_data(identity_scope, topic_id, touch=touch)
 
     bus.register(PatchouliLocalRoutes.TOPIC_GET, get_topic)
     service = TopicManagementService(bus=bus)
 
     result = await service.get_topic_data(
-        access_context=make_access_context(user_id="u1"),
+        identity_scope=make_identity_scope(user_id="u1"),
         topic_id=buffer.topic_id,
     )
 
     assert result is not None
     assert result.topic_id == buffer.topic_id
     assert buffer.last_accessed_at == initial_accessed_at
-    assert store.get_last_active_topic(access_context) is None
+    assert store.get_last_active_topic(identity_scope) is None
 
 
 @pytest.mark.asyncio
 async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_reads_are_hidden():
     """捕获 Topic ID 被错误建模为 Workspace-local、进而允许跨域读写的缺陷。"""
     service, _, _, store = _topic_boundary()
-    main = make_access_context(user_id="u1", agent_id="a1", workspace_id="main_workspace")
-    isolated = make_access_context(
+    main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
+    isolated = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="isolation_workspace",
     )
-    other_user = make_access_context(
+    other_user = make_identity_scope(
         user_id="u2",
         agent_id="a1",
         workspace_id="main_workspace",
@@ -165,41 +165,41 @@ async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_rea
 
     assert main_topic.topic_id != isolated_topic.topic_id
     main_result = await service.get_topic_data(
-        access_context=main,
+        identity_scope=main,
         topic_id=main_topic.topic_id,
     )
     isolated_result = await service.get_topic_data(
-        access_context=isolated,
+        identity_scope=isolated,
         topic_id=isolated_topic.topic_id,
     )
     assert main_result.topic_id == main_topic.topic_id
     assert isolated_result.topic_id == isolated_topic.topic_id
-    assert await service.get_topic_data(access_context=isolated, topic_id=main_topic.topic_id) is None
-    assert await service.get_topic_data(access_context=main, topic_id=isolated_topic.topic_id) is None
-    assert await service.get_topic_data(access_context=other_user, topic_id=main_topic.topic_id) is None
+    assert await service.get_topic_data(identity_scope=isolated, topic_id=main_topic.topic_id) is None
+    assert await service.get_topic_data(identity_scope=main, topic_id=isolated_topic.topic_id) is None
+    assert await service.get_topic_data(identity_scope=other_user, topic_id=main_topic.topic_id) is None
 
     main_ids = {
         snapshot.topic_id
-        for snapshot in await service.list_active_topics(access_context=main, include_empty=True)
+        for snapshot in await service.list_active_topics(identity_scope=main, include_empty=True)
     }
     isolated_ids = {
         snapshot.topic_id
         for snapshot in await service.list_active_topics(
-            access_context=isolated,
+            identity_scope=isolated,
             include_empty=True,
         )
     }
     assert main_ids == {main_topic.topic_id}
     assert isolated_ids == {isolated_topic.topic_id}
-    assert await service.list_active_topics(access_context=other_user, include_empty=True) == ()
+    assert await service.list_active_topics(identity_scope=other_user, include_empty=True) == ()
 
 
 @pytest.mark.asyncio
 async def test_cross_workspace_topic_management_rejects_without_side_effects():
     """捕获 settle/delete/compact 只按裸 topic_id 操作而跨越 Workspace 的缺陷。"""
     service, familiar, trigger_manager, store = _topic_boundary()
-    main = make_access_context(user_id="u1", agent_id="a1", workspace_id="main_workspace")
-    isolated = make_access_context(
+    main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
+    isolated = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="isolation_workspace",
@@ -220,10 +220,10 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
     assert before_isolated.topic_id == isolated_topic_id
 
     with pytest.raises(KeyError):
-        await service.settle_topic(access_context=isolated, topic_id=main_topic_id)
+        await service.settle_topic(identity_scope=isolated, topic_id=main_topic_id)
 
     delete_result = await service.evict_topic(
-        access_context=isolated,
+        identity_scope=isolated,
         topic_id=main_topic_id,
     )
     assert delete_result.removed is False
@@ -231,7 +231,7 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
     with pytest.raises(KeyError):
         await trigger_manager.resolve_topic(
             FlushEvent(
-                topic_key=WorkspaceTopicKey.from_access_context(isolated, main_topic_id),
+                topic_key=WorkspaceTopicKey.from_identity_scope(isolated, main_topic_id),
                 reason=FlushReason.MANUAL_COMPACT,
             ),
             retain_recent_blocks=1,
@@ -251,8 +251,8 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
 async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
     """捕获未知异域 Topic ID 被静默回退为本域新 Topic 的缺陷。"""
     service, familiar, _, store = _topic_boundary()
-    main = make_access_context(user_id="u1", agent_id="a1", workspace_id="main_workspace")
-    isolated = make_access_context(
+    main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
+    isolated = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="isolation_workspace",
@@ -282,8 +282,8 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
 async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rejection():
     """捕获话题池已满时先驱逐本域 LRU、再把异域 ID 回退成新话题的缺陷。"""
     service, _, _, store = _topic_boundary(max_resident_topics=1)
-    main = make_access_context(user_id="u1", agent_id="a1", workspace_id="main_workspace")
-    isolated = make_access_context(
+    main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
+    isolated = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="isolation_workspace",

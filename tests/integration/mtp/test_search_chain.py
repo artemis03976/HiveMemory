@@ -249,7 +249,7 @@ class TestSearchRetrievalRequest:
         call_args = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.semantic_query == "python decorators"
 
-    def test_access_context_injected_for_search(self, koakuma):
+    def test_identity_scope_injected_for_search(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
         context = MTPExecutionContext(
@@ -259,9 +259,9 @@ class TestSearchRetrievalRequest:
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫', context=context)
 
         request = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
-        assert request.access_context.actor_identity.user_id == "user_42"
+        assert request.identity_scope.actor_identity.user_id == "user_42"
         assert (
-            request.access_context.workspace_identity.owner_user_id
+            request.identity_scope.workspace_identity.owner_user_id
             == "user_42"
         )
 

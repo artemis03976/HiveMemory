@@ -21,8 +21,8 @@ from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     Identity,
     IdentityScope,
-    require_workspace_access_context,
-    resolve_default_workspace_access,
+    require_identity_scope,
+    resolve_default_identity_scope,
 )
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
@@ -169,7 +169,7 @@ class ChatApplicationService:
             agent_id=agent_id,
             session_id=session_id,
         )
-        identity_scope = resolve_default_workspace_access(identity)
+        identity_scope = resolve_default_identity_scope(identity)
         interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
         return await self.chat_scoped(
             user_message=user_message,
@@ -189,7 +189,7 @@ class ChatApplicationService:
         generation_options: dict[str, Any] | None = None,
     ) -> NonStreamingChatResult:
         """显式 scope 的内部非流式入口。"""
-        identity_scope = require_workspace_access_context(identity_scope)
+        identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
         agent_id = identity.agent_id
         trace_id = generate_trace_id("chat")
@@ -216,7 +216,7 @@ class ChatApplicationService:
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
-                    access_context=identity_scope,
+                    identity_scope=identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
@@ -374,7 +374,7 @@ class ChatApplicationService:
             agent_id=agent_id,
             session_id=session_id,
         )
-        identity_scope = resolve_default_workspace_access(identity)
+        identity_scope = resolve_default_identity_scope(identity)
         interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
         async for event in self.chat_stream_scoped(
             user_message=user_message,
@@ -403,7 +403,7 @@ class ChatApplicationService:
         trace_id = generate_trace_id("stream")
         tokens = None
 
-        identity_scope = require_workspace_access_context(identity_scope)
+        identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
         agent_id = identity.agent_id
         run = ChatGenerationRun(
@@ -436,7 +436,7 @@ class ChatApplicationService:
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
-                    access_context=identity_scope,
+                    identity_scope=identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
@@ -682,7 +682,7 @@ class ChatApplicationService:
         reason: str = "user_requested",
     ) -> CancelResult:
         """公共默认 Workspace 的幂等取消入口。"""
-        identity_scope = resolve_default_workspace_access(
+        identity_scope = resolve_default_identity_scope(
             Identity(user_id=user_id, agent_id=agent_id),
         )
         return self.cancel_generation_scoped(
@@ -699,7 +699,7 @@ class ChatApplicationService:
         reason: str = "user_requested",
     ) -> CancelResult:
         """按 owner/workspace 校验的内部取消入口。"""
-        identity_scope = require_workspace_access_context(identity_scope)
+        identity_scope = require_identity_scope(identity_scope)
         result = self._registry.cancel(
             generation_id,
             identity_scope,
@@ -730,7 +730,7 @@ class ChatApplicationService:
         """返回 scoped Chat 状态；错误 scope 与不存在统一为 ``None``。"""
         return self._registry.status(
             generation_id,
-            require_workspace_access_context(identity_scope),
+            require_identity_scope(identity_scope),
         )
 
     # ========== 内部辅助 ==========
@@ -861,7 +861,7 @@ class ChatApplicationService:
         try:
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
-                access_context=prepared_run.identity_scope,
+                identity_scope=prepared_run.identity_scope,
                 include_empty=True,
             )
         except Exception:

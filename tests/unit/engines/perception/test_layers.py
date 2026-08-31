@@ -12,7 +12,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.config import SemanticFlowPerceptionConfig
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_payload(user_msg="msg", assistant_msg="reply", identity=None):
@@ -50,12 +50,12 @@ class TestSemanticFlowPerceptionLayer:
         topic_id, settle_payload = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("hi", "hello", identity),
-            identity_scope=make_access_context(actor_identity=identity),
+            identity_scope=make_identity_scope(actor_identity=identity),
         )
 
         assert settle_payload is None
         topic_data = self.store.get_topic_data(
-            make_access_context(actor_identity=identity), topic_id, touch=False
+            make_identity_scope(actor_identity=identity), topic_id, touch=False
         )
         assert topic_data is not None
         assert len(topic_data.blocks) == 1
@@ -67,19 +67,19 @@ class TestSemanticFlowPerceptionLayer:
         topic_id, _ = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("old topic", "old response", identity),
-            identity_scope=make_access_context(actor_identity=identity),
+            identity_scope=make_identity_scope(actor_identity=identity),
         )
 
         real_topic_id, settle_payload = await self.layer.route_and_ingest(
             topic_id,
             _make_payload("new topic", "new response", identity),
-            identity_scope=make_access_context(actor_identity=identity),
+            identity_scope=make_identity_scope(actor_identity=identity),
         )
 
         assert real_topic_id == topic_id
         assert settle_payload is None
         topic_data = self.store.get_topic_data(
-            make_access_context(actor_identity=identity), topic_id, touch=False
+            make_identity_scope(actor_identity=identity), topic_id, touch=False
         )
         assert topic_data is not None
         assert len(topic_data.blocks) == 2
@@ -88,7 +88,7 @@ class TestSemanticFlowPerceptionLayer:
     async def test_ingest_payload_requires_turn_events(self):
         identity = Identity(user_id="u1", agent_id="a1")
         topic_id = await self.layer.create_new_topic(
-            make_access_context(actor_identity=identity)
+            make_identity_scope(actor_identity=identity)
         )
         payload = InteractionPayload(
             user_message="hi",
@@ -100,7 +100,7 @@ class TestSemanticFlowPerceptionLayer:
             await self.layer.ingest_payload(
                 payload,
                 topic_id,
-                identity_scope=make_access_context(actor_identity=identity),
+                identity_scope=make_identity_scope(actor_identity=identity),
             )
 
     @pytest.mark.asyncio
@@ -108,14 +108,14 @@ class TestSemanticFlowPerceptionLayer:
         topic_id, _ = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("hi", "hello"),
-            identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         )
 
-        access_context = make_access_context(user_id="u1", agent_id="a1")
+        identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
         self.store.clear_blocks(
-            WorkspaceTopicKey.from_access_context(access_context, topic_id)
+            WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
         )
 
-        topic_data = self.store.get_topic_data(access_context, topic_id, touch=False)
+        topic_data = self.store.get_topic_data(identity_scope, topic_id, touch=False)
         assert topic_data is not None
         assert topic_data.blocks == ()

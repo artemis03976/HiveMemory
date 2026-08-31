@@ -14,8 +14,8 @@ from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     Identity,
     IdentityScope,
-    require_workspace_access_context,
-    resolve_default_workspace_access,
+    require_identity_scope,
+    resolve_default_identity_scope,
 )
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
@@ -151,7 +151,7 @@ class PassiveMessageIngressor:
         identity: Identity,
     ) -> PassiveIngressOutcome:
         """公共 passive 入口：为每个顶层事件解析默认 Workspace 与 interaction_id。"""
-        identity_scope = resolve_default_workspace_access(identity)
+        identity_scope = resolve_default_identity_scope(identity)
         interaction_id = f"passive_{uuid4().hex}"
         return await self.route_event_scoped(event, identity_scope, interaction_id)
 
@@ -162,7 +162,7 @@ class PassiveMessageIngressor:
         interaction_id: str,
     ) -> PassiveIngressOutcome:
         """供内部 walking skeleton 使用的显式 scope 入口。"""
-        identity_scope = require_workspace_access_context(identity_scope)
+        identity_scope = require_identity_scope(identity_scope)
         key = event.conversation_key(identity_scope)
 
         async with self._serial_gate.hold(key):

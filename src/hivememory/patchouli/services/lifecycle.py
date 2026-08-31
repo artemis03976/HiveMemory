@@ -12,8 +12,8 @@ from uuid import UUID
 
 from hivememory.core.models import (
     MemoryAtom,
-    WorkspaceAccessContext,
-    require_workspace_access_context,
+    IdentityScope,
+    require_identity_scope,
 )
 from hivememory.utils.uuid import normalize_uuid
 
@@ -69,12 +69,12 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         source: str = "system",
     ) -> Any:
         """记录一次命中事件。"""
         return await self.lifecycle_engine.record_hit(
-            require_workspace_access_context(access_context),
+            require_identity_scope(identity_scope),
             normalize_uuid(memory_id),
             source=source,
         )
@@ -83,12 +83,12 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         source: str = "system",
     ) -> Any:
         """记录一次引用事件。"""
         return await self.lifecycle_engine.record_citation(
-            require_workspace_access_context(access_context),
+            require_identity_scope(identity_scope),
             normalize_uuid(memory_id),
             source=source,
         )
@@ -97,13 +97,13 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         positive: bool,
         source: str = "user",
     ) -> Any:
         """记录用户反馈事件。"""
         return await self.lifecycle_engine.record_feedback(
-            require_workspace_access_context(access_context),
+            require_identity_scope(identity_scope),
             normalize_uuid(memory_id),
             positive=positive,
             source=source,
@@ -113,11 +113,11 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> None:
         """从长期存储复活记忆到中期存储。"""
         await self._memory_library.revive(
-            require_workspace_access_context(access_context),
+            require_identity_scope(identity_scope),
             normalize_uuid(memory_id),
         )
 

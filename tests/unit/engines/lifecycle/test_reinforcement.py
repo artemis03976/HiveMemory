@@ -19,11 +19,11 @@ from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngin
 from hivememory.engines.lifecycle.models import MemoryEvent, EventType
 from hivememory.system.config import ReinforcementEngineConfig
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
-def _access_context():
-    return make_access_context(user_id="user1", agent_id="agent1")
+def _identity_scope():
+    return make_identity_scope(user_id="user1", agent_id="agent1")
 
 
 class TestDynamicReinforcementEngine:
@@ -75,7 +75,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        result = await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
@@ -100,7 +100,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        result = await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         assert result.event_type == EventType.CITATION
 
@@ -120,7 +120,7 @@ class TestDynamicReinforcementEngine:
             source="user"
         )
 
-        result = await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         assert result.event_type == EventType.FEEDBACK_NEGATIVE
         assert result.new_confidence < result.previous_confidence
@@ -139,7 +139,7 @@ class TestDynamicReinforcementEngine:
             source="user"
         )
 
-        result = await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         assert result.event_type == EventType.FEEDBACK_POSITIVE
         assert result.new_vitality > result.previous_vitality
@@ -156,7 +156,7 @@ class TestDynamicReinforcementEngine:
             source="user",
         )
 
-        result = await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         # 新契约: 最终分数即 calculator 重算结果，不再 +adjustment
         assert result.new_vitality == 80.0
@@ -177,7 +177,7 @@ class TestDynamicReinforcementEngine:
             source="user",
         )
 
-        result = await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         # _clamp_vitality 应将 150 限制到 100
         assert result.new_vitality == 100.0
@@ -194,7 +194,7 @@ class TestDynamicReinforcementEngine:
         )
 
         with pytest.raises(ValueError):
-            await self.engine.reinforce(_access_context(), uuid4(), event)
+            await self.engine.reinforce(_identity_scope(), uuid4(), event)
 
     @pytest.mark.asyncio
     async def test_access_count_increments(self):
@@ -210,7 +210,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         # 获取更新的记忆
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
@@ -228,7 +228,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         # 获取更新的记忆
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
@@ -246,7 +246,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
         history = self.engine.get_event_history()
         assert len(history) == 1
@@ -300,8 +300,8 @@ class TestDynamicReinforcementEngine:
         event1 = MemoryEvent(event_type=EventType.HIT, memory_id=memory1_id, source="test")
         event2 = MemoryEvent(event_type=EventType.HIT, memory_id=memory2_id, source="test")
 
-        await self.engine.reinforce(_access_context(), memory1_id, event1)
-        await self.engine.reinforce(_access_context(), memory2_id, event2)
+        await self.engine.reinforce(_identity_scope(), memory1_id, event1)
+        await self.engine.reinforce(_identity_scope(), memory2_id, event2)
 
         # 过滤 memory1 的事件
         history = self.engine.get_event_history(memory_id=memory1_id)
@@ -320,7 +320,7 @@ class TestDynamicReinforcementEngine:
             source="test"
         )
 
-        await self.engine.reinforce(_access_context(), self.test_memory.id, event)
+        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
         assert len(self.engine.get_event_history()) == 1
 
         self.engine.clear_history()
@@ -340,7 +340,7 @@ class TestDynamicReinforcementEngine:
                 source=f"test{i}"
             )
             await self.engine.reinforce(
-                _access_context(),
+                _identity_scope(),
                 self.test_memory.id,
                 event,
             )

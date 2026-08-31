@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from hivememory.core.models import (
     Identity,
     TopicSnapshot,
-    resolve_default_workspace_access,
+    resolve_default_identity_scope,
 )
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -41,10 +41,10 @@ class TopicApplicationService:
         """列出用户默认 Workspace 中的活跃 Topic 快照。"""
 
         identity = Identity(user_id=user_id)
-        access_context = resolve_default_workspace_access(identity)
+        identity_scope = resolve_default_identity_scope(identity)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
-            access_context=access_context,
+            identity_scope=identity_scope,
         )
 
     async def settle_topic(
@@ -55,12 +55,12 @@ class TopicApplicationService:
     ) -> TopicSettleResult:
         """结算 Topic，并原样返回 Patchouli 的业务结果。"""
 
-        access_context = resolve_default_workspace_access(
+        identity_scope = resolve_default_identity_scope(
             Identity(user_id=user_id),
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
-            access_context=access_context,
+            identity_scope=identity_scope,
             topic_id=topic_id,
         )
 
@@ -72,11 +72,11 @@ class TopicApplicationService:
     ) -> TopicEvictionResult:
         """删除 Topic，并原样返回 Patchouli 的驱逐结果。"""
 
-        access_context = resolve_default_workspace_access(
+        identity_scope = resolve_default_identity_scope(
             Identity(user_id=user_id),
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_EVICT_TOPIC,
-            access_context=access_context,
+            identity_scope=identity_scope,
             topic_id=topic_id,
         )

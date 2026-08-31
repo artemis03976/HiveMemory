@@ -10,7 +10,7 @@ from hivememory.core.models import (
     AgentProfile,
     RuntimeScope,
     TurnEvent,
-    WorkspaceAccessContext,
+    IdentityScope,
 )
 
 
@@ -67,13 +67,13 @@ class FrameFactory:
     @staticmethod
     def scope(
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         run_id: str,
         frame_id: str | None = None,
     ) -> RuntimeScope:
         """生成继承 hard boundary 的唯一 run/frame 坐标。"""
         return RuntimeScope(
-            access_context=access_context,
+            identity_scope=identity_scope,
             run_id=run_id,
             frame_id=frame_id or f"frame_{uuid4().hex}",
         )

@@ -9,7 +9,7 @@ from enum import Enum
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
     IdentityScope,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 
 
@@ -168,7 +168,7 @@ class ChatGenerationRunRegistry:
         self._runs: dict[str, ChatGenerationRun] = {}
 
     def register(self, run: ChatGenerationRun) -> None:
-        require_workspace_access_context(run.identity_scope)
+        require_identity_scope(run.identity_scope)
         existing = self._runs.get(run.interaction_id)
         if existing is not None:
             raise WorkspaceDomainError(
@@ -183,7 +183,7 @@ class ChatGenerationRunRegistry:
         identity_scope: IdentityScope,
     ) -> ChatGenerationRun | None:
         """只向同 owner/workspace 的控制请求暴露 run。"""
-        identity_scope = require_workspace_access_context(identity_scope)
+        identity_scope = require_identity_scope(identity_scope)
         run = self._runs.get(generation_id)
         if run is None or not self._same_resource_scope(run.identity_scope, identity_scope):
             return None

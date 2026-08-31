@@ -29,7 +29,7 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -163,7 +163,7 @@ class TestProfileLoadingErrors:
         for alias in (None, "", "  "):
             profile = await service.get_agent_profile(
                 alias,
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
             assert profile is OMNI_DOLL_PROFILE
 
@@ -176,7 +176,7 @@ class TestProfileLoadingErrors:
         for alias in ("default", "omni_doll"):
             profile = await service.get_agent_profile(
                 alias,
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
             assert profile is OMNI_DOLL_PROFILE
 
@@ -190,7 +190,7 @@ class TestProfileLoadingErrors:
         with pytest.raises(AliasNotFoundError) as exc_info:
             await service.get_agent_profile(
                 "nonexistent_agent",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
@@ -202,7 +202,7 @@ class TestProfileLoadingErrors:
         with pytest.raises(ScopeRequiredError):
             await service.get_agent_profile(
                 "custom_agent",
-                access_context=None,  # type: ignore[arg-type]
+                identity_scope=None,  # type: ignore[arg-type]
             )
 
         get_by_alias.assert_not_awaited()
@@ -222,7 +222,7 @@ class TestProfileLoadingErrors:
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
             await service.get_agent_profile(
                 "custom",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
@@ -243,7 +243,7 @@ class TestProfileLoadingErrors:
         with pytest.raises(InvalidArgumentError) as exc_info:
             await service.get_agent_profile(
                 "broken",
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
@@ -257,7 +257,7 @@ class TestProfileLoadingErrors:
 
         profile = await service.get_agent_profile(
             "coder_doll",
-            access_context=make_access_context(user_id="system"),
+            identity_scope=make_identity_scope(user_id="system"),
         )
 
         assert profile.persona == "You are coder_doll."

@@ -23,11 +23,11 @@ from hivememory.system.config import (
 from hivememory.engines.retrieval.retriever import HybridRetriever, DenseRetriever, SearchResults
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters, SearchResult
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
-def _make_access_context():
-    return make_access_context(user_id="u1", agent_id="a1")
+def _make_identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
 
 
 class TestDenseRetriever:
@@ -72,7 +72,7 @@ class TestDenseRetriever:
             {"memory": self.memory2, "score": 0.8}
         ])
 
-        query = RetrievalQuery(semantic_query="test", access_context=_make_access_context())
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query, top_k=2)
 
         assert len(results) == 2
@@ -88,14 +88,14 @@ class TestDenseRetriever:
         query = RetrievalQuery(
             semantic_query="test",
             filters=filters,
-            access_context=_make_access_context(),
+            identity_scope=_make_identity_scope(),
         )
         
         await self.retriever.retrieve(query)
         
         # 过滤条件属于业务查询；授权 scope 由独立 AccessContext 传递。
         call_args = self.mock_storage.search.call_args
-        assert call_args.args[0] == query.access_context
+        assert call_args.args[0] == query.identity_scope
         assert call_args.kwargs["filters"] == filters
 
     @pytest.mark.asyncio
@@ -112,7 +112,7 @@ class TestDenseRetriever:
             {"memory": self.memory2, "score": 0.85}
         ])
         
-        query = RetrievalQuery(semantic_query="test", access_context=_make_access_context())
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query)
         
         # M1 虽然原始分低，但因为 M2 时间久远衰减，M1 应该排在前面
@@ -138,7 +138,7 @@ class TestDenseRetriever:
             semantic_query="test",
             keywords=["t1"],
             filters={},
-            access_context=_make_access_context(),
+            identity_scope=_make_identity_scope(),
         )
         results = await self.retriever.retrieve(query)
         
@@ -152,7 +152,7 @@ class TestDenseRetriever:
             {"memory": self.memory1, "score": 0.9}
         ])
 
-        query = RetrievalQuery(semantic_query="test", access_context=_make_access_context())
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query)
 
         # 1 天前的新记忆几乎无衰减，分数接近原始值
@@ -214,7 +214,7 @@ class TestHybridRetriever:
             SearchResult(memory=self.memory2, score=0.85)
         ]))
 
-        query = RetrievalQuery(semantic_query="test", access_context=_make_access_context())
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.searcher.retrieve(query, top_k=2)
 
         # 两个检索通道的结果经真实 RRF 融合后都被保留

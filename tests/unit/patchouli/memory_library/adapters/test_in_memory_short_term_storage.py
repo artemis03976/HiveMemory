@@ -12,7 +12,7 @@ import threading
 from hivememory.core.models import LogicalBlock, TurnRecord, WorkspaceTopicKey
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_buffer(topic_id="t1", user_id="u1") -> SemanticBuffer:
@@ -25,11 +25,11 @@ def _make_buffer(topic_id="t1", user_id="u1") -> SemanticBuffer:
 
 
 def _context(user_id: str):
-    return make_access_context(user_id=user_id)
+    return make_identity_scope(user_id=user_id)
 
 
 def _key(topic_id: str, user_id: str) -> WorkspaceTopicKey:
-    return WorkspaceTopicKey.from_access_context(_context(user_id), topic_id)
+    return WorkspaceTopicKey.from_identity_scope(_context(user_id), topic_id)
 
 
 class TestInMemoryShortTermStorageBasic:

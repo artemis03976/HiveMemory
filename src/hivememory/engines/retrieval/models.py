@@ -11,7 +11,7 @@ from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceAccessContext
+from hivememory.core.models import MemoryAtom, MemoryType, IdentityScope
 
 
 class QueryFilters(BaseModel):
@@ -47,7 +47,7 @@ class RetrievalQuery(BaseModel):
     semantic_query: str  # 用于向量检索的语义查询
     keywords: List[str] = Field(default_factory=list)  # 提取的关键词
     filters: QueryFilters = Field(default_factory=QueryFilters)  # 过滤条件
-    access_context: WorkspaceAccessContext  # Workspace hard boundary
+    identity_scope: IdentityScope  # Workspace hard boundary
     
     def get_search_text(self) -> str:
         """

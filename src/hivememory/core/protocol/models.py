@@ -23,7 +23,6 @@ from hivememory.core.models import (
     MemoryAtom,
     TraceItem,
     TurnEvent,
-    WorkspaceAccessContext,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
@@ -100,14 +99,14 @@ class RetrievalRequest(ProtocolMessage):
         msg_type: 固定为 RETRIEVAL_REQUEST
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
-        access_context: 请求者身份与 Workspace hard boundary
+        identity_scope: 请求者身份与 Workspace hard boundary
         filters: MTP filter 解析后的过滤条件 (可选，叠加到 identity 基线之上)
 
     Examples:
         >>> request = RetrievalRequest(
         ...     semantic_query="如何部署贪吃蛇游戏？",
         ...     keywords=["部署", "贪吃蛇", "游戏"],
-        ...     access_context=resolve_default_workspace_access(
+        ...     identity_scope=resolve_default_identity_scope(
         ...         Identity(user_id="user123"),
         ...     )
         ... )
@@ -122,7 +121,7 @@ class RetrievalRequest(ProtocolMessage):
     keywords: list[str] = Field(default_factory=list, description="检索关键词")
 
     # 请求级 Workspace hard boundary
-    access_context: WorkspaceAccessContext
+    identity_scope: IdentityScope
 
     # MTP SEARCH 指令传入的过滤条件 (可选)
     filters: QueryFilters | None = Field(default=None, description="MTP filter 过滤条件")
@@ -132,7 +131,7 @@ class RetrievalRequest(ProtocolMessage):
     @property
     def identity(self) -> Identity:
         """兼容读取 actor identity；检索 hard filter 使用完整 AccessContext。"""
-        return self.access_context.actor_identity
+        return self.identity_scope.actor_identity
 
 
 class RetrievalResponse(ProtocolMessage):
@@ -238,7 +237,7 @@ class InteractionPayload(BaseModel):
         turn_events: 结构化轮次事件列表
 
     Note:
-        P2.5 起不再内嵌 ``access_context``；身份坐标由 ``InteractionSubmission``
+        P2.5 起不再内嵌 ``identity_scope``；身份坐标由 ``InteractionSubmission``
         的 ``identity_scope`` 单独承载，避免 payload 成为第二份身份事实。
     """
     user_message: str = Field(..., description="原始用户消息")

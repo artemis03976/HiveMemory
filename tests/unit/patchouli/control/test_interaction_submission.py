@@ -37,8 +37,8 @@ from hivememory.system.runtime.work_queue import (
     WorkState,
     encode_canonical_json,
 )
-from tests.helpers.memory import make_memory_creation_context
-from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_identity_scope
+from tests.helpers.workspace import make_identity_scope
 
 
 def _payload(message: str = "hello") -> InteractionPayload:
@@ -64,7 +64,7 @@ def _submission(
     payload: InteractionPayload | None = None,
 ) -> InteractionSubmission:
     return InteractionSubmission(
-        identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         interaction_id=interaction_id,
         payload=payload or _payload(message or interaction_id),
         requested_topic_id="NEW_TOPIC",
@@ -230,16 +230,16 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
     assert outcome.topic_id is not None
-    access_context = make_access_context(user_id="u1", agent_id="a1")
-    topic = store.get_topic_data(access_context, outcome.topic_id, touch=False)
+    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
+    topic = store.get_topic_data(identity_scope, outcome.topic_id, touch=False)
     assert topic is not None
     assert topic.block_count == 1
-    assert store.get_last_active_topic(access_context) == outcome.topic_id
+    assert store.get_last_active_topic(identity_scope) == outcome.topic_id
 
     replayed_topic = await asyncio.wait_for(
         familiar.submit_interaction(
             _payload("interaction-ambiguous"),
-            identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             target_topic_id=outcome.topic_id,
             interaction_id="interaction-ambiguous",
         ),
@@ -313,7 +313,7 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
     )
     settlement = TopicMaterializeTask(
         topic_id="topic-settlement",
-        identity_scope=make_memory_creation_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_memory_identity_scope(user_id="u1", agent_id="a1"),
     )
     layer._maybe_fold_pages = AsyncMock(return_value=settlement)
     bus = Mock()
@@ -343,7 +343,7 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
     topic = store.get_topic_data(
-        make_access_context(user_id="u1", agent_id="a1"),
+        make_identity_scope(user_id="u1", agent_id="a1"),
         outcome.topic_id,
         touch=False,
     )
@@ -375,13 +375,13 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
 
     topic_id = await familiar.submit_interaction(
         _payload(),
-        identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         interaction_id="interaction-disabled",
     )
     replayed_topic_id = await asyncio.wait_for(
         familiar.submit_interaction(
             _payload(),
-            identity_scope=make_access_context(user_id="u1", agent_id="a1"),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             interaction_id="interaction-disabled",
         ),
         timeout=1,
@@ -451,7 +451,7 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
     first = _submission("interaction-shared")
     different_scope = replace(
         first,
-        identity_scope=make_access_context(
+        identity_scope=make_identity_scope(
             user_id="u1",
             agent_id="a1",
             workspace_id="isolation_workspace",

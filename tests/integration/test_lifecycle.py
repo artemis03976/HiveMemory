@@ -31,11 +31,11 @@ from hivememory.system.config import (
     VitalityCalculatorConfig,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
-def _access_context():
-    return make_access_context(user_id="user1", agent_id="agent1")
+def _identity_scope():
+    return make_identity_scope(user_id="user1", agent_id="agent1")
 
 
 def _key(memory: MemoryAtom) -> WorkspaceMemoryKey:
@@ -87,8 +87,8 @@ class InMemoryMidTermPort:
     async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
         return None
 
-    async def get_for_mutation(self, access_context, memory_id: UUID) -> MemoryAtom | None:
-        return await self.get(access_context, memory_id)
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
+        return await self.get(identity_scope, memory_id)
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         workspace = key.workspace_identity
@@ -96,23 +96,23 @@ class InMemoryMidTermPort:
             (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
         )
 
-    async def update_access_info(self, access_context, memory_id: UUID) -> None:
-        memory = await self.get(access_context, memory_id)
+    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
+        memory = await self.get(identity_scope, memory_id)
         if memory is not None:
             memory.meta.access_count += 1
 
-    async def delete(self, access_context, memory_id: UUID) -> bool:
-        return self.memories.pop(self._scope_key(access_context, memory_id), None) is not None
+    async def delete(self, identity_scope, memory_id: UUID) -> bool:
+        return self.memories.pop(self._scope_key(identity_scope, memory_id), None) is not None
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         workspace = key.workspace_identity
         storage_key = (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
         return self.memories.pop(storage_key, None) is not None
 
-    async def batch_delete(self, access_context, ids: list[UUID]) -> int:
+    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
         count = 0
         for memory_id in ids:
-            if await self.delete(access_context, memory_id):
+            if await self.delete(identity_scope, memory_id):
                 count += 1
         return count
 
@@ -187,8 +187,8 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
     memory = _make_memory()
     await memory_library.mid_term.upsert(memory)
 
-    result = await engine.record_hit(_access_context(), memory.id, source="integration")
-    updated = await memory_library.mid_term.get(_access_context(), memory.id)
+    result = await engine.record_hit(_identity_scope(), memory.id, source="integration")
+    updated = await memory_library.mid_term.get(_identity_scope(), memory.id)
 
     assert result.event_type == EventType.HIT
     assert updated.meta.access_count == 1
@@ -203,12 +203,12 @@ async def test_memory_library_archive_and_revive_moves_between_stores(lifecycle_
 
     await memory_library.archive(_key(memory))
 
-    assert await memory_library.mid_term.get(_access_context(), memory.id) is None
+    assert await memory_library.mid_term.get(_identity_scope(), memory.id) is None
     assert await memory_library.long_term.is_archived(_key(memory)) is True
 
-    await memory_library.revive(_access_context(), memory.id)
+    await memory_library.revive(_identity_scope(), memory.id)
 
-    assert await memory_library.mid_term.get(_access_context(), memory.id) is not None
+    assert await memory_library.mid_term.get(_identity_scope(), memory.id) is not None
     assert await memory_library.long_term.is_archived(_key(memory)) is False
 
 
@@ -227,7 +227,7 @@ async def test_garbage_collection_archives_low_vitality_memory(lifecycle_stack):
 
     assert archived == 1
     assert await memory_library.long_term.is_archived(_key(low)) is True
-    assert await memory_library.mid_term.get(_access_context(), high.id) is not None
+    assert await memory_library.mid_term.get(_identity_scope(), high.id) is not None
 
 
 @pytest.mark.asyncio
@@ -237,7 +237,7 @@ async def test_event_history_is_exposed(lifecycle_stack):
     await memory_library.mid_term.upsert(memory)
 
     await engine.record_event(
-        _access_context(),
+        _identity_scope(),
         MemoryEvent(event_type=EventType.CITATION, memory_id=memory.id, source="integration")
     )
 

@@ -21,10 +21,9 @@ from hivememory.core.models import (
     IdentityScope,
     LogicalBlock,
     TurnRecord,
-    WorkspaceAccessContext,
     WorkspaceAssetRef,
     WorkspaceTopicKey,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
@@ -139,7 +138,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> str:
         """
         确保目标话题存在并返回真实 topic_id。
@@ -153,19 +152,19 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             target_topic_id: "NEW_TOPIC" 或已有 topic_id
             new_topic_title: Gateway 生成的新话题标题
             new_topic_summary: Gateway 生成的新话题摘要
-            access_context: 已冻结的 Workspace 访问上下文
+            identity_scope: 已冻结的 Workspace 访问上下文
 
         Returns:
             str: 可用的真实 topic_id
         """
         if target_topic_id == "NEW_TOPIC":
             topic_id = await self.create_new_topic(
-                access_context=access_context,
+                identity_scope=identity_scope,
                 title=new_topic_title,
                 summary=new_topic_summary,
             )
         else:
-            if not self._short_term_store.topic_exists(access_context, target_topic_id):
+            if not self._short_term_store.topic_exists(identity_scope, target_topic_id):
                 # Topic ID 是全局身份，未知目标不能被投影成当前 Workspace 的新话题。
                 # 否则跨 Workspace 的真实 ID 会造成隐式副作用（容量紧张时还可能先
                 # 驱逐本域 LRU），并掩盖调用方的寻址/授权错误。
@@ -179,16 +178,16 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     async def create_new_topic(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
     ) -> str:
         """
         创建新话题。调用方负责在必要时提前执行 LRU 驱逐。
         """
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
         data = self._short_term_store.create_buffer(
-            access_context,
+            identity_scope,
             topic_title=title or "新建话题",
             topic_summary=summary or "",
         )
@@ -235,7 +234,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
             target_topic_id=topic_id,
             new_topic_title=None,
             new_topic_summary=None,
-            access_context=identity_scope,
+            identity_scope=identity_scope,
         )
         settle_payload = await self.ingest_payload(
             payload,
@@ -284,7 +283,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     return None
                 if apply_record.stage is InteractionApplyStage.LOCAL_COMPLETED:
                     return apply_record.settlement_to_submit
-                topic_key = WorkspaceTopicKey.from_access_context(
+                topic_key = WorkspaceTopicKey.from_identity_scope(
                     identity_scope,
                     topic_id,
                 )
@@ -299,7 +298,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
                     interaction_id=interaction_id,
                 )
 
-        topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
+        topic_key = WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
         if not self._short_term_store.reserve_processing(topic_key):
             raise TopicBusyError(
                 f"topic '{topic_id}' 正忙，无法原子摄入 interaction，可稍后重试"
@@ -394,7 +393,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         interaction_id: str | None,
     ) -> TopicMaterializeTask | None:
         """完成 block 写入后的本地义务，并为外层 settlement admission 留存结果。"""
-        topic_key = WorkspaceTopicKey.from_access_context(identity_scope, topic_id)
+        topic_key = WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
 
         try:
             # Page Folding 检查（token 溢出时压缩旧 blocks，复用当前 PROCESSING 预约）
@@ -489,15 +488,15 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
 
     def discard_if_empty(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> bool:
         """话题真正为空（无 blocks 且无非空白折叠摘要）时驱逐并返回 True。"""
         data = self._short_term_store.get_topic_data(
-            access_context, topic_id, touch=False
+            identity_scope, topic_id, touch=False
         )
         if data is not None and data.is_empty:
-            self._short_term_store.pop_buffer(access_context, topic_id)
+            self._short_term_store.pop_buffer(identity_scope, topic_id)
             logger.info(f"已清理无内容话题: {topic_id}")
             return True
         return False
@@ -552,7 +551,7 @@ class NullPerceptionLayer(BasePerceptionLayer):
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> str:
         return target_topic_id
 

@@ -48,9 +48,9 @@ class TestTopicApplicationService:
 
         # 公共入口只在此处解析 main Workspace，Patchouli 不再接收裸 identity。
         handler.assert_awaited_once()
-        access_context = handler.await_args.kwargs["access_context"]
-        assert access_context.actor_identity.user_id == "u1"
-        assert access_context.workspace_identity.workspace_id == "main_workspace"
+        identity_scope = handler.await_args.kwargs["identity_scope"]
+        assert identity_scope.actor_identity.user_id == "u1"
+        assert identity_scope.workspace_identity.workspace_id == "main_workspace"
 
     @pytest.mark.asyncio
     async def test_settle_topic_uses_public_route(self, service, bus):
@@ -70,7 +70,7 @@ class TestTopicApplicationService:
         assert result.generation_submitted is True
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
-        assert handler.await_args.kwargs["access_context"].workspace_identity.owner_user_id == "u1"
+        assert handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id == "u1"
 
     @pytest.mark.asyncio
     async def test_settle_topic_without_generation_still_reports_success(self, service, bus):
@@ -100,5 +100,5 @@ class TestTopicApplicationService:
         # evict_topic 是纯透传；约束力来自路由与参数
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
-        assert handler.await_args.kwargs["access_context"].workspace_identity.owner_user_id == "u1"
+        assert handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id == "u1"
         assert result.removed is True

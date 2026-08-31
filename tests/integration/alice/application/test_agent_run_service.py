@@ -33,7 +33,7 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -57,7 +57,7 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     return AgentRunContext(
-        identity_scope=make_access_context(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         topic_id="topic_1",
         user_message="hello",
@@ -127,7 +127,7 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
     runtime, service = _build_service()
     context = _build_agent_run_context(_build_memory_atom()).model_copy(
         update={
-            "identity_scope": make_access_context(
+            "identity_scope": make_identity_scope(
                 user_id="u1",
                 agent_id="omni_doll",
                 workspace_id="isolation_workspace",
@@ -140,8 +140,8 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
     await service.run_agent(context)
 
     frame = runtime._agent_runtime.run_frame.await_args.args[0]
-    assert frame.access_context == context.identity_scope
-    assert frame.runtime_scope.access_context.scope_fingerprint == (
+    assert frame.identity_scope == context.identity_scope
+    assert frame.runtime_scope.identity_scope.scope_fingerprint == (
         context.identity_scope.scope_fingerprint
     )
 

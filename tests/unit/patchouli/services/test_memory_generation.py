@@ -37,16 +37,12 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskSpec,
 )
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
-def _creation_context():
-    return make_memory_creation_context(user_id="u1", agent_id="a1")
-
-
-def _access_context():
-    return make_access_context(user_id="u1", agent_id="a1")
+def _identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
 
 
 def _artifact_ref(artifact_id: str, artifact_type: ArtifactType) -> ArtifactRef:
@@ -93,7 +89,7 @@ def _make_outcome(
 
 def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_interaction_input=True):
     spec = MemoryGenerationTaskSpec(
-        identity_scope=make_memory_creation_context(),
+        identity_scope=make_memory_identity_scope(),
         topic_id=topic_id,
         label="test",
         source=source,
@@ -242,7 +238,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_creation_context(),
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -276,7 +272,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_creation_context(),
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -307,7 +303,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_creation_context(),
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -337,7 +333,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_creation_context(),
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -368,7 +364,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_creation_context(),
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -457,7 +453,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data, _creation_context())
+        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
 
         assert result is None
 
@@ -473,7 +469,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data, _creation_context())
+        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
 
         assert result is None
         artifact_engine.interaction.build_and_store.assert_not_called()
@@ -493,7 +489,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data, _creation_context())
+        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
 
         assert result is None
 
@@ -666,7 +662,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             artifact_engine=artifact_engine,
         )
 
-        result = await familiar.create_external_memory(_access_context(), atom)
+        result = await familiar.create_external_memory(_identity_scope(), atom)
 
         assert result is atom
         artifact_engine.memory.build_for_create.assert_awaited_once()
@@ -698,7 +694,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         result = await familiar.update_external_memory(
             atom.id,
-            access_context=_access_context(),
+            identity_scope=_identity_scope(),
             title="Updated",
             summary="Updated summary",
             content="Updated content",
@@ -736,7 +732,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         result = await familiar.update_external_memory(
             uuid4(),
-            access_context=_access_context(),
+            identity_scope=_identity_scope(),
             title="Updated",
         )
 

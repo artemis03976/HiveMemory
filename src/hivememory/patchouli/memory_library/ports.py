@@ -15,8 +15,7 @@ from uuid import UUID
 
 from hivememory.core.models import (
     MemoryAtom,
-    MemoryReadScope,
-    WorkspaceAccessContext,
+    IdentityScope,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
     WorkspaceTopicKey,
@@ -85,19 +84,19 @@ class MidTermStoragePort(ABC):
     async def upsert(self, memory: MemoryAtom) -> None: ...
 
     @abstractmethod
-    async def get(self, scope: MemoryReadScope, memory_id: UUID) -> Optional[MemoryAtom]: ...
+    async def get(self, identity_scope: IdentityScope, memory_id: UUID) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
     async def get_by_alias(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         alias: str,
     ) -> Optional[MemoryAtom]: ...
 
     @abstractmethod
     async def get_for_mutation(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> Optional[MemoryAtom]: ...
 
@@ -107,14 +106,14 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def update_access_info(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> None: ...
 
     @abstractmethod
     async def delete(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> bool: ...
 
@@ -124,14 +123,14 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def batch_delete(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ids: List[UUID],
     ) -> int: ...
 
     @abstractmethod
     async def search(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         query: str,
         top_k: int,
         filters: Optional["QueryFilters"] = None,
@@ -142,7 +141,7 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def scroll(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         filters: Optional["QueryFilters"] = None,
         limit: int = 100,
     ) -> List[MemoryAtom]: ...
@@ -150,7 +149,7 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def count(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         filters: Optional["QueryFilters"] = None,
     ) -> int: ...
 
@@ -214,21 +213,21 @@ class ArtifactStoragePort(ABC):
     @abstractmethod
     async def get(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ref_or_id: "ArtifactRef | str",
     ) -> Dict[str, Any]: ...
 
     @abstractmethod
     async def exists(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         artifact_id: str,
     ) -> bool: ...
 
     @abstractmethod
     async def list_by_memory(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: str,
         artifact_type: Optional[ArtifactType] = None,
     ) -> List[ArtifactRef]: ...
@@ -236,7 +235,7 @@ class ArtifactStoragePort(ABC):
     @abstractmethod
     async def verify(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ref: ArtifactRef,
     ) -> ArtifactIntegrityResult: ...
 

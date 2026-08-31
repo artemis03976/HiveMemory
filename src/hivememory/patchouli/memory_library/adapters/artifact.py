@@ -18,10 +18,10 @@ from typing import Any
 from uuid import uuid4
 
 from hivememory.core.models import (
-    WorkspaceAccessContext,
+    IdentityScope,
     WorkspaceArtifactKey,
     WorkspaceIdentity,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.patchouli.memory_library.models import (
@@ -268,10 +268,10 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
 
     def _read_path_locked(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         artifact_id: str,
     ) -> tuple[Path, dict[str, Any]]:
-        paths = self._paths_for_locked(access_context.workspace_identity, artifact_id)
+        paths = self._paths_for_locked(identity_scope.workspace_identity, artifact_id)
         if not paths or not paths[0].is_file():
             raise FileNotFoundError(f"artifact not found: {artifact_id}")
         path = paths[0]
@@ -282,7 +282,7 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
             workspace = self._workspace_from_data(data)
         except ValueError as exc:
             raise FileNotFoundError(f"artifact not found: {artifact_id}") from exc
-        if workspace != access_context.workspace_identity:
+        if workspace != identity_scope.workspace_identity:
             # 控制面不泄漏其他 Workspace 是否存在同 ID 资源。
             raise FileNotFoundError(f"artifact not found: {artifact_id}")
         return path, data
@@ -366,17 +366,17 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
 
     async def get(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ref_or_id: ArtifactRef | str,
     ) -> dict[str, Any]:
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
 
         def _read() -> dict[str, Any]:
             with self._lock:
                 expected_hash = None
                 artifact_id: str
                 if isinstance(ref_or_id, ArtifactRef):
-                    if ref_or_id.workspace_identity != access_context.workspace_identity:
+                    if ref_or_id.workspace_identity != identity_scope.workspace_identity:
                         raise FileNotFoundError(
                             f"artifact not found: {ref_or_id.artifact_id}"
                         )
@@ -384,7 +384,7 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                     expected_hash = ref_or_id.sha256 or None
                 else:
                     artifact_id = ref_or_id
-                _, data = self._read_path_locked(access_context, artifact_id)
+                _, data = self._read_path_locked(identity_scope, artifact_id)
                 stored_hash = data.get("content_hash")
                 actual_hash = self._canonical_hash(data)
                 if stored_hash and stored_hash != actual_hash:
@@ -397,15 +397,15 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
 
     async def exists(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         artifact_id: str,
     ) -> bool:
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
 
         def _exists() -> bool:
             with self._lock:
                 try:
-                    _, data = self._read_path_locked(access_context, artifact_id)
+                    _, data = self._read_path_locked(identity_scope, artifact_id)
                     stored_hash = data.get("content_hash")
                     return not stored_hash or stored_hash == self._canonical_hash(data)
                 except (FileNotFoundError, ValueError, json.JSONDecodeError):
@@ -415,11 +415,11 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
 
     async def list_by_memory(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: str,
         artifact_type: ArtifactType | None = None,
     ) -> list[ArtifactRef]:
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
 
         def _list() -> list[ArtifactRef]:
             with self._lock:
@@ -430,8 +430,8 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                 for key, paths in self._index.items():
                     owner, workspace_id, artifact_id = self._decode_index_key(key)
                     if (
-                        owner != access_context.workspace_identity.owner_user_id
-                        or workspace_id != access_context.workspace_identity.workspace_id
+                        owner != identity_scope.workspace_identity.owner_user_id
+                        or workspace_id != identity_scope.workspace_identity.workspace_id
                         or len(paths) != 1
                     ):
                         continue
@@ -440,7 +440,7 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                         data = json.loads(path.read_text(encoding="utf-8"))
                         if data.get("artifact_id") != artifact_id:
                             continue
-                        if self._workspace_from_data(data) != access_context.workspace_identity:
+                        if self._workspace_from_data(data) != identity_scope.workspace_identity:
                             continue
                         if data.get("memory_id") != memory_id:
                             continue
@@ -461,17 +461,17 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
 
     async def verify(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ref: ArtifactRef,
     ) -> ArtifactIntegrityResult:
-        access_context = require_workspace_access_context(access_context)
-        if ref.workspace_identity != access_context.workspace_identity:
+        identity_scope = require_identity_scope(identity_scope)
+        if ref.workspace_identity != identity_scope.workspace_identity:
             return ArtifactIntegrityResult(artifact_id=ref.artifact_id, ok=False)
 
         def _verify() -> ArtifactIntegrityResult:
             with self._lock:
                 try:
-                    _, data = self._read_path_locked(access_context, ref.artifact_id)
+                    _, data = self._read_path_locked(identity_scope, ref.artifact_id)
                     stored_hash = data.get("content_hash")
                     actual_hash = self._canonical_hash(data)
                     ok = bool(stored_hash) and stored_hash == actual_hash

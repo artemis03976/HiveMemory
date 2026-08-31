@@ -117,8 +117,8 @@ class GenerationRequest(BaseModel):
     Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
     Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
 
-    P2.5 起本协议不再携带 creation_context 或任何权限/ownership 字段；
-    Memory ownership 由调用方通过 ``MemoryGenerationTaskSpec.identity_scope`` 传入。
+    本协议不携带任何身份/ownership 字段；Memory ownership 由调用方通过
+    ``MemoryGenerationTaskSpec.identity_scope`` 传入。
     """
     context: GenerationContext = Field(
         default_factory=lambda: GenerationContext(),

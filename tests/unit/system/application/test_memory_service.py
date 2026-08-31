@@ -35,13 +35,13 @@ from hivememory.system.application.memory_service import (
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="omni_doll")
-    access_context = make_access_context(
+    identity_scope = make_identity_scope(
         actor_identity=identity,
         interaction_id="interaction-test",
     )
@@ -55,7 +55,7 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
     )
     defaults = dict(
         agent_run_context=AgentRunContext(
-            identity_scope=access_context,
+            identity_scope=identity_scope,
             interaction_id="test-interaction",
             topic_id="topic_1",
             user_message="hi",
@@ -171,10 +171,10 @@ class TestMemoryApplicationService:
         )
 
         mock_global_bus.request.assert_awaited_once()
-        route, access_context, payload = mock_global_bus.request.await_args.args
+        route, identity_scope, payload = mock_global_bus.request.await_args.args
         assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
         assert payload.meta.source_agent_id == "ui"
-        assert payload.workspace_identity == access_context.workspace_identity
+        assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.workspace_identity.owner_user_id == "u1"
         assert payload.index.memory_type == MemoryType.FACT
         assert payload.index.alias == "created-memory"

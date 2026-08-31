@@ -13,8 +13,7 @@ from hivememory.core.models import (
     MemoryAtom,
     PendingAtomResolution,
     PendingAtomSettlement,
-    WorkspaceAccessContext,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 from hivememory.core.models.artifact import (
     ArtifactRef,
@@ -79,14 +78,14 @@ class MemoryGenerationFamiliar:
 
     async def create_external_memory(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         atom: MemoryAtom,
     ) -> MemoryAtom:
         """
         对外部创建的记忆原子进行持久化处理。
         """
-        access_context = require_workspace_access_context(access_context)
-        if atom.workspace_identity != access_context.workspace_identity:
+        identity_scope = require_identity_scope(identity_scope)
+        if atom.workspace_identity != identity_scope.workspace_identity:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         await self._attach_memory_artifact(
             atom=atom,
@@ -104,7 +103,7 @@ class MemoryGenerationFamiliar:
         self,
         memory_id: UUID,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -115,8 +114,8 @@ class MemoryGenerationFamiliar:
         """
         对外部手动的记忆编辑进行持久化处理。
         """
-        access_context = require_workspace_access_context(access_context)
-        atom = await self._mid_term.get_for_mutation(access_context, memory_id)
+        identity_scope = require_identity_scope(identity_scope)
+        atom = await self._mid_term.get_for_mutation(identity_scope, memory_id)
         if atom is None:
             return None
 

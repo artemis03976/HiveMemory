@@ -12,7 +12,7 @@ from hivememory.engines.perception.models import (
 )
 from hivememory.engines.perception.trigger_manager import DECISION_MATRIX, TriggerManager
 from hivememory.patchouli.errors import TopicBusyError
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 class TestDecisionMatrix:
@@ -69,9 +69,9 @@ class TestTriggerManagerResolveTopic:
         self.manager = TriggerManager(store=self.store, relay_controller=self.relay)
         self.topic_id = "topic_1"
         self.identity = Identity(user_id="user1", agent_id="agent1")
-        self.access_context = make_access_context(actor_identity=self.identity)
-        self.topic_key = WorkspaceTopicKey.from_access_context(
-            self.access_context, self.topic_id
+        self.identity_scope = make_identity_scope(actor_identity=self.identity)
+        self.topic_key = WorkspaceTopicKey.from_identity_scope(
+            self.identity_scope, self.topic_id
         )
 
     def _topic_data(self, block_count: int = 3) -> TopicData:
@@ -88,7 +88,7 @@ class TestTriggerManagerResolveTopic:
         )
         return TopicData(
             topic_id=self.topic_id,
-            workspace_identity=self.access_context.workspace_identity,
+            workspace_identity=self.identity_scope.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Test topic",
             topic_summary="Topic summary",
@@ -115,7 +115,7 @@ class TestTriggerManagerResolveTopic:
         """空 Topic 已完成生命周期，只是没有 generation 材料。"""
         self.store.freeze_and_evict.return_value = TopicData(
             topic_id=self.topic_id,
-            workspace_identity=self.access_context.workspace_identity,
+            workspace_identity=self.identity_scope.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Empty topic",
             last_update=1.0,
@@ -149,7 +149,7 @@ class TestTriggerManagerResolveTopic:
         """真正空 Topic 没有 settle/compact 材料，但仍需按矩阵执行 evict。"""
         self.store.freeze_and_evict.return_value = TopicData(
             topic_id=self.topic_id,
-            workspace_identity=self.access_context.workspace_identity,
+            workspace_identity=self.identity_scope.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Empty topic",
             last_update=1.0,
@@ -170,7 +170,7 @@ class TestTriggerManagerResolveTopic:
         """TOKEN_OVERFLOW（evict=False）下空 Topic 不应被修改。"""
         self.store.get_topic_data_by_key.return_value = TopicData(
             topic_id=self.topic_id,
-            workspace_identity=self.access_context.workspace_identity,
+            workspace_identity=self.identity_scope.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Empty topic",
             last_update=1.0,
@@ -368,7 +368,7 @@ class TestTriggerManagerResolveTopic:
     async def test_prepare_manual_settle_returns_none_for_empty_topic(self):
         self.store.freeze_for_manual_settle.return_value = TopicData(
             topic_id=self.topic_id,
-            workspace_identity=self.access_context.workspace_identity,
+            workspace_identity=self.identity_scope.workspace_identity,
             current_agent_id=self.identity.agent_id,
             topic_title="Empty topic",
             last_update=1.0,
@@ -392,7 +392,7 @@ class TestTriggerManagerResolveTopic:
 class TestTriggerManagerSettlePayload:
     def setup_method(self):
         self.manager = TriggerManager(store=Mock(), relay_controller=Mock())
-        self.workspace_identity = make_access_context(user_id="u1").workspace_identity
+        self.workspace_identity = make_identity_scope(user_id="u1").workspace_identity
 
     @pytest.mark.asyncio
     async def test_settlement_filters_worth_saving_false(self):
@@ -510,8 +510,8 @@ class TestTriggerManagerCompactTopic:
             LogicalBlock(turn=TurnRecord(user_query="q1", assistant_final_text="a1")),
         ]
 
-        topic_key = WorkspaceTopicKey.from_access_context(
-            make_access_context(user_id="u1"), "topic_1"
+        topic_key = WorkspaceTopicKey.from_identity_scope(
+            make_identity_scope(user_id="u1"), "topic_1"
         )
         folded = await manager._compact_topic(
             topic_key, blocks, "previous summary", retain_recent_blocks=1
@@ -533,8 +533,8 @@ class TestTriggerManagerCompactTopic:
         store = Mock()
         relay = Mock()
         manager = TriggerManager(store=store, relay_controller=relay)
-        topic_key = WorkspaceTopicKey.from_access_context(
-            make_access_context(user_id="u1"), "topic_1"
+        topic_key = WorkspaceTopicKey.from_identity_scope(
+            make_identity_scope(user_id="u1"), "topic_1"
         )
 
         for bad in (0, -1):
@@ -557,8 +557,8 @@ class TestTriggerManagerCompactTopic:
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         ]
 
-        topic_key = WorkspaceTopicKey.from_access_context(
-            make_access_context(user_id="u1"), "topic_1"
+        topic_key = WorkspaceTopicKey.from_identity_scope(
+            make_identity_scope(user_id="u1"), "topic_1"
         )
         folded = await manager._compact_topic(
             topic_key, blocks, "previous summary", retain_recent_blocks=2
@@ -582,8 +582,8 @@ class TestTriggerManagerCompactTopic:
             for i in range(4)
         ]
 
-        topic_key = WorkspaceTopicKey.from_access_context(
-            make_access_context(user_id="u1"), "topic_1"
+        topic_key = WorkspaceTopicKey.from_identity_scope(
+            make_identity_scope(user_id="u1"), "topic_1"
         )
         folded = await manager._compact_topic(
             topic_key,

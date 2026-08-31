@@ -74,24 +74,6 @@ class MemoryAccessPolicy(BaseModel):
         return cls(visibility=MemoryVisibility.PUBLIC)
 
 
-# P2.5 兼容别名：MemoryCreationContext 收敛为 IdentityScope，不再持有自己的
-# 字段、validator 或 wire schema。生成数据面从 TaskSpec 的 IdentityScope 取得唯一来源。
-MemoryCreationContext = IdentityScope
-
-
-MemoryReadScope = IdentityScope
-"""读取/检索所需的完整 IdentityScope。"""
-
-
-def require_memory_read_scope(scope: MemoryReadScope) -> MemoryReadScope:
-    """拒绝缺失或错误类型的 Memory 读取作用域。"""
-    if not isinstance(scope, IdentityScope):
-        from hivememory.core.errors import ScopeRequiredError
-
-        raise ScopeRequiredError()
-    return scope
-
-
 class WorkspaceMemoryKey(BaseModel):
     """已授权内部路径使用的 Memory 复合资源键。"""
 
@@ -99,14 +81,14 @@ class WorkspaceMemoryKey(BaseModel):
     memory_id: UUID
 
     @classmethod
-    def from_access_context(
+    def from_identity_scope(
         cls,
-        access_context: IdentityScope,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> "WorkspaceMemoryKey":
         """从完整访问作用域创建 Memory 复合键。"""
         return cls(
-            workspace_identity=access_context.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
             memory_id=memory_id,
         )
 

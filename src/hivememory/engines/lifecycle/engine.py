@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, WorkspaceAccessContext
+from hivememory.core.models import MemoryAtom, IdentityScope
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -71,18 +71,18 @@ class MemoryLifecycleEngine:
 
     async def record_event(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         event: MemoryEvent,
     ) -> ReinforcementResult:
         return await self.reinforcement_engine.reinforce(
-            access_context,
+            identity_scope,
             event.memory_id,
             event,
         )
 
     async def record_hit(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
         source: str = "system",
     ) -> ReinforcementResult:
@@ -91,11 +91,11 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source,
         )
-        return await self.record_event(access_context, event)
+        return await self.record_event(identity_scope, event)
 
     async def record_citation(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
         source: str = "system",
     ) -> ReinforcementResult:
@@ -104,11 +104,11 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source,
         )
-        return await self.record_event(access_context, event)
+        return await self.record_event(identity_scope, event)
 
     async def record_feedback(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
         positive: bool,
         source: str = "user",
@@ -123,7 +123,7 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source
         )
-        return await self.record_event(access_context, event)
+        return await self.record_event(identity_scope, event)
 
     async def run_garbage_collection(self, force: bool = False) -> int:
         all_memories = await self._mid_term.list_all_for_maintenance(limit=10000)

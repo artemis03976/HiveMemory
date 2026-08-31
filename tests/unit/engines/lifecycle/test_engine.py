@@ -16,11 +16,11 @@ from hivememory.engines.lifecycle.models import (
     ReinforcementResult,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
-def _access_context():
-    return make_access_context(user_id="u1", agent_id="a1")
+def _identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
 
 
 def _make_memory(vitality_score=50.0) -> MemoryAtom:
@@ -116,7 +116,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_hit(self):
         mid = uuid4()
-        await self.engine.record_hit(_access_context(), mid, source="retrieval")
+        await self.engine.record_hit(_identity_scope(), mid, source="retrieval")
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.HIT
@@ -126,7 +126,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_citation(self):
         mid = uuid4()
-        await self.engine.record_citation(_access_context(), mid, source="agent")
+        await self.engine.record_citation(_identity_scope(), mid, source="agent")
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.CITATION
@@ -136,7 +136,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_feedback_positive(self):
         mid = uuid4()
-        await self.engine.record_feedback(_access_context(), mid, positive=True)
+        await self.engine.record_feedback(_identity_scope(), mid, positive=True)
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.FEEDBACK_POSITIVE
@@ -144,7 +144,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_feedback_negative(self):
         mid = uuid4()
-        await self.engine.record_feedback(_access_context(), mid, positive=False)
+        await self.engine.record_feedback(_identity_scope(), mid, positive=False)
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.FEEDBACK_NEGATIVE
@@ -154,11 +154,11 @@ class TestLifecycleEngineEvents:
         mid = uuid4()
         event = MemoryEvent(event_type=EventType.HIT, memory_id=mid, source="test")
 
-        access_context = _access_context()
-        await self.engine.record_event(access_context, event)
+        identity_scope = _identity_scope()
+        await self.engine.record_event(identity_scope, event)
 
         self.mock_reinforcement.reinforce.assert_called_once_with(
-            access_context,
+            identity_scope,
             mid,
             event,
         )

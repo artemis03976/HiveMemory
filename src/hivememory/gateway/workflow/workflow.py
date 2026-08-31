@@ -6,7 +6,7 @@ import asyncio
 from time import perf_counter
 from typing import Any
 
-from hivememory.core.models import WorkspaceAccessContext, require_workspace_access_context
+from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayProcessResult,
@@ -47,7 +47,7 @@ class GatewayWorkflow:
         self,
         message: str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
     ) -> GatewayProcessResult:
@@ -56,10 +56,10 @@ class GatewayWorkflow:
         started_at = perf_counter()
         state = GatewayExecutionState(
             raw_message=message,
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
             ingress_mode=ingress_mode,
         )
-        workspace_id = state.access_context.workspace_identity.workspace_id
+        workspace_id = state.identity_scope.workspace_identity.workspace_id
         current_step_id: str | None = None
         completed_steps = 0
         loop = asyncio.get_running_loop()
@@ -203,7 +203,7 @@ class GatewayWorkflow:
                 is_fallback=is_fallback,
                 fallback_reason=fallback_reason,
                 flow_end_reason=flow_end_reason,
-                workspace_id=state.access_context.workspace_identity.workspace_id,
+                workspace_id=state.identity_scope.workspace_identity.workspace_id,
             )
             return True
 
@@ -267,7 +267,7 @@ class GatewayWorkflow:
             is_fallback=is_fallback,
             fallback_reason=fallback_reason,
             flow_end_reason=flow_end_reason,
-            workspace_id=state.access_context.workspace_identity.workspace_id,
+            workspace_id=state.identity_scope.workspace_identity.workspace_id,
         )
         return is_fallback and fallback_reason == "GatewayTimeoutError"
 

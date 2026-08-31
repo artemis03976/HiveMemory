@@ -71,7 +71,7 @@ async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_ref
     assert context.shared_context == ""
     profile_resolver.resolve.assert_awaited_once_with(
         "helper",
-        access_context=caller.access_context,
+        identity_scope=caller.identity_scope,
     )
     alias_resolver.resolve.assert_not_awaited()
 

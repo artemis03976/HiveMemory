@@ -19,7 +19,7 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_ready_asset(asset_store: InMemoryWorkspaceAssetStore, scope):
@@ -56,7 +56,7 @@ def _block() -> LogicalBlock:
 def test_remove_before_acquire_establishes_no_binding():
     asset_store = InMemoryWorkspaceAssetStore()
     store = ShortTermMemoryStore()
-    scope = make_access_context(user_id="u1")
+    scope = make_identity_scope(user_id="u1")
     asset, ref = _make_ready_asset(asset_store, scope)
 
     topic = store.create_buffer(scope)
@@ -73,7 +73,7 @@ def test_remove_before_acquire_establishes_no_binding():
 def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
     asset_store = InMemoryWorkspaceAssetStore()
     store = ShortTermMemoryStore()
-    scope = make_access_context(user_id="u1")
+    scope = make_identity_scope(user_id="u1")
     asset, ref = _make_ready_asset(asset_store, scope)
 
     topic = store.create_buffer(scope)
@@ -109,7 +109,7 @@ def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
 def test_commit_before_remove_preserves_binding():
     asset_store = InMemoryWorkspaceAssetStore()
     store = ShortTermMemoryStore()
-    scope = make_access_context(user_id="u1")
+    scope = make_identity_scope(user_id="u1")
     asset, ref = _make_ready_asset(asset_store, scope)
 
     topic = store.create_buffer(scope)

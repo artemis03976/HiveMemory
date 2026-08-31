@@ -12,8 +12,8 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
-    WorkspaceAccessContext,
-    resolve_default_workspace_access,
+    IdentityScope,
+    resolve_default_identity_scope,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -61,9 +61,9 @@ class MemoryApplicationService:
         alias: str | None = None,
         user_id: str,
     ) -> MemoryAtom:
-        access_context = self._default_access(user_id)
+        identity_scope = self._default_identity_scope(user_id)
         return await self.create_memory_scoped(
-            access_context=access_context,
+            identity_scope=identity_scope,
             title=title,
             summary=summary,
             content=content,
@@ -75,7 +75,7 @@ class MemoryApplicationService:
     async def create_memory_scoped(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         title: str,
         summary: str,
         content: str,
@@ -86,9 +86,9 @@ class MemoryApplicationService:
         """内部 seam：使用调用方提供的完整 Workspace scope 创建 Memory。"""
         atom = MemoryAtom(
             meta=MetaData(
-                workspace_identity=access_context.workspace_identity,
-                source_agent_id=access_context.actor_identity.agent_id,
-                source_team_id=access_context.actor_identity.team_id,
+                workspace_identity=identity_scope.workspace_identity,
+                source_agent_id=identity_scope.actor_identity.agent_id,
+                source_team_id=identity_scope.actor_identity.team_id,
                 access_policy=MemoryAccessPolicy.public(),
             ),
             index=IndexLayer(
@@ -105,7 +105,7 @@ class MemoryApplicationService:
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_CREATE,
-            access_context,
+            identity_scope,
             atom,
         )
 
@@ -118,7 +118,7 @@ class MemoryApplicationService:
         limit: int = 20,
     ) -> list[MemoryAtom]:
         return await self.list_memories_scoped(
-            access_context=self._default_access(user_id),
+            identity_scope=self._default_identity_scope(user_id),
             query=query,
             memory_type=memory_type,
             limit=limit,
@@ -127,7 +127,7 @@ class MemoryApplicationService:
     async def list_memories_scoped(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
@@ -136,7 +136,7 @@ class MemoryApplicationService:
         filters = self._build_filters(memory_type=memory_type)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_LIST,
-            access_context=access_context,
+            identity_scope=identity_scope,
             query=query,
             filters=filters if filters else None,
             limit=limit,
@@ -147,20 +147,20 @@ class MemoryApplicationService:
     async def get_memory(self, memory_id: UUID, *, user_id: str) -> MemoryAtom:
         return await self.get_memory_scoped(
             memory_id,
-            access_context=self._default_access(user_id),
+            identity_scope=self._default_identity_scope(user_id),
         )
 
     async def get_memory_scoped(
         self,
         memory_id: UUID,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> MemoryAtom:
         """内部 seam：在显式 Workspace scope 中读取 Memory。"""
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_GET,
             memory_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             refresh_vitality=True,
         )
         if atom is None:
@@ -181,7 +181,7 @@ class MemoryApplicationService:
     ) -> MemoryAtom:
         return await self.update_memory_scoped(
             memory_id,
-            access_context=self._default_access(user_id),
+            identity_scope=self._default_identity_scope(user_id),
             title=title,
             summary=summary,
             content=content,
@@ -194,7 +194,7 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -206,7 +206,7 @@ class MemoryApplicationService:
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_UPDATE,
             memory_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             title=title,
             summary=summary,
             content=content,
@@ -228,7 +228,7 @@ class MemoryApplicationService:
     ):
         return await self.record_feedback_scoped(
             memory_id,
-            access_context=self._default_access(user_id),
+            identity_scope=self._default_identity_scope(user_id),
             positive=positive,
             source=source,
         )
@@ -237,7 +237,7 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         positive: bool,
         source: str,
     ):
@@ -246,7 +246,7 @@ class MemoryApplicationService:
             return await self._global_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK,
                 memory_id,
-                access_context=access_context,
+                identity_scope=identity_scope,
                 positive=positive,
                 source=source,
             )
@@ -260,20 +260,20 @@ class MemoryApplicationService:
     async def delete_memory(self, memory_id: UUID, *, user_id: str) -> bool:
         return await self.delete_memory_scoped(
             memory_id,
-            access_context=self._default_access(user_id),
+            identity_scope=self._default_identity_scope(user_id),
         )
 
     async def delete_memory_scoped(
         self,
         memory_id: UUID,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> bool:
         """内部 seam：在显式 Workspace scope 中删除 Memory。"""
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_DELETE,
             memory_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
         )
 
     @staticmethod
@@ -287,8 +287,8 @@ class MemoryApplicationService:
         return filters
 
     @staticmethod
-    def _default_access(user_id: str) -> WorkspaceAccessContext:
+    def _default_identity_scope(user_id: str) -> IdentityScope:
         """HTTP/System 顶层为当前用户一次性解析默认 Workspace。"""
-        return resolve_default_workspace_access(
+        return resolve_default_identity_scope(
             Identity(user_id=user_id, agent_id="ui"),
         )

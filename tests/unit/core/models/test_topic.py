@@ -12,14 +12,14 @@
 import pytest
 
 from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_topic(blocks=None, state_summary=""):
-    access_context = make_access_context(user_id="u1")
+    identity_scope = make_identity_scope(user_id="u1")
     return TopicData(
         topic_id="t1",
-        workspace_identity=access_context.workspace_identity,
+        workspace_identity=identity_scope.workspace_identity,
         topic_title="title",
         topic_summary="summary",
         state_summary=state_summary,

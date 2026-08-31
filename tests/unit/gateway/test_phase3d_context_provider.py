@@ -37,13 +37,13 @@ from hivememory.system.config import (
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.mark.asyncio
 async def test_provider_prepares_candidate_topics_and_menu() -> None:
     bus = GlobalSystemBus()
-    access_context = make_access_context(user_id="u1")
+    identity_scope = make_identity_scope(user_id="u1")
     calls = []
     snapshots = (
         TopicSnapshot(
@@ -51,7 +51,7 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
             topic_title="Gateway",
             state_summary="正在实现 Phase 3D",
             last_turn=TopicLastTurn(user="继续", assistant="处理中"),
-            workspace_identity=access_context.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
         ),
     )
 
@@ -66,7 +66,7 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
         include_empty_topics=True,
     )
 
-    result = await provider.prepare_candidate_topics(access_context=access_context)
+    result = await provider.prepare_candidate_topics(identity_scope=identity_scope)
 
     assert result.topic_snapshots == snapshots
     assert "topic-1" in result.active_topics_menu
@@ -79,7 +79,7 @@ async def test_provider_new_topic_does_not_issue_bus_request() -> None:
     provider = GlobalBusGatewayContextProvider(global_bus=GlobalSystemBus())
 
     result = await provider.prepare_routed_topic(
-        access_context=make_access_context(user_id="u1"),
+        identity_scope=make_identity_scope(user_id="u1"),
         topic_id="NEW_TOPIC",
     )
 
@@ -92,7 +92,7 @@ async def test_provider_converts_bus_unavailable_to_recoverable_error() -> None:
 
     with pytest.raises(RecoverableGatewayError, match="candidate topics"):
         await provider.prepare_candidate_topics(
-            access_context=make_access_context(user_id="u1")
+            identity_scope=make_identity_scope(user_id="u1")
         )
 
 
@@ -109,13 +109,13 @@ async def test_provider_rejects_mutable_or_noncanonical_route_results() -> None:
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_active_topics)
     bus.register(PatchouliRoutes.TOPIC_GET_DATA, get_topic_data)
     provider = GlobalBusGatewayContextProvider(global_bus=bus)
-    access_context = make_access_context(user_id="u1")
+    identity_scope = make_identity_scope(user_id="u1")
 
     with pytest.raises(TypeError, match="tuple"):
-        await provider.prepare_candidate_topics(access_context=access_context)
+        await provider.prepare_candidate_topics(identity_scope=identity_scope)
     with pytest.raises(TypeError, match="TopicData"):
         await provider.prepare_routed_topic(
-            access_context=access_context,
+            identity_scope=identity_scope,
             topic_id="topic-1",
         )
 
@@ -183,7 +183,7 @@ async def test_candidate_preparation_has_independent_timeout_fallback() -> None:
 
     result = await workflow.run(
         "需要处理的问题",
-        access_context=make_access_context(user_id="u1"),
+        identity_scope=make_identity_scope(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
@@ -207,7 +207,7 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
             TopicSnapshot(
                 topic_id="topic-1",
                 topic_title="Gateway",
-                workspace_identity=make_access_context(user_id="u1").workspace_identity,
+                workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
             ),
         )
 
@@ -236,7 +236,7 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
 
     result = await workflow.run(
         "需要处理的问题",
-        access_context=make_access_context(user_id="u1"),
+        identity_scope=make_identity_scope(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 

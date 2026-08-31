@@ -86,7 +86,7 @@ class AliceRuntime:
         if pending is None and settlement.intent_id:
             pending = self._pending_runtime.get_by_intent_id(settlement.intent_id)
         identity_scope = (
-            pending.runtime_scope.access_context
+            pending.runtime_scope.identity_scope
             if pending is not None and pending.intent_id == settlement.intent_id
             else None
         )
@@ -130,7 +130,7 @@ class AliceRuntime:
             retrieval_response = await self._local_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[canonical_alias],
-                access_context=identity_scope,
+                identity_scope=identity_scope,
             )
         except Exception as exc:
             logger.warning(

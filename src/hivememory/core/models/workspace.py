@@ -19,11 +19,6 @@ ISOLATION_WORKSPACE_ID = "isolation_workspace"
 """仅供内部隔离验证使用的第二 Workspace 标识。"""
 
 
-# P2.5 兼容别名：WorkspaceAccessContext 只能作为 IdentityScope 的直接别名，
-# 不再拥有自己的字段、validator 或 wire schema，也不再包含 interaction_id。
-WorkspaceAccessContext = IdentityScope
-
-
 class WorkspaceTopicKey(BaseModel):
     """Topic 在短期存储中的权威复合键。"""
 
@@ -37,13 +32,13 @@ class WorkspaceTopicKey(BaseModel):
         return _validate_non_empty(value, info.field_name)
 
     @classmethod
-    def from_access_context(
+    def from_identity_scope(
         cls,
-        access_context: IdentityScope,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> Self:
         """从已验证的访问作用域构造 Topic 复合键。"""
-        workspace = access_context.workspace_identity
+        workspace = identity_scope.workspace_identity
         return cls(
             owner_user_id=workspace.owner_user_id,
             workspace_id=workspace.workspace_id,
@@ -62,7 +57,7 @@ def resolve_default_workspace_identity(owner_user_id: str) -> WorkspaceIdentity:
     )
 
 
-def resolve_default_workspace_access(
+def resolve_default_identity_scope(
     actor_identity: ActorIdentity,
 ) -> IdentityScope:
     """在顶层入口一次性冻结默认 Workspace 的 IdentityScope。
@@ -75,7 +70,7 @@ def resolve_default_workspace_access(
     )
 
 
-def build_internal_workspace_access(
+def build_internal_identity_scope(
     actor_identity: ActorIdentity,
     workspace_id: str,
 ) -> IdentityScope:
@@ -94,13 +89,13 @@ def build_internal_workspace_access(
     )
 
 
-def require_workspace_access_context(
-    access_context: IdentityScope | None,
+def require_identity_scope(
+    identity_scope: IdentityScope | None,
 ) -> IdentityScope:
     """在内部边界拒绝缺失或错误类型的 Workspace 作用域。"""
-    if not isinstance(access_context, IdentityScope):
+    if not isinstance(identity_scope, IdentityScope):
         raise ScopeRequiredError()
-    return access_context
+    return identity_scope
 
 
 __all__ = [
@@ -108,10 +103,9 @@ __all__ = [
     "ISOLATION_WORKSPACE_ID",
     "WorkspaceIdentity",
     "IdentityScope",
-    "WorkspaceAccessContext",
     "WorkspaceTopicKey",
     "resolve_default_workspace_identity",
-    "resolve_default_workspace_access",
-    "build_internal_workspace_access",
-    "require_workspace_access_context",
+    "resolve_default_identity_scope",
+    "build_internal_identity_scope",
+    "require_identity_scope",
 ]

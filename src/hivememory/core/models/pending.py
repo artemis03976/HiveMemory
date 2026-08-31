@@ -21,7 +21,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.core.models.interaction import Identity
-from hivememory.core.models.workspace import IdentityScope, WorkspaceAccessContext
+from hivememory.core.models.workspace import IdentityScope
 
 # ===========================================================================
 # 生命周期状态体系
@@ -146,7 +146,7 @@ class UpdateFocus(BaseModel):
 class RuntimeScope(BaseModel):
     """Alice run/frame/action 坐标及其不可切换的 Workspace hard boundary。"""
 
-    access_context: WorkspaceAccessContext
+    identity_scope: IdentityScope
     run_id: str
     frame_id: str
     action_id: Optional[str] = None
@@ -216,7 +216,7 @@ class PendingAtomMaterializeTask(BaseModel):
             pending_alias=pa.pending_alias,
             intent_id=pa.intent_id,
             source_verb=pa.source_verb,
-            identity_scope=pa.runtime_scope.access_context,
+            identity_scope=pa.runtime_scope.identity_scope,
             focus=pa.focus,
         )
 

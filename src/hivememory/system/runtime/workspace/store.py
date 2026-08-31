@@ -20,7 +20,7 @@ from hivememory.core.errors import (
 )
 from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_value
-from hivememory.core.models.workspace import require_workspace_access_context
+from hivememory.core.models.workspace import require_identity_scope
 from hivememory.core.models.workspace_asset import (
     AssetRepresentation,
     AssetRepresentationKind,
@@ -98,7 +98,7 @@ class InMemoryWorkspaceAssetStore:
         client_operation_id: str,
     ) -> WorkspaceAssetHandle:
         """按 WorkspaceIdentity 与客户端操作 ID 幂等创建逻辑资产。"""
-        scope = require_workspace_access_context(identity_scope)
+        scope = require_identity_scope(identity_scope)
         operation_id = self._require_text(client_operation_id, "client_operation_id")
         if not isinstance(metadata, WorkspaceAssetMetadata):
             raise TypeError("metadata 必须是 WorkspaceAssetMetadata")
@@ -311,7 +311,7 @@ class InMemoryWorkspaceAssetStore:
         identity_scope: IdentityScope,
     ) -> list[WorkspaceAssetHandle]:
         """列出当前 Workspace 内尚未移除的权威资产快照。"""
-        scope = require_workspace_access_context(identity_scope)
+        scope = require_identity_scope(identity_scope)
         with self._lock:
             self._ensure_open()
             entries = (
@@ -441,7 +441,7 @@ class InMemoryWorkspaceAssetStore:
         identity_scope: IdentityScope,
         asset_ref: WorkspaceAssetRef,
     ) -> _AssetEntry:
-        scope = require_workspace_access_context(identity_scope)
+        scope = require_identity_scope(identity_scope)
         self._ensure_open()
         if not isinstance(asset_ref, WorkspaceAssetRef):
             raise AssetNotFoundError()

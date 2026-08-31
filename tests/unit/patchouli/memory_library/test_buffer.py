@@ -13,13 +13,13 @@ from unittest.mock import patch
 
 from hivememory.core.models import BufferState, LogicalBlock, TurnRecord
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _buffer(**values) -> SemanticBuffer:
     """构造显式归属于测试 Workspace 的 buffer，防止测试掩盖缺 scope。"""
     return SemanticBuffer(
-        workspace_identity=make_access_context().workspace_identity,
+        workspace_identity=make_identity_scope().workspace_identity,
         **values,
     )
 

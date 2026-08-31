@@ -48,14 +48,14 @@ class _MemoryManagementStub:
         self.storage = storage
         self.lifecycle_engine = lifecycle_engine
 
-    async def create_memory(self, access_context, atom):
+    async def create_memory(self, identity_scope, atom):
         self.storage.upsert_memory(atom)
         return atom
 
     async def list_memories(
         self,
         *,
-        access_context,
+        identity_scope,
         query=None,
         filters=None,
         limit=20,
@@ -79,27 +79,27 @@ class _MemoryManagementStub:
                 atom.index.memory_type.value not in set(exclude_types or [])
                 and memory_is_readable(
                     atom,
-                    workspace_identity=access_context.workspace_identity,
-                    actor_identity=access_context.actor_identity,
+                    workspace_identity=identity_scope.workspace_identity,
+                    actor_identity=identity_scope.actor_identity,
                 )
             )
         ]
 
-    async def get_memory(self, memory_id, *, access_context, refresh_vitality=True):
+    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True):
         atom = self.storage.get_memory(memory_id)
         if atom is not None and not memory_is_readable(
             atom,
-            workspace_identity=access_context.workspace_identity,
-            actor_identity=access_context.actor_identity,
+            workspace_identity=identity_scope.workspace_identity,
+            actor_identity=identity_scope.actor_identity,
         ):
             return None
         if atom is not None and refresh_vitality and self.lifecycle_engine is not None:
             self.lifecycle_engine.refresh_vitality_batch([atom], persist=False)
         return atom
 
-    async def update_memory(self, memory_id, *, access_context, **updates):
+    async def update_memory(self, memory_id, *, identity_scope, **updates):
         atom = self.storage.get_memory(memory_id)
-        if atom is None or atom.workspace_identity != access_context.workspace_identity:
+        if atom is None or atom.workspace_identity != identity_scope.workspace_identity:
             return None
         for key, value in updates.items():
             if value is None:
@@ -119,10 +119,10 @@ class _MemoryManagementStub:
         self.storage.upsert_memory(atom)
         return atom
 
-    async def delete_memory(self, memory_id, *, access_context):
+    async def delete_memory(self, memory_id, *, identity_scope):
         return self.storage.delete_memory(memory_id)
 
-    async def record_feedback(self, memory_id, *, access_context, positive, source):
+    async def record_feedback(self, memory_id, *, identity_scope, positive, source):
         if self.lifecycle_engine is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
         return self.lifecycle_engine.record_feedback(

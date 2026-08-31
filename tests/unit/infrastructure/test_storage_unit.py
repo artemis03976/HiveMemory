@@ -22,15 +22,15 @@ from hivememory.system.config import EmbeddingConfig, QdrantConfig
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
 from hivememory.engines.retrieval.models import QueryFilters
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
-def _access_context(user_id: str = "user1", agent_id: str = "agent1"):
-    return make_access_context(user_id=user_id, agent_id=agent_id)
+def _identity_scope(user_id: str = "user1", agent_id: str = "agent1"):
+    return make_identity_scope(user_id=user_id, agent_id=agent_id)
 
 
-def _alias_filter(access_context):
-    return QdrantFilterConverter().convert(QueryFilters(), access_context)
+def _alias_filter(identity_scope):
+    return QdrantFilterConverter().convert(QueryFilters(), identity_scope)
 
 
 class TestQdrantMemoryStore:
@@ -203,7 +203,7 @@ class TestQdrantMemoryStore:
             top_k=3,
             filters={"meta.user_id": "user1"},
             mode="sparse",
-            workspace_identity=_access_context().workspace_identity,
+            workspace_identity=_identity_scope().workspace_identity,
         )
 
         assert len(results) == 1
@@ -231,7 +231,7 @@ class TestQdrantMemoryStore:
             query_text="dense query",
             top_k=2,
             mode="dense",
-            workspace_identity=_access_context().workspace_identity,
+            workspace_identity=_identity_scope().workspace_identity,
         )
 
         assert len(results) == 1
@@ -276,11 +276,11 @@ class TestQdrantMemoryStore:
         mock_point.payload = payload
         storage.client.scroll = AsyncMock(return_value=([mock_point], None))
 
-        access_context = _access_context()
+        identity_scope = _identity_scope()
         result = await storage.get_memory_by_alias(
             "code_my_tool",
-            query_filter=_alias_filter(access_context),
-            workspace_identity=access_context.workspace_identity,
+            query_filter=_alias_filter(identity_scope),
+            workspace_identity=identity_scope.workspace_identity,
         )
 
         assert result is not None
@@ -293,11 +293,11 @@ class TestQdrantMemoryStore:
         """scroll 返回空列表时，返回 None"""
         storage.client.scroll = AsyncMock(return_value=([], None))
 
-        access_context = _access_context()
+        identity_scope = _identity_scope()
         result = await storage.get_memory_by_alias(
             "nonexistent_alias",
-            query_filter=_alias_filter(access_context),
-            workspace_identity=access_context.workspace_identity,
+            query_filter=_alias_filter(identity_scope),
+            workspace_identity=identity_scope.workspace_identity,
         )
 
         assert result is None
@@ -306,12 +306,12 @@ class TestQdrantMemoryStore:
     async def test_get_memory_by_alias_with_workspace_filter(self, storage):
         """Alias 查询必须包含 owner/workspace hard filter。"""
         storage.client.scroll = AsyncMock(return_value=([], None))
-        access_context = _access_context(user_id="user_42")
+        identity_scope = _identity_scope(user_id="user_42")
 
         await storage.get_memory_by_alias(
             "some_alias",
-            query_filter=_alias_filter(access_context),
-            workspace_identity=access_context.workspace_identity,
+            query_filter=_alias_filter(identity_scope),
+            workspace_identity=identity_scope.workspace_identity,
         )
 
         call_args = storage.client.scroll.call_args
@@ -332,11 +332,11 @@ class TestQdrantMemoryStore:
         storage.client.scroll = AsyncMock(side_effect=Exception("Connection refused"))
 
         with pytest.raises(StorageReadError):
-            access_context = _access_context()
+            identity_scope = _identity_scope()
             await storage.get_memory_by_alias(
                 "broken_alias",
-                query_filter=_alias_filter(access_context),
-                workspace_identity=access_context.workspace_identity,
+                query_filter=_alias_filter(identity_scope),
+                workspace_identity=identity_scope.workspace_identity,
             )
 
     # ========== get_agent_profile ==========
@@ -346,7 +346,7 @@ class TestQdrantMemoryStore:
         profile_atom = self._make_profile_atom(agent_id="coder_doll")
         storage.get_memory_by_alias = AsyncMock(return_value=profile_atom)
 
-        result = await storage.get_agent_profile(_access_context("system", "system"), "coder_doll")
+        result = await storage.get_agent_profile(_identity_scope("system", "system"), "coder_doll")
 
         assert result.persona == "You are a test agent."
 
@@ -355,7 +355,7 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias = AsyncMock(return_value=None)
 
         with pytest.raises(AliasNotFoundError) as exc_info:
-            await storage.get_agent_profile(_access_context(), "nonexistent_agent")
+            await storage.get_agent_profile(_identity_scope(), "nonexistent_agent")
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
         storage.get_memory_by_alias.assert_awaited_once()
@@ -377,7 +377,7 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias = AsyncMock(return_value=wrong_atom)
 
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
-            await storage.get_agent_profile(_access_context("test", "test"), "not_a_profile")
+            await storage.get_agent_profile(_identity_scope("test", "test"), "not_a_profile")
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
 
@@ -401,7 +401,7 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias = AsyncMock(return_value=broken_atom)
 
         with pytest.raises(InvalidArgumentError) as exc_info:
-            await storage.get_agent_profile(_access_context("system", "system"), "broken_agent")
+            await storage.get_agent_profile(_identity_scope("system", "system"), "broken_agent")
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
 
@@ -410,7 +410,7 @@ class TestQdrantMemoryStore:
     async def test_get_agent_profile_builtin_alias_returns_omni(self, storage, alias):
         storage.get_memory_by_alias = AsyncMock()
 
-        result = await storage.get_agent_profile(_access_context(), alias)
+        result = await storage.get_agent_profile(_identity_scope(), alias)
 
         assert result is OMNI_DOLL_PROFILE
         storage.get_memory_by_alias.assert_not_called()

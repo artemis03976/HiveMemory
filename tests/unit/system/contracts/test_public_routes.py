@@ -24,7 +24,7 @@ from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context, make_runtime_scope
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 # ========== Alice ==========
 
@@ -131,12 +131,12 @@ class TestAlicePublicRoutes:
             received.append(("retrieve", request))
             return "retrieved"
 
-        async def retrieve_by_aliases(*, aliases, access_context):
-            received.append(("aliases", aliases, access_context))
+        async def retrieve_by_aliases(*, aliases, identity_scope):
+            received.append(("aliases", aliases, identity_scope))
             return "aliases"
 
-        async def get_agent_profile(alias, *, access_context):
-            received.append(("profile", alias, access_context))
+        async def get_agent_profile(alias, *, identity_scope):
+            received.append(("profile", alias, identity_scope))
             return "profile"
 
         async def record_citation(*, memory_id, source):
@@ -159,7 +159,7 @@ class TestAlicePublicRoutes:
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
-        access_context = make_access_context()
+        identity_scope = make_identity_scope()
 
         result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
@@ -168,12 +168,12 @@ class TestAlicePublicRoutes:
         aliases_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             aliases=["a"],
-            access_context=access_context,
+            identity_scope=identity_scope,
         )
         profile_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             "coder_doll",
-            access_context=access_context,
+            identity_scope=identity_scope,
         )
         citation_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
@@ -187,8 +187,8 @@ class TestAlicePublicRoutes:
         assert citation_result == "citation"
         assert received == [
             ("retrieve", "request"),
-            ("aliases", ["a"], access_context),
-            ("profile", "coder_doll", access_context),
+            ("aliases", ["a"], identity_scope),
+            ("profile", "coder_doll", identity_scope),
             ("citation", "mid", "mtp.read"),
         ]
 
@@ -236,8 +236,8 @@ class TestAlicePublicRoutes:
         fresh_atom = _make_memory("fact_canonical", "fresh content")
         refresh_requests = []
 
-        async def retrieve_by_aliases(*, aliases, access_context):
-            refresh_requests.append((aliases, access_context))
+        async def retrieve_by_aliases(*, aliases, identity_scope):
+            refresh_requests.append((aliases, identity_scope))
             return SimpleNamespace(memories=[fresh_atom])
 
         self.global_bus.register(
@@ -247,7 +247,7 @@ class TestAlicePublicRoutes:
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
         identity = Identity(user_id="test_user", agent_id="test_agent")
-        access_context = make_access_context(actor_identity=identity)
+        identity_scope = make_identity_scope(actor_identity=identity)
         pending_runtime = system.runtime.alias_resolver.pending_runtime
         pending = pending_runtime.register_write(
             content="draft",
@@ -272,7 +272,7 @@ class TestAlicePublicRoutes:
             settlement=settlement,
         )
 
-        assert refresh_requests == [(["fact_canonical"], access_context)]
+        assert refresh_requests == [(["fact_canonical"], identity_scope)]
         assert system.runtime.atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
         assert (
             system.runtime.atom_cache.get_atom_by_uuid(

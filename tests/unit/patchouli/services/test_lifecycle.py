@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock
 from uuid import uuid4, UUID
 
 from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 class TestLifecycleFamiliar:
@@ -59,7 +59,7 @@ class TestLifecycleFamiliar:
 
         await familiar.record_hit(
             str_id,
-            access_context=make_access_context(user_id="u1", agent_id="a1"),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         )
 
         call_args = lifecycle.record_hit.call_args

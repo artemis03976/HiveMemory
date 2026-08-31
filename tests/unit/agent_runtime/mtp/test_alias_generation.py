@@ -23,7 +23,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
 )
-from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.memory import make_memory_identity_scope
 
 
 # ========== _build_alias 单元测试 ==========
@@ -146,10 +146,10 @@ class TestDraftToMemoryAlias:
         )
 
     @pytest.fixture
-    def creation_context(self):
-        return make_memory_creation_context(user_id="user1", agent_id="agent1")
+    def identity_scope(self):
+        return make_memory_identity_scope(user_id="user1", agent_id="agent1")
 
-    def test_alias_from_llm_suffix(self, engine, creation_context):
+    def test_alias_from_llm_suffix(self, engine, identity_scope):
         """LLM 提供 alias_suffix 时正确拼接"""
         draft = ExtractedMemoryDraft(
             title="Quick Sort Algorithm",
@@ -161,10 +161,10 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="quicksort_impl",
         )
-        memory = engine._draft_to_memory(draft, creation_context)
+        memory = engine._draft_to_memory(draft, identity_scope)
         assert memory.index.alias == "code_quicksort_impl"
 
-    def test_alias_fallback_from_title(self, engine, creation_context):
+    def test_alias_fallback_from_title(self, engine, identity_scope):
         """alias_suffix 为空时从 title 派生"""
         draft = ExtractedMemoryDraft(
             title="API Rate Limit",
@@ -176,10 +176,10 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="",
         )
-        memory = engine._draft_to_memory(draft, creation_context)
+        memory = engine._draft_to_memory(draft, identity_scope)
         assert memory.index.alias == "fact_api_rate_limit"
 
-    def test_alias_persists_to_qdrant_payload(self, engine, creation_context):
+    def test_alias_persists_to_qdrant_payload(self, engine, identity_scope):
         """别名通过 to_qdrant_payload 持久化"""
         draft = ExtractedMemoryDraft(
             title="Test",
@@ -191,11 +191,11 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="persistence_check",
         )
-        memory = engine._draft_to_memory(draft, creation_context)
+        memory = engine._draft_to_memory(draft, identity_scope)
         payload = memory.to_qdrant_payload()
         assert payload["index"]["alias"] == "fact_persistence_check"
 
-    def test_alias_none_when_no_suffix_no_title(self, engine, creation_context):
+    def test_alias_none_when_no_suffix_no_title(self, engine, identity_scope):
         """alias_suffix 和 title 都无法生成时为 None"""
         draft = ExtractedMemoryDraft(
             title="!@#$%",
@@ -207,7 +207,7 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="",
         )
-        memory = engine._draft_to_memory(draft, creation_context)
+        memory = engine._draft_to_memory(draft, identity_scope)
         assert memory.index.alias is None
 
 

@@ -1,27 +1,27 @@
-"""测试专用 WorkspaceAccessContext 与 RuntimeScope 构造器。"""
+"""测试专用 IdentityScope 与 RuntimeScope 构造器。"""
 
 from hivememory.core.models import (
     Identity,
     RuntimeScope,
-    WorkspaceAccessContext,
-    build_internal_workspace_access,
+    IdentityScope,
+    build_internal_identity_scope,
 )
 
 
-def make_access_context(
+def make_identity_scope(
     *,
     actor_identity: Identity | None = None,
     user_id: str = "test_user",
     agent_id: str = "test_agent",
     workspace_id: str = "main_workspace",
     interaction_id: str | None = None,
-) -> WorkspaceAccessContext:
+) -> IdentityScope:
     """显式构造测试 scope，绝不读取进程当前 Workspace。
 
     P2.5 起 ``interaction_id`` 不再属于 IdentityScope，该参数仅为兼容旧测试
     保留，构造结果中不会携带它。
     """
-    return build_internal_workspace_access(
+    return build_internal_identity_scope(
         actor_identity or Identity(user_id=user_id, agent_id=agent_id),
         workspace_id,
     )
@@ -39,7 +39,7 @@ def make_runtime_scope(
 ) -> RuntimeScope:
     """构造携带完整 Workspace hard boundary 的 Alice 执行坐标。"""
     return RuntimeScope(
-        access_context=make_access_context(
+        identity_scope=make_identity_scope(
             actor_identity=actor_identity,
             user_id=user_id,
             agent_id=agent_id,

@@ -20,7 +20,7 @@ from hivememory.core.models import (
     Identity,
     RuntimeScope,
     TurnEvent,
-    WorkspaceAccessContext,
+    IdentityScope,
 )
 from hivememory.core.mtp.models import MTPCallRequest
 
@@ -68,14 +68,14 @@ class ExecutionFrame:
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
 
     @property
-    def access_context(self) -> WorkspaceAccessContext:
+    def identity_scope(self) -> IdentityScope:
         """返回 frame 随 RuntimeScope 继承的 Workspace hard boundary。"""
-        return self.runtime_scope.access_context
+        return self.runtime_scope.identity_scope
 
     @property
     def identity(self) -> Identity:
         """兼容读取当前执行者身份。"""
-        return self.access_context.actor_identity
+        return self.identity_scope.actor_identity
 
     def is_transient(self) -> bool:
         """判断本帧是否未挂载话题（子帧为瞬态帧，topic_id 为 None）。"""
@@ -105,14 +105,14 @@ class MTPExecutionContext:
     language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生
 
     @property
-    def access_context(self) -> WorkspaceAccessContext:
+    def identity_scope(self) -> IdentityScope:
         """返回 MTP 指令继承的 Workspace hard boundary。"""
-        return self.runtime_scope.access_context
+        return self.runtime_scope.identity_scope
 
     @property
     def identity(self) -> Identity:
         """兼容读取当前执行者身份。"""
-        return self.access_context.actor_identity
+        return self.identity_scope.actor_identity
 
 
 @dataclass

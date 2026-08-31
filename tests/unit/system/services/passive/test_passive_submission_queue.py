@@ -30,7 +30,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 IDENTITY = Identity(user_id="u1", agent_id="a1")
 
@@ -86,7 +86,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source="codex",
         external_conversation_id="conversation-1",
-        access_context=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
     )
 
 
@@ -121,7 +121,7 @@ def test_conversation_key_does_not_partition_by_workspace() -> None:
     main = PassiveConversationKey.build(
         source="codex",
         external_conversation_id="conversation-shared",
-        access_context=make_access_context(
+        identity_scope=make_identity_scope(
             user_id="u1",
             agent_id="a1",
             workspace_id="main_workspace",
@@ -130,7 +130,7 @@ def test_conversation_key_does_not_partition_by_workspace() -> None:
     isolated = PassiveConversationKey.build(
         source="codex",
         external_conversation_id="conversation-shared",
-        access_context=make_access_context(
+        identity_scope=make_identity_scope(
             user_id="u1",
             agent_id="a1",
             workspace_id="isolation_workspace",
@@ -145,12 +145,12 @@ def test_conversation_key_does_not_partition_by_workspace() -> None:
 async def test_pending_turn_rejects_workspace_scope_drift() -> None:
     """捕获共享 conversation key 把另一 Workspace 事件混入原 turn 的缺陷。"""
     ingressor, queue = _build()
-    main_scope = make_access_context(
+    main_scope = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="main_workspace",
     )
-    isolated_scope = make_access_context(
+    isolated_scope = make_identity_scope(
         user_id="u1",
         agent_id="a1",
         workspace_id="isolation_workspace",

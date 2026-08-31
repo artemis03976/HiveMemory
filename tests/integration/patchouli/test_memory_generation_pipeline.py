@@ -41,16 +41,12 @@ from hivememory.patchouli.memory_library.stores import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
-def _creation_context():
-    return make_memory_creation_context(user_id="u1", agent_id="omni_doll")
-
-
-def _access_context():
-    return make_access_context(user_id="u1", agent_id="omni_doll")
+def _identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="omni_doll")
 
 
 class _TopicData:
@@ -92,7 +88,7 @@ def _write_task(alias="draft_write") -> PendingAtomMaterializeTask:
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="WRITE",
-        identity_scope=_creation_context(),
+        identity_scope=_identity_scope(),
         focus=WriteFocus(content="remember this"),
     )
 
@@ -102,7 +98,7 @@ def _update_task(base_uuid: str, alias="draft_update") -> PendingAtomMaterialize
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="UPDATE",
-        identity_scope=_creation_context(),
+        identity_scope=_identity_scope(),
         focus=UpdateFocus(
             instruction="merge this",
             content="new content",
@@ -170,7 +166,7 @@ async def test_passive_settlement_routes_settle_spec_through_task_controller():
                 )
             ],
             state_summary="state summary",
-            identity_scope=_creation_context(),
+            identity_scope=_identity_scope(),
         )
     )
     await controller.wait_task(memory_task.task_id)
@@ -201,7 +197,7 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
     memory_tasks = await coordinator.submit_active(
         [_write_task("draft_write")],
         "topic_1",
-        access_context=_access_context(),
+        identity_scope=_identity_scope(),
     )
     await controller.wait_task(memory_tasks[0].task_id)
     completed = await controller.get_task(memory_tasks[0].task_id)
@@ -231,13 +227,13 @@ async def test_active_update_fetches_existing_memory_before_generation():
     memory_tasks = await coordinator.submit_active(
         [_update_task(str(existing.id), "draft_update")],
         "topic_1",
-        access_context=_access_context(),
+        identity_scope=_identity_scope(),
     )
     await controller.wait_task(memory_tasks[0].task_id)
 
     memory_get.assert_awaited_once_with(
         existing.id,
-        access_context=_access_context(),
+        identity_scope=_identity_scope(),
     )
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.UPDATE
@@ -271,7 +267,7 @@ async def test_active_batch_skips_missing_update_and_runs_valid_write():
             _update_task(str(uuid4()), "draft_update"),
         ],
         "topic_1",
-        access_context=_access_context(),
+        identity_scope=_identity_scope(),
     )
     await controller.wait_task(memory_tasks[0].task_id)
     completed = await controller.get_task(memory_tasks[0].task_id)
@@ -321,8 +317,8 @@ class _InMemoryMidTermPort(MidTermStoragePort):
                 return memory
         return None
 
-    async def get_for_mutation(self, access_context, memory_id: UUID) -> MemoryAtom | None:
-        return await self.get(access_context, memory_id)
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
+        return await self.get(identity_scope, memory_id)
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         workspace = key.workspace_identity
@@ -330,21 +326,21 @@ class _InMemoryMidTermPort(MidTermStoragePort):
             (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
         )
 
-    async def update_access_info(self, access_context, memory_id: UUID) -> None:
-        memory = await self.get(access_context, memory_id)
+    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
+        memory = await self.get(identity_scope, memory_id)
         if memory is not None:
             memory.meta.access_count += 1
 
-    async def delete(self, access_context, memory_id: UUID) -> bool:
-        return self.memories.pop(self._scope_key(access_context, memory_id), None) is not None
+    async def delete(self, identity_scope, memory_id: UUID) -> bool:
+        return self.memories.pop(self._scope_key(identity_scope, memory_id), None) is not None
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         workspace = key.workspace_identity
         storage_key = (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
         return self.memories.pop(storage_key, None) is not None
 
-    async def batch_delete(self, access_context, ids: list[UUID]) -> int:
-        return sum(1 for mid in ids if await self.delete(access_context, mid))
+    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
+        return sum(1 for mid in ids if await self.delete(identity_scope, mid))
 
     async def search(
         self,
@@ -445,7 +441,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library):
                 )
             ],
             state_summary="state summary",
-            identity_scope=_creation_context(),
+            identity_scope=_identity_scope(),
         )
     )
     await controller.wait_task(memory_task.task_id)
@@ -455,7 +451,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library):
     assert completed.canonical_alias == "memory_alias"
     # 数据面：stub engine 被真实 familiar 调用，且结果真实落库 mid_term
     assert stub.requests, "真实 familiar 应调用 stub generation engine"
-    stored = await memory_library.mid_term.get(_creation_context(), atom.id)
+    stored = await memory_library.mid_term.get(_identity_scope(), atom.id)
     assert stored is not None, "生成结果应写入真实 mid_term"
     assert stored.payload.content == "content"
 
@@ -482,7 +478,7 @@ async def test_active_write_lands_in_real_mid_term(memory_library):
     memory_tasks = await coordinator.submit_active(
         [_write_task("draft_write")],
         "topic_1",
-        access_context=_access_context(),
+        identity_scope=_identity_scope(),
     )
     await controller.wait_task(memory_tasks[0].task_id)
     completed = await controller.get_task(memory_tasks[0].task_id)
@@ -490,7 +486,7 @@ async def test_active_write_lands_in_real_mid_term(memory_library):
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     assert completed.canonical_alias == "memory_alias"
     # 数据面：真实落库 mid_term
-    stored = await memory_library.mid_term.get(_access_context(), atom.id)
+    stored = await memory_library.mid_term.get(_identity_scope(), atom.id)
     assert stored is not None, "WRITE 生成结果应写入真实 mid_term"
     # 控制面：settlement 由熟悉发布，pending atom 链路闭环
     assert published, "应发布 PENDING_ATOM_SETTLED 事件"

@@ -15,12 +15,12 @@ from hivememory.system.runtime.control import (
     ChatRunOutcome,
     ChatRunPhase,
 )
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _run(generation_id: str) -> ChatGenerationRun:
     return ChatGenerationRun(
-        identity_scope=make_access_context(),
+        identity_scope=make_identity_scope(),
         interaction_id=generation_id,
     )
 
@@ -95,8 +95,8 @@ def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
 def test_registry_not_found_and_terminal_results_are_stable() -> None:
     registry = ChatGenerationRunRegistry()
 
-    access_context = make_access_context()
-    missing = registry.cancel("missing-generation", access_context)
+    identity_scope = make_identity_scope()
+    missing = registry.cancel("missing-generation", identity_scope)
     assert missing.cancelled is False
     assert missing.status == "not_found"
 
@@ -144,12 +144,12 @@ async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled()
 def test_registry_hides_run_from_different_workspace_control_plane() -> None:
     """防止仅凭 generation_id 跨 Workspace 查询或取消另一条 run。"""
     registry = ChatGenerationRunRegistry()
-    owner_context = make_access_context(
+    owner_context = make_identity_scope(
         user_id="u1",
         workspace_id="main_workspace",
         interaction_id="interaction-main",
     )
-    other_context = make_access_context(
+    other_context = make_identity_scope(
         user_id="u1",
         workspace_id="isolation_workspace",
         interaction_id="interaction-isolation",
@@ -173,7 +173,7 @@ def test_registry_rejects_generation_id_collision_without_overwriting_owner() ->
     registry = ChatGenerationRunRegistry()
     original = _run("collision")
     replacement = ChatGenerationRun(
-        identity_scope=make_access_context(
+        identity_scope=make_identity_scope(
             workspace_id="isolation_workspace",
         ),
         interaction_id="collision",

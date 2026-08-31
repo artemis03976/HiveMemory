@@ -8,7 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 
-from hivememory.core.models import Identity, resolve_default_workspace_access
+from hivememory.core.models import Identity, resolve_default_identity_scope
 from hivememory.server.deps import get_chat_service
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -43,7 +43,7 @@ async def chat(
 ):
     """Stream an active chat run over SSE."""
     interaction_id = f"interaction_{uuid.uuid4().hex}"
-    identity_scope = resolve_default_workspace_access(
+    identity_scope = resolve_default_identity_scope(
         Identity(
             user_id=body.user_id,
             agent_id=body.agent_id,
@@ -131,7 +131,7 @@ async def stop_chat(
     service: ChatApplicationService = Depends(get_chat_service),
 ):
     """Idempotently cancel an active streaming generation."""
-    identity_scope = resolve_default_workspace_access(
+    identity_scope = resolve_default_identity_scope(
         Identity(user_id=request.user_id, agent_id=request.agent_id),
     )
     result = service.cancel_generation_scoped(

@@ -196,7 +196,7 @@ class TestReadAliasResolution:
             content="pending content",
             title="Pending Note",
             reason=None,
-            identity=make_runtime_scope().access_context.actor_identity,
+            identity=make_runtime_scope().identity_scope.actor_identity,
             runtime_scope=make_runtime_scope(),
         )
         canonical = _make_memory(
@@ -234,7 +234,7 @@ class TestReadAliasResolution:
             content="pending content",
             title="Pending Note",
             reason=None,
-            identity=make_runtime_scope().access_context.actor_identity,
+            identity=make_runtime_scope().identity_scope.actor_identity,
             runtime_scope=make_runtime_scope(),
         )
         koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
@@ -260,7 +260,7 @@ class TestReadAliasResolution:
             content="pending content",
             title="Pending Note",
             reason=None,
-            identity=make_runtime_scope().access_context.actor_identity,
+            identity=make_runtime_scope().identity_scope.actor_identity,
             runtime_scope=make_runtime_scope(),
         )
         koakuma.pending_runtime.expire(pending.pending_alias)

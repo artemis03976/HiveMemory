@@ -29,8 +29,8 @@ from hivememory.patchouli.memory_library.adapters.artifact import (
 )
 from hivememory.patchouli.memory_library.stores import ArtifactStore
 from hivememory.system.config.patchouli import ArtifactComponentConfig, ArtifactConfig
-from tests.helpers.memory import make_memory_creation_context
-from tests.helpers.workspace import make_access_context
+from tests.helpers.memory import make_memory_identity_scope
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.fixture
@@ -54,8 +54,8 @@ def _make_artifact(
     )
 
 
-def _access(*, user_id: str = "u1", workspace_id: str = "main_workspace"):
-    return make_access_context(
+def _identity_scope(*, user_id: str = "u1", workspace_id: str = "main_workspace"):
+    return make_identity_scope(
         actor_identity=Identity(user_id=user_id, agent_id="agent-1"),
         workspace_id=workspace_id,
         interaction_id=f"i-{user_id}-{workspace_id}",
@@ -64,27 +64,27 @@ def _access(*, user_id: str = "u1", workspace_id: str = "main_workspace"):
 
 @pytest.mark.asyncio
 async def test_put_and_get_roundtrip_uses_workspace_scoped_ref(store):
-    access = _access()
-    ref = await store.put(_make_artifact(access.workspace_identity))
+    identity_scope = _identity_scope()
+    ref = await store.put(_make_artifact(identity_scope.workspace_identity))
 
-    data = await store.get(access, ref)
+    data = await store.get(identity_scope, ref)
 
     assert data["artifact_id"] == "test-id"
     assert data["topic_id"] == "topic-1"
     assert data["workspace_identity"]["workspace_id"] == "main_workspace"
-    assert ref.workspace_identity == access.workspace_identity
+    assert ref.workspace_identity == identity_scope.workspace_identity
 
 
 @pytest.mark.asyncio
-async def test_artifact_reads_require_a_complete_access_context(store):
+async def test_artifact_reads_require_a_complete_identity_scope(store):
     with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
         await store.get(None, "test-id")
 
 
 @pytest.mark.asyncio
 async def test_same_artifact_id_is_independent_between_workspaces(store):
-    main = _access(workspace_id="main_workspace")
-    isolated = _access(workspace_id="isolation_workspace")
+    main = _identity_scope(workspace_id="main_workspace")
+    isolated = _identity_scope(workspace_id="isolation_workspace")
     await store.put(_make_artifact(main.workspace_identity, topic_id="main-topic"))
     await store.put(
         _make_artifact(isolated.workspace_identity, topic_id="isolated-topic")
@@ -99,8 +99,8 @@ async def test_same_artifact_id_is_independent_between_workspaces(store):
 
 @pytest.mark.asyncio
 async def test_same_artifact_id_is_independent_between_owners(store):
-    first = _access(user_id="u1")
-    second = _access(user_id="u2")
+    first = _identity_scope(user_id="u1")
+    second = _identity_scope(user_id="u2")
     await store.put(_make_artifact(first.workspace_identity, topic_id="u1-topic"))
     await store.put(_make_artifact(second.workspace_identity, topic_id="u2-topic"))
 
@@ -110,8 +110,8 @@ async def test_same_artifact_id_is_independent_between_owners(store):
 
 @pytest.mark.asyncio
 async def test_cross_workspace_ref_is_projected_as_not_found(store):
-    main = _access()
-    isolated = _access(workspace_id="isolation_workspace")
+    main = _identity_scope()
+    isolated = _identity_scope(workspace_id="isolation_workspace")
     ref = await store.put(_make_artifact(main.workspace_identity))
 
     with pytest.raises(FileNotFoundError, match="artifact not found"):
@@ -122,8 +122,8 @@ async def test_cross_workspace_ref_is_projected_as_not_found(store):
 
 @pytest.mark.asyncio
 async def test_ref_uri_never_selects_a_different_physical_file(store, tmp_path):
-    main = _access()
-    isolated = _access(workspace_id="isolation_workspace")
+    main = _identity_scope()
+    isolated = _identity_scope(workspace_id="isolation_workspace")
     main_ref = await store.put(_make_artifact(main.workspace_identity, topic_id="main"))
     isolated_ref = await store.put(
         _make_artifact(isolated.workspace_identity, topic_id="isolated")
@@ -138,36 +138,36 @@ async def test_ref_uri_never_selects_a_different_physical_file(store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_append_only_rejects_different_content_in_same_scope(store):
-    access = _access()
-    await store.put(_make_artifact(access.workspace_identity, topic_id="first"))
+    identity_scope = _identity_scope()
+    await store.put(_make_artifact(identity_scope.workspace_identity, topic_id="first"))
 
     with pytest.raises(ValueError, match="append-only"):
-        await store.put(_make_artifact(access.workspace_identity, topic_id="second"))
+        await store.put(_make_artifact(identity_scope.workspace_identity, topic_id="second"))
 
 
 @pytest.mark.asyncio
 async def test_same_content_replay_is_idempotent(store):
-    access = _access()
-    artifact = _make_artifact(access.workspace_identity)
+    identity_scope = _identity_scope()
+    artifact = _make_artifact(identity_scope.workspace_identity)
 
     first = await store.put(artifact)
     replay = await store.put(artifact.model_copy(deep=True))
 
     assert replay.artifact_id == first.artifact_id
     assert replay.sha256 == first.sha256
-    assert await store.exists(access, first.artifact_id)
+    assert await store.exists(identity_scope, first.artifact_id)
 
 
 @pytest.mark.asyncio
 async def test_list_by_memory_is_workspace_scoped(store):
-    main = _access()
-    isolated = _access(workspace_id="isolation_workspace")
-    for access, artifact_id in ((main, "main-artifact"), (isolated, "isolated-artifact")):
+    main = _identity_scope()
+    isolated = _identity_scope(workspace_id="isolation_workspace")
+    for identity_scope, artifact_id in ((main, "main-artifact"), (isolated, "isolated-artifact")):
         await store.put(
             MemoryCreationArtifact(
                 artifact_id=artifact_id,
-                workspace_identity=access.workspace_identity,
-                owner_agent_id=access.actor_identity.agent_id,
+                workspace_identity=identity_scope.workspace_identity,
+                owner_agent_id=identity_scope.actor_identity.agent_id,
                 memory_id="memory-1",
                 source_intent="WRITE",
             )
@@ -181,16 +181,16 @@ async def test_list_by_memory_is_workspace_scoped(store):
 
 @pytest.mark.asyncio
 async def test_tampered_content_fails_get_and_verify(store):
-    access = _access()
-    ref = await store.put(_make_artifact(access.workspace_identity))
+    identity_scope = _identity_scope()
+    ref = await store.put(_make_artifact(identity_scope.workspace_identity))
     path = Path(ref.uri)
     data = json.loads(path.read_text(encoding="utf-8"))
     data["topic_id"] = "tampered"
     path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     with pytest.raises(ValueError, match="hash mismatch"):
-        await store.get(access, ref)
-    assert (await store.verify(access, ref)).ok is False
+        await store.get(identity_scope, ref)
+    assert (await store.verify(identity_scope, ref)).ok is False
 
 
 def _write_legacy_artifact(root: Path, *, artifact_id: str, owner_user_id: str) -> None:
@@ -217,8 +217,8 @@ def _write_legacy_artifact(root: Path, *, artifact_id: str, owner_user_id: str) 
 async def test_legacy_artifact_is_visible_only_in_owner_main_workspace(tmp_path):
     _write_legacy_artifact(tmp_path, artifact_id="legacy-1", owner_user_id="u1")
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
-    main = _access(user_id="u1")
-    isolated = _access(user_id="u1", workspace_id="isolation_workspace")
+    main = _identity_scope(user_id="u1")
+    isolated = _identity_scope(user_id="u1", workspace_id="isolation_workspace")
 
     data = await store.get(main, "legacy-1")
 
@@ -245,7 +245,7 @@ async def test_partial_workspace_legacy_record_is_rejected(tmp_path):
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
 
     with pytest.raises(FileNotFoundError, match="artifact not found"):
-        await store.get(_access(user_id="u1"), "partial-1")
+        await store.get(_identity_scope(user_id="u1"), "partial-1")
 
 
 def test_old_artifacts_payload_ignores_removed_legacy_fields():
@@ -271,7 +271,7 @@ def test_old_artifacts_payload_ignores_removed_legacy_fields():
 
 @pytest.mark.asyncio
 async def test_artifact_builder_and_engine_preserve_workspace(tmp_path):
-    access = _access()
+    identity_scope = _identity_scope()
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
     engine = ArtifactEngine.from_store(store)
     ref = await engine.document.build_and_store(
@@ -279,13 +279,13 @@ async def test_artifact_builder_and_engine_preserve_workspace(tmp_path):
         source_uri="memory://source",
         content_hash=None,
         retrieved_at=datetime(2026, 1, 1),
-        workspace_identity=access.workspace_identity,
-        owner_agent_id=access.actor_identity.agent_id,
+        workspace_identity=identity_scope.workspace_identity,
+        owner_agent_id=identity_scope.actor_identity.agent_id,
     )
 
     assert ref is not None
-    stored = await store.get(access, ref)
-    assert stored["workspace_identity"] == access.workspace_identity.model_dump()
+    stored = await store.get(identity_scope, ref)
+    assert stored["workspace_identity"] == identity_scope.workspace_identity.model_dump()
 
 
 def test_artifacts_payload_deserializes_scoped_refs_and_events_as_models():
@@ -350,7 +350,7 @@ def test_artifact_engine_from_store_honors_component_config(tmp_path):
 @pytest.mark.asyncio
 async def test_noop_artifact_engine_returns_empty_results():
     engine = ArtifactEngine.noop()
-    context = make_memory_creation_context()
+    context = make_memory_identity_scope()
 
     interaction_ref = await engine.interaction.build_and_store(
         topic_id="topic-1",

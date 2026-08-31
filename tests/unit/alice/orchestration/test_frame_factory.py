@@ -3,7 +3,7 @@ from __future__ import annotations
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.core.models import OMNI_DOLL_PROFILE
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def test_frame_factory_creates_root_frame_from_spec() -> None:
@@ -11,7 +11,7 @@ def test_frame_factory_creates_root_frame_from_spec() -> None:
     frame = factory.create(
         FrameSpec(
             runtime_scope=factory.scope(
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
                 run_id="run-1",
                 frame_id="frame-1",
             ),
@@ -31,7 +31,7 @@ def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
     frame = factory.create(
         FrameSpec(
             runtime_scope=factory.scope(
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
                 run_id="run-1",
                 frame_id="frame-2",
             ),
@@ -66,7 +66,7 @@ def test_frame_factory_records_only_latest_user_message() -> None:
     frame = factory.create(
         FrameSpec(
             runtime_scope=factory.scope(
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
                 run_id="run-1",
                 frame_id="frame-3",
             ),
@@ -88,7 +88,7 @@ def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
     frame = factory.create(
         FrameSpec(
             runtime_scope=factory.scope(
-                access_context=make_access_context(user_id="u1"),
+                identity_scope=make_identity_scope(user_id="u1"),
                 run_id="run-1",
                 frame_id="frame-4",
             ),

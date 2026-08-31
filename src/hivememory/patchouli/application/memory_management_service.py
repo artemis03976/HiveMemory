@@ -5,8 +5,8 @@ from uuid import UUID
 from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
-    WorkspaceAccessContext,
-    require_workspace_access_context,
+    IdentityScope,
+    require_identity_scope,
 )
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
@@ -26,22 +26,22 @@ class MemoryManagementService:
 
     async def create_memory(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         atom: MemoryAtom,
     ) -> MemoryAtom:
-        access_context = require_workspace_access_context(access_context)
-        if atom.workspace_identity != access_context.workspace_identity:
+        identity_scope = require_identity_scope(identity_scope)
+        if atom.workspace_identity != identity_scope.workspace_identity:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
-            access_context,
+            identity_scope,
             atom,
         )
 
     async def list_memories(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         query: str | None = None,
         filters: dict[str, str] | None = None,
         limit: int = 20,
@@ -51,7 +51,7 @@ class MemoryManagementService:
         excluded = set(exclude_types or [])
         atoms = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
             query=query,
             filters=filters,
             limit=limit,
@@ -68,13 +68,13 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
             normalize_uuid(memory_id),
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
         )
         if atom is not None and refresh_vitality:
             await self._refresh_vitality_for_response([atom])
@@ -84,7 +84,7 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -95,7 +95,7 @@ class MemoryManagementService:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_UPDATE,
             normalize_uuid(memory_id),
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
             title=title,
             summary=summary,
             content=content,
@@ -108,11 +108,11 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> bool:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_DELETE,
-            require_workspace_access_context(access_context),
+            require_identity_scope(identity_scope),
             normalize_uuid(memory_id),
         )
 
@@ -120,14 +120,14 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         positive: bool,
         source: str,
     ):
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
             normalize_uuid(memory_id),
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
             positive=positive,
             source=source,
         )
@@ -144,12 +144,12 @@ class MemoryManagementService:
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> RetrievalResponse:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             aliases,
-            access_context,
+            identity_scope,
         )
 
     @staticmethod

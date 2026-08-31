@@ -37,7 +37,7 @@ from hivememory.system.services.passive import (
     PassiveMessageIngressor,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_events"
 CONVERSATION = "conv-events"
@@ -75,7 +75,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        access_context=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
     )
 
 

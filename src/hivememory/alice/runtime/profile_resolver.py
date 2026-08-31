@@ -9,8 +9,8 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
     Identity,
-    WorkspaceAccessContext,
-    require_workspace_access_context,
+    IdentityScope,
+    require_identity_scope,
 )
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
@@ -73,10 +73,10 @@ class AgentProfileResolver:
         self,
         agent_alias: str | None,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> AgentProfile:
-        access_context = require_workspace_access_context(access_context)
-        identity = access_context.actor_identity
+        identity_scope = require_identity_scope(identity_scope)
+        identity = identity_scope.actor_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
@@ -96,7 +96,7 @@ class AgentProfileResolver:
                 profile = await self._local_bus.request(
                     GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
                     normalized_alias,
-                    access_context=access_context,
+                    identity_scope=identity_scope,
                 )
             except MTPError:
                 raise

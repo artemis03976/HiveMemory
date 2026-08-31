@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import WorkspaceAccessContext
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import RetrievalResponse
 
@@ -47,14 +47,14 @@ class PassiveConversationKey:
         *,
         source: str,
         external_conversation_id: str,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> PassiveConversationKey:
         return cls(
             source=source,
             external_conversation_id=external_conversation_id,
-            user_id=access_context.actor_identity.user_id,
-            agent_id=access_context.actor_identity.agent_id,
-            team_id=access_context.actor_identity.team_id,
+            user_id=identity_scope.actor_identity.user_id,
+            agent_id=identity_scope.actor_identity.agent_id,
+            team_id=identity_scope.actor_identity.team_id,
         )
 
     @property
@@ -138,12 +138,12 @@ class PassiveIngressEvent(BaseModel):
 
     def conversation_key(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> PassiveConversationKey:
         return PassiveConversationKey.build(
             source=self.source,
             external_conversation_id=self.external_conversation_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
         )
 
 

@@ -30,7 +30,7 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.engines.perception.models import FlushReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 
 # ========== Fixtures ==========
@@ -41,9 +41,9 @@ def identity() -> Identity:
 
 
 @pytest.fixture
-def creation_context():
+def identity_scope():
     """生成请求必须显式携带创建 Workspace，而不能从对话 Identity 猜测。"""
-    return make_memory_creation_context(user_id="test_user", agent_id="test_agent")
+    return make_memory_identity_scope(user_id="test_user", agent_id="test_agent")
 
 @pytest.fixture
 def sample_messages(identity) -> list:
@@ -111,7 +111,7 @@ class TestModeCMergePrompt:
     """验证 Generation Engine Mode C 路径调用 extractor.merge()"""
 
     @pytest.mark.asyncio
-    async def test_mode_c_calls_merge_not_extract(self, sample_context, existing_memory, creation_context):
+    async def test_mode_c_calls_merge_not_extract(self, sample_context, existing_memory, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
             new_content="端口改为 9090", changelog="更新端口",
@@ -134,7 +134,7 @@ class TestModeCMergePrompt:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = await engine.process(request=request, identity_scope=creation_context)
+        result = await engine.process(request=request, identity_scope=identity_scope)
 
         # merge() 被调用，extract() 不被调用（Mode C 路由契约）
         mock_extractor.merge.assert_called_once()
@@ -148,7 +148,7 @@ class TestModeCMergePrompt:
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_mode_c_returns_updated_memory(self, existing_memory, creation_context):
+    async def test_mode_c_returns_updated_memory(self, existing_memory, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
             new_content="新内容", changelog="测试更新",
@@ -167,7 +167,7 @@ class TestModeCMergePrompt:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = await engine.process(request=request, identity_scope=creation_context)
+        result = await engine.process(request=request, identity_scope=identity_scope)
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
@@ -181,7 +181,7 @@ class TestModeCFallback:
     """验证 LLM 合并失败时的 fallback 拼接"""
 
     @pytest.mark.asyncio
-    async def test_fallback_when_merge_returns_none(self, existing_memory, creation_context):
+    async def test_fallback_when_merge_returns_none(self, existing_memory, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = None  # LLM 失败
         mock_storage = _mock_mid_term()
@@ -200,7 +200,7 @@ class TestModeCFallback:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = await engine.process(request=request, identity_scope=creation_context)
+        result = await engine.process(request=request, identity_scope=identity_scope)
 
         # fallback 应该保底入库
         assert len(result) == 1
@@ -243,7 +243,7 @@ class TestModeCFallback:
         assert "删除过时信息" in result.changelog
 
     @pytest.mark.asyncio
-    async def test_mode_c_no_existing_memory_returns_empty(self, creation_context):
+    async def test_mode_c_no_existing_memory_returns_empty(self, identity_scope):
         """existing_memory 未注入时应返回空列表"""
         mock_extractor = MagicMock()
         mock_storage = _mock_mid_term()
@@ -260,7 +260,7 @@ class TestModeCFallback:
         # 不注入 existing_memory (默认 None)
 
         request = GenerationRequest(update_focus=uf)
-        result = await engine.process(request=request, identity_scope=creation_context)
+        result = await engine.process(request=request, identity_scope=identity_scope)
 
         assert result == []
         mock_extractor.merge.assert_not_called()

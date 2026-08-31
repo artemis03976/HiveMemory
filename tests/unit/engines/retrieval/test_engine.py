@@ -21,7 +21,7 @@ from hivememory.engines.retrieval.models import (
 )
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:
@@ -37,7 +37,7 @@ def _make_query(text="测试查询") -> RetrievalQuery:
         semantic_query=text,
         keywords=[],
         filters=QueryFilters(),
-        access_context=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
     )
 
 

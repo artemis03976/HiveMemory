@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models.workspace import WorkspaceAccessContext, WorkspaceIdentity
+from hivememory.core.models.workspace import IdentityScope, WorkspaceIdentity
 
 
 class ArtifactType(str, Enum):
@@ -29,14 +29,14 @@ class WorkspaceArtifactKey(BaseModel):
     artifact_id: str = Field(min_length=1)
 
     @classmethod
-    def from_access_context(
+    def from_identity_scope(
         cls,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         artifact_id: str,
     ) -> Self:
         """从已验证的访问上下文构造 Artifact 复合键。"""
         return cls(
-            workspace_identity=access_context.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
             artifact_id=artifact_id,
         )
 

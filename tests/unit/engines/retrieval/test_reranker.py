@@ -18,7 +18,7 @@ from hivememory.infrastructure.rerank.base import BaseRerankService
 from datetime import datetime
 from uuid import uuid4
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def sample_query():
     """创建测试用的 RetrievalQuery"""
     return RetrievalQuery(
         semantic_query="测试查询",
-        access_context=make_access_context(
+        identity_scope=make_identity_scope(
             user_id="test_user",
             agent_id="test_agent",
         ),

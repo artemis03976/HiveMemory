@@ -38,7 +38,7 @@ from hivememory.system.services.passive import (
     PassiveMessageIngressor,
     is_recoverable_ingress_error,
 )
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_degrade"
 CONVERSATION = "conv-degrade"
@@ -72,7 +72,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        access_context=make_access_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
     )
 
 

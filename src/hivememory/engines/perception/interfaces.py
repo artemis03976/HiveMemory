@@ -20,7 +20,7 @@ from hivememory.engines.perception.models import (
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
-    from hivememory.core.models import IdentityScope, WorkspaceAccessContext, WorkspaceTopicKey
+    from hivememory.core.models import IdentityScope, WorkspaceTopicKey
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class BasePerceptionLayer(ABC):
         target_topic_id: str,
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
-        access_context: "WorkspaceAccessContext",
+        identity_scope: "IdentityScope",
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
 

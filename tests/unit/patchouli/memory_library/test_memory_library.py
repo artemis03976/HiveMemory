@@ -37,7 +37,7 @@ from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_memory(title="test_memory", memory_id=None) -> MemoryAtom:
@@ -56,10 +56,10 @@ def _make_memory(title="test_memory", memory_id=None) -> MemoryAtom:
 
 
 def _make_topic_data(topic_id="t1", user_id="u1", blocks=None, last_accessed_at=1.0):
-    access_context = make_access_context(user_id=user_id)
+    identity_scope = make_identity_scope(user_id=user_id)
     return TopicData(
         topic_id=topic_id,
-        workspace_identity=access_context.workspace_identity,
+        workspace_identity=identity_scope.workspace_identity,
         topic_title=f"title-{topic_id}",
         topic_summary=f"summary-{topic_id}",
         state_summary=f"state-{topic_id}",
@@ -104,10 +104,10 @@ class TestShortTermMemoryStore:
 
     def setup_method(self):
         self.store = ShortTermMemoryStore(max_resident_topics=3)
-        self.access_context = make_access_context(user_id="u1")
+        self.identity_scope = make_identity_scope(user_id="u1")
 
     def test_create_buffer_returns_topic_data(self):
-        buf = self.store.create_buffer(self.access_context, topic_title="Test Topic")
+        buf = self.store.create_buffer(self.identity_scope, topic_title="Test Topic")
         assert isinstance(buf, TopicData)
         assert buf.topic_id is not None
         assert buf.user_id == "u1"
@@ -115,15 +115,15 @@ class TestShortTermMemoryStore:
         assert buf.blocks == ()
 
     def test_get_topic_data_returns_none_for_missing(self):
-        result = self.store.get_topic_data(self.access_context, "missing")
+        result = self.store.get_topic_data(self.identity_scope, "missing")
         assert result is None
 
     def test_get_topic_data_returns_immutable_topic_data(self):
-        topic = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.identity_scope)
         block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         self.store.add_block(topic.topic_key, block)
 
-        data = self.store.get_topic_data(self.access_context, topic.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, topic.topic_id)
 
         assert isinstance(data, TopicData)
         assert data.block_count == 1
@@ -131,7 +131,7 @@ class TestShortTermMemoryStore:
         assert len(data.blocks) == 1
 
     def test_get_topic_data_touch_updates_last_accessed_at(self):
-        topic = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.identity_scope)
         initial = topic.last_accessed_at
         fixed_now = datetime(2027, 1, 1, 12, 0, 0)
 
@@ -139,30 +139,30 @@ class TestShortTermMemoryStore:
             "hivememory.patchouli.memory_library.stores.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value = fixed_now
-            self.store.get_topic_data(self.access_context, topic.topic_id, touch=True)
+            self.store.get_topic_data(self.identity_scope, topic.topic_id, touch=True)
 
-        data = self.store.get_topic_data(self.access_context, topic.topic_id, touch=False)
+        data = self.store.get_topic_data(self.identity_scope, topic.topic_id, touch=False)
         assert data.last_accessed_at == fixed_now.timestamp()
         assert data.last_accessed_at > initial
 
     def test_get_topic_data_reuses_immutable_block_objects(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
         block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         self.store.add_block(buf.topic_key, block)
 
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, buf.topic_id)
 
         assert data.blocks[0] is block
 
     def test_topic_exists_returns_true_for_existing(self):
-        buf = self.store.create_buffer(self.access_context)
-        assert self.store.topic_exists(self.access_context, buf.topic_id) is True
+        buf = self.store.create_buffer(self.identity_scope)
+        assert self.store.topic_exists(self.identity_scope, buf.topic_id) is True
 
     def test_topic_exists_returns_false_for_missing(self):
-        assert self.store.topic_exists(self.access_context, "missing") is False
+        assert self.store.topic_exists(self.identity_scope, "missing") is False
 
     def test_add_block_appends_and_updates_tokens(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
         block = LogicalBlock(
             turn=TurnRecord(user_query="q", assistant_final_text="a"),
             total_tokens=7,
@@ -170,7 +170,7 @@ class TestShortTermMemoryStore:
 
         self.store.add_block(buf.topic_key, block)
 
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, buf.topic_id)
         assert len(data.blocks) == 1
         assert data.total_tokens == 7
 
@@ -209,85 +209,85 @@ class TestShortTermMemoryStore:
 
         with pytest.raises(KeyError, match="topic 'missing' does not exist"):
             operation(
-                WorkspaceTopicKey.from_access_context(self.access_context, "missing"),
+                WorkspaceTopicKey.from_identity_scope(self.identity_scope, "missing"),
                 *args,
                 **kwargs,
             )
 
     def test_clear_blocks_removes_all_and_resets_tokens(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
         self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
         self.store.clear_blocks(buf.topic_key)
 
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, buf.topic_id)
         assert len(data.blocks) == 0
         assert data.total_tokens == 0
 
     def test_update_summary_writes_state_summary(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
 
         self.store.update_summary(buf.topic_key, "new summary")
 
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, buf.topic_id)
         assert data.state_summary == "new summary"
 
     def test_update_title_writes_topic_title(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
 
         self.store.update_title(buf.topic_key, "new title")
 
-        data = self.store.get_topic_data(self.access_context, buf.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, buf.topic_id)
         assert data.topic_title == "new title"
 
     def test_list_topic_data_returns_all_topics(self):
-        self.store.create_buffer(self.access_context)
-        self.store.create_buffer(self.access_context)
+        self.store.create_buffer(self.identity_scope)
+        self.store.create_buffer(self.identity_scope)
 
-        topics = self.store.list_topic_data(self.access_context)
+        topics = self.store.list_topic_data(self.identity_scope)
 
         assert len(topics) == 2
 
     def test_list_topic_data_include_empty_false_filters_truly_empty(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
         self.store.add_block(buf.topic_key, LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")))
 
-        topics = self.store.list_topic_data(self.access_context, include_empty=False)
+        topics = self.store.list_topic_data(self.identity_scope, include_empty=False)
 
         assert all(not t.is_empty for t in topics)
 
     def test_list_topic_data_include_empty_false_keeps_summary_only(self):
         """summary-only Topic（折叠历史）必须保留在非空活跃列表中。"""
-        self.store.create_buffer(self.access_context)
-        summary_only = self.store.create_buffer(self.access_context)
+        self.store.create_buffer(self.identity_scope)
+        summary_only = self.store.create_buffer(self.identity_scope)
         self.store.update_summary(summary_only.topic_key, "已经折叠的历史内容")
 
-        topics = self.store.list_topic_data(self.access_context, include_empty=False)
+        topics = self.store.list_topic_data(self.identity_scope, include_empty=False)
 
         assert [t.topic_id for t in topics] == [summary_only.topic_id]
         assert topics[0].blocks == ()
         assert topics[0].is_empty is False
 
     def test_list_topic_data_include_empty_true_returns_all(self):
-        self.store.create_buffer(self.access_context)
-        self.store.create_buffer(self.access_context)
+        self.store.create_buffer(self.identity_scope)
+        self.store.create_buffer(self.identity_scope)
 
-        topics = self.store.list_topic_data(self.access_context, include_empty=True)
+        topics = self.store.list_topic_data(self.identity_scope, include_empty=True)
 
         assert len(topics) == 2
 
     def test_needs_eviction_false_when_under_limit(self):
-        assert self.store.needs_eviction(self.access_context) is False
+        assert self.store.needs_eviction(self.identity_scope) is False
 
     def test_needs_eviction_true_when_at_limit(self):
         for i in range(3):
-            self.store.create_buffer(self.access_context)
+            self.store.create_buffer(self.identity_scope)
 
-        assert self.store.needs_eviction(self.access_context) is True
+        assert self.store.needs_eviction(self.identity_scope) is True
 
     def test_get_lru_topic_returns_oldest_accessed(self):
-        buf1 = self.store.create_buffer(self.access_context)
-        buf2 = self.store.create_buffer(self.access_context)
+        buf1 = self.store.create_buffer(self.identity_scope)
+        buf2 = self.store.create_buffer(self.identity_scope)
 
         # 通过 touch 设置不同的访问时间戳，避免直接写冻结快照字段。
         t1 = datetime(2026, 1, 1, 12, 0, 0)
@@ -296,25 +296,25 @@ class TestShortTermMemoryStore:
             "hivememory.patchouli.memory_library.stores.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value = t1
-            self.store.get_topic_data(self.access_context, buf1.topic_id, touch=True)
+            self.store.get_topic_data(self.identity_scope, buf1.topic_id, touch=True)
             mock_datetime.now.return_value = t2
-            self.store.get_topic_data(self.access_context, buf2.topic_id, touch=True)
+            self.store.get_topic_data(self.identity_scope, buf2.topic_id, touch=True)
 
-        lru = self.store.get_lru_topic(self.access_context)
+        lru = self.store.get_lru_topic(self.identity_scope)
 
         assert lru == buf1.topic_id
 
     def test_pop_buffer_removes_and_returns(self):
-        topic = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.identity_scope)
 
-        removed = self.store.pop_buffer(self.access_context, topic.topic_id)
+        removed = self.store.pop_buffer(self.identity_scope, topic.topic_id)
 
         assert removed is not None
         assert removed.topic_id == topic.topic_id
-        assert self.store.topic_exists(self.access_context, topic.topic_id) is False
+        assert self.store.topic_exists(self.identity_scope, topic.topic_id) is False
 
     def test_apply_compaction_trims_old_blocks_and_rewrites_tokens(self):
-        topic = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.identity_scope)
         for i in range(3):
             self.store.add_block(
                 topic.topic_key,
@@ -331,14 +331,14 @@ class TestShortTermMemoryStore:
         self.store.release_processing(topic.topic_key)
 
         assert folded == 2
-        data = self.store.get_topic_data(self.access_context, topic.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, topic.topic_id)
         assert data.state_summary == "new summary"
         assert [b.user_query for b in data.blocks] == ["q2"]
         assert data.total_tokens == 10
 
     @pytest.mark.parametrize("retain_count", [0, -1])
     def test_apply_compaction_rejects_retain_below_one(self, retain_count):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
         self.store.add_block(
             buf.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
@@ -350,7 +350,7 @@ class TestShortTermMemoryStore:
             )
 
     def test_apply_compaction_is_noop_when_blocks_not_exceeding_retain(self):
-        topic = self.store.create_buffer(self.access_context)
+        topic = self.store.create_buffer(self.identity_scope)
         self.store.add_block(
             topic.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
@@ -363,54 +363,54 @@ class TestShortTermMemoryStore:
         self.store.release_processing(topic.topic_key)
 
         assert folded == 0
-        data = self.store.get_topic_data(self.access_context, topic.topic_id)
+        data = self.store.get_topic_data(self.identity_scope, topic.topic_id)
         assert data.state_summary == "summary"
         assert len(data.blocks) == 1
 
     def test_get_buffer_info_reports_has_content(self):
-        summary_only = self.store.create_buffer(self.access_context)
+        summary_only = self.store.create_buffer(self.identity_scope)
         self.store.update_summary(summary_only.topic_key, "折叠历史")
 
-        info = self.store.get_buffer_info(self.access_context, summary_only.topic_id)
+        info = self.store.get_buffer_info(self.identity_scope, summary_only.topic_id)
 
         assert info["exists"] is True
         assert info["has_content"] is True
         assert info["block_count"] == 0
 
     def test_get_last_active_topic_records_last_accessed(self):
-        buf = self.store.create_buffer(self.access_context)
+        buf = self.store.create_buffer(self.identity_scope)
 
-        self.store.get_topic_data(self.access_context, buf.topic_id)
+        self.store.get_topic_data(self.identity_scope, buf.topic_id)
 
-        assert self.store.get_last_active_topic(self.access_context) == buf.topic_id
+        assert self.store.get_last_active_topic(self.identity_scope) == buf.topic_id
 
     def test_set_last_active_topic_updates_record(self):
-        self.store.create_buffer(self.access_context)
-        buf2 = self.store.create_buffer(self.access_context)
+        self.store.create_buffer(self.identity_scope)
+        buf2 = self.store.create_buffer(self.identity_scope)
 
-        self.store.set_last_active_topic(self.access_context, buf2.topic_id)
+        self.store.set_last_active_topic(self.identity_scope, buf2.topic_id)
 
-        assert self.store.get_last_active_topic(self.access_context) == buf2.topic_id
+        assert self.store.get_last_active_topic(self.identity_scope) == buf2.topic_id
 
     def test_store_uses_short_term_port_contract_not_private_adapter_methods(self):
         port = FakeShortTermStoragePort()
         store = ShortTermMemoryStore(port=port, max_resident_topics=2)
-        access_context = make_access_context(user_id="u1")
+        identity_scope = make_identity_scope(user_id="u1")
 
-        buf = store.create_buffer(access_context, topic_title="portable")
+        buf = store.create_buffer(identity_scope, topic_title="portable")
         block = LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         store.add_block(buf.topic_key, block)
 
-        assert store.get_active_topic_buffer_count(access_context) == 1
-        assert store.get_lru_topic(access_context) == buf.topic_id
-        data = store.get_topic_data(access_context, buf.topic_id)
+        assert store.get_active_topic_buffer_count(identity_scope) == 1
+        assert store.get_lru_topic(identity_scope) == buf.topic_id
+        data = store.get_topic_data(identity_scope, buf.topic_id)
         assert data.topic_title == "portable"
         assert data.blocks == (block,)
 
-        removed = store.pop_buffer(access_context, buf.topic_id)
+        removed = store.pop_buffer(identity_scope, buf.topic_id)
         assert removed is not None
         assert removed.topic_id == buf.topic_id
-        assert store.get_active_topic_buffer_count(access_context) == 0
+        assert store.get_active_topic_buffer_count(identity_scope) == 0
 
 
 class TestMidTermMemoryStore:
@@ -468,8 +468,8 @@ class TestMemoryLibraryArchiveRevive:
     @pytest.mark.asyncio
     async def test_archive_raises_when_memory_not_found(self):
         self.mock_mid_term.get_by_key = AsyncMock(return_value=None)
-        access_context = make_access_context(user_id="u1")
-        key = WorkspaceMemoryKey.from_access_context(access_context, uuid4())
+        identity_scope = make_identity_scope(user_id="u1")
+        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, uuid4())
 
         with pytest.raises(ValueError, match="not found"):
             await self.library.archive(key)
@@ -480,10 +480,10 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_long_term.load = AsyncMock(return_value=memory)
         self.mock_mid_term.upsert = AsyncMock()
         self.mock_long_term.remove = AsyncMock()
-        access_context = make_access_context(user_id="u1", agent_id="a1")
-        key = WorkspaceMemoryKey.from_access_context(access_context, memory.id)
+        identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
+        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory.id)
 
-        await self.library.revive(access_context, memory.id)
+        await self.library.revive(identity_scope, memory.id)
 
         self.mock_long_term.load.assert_awaited_once_with(key)
         self.mock_mid_term.upsert.assert_awaited_once_with(memory)
@@ -611,14 +611,14 @@ class TestShortTermMemoryLibraryBoundary:
     def test_topic_data_is_read_view_not_semantic_buffer(self):
         """验证 get_topic_data 返回 TopicData 而非 SemanticBuffer"""
         store = ShortTermMemoryStore()
-        access_context = make_access_context(user_id="u1")
-        topic = store.create_buffer(access_context)
+        identity_scope = make_identity_scope(user_id="u1")
+        topic = store.create_buffer(identity_scope)
         store.add_block(
             topic.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
         )
 
-        data = store.get_topic_data(access_context, topic.topic_id)
+        data = store.get_topic_data(identity_scope, topic.topic_id)
 
         assert data is not None
         assert isinstance(data, TopicData)
@@ -628,10 +628,10 @@ class TestShortTermMemoryLibraryBoundary:
     def test_topic_data_is_frozen(self):
         """验证 TopicData 是 frozen 模型，不可修改"""
         store = ShortTermMemoryStore()
-        access_context = make_access_context(user_id="u1")
-        topic = store.create_buffer(access_context)
+        identity_scope = make_identity_scope(user_id="u1")
+        topic = store.create_buffer(identity_scope)
 
-        data = store.get_topic_data(access_context, topic.topic_id)
+        data = store.get_topic_data(identity_scope, topic.topic_id)
 
         with pytest.raises(ValidationError):
             data.topic_title = "modified"
@@ -639,14 +639,14 @@ class TestShortTermMemoryLibraryBoundary:
     def test_to_topic_snapshot_converts_correctly(self):
         """验证 TopicData.to_topic_snapshot 正确转换"""
         store = ShortTermMemoryStore()
-        access_context = make_access_context(user_id="u1")
-        topic = store.create_buffer(access_context)
+        identity_scope = make_identity_scope(user_id="u1")
+        topic = store.create_buffer(identity_scope)
         store.add_block(
             topic.topic_key,
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
         )
 
-        data = store.get_topic_data(access_context, topic.topic_id)
+        data = store.get_topic_data(identity_scope, topic.topic_id)
         snapshot = data.to_topic_snapshot()
 
         assert snapshot.topic_id == data.topic_id

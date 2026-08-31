@@ -22,7 +22,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.memory import make_memory_identity_scope
 
 
 def _task_handle(
@@ -48,7 +48,7 @@ def _spec(
     pending_alias=None,
 ):
     return MemoryGenerationTaskSpec(
-        identity_scope=make_memory_creation_context(),
+        identity_scope=make_memory_identity_scope(),
         topic_id=topic_id,
         label=label,
         source=source,

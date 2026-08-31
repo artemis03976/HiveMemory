@@ -42,8 +42,8 @@ from hivememory.patchouli.service import (
     PatchouliService,
 )
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
-from tests.helpers.workspace import make_access_context
-from tests.helpers.memory import make_memory_creation_context, make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 
 def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
@@ -90,7 +90,7 @@ def _prepared(
     memories: list[MemoryAtom] | None = None,
 ) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="a1", session_id="session-1")
-    identity_scope = make_access_context(
+    identity_scope = make_identity_scope(
         actor_identity=identity,
     )
     return PreparedAgentRun(
@@ -118,7 +118,7 @@ def _write_task() -> PendingAtomMaterializeTask:
         pending_alias="draft_active",
         intent_id="intent_active",
         source_verb="WRITE",
-        identity_scope=make_memory_creation_context(user_id="u1", agent_id="a1"),
+        identity_scope=make_memory_identity_scope(user_id="u1", agent_id="a1"),
         focus=WriteFocus(content="remember this"),
     )
 
@@ -222,7 +222,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
 
     record_hit_mock.assert_awaited_once_with(
         memory.id,
-        access_context=prepared.identity_scope,
+        identity_scope=prepared.identity_scope,
         source="retrieval.finalize",
     )
 
@@ -261,7 +261,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     record_hit.assert_not_awaited()
     discard.assert_awaited_once_with(
         "topic-1",
-        access_context=prepared.identity_scope,
+        identity_scope=prepared.identity_scope,
     )
 
 
@@ -304,7 +304,7 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
 
     await queue.submit(
         InteractionSubmission(
-            identity_scope=make_access_context(
+            identity_scope=make_identity_scope(
                 user_id="u1",
                 agent_id="a1",
             ),
@@ -338,7 +338,7 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         assert await service.cleanup_prepared_agent_run(prepared) is True
         discard.assert_awaited_once_with(
             prepared.topic_id,
-            access_context=prepared.identity_scope,
+            identity_scope=prepared.identity_scope,
         )
     finally:
         await queue.stop()
@@ -436,7 +436,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
 
     discard.assert_awaited_once_with(
         prepared.topic_id,
-        access_context=prepared.identity_scope,
+        identity_scope=prepared.identity_scope,
     )
 
 

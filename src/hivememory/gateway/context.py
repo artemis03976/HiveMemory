@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
+from hivememory.core.models import TopicData, TopicSnapshot, IdentityScope
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -28,13 +28,13 @@ class GatewayContextProvider(Protocol):
     async def prepare_candidate_topics(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> CandidateTopics: ...
 
     async def prepare_routed_topic(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicData | None: ...
 
@@ -54,12 +54,12 @@ class GlobalBusGatewayContextProvider:
     async def prepare_candidate_topics(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> CandidateTopics:
         try:
             snapshots = await self._global_bus.request(
                 PatchouliRoutes.TOPIC_LIST_ACTIVE,
-                access_context=access_context,
+                identity_scope=identity_scope,
                 include_empty=self._include_empty_topics,
             )
         except Exception as exc:
@@ -79,7 +79,7 @@ class GlobalBusGatewayContextProvider:
     async def prepare_routed_topic(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicData | None:
         if topic_id == "NEW_TOPIC":
@@ -87,7 +87,7 @@ class GlobalBusGatewayContextProvider:
         try:
             topic_data = await self._global_bus.request(
                 PatchouliRoutes.TOPIC_GET_DATA,
-                access_context=access_context,
+                identity_scope=identity_scope,
                 topic_id=topic_id,
             )
         except Exception as exc:

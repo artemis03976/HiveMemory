@@ -10,8 +10,7 @@ from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
     TraceReducer,
-    WorkspaceAccessContext,
-    require_workspace_access_context,
+    require_identity_scope,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import (
@@ -110,7 +109,7 @@ class PatchouliService:
         generation_options: dict[str, Any] | None = None,
     ) -> PreparedAgentRun:
         """根据 GatewayDecision 准备一次完整的 Agent 运行上下文。"""
-        identity_scope = require_workspace_access_context(identity_scope)
+        identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
@@ -119,29 +118,29 @@ class PatchouliService:
             agent_profile = await self._local_bus.request(
                 PatchouliLocalRoutes.GET_AGENT_PROFILE,
                 identity.agent_id,
-                access_context=identity_scope,
+                identity_scope=identity_scope,
             )
             real_topic_id = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_PREPARE,
                 target_topic_id=gateway_decision.target_topic_id,
                 new_topic_title=gateway_decision.new_topic_title,
                 new_topic_summary=gateway_decision.new_topic_summary,
-                access_context=identity_scope,
+                identity_scope=identity_scope,
             )
             pool_topics = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-                access_context=identity_scope,
+                identity_scope=identity_scope,
                 include_empty=True,
             )
             topic_context = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_GET,
                 real_topic_id,
-                access_context=identity_scope,
+                identity_scope=identity_scope,
             )
 
             retrieval_result = await self.retrieve_for_decision(
                 gateway_decision,
-                access_context=identity_scope,
+                identity_scope=identity_scope,
                 enable_retrieval=enable_memory_retrieval,
             )
             memory_context = (
@@ -360,7 +359,7 @@ class PatchouliService:
                 PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
                 tasks,
                 topic_id=prepared_run.topic_id,
-                access_context=prepared_run.identity_scope,
+                identity_scope=prepared_run.identity_scope,
             )
         except Exception as error:
             logger.warning(
@@ -425,7 +424,7 @@ class PatchouliService:
         self,
         memory_id: str | UUID,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         source: str = "mtp",
     ) -> Any:
         """记录一次记忆引用事件。"""
@@ -434,7 +433,7 @@ class PatchouliService:
         return await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
             normalized_id,
-            access_context=require_workspace_access_context(access_context),
+            identity_scope=require_identity_scope(identity_scope),
             source=source,
         )
 
@@ -468,12 +467,12 @@ class PatchouliService:
         self,
         decision: GatewayDecision,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         enable_retrieval: bool = True,
     ) -> RetrievalResponse:
         """按 GatewayDecision 派生 Patchouli 检索请求。"""
 
-        access_context = require_workspace_access_context(access_context)
+        identity_scope = require_identity_scope(identity_scope)
 
         if (
             not enable_retrieval
@@ -485,7 +484,7 @@ class PatchouliService:
         retrieval_request = RetrievalRequest(
             semantic_query=decision.rewritten_query,
             keywords=list(decision.search_keywords),
-            access_context=access_context,
+            identity_scope=identity_scope,
             top_k=decision.retrieval_plan.top_k,
         )
         return await self._local_bus.request(
@@ -508,7 +507,7 @@ class PatchouliService:
                 await self._local_bus.request(
                     PatchouliLocalRoutes.MEMORY_RECORD_HIT,
                     memory_id,
-                    access_context=prepared_run.identity_scope,
+                    identity_scope=prepared_run.identity_scope,
                     source="retrieval.finalize",
                 )
             except Exception:
@@ -520,14 +519,14 @@ class PatchouliService:
 
     async def _cleanup_empty_topic_if_needed(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> bool:
         try:
             cleaned = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
                 topic_id,
-                access_context=access_context,
+                identity_scope=identity_scope,
             )
             if cleaned:
                 logger.info("已清理预创建的空话题: %s", topic_id)

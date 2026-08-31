@@ -41,11 +41,11 @@ class _AgentProfileManagementStub:
     def __init__(self, storage):
         self.storage = storage
 
-    async def create_agent_profile(self, access_context, atom):
+    async def create_agent_profile(self, identity_scope, atom):
         self.storage.upsert_memory(atom)
         return atom
 
-    async def list_agent_profiles(self, *, access_context, limit=100):
+    async def list_agent_profiles(self, *, identity_scope, limit=100):
         return self.storage.get_all_memories(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=limit,

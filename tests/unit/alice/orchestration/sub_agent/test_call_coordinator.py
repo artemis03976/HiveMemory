@@ -460,6 +460,6 @@ async def test_child_frame_inherits_caller_workspace_hard_boundary() -> None:
     )
 
     assert isinstance(result, DispatchCallee)
-    assert result.frame.access_context == caller.access_context
+    assert result.frame.identity_scope == caller.identity_scope
     assert result.frame.runtime_scope.run_id == caller.runtime_scope.run_id
     assert result.frame.runtime_scope.frame_id != caller.runtime_scope.frame_id

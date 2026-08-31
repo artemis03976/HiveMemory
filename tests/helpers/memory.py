@@ -5,7 +5,7 @@ from typing import Any
 from hivememory.core.models import (
     Identity,
     MemoryAccessPolicy,
-    MemoryCreationContext,
+    IdentityScope,
     MemoryVisibility,
     MetaData,
     WorkspaceIdentity,
@@ -54,15 +54,15 @@ def make_memory_metadata(
     )
 
 
-def make_memory_creation_context(
+def make_memory_identity_scope(
     *,
     user_id: str = "u1",
     agent_id: str = "a1",
     team_id: str | None = None,
     workspace_id: str = "main_workspace",
-) -> MemoryCreationContext:
+) -> IdentityScope:
     """构造不读取进程状态的显式生成 scope。"""
-    return MemoryCreationContext(
+    return IdentityScope(
         actor_identity=Identity(
             user_id=user_id,
             agent_id=agent_id,
@@ -76,4 +76,4 @@ def make_memory_creation_context(
     )
 
 
-__all__ = ["make_memory_creation_context", "make_memory_metadata"]
+__all__ = ["make_memory_identity_scope", "make_memory_metadata"]

@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, WorkspaceAccessContext
+from hivememory.core.models import MemoryAtom, IdentityScope
 from hivememory.engines.lifecycle.models import (
     MemoryEvent,
     EventType,
@@ -79,7 +79,7 @@ class DynamicReinforcementEngine:
 
     async def reinforce(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
         event: MemoryEvent,
     ) -> ReinforcementResult:
@@ -97,7 +97,7 @@ class DynamicReinforcementEngine:
             ValueError: 记忆不存在
         """
         # 从存储获取当前记忆
-        memory = await self._mid_term.get_for_mutation(access_context, memory_id)
+        memory = await self._mid_term.get_for_mutation(identity_scope, memory_id)
         if memory is None:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
             raise ValueError(f"Memory {memory_id} not found")

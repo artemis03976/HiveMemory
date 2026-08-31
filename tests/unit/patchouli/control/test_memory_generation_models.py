@@ -18,7 +18,7 @@ from hivememory.system.runtime.work_queue import (
     WorkRecord,
     WorkState,
 )
-from tests.helpers.memory import make_memory_creation_context
+from tests.helpers.memory import make_memory_identity_scope
 
 
 def test_memory_generation_source_derives_artifact_semantics():
@@ -41,7 +41,7 @@ def _task_snapshot(**updates):
 
 def _spec():
     return MemoryGenerationTaskSpec(
-        identity_scope=make_memory_creation_context(),
+        identity_scope=make_memory_identity_scope(),
         topic_id="t1",
         label="task",
         source=MemoryGenerationSource.WRITE,
@@ -143,7 +143,7 @@ def test_memory_generation_task_hides_queue_terminal_before_finalize():
 
 def test_memory_generation_task_projects_result_and_cancel_metadata():
     spec = MemoryGenerationTaskSpec(
-        identity_scope=make_memory_creation_context(),
+        identity_scope=make_memory_identity_scope(),
         topic_id="t1",
         label="task",
         source=MemoryGenerationSource.WRITE,

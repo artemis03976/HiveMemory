@@ -11,7 +11,7 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
-    MemoryCreationContext,
+    IdentityScope,
     MemoryType,
     MemoryVisibility,
     MetaData,
@@ -92,10 +92,10 @@ def test_memory_atom_rejects_non_v2_schema() -> None:
         )
 
 
-def test_creation_context_rejects_actor_owner_drift() -> None:
+def test_identity_scope_rejects_actor_owner_drift() -> None:
     """捕获生成入口用 actor user 覆盖另一资源 owner 的缺陷。"""
     with pytest.raises(OwnerMismatchError):
-        MemoryCreationContext(
+        IdentityScope(
             actor_identity=Identity(user_id="actor", agent_id="agent-a"),
             workspace_identity=_workspace(user_id="owner"),
         )

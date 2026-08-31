@@ -28,7 +28,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
-from tests.helpers.workspace import make_access_context
+from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_test"
 CONVERSATION = "conv-1"
@@ -74,7 +74,7 @@ def _key(identity: Identity) -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        access_context=make_access_context(
+        identity_scope=make_identity_scope(
             user_id=identity.user_id,
             agent_id=identity.agent_id,
         ),
@@ -102,7 +102,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     assert gateway.await_args.kwargs["ingress_mode"] == (GatewayIngressMode.PASSIVE_MEMORY)
     assert gateway.await_args.kwargs["request_timeout_ms"] == 123
     assert (
-        gateway.await_args.kwargs["access_context"].workspace_identity.workspace_id
+        gateway.await_args.kwargs["identity_scope"].workspace_identity.workspace_id
         == "main_workspace"
     )
     request = retrieve.await_args.kwargs["request"]
@@ -133,7 +133,7 @@ async def test_scoped_passive_seam_keeps_workspace_only_in_payload() -> None:
         bus,
         interaction_queue=_SubmissionQueueRecorder(submitted),
     )
-    identity_scope = make_access_context(
+    identity_scope = make_identity_scope(
         user_id="u1",
         workspace_id="isolation_workspace",
     )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceAccessContext
+from hivememory.core.models import TopicData, TopicSnapshot, IdentityScope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -23,10 +23,10 @@ class TopicManagementService:
     async def list_active_topics(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]:
-        kwargs = {"access_context": access_context}
+        kwargs = {"identity_scope": identity_scope}
         if include_empty:
             kwargs["include_empty"] = True
         snapshots = await self._bus.request(
@@ -38,7 +38,7 @@ class TopicManagementService:
     async def get_topic_data(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicData | None:
         """无副作用读取调用方可见的完整话题数据。"""
@@ -46,12 +46,12 @@ class TopicManagementService:
         topic_data = await self._bus.request(
             PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
-            access_context=access_context,
+            identity_scope=identity_scope,
             touch=False,
         )
         if (
             topic_data is not None
-            and topic_data.workspace_identity != access_context.workspace_identity
+            and topic_data.workspace_identity != identity_scope.workspace_identity
         ):
             # 控制面同样隐藏越域资源，不能把下游异常结果升级为可见性泄漏。
             return None
@@ -60,28 +60,28 @@ class TopicManagementService:
     async def settle_topic(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str | None = None,
     ) -> TopicSettleResult:
         """通过本地总线结算 Topic，并返回稳定业务结果。"""
 
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
-            access_context,
+            identity_scope,
             topic_id,
         )
 
     async def evict_topic(
         self,
         *,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicEvictionResult:
         """通过本地总线驱逐 Topic，不触发记忆结算。"""
 
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_EVICT,
-            access_context,
+            identity_scope,
             topic_id,
         )
 
@@ -90,12 +90,12 @@ class TopicManagementService:
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
     ) -> str:
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_PREPARE,
             target_topic_id,
             new_topic_title,
             new_topic_summary,
-            access_context,
+            identity_scope,
         )

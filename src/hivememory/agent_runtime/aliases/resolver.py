@@ -87,7 +87,7 @@ class RuntimeAliasResolver:
             ResolveResult: kind="pending" / "redirect" / "discarded" / "failed" / "atom" / "not_found"
         """
         if context is None:
-            raise ScopeRequiredError("Alias resolve 缺少 WorkspaceAccessContext")
+            raise ScopeRequiredError("Alias resolve 缺少 IdentityScope")
 
         # L0: PendingAtomRuntime
         pending = self._pending_runtime.get(alias)
@@ -199,7 +199,7 @@ class RuntimeAliasResolver:
     @staticmethod
     def _is_readable(atom: MemoryAtom, context: MTPExecutionContext) -> bool:
         """在 cache 外重验 Memory ownership 与 Workspace 内 actor policy。"""
-        scope = context.access_context
+        scope = context.identity_scope
         return memory_is_readable(
             atom,
             workspace_identity=scope.workspace_identity,
@@ -218,7 +218,7 @@ class RuntimeAliasResolver:
             retrieval_response = await self._bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[alias],
-                access_context=context.access_context,
+                identity_scope=context.identity_scope,
             )
             memories = getattr(retrieval_response, "memories", []) or []
             memory = memories[0] if memories else None

@@ -14,8 +14,7 @@ from uuid import UUID
 
 from hivememory.core.models import (
     MemoryAtom,
-    MemoryReadScope,
-    WorkspaceAccessContext,
+    IdentityScope,
     WorkspaceMemoryKey,
 )
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
@@ -47,11 +46,11 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def get(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> Optional[MemoryAtom]:
         key = WorkspaceMemoryKey(
-            workspace_identity=scope.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
             memory_id=memory_id,
         )
         atom = await self._store.get_memory(key)
@@ -59,40 +58,40 @@ class QdrantStorageAdapter(MidTermStoragePort):
             return None
         if not memory_is_readable(
             atom,
-            workspace_identity=scope.workspace_identity,
-            actor_identity=scope.actor_identity,
+            workspace_identity=identity_scope.workspace_identity,
+            actor_identity=identity_scope.actor_identity,
         ):
             return None
         return atom
 
     async def get_by_alias(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         alias: str,
     ) -> Optional[MemoryAtom]:
-        query_filter = self._filter_converter.convert(QueryFilters(), scope)
+        query_filter = self._filter_converter.convert(QueryFilters(), identity_scope)
         atom = await self._store.get_memory_by_alias(
             alias,
             query_filter=query_filter,
-            workspace_identity=scope.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
         )
         if atom is None:
             return None
         if not memory_is_readable(
             atom,
-            workspace_identity=scope.workspace_identity,
-            actor_identity=scope.actor_identity,
+            workspace_identity=identity_scope.workspace_identity,
+            actor_identity=identity_scope.actor_identity,
         ):
             return None
         return atom
 
     async def get_for_mutation(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> Optional[MemoryAtom]:
         return await self.get_by_key(
-            WorkspaceMemoryKey.from_access_context(access_context, memory_id)
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
         )
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
@@ -100,10 +99,10 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def update_access_info(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> None:
-        atom = await self.get(access_context, memory_id)
+        atom = await self.get(identity_scope, memory_id)
         if atom is None:
             return
         atom.meta.access_count += 1
@@ -112,14 +111,14 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def delete(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> bool:
-        atom = await self.get_for_mutation(access_context, memory_id)
+        atom = await self.get_for_mutation(identity_scope, memory_id)
         if atom is None:
             return False
         return await self.delete_by_key(
-            WorkspaceMemoryKey.from_access_context(access_context, memory_id)
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
         )
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
@@ -127,37 +126,37 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def batch_delete(
         self,
-        access_context: WorkspaceAccessContext,
+        identity_scope: IdentityScope,
         ids: List[UUID],
     ) -> int:
         existing = [
             memory_id
             for memory_id in ids
-            if await self.get_for_mutation(access_context, memory_id) is not None
+            if await self.get_for_mutation(identity_scope, memory_id) is not None
         ]
         keys = [
-            WorkspaceMemoryKey.from_access_context(access_context, memory_id)
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
             for memory_id in existing
         ]
         return await self._store.batch_delete_memories(keys)
 
     async def search(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         query: str,
         top_k: int,
         filters: Optional[QueryFilters] = None,
         mode: str = "dense",
         score_threshold: float = 0.0,
     ) -> List[Dict[str, Any]]:
-        query_filter = self._filter_converter.convert(filters or QueryFilters(), scope)
+        query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         hits = await self._store.search_memories(
             query_text=query,
             top_k=top_k,
             score_threshold=score_threshold,
             filters=query_filter,
             mode=mode,
-            workspace_identity=scope.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
         )
         # 存储预过滤不是授权事实；命中返回前仍以 canonical Memory 重验策略。
         return [
@@ -165,21 +164,21 @@ class QdrantStorageAdapter(MidTermStoragePort):
             for hit in hits
             if memory_is_readable(
                 hit["memory"],
-                workspace_identity=scope.workspace_identity,
-                actor_identity=scope.actor_identity,
+                workspace_identity=identity_scope.workspace_identity,
+                actor_identity=identity_scope.actor_identity,
             )
         ]
 
     async def scroll(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         filters: Optional[QueryFilters] = None,
         limit: int = 100,
     ) -> List[MemoryAtom]:
-        query_filter = self._filter_converter.convert(filters or QueryFilters(), scope)
+        query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         memories = await self._store.get_all_memories(
             filters=query_filter,
-            workspace_identity=scope.workspace_identity,
+            workspace_identity=identity_scope.workspace_identity,
             limit=limit,
         )
         return [
@@ -187,17 +186,17 @@ class QdrantStorageAdapter(MidTermStoragePort):
             for memory in memories
             if memory_is_readable(
                 memory,
-                workspace_identity=scope.workspace_identity,
-                actor_identity=scope.actor_identity,
+                workspace_identity=identity_scope.workspace_identity,
+                actor_identity=identity_scope.actor_identity,
             )
         ]
 
     async def count(
         self,
-        scope: MemoryReadScope,
+        identity_scope: IdentityScope,
         filters: Optional[QueryFilters] = None,
     ) -> int:
-        query_filter = self._filter_converter.convert(filters or QueryFilters(), scope)
+        query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         return await self._store.count_memories(query_filter)
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
