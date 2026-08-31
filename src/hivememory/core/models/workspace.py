@@ -37,7 +37,8 @@ class WorkspaceTopicKey(BaseModel):
         identity_scope: IdentityScope,
         topic_id: str,
     ) -> Self:
-        """从已验证的访问作用域构造 Topic 复合键。"""
+        """从完整访问作用域构造 Topic 复合键；缺失/错误类型作用域在边界内拒绝。"""
+        identity_scope = require_identity_scope(identity_scope)
         workspace = identity_scope.workspace_identity
         return cls(
             owner_user_id=workspace.owner_user_id,

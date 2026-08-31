@@ -99,7 +99,6 @@ class ShortTermMemoryStore:
         identity_scope: IdentityScope,
         topic_id: str,
     ) -> WorkspaceTopicKey:
-        identity_scope = require_identity_scope(identity_scope)
         return WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
 
     def _require_buffer_locked(self, key: WorkspaceTopicKey) -> SemanticBuffer:
@@ -394,10 +393,7 @@ class ShortTermMemoryStore:
         Interaction 显式携带且尚未绑定的 ``asset_id`` 上首次建立，重复使用同一
         资产只幂等命中既有关系，不覆盖首次 Interaction 或首次绑定时间。
         """
-        key = WorkspaceTopicKey.from_identity_scope(
-            require_identity_scope(identity_scope),
-            topic_id,
-        )
+        key = WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
         normalized_refs = self._normalize_asset_id_and_refs(asset_id_and_refs)
         if normalized_refs and not interaction_id:
             raise ValueError("建立 asset binding 必须携带 interaction_id")

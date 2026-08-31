@@ -314,10 +314,7 @@ class PerceptionFamiliar:
         topic_id: str,
     ) -> TopicEvictionResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
-        key = WorkspaceTopicKey.from_identity_scope(
-            require_identity_scope(identity_scope),
-            topic_id,
-        )
+        key = WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
         removed = self.perception_layer.swap_out_topic(key)
         return TopicEvictionResult(topic_id=topic_id, removed=removed)
 

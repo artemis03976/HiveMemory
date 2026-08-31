@@ -152,6 +152,14 @@ def test_internal_boundary_rejects_missing_scope_with_stable_code():
     assert caught.value.code == "workspace.scope_required"
 
 
+def test_topic_key_construction_rejects_missing_scope_with_stable_code():
+    """防止 from_identity_scope 对缺失作用域退回 AttributeError 或静默构造。"""
+    with pytest.raises(ScopeRequiredError) as caught:
+        WorkspaceTopicKey.from_identity_scope(None, "topic-a")
+
+    assert caught.value.code == "workspace.scope_required"
+
+
 @pytest.mark.parametrize(
     ("error_type", "expected_code"),
     [

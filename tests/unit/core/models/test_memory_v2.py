@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.errors import OwnerMismatchError
+from hivememory.core.errors import OwnerMismatchError, ScopeRequiredError
 from hivememory.core.models import (
     Identity,
     IndexLayer,
@@ -17,6 +17,7 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
     WorkspaceIdentity,
+    WorkspaceMemoryKey,
 )
 
 
@@ -99,3 +100,11 @@ def test_identity_scope_rejects_actor_owner_drift() -> None:
             actor_identity=Identity(user_id="actor", agent_id="agent-a"),
             workspace_identity=_workspace(user_id="owner"),
         )
+
+
+def test_memory_key_construction_rejects_missing_scope() -> None:
+    """防止 WorkspaceMemoryKey.from_identity_scope 对缺失作用域退回 AttributeError。"""
+    with pytest.raises(ScopeRequiredError) as caught:
+        WorkspaceMemoryKey.from_identity_scope(None, uuid4())
+
+    assert caught.value.code == "workspace.scope_required"
