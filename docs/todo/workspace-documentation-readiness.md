@@ -91,7 +91,7 @@ pytest tests/unit tests/integration -q --tb=short -m "not live_llm and not e2e a
 
 ## 5. 文档分布现状
 
-- [`docs/architecture/workspace.md`](../architecture/workspace.md) 已成为 Workspace W0 当前事实入口；`docs/system/`、`docs/patchouli/`、`docs/contracts/` 和 `docs/governance/security/` 中仍只需要补充各自边界内的必要链接或局部摘要。
+- [`docs/architecture/workspace.md`](../architecture/workspace.md) 已成为 Workspace W0 当前事实入口；`docs/system/`、`docs/patchouli/`、`docs/contracts/` 和 `docs/governance/security/` 只在各自边界内维护必要链接或局部摘要。
 - [`docs/plans/v0.6.2-workspace-mvp.md`](../plans/v0.6.2-workspace-mvp.md) 仍是 W0 实施细节和阶段验收的工作依据，尚未归档。
 - [`docs/ideas/ae2-hivememory-architecture-analogy.md`](../ideas/ae2-hivememory-architecture-analogy.md) 与 [`docs/ideas/workspace-mvp-chat-attachments-design.md`](../ideas/workspace-mvp-chat-attachments-design.md) 仍保存探索内容、W1 附件设计和 AE2 类比，不应被当作当前实现说明。
 - `docs/governance/baselines/` 保留 Durability、Idempotency、Identity 和 Data Model 等可持续治理主题的时间点调查；本次 Workspace 文档收口记录不属于该目录。
@@ -101,7 +101,7 @@ pytest tests/unit tests/integration -q --tb=short -m "not live_llm and not e2e a
 
 1. **D1 已完成**：[`Workspace 架构`](../architecture/workspace.md) 已建立，并已加入 Architecture 索引、总体架构入口和 PROJECT 当前架构列表；文档承接了代码和测试已经证明的 W0 资源归属、Topic 寻址、AssetStore 生命周期、binding 和共享组件边界，并与 [`AE2 与 HiveMemory 的架构同构性`](../ideas/ae2-hivememory-architecture-analogy.md) 建立双向链接，明确当前初步“ME 网络”与未来完整主/子网设想的边界。
 2. **D2 已完成（Architecture 与 System）**：已在 Architecture 的总体概览、边界与所有权、数据模型，以及 System 的 README、组合生命周期、应用服务、Passive ingress、运行时与总线、配置和可观测性文档中补充必要的 Workspace 局部事实。内容只说明当前 `IdentityScope` 传播、Workspace-owned 资源所有权、进程级唯一 AssetStore、共享 runtime 边界和 shutdown 顺序，并统一链接到 [`Workspace 架构`](../architecture/workspace.md)，没有复制完整模型。随后又将 Workspace 主文档中 Topic/SemanticBuffer 的聚合细节收回 [Perception 与短期话题](../patchouli/perception.md) 和 [MemoryLibrary](../patchouli/memory-library.md)，Workspace 文档只保留 `TopicAssetBinding` 交接事实。
-3. System/Patchouli、Contracts、Security 及 PROJECT 的其他相关位置仍只需在各自责任边界内补充必要的短链接或局部摘要，避免复制完整模型形成平行真相源。
+3. **D3 已完成（Patchouli 与跨系统契约）**：Patchouli README、MemoryLibrary、Perception、Generation、Artifacts、Retrieval 以及 Contracts README、子系统契约、路由与事件、MTP、错误模型已补充各自所需的 `IdentityScope`、Workspace ownership、`InteractionSubmission`、`TopicAssetBinding`、Topic 结果、MTP 别名访问边界和 Workspace 边界错误语义；未复制完整 Workspace 模型，也未把领域算法写回 Workspace 文档。MTP 文档保留 L0 pending 命中尚未重验调用方 scope 的已知实现缺口，不将其误写为已完成隔离。
 4. 将 Plan 的阶段状态和验收清单与最终代码、测试结果同步，并在 W0 完成后归档 Plan。
 5. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前实现状态的引用。
 6. 完成上述整理后，检查受影响 Markdown 链接、索引和文档状态字段。

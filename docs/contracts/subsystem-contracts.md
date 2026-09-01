@@ -12,7 +12,9 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 子系统公共契约
@@ -22,6 +24,8 @@ last_reviewed: 2026-07-28
 契约不是把公开函数逐一抄进文档，也不是要求每个子系统共享同一套内部对象。它描述的是一次能力交接：调用方必须提供哪些事实，所有者承诺返回什么，以及双方都不能偷偷改变哪些语义。只要这些交接保持稳定，Gateway 的分析流程、Patchouli 的记忆实现和 Alice 的执行循环就可以各自演进；一旦内部 workflow state 或引擎实体越过边界，局部重构便会重新变成全系统改造。
 
 因此，公共模型倾向于使用 frozen、Pydantic 或依赖中立的 dataclass。不可变并不只是编码偏好，它要求上游先形成完整决定，再交给下游只读消费；依赖中立则阻止某个领域对象沿模型引用把存储、Runtime 或 Controller 一并泄漏出去。本文既记录字段和终态，也记录这些形态背后的所有权理由。
+
+跨边界的身份坐标统一使用 `IdentityScope`：它同时冻结 actor 与 Workspace 归属，是一次请求、交互或后台任务的唯一身份来源。领域所有者在最终读写处校验 scope；共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。完整的资源归属模型见[Workspace 架构](../architecture/workspace.md)，本文只记录各契约需要携带和验证的部分。
 
 ## 1. 生命周期契约
 
@@ -46,7 +50,7 @@ async health() -> dict[str, Any]
 process(
     message: str,
     *,
-    identity: Identity,
+    identity_scope: IdentityScope,
     ingress_mode: GatewayIngressMode,
     request_timeout_ms: int | None = None,
 ) -> GatewayProcessResult
@@ -95,11 +99,10 @@ Patchouli 的公开面分为 chat 协作、记忆、任务、Agent Profile、话
 ```python
 prepare_agent_run(
     user_message: str,
-    user_id: str,
     *,
+    identity_scope: IdentityScope,
+    interaction_id: str,
     gateway_decision: GatewayDecision,
-    agent_id: str = "omni_doll",
-    session_id: str | None = None,
     enable_memory_retrieval: bool = True,
     generation_options: dict[str, Any] | None = None,
 ) -> PreparedAgentRun
@@ -112,7 +115,7 @@ prepare_agent_run(
 - `stream_prelude`：topic、是否新话题、话题池与 memory refs；
 - `generation_options`：本轮生成覆盖参数。
 
-`AgentRunContext` 至少包含 `Identity`、真实 topic id、用户消息、话题上下文、原始 `RetrievalResponse`、MemoryCompiler 编译文本、Agent Profile 和存储可用性。
+`AgentRunContext` 至少包含 `identity_scope: IdentityScope`、`interaction_id`、真实 topic id、用户消息、话题上下文、原始 `RetrievalResponse`、MemoryCompiler 编译文本、Agent Profile 和存储可用性。`IdentityScope` 是该上下文的唯一身份来源，不再由 `user_id`、`agent_id` 或 `session_id` 在下游重新拼接。
 
 prepare 的意义不只是拼装参数。它把 Gateway 的入口决定解析成 Alice 可以直接执行的本轮记忆视图，并由 Patchouli 在交出控制权前确认真实话题、可见性和 Profile。Alice 因而无需理解 Patchouli 内部存储，也不会在执行途中重新推导另一套记忆上下文。
 
@@ -151,15 +154,15 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题。已有话题
 
 | 能力组 | 当前公开行为 |
 |:---|:---|
-| Interaction | 提交 `InteractionPayload` 到指定或新话题 |
-| Memory | create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases |
+| Interaction | 提交 `InteractionPayload` 到指定或新话题；进入 submission lane 时由 `InteractionSubmission.identity_scope` 携带作用域 |
+| Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases |
 | Memory Task | list/get/cancel |
-| Agent Profile | create/list/get |
-| Topic | list active、读取可见 topic data、manual settle、evict |
+| Agent Profile | 携带 `IdentityScope` 的 create/list/get |
+| Topic | 携带 `IdentityScope` 的 list active、topic data、manual settle、evict；Patchouli owner 拒绝越域 topic |
 | Citation | 记录 MTP READ/RUN 等来源的记忆引用 |
 | Readiness | 模型 warmup 与 ready 查询 |
 
-Memory 与 Topic 的身份可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见。
+Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见。Topic ID 在领域上保持全局唯一；`IdentityScope` 用于确认访问归属，不构造另一套局部 ID 命名空间。
 
 ## 4. Alice 契约
 
@@ -226,6 +229,8 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 ## 7. Interaction 与 Topic 时序契约
 
 Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
+
+`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：`identity_scope` 是唯一身份来源，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不重复嵌入 scope。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。

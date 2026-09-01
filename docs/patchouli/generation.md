@@ -12,7 +12,9 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-08-19
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 记忆生成
@@ -20,6 +22,8 @@ last_reviewed: 2026-08-19
 记忆生成是把短期材料或显式保存意图转化为正式 `MemoryAtom` 的冷路径。它必须同时避免两种对称错误：把每段对话都机械保存，会让书库迅速被噪音淹没；把保存完全交给不透明的 LLM 判断，又可能让用户明确要求保留的内容悄悄消失。
 
 当前设计因此保留三种生成模式，并把“构造任务”“执行生成”“写 artifacts 和持久化”“发布任务/settlement 终态”拆成不同层。生成不再是 Perception 的一个回调，也不再由一个 LibrarianCore 同时管理计算与后台任务。
+
+每个 `MemoryGenerationTaskSpec` 都携带创建任务时冻结的 `IdentityScope` 和 `topic_id`；Generation 只在该作用域内读取、去重和写入 Memory，不从进程当前上下文重新推导 Workspace。WorkspaceAsset 仍由 System 所有，Generation 只接收 settlement 交接中已经冻结的资产绑定事实，不拥有资产状态机。
 
 提取阶段选择 LLM 而不是固定规则，是因为“是否值得长期保存”以及如何把自然语言重组为 title、summary、content 与 tags，本质上依赖跨表达方式的语义判断；只靠关键词或消息计数会把调用方措辞固化成记忆结构。代价是延迟、成本与非确定性，因此它被放在后台冷路径，并为显式 WRITE 保留确定性的 fallback；LLM 可以提出记忆草稿，但不能独自决定任务终态、持久化成功或用户承诺。
 
@@ -117,6 +121,8 @@ MemoryGenerationFamiliar 执行：
 4. 对非 DISCARD 且 atom 非空的结果执行 MidTerm upsert；
 5. 把 outcome 投影为 `MemoryGenerationResult` 与可选 PendingAtomSettlement。
 
+`InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。当前 Generation/Artifact 链只把结构化交互和记忆版本写入各自 Artifact，尚未在这条链路中读取或持久化 WorkspaceAsset 内容。
+
 Artifact 写入是 best effort，Qdrant upsert 失败则任务失败。详见[Artifacts 与来源追踪](./artifacts.md)。
 
 ### 5.1 重试边界
@@ -193,7 +199,7 @@ continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不�
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；
-- Mode A/B 去重只取 dense top-1 且没有 identity filter，跨用户隔离依赖存储/数据前提，仍需收紧；
+- Mode A/B 去重仍只取 dense top-1；检索调用链携带 `IdentityScope`，由 Memory store 的 Workspace ownership hard filter 约束候选范围，其他去重策略限制仍待收敛；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - Artifact 失败不阻断主记忆，provenance 与 MemoryAtom 不是原子提交。

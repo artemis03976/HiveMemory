@@ -11,7 +11,9 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-08-19
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Artifacts 与来源追踪
@@ -34,6 +36,8 @@ ArtifactStore
 ```
 
 Artifact 不进入普通向量检索，不承担 alias，也不因为某条记忆被合并就随之改写。相反，一份原始 InteractionArtifact 可以成为记忆创建或更新的 source artifact；一个 MemoryVersionArtifact 又可以记录某次完整状态变化。
+
+`TopicAssetBinding.asset_ref` 不是 `ArtifactRef`，也不代表已经生成了一份 Artifact。它只是 Topic 对已使用 WorkspaceAsset 的不透明关系事实，随 `InteractionArtifactInput` 进入生成任务；当前 Artifact 链不会把 WorkspaceAsset 原地转换为 Artifact，也不会在本层复制资产状态机或可见性策略。WorkspaceAsset 的所有权和 ref 生命周期以[Workspace 架构](../architecture/workspace.md)为准。
 
 ## 2. 当前四种类型
 

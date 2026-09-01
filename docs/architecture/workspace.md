@@ -19,6 +19,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
+  - docs/contracts/mtp.md
   - docs/contracts/error-model.md
 related_ideas:
   - docs/ideas/ae2-hivememory-architecture-analogy.md

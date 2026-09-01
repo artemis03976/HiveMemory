@@ -11,7 +11,9 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/passive-ingress.md
-last_reviewed: 2026-08-19
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 感知与短期话题
@@ -50,7 +52,9 @@ SemanticBuffer 是短期话题的可变工作区，保存 blocks、展示 title/
 
 ## 2. 结构化摄入
 
-`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 identity、user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。
+`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存 Workspace 身份；主动和被动入口在进入提交队列时由外层 `InteractionSubmission.identity_scope` 携带唯一的 `IdentityScope`。
+
+交互提交成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
 ```text
 InteractionPayload
@@ -104,6 +108,8 @@ TriggerManager 把触发原因映射为三种原子动作：
 | `MANUAL_DELETE` | 否 | 否 | 是 | 丢弃 Topic，不写记忆 |
 
 `TOKEN_OVERFLOW` 是纯 Compact：TriggerManager 只把保留后缀之前的旧 blocks 交给 RelayController，再由 ShortTermMemoryStore 原子写入摘要、裁剪旧前缀并重算 token。其余触发原因维持原有 Settle/Evict 语义；发生 Settle 时旧 blocks 才会清空，需要 evict 的原因随后再删除 buffer。Settle 只是返回 payload，TriggerManager 不知道 local bus，也不直接触发 Generation。PerceptionFamiliar 才负责把 payload 提交给 Coordinator。
+
+`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照，除 Topic 内容和 `state_summary` 外还携带原始 `identity_scope` 与本轮已确认的 `asset_bindings`。进入队列后，重试和后续处理只能使用这份交接事实，不能从当前进程状态重新推导 Workspace 或资产关系。
 
 手动三个用例互不混杂：`MANUAL_SETTLE` 只结算（不再 compact）并在结算材料被可靠接纳后 evict；`MANUAL_COMPACT` 只压缩工作集，不结算、不驱逐；`MANUAL_DELETE` 只驱逐、不生成记忆。manual settle 的提交顺序固定为冻结 settlement payload → generation admission 成功 → evict；admission 失败抛出受控错误且 Topic、blocks 与 state_summary 保持完整可重试。无任务（真正空 Topic 或 blocks 均被过滤）时 settle 仍按契约结束生命周期并返回成功，以 `generation_submitted` 表达是否建立后台任务。
 

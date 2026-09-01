@@ -9,7 +9,9 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-08-19
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # MemoryLibrary 与存储层
@@ -35,6 +37,8 @@ MemoryLibrary
 ### 1.1 短期：话题工作台
 
 短期存储保存 `topic_id -> SemanticBuffer`。一个 buffer 包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算、状态和最近访问时间。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
+
+`topic_id` 是领域上的全局唯一身份；短期 Store 在读写时同时使用 `WorkspaceTopicKey`（由 `IdentityScope` 派生）校验资源归属，因此 Workspace 复合键是安全寻址边界，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。Topic 的内部状态和结算规则由 Perception 负责，MemoryLibrary 只维护存储事实与归属检查。
 
 感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
 

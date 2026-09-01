@@ -13,7 +13,9 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-06
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Memory Tool Protocol (MTP)
@@ -56,6 +58,8 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 `KoakumaRuntime` 负责 parse、权限检查、verb 分发、结果计时和格式化。它属于 Alice，使用 Alice local bus 映射的 Patchouli 公开路由访问记忆能力。
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
+
+每条指令的 `MTPExecutionContext` 从当前 frame 的 `RuntimeScope` 冻结得到；其中 `runtime_scope.identity_scope` 是记忆访问的唯一身份来源。MTP 文本、alias 或进程级缓存都不能自行指定或推导 Workspace，具体资源的 ownership 与 actor policy 仍由 Patchouli 的资源所有者最终校验。
 
 ## 3. 动词契约
 
@@ -209,10 +213,10 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - READ/SEARCH 输出通过 MemoryCompiler，不在 handler 内维护第二套记忆渲染；
 - WRITE/UPDATE 的 ACK 不等同于持久化成功；
 - CALL 的 suspend 只能由 Alice 编排层恢复；
-- 记忆访问使用调用方 `Identity`，不能绕过可见性边界；
+- 记忆访问使用调用方 `IdentityScope`，先执行 Workspace ownership hard boundary，再执行 Workspace 内的 actor 可见性策略，不能绕过任一边界；
 - cancellation 不能被转换成普通 success。
 
-> **当前实现偏差**：L2 冷查询会携带调用方 `Identity`，但 AliceRuntime 进程级共享的 L0 PendingAtomRuntime 与 L1 KoakumaAtomCache 在命中时尚未重新校验身份。因此当前代码还没有完全满足上述可见性不变量；这是需要修复的隔离缺口，而不是放宽契约的理由。详见 [MTP Runtime](../alice/mtp-runtime.md)与 [PendingAtom](../alice/pending-atom.md)。
+> **当前实现偏差**：L2 冷查询会携带调用方 `IdentityScope`，并由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 KoakumaAtomCache 命中也会执行同样的重验。AliceRuntime 进程级共享的 L0 PendingAtomRuntime 仍会直接返回 pending 命中，尚未比较 pending 自身 `runtime_scope.identity_scope` 与当前调用方 scope。因此 MTP 仍未完全满足所有别名路径的可见性不变量；这是需要修复的隔离缺口，而不是放宽契约的理由。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md) 和 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
 
 ## 7. 设计矛盾检查
 

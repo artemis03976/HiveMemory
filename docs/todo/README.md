@@ -21,6 +21,7 @@ last_reviewed: 2026-09-01
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
 - [RuntimeEvent 生产端迁移后续](./runtime-event-producer-migration.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
-- [补齐 Alice Runtime 健康探针](./alice-health-probes.md)。
+- [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
+- [MTP 缓存命中作用域重验](./mtp-cache-scope-revalidation.md)。
 
 Todo 只保存问题、证据、影响和完成条件。若事项扩展为跨系统功能或身份架构，应升级为 Plan；若已有项目 Issue，则链接 Issue，避免维护两份详细状态。
