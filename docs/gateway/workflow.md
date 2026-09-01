@@ -11,7 +11,9 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-05
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Gateway 固定工作流
@@ -40,7 +42,7 @@ GatewayWorkflow
 
 `GatewayWorkflow` 是请求级执行协调者，`GatewayExecutionState` 只由它持有。Engine、Provider、Resolver 和 Dispatcher 可以替换，但不能改变公共终态结构；拓扑若发生变化，应显式修改 `build_gateway_workflow()` 和当前文档，而不是让某个 Engine 私下跳转到另一步。
 
-`GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、`Identity`、入口模式和有效 deadline 交给 workflow；Gateway 不接收 Chat Run 控制对象或取消参数。
+`GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、完整的 `IdentityScope`、入口模式和有效 deadline 交给 workflow；Gateway 不接收 Chat Run 控制对象或取消参数。
 
 ## 2. 当前固定拓扑
 
@@ -93,7 +95,7 @@ state.snapshot()
 - `project` 把能力输出转换为允许提交的字段；
 - `_apply_step_result()` 是唯一写入口，先校验字段集合，再提交结果。
 
-`raw_message`、`identity` 和 `ingress_mode` 是初始化字段，任何 Step 都不能覆盖。未知字段会被拒绝；`flow_end_reason` 只能设置一次；状态完成后不允许继续提交。这不是数据库事务或跨子系统 rollback，而是请求内的单写入口：它防止 Engine 在调用途中留下半份 Gateway 状态。
+`raw_message`、`identity_scope` 和 `ingress_mode` 是初始化字段，任何 Step 都不能覆盖。未知字段会被拒绝；`flow_end_reason` 只能设置一次；状态完成后不允许继续提交。这不是数据库事务或跨子系统 rollback，而是请求内的单写入口：它防止 Engine 在调用途中留下半份 Gateway 状态。
 
 `GatewayStepResult.is_fallback` 与 `fallback_reason` 只用于观测本次提交，不进入公共 `GatewayDecision`。下游不应通过猜测 fallback 原因改变业务行为。
 

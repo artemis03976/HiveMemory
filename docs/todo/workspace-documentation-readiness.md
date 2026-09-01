@@ -102,12 +102,14 @@ pytest tests/unit tests/integration -q --tb=short -m "not live_llm and not e2e a
 1. **D1 已完成**：[`Workspace 架构`](../architecture/workspace.md) 已建立，并已加入 Architecture 索引、总体架构入口和 PROJECT 当前架构列表；文档承接了代码和测试已经证明的 W0 资源归属、Topic 寻址、AssetStore 生命周期、binding 和共享组件边界，并与 [`AE2 与 HiveMemory 的架构同构性`](../ideas/ae2-hivememory-architecture-analogy.md) 建立双向链接，明确当前初步“ME 网络”与未来完整主/子网设想的边界。
 2. **D2 已完成（Architecture 与 System）**：已在 Architecture 的总体概览、边界与所有权、数据模型，以及 System 的 README、组合生命周期、应用服务、Passive ingress、运行时与总线、配置和可观测性文档中补充必要的 Workspace 局部事实。内容只说明当前 `IdentityScope` 传播、Workspace-owned 资源所有权、进程级唯一 AssetStore、共享 runtime 边界和 shutdown 顺序，并统一链接到 [`Workspace 架构`](../architecture/workspace.md)，没有复制完整模型。随后又将 Workspace 主文档中 Topic/SemanticBuffer 的聚合细节收回 [Perception 与短期话题](../patchouli/perception.md) 和 [MemoryLibrary](../patchouli/memory-library.md)，Workspace 文档只保留 `TopicAssetBinding` 交接事实。
 3. **D3 已完成（Patchouli 与跨系统契约）**：Patchouli README、MemoryLibrary、Perception、Generation、Artifacts、Retrieval 以及 Contracts README、子系统契约、路由与事件、MTP、错误模型已补充各自所需的 `IdentityScope`、Workspace ownership、`InteractionSubmission`、`TopicAssetBinding`、Topic 结果、MTP 别名访问边界和 Workspace 边界错误语义；未复制完整 Workspace 模型，也未把领域算法写回 Workspace 文档。MTP 文档保留 L0 pending 命中尚未重验调用方 scope 的已知实现缺口，不将其误写为已完成隔离。
-4. 将 Plan 的阶段状态和验收清单与最终代码、测试结果同步，并在 W0 完成后归档 Plan。
-5. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前实现状态的引用。
-6. 完成上述整理后，检查受影响 Markdown 链接、索引和文档状态字段。
+4. **D4 已完成（治理、Alice/Gateway 与前端术语）**：身份与执行安全、幂等/重试、耐久性治理文档已统一 `IdentityScope`、Workspace ownership 与共享 cache/queue 的 owner 重验边界，并链接 L0 pending alias scope 重验 Todo；Alice 文档已区分完整 `IdentityScope` 与 `ActorIdentity` 投影，修正 L0/L1 命中现状；Gateway 文档已说明完整 scope 在入口/context provider 传播、命令与查询分析只消费局部 actor 投影；Frontend 文档已统一 Topic 的 `settle`/`delete` 术语，保留 `archive` 仅用于中期记忆进入长期记忆库，并明确前端 `user_id` 不是认证/授权凭证。以上修改没有把 Workspace 内部模型或领域算法复制进各自文档。
+5. 将 Plan 的阶段状态和验收清单与最终代码、测试结果同步，并在 W0 完成后归档 Plan。
+6. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前实现状态的引用。
+7. 完成上述整理后，检查受影响 Markdown 链接、索引和文档状态字段。
 
 ## 7. 后续收口完成条件
 
 - Workspace 当前事实有一个明确的 Architecture 入口，且与代码和测试一致；
 - 受影响的 System、Patchouli、Contracts、Security、PROJECT、Plan、Idea 和索引链接已完成必要同步，没有重复维护整套 Workspace 模型；
+- Governance、Alice、Gateway 与 Frontend 已在各自责任边界内同步 Workspace scope 传播和 settle/archive 术语，没有将领域内部实现写回 Workspace；
 - 本文不再承担当前设计说明，完成后可删除或移入 Archive，并保留必要的追溯链接。

@@ -20,7 +20,10 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-05
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/todo/mtp-cache-scope-revalidation.md
+last_reviewed: 2026-09-01
 ---
 
 # 多 Agent 编排
@@ -49,7 +52,7 @@ AliceSystem
   │    └─ AgentRunEventEmitter
   │         └─ global best-effort agent.run.* observability
   └─ AliceRuntime
-       ├─ AgentProfileResolver -> identity-scoped AgentProfile LRU cache
+       ├─ AgentProfileResolver -> ActorIdentity + alias keyed AgentProfile LRU cache
        ├─ RuntimeAliasResolver -> context_refs pending / redirect / atom
        └─ AgentRuntime facade -> execute one frame to a terminal/trap outcome
 ```
@@ -60,10 +63,10 @@ AliceSystem
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并且是唯一调用 `finalize_run()` 的位置；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
 - AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
-- CallContextProvider 按 caller identity 解析目标 Profile 与 `context_refs`，返回不含 frame 或 CALL ledger 状态的 `CallContext`；
+- CallContextProvider 按 caller `IdentityScope` 解析目标 Profile 与 `context_refs`，返回不含 frame 或 CALL ledger 状态的 `CallContext`；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
-- AgentProfileResolver 负责把可读 agent alias 解析为运行图纸；其实例和按 Identity 隔离的 cache 由 AliceRuntime 持有；
+- AgentProfileResolver 负责把可读 agent alias 解析为运行图纸；其实例和按 `ActorIdentity + alias` 组织的 cache 由 AliceRuntime 持有，Workspace scope 随请求交给 Patchouli owner route，不单独切分该共享 cache；
 - RuntimeAliasResolver 让 context refs 复用与 READ 相同的运行时寻址；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
 
@@ -76,7 +79,7 @@ AliceSystem
 - `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；Gateway 的 `generation_id` 作为外层关联值显式传入；
 - 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
-- `identity` 来自 `AgentRunContext`；
+- `identity_scope` 来自 `AgentRunContext`；`identity` 仅为 actor projection；
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
@@ -113,14 +116,14 @@ current frame emits CALL
 
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
 
-其他 alias 必须随父 frame 的 `Identity` 解析。CallContextProvider 调用 AliceRuntime 持有的 AgentProfileResolver；Resolver 先查 Identity + alias 维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力。并发 cache miss 会串行复查，避免一个身份的授权结果污染另一个请求。Patchouli 作为 Profile atom 所有者执行 user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。cache 生命周期因此跟随 AliceRuntime，而不是某个 run 或 CallCoordinator；`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
+其他 alias 必须随父 frame 的 `IdentityScope` 解析。CallContextProvider 调用 AliceRuntime 持有的 AgentProfileResolver；Resolver 先查 `ActorIdentity + alias` 维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力，并在请求中携带完整 scope。并发 cache miss 会串行复查，避免一个 actor 的结果污染另一个请求。Patchouli 作为 Profile atom 所有者执行 Workspace ownership、user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。cache 生命周期因此跟随 AliceRuntime，而不是某个 run 或 CallCoordinator；`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
 
 显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
 
 | 场景 | 稳定 code | message key |
 |:---|:---|:---|
 | alias 不存在 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
-| 当前 Identity 无权访问 | `mtp.permission.denied` | `mtp.call.profile_permission_denied` |
+| 当前 `IdentityScope` 无权访问 | `mtp.permission.denied` | `mtp.call.profile_permission_denied` |
 | alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
@@ -151,7 +154,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - `topic_id=None`，不直接挂载 Patchouli 话题；
 - 目标 Agent Profile；
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
-- 继承父 frame 的 `Identity`。
+- 继承父 frame 的完整 `IdentityScope`。
 
 子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
 
@@ -224,8 +227,8 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 ## 10. 当前限制
 
-- AgentProfile cache 已按 Identity + alias 隔离、上限固定为 32，但没有 TTL、版本检查或管理事件失效；Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
-- `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 Identity。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 Identity 证明真实 CALL 目标；
+- AgentProfile cache 按 `ActorIdentity + alias` 组织、上限固定为 32；Workspace scope 通过解析请求传播而不自动形成 cache 分区。缓存没有 TTL、版本检查或管理事件失效，Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
+- `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 `IdentityScope`。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 actor projection 证明真实 CALL 目标；
 - frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；

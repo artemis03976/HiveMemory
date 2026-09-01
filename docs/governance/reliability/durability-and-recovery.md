@@ -14,11 +14,12 @@ related_docs:
   - docs/system/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/idempotency-and-retry.md
+  - docs/architecture/workspace.md
   - docs/patchouli/artifacts.md
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/system/observability.md
-last_reviewed: 2026-08-16
+last_reviewed: 2026-09-01
 ---
 
 # 运行时状态持久化与故障恢复治理
@@ -35,11 +36,12 @@ last_reviewed: 2026-08-16
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
 | Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
+| WorkspaceAsset / opaque ref | System-owned 进程内 `WorkspaceAssetStore` | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
 | Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
-| Profile/alias/cache | 进程级 cache | cache 失效、身份隔离和重启语义不完整 | 先区分可重建 cache 与需要持久化的配置/资产，不把 cache 当事实 |
+| Profile/alias/cache | 进程级共享 cache | cache 失效、scope 重验和重启语义不完整；共享 cache 不按 Workspace 自动分区 | 先区分可重建 cache 与需要持久化的配置/资产；命中必须由最终 owner/resolver 重验 `IdentityScope`，不把 cache 当事实 |
 | RuntimeEvent | 进程内 bounded ring buffer | 允许丢失、不可跨进程连续，不是审计账本 | 继续作为 best-effort 观测；需要历史时建立独立审计/任务查询模型 |
 | feedback/reinforcement history 与 GC stats | 主要为进程内历史 | 跨会话无法解释反馈来源，维护统计重启即归零 | 按产品与审计需要选择持久化事件或聚合快照 |
 
@@ -269,6 +271,6 @@ v0.6.1 对这一方向的历史讨论保留于
 
 ## 7. 依赖与风险
 
-本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../system/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个用户、team 或 workspace 可见。
+本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../system/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个 `IdentityScope` 可见，以及 Workspace ownership 在哪个最终边界校验。
 
 主要风险是过早把所有内存对象写入持久化层，导致 schema、隐私和迁移成本快速膨胀；因此首期应优先保护已经对外承诺的工作项和写入意图，保留短期 topic、cache 与 RuntimeEvent 的明确 ephemeral 语义。

@@ -12,7 +12,9 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-05
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Agent Runtime
@@ -53,7 +55,7 @@ AgentRunService
 ExecutionFrame
   ├─ RuntimeScope(run_id, frame_id, action_id)
   ├─ AgentProfile
-  ├─ Identity
+  ├─ IdentityScope（通过 RuntimeScope 继承）
   ├─ working_history[]
   ├─ topic_id | None
   ├─ harvested_aliases[]
@@ -71,7 +73,7 @@ ExecutionFrame
 
 ## 3. 输入上下文与 Prompt 组装
 
-Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：Identity、话题、当前用户消息、最近话题 blocks、检索 atoms、已编译 memory context、Agent Profile 和 storage availability。
+Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：`IdentityScope`、话题、当前用户消息、最近话题 blocks、检索 atoms、已编译 memory context、Agent Profile 和 storage availability。
 
 Alice 在创建主帧前按“三明治”顺序组装消息：
 

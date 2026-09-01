@@ -17,7 +17,10 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-08-03
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/todo/mtp-cache-scope-revalidation.md
+last_reviewed: 2026-09-01
 ---
 
 # PendingAtom：运行时写缓冲与物化交接
@@ -52,7 +55,7 @@ Alice 不自行决定一个 WRITE 应被创建、合并、触碰还是丢弃，�
 - `pending_alias`：Agent 可见的临时句柄；
 - `intent_id`：Alice 与 Patchouli 之间的系统关联键；
 - `source_verb`：区分 `WRITE` 与 `UPDATE`；
-- `identity`：物化时继续使用的调用方身份；
+- `runtime_scope.identity_scope`：物化时继续使用的完整调用方 `IdentityScope`；`identity` 仅是 `actor_identity` 的兼容投影，不是第二份 Workspace 事实；
 - `runtime_scope`：`run_id`、`frame_id` 与动作坐标；不保存父帧和深度拓扑；
 - `status` 与可选 `settlement`：当前生命周期及其结算视图。
 
@@ -131,7 +134,7 @@ alias
   -> L1 KoakumaAtomCache
        返回本进程已预热或曾冷查询的 MemoryAtom
   -> L2 Patchouli public retrieval
-       使用调用上下文中的 Identity 冷查询，并把命中写回 L1
+       使用调用上下文中的 IdentityScope 冷查询，并把命中写回 L1
 ```
 
 READ、RUN、UPDATE 与 CALL 的 `context_refs` 都消费这套解析结果，而不是各自维护 alias 规则。正式 atom、pending focus、redirect 与失败状态随后交给 MemoryCompiler 渲染，handler 不复制第二套记忆展示逻辑。
@@ -156,7 +159,7 @@ WRITE / UPDATE
   -> AliceRuntime updates the process-local view
 ```
 
-`PendingAtomMaterializeTask` 是冻结投影，只携带 `pending_alias`、`intent_id`、`source_verb`、`identity` 与 `focus`。它故意不把 Alice store 或可变状态暴露给 Patchouli。相反，`PendingAtomSettlement` 携带 resolution 与可选 canonical 引用，构成请求/应答对偶。
+`PendingAtomMaterializeTask` 是冻结投影，只携带 `pending_alias`、`intent_id`、`source_verb`、`identity_scope` 与 `focus`。它故意不把 Alice store 或可变状态暴露给 Patchouli。相反，`PendingAtomSettlement` 携带 resolution 与可选 canonical 引用，构成请求/应答对偶。
 
 当前 resolution 有五种：
 
@@ -213,14 +216,14 @@ PendingAtom 当前没有墙钟 TTL。回收发生在成功根 run 的 `finalize_
 ## 10. 当前限制与设计张力
 
 - PendingAtomRuntime、三个索引与 settlement 视图全部在进程内；没有 durable ledger、重启恢复、事件重放或未结任务扫描。进程在 ACK 后、物化前退出时，Alice 无法恢复该意图；
-- PendingAtomRuntime 和 KoakumaAtomCache 由 AliceRuntime 全局共享。L0/L1 命中目前不会重新检查调用方 `Identity`，只有 L2 冷查询会携带身份，因而尚未满足跨用户并发运行所需的强隔离；
+- PendingAtomRuntime 和 KoakumaAtomCache 由 AliceRuntime 全局共享。L1 atom cache 命中与 L2 冷查询已在 resolver/owner 边界重验 `IdentityScope`；L0 PendingAtom alias 命中仍未重新检查调用方 scope，缺口见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)；
 - 回收以成功根 run 的收尾为节拍，而非用户/session TTL。当前个人本地服务允许一个成功 run 推进另一个已结束句柄进入 EXPIRED 或删除；取消/失败 run 不推进 epoch；
 - alias 只使用 4 位十六进制随机后缀，store 写入前不检查碰撞。同名碰撞会覆盖 alias 对应对象，并可能留下不一致反查索引；
 - 中文标题通常生成 `draft_untitled_*`，可读性有限；alias 也没有进程外唯一性承诺；
 - `CANCELLED` 在当前 resolver 中映射为 `not_found`，因此 MemoryCompiler 已有的 cancelled 文案不会通过正常 READ 路径出现；取消与真正不存在尚未对 Agent 明确区分；
 - failed/cancelled 事件只向 Alice 传 pending alias，失败细节和 cancel reason 没有持久化到 PendingAtom。`cancel(..., reason=...)` 的 reason 参数当前未被保存；
 - settlement 只接受 `MATERIALIZING -> SETTLED`。重复或晚到 settlement 会触发非法迁移，而事件消费者没有独立的幂等投递账本；
-- 子帧当前继承父帧 `Identity`，AgentProfile 又不保存解析出的 target alias，部分子 Agent WRITE 的 identity/provenance 会显示为父 Agent；
+- 子帧当前继承父帧的完整 `IdentityScope`，AgentProfile 又不保存解析出的 target alias，部分子 Agent WRITE 的 actor identity/provenance 会显示为父 Agent；
 - 旧 run 中失联的 `PENDING` / `MATERIALIZING` 没有自动超时回收，长期运行进程可能积累悬挂对象。
 
 这些限制意味着 PendingAtom 已经建立了清晰的异步写回边界，却还不是一个可恢复、按租户隔离的持久化任务系统。未来若引入 Job Queue 或 durable execution，应保留“运行时意图不等于正式记忆”这一核心语义，再替换其进程内存储、关联与回收机制。

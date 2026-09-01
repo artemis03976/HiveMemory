@@ -10,7 +10,9 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Gateway 全局命令
@@ -93,7 +95,7 @@ Dispatcher 先检查 ParseResult、definition 是否仍在 Registry 中以及权
 | `client_action` | 返回结构化 `client_action`，服务端不直接操作客户端 | transport / client |
 | `future_job` | 返回 `NOT_IMPLEMENTED` | 尚未接入 Runtime Job Queue |
 
-`global_route` 会传递 `command`、`identity`、解析参数和 definition payload；若 route 返回的不是 `CommandExecutionResult`，Dispatcher 将响应包进成功结果。route 或 handler 抛出的异常会被捕获并转为 `FAILED`，保留 `command.failed` error code。
+`global_route` 会传递 `command`、`ActorIdentity`、解析参数和 definition payload；这是命令授权所需的 actor projection，不是完整 Workspace scope。若 route 返回的不是 `CommandExecutionResult`，Dispatcher 将响应包进成功结果。route 或 handler 抛出的异常会被捕获并转为 `FAILED`，保留 `command.failed` error code。
 
 `client_action` 尤其容易被误解：例如 `/clear` 只返回 `{type: clear_chat}`，Gateway 不清空 Patchouli 话题、服务端历史或长期记忆。客户端是否以及如何执行动作由 transport/client 契约决定。
 
@@ -108,7 +110,7 @@ Dispatcher 先检查 ParseResult、definition 是否仍在 Registry 中以及权
 
 用户或 Agent allowlist 不匹配时直接 `REJECTED`；debug 命令要求 runtime 开启 debug；admin 命令默认拒绝，除非身份命中至少一个显式 allowlist。标记为 destructive 或 requires_confirmation 的命令不会执行 target，而是返回 `REQUIRES_CONFIRMATION`。
 
-Gateway 在这里只做基于 `Identity` 的授权判断，不负责认证该 Identity 的真实性。Transport 必须在进入 System 应用层之前建立可信身份，不能让客户端随意声明 user/agent ID。
+Gateway 在这里只做基于 `ActorIdentity` 的命令授权判断，不负责认证该身份或解释 Workspace 资源 ownership 的真实性。Transport 必须在进入 System 应用层之前建立可信身份，不能让客户端随意声明 user/agent ID；需要 Workspace 资源授权的 route 仍须在其最终 owner 边界校验 `IdentityScope`。
 
 当前尚没有确认 token、二次提交或确认过期协议，因此 `REQUIRES_CONFIRMATION` 只是安全终态，不代表用户可以沿同一命令链继续执行。这是有意选择的 fail-closed 行为，也是未来实现 destructive command 前必须补齐的契约。
 
@@ -151,7 +153,7 @@ Dispatcher 把可预期拒绝表示为结果而非异常，因为“未知命令
 4. `PASSIVE_MEMORY` 是否仍然无法触发命令？
 5. destructive command 是否在没有确认协议时被直接执行？
 6. `client_action` 是否被误写成服务端已经完成的状态变更？
-7. handler 是否把未认证的 Identity 当作可信权限来源？
+7. handler 是否把未认证的 `ActorIdentity` 当作可信权限来源？
 8. 新 target 是否绕过 GlobalSystemBus 直接持有其他子系统 Runtime？
 9. 调用方是否依赖 message 文本，而不是 status/error code？
 10. 新命令是否声称由 `future_job` 执行，但 Runtime Job Queue 尚未存在？

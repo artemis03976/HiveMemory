@@ -10,7 +10,9 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # HiveMemory Frontend
@@ -73,7 +75,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - 提供账户、权限隔离、移动端适配或离线工作保证；
 - 把 mock 数据伪装成已经由真实后端确认的结果。
 
-当前匿名界面统一使用 `user_id=default`，默认 Agent 为拥有完整权限的 `omni_doll`；前端尚无登录、租户或用户切换能力。
+当前匿名界面请求使用 `user_id=default`，由后端入口解析为默认 `IdentityScope`；默认 Agent 为拥有完整权限的 `omni_doll`。前端尚无登录、租户或用户/Workspace 切换能力，`user_id` 只是请求上下文，不是认证或授权凭证。
 
 ## 4. 当前文档
 

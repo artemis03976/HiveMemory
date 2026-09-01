@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-09-01
 ---
 
 # 前端管理页面
@@ -105,7 +105,7 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 - Agent persona 与权限字段分离，权限以 runtime 校验为准；
 - API key 不在列表响应中返回明文，不把密钥写进受版本控制的配置或模型文件；
 - 配置保存与配置生效是两个阶段，只有被重新装配或动态读取的组件才能宣称即时生效；
-- 设计稿中的 Pin、Archive、统计、状态切换或 semantic search，只有后端契约和失败语义同时落地后才可进入当前能力表。
+- 设计稿中的 Pin、Memory Library 的 Archive、统计、状态切换或 semantic search，只有后端契约和失败语义同时落地后才可进入当前能力表；Topic 生命周期使用 `settle`，不在此处复用 `archive`。
 
 ## 5. 代码与测试入口
 

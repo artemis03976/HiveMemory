@@ -11,7 +11,9 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Gateway 话题与查询分析
@@ -23,7 +25,7 @@ Gateway 的分析层要回答两个不同的问题：这条消息属于哪段对
 ## 1. 分析链路
 
 ```text
-raw message + identity
+raw message + IdentityScope
   -> L1 entry interception
   -> candidate TopicSnapshot list
   -> Topic Router
@@ -61,7 +63,7 @@ Topic Router 不生成关键词、不判断意图、不读完整 `TopicData`，�
 
 ## 4. User Query Analysis 的稳定边界
 
-`UserQueryAnalysisResolver` 接收冻结的 `UserQueryAnalysisContext`：原始消息、身份、候选话题、路由结果以及可选的 routed `TopicData`。它必须一次性返回完整的 `UserQueryAnalysisResult`：
+`UserQueryAnalysisResolver` 接收冻结的 `UserQueryAnalysisContext`：原始消息、已从完整 `IdentityScope` 派生的 `ActorIdentity`、候选话题、路由结果以及可选的 routed `TopicData`。候选话题与 `TopicData` 已由带 scope 的 Context Provider 取得，因此查询分析本身不重新承担 Workspace ownership 校验。它必须一次性返回完整的 `UserQueryAnalysisResult`：
 
 ```text
 intent_type

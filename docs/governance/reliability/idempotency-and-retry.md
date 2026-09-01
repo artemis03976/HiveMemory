@@ -14,9 +14,10 @@ related_docs:
   - docs/system/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/durability-and-recovery.md
+  - docs/architecture/workspace.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-08-16
+last_reviewed: 2026-09-01
 ---
 
 # 跨子系统幂等性与重试治理
@@ -38,7 +39,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | archive/revive | MemoryLibrary 编排跨层搬运，GC 会检查已归档 | 中间失败可能产生重复副本；重复 archive/revive 的返回语义未形成公共规则 |
 | Retrieval HIT | finalize 内有单批 `seen` 去重和 best-effort 记录入口 | 有意不提供跨 finalize 去重、retry 或耐久 event key；允许少量遗漏或重复 |
 | CITATION/feedback | 生命周期事件入口已经存在 | 若未来被提升为必须恢复的用户事实，再为其定义稳定身份与重复语义 |
-| Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；当前契约不含 lease，通用 key 也不能替代各领域对重复副作用的解释 |
+| Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`，Interaction 与 Memory Generation payload 同时携带完整 `IdentityScope`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；lane、ordering、registry 与 idempotency key 不因 Workspace 自动分区，必须由业务 consumer 在资源 owner 边界解释 scope；当前契约不含 lease，通用 key 也不能替代各领域对重复副作用的解释 |
 
 当前唯一较完整的例子是 Passive ingress 的 external event dedup。它不能被直接推广为所有业务的“全局去重表”：不同操作的重复输入可能代表重试、同一意图的新版本、合法的再次引用或必须拒绝的冲突。
 
@@ -78,7 +79,7 @@ at-least-once delivery
 
 ### 2.4 Key 必须包含正确的作用域
 
-幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
+幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。这里的作用域由业务操作定义：`IdentityScope` 随 payload 传播并在 consumer 边界校验，但共享 Work Queue、registry 和 cache 不会因为携带 scope 就自动按 Workspace 分区。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
 
 ## 3. 初步幂等键目录
 
