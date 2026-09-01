@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-08-22
+last_reviewed: 2026-09-01
 ---
 
 # Todo
@@ -12,6 +12,7 @@ last_reviewed: 2026-08-22
 
 当前事项：
 
+- [Workspace 文档收口现状与待办](./workspace-documentation-readiness.md)；
 - [Topic shutdown 逐 Topic 失败隔离](./topic-shutdown-per-topic-failure-isolation.md)；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；

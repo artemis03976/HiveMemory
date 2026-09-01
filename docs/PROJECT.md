@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-08-19
+last_reviewed: 2026-09-01
 ---
 
 # HiveMemory 项目总览
@@ -268,6 +268,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - [系统架构概览](./architecture/overview.md)
 - [系统边界与所有权](./architecture/boundaries.md)
 - [数据模型与可变性边界](./architecture/data-model.md)
+- [Workspace 架构](./architecture/workspace.md)
 - [Architecture 索引](./architecture/README.md)
 - [架构决策记录](./architecture/decisions/README.md)
 

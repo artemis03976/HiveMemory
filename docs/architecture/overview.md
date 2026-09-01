@@ -12,7 +12,7 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-19
+last_reviewed: 2026-09-01
 ---
 
 # HiveMemory 当前系统架构
@@ -52,6 +52,9 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 ## 3. 顶层结构
 
 `SystemAssembler` 是组合根，负责构造共享运行时、三个同级子系统和顶层应用服务。`HiveMemorySystem` 持有最终组件图并管理生命周期。
+
+Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdown 清理顺序见
+[Workspace 架构](./workspace.md)；本文只保留总体组件关系和跨子系统生命周期概览。
 
 ```mermaid
 flowchart TB

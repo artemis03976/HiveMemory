@@ -14,9 +14,10 @@ related_contracts:
 related_documents:
   - docs/VISION.md
   - docs/architecture/overview.md
+  - docs/architecture/workspace.md
   - docs/patchouli/memory-library.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-08-01
+last_reviewed: 2026-09-01
 ---
 
 # AE2 与 HiveMemory 的架构同构性
@@ -87,7 +88,7 @@ AE2 子网不只是“另一个网络”。它可以拥有自己的存储、设�
 | Crafting CPU | Alice Orchestrator、`ExecutionFrame`、运行时状态 | 部分成立 | 当前没有完整 DAG、并行 specialist、持久化 Job Queue |
 | CPU 中间材料 | `ExecutionProgress`、PendingAtom、materialize task | 已有基础 | 许多状态仍是进程内的，重启后不能恢复 |
 | ME Controller / Network | `GlobalSystemBus`、公共 Route/Contract、System 组合根 | 已有基础 | 当前是单进程异步总线，不承诺分布式投递 |
-| Subnetwork | 拥有独立资产、工具和环境的 Workspace | 尚未实现 | `WORKSPACE` 当前主要是 `team_id` 可见性过滤 |
+| Subnetwork | 拥有独立资产、工具和环境的 Workspace | Workspace 已有初步资源网络边界；完整 Subnetwork 尚未实现 | 当前 Workspace ownership 不等于完整子网；历史 `WORKSPACE` visibility 只是兼容期的 team 可见性 |
 | Interface + Storage Bus | 显式 Workspace Mount/Bridge | 尚未实现 | 需要独立的读取、修改、执行和导出权限 |
 | Channel / Coprocessor / Crafting Storage | 并发额度、队列容量、token/cost 预算、执行槽位 | 尚未系统化 | 配额不等于授权，必须分开建模 |
 
@@ -147,6 +148,13 @@ Alice 的映射是目前最强的一组：
 
 AE2 子网的两个核心用途是限制设备能访问哪些存储，以及把复杂的内部生产线封装成一个对主网可见的能力。HiveMemory 可以把这一思想扩展为：
 
+当前代码已经通过 Workspace 建立了这一方向的最小资源网络边界：`IdentityScope` 提供
+不可变的访问坐标，Topic、Memory、Artifact 和 WorkspaceAsset 在各自 Store 中按
+Workspace ownership 进行最终寻址，System 的共享 runtime 则继续作为公共骨架。这个
+初步的“ME 网络”现状与具体代码入口见[Workspace 架构](../architecture/workspace.md)。
+这里的“ME 网络”仍是架构隐喻，不表示当前已经存在独立的网络控制器、节点发现或子网
+运行时；本节以下内容继续讨论尚未落地的完整主网/子网方向。
+
 > Workspace 不是一个简单的用户标签，而是一片拥有资产、执行器、策略、配额、队列和审计边界的能力网络。
 
 一个完整 Workspace 未来可以拥有：
@@ -192,7 +200,13 @@ WorkspaceMount
 - 只向主 Workspace 导出构建产物、测试结果和已确认记忆；
 - 对主网表现成一个稳定的 `frontend capability`，而不暴露内部 Agent 拓扑。
 
-当前实现还没有这样的资源容器。`PUBLIC / WORKSPACE / PRIVATE` 是同一用户内的可见性模型：`PUBLIC` 仍受 `user_id` 硬过滤，`WORKSPACE` 依赖 `team_id`，`PRIVATE` 依赖来源 Agent。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，不能解释成每个 Workspace 都有独立执行环境。相关缺口和风险见 [检索身份过滤](../patchouli/retrieval.md) 与 [身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)。
+当前实现还没有上述完整能力容器。已落地的 Workspace 只提供身份坐标、资源 ownership、
+hard boundary、传播和部分生命周期基础，不拥有独立工具、执行环境、队列、配额或审计
+系统。Memory v2 的 `PUBLIC / PRIVATE / TEAM` actor read policy 只在 owning Workspace
+内部生效；历史 `WORKSPACE` visibility 是按 `team_id` 解释的兼容语义，不等于当前
+WorkspaceIdentity 或子网。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，
+不能解释成每个 Workspace 都有独立执行环境。当前事实见[Workspace 架构](../architecture/workspace.md)，
+相关缺口和风险见[检索身份过滤](../patchouli/retrieval.md)与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)。
 
 此外，AE2 的过滤首先是物流边界，不是面向恶意调用者的安全授权。HiveMemory 必须由真正的资源所有者在读取、修改、执行、缓存命中、重试和后台恢复时重新校验 Identity，不能仅复制查询过滤器。
 
@@ -435,7 +449,9 @@ AE2 可以统一搬运多种材料，但输入、配方、存储和机器仍然�
 - MTP 提供 `SEARCH / READ / RUN / WRITE / UPDATE / CALL` 六类主动能力；
 - `WRITE / UPDATE` 通过 PendingAtom 延迟物化；
 - `ExecutionFrame` 保存可恢复的单帧运行状态；
-- `PUBLIC / WORKSPACE / PRIVATE` 已形成基础可见性过滤；
+- WorkspaceIdentity、复合资源键和 IdentityScope 传播已经形成初步的“ME 网络”资源边界；
+- Memory v2 的 `PUBLIC / PRIVATE / TEAM` actor read policy 在 Workspace ownership hard
+  filter 之后执行；历史 `WORKSPACE` visibility 只作为兼容值解释；
 - System、Gateway、Patchouli、Alice 通过公开 Route 和公共模型进行交接。
 
 以下内容不能被本文当作已经实现：
