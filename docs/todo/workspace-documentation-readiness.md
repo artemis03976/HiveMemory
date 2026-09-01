@@ -41,17 +41,11 @@ last_reviewed: 2026-09-01
 
 # Workspace 文档收口现状与待办
 
-本文记录 Workspace MVP 当前实现和文档分布，服务于一次性的文档收口工作。它是
-`docs/todo/` 下的现状清单，不是 Workspace 当前设计的唯一来源；运行行为以代码和
-测试为准，实施细节以 [v0.6.2 Workspace MVP Plan](../plans/v0.6.2-workspace-mvp.md)
-为准，探索性内容仍保留在 `docs/ideas/`。
+本文记录 Workspace MVP 当前实现和文档分布，服务于一次性的文档收口工作。它是 `docs/todo/` 下的现状清单，不是 Workspace 当前设计的唯一来源；运行行为以代码和测试为准，实施细节以 [v0.6.2 Workspace MVP Plan](../plans/v0.6.2-workspace-mvp.md) 为准，探索性内容仍保留在 `docs/ideas/`。
 
 ## 1. 调查范围
 
-现状核对覆盖核心身份模型、Topic/Memory/Artifact、WorkspaceAssetStore、Patchouli
-SemanticBuffer 与 binding、System shutdown、Gateway/Server 入口以及共享 runtime。
-测试按照 `tests/unit/`、`tests/integration/` 和 `tests/e2e/` 的目录分类；代码路径和
-测试路径只作为核对入口，不构成另一套架构说明。
+现状核对覆盖核心身份模型、Topic/Memory/Artifact、WorkspaceAssetStore、Patchouli SemanticBuffer 与 binding、System shutdown、Gateway/Server 入口以及共享 runtime。测试按照 `tests/unit/`、`tests/integration/` 和 `tests/e2e/` 的目录分类；代码路径和测试路径只作为核对入口，不构成另一套架构说明。
 
 ## 2. P0–P6 实现现状
 
@@ -66,9 +60,7 @@ SemanticBuffer 与 binding、System shutdown、Gateway/Server 入口以及共享
 | **P5 binding 与 Topic 生命周期** | SemanticBuffer/ShortTermMemoryStore 提供原子 interaction apply、单写者状态、settle/compact/evict 分离、binding 真实使用事实和 shutdown drain 行为。 | [`tests/unit/patchouli/memory_library/test_buffer.py`](../../tests/unit/patchouli/memory_library/test_buffer.py)、[`tests/unit/patchouli/memory_library/test_binding_and_reservation.py`](../../tests/unit/patchouli/memory_library/test_binding_and_reservation.py)、[`tests/integration/patchouli/test_perception_flush_chain.py`](../../tests/integration/patchouli/test_perception_flush_chain.py)、[`tests/integration/patchouli/test_asset_binding_lifecycle.py`](../../tests/integration/patchouli/test_asset_binding_lifecycle.py) |
 | **P6 双 Workspace walking skeleton** | 公开入口使用 `main_workspace`，内部测试 seam 使用 `isolation_workspace`；Workspace-owned 资源隔离，cache、queue、registry、runtime 和 EventBus 不按 Workspace 分区。 | [`tests/integration/patchouli/test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)、[`tests/integration/patchouli/test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`tests/integration/system/test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)、[`tests/integration/system/test_workspace_asset_runtime.py`](../../tests/integration/system/test_workspace_asset_runtime.py) |
 
-当前 Plan 正文记录 P2.5–P6 已落地，但 Plan 第 12 节仍有未勾选项，P3 章节仍保留
-“返工中”字样，`docs/plans/README.md` 与 `docs/ROADMAP.md` 仍把 W0 标为 Planned。
-这是文档状态尚未同步的现状，不改变代码和测试已经呈现的行为。
+当前 Plan 正文记录 P2.5–P6 已落地，但 Plan 第 12 节仍有未勾选项，P3 章节仍保留“返工中”字样，`docs/plans/README.md` 与 `docs/ROADMAP.md` 仍把 W0 标为 Planned。这是文档状态尚未同步的现状，不改变代码和测试已经呈现的行为。
 
 ## 3. 当前 Workspace 语义
 
@@ -95,48 +87,27 @@ SemanticBuffer 与 binding、System shutdown、Gateway/Server 入口以及共享
 pytest tests/unit tests/integration -q --tb=short -m "not live_llm and not e2e and not slow" --basetemp .pytest-basetemp-d0
 ```
 
-结果为 **2112 passed，1 个 pytest cache 权限 warning**。未运行 `tests/e2e/` 中依赖
-真实 Qdrant、Embedding/Reranker 或 live LLM 的测试，也未运行被 `slow` 排除的测试。
-默认 pytest 临时目录曾因 Windows 权限得到 `1990 passed, 122 errors`；错误均来自创建
-`AppData/Local/Temp/pytest-of-29305` 时的 `PermissionError (WinError 5)`，不是已观察到的
-Workspace 代码失败。
+结果为 **2112 passed，1 个 pytest cache 权限 warning**。未运行 `tests/e2e/` 中依赖真实 Qdrant、Embedding/Reranker 或 live LLM 的测试，也未运行被 `slow` 排除的测试。默认 pytest 临时目录曾因 Windows 权限得到 `1990 passed, 122 errors`；错误均来自创建 `AppData/Local/Temp/pytest-of-29305` 时的 `PermissionError (WinError 5)`，不是已观察到的 Workspace 代码失败。
 
 ## 5. 文档分布现状
 
-- [`docs/architecture/workspace.md`](../architecture/workspace.md) 已成为 Workspace W0
-  当前事实入口；`docs/system/`、`docs/patchouli/`、`docs/contracts/` 和
-  `docs/governance/security/` 中仍只需要补充各自边界内的必要链接或局部摘要。
-- [`docs/plans/v0.6.2-workspace-mvp.md`](../plans/v0.6.2-workspace-mvp.md) 仍是 W0
-  实施细节和阶段验收的工作依据，尚未归档。
-- [`docs/ideas/ae2-hivememory-architecture-analogy.md`](../ideas/ae2-hivememory-architecture-analogy.md)
-  与 [`docs/ideas/workspace-mvp-chat-attachments-design.md`](../ideas/workspace-mvp-chat-attachments-design.md)
-  仍保存探索内容、W1 附件设计和 AE2 类比，不应被当作当前实现说明。
-- `docs/governance/baselines/` 保留 Durability、Idempotency、Identity 和 Data Model 等
-  可持续治理主题的时间点调查；本次 Workspace 文档收口记录不属于该目录。
+- [`docs/architecture/workspace.md`](../architecture/workspace.md) 已成为 Workspace W0 当前事实入口；`docs/system/`、`docs/patchouli/`、`docs/contracts/` 和 `docs/governance/security/` 中仍只需要补充各自边界内的必要链接或局部摘要。
+- [`docs/plans/v0.6.2-workspace-mvp.md`](../plans/v0.6.2-workspace-mvp.md) 仍是 W0 实施细节和阶段验收的工作依据，尚未归档。
+- [`docs/ideas/ae2-hivememory-architecture-analogy.md`](../ideas/ae2-hivememory-architecture-analogy.md) 与 [`docs/ideas/workspace-mvp-chat-attachments-design.md`](../ideas/workspace-mvp-chat-attachments-design.md) 仍保存探索内容、W1 附件设计和 AE2 类比，不应被当作当前实现说明。
+- `docs/governance/baselines/` 保留 Durability、Idempotency、Identity 和 Data Model 等可持续治理主题的时间点调查；本次 Workspace 文档收口记录不属于该目录。
 - `docs/archive/` 中内容仅用于历史追溯，不作为 Workspace 当前实现依据。
 
 ## 6. 已完成与待处理事项
 
-1. **D1 已完成**：[`Workspace 架构`](../architecture/workspace.md) 已建立，并已加入
-   Architecture 索引、总体架构入口和 PROJECT 当前架构列表；文档承接了代码和测试已经
-   证明的 W0 资源归属、Topic 寻址、AssetStore 生命周期、binding 和共享组件边界，并与
-   [`AE2 与 HiveMemory 的架构同构性`](../ideas/ae2-hivememory-architecture-analogy.md)
-   建立双向链接，明确当前初步“ME 网络”与未来完整主/子网设想的边界。
-2. **D2 已完成（Architecture 与 System）**：已在 Architecture 的总体概览、边界与所有权、
-   数据模型，以及 System 的 README、组合生命周期、应用服务、Passive ingress、运行时与
-   总线、配置和可观测性文档中补充必要的 Workspace 局部事实。内容只说明当前
-   `IdentityScope` 传播、Workspace-owned 资源所有权、进程级唯一 AssetStore、共享 runtime
-   边界和 shutdown 顺序，并统一链接到 [`Workspace 架构`](../architecture/workspace.md)，没有复制完整模型。
-3. System/Patchouli、Contracts、Security 及 PROJECT 的其他相关位置仍只需在各自责任边界内
-   补充必要的短链接或局部摘要，避免复制完整模型形成平行真相源。
+1. **D1 已完成**：[`Workspace 架构`](../architecture/workspace.md) 已建立，并已加入 Architecture 索引、总体架构入口和 PROJECT 当前架构列表；文档承接了代码和测试已经证明的 W0 资源归属、Topic 寻址、AssetStore 生命周期、binding 和共享组件边界，并与 [`AE2 与 HiveMemory 的架构同构性`](../ideas/ae2-hivememory-architecture-analogy.md) 建立双向链接，明确当前初步“ME 网络”与未来完整主/子网设想的边界。
+2. **D2 已完成（Architecture 与 System）**：已在 Architecture 的总体概览、边界与所有权、数据模型，以及 System 的 README、组合生命周期、应用服务、Passive ingress、运行时与总线、配置和可观测性文档中补充必要的 Workspace 局部事实。内容只说明当前 `IdentityScope` 传播、Workspace-owned 资源所有权、进程级唯一 AssetStore、共享 runtime 边界和 shutdown 顺序，并统一链接到 [`Workspace 架构`](../architecture/workspace.md)，没有复制完整模型。随后又将 Workspace 主文档中 Topic/SemanticBuffer 的聚合细节收回 [Perception 与短期话题](../patchouli/perception.md) 和 [MemoryLibrary](../patchouli/memory-library.md)，Workspace 文档只保留 `TopicAssetBinding` 交接事实。
+3. System/Patchouli、Contracts、Security 及 PROJECT 的其他相关位置仍只需在各自责任边界内补充必要的短链接或局部摘要，避免复制完整模型形成平行真相源。
 4. 将 Plan 的阶段状态和验收清单与最终代码、测试结果同步，并在 W0 完成后归档 Plan。
-5. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前
-   实现状态的引用。
+5. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前实现状态的引用。
 6. 完成上述整理后，检查受影响 Markdown 链接、索引和文档状态字段。
 
 ## 7. 后续收口完成条件
 
 - Workspace 当前事实有一个明确的 Architecture 入口，且与代码和测试一致；
-- 受影响的 System、Patchouli、Contracts、Security、PROJECT、Plan、Idea 和索引链接已
-  完成必要同步，没有重复维护整套 Workspace 模型；
+- 受影响的 System、Patchouli、Contracts、Security、PROJECT、Plan、Idea 和索引链接已完成必要同步，没有重复维护整套 Workspace 模型；
 - 本文不再承担当前设计说明，完成后可删除或移入 Archive，并保留必要的追溯链接。
