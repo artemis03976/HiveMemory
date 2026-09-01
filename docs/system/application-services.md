@@ -10,7 +10,10 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-10
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/architecture/boundaries.md
+last_reviewed: 2026-09-01
 ---
 
 # System 应用服务
@@ -28,6 +31,8 @@ System 应用服务是 transport 与子系统之间的用例层。它们回答�
 3. 不持有另一个子系统的 Runtime、Service、Controller 或 local bus；
 4. 不把内部 execution state、fallback 原因和观测事件直接返回给外部客户端；
 5. 对取消、失败和 cleanup 保持与 Contracts 一致的终态。
+
+普通入口在应用服务边界一次性解析当前用户的 `main_workspace`，构造不可变 `IdentityScope` 后沿 route 和领域 payload 传递。后台 task、retry 和 finalize 不重新读取进程当前 Workspace；它们使用自身 DTO 中保存的 scope，在最终访问 Workspace-owned 资源时由领域所有者校验。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
 应用服务可以保存一次用例的短期控制状态，例如 chat generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
@@ -121,7 +126,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 `MemoryTaskApplicationService` 只转发 task list/get/cancel；它不从 Patchouli task 对象推导第二套状态机。
 
-`TopicApplicationService` 提供活跃话题、手动 settle 和 evict 入口；`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要。它们都通过 route 访问所有者，不能根据 ID 或缓存自行判断可见性和生命周期。
+`TopicApplicationService` 提供活跃话题、手动 settle 和 evict 入口；它在入口解析默认 `IdentityScope`，再通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
 
 ## 6. 错误、观测与 cleanup
 

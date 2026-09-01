@@ -11,7 +11,9 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-30
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # System 配置与注册表
@@ -34,7 +36,7 @@ last_reviewed: 2026-07-30
 | `memory_compiler` | 编译策略 | MemoryCompiler 所有者 |
 | `patchouli` / `alice` | 各自运行时和存储配置 | 对应子系统 |
 
-System 只直接拥有顶层基础设施和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。
+System 只直接拥有顶层基础设施和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
 
 ## 2. 来源与优先级
 

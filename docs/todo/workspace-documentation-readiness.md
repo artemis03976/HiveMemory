@@ -115,19 +115,24 @@ Workspace 代码失败。
   可持续治理主题的时间点调查；本次 Workspace 文档收口记录不属于该目录。
 - `docs/archive/` 中内容仅用于历史追溯，不作为 Workspace 当前实现依据。
 
-## 6. D1 已完成与待处理事项
+## 6. 已完成与待处理事项
 
 1. **D1 已完成**：[`Workspace 架构`](../architecture/workspace.md) 已建立，并已加入
    Architecture 索引、总体架构入口和 PROJECT 当前架构列表；文档承接了代码和测试已经
    证明的 W0 资源归属、Topic 寻址、AssetStore 生命周期、binding 和共享组件边界，并与
    [`AE2 与 HiveMemory 的架构同构性`](../ideas/ae2-hivememory-architecture-analogy.md)
    建立双向链接，明确当前初步“ME 网络”与未来完整主/子网设想的边界。
-2. 在 System、Patchouli、Contracts、Security 及 PROJECT 的其他相关位置补充必要的短链接或
-   局部摘要，避免复制完整模型形成平行真相源。
-3. 将 Plan 的阶段状态和验收清单与最终代码、测试结果同步，并在 W0 完成后归档 Plan。
-4. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前
+2. **D2 已完成（Architecture 与 System）**：已在 Architecture 的总体概览、边界与所有权、
+   数据模型，以及 System 的 README、组合生命周期、应用服务、Passive ingress、运行时与
+   总线、配置和可观测性文档中补充必要的 Workspace 局部事实。内容只说明当前
+   `IdentityScope` 传播、Workspace-owned 资源所有权、进程级唯一 AssetStore、共享 runtime
+   边界和 shutdown 顺序，并统一链接到 [`Workspace 架构`](../architecture/workspace.md)，没有复制完整模型。
+3. System/Patchouli、Contracts、Security 及 PROJECT 的其他相关位置仍只需在各自责任边界内
+   补充必要的短链接或局部摘要，避免复制完整模型形成平行真相源。
+4. 将 Plan 的阶段状态和验收清单与最终代码、测试结果同步，并在 W0 完成后归档 Plan。
+5. 将 Idea 中仍然属于 W1、AE2 或其他未来方向的内容保留在 Idea，同时修正其对 W0 当前
    实现状态的引用。
-5. 完成上述整理后，检查受影响 Markdown 链接、索引和文档状态字段。
+6. 完成上述整理后，检查受影响 Markdown 链接、索引和文档状态字段。
 
 ## 7. 后续收口完成条件
 

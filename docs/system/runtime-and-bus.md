@@ -10,23 +10,25 @@ code_paths:
   - src/hivememory/infrastructure/work_queue/
   - src/hivememory/system/runtime/control.py
   - src/hivememory/system/runtime/operations.py
+  - src/hivememory/system/runtime/workspace/
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/passive-ingress.md
+  - docs/architecture/workspace.md
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-08-16
+last_reviewed: 2026-09-01
 ---
 
 # System 运行时与总线
 
 System 的运行时基础设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Local Work Queue Runtime 负责已接纳进程内工作的机械生命周期，Runtime control 负责前台用例的阶段与停止控制，RuntimeEventSink 负责观测旁路。
 
-这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。
+这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。领域 payload 可以携带不可变的 `IdentityScope`，供真正的资源所有者在最终边界校验；GlobalSystemBus、scheduler、work queue、registry 和 EventBus 本身仍是进程级共享底座，不按 Workspace 建立命名域。
 
 ## 1. GlobalSystemBus
 
@@ -47,6 +49,8 @@ System 的运行时基础设施解决的是“如何让多个所有者交接”�
 - `unsubscribe` 只移除指定 callback。
 
 RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
+
+Workspace 不会改变 route 的全局注册语义。应用服务在入口解析 `main_workspace` 或接收显式内部 scope，随后把它作为 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。
 
 ## 2. GlobalMaintenanceScheduler
 
@@ -105,7 +109,8 @@ InteractionSubmissionQueue       MemoryGenerationTaskController
 
 `system/runtime/work_queue` 拥有公共状态机、port、policy、codec registry、worker 生命周期和通用
 RuntimeEvent；`infrastructure/work_queue` 只提供存储与唤醒机制；Patchouli 业务组件拥有 payload、
-成功条件、失败分类、幂等语义和领域投影。通用运行时不得 import Patchouli、Alice 或 server 模型。
+成功条件、失败分类、幂等语义和领域投影。通用运行时不得 import Patchouli、Alice 或 server 模型，
+也不得根据 payload 中的 Workspace 字段创建第二套分区状态。
 
 ### 3.1 Work item、状态与 Store
 
@@ -174,6 +179,12 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 - cancel 是否允许由 lane policy 与业务 handler 共同决定，Runtime 不强行回滚已发生副作用；
 - shutdown 先停止新接纳，再 drain 已接纳 work，最后按 policy 取消或保留明确终态；
 - System shutdown 必须在关闭 Patchouli perception、artifact/storage 与 RuntimeEvent 基础设施前完成相关 queue drain。
+
+### 3.6 Workspace 与共享运行时
+
+`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 System 装配的进程级唯一 working set。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过自己的 scope 和 ref 遵守窄化 Asset port 交接约定；当前 W0 尚无真实附件业务消费者。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。
+
+同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
 
 历史实施步骤、迁移取舍和已完成验收见
 [v0.6.1 Local Work Queue Runtime 归档计划](../archive/plans/v0.6.1-local-work-queue-runtime.md)。

@@ -12,7 +12,10 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-03
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/system/runtime-and-bus.md
+last_reviewed: 2026-09-01
 ---
 
 # System 可观测性
@@ -35,6 +38,8 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - 关联：generation、agent run、task、agent、frame、topic、atom；
 - 结果：`status`、`reason`、`message`、摘要化 `data`。
 
+`workspace_id` 是可选的观测关联字段，用于把事件按资源归属域展示或筛选。它不代表完整的 `IdentityScope`，也不参与 EventBus 路由、订阅、sequence、授权、幂等判断或任何业务状态迁移；需要作出业务决定时必须回到领域返回值、异常或 Store 状态。
+
 事件类型由 `RuntimeEventType` 维护，当前覆盖 chat、command、passive ingress、Gateway workflow/analysis、Agent run、memory task、maintenance、System lifecycle、subsystem operation 和 stream gap。
 
 ## 2. RuntimeEventBus 语义
@@ -46,7 +51,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - 每个订阅者拥有有界队列，队列满时丢弃最旧事件并累计 dropped count；
 - 不承诺跨进程连续、持久化、全量不丢或 exactly-once。
 
-事件的顺序只在当前进程 RuntimeEventBus 内有意义。它不能被用来推断“没有看到失败事件就一定成功”，也不能替代 Patchouli 的 memory task 状态或 System 的 chat run 状态。
+事件的顺序只在当前进程 RuntimeEventBus 内有意义。它不能被用来推断“没有看到失败事件就一定成功”，也不能替代 Patchouli 的 memory task 状态、Topic/AssetStore 状态或 System 的 chat run 状态。
 
 ## 3. Publisher、Scoped sink 与操作观测
 

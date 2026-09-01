@@ -12,6 +12,9 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/architecture/boundaries.md
 last_reviewed: 2026-09-01
 ---
 
@@ -198,7 +201,7 @@ POST /api/v1/ingest
 - 可以请求 Gateway 决策与记忆上下文；
 - 不运行 Alice，不生成面向用户的回复；
 - 不执行 MTP 或全局命令；
-- 通过去重、顺序控制和 outbox 重试保护外部事件摄入。
+- 通过去重、顺序控制和共享 Work Queue 的 admission/retry 保护外部事件摄入；Passive Ingress 不维护第二个 outbox。
 
 ## 7. 生命周期顺序与设计理由
 
@@ -212,9 +215,10 @@ Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 
 ```text
 Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
+  -> WorkspaceAssetStore.close_and_clear
 ```
 
-启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时顺序反转：先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作。
+启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力，最后清空进程级 WorkspaceAssetStore。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
 
 ## 8. 当前不变量
 
