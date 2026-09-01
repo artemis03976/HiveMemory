@@ -5,17 +5,18 @@ owner: system-patchouli-alice
 scope: chat-attachment-runtime-content-and-context-assembly
 related_current:
   - ../ROADMAP.md
+  - ../architecture/workspace.md
   - ../architecture/boundaries.md
   - ../patchouli/artifacts.md
   - ../patchouli/memory-library.md
 related_plans:
-  - ../plans/v0.6.2-workspace-mvp.md
-last_reviewed: 2026-08-22
+  - ../archive/plans/v0.6.2-workspace-mvp.md
+last_reviewed: 2026-09-01
 ---
 
 # Chat Attachments 初步设计备忘
 
-本文只记录尚未形成正式实施计划的 Chat Attachment 设计。附件功能依赖已经完成并稳定的 Workspace MVP 公共契约，但本文不重新定义 Workspace、身份作用域或资源管理模型；Workspace 的设计真相源是 [v0.6.2 W0 Workspace MVP 正式 Plan](../plans/v0.6.2-workspace-mvp.md)。
+本文只记录尚未形成正式实施计划的 Chat Attachment 设计。附件功能依赖已经完成并稳定的 Workspace MVP 公共契约，但本文不重新定义 Workspace、身份作用域或资源管理模型；Workspace 当前事实以 [Workspace 架构](../architecture/workspace.md) 为准，W0 的实施历史以[归档 Plan](../archive/plans/v0.6.2-workspace-mvp.md)为准。
 
 ## 1. 背景与目标
 

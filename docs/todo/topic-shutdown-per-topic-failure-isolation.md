@@ -6,9 +6,9 @@ scope: topic-shutdown-settlement-failure-isolation-and-drain-continuation
 related_docs:
   - docs/patchouli/perception.md
   - docs/system/runtime-and-bus.md
-  - docs/plans/v0.6.2-workspace-mvp.md
+  - docs/archive/plans/v0.6.2-workspace-mvp.md
   - docs/governance/testing/test-design-standards.md
-last_reviewed: 2026-08-22
+last_reviewed: 2026-09-01
 ---
 
 # Topic shutdown 逐 Topic 失败隔离

@@ -3,26 +3,22 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-08-22
+last_reviewed: 2026-09-01
 ---
 
 # Plans
 
-本目录只存放已经绑定明确版本或里程碑、能够独立实施和验收，但尚未完全成为当前事实的功能、重构与迁移计划。
+本目录只存放已经绑定明确版本或里程碑、能够独立实施和验收，但尚未完全成为当前事实的功能、重构与迁移计划。已完成的计划移入 [Archived Plans](../archive/plans/README.md)，不在此目录继续作为活动实施入口。
 
-当前正式实施入口为：
+当前没有处于实施中的 Workspace W0 计划。W0 已完成并归档；当前行为以 [Workspace 架构](../architecture/workspace.md) 为事实入口，实施细节和阶段验收保留在历史归档中：
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
-| [v0.6.2 W0 Workspace MVP](./v0.6.2-workspace-mvp.md) | Planned | 建立 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding |
+| [v0.6.2 W0 Workspace MVP（归档）](../archive/plans/v0.6.2-workspace-mvp.md) | Archived | 已完成 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；当前事实见 [Workspace 架构](../architecture/workspace.md) |
 
-`v0.6.2` 继续使用两份独立 Plan。当前只建立并实施 W0；W1 Chat Attachments 必须把 W0 的完成验收作为硬前置，再独立规划上传、解析、Context Compiler、可选 ContextAttachmentUse 明细和 Artifact promotion。历史数据批量转换也不在 W0 主链路中执行，而是在 W0 基本落地和双 Workspace 隔离验证通过后通过独立脚本完成。
+`v0.6.2` 的 Workspace 工作拆分为 W0/W1 两个独立交付切片。W0 已完成并归档；W1 Chat Attachments 尚未建立正式 Plan，必须把 W0 的稳定公共契约作为硬前置，再独立规划上传、解析、Context Compiler、可选 ContextAttachmentUse 明细和 Artifact promotion。历史数据批量转换也不在 W0 主链路中执行，需要未来另立脚本或 Plan。
 
-[Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)继续保存 W0/W1 的设计推导和 W1 开放问题；W0 的实施顺序、代码落点、兼容策略、删除/lease/settle 矩阵和测试出口以正式 Plan 为准。
-
-最近完成的 [v0.6.1 Local Work Queue Runtime](../archive/plans/v0.6.1-local-work-queue-runtime.md)
-已归档；当前运行时事实由 [System 运行时与总线](../system/runtime-and-bus.md#3-local-work-queue-runtime)
-承接，SQLite 后续由[持久化治理](../governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)维护。
+[Workspace MVP 初步设计](../ideas/workspace-mvp-chat-attachments-design.md)继续保存 W1 Chat Attachments 的设计推导和开放问题；W0 的历史实施顺序、代码落点、兼容策略、删除/lease/settle 矩阵和测试出口见归档 Plan，当前事实不再由 Plan 或 Idea 承担。
 
 ## 准入规则
 
