@@ -25,6 +25,8 @@ import sys
 import os
 from pathlib import Path
 
+from tests.helpers.memory import make_memory_metadata
+
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -78,7 +80,6 @@ from hivememory.core.models import (
     StreamMessage,
     StreamMessageType,
     MemoryAtom,
-    MetaData,
     IndexLayer,
     PayloadLayer,
     MemoryType,
@@ -307,7 +308,7 @@ def create_memory_from_data(data: Dict[str, Any], identity: Identity) -> MemoryA
 
     return MemoryAtom(
         id=memory_id,
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id=identity.agent_id,
             user_id=identity.user_id,
             session_id=identity.session_id,
@@ -709,7 +710,7 @@ class TestMemoryMerger:
         # 创建现有记忆
         existing_data = test_case["existing_memory"]
         existing_memory = MemoryAtom(
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,
@@ -759,7 +760,7 @@ class TestMemoryMerger:
         # 创建现有记忆
         existing_data = test_case["existing_memory"]
         existing_memory = MemoryAtom(
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,
@@ -824,7 +825,7 @@ class TestMemoryMerger:
         # 创建现有记忆（短摘要）
         existing_data = test_case["existing_memory"]
         existing_memory = MemoryAtom(
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,
@@ -950,7 +951,7 @@ class TestSchemaValidation:
 
         # 创建现有记忆
         existing_memory = MemoryAtom(
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,
@@ -1020,7 +1021,7 @@ class TestSchemaValidation:
             mem_type = MemoryType.FACT
 
         return MemoryAtom(
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
                 session_id=self.identity.session_id,

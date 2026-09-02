@@ -14,7 +14,9 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Chat 工作区
@@ -74,7 +76,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 - 把选中的 Topic ID 作为下一次 chat 请求参数；
 - 改变后端对新输入的 Gateway 路由判断。
 
-本轮真正的 `currentTopicId` 只来自后端 `topic_info`。因此左侧 Topic 当前是“活跃上下文概览”，不是完整会话切换器。Archive/settle 与 delete 会先在本地乐观移除，失败后由 Topic store 回滚。
+本轮真正的 `currentTopicId` 只来自后端 `topic_info`。因此左侧 Topic 当前是“活跃上下文概览”，不是完整会话切换器。Topic 生命周期统一使用 `settle` 与 `delete` 两个后端术语：`settle` 将 Topic 内容交给记忆生成并结束当前 Topic 生命周期，`delete` 结束生命周期但不触发记忆写入；两者都可以先在本地乐观移除，失败后由 Topic store 按实际操作回滚。前端历史上的“Archive”显示不再作为 Topic 操作名称，`archive` 仅保留给中期记忆进入长期记忆库的操作。
 
 ## 5. Kernel Vision
 
@@ -106,7 +108,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 
 尚未接线：
 
-- Paperclip 附件与 `#` 话题引用按钮；
+- `#` 话题引用按钮；
 - assistant message 下方的复制、点赞和重新生成按钮；
 - 输入草稿恢复；
 - Topic 历史消息加载与真正切换；

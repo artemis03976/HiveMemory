@@ -4,7 +4,6 @@ from hivememory.system.contracts.route_names import RouteNames
 
 
 class PatchouliRoutes:
-    SUBMIT_INTERACTION = RouteNames.PATCHOULI_SUBMIT_INTERACTION
     MEMORY_CREATE = RouteNames.PATCHOULI_MEMORY_CREATE
     MEMORY_LIST = RouteNames.PATCHOULI_MEMORY_LIST
     MEMORY_GET = RouteNames.PATCHOULI_MEMORY_GET

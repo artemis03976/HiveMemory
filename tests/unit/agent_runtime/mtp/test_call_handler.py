@@ -5,9 +5,10 @@ import pytest
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope
+from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.mtp import MTPCallRequest, MTPCommand, MTPResponseStatus, MTPVerb
 from hivememory.core.mtp.exceptions import PermissionDeniedError
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _context(*, allow_call: bool) -> MTPExecutionContext:
@@ -16,9 +17,8 @@ def _context(*, allow_call: bool) -> MTPExecutionContext:
         denied_verbs=() if allow_call else {"CALL"},
     )
     return MTPExecutionContext(
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
         agent_profile=OMNI_DOLL_PROFILE,
-        runtime_scope=RuntimeScope(run_id="run-1", frame_id="frame-1"),
+        runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         execution_policy=policy,
     )
 

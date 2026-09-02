@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -29,6 +30,7 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
+from tests.helpers.workspace import make_identity_scope
 
 IDENTITY = Identity(user_id="u1", agent_id="a1")
 
@@ -84,7 +86,7 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source="codex",
         external_conversation_id="conversation-1",
-        identity=IDENTITY,
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
     )
 
 
@@ -100,7 +102,8 @@ async def test_passive_final_enters_common_submission_queue() -> None:
     assert outcome.kind == "user"
     assert len(queue.submissions) == 1
     submission = queue.submissions[0]
-    assert submission.interaction_id.startswith("interaction_")
+    assert submission.interaction_id.startswith("passive_")
+    assert submission.identity_scope.actor_identity.user_id == "u1"
     assert submission.origin == "passive_memory"
     assert submission.requested_topic_id == "topic-1"
     assert submission.ordering_key == "codex/conversation-1@u1:a1:<no-team>"
@@ -111,6 +114,73 @@ async def test_passive_final_enters_common_submission_queue() -> None:
         "seal_reason": "explicit_final",
     }
     assert not ingressor.buffers.peek_buffer(_key()).has_pending_round
+
+
+def test_conversation_key_does_not_partition_by_workspace() -> None:
+    """捕获相同 passive 领域会话因 IdentityScope 不同而被隐式分区的缺陷。"""
+    main = PassiveConversationKey.build(
+        source="codex",
+        external_conversation_id="conversation-shared",
+        identity_scope=make_identity_scope(
+            user_id="u1",
+            agent_id="a1",
+            workspace_id="main_workspace",
+        ),
+    )
+    isolated = PassiveConversationKey.build(
+        source="codex",
+        external_conversation_id="conversation-shared",
+        identity_scope=make_identity_scope(
+            user_id="u1",
+            agent_id="a1",
+            workspace_id="isolation_workspace",
+        ),
+    )
+
+    assert main == isolated
+    assert main.ordering_key == isolated.ordering_key
+
+
+@pytest.mark.asyncio
+async def test_pending_turn_rejects_workspace_scope_drift() -> None:
+    """捕获共享 conversation key 把另一 Workspace 事件混入原 turn 的缺陷。"""
+    ingressor, queue = _build()
+    main_scope = make_identity_scope(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="main_workspace",
+    )
+    isolated_scope = make_identity_scope(
+        user_id="u1",
+        agent_id="a1",
+        workspace_id="isolation_workspace",
+    )
+
+    await ingressor.route_event_scoped(
+        _event("user", "main user", external_event_id="event-main"),
+        main_scope,
+        "interaction-main",
+    )
+
+    with pytest.raises(WorkspaceMismatchError) as exc_info:
+        await ingressor.route_event_scoped(
+            _event(
+                "assistant",
+                "isolated assistant",
+                external_event_id="event-isolated",
+                is_final=True,
+            ),
+            isolated_scope,
+            "interaction-isolated",
+        )
+
+    buffer = ingressor.buffers.peek_buffer(_key())
+    prepared = buffer.prepare_flush()
+    assert exc_info.value.code == "workspace.mismatch"
+    assert prepared is not None
+    assert prepared[0].user_message == "main user"
+    assert prepared[0].assistant_final_text is None
+    assert queue.submissions == []
 
 
 @pytest.mark.asyncio
@@ -133,7 +203,7 @@ async def test_admission_failure_keeps_payload_and_interaction_id_for_retry() ->
     assert buffer.has_pending_round
 
     queue.fail_submit = False
-    assert await ingressor.flush_conversation(_key(), IDENTITY) == 1
+    assert await ingressor.flush_conversation(_key()) == 1
     assert queue.submissions[0].interaction_id == interaction_id
     assert not buffer.has_pending_round
     assert buffer.interaction_id is None
@@ -213,14 +283,14 @@ async def test_next_user_admission_failure_does_not_overwrite_previous_turn() ->
 async def test_apply_retry_does_not_block_next_accumulator() -> None:
     attempts: list[str] = []
 
-    async def submit_interaction(payload, **kwargs) -> str:
+    async def apply_interaction(payload, **kwargs) -> str:
         attempts.append(payload.user_message)
         if payload.user_message == "u1" and attempts.count("u1") == 1:
             raise ConnectionError("temporary perception failure")
         return f"topic-{payload.user_message}"
 
     queue = InteractionSubmissionQueue(
-        submit_interaction,
+        apply_interaction,
         policy=QueuePolicy(
             capacity=8,
             max_concurrency=1,
@@ -269,12 +339,12 @@ async def test_apply_retry_does_not_block_next_accumulator() -> None:
 async def test_shutdown_waits_for_accepted_submission_work() -> None:
     attempts: list[str] = []
 
-    async def submit_interaction(payload, **kwargs) -> str:
+    async def apply_interaction(payload, **kwargs) -> str:
         attempts.append(payload.user_message)
         return f"topic-{payload.user_message}"
 
     queue = InteractionSubmissionQueue(
-        submit_interaction,
+        apply_interaction,
         policy=QueuePolicy(
             capacity=8,
             max_concurrency=1,

@@ -10,7 +10,9 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-08-05
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Gateway
@@ -43,13 +45,15 @@ Gateway 当前负责：
 Gateway 不负责：
 
 - 执行向量/关键词检索或解释检索结果；
-- 创建、更新、归档话题或长期记忆；
+- 结算、压缩或删除话题，或创建、更新、归档长期记忆；
 - 运行 Alice、MTP、工具或子 Agent；
 - 生成自然语言回复；
 - 保存可恢复的 workflow/job 状态；
 - 替 transport 验证身份真实性，或替下游决定最终记忆是否应当持久化。
 
 尤其需要区分 `memory_write_signal` 与“写入命令”：前者只是入口阶段根据用户输入形成的预判，Patchouli 仍拥有长期记忆生成、验证和持久化的最终决定权。
+
+Gateway 的公开处理入口携带完整 `IdentityScope`，并将它交给需要 Workspace 上下文的 Patchouli route。命令 allowlist 与查询分析等局部能力可以只消费 `ActorIdentity` 投影；这不代表 Gateway 拥有 Workspace 资源授权，也不替下游重新定义 ownership。
 
 ### 2.1 一次分析、受限复用
 

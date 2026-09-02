@@ -5,12 +5,17 @@ import logging
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+    Identity,
+    IdentityScope,
+    require_identity_scope,
+)
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     BusRouteUnavailableError,
     MTPError,
-    PermissionDeniedError,
     SystemFault,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -22,7 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 class AgentProfileCache:
-    """按授权 Identity 作用域隔离的人偶图纸 LRU 缓存。"""
+    """按既有 ActorIdentity key 保存人偶图纸的 LRU 缓存。
+
+    Workspace scope 只随解析请求传播，不改变该共享 cache 的 key、owner 或
+    生命周期。
+    """
 
     def __init__(self, max_size: int = 32):
         self._max_size = max_size
@@ -53,7 +62,7 @@ class AgentProfileCache:
 
 
 class AgentProfileResolver:
-    """把可读 agent alias 解析为人偶图纸，并按 Identity 作用域缓存。"""
+    """把可读 agent alias 解析为人偶图纸，并按既有 actor key 缓存。"""
 
     def __init__(self, local_bus: AliceBus) -> None:
         self._local_bus = local_bus
@@ -64,24 +73,20 @@ class AgentProfileResolver:
         self,
         agent_alias: str | None,
         *,
-        identity: Identity | None = None,
+        identity_scope: IdentityScope,
     ) -> AgentProfile:
+        identity_scope = require_identity_scope(identity_scope)
+        identity = identity_scope.actor_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
-
-        if identity is None:
-            raise PermissionDeniedError(
-                message_key="mtp.call.profile_permission_denied",
-                params={"agent_alias": normalized_alias},
-            )
 
         cached = self._cache.get(normalized_alias, identity)
         if cached is not None:
             return cached
 
-        # 并发 cache miss 通过锁串行复查，避免一个身份的授权结果污染另一个请求的
-        # 缓存条目；cache key 本身已按 Identity 作用域隔离。
+        # 并发 cache miss 通过锁串行复查，避免一个 actor 的结果污染另一个
+        # actor 条目；Workspace 不参与这份既有 cache key。
         async with self._load_lock:
             cached = self._cache.get(normalized_alias, identity)
             if cached is not None:
@@ -91,7 +96,7 @@ class AgentProfileResolver:
                 profile = await self._local_bus.request(
                     GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
                     normalized_alias,
-                    identity=identity,
+                    identity_scope=identity_scope,
                 )
             except MTPError:
                 raise

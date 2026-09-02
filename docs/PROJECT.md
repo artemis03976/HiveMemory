@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-08-16
+last_reviewed: 2026-09-01
 ---
 
 # HiveMemory 项目总览
@@ -136,7 +136,6 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 |:---|:---|:---|
 | 最新已发布标签 | `v0.6.1` | 最近一次可由 Git tag 指认的发布基线 |
 | 当前发布基线 | `v0.6.1` | 已发布 Local Work Queue、Active/Passive Interaction Submission 统一接入、Memory Generation queue 及对应契约与测试 |
-| 下一计划版本 | `v0.6.2` | Candidate，Chat Attachments；正式 Plan 待建立 |
 | 规范代码版本 | `0.6.1` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
 版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。v0.6.1 发布使用完全匹配规范代码版本的稳定标签；后续开发分支可以先进入下一个目标版本而不创建 tag，此时才属于未发布快照。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
@@ -244,7 +243,8 @@ external event
   -> Gateway PROCESS(PASSIVE_MEMORY)
   -> optional memory context
   -> turn buffer / seal
-  -> Patchouli submit interaction
+  -> InteractionSubmissionQueue
+  -> PerceptionFamiliar.apply_interaction
 ```
 
 被动模式不运行 Alice、MTP、命令或回复生成。
@@ -269,6 +269,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - [系统架构概览](./architecture/overview.md)
 - [系统边界与所有权](./architecture/boundaries.md)
 - [数据模型与可变性边界](./architecture/data-model.md)
+- [Workspace 架构](./architecture/workspace.md)
 - [Architecture 索引](./architecture/README.md)
 - [架构决策记录](./architecture/decisions/README.md)
 
@@ -307,7 +308,7 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 - RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一成熟度与恢复门槛见[耐久性与故障恢复治理](./governance/reliability/durability-and-recovery.md)；
 - 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试治理](./governance/reliability/idempotency-and-retry.md)；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全治理](./governance/security/identity-and-execution-safety.md)；
-- 附件、Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
+- Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
 - 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐，mock fallback 也尚未统一标识。
 
 ## 11. 修改入口

@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-08-16
+last_reviewed: 2026-09-01
 ---
 
 # HiveMemory 开发路线图
@@ -35,7 +35,7 @@ last_reviewed: 2026-08-16
 
 - 最新已发布标签：`v0.6.1`；
 - 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2` Chat Attachments，状态为 Candidate，正式 Plan 待建立。
+- 下一计划版本：`v0.6.2`，整体状态为 Candidate（W0 已实现但尚未形成发布标签）；[W0 Workspace MVP](./archive/plans/v0.6.2-workspace-mvp.md)已完成并归档，当前事实见 [Workspace 架构](./architecture/workspace.md)，W1 Chat Attachments 仍以其公共契约为硬前置。
 
 当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。`v0.6.1` Git tag、Python 包、前端清单和构建检查使用完全一致的版本口径。
 
@@ -116,7 +116,8 @@ last_reviewed: 2026-08-16
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.2` Chat Attachments | Candidate | 文件先成为受身份约束、可幂等写入的原始 artifact，再编译为当前 chat 上下文；大文件异步解析另行立项 | 依赖 v0.6.1、Artifact provenance、Identity scope；正式 Plan 待建立 |
+| `v0.6.2 W0` Workspace MVP | Current Development | 已实现 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；尚未发布 `v0.6.2` 标签 | 依赖 v0.6.1 与 Identity scope；当前事实见 [Workspace 架构](./architecture/workspace.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)，开放附件设计见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
+| `v0.6.2 W1` Chat Attachments | Candidate | 在已经验收的 Workspace 公共契约上实现上传、文本解析、asset refs、Context Compiler 与按需 Artifact promotion | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；独立正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
 | `v0.7.1` MTP READ Provenance | Candidate | 将已经稳定的版本、来源 artifact 和检索证据暴露给 READ | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
@@ -131,6 +132,7 @@ last_reviewed: 2026-08-16
 | 复合意图分解 | Gateway / Contracts / Patchouli / Alice | 先完成 C0 指标和脱敏样本门禁，证明单主意图路径的真实缺口，再冻结 composite envelope 与消费协议 | [Composite Intent Decomposition Idea](./ideas/composite-intent-decomposition.md) |
 | 自定义入口拦截规则 | Gateway | 当前固定入口链已可运行；只有出现明确外部接入需求、配置所有者和验收样本后才建立 Plan | 待建立 |
 | 领域状态持久化与恢复 | System / Patchouli / Alice | v0.6.1 只冻结进程内 work 契约与持久化门槛；SQLite、claim ownership/lease、Artifact/Memory saga、Agent checkpoint、反馈与维护恢复均按真实恢复需求另行排期 | [Durability and Recovery Governance](./governance/reliability/durability-and-recovery.md) |
+| Workspace 历史数据转换 | Memory / Artifact / Topic / Storage adapters | W0 只提供缺字段记录的 `main_workspace` compatibility-read；批量回填、旧 visibility 映射、备份/幂等重跑和逐层读回需要独立脚本、观察窗口与回滚方案 | 待建立独立 Plan |
 | 领域幂等与 reconciliation | Patchouli / MemoryLibrary / Lifecycle | v0.6.1 先建立 operation identity 与 WorkStore 记录；Memory update、archive/revive、HIT/CITATION 等领域副作用后续推进 | [Idempotency and Retry Governance](./governance/reliability/idempotency-and-retry.md) |
 | 执行资产安全与外部身份对齐 | Alice / MTP / Frontend | run/cache 隔离与最小 identity scope 前置；强沙箱、可信资产、资源限制和完整外部认证需要独立证据与方案 | [Identity and Execution Safety Governance](./governance/security/identity-and-execution-safety.md) |
 | 数据模型可变性治理后续阶段 | Cross-system | v0.6.1 只前置模型/边界清单；深不可变原语、Memory/PendingAtom 聚合重构和公共 DTO 迁移需按风险分批 | [Data Model Mutability Governance](./governance/data-model/mutability.md) |
@@ -139,13 +141,29 @@ last_reviewed: 2026-08-16
 | Frontend 视觉个性化 | Frontend | 主题覆盖和自定义背景可并行探索，但必须后于真实状态、identity 和错误披露，不阻塞后端版本 | 待建立 |
 | Conversation Branching | Chat / Memory / Lifecycle | 等 provenance、生命周期和真实编辑需求稳定后，再设计分支所有权与已沉淀记忆的失效语义 | 待建立 |
 
-### 4.2 v0.6.2 Attachments
+### 4.2 v0.6.2 Workspace MVP 与 Chat Attachments
 
-上传文件先成为原始 artifact 和解析 artifact，再按当前对话需要编译为上下文。附件上传不应默认直接污染长期记忆；大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。
+`v0.6.2` 使用两份独立开发切片。W0 Workspace MVP 已完成并归档，当前事实由 [Workspace 架构](./architecture/workspace.md) 及其链接的领域/契约文档承接；历史实施细节见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)。W1 Chat Attachments 是其下游候选计划，必须复用已经稳定的 Workspace scope、资源归属和隔离契约，不得通过私有兼容字段或局部容器绕过这些边界。
 
-Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了什么”，再讨论系统从中理解出什么。原始文件、解析结果和候选记忆具有不同真实性和生命周期；如果上传后直接生成正式记忆，后续无法可靠区分证据、解析错误与系统结论。该阶段的验收重点是身份、来源和失败边界，而不是提前完成完整文档知识化。
+#### 4.2.1 W0 Workspace MVP
 
-附件还必须复用 v0.6.1 的 operation identity、重试结果和 identity scope：同一上传重试不能产生多份原始 Artifact，也不能因为拿到 artifact id 就跨身份读取。若未来采用后台解析，只有其工作项已经持久化接纳后，才可向页面报告后台处理已接受。
+Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspace_id)` 统一持有资源归属坐标。MVP 不启用独立 ID 生成器，固定 `workspace_id == workspace_key`；默认身份使用 `workspace_key=workspace_id="main_workspace"`。Workspace-owned resource 的最终寻址使用 `(owner_user_id, workspace_id, resource_id)` 一类复合键；`IdentityScope` 可以进入领域 payload，但不意味着所有承载它的组件都加入 Workspace 命名域。cache、queue、registry、scheduler、runtime、service container 和 EventBus 继续使用既有共享 key，`RuntimeEvent.workspace_id` 只是观测投影，不参与路由、订阅、授权或分区，也不允许用 `workspace_id or workspace_key` 作为内部 fallback。
+
+普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。一次 Chat run 使用唯一 `interaction_id`，并由 `IdentityScope` 将 actor identity 与 WorkspaceIdentity 一起冻结；Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 必须复用同一 scope。同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
+
+W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease，并把 TopicAssetBinding 放入 Patchouli 的 SemanticBuffer/ShortTermMemoryStore。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
+
+现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`；历史转换脚本仍需独立规划和观察窗口，不能被当前 W0 状态或 W1 候选误读为已完成迁移。
+
+#### 4.2.2 W1 Chat Attachments
+
+W1 把上传文件注册到 W0 已建立的 System-owned `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations；只有 required representation 解析 READY 后，asset ref 才能进入 Chat。解析失败直接向用户返回稳定错误且不自动重试，用户重新上传创建新的逻辑资产。`WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。
+
+上传和 UI 选择本身都不创建 Topic 关系或 Artifact。只有用户显式选择 READY ref、本轮通过 lease 真实使用且 Interaction 成功完成，系统才在 ShortTermMemoryStore 的 SemanticBuffer 原子写入边界内提交 block 与 `TopicAssetBinding`；binding 是历史使用事实，不存在“只绑定但未使用”的第二状态。asset remove 只终止 AssetStore 中后续 resolve/acquire，不跨 Store 清理 binding，也不引入额外协调控制器。Topic settlement 在清理 SemanticBuffer 前把全部 binding refs 冻结进 Materialization task；可选 `ContextAttachmentUse` 只补充实际 representation revision/hash、locator、token 与 compile 诊断。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，consumer 用 task ref 反查 WorkspaceAssetStore、持有 lease，并将对应内容提升为不可变来源 Artifact；`DISCARD` 不执行 promotion。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；task/ref 只在当前进程和 Store 存活期内结算，已提升 Artifact 才按自身持久化契约存在。
+
+当前只支持的文档型附件在提升时复用 `DocumentArtifact`，并通过 `origin=CHAT_ATTACHMENT`、源 asset/revision、parser version 和 content hash 等 metadata 与 `v0.7.0` Document Ingestion 区分入口。Artifact 类型按内容语义而不是入口选择；未来非文档附件不能被强塞进 DocumentArtifact。附件还必须复用 v0.6.1 的 operation identity 与重试语义：同一进程内相同 upload operation 只返回一个逻辑资产，同一 materialization retry 不重复生成来源 Artifact。
+
+W1 只消费 W0 已经稳定的 `WorkspaceIdentity`、`IdentityScope`、WorkspaceAssetStore 和 Topic binding 契约，不重新定义 Workspace 所有权或 fallback。大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。
 
 ### 4.3 Frontend Reliability（并行工作流）
 
@@ -156,7 +174,7 @@ Artifact 先于 Document Ingestion，是为了先保存“用户实际提供了�
 ### 4.4 v0.7.x 能力链
 
 ```text
-Attachment / Document Artifacts
+WorkspaceAsset + on-materialization Artifact promotion
   -> Document Ingestion + Provenance Contract
   -> MTP READ Provenance
 
@@ -165,7 +183,7 @@ Attachment / Document Artifacts
   -> Deep Research
 ```
 
-这条顺序优先复用现有 artifact、provenance、MemoryCompiler 和 RuntimeEvent，同时避免在真实长任务出现前冻结一套用户任务抽象。
+这条顺序优先复用 Workspace scope、Artifact、provenance、MemoryCompiler 和 RuntimeEvent，同时避免在真实长任务出现前冻结一套用户任务抽象。
 
 Document Ingestion 必须建立在 Artifact 之上，因为解析必须保留原始证据；当解析规模确实需要后台执行时，再根据真实耗时、取消和恢复要求建立对应机制。provenance 数据契约应在摄入阶段同步冻结，`v0.7.1` 只负责把已有证据链稳定暴露给 MTP READ。Deep Research 还依赖可追溯输入、可引用输出和已经证明可行的 Agent 长任务执行，否则报告只是另一段无法审计的生成内容。Conversation Branching 不再占用固定版本号，进入未排期表等待 provenance、生命周期边界和真实编辑需求稳定。
 

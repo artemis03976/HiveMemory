@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 import hivememory
-from hivememory.core.models import Identity
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayTimeoutError,
@@ -24,6 +23,7 @@ from hivememory.system.config import (
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.mark.asyncio
@@ -49,7 +49,7 @@ async def test_task_cancel_stops_current_provider_invoke_and_propagates() -> Non
     task = asyncio.create_task(
         GatewayService(runtime).process(
             "需要取消的问题",
-            identity=Identity(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         )
     )
@@ -68,9 +68,10 @@ async def test_task_cancel_stops_current_provider_invoke_and_propagates() -> Non
 @pytest.mark.asyncio
 async def test_deadline_uses_remaining_local_fallbacks_without_more_io() -> None:
     bus = GlobalSystemBus()
+    never_ready = asyncio.Event()
 
     async def slow_topics(**_kwargs):
-        await asyncio.sleep(0.05)
+        await never_ready.wait()
         return ()
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, slow_topics)
@@ -91,9 +92,9 @@ async def test_deadline_uses_remaining_local_fallbacks_without_more_io() -> None
 
     result = await GatewayService(runtime).process(
         "需要检索的问题",
-        identity=Identity(user_id="u1"),
+        identity_scope=make_identity_scope(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-        request_timeout_ms=5,
+        request_timeout_ms=50,
     )
 
     assert result.kind == "decision"
@@ -112,7 +113,7 @@ async def test_exhausted_deadline_without_fallback_raises_timeout() -> None:
     with pytest.raises(GatewayTimeoutError):
         await runtime.workflow.run(
             "问题",
-            identity=Identity(user_id="u1"),
+            identity_scope=make_identity_scope(user_id="u1"),
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
             request_timeout_ms=0,
         )

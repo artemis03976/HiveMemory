@@ -22,13 +22,14 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
+from tests.helpers.memory import make_memory_identity_scope
 
 
 def _task_handle(
     *,
     task_id="j1",
     topic_id="t1",
-    source=MemoryGenerationSource.ARCHIVE,
+    source=MemoryGenerationSource.SETTLE,
 ):
     return MemoryGenerationTask(
         task_id=task_id,
@@ -42,15 +43,18 @@ def _spec(
     *,
     topic_id="t1",
     label="t1",
-    source=MemoryGenerationSource.ARCHIVE,
+    source=MemoryGenerationSource.SETTLE,
     intent_id=None,
     pending_alias=None,
 ):
     return MemoryGenerationTaskSpec(
+        identity_scope=make_memory_identity_scope(),
         topic_id=topic_id,
         label=label,
         source=source,
-        request=GenerationRequest(context=GenerationContext()),
+        request=GenerationRequest(
+            context=GenerationContext(),
+        ),
         intent_id=intent_id,
         pending_alias=pending_alias,
     )

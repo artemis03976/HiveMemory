@@ -16,7 +16,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.protocol.gateway import (
@@ -37,6 +36,8 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_events"
 CONVERSATION = "conv-events"
@@ -74,13 +75,13 @@ def _key() -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        identity=IDENTITY,
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
     )
 
 
 def _memory(content: str = MEMORY_SECRET) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(user_id="u1", source_agent_id="a1"),
+        meta=make_memory_metadata(user_id="u1", source_agent_id="a1"),
         index=IndexLayer(
             title="observability fixture",
             summary="passive observability test fixture atom",
@@ -155,6 +156,7 @@ async def test_event_accepted_is_published_with_correlation() -> None:
     assert accepted.data["role"] == "user"
     assert accepted.status == "accepted"
     assert accepted.agent_id == "a1"
+    assert accepted.workspace_id == "main_workspace"
 
 
 @pytest.mark.asyncio
@@ -224,7 +226,7 @@ async def test_events_never_carry_external_content_or_tool_args() -> None:
         ),
         IDENTITY,
     )
-    await ingressor.flush_conversation(_key(), IDENTITY)
+    await ingressor.flush_conversation(_key())
 
     assert sink.events, "应至少发布若干观测事件"
     serialized = "\n".join(event.model_dump_json() for event in sink.events)
@@ -260,5 +262,5 @@ async def test_ingressor_works_without_sink() -> None:
     outcome = await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
     assert outcome.kind == "user"
 
-    submitted = await ingressor.flush_conversation(_key(), IDENTITY)
+    submitted = await ingressor.flush_conversation(_key())
     assert submitted == 1

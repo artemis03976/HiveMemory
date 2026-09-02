@@ -12,50 +12,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_TEAM_ID, DEFAULT_USER_ID
+from hivememory.core.models.identity import ActorIdentity, Identity
 from hivememory.core.models.immutable import FrozenDict, freeze_mapping
 from hivememory.utils.token_estimator import estimate_tokens
-
-
-class Identity(BaseModel):
-    """
-    身份标识组合 - 统一管理用户、Agent 两个核心ID
-
-    用于替代散落的 user_id, agent_id 参数，
-    提供统一的身份标识和便捷的操作方法。
-
-    注意：session_id 已被移除，其功能被 topic_id 替代。
-    话题的生命周期由 PerceptionLayer 的 topic_id 管理。
-
-    Attributes:
-        user_id: 用户标识符
-        agent_id: Agent 标识符
-    """
-    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
-    team_id: str | None = Field(default=DEFAULT_TEAM_ID, description="团队 ID（用于 Workspace 作用域过滤）")
-    session_id: str | None = Field(default=None, description="会话 ID（兼容字段）")
-
-    @property
-    def buffer_key(self) -> str:
-        """生成用于缓冲区的唯一键"""
-        return f"{self.user_id}:{self.agent_id}"
-
-    @property
-    def is_valid(self) -> bool:
-        """检查身份标识是否有效"""
-        return bool(self.user_id and self.agent_id)
-
-    model_config = ConfigDict(
-        frozen=True,
-        json_schema_extra={
-            "example": {
-                "user_id": "user123",
-                "agent_id": "chatbot",
-                "session_id": "sess_456",
-            }
-        }
-    )
 
 
 class StreamMessageType(str, Enum):

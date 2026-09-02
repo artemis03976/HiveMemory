@@ -19,7 +19,6 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
     GenerationResult,
     MTPExecutionContext,
-    RuntimeScope,
 )
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory
@@ -28,11 +27,11 @@ from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Identity,
     TurnEvent,
 )
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.core.protocol.models import MTPExecutionResult
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _natural_result(text: str) -> GenerationResult:
@@ -103,14 +102,13 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
 
 def _make_frame() -> ExecutionFrame:
     return ExecutionFrame(
-        runtime_scope=RuntimeScope(
+        runtime_scope=make_runtime_scope(
             run_id="run_test_1",
             frame_id="test_frame",
         ),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic_1",
-        identity=Identity(user_id="u1", agent_id="agent_a"),
     )
 
 
@@ -283,6 +281,7 @@ async def test_mtp_execution_receives_frame_context():
     context = kwargs["context"]
     assert isinstance(context, MTPExecutionContext)
     assert context.identity == frame.identity
+    assert context.identity_scope == frame.identity_scope
     assert context.agent_profile is frame.agent_profile
     assert context.runtime_scope.run_id == frame.runtime_scope.run_id
     assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id

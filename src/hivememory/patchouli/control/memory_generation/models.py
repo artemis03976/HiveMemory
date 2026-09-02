@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 
-from hivememory.core.models import LogicalBlock, PendingAtomSettlement
+from hivememory.core.models import IdentityScope, LogicalBlock, PendingAtomSettlement, TopicAssetBinding
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.system.runtime.work_queue import TaskOutcome, WorkState
 
@@ -38,7 +38,7 @@ class MemoryGenerationSource(str, Enum):
 
     WRITE = "WRITE"
     UPDATE = "UPDATE"
-    ARCHIVE = "ARCHIVE"
+    SETTLE = "SETTLE"
 
     @property
     def creation_artifact_intent(
@@ -46,8 +46,8 @@ class MemoryGenerationSource(str, Enum):
     ) -> Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"]:
         """映射新建记忆制品使用的来源意图。"""
 
-        if self == MemoryGenerationSource.ARCHIVE:
-            return "ARCHIVE"
+        if self == MemoryGenerationSource.SETTLE:
+            return "SYSTEM"
         if self == MemoryGenerationSource.WRITE:
             return "WRITE"
         return "SYSTEM"
@@ -69,12 +69,18 @@ class InteractionArtifactInput:
     topic_title: str = ""
     topic_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = ()
+    # settle 前冻结的 Topic 真实使用资产关系；进入 queue 后不再依赖 SemanticBuffer。
+    asset_bindings: tuple[TopicAssetBinding, ...] = ()
 
 
 @dataclass(frozen=True)
 class MemoryGenerationTaskSpec:
-    """记忆生成控制面与数据面共享的规范化输入。"""
+    """记忆生成控制面与数据面共享的规范化输入。
 
+    ``identity_scope`` 是唯一的身份/ownership 来源；GenerationRequest 不再携带权限字段。
+    """
+
+    identity_scope: IdentityScope
     topic_id: str
     label: str
     source: MemoryGenerationSource

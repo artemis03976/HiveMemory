@@ -7,7 +7,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     PendingAtom,
     PendingAtomResolution,
@@ -20,6 +19,8 @@ from hivememory.core.models import (
 from hivememory.engines.memory_compiler.builders.memory_atom import build_memory_atom_ir
 from hivememory.engines.memory_compiler.builders.pending_atom import build_pending_atom_ir
 from hivememory.engines.memory_compiler.builders.resolve_result import build_resolve_result_ir
+from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 
 @pytest.fixture
@@ -33,7 +34,7 @@ def memory_atom() -> MemoryAtom:
             alias="fact_api",
         ),
         payload=PayloadLayer(content="Use /api/v1/memories", history_summary=["created"]),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="agent",
             user_id="u1",
             updated_at=datetime(2026, 1, 1),
@@ -66,6 +67,7 @@ def test_build_pending_atom_ir_for_write_focus():
         status=PendingAtomStatus.PENDING,
         source_verb="WRITE",
         focus=WriteFocus(title="Title", content="Body"),
+        runtime_scope=make_runtime_scope(),
     )
 
     unit = build_pending_atom_ir(pending)
@@ -91,6 +93,7 @@ def test_build_pending_atom_ir_for_update_focus_and_discarded_settlement():
             instruction="Revise it",
             content="New body",
         ),
+        runtime_scope=make_runtime_scope(),
         settlement=PendingAtomSettlement(
             pending_alias="rev_1",
             intent_id="intent-2",

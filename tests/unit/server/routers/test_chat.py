@@ -83,7 +83,7 @@ class TestChatRouter:
         async def fake_stream(**kwargs):
             yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1}}
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         app = _create_test_app(mock_service)
         client = TestClient(app)
@@ -102,8 +102,8 @@ class TestChatRouter:
             },
         )
         assert response.status_code == 200
-        mock_service.chat_stream.assert_called_once()
-        call_kwargs = mock_service.chat_stream.call_args.kwargs
+        mock_service.chat_stream_scoped.assert_called_once()
+        call_kwargs = mock_service.chat_stream_scoped.call_args.kwargs
         assert call_kwargs["generation_options"] == {
             "model": "gpt-4o",
             "temperature": 0.2,
@@ -128,7 +128,7 @@ class TestChatRouter:
                 },
             }
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         app = _create_test_app(mock_service)
         client = TestClient(app)
@@ -164,7 +164,7 @@ class TestChatRouter:
                 },
             }
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         app = _create_test_app(mock_service)
         client = TestClient(app)
@@ -195,7 +195,7 @@ class TestChatRouter:
             yield {"event": "token", "data": {"content": "partial"}}
             raise RuntimeError("LLM 调用失败")
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         app = _create_test_app(mock_service)
         client = TestClient(app)
@@ -232,7 +232,7 @@ class TestChatRouter:
                 },
             }
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         app = _create_test_app(mock_service)
         client = TestClient(app)
@@ -252,7 +252,7 @@ class TestChatRouter:
 
     def test_stop_route_projects_cancel_result(self):
         mock_service = MagicMock()
-        mock_service.cancel_generation.return_value = MagicMock(
+        mock_service.cancel_generation_scoped.return_value = MagicMock(
             generation_id="gen-1",
             cancelled=False,
             status="not_found",
@@ -274,7 +274,7 @@ class TestChatRouter:
             "status": "not_found",
             "reason": "user_requested",
         }
-        mock_service.cancel_generation.assert_called_once_with("gen-1")
+        mock_service.cancel_generation_scoped.assert_called_once()
 
     def test_uuid_payload_is_serializable(self):
         mock_service = MagicMock()
@@ -287,7 +287,7 @@ class TestChatRouter:
                 },
             }
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         app = _create_test_app(mock_service)
         client = TestClient(app)
@@ -325,8 +325,8 @@ class TestChatRouter:
                 disconnect_checks += 1
                 return disconnect_checks >= 3
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
-        mock_service.cancel_generation = MagicMock()
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.cancel_generation_scoped = MagicMock()
 
         response = await chat(
             request=FakeRequest(),
@@ -339,9 +339,11 @@ class TestChatRouter:
         with pytest.raises(StopAsyncIteration):
             await response.body_iterator.__anext__()
 
-        generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
-        mock_service.cancel_generation.assert_called_once_with(
+        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["interaction_id"]
+        identity_scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
+        mock_service.cancel_generation_scoped.assert_called_once_with(
             generation_id,
+            identity_scope=identity_scope,
             reason="client_disconnected",
         )
 
@@ -354,7 +356,7 @@ class TestChatRouter:
         async def fake_stream(**kwargs):
             stream_started.set()
             await blocker.wait()
-            yield {"event": "generation_id", "data": {"generation_id": kwargs["generation_id"]}}
+            yield {"event": "generation_id", "data": {"generation_id": kwargs["interaction_id"]}}
 
         disconnect_checks = 0
 
@@ -364,8 +366,8 @@ class TestChatRouter:
                 disconnect_checks += 1
                 return disconnect_checks >= 2
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
-        mock_service.cancel_generation = MagicMock()
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.cancel_generation_scoped = MagicMock()
 
         response = await chat(
             request=FakeRequest(),
@@ -377,9 +379,11 @@ class TestChatRouter:
             await response.body_iterator.__anext__()
 
         assert stream_started.is_set()
-        generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
-        mock_service.cancel_generation.assert_called_once_with(
+        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["interaction_id"]
+        identity_scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
+        mock_service.cancel_generation_scoped.assert_called_once_with(
             generation_id,
+            identity_scope=identity_scope,
             reason="client_disconnected",
         )
 
@@ -394,7 +398,7 @@ class TestChatRouter:
             nonlocal pull_task
             yield {
                 "event": "generation_id",
-                "data": {"generation_id": kwargs["generation_id"]},
+                "data": {"generation_id": kwargs["interaction_id"]},
             }
             pull_task = asyncio.current_task()
             pull_started.set()
@@ -407,8 +411,8 @@ class TestChatRouter:
             async def is_disconnected(self):
                 return False
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
-        mock_service.cancel_generation = MagicMock()
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.cancel_generation_scoped = MagicMock()
 
         response = await chat(
             request=FakeRequest(),
@@ -430,9 +434,11 @@ class TestChatRouter:
         assert pull_task is not None
         assert pull_task.done()
         assert pull_task.cancelled()
-        generation_id = mock_service.chat_stream.call_args.kwargs["generation_id"]
-        mock_service.cancel_generation.assert_called_once_with(
+        generation_id = mock_service.chat_stream_scoped.call_args.kwargs["interaction_id"]
+        identity_scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
+        mock_service.cancel_generation_scoped.assert_called_once_with(
             generation_id,
+            identity_scope=identity_scope,
             reason="client_disconnected",
         )
 
@@ -445,7 +451,7 @@ class TestChatRouter:
             try:
                 yield {
                     "event": "generation_id",
-                    "data": {"generation_id": kwargs["generation_id"]},
+                    "data": {"generation_id": kwargs["interaction_id"]},
                 }
                 yield {"event": "token", "data": {"content": "late"}}
             finally:
@@ -455,7 +461,7 @@ class TestChatRouter:
             async def is_disconnected(self):
                 return False
 
-        mock_service.chat_stream = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
         response = await chat(
             request=FakeRequest(),

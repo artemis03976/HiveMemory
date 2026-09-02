@@ -12,7 +12,12 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-16
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/architecture/boundaries.md
+related_decisions:
+  - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
+last_reviewed: 2026-09-02
 ---
 
 # HiveMemory 当前系统架构
@@ -43,7 +48,6 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 
 - 最新已发布 Git 标签：`v0.6.1`；
 - 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2` Chat Attachments，状态为 Candidate；
 - 当前代码、构建与运行时版本：`0.6.1`，唯一声明位于 `src/hivememory/_version.py`；
 - 当前发布基线已经包含独立 Gateway、全局命令、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
@@ -53,6 +57,9 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 ## 3. 顶层结构
 
 `SystemAssembler` 是组合根，负责构造共享运行时、三个同级子系统和顶层应用服务。`HiveMemorySystem` 持有最终组件图并管理生命周期。
+
+Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdown 清理顺序见
+[Workspace 架构](./workspace.md)；本文只保留总体组件关系和跨子系统生命周期概览。
 
 ```mermaid
 flowchart TB
@@ -187,7 +194,8 @@ POST /api/v1/ingest
   -> Gateway PROCESS (PASSIVE_MEMORY)
   -> 可选记忆上下文准备
   -> 按外部会话键缓冲并封口 turn
-  -> Patchouli SUBMIT_INTERACTION
+  -> InteractionSubmissionQueue
+  -> PerceptionFamiliar.apply_interaction
 ```
 
 因此，被动模式刻意保持较窄的能力面：
@@ -196,7 +204,7 @@ POST /api/v1/ingest
 - 可以请求 Gateway 决策与记忆上下文；
 - 不运行 Alice，不生成面向用户的回复；
 - 不执行 MTP 或全局命令；
-- 通过去重、顺序控制和 outbox 重试保护外部事件摄入。
+- 通过去重、顺序控制和共享 Work Queue 的 admission/retry 保护外部事件摄入；Passive Ingress 不维护第二个 outbox。
 
 ## 7. 生命周期顺序与设计理由
 
@@ -210,9 +218,10 @@ Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 
 ```text
 Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
+  -> WorkspaceAssetStore.close_and_clear
 ```
 
-启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时顺序反转：先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作。
+启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力，最后清空进程级 WorkspaceAssetStore。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
 
 ## 8. 当前不变量
 
@@ -240,12 +249,14 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 
 这些问题没有自动答案，但能把“架构看起来更整齐”转换成可以验证的所有权与失败语义。
 
+关于身份标识和并发复杂度的长期取舍见[ADR-0002：全局唯一身份与按需并发保护](./decisions/0002-unique-identities-and-minimal-concurrency.md)。当前系统把 UUID 生成的领域 ID 视为唯一身份，不为随机碰撞预先建立业务级恢复机制；队列 retry、ordering、状态迁移原子性和跨边界快照仍按各自契约保留。
+
 ## 10. 已知限制
 
 - `v0.6.1` 已发布；复合意图的下游消费和自定义入口规则属于后续 Unscheduled 方向，不是当前能力；
 - RuntimeEvent 只有进程内有界缓冲，不是耐久审计日志；
 - MTP RUN 的用户代码执行还没有强隔离沙箱；
-- 通用持久化 Job Queue、附件摄入、Document Ingestion 与 Deep Research 尚未实现；
+- 通用持久化 Job Queue、Document Ingestion 与 Deep Research 尚未实现；
 - 发布必须使用与包版本完全匹配的 Git tag，并通过版本一致性和 Release artifact 校验。
 
 ## 11. 验证入口

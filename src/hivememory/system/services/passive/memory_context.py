@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-from hivememory.core.models import Identity
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayIngressMode,
@@ -84,7 +84,7 @@ class MemoryContextProvider:
     async def prepare(
         self,
         event: PassiveIngressEvent,
-        identity: Identity,
+        identity_scope: IdentityScope,
         key: PassiveConversationKey,
     ) -> MemoryContextAttempt:
         """请求 Gateway decision 与 Patchouli retrieval，可恢复失败则降级。
@@ -93,7 +93,7 @@ class MemoryContextProvider:
         正确的 topic，只是缺少 memory context。
         """
         started_at = time.perf_counter()
-        attempt = await self._attempt(event.content, identity, key)
+        attempt = await self._attempt(event.content, identity_scope, key)
 
         self._events.memory_context_prepared(
             key=key,
@@ -107,17 +107,18 @@ class MemoryContextProvider:
             topic_id=(
                 attempt.decision.target_topic_id if attempt.decision else None
             ),
+            workspace_id=identity_scope.workspace_identity.workspace_id,
         )
         return attempt
 
     async def _attempt(
         self,
         content: str,
-        identity: Identity,
+        identity_scope: IdentityScope,
         key: PassiveConversationKey,
     ) -> MemoryContextAttempt:
         try:
-            decision = await self._request_gateway_decision(content, identity)
+            decision = await self._request_gateway_decision(content, identity_scope)
         except Exception as exc:
             if not is_recoverable_ingress_error(exc):
                 raise
@@ -134,7 +135,7 @@ class MemoryContextProvider:
             )
 
         try:
-            retrieval_result = await self._retrieve_for_decision(decision, identity)
+            retrieval_result = await self._retrieve_for_decision(decision, identity_scope)
         except Exception as exc:
             if not is_recoverable_ingress_error(exc):
                 raise
@@ -156,12 +157,12 @@ class MemoryContextProvider:
     async def _request_gateway_decision(
         self,
         content: str,
-        identity: Identity,
+        identity_scope: IdentityScope,
     ) -> GatewayDecision:
         gateway_result = await self._bus.request(
             GlobalRoutes.GATEWAY_PROCESS,
             message=content,
-            identity=identity,
+            identity_scope=identity_scope,
             ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
             request_timeout_ms=self._gateway_request_timeout_ms,
         )
@@ -174,7 +175,7 @@ class MemoryContextProvider:
     async def _retrieve_for_decision(
         self,
         decision: GatewayDecision,
-        identity: Identity,
+        identity_scope: IdentityScope,
     ) -> RetrievalResponse:
         if (
             decision.retrieval_plan.mode == RetrievalMode.SKIP
@@ -187,7 +188,7 @@ class MemoryContextProvider:
             request=RetrievalRequest(
                 semantic_query=decision.rewritten_query,
                 keywords=list(decision.search_keywords),
-                identity=identity,
+                identity_scope=identity_scope,
                 top_k=decision.retrieval_plan.top_k,
             ),
         )

@@ -22,11 +22,9 @@ from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
@@ -35,11 +33,13 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
+from tests.helpers.workspace import make_identity_scope
+from tests.helpers.memory import make_memory_metadata
 
 
 def _build_memory_atom() -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="agent-1",
             user_id="u1",
             confidence_score=0.9,
@@ -57,7 +57,8 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
     return AgentRunContext(
-        identity=Identity(user_id="u1", agent_id="omni_doll"),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        interaction_id="interaction-test",
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,
@@ -118,6 +119,31 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
     cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
     assert cached is memory
     runtime._agent_runtime.run_frame.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_root_frame_inherits_agent_run_workspace_context() -> None:
+    """防止 Alice 创建 root frame 时从 actor 字段重新拼装默认 Workspace。"""
+    runtime, service = _build_service()
+    context = _build_agent_run_context(_build_memory_atom()).model_copy(
+        update={
+            "identity_scope": make_identity_scope(
+                user_id="u1",
+                agent_id="omni_doll",
+                workspace_id="isolation_workspace",
+            ),
+            "interaction_id": "interaction-isolation",
+        }
+    )
+    _stub_terminal_execution(runtime)
+
+    await service.run_agent(context)
+
+    frame = runtime._agent_runtime.run_frame.await_args.args[0]
+    assert frame.identity_scope == context.identity_scope
+    assert frame.runtime_scope.identity_scope.scope_fingerprint == (
+        context.identity_scope.scope_fingerprint
+    )
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 
+from hivememory.core.models import Identity, resolve_default_identity_scope
 from hivememory.server.deps import get_chat_service
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
 from hivememory.system.application.chat_service import ChatApplicationService
@@ -41,24 +42,29 @@ async def chat(
     service: ChatApplicationService = Depends(get_chat_service),
 ):
     """Stream an active chat run over SSE."""
-    generation_id = str(uuid.uuid4())
+    interaction_id = f"interaction_{uuid.uuid4().hex}"
+    identity_scope = resolve_default_identity_scope(
+        Identity(
+            user_id=body.user_id,
+            agent_id=body.agent_id,
+            session_id=body.session_id,
+        ),
+    )
 
     async def event_generator():
         stream = None
 
         try:
-            stream = service.chat_stream(
+            stream = service.chat_stream_scoped(
                 user_message=body.message,
-                user_id=body.user_id,
-                agent_id=body.agent_id,
-                session_id=body.session_id,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
                 generation_options=(
                     body.generation_options.model_dump(exclude_none=True)
                     if body.generation_options
                     else None
                 ),
-                generation_id=generation_id,
             )
 
             while True:
@@ -66,7 +72,11 @@ async def chat(
                 try:
                     while not pull_task.done():
                         if await request.is_disconnected():
-                            service.cancel_generation(generation_id, reason="client_disconnected")
+                            service.cancel_generation_scoped(
+                                interaction_id,
+                                identity_scope=identity_scope,
+                                reason="client_disconnected",
+                            )
                             return
                         await asyncio.sleep(0.1)
 
@@ -78,12 +88,20 @@ async def chat(
                     }
 
                     if await request.is_disconnected():
-                        service.cancel_generation(generation_id, reason="client_disconnected")
+                        service.cancel_generation_scoped(
+                            interaction_id,
+                            identity_scope=identity_scope,
+                            reason="client_disconnected",
+                        )
                         break
                 except StopAsyncIteration:
                     break
                 except asyncio.CancelledError:
-                    service.cancel_generation(generation_id, reason="client_disconnected")
+                    service.cancel_generation_scoped(
+                        interaction_id,
+                        identity_scope=identity_scope,
+                        reason="client_disconnected",
+                    )
                     raise
                 finally:
                     await _cancel_and_join(pull_task)
@@ -113,7 +131,13 @@ async def stop_chat(
     service: ChatApplicationService = Depends(get_chat_service),
 ):
     """Idempotently cancel an active streaming generation."""
-    result = service.cancel_generation(request.generation_id)
+    identity_scope = resolve_default_identity_scope(
+        Identity(user_id=request.user_id, agent_id=request.agent_id),
+    )
+    result = service.cancel_generation_scoped(
+        request.generation_id,
+        identity_scope=identity_scope,
+    )
     return {
         "generation_id": result.generation_id,
         "cancelled": result.cancelled,

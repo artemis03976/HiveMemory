@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import MemoryAtom
 from hivememory.core.models.pending import (
     PendingAtom,
@@ -30,6 +31,7 @@ from hivememory.core.mtp.exceptions import (
     StorageOfflineError,
     StorageReadError,
 )
+from hivememory.engines.retrieval.policy import memory_is_readable
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
@@ -44,12 +46,12 @@ class ResolveResult:
     """别名解析结果。"""
 
     kind: Literal["pending", "redirect", "discarded", "failed", "expired", "atom", "not_found"]
-    requested_alias: Optional[str] = field(default=None)
-    canonical_alias: Optional[str] = field(default=None)
-    canonical_uuid: Optional[str] = field(default=None)
-    pending: Optional[PendingAtom] = field(default=None)
-    atom: Optional[MemoryAtom] = field(default=None)
-    settlement: Optional[PendingAtomSettlement] = field(default=None)
+    requested_alias: str | None = field(default=None)
+    canonical_alias: str | None = field(default=None)
+    canonical_uuid: str | None = field(default=None)
+    pending: PendingAtom | None = field(default=None)
+    atom: MemoryAtom | None = field(default=None)
+    settlement: PendingAtomSettlement | None = field(default=None)
 
 
 class RuntimeAliasResolver:
@@ -62,8 +64,8 @@ class RuntimeAliasResolver:
     def __init__(
         self,
         pending_runtime: PendingAtomRuntime,
-        atom_cache: "KoakumaAtomCache",
-        bus: "AsyncSystemBus",
+        atom_cache: KoakumaAtomCache,
+        bus: AsyncSystemBus,
     ) -> None:
         self._pending_runtime = pending_runtime
         self._atom_cache = atom_cache
@@ -76,7 +78,7 @@ class RuntimeAliasResolver:
     async def resolve(
         self,
         alias: str,
-        context: Optional["MTPExecutionContext"] = None,
+        context: MTPExecutionContext,
     ) -> ResolveResult:
         """
         三级解析 alias。
@@ -84,6 +86,9 @@ class RuntimeAliasResolver:
         Returns:
             ResolveResult: kind="pending" / "redirect" / "discarded" / "failed" / "atom" / "not_found"
         """
+        if context is None:
+            raise ScopeRequiredError("Alias resolve 缺少 IdentityScope")
+
         # L0: PendingAtomRuntime
         pending = self._pending_runtime.get(alias)
         if pending is not None:
@@ -92,9 +97,13 @@ class RuntimeAliasResolver:
 
         # L1: KoakumaAtomCache
         atom = self._atom_cache.get_atom_by_alias(alias)
-        if atom is not None:
+        if atom is not None and self._is_readable(atom, context):
             logger.debug(f"L1 atom cache hit: alias='{alias}'")
             return ResolveResult(kind="atom", requested_alias=alias, atom=atom)
+        if atom is not None:
+            # Cache 维持既有 alias/UUID key；命中只代表存在加速对象，不代表
+            # 当前 Workspace/actor 已获授权。未通过时继续向最终资源 owner 查询。
+            logger.debug("L1 atom cache hit requires scoped owner lookup: alias='%s'", alias)
 
         # L2: Storage cold lookup
         atom = await self._cold_lookup(alias, context)
@@ -107,7 +116,7 @@ class RuntimeAliasResolver:
         self,
         pending: PendingAtom,
         alias: str,
-        context: Optional["MTPExecutionContext"] = None,
+        context: MTPExecutionContext,
     ) -> ResolveResult:
         """解析 L0 pending 命中，包括已结算后的 redirect 状态。"""
         settlement = pending.settlement
@@ -143,7 +152,7 @@ class RuntimeAliasResolver:
             if settlement is not None and (
                 settlement.canonical_alias or settlement.canonical_uuid
             ):
-                atom = self._resolve_cached_canonical(settlement)
+                atom = self._resolve_cached_canonical(settlement, context)
                 if atom is None and settlement.canonical_alias:
                     atom = await self._cold_lookup(settlement.canonical_alias, context)
 
@@ -175,39 +184,52 @@ class RuntimeAliasResolver:
     def _resolve_cached_canonical(
         self,
         settlement: PendingAtomSettlement,
-    ) -> Optional[MemoryAtom]:
+        context: MTPExecutionContext,
+    ) -> MemoryAtom | None:
         if settlement.canonical_uuid:
             atom = self._atom_cache.get_atom_by_uuid(settlement.canonical_uuid)
-            if atom is not None:
+            if atom is not None and self._is_readable(atom, context):
                 return atom
         if settlement.canonical_alias:
-            return self._atom_cache.get_atom_by_alias(settlement.canonical_alias)
+            atom = self._atom_cache.get_atom_by_alias(settlement.canonical_alias)
+            if atom is not None and self._is_readable(atom, context):
+                return atom
         return None
+
+    @staticmethod
+    def _is_readable(atom: MemoryAtom, context: MTPExecutionContext) -> bool:
+        """在 cache 外重验 Memory ownership 与 Workspace 内 actor policy。"""
+        scope = context.identity_scope
+        return memory_is_readable(
+            atom,
+            workspace_identity=scope.workspace_identity,
+            actor_identity=scope.actor_identity,
+        )
 
     async def _cold_lookup(
         self,
         alias: str,
-        context: Optional["MTPExecutionContext"] = None,
-    ) -> Optional[MemoryAtom]:
+        context: MTPExecutionContext,
+    ) -> MemoryAtom | None:
         """L2 冷查询：通过 bus 查询存储层。"""
-        from hivememory.agent_runtime.models import MTPExecutionContext
         from hivememory.system.contracts.routes import GlobalRoutes
 
         try:
-            identity = (
-                context.identity
-                if context is not None
-                else MTPExecutionContext().identity
-            )
             retrieval_response = await self._bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[alias],
-                identity=identity,
+                identity_scope=context.identity_scope,
             )
             memories = getattr(retrieval_response, "memories", []) or []
             memory = memories[0] if memories else None
             if memory is None:
                 logger.debug(f"L2 cold-lookup miss: alias='{alias}'")
+                return None
+
+            # Storage route 是最终资源 owner；这里保留防御性验证，确保错误的
+            # adapter 返回值不会借由随后写入共享 cache 扩大权限。
+            if not self._is_readable(memory, context):
+                logger.warning("L2 cold-lookup returned unauthorized atom: alias='%s'", alias)
                 return None
 
             uuid_str = str(memory.id)
@@ -230,7 +252,7 @@ class RuntimeAliasResolver:
             raise StorageReadError(cause=e) from e
 
     @property
-    def atom_cache(self) -> "KoakumaAtomCache":
+    def atom_cache(self) -> KoakumaAtomCache:
         return self._atom_cache
 
     @property

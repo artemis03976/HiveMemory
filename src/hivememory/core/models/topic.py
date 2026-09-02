@@ -9,6 +9,8 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.interaction import TurnRecord
+from hivememory.core.models.workspace import WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models.workspace_asset import TopicAssetBinding
 
 
 class BufferState(str, Enum):
@@ -32,6 +34,7 @@ class TopicSnapshot(BaseModel):
     """供 Gateway 路由和前端话题池使用的只读快照。"""
 
     topic_id: str
+    workspace_identity: WorkspaceIdentity
     topic_title: str
     topic_summary: str = ""
     state_summary: str = ""
@@ -101,12 +104,13 @@ class TopicData(BaseModel):
     """短期话题缓冲区的完整不可变读取对象。"""
 
     topic_id: str
-    user_id: str
+    workspace_identity: WorkspaceIdentity
     current_agent_id: str = "default"
     topic_title: str
     topic_summary: str = ""
     state_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = Field(default_factory=tuple)
+    bindings: tuple[TopicAssetBinding, ...] = Field(default_factory=tuple)
     state: BufferState = BufferState.IDLE
     last_update: float
     last_accessed_at: float
@@ -116,12 +120,37 @@ class TopicData(BaseModel):
     model_config = ConfigDict(frozen=True, use_enum_values=False)
 
     @property
+    def topic_key(self) -> WorkspaceTopicKey:
+        """返回已由短期 Store 验证的复合 Topic 键。"""
+        return WorkspaceTopicKey(
+            owner_user_id=self.workspace_identity.owner_user_id,
+            workspace_id=self.workspace_identity.workspace_id,
+            topic_id=self.topic_id,
+        )
+
+    @property
+    def user_id(self) -> str:
+        """兼容展示旧 owner 字段；资源寻址必须使用 workspace_identity。"""
+        return self.workspace_identity.owner_user_id
+
+    @property
     def block_count(self) -> int:
         return len(self.blocks)
 
     @property
+    def has_blocks(self) -> bool:
+        """是否存在原始 block（窄语义，不等价于 has_content）。"""
+        return bool(self.blocks)
+
+    @property
+    def has_content(self) -> bool:
+        """是否存在可参与路由与生命周期判断的内容（原始 blocks 或非空白折叠摘要）。"""
+        return bool(self.blocks) or bool(self.state_summary.strip())
+
+    @property
     def is_empty(self) -> bool:
-        return not self.blocks
+        """Topic 是否真正为空：blocks 与非空白 state_summary 均无有效内容。"""
+        return not self.has_content
 
     def recent_blocks(self, limit: int) -> tuple[LogicalBlock, ...]:
         if limit <= 0:
@@ -141,6 +170,7 @@ class TopicData(BaseModel):
             )
         return TopicSnapshot(
             topic_id=self.topic_id,
+            workspace_identity=self.workspace_identity,
             topic_title=self.topic_title,
             topic_summary=self.topic_summary,
             state_summary=self.state_summary,

@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from hivememory.core.models import BufferState, LogicalBlock
+from hivememory.core.models import BufferState, LogicalBlock, TopicAssetBinding, WorkspaceIdentity, WorkspaceTopicKey
 
 
 class SemanticBuffer(BaseModel):
@@ -27,7 +27,7 @@ class SemanticBuffer(BaseModel):
         Pages = blocks (List[LogicalBlock])
     """
     topic_id: str = Field(default_factory=lambda: str(uuid4()), description="话题唯一标识")
-    user_id: str = Field(default="default", description="用户标识")
+    workspace_identity: WorkspaceIdentity
 
     current_agent_id: str = Field(default="default", description="当前话题挂载的活跃 Agent 别名")
 
@@ -36,6 +36,9 @@ class SemanticBuffer(BaseModel):
     state_summary: str = Field(default="", description="页折叠后的状态摘要")
 
     blocks: List[LogicalBlock] = Field(default_factory=list)
+
+    # 本 Topic 真实使用过的资产关系事实；不保存 WorkspaceAsset 快照或 actor-policy 字段。
+    bindings: List[TopicAssetBinding] = Field(default_factory=list)
 
     state: BufferState = BufferState.IDLE
     last_update: float = Field(default_factory=lambda: datetime.now().timestamp())
@@ -46,6 +49,20 @@ class SemanticBuffer(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)
 
+    @property
+    def topic_key(self) -> WorkspaceTopicKey:
+        """返回此 buffer 的权威复合键。"""
+        return WorkspaceTopicKey(
+            owner_user_id=self.workspace_identity.owner_user_id,
+            workspace_id=self.workspace_identity.workspace_id,
+            topic_id=self.topic_id,
+        )
+
+    @property
+    def user_id(self) -> str:
+        """兼容旧展示字段；内部存储不再以裸 user_id 寻址。"""
+        return self.workspace_identity.owner_user_id
+
     def clear(self) -> None:
         self.blocks.clear()
         self.total_tokens = 0
@@ -55,13 +72,25 @@ class SemanticBuffer(BaseModel):
     def get_block_count(self) -> int:
         return len(self.blocks)
 
+    @property
+    def has_blocks(self) -> bool:
+        """是否存在原始 block（窄语义，不等价于 has_content）。"""
+        return bool(self.blocks)
+
+    @property
+    def has_content(self) -> bool:
+        """是否存在可参与路由与生命周期判断的内容（原始 blocks 或非空白折叠摘要）。"""
+        return bool(self.blocks) or bool(self.state_summary.strip())
+
     def get_topic_summary(self) -> str:
-        if not self.blocks:
-            return "空缓冲区"
-        user_queries = [b.anchor_text for b in self.blocks if b.anchor_text]
-        if user_queries:
-            return f"包含 {len(user_queries)} 个用户查询"
-        return f"{len(self.blocks)} 个 Block"
+        if self.blocks:
+            user_queries = [b.anchor_text for b in self.blocks if b.anchor_text]
+            if user_queries:
+                return f"包含 {len(user_queries)} 个用户查询"
+            return f"{len(self.blocks)} 个 Block"
+        if self.state_summary.strip():
+            return "已折叠历史内容"
+        return "空缓冲区"
 
     def is_idle(self, timeout_seconds: int = 900) -> bool:
         return (datetime.now().timestamp() - self.last_update) > timeout_seconds

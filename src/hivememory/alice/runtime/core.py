@@ -10,6 +10,7 @@ from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.core.models import IdentityScope, PendingAtomSettlement
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.model_registry import ModelRegistry
@@ -75,10 +76,26 @@ class AliceRuntime:
         """供 AgentRunService 预热本次 run 的检索别名。"""
         return self._atom_cache
 
-    async def on_pending_atom_settled(self, *, settlement) -> None:
+    async def on_pending_atom_settled(
+        self,
+        *,
+        settlement: PendingAtomSettlement,
+    ) -> None:
         """接收 Patchouli settlement 并更新 Alice 进程内运行时投影。"""
+        pending = self._pending_runtime.get(settlement.pending_alias)
+        if pending is None and settlement.intent_id:
+            pending = self._pending_runtime.get_by_intent_id(settlement.intent_id)
+        identity_scope = (
+            pending.runtime_scope.identity_scope
+            if pending is not None and pending.intent_id == settlement.intent_id
+            else None
+        )
         self._pending_runtime.settle(settlement)
-        await self._refresh_l1_cache_for_settlement(settlement)
+        if identity_scope is not None:
+            await self._refresh_l1_cache_for_settlement(
+                settlement,
+                identity_scope=identity_scope,
+            )
         logger.info(
             "Settlement applied: %s -> %s (canonical=%s)",
             settlement.pending_alias,
@@ -96,8 +113,13 @@ class AliceRuntime:
         self._agent_runtime.mark_task_cancelled(pending_alias)
         logger.warning("PendingAtom marked CANCELLED: %s", pending_alias)
 
-    async def _refresh_l1_cache_for_settlement(self, settlement) -> None:
-        """结算后按 canonical 别名刷新 L1 热缓存，避免后续 READ 读到旧内容。"""
+    async def _refresh_l1_cache_for_settlement(
+        self,
+        settlement: PendingAtomSettlement,
+        *,
+        identity_scope: IdentityScope,
+    ) -> None:
+        """以原 PendingAtom scope 查询资源 owner，再刷新共享 L1 cache。"""
         canonical_alias = settlement.canonical_alias
         if not canonical_alias:
             return
@@ -108,6 +130,7 @@ class AliceRuntime:
             retrieval_response = await self._local_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[canonical_alias],
+                identity_scope=identity_scope,
             )
         except Exception as exc:
             logger.warning(

@@ -10,7 +10,7 @@
 
 数据流:
     Active: ChatService -> prepare_agent_run (Patchouli) -> run_agent (Alice) -> finalize_agent_run (Patchouli)
-    Passive: PassiveIngressService -> ingest_event -> Patchouli (submit_interaction)
+    Passive: PassiveIngressService -> ingest_event -> InteractionSubmissionQueue -> apply_interaction
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
@@ -66,7 +66,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     架构:
         - PatchouliRuntime (帕秋莉运行时): 记忆域运行时宿主
-            - PerceptionFamiliar (感知使魔): 话题缓冲与归档触发
+            - PerceptionFamiliar (感知使魔): 话题缓冲与结算触发
             - RetrievalFamiliar (检索使魔): 上下文检索 (Hot)
             - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
             - LifecycleFamiliar (生命周期使魔): 活力维护与园艺任务
@@ -91,7 +91,7 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
         self._interaction_submission_queue = InteractionSubmissionQueue(
-            self.runtime.perception_familiar.submit_interaction,
+            self.runtime.perception_familiar.apply_interaction,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="interaction_submission_queue",

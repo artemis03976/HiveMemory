@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Archive, Trash2 } from 'lucide-react';
+import { BookmarkCheck, Trash2 } from 'lucide-react';
 import type { Topic } from '@/types';
 
 interface TopicCardProps {
   topic: Topic;
   isActive: boolean;
   onClick: () => void;
-  onArchive?: (id: string) => void;
+  onSettle?: (id: string) => void;
   onDelete?: (id: string) => void;
 }
 
@@ -14,7 +14,7 @@ export default function TopicCard({
   topic,
   isActive,
   onClick,
-  onArchive,
+  onSettle,
   onDelete
 }: TopicCardProps) {
   const [isHovered, setIsHovered] = useState(false);
@@ -58,16 +58,16 @@ export default function TopicCard({
           <div className={`flex gap-1 transition-all duration-200 ${
             isHovered ? "opacity-100 translate-x-0" : "opacity-0 translate-x-2 pointer-events-none"
           }`}>
-            {/* 话题归档按钮 */}
+            {/* 话题结算按钮 */}
             <button
               className="p-1.5 rounded-md hover:bg-white/10 hover:text-white text-slate-500 transition-colors"
-              aria-label="Archive topic"
+              aria-label="Settle topic"
               onClick={(e) => { 
                 e.stopPropagation(); 
-                if (onArchive) onArchive(topic.id);
+                if (onSettle) onSettle(topic.id);
               }}
             >
-              <Archive className="w-3.5 h-3.5" />
+              <BookmarkCheck className="w-3.5 h-3.5" />
             </button>
 
             {/* 话题删除按钮 */}

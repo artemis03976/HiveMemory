@@ -9,7 +9,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.mtp.exceptions import (
@@ -20,6 +19,18 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.infrastructure.storage import QdrantMemoryStore
 from hivememory.system.config import EmbeddingConfig, QdrantConfig
+from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
+from hivememory.engines.retrieval.models import QueryFilters
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+
+
+def _identity_scope(user_id: str = "user1", agent_id: str = "agent1"):
+    return make_identity_scope(user_id=user_id, agent_id=agent_id)
+
+
+def _alias_filter(identity_scope):
+    return QdrantFilterConverter().convert(QueryFilters(), identity_scope)
 
 
 class TestQdrantMemoryStore:
@@ -32,7 +43,7 @@ class TestQdrantMemoryStore:
     ) -> MemoryAtom:
         return MemoryAtom(
             id=uuid4(),
-            meta=MetaData(
+            meta=make_memory_metadata(
                 user_id="system",
                 source_agent_id="system",
                 visibility="PUBLIC",
@@ -129,7 +140,7 @@ class TestQdrantMemoryStore:
     @pytest.mark.asyncio
     async def test_upsert_memory_dense_only(self, storage):
         memory = MemoryAtom(
-            meta=MetaData(source_agent_id="agent1", user_id="user1"),
+            meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
             index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="Content")
         )
@@ -156,7 +167,7 @@ class TestQdrantMemoryStore:
     @pytest.mark.asyncio
     async def test_upsert_memory_hybrid(self, storage):
         memory = MemoryAtom(
-            meta=MetaData(source_agent_id="agent1", user_id="user1"),
+            meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
             index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="Content")
         )
@@ -192,6 +203,7 @@ class TestQdrantMemoryStore:
             top_k=3,
             filters={"meta.user_id": "user1"},
             mode="sparse",
+            workspace_identity=_identity_scope().workspace_identity,
         )
 
         assert len(results) == 1
@@ -219,6 +231,7 @@ class TestQdrantMemoryStore:
             query_text="dense query",
             top_k=2,
             mode="dense",
+            workspace_identity=_identity_scope().workspace_identity,
         )
 
         assert len(results) == 1
@@ -231,7 +244,7 @@ class TestQdrantMemoryStore:
     @staticmethod
     def _make_memory() -> MemoryAtom:
         return MemoryAtom(
-            meta=MetaData(source_agent_id="agent1", user_id="user1"),
+            meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
             index=IndexLayer(
                 title="Test Memory",
                 summary="Summary must be longer than 10 chars",
@@ -247,7 +260,7 @@ class TestQdrantMemoryStore:
     async def test_get_memory_by_alias_found(self, storage):
         """scroll 返回匹配点时，正确还原 MemoryAtom"""
         mem = MemoryAtom(
-            meta=MetaData(source_agent_id="agent1", user_id="user1"),
+            meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
             index=IndexLayer(
                 title="My Tool",
                 summary="A code snippet tool for testing",
@@ -263,7 +276,12 @@ class TestQdrantMemoryStore:
         mock_point.payload = payload
         storage.client.scroll = AsyncMock(return_value=([mock_point], None))
 
-        result = await storage.get_memory_by_alias("code_my_tool")
+        identity_scope = _identity_scope()
+        result = await storage.get_memory_by_alias(
+            "code_my_tool",
+            query_filter=_alias_filter(identity_scope),
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
         assert result is not None
         assert result.index.alias == "code_my_tool"
@@ -275,23 +293,38 @@ class TestQdrantMemoryStore:
         """scroll 返回空列表时，返回 None"""
         storage.client.scroll = AsyncMock(return_value=([], None))
 
-        result = await storage.get_memory_by_alias("nonexistent_alias")
+        identity_scope = _identity_scope()
+        result = await storage.get_memory_by_alias(
+            "nonexistent_alias",
+            query_filter=_alias_filter(identity_scope),
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_memory_by_alias_with_user_filter(self, storage):
-        """传入 user_id 时，filter 应包含 meta.user_id"""
+    async def test_get_memory_by_alias_with_workspace_filter(self, storage):
+        """Alias 查询必须包含 owner/workspace hard filter。"""
         storage.client.scroll = AsyncMock(return_value=([], None))
+        identity_scope = _identity_scope(user_id="user_42")
 
-        await storage.get_memory_by_alias("some_alias", user_id="user_42")
+        await storage.get_memory_by_alias(
+            "some_alias",
+            query_filter=_alias_filter(identity_scope),
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
         call_args = storage.client.scroll.call_args
         scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get("scroll_filter")
-        # Filter 的 must 条件应包含 index.alias 和 meta.user_id
-        field_keys = [cond.key for cond in scroll_filter.must]
-        assert "index.alias" in field_keys
-        assert "meta.user_id" in field_keys
+        # Alias 之外，嵌套 hard filter 同时约束 canonical owner/workspace。
+        assert scroll_filter.must[-1].key == "index.alias"
+        current_owner_conditions = scroll_filter.must[0].must[0].should[0].must
+        field_keys = [cond.key for cond in current_owner_conditions]
+        assert field_keys == [
+            "meta.owner_user_id",
+            "meta.workspace_key",
+            "meta.workspace_id",
+        ]
 
     @pytest.mark.asyncio
     async def test_get_memory_by_alias_exception(self, storage):
@@ -299,7 +332,12 @@ class TestQdrantMemoryStore:
         storage.client.scroll = AsyncMock(side_effect=Exception("Connection refused"))
 
         with pytest.raises(StorageReadError):
-            await storage.get_memory_by_alias("broken_alias")
+            identity_scope = _identity_scope()
+            await storage.get_memory_by_alias(
+                "broken_alias",
+                query_filter=_alias_filter(identity_scope),
+                workspace_identity=identity_scope.workspace_identity,
+            )
 
     # ========== get_agent_profile ==========
 
@@ -308,7 +346,7 @@ class TestQdrantMemoryStore:
         profile_atom = self._make_profile_atom(agent_id="coder_doll")
         storage.get_memory_by_alias = AsyncMock(return_value=profile_atom)
 
-        result = await storage.get_agent_profile("coder_doll")
+        result = await storage.get_agent_profile(_identity_scope("system", "system"), "coder_doll")
 
         assert result.persona == "You are a test agent."
 
@@ -317,16 +355,16 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias = AsyncMock(return_value=None)
 
         with pytest.raises(AliasNotFoundError) as exc_info:
-            await storage.get_agent_profile("nonexistent_agent")
+            await storage.get_agent_profile(_identity_scope(), "nonexistent_agent")
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
-        storage.get_memory_by_alias.assert_called_once_with("nonexistent_agent")
+        storage.get_memory_by_alias.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_get_agent_profile_wrong_type_fails_explicitly(self, storage):
         wrong_atom = MemoryAtom(
             id=uuid4(),
-            meta=MetaData(user_id="test", source_agent_id="test"),
+            meta=make_memory_metadata(source_agent_id="test", user_id="test"),
             index=IndexLayer(
                 alias="not_a_profile",
                 title="Regular Memory",
@@ -339,7 +377,7 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias = AsyncMock(return_value=wrong_atom)
 
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
-            await storage.get_agent_profile("not_a_profile")
+            await storage.get_agent_profile(_identity_scope("test", "test"), "not_a_profile")
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
 
@@ -347,7 +385,7 @@ class TestQdrantMemoryStore:
     async def test_get_agent_profile_broken_atom_fails_explicitly(self, storage):
         broken_atom = MemoryAtom(
             id=uuid4(),
-            meta=MetaData(user_id="system", source_agent_id="system"),
+            meta=make_memory_metadata(source_agent_id="system", user_id="system"),
             index=IndexLayer(
                 alias="broken_agent",
                 title="Broken Profile",
@@ -363,7 +401,7 @@ class TestQdrantMemoryStore:
         storage.get_memory_by_alias = AsyncMock(return_value=broken_atom)
 
         with pytest.raises(InvalidArgumentError) as exc_info:
-            await storage.get_agent_profile("broken_agent")
+            await storage.get_agent_profile(_identity_scope("system", "system"), "broken_agent")
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
 
@@ -372,7 +410,7 @@ class TestQdrantMemoryStore:
     async def test_get_agent_profile_builtin_alias_returns_omni(self, storage, alias):
         storage.get_memory_by_alias = AsyncMock()
 
-        result = await storage.get_agent_profile(alias)
+        result = await storage.get_agent_profile(_identity_scope(), alias)
 
         assert result is OMNI_DOLL_PROFILE
         storage.get_memory_by_alias.assert_not_called()

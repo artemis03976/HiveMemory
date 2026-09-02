@@ -72,7 +72,7 @@ class PendingAtomRuntime:
         title: str | None,
         reason: str | None,
         identity: Identity,
-        runtime_scope: RuntimeScope | None = None,
+        runtime_scope: RuntimeScope,
     ) -> PendingAtom:
         """注册 WRITE pending atom，返回带有生成 alias 的 PendingAtom。status=PENDING。"""
         slug_source = title if title else content[:20]
@@ -95,7 +95,7 @@ class PendingAtomRuntime:
             source_verb="WRITE",
             focus=focus,
             identity=identity,
-            runtime_scope=runtime_scope or RuntimeScope(),
+            runtime_scope=runtime_scope,
         )
         self._store.put(atom)
         self._store.bind_intent(intent_id, pending_alias)
@@ -109,7 +109,7 @@ class PendingAtomRuntime:
         instruction: str,
         content: str | None,
         identity: Identity,
-        runtime_scope: RuntimeScope | None = None,
+        runtime_scope: RuntimeScope,
     ) -> PendingAtom:
         """注册 UPDATE pending revision，返回带有生成 alias 的 PendingAtom。status=PENDING。"""
         short_id = uuid4().hex[:4]
@@ -129,7 +129,7 @@ class PendingAtomRuntime:
             source_verb="UPDATE",
             focus=focus,
             identity=identity,
-            runtime_scope=runtime_scope or RuntimeScope(),
+            runtime_scope=runtime_scope,
         )
         self._store.put(atom)
         self._store.bind_intent(intent_id, pending_alias)

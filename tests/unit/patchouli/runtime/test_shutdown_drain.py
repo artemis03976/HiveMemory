@@ -3,6 +3,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
+from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.runtime.shutdown_drain import (
     build_shutdown_generation_summary,
     shutdown_drain_completed_severity,
@@ -11,16 +12,13 @@ from hivememory.patchouli.runtime.shutdown_drain import (
     summarize_shutdown_drain_perception,
     summarize_shutdown_drain_result,
 )
-from hivememory.patchouli.services.perception import ShutdownFlushResult
 
 
 def test_summarize_shutdown_drain_result_uses_counts_only():
-    perception = ShutdownFlushResult(
-        success=True,
-        trigger_reason="shutdown",
-        flushed_topics=["topic-a", "topic-b"],
-        skipped_topics=["topic-c"],
-        archived_blocks=3,
+    perception = TopicShutdownFlushReport(
+        settled_topic_ids=("topic-a", "topic-b"),
+        generation_skipped_topic_ids=("topic-b",),
+        resident_block_count=3,
     )
     generation = build_shutdown_generation_summary(
         [
@@ -46,11 +44,9 @@ def test_summarize_shutdown_drain_result_uses_counts_only():
     )
 
     assert summary["perception"] == {
-        "success": True,
-        "trigger_reason": "shutdown",
-        "flushed_topic_count": 2,
-        "skipped_topic_count": 1,
-        "archived_blocks": 3,
+        "settled_topic_count": 2,
+        "generation_skipped_topic_count": 1,
+        "resident_block_count": 3,
     }
     assert summary["generation"]["running"] == 1
     assert summary["generation"]["timed_out"] == 1
@@ -64,20 +60,16 @@ def test_summarize_shutdown_drain_result_uses_counts_only():
 def test_summarize_shutdown_drain_perception_accepts_reentrant_dict():
     summary = summarize_shutdown_drain_perception(
         {
-            "success": True,
-            "trigger_reason": "shutdown",
-            "flushed_topics": [],
-            "skipped_topics": [],
-            "archived_blocks": 0,
+            "settled_topic_ids": [],
+            "generation_skipped_topic_ids": [],
+            "resident_block_count": 0,
         }
     )
 
     assert summary == {
-        "success": True,
-        "trigger_reason": "shutdown",
-        "flushed_topic_count": 0,
-        "skipped_topic_count": 0,
-        "archived_blocks": 0,
+        "settled_topic_count": 0,
+        "generation_skipped_topic_count": 0,
+        "resident_block_count": 0,
     }
 
 

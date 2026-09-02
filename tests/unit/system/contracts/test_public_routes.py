@@ -12,7 +12,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
@@ -24,6 +23,8 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 # ========== Alice ==========
 
@@ -31,7 +32,7 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 def _make_memory(alias: str, content: str) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="Test Memory",
             summary="A test memory for public route behavior",
@@ -130,12 +131,12 @@ class TestAlicePublicRoutes:
             received.append(("retrieve", request))
             return "retrieved"
 
-        async def retrieve_by_aliases(*, aliases):
-            received.append(("aliases", aliases))
+        async def retrieve_by_aliases(*, aliases, identity_scope):
+            received.append(("aliases", aliases, identity_scope))
             return "aliases"
 
-        async def get_agent_profile(alias):
-            received.append(("profile", alias))
+        async def get_agent_profile(alias, *, identity_scope):
+            received.append(("profile", alias, identity_scope))
             return "profile"
 
         async def record_citation(*, memory_id, source):
@@ -158,6 +159,7 @@ class TestAlicePublicRoutes:
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
+        identity_scope = make_identity_scope()
 
         result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
@@ -166,10 +168,12 @@ class TestAlicePublicRoutes:
         aliases_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             aliases=["a"],
+            identity_scope=identity_scope,
         )
         profile_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             "coder_doll",
+            identity_scope=identity_scope,
         )
         citation_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
@@ -183,8 +187,8 @@ class TestAlicePublicRoutes:
         assert citation_result == "citation"
         assert received == [
             ("retrieve", "request"),
-            ("aliases", ["a"]),
-            ("profile", "coder_doll"),
+            ("aliases", ["a"], identity_scope),
+            ("profile", "coder_doll", identity_scope),
             ("citation", "mid", "mtp.read"),
         ]
 
@@ -203,7 +207,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_cancelled_event_marks_alice_pending_atom_cancelled(self):
-        from hivememory.core.models import Identity, RuntimeScope
+        from hivememory.core.models import Identity
         from hivememory.core.models.pending import PendingAtomStatus
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
@@ -213,7 +217,7 @@ class TestAlicePublicRoutes:
             title="Draft",
             reason=None,
             identity=Identity(user_id="test_user", agent_id="test_agent"),
-            runtime_scope=RuntimeScope(run_id="run-1"),
+            runtime_scope=make_runtime_scope(run_id="run-1"),
         )
 
         await self.global_bus.publish(
@@ -225,22 +229,39 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_settlement_refreshes_alice_l1_atom_cache(self):
+        """结算事件以原 scope 查询资源 owner，再刷新共享 L1 cache。"""
+        from hivememory.core.models import Identity
+
         stale_atom = _make_memory("fact_canonical", "stale content")
         fresh_atom = _make_memory("fact_canonical", "fresh content")
-        retrieve_by_aliases = AsyncMock(
-            return_value=SimpleNamespace(memories=[fresh_atom])
-        )
+        refresh_requests = []
+
+        async def retrieve_by_aliases(*, aliases, identity_scope):
+            refresh_requests.append((aliases, identity_scope))
+            return SimpleNamespace(memories=[fresh_atom])
+
         self.global_bus.register(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             retrieve_by_aliases,
         )
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
-        system.runtime._atom_cache.ingest_atom(stale_atom)
+        identity = Identity(user_id="test_user", agent_id="test_agent")
+        identity_scope = make_identity_scope(actor_identity=identity)
+        pending_runtime = system.runtime.alias_resolver.pending_runtime
+        pending = pending_runtime.register_write(
+            content="draft",
+            title="Draft",
+            reason=None,
+            identity=identity,
+            runtime_scope=make_runtime_scope(actor_identity=identity, run_id="run-1"),
+        )
+        pending_runtime.start_materializing(pending.pending_alias)
+        system.runtime.atom_cache.ingest_atom(stale_atom)
 
         settlement = PendingAtomSettlement(
-            pending_alias="draft_memory_1234",
-            intent_id="intent_1234",
+            pending_alias=pending.pending_alias,
+            intent_id=pending.intent_id,
             resolution=PendingAtomResolution.CREATED,
             canonical_alias="fact_canonical",
             canonical_uuid=str(fresh_atom.id),
@@ -251,9 +272,14 @@ class TestAlicePublicRoutes:
             settlement=settlement,
         )
 
-        retrieve_by_aliases.assert_awaited_once_with(aliases=["fact_canonical"])
-        assert system.runtime._atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
-        assert system.runtime._atom_cache.get_atom_by_uuid(str(stale_atom.id)) is None
+        assert refresh_requests == [(["fact_canonical"], identity_scope)]
+        assert system.runtime.atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
+        assert (
+            system.runtime.atom_cache.get_atom_by_uuid(
+                str(stale_atom.id),
+            )
+            is None
+        )
 
 
 # ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
@@ -266,7 +292,6 @@ class TestPatchouliPublicRoutes:
 
     @pytest.mark.asyncio
     async def test_public_route_constants_are_consistent(self):
-        assert PatchouliRoutes.SUBMIT_INTERACTION == "patchouli.public.submit_interaction"
         assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
         assert PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES == "patchouli.public.memory.retrieve_by_aliases"
         assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
@@ -290,6 +315,7 @@ class TestPatchouliPublicRoutes:
         bridge.mount()
 
         routes = self.global_bus.list_routes()
+        assert "patchouli.public.submit_interaction" not in routes
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
         assert PatchouliRoutes.TOPIC_GET_DATA in routes
         assert PatchouliRoutes.EVICT_TOPIC in routes

@@ -2,16 +2,20 @@ from __future__ import annotations
 
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
+from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.workspace import make_identity_scope
 
 
 def test_frame_factory_creates_root_frame_from_spec() -> None:
     factory = FrameFactory()
     frame = factory.create(
         FrameSpec(
-            runtime_scope=factory.scope(run_id="run-1", frame_id="frame-1"),
+            runtime_scope=factory.scope(
+                identity_scope=make_identity_scope(user_id="u1"),
+                run_id="run-1",
+                frame_id="frame-1",
+            ),
             profile=OMNI_DOLL_PROFILE,
-            identity=Identity(user_id="u1"),
             messages=[{"role": "system", "content": "hello"}],
             topic_id="topic-1",
             execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
@@ -26,9 +30,12 @@ def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
     factory = FrameFactory()
     frame = factory.create(
         FrameSpec(
-            runtime_scope=factory.scope(run_id="run-1", frame_id="frame-2"),
+            runtime_scope=factory.scope(
+                identity_scope=make_identity_scope(user_id="u1"),
+                run_id="run-1",
+                frame_id="frame-2",
+            ),
             profile=OMNI_DOLL_PROFILE,
-            identity=Identity(user_id="u1"),
             messages=[{"role": "user", "content": "task"}],
             topic_id=None,
             execution_policy=FrameExecutionPolicy.from_profile(
@@ -58,9 +65,12 @@ def test_frame_factory_records_only_latest_user_message() -> None:
 
     frame = factory.create(
         FrameSpec(
-            runtime_scope=factory.scope(run_id="run-1", frame_id="frame-3"),
+            runtime_scope=factory.scope(
+                identity_scope=make_identity_scope(user_id="u1"),
+                run_id="run-1",
+                frame_id="frame-3",
+            ),
             profile=OMNI_DOLL_PROFILE,
-            identity=Identity(user_id="u1"),
             messages=messages,
             topic_id="topic-1",
             execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
@@ -77,9 +87,12 @@ def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
     factory = FrameFactory()
     frame = factory.create(
         FrameSpec(
-            runtime_scope=factory.scope(run_id="run-1", frame_id="frame-4"),
+            runtime_scope=factory.scope(
+                identity_scope=make_identity_scope(user_id="u1"),
+                run_id="run-1",
+                frame_id="frame-4",
+            ),
             profile=OMNI_DOLL_PROFILE,
-            identity=Identity(user_id="u1"),
             messages=[
                 {"role": "user", "content": "previous"},
                 {"role": "user", "content": ""},

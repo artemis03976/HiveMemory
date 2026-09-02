@@ -22,6 +22,12 @@ from hivememory.system.config import (
 )
 from hivememory.engines.retrieval.retriever import HybridRetriever, DenseRetriever, SearchResults
 from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters, SearchResult
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+
+
+def _make_identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
 
 
 class TestDenseRetriever:
@@ -39,12 +45,22 @@ class TestDenseRetriever:
         self.memory1 = MemoryAtom(
             index=IndexLayer(title="M1", summary="Summary of M1 content", memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="C1"),
-            meta=MetaData(source_agent_id="a1", user_id="u1", updated_at=datetime.now(), confidence_score=0.9)
+            meta=make_memory_metadata(
+                source_agent_id="a1",
+                user_id="u1",
+                updated_at=datetime.now(),
+                confidence_score=0.9,
+            )
         )
         self.memory2 = MemoryAtom(
             index=IndexLayer(title="M2", summary="Summary of M2 content", memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="C2"),
-            meta=MetaData(source_agent_id="a1", user_id="u1", updated_at=datetime.now() - timedelta(days=60), confidence_score=0.8)
+            meta=make_memory_metadata(
+                source_agent_id="a1",
+                user_id="u1",
+                updated_at=datetime.now() - timedelta(days=60),
+                confidence_score=0.8,
+            )
         )
 
     @pytest.mark.asyncio
@@ -56,7 +72,7 @@ class TestDenseRetriever:
             {"memory": self.memory2, "score": 0.8}
         ])
 
-        query = RetrievalQuery(semantic_query="test")
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query, top_k=2)
 
         assert len(results) == 2
@@ -68,22 +84,19 @@ class TestDenseRetriever:
         """测试带过滤条件的检索"""
         self.mock_storage.search = AsyncMock(return_value=[])
         
-        filters = QueryFilters(memory_type=MemoryType.FACT, identity=Identity(user_id="u1"))
-        query = RetrievalQuery(semantic_query="test", filters=filters)
+        filters = QueryFilters(memory_type=MemoryType.FACT)
+        query = RetrievalQuery(
+            semantic_query="test",
+            filters=filters,
+            identity_scope=_make_identity_scope(),
+        )
         
         await self.retriever.retrieve(query)
         
-        # 验证过滤条件传递 (现在返回 qdrant Filter 对象)
+        # 过滤条件属于业务查询；授权作用域由独立 IdentityScope 传递。
         call_args = self.mock_storage.search.call_args
-        qdrant_filter = call_args.kwargs["filters"]
-        # Filter 对象的 must 条件中应包含 user_id 和 memory_type
-        must_conditions = qdrant_filter.must
-        field_keys = []
-        for cond in must_conditions:
-            if hasattr(cond, 'key'):
-                field_keys.append(cond.key)
-        assert "meta.user_id" in field_keys
-        assert "index.memory_type" in field_keys
+        assert call_args.args[0] == query.identity_scope
+        assert call_args.kwargs["filters"] == filters
 
     @pytest.mark.asyncio
     async def test_time_decay(self):
@@ -99,7 +112,7 @@ class TestDenseRetriever:
             {"memory": self.memory2, "score": 0.85}
         ])
         
-        query = RetrievalQuery(semantic_query="test")
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query)
         
         # M1 虽然原始分低，但因为 M2 时间久远衰减，M1 应该排在前面
@@ -124,7 +137,8 @@ class TestDenseRetriever:
         query = RetrievalQuery(
             semantic_query="test",
             keywords=["t1"],
-            filters={}
+            filters={},
+            identity_scope=_make_identity_scope(),
         )
         results = await self.retriever.retrieve(query)
         
@@ -138,7 +152,7 @@ class TestDenseRetriever:
             {"memory": self.memory1, "score": 0.9}
         ])
 
-        query = RetrievalQuery(semantic_query="test")
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query)
 
         # 1 天前的新记忆几乎无衰减，分数接近原始值
@@ -170,12 +184,20 @@ class TestHybridRetriever:
         self.memory1 = MemoryAtom(
             index=IndexLayer(title="M1", summary="Summary of M1 content is long enough", memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="C1"),
-            meta=MetaData(source_agent_id="a1", user_id="u1", updated_at=datetime.now())
+            meta=make_memory_metadata(
+                source_agent_id="a1",
+                user_id="u1",
+                updated_at=datetime.now(),
+            )
         )
         self.memory2 = MemoryAtom(
             index=IndexLayer(title="M2", summary="Summary of M2 content is long enough", memory_type=MemoryType.FACT),
             payload=PayloadLayer(content="C2"),
-            meta=MetaData(source_agent_id="a1", user_id="u1", updated_at=datetime.now())
+            meta=make_memory_metadata(
+                source_agent_id="a1",
+                user_id="u1",
+                updated_at=datetime.now(),
+            )
         )
 
     @pytest.mark.asyncio
@@ -192,7 +214,7 @@ class TestHybridRetriever:
             SearchResult(memory=self.memory2, score=0.85)
         ]))
 
-        query = RetrievalQuery(semantic_query="test")
+        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.searcher.retrieve(query, top_k=2)
 
         # 两个检索通道的结果经真实 RRF 融合后都被保留

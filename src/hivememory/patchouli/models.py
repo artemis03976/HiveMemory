@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from hivememory.core.models import AgentProfile, Identity, TopicSnapshot
+from hivememory.core.models import AgentProfile, Identity, IdentityScope, TopicSnapshot
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import AgentRunContext
 
@@ -27,12 +27,20 @@ class PreparedAgentRun:
     agent_run_context: AgentRunContext
     gateway_decision: GatewayDecision
     stream_prelude: StreamPrelude
-    interaction_id: str
     generation_options: dict[str, Any] | None = field(default=None)
 
     @property
+    def identity_scope(self) -> IdentityScope:
+        """从权威 AgentRunContext 派生唯一的请求级身份作用域。"""
+        return self.agent_run_context.identity_scope
+
+    @property
     def identity(self) -> Identity:
-        return self.agent_run_context.identity
+        return self.identity_scope.actor_identity
+
+    @property
+    def interaction_id(self) -> str:
+        return self.agent_run_context.interaction_id
 
     @property
     def agent_id(self) -> str:

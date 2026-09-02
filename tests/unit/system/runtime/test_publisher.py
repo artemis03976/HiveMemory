@@ -19,7 +19,9 @@ def test_runtime_event_publisher_combines_scope_context_and_typed_payload() -> N
         .bind(
             task_type="foreground",
             generation_id="generation-1",
+            interaction_id="interaction-1",
             agent_run_id="run-1",
+            workspace_id="isolation_workspace",
         )
     )
 
@@ -34,6 +36,8 @@ def test_runtime_event_publisher_combines_scope_context_and_typed_payload() -> N
     assert event.subsystem == "alice"
     assert event.source == "alice"
     assert event.component == "agent_run"
+    assert event.interaction_id == "interaction-1"
+    assert event.workspace_id == "isolation_workspace"
 
 
 def test_runtime_event_publisher_sanitizes_mapping_payload() -> None:

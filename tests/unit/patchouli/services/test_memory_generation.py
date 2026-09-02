@@ -14,14 +14,13 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import (
-    Identity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     TurnRecord,
+    WorkspaceIdentity,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
 from hivememory.core.models.pending import WriteFocus
@@ -38,12 +37,31 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskSpec,
 )
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+
+
+def _identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
+
+
+def _artifact_ref(artifact_id: str, artifact_type: ArtifactType) -> ArtifactRef:
+    """构造与测试 Memory 同属 main_workspace 的受控引用。"""
+    return ArtifactRef(
+        artifact_id=artifact_id,
+        artifact_type=artifact_type,
+        workspace_identity=WorkspaceIdentity(
+            owner_user_id="u1",
+            workspace_key="main_workspace",
+            workspace_id="main_workspace",
+        ),
+    )
 
 
 def _make_memory_atom(title="test_memory", memory_id=None) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id or uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
         index=IndexLayer(
             title=title,
             summary=f"This is a valid summary for {title} with enough chars",
@@ -71,13 +89,13 @@ def _make_outcome(
 
 def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_interaction_input=True):
     spec = MemoryGenerationTaskSpec(
+        identity_scope=make_memory_identity_scope(),
         topic_id=topic_id,
         label="test",
         source=source,
         request=GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="remember this"),
-            identity=Identity(user_id="u1"),
         ),
         interaction_input=InteractionArtifactInput(
             topic_id=topic_id,
@@ -112,7 +130,7 @@ class TestMemoryGenerationFamiliarExecute:
 
     @pytest.mark.asyncio
     async def test_execute_builds_interaction_artifact_and_runs_generation(self):
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
         spec = _make_spec()
 
         gen_engine = Mock()
@@ -217,10 +235,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            identity=Identity(user_id="u1"),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -233,7 +251,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         assert len(results) == 1
         assert results[0].canonical_alias is None
         assert results[0].settlement is None
-        gen_engine.process.assert_awaited_once_with(request)
+        gen_engine.process.assert_awaited_once_with(request, identity_scope=spec.identity_scope)
 
     @pytest.mark.asyncio
     async def test_run_generation_upserts_created_atoms(self):
@@ -251,10 +269,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            identity=Identity(user_id="u1"),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -282,10 +300,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            identity=Identity(user_id="u1"),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -312,10 +330,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            identity=Identity(user_id="u1"),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -343,10 +361,10 @@ class TestMemoryGenerationFamiliarRunGeneration:
         request = GenerationRequest(
             context=GenerationContext(),
             write_focus=WriteFocus(content="test"),
-            identity=Identity(user_id="u1"),
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
+            identity_scope=make_memory_identity_scope(),
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -435,7 +453,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
 
         assert result is None
 
@@ -451,7 +469,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
 
         assert result is None
         artifact_engine.interaction.build_and_store.assert_not_called()
@@ -471,7 +489,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data)
+        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
 
         assert result is None
 
@@ -479,11 +497,11 @@ class TestMemoryGenerationFamiliarArtifacts:
     async def test_attach_memory_artifacts_for_create_attaches_refs(self):
         atom = _make_memory_atom()
         outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=atom)
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
 
         memory_bundle = MemoryCreationBundle(
-            initial_version_ref=ArtifactRef(artifact_id="version_1", artifact_type=ArtifactType.MEMORY_VERSION),
-            creation_ref=ArtifactRef(artifact_id="creation_1", artifact_type=ArtifactType.MEMORY_CREATION),
+            initial_version_ref=_artifact_ref("version_1", ArtifactType.MEMORY_VERSION),
+            creation_ref=_artifact_ref("creation_1", ArtifactType.MEMORY_CREATION),
         )
 
         artifact_engine = Mock()
@@ -511,9 +529,9 @@ class TestMemoryGenerationFamiliarArtifacts:
             atom=atom,
             memory_before_snapshot=Mock(),
         )
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
 
-        version_ref = ArtifactRef(artifact_id="version_2", artifact_type=ArtifactType.MEMORY_VERSION)
+        version_ref = _artifact_ref("version_2", ArtifactType.MEMORY_VERSION)
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
@@ -537,7 +555,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.events = []
         outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=atom)
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
 
         familiar = self._make_familiar(artifact_engine=None)
 
@@ -558,7 +576,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         atom.payload.artifacts.refs = []
         atom.payload.artifacts.events = []
         outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=atom)
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
@@ -587,7 +605,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             atom=atom,
             changelog="changed",
         )
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
@@ -610,7 +628,7 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_attach_memory_artifacts_ignores_results_without_atoms(self):
         outcome = _make_outcome(decision=DuplicateDecision.CREATE, atom=None)
-        interaction_ref = ArtifactRef(artifact_id="interaction_1", artifact_type=ArtifactType.INTERACTION)
+        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
@@ -630,14 +648,8 @@ class TestMemoryGenerationFamiliarArtifacts:
     async def test_create_external_memory_builds_manual_creation_artifacts(self):
         atom = _make_memory_atom()
         memory_bundle = MemoryCreationBundle(
-            initial_version_ref=ArtifactRef(
-                artifact_id="version_1",
-                artifact_type=ArtifactType.MEMORY_VERSION,
-            ),
-            creation_ref=ArtifactRef(
-                artifact_id="creation_1",
-                artifact_type=ArtifactType.MEMORY_CREATION,
-            ),
+            initial_version_ref=_artifact_ref("version_1", ArtifactType.MEMORY_VERSION),
+            creation_ref=_artifact_ref("creation_1", ArtifactType.MEMORY_CREATION),
         )
 
         artifact_engine = Mock()
@@ -650,7 +662,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             artifact_engine=artifact_engine,
         )
 
-        result = await familiar.create_external_memory(atom)
+        result = await familiar.create_external_memory(_identity_scope(), atom)
 
         assert result is atom
         artifact_engine.memory.build_for_create.assert_awaited_once()
@@ -667,16 +679,13 @@ class TestMemoryGenerationFamiliarArtifacts:
     async def test_update_external_memory_builds_manual_version_artifact(self):
         atom = _make_memory_atom()
         original_version = atom.meta.version
-        version_ref = ArtifactRef(
-            artifact_id="version_2",
-            artifact_type=ArtifactType.MEMORY_VERSION,
-        )
+        version_ref = _artifact_ref("version_2", ArtifactType.MEMORY_VERSION)
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
         artifact_engine.memory.build_for_update = AsyncMock(return_value=version_ref)
         mid_term = Mock()
-        mid_term.get = AsyncMock(return_value=atom)
+        mid_term.get_for_mutation = AsyncMock(return_value=atom)
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(
             mid_term=mid_term,
@@ -685,6 +694,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         result = await familiar.update_external_memory(
             atom.id,
+            identity_scope=_identity_scope(),
             title="Updated",
             summary="Updated summary",
             content="Updated content",
@@ -716,11 +726,15 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_update_external_memory_returns_none_when_missing(self):
         mid_term = Mock()
-        mid_term.get = AsyncMock(return_value=None)
+        mid_term.get_for_mutation = AsyncMock(return_value=None)
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(mid_term=mid_term)
 
-        result = await familiar.update_external_memory(uuid4(), title="Updated")
+        result = await familiar.update_external_memory(
+            uuid4(),
+            identity_scope=_identity_scope(),
+            title="Updated",
+        )
 
         assert result is None
         mid_term.upsert.assert_not_called()

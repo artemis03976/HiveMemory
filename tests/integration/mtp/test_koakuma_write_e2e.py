@@ -1,19 +1,21 @@
 """Koakuma WRITE 指令链路集成测试。"""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
+from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.models import (
     Identity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.system.config import KoakumaConfig
+from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 from .conftest import (
     make_koakuma_runtime,
@@ -30,7 +32,12 @@ def identity() -> Identity:
 @pytest.fixture
 def sample_memory(identity) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(user_id=identity.user_id, source_agent_id=identity.agent_id, session_id=None, confidence_score=1.0),
+        meta=make_memory_metadata(
+            user_id=identity.user_id,
+            source_agent_id=identity.agent_id,
+            session_id=None,
+            confidence_score=1.0,
+        ),
         index=IndexLayer(title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="端口从 8080 改为 9090"),
     )
@@ -53,7 +60,9 @@ class TestKoakumaWriteE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(identity=Identity(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(user_id="test_user")
+        )
         return koakuma
 
     @pytest.mark.asyncio
@@ -106,11 +115,9 @@ class TestKoakumaWriteE2E:
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        from hivememory.core.models import RuntimeScope
-
         context = MTPExecutionContext(
-            identity=Identity(user_id="test_user"),
-            runtime_scope=RuntimeScope(
+            runtime_scope=make_runtime_scope(
+                user_id="test_user",
                 run_id="run_write_test",
                 frame_id="frame_main_write",
             ),

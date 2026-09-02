@@ -7,11 +7,14 @@ code_paths:
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
   - src/hivememory/system/contracts/subsystem.py
+  - src/hivememory/system/runtime/workspace/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # System 组合根与生命周期
@@ -28,9 +31,10 @@ last_reviewed: 2026-07-28
 HiveMemorySystem.build(config)
   -> SystemAssembler
        -> runtime bundle
-            GlobalSystemBus
-            GlobalMaintenanceScheduler
-            RuntimeEventBus / NullRuntimeEventSink
+             GlobalSystemBus
+             GlobalMaintenanceScheduler
+             InMemoryWorkspaceAssetStore（进程级唯一）
+             RuntimeEventBus / NullRuntimeEventSink
        -> registries bundle
             ProviderRegistry
             ModelRegistry
@@ -50,7 +54,8 @@ HiveMemorySystem.build(config)
 - `GlobalSystemBus`：跨子系统 public route 的 RPC/Pub/Sub 交接面；
 - `GlobalMaintenanceScheduler`：在当前主 `asyncio` loop 调度维护任务；
 - `RuntimeEventBus`：启用时保存有界观测事件和订阅队列；
-- `NullRuntimeEventSink`：观测关闭时的无副作用替代实现。
+- `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
+- `InMemoryWorkspaceAssetStore`：System-owned 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 
@@ -101,12 +106,15 @@ GlobalMaintenanceScheduler.stop
   -> Alice.stop
   -> Patchouli.stop
   -> Gateway.stop
+  -> WorkspaceAssetStore.close_and_clear
   -> SYSTEM_STOPPED
 ```
 
-先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`，并等待队列已接受的 work 进入终态。只有被动摄入完成 shutdown drain 后，才关闭 Alice、Patchouli 和 Gateway，避免在 submission 仍待 apply 时停止 Patchouli worker。
+先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止后，Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
+
+对于从未成功启动的 System，`stop()` 在完成必要的 Passive drain 后即可清空 AssetStore 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
 
 ## 4. 健康状态与公共入口
 
@@ -127,6 +135,7 @@ System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `ch
 - 维护任务必须在 scheduler 注册，不能由业务组件偷偷创建第二个 interval loop；
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
 - `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
+- `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。
 
 评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。

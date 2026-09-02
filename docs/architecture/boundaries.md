@@ -9,15 +9,22 @@ code_paths:
   - src/hivememory/patchouli/
   - src/hivememory/alice/
   - src/hivememory/core/protocol/
+  - src/hivememory/core/models/identity.py
+  - src/hivememory/core/models/workspace.py
+  - src/hivememory/core/models/topic.py
+  - src/hivememory/system/runtime/workspace/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-05
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/architecture/data-model.md
+last_reviewed: 2026-09-01
 ---
 
 # 系统边界与所有权
 
-本文定义 System、Gateway、Patchouli、Alice 之间当前生效的责任、状态所有权和依赖方向。具体公开输入输出由[子系统契约](../contracts/subsystem-contracts.md)定义。
+本文定义 System、Gateway、Patchouli、Alice 之间当前生效的责任、状态所有权和依赖方向。Workspace 是横跨这些边界的资源归属坐标，但不是第五个子系统；其完整当前语义见[Workspace 架构](./workspace.md)。具体公开输入输出由[子系统契约](../contracts/subsystem-contracts.md)定义。
 
 这里的“边界”不是为了让目录看起来整齐，也不是把一套进程内实现包装成微服务。它要解决的是一个更直接的问题：当一次交互同时经过入口判断、记忆检索、Agent 执行和长期沉淀时，究竟由谁作决定、由谁保存状态、又由谁对失败负责。如果这个问题没有唯一答案，同一份状态就会在多个 Runtime 中出现副本，业务顺序会散落到 HTTP router、事件订阅者和领域对象里，局部修复最终会改变整条链路的语义。
 
@@ -41,6 +48,12 @@ last_reviewed: 2026-08-05
 3. **模型应依赖中立**：跨边界模型放在 `core/protocol` 或明确的公共 contract 模块中，不暴露具体引擎对象。
 4. **状态只有一个所有者**：其他模块可以读取投影或发送命令，不能并行维护同一状态的第二份权威副本。
 5. **观测不反向控制业务**：RuntimeEvent 可以描述运行过程，但订阅者和观测失败不能改变业务终态。
+
+### 2.1 Workspace 是跨边界的归属坐标
+
+`IdentityScope` 是一次操作携带的不可变 `ActorIdentity + WorkspaceIdentity`。它沿着应用服务、公开 route、interaction 和后台 task 传播，并在 Workspace-owned 资源的最终读写处再次校验；它不把 Gateway、Patchouli、Alice 或共享 runtime 复制成按 Workspace 分区的实例。
+
+当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore` 是 System 进程级唯一的运行时 working set。Topic 的 `topic_id` 在领域上全局唯一，`WorkspaceTopicKey` 只是将 owner/workspace 坐标与 ID 组合起来进行寻址和拒绝跨域访问。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
@@ -68,6 +81,7 @@ System 是舞台管理者：它知道一次完整用例需要哪些参与者、�
 - `RuntimeEventBus` 有界事件缓冲；
 - 全局维护任务注册与调度状态；
 - Provider / Model 注册信息。
+- `WorkspaceAssetStore` 及其当前进程内 asset、representation、opaque ref 和 lease working set；关闭时由 System 最后清空。
 
 ### 4.2 允许的依赖
 
@@ -86,7 +100,7 @@ Gateway 的价值在于把不稳定、可能降级的入口分析收敛为一个
 
 ### 5.1 输入与输出
 
-Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`Identity`、`GatewayIngressMode` 以及可选 `request_timeout_ms`；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
+Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`IdentityScope`、`GatewayIngressMode` 以及可选 `request_timeout_ms`；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
 
 `GatewayDecision` 只表达下游需要的稳定事实：目标话题、查询重写、关键词、记忆写入信号、检索计划和主意图。Workflow 的 step、snapshot、fallback 原因与内部分析对象不越过公共边界。
 
@@ -113,7 +127,8 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 ### 6.1 拥有的状态
 
 - MemoryAtom、索引、payload、版本与 artifact 引用；
-- 活跃话题、语义缓冲和 interaction；
+- 活跃话题、语义缓冲、interaction 及 TopicAssetBinding；
+- Workspace-owned Topic、Memory、Artifact 的归属校验与领域生命周期；
 - Agent Profile 的长期表示；
 - 记忆生成任务与维护状态；
 - 检索缓存、生命周期统计和引用/反馈记录。
@@ -171,6 +186,8 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 | `AgentRunResult` | Alice | Pydantic 公共模型 |
 | `InteractionPayload` | Patchouli 组装并消费 | 公共协议模型，不由 router 拼装 |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
+| `WorkspaceAsset` working set | System | 窄化 Asset port、`WorkspaceAssetRef` 与 lease |
+| `WorkspaceIdentity` / `IdentityScope` | Core value object；由入口和各领域所有者携带 | 不可变公共模型，不构成独立运行时状态 |
 | PendingAtom 运行时状态 | Alice | 结算事件从 Patchouli 回传 |
 | chat / passive run 控制 | System | 应用服务内部状态与 RuntimeEvent 投影 |
 | RuntimeEvent | System 观测设施 | best-effort 事件信封 |
@@ -216,5 +233,7 @@ Subsystem -> RuntimeEventSink (观测旁路)
 - prepare/finalize、取消、清理或启停顺序变化；
 - local 能力升级为公共能力；
 - RuntimeEvent 开始参与业务控制。
+- Workspace-owned 资源的所有权或复合寻址变化；
+- 共享基础设施开始按 Workspace 复制或分区。
 
-主要验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/`、`tests/unit/patchouli/`、`tests/unit/alice/`。
+主要验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/system/runtime/workspace/`、`tests/unit/gateway/`、`tests/unit/patchouli/`、`tests/unit/alice/`，以及 `tests/integration/system/test_workspace_access_propagation.py`、`tests/integration/patchouli/test_memory_workspace_isolation.py`。

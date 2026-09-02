@@ -44,7 +44,7 @@ class MemoryResponse(BaseModel):
             updated_at=atom.meta.updated_at,
             confidence_score=atom.meta.confidence_score,
             vitality_score=atom.meta.vitality_score,
-            user_id=atom.meta.user_id,
+            user_id=atom.workspace_identity.owner_user_id,
             access_count=atom.meta.access_count,
         )
 

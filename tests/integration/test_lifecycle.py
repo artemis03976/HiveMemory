@@ -10,8 +10,8 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
 from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
 from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollector
@@ -30,12 +30,25 @@ from hivememory.system.config import (
     ReinforcementEngineConfig,
     VitalityCalculatorConfig,
 )
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+
+
+def _identity_scope():
+    return make_identity_scope(user_id="user1", agent_id="agent1")
+
+
+def _key(memory: MemoryAtom) -> WorkspaceMemoryKey:
+    return WorkspaceMemoryKey(
+        workspace_identity=memory.workspace_identity,
+        memory_id=memory.id,
+    )
 
 
 def _make_memory(title: str = "Test", vitality_score: float = 50.0) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="agent1",
             user_id="user1",
             confidence_score=0.8,
@@ -53,34 +66,59 @@ def _make_memory(title: str = "Test", vitality_score: float = 50.0) -> MemoryAto
 
 class InMemoryMidTermPort:
     def __init__(self) -> None:
-        self.memories: dict[UUID, MemoryAtom] = {}
+        self.memories: dict[tuple[str, str, UUID], MemoryAtom] = {}
+
+    @staticmethod
+    def _memory_key(memory: MemoryAtom) -> tuple[str, str, UUID]:
+        workspace = memory.workspace_identity
+        return workspace.owner_user_id, workspace.workspace_id, memory.id
+
+    @staticmethod
+    def _scope_key(scope, memory_id: UUID) -> tuple[str, str, UUID]:
+        workspace = scope.workspace_identity
+        return workspace.owner_user_id, workspace.workspace_id, memory_id
 
     async def upsert(self, memory: MemoryAtom) -> None:
-        self.memories[memory.id] = memory
+        self.memories[self._memory_key(memory)] = memory
 
-    async def get(self, memory_id: UUID) -> MemoryAtom | None:
-        return self.memories.get(memory_id)
+    async def get(self, scope, memory_id: UUID) -> MemoryAtom | None:
+        return self.memories.get(self._scope_key(scope, memory_id))
 
-    async def get_by_alias(self, alias: str, user_id: str | None = None) -> MemoryAtom | None:
+    async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
         return None
 
-    async def update_access_info(self, memory_id: UUID) -> None:
-        memory = self.memories.get(memory_id)
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
+        return await self.get(identity_scope, memory_id)
+
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
+        workspace = key.workspace_identity
+        return self.memories.get(
+            (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
+        )
+
+    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
+        memory = await self.get(identity_scope, memory_id)
         if memory is not None:
             memory.meta.access_count += 1
 
-    async def delete(self, memory_id: UUID) -> bool:
-        return self.memories.pop(memory_id, None) is not None
+    async def delete(self, identity_scope, memory_id: UUID) -> bool:
+        return self.memories.pop(self._scope_key(identity_scope, memory_id), None) is not None
 
-    async def batch_delete(self, ids: list[UUID]) -> int:
+    async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
+        workspace = key.workspace_identity
+        storage_key = (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
+        return self.memories.pop(storage_key, None) is not None
+
+    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
         count = 0
         for memory_id in ids:
-            if await self.delete(memory_id):
+            if await self.delete(identity_scope, memory_id):
                 count += 1
         return count
 
     async def search(
         self,
+        scope,
         query: str,
         top_k: int,
         filters=None,
@@ -89,14 +127,22 @@ class InMemoryMidTermPort:
     ):
         return [
             {"memory": memory, "score": 1.0}
-            for memory in list(self.memories.values())[:top_k]
+            for memory in self.memories.values()
+            if memory.workspace_identity == scope.workspace_identity
         ]
 
-    async def scroll(self, filters=None, limit: int = 100) -> list[MemoryAtom]:
-        return list(self.memories.values())[:limit]
+    async def scroll(self, scope, filters=None, limit: int = 100) -> list[MemoryAtom]:
+        return [
+            memory
+            for memory in self.memories.values()
+            if memory.workspace_identity == scope.workspace_identity
+        ][:limit]
 
-    async def count(self, filters=None) -> int:
-        return len(self.memories)
+    async def count(self, scope, filters=None) -> int:
+        return len(await self.scroll(scope, filters=filters))
+
+    async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
+        return list(self.memories.values())[:limit]
 
 
 @pytest.fixture
@@ -141,8 +187,8 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
     memory = _make_memory()
     await memory_library.mid_term.upsert(memory)
 
-    result = await engine.record_hit(memory.id, source="integration")
-    updated = await memory_library.mid_term.get(memory.id)
+    result = await engine.record_hit(_identity_scope(), memory.id, source="integration")
+    updated = await memory_library.mid_term.get(_identity_scope(), memory.id)
 
     assert result.event_type == EventType.HIT
     assert updated.meta.access_count == 1
@@ -155,15 +201,15 @@ async def test_memory_library_archive_and_revive_moves_between_stores(lifecycle_
     memory = _make_memory(vitality_score=10.0)
     await memory_library.mid_term.upsert(memory)
 
-    await memory_library.archive(memory.id)
+    await memory_library.archive(_key(memory))
 
-    assert await memory_library.mid_term.get(memory.id) is None
-    assert await memory_library.long_term.is_archived(memory.id) is True
+    assert await memory_library.mid_term.get(_identity_scope(), memory.id) is None
+    assert await memory_library.long_term.is_archived(_key(memory)) is True
 
-    await memory_library.revive(memory.id)
+    await memory_library.revive(_identity_scope(), memory.id)
 
-    assert await memory_library.mid_term.get(memory.id) is not None
-    assert await memory_library.long_term.is_archived(memory.id) is False
+    assert await memory_library.mid_term.get(_identity_scope(), memory.id) is not None
+    assert await memory_library.long_term.is_archived(_key(memory)) is False
 
 
 @pytest.mark.asyncio
@@ -180,8 +226,8 @@ async def test_garbage_collection_archives_low_vitality_memory(lifecycle_stack):
     archived = await engine.run_garbage_collection(force=True)
 
     assert archived == 1
-    assert await memory_library.long_term.is_archived(low.id) is True
-    assert await memory_library.mid_term.get(high.id) is not None
+    assert await memory_library.long_term.is_archived(_key(low)) is True
+    assert await memory_library.mid_term.get(_identity_scope(), high.id) is not None
 
 
 @pytest.mark.asyncio
@@ -191,6 +237,7 @@ async def test_event_history_is_exposed(lifecycle_stack):
     await memory_library.mid_term.upsert(memory)
 
     await engine.record_event(
+        _identity_scope(),
         MemoryEvent(event_type=EventType.CITATION, memory_id=memory.id, source="integration")
     )
 

@@ -11,12 +11,16 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-30
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 记忆检索
 
 Retrieval 的职责是从当前可检索书库中找出候选记忆，而不是把候选直接写进 prompt，也不是替 Agent 判断哪条事实最终正确。它返回 `MemoryAtom[]` 与搜索元信息；MemoryCompiler 再根据主动 chat、MTP READ、子 Agent 共享或 embedding 等用途编译文本视图。
+
+每个 `RetrievalRequest` 必须携带 `IdentityScope`。Retrieval 将其作为 Workspace hard boundary 传给 MemoryLibrary，先限定请求 Workspace 的资源归属，再应用记忆自身的 actor read policy；检索文档不复制完整 Workspace 模型，身份坐标与资源寻址以[Workspace 架构](../architecture/workspace.md)为准。
 
 这个分离修正了旧设计中的一个根本混淆：检索器应该优化“找什么、排多高”，编译器应该决定“给谁看、展示多少、用何种语言”。若 Retrieval 同时持有 renderer，任何 prompt 变化都会污染排序接口，其他消费者也只能重复实现一套记忆格式。
 
@@ -25,7 +29,7 @@ Retrieval 的职责是从当前可检索书库中找出候选记忆，而不是�
 ```text
 RetrievalRequest
   -> RetrievalFamiliar
-       -> QueryFilters(identity + business filters)
+       -> QueryFilters(business filters) + IdentityScope hard boundary
        -> RetrievalQuery
   -> RetrievalEngine
   -> Dense / Sparse / Hybrid Retriever
@@ -49,7 +53,7 @@ RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` �
 
 ### 2.2 中期记忆读取
 
-中期读取包括 UUID、alias、scroll/list 和相关性搜索。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存。只有未指定 Profile 时才允许使用内置 `OMNI_DOLL_PROFILE` fallback；`default` / `omni_doll` 是对该内置 Profile 的直接选择。显式自定义 alias 必须携带 Identity，并经过 user 与 PUBLIC / WORKSPACE / PRIVATE 可见性检查；缺失、越权、类型不符、配置无效或存储失败都显式返回对应结构化错误。
+中期读取包括 UUID、alias、scroll/list 和相关性搜索。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存。只有未指定 Profile 时才允许使用内置 `OMNI_DOLL_PROFILE` fallback；`default` / `omni_doll` 是对该内置 Profile 的直接选择。显式自定义 alias 必须携带 `IdentityScope`，并先通过 Workspace ownership hard filter，再执行 Workspace 内的 PUBLIC / TEAM / PRIVATE actor policy；缺失、越权、类型不符、配置无效或存储失败都显式返回对应结构化错误。
 
 ### 2.3 长期归档读取
 
@@ -57,22 +61,9 @@ Familiar 可查询 archive records 或检查 `is_archived`，但普通检索只�
 
 ## 3. 身份与可见性过滤
 
-RetrievalFamiliar 总是从 `RetrievalRequest.identity` 构造安全基线，调用方 filters 只能补充 memory type、tags 与 min confidence，不能替换 identity。
+RetrievalFamiliar 总是从 `RetrievalRequest.identity_scope` 构造安全基线，调用方 filters 只能补充 memory type、source agent 与 min confidence 等业务维度，不能替换身份或 Workspace 边界。
 
-Qdrant 当前转换为：
-
-```text
-must user_id == current user
-and (
-  visibility == PUBLIC
-  or visibility == WORKSPACE and team_id == current team
-  or visibility == PRIVATE and source_agent_id == current agent
-)
-and optional memory_type
-and optional min_confidence
-```
-
-这是一种“同一用户内的同心圆可见性”模型：PUBLIC 并不表示跨所有用户公开，user_id 仍是硬过滤。Workspace 依赖 team identity，Private 依赖 source agent identity。
+Qdrant 当前先要求记忆的 `workspace_identity` 与请求 Workspace 完全匹配；对旧的 main-workspace 记录保留受控兼容分支。通过 ownership hard filter 后，再按记忆的 actor read policy 选择：`PUBLIC` 对 Workspace 内所有已获准执行者可读，`TEAM` 仅目标 team 可读，`PRIVATE` 仅目标 agent 可读。因而 `PUBLIC` 也不表示跨 Workspace 或跨用户公开。
 
 当前 converter 尚未把 `tags` 与 `time_range` 转为 Qdrant 条件；它们出现在模型中，但不是已经生效的过滤能力。文档和 API 不能仅因字段存在就宣称完整支持。
 
@@ -142,6 +133,6 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 - 普通异常可能被投影为空结果，调用方只能通过观测区分；
 - 普通检索不搜索长期 archive，也不自动 revive；
 - 当前 retrieval response 主要暴露 atoms，`SearchResult.match_reason` 等解释元信息没有完整进入公共响应；
-- 可见性基线已实现，但 Generation 的 dedup search 尚未复用同一 identity filter。
+- Workspace ownership hard filter 已由 Memory store/adapter 统一执行；Generation 的 dedup search 已沿同一 `IdentityScope` 调用链受该边界约束，但 Retrieval 的 actor policy、legacy record 兼容和多种 threshold 口径仍需继续收敛。
 
 修复这些缺口时应优先保持身份硬过滤和 Retrieval/Compiler 解耦，不能为了快速接入一个新字段而把 prompt 或跨系统状态重新塞回 retriever。

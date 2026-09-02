@@ -15,21 +15,25 @@ READ 指令执行链路测试
 """
 
 import asyncio
+from uuid import uuid4
+
 import pytest
-from uuid import uuid4, UUID
-from unittest.mock import MagicMock, patch
 
-from hivememory.core.models import (
-    MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
-    PendingAtomResolution, PendingAtomSettlement,
-)
-from hivememory.engines.generation.models import DuplicateDecision
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+)
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
+from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
-from hivememory.core.models import Identity
-
+from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.memory import make_memory_metadata
 
 # ========== Helpers ==========
 
@@ -41,7 +45,7 @@ def _make_memory(
 ) -> MemoryAtom:
     return MemoryAtom(
         id=mem_id or uuid4(),
-        meta=MetaData(user_id="test_user", source_agent_id="test_agent"),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title=title,
             summary="A test memory for unit testing",
@@ -61,7 +65,12 @@ def koakuma() -> KoakumaRuntime:
 
 
 def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
-    return asyncio.run(koakuma.execute_mtp(text, context=context))
+    return asyncio.run(
+        koakuma.execute_mtp(
+            text,
+            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+        )
+    )
 
 
 def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
@@ -70,7 +79,7 @@ def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context
     return asyncio.run(
         koakuma.intercept_and_execute(
             normalize_worker_agent_mtp_output(assistant_text),
-            context=context,
+            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
         )
     )
 
@@ -139,7 +148,7 @@ class TestReadAliasResolution:
         koakuma.atom_cache.ingest_atom(mem)
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
         context = MTPExecutionContext(
-            identity=Identity(user_id="test_user"),
+            runtime_scope=make_runtime_scope(user_id="test_user"),
             language="en",
         )
 
@@ -187,7 +196,8 @@ class TestReadAliasResolution:
             content="pending content",
             title="Pending Note",
             reason=None,
-            identity=MTPExecutionContext().identity,
+            identity=make_runtime_scope().identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(),
         )
         canonical = _make_memory(
             content="canonical content",
@@ -224,7 +234,8 @@ class TestReadAliasResolution:
             content="pending content",
             title="Pending Note",
             reason=None,
-            identity=MTPExecutionContext().identity,
+            identity=make_runtime_scope().identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(),
         )
         koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
         koakuma.pending_runtime.settle(
@@ -249,7 +260,8 @@ class TestReadAliasResolution:
             content="pending content",
             title="Pending Note",
             reason=None,
-            identity=MTPExecutionContext().identity,
+            identity=make_runtime_scope().identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(),
         )
         koakuma.pending_runtime.expire(pending.pending_alias)
 

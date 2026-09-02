@@ -18,6 +18,7 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.system import HiveMemorySystem
 
 
@@ -28,7 +29,7 @@ def _build_runtime_with_local_bus():
     runtime.local_routes_registered = False
     runtime.local_bus = runtime._local_bus
     runtime.perception_familiar = MagicMock()
-    runtime.perception_familiar.submit_interaction = AsyncMock()
+    runtime.perception_familiar.apply_interaction = AsyncMock()
     runtime.perception_familiar.prepare_topic = AsyncMock()
     runtime.perception_familiar.manual_settle_topic = AsyncMock()
     runtime.retrieval_familiar = MagicMock()
@@ -126,6 +127,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         runtime = _RuntimeBundle(
             global_bus=global_bus,
             scheduler=scheduler,
+            workspace_asset_store=InMemoryWorkspaceAssetStore(),
             event_bus=None,
             event_sink=runtime_event_sink,
             event_publisher=RuntimeEventPublisher(runtime_event_sink),

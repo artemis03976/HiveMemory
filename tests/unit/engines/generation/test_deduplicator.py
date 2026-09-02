@@ -13,11 +13,12 @@ from unittest.mock import MagicMock
 from datetime import datetime
 from uuid import uuid4
 
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
 from hivememory.system.config import DeduplicatorConfig
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.engines.generation.extractor import ExtractedMemoryDraft
+from tests.helpers.memory import make_memory_metadata
 
 
 class TestMemoryDeduplicator:
@@ -43,7 +44,7 @@ class TestMemoryDeduplicator:
         
         self.existing_memory = MemoryAtom(
             id=str(uuid4()),
-            meta=MetaData(
+            meta=make_memory_metadata(
                 source_agent_id="agent1",
                 user_id="user1",
                 session_id="session1",

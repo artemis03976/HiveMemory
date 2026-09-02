@@ -20,14 +20,17 @@ class AgentRunEventEmitter:
         generation_id: str | None,
         topic_id: str | None,
         agent_id: str | None,
+        workspace_id: str | None = None,
     ) -> BoundAgentRunEvents:
         return BoundAgentRunEvents(
             self._publisher.bind(
                 task_type="foreground",
                 agent_run_id=agent_run_id,
                 generation_id=generation_id,
+                interaction_id=generation_id,
                 topic_id=topic_id,
                 agent_id=agent_id,
+                workspace_id=workspace_id,
             )
         )
 

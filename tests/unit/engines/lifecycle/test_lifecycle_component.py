@@ -50,7 +50,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 # 核心模型
-from hivememory.core.models import MemoryAtom, MemoryType
+from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceMemoryKey
 
 # Lifecycle 组件
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
@@ -87,6 +87,7 @@ from tests.fixtures.lifecycle_test_data import (
     get_reinforcement_test_by_id,
     get_archiving_test_by_id,
 )
+from tests.helpers.workspace import make_identity_scope
 
 console = Console(force_terminal=True, legacy_windows=False)
 
@@ -98,33 +99,55 @@ class _MockMidTermAdapter:
     async def upsert(self, memory: MemoryAtom) -> None:
         await self._storage.upsert_memory(memory)
 
-    async def get(self, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get(self, scope, memory_id: UUID) -> Optional[MemoryAtom]:
         return await self._storage.get_memory(memory_id)
 
-    async def get_by_alias(self, alias: str, user_id: Optional[str] = None) -> Optional[MemoryAtom]:
+    async def get_by_alias(self, scope, alias: str) -> Optional[MemoryAtom]:
         return None
 
-    async def update_access_info(self, memory_id: UUID) -> None:
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> Optional[MemoryAtom]:
+        memory = await self._storage.get_memory(memory_id)
+        if memory is None or memory.workspace_identity != identity_scope.workspace_identity:
+            return None
+        return memory
+
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
+        memory = await self._storage.get_memory(key.memory_id)
+        if memory is None or memory.workspace_identity != key.workspace_identity:
+            return None
+        return memory
+
+    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
         return None
 
-    async def delete(self, memory_id: UUID) -> bool:
+    async def delete(self, identity_scope, memory_id: UUID) -> bool:
         return await self._storage.delete_memory(memory_id)
 
-    async def batch_delete(self, ids: List[UUID]) -> int:
+    async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
+        return await self._storage.delete_memory(key.memory_id)
+
+    async def batch_delete(self, identity_scope, ids: List[UUID]) -> int:
         count = 0
         for memory_id in ids:
-            if await self.delete(memory_id):
+            if await self.delete(identity_scope, memory_id):
                 count += 1
         return count
 
-    async def search(self, query: str, top_k: int, filters=None, mode: str = "dense", score_threshold: float = 0.0):
+    async def search(self, scope, query: str, top_k: int, filters=None, mode: str = "dense", score_threshold: float = 0.0):
         return []
 
-    async def scroll(self, filters=None, limit: int = 100) -> List[MemoryAtom]:
-        return self._storage.list_all_memories(limit=limit)
+    async def scroll(self, scope, filters=None, limit: int = 100) -> List[MemoryAtom]:
+        return [
+            memory
+            for memory in self._storage.list_all_memories(limit=limit)
+            if memory.workspace_identity == scope.workspace_identity
+        ]
 
-    async def count(self, filters=None) -> int:
-        return self._storage.count
+    async def count(self, scope, filters=None) -> int:
+        return len(await self.scroll(scope, filters=filters))
+
+    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
+        return self._storage.list_all_memories(limit=limit)
 
 
 class _LegacyArchiverFixture:
@@ -132,17 +155,27 @@ class _LegacyArchiverFixture:
         self._library = memory_library
 
     async def archive(self, memory_id: UUID) -> None:
-        if await self._library.long_term.is_archived(memory_id):
+        key = self._memory_key(memory_id)
+        if await self._library.long_term.is_archived(key):
             return
-        await self._library.archive(memory_id)
+        await self._library.archive(key)
 
     async def resurrect(self, memory_id: UUID) -> MemoryAtom:
-        memory = await self._library.long_term.load(memory_id)
-        await self._library.revive(memory_id)
+        key = self._memory_key(memory_id)
+        memory = await self._library.long_term.load(key)
+        await self._library.revive(self._identity_scope(), memory_id)
         return memory
 
     async def is_archived(self, memory_id: UUID) -> bool:
-        return await self._library.long_term.is_archived(memory_id)
+        return await self._library.long_term.is_archived(self._memory_key(memory_id))
+
+    @staticmethod
+    def _identity_scope():
+        return make_identity_scope(user_id="test_user", agent_id="test_agent")
+
+    @classmethod
+    def _memory_key(cls, memory_id: UUID) -> WorkspaceMemoryKey:
+        return WorkspaceMemoryKey.from_identity_scope(cls._identity_scope(), memory_id)
 
     async def get_archive_record(self, memory_id: UUID) -> Optional[ArchiveRecord]:
         records = await self._library.long_term.query(limit=100)
@@ -488,7 +521,11 @@ class TestReinforcement:
             memory_id=memory.id,
             source="test_retrieval_hit",
         )
-        result = await reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            memory.id,
+            event,
+        )
 
         updated_memory = await mock_storage.get_memory(memory.id)
 
@@ -555,7 +592,11 @@ class TestReinforcement:
             memory_id=memory.id,
             source="test",
         )
-        result = await reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            memory.id,
+            event,
+        )
 
         # 获取更新后的记忆
         updated_memory = await mock_storage.get_memory(memory.id)
@@ -603,7 +644,11 @@ class TestReinforcement:
             memory_id=old_memory.id,
             source="test",
         )
-        result = await reinforcement_engine.reinforce(old_memory.id, event)
+        result = await reinforcement_engine.reinforce(
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            old_memory.id,
+            event,
+        )
 
         # 获取更新后的记忆
         updated_memory = await mock_storage.get_memory(old_memory.id)
@@ -653,7 +698,11 @@ class TestReinforcement:
             memory_id=memory.id,
             source="user",
         )
-        result = await reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            memory.id,
+            event,
+        )
 
         # 获取更新后的记忆
         updated_memory = await mock_storage.get_memory(memory.id)
@@ -699,7 +748,11 @@ class TestReinforcement:
             memory_id=memory.id,
             source="user",
         )
-        result = await reinforcement_engine.reinforce(memory.id, event)
+        result = await reinforcement_engine.reinforce(
+            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            memory.id,
+            event,
+        )
 
         # 获取更新后的记忆
         updated_memory = await mock_storage.get_memory(memory.id)

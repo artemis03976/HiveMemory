@@ -84,10 +84,6 @@ class PatchouliBridge:
     def _public_route_bindings(self) -> list[tuple[str, Any]]:
         return [
             (
-                PatchouliRoutes.SUBMIT_INTERACTION,
-                self._public_api.chat.submit_interaction,
-            ),
-            (
                 PatchouliRoutes.MEMORY_CREATE,
                 self._public_api.memory.create_memory,
             ),

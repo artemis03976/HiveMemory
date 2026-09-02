@@ -1,4 +1,4 @@
-﻿"""
+"""
 ChatApplicationService — 顶层主动交互应用服务 (Phase D / v0.4.0)
 
 v0.4.0 Phase 1 变更：
@@ -17,7 +17,13 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from hivememory.core.models import Identity
+from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.models import (
+    Identity,
+    IdentityScope,
+    require_identity_scope,
+    resolve_default_identity_scope,
+)
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     GatewayIngressMode,
@@ -37,6 +43,7 @@ from hivememory.system.runtime.control import (
     ChatGenerationRunRegistry,
     ChatRunOutcome,
     ChatRunPhase,
+    ChatRunStatusSnapshot,
 )
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
@@ -95,6 +102,22 @@ async def _run_interruptible(
         control.unbind_phase(task)
 
 
+def _require_prepared_scope(
+    prepared: Any,
+    identity_scope: IdentityScope,
+) -> None:
+    """拒绝 prepare 返回与 control registry 不一致的请求级 scope。"""
+    prepared_scope = getattr(prepared, "identity_scope", None)
+    if (
+        not isinstance(prepared_scope, IdentityScope)
+        or prepared_scope.scope_fingerprint != identity_scope.scope_fingerprint
+    ):
+        raise WorkspaceMismatchError(
+            "PreparedAgentRun 与 ChatGenerationRun 的身份作用域不一致",
+            details={"generation_scope": identity_scope.scope_fingerprint},
+        )
+
+
 @dataclass(frozen=True, kw_only=True)
 class NonStreamingChatCommandOutcome:
     """非流式聊天的系统指令终态。"""
@@ -140,26 +163,51 @@ class ChatApplicationService:
         generation_options: dict[str, Any] | None = None,
         generation_id: str | None = None,
     ) -> NonStreamingChatResult:
-        """顶层非流式入口，统一执行 Gateway 后再进入 Agent 主链路。"""
-        trace_id = generate_trace_id("chat")
-        tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
-        run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
-        self._registry.register(run)
-        self._emit_chat_event(
-            RuntimeEventType.CHAT_RUN_CREATED,
-            run,
-            trace_id=trace_id,
-            agent_id=agent_id,
-        )
-        prepared = None
-        prepared_finalized = False
+        """公共默认 Workspace 非流式入口。"""
         identity = Identity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
         )
+        identity_scope = resolve_default_identity_scope(identity)
+        interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
+        return await self.chat_scoped(
+            user_message=user_message,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
+            enable_memory_retrieval=enable_memory_retrieval,
+            generation_options=generation_options,
+        )
 
+    async def chat_scoped(
+        self,
+        user_message: str,
+        *,
+        identity_scope: IdentityScope,
+        interaction_id: str,
+        enable_memory_retrieval: bool = True,
+        generation_options: dict[str, Any] | None = None,
+    ) -> NonStreamingChatResult:
+        """显式 scope 的内部非流式入口。"""
+        identity_scope = require_identity_scope(identity_scope)
+        identity = identity_scope.actor_identity
+        agent_id = identity.agent_id
+        trace_id = generate_trace_id("chat")
+        tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
+        run = ChatGenerationRun(
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
+        )
+        prepared = None
+        prepared_finalized = False
         try:
+            self._registry.register(run)
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_CREATED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+            )
             run.enter_phase(ChatRunPhase.GATEWAY)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             gateway_result = await _run_interruptible(
@@ -168,7 +216,7 @@ class ChatApplicationService:
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
-                    identity=identity,
+                    identity_scope=identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
@@ -195,13 +243,13 @@ class ChatApplicationService:
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
-                user_id=user_id,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 gateway_decision=gateway_result.decision,
-                agent_id=agent_id,
-                session_id=session_id,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
             )
+            _require_prepared_scope(prepared, identity_scope)
 
             if run.outcome is ChatRunOutcome.STOP_REQUESTED:
                 raise _ChatRunCancelled(
@@ -305,7 +353,7 @@ class ChatApplicationService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            self._registry.close(run.generation_id)
+            self._registry.close(run)
             reset_trace_context(tokens)
 
     # ========== 流式主链路 ==========
@@ -320,16 +368,48 @@ class ChatApplicationService:
         generation_options: dict[str, Any] | None = None,
         generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """
-        顶层流式 chat 入口。
+        """公共默认 Workspace 流式入口。"""
+        identity = Identity(
+            user_id=user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+        )
+        identity_scope = resolve_default_identity_scope(identity)
+        interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
+        async for event in self.chat_stream_scoped(
+            user_message=user_message,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
+            enable_memory_retrieval=enable_memory_retrieval,
+            generation_options=generation_options,
+        ):
+            yield event
 
-        编排骨架: generation_id -> prepare -> prelude events -> run_agent_stream
+    async def chat_stream_scoped(
+        self,
+        user_message: str,
+        *,
+        identity_scope: IdentityScope,
+        interaction_id: str,
+        enable_memory_retrieval: bool = True,
+        generation_options: dict[str, Any] | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """
+        显式 scope 的内部流式 chat 入口。
+
+        编排骨架: interaction_id -> prepare -> prelude events -> run_agent_stream
                   -> [finalize if not cancelled] -> done
         """
         trace_id = generate_trace_id("stream")
         tokens = None
 
-        run = ChatGenerationRun(generation_id=generation_id or str(uuid.uuid4()))
+        identity_scope = require_identity_scope(identity_scope)
+        identity = identity_scope.actor_identity
+        agent_id = identity.agent_id
+        run = ChatGenerationRun(
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
+        )
         prepared = None
         stream = None
         # 只记录 chat 终态是否已经对外发布；finally 依赖它判断是否需要断流兜底。
@@ -337,12 +417,6 @@ class ChatApplicationService:
         # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
         prepared_finalized = False
         owner_task = asyncio.current_task()
-        identity = Identity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
-
         try:
             tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
             self._registry.register(run)
@@ -362,7 +436,7 @@ class ChatApplicationService:
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
-                    identity=identity,
+                    identity_scope=identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
@@ -395,13 +469,13 @@ class ChatApplicationService:
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
-                user_id=user_id,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
                 gateway_decision=gateway_result.decision,
-                agent_id=agent_id,
-                session_id=session_id,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
             )
+            _require_prepared_scope(prepared, identity_scope)
 
             if run.outcome is ChatRunOutcome.STOP_REQUESTED:
                 raise _ChatRunCancelled(
@@ -593,7 +667,7 @@ class ChatApplicationService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            self._registry.close(run.generation_id)
+            self._registry.close(run)
             if tokens is not None:
                 reset_trace_context(tokens)
 
@@ -602,15 +676,42 @@ class ChatApplicationService:
     def cancel_generation(
         self,
         generation_id: str,
+        *,
+        user_id: str = "default",
+        agent_id: str = "omni_doll",
         reason: str = "user_requested",
     ) -> CancelResult:
-        """幂等取消：重复调用返回当前状态，不报错。"""
-        result = self._registry.cancel(generation_id, reason=reason)
-        run = self._registry.get(generation_id)
+        """公共默认 Workspace 的幂等取消入口。"""
+        identity_scope = resolve_default_identity_scope(
+            Identity(user_id=user_id, agent_id=agent_id),
+        )
+        return self.cancel_generation_scoped(
+            generation_id,
+            identity_scope=identity_scope,
+            reason=reason,
+        )
+
+    def cancel_generation_scoped(
+        self,
+        generation_id: str,
+        *,
+        identity_scope: IdentityScope,
+        reason: str = "user_requested",
+    ) -> CancelResult:
+        """按 owner/workspace 校验的内部取消入口。"""
+        identity_scope = require_identity_scope(identity_scope)
+        result = self._registry.cancel(
+            generation_id,
+            identity_scope,
+            reason=reason,
+        )
+        run = self._registry.get(generation_id, identity_scope)
         self._events.emit(
             RuntimeEvent(
                 event_type=RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
                 generation_id=generation_id,
+                interaction_id=generation_id,
+                workspace_id=identity_scope.workspace_identity.workspace_id,
                 status=result.status,
                 reason=result.reason,
                 data={"cancelled": result.cancelled},
@@ -619,6 +720,18 @@ class ChatApplicationService:
         if run is not None:
             self._emit_chat_status(run)
         return result
+
+    def generation_status_scoped(
+        self,
+        generation_id: str,
+        *,
+        identity_scope: IdentityScope,
+    ) -> ChatRunStatusSnapshot | None:
+        """返回 scoped Chat 状态；错误 scope 与不存在统一为 ``None``。"""
+        return self._registry.status(
+            generation_id,
+            require_identity_scope(identity_scope),
+        )
 
     # ========== 内部辅助 ==========
 
@@ -719,6 +832,8 @@ class ChatApplicationService:
                 trace_id=trace_id,
                 task_type="foreground",
                 generation_id=run.generation_id,
+                interaction_id=run.interaction_id,
+                workspace_id=run.identity_scope.workspace_identity.workspace_id,
                 agent_id=agent_id,
                 topic_id=topic_id,
                 status=self._event_status(run),
@@ -746,7 +861,7 @@ class ChatApplicationService:
         try:
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
-                identity=prepared_run.identity,
+                identity_scope=prepared_run.identity_scope,
                 include_empty=True,
             )
         except Exception:

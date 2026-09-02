@@ -22,11 +22,16 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
+from tests.helpers.memory import make_memory_identity_scope
 
 # ============ 辅助工厂 ============
 
 def _identity(agent_id: str = "a1") -> Identity:
     return Identity(user_id="u1", agent_id=agent_id)
+
+
+def _request(**values) -> GenerationRequest:
+    return GenerationRequest(**values)
 
 
 def _block(
@@ -222,56 +227,27 @@ class TestBuildTranscript:
 
 class TestGenerationRequestHasContext:
     def test_has_context_false_when_no_context(self):
-        req = GenerationRequest()
+        req = _request()
         assert not req.has_context
 
     def test_has_context_false_when_context_empty_turns(self):
-        req = GenerationRequest(context=GenerationContext())
+        req = _request(context=GenerationContext())
         assert not req.has_context
 
     def test_has_context_true_when_context_has_turns(self):
         ctx = GenerationContext(turns=[
             GenerationTurn(user_query="q", identity=_identity())
         ])
-        req = GenerationRequest(context=ctx)
+        req = _request(context=ctx)
         assert req.has_context
 
 
 class TestGenerationRequestIdentity:
-    def test_identity_defaults_when_request_empty(self):
-        req = GenerationRequest()
-        assert req.identity.user_id == "default"
-        assert req.identity.agent_id == "omni_doll"
-
-    def test_identity_prefers_context_turn(self):
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="q", identity=_identity("context_agent"))
-        ])
-        req = GenerationRequest(context=ctx)
-        assert req.identity.agent_id == "context_agent"
-
-    def test_identity_prefers_explicit_over_context(self):
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="q", identity=_identity("context_agent"))
-        ])
-        req = GenerationRequest(context=ctx, identity=_identity("explicit_agent"))
-        assert req.identity.agent_id == "explicit_agent"
-
-    def test_identity_prefers_explicit_even_with_focus(self):
-        from hivememory.core.models import UpdateFocus
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="q", identity=_identity("context_agent"))
-        ])
-        req = GenerationRequest(
-            context=ctx,
-            update_focus=UpdateFocus(
-                instruction="update",
-                base_uuid="uuid-1",
-                base_alias="alias",
-            ),
-            identity=_identity("explicit_agent"),
-        )
-        assert req.identity.agent_id == "explicit_agent"
+    def test_request_is_identity_agnostic(self):
+        """捕获 GenerationRequest 重新持有权限/ownership 字段的缺陷。"""
+        request = GenerationRequest(context=GenerationContext())
+        assert not hasattr(request, "identity_scope")
+        assert not hasattr(request, "identity")
 
 
 # ============ 6. MemoryGenerationEngine 新路径集成测试 ============
@@ -312,8 +288,8 @@ class TestEngineWithGenerationContext:
             state_summary="摘要",
             turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
         )
-        req = GenerationRequest(context=ctx)
-        await engine.process(req)
+        req = _request(context=ctx)
+        await engine.process(req, identity_scope=make_memory_identity_scope())
         extractor.extract.assert_called_once()
         transcript = extractor.extract.call_args[1]["transcript"]
         assert "[Turn 1]" in transcript
@@ -324,8 +300,8 @@ class TestEngineWithGenerationContext:
     async def test_process_empty_context_skipped(self):
         """context 为空时跳过 extractor"""
         engine, extractor, _ = self._make_engine()
-        req = GenerationRequest(context=GenerationContext())  # no turns
-        result = await engine.process(req)
+        req = _request(context=GenerationContext())  # no turns
+        result = await engine.process(req, identity_scope=make_memory_identity_scope())
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -333,8 +309,8 @@ class TestEngineWithGenerationContext:
     async def test_process_without_context_and_focus_skipped(self):
         """无上下文且无 focus 时直接跳过"""
         engine, extractor, _ = self._make_engine()
-        req = GenerationRequest()
-        result = await engine.process(req)
+        req = _request()
+        result = await engine.process(req, identity_scope=make_memory_identity_scope())
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -355,8 +331,8 @@ class TestEngineWithGenerationContext:
             GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())
         ])
         focus = WriteFocus(content="content to write")
-        req = GenerationRequest(context=ctx, write_focus=focus)
-        await engine.process(req)
+        req = _request(context=ctx, write_focus=focus)
+        await engine.process(req, identity_scope=make_memory_identity_scope())
 
         extractor.extract.assert_called_once()
         call_kwargs = extractor.extract.call_args[1]

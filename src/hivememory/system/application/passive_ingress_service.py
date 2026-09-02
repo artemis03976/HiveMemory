@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from hivememory.core.constants import DEFAULT_AGENT_ID
-from hivememory.core.models import Identity
+from hivememory.core.models import Identity, resolve_default_identity_scope
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -204,9 +204,9 @@ class PassiveIngressService:
         key = PassiveConversationKey.build(
             source=source,
             external_conversation_id=external_conversation_id,
-            identity=identity,
+            identity_scope=resolve_default_identity_scope(identity),
         )
-        submitted = await self._ingressor.flush_conversation(key, identity)
+        submitted = await self._ingressor.flush_conversation(key)
         return submitted > 0
 
     async def flush_ingressor(

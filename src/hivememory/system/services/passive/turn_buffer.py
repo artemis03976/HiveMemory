@@ -9,9 +9,8 @@ import threading
 from datetime import datetime
 from enum import Enum
 from typing import Any
-from uuid import uuid4
 
-from hivememory.core.models import Identity
+from hivememory.core.models import IdentityScope
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
@@ -34,18 +33,17 @@ class MessageTurnBuffer:
 
     def __init__(
         self,
-        identity: Identity,
         conversation_key: PassiveConversationKey,
         *,
         max_buffered_events_per_turn: int = DEFAULT_MAX_BUFFERED_EVENTS_PER_TURN,
     ) -> None:
-        self._identity = identity
         self._conversation_key = conversation_key
         self._max_events = max(1, max_buffered_events_per_turn)
         self._reset()
 
     def _reset(self) -> None:
         self._state = MessageBufferState.IDLE
+        self._identity_scope: IdentityScope | None = None
         self._interaction_id: str | None = None
         self._user_content: str | None = None
         self._assistant_parts: list[str] = []
@@ -93,6 +91,11 @@ class MessageTurnBuffer:
         return self._interaction_id
 
     @property
+    def identity_scope(self) -> IdentityScope | None:
+        """当前 turn 冻结的身份作用域；由顶层 ingress 一次性生成。"""
+        return self._identity_scope
+
+    @property
     def pending_final_event_key(self) -> tuple[str, str] | None:
         """已追加但尚未完成 queue admission 的显式 final 事件。"""
         return self._pending_final_event_key
@@ -130,6 +133,8 @@ class MessageTurnBuffer:
         content: str,
         gateway_decision: GatewayDecision | None = None,
         *,
+        identity_scope: IdentityScope,
+        interaction_id: str,
         turn_id: str | None = None,
     ) -> None:
         """开启新一轮；调用方必须先完成上一轮的队列 admission。"""
@@ -137,10 +142,12 @@ class MessageTurnBuffer:
             raise RuntimeError(
                 "MessageTurnBuffer 仍有未提交 turn，不能覆盖当前 accumulator: "
                 f"conversation={self._conversation_key.label}, "
-                f"interaction_id={self._interaction_id}"
+                f"interaction_id={self.interaction_id}"
             )
 
-        self._interaction_id = f"interaction_{uuid4().hex}"
+        # 顶层 ingress 已生成本轮 interaction_id；buffer 不得另造第二份身份事实。
+        self._identity_scope = identity_scope
+        self._interaction_id = interaction_id
         self._user_content = content
         self._gateway_decision = gateway_decision
         self._target_topic = (
@@ -162,7 +169,7 @@ class MessageTurnBuffer:
             "MessageTurnBuffer 接收 user 消息: "
             f"conversation={self._conversation_key.label}, "
             f"target_topic={self._target_topic}, "
-            f"interaction_id={self._interaction_id}"
+            f"interaction_id={self.interaction_id}"
         )
 
     def accept_assistant(self, content: str) -> None:
@@ -265,11 +272,11 @@ class MessageTurnBuffer:
 
     def commit_flush(self, interaction_id: str) -> None:
         """确认同一 turn 已被队列接收，然后清空 accumulator。"""
-        if self._interaction_id != interaction_id:
+        if self.interaction_id != interaction_id:
             raise RuntimeError(
                 "MessageTurnBuffer commit 对应的 interaction 已发生变化: "
                 f"conversation={self._conversation_key.label}, "
-                f"expected={interaction_id}, actual={self._interaction_id}"
+                f"expected={interaction_id}, actual={self.interaction_id}"
             )
 
         self._reset()
@@ -289,7 +296,6 @@ class MessageTurnBuffer:
             assistant_final_text=assistant_final_text or None,
             turn_events=list(self._turn_events),
             mtp_traces=[],
-            identity=self._identity,
             rewritten_query=(
                 self._gateway_decision.rewritten_query
                 if self._gateway_decision
@@ -319,12 +325,10 @@ class MessageTurnBufferManager:
     def get_buffer(
         self,
         key: PassiveConversationKey,
-        identity: Identity,
     ) -> MessageTurnBuffer:
         with self._lock:
             if key not in self._buffers:
                 self._buffers[key] = MessageTurnBuffer(
-                    identity=identity,
                     conversation_key=key,
                     max_buffered_events_per_turn=(
                         self._max_buffered_events_per_turn

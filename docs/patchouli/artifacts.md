@@ -11,7 +11,9 @@ code_paths:
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Artifacts 与来源追踪
@@ -35,6 +37,8 @@ ArtifactStore
 
 Artifact 不进入普通向量检索，不承担 alias，也不因为某条记忆被合并就随之改写。相反，一份原始 InteractionArtifact 可以成为记忆创建或更新的 source artifact；一个 MemoryVersionArtifact 又可以记录某次完整状态变化。
 
+`TopicAssetBinding.asset_ref` 不是 `ArtifactRef`，也不代表已经生成了一份 Artifact。它只是 Topic 对已使用 WorkspaceAsset 的不透明关系事实，随 `InteractionArtifactInput` 进入生成任务；当前 Artifact 链不会把 WorkspaceAsset 原地转换为 Artifact，也不会在本层复制资产状态机或可见性策略。WorkspaceAsset 的所有权和 ref 生命周期以[Workspace 架构](../architecture/workspace.md)为准。
+
 ## 2. 当前四种类型
 
 ### 2.1 InteractionArtifact
@@ -55,6 +59,8 @@ InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary
 DocumentArtifact 表达某一时点的外源文档引用，可保存 source/canonical URI、MIME、retrieved time、etag、last-modified、原始快照地址、提取文本地址和页码/标题路径/行号/quote 等定位符。
 
 当前已经有 model、builder 和 filesystem persistence，但完整 Document Ingestion 尚未接入当前主流程。因此它是已落地的数据基础，不等于系统已经能够抓取、切分、审核和生成文档记忆。
+
+DocumentArtifact 是完整来源快照；某条 Memory 精确使用了哪些页码、行号或 quote，长期更适合由 Memory/Artifact 之间的细粒度 `SourceEvidenceRef` 表达。该 locator 归属会在 `v0.7.0` provenance contract 中最终裁定，当前模型字段保持兼容。
 
 ### 2.3 MemoryCreationArtifact
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 HiveMemory Generation 模块数据模型
 
 仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
@@ -12,7 +12,7 @@ HiveMemory Generation 模块数据模型
 """
 from enum import Enum
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from hivememory.core.models import (
     Identity,
@@ -116,6 +116,9 @@ class GenerationRequest(BaseModel):
     Mode A (被动观察): write_focus=None, update_focus=None
     Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
     Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
+
+    本协议不携带任何身份/ownership 字段；Memory ownership 由调用方通过
+    ``MemoryGenerationTaskSpec.identity_scope`` 传入。
     """
     context: GenerationContext = Field(
         default_factory=lambda: GenerationContext(),
@@ -124,18 +127,6 @@ class GenerationRequest(BaseModel):
     write_focus: Optional[WriteFocus] = None
     update_focus: Optional[UpdateFocus] = None
     existing_memory: Optional[Any] = None
-    # None = 未显式注入，由 validator 从 context 回退；Mode B/C 由 LibrarianCore 注入
-    identity: Optional[Identity] = None
-
-    @model_validator(mode="after")
-    def _resolve_identity(self) -> "GenerationRequest":
-        """未显式注入时从 context.turns[0] 回退；仍无则用默认 Identity()。"""
-        if self.identity is None:
-            if self.context.turns:
-                object.__setattr__(self, "identity", self.context.turns[0].identity)
-            else:
-                object.__setattr__(self, "identity", Identity())
-        return self
 
     @property
     def is_write(self) -> bool:

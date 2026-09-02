@@ -11,7 +11,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.protocol.gateway import (
@@ -32,10 +31,16 @@ from hivememory.patchouli.models import (
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_identity_scope
+from tests.helpers.memory import make_memory_metadata
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="omni_doll")
+    identity_scope = make_identity_scope(
+        actor_identity=identity,
+        interaction_id="interaction-test",
+    )
     gateway_decision = GatewayDecision(
         target_topic_id="topic_1",
         rewritten_query="resolved",
@@ -46,7 +51,8 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
     )
     defaults = dict(
         agent_run_context=AgentRunContext(
-            identity=identity,
+            identity_scope=identity_scope,
+            interaction_id="test-interaction",
             topic_id="topic_1",
             user_message="hi",
             topic_context=None,
@@ -61,7 +67,6 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             memory_refs=[],
         ),
         gateway_decision=gateway_decision,
-        interaction_id="interaction-test",
         generation_options=None,
     )
     defaults.update(overrides)
@@ -126,7 +131,7 @@ def passive_config():
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id=user_id),
+        meta=make_memory_metadata(source_agent_id="a1", user_id=user_id),
         index=IndexLayer(
             title=title,
             summary="A test memory summary",
@@ -158,11 +163,13 @@ class TestAgentApplicationService:
             content="persona",
             tags=["agent"],
             agent_config={"allowed_mtp_verbs": ["SEARCH"]},
+            user_id="u1",
         )
 
         mock_global_bus.request.assert_awaited_once()
-        route, payload = mock_global_bus.request.await_args.args
+        route, identity_scope, payload = mock_global_bus.request.await_args.args
         assert route == GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE
+        assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.index.memory_type == MemoryType.AGENT_PROFILE
         assert payload.index.summary == "Worker agent profile"
         assert payload.index.alias == "worker"
@@ -174,11 +181,13 @@ class TestAgentApplicationService:
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = []
 
-        await service.list_agent_profiles()
+        await service.list_agent_profiles(user_id="u1")
         # 路由 + 默认 limit=100 是真实生产参数契约
-        mock_global_bus.request.assert_awaited_once_with(
-            GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
-            limit=100,
-        )
+        mock_global_bus.request.assert_awaited_once()
+        route = mock_global_bus.request.await_args.args[0]
+        identity_scope = mock_global_bus.request.await_args.kwargs["identity_scope"]
+        assert route == GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST
+        assert identity_scope.workspace_identity.owner_user_id == "u1"
+        assert mock_global_bus.request.await_args.kwargs["limit"] == 100
 
 

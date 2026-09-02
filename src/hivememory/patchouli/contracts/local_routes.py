@@ -8,8 +8,6 @@ class PatchouliLocalRoutes:
     as prepare/finalize agent run belong to Patchouli public routes instead.
     """
 
-    INGESTION_SUBMIT_INTERACTION = "ingestion.submit_interaction"
-
     MEMORY_CREATE = "memory.create"
     MEMORY_LIST = "memory.list"
     MEMORY_GET = "memory.get"
@@ -52,7 +50,6 @@ class PatchouliLocalRoutes:
     RUNTIME_STORAGE_HEALTH = "runtime.storage_health"
 
     ALL = (
-        INGESTION_SUBMIT_INTERACTION,
         MEMORY_CREATE,
         MEMORY_LIST,
         MEMORY_GET,

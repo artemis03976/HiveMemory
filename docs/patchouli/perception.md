@@ -11,7 +11,9 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/passive-ingress.md
-last_reviewed: 2026-07-30
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 感知与短期话题
@@ -50,7 +52,9 @@ SemanticBuffer 是短期话题的可变工作区，保存 blocks、展示 title/
 
 ## 2. 结构化摄入
 
-`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 identity、user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。
+`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存 Workspace 身份；主动和被动入口在进入提交队列时由外层 `InteractionSubmission.identity_scope` 携带唯一的 `IdentityScope`。
+
+交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
 ```text
 InteractionPayload
@@ -63,7 +67,7 @@ InteractionPayload
   -> optional Page Folding
 ```
 
-主动流程由 Patchouli finalize 构建 payload；被动流程由 System 的 turn buffer 构建 payload。两者进入同一 `PerceptionFamiliar.submit_interaction()` 与 `SemanticFlowPerceptionLayer.route_and_ingest()`，不存在被动专用的扁平文本主链。
+主动流程由 Patchouli finalize 构建 payload；被动流程由 System 的 turn buffer 构建 payload。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 调用 `SemanticFlowPerceptionLayer.route_and_ingest()`，不存在被动专用的扁平文本主链。
 
 结构化摄入的边界来自被动入口的真实事件形态：`MessageTurnBuffer` 接收 `user`、`assistant`、`tool_call`、`tool_result` 四类消息。只有自然语言 assistant 段落进入 `assistant_final_text`；工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。`ActionReducer`/`TraceReducer` 只能由 Perception 从这些事件派生，入口层不应另行构造第二套摘要，否则历史重放、主动生成与被动归档会拥有互相漂移的事实来源。
 
@@ -98,10 +102,20 @@ TriggerManager 把触发原因映射为三种原子动作：
 | `TOKEN_OVERFLOW` | 否 | 是 | 否 | 折叠旧前缀并保留最近工作集，话题继续存活 |
 | `IDLE_TIMEOUT` | 是 | 否 | 是 | 提交候选材料并移出活跃池 |
 | `LRU_EVICTION` | 是 | 否 | 是 | 为新话题腾出位置 |
-| `SHUTDOWN` | 是 | 否 | 是 | 停机前结算非空话题 |
-| `MANUAL` | 是 | 是 | 否 | 生成记忆候选并用摘要保持话题连续性 |
+| `SHUTDOWN` | 是 | 否 | 是 | 停机前结算并驱逐（含真正空 Topic） |
+| `MANUAL_SETTLE` | 是 | 否 | 是 | 手动结算为记忆资产并结束 Topic 生命周期 |
+| `MANUAL_COMPACT` | 否 | 是 | 否 | 手动压缩工作集，不结算、不驱逐 |
+| `MANUAL_DELETE` | 否 | 否 | 是 | 丢弃 Topic，不写记忆 |
 
 `TOKEN_OVERFLOW` 是纯 Compact：TriggerManager 只把保留后缀之前的旧 blocks 交给 RelayController，再由 ShortTermMemoryStore 原子写入摘要、裁剪旧前缀并重算 token。其余触发原因维持原有 Settle/Evict 语义；发生 Settle 时旧 blocks 才会清空，需要 evict 的原因随后再删除 buffer。Settle 只是返回 payload，TriggerManager 不知道 local bus，也不直接触发 Generation。PerceptionFamiliar 才负责把 payload 提交给 Coordinator。
+
+`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照，除 Topic 内容和 `state_summary` 外还携带原始 `identity_scope` 与本轮已确认的 `asset_bindings`。进入队列后，重试和后续处理只能使用这份交接事实，不能从当前进程状态重新推导 Workspace 或资产关系。
+
+手动三个用例互不混杂：`MANUAL_SETTLE` 只结算（不再 compact）并在结算材料被可靠接纳后 evict；`MANUAL_COMPACT` 只压缩工作集，不结算、不驱逐；`MANUAL_DELETE` 只驱逐、不生成记忆。manual settle 的提交顺序固定为冻结 settlement payload → generation admission 成功 → evict；admission 失败抛出受控错误且 Topic、blocks 与 state_summary 保持完整可重试。无任务（真正空 Topic 或 blocks 均被过滤）时 settle 仍按契约结束生命周期并返回成功，以 `generation_submitted` 表达是否建立后台任务。
+
+### 内容判空语义
+
+Topic 是否为空由 `blocks` 与 `state_summary` 共同决定：`has_content = blocks OR 非空白 state_summary`，`is_empty = NOT has_content`。空白字符串不构成有效摘要。summary-only Topic（刚完成压缩、尚无新对话）仍可被列出、继续路由并免于空 Topic 误删。真正空 Topic 没有可 settle/compact 的内容，但仍按决策矩阵执行 `evict=True` 的生命周期动作。compact 不再支持“总结后清空全部 blocks”的 `retain_count=0` 语义：所有 compact 配置与内部入口都要求 `retain_recent_blocks >= 1`。
 
 这层返回值边界很重要：底层感知算法可以决定“应交出哪些材料”，但后台任务、事件和取消属于上层控制面。
 
@@ -127,16 +141,16 @@ Perception engine 由 Runtime 按配置创建并注入 ShortTermMemoryStore。�
 
 ## 7. 维护与关闭
 
-全局 scheduler 定期调用 `scan_idle_buffers_once()`；Familiar 按 `idle_timeout_seconds` 选择话题并逐个结算。关闭时 `flush_all_for_shutdown()` 跳过空话题，结算并驱逐所有非空话题，再由 Runtime 等待新提交的 generation tasks。
+全局 scheduler 定期调用 `scan_idle_buffers_once()`；Familiar 按 `idle_timeout_seconds` 选择话题并逐个结算。关闭时 `flush_all_for_shutdown()` 结算并驱逐所有活跃话题；真正空 Topic 没有可提交材料，但仍按 SHUTDOWN 矩阵执行 evict，不留在活跃池中。
 
-手动 settle 返回 `MemoryGenerationTask | None`，使调用方可以查询、等待或取消后台任务。手动 evict 则明确“不触发结算”，适合用户主动丢弃短期话题；两种操作不能混为一个 delete。
+手动 settle 返回 `TopicSettleResult`，通过可选 `generation_task_id` 与派生的 `generation_submitted` 表达是否建立后台任务；无任务不等于生命周期失败。手动 evict（删除话题）返回 `TopicEvictionResult`，明确“不触发结算、不写记忆”，适合用户主动丢弃短期话题；manual compact 只压缩工作集，不结算、不驱逐。三种手动操作互不混用。Patchouli 业务结果不再放在 `services/perception.py`，server 层只在 HTTP 边界投影为响应模型。shutdown 批处理使用 `runtime.models.TopicShutdownFlushReport` 记录已结算 Topic、未建立 generation task 的正常 skip 子集，以及结算前驻留 block 数量；该运行时报告不进入 HTTP 链路，异常也不会被归入正常 skip。
 
 ## 8. 当前限制
 
 - 短期话题是进程内状态，异常退出可能丢失未结算 blocks；
 - token 统计只覆盖 user/final text 与部分 trace 字段，不是模型级精确 tokenizer 预算；
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
-- `fold_retain_recent_blocks=0` 当前在公开配置层被拒绝；系统尚未定义 summary-only topic 的 settlement、身份和 artifact 语义；
+- 所有 compact 配置与内部入口（`apply_compaction`、`_compact_topic`、公开配置 `ge=1`）都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
 - overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；
 - Relay 的摘要调用位于结算路径内，LLM relay 可能增加该操作的同步等待；
 - `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在短期 buffer；

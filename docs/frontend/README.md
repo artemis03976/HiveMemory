@@ -10,7 +10,9 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # HiveMemory Frontend
@@ -73,7 +75,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - 提供账户、权限隔离、移动端适配或离线工作保证；
 - 把 mock 数据伪装成已经由真实后端确认的结果。
 
-当前匿名界面统一使用 `user_id=default`，默认 Agent 为拥有完整权限的 `omni_doll`；前端尚无登录、租户或用户切换能力。
+当前匿名界面请求使用 `user_id=default`，由后端入口解析为默认 `IdentityScope`；默认 Agent 为拥有完整权限的 `omni_doll`。前端尚无登录、租户或用户/Workspace 切换能力，`user_id` 只是请求上下文，不是认证或授权凭证。
 
 ## 4. 当前文档
 
@@ -106,7 +108,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - 点击历史 Topic 只改变本地标题和高亮，不会加载历史消息，也不会把所选 Topic 送入下一次 chat 请求；
 - Memory、Agent 与 Settings 在后端失败时采用不同程度的 mock fallback，部分页面可能看似可用但写操作仍会失败；
 - Settings 的主配置类型仍采用旧扁平结构，与当前后端嵌套配置响应不一致，多组分类页尚不能视为可靠控制面；
-- 附件、`#` 引用、消息复制/点赞/重试、Memory Pin 和顶层 Terminal 页面仍是未接线入口；
+- `#` 引用、消息复制/点赞/重试、Memory Pin 和顶层 Terminal 页面仍是未接线入口；
 - UI 为固定桌面工作台布局，尚没有路由级深链接、正式响应式策略、账户系统或无障碍验收证据。
 
 这些限制意味着当前前端适合个人开发、系统观察与能力验证，而不是已经完成的多用户管理后台。未来功能只有在形成 Plan 并落地后，才能改写本目录的当前能力描述。

@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
+from hivememory.core.models import WorkspaceIdentity
 from hivememory.core.models.artifact import ArtifactRef, DocumentArtifact, DocumentLocator
 from hivememory.patchouli.memory_library import ArtifactStore
 from hivememory.system.config.patchouli import ArtifactComponentConfig
@@ -21,10 +22,14 @@ class DocumentArtifactBuilder:
         source_uri: Optional[str],
         content_hash: Optional[str],
         retrieved_at: datetime,
+        workspace_identity: WorkspaceIdentity,
+        owner_agent_id: str = "",
         locators: Optional[List[DocumentLocator]] = None,
         **kwargs,
     ) -> ArtifactRef | None:
         artifact = DocumentArtifact(
+            workspace_identity=workspace_identity,
+            owner_agent_id=owner_agent_id,
             source_type=source_type,
             source_uri=source_uri,
             content_hash=content_hash,
@@ -43,6 +48,8 @@ class NoOpDocumentArtifactBuilder:
         source_uri: Optional[str],
         content_hash: Optional[str],
         retrieved_at: datetime,
+        workspace_identity: WorkspaceIdentity,
+        owner_agent_id: str = "",
         locators: Optional[List[DocumentLocator]] = None,
         **kwargs,
     ) -> ArtifactRef | None:

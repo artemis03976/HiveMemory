@@ -16,11 +16,11 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Identity,
     PendingAtomStatus,
-    RuntimeScope,
     TurnEvent,
 )
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.model_registry import ModelNotFoundError
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _runtime_with_pending(pending_runtime: PendingAtomRuntime) -> AgentRuntime:
@@ -34,11 +34,10 @@ def _runtime_with_pending(pending_runtime: PendingAtomRuntime) -> AgentRuntime:
 
 def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFrame:
     return ExecutionFrame(
-        runtime_scope=RuntimeScope(run_id=run_id, frame_id=frame_id),
+        runtime_scope=make_runtime_scope(run_id=run_id, frame_id=frame_id),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
         topic_id="topic-1",
-        identity=Identity(user_id="user-1", agent_id="omni_doll"),
     )
 
 
@@ -172,7 +171,7 @@ def test_finalize_completed_run_claims_tasks_and_advances_retention_epoch():
         title="Old",
         reason=None,
         identity=identity,
-        runtime_scope=RuntimeScope(run_id="run-old", frame_id="frame-old"),
+        runtime_scope=make_runtime_scope(run_id="run-old", frame_id="frame-old"),
     )
     pending_runtime.cancel(old_atom.pending_alias)
     current_atom = pending_runtime.register_write(
@@ -180,7 +179,7 @@ def test_finalize_completed_run_claims_tasks_and_advances_retention_epoch():
         title="Current",
         reason=None,
         identity=identity,
-        runtime_scope=RuntimeScope(run_id="run-current", frame_id="frame-current"),
+        runtime_scope=make_runtime_scope(run_id="run-current", frame_id="frame-current"),
     )
 
     products = runtime.finalize_run(
@@ -210,7 +209,7 @@ def test_finalize_unsuccessful_run_does_not_advance_retention_epoch():
         title="Old",
         reason=None,
         identity=identity,
-        runtime_scope=RuntimeScope(run_id="run-old", frame_id="frame-old"),
+        runtime_scope=make_runtime_scope(run_id="run-old", frame_id="frame-old"),
     )
     pending_runtime.cancel(old_atom.pending_alias)
     current_atom = pending_runtime.register_write(
@@ -218,7 +217,7 @@ def test_finalize_unsuccessful_run_does_not_advance_retention_epoch():
         title="Current",
         reason=None,
         identity=identity,
-        runtime_scope=RuntimeScope(run_id="run-current", frame_id="frame-current"),
+        runtime_scope=make_runtime_scope(run_id="run-current", frame_id="frame-current"),
     )
 
     products = runtime.finalize_run(

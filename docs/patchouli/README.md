@@ -16,12 +16,16 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-08-14
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # Patchouli
 
 Patchouli 是 HiveMemory 的记忆与知识子系统。若说 Gateway 决定一条输入应当如何进入系统，Alice 决定一次 Agent run 如何执行，那么 Patchouli 回答的就是另一组更缓慢、也更需要保持连续性的问题：哪些交互应形成长期资产，一条记忆如何被检索和使用，它在被修订、强化、衰减与归档时由谁维护真相。
+
+Patchouli 的 Topic、Memory、Artifact 领域事实都在调用方交接的 `IdentityScope` 下解释，最终由各自的 Store 校验 Workspace 归属。Patchouli 不拥有 System 的 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace 架构](../architecture/workspace.md)，本文只描述 Patchouli 自己的领域责任。
 
 项目借用“帕秋莉大图书馆”的形象，不是为了把所有记忆逻辑集中进一个万能馆长，而是为了强调知识所有权必须稳定。检索使魔可以找书，感知层可以整理尚未成册的交互，生成链可以提出新书或修订稿，生命周期能力可以决定何时移入冷藏库；但所有会改变长期记忆事实的路径，最终都必须回到 Patchouli 自己的存储、任务和版本边界内完成。
 
@@ -94,7 +98,7 @@ GatewayDecision
   -> Alice RUN / RUN_STREAM
   -> Patchouli FINALIZE_AGENT_RUN
        -> TurnEvent -> Action / semantic trace
-       -> submit InteractionPayload to Perception
+       -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
        -> WRITE / UPDATE materialize tasks -> generation tasks
        -> best-effort record retrieval HIT
 ```
@@ -109,8 +113,8 @@ Passive Ingress 的去重、顺序缓冲、seal、retry 和降级属于 System�
 
 ```text
 System Passive Ingress
-  -> Patchouli SUBMIT_INTERACTION
-  -> PerceptionFamiliar
+  -> InteractionSubmissionQueue
+  -> PerceptionFamiliar.apply_interaction
   -> SemanticFlowPerceptionLayer
   -> ShortTermMemoryStore / SemanticBuffer
   -> idle | LRU | shutdown | manual settle

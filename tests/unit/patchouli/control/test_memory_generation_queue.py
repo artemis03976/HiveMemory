@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -13,9 +15,10 @@ from hivememory.core.models import (
     LogicalBlock,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
+    TopicAssetBinding,
     TurnRecord,
+    WorkspaceAssetRef,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
 from hivememory.patchouli.control.memory_generation.controller import (
@@ -28,20 +31,24 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.patchouli.control.memory_generation.queue import (
+    MemoryGenerationQueue,
     _MemoryGenerationWork,
     _MemoryGenerationWorkAdapter,
 )
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
     WorkPayloadCodecRegistry,
+    WorkPayloadDecodeError,
     WorkState,
+    encode_canonical_json,
 )
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 
 def _memory_atom() -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="agent-1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="agent-1", user_id="u1"),
         index=IndexLayer(
             title="memory title",
             summary="summary text",
@@ -62,10 +69,13 @@ def _spec(
     pending_alias: str | None = None,
 ) -> MemoryGenerationTaskSpec:
     return MemoryGenerationTaskSpec(
+        identity_scope=make_memory_identity_scope(),
         topic_id=topic_id,
         label=label,
         source=MemoryGenerationSource.WRITE,
-        request=request or GenerationRequest(context=GenerationContext()),
+        request=request or GenerationRequest(
+            context=GenerationContext(),
+        ),
         intent_id=intent_id,
         pending_alias=pending_alias,
     )
@@ -95,6 +105,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         turn=TurnRecord(user_query="question", assistant_final_text="answer")
     )
     spec = MemoryGenerationTaskSpec(
+        identity_scope=make_memory_identity_scope(),
         topic_id="topic-codec",
         label="codec",
         source=MemoryGenerationSource.UPDATE,
@@ -135,6 +146,9 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     )
 
     assert first.task_id == "task-codec"
+    assert first.spec.identity_scope == spec.identity_scope
+    assert first.spec.identity_scope is not spec.identity_scope
+    assert first.spec.identity_scope is not second.spec.identity_scope
     assert first.spec.request.context.state_summary == "original summary"
     assert isinstance(first.spec.request.existing_memory, MemoryAtom)
     assert first.spec.request.existing_memory.payload.content == "original content"
@@ -142,6 +156,100 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
     first.spec.request.context.state_summary = "attempt-local mutation"
     assert second.spec.request.context.state_summary == "original summary"
+
+
+def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
+    """settle 冻结的 binding refs 必须原样通过 codec/retry 保留。"""
+    binding = TopicAssetBinding(
+        asset_id="asset-1",
+        asset_ref=WorkspaceAssetRef(token="token-1"),
+        first_bound_interaction_id="i1",
+        bound_at=datetime.now(UTC),
+    )
+    spec = _spec(topic_id="topic-bind")
+    spec = replace(
+        spec,
+        interaction_input=InteractionArtifactInput(
+            topic_id="topic-bind",
+            blocks=(
+                LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
+            ),
+            asset_bindings=(binding,),
+        ),
+    )
+    adapter = _MemoryGenerationWorkAdapter()
+    work = _MemoryGenerationWork(task_id="task-bind", spec=spec)
+
+    encoded = adapter.encode(work)
+    decoded = adapter.decode(encoded)
+
+    assert decoded.spec.interaction_input is not None
+    assert decoded.spec.interaction_input.asset_bindings == (binding,)
+    assert decoded.spec.interaction_input.asset_bindings[0].asset_ref.token == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_queue_identity_does_not_partition_by_payload_scope() -> None:
+    """捕获 IdentityScope 被用于 memory work 调度与幂等 key 的缺陷。"""
+    queue = MemoryGenerationQueue(AsyncMock(return_value=[]))
+    main_spec = _spec(intent_id="intent-shared", pending_alias="draft-shared")
+    isolated_spec = replace(
+        main_spec,
+        identity_scope=make_memory_identity_scope(
+            workspace_id="isolation_workspace"
+        ),
+    )
+
+    try:
+        handle = await queue.submit("task-shared", main_spec)
+        with pytest.raises(ValueError, match="different payload"):
+            await queue.submit("task-shared", isolated_spec)
+    finally:
+        await queue.stop()
+
+    assert handle.work_id == "memory_generation:task-shared"
+
+
+def test_memory_generation_codec_rejects_flattened_owner_projection() -> None:
+    """捕获 codec 接受 TaskSpec 内第二份 owner_user_id 身份事实的缺陷。"""
+    adapter = _MemoryGenerationWorkAdapter()
+    encoded = adapter.encode(
+        _MemoryGenerationWork(task_id="tampered-task", spec=_spec())
+    )
+    encoded["spec"]["owner_user_id"] = "attacker"
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(adapter)
+
+    with pytest.raises(WorkPayloadDecodeError):
+        codecs.decode(
+            adapter.kind,
+            adapter.schema_version,
+            encode_canonical_json(encoded),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["extra", "missing"])
+def test_memory_generation_codec_rejects_nested_noncanonical_request(
+    mutation: str,
+) -> None:
+    """捕获 GenerationRequest 嵌套字段被静默忽略或补默认值的缺陷。"""
+    adapter = _MemoryGenerationWorkAdapter()
+    encoded = adapter.encode(
+        _MemoryGenerationWork(task_id="nested-tamper", spec=_spec())
+    )
+    if mutation == "extra":
+        encoded["spec"]["request"]["workspace_id"] = "isolation_workspace"
+    else:
+        del encoded["spec"]["request"]["write_focus"]
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(adapter)
+
+    with pytest.raises(WorkPayloadDecodeError):
+        codecs.decode(
+            adapter.kind,
+            adapter.schema_version,
+            encode_canonical_json(encoded),
+        )
 
 
 @pytest.mark.asyncio

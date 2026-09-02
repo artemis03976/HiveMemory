@@ -14,8 +14,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
+from hivememory.patchouli.errors import TopicBusyError
 from hivememory.system.runtime.events import RuntimeEventSink
 from hivememory.system.runtime.work_queue import (
     FailureAction,
@@ -38,10 +40,31 @@ def _require_text(value: str, *, field_name: str) -> None:
         raise ValueError(f"{field_name} must not be blank")
 
 
+def _require_exact_keys(
+    payload: dict[object, object],
+    *,
+    expected: set[str],
+    field_name: str,
+) -> None:
+    """拒绝缺字段和冲突投影，确保 versioned payload 只有一份身份事实。"""
+    actual = set(payload)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(str(key) for key in actual - expected)
+        raise ValueError(
+            f"{field_name} schema mismatch: missing={missing}, extra={extra}"
+        )
+
+
 @dataclass(frozen=True)
 class InteractionSubmission:
-    """进入 Patchouli 摄入队列的一次交互提交快照。"""
+    """进入 Patchouli 摄入队列的一次交互提交快照。
 
+    ``identity_scope`` 是唯一身份来源；``payload`` 只承载内容与生成意图，
+    不再内嵌第二份身份事实。
+    """
+
+    identity_scope: IdentityScope
     interaction_id: str
     payload: InteractionPayload
     requested_topic_id: str
@@ -50,6 +73,8 @@ class InteractionSubmission:
     correlation: Mapping[str, str]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.identity_scope, IdentityScope):
+            raise TypeError("identity_scope must be an IdentityScope")
         _require_text(self.interaction_id, field_name="interaction_id")
         _require_text(self.requested_topic_id, field_name="requested_topic_id")
         _require_text(self.ordering_key, field_name="ordering_key")
@@ -75,6 +100,7 @@ class InteractionSubmissionCodec:
         if not isinstance(submission, InteractionSubmission):
             raise TypeError("interaction submission payload has an unexpected type")
         return {
+            "identity_scope": submission.identity_scope.model_dump(mode="json"),
             "interaction_id": submission.interaction_id,
             "payload": submission.payload.model_dump(mode="json"),
             "requested_topic_id": submission.requested_topic_id,
@@ -86,13 +112,30 @@ class InteractionSubmissionCodec:
     def decode(self, payload: object) -> InteractionSubmission:
         if not isinstance(payload, dict):
             raise TypeError("interaction submission payload must be an object")
+        _require_exact_keys(
+            payload,
+            expected={
+                "identity_scope",
+                "interaction_id",
+                "payload",
+                "requested_topic_id",
+                "ordering_key",
+                "origin",
+                "correlation",
+            },
+            field_name="interaction submission payload",
+        )
         raw_payload = payload.get("payload")
-        correlation = payload.get("correlation", {})
+        raw_scope = payload.get("identity_scope")
+        correlation = payload.get("correlation")
         if not isinstance(raw_payload, dict):
             raise TypeError("interaction submission payload.payload must be an object")
+        if not isinstance(raw_scope, dict):
+            raise TypeError("interaction submission payload.identity_scope must be an object")
         if not isinstance(correlation, dict):
             raise TypeError("interaction submission payload.correlation must be an object")
-        return InteractionSubmission(
+        submission = InteractionSubmission(
+            identity_scope=IdentityScope.model_validate(raw_scope),
             interaction_id=payload["interaction_id"],
             payload=InteractionPayload.model_validate(raw_payload),
             requested_topic_id=payload["requested_topic_id"],
@@ -100,6 +143,11 @@ class InteractionSubmissionCodec:
             origin=payload["origin"],
             correlation=correlation,
         )
+        # 部分嵌套 Pydantic DTO 为兼容历史入口会忽略额外字段；codec 边界必须
+        # 重新编码完整领域对象并要求规范等值，防止任何层级的篡改被静默吞掉。
+        if self.encode(submission) != payload:
+            raise ValueError("interaction submission payload is not canonical")
+        return submission
 
 
 @dataclass(frozen=True)
@@ -136,7 +184,7 @@ class InteractionSubmissionOutcome:
     error_class: str | None = None
 
 
-SubmitInteraction = Callable[..., Awaitable[str]]
+ApplyInteraction = Callable[..., Awaitable[str]]
 
 
 class TransientInteractionSubmissionError(RuntimeError):
@@ -146,18 +194,19 @@ class TransientInteractionSubmissionError(RuntimeError):
 class InteractionSubmissionHandler(
     WorkHandlerPort[InteractionSubmission, InteractionSubmissionResult]
 ):
-    """把通用 work attempt 适配到 PerceptionFamiliar。"""
+    """把通用 work attempt 适配到 PerceptionFamiliar.apply_interaction。"""
 
-    def __init__(self, submit_interaction: SubmitInteraction) -> None:
-        self._submit_interaction = submit_interaction
+    def __init__(self, apply_interaction: ApplyInteraction) -> None:
+        self._apply_interaction = apply_interaction
 
     async def execute(
         self,
         payload: InteractionSubmission,
         context: WorkExecutionContext,
     ) -> InteractionSubmissionResult:
-        topic_id = await self._submit_interaction(
+        topic_id = await self._apply_interaction(
             payload.payload,
+            identity_scope=payload.identity_scope,
             target_topic_id=payload.requested_topic_id,
             interaction_id=payload.interaction_id,
         )
@@ -173,7 +222,7 @@ class InteractionSubmissionHandler(
     ) -> FailureDecision:
         """仅重试已明确分类、且可复用同一 interaction identity 的失败。"""
 
-        if isinstance(error, (ConnectionError, TransientInteractionSubmissionError)):
+        if isinstance(error, (ConnectionError, TransientInteractionSubmissionError, TopicBusyError)):
             return FailureDecision(
                 action=FailureAction.RETRY,
                 retry_after_seconds=0.05,
@@ -198,7 +247,7 @@ class InteractionSubmissionQueue:
 
     def __init__(
         self,
-        submit_interaction: SubmitInteraction,
+        apply_interaction: ApplyInteraction,
         *,
         store: InMemoryWorkStore | None = None,
         runtime_events: RuntimeEventSink | None = None,
@@ -224,7 +273,7 @@ class InteractionSubmissionQueue:
         )
         self._runtime.register_lane(
             self.LANE,
-            handler=InteractionSubmissionHandler(submit_interaction),
+            handler=InteractionSubmissionHandler(apply_interaction),
             policy=lane_policy,
         )
         self._max_submission_entries = (

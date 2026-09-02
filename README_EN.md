@@ -13,7 +13,6 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 
 - Latest released tag: `v0.6.1`
 - Current release baseline: `v0.6.1`
-- Next planned version: `v0.6.2` Chat Attachments (Candidate)
 - Code and package version: `0.6.1`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
@@ -308,7 +307,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. The repository is currently on the v0.6.1 release baseline, with v0.6.2 Chat Attachments as the next candidate capability. Behavioral changes should update the corresponding current design or contract document in the same change.
+Issues and pull requests are welcome. The repository is currently on the v0.6.1 release baseline. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

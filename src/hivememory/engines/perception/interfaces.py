@@ -13,13 +13,14 @@ import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Tuple, TYPE_CHECKING
 from hivememory.engines.perception.models import (
+    AutomaticSettleResult,
     FlushReason,
     TopicMaterializeTask,
 )
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
-    from hivememory.core.models import Identity
+    from hivememory.core.models import IdentityScope, WorkspaceTopicKey
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +49,25 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     async def settle_topic(
         self,
-        topic_id: str,
-        reason: FlushReason = FlushReason.MANUAL,
+        topic_key: "WorkspaceTopicKey",
+        reason: FlushReason = FlushReason.MANUAL_SETTLE,
+    ) -> AutomaticSettleResult:
+        """原子 automatic settle；busy 抛错，返回值区分驱逐与目标缺失。"""
+
+    @abstractmethod
+    async def prepare_settlement(
+        self,
+        topic_key: "WorkspaceTopicKey",
     ) -> Optional[TopicMaterializeTask]:
-        """原子话题结算，不含任何策略判断。话题不存在或为空时返回 None。"""
+        """只冻结手动结算材料，不修改 buffer；由 manual settle 的 prepare 阶段使用。"""
+
+    @abstractmethod
+    def commit_settlement(self, topic_key: "WorkspaceTopicKey") -> bool:
+        """manual settle admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
+
+    @abstractmethod
+    def abort_settlement(self, topic_key: "WorkspaceTopicKey") -> None:
+        """manual settle admission 失败后恢复 FLUSHING Topic 为 IDLE。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
@@ -60,7 +76,10 @@ class BasePerceptionLayer(ABC):
         self,
         payload: InteractionPayload,
         topic_id: str,
+        *,
+        identity_scope: "IdentityScope",
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple = (),
     ) -> Optional[TopicMaterializeTask]:
         """
         摄入完整交互载荷。
@@ -76,7 +95,10 @@ class BasePerceptionLayer(ABC):
         self,
         topic_id: str,
         payload: InteractionPayload,
+        *,
+        identity_scope: "IdentityScope",
         interaction_id: str | None = None,
+        asset_id_and_refs: tuple = (),
     ) -> Tuple[str, Optional[TopicMaterializeTask]]:
         """
         路由到指定话题并摄入载荷。
@@ -91,12 +113,12 @@ class BasePerceptionLayer(ABC):
         target_topic_id: str,
         new_topic_title: Optional[str],
         new_topic_summary: Optional[str],
-        identity: "Identity",
+        identity_scope: "IdentityScope",
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
 
     @abstractmethod
-    def swap_out_topic(self, topic_id: str) -> bool:
+    def swap_out_topic(self, topic_key: "WorkspaceTopicKey") -> bool:
         """显式换出指定话题，不触发结算。返回是否存在该话题。"""
 
 

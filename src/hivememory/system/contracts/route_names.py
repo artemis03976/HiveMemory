@@ -6,7 +6,6 @@ class RouteNames:
 
     GATEWAY_PROCESS = "gateway.public.process"
 
-    PATCHOULI_SUBMIT_INTERACTION = "patchouli.public.submit_interaction"
     PATCHOULI_MEMORY_CREATE = "patchouli.public.memory.create"
     PATCHOULI_MEMORY_LIST = "patchouli.public.memory.list"
     PATCHOULI_MEMORY_GET = "patchouli.public.memory.get"

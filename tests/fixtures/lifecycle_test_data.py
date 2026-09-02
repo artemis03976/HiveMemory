@@ -21,13 +21,13 @@ from hivememory.core.models import (
     MemoryType,
     MemoryVisibility,
     VerificationStatus,
-    MetaData,
     IndexLayer,
     PayloadLayer,
     RelationLayer,
     Artifacts,
 )
 from hivememory.engines.lifecycle.models import EventType
+from tests.helpers.memory import make_memory_metadata
 
 
 # ========== 评分测试用例 ==========
@@ -279,7 +279,7 @@ def create_test_memory(
     _confidence = confidence_score if confidence_score is not None else template.get("confidence", 0.8)
     _vitality = vitality_score if vitality_score is not None else template.get("vitality_score", 50.0)
 
-    meta = MetaData(
+    meta = make_memory_metadata(
         created_at=now,
         updated_at=_updated_at,
         last_accessed_at=None,

@@ -21,6 +21,8 @@ import os
 import asyncio
 from pathlib import Path
 
+from tests.helpers.memory import make_memory_metadata
+
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
@@ -65,7 +67,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import (
-    Identity, MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType,
+    Identity, MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
@@ -243,7 +245,7 @@ def create_memory_from_data(data: Dict[str, Any], identity: Identity) -> MemoryA
 
     return MemoryAtom(
         id=data.get("id", str(uuid.uuid4())),
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id=identity.agent_id,
             user_id=identity.user_id,
             session_id=identity.session_id,

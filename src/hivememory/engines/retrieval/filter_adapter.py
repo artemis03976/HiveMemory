@@ -2,10 +2,8 @@
 过滤器适配器模块
 
 职责:
-    将 QueryFilters 数据模型转换为不同存储系统的过滤条件格式
-    实现 MutiAgentSystem.md §3.3 记忆作用域过滤 (Visibility Scopes Filtering)
-
-对应设计文档: PROJECT.md 5.2 节, MutiAgentSystem.md §3.3
+    将 QueryFilters 与 IdentityScope 转换为不同存储系统的过滤条件格式。
+    先落实 Workspace 所有权边界，再落实记忆的 actor 读取策略。
 """
 
 from abc import ABC, abstractmethod
@@ -14,7 +12,15 @@ from typing import Any, List, TYPE_CHECKING
 from qdrant_client.models import (
     Filter,
     FieldCondition,
+    IsEmptyCondition,
     MatchValue,
+    PayloadField,
+)
+
+from hivememory.core.models import (
+    MAIN_WORKSPACE_ID,
+    IdentityScope,
+    require_identity_scope,
 )
 
 if TYPE_CHECKING:
@@ -29,7 +35,11 @@ class FilterConverter(ABC):
     """
 
     @abstractmethod
-    def convert(self, filters: "QueryFilters") -> Any:
+    def convert(
+        self,
+        filters: "QueryFilters",
+        identity_scope: IdentityScope,
+    ) -> Any:
         """
         将 QueryFilters 转换为目标格式
 
@@ -46,22 +56,23 @@ class QdrantFilterConverter(FilterConverter):
     """
     Qdrant 向量数据库的过滤器转换器
 
-    实现 MutiAgentSystem.md §3.3.1 检索拦截:
-      Filter:
-        (visibility == 'PUBLIC')
-        OR (visibility == 'WORKSPACE' AND team_id == current_team_id)
-        OR (visibility == 'PRIVATE' AND source_agent_id == current_active_agent_id)
-
-    同时保留 user_id 作为不可覆盖的安全基线。
+    先建立 owner/workspace hard boundary，再应用 v2 actor read policy；v1
+    compatibility branch 只允许对应用户的 main_workspace。
     """
 
-    def convert(self, filters: "QueryFilters") -> Filter:
+    def convert(
+        self,
+        filters: "QueryFilters",
+        identity_scope: IdentityScope,
+    ) -> Filter:
         """
         转换为 Qdrant Filter 对象
 
         构建逻辑:
-        1. must 条件: user_id 安全基线 + memory_type / min_confidence 等业务过滤
-        2. should 条件: 可见性作用域 (Global OR Workspace OR Private)
+        1. must 条件：Workspace 所有权 hard boundary；main Workspace 额外受控读取
+           legacy 记录；随后叠加 Memory v2 的 actor 读取策略。
+        2. 业务过滤条件：按 memory_type、source_agent_id、min_confidence 等字段
+           进一步缩小候选集合。legacy ``WORKSPACE`` 仅在兼容分支中解释为团队可见。
 
         Args:
             filters: 查询过滤器数据模型
@@ -69,45 +80,22 @@ class QdrantFilterConverter(FilterConverter):
         Returns:
             qdrant_client.models.Filter 实例
         """
-        must_conditions: List[FieldCondition] = []
-        should_conditions: List[Filter] = []
-
-        identity = filters.identity
-
-        # ---- 安全基线: user_id 硬过滤 ----
-        if identity and identity.user_id:
-            must_conditions.append(
-                FieldCondition(key="meta.user_id", match=MatchValue(value=identity.user_id))
-            )
-
-        # ---- §3.3.1 Visibility Scope Filtering ----
-        if identity:
-            # PUBLIC: 全局可见
-            scope_public = Filter(must=[
-                FieldCondition(key="meta.visibility", match=MatchValue(value="PUBLIC")),
-            ])
-            should_conditions.append(scope_public)
-
-            # WORKSPACE: team_id 匹配时可见
-            if identity.team_id:
-                scope_workspace = Filter(must=[
-                    FieldCondition(key="meta.visibility", match=MatchValue(value="WORKSPACE")),
-                    FieldCondition(key="meta.team_id", match=MatchValue(value=identity.team_id)),
-                ])
-                should_conditions.append(scope_workspace)
-
-            # PRIVATE: 仅创建者 agent 可见
-            if identity.agent_id:
-                scope_private = Filter(must=[
-                    FieldCondition(key="meta.visibility", match=MatchValue(value="PRIVATE")),
-                    FieldCondition(key="meta.source_agent_id", match=MatchValue(value=identity.agent_id)),
-                ])
-                should_conditions.append(scope_private)
+        identity_scope = require_identity_scope(identity_scope)
+        must_conditions: List[Any] = [self._ownership_filter(identity_scope)]
+        must_conditions.append(self._read_policy_filter(identity_scope))
 
         # ---- 业务过滤维度 ----
         if filters.memory_type is not None:
             must_conditions.append(
                 FieldCondition(key="index.memory_type", match=MatchValue(value=filters.memory_type.value))
+            )
+
+        if filters.source_agent_id is not None:
+            must_conditions.append(
+                FieldCondition(
+                    key="meta.source_agent_id",
+                    match=MatchValue(value=filters.source_agent_id),
+                )
             )
 
         if filters.min_confidence > 0:
@@ -116,11 +104,141 @@ class QdrantFilterConverter(FilterConverter):
             )
 
         # 组装最终 Filter
-        final_must: List = list(must_conditions)
-        if should_conditions:
-            final_must.append(Filter(should=should_conditions))
+        return Filter(must=must_conditions)
 
-        return Filter(must=final_must) if final_must else Filter()
+    @staticmethod
+    def _ownership_filter(identity_scope: IdentityScope) -> Filter:
+        workspace = identity_scope.workspace_identity
+        current = Filter(
+            must=[
+                FieldCondition(
+                    key="meta.owner_user_id",
+                    match=MatchValue(value=workspace.owner_user_id),
+                ),
+                FieldCondition(
+                    key="meta.workspace_key",
+                    match=MatchValue(value=workspace.workspace_key),
+                ),
+                FieldCondition(
+                    key="meta.workspace_id",
+                    match=MatchValue(value=workspace.workspace_id),
+                ),
+            ]
+        )
+        branches = [current]
+        if workspace.workspace_id == MAIN_WORKSPACE_ID:
+            branches.append(
+                Filter(
+                    must=[
+                        FieldCondition(
+                            key="meta.user_id",
+                            match=MatchValue(value=workspace.owner_user_id),
+                        ),
+                        *[
+                            IsEmptyCondition(is_empty=PayloadField(key=f"meta.{field}"))
+                            for field in (
+                                "owner_user_id",
+                                "workspace_key",
+                                "workspace_id",
+                            )
+                        ],
+                    ]
+                )
+            )
+        return Filter(should=branches)
+
+    @staticmethod
+    def _read_policy_filter(identity_scope: IdentityScope) -> Filter:
+        actor = identity_scope.actor_identity
+        v2_branches = [
+            Filter(
+                must=[
+                    FieldCondition(key="schema_version", match=MatchValue(value=2)),
+                    FieldCondition(
+                        key="meta.access_policy.visibility",
+                        match=MatchValue(value="PUBLIC"),
+                    ),
+                ]
+            )
+        ]
+        if actor.agent_id:
+            v2_branches.append(
+                Filter(
+                    must=[
+                        FieldCondition(key="schema_version", match=MatchValue(value=2)),
+                        FieldCondition(
+                            key="meta.access_policy.visibility",
+                            match=MatchValue(value="PRIVATE"),
+                        ),
+                        FieldCondition(
+                            key="meta.access_policy.target_agent_id",
+                            match=MatchValue(value=actor.agent_id),
+                        ),
+                    ]
+                )
+            )
+        if actor.team_id:
+            v2_branches.append(
+                Filter(
+                    must=[
+                        FieldCondition(key="schema_version", match=MatchValue(value=2)),
+                        FieldCondition(
+                            key="meta.access_policy.visibility",
+                            match=MatchValue(value="TEAM"),
+                        ),
+                        FieldCondition(
+                            key="meta.access_policy.target_team_id",
+                            match=MatchValue(value=actor.team_id),
+                        ),
+                    ]
+                )
+            )
+
+        legacy_version = IsEmptyCondition(is_empty=PayloadField(key="schema_version"))
+        legacy_branches = [
+            Filter(
+                must=[
+                    legacy_version,
+                    FieldCondition(
+                        key="meta.visibility",
+                        match=MatchValue(value="PUBLIC"),
+                    ),
+                ]
+            )
+        ]
+        if actor.agent_id:
+            legacy_branches.append(
+                Filter(
+                    must=[
+                        legacy_version,
+                        FieldCondition(
+                            key="meta.visibility",
+                            match=MatchValue(value="PRIVATE"),
+                        ),
+                        FieldCondition(
+                            key="meta.source_agent_id",
+                            match=MatchValue(value=actor.agent_id),
+                        ),
+                    ]
+                )
+            )
+        if actor.team_id:
+            legacy_branches.append(
+                Filter(
+                    must=[
+                        legacy_version,
+                        FieldCondition(
+                            key="meta.visibility",
+                            match=MatchValue(value="WORKSPACE"),
+                        ),
+                        FieldCondition(
+                            key="meta.team_id",
+                            match=MatchValue(value=actor.team_id),
+                        ),
+                    ]
+                )
+            )
+        return Filter(should=[*v2_branches, *legacy_branches])
 
 
 # ========== 导出列表 ==========

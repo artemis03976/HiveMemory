@@ -12,7 +12,10 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-08
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/system/runtime-and-bus.md
+last_reviewed: 2026-09-01
 ---
 
 # 被动对话摄入
@@ -23,6 +26,8 @@ Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 har
 
 ## 1. 外部事件与会话身份
 
+`PassiveIngressService.ingest_event()` 在进入 `PassiveMessageIngressor.route_event()` 时为当前用户一次性解析默认 `main_workspace`，得到不可变的 `IdentityScope`；内部 walking skeleton 才使用显式 `route_event_scoped()` 传入隔离测试或服务交接所需的 scope。retry 和 shutdown drain 继续使用缓冲 turn 中保存的原始 scope，不重新解析进程当前 Workspace。
+
 `PassiveIngressEvent` 的主要字段包括：
 
 - `source` 与 `external_conversation_id`：构成外部会话命名空间；
@@ -31,7 +36,7 @@ Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 har
 - `role`：`user`、`assistant`、`tool_call`、`tool_result`；
 - `content`、tool metadata、`is_final`。
 
-内部 `PassiveConversationKey` 还叠加 HiveMemory 的 `user_id`、`agent_id` 和可选 `team_id`。同一 key 的事件路由、Gateway/retrieval、accumulator 修改和 queue admission 由 keyed async lock 串行化；不同会话仍可并发。
+内部 `PassiveConversationKey` 还叠加 HiveMemory 的 `user_id`、`agent_id` 和可选 `team_id`。它是外部会话的分桶和排序键，不是 Workspace 资源所有权键；Workspace 只随当前 turn payload 保存。若相同会话 key 的在途 turn 发生 Workspace 漂移，入口会拒绝追加，而不会通过重新分桶掩盖冲突。同一 key 的事件路由、Gateway/retrieval、accumulator 修改和 queue admission 由 keyed async lock 串行化；不同会话仍可并发。
 
 `is_final` 表示当前 turn 结束，与 role 无关。下一条 user、idle timeout、手动 flush 和 shutdown drain 也可以结束当前 turn。`sequence` 只用于关联和观测，当前实现不等待缺口或重排乱序事件。
 
@@ -85,7 +90,7 @@ queue admission 失败会直接向调用方施加背压：
 
 admission 成功只表示 work 已由通用队列接受，不表示 Patchouli apply 已完成。之后的 FIFO、retry、capacity、幂等 apply、dead letter 和通用 `WORK_*` 观测都由 Work Queue Runtime 负责。同一会话使用 `PassiveConversationKey.ordering_key` 保证提交顺序。
 
-完整 turn 始终保留为 `InteractionPayload` 原始交互事实；Gateway 的 `memory_write_signal` 只是写入预判，不能用来删除外部经历。
+完整 turn 始终保留为 `InteractionPayload` 原始交互事实；Gateway 的 `memory_write_signal` 只是写入预判，不能用来删除外部经历。Submission DTO 携带完整 `IdentityScope`，Work Queue 只保存编码后的 payload，不按 Workspace 建立额外 lane 或分区。
 
 ## 4. 维护与关闭
 
@@ -101,6 +106,8 @@ InteractionSubmissionQueue.drain_all
 ```
 
 Ingressor 返回 `finalized_turns` 与 `accepted_submissions`；应用服务再查询 queue pending 数生成 shutdown 摘要。若 admission 本身失败，异常向上传播，未接收的 accumulator 仍保留在进程内，不会被假报为已提交。
+
+被动摄入完成 drain 只表示 submission 已交给 Patchouli 队列；System 仍需等待 Alice、Patchouli 和 Gateway 停止后，才最后清空进程级 `WorkspaceAssetStore`。Passive Ingress 不直接读取或清理 AssetStore。
 
 ## 5. 设计不变量
 

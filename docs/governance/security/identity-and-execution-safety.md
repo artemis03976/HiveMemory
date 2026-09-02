@@ -13,16 +13,18 @@ code_paths:
 related_docs:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
+  - docs/architecture/workspace.md
   - docs/alice/README.md
   - docs/alice/mtp-runtime.md
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
-last_reviewed: 2026-08-05
+  - docs/todo/mtp-cache-scope-revalidation.md
+last_reviewed: 2026-09-01
 ---
 
 # 身份隔离与执行安全治理
 
-HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性写进了设计，但当前仍存在“拿到 alias/id 就可以继续使用”“进程级 cache 共享可变状态”“前端 user id 看起来像认证”“RUN 能执行代码但不是安全沙箱”等边界缺口。
+HiveMemory 已经把 `IdentityScope`、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性写进了设计，但当前仍存在“拿到 alias/id 就可以继续使用”“进程级 cache 共享可变状态”“前端 user id 看起来像认证”“RUN 能执行代码但不是安全沙箱”等边界缺口。`IdentityScope` 是跨边界传播的完整事实，由 `ActorIdentity` 与 `WorkspaceIdentity` 组成；局部组件可以只消费 actor 投影，但不能据此扩大或替代 Workspace 资源授权。
 
 这不是单纯的登录页面工作，也不是给每个 handler 再加一个 `if user_id`。它需要统一回答：一次请求、一次 Agent run、一个 PendingAtom、一个 Profile、一个 MemoryAtom 和一段可执行资产分别属于谁；哪个组件拥有最终授权权；缓存、子帧、重试和后台任务如何继承或缩小权限。
 
@@ -30,8 +32,8 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 
 | 边界 | 当前实现基础 | 当前风险 |
 |:---|:---|:---|
-| Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | 某些别名 L0/L1 cache 命中不会再次按调用 Identity 校验 |
-| PendingAtom | atom 保存 identity，Alice 通过 alias/intent 解析 | 进程级 cache/store 与并发 run 共享，跨用户隔离尚未完全成立 |
+| Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | L1 atom cache 命中与 L2 冷查询已由资源 owner/resolver 按完整 scope 重验；L0 pending alias 命中仍缺少调用方 scope 重验 |
+| PendingAtom | atom 通过 `runtime_scope.identity_scope` 保存完整归属，Alice 通过 alias/intent 解析 | 进程级 cache/store 与并发 run 共享；L0 pending 命中尚未完成 scope 隔离 |
 | Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | alias cache 进程级、失效不完整；显式 Profile 加载失败与未指定 Profile 的 Omni-Doll fallback 语义混淆 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、Chat 可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
@@ -43,9 +45,9 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 
 ### 2.1 目标
 
-1. 建立从 request -> run/frame -> MTP -> Patchouli -> background work 的 identity propagation 和 scope 缩小规则；
-2. 所有 Memory、Profile、PendingAtom、Artifact 和执行资产的读取/写入都由实际所有者重新校验 Identity；
-3. 使 cache key、frame、cancel、task 和 retry 不会跨用户或 workspace 共享可变授权状态；
+1. 建立从 request -> run/frame -> MTP -> Patchouli -> background work 的 `IdentityScope` propagation 和 scope 缩小规则；
+2. 所有 Memory、Profile、PendingAtom、Artifact 和执行资产的读取/写入都由实际所有者重新校验 `IdentityScope`；
+3. 使 cache key、frame、cancel、task 和 retry 不会因共享组件的复用而跨用户或 Workspace 共享未验证的可变授权状态；
 4. 区分“未指定 Profile”“指定 Profile 不存在”“Profile 无权访问”“Profile 已失效”四种结果；
 5. 为 MTP RUN 建立可信资产、能力白名单、资源限制、取消和审计边界；
 6. 让前端身份状态与后端认证/授权契约对齐，同时明确前端不是安全边界；
@@ -62,28 +64,26 @@ HiveMemory 已经把 Identity、MemoryVisibility、MTP permission、Agent Profil
 
 ## 3. 目标权限模型
 
-### 3.1 Identity 是不可变运行上下文
+### 3.1 IdentityScope 是不可变运行上下文
 
 每个 request/run/frame/work item 都应携带不可变的身份快照和 scope：
 
 ```text
-Identity
-  -> user_id
-  -> team/workspace scope
-  -> agent/profile identity
-  -> visibility capability
-  -> request/run correlation
+IdentityScope
+  -> ActorIdentity (user/agent/team)
+  -> WorkspaceIdentity (owner/workspace)
+  -> request/run/frame/work propagation
 ```
 
-子 Agent 默认继承父 run 的用户和 workspace 边界，只能通过显式、经授权的 `context_refs` 缩小或选择可见资产；不能通过自然语言或 alias 自行扩大 scope。
+子 Agent 默认继承父 run 的 `IdentityScope`，只能通过显式、经授权的 `context_refs` 缩小或选择可见资产；不能通过自然语言或 alias 自行扩大 scope。`request/run/frame` 等关联坐标属于其它运行模型，不应重新塞回 `IdentityScope`。
 
 ### 3.2 所有者重新校验
 
-Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、MemoryLibrary archive/revive 和 background retry 都必须由最终状态所有者重新验证 Identity。上游已检查不能替代下游检查，因为请求可能跨越重试、队列和子系统边界。
+Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、MemoryLibrary archive/revive 和 background retry 都必须由最终状态所有者重新验证 `IdentityScope`。上游已检查不能替代下游检查，因为请求可能跨越重试、队列和子系统边界。
 
 ### 3.3 缓存不承载授权
 
-缓存 key 至少需要包含实际 scope，或缓存值必须在命中后重新验证。失效不完整时宁可返回 miss，也不能返回另一个用户最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
+共享 cache 不会自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以完整 `IdentityScope` 重新验证。缓存可以按已有 actor/alias 等维度组织，但这些 key 不能替代 Workspace ownership 校验。失效不完整时宁可返回 miss，也不能返回另一个用户或 Workspace 最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
 
 ### 3.4 可执行资产是更高风险能力
 
@@ -106,8 +106,8 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
-1. 修复 L0/L1 alias 命中不重新校验 Identity；
-2. 让 PendingAtom store/cache、Profile cache 和 compiled context 按 scope 隔离或命中后重验；
+1. 修复 L0 PendingAtom alias 命中不重新校验调用方 `IdentityScope`；L1 atom cache 已有命中后重验，必须保持该边界（详见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
+2. 对需要 scope-sensitive 的 PendingAtom store/cache、Profile cache 和 compiled context，按 scope 隔离或在命中后由 owner/resolver 重验；共享组件不因 Workspace 自动拆分；
 3. 为 MemoryLibrary、Artifact、archive/revive 和后台恢复入口统一 scope 检查；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
@@ -116,7 +116,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 frame registry 和 CALL record 收敛为 run-local 状态；Chat application 在上层持有可取消阶段 task，流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
 2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
-3. 已完成：被调用 frame 继承 caller Identity，CALL 权限由 `FrameExecutionPolicy` 和 Profile capability 硬检查，不再以 depth 作为控制依据；
+3. 已完成：被调用 frame 继承 caller `IdentityScope`，CALL 权限由 `FrameExecutionPolicy` 和 Profile capability 硬检查，不再以 depth 作为控制依据；
 4. 明确恢复/重试时不能复用已经失效的授权快照。
 
 ### Phase S3：执行资产安全
@@ -136,7 +136,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ## 5. 治理成熟度目标
 
-- 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际 Identity scope 校验；
+- 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际 `IdentityScope` 校验；当前 L0 pending alias 缺口由上述 Todo 追踪，L1/L2 已具备 owner/resolver 重验；
 - 两个并发用户使用相同 alias、topic 或 Profile 名称不会读取对方状态；
 - 子 Agent、后台 retry 和恢复任务不会扩大或错误继承身份权限；
 - FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；PendingAtom 与 cache 的跨用户隔离仍需按本治理主题验证；

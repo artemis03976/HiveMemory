@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -15,13 +16,19 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
+from hivememory.core.protocol.models import (
+    AgentRunContext,
+    AgentRunResult,
+    AgentRunStatus,
+)
+from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.system.runtime.control import (
     ChatGenerationRun,
     ChatGenerationRunRegistry,
     ChatRunOutcome,
     ChatRunPhase,
 )
+from tests.helpers.workspace import make_identity_scope
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
@@ -30,39 +37,39 @@ class TestChatGenerationRunRegistry:
         self.registry = ChatGenerationRunRegistry()
 
     def test_cancel_records_stop_and_returns_result(self):
-        run = ChatGenerationRun(generation_id="gen-1")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-1")
         self.registry.register(run)
 
-        result = self.registry.cancel("gen-1")
+        result = self.registry.cancel("gen-1", run.identity_scope)
 
         assert result.cancelled is True
         assert result.status == ChatRunOutcome.STOP_REQUESTED.value
         assert run.outcome is ChatRunOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
-        run = ChatGenerationRun(generation_id="gen-2")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-2")
         self.registry.register(run)
 
-        r1 = self.registry.cancel("gen-2")
-        r2 = self.registry.cancel("gen-2")
+        r1 = self.registry.cancel("gen-2", run.identity_scope)
+        r2 = self.registry.cancel("gen-2", run.identity_scope)
 
         assert r1.cancelled is True
         assert r2.cancelled is True  # 重复 cancel 不报错
         assert r2.reason == r1.reason
 
     def test_cancel_unknown_generation_id_returns_not_found(self):
-        result = self.registry.cancel("nonexistent")
+        result = self.registry.cancel("nonexistent", make_identity_scope())
         assert result.cancelled is False
         assert result.status == "not_found"
 
     def test_close_removes_run(self):
-        run = ChatGenerationRun(generation_id="gen-3")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-3")
         self.registry.register(run)
-        self.registry.close("gen-3")
-        assert self.registry.get("gen-3") is None
+        self.registry.close(run)
+        assert self.registry.get("gen-3", run.identity_scope) is None
 
     def test_run_stop_outcome(self):
-        run = ChatGenerationRun(generation_id="gen-4")
+        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-4")
         assert run.outcome is ChatRunOutcome.RUNNING
         run.enter_phase(ChatRunPhase.ALICE)
         run.request_stop()
@@ -77,14 +84,6 @@ class TestChatServiceCancelPath:
     @pytest.mark.asyncio
     async def test_cancel_skips_finalize(self):
         bus = MagicMock()
-
-        prepare_result = MagicMock()
-        prepare_result.stream_prelude.topic_id = "t1"
-        prepare_result.stream_prelude.is_new_topic = False
-        prepare_result.stream_prelude.pool_topics = []
-        prepare_result.stream_prelude.memory_refs = []
-        prepare_result.agent_run_context = MagicMock()
-        prepare_result.generation_options = {}
 
         loop_result = AgentRunResult(
             final_text="hi",
@@ -108,7 +107,23 @@ class TestChatServiceCancelPath:
                     )
                 )
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
-                return prepare_result
+                return PreparedAgentRun(
+                    agent_run_context=AgentRunContext(
+                        identity_scope=kwargs["identity_scope"],
+                        interaction_id=kwargs["interaction_id"],
+                        topic_id="t1",
+                        user_message="hello",
+                        agent_profile=OMNI_DOLL_PROFILE,
+                    ),
+                    gateway_decision=kwargs["gateway_decision"],
+                    stream_prelude=StreamPrelude(
+                        topic_id="t1",
+                        is_new_topic=False,
+                        pool_topics=[],
+                        memory_refs=[],
+                    ),
+                    generation_options={},
+                )
             if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
                 return mock_stream()
             if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:

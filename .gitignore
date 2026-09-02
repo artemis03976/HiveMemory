@@ -88,6 +88,8 @@ Desktop.ini
 .agents/skills/*
 !.agents/skills/enforce-test-design/
 !.agents/skills/enforce-test-design/**
+!.agents/skills/enforce-documentation-governance/
+!.agents/skills/enforce-documentation-governance/**
 
 # project files
 .hivememory

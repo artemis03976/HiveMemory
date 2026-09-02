@@ -18,7 +18,12 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from hivememory.core.models import MemoryEventLog, MemoryEventType
+from hivememory.core.models import (
+    MemoryEventLog,
+    MemoryEventType,
+    IdentityScope,
+    WorkspaceMemoryKey,
+)
 from hivememory.patchouli.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
@@ -58,36 +63,41 @@ class MemoryLibrary:
 
     # ========== 中期 → 长期（归档） ==========
 
-    async def archive(self, memory_id: UUID) -> None:
+    async def archive(self, key: WorkspaceMemoryKey) -> None:
         """
         将中期记忆迁移到冷存储。
 
         流程: MidTermStore.get() → LongTermStore.persist() → MidTermStore.delete()
         """
-        memory = await self.mid_term.get(memory_id)
+        memory = await self.mid_term.get_by_key(key)
         if memory is None:
-            raise ValueError(f"Memory {memory_id} not found in mid-term storage")
+            raise ValueError(f"Memory {key.memory_id} not found in mid-term storage")
         memory.payload.artifacts.events.append(
             MemoryEventLog(event_type=MemoryEventType.ARCHIVED)
         )
         await self.long_term.persist(memory)
-        await self.mid_term.delete(memory_id)
-        logger.info(f"记忆已归档至冷存储: {memory_id}")
+        await self.mid_term.delete_by_key(key)
+        logger.info(f"记忆已归档至冷存储: {key.memory_id}")
 
     # ========== 长期 → 中期（复活） ==========
 
-    async def revive(self, memory_id: UUID) -> None:
+    async def revive(
+        self,
+        identity_scope: IdentityScope,
+        memory_id: UUID,
+    ) -> None:
         """
         从冷存储复活记忆到中期存储。
 
         流程: LongTermStore.load() → MidTermStore.upsert() → LongTermStore.remove()
         """
-        memory = await self.long_term.load(memory_id)
+        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        memory = await self.long_term.load(key)
         memory.payload.artifacts.events.append(
             MemoryEventLog(event_type=MemoryEventType.REVIVED)
         )
         await self.mid_term.upsert(memory)
-        await self.long_term.remove(memory_id)
+        await self.long_term.remove(key)
         logger.info(f"记忆已从冷存储复活至向量库: {memory_id}")
 
 

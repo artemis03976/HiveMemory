@@ -46,28 +46,59 @@ class TestTopicApplicationService:
 
         await service.list_active_topics(user_id="u1")
 
-        # list_active_topics 是纯透传；约束力来自路由与 identity 构造
+        # 公共入口只在此处解析 main Workspace，Patchouli 不再接收裸 identity。
         handler.assert_awaited_once()
-        identity = handler.await_args.kwargs["identity"]
-        assert identity.user_id == "u1"
+        identity_scope = handler.await_args.kwargs["identity_scope"]
+        assert identity_scope.actor_identity.user_id == "u1"
+        assert identity_scope.workspace_identity.workspace_id == "main_workspace"
 
     @pytest.mark.asyncio
     async def test_settle_topic_uses_public_route(self, service, bus):
-        task = MagicMock(task_id="memtask_1", topic_id="t1")
-        handler = AsyncMock(return_value=task)
+        from hivememory.patchouli.contracts.topic_management import TopicSettleResult
+        handler = AsyncMock(
+            return_value=TopicSettleResult(
+                topic_id="t1",
+                generation_task_id="memtask_1",
+            )
+        )
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
-        result = await service.settle_topic(topic_id="t1")
+        result = await service.settle_topic(user_id="u1", topic_id="t1")
 
-        assert result == {"success": True, "task_id": "memtask_1", "topic_id": "t1"}
-        handler.assert_awaited_once_with(topic_id="t1")
+        assert result.topic_id == "t1"
+        assert result.generation_task_id == "memtask_1"
+        assert result.generation_submitted is True
+        handler.assert_awaited_once()
+        assert handler.await_args.kwargs["topic_id"] == "t1"
+        assert handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id == "u1"
+
+    @pytest.mark.asyncio
+    async def test_settle_topic_without_generation_still_reports_success(self, service, bus):
+        """无任务时的 settle（空话题/材料被过滤）不被误报为生命周期失败。"""
+        from hivememory.patchouli.contracts.topic_management import TopicSettleResult
+        handler = AsyncMock(
+            return_value=TopicSettleResult(
+                topic_id="t1",
+            )
+        )
+        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
+
+        result = await service.settle_topic(user_id="u1", topic_id="t1")
+
+        assert result.topic_id == "t1"
+        assert result.generation_task_id is None
+        assert result.generation_submitted is False
 
     @pytest.mark.asyncio
     async def test_evict_topic_uses_public_route(self, service, bus):
-        handler = AsyncMock(return_value={"success": True, "message": "话题 t1 已删除"})
+        from hivememory.patchouli.contracts.topic_management import TopicEvictionResult
+        handler = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, handler)
 
-        await service.evict_topic(topic_id="t1")
+        result = await service.evict_topic(user_id="u1", topic_id="t1")
 
         # evict_topic 是纯透传；约束力来自路由与参数
-        handler.assert_awaited_once_with(topic_id="t1")
+        handler.assert_awaited_once()
+        assert handler.await_args.kwargs["topic_id"] == "t1"
+        assert handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id == "u1"
+        assert result.removed is True

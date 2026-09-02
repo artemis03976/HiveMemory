@@ -13,34 +13,44 @@ from unittest.mock import patch
 
 from hivememory.core.models import BufferState, LogicalBlock, TurnRecord
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
+from tests.helpers.workspace import make_identity_scope
+
+
+def _buffer(**values) -> SemanticBuffer:
+    """构造显式归属于测试 Workspace 的 buffer，防止测试掩盖缺 scope。"""
+    return SemanticBuffer(
+        workspace_identity=make_identity_scope().workspace_identity,
+        **values,
+    )
 
 
 class TestSemanticBufferCreation:
     """SemanticBuffer 创建与默认值测试"""
 
     def test_default_topic_id_is_uuid(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         assert buf.topic_id is not None
         assert len(buf.topic_id) > 0
 
-    def test_default_user_id_is_default(self):
-        buf = SemanticBuffer()
-        assert buf.user_id == "default"
+    def test_workspace_identity_is_required_and_preserved(self):
+        """保护 Buffer 不再保存可替代 Workspace ownership 的裸 user_id。"""
+        buf = _buffer()
+        assert buf.workspace_identity.owner_user_id == "test_user"
 
     def test_default_state_is_idle(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         assert buf.state == BufferState.IDLE
 
     def test_default_topic_title(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         assert buf.topic_title == "新建话题"
 
     def test_default_blocks_is_empty_list(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         assert buf.blocks == []
 
     def test_default_total_tokens_is_zero(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         assert buf.total_tokens == 0
 
 
@@ -48,7 +58,7 @@ class TestSemanticBufferClear:
     """SemanticBuffer.clear() 方法测试"""
 
     def test_clear_resets_blocks_and_tokens(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         buf.blocks = [
             LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
         ]
@@ -60,7 +70,7 @@ class TestSemanticBufferClear:
         assert buf.total_tokens == 0
 
     def test_clear_resets_state_to_idle(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         buf.state = BufferState.PROCESSING
 
         buf.clear()
@@ -68,7 +78,7 @@ class TestSemanticBufferClear:
         assert buf.state == BufferState.IDLE
 
     def test_clear_updates_last_update_timestamp(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         old_timestamp = buf.last_update
         fixed_now = datetime(2027, 1, 1, 12, 0, 0)
 
@@ -84,11 +94,11 @@ class TestSemanticBufferBlockCount:
     """SemanticBuffer.get_block_count() 方法测试"""
 
     def test_block_count_empty_buffer(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         assert buf.get_block_count() == 0
 
     def test_block_count_with_blocks(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         buf.blocks = [
             LogicalBlock(turn=TurnRecord(user_query="q1", assistant_final_text="a1")),
             LogicalBlock(turn=TurnRecord(user_query="q2", assistant_final_text="a2")),
@@ -101,13 +111,13 @@ class TestSemanticBufferTopicSummary:
     """SemanticBuffer.get_topic_summary() 方法测试"""
 
     def test_topic_summary_empty_buffer(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         summary = buf.get_topic_summary()
         assert summary == "空缓冲区"
 
     def test_topic_summary_with_turn_records(self):
         """验证有 TurnRecord 块时的摘要生成 - 使用 anchor_text 返回 user_query"""
-        buf = SemanticBuffer()
+        buf = _buffer()
         buf.blocks = [
             LogicalBlock(turn=TurnRecord(user_query="查询天气")),
             LogicalBlock(turn=TurnRecord(user_query="查询时间")),
@@ -119,7 +129,7 @@ class TestSemanticBufferTopicSummary:
 
     def test_topic_summary_fallback_to_block_count(self):
         """验证没有 anchor_text 时回退到块计数"""
-        buf = SemanticBuffer()
+        buf = _buffer()
         buf.blocks = [
             LogicalBlock(turn=TurnRecord(user_query="")),
             LogicalBlock(turn=TurnRecord(user_query="")),
@@ -134,7 +144,7 @@ class TestSemanticBufferIsIdle:
     """SemanticBuffer.is_idle() 方法测试"""
 
     def test_is_idle_within_timeout(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         fixed_now = datetime(2026, 1, 1, 12, 0, 0)
         buf.last_update = fixed_now.timestamp()
 
@@ -143,7 +153,7 @@ class TestSemanticBufferIsIdle:
             assert buf.is_idle(timeout_seconds=900) is False
 
     def test_is_idle_beyond_timeout(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         fixed_now = datetime(2026, 1, 1, 12, 0, 0)
         buf.last_update = (fixed_now - timedelta(seconds=1000)).timestamp()
 
@@ -152,7 +162,7 @@ class TestSemanticBufferIsIdle:
             assert buf.is_idle(timeout_seconds=900) is True
 
     def test_is_idle_exactly_at_boundary(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         fixed_now = datetime(2026, 1, 1, 12, 0, 0)
         buf.last_update = (fixed_now - timedelta(seconds=900)).timestamp()
 
@@ -162,7 +172,7 @@ class TestSemanticBufferIsIdle:
             assert buf.is_idle(timeout_seconds=900) is False
 
     def test_is_idle_custom_timeout(self):
-        buf = SemanticBuffer()
+        buf = _buffer()
         fixed_now = datetime(2026, 1, 1, 12, 0, 0)
         buf.last_update = (fixed_now - timedelta(seconds=100)).timestamp()
 

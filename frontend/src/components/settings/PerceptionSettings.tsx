@@ -11,7 +11,7 @@ export function PerceptionSettings({ config, updateConfig }: SettingsWithValidat
             onChange={(v: boolean) => updateConfig('perception.engine.enable', v)}
           />
         </SettingRow>
-        <SettingRow label="空闲超时 (秒)" description="非活跃话题被折叠归档前的等待时间。">
+        <SettingRow label="空闲超时 (秒)" description="非活跃话题被结算并移出活跃池前的等待时间。">
           <Input 
             type="number" 
             value={config.perception.engine.idle_timeout_seconds} 

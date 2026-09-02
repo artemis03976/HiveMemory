@@ -3,15 +3,17 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, MetaData, PayloadLayer
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id=user_id),
+        meta=make_memory_metadata(source_agent_id="a1", user_id=user_id),
         index=IndexLayer(
             title=title,
             summary="A test memory summary",
@@ -42,9 +44,11 @@ async def test_list_memories_uses_memory_list_and_refreshes_vitality(bus):
 
     bus.request.side_effect = request
     service = MemoryManagementService(bus=bus)
+    identity_scope = make_identity_scope(user_id="u1")
 
     atoms = await service.list_memories(
-        filters={"meta.user_id": "u1", "index.memory_type": "FACT"},
+        identity_scope=identity_scope,
+        filters={"index.memory_type": "FACT"},
         limit=10,
     )
 
@@ -52,8 +56,9 @@ async def test_list_memories_uses_memory_list_and_refreshes_vitality(bus):
     assert bus.request.await_args_list[0].args == (PatchouliLocalRoutes.MEMORY_LIST,)
     assert bus.request.await_args_list[0].kwargs == {
         "query": None,
-        "filters": {"meta.user_id": "u1", "index.memory_type": "FACT"},
+        "filters": {"index.memory_type": "FACT"},
         "limit": 10,
+        "identity_scope": identity_scope,
     }
     assert bus.request.await_args_list[1].args == (
         PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
@@ -69,8 +74,10 @@ async def test_list_memories_excludes_agent_profiles_after_route_response(bus):
     profile.index.memory_type = MemoryType.AGENT_PROFILE
     bus.request.return_value = [fact, profile]
     service = MemoryManagementService(bus=bus)
+    identity_scope = make_identity_scope(user_id="u1")
 
     atoms = await service.list_memories(
+        identity_scope=identity_scope,
         query="test",
         limit=5,
         exclude_types=[MemoryType.AGENT_PROFILE.value],
@@ -80,6 +87,7 @@ async def test_list_memories_excludes_agent_profiles_after_route_response(bus):
     assert atoms == [fact]
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_LIST,
+        identity_scope=identity_scope,
         query="test",
         filters=None,
         limit=5,
@@ -91,6 +99,14 @@ async def test_get_memory_requests_memory_get_and_skips_refresh_when_missing(bus
     memory_id = uuid4()
     bus.request.return_value = None
     service = MemoryManagementService(bus=bus)
+    identity_scope = make_identity_scope(user_id="u1")
 
-    assert await service.get_memory(memory_id) is None
-    bus.request.assert_awaited_once_with(PatchouliLocalRoutes.MEMORY_GET, memory_id)
+    assert await service.get_memory(
+        memory_id,
+        identity_scope=identity_scope,
+    ) is None
+    bus.request.assert_awaited_once_with(
+        PatchouliLocalRoutes.MEMORY_GET,
+        memory_id,
+        identity_scope=identity_scope,
+    )

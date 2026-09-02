@@ -16,6 +16,7 @@ from hivememory.core.models.agent import (
     OMNI_DOLL_PROFILE,
 )
 from hivememory.core.mtp.models import MTPVerb
+from tests.helpers.workspace import make_identity_scope
 
 
 def test_omni_doll_profile_uses_explicit_current_capability_lists():
@@ -34,7 +35,7 @@ async def test_resolver_fallback_uses_omni_doll_profile_without_bus(alias):
     bus = MagicMock()
     resolver = AgentProfileResolver(local_bus=bus)
 
-    profile = await resolver.resolve(alias)
+    profile = await resolver.resolve(alias, identity_scope=make_identity_scope())
 
     assert profile is OMNI_DOLL_PROFILE
     bus.request.assert_not_called()

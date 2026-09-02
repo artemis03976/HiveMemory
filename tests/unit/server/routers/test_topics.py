@@ -8,10 +8,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.models import TopicLastTurn, TopicSnapshot
+from hivememory.patchouli.contracts.topic_management import (
+    TopicEvictionResult,
+    TopicSettleResult,
+)
+from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_identity_scope
 
 
 def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
@@ -40,17 +46,24 @@ class _TopicManagementStub:
     def __init__(self, librarian_core):
         self.librarian_core = librarian_core
 
-    async def list_active_topics(self, *, identity):
-        return self.librarian_core.get_active_topics_snapshots(identity)
+    async def list_active_topics(self, *, identity_scope):
+        return self.librarian_core.get_active_topics_snapshots(
+            identity_scope.actor_identity
+        )
 
 
 def _make_snapshot(topic_id="t1", title="Test Topic"):
     return TopicSnapshot(
+        workspace_identity=make_identity_scope(user_id="test_user").workspace_identity,
         topic_id=topic_id,
         topic_title=title,
         state_summary="summary",
         last_turn=TopicLastTurn(user="hi", assistant="hello"),
+        block_count=3,
         total_tokens=100,
+        last_accessed_at=123.5,
+        topic_summary="topic summary",
+        model_used="model-a",
     )
 
 
@@ -71,9 +84,14 @@ class TestTopicsRouter:
         assert len(data["topics"]) == 2
         assert data["topics"][0]["topic_id"] == "t1"
         assert data["topics"][0]["topic_title"] == "Topic 1"
+        assert data["topics"][0]["topic_summary"] == "topic summary"
         assert data["topics"][0]["state_summary"] == "summary"
         assert data["topics"][0]["last_turn"] == {"user": "hi", "assistant": "hello"}
+        assert data["topics"][0]["block_count"] == 3
         assert data["topics"][0]["total_tokens"] == 100
+        assert data["topics"][0]["last_accessed_at"] == 123.5
+        assert data["topics"][0]["model_used"] == "model-a"
+        assert "workspace_identity" not in data["topics"][0]
 
     def test_list_topics_empty(self):
         librarian_core = MagicMock()
@@ -86,14 +104,33 @@ class TestTopicsRouter:
         assert response.status_code == 200
         assert response.json()["topics"] == []
 
-    def test_archive_topic(self):
+    def test_settle_topic(self):
         librarian_core = MagicMock()
 
-        async def manual_settle_topic(topic_id=None):
-            task_result = MagicMock()
-            task_result.task_id = "task-1"
-            task_result.topic_id = topic_id
-            return task_result
+        async def manual_settle_result(*, identity_scope, topic_id=None):
+            return TopicSettleResult(
+                topic_id=topic_id,
+                generation_task_id="task-1",
+            )
+
+        app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_result)
+        client = TestClient(app)
+
+        response = client.post("/api/v1/topics/t1/settle")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["topic_id"] == "t1"
+        assert data["generation_task_id"] == "task-1"
+        assert data["generation_submitted"] is True
+
+    def test_settle_topic_without_generation_task(self):
+        """settle 成功不依赖是否存在 generation task。"""
+        librarian_core = MagicMock()
+
+        async def manual_settle_topic(*, identity_scope, topic_id=None):
+            return TopicSettleResult(
+                topic_id=topic_id,
+            )
 
         app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_topic)
         client = TestClient(app)
@@ -101,33 +138,99 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/t1/settle")
         assert response.status_code == 200
         data = response.json()
-        assert data["success"] is True
         assert data["topic_id"] == "t1"
+        assert data["generation_task_id"] is None
+        assert data["generation_submitted"] is False
+
+    def test_settle_topic_admission_failure_returns_retryable_service_error(self):
+        """生成队列拒绝接纳时，HTTP 边界应保留可重试语义。"""
+        librarian_core = MagicMock()
+
+        async def reject_settlement(*, identity_scope, topic_id=None):
+            raise TopicSettleAdmissionError("话题内容已保留，可重试")
+
+        app = _create_test_app(
+            librarian_core,
+            manual_settle_topic=reject_settlement,
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/v1/topics/t1/settle")
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试"
+        }
+
+    def test_settle_topic_missing_returns_not_found(self):
+        """不存在的 Topic 应在 HTTP 边界映射为 404。"""
+        librarian_core = MagicMock()
+
+        async def reject_missing_topic(*, identity_scope, topic_id=None):
+            raise KeyError(topic_id)
+
+        app = _create_test_app(
+            librarian_core,
+            manual_settle_topic=reject_missing_topic,
+        )
+        client = TestClient(app)
+
+        response = client.post("/api/v1/topics/missing/settle")
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "话题不存在"}
+
+    def test_settle_topic_busy_returns_conflict(self):
+        """手动结算与其他 Topic 写入冲突时应提供可重试的 HTTP 409。"""
+        librarian_core = MagicMock()
+
+        async def reject_busy_topic(*, identity_scope, topic_id=None):
+            raise TopicBusyError(f"topic '{topic_id}' 正忙")
+
+        app = _create_test_app(
+            librarian_core,
+            manual_settle_topic=reject_busy_topic,
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post("/api/v1/topics/t1/settle")
+
+        assert response.status_code == 409
+        assert response.json() == {"detail": "话题正在处理，请稍后重试"}
 
     def test_delete_topic(self):
         librarian_core = MagicMock()
-        evict_topic = AsyncMock(return_value={
-            "success": True,
-            "message": "话题 t1 已删除",
-        })
+        evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
 
         app = _create_test_app(librarian_core, evict_topic=evict_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/t1")
         assert response.status_code == 200
-        assert response.json() == {"success": True, "message": "话题 t1 已删除"}
+        assert response.json() == {"topic_id": "t1", "removed": True}
 
     def test_delete_topic_missing(self):
         librarian_core = MagicMock()
-        evict_topic = AsyncMock(return_value={
-            "success": False,
-            "message": "话题不存在或已被驱逐",
-        })
+        evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="missing", removed=False))
 
         app = _create_test_app(librarian_core, evict_topic=evict_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/missing")
         assert response.status_code == 200
-        assert response.json() == {"success": False, "message": "话题不存在或已被驱逐"}
+        assert response.json() == {"topic_id": "missing", "removed": False}
+
+    def test_delete_topic_busy_returns_conflict(self):
+        """手动删除不得把正在处理中的 Topic 当作普通服务器错误。"""
+        librarian_core = MagicMock()
+
+        async def reject_busy_topic(*, identity_scope, topic_id):
+            raise TopicBusyError(f"topic '{topic_id}' 正忙")
+
+        app = _create_test_app(librarian_core, evict_topic=reject_busy_topic)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.delete("/api/v1/topics/t1")
+
+        assert response.status_code == 409
+        assert response.json() == {"detail": "话题正在处理，请稍后重试"}

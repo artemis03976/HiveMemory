@@ -7,7 +7,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
@@ -16,11 +15,17 @@ from hivememory.engines.lifecycle.models import (
     MemoryEvent,
     ReinforcementResult,
 )
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+
+
+def _identity_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
 
 
 def _make_memory(vitality_score=50.0) -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(
+        meta=make_memory_metadata(
             source_agent_id="a1",
             user_id="u1",
             session_id="s1",
@@ -111,9 +116,9 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_hit(self):
         mid = uuid4()
-        await self.engine.record_hit(mid, source="retrieval")
+        await self.engine.record_hit(_identity_scope(), mid, source="retrieval")
 
-        event = self.mock_reinforcement.reinforce.call_args[0][1]
+        event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.HIT
         assert event.memory_id == mid
         assert event.source == "retrieval"
@@ -121,9 +126,9 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_citation(self):
         mid = uuid4()
-        await self.engine.record_citation(mid, source="agent")
+        await self.engine.record_citation(_identity_scope(), mid, source="agent")
 
-        event = self.mock_reinforcement.reinforce.call_args[0][1]
+        event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.CITATION
         assert event.memory_id == mid
         assert event.source == "agent"
@@ -131,17 +136,17 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_feedback_positive(self):
         mid = uuid4()
-        await self.engine.record_feedback(mid, positive=True)
+        await self.engine.record_feedback(_identity_scope(), mid, positive=True)
 
-        event = self.mock_reinforcement.reinforce.call_args[0][1]
+        event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.FEEDBACK_POSITIVE
 
     @pytest.mark.asyncio
     async def test_record_feedback_negative(self):
         mid = uuid4()
-        await self.engine.record_feedback(mid, positive=False)
+        await self.engine.record_feedback(_identity_scope(), mid, positive=False)
 
-        event = self.mock_reinforcement.reinforce.call_args[0][1]
+        event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.FEEDBACK_NEGATIVE
 
     @pytest.mark.asyncio
@@ -149,9 +154,14 @@ class TestLifecycleEngineEvents:
         mid = uuid4()
         event = MemoryEvent(event_type=EventType.HIT, memory_id=mid, source="test")
 
-        await self.engine.record_event(event)
+        identity_scope = _identity_scope()
+        await self.engine.record_event(identity_scope, event)
 
-        self.mock_reinforcement.reinforce.assert_called_once_with(mid, event)
+        self.mock_reinforcement.reinforce.assert_called_once_with(
+            identity_scope,
+            mid,
+            event,
+        )
 
 
 class TestLifecycleEngineDelegation:
@@ -168,13 +178,13 @@ class TestLifecycleEngineDelegation:
     async def test_run_garbage_collection_refreshes_before_collect(self):
         m1 = _make_memory(vitality_score=10.0)
         m2 = _make_memory(vitality_score=90.0)
-        self.mock_mid_term.scroll.return_value = [m1, m2]
+        self.mock_mid_term.list_all_for_maintenance.return_value = [m1, m2]
         self.mock_vitality.calculate.side_effect = [12.0, 88.0]
         self.mock_gc.collect.return_value = 3
 
         result = await self.engine.run_garbage_collection(force=True)
 
-        self.mock_mid_term.scroll.assert_awaited_once_with(limit=10000)
+        self.mock_mid_term.list_all_for_maintenance.assert_awaited_once_with(limit=10000)
         assert self.mock_mid_term.upsert.await_count == 2
         assert m1.meta.vitality_score == pytest.approx(12.0)
         assert m2.meta.vitality_score == pytest.approx(88.0)
@@ -196,7 +206,7 @@ class TestLifecycleEngineQueries:
         m1 = _make_memory()
         m2 = _make_memory()
         m3 = _make_memory()
-        self.mock_mid_term.scroll.return_value = [m1, m2, m3]
+        self.mock_mid_term.list_all_for_maintenance.return_value = [m1, m2, m3]
         self.mock_vitality.calculate.side_effect = [10.0, 50.0, 5.0]
 
         results = await self.engine.get_low_vitality_memories(threshold=20.0)
@@ -209,7 +219,7 @@ class TestLifecycleEngineQueries:
     async def test_get_low_vitality_memories_with_limit(self):
         m1 = _make_memory()
         m2 = _make_memory()
-        self.mock_mid_term.scroll.return_value = [m1, m2]
+        self.mock_mid_term.list_all_for_maintenance.return_value = [m1, m2]
         self.mock_vitality.calculate.side_effect = [5.0, 10.0]
 
         results = await self.engine.get_low_vitality_memories(threshold=20.0, limit=1)
@@ -219,7 +229,7 @@ class TestLifecycleEngineQueries:
     @pytest.mark.asyncio
     async def test_get_low_vitality_memories_none_below_threshold(self):
         m1 = _make_memory()
-        self.mock_mid_term.scroll.return_value = [m1]
+        self.mock_mid_term.list_all_for_maintenance.return_value = [m1]
         self.mock_vitality.calculate.return_value = 90.0
 
         results = await self.engine.get_low_vitality_memories(threshold=20.0)

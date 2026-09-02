@@ -7,7 +7,14 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, PendingAtomResolution, PendingAtomSettlement
+from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.models import (
+    IdentityScope,
+    MemoryAtom,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    require_identity_scope,
+)
 from hivememory.core.models.artifact import (
     ArtifactRef,
     MemoryEventLog,
@@ -62,13 +69,24 @@ class MemoryGenerationFamiliar:
         """
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
+            spec.identity_scope,
         )
-        return await self._run_generation(spec, interaction_ref=interaction_ref)
+        return await self._run_generation(
+            spec,
+            interaction_ref=interaction_ref,
+        )
 
-    async def create_external_memory(self, atom: MemoryAtom) -> MemoryAtom:
+    async def create_external_memory(
+        self,
+        identity_scope: IdentityScope,
+        atom: MemoryAtom,
+    ) -> MemoryAtom:
         """
         对外部创建的记忆原子进行持久化处理。
         """
+        identity_scope = require_identity_scope(identity_scope)
+        if atom.workspace_identity != identity_scope.workspace_identity:
+            raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         await self._attach_memory_artifact(
             atom=atom,
             decision=DuplicateDecision.CREATE,
@@ -85,6 +103,7 @@ class MemoryGenerationFamiliar:
         self,
         memory_id: UUID,
         *,
+        identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -95,7 +114,8 @@ class MemoryGenerationFamiliar:
         """
         对外部手动的记忆编辑进行持久化处理。
         """
-        atom = await self._mid_term.get(memory_id)
+        identity_scope = require_identity_scope(identity_scope)
+        atom = await self._mid_term.get_for_mutation(identity_scope, memory_id)
         if atom is None:
             return None
 
@@ -166,7 +186,10 @@ class MemoryGenerationFamiliar:
         执行 compute -> artifacts -> persist 三步流水线。
         """
         # Step 1：纯计算，GenerationEngine 不负责持久化。
-        outcomes = await self._generation_engine.process(spec.request)
+        outcomes = await self._generation_engine.process(
+            spec.request,
+            identity_scope=spec.identity_scope,
+        )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
         logger.info(
@@ -264,6 +287,7 @@ class MemoryGenerationFamiliar:
     async def _capture_interaction_artifact(
         self,
         interaction_input: InteractionArtifactInput | None,
+        identity_scope: IdentityScope,
     ) -> ArtifactRef | None:
         """
         构建原始交互 artifact。
@@ -278,6 +302,7 @@ class MemoryGenerationFamiliar:
                 topic_title=interaction_input.topic_title,
                 topic_summary=interaction_input.topic_summary,
                 blocks=interaction_input.blocks,
+                identity_scope=identity_scope,
             )
         except Exception:
             logger.warning("Failed to build interaction artifact", exc_info=True)
@@ -420,6 +445,8 @@ class MemoryGenerationFamiliar:
     def _append_artifact_ref_once(atom: MemoryAtom, ref: ArtifactRef | None) -> None:
         if ref is None:
             return
+        if ref.workspace_identity != atom.workspace_identity:
+            raise WorkspaceMismatchError(details={"artifact_id": ref.artifact_id})
         refs = atom.payload.artifacts.refs
         exists = any(
             existing.artifact_id == ref.artifact_id

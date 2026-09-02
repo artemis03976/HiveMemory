@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.core.models import Identity, TopicSnapshot
+from hivememory.core.models import Identity, TopicSnapshot, IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
@@ -58,7 +58,7 @@ class CommandDispatchInput:
 
 @dataclass(frozen=True)
 class CandidateTopicsInput:
-    identity: Identity
+    identity_scope: IdentityScope
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,7 @@ class TopicRoutingInput:
 
 @dataclass(frozen=True)
 class RoutedTopicInput:
-    identity: Identity
+    identity_scope: IdentityScope
     topic_id: str
 
 
@@ -111,7 +111,9 @@ def build_gateway_workflow(
     ) -> CandidateTopics:
         if context_provider is None:
             raise RecoverableGatewayError("Gateway Context Provider 未装配")
-        return await context_provider.prepare_candidate_topics(identity=selected.identity)
+        return await context_provider.prepare_candidate_topics(
+            identity_scope=selected.identity_scope
+        )
 
     async def invoke_topic_router(
         selected: TopicRoutingInput,
@@ -130,7 +132,7 @@ def build_gateway_workflow(
         if context_provider is None:
             raise RecoverableGatewayError("Gateway Context Provider 未装配")
         return await context_provider.prepare_routed_topic(
-            identity=selected.identity,
+            identity_scope=selected.identity_scope,
             topic_id=selected.topic_id,
         )
 
@@ -247,14 +249,14 @@ def _select_command_dispatch_input(
         raise RuntimeError("PASSIVE_MEMORY 不得进入 command dispatch")
     return CommandDispatchInput(
         command=snapshot.command_parse_result,
-        identity=snapshot.identity,
+        identity=snapshot.identity_scope.actor_identity,
     )
 
 
 def _select_candidate_topics_input(
     snapshot: GatewayStateSnapshot,
 ) -> CandidateTopicsInput:
-    return CandidateTopicsInput(identity=snapshot.identity)
+    return CandidateTopicsInput(identity_scope=snapshot.identity_scope)
 
 
 def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingInput:
@@ -277,7 +279,10 @@ def _project_topic_routing(output: TopicRoutingResult) -> dict[str, object | Non
 def _select_routed_topic_input(snapshot: GatewayStateSnapshot) -> RoutedTopicInput:
     if snapshot.topic_id is None:
         raise RuntimeError("Routed Topic Preparation 前必须完成 topic routing")
-    return RoutedTopicInput(identity=snapshot.identity, topic_id=snapshot.topic_id)
+    return RoutedTopicInput(
+        identity_scope=snapshot.identity_scope,
+        topic_id=snapshot.topic_id,
+    )
 
 
 def _select_simple_chat_input(
@@ -293,7 +298,7 @@ def _select_analysis_context(
         raise RuntimeError("User Query Analysis 前必须完成 topic context preparation")
     return UserQueryAnalysisContext(
         raw_message=snapshot.raw_message,
-        identity=snapshot.identity,
+        identity=snapshot.identity_scope.actor_identity,
         candidate_topics=snapshot.candidate_topics,
         topic_id=snapshot.topic_id,
         new_topic_title=snapshot.new_topic_title,

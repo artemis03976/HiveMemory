@@ -14,7 +14,6 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
@@ -43,6 +42,8 @@ from hivememory.patchouli.service import (
     PatchouliService,
 )
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
+from tests.helpers.workspace import make_identity_scope
+from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 
 def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
@@ -70,7 +71,7 @@ def _decision() -> GatewayDecision:
 def _memory() -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="a1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
         index=IndexLayer(
             title="title",
             summary="memory summary",
@@ -89,9 +90,13 @@ def _prepared(
     memories: list[MemoryAtom] | None = None,
 ) -> PreparedAgentRun:
     identity = Identity(user_id="u1", agent_id="a1", session_id="session-1")
+    identity_scope = make_identity_scope(
+        actor_identity=identity,
+    )
     return PreparedAgentRun(
         agent_run_context=AgentRunContext(
-            identity=identity,
+            identity_scope=identity_scope,
+            interaction_id=interaction_id,
             topic_id="topic-1",
             user_message="question",
             topic_context=None,
@@ -105,7 +110,6 @@ def _prepared(
             pool_topics=[],
             memory_refs=[],
         ),
-        interaction_id=interaction_id,
     )
 
 
@@ -114,7 +118,7 @@ def _write_task() -> PendingAtomMaterializeTask:
         pending_alias="draft_active",
         intent_id="intent_active",
         source_verb="WRITE",
-        identity=Identity(user_id="u1", agent_id="a1"),
+        identity_scope=make_memory_identity_scope(user_id="u1", agent_id="a1"),
         focus=WriteFocus(content="remember this"),
     )
 
@@ -125,7 +129,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, target_topic_id, interaction_id):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
         calls.append("apply_started")
         apply_started.set()
         await release_apply.wait()
@@ -160,6 +164,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         submission = submit_spy.await_args.args[0]
         assert isinstance(submission, InteractionSubmission)
         assert submission.origin == "active_chat"
+        assert submission.identity_scope == prepared.identity_scope
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply", "materialize"]
@@ -192,13 +197,14 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
         policy=_queue_policy(),
     )
     service = PatchouliService(bus, interaction_queue=queue)
+    prepared = _prepared(memories=[memory, memory])
     finalize_task: asyncio.Task[list] | None = None
 
     try:
         await queue.start()
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
-                _prepared(memories=[memory, memory]),
+                prepared,
                 AgentRunResult(final_text="answer"),
             )
         )
@@ -216,6 +222,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
 
     record_hit_mock.assert_awaited_once_with(
         memory.id,
+        identity_scope=prepared.identity_scope,
         source="retrieval.finalize",
     )
 
@@ -232,12 +239,13 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
     queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
     service = PatchouliService(bus, interaction_queue=queue)
+    prepared = _prepared(is_new=True, memories=[_memory()])
 
     try:
         await queue.start()
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
-            await service.finalize_agent_run(
-                _prepared(is_new=True, memories=[_memory()]),
+                await service.finalize_agent_run(
+                    prepared,
                 AgentRunResult(
                     final_text="answer",
                     materialize_tasks=[_write_task()],
@@ -251,7 +259,10 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     assert exc_info.value.error_class == "ConnectionError"
     materialize.assert_not_awaited()
     record_hit.assert_not_awaited()
-    discard.assert_awaited_once_with("topic-1")
+    discard.assert_awaited_once_with(
+        "topic-1",
+        identity_scope=prepared.identity_scope,
+    )
 
 
 @pytest.mark.asyncio
@@ -293,9 +304,12 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
 
     await queue.submit(
         InteractionSubmission(
+            identity_scope=make_identity_scope(
+                user_id="u1",
+                agent_id="a1",
+            ),
             interaction_id="passive-pending",
             payload=InteractionPayload(
-                identity=Identity(user_id="u1", agent_id="a1"),
                 user_message="passive question",
                 assistant_final_text="passive answer",
             ),
@@ -322,7 +336,10 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         apply.assert_not_awaited()
 
         assert await service.cleanup_prepared_agent_run(prepared) is True
-        discard.assert_awaited_once_with(prepared.topic_id)
+        discard.assert_awaited_once_with(
+            prepared.topic_id,
+            identity_scope=prepared.identity_scope,
+        )
     finally:
         await queue.stop()
 
@@ -332,7 +349,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, target_topic_id, interaction_id):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
         apply_started.set()
         await release_apply.wait()
         return target_topic_id
@@ -384,7 +401,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, target_topic_id, interaction_id):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
         apply_started.set()
         await release_apply.wait()
         raise ConnectionError("interaction store unavailable")
@@ -417,7 +434,10 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
         release_apply.set()
         await queue.stop()
 
-    discard.assert_awaited_once_with(prepared.topic_id)
+    discard.assert_awaited_once_with(
+        prepared.topic_id,
+        identity_scope=prepared.identity_scope,
+    )
 
 
 @pytest.mark.asyncio

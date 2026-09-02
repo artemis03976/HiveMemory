@@ -5,6 +5,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     ArtifactRef,
     MemoryCreationArtifact,
@@ -47,10 +48,13 @@ class MemoryArtifactBuilder:
     ) -> MemoryCreationBundle:
         """原子写入 MemoryVersionArtifact(v1) 与 MemoryCreationArtifact。v1 先写。"""
         memory_id = str(memory.id)
+        _require_source_refs_in_workspace(memory, source_artifact_refs)
 
         # 1. v1 快照 — 初始可变字段全量状态
         v1 = MemoryVersionArtifact(
             memory_id=memory_id,
+            workspace_identity=memory.workspace_identity,
+            owner_agent_id=memory.meta.source_agent_id,
             version_number=1,
             update_source="CREATE",
             snapshot_before=None,
@@ -64,6 +68,8 @@ class MemoryArtifactBuilder:
         # 2. creation artifact — initial_version_ref 指向 v1
         creation = MemoryCreationArtifact(
             memory_id=memory_id,
+            workspace_identity=memory.workspace_identity,
+            owner_agent_id=memory.meta.source_agent_id,
             source_intent=source_intent,
             generation_view=context.model_dump(),
             source_artifacts=source_artifact_refs,
@@ -85,8 +91,11 @@ class MemoryArtifactBuilder:
         source_memory_refs: Optional[List[MemoryInputRef]] = None,
     ) -> ArtifactRef | None:
         """写入 MemoryVersionArtifact(v2+)，返回 version ref。"""
+        _require_source_refs_in_workspace(memory_after, source_artifact_refs or [])
         version = MemoryVersionArtifact(
             memory_id=str(memory_after.id),
+            workspace_identity=memory_after.workspace_identity,
+            owner_agent_id=memory_after.meta.source_agent_id,
             version_number=memory_after.meta.version,
             update_source=update_source,
             snapshot_before=snapshot_before,
@@ -131,3 +140,13 @@ def create_memory_builder(
     if store is None or not config.enabled:
         return NoOpMemoryArtifactBuilder()
     return MemoryArtifactBuilder(store)
+
+
+def _require_source_refs_in_workspace(
+    memory: MemoryAtom,
+    source_refs: list[ArtifactRef],
+) -> None:
+    """拒绝把其他 Workspace 的 provenance 引用写入当前 Memory。"""
+    for ref in source_refs:
+        if ref.workspace_identity != memory.workspace_identity:
+            raise WorkspaceMismatchError(details={"artifact_id": ref.artifact_id})

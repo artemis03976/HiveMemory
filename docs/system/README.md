@@ -8,12 +8,15 @@ code_paths:
   - src/hivememory/system/assembler.py
   - src/hivememory/system/application/
   - src/hivememory/system/runtime/
+  - src/hivememory/system/runtime/workspace/
   - src/hivememory/system/services/passive/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-29
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # System
@@ -22,12 +25,15 @@ last_reviewed: 2026-07-29
 
 System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实现一遍，而是回答一次顶层用例如何开始、如何跨边界交接、如何取消和如何收尾。它是组合根和应用编排层，也是全局总线、维护调度器、观测旁路和配置/注册表的所有者。
 
+Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 System 复制出的独立运行时。System 负责在入口和后台交接中保留 `IdentityScope`，并持有进程级唯一的 `WorkspaceAssetStore` working set；Topic、Memory 和 Artifact 的领域语义仍由 Patchouli 所有。详见 [Workspace 架构](../architecture/workspace.md)。
+
 当前设计文档：
 
 - [组合根与生命周期](./composition.md)：`HiveMemorySystem`、`SystemAssembler`、子系统装配和启停顺序；
 - [应用服务](./application-services.md)：主动 chat、取消、API facade 和跨子系统编排；
 - [被动摄入](./passive-ingress.md)：外部对话事件、turn accumulator、submission queue 和降级语义；
 - [运行时与总线](./runtime-and-bus.md)：GlobalSystemBus、维护调度器和运行控制；
+- [Workspace 架构](../architecture/workspace.md)：身份坐标、资源归属、AssetStore 生命周期与共享底座边界；
 - [配置与注册表](./configuration.md)：配置来源、所有权、模型/Provider 注册和覆盖边界；
 - [可观测性](./observability.md)：RuntimeEvent、operation observer、健康状态和旁路原则；
 - [i18n](./i18n.md)：语言归一化、解析优先级和各文本领域的当前入口。

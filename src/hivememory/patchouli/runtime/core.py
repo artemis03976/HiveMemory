@@ -213,7 +213,7 @@ class PatchouliRuntime:
 
     async def shutdown_drain(self) -> dict[str, Any]:
         """
-        服务关闭前强制归档活跃话题并等待后台记忆生成任务完成。
+        服务关闭前结算并驱逐活跃话题，再等待后台记忆生成任务完成。
         """
         observer = RuntimeOperationObserver(
             self._runtime_events,
@@ -239,11 +239,9 @@ class PatchouliRuntime:
             return {
                 "success": True,
                 "perception": {
-                    "success": True,
-                    "trigger_reason": "shutdown",
-                    "flushed_topics": [],
-                    "skipped_topics": [],
-                    "archived_blocks": 0,
+                    "settled_topic_ids": [],
+                    "generation_skipped_topic_ids": [],
+                    "resident_block_count": 0,
                 },
                 "generation": generation_summary,
                 "reentrant": True,
@@ -284,7 +282,7 @@ class PatchouliRuntime:
         }
         logger.info(
             f"shutdown drain 完成: observer_payloads=0, "
-            f"flushed_topics={len(perception_result.flushed_topics)}, "
+            f"settled_topics={len(perception_result.settled_topic_ids)}, "
             f"generation_timed_out={generation_summary['timed_out']}"
         )
         return result

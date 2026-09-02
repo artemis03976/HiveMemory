@@ -14,7 +14,7 @@ from hivememory.patchouli.memory_library.models import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.patchouli.services.perception import ShutdownFlushResult
+from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
@@ -79,12 +79,10 @@ class TestRuntimeShutdownDrain:
     async def test_shutdown_drain_flushes_perception_once(self):
         runtime = _create_runtime()
         runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
-            return_value=ShutdownFlushResult(
-                success=True,
-                trigger_reason="shutdown",
-                flushed_topics=["t1"],
-                skipped_topics=[],
-                archived_blocks=1,
+            return_value=TopicShutdownFlushReport(
+                settled_topic_ids=("t1", "t2"),
+                generation_skipped_topic_ids=("t2",),
+                resident_block_count=2,
             )
         )
 
@@ -94,7 +92,8 @@ class TestRuntimeShutdownDrain:
         runtime._task_controller.wait_all.assert_awaited_once_with(timeout=30.0)
         runtime._task_controller.cancel_many.assert_not_awaited()
         assert result["reentrant"] is False
-        assert result["perception"].trigger_reason == "shutdown"
+        assert result["perception"].settled_topic_ids == ("t1", "t2")
+        assert result["perception"].generation_skipped_topic_ids == ("t2",)
         assert result["generation"]["timed_out"] == 0
         assert result["generation_cancelled_after_timeout"] == 0
         events = runtime._test_runtime_events.events
@@ -114,11 +113,9 @@ class TestRuntimeShutdownDrain:
         assert completed.data["operation_key"] == "patchouli.shutdown_drain"
         assert completed.data["success"] is True
         assert completed.data["perception"] == {
-            "success": True,
-            "trigger_reason": "shutdown",
-            "flushed_topic_count": 1,
-            "skipped_topic_count": 0,
-            "archived_blocks": 1,
+            "settled_topic_count": 2,
+            "generation_skipped_topic_count": 1,
+            "resident_block_count": 2,
         }
         assert completed.data["generation"]["timed_out"] == 0
         assert isinstance(completed.data["duration_ms"], float)
@@ -127,12 +124,9 @@ class TestRuntimeShutdownDrain:
     async def test_shutdown_drain_reports_generation_timeout(self):
         runtime = _create_runtime()
         runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
-            return_value=ShutdownFlushResult(
-                success=True,
-                trigger_reason="shutdown",
-                flushed_topics=["t1"],
-                skipped_topics=[],
-                archived_blocks=1,
+            return_value=TopicShutdownFlushReport(
+                settled_topic_ids=("t1",),
+                resident_block_count=1,
             )
         )
         runtime._task_controller.wait_all = AsyncMock(
@@ -167,12 +161,9 @@ class TestRuntimeShutdownDrain:
     async def test_shutdown_drain_is_reentrant(self):
         runtime = _create_runtime()
         runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
-            return_value=ShutdownFlushResult(
-                success=True,
-                trigger_reason="shutdown",
-                flushed_topics=[],
-                skipped_topics=[],
-                archived_blocks=0,
+            return_value=TopicShutdownFlushReport(
+                settled_topic_ids=(),
+                resident_block_count=0,
             )
         )
 
@@ -192,7 +183,7 @@ class TestRuntimeShutdownDrain:
         ]
         assert events[-2].data["reentrant"] is True
         assert events[-1].data["reentrant"] is True
-        assert events[-1].data["perception"]["flushed_topic_count"] == 0
+        assert events[-1].data["perception"]["settled_topic_count"] == 0
         assert events[-1].data["generation"]["requested"] == 0
 
     @pytest.mark.asyncio

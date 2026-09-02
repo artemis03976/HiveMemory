@@ -30,7 +30,12 @@ from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter, BoundAgentRunEvents
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
-from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity, MemoryAtom
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+    MemoryAtom,
+    IdentityScope,
+)
 from hivememory.core.protocol.models import (
     AgentRunContext,
     AgentRunResult,
@@ -91,7 +96,7 @@ class AgentRunService:
             messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
             frame = self._create_root_frame(
                 messages=messages,
-                identity=agent_run_context.identity,
+                identity_scope=agent_run_context.identity_scope,
                 topic_id=agent_run_context.topic_id,
                 session=session,
                 agent_profile=agent_run_context.agent_profile,
@@ -140,7 +145,7 @@ class AgentRunService:
             agent_stream = self._stream_adapter.create(session)
             frame = self._create_root_frame(
                 messages=messages,
-                identity=agent_run_context.identity,
+                identity_scope=agent_run_context.identity_scope,
                 topic_id=agent_run_context.topic_id,
                 session=session,
                 agent_profile=agent_run_context.agent_profile,
@@ -216,7 +221,7 @@ class AgentRunService:
         self,
         *,
         messages: list[dict[str, str]],
-        identity: Identity,
+        identity_scope: IdentityScope,
         topic_id: str,
         agent_profile: AgentProfile | None,
         session: RunSession,
@@ -229,9 +234,11 @@ class AgentRunService:
         )
         frame = self._frame_factory.create(
             FrameSpec(
-                runtime_scope=self._frame_factory.scope(run_id=session.agent_run_id),
+                runtime_scope=self._frame_factory.scope(
+                    identity_scope=identity_scope,
+                    run_id=session.agent_run_id,
+                ),
                 profile=profile,
-                identity=identity,
                 messages=messages,
                 topic_id=topic_id or "",
                 execution_policy=policy,
@@ -308,6 +315,7 @@ class AgentRunService:
             generation_id=session.generation_id,
             topic_id=agent_run_context.topic_id,
             agent_id=agent_run_context.identity.agent_id,
+            workspace_id=agent_run_context.identity_scope.workspace_identity.workspace_id,
         )
 
 

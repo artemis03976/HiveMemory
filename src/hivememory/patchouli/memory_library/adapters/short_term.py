@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 from typing import Dict, List, Optional, Set
 
+from hivememory.core.models import WorkspaceIdentity, WorkspaceTopicKey
 from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
@@ -21,46 +22,51 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
     """
     内存态短期存储适配器。
 
-    线程安全，使用 RLock 保护 _buffers / _user_index。
+    线程安全，使用 RLock 保护复合键索引。
     """
 
     def __init__(self) -> None:
-        self._buffers: Dict[str, SemanticBuffer] = {}
-        self._user_index: Dict[str, Set[str]] = {}
+        self._buffers: Dict[WorkspaceTopicKey, SemanticBuffer] = {}
+        self._workspace_index: Dict[tuple[str, str], Set[WorkspaceTopicKey]] = {}
         self._lock = threading.RLock()
 
-    def get(self, topic_id: str) -> Optional[SemanticBuffer]:
+    def get(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]:
         with self._lock:
-            return self._buffers.get(topic_id)
+            return self._buffers.get(key)
 
-    def put(self, topic_id: str, buffer: SemanticBuffer) -> None:
+    def put(self, key: WorkspaceTopicKey, buffer: SemanticBuffer) -> None:
         with self._lock:
-            self._buffers[topic_id] = buffer
-            uid = buffer.user_id
-            self._user_index.setdefault(uid, set()).add(topic_id)
+            if key != buffer.topic_key:
+                raise ValueError("Topic 复合键与 buffer Workspace 归属不一致")
+            self._buffers[key] = buffer
+            scope = (key.owner_user_id, key.workspace_id)
+            self._workspace_index.setdefault(scope, set()).add(key)
 
-    def pop(self, topic_id: str) -> Optional[SemanticBuffer]:
+    def pop(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]:
         with self._lock:
-            buf = self._buffers.pop(topic_id, None)
+            buf = self._buffers.pop(key, None)
             if buf is not None:
-                topics = self._user_index.get(buf.user_id, set())
-                topics.discard(topic_id)
+                scope = (key.owner_user_id, key.workspace_id)
+                topics = self._workspace_index.get(scope, set())
+                topics.discard(key)
                 if not topics:
-                    self._user_index.pop(buf.user_id, None)
+                    self._workspace_index.pop(scope, None)
             return buf
 
-    def list_by_user(self, user_id: str) -> List[SemanticBuffer]:
+    def list_by_workspace(self, workspace: WorkspaceIdentity) -> List[SemanticBuffer]:
         with self._lock:
-            ids = self._user_index.get(user_id, set())
-            return [self._buffers[t] for t in ids if t in self._buffers]
+            scope = (workspace.owner_user_id, workspace.workspace_id)
+            keys = self._workspace_index.get(scope, set())
+            return [self._buffers[key] for key in keys if key in self._buffers]
 
     def list_all(self) -> List[SemanticBuffer]:
         with self._lock:
             return list(self._buffers.values())
 
-    def count(self) -> int:
+    def count(self, workspace: WorkspaceIdentity) -> int:
         with self._lock:
-            return len(self._buffers)
+            scope = (workspace.owner_user_id, workspace.workspace_id)
+            return len(self._workspace_index.get(scope, ()))
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(

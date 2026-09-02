@@ -9,7 +9,6 @@ from hivememory.core.models import (
     LogicalBlock,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     TurnRecord,
 )
@@ -28,13 +27,19 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
+
+
+def _identity_scope():
+    return make_identity_scope(user_id="test_user", agent_id="test_agent")
 
 
 def _task_handle(
     *,
     task_id="j1",
     topic_id="t1",
-    source=MemoryGenerationSource.ARCHIVE,
+    source=MemoryGenerationSource.SETTLE,
 ):
     return MemoryGenerationTask(
         task_id=task_id,
@@ -49,7 +54,7 @@ def _write_task(alias="draft_001"):
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="WRITE",
-        identity=Identity(user_id="test_user"),
+        identity_scope=_identity_scope(),
         focus=WriteFocus(content="test content"),
     )
 
@@ -59,7 +64,7 @@ def _update_task(base_uuid: str, alias="draft_update"):
         pending_alias=alias,
         intent_id=f"intent_{alias}",
         source_verb="UPDATE",
-        identity=Identity(user_id="test_user"),
+        identity_scope=_identity_scope(),
         focus=UpdateFocus(
             instruction="merge update",
             content="new content",
@@ -76,7 +81,7 @@ def _topic_block():
 def _memory_atom(memory_id) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id,
-        meta=MetaData(source_agent_id="agent-1", user_id="test_user"),
+        meta=make_memory_metadata(source_agent_id="agent-1", user_id="test_user"),
         index=IndexLayer(
             title="memory title",
             summary="summary text",
@@ -98,7 +103,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
@@ -122,6 +127,7 @@ class TestMemoryGenerationCoordinator:
         result = await coordinator.submit_active(
             [_write_task("draft_ok"), _write_task("draft_rejected")],
             "t1",
+            identity_scope=_identity_scope(),
         )
 
         assert [task.task_id for task in result] == ["accepted"]
@@ -136,7 +142,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
@@ -147,13 +153,17 @@ class TestMemoryGenerationCoordinator:
         bus.publish = AsyncMock()
         coordinator = MemoryGenerationCoordinator(bus=bus)
 
-        result = await coordinator.submit_active([_write_task("draft_unknown")], "t1")
+        result = await coordinator.submit_active(
+            [_write_task("draft_unknown")],
+            "t1",
+            identity_scope=_identity_scope(),
+        )
 
         assert result == []
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_submit_settlement_builds_archive_spec(self):
+    async def test_submit_settlement_builds_settle_spec(self):
         bus = Mock()
         bus.request = AsyncMock(return_value=_task_handle())
         coordinator = MemoryGenerationCoordinator(bus=bus)
@@ -163,6 +173,7 @@ class TestMemoryGenerationCoordinator:
             topic_summary="summary",
             blocks=[_topic_block()],
             state_summary="state",
+            identity_scope=_identity_scope(),
         )
 
         task = await coordinator.submit_settlement(payload)
@@ -171,7 +182,7 @@ class TestMemoryGenerationCoordinator:
         route, spec = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION
         assert spec.topic_id == "t1"
-        assert spec.source == MemoryGenerationSource.ARCHIVE
+        assert spec.source == MemoryGenerationSource.SETTLE
         assert spec.request.context.state_summary == "state"
         assert spec.interaction_input.topic_title == "title"
 
@@ -185,6 +196,7 @@ class TestMemoryGenerationCoordinator:
             topic_title="empty",
             blocks=[],
             state_summary="state",
+            identity_scope=_identity_scope(),
         )
 
         task = await coordinator.submit_settlement(payload)
@@ -198,7 +210,11 @@ class TestMemoryGenerationCoordinator:
         bus.request = AsyncMock()
         coordinator = MemoryGenerationCoordinator(bus=bus)
 
-        result = await coordinator.submit_active([], "t1")
+        result = await coordinator.submit_active(
+            [],
+            "t1",
+            identity_scope=_identity_scope(),
+        )
 
         assert result == []
         bus.request.assert_not_awaited()
@@ -212,7 +228,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
@@ -222,14 +238,18 @@ class TestMemoryGenerationCoordinator:
         bus.request = AsyncMock(side_effect=request)
         coordinator = MemoryGenerationCoordinator(bus=bus)
 
-        result = await coordinator.submit_active([_write_task("draft_1")], "t1")
+        result = await coordinator.submit_active(
+            [_write_task("draft_1")],
+            "t1",
+            identity_scope=_identity_scope(),
+        )
 
         assert len(result) == 1
         spec = bus.request.await_args_list[-1].args[1][0]
         assert spec.source == MemoryGenerationSource.WRITE
         assert spec.pending_alias == "draft_1"
         assert spec.request.is_write is True
-        assert spec.request.identity.user_id == "test_user"
+        assert spec.identity_scope.actor_identity.user_id == "test_user"
         assert spec.interaction_input.topic_title == "title"
 
     @pytest.mark.asyncio
@@ -243,7 +263,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_GET:
@@ -258,11 +278,13 @@ class TestMemoryGenerationCoordinator:
         result = await coordinator.submit_active(
             [_update_task(str(memory_id), "draft_update")],
             "t1",
+            identity_scope=_identity_scope(),
         )
 
         assert len(result) == 1
         memory_get_call = bus.request.await_args_list[1]
         assert memory_get_call.args == (PatchouliLocalRoutes.MEMORY_GET, memory_id)
+        assert memory_get_call.kwargs == {"identity_scope": _identity_scope()}
         spec = bus.request.await_args_list[-1].args[1][0]
         assert spec.source == MemoryGenerationSource.UPDATE
         assert spec.request.is_update is True
@@ -278,7 +300,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_GET:
@@ -292,6 +314,7 @@ class TestMemoryGenerationCoordinator:
         result = await coordinator.submit_active(
             [_update_task(str(memory_id), "draft_update")],
             "t1",
+            identity_scope=_identity_scope(),
         )
 
         assert result == []
@@ -312,7 +335,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_GET:
@@ -331,6 +354,7 @@ class TestMemoryGenerationCoordinator:
                 _update_task(str(missing_id), "draft_update"),
             ],
             "t1",
+            identity_scope=_identity_scope(),
         )
 
         assert len(result) == 1
@@ -352,7 +376,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_GET:
@@ -371,6 +395,7 @@ class TestMemoryGenerationCoordinator:
                 _update_task(str(memory_id), "draft_update"),
             ],
             "t1",
+            identity_scope=_identity_scope(),
         )
 
         assert len(result) == 1
@@ -387,7 +412,7 @@ class TestMemoryGenerationCoordinator:
         topic_data.topic_summary = "summary"
         bus = Mock()
 
-        async def request(route, *args):
+        async def request(route, *args, **kwargs):
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             raise AssertionError(route)
@@ -399,6 +424,7 @@ class TestMemoryGenerationCoordinator:
         result = await coordinator.submit_active(
             [_update_task("not-a-uuid", "draft_update")],
             "t1",
+            identity_scope=_identity_scope(),
         )
 
         assert result == []

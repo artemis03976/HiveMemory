@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
@@ -239,6 +240,8 @@ class KoakumaRuntime:
             MTPExecutionResult: 执行结果
         """
         start_time = time.time()
+        if context is None:
+            raise ScopeRequiredError("MTP 执行缺少 IdentityScope")
 
         try:
             language = _resolve_context_language(context)
@@ -248,7 +251,7 @@ class KoakumaRuntime:
             # Step 2: 路由执行
             response = await self._route_and_execute(
                 command,
-                context or MTPExecutionContext(),
+                context,
             )
             response.execution_time_ms = (time.time() - start_time) * 1000
 
@@ -429,7 +432,7 @@ class KoakumaRuntime:
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=query,
-                identity=context.identity,
+                identity_scope=context.identity_scope,
                 filters=parsed_filters,
             ),
         )
@@ -565,9 +568,9 @@ class KoakumaRuntime:
             warnings=warnings,
         )
         for _, atom in resolved:
-            await self._record_memory_citation(atom, "mtp.read")
+            await self._record_memory_citation(atom, "mtp.read", context)
         for _, result in resolved_redirects:
-            await self._record_memory_citation(result.atom, "mtp.read")
+            await self._record_memory_citation(result.atom, "mtp.read", context)
         return response
 
     async def _handle_run(
@@ -653,7 +656,7 @@ class KoakumaRuntime:
         if warnings:
             response.warnings = [*warnings, *response.warnings]
         if response.status == MTPResponseStatus.SUCCESS:
-            await self._record_memory_citation(atom, "mtp.run")
+            await self._record_memory_citation(atom, "mtp.run", context)
         return response
 
     async def _handle_write(
@@ -851,13 +854,19 @@ class KoakumaRuntime:
 
     # ========== 辅助方法 ==========
 
-    async def _record_memory_citation(self, atom: MemoryAtom, source: str) -> None:
+    async def _record_memory_citation(
+        self,
+        atom: MemoryAtom,
+        source: str,
+        context: MTPExecutionContext,
+    ) -> None:
         if self._bus is None:
             return
         try:
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
                 memory_id=atom.id,
+                identity_scope=context.identity_scope,
                 source=source,
             )
         except Exception:

@@ -12,7 +12,9 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
-last_reviewed: 2026-08-05
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 公开路由与事件
@@ -61,30 +63,31 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `gateway.public.process` | `GatewayService.process` | message、Identity、ingress mode、可选 `request_timeout_ms` | `GatewayProcessResult` |
+| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、可选 `request_timeout_ms` | `GatewayProcessResult` |
 
 ### 2.2 Patchouli Chat / Retrieval
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.submit_interaction` | `PatchouliService.submit_interaction` | `InteractionPayload`、可选 topic | 提交结果 |
-| `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest` | `RetrievalResponse` |
-| `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、可选 Identity | `RetrievalResponse` |
-| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、user/agent/session、`GatewayDecision`、检索/生成选项 | `PreparedAgentRun` |
+| `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `RetrievalResponse` |
+| `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `RetrievalResponse` |
+| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、`IdentityScope`、`interaction_id`、`GatewayDecision`、检索/生成选项 | `PreparedAgentRun` |
 | `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、`AgentRunResult` | memory task 列表 |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun` | 是否清理空话题 |
-| `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、source | 记录结果 |
+| `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
+
+Interaction Submission 不是 GlobalSystemBus 的公开路由。主动与被动生产路径都直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.identity_scope` 是唯一作用域来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
 
 ### 2.3 Patchouli Memory
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory.create` | `create_memory` | `MemoryAtom` | `MemoryAtom` |
-| `patchouli.public.memory.list` | `list_memories` | query、filters、limit、exclude、refresh | `list[MemoryAtom]` |
-| `patchouli.public.memory.get` | `get_memory` | memory id、refresh | `MemoryAtom | None` |
-| `patchouli.public.memory.update` | `update_memory` | memory id 与可选字段 | `MemoryAtom | None` |
-| `patchouli.public.memory.delete` | `delete_memory` | memory id | `bool` |
-| `patchouli.public.memory.record_feedback` | `record_feedback` | memory id、positive、source | 记录结果 |
+| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryAtom` | `MemoryAtom` |
+| `patchouli.public.memory.list` | `list_memories` | `identity_scope`、query、filters、limit、exclude、refresh | `list[MemoryAtom]` |
+| `patchouli.public.memory.get` | `get_memory` | memory id、`identity_scope`、refresh | `MemoryAtom | None` |
+| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope` 与可选字段 | `MemoryAtom | None` |
+| `patchouli.public.memory.delete` | `delete_memory` | `identity_scope`、memory id | `bool` |
+| `patchouli.public.memory.record_feedback` | `record_feedback` | memory id、`identity_scope`、positive、source | 记录结果 |
 
 ### 2.4 Patchouli Tasks / Profiles / Topics / Readiness
 
@@ -93,13 +96,13 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory_task.list` | `list_memory_tasks` | 无 | task 列表 |
 | `patchouli.public.memory_task.get` | `get_memory_task` | task id | task 或 `None` |
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id | `bool` |
-| `patchouli.public.agent_profile.create` | `create_agent_profile` | `MemoryAtom` | `MemoryAtom` |
-| `patchouli.public.agent_profile.list` | `list_agent_profiles` | limit | profile atom 列表 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、Identity（自定义 alias 必需） | `AgentProfile`；显式缺失/越权/无效时抛结构化 MTP error |
-| `patchouli.public.topic.list_active` | `list_active_topics` | Identity、include_empty | `tuple[TopicSnapshot, ...]` |
-| `patchouli.public.topic.get_data` | `get_topic_data` | Identity、topic id | 可见 `TopicData | None` |
-| `patchouli.public.manual_settle_topic` | `settle_topic` | 可选 topic id | memory task 或 `None` |
-| `patchouli.public.evict_topic` | `evict_topic` | topic id | 结果 dict |
+| `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`MemoryAtom` | `MemoryAtom` |
+| `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、`IdentityScope`（自定义 alias 必需） | `AgentProfile`；显式缺失/越权/无效时抛结构化 MTP error |
+| `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
+| `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
+| `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、可选 topic id | `TopicSettleResult` |
+| `patchouli.public.evict_topic` | `evict_topic` | `identity_scope`、topic id | `TopicEvictionResult` |
 | `patchouli.public.models.warmup` | `warmup_models` | 无 | `None` |
 | `patchouli.public.models.ready` | `is_models_ready` | 无 | `bool` |
 
@@ -136,7 +139,10 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 - 追踪：`trace_id`、`span_name`、`task_type`；
 - 来源：`source`、`subsystem`、`component`、`severity`；
 - 关联 id：generation、agent run、task、agent、frame、topic、atom；
+- 可选观测标签：`workspace_id`；
 - 描述：`status`、`reason`、`message`、`data`。
+
+`RuntimeEvent.workspace_id` 只帮助日志、UI 和运维按资源归属筛选观测，不参与 route、订阅、sequence、授权、幂等或缓存分区。Workspace 的完整身份与资源所有权仍由[Workspace 架构](../architecture/workspace.md)和领域所有者解释。
 
 当前事件组：
 

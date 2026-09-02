@@ -15,7 +15,10 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/alice/pending-atom.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-08-03
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/todo/mtp-cache-scope-revalidation.md
+last_reviewed: 2026-09-01
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -40,7 +43,7 @@ WorkerAgentService.generate(stop = MTP right delimiter)
        check cancellation
        check verb permission
        dispatch handler
-       check tool / identity / type constraints
+       check tool / scope / type constraints
        produce MTPResponse
        format localized XML
   -> tool_call + tool_result TurnEvents
@@ -56,12 +59,12 @@ CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析�
 
 Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构造 `MTPExecutionContext`，主要包含：
 
-- `identity`：访问 Patchouli 公开记忆能力时使用的调用方身份；
+- `identity_scope`：访问 Patchouli 公开记忆能力时使用的完整 `ActorIdentity + WorkspaceIdentity` 调用方作用域；`identity` 仅是其 actor projection 的兼容读取；
 - `agent_profile`：MTP verb 与系统工具白名单；
 - `runtime_scope`：run、frame 与 action 坐标；不包含 parent/depth 拓扑信息；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-WRITE/UPDATE 注册 PendingAtom 时会复制 identity 与 runtime scope；SEARCH、READ、UPDATE 和用户态 RUN 在 L2 冷查询时把 identity 传给 Patchouli；CALL 是否允许由 `FrameExecutionPolicy` 的 permitted verbs 决定。协议参数只描述“想做什么”，ExecutionContext 才回答“谁在做、在哪一帧做、允许做到哪里”。
+WRITE/UPDATE 注册 PendingAtom 时会复制 `identity_scope` 与 runtime scope；SEARCH、READ、UPDATE 和用户态 RUN 在 L2 冷查询时把完整 scope 传给 Patchouli；CALL 是否允许由 `FrameExecutionPolicy` 的 permitted verbs 决定。协议参数只描述“想做什么”，ExecutionContext 才回答“谁在做、在哪一帧做、允许做到哪里”。
 
 ## 3. 双层权限
 
@@ -157,7 +160,7 @@ Alice 配置当前分为两组：
 
 1. 变化属于协议语义还是 Alice 的实现策略？前者更新 Contracts，后者更新本文；
 2. 新能力是否同时经过 prompt 裁剪和 runtime 权限检查；
-3. 记忆访问是否使用当前 frame 的 Identity，而不是全局缓存中的无主对象；
+3. 记忆访问是否使用当前 frame 的 `IdentityScope`，而不是全局缓存中的无主对象；
 4. WRITE/UPDATE 是否仍然只登记意图，CALL 是否仍然只产生 `SUSPENDED` trap；
 5. handler 是否保持结构化 error/warning，不泄露内部 exception；
 6. 同步工作、timeout 与取消是否给出了与真实接线一致的保证；
@@ -188,7 +191,7 @@ Alice 配置当前分为两组：
 - 同步 syscall 执行期间不会轮询取消状态，因此 task cancellation 不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
-- RuntimeAliasResolver 的 L0 PendingAtom 和 L1 atom cache 命中不重新校验 Identity。当前代码尚未完全兑现 MTP 契约中“记忆访问使用调用方 Identity”的不变量；
+- RuntimeAliasResolver 的 L1 atom cache 命中已在 resolver 边界重验 `IdentityScope`，L2 冷查询也由最终资源 owner 再次校验；L0 PendingAtom alias 命中仍未重验调用方 scope，当前代码尚未完全兑现 MTP 契约中“记忆访问使用调用方 scope”的不变量，详见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
 - Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，但 frame registry、CALL ledger 与 stream sequence 已按 run 隔离。

@@ -18,9 +18,10 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, MetaData, PayloadLayer
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.system.application.chat_service import NonStreamingChatAgentOutcome
 from tests.e2e.conftest import wait_for_memory_persistence_async
+from tests.helpers.memory import make_memory_metadata
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
@@ -28,7 +29,7 @@ pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 def _make_memory(user_id: str, content: str, title: str = "E2E Memory") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=MetaData(source_agent_id="e2e_test", user_id=user_id),
+        meta=make_memory_metadata(source_agent_id="e2e_test", user_id=user_id),
         index=IndexLayer(
             title=title,
             summary="用于 e2e 检索注入验证的记忆",

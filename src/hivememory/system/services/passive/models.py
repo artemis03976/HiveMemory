@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import Identity
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import RetrievalResponse
 
@@ -31,7 +31,8 @@ class PassiveConversationKey:
     """被动 ingress 的外部会话分桶键。
 
     外部来源与外部会话 ID 一起构成命名空间，再叠加 HiveMemory 身份维度，
-    确保不同 connector 的同名会话 ID 不会互相污染。
+    确保不同 connector 的同名会话 ID 不会互相污染。Workspace 只随领域
+    payload 传播，不参与共享 buffer、gate 或 ordering 的命名域。
     """
 
     source: str
@@ -46,14 +47,14 @@ class PassiveConversationKey:
         *,
         source: str,
         external_conversation_id: str,
-        identity: Identity,
+        identity_scope: IdentityScope,
     ) -> PassiveConversationKey:
         return cls(
             source=source,
             external_conversation_id=external_conversation_id,
-            user_id=identity.user_id,
-            agent_id=identity.agent_id,
-            team_id=identity.team_id,
+            user_id=identity_scope.actor_identity.user_id,
+            agent_id=identity_scope.actor_identity.agent_id,
+            team_id=identity_scope.actor_identity.team_id,
         )
 
     @property
@@ -135,11 +136,14 @@ class PassiveIngressEvent(BaseModel):
         """进程内幂等键。"""
         return (self.source, self.external_event_id)
 
-    def conversation_key(self, identity: Identity) -> PassiveConversationKey:
+    def conversation_key(
+        self,
+        identity_scope: IdentityScope,
+    ) -> PassiveConversationKey:
         return PassiveConversationKey.build(
             source=self.source,
             external_conversation_id=self.external_conversation_id,
-            identity=identity,
+            identity_scope=identity_scope,
         )
 
 

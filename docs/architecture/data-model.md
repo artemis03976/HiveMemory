@@ -6,6 +6,7 @@ scope: domain-models-snapshots-runtime-state-and-boundary-projection
 code_paths:
   - src/hivememory/core/models/
   - src/hivememory/core/protocol/
+  - src/hivememory/system/runtime/workspace/
   - src/hivememory/gateway/workflow/
   - src/hivememory/patchouli/memory_library/
   - src/hivememory/agent_runtime/pending_atom/
@@ -14,16 +15,19 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_decisions:
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
+related_docs:
+  - docs/architecture/workspace.md
+  - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-08-07
+last_reviewed: 2026-09-01
 ---
 
 # 数据模型与可变性边界
 
 HiveMemory 的数据模型首先服务于一个长期目标：把记忆从对话日志中的片段变成可以检索、阅读、演化和追溯的知识资产。这个目标既要求模型表达语义，也要求系统知道谁有权修改一份状态、何时形成稳定快照，以及跨子系统传递的对象是否仍会被原所有者改写。
 
-因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。
+因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。Workspace 的身份坐标遵循同一原则：`WorkspaceIdentity` 与 `IdentityScope` 是不可变值对象，资源实体仍由各自领域 Store 所有，具体归属与寻址规则见 [Workspace 架构](./workspace.md)。
 
 本文描述当前已经成立的边界，并记录仍然存在的引用泄漏与冻结深度问题。后续规范化工作见[数据模型可变性治理](../governance/data-model/mutability.md)。
 
@@ -82,25 +86,31 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ## 4. 受控可变与快照投影
 
-### 4.1 Gateway 请求状态
+### 4.1 Workspace 坐标与资源键
+
+`IdentityScope` 只表达一次操作中的 actor 和 Workspace 事实，不把请求、任务或 trace 状态塞入公共身份模型。Topic、Memory、Artifact 和 WorkspaceAsset 的资源键在相应领域边界组合 WorkspaceIdentity 与资源 ID；其中 `topic_id` 仍按全局唯一身份生成和校验，`WorkspaceTopicKey` 用于带归属读取、更新和跨 Workspace 拒绝。键本身不复制实体，也不改变由 Patchouli 或 System Store 负责的生命周期。
+
+`WorkspaceAssetStore` 是 System 进程内唯一的 working set，资产的 opaque ref、representation 与 lease 只在该 Store 的生命周期内有效。它不属于通用缓存、队列或事件对象图；关闭时由 System 在 Patchouli drain 完成后清空。共享 runtime 传递 scope 时只携带领域 payload，不因模型中有 Workspace 字段而自动形成一套按 Workspace 分区的可变状态。
+
+### 4.2 Gateway 请求状态
 
 `GatewayExecutionState` 是有意可变的请求级状态，仅由 `GatewayWorkflow` 创建和持有。Step 通过 `GatewayStepResult` 提交更新，由 workflow 校验字段、提交顺序和 finalize 边界；最终只投影为公共 `GatewayProcessResult`，不把内部 state、fallback 细节或 snapshot 暴露给下游。
 
 `GatewayStepResult.updates` 当前只以 `MappingProxyType` 冻结顶层 mapping，嵌套值是否只读依赖各 Step 自己的输出约束。它是私有提交信封，不是通用深度不可变容器。
 
-### 4.2 Topic 实体与读取模型
+### 4.3 Topic 实体与读取模型
 
 Patchouli 的 `SemanticBuffer` 是可变实体，包含 blocks、摘要、状态、token 计数和访问时间。Store 在所有权范围内维护它，对外读取时投影为冻结的 `TopicData` 或 `TopicSnapshot`。
 
 “可变实体 + 不可变读取模型”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态。新增 append、touch、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把 `SemanticBuffer` 直接返回给 public route。
 
-### 4.3 PendingAtom 状态机
+### 4.4 PendingAtom 状态机
 
 `PendingAtom` 与 `PendingAtomSettlement` 是可变状态载体，`PendingAtomSnapshot` 和 materialize task 是对外只读投影。可变性本身用于表达运行期间的 pending、redirect、settled、failed、expired 等迁移；真正需要治理的是写权限仍主要依靠模块约定，部分调用方仍可能直接修改字段。
 
 当前设计要求 PendingAtom Runtime 成为状态迁移的唯一所有者。未来治理应把合法迁移收敛为命令或领域方法，而不是先把状态对象机械冻结。
 
-### 4.4 可变累积后冻结
+### 4.5 可变累积后冻结
 
 Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在交互完成后构造 tuple 化的 `TurnRecord` 与 `LogicalBlock`。Builder/Accumulator 在有限生命周期内可变，完成后产出稳定快照，是合理边界；累积器不应跨 run 传播，也不需要为了形式统一而冻结。
 

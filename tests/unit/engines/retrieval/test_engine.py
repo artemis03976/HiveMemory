@@ -20,18 +20,25 @@ from hivememory.engines.retrieval.models import (
     SearchResults,
 )
 from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:
     return MemoryAtom(
-        meta=MetaData(source_agent_id="a1", user_id="u1", session_id="s1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1", session_id="s1"),
         index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t1"], memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="内容"),
     )
 
 
 def _make_query(text="测试查询") -> RetrievalQuery:
-    return RetrievalQuery(semantic_query=text, keywords=[], filters=QueryFilters())
+    return RetrievalQuery(
+        semantic_query=text,
+        keywords=[],
+        filters=QueryFilters(),
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+    )
 
 
 class TestRetrievalEngine:

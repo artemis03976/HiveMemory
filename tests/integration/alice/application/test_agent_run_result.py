@@ -23,10 +23,11 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity, RuntimeScope, TurnEvent
+from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
 from hivememory.system.runtime.events import NullRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(
@@ -35,11 +36,10 @@ def _frame(
 ) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
-            runtime_scope=RuntimeScope(run_id="run-1", frame_id=frame_id),
+            runtime_scope=make_runtime_scope(run_id="run-1", frame_id=frame_id),
             profile=OMNI_DOLL_PROFILE,
             messages=(messages if messages is not None else [{"role": "user", "content": "hello"}]),
             topic_id="topic-1",
-            identity=Identity(user_id="u1", agent_id="omni_doll"),
             execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
         )
     )
@@ -47,7 +47,8 @@ def _frame(
 
 def _context(frame: ExecutionFrame) -> AgentRunContext:
     return AgentRunContext(
-        identity=frame.identity,
+        identity_scope=frame.identity_scope,
+        interaction_id="interaction-test",
         topic_id=frame.topic_id,
         user_message="hello",
         topic_context=None,

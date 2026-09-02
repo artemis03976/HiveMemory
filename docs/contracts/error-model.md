@@ -13,7 +13,9 @@ code_paths:
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-06
+related_docs:
+  - docs/architecture/workspace.md
+last_reviewed: 2026-09-01
 ---
 
 # 跨边界错误模型
@@ -147,6 +149,25 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 ### 4.3 Passive Ingress
 
 `PassiveIngressContractError` 表示下游违反协议，例如 `PASSIVE_MEMORY` 返回 command outcome。它不是可重试基础设施错误。submission queue admission 失败会向调用方抛出明确异常，同时保留当前 accumulator；admission 后的 apply 失败由 Work Queue Runtime 按 policy 重试并通过通用 RuntimeEvent 观测。
+
+### 4.4 Workspace 边界错误
+
+Workspace 错误在资源所有者或身份交接边界产生，不能由 RuntimeEvent 或 HTTP 层伪装成空结果。缺少作用域、actor 与 owner 不一致、或资源不属于请求 Workspace 时，应分别保留稳定机器码；WorkspaceAsset 的运行时状态错误同样由其 Store 直接表达：
+
+| Code | 语义 |
+|:---|:---|
+| `workspace.scope_required` | 缺少完整 `IdentityScope` |
+| `workspace.owner_mismatch` | actor 用户与 Workspace owner 不一致 |
+| `workspace.mismatch` | 资源与请求 Workspace 不一致 |
+| `workspace.asset.not_found` | 当前作用域找不到资产 |
+| `workspace.asset.expired` | ref 已随当前进程运行时失效 |
+| `workspace.asset.not_ready` | 资产尚未达到可用状态 |
+| `workspace.asset.failed` | 必要资产表示生成失败 |
+| `workspace.asset.removed` | 资产已进入不可逆 removed 状态 |
+| `workspace.asset.stale_result` | revision 或 operation token 已过期 |
+| `workspace.asset.operation_conflict` | 相同幂等操作携带了不一致输入 |
+
+这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则。Workspace 资源归属、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)。
 
 ## 5. 观测失败与业务失败
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from hivememory.core.models import Identity, TopicData
+from hivememory.core.models import TopicData, IdentityScope
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     GatewayCommandOutcome,
@@ -34,7 +34,7 @@ class GatewayStateSnapshot:
     """每个 Step 开始前读取的递归只读状态投影。"""
 
     raw_message: str
-    identity: Identity
+    identity_scope: IdentityScope
     ingress_mode: GatewayIngressMode
     candidate_topics: CandidateTopics | None
     l1_result: InterceptorResult | None
@@ -51,7 +51,7 @@ class GatewayExecutionState:
     """仅由 GatewayWorkflow 持有和提交的请求级工作状态。"""
 
     raw_message: str
-    identity: Identity
+    identity_scope: IdentityScope
     ingress_mode: GatewayIngressMode
     candidate_topics: CandidateTopics | None = None
     l1_result: InterceptorResult | None = None
@@ -65,7 +65,7 @@ class GatewayExecutionState:
     user_query_analysis: UserQueryAnalysisResult | None = None
     status: ExecutionStateStatus = ExecutionStateStatus.RUNNING
 
-    _INITIAL_FIELDS = frozenset({"raw_message", "identity", "ingress_mode"})
+    _INITIAL_FIELDS = frozenset({"raw_message", "identity_scope", "ingress_mode"})
     _UPDATABLE_FIELDS = frozenset(
         {
             "candidate_topics",
@@ -85,7 +85,7 @@ class GatewayExecutionState:
 
         return GatewayStateSnapshot(
             raw_message=self.raw_message,
-            identity=self.identity,
+            identity_scope=self.identity_scope,
             ingress_mode=self.ingress_mode,
             candidate_topics=self.candidate_topics,
             l1_result=self.l1_result,
