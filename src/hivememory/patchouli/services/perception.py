@@ -5,11 +5,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from hivememory.core.models import (
     IdentityScope,
@@ -18,7 +16,7 @@ from hivememory.core.models import (
     require_identity_scope,
 )
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import FlushReason
+from hivememory.engines.perception.models import FlushReason, TopicMaterializeTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -40,14 +38,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class _InteractionGate:
-    """仅在同一 interaction 的并发调用期间存在。"""
-
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    users: int = 0
-
-
 # ========== PerceptionFamiliar ==========
 
 class PerceptionFamiliar:
@@ -67,8 +57,6 @@ class PerceptionFamiliar:
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._short_term = memory_library.short_term
         self._interaction_journal = interaction_journal
-        self._interaction_gates: dict[str, _InteractionGate] = {}
-        self._interaction_gates_lock = asyncio.Lock()
 
         logger.info("PerceptionFamiliar 初始化完成")
 
@@ -82,52 +70,33 @@ class PerceptionFamiliar:
         asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> str:
         """摄入完整交互载荷，并交给感知层完成话题路由。"""
-        if interaction_id:
-            gate = await self._acquire_interaction_gate(interaction_id)
-            try:
-                async with gate.lock:
-                    return await self._submit_interaction_once(
-                        payload,
-                        identity_scope,
-                        target_topic_id,
-                        interaction_id,
-                        asset_id_and_refs,
-                    )
-            finally:
-                await self._release_interaction_gate(interaction_id, gate)
-
         return await self._submit_interaction_once(
             payload,
             identity_scope,
             target_topic_id,
-            None,
+            interaction_id,
             asset_id_and_refs,
         )
 
-    async def _acquire_interaction_gate(
+    async def _submit_settlement_payload(
         self,
-        interaction_id: str,
-    ) -> _InteractionGate:
-        async with self._interaction_gates_lock:
-            gate = self._interaction_gates.get(interaction_id)
-            if gate is None:
-                gate = _InteractionGate()
-                self._interaction_gates[interaction_id] = gate
-            gate.users += 1
-            return gate
+        settlement: TopicMaterializeTask | None,
+    ) -> MemoryGenerationTask | None:
+        """提交可选的 Topic settlement payload，并返回已接纳任务。
 
-    async def _release_interaction_gate(
-        self,
-        interaction_id: str,
-        gate: _InteractionGate,
-    ) -> None:
-        async with self._interaction_gates_lock:
-            gate.users -= 1
-            if (
-                gate.users == 0
-                and self._interaction_gates.get(interaction_id) is gate
-            ):
-                self._interaction_gates.pop(interaction_id, None)
+        automatic、manual 与 shutdown 的 Topic 生命周期顺序各不相同，不能在
+        此处合并；它们只共享这一段 transport 逻辑。``None`` 表示当前 Topic
+        没有可提交的 generation 材料，是正常的 skip，而不是异常。
+        """
+        if settlement is None:
+            return None
+        return cast(
+            MemoryGenerationTask | None,
+            await self._bus.request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+                settlement,
+            ),
+        )
 
     async def _submit_interaction_once(
         self,
@@ -173,11 +142,7 @@ class PerceptionFamiliar:
                 asset_id_and_refs=asset_id_and_refs,
             )
 
-        if settle_payload is not None:
-            await self._bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                settle_payload,
-            )
+        await self._submit_settlement_payload(settle_payload)
 
         if interaction_id:
             apply_record = self._interaction_journal.get(interaction_id)
@@ -246,11 +211,7 @@ class PerceptionFamiliar:
                 # 候选已被其他生命周期操作移除；重新检查容量，而不是误报驱逐成功。
                 attempted_topic_ids.add(lru_topic_id)
                 continue
-            if settle_result.settlement is not None:
-                await self._bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                    settle_result.settlement,
-                )
+            await self._submit_settlement_payload(settle_result.settlement)
             return
 
     async def manual_settle_topic(
@@ -281,21 +242,17 @@ class PerceptionFamiliar:
 
         # 2. admission：存在可提交材料时必须先可靠接纳
         task: MemoryGenerationTask | None = None
-        if settle_payload is not None:
-            try:
-                task = await self._bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                    settle_payload,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "manual settle admission 失败: topic_id=%s", target_id,
-                    exc_info=True,
-                )
-                self.perception_layer.abort_settlement(topic.topic_key)
-                raise TopicSettleAdmissionError(
-                    f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
-                ) from exc
+        try:
+            task = await self._submit_settlement_payload(settle_payload)
+        except Exception as exc:
+            logger.warning(
+                "manual settle admission 失败: topic_id=%s", target_id,
+                exc_info=True,
+            )
+            self.perception_layer.abort_settlement(topic.topic_key)
+            raise TopicSettleAdmissionError(
+                f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
+            ) from exc
 
         # 3. commit：接纳成功或正常 skip 后结束 Topic 生命周期
         self.perception_layer.commit_settlement(topic.topic_key)
@@ -345,11 +302,7 @@ class PerceptionFamiliar:
                     continue
                 if not settle_result.evicted:
                     continue
-                if settle_result.settlement is not None:
-                    await self._bus.request(
-                        PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                        settle_result.settlement,
-                    )
+                await self._submit_settlement_payload(settle_result.settlement)
                 flushed.append(topic.topic_id)
         return flushed
 
@@ -372,12 +325,7 @@ class PerceptionFamiliar:
             if not settle_result.evicted:
                 # 目标已由其他生命周期操作移除，不把它伪装成本次 settled。
                 continue
-            task: MemoryGenerationTask | None = None
-            if settle_result.settlement is not None:
-                task = await self._bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                    settle_result.settlement,
-                )
+            task = await self._submit_settlement_payload(settle_result.settlement)
             settled_topic_ids.append(topic.topic_id)
             if task is None:
                 generation_skipped_topic_ids.append(topic.topic_id)
