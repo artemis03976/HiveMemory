@@ -21,10 +21,6 @@ def build_patchouli_route_bindings(
     """Build Patchouli local route bindings from the runtime composition root."""
     return (
         (
-            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
-            runtime.perception_familiar.submit_interaction,
-        ),
-        (
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
             runtime.memory_generation_coordinator.submit_settlement,
         ),

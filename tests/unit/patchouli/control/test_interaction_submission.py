@@ -218,7 +218,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
         ),
         interaction_journal=interaction_journal,
     )
-    queue = InteractionSubmissionQueue(familiar.submit_interaction)
+    queue = InteractionSubmissionQueue(familiar.apply_interaction)
 
     try:
         await queue.start()
@@ -237,7 +237,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert store.get_last_active_topic(identity_scope) == outcome.topic_id
 
     replayed_topic = await asyncio.wait_for(
-        familiar.submit_interaction(
+        familiar.apply_interaction(
             _payload("interaction-ambiguous"),
             identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             target_topic_id=outcome.topic_id,
@@ -331,7 +331,7 @@ async def test_retry_resubmits_pending_settlement_without_duplicating_block() ->
         ),
         interaction_journal=interaction_journal,
     )
-    queue = InteractionSubmissionQueue(familiar.submit_interaction)
+    queue = InteractionSubmissionQueue(familiar.apply_interaction)
 
     try:
         await queue.start()
@@ -373,13 +373,13 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
         interaction_journal=interaction_journal,
     )
 
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _payload(),
         identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         interaction_id="interaction-disabled",
     )
     replayed_topic_id = await asyncio.wait_for(
-        familiar.submit_interaction(
+        familiar.apply_interaction(
             _payload(),
             identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             interaction_id="interaction-disabled",

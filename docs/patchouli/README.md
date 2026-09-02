@@ -98,7 +98,7 @@ GatewayDecision
   -> Alice RUN / RUN_STREAM
   -> Patchouli FINALIZE_AGENT_RUN
        -> TurnEvent -> Action / semantic trace
-       -> submit InteractionPayload to Perception
+       -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
        -> WRITE / UPDATE materialize tasks -> generation tasks
        -> best-effort record retrieval HIT
 ```
@@ -113,8 +113,8 @@ Passive Ingress 的去重、顺序缓冲、seal、retry 和降级属于 System�
 
 ```text
 System Passive Ingress
-  -> Patchouli SUBMIT_INTERACTION
-  -> PerceptionFamiliar
+  -> InteractionSubmissionQueue
+  -> PerceptionFamiliar.apply_interaction
   -> SemanticFlowPerceptionLayer
   -> ShortTermMemoryStore / SemanticBuffer
   -> idle | LRU | shutdown | manual settle

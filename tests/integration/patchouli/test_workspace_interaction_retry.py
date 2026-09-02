@@ -123,7 +123,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
         attempts.append((len(attempts) + 1, identity_scope))
         if len(attempts) == 1:
             raise TransientInteractionSubmissionError("retry once")
-        return await familiar.submit_interaction(
+        return await familiar.apply_interaction(
             payload,
             identity_scope=identity_scope,
             target_topic_id=target_topic_id,

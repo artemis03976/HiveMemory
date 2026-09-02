@@ -204,12 +204,12 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
         agent_id="a1",
         workspace_id="isolation_workspace",
     )
-    main_topic_id = await familiar.submit_interaction(
+    main_topic_id = await familiar.apply_interaction(
         _payload("main question", "main answer"),
         identity_scope=main,
         target_topic_id="NEW_TOPIC",
     )
-    isolated_topic_id = await familiar.submit_interaction(
+    isolated_topic_id = await familiar.apply_interaction(
         _payload("isolated question", "isolated answer"),
         identity_scope=isolated,
         target_topic_id="NEW_TOPIC",
@@ -270,7 +270,7 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
 
     assert store.get_topic_data(main, main_topic.topic_id, touch=False) is not None
     assert store.list_topic_data(isolated, include_empty=True) == before_isolated
-    assert await familiar.submit_interaction(
+    assert await familiar.apply_interaction(
         _payload("valid", "valid"),
         identity_scope=main,
         target_topic_id=main_topic.topic_id,

@@ -184,7 +184,7 @@ class InteractionSubmissionOutcome:
     error_class: str | None = None
 
 
-SubmitInteraction = Callable[..., Awaitable[str]]
+ApplyInteraction = Callable[..., Awaitable[str]]
 
 
 class TransientInteractionSubmissionError(RuntimeError):
@@ -194,17 +194,17 @@ class TransientInteractionSubmissionError(RuntimeError):
 class InteractionSubmissionHandler(
     WorkHandlerPort[InteractionSubmission, InteractionSubmissionResult]
 ):
-    """把通用 work attempt 适配到 PerceptionFamiliar。"""
+    """把通用 work attempt 适配到 PerceptionFamiliar.apply_interaction。"""
 
-    def __init__(self, submit_interaction: SubmitInteraction) -> None:
-        self._submit_interaction = submit_interaction
+    def __init__(self, apply_interaction: ApplyInteraction) -> None:
+        self._apply_interaction = apply_interaction
 
     async def execute(
         self,
         payload: InteractionSubmission,
         context: WorkExecutionContext,
     ) -> InteractionSubmissionResult:
-        topic_id = await self._submit_interaction(
+        topic_id = await self._apply_interaction(
             payload.payload,
             identity_scope=payload.identity_scope,
             target_topic_id=payload.requested_topic_id,
@@ -247,7 +247,7 @@ class InteractionSubmissionQueue:
 
     def __init__(
         self,
-        submit_interaction: SubmitInteraction,
+        apply_interaction: ApplyInteraction,
         *,
         store: InMemoryWorkStore | None = None,
         runtime_events: RuntimeEventSink | None = None,
@@ -273,7 +273,7 @@ class InteractionSubmissionQueue:
         )
         self._runtime.register_lane(
             self.LANE,
-            handler=InteractionSubmissionHandler(submit_interaction),
+            handler=InteractionSubmissionHandler(apply_interaction),
             policy=lane_policy,
         )
         self._max_submission_entries = (

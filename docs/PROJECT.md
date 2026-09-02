@@ -243,7 +243,8 @@ external event
   -> Gateway PROCESS(PASSIVE_MEMORY)
   -> optional memory context
   -> turn buffer / seal
-  -> Patchouli submit interaction
+  -> InteractionSubmissionQueue
+  -> PerceptionFamiliar.apply_interaction
 ```
 
 被动模式不运行 Alice、MTP、命令或回复生成。

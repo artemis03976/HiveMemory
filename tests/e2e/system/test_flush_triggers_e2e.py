@@ -7,7 +7,7 @@ Flush Triggers E2E Tests - 三种 Flush 触发器全链路端到端测试
     - FLUSH-E2E-003: LRU Eviction (强制驱逐, §5.1)
 
 数据流:
-    Passive ingest → Eye → Kernel.submit_interaction() → LibrarianCore
+    Passive ingest → InteractionSubmissionQueue → PerceptionFamiliar.apply_interaction()
     → perception.route_and_ingest() → SemanticFlowPerceptionLayer
     → [Page Folding / Idle Hibernate / LRU Eviction] → Generation → Qdrant
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 MEMORY_WAIT_TIMEOUT = 15.0
 FLUSH_SETTLE_SECONDS = 5.0
-SUBMIT_SETTLE_SECONDS = 3.0  # submit_interaction 是 daemon thread，需等待落地
+SUBMIT_SETTLE_SECONDS = 3.0  # 等待 interaction apply 任务落地
 
 
 # ========== 辅助工具 ==========
@@ -214,7 +214,7 @@ def _passive_ingest_round(
         user_id=user_id,
         agent_id=agent_id,
     ))
-    # 等待 daemon thread 完成 submit_interaction
+    # 等待 interaction apply 任务完成
     time.sleep(SUBMIT_SETTLE_SECONDS)
 
 

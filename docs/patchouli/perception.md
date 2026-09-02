@@ -54,7 +54,7 @@ SemanticBuffer 是短期话题的可变工作区，保存 blocks、展示 title/
 
 `InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存 Workspace 身份；主动和被动入口在进入提交队列时由外层 `InteractionSubmission.identity_scope` 携带唯一的 `IdentityScope`。
 
-交互提交成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
+交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
 ```text
 InteractionPayload
@@ -67,7 +67,7 @@ InteractionPayload
   -> optional Page Folding
 ```
 
-主动流程由 Patchouli finalize 构建 payload；被动流程由 System 的 turn buffer 构建 payload。两者进入同一 `PerceptionFamiliar.submit_interaction()` 与 `SemanticFlowPerceptionLayer.route_and_ingest()`，不存在被动专用的扁平文本主链。
+主动流程由 Patchouli finalize 构建 payload；被动流程由 System 的 turn buffer 构建 payload。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 调用 `SemanticFlowPerceptionLayer.route_and_ingest()`，不存在被动专用的扁平文本主链。
 
 结构化摄入的边界来自被动入口的真实事件形态：`MessageTurnBuffer` 接收 `user`、`assistant`、`tool_call`、`tool_result` 四类消息。只有自然语言 assistant 段落进入 `assistant_final_text`；工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。`ActionReducer`/`TraceReducer` 只能由 Perception 从这些事件派生，入口层不应另行构造第二套摘要，否则历史重放、主动生成与被动归档会拥有互相漂移的事实来源。
 

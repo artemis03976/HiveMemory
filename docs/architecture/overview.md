@@ -192,7 +192,8 @@ POST /api/v1/ingest
   -> Gateway PROCESS (PASSIVE_MEMORY)
   -> 可选记忆上下文准备
   -> 按外部会话键缓冲并封口 turn
-  -> Patchouli SUBMIT_INTERACTION
+  -> InteractionSubmissionQueue
+  -> PerceptionFamiliar.apply_interaction
 ```
 
 因此，被动模式刻意保持较窄的能力面：

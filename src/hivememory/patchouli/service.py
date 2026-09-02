@@ -75,7 +75,7 @@ class ActiveInteractionFinalizationError(RuntimeError):
 
 
 class PatchouliService:
-    """Patchouli 对外能力门面，承载 Agent prepare/finalize 与交互提交。"""
+    """Patchouli 对外能力门面，承载 Agent prepare/finalize 与交互接纳编排。"""
 
     def __init__(
         self,
@@ -406,19 +406,6 @@ class PatchouliService:
                 *(asyncio.shield(task) for task in finalizations),
                 return_exceptions=True,
             )
-
-    async def submit_interaction(
-        self,
-        payload: InteractionPayload,
-        *,
-        target_topic_id: str | None = None,
-        target_topic: str | None = None,
-    ) -> Any:
-        return await self._local_bus.request(
-            PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION,
-            payload,
-            target_topic_id=target_topic_id or target_topic or "NEW_TOPIC",
-        )
 
     async def record_memory_citation(
         self,

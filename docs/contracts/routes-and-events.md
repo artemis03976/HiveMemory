@@ -69,7 +69,6 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.submit_interaction` | `PatchouliService.submit_interaction` | `InteractionPayload`、可选 target topic；进入 submission lane 后由 `InteractionSubmission.identity_scope` 携带唯一作用域 | 提交结果 |
 | `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `RetrievalResponse` |
 | `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `RetrievalResponse` |
 | `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、`IdentityScope`、`interaction_id`、`GatewayDecision`、检索/生成选项 | `PreparedAgentRun` |
@@ -77,7 +76,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun` | 是否清理空话题 |
 | `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
 
-`patchouli.public.submit_interaction` 当前是 Bridge 挂载的薄门面；主动与被动生产路径的正式交接由 `InteractionSubmission` 完成，并在其中携带唯一 `identity_scope`。`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
+Interaction Submission 不是 GlobalSystemBus 的公开路由。主动与被动生产路径都直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.identity_scope` 是唯一作用域来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
 
 ### 2.3 Patchouli Memory
 

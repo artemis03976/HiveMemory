@@ -2,7 +2,7 @@
 PerceptionFamiliar 单元测试
 
 测试覆盖:
-- submit_interaction: 交互摄入与 settlement 提交（mock 边界）
+- apply_interaction: 交互应用与 settlement 提交（mock 边界）
 - manual_settle_topic: 手动结算
 - evict_topic: 话题驱逐
 - discard_if_empty: 空话题清理
@@ -76,8 +76,8 @@ class TestPerceptionFamiliar:
         )
 
     @pytest.mark.asyncio
-    async def test_submit_interaction_delegates_to_layer_and_submits_settlement(self):
-        """验证 submit_interaction 正确调用 layer.route_and_ingest 并提交 settlement"""
+    async def test_apply_interaction_delegates_to_layer_and_submits_settlement(self):
+        """验证 apply_interaction 正确调用 layer.route_and_ingest 并提交 settlement"""
         payload = InteractionPayload(
             user_message="hi",
             assistant_final_text="hello",
@@ -107,7 +107,7 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.submit_interaction(
+        result = await familiar.apply_interaction(
             payload,
             identity_scope=make_identity_scope(user_id="u1"),
             target_topic_id="t1",
@@ -126,7 +126,7 @@ class TestPerceptionFamiliar:
         )
 
     @pytest.mark.asyncio
-    async def test_submit_interaction_no_settlement_when_route_returns_none(self):
+    async def test_apply_interaction_no_settlement_when_route_returns_none(self):
         """验证当 route_and_ingest 返回 None settlement 时，不调用 bus.request"""
         payload = InteractionPayload(
             user_message="hi",
@@ -144,7 +144,7 @@ class TestPerceptionFamiliar:
 
         familiar = self._make_familiar(layer=layer, store=store, bus=bus)
 
-        result = await familiar.submit_interaction(
+        result = await familiar.apply_interaction(
             payload,
             identity_scope=make_identity_scope(user_id="u1"),
             target_topic_id="t1",
@@ -154,7 +154,7 @@ class TestPerceptionFamiliar:
         bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_submit_interaction_evicts_lru_before_new_topic_when_pool_full(self):
+    async def test_apply_interaction_evicts_lru_before_new_topic_when_pool_full(self):
         payload = InteractionPayload(
             user_message="hi",
             assistant_final_text="hello",
@@ -188,7 +188,7 @@ class TestPerceptionFamiliar:
             interaction_journal=InMemoryInteractionApplyJournal(),
         )
 
-        result = await familiar.submit_interaction(
+        result = await familiar.apply_interaction(
             payload,
             identity_scope=make_identity_scope(user_id="u1"),
             target_topic_id="NEW_TOPIC",

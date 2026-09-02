@@ -283,14 +283,14 @@ async def test_next_user_admission_failure_does_not_overwrite_previous_turn() ->
 async def test_apply_retry_does_not_block_next_accumulator() -> None:
     attempts: list[str] = []
 
-    async def submit_interaction(payload, **kwargs) -> str:
+    async def apply_interaction(payload, **kwargs) -> str:
         attempts.append(payload.user_message)
         if payload.user_message == "u1" and attempts.count("u1") == 1:
             raise ConnectionError("temporary perception failure")
         return f"topic-{payload.user_message}"
 
     queue = InteractionSubmissionQueue(
-        submit_interaction,
+        apply_interaction,
         policy=QueuePolicy(
             capacity=8,
             max_concurrency=1,
@@ -339,12 +339,12 @@ async def test_apply_retry_does_not_block_next_accumulator() -> None:
 async def test_shutdown_waits_for_accepted_submission_work() -> None:
     attempts: list[str] = []
 
-    async def submit_interaction(payload, **kwargs) -> str:
+    async def apply_interaction(payload, **kwargs) -> str:
         attempts.append(payload.user_message)
         return f"topic-{payload.user_message}"
 
     queue = InteractionSubmissionQueue(
-        submit_interaction,
+        apply_interaction,
         policy=QueuePolicy(
             capacity=8,
             max_concurrency=1,

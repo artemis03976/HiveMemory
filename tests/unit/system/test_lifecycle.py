@@ -29,7 +29,7 @@ def _build_runtime_with_local_bus():
     runtime.local_routes_registered = False
     runtime.local_bus = runtime._local_bus
     runtime.perception_familiar = MagicMock()
-    runtime.perception_familiar.submit_interaction = AsyncMock()
+    runtime.perception_familiar.apply_interaction = AsyncMock()
     runtime.perception_familiar.prepare_topic = AsyncMock()
     runtime.perception_familiar.manual_settle_topic = AsyncMock()
     runtime.retrieval_familiar = MagicMock()

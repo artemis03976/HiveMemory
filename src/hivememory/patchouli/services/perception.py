@@ -60,7 +60,7 @@ class PerceptionFamiliar:
 
         logger.info("PerceptionFamiliar 初始化完成")
 
-    async def submit_interaction(
+    async def apply_interaction(
         self,
         payload: InteractionPayload,
         *,
@@ -69,44 +69,7 @@ class PerceptionFamiliar:
         interaction_id: str | None = None,
         asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
     ) -> str:
-        """摄入完整交互载荷，并交给感知层完成话题路由。"""
-        return await self._submit_interaction_once(
-            payload,
-            identity_scope,
-            target_topic_id,
-            interaction_id,
-            asset_id_and_refs,
-        )
-
-    async def _submit_settlement_payload(
-        self,
-        settlement: TopicMaterializeTask | None,
-    ) -> MemoryGenerationTask | None:
-        """提交可选的 Topic settlement payload，并返回已接纳任务。
-
-        automatic、manual 与 shutdown 的 Topic 生命周期顺序各不相同，不能在
-        此处合并；它们只共享这一段 transport 逻辑。``None`` 表示当前 Topic
-        没有可提交的 generation 材料，是正常的 skip，而不是异常。
-        """
-        if settlement is None:
-            return None
-        return cast(
-            MemoryGenerationTask | None,
-            await self._bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                settlement,
-            ),
-        )
-
-    async def _submit_interaction_once(
-        self,
-        payload: InteractionPayload,
-        identity_scope: IdentityScope,
-        target_topic_id: str,
-        interaction_id: str | None,
-        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
-    ) -> str:
-        """执行一次实际摄入；分阶段幂等真相由 raw perception journal 保存。"""
+        """应用一份已由队列接纳的交互载荷，并完成话题路由。"""
         apply_record = (
             self._interaction_journal.get(interaction_id)
             if interaction_id
@@ -114,7 +77,7 @@ class PerceptionFamiliar:
         )
 
         logger.info(
-            "PerceptionFamiliar 摄入交互载荷: "
+            "PerceptionFamiliar 应用交互载荷: "
             "user='%s...', target_topic_id=%s, traces=%s, tasks=%s",
             payload.user_message[:30],
             target_topic_id,
@@ -149,6 +112,26 @@ class PerceptionFamiliar:
             if apply_record is not None:
                 self._interaction_journal.complete(interaction_id, topic_id)
         return topic_id
+
+    async def _submit_settlement_payload(
+        self,
+        settlement: TopicMaterializeTask | None,
+    ) -> MemoryGenerationTask | None:
+        """提交可选的 Topic settlement payload，并返回已接纳任务。
+
+        automatic、manual 与 shutdown 的 Topic 生命周期顺序各不相同，不能在
+        此处合并；它们只共享这一段 transport 逻辑。``None`` 表示当前 Topic
+        没有可提交的 generation 材料，是正常的 skip，而不是异常。
+        """
+        if settlement is None:
+            return None
+        return cast(
+            MemoryGenerationTask | None,
+            await self._bus.request(
+                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+                settlement,
+            ),
+        )
 
     async def prepare_topic(
         self,

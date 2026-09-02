@@ -292,7 +292,6 @@ class TestPatchouliPublicRoutes:
 
     @pytest.mark.asyncio
     async def test_public_route_constants_are_consistent(self):
-        assert PatchouliRoutes.SUBMIT_INTERACTION == "patchouli.public.submit_interaction"
         assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
         assert PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES == "patchouli.public.memory.retrieve_by_aliases"
         assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
@@ -316,6 +315,7 @@ class TestPatchouliPublicRoutes:
         bridge.mount()
 
         routes = self.global_bus.list_routes()
+        assert "patchouli.public.submit_interaction" not in routes
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
         assert PatchouliRoutes.TOPIC_GET_DATA in routes
         assert PatchouliRoutes.EVICT_TOPIC in routes

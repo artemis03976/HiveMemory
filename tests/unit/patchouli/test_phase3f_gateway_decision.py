@@ -63,7 +63,6 @@ def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
         PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
         AsyncMock(return_value=True),
     )
-    bus.register(PatchouliLocalRoutes.INGESTION_SUBMIT_INTERACTION, submit)
     return bus, retrieve, submit
 
 

@@ -139,7 +139,7 @@ def _fast_forward_idle():
 async def test_idle_flush_swaps_out_topic():
     familiar, _, store, bus = _make_real_familiar(idle_timeout_seconds=1)
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("question", "answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -197,12 +197,12 @@ async def test_idle_flush_frees_slot():
         idle_timeout_seconds=1,
         max_resident_topics=2,
     )
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("q1", "a1"),
         identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         target_topic_id="NEW_TOPIC",
     )
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("q2", "a2"),
         identity_scope=make_identity_scope(user_id="u2", agent_id="a2"),
         target_topic_id="NEW_TOPIC",
@@ -213,7 +213,7 @@ async def test_idle_flush_frees_slot():
     with _fast_forward_idle():
         assert len(await familiar.scan_idle_buffers_once()) == 2
 
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("q3", "a3"),
         identity_scope=make_identity_scope(user_id="u3", agent_id="a3"),
         target_topic_id="NEW_TOPIC",
@@ -249,7 +249,7 @@ async def test_lru_reselects_another_idle_topic_when_first_candidate_becomes_bus
 
     layer.settle_topic = settle_with_candidate_race
 
-    new_id = await familiar.submit_interaction(
+    new_id = await familiar.apply_interaction(
         _make_payload("new question", "new answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -278,7 +278,7 @@ async def test_interaction_retry_rejects_same_content_from_another_workspace():
     )
     payload = _make_payload("same question", "same answer")
 
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         payload,
         identity_scope=main_scope,
         target_topic_id="NEW_TOPIC",
@@ -286,7 +286,7 @@ async def test_interaction_retry_rejects_same_content_from_another_workspace():
     )
 
     with pytest.raises(ValueError, match="different input"):
-        await familiar.submit_interaction(
+        await familiar.apply_interaction(
             payload,
             identity_scope=isolated_scope,
             target_topic_id="NEW_TOPIC",
@@ -302,12 +302,12 @@ async def test_interaction_retry_rejects_same_content_from_another_workspace():
 @pytest.mark.asyncio
 async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     familiar, _, store, bus = _make_real_familiar(max_resident_topics=4)
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("q1", "a1"),
         identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         target_topic_id="NEW_TOPIC",
     )
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("q2", "a2"),
         identity_scope=make_identity_scope(user_id="u2", agent_id="a2"),
         target_topic_id="NEW_TOPIC",
@@ -356,7 +356,7 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
     topic_id = "NEW_TOPIC"
 
     for i in range(3):
-        topic_id = await familiar.submit_interaction(
+        topic_id = await familiar.apply_interaction(
             _make_payload(
                 f"question-{i}-" * 80,
                 f"answer-{i}",
@@ -459,7 +459,7 @@ async def test_shutdown_marks_generation_skip_when_submission_builds_no_task():
     """下游正常返回无任务时，Topic 已结算但 generation 被跳过。"""
     familiar, _, store, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -477,7 +477,7 @@ async def test_shutdown_propagates_submission_failure_instead_of_marking_skip():
     """generation admission 异常必须向上游传播，不能降级为正常 skip。"""
     familiar, _, _, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    await familiar.submit_interaction(
+    await familiar.apply_interaction(
         _make_payload("question", "answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -532,7 +532,7 @@ async def test_manual_settle_evicts_truly_empty_topic():
 async def test_manual_settle_admits_generation_task_before_evicting():
     familiar, layer, store, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -559,7 +559,7 @@ async def test_manual_settle_admits_generation_task_before_evicting():
 async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry():
     familiar, layer, store, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -610,7 +610,7 @@ async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
 async def test_manual_delete_evicts_without_generation_task():
     familiar, layer, store, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -660,7 +660,7 @@ async def test_manual_compact_updates_summary_trims_prefix_keeps_topic():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = "NEW_TOPIC"
     for i in range(3):
-        topic_id = await familiar.submit_interaction(
+        topic_id = await familiar.apply_interaction(
             _make_payload(f"q{i}", f"a{i}"),
             identity_scope=identity_scope,
             target_topic_id=topic_id,
@@ -688,7 +688,7 @@ async def test_manual_compact_updates_summary_trims_prefix_keeps_topic():
 async def test_manual_compact_is_noop_when_blocks_not_exceeding_retain():
     familiar, layer, store, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _make_payload("q", "a"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
@@ -712,7 +712,7 @@ async def test_manual_compact_is_noop_when_blocks_not_exceeding_retain():
 async def test_compact_entries_reject_retain_below_one():
     familiar, layer, store, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.submit_interaction(
+    topic_id = await familiar.apply_interaction(
         _make_payload("q", "a"),
         identity_scope=identity_scope,
         target_topic_id="NEW_TOPIC",
