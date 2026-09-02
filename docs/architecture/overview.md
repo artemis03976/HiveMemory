@@ -15,7 +15,9 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-09-01
+related_decisions:
+  - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
+last_reviewed: 2026-09-02
 ---
 
 # HiveMemory 当前系统架构
@@ -246,6 +248,8 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 - 新后台任务是否拥有明确的取消、排空和长期状态边界，还是只把协程留在内存中？
 
 这些问题没有自动答案，但能把“架构看起来更整齐”转换成可以验证的所有权与失败语义。
+
+关于身份标识和并发复杂度的长期取舍见[ADR-0002：全局唯一身份与按需并发保护](./decisions/0002-unique-identities-and-minimal-concurrency.md)。当前系统把 UUID 生成的领域 ID 视为唯一身份，不为随机碰撞预先建立业务级恢复机制；队列 retry、ordering、状态迁移原子性和跨边界快照仍按各自契约保留。
 
 ## 10. 已知限制
 
