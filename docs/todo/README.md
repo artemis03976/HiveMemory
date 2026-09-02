@@ -21,6 +21,7 @@ last_reviewed: 2026-09-01
 - [RuntimeEvent 生产端迁移后续](./runtime-event-producer-migration.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
-- [MTP 缓存命中作用域重验](./mtp-cache-scope-revalidation.md)。
+- [MTP 缓存命中作用域重验](./mtp-cache-scope-revalidation.md)；
+- [ShortTermMemoryStore 职责边界与存储键封装](./short-term-memory-store-boundary-cleanup.md)。
 
 Todo 只保存问题、证据、影响和完成条件。若事项扩展为跨系统功能或身份架构，应升级为 Plan；若已有项目 Issue，则链接 Issue，避免维护两份详细状态。
