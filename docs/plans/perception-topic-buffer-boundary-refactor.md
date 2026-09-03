@@ -1,6 +1,6 @@
 ---
 title: Perception Topic Buffer Boundary Refactor
-status: planned
+status: active
 owner: patchouli
 target: post-p7-perception-boundary-cleanup
 scope: perception-topic-buffer-state-ownership-trigger-execution-and-engine-cleanup
@@ -514,3 +514,110 @@ src/hivememory/patchouli/memory_library/
 - 单元、集成和结构契约测试通过，并完成旧 TriggerManager、旧感知层类名及兼容入口清理；
 - `docs/patchouli/perception.md`、`docs/patchouli/memory-library.md`、`docs/patchouli/README.md` 已根据最终实现更新，旧 Plan/Todo 链接不再把 TriggerManager 描述为当前状态所有者；
 - 实施完成后本 Plan 进入 `docs/archive/plans/`，若仍有未落地的并发、持久化或跨系统问题，分别创建新的 Todo/Plan，不在本文件继续扩展。
+
+## 11. 阶段实施记录
+
+本节记录各阶段的实施证据与冻结结论，只作为本 Plan 的实施工作依据，不构成当前事实描述。
+
+### 11.1 阶段 1：冻结契约和依赖图（2026-09-03 完成）
+
+#### 11.1.1 基线状态
+
+- 基线提交：`0ff5a17`（`refactor/short-memory-store-cleanup` 分支）。
+- 全量测试基线：1997 passed，69 failed，49 errors（默认排除 `live_llm`/`e2e`/`slow`）。
+- 全部失败与错误均为上一轮 ShortTermMemoryStore 边界清理遗留的过期测试，与本次重构无关但必须随本次迁移一并重写：
+
+| 测试文件 | 失败/错误数 | 遗留原因示例 |
+|:---|:---:|:---|
+| `tests/unit/patchouli/memory_library/test_memory_library.py` | 3 failed / 34 error | 引用已删除的 `create_buffer`、`max_resident_topics` 构造参数等旧 Store API |
+| `tests/integration/patchouli/test_perception_flush_chain.py` | 26 failed | 旧 `FlushEvent(topic_key=...)` / 旧 settle 签名 |
+| `tests/unit/engines/perception/test_trigger_manager.py` | 23 failed | `settle_and_evict(topic_key, reason)` 旧签名（现为 `identity_scope, topic_id, reason`） |
+| `tests/unit/patchouli/memory_library/test_binding_and_reservation.py` | 15 error | 引用已删除的 Store 预约/绑定方法 |
+| `tests/unit/patchouli/services/test_perception.py` | 6 failed | mock 的 `AutomaticSettleResult`/旧调用链 |
+| `tests/integration/patchouli/test_topic_access_chain.py` | 5 failed | 旧 key/签名 |
+| `tests/integration/patchouli/test_asset_binding_lifecycle.py` | 3 failed | 旧 Store API |
+| `tests/unit/patchouli/control/test_interaction_submission.py` | 2 failed | 旧调用链 |
+| `tests/integration/patchouli/test_workspace_interaction_retry.py` | 1 failed | 旧签名 |
+
+#### 11.1.2 旧符号定义处与迁移目标
+
+| 符号 | 定义位置 | 目标 |
+|:---|:---|:---|
+| `TriggerManager`、`DECISION_MATRIX`、`resolve_topic`、`settle_and_evict`、`prepare/commit/abort_manual_settle`、`reserve_processing`、`release_processing`、`apply_interaction`、`_compact_path`、`delete_if_idle`、`_set_state`、`_build_settle_payload*` | `src/hivememory/engines/perception/trigger_manager.py` | 状态执行迁入 `TopicBufferService`（阶段 2）；`_build_settle_payload*` 由 `TopicMaterializeTask.from_topic_data()` 取代；最终删除该文件（阶段 5） |
+| `SemanticFlowPerceptionLayer` | `src/hivememory/engines/perception/semantic_flow_perception_layer.py` | 重命名为 `memory_perception_engine.py::MemoryPerceptionEngine`（阶段 3） |
+| `NullPerceptionLayer` | 同上 | 删除（阶段 3） |
+| `BasePerceptionLayer` | `src/hivememory/engines/perception/interfaces.py` | 删除；`BaseRelayController` 保留在原文件（阶段 3） |
+| `FlushReason`、`FlushEvent`、`AutomaticSettleResult` | `src/hivememory/engines/perception/models.py` | `FlushReason` 重命名为 `TriggerReason`（枚举字符串值不变）；`AutomaticSettleResult` 由 `SettlementOutcome` 取代；`FlushEvent` 载体是否改名不在范围内 |
+| `BufferState.FLUSHING`（序列化值 `flushing`） | `src/hivememory/core/models/topic.py:21` | 重命名为 `SETTLING`（序列化值 `settling`），删除 `FLUSHING` |
+| `create_perception_layer` | `src/hivememory/engines/perception/__init__.py` | 重命名为 `create_perception_engine`，删除 `enable=False` no-op 分支 |
+| `SemanticFlowPerceptionConfig.enable` | `src/hivememory/system/config/patchouli.py:51` | 删除该开关（阶段 3），配置加载需显式处理旧字段 |
+| `TopicMaterializeTask` | `src/hivememory/engines/perception/models.py` | 保留为跨边界模型，新增 `from_topic_data()` 类方法 |
+
+#### 11.1.3 生产代码调用点盘点
+
+| 调用点 | 引用内容 | 迁移阶段 |
+|:---|:---|:---:|
+| `src/hivememory/__init__.py:159-177、355-372` | 顶层导出 `SemanticFlowPerceptionLayer`、`BasePerceptionLayer`、`NullPerceptionLayer`、`FlushEvent`、`FlushReason`、`TriggerManager`、`DECISION_MATRIX`、`create_perception_layer` | 阶段 3 |
+| `src/hivememory/engines/perception/__init__.py` | 包导出与工厂；`enable=False` 时返回 `NullPerceptionLayer`（:97-98）；`__all__` 中残留未导入的 `InteractionArtifactBuilder` 项 | 阶段 3 |
+| `src/hivememory/engines/perception/interfaces.py` | `BasePerceptionLayer` 八个抽象方法（settle/prepare/commit/abort/ingest/route/prepare_topic/swap_out） | 阶段 3 |
+| `src/hivememory/engines/perception/semantic_flow_perception_layer.py` | 持有 Store、Journal、`_domain_lock`、`TriggerManager`；`route_and_ingest`/`ingest_payload` 含 journal retry 协议与 `_compute_apply_digest`；`_maybe_fold_pages` 阈值判断；`settle_topic`/`prepare_settlement`/`commit_settlement`/`abort_settlement`/`swap_out_topic`/`discard_if_empty` | 阶段 3/4 |
+| `src/hivememory/patchouli/services/perception.py` | `PerceptionFamiliar` 持有 `memory_library.short_term`（:61）；直接 Store 调用（:115、:164、:180、:242）；LRU 候选选择与 IDLE 过滤（:189-220）；idle 扫描（:303-326）；shutdown 遍历（:328-366）；`_maintenance_scope` 重建访问作用域 | 阶段 4 |
+| `src/hivememory/patchouli/runtime/core.py:398-407、541-547` | `_build_perception_layer` 调用 `create_perception_layer`；`PerceptionFamiliar` 注入 `perception_layer` | 阶段 3/4 |
+| `src/hivememory/patchouli/control/interaction_apply_journal.py:9` | 仅类型引用 `TopicMaterializeTask` | 不迁移 |
+| `src/hivememory/patchouli/control/interaction_submission.py:197-207` | 适配 `PerceptionFamiliar.apply_interaction`（签名不变） | 不迁移 |
+| `src/hivememory/patchouli/runtime/route_bindings.py:99-112`、`system.py:94、171` | 绑定 Familiar 公开入口（`prepare_topic`/`evict_topic`/`discard_if_empty`/`manual_settle_topic`/`apply_interaction`/`scan_idle_buffers_once`） | 公开路由名不变 |
+| `src/hivememory/prompts/assembler.py:11` | `PerceptionContextConverter`（无状态门面，不在重构范围） | 不迁移 |
+
+#### 11.1.4 Store 消费方盘点
+
+| 消费方 | 用法 | 处置 |
+|:---|:---|:---|
+| `PerceptionFamiliar`（services/perception.py） | `get`/`count`/`list_by_workspace`/`list_all` + LRU、idle、shutdown 遍历 | 阶段 4 收口到 `TopicBufferService`，Familiar 不再持有 Store |
+| `RetrievalFamiliar`（services/retrieval.py:97、117） | `get`、`list_by_workspace`（话题池只读投影） | 保留（读模型） |
+| `PatchouliRuntime._build_memory_library`（runtime/core.py:332） | 构造与注入 | 保留（装配） |
+| `MemoryLibrary.short_term`（memory_library/library.py） | 持有与健康检查 | 保留 |
+
+`WorkspaceTopicKey` 目前只出现在 `adapters/short_term.py` 内部，上一轮清理已把它收敛到 adapter，本计划维持该封装。
+
+#### 11.1.5 `FlushReason` / `BufferState.FLUSHING` 迁移清单
+
+生产代码（静态搜索确认的全部引用）：
+
+- `core/models/topic.py:21`：`FLUSHING = "flushing"` 定义 → `SETTLING = "settling"`；
+- `engines/perception/models.py`：`FlushReason`/`FlushEvent` 定义 → `TriggerReason`（保留七个枚举字符串值：`token_overflow`/`idle_timeout`/`lru_eviction`/`shutdown`/`manual_settle`/`manual_compact`/`manual_delete`），`TopicMaterializeTask.reason` 字段类型随迁；
+- `engines/perception/trigger_manager.py`、`semantic_flow_perception_layer.py`、`interfaces.py`、`__init__.py`：随文件迁移/删除收口；
+- `hivememory/__init__.py`：顶层导出改名为 `TriggerReason`；
+- `patchouli/services/perception.py`：`FlushReason.LRU_EVICTION`/`IDLE_TIMEOUT`/`SHUTDOWN` 三处用法改为 `TriggerReason`；
+- `patchouli/control/interaction_apply_journal.py`：仅 `TopicMaterializeTask` 类型引用，无枚举引用。
+
+序列化影响核查：短期 buffer 为进程内存储（`InMemoryShortTermStorage`），`FLUSHING`/`flushing` 无持久化数据依赖；`flushing` 字符串不出现在配置、server 模型或队列 payload 中，重命名安全。`TriggerReason` 枚举字符串值保持不变，因此 `TopicMaterializeTask`/`FlushEvent` 的既有 payload 不受影响。
+
+测试侧引用（随对应阶段重写）：`tests/conftest.py`（`FlushRecorder`/`FlushEventRecorder`/perception fixture）、`tests/unit/agent_runtime/mtp/test_write_chain.py` 与 `test_update_chain.py`（仅断言 `FlushReason.__members__` 不含 `MTP_*`，需跟随新名称）、11.1.1 表列出的全部过期测试，以及 `tests/unit/patchouli/memory_library/test_buffer.py:191`（断言 `FLUSHING.value == "flushing"`）。
+
+#### 11.1.6 冻结契约
+
+以下契约为后续阶段的实施基准，实施中不得偏离或另立第二份定义：
+
+1. **决策矩阵**：七种触发原因与 `TriggerPlan(settle, compact, evict)` 的映射固定为 Plan §4.2 表格；`TOKEN_OVERFLOW`/`MANUAL_COMPACT` 仅 compact，`MANUAL_DELETE` 仅 evict，其余四种 settle 原因均为 `settle=True, evict=True`。
+2. **不变量**：`settle=True` 必须 `evict=True`；`TriggerPlan` 至少含一个动作；compact 的 `retain_recent_blocks >= 1`。
+3. **settle 统一时序**：所有 `settle=True` 原因共用 `begin_settlement -> 锁外 admission -> complete_settlement/abort_settlement`；`SETTLING` 期间拒绝新 Interaction；接纳成功或无材料才删除 Topic；明确拒绝/异常恢复 `IDLE` 并保留内容；queue 成功 receipt 后的生成失败不重开 Topic。
+4. **消除特殊分支**：现行 `resolve_topic` 中 `MANUAL_SETTLE` 的 ValueError 分支随统一协议消失；`MANUAL_SETTLE` 与 automatic settle 共用同一 begin/complete/abort 原语。
+5. **命名**：`TriggerReason`、`BufferState.SETTLING`、`TopicBufferService`、`MemoryPerceptionEngine`、`create_perception_engine`、`TriggerPlan`、`SettlementOutcome`（状态枚举 `SettlementStatus`：`ACCEPTED`/`NO_MATERIAL`/`REJECTED`/`NOT_FOUND`）。
+6. **迁移禁令**：不新增 `by_key` Store 入口、Store 复合方法、额外状态控制器、per-topic lock；不新增 `topic_buffer_models.py` 或第二份矩阵/`TriggerPlan`；`TriggerPlan` 不携带 `evict_timing`/`defer_evict` 等时序字段。
+7. **锁边界**：领域锁（RLock）归 `TopicBufferService`；Relay 摘要生成与 generation queue admission 在锁外；Store/adapter 锁只保护单次 CRUD 与内部索引。
+
+#### 11.1.7 目标依赖方向确认
+
+```text
+PerceptionFamiliar (patchouli/services)
+  -> TopicBufferService (patchouli/services/topic_buffer.py)
+       -> ShortTermMemoryStore (patchouli/memory_library) -> adapter
+  -> MemoryPerceptionEngine (engines/perception, 无状态)
+TopicBufferService -> MemoryPerceptionEngine（摘要/折叠纯算法）
+```
+
+- 允许方向：`patchouli -> engines/perception`（Familiar/Service 引用 Engine、Relay 协议与感知模型）；
+- 必须消除的反向依赖：现行 `trigger_manager.py`/`semantic_flow_perception_layer.py` 导入 `patchouli.errors`、`patchouli.control`、`patchouli.memory_library`；阶段 3 完成后 `engines/perception/` 生产代码不得导入 `patchouli.*`（`TopicBusyError` 的使用随状态执行迁入 `TopicBufferService`，journal retry 协议归 Familiar）；
+- `engines/perception/` 阶段 3 后只依赖 `core.models`、`core.protocol.models`、`system.config`（fold 阈值配置经注入或参数传入）、`utils.token_estimator`、`i18n` 与自身模块；
+- `interaction_apply_journal` 留在 `patchouli/control`，retry 协议（journal 检查、digest 等价性校验、journal 记录）由 Familiar 与 TopicBufferService 的调用顺序承接；
+- `context_converter.py` 为无状态渲染门面，不属于本次边界重构范围。
