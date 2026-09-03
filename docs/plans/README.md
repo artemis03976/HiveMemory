@@ -10,11 +10,12 @@ last_reviewed: 2026-09-01
 
 本目录只存放已经绑定明确版本或里程碑、能够独立实施和验收，但尚未完全成为当前事实的功能、重构与迁移计划。已完成的计划移入 [Archived Plans](../archive/plans/README.md)，不在此目录继续作为活动实施入口。
 
-当前没有处于实施中的 Workspace W0 计划。W0 已完成并归档；当前行为以 [Workspace 架构](../architecture/workspace.md) 为事实入口，实施细节和阶段验收保留在历史归档中：
+当前没有处于实施中的 Workspace W0 计划。W0 已完成并归档；当前行为以 [Workspace 架构](../architecture/workspace.md) 为事实入口，实施细节和阶段验收保留在历史归档中。当前已建立的后续重构计划如下：
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
 | [v0.6.2 W0 Workspace MVP（归档）](../archive/plans/v0.6.2-workspace-mvp.md) | Archived | 已完成 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；当前事实见 [Workspace 架构](../architecture/workspace.md) |
+| [Perception Topic Buffer 边界重组](./perception-topic-buffer-boundary-refactor.md) | Planned | 在保留统一触发矩阵的前提下，将 Topic Buffer 状态所有权收回 Patchouli service 层，使 Perception Engine 回到无状态底层能力 |
 
 `v0.6.2` 的 Workspace 工作拆分为 W0/W1 两个独立交付切片。W0 已完成并归档；W1 Chat Attachments 尚未建立正式 Plan，必须把 W0 的稳定公共契约作为硬前置，再独立规划上传、解析、Context Compiler、可选 ContextAttachmentUse 明细和 Artifact promotion。历史数据批量转换也不在 W0 主链路中执行，需要未来另立脚本或 Plan。
 
