@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # MemoryLibrary 与存储层
@@ -36,13 +36,13 @@ MemoryLibrary
 
 ### 1.1 短期：话题工作台
 
-短期存储保存 `topic_id -> SemanticBuffer`。一个 buffer 包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算、状态和最近访问时间。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
+短期存储保存 Topic 记录。适配器内部可以使用可变 `SemanticBuffer`，但 Store/Port 对外只交换不可变 `TopicData` 快照；记录包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算、状态和最近访问时间。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
 
-`topic_id` 是领域上的全局唯一身份；短期 Store 在读写时同时使用 `WorkspaceTopicKey`（由 `IdentityScope` 派生）校验资源归属，因此 Workspace 复合键是安全寻址边界，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。Topic 的内部状态和结算规则由 Perception 负责，MemoryLibrary 只维护存储事实与归属检查。
+`topic_id` 是领域上的全局唯一身份；调用方通过 `IdentityScope + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。Topic 的内部状态和结算规则由 Perception 负责，MemoryLibrary 只维护存储事实与归属检查。
 
 感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
 
-`ShortTermMemoryStore` 是唯一推荐写入口：新增 block、清空 blocks、更新标题/摘要、更新模型名和状态都通过命名方法完成。调用方读取的是不可变 `TopicData` / `TopicSnapshot`，不应取得可变 `SemanticBuffer` 后直接改字段。这个约束让 Gateway 和前端可以观察话题，却不能顺手改写短期事实。
+`ShortTermMemoryStore` 的长期公共 API 只有 `get`、`put`、`create`、`delete`、`list_by_workspace`、`list_all`、`count` 和 `check_health`。Perception 在自己的领域边界内从快照形成新记录，再通过一次 `put` 写回；Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`，不会接触 adapter 的可变 `SemanticBuffer`。
 
 活跃池默认上限为 `max_resident_topics=5`。创建新话题且池已满时，PerceptionFamiliar 选择最近最少访问的话题，先按 LRU 结算，再从内存移除；命中已有话题不会触发驱逐。
 

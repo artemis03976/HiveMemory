@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # 数据模型与可变性边界
@@ -88,11 +88,15 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.1 Workspace 坐标与资源键
 
-`IdentityScope` 只表达一次操作中的 actor 和 Workspace 事实，不把请求、任务或 trace 状态塞入公共身份模型。Topic、Memory、Artifact 和 WorkspaceAsset 的资源键在相应领域边界组合 WorkspaceIdentity 与资源 ID；其中 `topic_id` 仍按全局唯一身份生成和校验，`WorkspaceTopicKey` 用于带归属读取、更新和跨 Workspace 拒绝。键本身不复制实体，也不改变由 Patchouli 或 System Store 负责的生命周期。
+短期 Topic 的复合键仅在 adapter 内部使用；上层通过 `IdentityScope + topic_id` 访问。
+
+`IdentityScope` 只表达一次操作中的 actor 和 Workspace 事实，不把请求、任务或 trace 状态塞入公共身份模型。Topic、Memory、Artifact 和 WorkspaceAsset 的资源访问在相应领域边界组合 WorkspaceIdentity 与资源 ID；其中 `topic_id` 仍按全局唯一身份生成和校验，Workspace 归属由底层存储边界校验。物理复合键本身不复制实体，也不改变由 Patchouli 或 System Store 负责的生命周期。
 
 `WorkspaceAssetStore` 是 System 进程内唯一的 working set，资产的 opaque ref、representation 与 lease 只在该 Store 的生命周期内有效。它不属于通用缓存、队列或事件对象图；关闭时由 System 在 Patchouli drain 完成后清空。共享 runtime 传递 scope 时只携带领域 payload，不因模型中有 Workspace 字段而自动形成一套按 Workspace 分区的可变状态。
 
 ### 4.2 Gateway 请求状态
+
+短期 Topic 的 `WorkspaceTopicKey` 不属于公共领域模型或 Store/Perception 契约；这些边界统一使用 `IdentityScope + topic_id`，复合键只由 adapter 构造。
 
 `GatewayExecutionState` 是有意可变的请求级状态，仅由 `GatewayWorkflow` 创建和持有。Step 通过 `GatewayStepResult` 提交更新，由 workflow 校验字段、提交顺序和 finalize 边界；最终只投影为公共 `GatewayProcessResult`，不把内部 state、fallback 细节或 snapshot 暴露给下游。
 
@@ -100,9 +104,9 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.3 Topic 实体与读取模型
 
-Patchouli 的 `SemanticBuffer` 是可变实体，包含 blocks、摘要、状态、token 计数和访问时间。Store 在所有权范围内维护它，对外读取时投影为冻结的 `TopicData` 或 `TopicSnapshot`。
+短期存储 adapter 内部维护可变的 `SemanticBuffer`，包含 blocks、摘要、状态、token 计数和访问时间；Store 与 Port 只交换冻结的 `TopicData` 或 `TopicSnapshot` 快照。
 
-“可变实体 + 不可变读取模型”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态。新增 append、touch、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把 `SemanticBuffer` 直接返回给 public route。
+“可变实体 + 不可变读取模型”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态。新增 append、touch、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把 `SemanticBuffer` 直接返回给 public route。当前实现中可变实体由 adapter 持有，Perception 通过不可变 `TopicData` 快照完成领域更新，再由 Store 写回。
 
 ### 4.4 PendingAtom 状态机
 

@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # 系统边界与所有权
@@ -53,7 +53,7 @@ last_reviewed: 2026-09-01
 
 `IdentityScope` 是一次操作携带的不可变 `ActorIdentity + WorkspaceIdentity`。它沿着应用服务、公开 route、interaction 和后台 task 传播，并在 Workspace-owned 资源的最终读写处再次校验；它不把 Gateway、Patchouli、Alice 或共享 runtime 复制成按 Workspace 分区的实例。
 
-当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore` 是 System 进程级唯一的运行时 working set。Topic 的 `topic_id` 在领域上全局唯一，`WorkspaceTopicKey` 只是将 owner/workspace 坐标与 ID 组合起来进行寻址和拒绝跨域访问。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
+当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore` 是 System 进程级唯一的运行时 working set。Topic 的 `topic_id` 在领域上全局唯一，调用方通过 `IdentityScope + topic_id` 访问，`WorkspaceTopicKey` 只在短期 adapter 内部将 owner/workspace 坐标与 ID 组合起来进行归属校验和物理索引。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 

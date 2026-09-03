@@ -1,34 +1,21 @@
-"""
-HiveMemory Trigger Manager
-
-话题结算调度器，负责根据触发原因执行对应的原子操作组合，并返回结算载荷。
-
-职责:
-    - 统一的 FlushEvent 输入协议
-    - 根据触发原因执行原子操作组合 (Settle/Compact/Evict)
-    - 返回 TopicMaterializeTask 供上层提交给生成链路（不主动触发）
-
-核心概念:
-    - Settle (结算): 将 blocks 与 binding 打包为 TopicMaterializeTask 返回给调用方
-    - Compact (压缩): 生成 state_summary（同步阻塞）
-    - Evict (驱逐): 从活跃池移除 buffer
-
-参考: BufferManagement.md, ShortTermMemory.md §4.2, §5.1
-
-作者: HiveMemory Team
-版本: 2.0.0
-"""
+"""Perception-owned Topic lifecycle and compaction orchestration."""
 
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, TYPE_CHECKING
+import threading
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
+    BufferState,
     IdentityScope,
+    LogicalBlock,
+    TopicAssetBinding,
     TopicData,
+    WorkspaceAssetRef,
     WorkspaceIdentity,
-    WorkspaceTopicKey,
+    require_identity_scope,
 )
 from hivememory.patchouli.errors import TopicBusyError
 
@@ -36,7 +23,6 @@ from hivememory.engines.perception.models import (
     AutomaticSettleResult,
     FlushEvent,
     FlushReason,
-    LogicalBlock,
     TopicMaterializeTask,
 )
 
@@ -88,42 +74,19 @@ DECISION_MATRIX: Dict[FlushReason, Dict[str, bool]] = {
 
 
 class TriggerManager:
-    """
-    Flush 触发调度器
+    """Own Topic state transitions and lifecycle decisions for Perception.
 
-    根据 FlushEvent 查表决定执行哪些原子操作组合：
-        - Settle: 构建 TopicMaterializeTask 返回给调用方（不主动触发生成）
-        - Compact: 生成 state_summary（同步阻塞）
-        - Evict: 从活跃池移除 buffer
-
-    决策矩阵 (DECISION_MATRIX):
-        | Trigger Reason    | Settle | Compact | Evict |
-        |-------------------|--------|---------|-------|
-        | TOKEN_OVERFLOW    | ❌     | ✅      | ❌    |
-        | IDLE_TIMEOUT      | ✅     | ❌      | ✅    |
-        | LRU_EVICTION      | ✅     | ❌      | ✅    |
-        | SHUTDOWN          | ✅     | ❌      | ✅    |
-        | MANUAL_SETTLE     | ✅     | ❌      | ✅    |
-        | MANUAL_COMPACT    | ❌     | ✅      | ❌    |
-        | MANUAL_DELETE     | ❌     | ❌      | ✅    |
-
-    依赖:
-        - ShortTermMemoryStore: 读取 buffer 状态、执行 evict
-        - RelayController: 生成摘要
-
-    Examples:
-        >>> trigger_manager = TriggerManager(store, relay_controller)
-        >>> payload = await trigger_manager.resolve_topic(
-        ...     FlushEvent(topic_id=topic_id, reason=FlushReason.IDLE_TIMEOUT)
-        ... )
-        >>> if payload:
-        ...     await bus.request(GENERATION_SUBMIT_SETTLEMENT, payload)
+    It persists immutable snapshots through ``ShortTermMemoryStore``.  No
+    storage key is constructed here; targets are always an access scope and a
+    globally unique topic ID.
     """
 
     def __init__(
         self,
         store: "ShortTermMemoryStore",
         relay_controller: "BaseRelayController",
+        *,
+        lock: threading.RLock | None = None,
     ) -> None:
         """
         初始化 TriggerManager
@@ -134,74 +97,47 @@ class TriggerManager:
         """
         self._store = store
         self._relay_controller = relay_controller
-        logger.info("TriggerManager 初始化完成")
-
-    # ========== 统一调度器 ==========
+        self._lock = lock or threading.RLock()
 
     async def resolve_topic(
         self,
         trigger: FlushEvent,
         *,
-        retain_recent_blocks: Optional[int] = None,
-    ) -> Optional[TopicMaterializeTask]:
-        """
-        统一的话题结算调度器。
-
-        Args:
-            trigger: 结算触发指令（包含 topic_key 与 reason）
-            retain_recent_blocks: compact 路径（TOKEN_OVERFLOW / MANUAL_COMPACT）
-                必须提供的最近工作集大小，必须 >= 1；其他触发原因忽略该值
-
-        Returns:
-            TopicMaterializeTask 供上层提交给生成链路；如无需结算则返回 None
-        """
+        retain_recent_blocks: int | None = None,
+    ) -> TopicMaterializeTask | None:
         actions = DECISION_MATRIX.get(trigger.reason)
-        if not actions:
-            logger.error(f"未知的触发原因: {trigger.reason}")
+        if actions is None:
+            logger.error("未知的触发原因: %s", trigger.reason)
             return None
-
-        need_settle = actions["settle"]
-        need_compact = actions["compact"]
-        need_evict = actions["evict"]
-
         if trigger.reason is FlushReason.MANUAL_SETTLE:
-            # manual settle 使用 FLUSHING prepare -> admission -> evict，不走本调度器。
             raise ValueError("MANUAL_SETTLE 必须通过 prepare_manual_settle 处理")
-
-        if need_settle and need_evict:
-            # IDLE/LRU/SHUTDOWN：automatic settle 走原子 freeze-and-evict。
+        if actions["settle"] and actions["evict"]:
             return self.settle_and_evict(
-                trigger.topic_key,
+                trigger.identity_scope,
+                trigger.topic_id,
                 trigger.reason,
             ).settlement
-
-        if need_compact:
-            # TOKEN_OVERFLOW 复用 Interaction 已持有的 PROCESSING；
-            # MANUAL_COMPACT 需要自行预约 PROCESSING。
+        if actions["compact"]:
             return await self._compact_path(trigger, retain_recent_blocks)
-
-        if need_evict:
-            # MANUAL_DELETE：只丢弃 Topic，不构造 settlement。
-            self._store.pop_buffer_by_key(trigger.topic_key)
-            return None
-
+        if actions["evict"]:
+            self.delete_if_idle(trigger.identity_scope, trigger.topic_id)
         return None
 
     def settle_and_evict(
         self,
-        topic_key: WorkspaceTopicKey,
+        identity_scope: IdentityScope,
+        topic_id: str,
         reason: FlushReason,
     ) -> AutomaticSettleResult:
-        """automatic settle：只接受 IDLE Topic，原子 freeze-and-evict 后冻结载荷。
-
-        ``freeze_and_evict`` 在 Store 临界区内冻结 blocks/state summary/binding
-        refs 并移除 buffer；busy（PROCESSING/FLUSHING）显式抛错，缺失与已驱逐但
-        无生成材料分别由 ``evicted`` 和 ``settlement`` 表达。
-        """
-        snapshot = self._store.freeze_and_evict(topic_key)
-        if snapshot is None:
-            logger.debug("settle_and_evict: topic 已不存在，不执行结算")
-            return AutomaticSettleResult(evicted=False)
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is None:
+                return AutomaticSettleResult(evicted=False)
+            if snapshot.state is not BufferState.IDLE:
+                raise TopicBusyError(f"topic '{topic_id}' 正忙，无法执行结算")
+            if not self._store.delete(identity_scope, topic_id):
+                return AutomaticSettleResult(evicted=False)
         if snapshot.is_empty:
             logger.debug("settle_and_evict: topic 内容为空，已驱逐但无可结算材料")
             return AutomaticSettleResult(evicted=True)
@@ -212,82 +148,202 @@ class TriggerManager:
 
     def prepare_manual_settle(
         self,
-        topic_key: WorkspaceTopicKey,
-    ) -> Optional[TopicMaterializeTask]:
-        """manual settle 的 FLUSHING prepare：冻结材料但不驱逐，不清 blocks。
-
-        只接受 IDLE Topic；成功取得 FLUSHING 后冻结 payload 并返回。admission
-        失败由 ``abort_manual_settle`` 恢复 IDLE，成功由 ``commit_manual_settle``
-        驱逐。
-        """
-        snapshot = self._store.freeze_for_manual_settle(topic_key)
-        if snapshot is None:
-            raise TopicBusyError(
-                f"topic '{topic_key.topic_id}' 正忙，无法开始 manual settle"
+        identity_scope: IdentityScope,
+        topic_id: str,
+    ) -> TopicMaterializeTask | None:
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is None:
+                raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
+            if snapshot.state is not BufferState.IDLE:
+                raise TopicBusyError(f"topic '{topic_id}' 正忙，无法开始 manual settle")
+            flushing = snapshot.model_copy(
+                update={"state": BufferState.FLUSHING, "last_update": datetime.now().timestamp()}
             )
-        if snapshot.is_empty:
+            self._store.put(flushing)
+        if flushing.is_empty:
             return None
-        return self._build_settle_payload_from_snapshot(
-            snapshot,
-            FlushReason.MANUAL_SETTLE,
-        )
+        return self._build_settle_payload_from_snapshot(flushing, FlushReason.MANUAL_SETTLE)
 
-    def commit_manual_settle(self, topic_key: WorkspaceTopicKey) -> bool:
-        """admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
-        return self._store.commit_flushing(topic_key)
+    def commit_manual_settle(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is None or snapshot.state is not BufferState.FLUSHING:
+                return False
+            return self._store.delete(identity_scope, topic_id)
 
-    def abort_manual_settle(self, topic_key: WorkspaceTopicKey) -> None:
-        """admission 失败后恢复 FLUSHING Topic 为 IDLE，保留可重试内容。"""
-        self._store.abort_flushing(topic_key)
+    def abort_manual_settle(self, identity_scope: IdentityScope, topic_id: str) -> None:
+        self._set_state(identity_scope, topic_id, BufferState.FLUSHING, BufferState.IDLE)
 
-    # ========== compact 路径 ==========
+    def reserve_processing(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is None or snapshot.state is not BufferState.IDLE:
+                return False
+            self._store.put(
+                snapshot.model_copy(
+                    update={
+                        "state": BufferState.PROCESSING,
+                        "last_update": datetime.now().timestamp(),
+                    }
+                )
+            )
+            return True
+
+    def release_processing(self, identity_scope: IdentityScope, topic_id: str) -> None:
+        self._set_state(identity_scope, topic_id, BufferState.PROCESSING, BufferState.IDLE)
+
+    def apply_interaction(
+        self,
+        identity_scope: IdentityScope,
+        topic_id: str,
+        interaction_id: str | None,
+        block: LogicalBlock,
+        *,
+        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
+        model_used: str | None = None,
+    ) -> TopicData:
+        """Apply one interaction to a PROCESSING Topic in the domain layer."""
+        if asset_id_and_refs and not interaction_id:
+            raise ValueError("建立 asset binding 必须携带 interaction_id")
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is None:
+                raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
+            if snapshot.state is not BufferState.PROCESSING:
+                raise TopicBusyError(f"topic '{topic_id}' 未持有 PROCESSING 预约")
+            bindings = list(snapshot.bindings)
+            existing_ids = {binding.asset_id for binding in bindings}
+            now = datetime.now()
+            for asset_id, asset_ref in asset_id_and_refs:
+                if not isinstance(asset_id, str) or not asset_id.strip():
+                    raise ValueError("asset_id 不能为空")
+                if not isinstance(asset_ref, WorkspaceAssetRef):
+                    raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
+                if asset_id in existing_ids:
+                    continue
+                bindings.append(
+                    TopicAssetBinding(
+                        asset_id=asset_id.strip(),
+                        asset_ref=asset_ref,
+                        first_bound_interaction_id=interaction_id,
+                        bound_at=now,
+                    )
+                )
+                existing_ids.add(asset_id)
+            updated = snapshot.model_copy(
+                update={
+                    "blocks": (*snapshot.blocks, block),
+                    "bindings": tuple(bindings),
+                    "total_tokens": snapshot.total_tokens + block.total_tokens,
+                    "last_update": now.timestamp(),
+                    "model_used": model_used or snapshot.model_used,
+                }
+            )
+            self._store.put(updated)
+            return updated
 
     async def _compact_path(
         self,
         trigger: FlushEvent,
-        retain_recent_blocks: Optional[int],
-    ) -> Optional[TopicMaterializeTask]:
-        """执行 compact；TOKEN_OVERFLOW 复用已持有预约，MANUAL_COMPACT 自行预约。"""
+        retain_recent_blocks: int | None,
+    ) -> TopicMaterializeTask | None:
         if retain_recent_blocks is None:
             raise ValueError(f"{trigger.reason.value} requires retain_recent_blocks")
-
-        topic_key = trigger.topic_key
+        if retain_recent_blocks < 1:
+            raise ValueError("retain_recent_blocks must be >= 1")
+        scope = trigger.identity_scope
+        topic_id = trigger.topic_id
         manual = trigger.reason is FlushReason.MANUAL_COMPACT
-        topic_data = self._store.get_topic_data_by_key(topic_key, touch=False)
-        if topic_data is None:
-            if manual:
-                # 缺失与跨 Workspace 目标统一隐藏归属，不能误报为 busy 或创建新 Topic。
-                raise KeyError(
-                    f"topic '{topic_key.topic_id}' does not exist in requested Workspace"
-                )
-            return None
-        if manual and not self._store.reserve_processing(topic_key):
-            raise TopicBusyError(
-                f"topic '{topic_key.topic_id}' 正忙，无法开始 manual compact"
-            )
-
+        reserved_manual = False
         try:
-            if topic_data.is_empty:
-                return None
-            await self._compact_topic(
-                topic_key,
-                list(topic_data.blocks),
-                topic_data.state_summary,
-                retain_recent_blocks=retain_recent_blocks,
-            )
+            with self._lock:
+                snapshot = self._store.get(scope, topic_id, touch=False)
+                if manual:
+                    if snapshot is None:
+                        raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
+                    if snapshot.state is not BufferState.IDLE:
+                        raise TopicBusyError(f"topic '{topic_id}' 正忙，无法开始 manual compact")
+                    self._store.put(snapshot.model_copy(update={"state": BufferState.PROCESSING}))
+                    reserved_manual = True
+                    snapshot = self._store.get(scope, topic_id, touch=False)
+                elif snapshot is None:
+                    return None
+                if snapshot is None or snapshot.is_empty:
+                    return None
+                blocks = list(snapshot.blocks)
+                fold_count = max(0, len(blocks) - retain_recent_blocks)
+                if fold_count == 0:
+                    return None
+                summary = self._relay_controller.generate_summary(
+                    blocks_to_fold=blocks[:fold_count],
+                    previous_summary=snapshot.state_summary,
+                )
+                retained = tuple(blocks[-retain_recent_blocks:])
+                updated = snapshot.model_copy(
+                    update={
+                        "state_summary": summary,
+                        "blocks": retained,
+                        "total_tokens": sum(block.total_tokens for block in retained),
+                        "last_update": datetime.now().timestamp(),
+                        "state": BufferState.IDLE if manual else snapshot.state,
+                    }
+                )
+                self._store.put(updated)
             return None
         finally:
-            if manual:
-                self._store.release_processing(topic_key)
+            if reserved_manual:
+                with self._lock:
+                    current = self._store.get(scope, topic_id, touch=False)
+                    if current is not None and current.state is BufferState.PROCESSING:
+                        self._store.put(
+                            current.model_copy(
+                                update={
+                                    "state": BufferState.IDLE,
+                                    "last_update": datetime.now().timestamp(),
+                                }
+                            )
+                        )
 
-    # ========== 原子操作 ==========
+    def delete_if_idle(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is None:
+                return False
+            if snapshot.state is not BufferState.IDLE:
+                raise TopicBusyError(f"topic '{topic_id}' 正忙，无法删除")
+            return self._store.delete(identity_scope, topic_id)
+
+    def _set_state(
+        self,
+        identity_scope: IdentityScope,
+        topic_id: str,
+        expected: BufferState,
+        target: BufferState,
+    ) -> None:
+        identity_scope = require_identity_scope(identity_scope)
+        with self._lock:
+            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            if snapshot is not None and snapshot.state is expected:
+                self._store.put(
+                    snapshot.model_copy(
+                        update={
+                            "state": target,
+                            "last_update": datetime.now().timestamp(),
+                        }
+                    )
+                )
 
     def _build_settle_payload_from_snapshot(
         self,
         snapshot: TopicData,
         reason: FlushReason,
-    ) -> Optional[TopicMaterializeTask]:
-        """从冻结 TopicData 快照构建 settle 载荷，并冻结 binding refs。"""
+    ) -> TopicMaterializeTask | None:
         return self._build_settle_payload(
             topic_id=snapshot.topic_id,
             blocks_snapshot=list(snapshot.blocks),
@@ -302,34 +358,15 @@ class TriggerManager:
     def _build_settle_payload(
         self,
         topic_id: str,
-        blocks_snapshot: List[LogicalBlock],
+        blocks_snapshot: list[LogicalBlock],
         state_summary: str,
         reason: FlushReason,
         workspace_identity: WorkspaceIdentity,
         topic_title: str = "",
         topic_summary: str = "",
         asset_bindings: tuple = (),
-    ) -> Optional[TopicMaterializeTask]:
-        """
-        Settle 原子操作：过滤 blocks 并构建 TopicMaterializeTask。
-
-        ``asset_bindings`` 在 buffer 清理前冻结进 task，进入 queue 后不再依赖
-        SemanticBuffer；后续 codec/retry 必须原样保留 ref。
-
-        Returns:
-            TopicMaterializeTask；若所有 blocks 均被过滤则返回 None
-        """
-        blocks_to_settle = [
-            block for block in blocks_snapshot
-            if block.worth_saving is not False
-        ]
-        filtered = len(blocks_snapshot) - len(blocks_to_settle)
-        if filtered > 0:
-            logger.info(
-                f"worth_saving 过滤: 原始 {len(blocks_snapshot)} blocks, "
-                f"过滤 {filtered} blocks, 保留 {len(blocks_to_settle)} blocks"
-            )
-
+    ) -> TopicMaterializeTask | None:
+        blocks_to_settle = [block for block in blocks_snapshot if block.worth_saving is not False]
         if not blocks_to_settle:
             logger.debug("所有 blocks 被 worth_saving 过滤，跳过 Settle")
             return None
@@ -348,59 +385,5 @@ class TriggerManager:
             reason=reason,
         )
 
-    async def _compact_topic(
-        self,
-        topic_key: WorkspaceTopicKey,
-        blocks_to_fold: List[LogicalBlock],
-        previous_summary: str,
-        *,
-        retain_recent_blocks: int,
-    ) -> int:
-        """
-        Compact 原子操作：总结待折叠前缀并更新 buffer（同步阻塞）。
 
-        所有 compact 路径都必须至少保留一个最新 block；``retain_recent_blocks``
-        必须 >= 1，小于 1 的值在输入边界以具体异常拒绝。只总结保留后缀之前的
-        旧 blocks，避免 state_summary 与 recent blocks 重复承载同一轮事实。
-        """
-        if retain_recent_blocks < 1:
-            raise ValueError("retain_recent_blocks must be >= 1")
-
-        fold_count = max(0, len(blocks_to_fold) - retain_recent_blocks)
-        if fold_count == 0:
-            logger.warning(
-                "Compact skipped: no blocks older than retained working set, "
-                "topic_id=%s, blocks=%d, retain_recent_blocks=%d",
-                topic_key.topic_id,
-                len(blocks_to_fold),
-                retain_recent_blocks,
-            )
-            return 0
-        blocks_to_fold = blocks_to_fold[:fold_count]
-
-        # 调用 RelayController 生成摘要（已包含 previous_summary 合并逻辑）
-        new_summary = self._relay_controller.generate_summary(
-            blocks_to_fold=blocks_to_fold,
-            previous_summary=previous_summary
-        )
-
-        # 计算与写入分离：通过 Store 命名方法写入，不直接操作 buffer 字段
-        folded = self._store.apply_compaction(
-            topic_key,
-            new_summary,
-            retain_count=retain_recent_blocks,
-        )
-
-        logger.debug(
-            "Compact: 生成新摘要，topic_id=%s, folded=%d, retained=%s",
-            topic_key.topic_id,
-            folded,
-            retain_recent_blocks,
-        )
-        return folded
-
-
-__all__ = [
-    "TriggerManager",
-    "DECISION_MATRIX",
-]
+__all__ = ["TriggerManager", "DECISION_MATRIX"]

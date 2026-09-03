@@ -24,7 +24,6 @@ from hivememory.core.models import (
     TraceItem,
     TurnEvent,
     WorkspaceIdentity,
-    WorkspaceTopicKey,
 )
 
 # ============ 枚举定义 ============
@@ -47,16 +46,13 @@ class FlushEvent(BaseModel):
     话题结算触发指令，TriggerManager.resolve_topic 的统一输入协议。
 
     Attributes:
-        topic_key: 已验证的目标话题复合键
+        identity_scope: 已验证的 Workspace 访问作用域
+        topic_id: 全局唯一的话题 ID
         reason: 触发结算的原因
     """
-    topic_key: WorkspaceTopicKey
+    identity_scope: IdentityScope
+    topic_id: str
     reason: FlushReason
-
-    @property
-    def topic_id(self) -> str:
-        """返回展示用 topic ID；Store 寻址必须使用 topic_key。"""
-        return self.topic_key.topic_id
 
 
 # ============ 话题结算载荷 (Perception -> Generation) ============

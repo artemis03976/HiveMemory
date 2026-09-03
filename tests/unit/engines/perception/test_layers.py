@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from hivememory.core.models import Identity, TurnEvent, WorkspaceTopicKey
+from hivememory.core.models import Identity, TurnEvent
 from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
@@ -54,7 +54,7 @@ class TestSemanticFlowPerceptionLayer:
         )
 
         assert settle_payload is None
-        topic_data = self.store.get_topic_data(
+        topic_data = self.store.get(
             make_identity_scope(actor_identity=identity), topic_id, touch=False
         )
         assert topic_data is not None
@@ -78,7 +78,7 @@ class TestSemanticFlowPerceptionLayer:
 
         assert real_topic_id == topic_id
         assert settle_payload is None
-        topic_data = self.store.get_topic_data(
+        topic_data = self.store.get(
             make_identity_scope(actor_identity=identity), topic_id, touch=False
         )
         assert topic_data is not None
@@ -104,7 +104,7 @@ class TestSemanticFlowPerceptionLayer:
             )
 
     @pytest.mark.asyncio
-    async def test_clear_blocks_keeps_topic_shell(self):
+    async def test_snapshot_writeback_keeps_topic_shell(self):
         topic_id, _ = await self.layer.route_and_ingest(
             "NEW_TOPIC",
             _make_payload("hi", "hello"),
@@ -112,10 +112,9 @@ class TestSemanticFlowPerceptionLayer:
         )
 
         identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-        self.store.clear_blocks(
-            WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
-        )
-
-        topic_data = self.store.get_topic_data(identity_scope, topic_id, touch=False)
+        topic_data = self.store.get(identity_scope, topic_id, touch=False)
+        assert topic_data is not None
+        self.store.put(topic_data.model_copy(update={"blocks": (), "total_tokens": 0}))
+        topic_data = self.store.get(identity_scope, topic_id, touch=False)
         assert topic_data is not None
         assert topic_data.blocks == ()

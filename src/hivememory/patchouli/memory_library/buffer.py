@@ -1,7 +1,7 @@
 """短期记忆缓冲区实体模型。
 
 SemanticBuffer 是短期记忆的核心存储单元（TopicSegment），
-由 ShortTermMemoryStore 持有和管理。
+由短期存储 adapter 在 Store 边界内持有和管理。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, ConfigDict
 
-from hivememory.core.models import BufferState, LogicalBlock, TopicAssetBinding, WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models import BufferState, LogicalBlock, TopicAssetBinding, WorkspaceIdentity
 
 
 class SemanticBuffer(BaseModel):
@@ -48,15 +48,6 @@ class SemanticBuffer(BaseModel):
     model_used: str = Field(default="", description="最近 run 使用的模型展示名")
 
     model_config = ConfigDict(arbitrary_types_allowed=True, use_enum_values=True)
-
-    @property
-    def topic_key(self) -> WorkspaceTopicKey:
-        """返回此 buffer 的权威复合键。"""
-        return WorkspaceTopicKey(
-            owner_user_id=self.workspace_identity.owner_user_id,
-            workspace_id=self.workspace_identity.workspace_id,
-            topic_id=self.topic_id,
-        )
 
     @property
     def user_id(self) -> str:

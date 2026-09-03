@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # HiveMemory 开发路线图
@@ -151,7 +151,7 @@ Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspac
 
 普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。一次 Chat run 使用唯一 `interaction_id`，并由 `IdentityScope` 将 actor identity 与 WorkspaceIdentity 一起冻结；Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 必须复用同一 scope。同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
 
-W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease，并把 TopicAssetBinding 放入 Patchouli 的 SemanticBuffer/ShortTermMemoryStore。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
+W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease。TopicAssetBinding 由 Patchouli Perception 的 Topic 所有者在成功 Interaction 后形成，并作为不可变 `TopicData` 快照写回 `ShortTermMemoryStore`；短期 adapter 只在内部持有可变 `SemanticBuffer`。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
 
 现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`；历史转换脚本仍需独立规划和观察窗口，不能被当前 W0 状态或 W1 候选误读为已完成迁移。
 
@@ -159,7 +159,7 @@ W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStor
 
 W1 把上传文件注册到 W0 已建立的 System-owned `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations；只有 required representation 解析 READY 后，asset ref 才能进入 Chat。解析失败直接向用户返回稳定错误且不自动重试，用户重新上传创建新的逻辑资产。`WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。
 
-上传和 UI 选择本身都不创建 Topic 关系或 Artifact。只有用户显式选择 READY ref、本轮通过 lease 真实使用且 Interaction 成功完成，系统才在 ShortTermMemoryStore 的 SemanticBuffer 原子写入边界内提交 block 与 `TopicAssetBinding`；binding 是历史使用事实，不存在“只绑定但未使用”的第二状态。asset remove 只终止 AssetStore 中后续 resolve/acquire，不跨 Store 清理 binding，也不引入额外协调控制器。Topic settlement 在清理 SemanticBuffer 前把全部 binding refs 冻结进 Materialization task；可选 `ContextAttachmentUse` 只补充实际 representation revision/hash、locator、token 与 compile 诊断。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，consumer 用 task ref 反查 WorkspaceAssetStore、持有 lease，并将对应内容提升为不可变来源 Artifact；`DISCARD` 不执行 promotion。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；task/ref 只在当前进程和 Store 存活期内结算，已提升 Artifact 才按自身持久化契约存在。
+上传和 UI 选择本身都不创建 Topic 关系或 Artifact。只有用户显式选择 READY ref、本轮通过 lease 真实使用且 Interaction 成功完成，系统才由 Patchouli Perception 的 Topic 所有者把 block 与 `TopicAssetBinding` 作为一个不可变 `TopicData` 快照写入 `ShortTermMemoryStore`；binding 是历史使用事实，不存在“只绑定但未使用”的第二状态。asset remove 只终止 AssetStore 中后续 resolve/acquire，不跨 Store 清理 binding，也不引入额外协调控制器。Topic settlement 从快照中把全部 binding refs 冻结进 Materialization task；可选 `ContextAttachmentUse` 只补充实际 representation revision/hash、locator、token 与 compile 诊断。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，consumer 用 task ref 反查 WorkspaceAssetStore、持有 lease，并将对应内容提升为不可变来源 Artifact；`DISCARD` 不执行 promotion。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；task/ref 只在当前进程和 Store 存活期内结算，已提升 Artifact 才按自身持久化契约存在。
 
 当前只支持的文档型附件在提升时复用 `DocumentArtifact`，并通过 `origin=CHAT_ATTACHMENT`、源 asset/revision、parser version 和 content hash 等 metadata 与 `v0.7.0` Document Ingestion 区分入口。Artifact 类型按内容语义而不是入口选择；未来非文档附件不能被强塞进 DocumentArtifact。附件还必须复用 v0.6.1 的 operation identity 与重试语义：同一进程内相同 upload operation 只返回一个逻辑资产，同一 materialization retry 不重复生成来源 Artifact。
 

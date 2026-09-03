@@ -43,7 +43,12 @@ from tests.helpers.memory import make_memory_metadata
 def _make_memory(title="测试记忆") -> MemoryAtom:
     return MemoryAtom(
         meta=make_memory_metadata(source_agent_id="a1", user_id="u1", session_id="s1"),
-        index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t1"], memory_type=MemoryType.FACT),
+        index=IndexLayer(
+            title=title,
+            summary="这是一段足够长的测试摘要用于通过验证",
+            tags=["t1"],
+            memory_type=MemoryType.FACT,
+        ),
         payload=PayloadLayer(content="内容"),
     )
 
@@ -326,7 +331,10 @@ class TestRetrievalFamiliarRetrieve:
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
         bus = PatchouliBus()
-        bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, AsyncMock(side_effect=RuntimeError("fail")))
+        bus.register(
+            PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+            AsyncMock(side_effect=RuntimeError("fail")),
+        )
         familiar = RetrievalFamiliar(
             engine=self.mock_engine,
             memory_library=self.mock_library,
@@ -472,14 +480,14 @@ class TestRetrievalFamiliarShortTermTopics:
         empty_topic = empty_topic.model_copy(update={"state_summary": ""})
         summary_only = _make_topic_data("summary-only", blocks=[], last_accessed_at=4.0)
         new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
-        self.mock_library.short_term.list_topic_data.return_value = [
+        self.mock_library.short_term.list_by_workspace.return_value = [
             old_topic, empty_topic, summary_only, new_topic,
         ]
 
         identity_scope = make_identity_scope(user_id="u1")
         snapshots = self.familiar.list_active_topics(identity_scope=identity_scope)
 
-        self.mock_library.short_term.list_topic_data.assert_called_once_with(
+        self.mock_library.short_term.list_by_workspace.assert_called_once_with(
             identity_scope, include_empty=False
         )
         # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按访问时间排序

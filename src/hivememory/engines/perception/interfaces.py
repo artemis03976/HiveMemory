@@ -20,7 +20,7 @@ from hivememory.engines.perception.models import (
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
-    from hivememory.core.models import IdentityScope, WorkspaceTopicKey
+    from hivememory.core.models import IdentityScope
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,8 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     async def settle_topic(
         self,
-        topic_key: "WorkspaceTopicKey",
+        identity_scope: "IdentityScope",
+        topic_id: str,
         reason: FlushReason = FlushReason.MANUAL_SETTLE,
     ) -> AutomaticSettleResult:
         """原子 automatic settle；busy 抛错，返回值区分驱逐与目标缺失。"""
@@ -57,16 +58,17 @@ class BasePerceptionLayer(ABC):
     @abstractmethod
     async def prepare_settlement(
         self,
-        topic_key: "WorkspaceTopicKey",
+        identity_scope: "IdentityScope",
+        topic_id: str,
     ) -> Optional[TopicMaterializeTask]:
         """只冻结手动结算材料，不修改 buffer；由 manual settle 的 prepare 阶段使用。"""
 
     @abstractmethod
-    def commit_settlement(self, topic_key: "WorkspaceTopicKey") -> bool:
+    def commit_settlement(self, identity_scope: "IdentityScope", topic_id: str) -> bool:
         """manual settle admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
 
     @abstractmethod
-    def abort_settlement(self, topic_key: "WorkspaceTopicKey") -> None:
+    def abort_settlement(self, identity_scope: "IdentityScope", topic_id: str) -> None:
         """manual settle admission 失败后恢复 FLUSHING Topic 为 IDLE。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
@@ -118,7 +120,7 @@ class BasePerceptionLayer(ABC):
         """确保目标短期话题存在，并返回真实 topic_id。"""
 
     @abstractmethod
-    def swap_out_topic(self, topic_key: "WorkspaceTopicKey") -> bool:
+    def swap_out_topic(self, identity_scope: "IdentityScope", topic_id: str) -> bool:
         """显式换出指定话题，不触发结算。返回是否存在该话题。"""
 
 
@@ -131,7 +133,11 @@ class BaseRelayController(ABC):
     """
 
     @abstractmethod
-    def generate_summary(self, blocks_to_fold: List[Any], previous_summary: Optional[str] = None) -> str:
+    def generate_summary(
+        self,
+        blocks_to_fold: List[Any],
+        previous_summary: Optional[str] = None,
+    ) -> str:
         """生成摘要（抽象方法）"""
 
     def create_relay_context(self, summary: str) -> str:

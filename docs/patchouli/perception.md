@@ -13,7 +13,7 @@ related_contracts:
   - docs/system/passive-ingress.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # 感知与短期话题
@@ -48,7 +48,7 @@ LogicalBlock = TurnRecord + perception metadata
 
 ### 1.3 话题工作区：SemanticBuffer
 
-SemanticBuffer 是短期话题的可变工作区，保存 blocks、展示 title/summary、Page Folding 产生的 `state_summary`、状态、token 总量、最近访问时间和最近模型名。ShortTermMemoryStore 持有它；外部只读取不可变 `TopicData` / `TopicSnapshot`。
+Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展示 title/summary、Page Folding 产生的 `state_summary`、状态、token 总量、最近访问时间和最近模型名。短期 adapter 可以在内部维护可变 `SemanticBuffer`，但 Store/Port 与 Perception 之间只交接不可变快照；状态转换和生命周期写回由 Perception 负责。
 
 ## 2. 结构化摄入
 
@@ -63,7 +63,7 @@ InteractionPayload
   -> TurnRecord
   -> token estimate
   -> LogicalBlock
-  -> ShortTermMemoryStore.add_block(topic_id)
+  -> ShortTermMemoryStore.put(TopicData snapshot)
   -> optional Page Folding
 ```
 
@@ -81,7 +81,7 @@ Perception 只把 `worth_saving` 写入 block，不在普通 ingest 时删除它
 
 - `NEW_TOPIC` 创建 UUID、title 和 summary；
 - 已存在话题继续使用并刷新访问顺序；
-- 指定话题不存在时记录 warning 并回退到新话题。
+- 指定话题不存在时拒绝请求，不把跨 Workspace 的全局 ID 误当作新话题。
 
 当需要创建新话题且活跃池达到 `max_resident_topics` 时，PerceptionFamiliar 选择 LRU topic，按 `LRU_EVICTION` 结算并提交后台 generation task，然后移除 buffer。已有话题命中不会为了“置顶”而误驱逐另一话题。
 
@@ -107,7 +107,7 @@ TriggerManager 把触发原因映射为三种原子动作：
 | `MANUAL_COMPACT` | 否 | 是 | 否 | 手动压缩工作集，不结算、不驱逐 |
 | `MANUAL_DELETE` | 否 | 否 | 是 | 丢弃 Topic，不写记忆 |
 
-`TOKEN_OVERFLOW` 是纯 Compact：TriggerManager 只把保留后缀之前的旧 blocks 交给 RelayController，再由 ShortTermMemoryStore 原子写入摘要、裁剪旧前缀并重算 token。其余触发原因维持原有 Settle/Evict 语义；发生 Settle 时旧 blocks 才会清空，需要 evict 的原因随后再删除 buffer。Settle 只是返回 payload，TriggerManager 不知道 local bus，也不直接触发 Generation。PerceptionFamiliar 才负责把 payload 提交给 Coordinator。
+`TOKEN_OVERFLOW` 是纯 Compact：TriggerManager 只把保留后缀之前的旧 blocks 交给 RelayController，再由 Perception 形成新快照并通过 ShortTermMemoryStore 写回摘要、裁剪旧前缀和重算 token。其余触发原因维持原有 Settle/Evict 语义；发生 Settle 时先冻结快照，再删除存储记录。Settle 只是返回 payload，TriggerManager 不知道 local bus，也不直接触发 Generation。PerceptionFamiliar 才负责把 payload 提交给 Coordinator。
 
 `TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照，除 Topic 内容和 `state_summary` 外还携带原始 `identity_scope` 与本轮已确认的 `asset_bindings`。进入队列后，重试和后续处理只能使用这份交接事实，不能从当前进程状态重新推导 Workspace 或资产关系。
 
@@ -150,7 +150,7 @@ Perception engine 由 Runtime 按配置创建并注入 ShortTermMemoryStore。�
 - 短期话题是进程内状态，异常退出可能丢失未结算 blocks；
 - token 统计只覆盖 user/final text 与部分 trace 字段，不是模型级精确 tokenizer 预算；
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
-- 所有 compact 配置与内部入口（`apply_compaction`、`_compact_topic`、公开配置 `ge=1`）都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
+- 所有 compact 配置与 TriggerManager compact 路径都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
 - overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；
 - Relay 的摘要调用位于结算路径内，LLM relay 可能增加该操作的同步等待；
 - `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在短期 buffer；

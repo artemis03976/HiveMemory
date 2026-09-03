@@ -329,10 +329,7 @@ class PatchouliRuntime:
             FileBasedStorageAdapter,
         )
 
-        perception_config = self._patchouli_config.perception.engine
-        max_resident = getattr(perception_config, "max_resident_topics", 5)
-
-        short_term = ShortTermMemoryStore(max_resident_topics=max_resident)
+        short_term = ShortTermMemoryStore()
         mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
 
         archiver_config = self._patchouli_config.lifecycle.archiver
@@ -346,7 +343,9 @@ class PatchouliRuntime:
         artifact_config = self._patchouli_config.artifacts
         artifact_store = None
         if artifact_config.enabled:
-            from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+            from hivememory.patchouli.memory_library.adapters.artifact import (
+                FilesystemArtifactStorageAdapter,
+            )
             from hivememory.patchouli.memory_library.stores import ArtifactStore
             artifact_store = ArtifactStore(
                 FilesystemArtifactStorageAdapter(
@@ -380,7 +379,11 @@ class PatchouliRuntime:
 
     def _build_retrieval_engine(self):
         """[私有构建器] 构建 Retrieval 引擎"""
-        from hivememory.engines.retrieval import RetrievalEngine, BaseMemoryRetriever, create_retriever
+        from hivememory.engines.retrieval import (
+            RetrievalEngine,
+            BaseMemoryRetriever,
+            create_retriever,
+        )
 
         config = self._patchouli_config.retrieval
 

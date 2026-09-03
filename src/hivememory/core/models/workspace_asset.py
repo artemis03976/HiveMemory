@@ -221,7 +221,7 @@ class WorkspaceAssetHandle(BaseModel):
 class TopicAssetBinding(BaseModel):
     """冻结的 Topic 级资产真实使用关系事实。
 
-    由 ``ShortTermMemoryStore`` 在一次成功 Interaction 的原子 apply 中幂等维护。
+    由 Perception 的 Topic 所有者在一次成功 Interaction 的原子 apply 中幂等维护。
     只保存 ``asset_id`` 与 opaque ``asset_ref`` 的关系坐标，不保存
     ``WorkspaceAsset`` 快照、representation 内容或 actor-policy 字段；
     ``workspace_identity`` 与 ``topic_id`` 由所属 ``SemanticBuffer`` 提供，

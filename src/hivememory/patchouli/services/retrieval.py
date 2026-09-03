@@ -18,7 +18,6 @@ from uuid import UUID
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    Identity,
     MemoryAtom,
     MemoryType,
     TopicData,
@@ -30,7 +29,6 @@ from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
     MemoryTypeMismatchError,
-    PermissionDeniedError,
     StorageOfflineError,
     StorageReadError,
 )
@@ -96,7 +94,7 @@ class RetrievalFamiliar:
         读取短期话题上下文。
         """
         require_identity_scope(identity_scope)
-        return self._memory_library.short_term.get_topic_data(
+        return self._memory_library.short_term.get(
             identity_scope,
             topic_id,
             touch=touch,
@@ -116,7 +114,7 @@ class RetrievalFamiliar:
         时可承接前端话题池展示。
         """
         identity_scope = require_identity_scope(identity_scope)
-        topics = self._memory_library.short_term.list_topic_data(
+        topics = self._memory_library.short_term.list_by_workspace(
             identity_scope,
             include_empty=include_empty,
         )
@@ -183,7 +181,6 @@ class RetrievalFamiliar:
         Omni-Doll。任何自定义 alias 的缺失、越权、类型错误或配置损坏都会显式失败。
         """
         identity_scope = require_identity_scope(identity_scope)
-        identity = identity_scope.actor_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE

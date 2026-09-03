@@ -8,6 +8,8 @@ from hivememory.core.protocol import InteractionPayload
 from hivememory.engines.perception.semantic_flow_perception_layer import (
     SemanticFlowPerceptionLayer,
 )
+from hivememory.engines.perception.models import FlushEvent, FlushReason
+from hivememory.engines.perception.trigger_manager import TriggerManager
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
@@ -74,7 +76,7 @@ class TestBlockTokenComputation:
         )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(), topic_id, touch=False
         )
         assert topic_data is not None
@@ -96,7 +98,7 @@ class TestBlockTokenComputation:
         )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(), topic_id, touch=False
         )
         assert topic_data is not None
@@ -108,7 +110,7 @@ class TestBlockTokenComputation:
             _make_payload("q", "a"),
             identity_scope=_identity_scope(),
         )
-        without_traces_data = layer._short_term_store.get_topic_data(
+        without_traces_data = layer._short_term_store.get(
             _identity_scope(), topic_id2, touch=False
         )
         assert without_traces_data is not None
@@ -132,7 +134,7 @@ class TestPageFoldingThreshold:
             )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(identity), topic_id, touch=False
         )
         assert topic_data is not None
@@ -165,7 +167,7 @@ class TestPageFoldingThreshold:
         assert [block.user_query for block in folded_blocks] == [
             "question-0-" * 80
         ]
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(), topic_id, touch=False
         )
         assert topic_data is not None
@@ -196,7 +198,7 @@ class TestPageFoldingThreshold:
                 identity_scope=_identity_scope(),
             )
 
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(), topic_id, touch=False
         )
         assert topic_data is not None
@@ -242,7 +244,7 @@ class TestPageFoldingThreshold:
                 interaction_id="interaction-2",
             )
 
-        after_failure = store.get_topic_data(identity_scope, topic_id, touch=False)
+        after_failure = store.get(identity_scope, topic_id, touch=False)
         assert after_failure is not None
         assert after_failure.state.value == "idle"
         assert [block.user_query for block in after_failure.blocks] == [
@@ -259,82 +261,81 @@ class TestPageFoldingThreshold:
 
         assert retried_topic_id == topic_id
         assert settlement is None
-        after_retry = store.get_topic_data(identity_scope, topic_id, touch=False)
+        after_retry = store.get(identity_scope, topic_id, touch=False)
         assert after_retry is not None
         assert after_retry.state.value == "idle"
         assert after_retry.state_summary == "recovered summary"
         assert [block.user_query for block in after_retry.blocks] == ["second-" * 80]
 
     @pytest.mark.asyncio
-    async def test_store_update_summary_can_retain_recent_blocks_independently(self):
+    async def test_compaction_writes_summary_and_retains_recent_blocks(self):
         store = ShortTermMemoryStore()
         identity_scope = _identity_scope()
-        buffer = store.create_buffer(identity_scope)
-        topic_id = buffer.topic_id
-
-        for i in range(10):
-            store.add_block(
-                buffer.topic_key,
-                LogicalBlock(
-                    turn=TurnRecord(
-                        user_query=f"question {i}",
-                        assistant_final_text=f"answer {i}",
-                    ),
-                    total_tokens=20,
+        topic = store.create(identity_scope)
+        blocks = tuple(
+            LogicalBlock(
+                turn=TurnRecord(
+                    identity=identity_scope.actor_identity,
+                    user_query=f"question {i}",
+                    assistant_final_text=f"answer {i}",
                 ),
+                total_tokens=20,
             )
-
-        assert store.reserve_processing(buffer.topic_key)
-        folded = store.apply_compaction(
-            buffer.topic_key,
-            "Test summary",
-            retain_count=2,
+            for i in range(10)
         )
-        store.release_processing(buffer.topic_key)
+        store.put(topic.model_copy(update={"blocks": blocks, "total_tokens": 200}))
+        relay = Mock()
+        relay.generate_summary.return_value = "Test summary"
+        manager = TriggerManager(store, relay)
 
-        topic_data = store.get_topic_data(identity_scope, topic_id, touch=False)
+        await manager.resolve_topic(
+            FlushEvent(
+                identity_scope=identity_scope,
+                topic_id=topic.topic_id,
+                reason=FlushReason.MANUAL_COMPACT,
+            ),
+            retain_recent_blocks=2,
+        )
+
+        topic_data = store.get(identity_scope, topic.topic_id, touch=False)
         assert topic_data is not None
-        assert folded == 8
         assert len(topic_data.blocks) == 2
         assert topic_data.state_summary == "Test summary"
         assert topic_data.total_tokens == 40
 
     @pytest.mark.asyncio
-    async def test_store_rejects_zero_retain_count(self):
+    async def test_compaction_rejects_zero_retain_count(self):
         """compact 必须至少保留一个最新 block；0 在输入边界以具体异常拒绝。"""
         store = ShortTermMemoryStore()
         identity_scope = _identity_scope()
-        buffer = store.create_buffer(identity_scope)
-        for i in range(3):
-            store.add_block(
-                buffer.topic_key,
-                LogicalBlock(
-                    turn=TurnRecord(user_query=f"q{i}", assistant_final_text=f"a{i}"),
-                    total_tokens=20,
+        topic = store.create(identity_scope)
+        manager = TriggerManager(store, Mock())
+
+        with pytest.raises(ValueError, match="retain_recent_blocks must be >= 1"):
+            await manager.resolve_topic(
+                FlushEvent(
+                    identity_scope=identity_scope,
+                    topic_id=topic.topic_id,
+                    reason=FlushReason.MANUAL_COMPACT,
                 ),
+                retain_recent_blocks=0,
             )
 
-        with pytest.raises(ValueError, match="retain_count must be >= 1"):
-            store.apply_compaction(
-                buffer.topic_key,
-                "summary",
-                retain_count=0,
-            )
-
-        topic_data = store.get_topic_data(identity_scope, buffer.topic_id, touch=False)
-        assert topic_data is not None
-        assert len(topic_data.blocks) == 3
-        assert topic_data.state_summary == ""
-
-    def test_store_update_summary_rejects_negative_retain_count(self):
+    @pytest.mark.asyncio
+    async def test_compaction_rejects_negative_retain_count(self):
         store = ShortTermMemoryStore()
-        buffer = store.create_buffer(_identity_scope())
+        identity_scope = _identity_scope()
+        topic = store.create(identity_scope)
+        manager = TriggerManager(store, Mock())
 
-        with pytest.raises(ValueError, match="retain_count must be >= 1"):
-            store.apply_compaction(
-                buffer.topic_key,
-                "summary",
-                retain_count=-1,
+        with pytest.raises(ValueError, match="retain_recent_blocks must be >= 1"):
+            await manager.resolve_topic(
+                FlushEvent(
+                    identity_scope=identity_scope,
+                    topic_id=topic.topic_id,
+                    reason=FlushReason.MANUAL_COMPACT,
+                ),
+                retain_recent_blocks=-1,
             )
 
 
@@ -366,7 +367,7 @@ class TestPageFoldingCumulative:
                 identity_scope=_identity_scope(identity),
             )
 
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(identity), topic_id, touch=False
         )
         assert topic_data is not None
@@ -380,7 +381,7 @@ class TestPageFoldingCumulative:
                 identity_scope=_identity_scope(identity),
             )
 
-        topic_data = layer._short_term_store.get_topic_data(
+        topic_data = layer._short_term_store.get(
             _identity_scope(identity), topic_id, touch=False
         )
         assert topic_data is not None

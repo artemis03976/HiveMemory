@@ -9,7 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.interaction import TurnRecord
-from hivememory.core.models.workspace import WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.core.models.workspace import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import TopicAssetBinding
 
 
@@ -118,15 +118,6 @@ class TopicData(BaseModel):
     model_used: str = ""
 
     model_config = ConfigDict(frozen=True, use_enum_values=False)
-
-    @property
-    def topic_key(self) -> WorkspaceTopicKey:
-        """返回已由短期 Store 验证的复合 Topic 键。"""
-        return WorkspaceTopicKey(
-            owner_user_id=self.workspace_identity.owner_user_id,
-            workspace_id=self.workspace_identity.workspace_id,
-            topic_id=self.topic_id,
-        )
 
     @property
     def user_id(self) -> str:

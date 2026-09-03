@@ -8,7 +8,7 @@ HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit
 核心组件:
     - BasePerceptionLayer: 感知层基类
     - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
-    - ShortTermMemoryStore: 短期话题状态存储与调度入口
+    - ShortTermMemoryStore: 短期话题 CRUD 与快照边界
     - TriggerManager: 话题结算调度器 - Flush 触发逻辑
     - SemanticBuffer: 话题段 (TopicSegment)
     - LogicalBlock: 页 (Page)
@@ -61,7 +61,6 @@ from hivememory.engines.perception.semantic_flow_perception_layer import (
     NullPerceptionLayer,
 )
 
-from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)

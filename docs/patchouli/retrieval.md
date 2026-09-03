@@ -13,7 +13,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # 记忆检索
@@ -49,7 +49,7 @@ RetrievalRequest
 
 RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` 和 `TopicSnapshot`。Gateway 使用按最近访问降序、默认排除空话题的 snapshot 进行路由；Patchouli prepare 和前端可以请求包含空话题的完整池。
 
-读取话题可以选择 `touch`，控制是否刷新最近访问与 last-active；纯展示或内部构造应显式避免无意义 touch，防止观察行为改变 LRU 顺序。
+读取话题可以选择 `touch`，控制是否刷新 `last_accessed_at`；PerceptionFamiliar 在成功交互后独立维护 Workspace 级 last-active Topic ID。纯展示或内部构造应显式使用 `touch=False`，防止观察行为改变 LRU 顺序。
 
 ### 2.2 中期记忆读取
 

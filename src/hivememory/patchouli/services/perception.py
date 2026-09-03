@@ -10,9 +10,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional, cast
 
 from hivememory.core.models import (
+    ActorIdentity,
+    BufferState,
     IdentityScope,
     WorkspaceAssetRef,
-    WorkspaceTopicKey,
     require_identity_scope,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -55,7 +56,10 @@ class PerceptionFamiliar:
         self.perception_layer = perception_layer
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
+        config_engine = getattr(config, "engine", config)
+        self._max_resident_topics = getattr(config_engine, "max_resident_topics", 5)
         self._short_term = memory_library.short_term
+        self._last_active_topic_ids: dict[tuple[str, str], str] = {}
         self._interaction_journal = interaction_journal
 
         logger.info("PerceptionFamiliar 初始化完成")
@@ -107,6 +111,12 @@ class PerceptionFamiliar:
 
         await self._submit_settlement_payload(settle_payload)
 
+        workspace = identity_scope.workspace_identity
+        self._short_term.get(identity_scope, topic_id, touch=True)
+        self._last_active_topic_ids[
+            (workspace.owner_user_id, workspace.workspace_id)
+        ] = topic_id
+
         if interaction_id:
             apply_record = self._interaction_journal.get(interaction_id)
             if apply_record is not None:
@@ -145,12 +155,18 @@ class PerceptionFamiliar:
         # 检查是否需要先驱逐 LRU 话题，独立发出 task
         await self._maybe_evict_lru(identity_scope, target_topic_id)
 
-        return await self.perception_layer.prepare_topic(
+        real_topic_id = await self.perception_layer.prepare_topic(
             target_topic_id,
             new_topic_title,
             new_topic_summary,
             identity_scope,
         )
+        if self._short_term.get(identity_scope, real_topic_id, touch=True) is not None:
+            workspace = identity_scope.workspace_identity
+            self._last_active_topic_ids[
+                (workspace.owner_user_id, workspace.workspace_id)
+            ] = real_topic_id
+        return real_topic_id
 
     async def _maybe_evict_lru(
         self,
@@ -161,28 +177,34 @@ class PerceptionFamiliar:
         # 已有话题无需驱逐；未知目标必须直接拒绝，不能被误当成 NEW_TOPIC。
         # 该检查位于 LRU 操作之前，保证跨 Workspace ID 不会产生本域副作用。
         if target_topic_id != "NEW_TOPIC":
-            if not self._short_term.topic_exists(
-                identity_scope,
-                target_topic_id,
-                touch=False,
-            ):
+            if self._short_term.get(identity_scope, target_topic_id, touch=False) is None:
                 raise KeyError(
                     f"topic '{target_topic_id}' does not exist in requested Workspace"
                 )
             return
-        if not self._short_term.needs_eviction(identity_scope):
+        if self._short_term.count(identity_scope) < self._max_resident_topics:
             return
 
         attempted_topic_ids: set[str] = set()
-        while self._short_term.needs_eviction(identity_scope):
-            lru_topic_id = self._short_term.get_lru_topic(identity_scope)
+        while self._short_term.count(identity_scope) >= self._max_resident_topics:
+            idle_topics = [
+                topic
+                for topic in self._short_term.list_by_workspace(identity_scope)
+                if topic.state is BufferState.IDLE and topic.topic_id not in attempted_topic_ids
+            ]
+            lru_topic_id = (
+                min(idle_topics, key=lambda topic: topic.last_accessed_at).topic_id
+                if idle_topics
+                else None
+            )
             if lru_topic_id is None or lru_topic_id in attempted_topic_ids:
                 # 池满但无未尝试的 IDLE 候选，无法安全驱逐。
                 raise TopicBusyError("LRU 驱逐无 IDLE 候选，稍后重试")
 
             try:
                 settle_result = await self.perception_layer.settle_topic(
-                    WorkspaceTopicKey.from_identity_scope(identity_scope, lru_topic_id),
+                    identity_scope,
+                    lru_topic_id,
                     FlushReason.LRU_EVICTION,
                 )
             except TopicBusyError:
@@ -210,17 +232,21 @@ class PerceptionFamiliar:
         保持完整可重试。
         """
         identity_scope = require_identity_scope(identity_scope)
-        target_id = topic_id or self._short_term.get_last_active_topic(identity_scope)
+        workspace = identity_scope.workspace_identity
+        target_id = topic_id or self._last_active_topic_ids.get(
+            (workspace.owner_user_id, workspace.workspace_id)
+        )
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
 
-        topic = self._short_term.get_topic_data(identity_scope, target_id)
+        topic = self._short_term.get(identity_scope, target_id, touch=True)
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
         # 1. prepare：取得 FLUSHING 并只冻结材料，不清 blocks、不驱逐
         settle_payload = await self.perception_layer.prepare_settlement(
-            topic.topic_key
+            identity_scope,
+            target_id,
         )
 
         # 2. admission：存在可提交材料时必须先可靠接纳
@@ -232,13 +258,17 @@ class PerceptionFamiliar:
                 "manual settle admission 失败: topic_id=%s", target_id,
                 exc_info=True,
             )
-            self.perception_layer.abort_settlement(topic.topic_key)
+            self.perception_layer.abort_settlement(identity_scope, target_id)
             raise TopicSettleAdmissionError(
                 f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
             ) from exc
 
         # 3. commit：接纳成功或正常 skip 后结束 Topic 生命周期
-        self.perception_layer.commit_settlement(topic.topic_key)
+        self.perception_layer.commit_settlement(identity_scope, target_id)
+        self._last_active_topic_ids.pop(
+            (workspace.owner_user_id, workspace.workspace_id),
+            None,
+        )
         logger.info(
             "manual_settle_topic 完成: topic_id=%s, task_id=%s",
             target_id, task.task_id if task else None,
@@ -254,8 +284,12 @@ class PerceptionFamiliar:
         topic_id: str,
     ) -> TopicEvictionResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
-        key = WorkspaceTopicKey.from_identity_scope(identity_scope, topic_id)
-        removed = self.perception_layer.swap_out_topic(key)
+        removed = self.perception_layer.swap_out_topic(identity_scope, topic_id)
+        if removed:
+            workspace = identity_scope.workspace_identity
+            scope = (workspace.owner_user_id, workspace.workspace_id)
+            if self._last_active_topic_ids.get(scope) == topic_id:
+                self._last_active_topic_ids.pop(scope, None)
         return TopicEvictionResult(topic_id=topic_id, removed=removed)
 
     def discard_if_empty(
@@ -269,7 +303,7 @@ class PerceptionFamiliar:
     async def scan_idle_buffers_once(self) -> list[str]:
         """扫描并 settle 空闲超时话题，策略由 Familiar 持有。"""
         flushed = []
-        for topic in self._short_term.list_all_topic_data_for_maintenance():
+        for topic in self._short_term.list_all():
             if topic.is_idle(self._idle_timeout_seconds):
                 logger.info(
                     "检测到空闲话题: topic_id=%s, idle_time=%.1fs",
@@ -278,7 +312,9 @@ class PerceptionFamiliar:
                 )
                 try:
                     settle_result = await self.perception_layer.settle_topic(
-                        topic.topic_key, FlushReason.IDLE_TIMEOUT
+                        self._maintenance_scope(topic),
+                        topic.topic_id,
+                        FlushReason.IDLE_TIMEOUT,
                     )
                 except TopicBusyError:
                     # snapshot 后进入 busy 的 Topic 留给后续维护轮次处理。
@@ -300,10 +336,12 @@ class PerceptionFamiliar:
         settled_topic_ids: list[str] = []
         generation_skipped_topic_ids: list[str] = []
         resident_block_count = 0
-        for topic in self._short_term.list_all_topic_data_for_maintenance():
+        for topic in self._short_term.list_all():
             resident_block_count += topic.block_count
             settle_result = await self.perception_layer.settle_topic(
-                topic.topic_key, FlushReason.SHUTDOWN
+                self._maintenance_scope(topic),
+                topic.topic_id,
+                FlushReason.SHUTDOWN,
             )
             if not settle_result.evicted:
                 # 目标已由其他生命周期操作移除，不把它伪装成本次 settled。
@@ -325,6 +363,19 @@ class PerceptionFamiliar:
             settled_topic_ids=tuple(settled_topic_ids),
             generation_skipped_topic_ids=tuple(generation_skipped_topic_ids),
             resident_block_count=resident_block_count,
+        )
+
+    @staticmethod
+    def _maintenance_scope(topic) -> IdentityScope:
+        """Rebuild the access scope needed by a process-level lifecycle pass."""
+        actor = (
+            topic.blocks[-1].identity
+            if topic.blocks
+            else ActorIdentity(user_id=topic.workspace_identity.owner_user_id)
+        )
+        return IdentityScope(
+            actor_identity=actor,
+            workspace_identity=topic.workspace_identity,
         )
 
 
