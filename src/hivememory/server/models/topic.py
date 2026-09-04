@@ -36,7 +36,6 @@ class ActiveTopicResponse(BaseModel):
     last_turn: TopicLastTurnResponse | None = None
     block_count: int = 0
     total_tokens: int = 0
-    last_accessed_at: float = 0.0
     model_used: str = Field(
         default="",
         description="最近 run 使用的模型展示名，空字符串表示尚未运行",
@@ -54,7 +53,6 @@ class ActiveTopicResponse(BaseModel):
             last_turn=TopicLastTurnResponse.from_domain(snapshot.last_turn),
             block_count=snapshot.block_count,
             total_tokens=snapshot.total_tokens,
-            last_accessed_at=snapshot.last_accessed_at,
             model_used=snapshot.model_used,
         )
 

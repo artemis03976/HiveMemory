@@ -41,7 +41,6 @@ def _topic_data(scope, *, blocks=(), bindings=(), state_summary=""):
         blocks=tuple(blocks),
         bindings=tuple(bindings),
         last_update=1.0,
-        last_accessed_at=1.0,
     )
 
 

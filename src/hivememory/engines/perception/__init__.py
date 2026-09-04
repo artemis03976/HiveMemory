@@ -43,10 +43,7 @@ from hivememory.engines.perception.models import (
     TriggerReason,
     TopicMaterializeTask,
 )
-from hivememory.patchouli.memory_library.buffer import (
-    BufferState,
-    SemanticBuffer,
-)
+from hivememory.core.models import BufferState
 from hivememory.engines.perception.relay_controller import (
     BaseRelayController,
     NoOpRelayController,
@@ -130,7 +127,6 @@ __all__ = [
     "TraceItem",
     "LogicalBlock",
     "BufferState",
-    "SemanticBuffer",
     "FlushEvent",
     "TriggerReason",
     "TopicMaterializeTask",

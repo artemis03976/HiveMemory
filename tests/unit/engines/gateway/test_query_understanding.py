@@ -35,7 +35,6 @@ def _build_topic_data() -> TopicData:
             ),
         ),
         last_update=now,
-        last_accessed_at=now,
     )
 
 
@@ -150,7 +149,6 @@ async def test_analyze_respects_configurable_context_limits() -> None:
             ),
         ),
         last_update=now,
-        last_accessed_at=now,
     )
 
     await engine.analyze("查询", topic_data=topic_data)

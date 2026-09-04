@@ -62,7 +62,6 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
         if last_user_query
         else (),
         last_update=now,
-        last_accessed_at=now,
     )
 
 

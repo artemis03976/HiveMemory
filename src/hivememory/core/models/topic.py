@@ -14,7 +14,12 @@ from hivememory.core.models.workspace_asset import TopicAssetBinding
 
 
 class BufferState(str, Enum):
-    """短期话题缓冲区状态。"""
+    """短期话题缓冲区状态（已废弃，仅为兼容保留）。
+
+    占用权不再建模为记录字段：跨 await 的执行占用由
+    ``TopicWorkingSet`` 的 lease 表表达。TopicBufferService 重写移除前，
+    其旧状态机是仅存的（废弃）写入方。
+    """
 
     IDLE = "idle"
     PROCESSING = "processing"
@@ -43,7 +48,6 @@ class TopicSnapshot(BaseModel):
     last_turn: TopicLastTurn | None = None
     total_tokens: int = 0
     block_count: int = 0
-    last_accessed_at: float = 0.0
     model_used: str = ""
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
@@ -103,7 +107,11 @@ class LogicalBlock(BaseModel):
 
 
 class TopicData(BaseModel):
-    """短期话题缓冲区的完整不可变读取对象。"""
+    """短期话题的业务快照（不可变读取对象）。
+
+    只承载内容事实（blocks、摘要、bindings、tokens）；执行占用不建模为
+    记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。
+    """
 
     topic_id: str
     workspace_identity: WorkspaceIdentity
@@ -113,9 +121,7 @@ class TopicData(BaseModel):
     state_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = Field(default_factory=tuple)
     bindings: tuple[TopicAssetBinding, ...] = Field(default_factory=tuple)
-    state: BufferState = BufferState.IDLE
     last_update: float
-    last_accessed_at: float
     total_tokens: int = 0
     model_used: str = ""
 
@@ -170,7 +176,6 @@ class TopicData(BaseModel):
             last_turn=last_turn,
             total_tokens=self.total_tokens,
             block_count=self.block_count,
-            last_accessed_at=self.last_accessed_at,
             model_used=self.model_used,
         )
 

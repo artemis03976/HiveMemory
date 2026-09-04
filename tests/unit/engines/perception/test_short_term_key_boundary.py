@@ -6,19 +6,15 @@ import inspect
 
 import pytest
 
-from hivememory.core.models import BufferState, LogicalBlock, TurnRecord
+from hivememory.core.models import TopicData
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.interfaces import BasePerceptionLayer
 from hivememory.engines.perception.models import FlushEvent, TriggerReason
-from hivememory.engines.perception.relay_controller import NoOpRelayController
-from hivememory.core.protocol.models import InteractionPayload
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.patchouli.services.topic_buffer import TopicBufferService
 from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.mark.unit
-def test_flush_event_uses_stable_scope_and_topic_id():
+def test_flush_event_and_topic_snapshot_use_stable_scope_and_topic_id():
     scope = make_identity_scope()
     event = FlushEvent(
         identity_scope=scope,
@@ -28,8 +24,13 @@ def test_flush_event_uses_stable_scope_and_topic_id():
     assert event.identity_scope == scope
     assert event.topic_id == "topic-1"
     assert not hasattr(event, "topic_key")
-    buffer = SemanticBuffer(workspace_identity=scope.workspace_identity)
-    assert not hasattr(buffer, "topic_key")
+    topic = TopicData(
+        topic_id="topic-1",
+        workspace_identity=scope.workspace_identity,
+        topic_title="t",
+        last_update=1.0,
+    )
+    assert not hasattr(topic, "topic_key")
 
 
 @pytest.mark.unit
@@ -41,33 +42,6 @@ def test_perception_interface_signatures_do_not_contain_storage_key():
     ):
         signature = inspect.signature(getattr(BasePerceptionLayer, name))
         assert "topic_key" not in signature.parameters
-
-
-@pytest.mark.unit
-def test_topic_buffer_service_state_transition_and_settlement_use_crud_store():
-    scope = make_identity_scope()
-    store = ShortTermMemoryStore()
-    topic = store.create(scope)
-    block = LogicalBlock(
-        turn=TurnRecord(identity=scope.actor_identity, user_query="q", assistant_final_text="a"),
-        total_tokens=1,
-    )
-    store.put(topic.model_copy(update={"blocks": (block,), "total_tokens": 1}))
-    service = TopicBufferService(store=store, relay_controller=NoOpRelayController())
-
-    assert service.reserve_processing(scope, topic.topic_id)
-    assert store.get(scope, topic.topic_id, touch=False).state is BufferState.PROCESSING
-    service.release_processing(scope, topic.topic_id)
-
-    reservation = service.begin_settlement(scope, topic.topic_id, TriggerReason.IDLE_TIMEOUT)
-    assert reservation is not None and reservation.task is not None
-    outcome = service.complete_settlement(
-        scope, topic.topic_id,
-        generation_task_id="task-1",
-        reason=TriggerReason.IDLE_TIMEOUT,
-    )
-    assert outcome.removed is True
-    assert store.get(scope, topic.topic_id, touch=False) is None
 
 
 @pytest.mark.asyncio
@@ -92,6 +66,6 @@ async def test_semantic_flow_ingest_writes_back_snapshot_without_storage_key():
     )
 
     assert settlement is None
-    topic = store.get(scope, topic_id, touch=False)
+    topic = store.get(scope, topic_id)
     assert topic is not None and topic.block_count == 1
     assert not hasattr(topic, "topic_key")

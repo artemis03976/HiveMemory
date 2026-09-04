@@ -229,7 +229,7 @@ class PerceptionFamiliar:
         # 已有话题无需驱逐；未知目标必须直接拒绝，不能被误当成 NEW_TOPIC。
         # 该检查位于 LRU 操作之前，保证跨 Workspace ID 不会产生本域副作用。
         if target_topic_id != "NEW_TOPIC":
-            if self._topic_buffer.get_topic(identity_scope, target_topic_id, touch=False) is None:
+            if self._topic_buffer.get_topic(identity_scope, target_topic_id) is None:
                 raise KeyError(
                     f"topic '{target_topic_id}' does not exist in requested Workspace"
                 )
@@ -285,7 +285,7 @@ class PerceptionFamiliar:
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
 
-        topic = self._topic_buffer.get_topic(identity_scope, target_id, touch=True)
+        topic = self._topic_buffer.get_topic(identity_scope, target_id)
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
@@ -304,7 +304,7 @@ class PerceptionFamiliar:
                 f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
             ) from exc
         if not completed:
-            if self._topic_buffer.get_topic(identity_scope, target_id, touch=False) is None:
+            if self._topic_buffer.get_topic(identity_scope, target_id) is None:
                 raise KeyError(f"话题 {target_id} 不存在")
             raise RuntimeError(f"话题 {target_id} 未能完成结算")
 

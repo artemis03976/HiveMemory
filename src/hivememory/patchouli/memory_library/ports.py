@@ -37,8 +37,8 @@ class ShortTermStoragePort(ABC):
     """
     短期存储 Port。
 
-    Port 的稳定契约使用 WorkspaceIdentity + topic_id 和不可变 TopicData；
-    复合物理键以及可变 SemanticBuffer 只属于具体 adapter 的内部实现。
+    Port 的稳定契约使用 WorkspaceIdentity + topic_id 和不可变 TopicData 快照；
+    复合物理键 WorkspaceTopicKey 只属于具体 adapter 的内部实现。
 
     ShortTermMemoryStore exposes synchronous APIs to the perception layer, so the
     short-term port is synchronous as well. Async backends should hide their I/O

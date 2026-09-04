@@ -229,7 +229,7 @@ class TopicBufferService:
                 topic_summary=topic_summary,
             )
             return data.topic_id
-        if self._store.get(identity_scope, target_topic_id, touch=False) is None:
+        if self._store.get(identity_scope, target_topic_id) is None:
             raise KeyError(
                 f"topic '{target_topic_id}' does not exist in requested Workspace"
             )
@@ -239,17 +239,19 @@ class TopicBufferService:
         self,
         identity_scope: IdentityScope,
         topic_id: str,
-        *,
-        touch: bool = False,
     ) -> TopicData | None:
-        """读取话题快照；``touch=True`` 时刷新访问时间用于活跃度排序。"""
+        """读取话题快照（纯读；访问追踪由 TopicWorkingSet 负责）。"""
         identity_scope = require_identity_scope(identity_scope)
-        return self._store.get(identity_scope, topic_id, touch=touch)
+        return self._store.get(identity_scope, topic_id)
 
     def touch_topic(self, identity_scope: IdentityScope, topic_id: str) -> TopicData | None:
-        """刷新话题访问时间并返回快照。"""
+        """返回话题快照（已废弃的读取兼容入口）。
+
+        访问时间追踪已随 ``last_accessed_at`` 字段移除；驻留刷新统一由
+        ``TopicWorkingSet.touch`` 在 Familiar 编排中执行。
+        """
         identity_scope = require_identity_scope(identity_scope)
-        return self._store.get(identity_scope, topic_id, touch=True)
+        return self._store.get(identity_scope, topic_id)
 
     def count_topics(self, identity_scope: IdentityScope) -> int:
         """统计 Workspace 内的话题数量。"""
@@ -270,7 +272,7 @@ class TopicBufferService:
         """话题真正为空（无 blocks 且无非空白折叠摘要）时驱逐并返回 True。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            data = self._store.get(identity_scope, topic_id, touch=False)
+            data = self._store.get(identity_scope, topic_id)
             if data is not None and data.is_empty:
                 removed = self._store.delete(identity_scope, topic_id)
                 if removed:
@@ -351,7 +353,7 @@ class TopicBufferService:
         """取得 ``IDLE -> PROCESSING`` 预约；目标缺失或非 IDLE 时返回 False。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is None or snapshot.state is not BufferState.IDLE:
                 return False
             self._store.put(
@@ -391,7 +393,7 @@ class TopicBufferService:
             raise ValueError("建立 asset binding 必须携带 interaction_id")
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is None:
                 raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
             if snapshot.state is not BufferState.PROCESSING:
@@ -475,7 +477,7 @@ class TopicBufferService:
         """
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is None:
                 return None
             if snapshot.state is not BufferState.IDLE:
@@ -510,7 +512,7 @@ class TopicBufferService:
         """
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is None or snapshot.state is not BufferState.SETTLING:
                 return SettlementOutcome(
                     topic_id=topic_id,
@@ -549,7 +551,7 @@ class TopicBufferService:
         """
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is None or snapshot.state is not BufferState.SETTLING:
                 return SettlementOutcome(
                     topic_id=topic_id,
@@ -581,7 +583,7 @@ class TopicBufferService:
         """
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is None:
                 return False
             if snapshot.state is not BufferState.IDLE:
@@ -612,7 +614,7 @@ class TopicBufferService:
         reserved_manual = False
         try:
             with self._lock:
-                snapshot = self._store.get(identity_scope, topic_id, touch=False)
+                snapshot = self._store.get(identity_scope, topic_id)
                 if manual_reserved:
                     if snapshot is None:
                         raise KeyError(
@@ -626,7 +628,7 @@ class TopicBufferService:
                         snapshot.model_copy(update={"state": BufferState.PROCESSING})
                     )
                     reserved_manual = True
-                    snapshot = self._store.get(identity_scope, topic_id, touch=False)
+                    snapshot = self._store.get(identity_scope, topic_id)
                 if snapshot is None or snapshot.is_empty:
                     return TriggerExecution(reason=reason, plan=plan)
                 expected_state = snapshot.state
@@ -643,7 +645,7 @@ class TopicBufferService:
 
             # ---- 领域锁内：确认预约仍然有效后写回 ----
             with self._lock:
-                current = self._store.get(identity_scope, topic_id, touch=False)
+                current = self._store.get(identity_scope, topic_id)
                 if (
                     current is None
                     or current.state is not expected_state
@@ -684,7 +686,7 @@ class TopicBufferService:
         topic_id: str,
     ) -> None:
         with self._lock:
-            current = self._store.get(identity_scope, topic_id, touch=False)
+            current = self._store.get(identity_scope, topic_id)
             if current is not None and current.state is BufferState.PROCESSING:
                 self._store.put(
                     current.model_copy(
@@ -705,7 +707,7 @@ class TopicBufferService:
         """在预期状态匹配时推进状态；目标缺失或状态不匹配时静默忽略。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            snapshot = self._store.get(identity_scope, topic_id, touch=False)
+            snapshot = self._store.get(identity_scope, topic_id)
             if snapshot is not None and snapshot.state is expected:
                 self._store.put(
                     snapshot.model_copy(

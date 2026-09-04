@@ -47,7 +47,6 @@ class TopicManagementService:
             PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
             identity_scope=identity_scope,
-            touch=False,
         )
         if (
             topic_data is not None

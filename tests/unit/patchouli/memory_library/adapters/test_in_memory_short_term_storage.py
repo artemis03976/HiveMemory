@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 
 import pytest
+from pydantic import ValidationError
 
 from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
@@ -17,7 +18,6 @@ def _topic(scope, topic_id: str) -> TopicData:
         workspace_identity=scope.workspace_identity,
         topic_title=f"topic-{topic_id}",
         last_update=1.0,
-        last_accessed_at=1.0,
         blocks=(
             LogicalBlock(
                 turn=TurnRecord(
@@ -70,16 +70,21 @@ def test_topic_id_cannot_be_reused_in_another_workspace():
 
 
 @pytest.mark.unit
-def test_get_returns_deep_snapshot_copy():
+def test_get_returns_shared_frozen_snapshot():
+    """TopicData 是 frozen 模型，adapter 原样返回存储实例，不做防御性深拷贝。"""
     storage = InMemoryShortTermStorage()
     scope = make_identity_scope()
     storage.put(_topic(scope, "topic-1"))
 
     first = storage.get(scope.workspace_identity, "topic-1")
     second = storage.get(scope.workspace_identity, "topic-1")
-    assert first is not second
-    assert first.blocks is not second.blocks
-    assert first.blocks[0] is not second.blocks[0]
+    assert first is not None and second is not None
+    assert first is second  # 零拷贝契约：frozen 对象共享是安全的
+    with pytest.raises(ValidationError):
+        first.topic_title = "mutated"
+    # 修改必须通过提交新快照完成，存储中的旧快照不受影响
+    storage.put(first.model_copy(update={"topic_title": "updated"}))
+    assert storage.get(scope.workspace_identity, "topic-1").topic_title == "updated"
 
 
 @pytest.mark.unit

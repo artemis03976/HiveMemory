@@ -1,8 +1,8 @@
 """Storage facades for Patchouli memory layers.
 
-Short-term storage deliberately exposes only persistence facts.  Topic state
-transitions, compaction, settlement, eviction and routing policies belong to
-the Perception layer; this module does not provide workflow-specific methods.
+短期存储只暴露持久化事实（CRUD）。Topic 状态转换、compact、settle、驱逐与
+路由策略不属于本模块；占用权（lease）由 ``TopicWorkingSet`` 管理，编排由
+Perception Familiar 承担。
 """
 
 from __future__ import annotations
@@ -37,38 +37,29 @@ logger = logging.getLogger(__name__)
 
 
 class ShortTermMemoryStore:
-    """Short-term Topic persistence facade.
+    """短期 Topic 持久化 facade（纯 CRUD）。
 
-    The store owns only the port and the snapshot boundary.  Public methods use
-    ``IdentityScope + topic_id``; storage keys and mutable buffers never cross
-    this boundary.
+    职责：封装 Port（get/put/delete/list）、全局 ID 唯一性检查（Port 内执行）、
+    返回不可变 ``TopicData`` 业务快照。
+
+    不职责：不持有驻留容量与访问时间（``TopicWorkingSet`` 的工作集索引）、
+    不持有执行占用状态（lease 表）、不执行 compact/settle 等组合操作
+    （Familiar 的编排）。
     """
 
     def __init__(self, port: ShortTermStoragePort | None = None) -> None:
         self._port = port or InMemoryShortTermStorage()
-        # The lock serializes snapshot touch + write-back.  Workflow state and
-        # lifecycle decisions are intentionally not protected here.
+        # 只保护 Port 读写的原子性；工作集与生命周期决策不在本模块。
         self._lock = threading.RLock()
 
-    def get(
-        self,
-        identity_scope: IdentityScope,
-        topic_id: str,
-        *,
-        touch: bool = True,
-    ) -> TopicData | None:
+    def get(self, identity_scope: IdentityScope, topic_id: str) -> TopicData | None:
+        """读取不可变业务快照；访问追踪在 WorkingSet，不在此处。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            topic = self._port.get(identity_scope.workspace_identity, topic_id)
-            if topic is None or not touch:
-                return topic
-            touched = topic.model_copy(
-                update={"last_accessed_at": datetime.now().timestamp()}
-            )
-            self._port.put(touched)
-            return touched
+            return self._port.get(identity_scope.workspace_identity, topic_id)
 
     def put(self, topic: TopicData) -> None:
+        """写入或替换话题快照；全局 ID 唯一性检查在 Port 内部。"""
         if not isinstance(topic, TopicData):
             raise TypeError("short-term store accepts TopicData snapshots")
         with self._lock:
@@ -82,20 +73,20 @@ class ShortTermMemoryStore:
         *,
         topic_id: str | None = None,
     ) -> TopicData:
+        """创建新话题并返回初始快照。"""
         identity_scope = require_identity_scope(identity_scope)
-        now = datetime.now().timestamp()
         topic = TopicData(
             topic_id=topic_id or str(uuid4()),
             workspace_identity=identity_scope.workspace_identity,
             topic_title=topic_title,
             topic_summary=topic_summary,
-            last_update=now,
-            last_accessed_at=now,
+            last_update=datetime.now().timestamp(),
         )
         self.put(topic)
         return topic
 
     def delete(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+        """删除话题；是否允许删除（占用检查）由调用方持有 lease 判断。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
             return self._port.delete(identity_scope.workspace_identity, topic_id)
@@ -106,6 +97,7 @@ class ShortTermMemoryStore:
         *,
         include_empty: bool = True,
     ) -> list[TopicData]:
+        """列出 Workspace 内的话题快照。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
             topics = self._port.list_by_workspace(identity_scope.workspace_identity)
@@ -114,10 +106,12 @@ class ShortTermMemoryStore:
             return topics
 
     def list_all(self) -> list[TopicData]:
+        """列出全部 Workspace 的话题快照（进程级维护路径使用）。"""
         with self._lock:
             return self._port.list_all()
 
     def count(self, identity_scope: IdentityScope) -> int:
+        """统计 Workspace 内话题数量。"""
         identity_scope = require_identity_scope(identity_scope)
         with self._lock:
             return self._port.count(identity_scope.workspace_identity)

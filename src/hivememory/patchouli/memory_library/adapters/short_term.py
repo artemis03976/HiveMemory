@@ -1,19 +1,19 @@
 """In-memory adapter for the short-term storage port.
 
 The adapter is the only short-term component that knows about
-``WorkspaceTopicKey`` and mutable ``SemanticBuffer`` instances.  The port and
-store exchange immutable ``TopicData`` snapshots, so callers cannot mutate the
-adapter's resident state by retaining a value returned from ``get`` or
-``list_by_workspace``.
+``WorkspaceTopicKey``.  The port and store exchange immutable ``TopicData``
+snapshots and the adapter stores those frozen objects directly — reads return
+the stored snapshot as-is (callers cannot mutate it), so no defensive deep
+copy is needed.  A topic ID is globally unique: attempting to write the same
+ID into another workspace is rejected instead of silently creating a second
+local namespace.
 """
 
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Set
 
 from hivememory.core.models import TopicData, WorkspaceIdentity, WorkspaceTopicKey
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 
@@ -21,15 +21,16 @@ from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 class InMemoryShortTermStorage(ShortTermStoragePort):
     """Thread-safe in-memory implementation of :class:`ShortTermStoragePort`.
 
-    ``WorkspaceTopicKey`` remains an implementation detail here.  A topic ID is
-    globally unique: attempting to write the same ID into another workspace is
-    rejected instead of silently creating a second local namespace.
+    ``WorkspaceTopicKey`` remains an implementation detail here.  The adapter
+    never mutates a stored ``TopicData``: writers must submit a new frozen
+    snapshot (``model_copy``) to change topic content.
     """
 
     def __init__(self) -> None:
-        self._buffers: Dict[WorkspaceTopicKey, SemanticBuffer] = {}
-        self._workspace_index: Dict[tuple[str, str], Set[WorkspaceTopicKey]] = {}
-        self._topic_scopes: Dict[str, tuple[str, str]] = {}
+        # 直接存储 frozen 的 TopicData 快照；读取原样返回，无需防御性深拷贝。
+        self._topics: dict[WorkspaceTopicKey, TopicData] = {}
+        self._workspace_index: dict[tuple[str, str], set[WorkspaceTopicKey]] = {}
+        self._topic_scopes: dict[str, tuple[str, str]] = {}
         self._lock = threading.RLock()
 
     @staticmethod
@@ -44,35 +45,10 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
     def _scope(workspace: WorkspaceIdentity) -> tuple[str, str]:
         return workspace.owner_user_id, workspace.workspace_id
 
-    @staticmethod
-    def _buffer_from_topic(topic: TopicData) -> SemanticBuffer:
-        # ``model_dump`` followed by validation gives the adapter its own
-        # mutable representation and deep-copies nested blocks/bindings.
-        return SemanticBuffer.model_validate(topic.model_dump())
-
-    @staticmethod
-    def _topic_from_buffer(buffer: SemanticBuffer) -> TopicData:
-        return TopicData(
-            topic_id=buffer.topic_id,
-            workspace_identity=buffer.workspace_identity,
-            current_agent_id=buffer.current_agent_id,
-            topic_title=buffer.topic_title,
-            topic_summary=buffer.topic_summary,
-            state_summary=buffer.state_summary,
-            blocks=tuple(block.model_copy(deep=True) for block in buffer.blocks),
-            bindings=tuple(binding.model_copy(deep=True) for binding in buffer.bindings),
-            state=buffer.state,
-            last_update=buffer.last_update,
-            last_accessed_at=buffer.last_accessed_at,
-            total_tokens=buffer.total_tokens,
-            model_used=buffer.model_used,
-        )
-
     def get(self, workspace: WorkspaceIdentity, topic_id: str) -> TopicData | None:
         key = self._key(workspace, topic_id)
         with self._lock:
-            buffer = self._buffers.get(key)
-            return self._topic_from_buffer(buffer) if buffer is not None else None
+            return self._topics.get(key)
 
     def put(self, topic: TopicData) -> None:
         if not isinstance(topic, TopicData):
@@ -82,10 +58,8 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
         with self._lock:
             previous_scope = self._topic_scopes.get(topic.topic_id)
             if previous_scope is not None and previous_scope != scope:
-                raise ValueError(
-                    f"topic '{topic.topic_id}' already belongs to another Workspace"
-                )
-            self._buffers[key] = self._buffer_from_topic(topic)
+                raise ValueError(f"topic '{topic.topic_id}' already belongs to another Workspace")
+            self._topics[key] = topic
             self._workspace_index.setdefault(scope, set()).add(key)
             self._topic_scopes[topic.topic_id] = scope
 
@@ -93,7 +67,7 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
         key = self._key(workspace, topic_id)
         scope = self._scope(workspace)
         with self._lock:
-            removed = self._buffers.pop(key, None)
+            removed = self._topics.pop(key, None)
             if removed is None:
                 return False
             topics = self._workspace_index.get(scope)
@@ -104,19 +78,15 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
             self._topic_scopes.pop(topic_id, None)
             return True
 
-    def list_by_workspace(self, workspace: WorkspaceIdentity) -> List[TopicData]:
+    def list_by_workspace(self, workspace: WorkspaceIdentity) -> list[TopicData]:
         scope = self._scope(workspace)
         with self._lock:
             keys = tuple(self._workspace_index.get(scope, ()))
-            return [
-                self._topic_from_buffer(self._buffers[key])
-                for key in keys
-                if key in self._buffers
-            ]
+            return [self._topics[key] for key in keys if key in self._topics]
 
-    def list_all(self) -> List[TopicData]:
+    def list_all(self) -> list[TopicData]:
         with self._lock:
-            return [self._topic_from_buffer(buffer) for buffer in self._buffers.values()]
+            return list(self._topics.values())
 
     def count(self, workspace: WorkspaceIdentity) -> int:
         with self._lock:

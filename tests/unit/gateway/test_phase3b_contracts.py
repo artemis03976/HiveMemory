@@ -57,7 +57,6 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
         topic_title="Gateway",
         blocks=[block],
         last_update=1.0,
-        last_accessed_at=1.0,
     )
 
     assert isinstance(topic.blocks, tuple)

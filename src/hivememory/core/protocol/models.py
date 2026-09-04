@@ -274,7 +274,7 @@ class InteractionPayload(BaseModel):
         description="Gateway 价值判断"
     )
     # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
-    # 写入 SemanticBuffer，供 TopicSnapshot 展示给前端
+    # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
         default="",
         description="实际使用的模型展示名，空字符串表示注册表未启用"

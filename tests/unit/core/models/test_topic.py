@@ -25,7 +25,6 @@ def _make_topic(blocks=None, state_summary=""):
         state_summary=state_summary,
         blocks=tuple(blocks or ()),
         last_update=1.0,
-        last_accessed_at=1.0,
     )
 
 

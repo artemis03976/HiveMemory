@@ -36,7 +36,6 @@ def _make_topic_data(state_summary="state"):
         state_summary=state_summary,
         blocks=(),
         last_update=1.0,
-        last_accessed_at=1.0,
     )
 
 

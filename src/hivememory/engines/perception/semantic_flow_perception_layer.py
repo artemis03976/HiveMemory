@@ -388,7 +388,7 @@ class SemanticFlowPerceptionLayer(BasePerceptionLayer):
         """
         Page Folding: token 溢出时触发 Compact 操作
         """
-        topic_data = self._topic_buffer.get_topic(identity_scope, topic_id, touch=False)
+        topic_data = self._topic_buffer.get_topic(identity_scope, topic_id)
         if topic_data is None:
             return None
 

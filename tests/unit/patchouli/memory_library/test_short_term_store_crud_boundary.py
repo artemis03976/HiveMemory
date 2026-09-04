@@ -1,10 +1,11 @@
-"""ShortTermMemoryStore CRUD and snapshot-boundary contract tests."""
+"""ShortTermMemoryStore 纯 CRUD 与快照边界契约测试。"""
 
 from __future__ import annotations
 
 import inspect
 
 import pytest
+from pydantic import ValidationError
 
 from hivememory.core.models import IdentityScope, LogicalBlock, TurnRecord
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
@@ -38,6 +39,8 @@ def test_store_public_surface_is_crud_only_and_key_free():
         "check_health",
     }
     assert not any("key" in name for name in public_methods)
+    # Store 不再提供访问追踪入口；签名中不得有 touch 参数
+    assert "touch" not in inspect.signature(ShortTermMemoryStore.get).parameters
 
 
 @pytest.mark.unit
@@ -53,29 +56,32 @@ def test_store_enforces_workspace_boundary_and_global_topic_identity():
 
 
 @pytest.mark.unit
-def test_store_returns_independent_immutable_snapshots_and_supports_write_back():
+def test_get_returns_frozen_snapshot_and_put_supports_write_back():
     store = ShortTermMemoryStore()
     scope = make_identity_scope()
-    topic = store.create(scope)
+    topic = store.create(scope, topic_title="新建话题")
     store.put(_topic_with_block(topic, scope))
 
-    first = store.get(scope, topic.topic_id)
-    second = store.get(scope, topic.topic_id)
-    assert first is not None and second is not None
-    assert first is not second
-    assert first.blocks is not second.blocks
-    assert first.blocks[0] is not second.blocks[0]
+    snapshot = store.get(scope, topic.topic_id)
+    assert snapshot is not None
+    assert snapshot.block_count == 1
+    # frozen 模型：读取方无法原地修改，必须提交新快照
+    with pytest.raises(ValidationError):
+        snapshot.topic_title = "mutated"
 
-    replacement = first.model_copy(update={"topic_title": "updated"})
-    store.put(replacement)
+    store.put(snapshot.model_copy(update={"topic_title": "updated"}))
     assert store.get(scope, topic.topic_id).topic_title == "updated"
 
 
 @pytest.mark.unit
-def test_store_touch_updates_access_metadata_through_snapshot_write_back():
+def test_create_applies_default_title_and_explicit_title():
     store = ShortTermMemoryStore()
     scope = make_identity_scope()
-    topic = store.create(scope)
-    before = store.get(scope, topic.topic_id, touch=False).last_accessed_at
-    touched = store.get(scope, topic.topic_id, touch=True)
-    assert touched.last_accessed_at >= before
+
+    default_topic = store.create(scope)
+    titled_topic = store.create(scope, topic_title="Session", topic_summary="sum")
+
+    assert default_topic.topic_title == "新建话题"
+    assert titled_topic.topic_title == "Session"
+    assert titled_topic.topic_summary == "sum"
+    assert store.count(scope) == 2

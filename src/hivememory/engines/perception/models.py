@@ -6,8 +6,8 @@ HiveMemory 感知层数据模型
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - TopicMaterializeTask: 感知层 → 生成层的话题结算传输包
 
-Note: SemanticBuffer / BufferState 已迁移至
-      hivememory.patchouli.memory_library.buffer
+Note: BufferState 已随记录字段状态机废弃（占用权由 TopicWorkingSet 的
+      lease 表表达）；语义见 hivememory.core.models.topic。
 """
 
 from __future__ import annotations

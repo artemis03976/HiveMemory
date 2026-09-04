@@ -116,19 +116,21 @@ def _make_memory_library():
     return library
 
 
-def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_accessed_at=1.0):
+def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_update=1.0):
     identity_scope = make_identity_scope(user_id=user_id)
     return TopicData(
-        topic_id=topic_id, workspace_identity=identity_scope.workspace_identity,
-        topic_title=f"title-{topic_id}", topic_summary=f"summary-{topic_id}",
+        topic_id=topic_id,
+        workspace_identity=identity_scope.workspace_identity,
+        topic_title=f"title-{topic_id}",
+        topic_summary=f"summary-{topic_id}",
         state_summary=f"state-{topic_id}",
         blocks=tuple(blocks or []),
-        last_update=last_accessed_at, last_accessed_at=last_accessed_at, total_tokens=10,
+        last_update=last_update,
+        total_tokens=10,
     )
 
 
 class TestRetrievalFamiliarAgentProfiles:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(
@@ -228,7 +230,6 @@ class TestRetrievalFamiliarAgentProfiles:
 
 
 class TestRetrievalFamiliarRetrieve:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
@@ -356,7 +357,6 @@ class TestRetrievalFamiliarRetrieve:
 
 
 class TestRetrievalFamiliarIdentityPropagation:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.mock_engine = AsyncMock()
@@ -407,7 +407,6 @@ class TestRetrievalFamiliarIdentityPropagation:
 
 
 class TestRetrievalFamiliarRetrieveByAliases:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
@@ -449,7 +448,6 @@ class TestRetrievalFamiliarRetrieveByAliases:
 
 
 class TestRetrievalFamiliarAccessStats:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
@@ -468,20 +466,22 @@ class TestRetrievalFamiliarAccessStats:
 
 
 class TestRetrievalFamiliarShortTermTopics:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
 
-    def test_list_active_topics_excludes_empty_and_sorts_by_access(self):
+    def test_list_active_topics_excludes_empty_and_sorts_by_recency(self):
         block = LogicalBlock()
-        old_topic = _make_topic_data("old", blocks=[block], last_accessed_at=1.0)
-        empty_topic = _make_topic_data("empty", blocks=[], last_accessed_at=3.0)
+        old_topic = _make_topic_data("old", blocks=[block], last_update=1.0)
+        empty_topic = _make_topic_data("empty", blocks=[], last_update=3.0)
         empty_topic = empty_topic.model_copy(update={"state_summary": ""})
-        summary_only = _make_topic_data("summary-only", blocks=[], last_accessed_at=4.0)
-        new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
+        summary_only = _make_topic_data("summary-only", blocks=[], last_update=4.0)
+        new_topic = _make_topic_data("new", blocks=[block], last_update=2.0)
         self.mock_library.short_term.list_by_workspace.return_value = [
-            old_topic, empty_topic, summary_only, new_topic,
+            old_topic,
+            empty_topic,
+            summary_only,
+            new_topic,
         ]
 
         identity_scope = make_identity_scope(user_id="u1")
@@ -490,6 +490,5 @@ class TestRetrievalFamiliarShortTermTopics:
         self.mock_library.short_term.list_by_workspace.assert_called_once_with(
             identity_scope, include_empty=False
         )
-        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按访问时间排序
+        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按最近写入排序
         assert [s.topic_id for s in snapshots] == ["summary-only", "new", "old"]
-
