@@ -1,8 +1,8 @@
 """
 HiveMemory 感知层数据模型
 
-- FlushReason: 触发原因枚举
-- FlushEvent: TriggerManager 统一输入协议
+- TriggerReason: 统一触发原因枚举（历史命名 ``FlushReason`` 已收敛）
+- FlushEvent: 触发事件载体（统一输入协议）
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - TopicMaterializeTask: 感知层 → 生成层的话题结算传输包
 
@@ -12,7 +12,6 @@ Note: SemanticBuffer / BufferState 已迁移至
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,15 +20,22 @@ from hivememory.core.models import (
     IdentityScope,
     LogicalBlock,
     TopicAssetBinding,
+    TopicData,
     TraceItem,
     TurnEvent,
     WorkspaceIdentity,
+    require_identity_scope,
 )
 
 # ============ 枚举定义 ============
 
-class FlushReason(str, Enum):
-    """缓冲区刷新原因枚举"""
+class TriggerReason(str, Enum):
+    """统一触发原因枚举。
+
+    七种原因通过 ``topic_buffer.TRIGGER_PLANS`` 的唯一决策矩阵解释为
+    ``settle/compact/evict`` 三类动作。历史命名 ``FlushReason`` 已删除；
+    枚举字符串值保持不变，既有任务与事件载荷不受影响。
+    """
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
@@ -39,20 +45,18 @@ class FlushReason(str, Enum):
     MANUAL_DELETE = "manual_delete"  # 用户手动删除：丢弃 Topic，不写记忆
 
 
-# ============ Flush 事件 ============
+# ============ 触发事件 ============
 
 class FlushEvent(BaseModel):
     """
-    话题结算触发指令，TriggerManager.resolve_topic 的统一输入协议。
+    话题触发事件载体。
 
-    Attributes:
-        identity_scope: 已验证的 Workspace 访问作用域
-        topic_id: 全局唯一的话题 ID
-        reason: 触发结算的原因
+    事件只携带触发目标与原因；动作组合由 TopicBufferService 的统一矩阵解释，
+    调用方不得依据 ``reason`` 自行分支。
     """
     identity_scope: IdentityScope
     topic_id: str
-    reason: FlushReason
+    reason: TriggerReason
 
 
 # ============ 话题结算载荷 (Perception -> Generation) ============
@@ -61,8 +65,8 @@ class TopicMaterializeTask(BaseModel):
     """
     Perception -> Generation 的话题结算传输包
 
-    当 TriggerManager 触发话题结算时，将 buffer 中的 blocks 打包为此结构
-    发送给 Generation 模块进行记忆生成。
+    Topic 结算时将冻结的 buffer 内容打包为此结构发送给 Generation 模块
+    进行记忆生成。字段转换统一由 :meth:`from_topic_data` 完成。
     """
     topic_id: str = Field(..., description="话题 ID")
     identity_scope: IdentityScope
@@ -82,11 +86,44 @@ class TopicMaterializeTask(BaseModel):
         description="settle 前冻结的 Topic 真实使用资产关系",
     )
 
-    reason: FlushReason = Field(default=FlushReason.IDLE_TIMEOUT, description="话题结算触发原因")
+    reason: TriggerReason = Field(default=TriggerReason.IDLE_TIMEOUT, description="话题结算触发原因")
 
     # task 会跨越 journal 与 queue admission 边界；禁止字段重新赋值，并使用
     # tuple 承载 blocks，避免冻结模型内部仍可被原地 append。
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    @classmethod
+    def from_topic_data(
+        cls,
+        topic_data: TopicData,
+        *,
+        identity_scope: IdentityScope,
+        reason: TriggerReason,
+    ) -> "TopicMaterializeTask | None":
+        """从冻结 TopicData 构造生成交接任务；无可保存 block 时返回 None。
+
+        TopicData 只保存 Workspace 归属，不保存本次执行者身份，因此
+        ``identity_scope`` 必须由调用方显式传入。字段映射、``worth_saving``
+        过滤和 no-material 判断集中在此，服务与调用方不得重复拼装。
+        """
+        identity_scope = require_identity_scope(identity_scope)
+        # 结算任务只携带值得保存的 block。
+        blocks = tuple(
+            block for block in topic_data.blocks if block.worth_saving is not False
+        )
+        if not blocks:
+            return None
+
+        return cls(
+            topic_id=topic_data.topic_id,
+            identity_scope=identity_scope,
+            topic_title=topic_data.topic_title,
+            topic_summary=topic_data.topic_summary,
+            blocks=blocks,
+            state_summary=topic_data.state_summary,
+            asset_bindings=topic_data.bindings,
+            reason=reason,
+        )
 
     @property
     def user_id(self) -> str:
@@ -99,27 +136,10 @@ class TopicMaterializeTask(BaseModel):
         return self.identity_scope.workspace_identity
 
 
-@dataclass(frozen=True)
-class AutomaticSettleResult:
-    """automatic settle 的内部结果，区分实际驱逐与目标已缺失。
-
-    busy 不属于正常返回值，由 ``TopicBusyError`` 显式表达；``settlement`` 为
-    ``None`` 仅表示 Topic 已驱逐但没有可提交的生成材料，不能再被解释为 busy。
-    """
-
-    evicted: bool
-    settlement: TopicMaterializeTask | None = None
-
-    def __post_init__(self) -> None:
-        if self.settlement is not None and not self.evicted:
-            raise ValueError("未驱逐 Topic 不能携带 settlement payload")
-
-
 __all__ = [
-    "AutomaticSettleResult",
-    "FlushReason",
     "FlushEvent",
-    "TurnEvent",
     "TraceItem",
+    "TriggerReason",
+    "TurnEvent",
     "TopicMaterializeTask",
 ]

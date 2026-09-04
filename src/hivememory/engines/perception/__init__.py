@@ -2,26 +2,28 @@
 HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit)
 
 职责:
-    作为短期记忆的 MMU（内存管理单元），管理多话题的生命周期。
-    负责话题路由(route)、换入(swap-in)、换出(swap-out)和 LRU 驱逐。
+    提供无状态的短期记忆摄入能力（block 构造、事件归并、token 估算），
+    以及 Relay / Page Folding 摘要生成器。
+
+    Topic 状态、活跃池、settle/evict 生命周期由
+    ``hivememory.patchouli.services.topic_buffer.TopicBufferService`` 唯一拥有；
+    本包不再承载任何 Topic 领域状态。
 
 核心组件:
-    - BasePerceptionLayer: 感知层基类
-    - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
+    - BasePerceptionLayer: 感知摄入接口（无状态）
+    - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（摄入编排与 retry 幂等）
     - ShortTermMemoryStore: 短期话题 CRUD 与快照边界
-    - TriggerManager: 话题结算调度器 - Flush 触发逻辑
-    - SemanticBuffer: 话题段 (TopicSegment)
-    - LogicalBlock: 页 (Page)
+    - TriggerReason / FlushEvent / TopicMaterializeTask: 触发与交接协议模型
     - BaseRelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
 
-定时调度:
-    空闲超时扫描由 SystemAsyncScheduler 统一管理，
-    感知层只暴露 scan_idle_buffers_once() 供调度器调用。
+Note: Topic 状态领域服务 ``TopicBufferService`` 位于
+      ``hivememory.patchouli.services.topic_buffer``；本包不导出 Patchouli
+      服务，保持 engines -> patchouli 的依赖方向唯一。
 
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 5.0.0 (Phase S2 — 统一调度器接入)
+版本: 6.0.0
 """
 from hivememory.system.config import (
     MemoryPerceptionConfig,
@@ -38,16 +40,12 @@ from hivememory.engines.perception.models import (
     TraceItem,
     LogicalBlock,
     FlushEvent,
-    FlushReason,
+    TriggerReason,
     TopicMaterializeTask,
 )
 from hivememory.patchouli.memory_library.buffer import (
     BufferState,
     SemanticBuffer,
-)
-from hivememory.engines.perception.trigger_manager import (
-    TriggerManager,
-    DECISION_MATRIX,
 )
 from hivememory.engines.perception.relay_controller import (
     BaseRelayController,
@@ -79,7 +77,8 @@ def create_perception_layer(
     Args:
         config: 感知层配置 (MemoryPerceptionConfig)
         llm_service: LLM 服务（用于 LLMRelayController 摘要生成）
-        short_term_store: ShortTermMemoryStore 实例，必须由 PatchouliRuntime 从 MemoryLibrary 注入
+        short_term_store: ShortTermMemoryStore 实例，必须由 PatchouliRuntime 从 MemoryLibrary 注入；
+            工厂会用它装配 TopicBufferService（Topic 状态唯一所有者）
         interaction_journal: interaction apply 的进程内幂等 journal
 
     Returns:
@@ -97,16 +96,24 @@ def create_perception_layer(
     if not impl_config.enable:
         return NullPerceptionLayer()
 
+    # 延迟导入：避免 engines 包在模块加载期反向依赖 patchouli.services。
+    from hivememory.patchouli.services.topic_buffer import TopicBufferService
+
     relay_config = getattr(config, "relay", None) or impl_config.relay
     relay_controller = create_relay_controller(
         config=relay_config,
         llm_service=llm_service
     )
 
+    topic_buffer = TopicBufferService(
+        store=short_term_store,
+        relay_controller=relay_controller,
+    )
+
     perception = SemanticFlowPerceptionLayer(
         config=impl_config,
         relay_controller=relay_controller,
-        short_term_store=short_term_store,
+        topic_buffer=topic_buffer,
         interaction_journal=interaction_journal,
     )
 
@@ -125,11 +132,8 @@ __all__ = [
     "BufferState",
     "SemanticBuffer",
     "FlushEvent",
-    "FlushReason",
+    "TriggerReason",
     "TopicMaterializeTask",
-    # 话题结算调度器
-    "TriggerManager",
-    "DECISION_MATRIX",
     # 接力控制器 / Page Folding 摘要生成器
     "BaseRelayController",
     "NoOpRelayController",
@@ -138,6 +142,4 @@ __all__ = [
     "create_relay_controller",
     # 工厂函数
     "create_perception_layer",
-    # Artifact 构建
-    "InteractionArtifactBuilder",
 ]

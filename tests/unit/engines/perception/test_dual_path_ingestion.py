@@ -13,29 +13,14 @@ import pytest
 
 from hivememory.core.models import Identity, TraceItem, TurnEvent
 from hivememory.core.protocol import InteractionPayload
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    SemanticFlowPerceptionLayer,
-)
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.perception import build_perception_stack
 from tests.helpers.workspace import make_identity_scope
 
 
-def _make_layer() -> tuple[SemanticFlowPerceptionLayer, ShortTermMemoryStore]:
-    config = SemanticFlowPerceptionConfig()
+def _make_layer() -> tuple:
     relay = Mock()
     relay.should_relay.return_value = None
-    store = ShortTermMemoryStore()
-    layer = SemanticFlowPerceptionLayer(
-        config=config,
-        relay_controller=relay,
-        short_term_store=store,
-        interaction_journal=InMemoryInteractionApplyJournal(),
-    )
-    return layer, store
+    return build_perception_stack(relay=relay)
 
 
 def _identity() -> Identity:
@@ -60,7 +45,7 @@ def _turn_event(kind="tool_call", tool_kind="READ", target="alias_x") -> TurnEve
 
 @pytest.mark.asyncio
 async def test_missing_turn_events_raises_error():
-    layer, _ = _make_layer()
+    layer, _, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         turn_events=[],
@@ -71,7 +56,7 @@ async def test_missing_turn_events_raises_error():
 
 @pytest.mark.asyncio
 async def test_structured_path_persists_assistant_final_text():
-    layer, store = _make_layer()
+    layer, store, _ = _make_layer()
     turn_event = _turn_event()
     payload = InteractionPayload(
         user_message="hello",
@@ -95,7 +80,7 @@ async def test_structured_path_persists_assistant_final_text():
 
 @pytest.mark.asyncio
 async def test_structured_path_reduces_turn_events_to_actions():
-    layer, store = _make_layer()
+    layer, store, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean reply",
@@ -141,7 +126,7 @@ async def test_structured_path_reduces_turn_events_to_actions():
 
 @pytest.mark.asyncio
 async def test_structured_path_persists_payload_mtp_traces():
-    layer, store = _make_layer()
+    layer, store, _ = _make_layer()
     trace = TraceItem(action="SEARCH", query="my query")
     payload = InteractionPayload(
         user_message="hello",
@@ -162,7 +147,7 @@ async def test_structured_path_persists_payload_mtp_traces():
 
 @pytest.mark.asyncio
 async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
-    layer, store = _make_layer()
+    layer, store, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="clean",
@@ -182,7 +167,7 @@ async def test_structured_path_keeps_semantic_traces_empty_when_payload_empty():
 
 @pytest.mark.asyncio
 async def test_structured_path_empty_final_text_stays_empty():
-    layer, store = _make_layer()
+    layer, store, _ = _make_layer()
     payload = InteractionPayload(
         user_message="hello",
         assistant_final_text="",

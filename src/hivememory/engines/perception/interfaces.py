@@ -6,21 +6,17 @@ HiveMemory 感知层抽象接口
 参考: PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 2.0.0
+版本: 3.0.0
 """
 
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Tuple, TYPE_CHECKING
-from hivememory.engines.perception.models import (
-    AutomaticSettleResult,
-    FlushReason,
-    TopicMaterializeTask,
-)
 from hivememory.core.protocol.models import InteractionPayload
 
 if TYPE_CHECKING:
     from hivememory.core.models import IdentityScope
+    from hivememory.engines.perception.models import TopicMaterializeTask
 
 logger = logging.getLogger(__name__)
 
@@ -29,47 +25,14 @@ class BasePerceptionLayer(ABC):
     """
     感知层抽象基类
 
-    定义所有类型的 PerceptionLayer 的统一接口。
-
-    实现策略：
-        - SemanticFlowPerceptionLayer: 语义流策略（LogicalBlock + MMU）
+    只约定无状态的摄入与路由能力；Topic 状态、settle、evict 与 LRU 等
+    生命周期操作由 ``TopicBufferService`` 拥有，不在本接口中重复定义。
 
     定时调度由 SystemAsyncScheduler 统一管理
-
-    Examples:
-        >>> perception = SemanticFlowPerceptionLayer()
-        >>> perception.ingest_payload(payload)
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    # ========== 感知层原语（供 PerceptionFamiliar 调用） ==========
-
-    @abstractmethod
-    async def settle_topic(
-        self,
-        identity_scope: "IdentityScope",
-        topic_id: str,
-        reason: FlushReason = FlushReason.MANUAL_SETTLE,
-    ) -> AutomaticSettleResult:
-        """原子 automatic settle；busy 抛错，返回值区分驱逐与目标缺失。"""
-
-    @abstractmethod
-    async def prepare_settlement(
-        self,
-        identity_scope: "IdentityScope",
-        topic_id: str,
-    ) -> Optional[TopicMaterializeTask]:
-        """只冻结手动结算材料，不修改 buffer；由 manual settle 的 prepare 阶段使用。"""
-
-    @abstractmethod
-    def commit_settlement(self, identity_scope: "IdentityScope", topic_id: str) -> bool:
-        """manual settle admission 成功或正常 skip 后驱逐 FLUSHING Topic。"""
-
-    @abstractmethod
-    def abort_settlement(self, identity_scope: "IdentityScope", topic_id: str) -> None:
-        """manual settle admission 失败后恢复 FLUSHING Topic 为 IDLE。"""
 
     # ========== Kernel 模式载荷摄入 (v3.0) ==========
 
@@ -82,7 +45,7 @@ class BasePerceptionLayer(ABC):
         identity_scope: "IdentityScope",
         interaction_id: str | None = None,
         asset_id_and_refs: tuple = (),
-    ) -> Optional[TopicMaterializeTask]:
+    ) -> Optional["TopicMaterializeTask"]:
         """
         摄入完整交互载荷。
 
@@ -101,7 +64,7 @@ class BasePerceptionLayer(ABC):
         identity_scope: "IdentityScope",
         interaction_id: str | None = None,
         asset_id_and_refs: tuple = (),
-    ) -> Tuple[str, Optional[TopicMaterializeTask]]:
+    ) -> Tuple[str, Optional["TopicMaterializeTask"]]:
         """
         路由到指定话题并摄入载荷。
 
@@ -118,10 +81,6 @@ class BasePerceptionLayer(ABC):
         identity_scope: "IdentityScope",
     ) -> str:
         """确保目标短期话题存在，并返回真实 topic_id。"""
-
-    @abstractmethod
-    def swap_out_topic(self, identity_scope: "IdentityScope", topic_id: str) -> bool:
-        """显式换出指定话题，不触发结算。返回是否存在该话题。"""
 
 
 class BaseRelayController(ABC):

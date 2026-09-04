@@ -396,13 +396,33 @@ class PatchouliRuntime:
         return RetrievalEngine(retriever=retriever)
 
     def _build_perception_layer(self):
-        """[私有构建器] 组装 Perception 层，注入 MemoryLibrary.short_term"""
-        from hivememory.engines.perception import create_perception_layer
+        """[私有构建器] 组装 Perception 层：Relay、TopicBufferService 与感知层"""
+        from hivememory.engines.perception import (
+            SemanticFlowPerceptionLayer,
+            create_relay_controller,
+        )
+        from hivememory.patchouli.services.topic_buffer import TopicBufferService
 
-        return create_perception_layer(
-            config=self._patchouli_config.perception,
+        impl_config = self._patchouli_config.perception.engine
+        relay_config = (
+            getattr(self._patchouli_config.perception, "relay", None)
+            or impl_config.relay
+        )
+        relay_controller = create_relay_controller(
+            config=relay_config,
             llm_service=self.librarian_llm_service,
-            short_term_store=self.memory_library.short_term,
+        )
+
+        # Topic Buffer 领域服务：Topic 状态与活跃池的唯一所有者。
+        self.topic_buffer_service = TopicBufferService(
+            store=self.memory_library.short_term,
+            relay_controller=relay_controller,
+        )
+
+        return SemanticFlowPerceptionLayer(
+            config=impl_config,
+            relay_controller=relay_controller,
+            topic_buffer=self.topic_buffer_service,
             interaction_journal=self._interaction_apply_journal,
         )
 
@@ -540,9 +560,9 @@ class PatchouliRuntime:
 
         self._services["perception"] = PerceptionFamiliar(
             perception_layer=self._engines["perception"],
+            topic_buffer=self.topic_buffer_service,
             bus=self._local_bus,
             config=self._patchouli_config.perception,
-            memory_library=self.memory_library,
             interaction_journal=self._interaction_apply_journal,
         )
 

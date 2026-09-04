@@ -25,7 +25,7 @@ sys.path.insert(0, str(project_root / "src"))
 from unittest.mock import patch
 
 from hivememory.core.models import MemoryAtom, StreamMessage
-from hivememory.engines.perception.models import FlushEvent, FlushReason
+from hivememory.engines.perception.models import FlushEvent, TriggerReason
 from hivememory.i18n import set_default_language
 from hivememory.system.config import HiveMemoryConfig
 
@@ -44,7 +44,7 @@ class FlushRecorder:
     def __call__(
         self,
         messages: list[StreamMessage],
-        reason: FlushReason
+        reason: TriggerReason
     ) -> None:
         """
         记录 flush 事件
@@ -61,7 +61,7 @@ class FlushRecorder:
             "timestamp": datetime.now().timestamp(),
         })
 
-    def get_flushes_by_reason(self, reason: FlushReason) -> list[dict[str, Any]]:
+    def get_flushes_by_reason(self, reason: TriggerReason) -> list[dict[str, Any]]:
         """
         获取指定原因的 flush 记录
 
@@ -383,7 +383,7 @@ class FlushEventRecorder:
         >>> librarian_core.add_flush_observer(recorder)
         >>> # ... 测试代码 ...
         >>> assert recorder.count > 0
-        >>> manual_events = recorder.get_events_by_reason(FlushReason.MANUAL_SETTLE)
+        >>> manual_events = recorder.get_events_by_reason(TriggerReason.MANUAL_SETTLE)
     """
 
     def __init__(self):
@@ -393,7 +393,7 @@ class FlushEventRecorder:
         """接收 FlushEvent"""
         self.events.append(event)
 
-    def get_events_by_reason(self, reason: FlushReason) -> list[FlushEvent]:
+    def get_events_by_reason(self, reason: TriggerReason) -> list[FlushEvent]:
         """获取指定原因的事件"""
         return [e for e in self.events if e.flush_reason == reason]
 

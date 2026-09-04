@@ -2,7 +2,7 @@
 SemanticBuffer 单元测试
 
 测试覆盖:
-- 状态管理: IDLE, PROCESSING, FLUSHING
+- 状态管理: IDLE, PROCESSING, SETTLING
 - 基础操作: clear, get_block_count, get_topic_summary
 - 空闲检测: is_idle
 - 字段默认值: topic_id 生成, user_id, state
@@ -188,4 +188,4 @@ class TestSemanticBufferStateEnum:
     def test_buffer_state_values(self):
         assert BufferState.IDLE.value == "idle"
         assert BufferState.PROCESSING.value == "processing"
-        assert BufferState.FLUSHING.value == "flushing"
+        assert BufferState.SETTLING.value == "settling"

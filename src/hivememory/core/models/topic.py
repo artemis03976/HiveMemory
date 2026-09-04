@@ -18,7 +18,9 @@ class BufferState(str, Enum):
 
     IDLE = "idle"
     PROCESSING = "processing"
-    FLUSHING = "flushing"
+    # 结算预约：材料已冻结、等待 Generation admission 的短生命周期状态。
+    # admission 成功或无材料正常完成后删除 Topic，明确失败则恢复 IDLE。
+    SETTLING = "settling"
 
 
 class TopicLastTurn(BaseModel):

@@ -18,7 +18,7 @@ from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.models import (
     FlushEvent,
     LogicalBlock,
-    FlushReason,
+    TriggerReason,
 )
 
 

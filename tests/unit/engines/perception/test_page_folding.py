@@ -3,18 +3,19 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import Identity, LogicalBlock, TraceItem, TurnEvent, TurnRecord
+from hivememory.core.models import (
+    BufferState,
+    Identity,
+    LogicalBlock,
+    TraceItem,
+    TurnEvent,
+    TurnRecord,
+)
 from hivememory.core.protocol import InteractionPayload
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    SemanticFlowPerceptionLayer,
-)
-from hivememory.engines.perception.models import FlushEvent, FlushReason
-from hivememory.engines.perception.trigger_manager import TriggerManager
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+from hivememory.engines.perception.models import TriggerReason
+from hivememory.patchouli.services.topic_buffer import TopicBufferService
 from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.perception import build_perception_stack
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -54,20 +55,38 @@ def _make_layer(
         fold_token_threshold=fold_token_threshold,
         fold_retain_recent_blocks=fold_retain_recent_blocks,
     )
-    relay = relay or Mock()
-    relay.should_relay.return_value = None
-    return SemanticFlowPerceptionLayer(
-        config=config,
-        relay_controller=relay,
-        short_term_store=store or ShortTermMemoryStore(),
-        interaction_journal=InMemoryInteractionApplyJournal(),
+    layer, store, service = build_perception_stack(
+        store=store, relay=relay, config=config
     )
+    return layer, store, service
+
+
+def _make_service_with_content(relay, *, block_count=10, tokens_per_block=20):
+    """构造带若干 block 的 Topic 与对应服务，供 compact 行为测试使用。"""
+    layer, store, service = build_perception_stack(relay=relay)
+    scope = _identity_scope()
+    topic = store.create(scope)
+    blocks = tuple(
+        LogicalBlock(
+            turn=TurnRecord(
+                identity=scope.actor_identity,
+                user_query=f"question {i}",
+                assistant_final_text=f"answer {i}",
+            ),
+            total_tokens=tokens_per_block,
+        )
+        for i in range(block_count)
+    )
+    store.put(
+        topic.model_copy(update={"blocks": blocks, "total_tokens": tokens_per_block * block_count})
+    )
+    return service, store, scope, topic.topic_id
 
 
 class TestBlockTokenComputation:
     @pytest.mark.asyncio
     async def test_block_total_tokens_computed(self):
-        layer = _make_layer()
+        layer, store, _ = _make_layer()
 
         topic_id, settle_payload = await layer.route_and_ingest(
             "NEW_TOPIC",
@@ -76,9 +95,7 @@ class TestBlockTokenComputation:
         )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get(
-            _identity_scope(), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(), topic_id, touch=False)
         assert topic_data is not None
         assert len(topic_data.blocks) == 1
         assert topic_data.blocks[0].total_tokens > 0
@@ -86,7 +103,7 @@ class TestBlockTokenComputation:
 
     @pytest.mark.asyncio
     async def test_block_tokens_include_traces(self):
-        layer = _make_layer()
+        layer, store, _ = _make_layer()
 
         topic_id, settle_payload = await layer.route_and_ingest(
             "NEW_TOPIC",
@@ -98,9 +115,7 @@ class TestBlockTokenComputation:
         )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get(
-            _identity_scope(), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(), topic_id, touch=False)
         assert topic_data is not None
         with_traces = topic_data.blocks[0].total_tokens
 
@@ -110,9 +125,7 @@ class TestBlockTokenComputation:
             _make_payload("q", "a"),
             identity_scope=_identity_scope(),
         )
-        without_traces_data = layer._short_term_store.get(
-            _identity_scope(), topic_id2, touch=False
-        )
+        without_traces_data = store.get(_identity_scope(), topic_id2, touch=False)
         assert without_traces_data is not None
         assert with_traces > without_traces_data.blocks[0].total_tokens
 
@@ -120,7 +133,7 @@ class TestBlockTokenComputation:
 class TestPageFoldingThreshold:
     @pytest.mark.asyncio
     async def test_fold_not_triggered_below_threshold(self):
-        layer = _make_layer(fold_token_threshold=999999)
+        layer, store, _ = _make_layer(fold_token_threshold=999999)
         identity = _make_identity()
 
         topic_id = None
@@ -134,9 +147,7 @@ class TestPageFoldingThreshold:
             )
 
         assert settle_payload is None
-        topic_data = layer._short_term_store.get(
-            _identity_scope(identity), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(identity), topic_id, touch=False)
         assert topic_data is not None
         assert len(topic_data.blocks) == 5
         assert topic_data.state_summary == ""
@@ -146,7 +157,7 @@ class TestPageFoldingThreshold:
         relay = Mock()
         relay.should_relay.return_value = None
         relay.generate_summary.return_value = "Test summary"
-        layer = _make_layer(
+        layer, store, _ = _make_layer(
             fold_token_threshold=10,
             fold_retain_recent_blocks=2,
             relay=relay,
@@ -167,9 +178,7 @@ class TestPageFoldingThreshold:
         assert [block.user_query for block in folded_blocks] == [
             "question-0-" * 80
         ]
-        topic_data = layer._short_term_store.get(
-            _identity_scope(), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(), topic_id, touch=False)
         assert topic_data is not None
         assert topic_data.state_summary == "Test summary"
         assert [block.user_query for block in topic_data.blocks] == [
@@ -184,7 +193,7 @@ class TestPageFoldingThreshold:
     async def test_retain_count_larger_than_blocks_defers_folding(self):
         relay = Mock()
         relay.should_relay.return_value = None
-        layer = _make_layer(
+        layer, store, _ = _make_layer(
             fold_token_threshold=10,
             fold_retain_recent_blocks=5,
             relay=relay,
@@ -198,9 +207,7 @@ class TestPageFoldingThreshold:
                 identity_scope=_identity_scope(),
             )
 
-        topic_data = layer._short_term_store.get(
-            _identity_scope(), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(), topic_id, touch=False)
         assert topic_data is not None
         assert [block.user_query for block in topic_data.blocks] == [
             "question-0-" * 80,
@@ -219,12 +226,10 @@ class TestPageFoldingThreshold:
             RuntimeError("fold failed"),
             "recovered summary",
         ]
-        store = ShortTermMemoryStore()
-        layer = _make_layer(
+        layer, store, _ = _make_layer(
             fold_token_threshold=10,
             fold_retain_recent_blocks=1,
             relay=relay,
-            store=store,
         )
         identity_scope = _identity_scope()
         topic_id = await layer.create_new_topic(identity_scope)
@@ -267,37 +272,21 @@ class TestPageFoldingThreshold:
         assert after_retry.state_summary == "recovered summary"
         assert [block.user_query for block in after_retry.blocks] == ["second-" * 80]
 
+
+class TestCompaction:
     @pytest.mark.asyncio
     async def test_compaction_writes_summary_and_retains_recent_blocks(self):
-        store = ShortTermMemoryStore()
-        identity_scope = _identity_scope()
-        topic = store.create(identity_scope)
-        blocks = tuple(
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=identity_scope.actor_identity,
-                    user_query=f"question {i}",
-                    assistant_final_text=f"answer {i}",
-                ),
-                total_tokens=20,
-            )
-            for i in range(10)
-        )
-        store.put(topic.model_copy(update={"blocks": blocks, "total_tokens": 200}))
         relay = Mock()
         relay.generate_summary.return_value = "Test summary"
-        manager = TriggerManager(store, relay)
+        service, store, scope, topic_id = _make_service_with_content(relay)
 
-        await manager.resolve_topic(
-            FlushEvent(
-                identity_scope=identity_scope,
-                topic_id=topic.topic_id,
-                reason=FlushReason.MANUAL_COMPACT,
-            ),
+        execution = service.handle_trigger(
+            scope, topic_id, TriggerReason.MANUAL_COMPACT,
             retain_recent_blocks=2,
         )
 
-        topic_data = store.get(identity_scope, topic.topic_id, touch=False)
+        assert execution.compacted is True
+        topic_data = store.get(scope, topic_id, touch=False)
         assert topic_data is not None
         assert len(topic_data.blocks) == 2
         assert topic_data.state_summary == "Test summary"
@@ -306,37 +295,50 @@ class TestPageFoldingThreshold:
     @pytest.mark.asyncio
     async def test_compaction_rejects_zero_retain_count(self):
         """compact 必须至少保留一个最新 block；0 在输入边界以具体异常拒绝。"""
-        store = ShortTermMemoryStore()
-        identity_scope = _identity_scope()
-        topic = store.create(identity_scope)
-        manager = TriggerManager(store, Mock())
+        relay = Mock()
+        service, store, scope, topic_id = _make_service_with_content(relay)
 
         with pytest.raises(ValueError, match="retain_recent_blocks must be >= 1"):
-            await manager.resolve_topic(
-                FlushEvent(
-                    identity_scope=identity_scope,
-                    topic_id=topic.topic_id,
-                    reason=FlushReason.MANUAL_COMPACT,
-                ),
+            service.handle_trigger(
+                scope, topic_id, TriggerReason.MANUAL_COMPACT,
                 retain_recent_blocks=0,
             )
 
     @pytest.mark.asyncio
     async def test_compaction_rejects_negative_retain_count(self):
-        store = ShortTermMemoryStore()
-        identity_scope = _identity_scope()
-        topic = store.create(identity_scope)
-        manager = TriggerManager(store, Mock())
+        relay = Mock()
+        service, store, scope, topic_id = _make_service_with_content(relay)
 
         with pytest.raises(ValueError, match="retain_recent_blocks must be >= 1"):
-            await manager.resolve_topic(
-                FlushEvent(
-                    identity_scope=identity_scope,
-                    topic_id=topic.topic_id,
-                    reason=FlushReason.MANUAL_COMPACT,
-                ),
+            service.handle_trigger(
+                scope, topic_id, TriggerReason.MANUAL_COMPACT,
                 retain_recent_blocks=-1,
             )
+
+    @pytest.mark.asyncio
+    async def test_manual_compact_failure_restores_idle_state(self):
+        """manual compact 失败后必须恢复 IDLE，话题不能永久 busy。"""
+
+        class FailingRelay:
+            def generate_summary(self, blocks_to_fold, previous_summary=None):
+                raise RuntimeError("summary failed")
+
+        layer, store, service = build_perception_stack(relay=FailingRelay())
+        scope = _identity_scope()
+        topic = store.create(scope)
+        block = LogicalBlock(
+            turn=TurnRecord(identity=scope.actor_identity, user_query="q", assistant_final_text="a"),
+            total_tokens=1,
+        )
+        store.put(topic.model_copy(update={"blocks": (block, block), "total_tokens": 2}))
+
+        with pytest.raises(RuntimeError, match="summary failed"):
+            await service.handle_trigger(
+                scope, topic.topic_id, TriggerReason.MANUAL_COMPACT,
+                retain_recent_blocks=1,
+            )
+
+        assert store.get(scope, topic.topic_id, touch=False).state is BufferState.IDLE
 
 
 class TestPageFoldingConfig:
@@ -356,7 +358,7 @@ class TestPageFoldingCumulative:
         relay.generate_summary.side_effect = (
             lambda blocks_to_fold, previous_summary: previous_summary + "---folded"
         )
-        layer = _make_layer(fold_token_threshold=50, relay=relay)
+        layer, store, _ = _make_layer(fold_token_threshold=50, relay=relay)
         identity = _make_identity()
 
         topic_id = await layer.create_new_topic(_identity_scope(identity))
@@ -367,9 +369,7 @@ class TestPageFoldingCumulative:
                 identity_scope=_identity_scope(identity),
             )
 
-        topic_data = layer._short_term_store.get(
-            _identity_scope(identity), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(identity), topic_id, touch=False)
         assert topic_data is not None
         first_summary = topic_data.state_summary
         assert first_summary != ""
@@ -381,9 +381,7 @@ class TestPageFoldingCumulative:
                 identity_scope=_identity_scope(identity),
             )
 
-        topic_data = layer._short_term_store.get(
-            _identity_scope(identity), topic_id, touch=False
-        )
+        topic_data = store.get(_identity_scope(identity), topic_id, touch=False)
         assert topic_data is not None
         assert "---" in topic_data.state_summary
         assert first_summary in topic_data.state_summary

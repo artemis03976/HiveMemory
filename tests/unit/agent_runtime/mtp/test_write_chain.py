@@ -30,7 +30,7 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
     ExtractedMemoryDraft,
 )
-from hivememory.engines.perception.models import FlushReason
+from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope
 
@@ -201,11 +201,11 @@ class TestModeBFallback:
 
 # ========== Test 8: Active Flush Reason Removed ==========
 
-class TestFlushReasonActiveGenerationRemoved:
+class TestTriggerReasonActiveGenerationRemoved:
     """主动写生成已脱离感知层，不再保留 MTP flush reason"""
 
     def test_mtp_write_removed(self):
-        assert "MTP_WRITE" not in FlushReason.__members__
+        assert "MTP_WRITE" not in TriggerReason.__members__
 
 
 # ========== Test 9: Engine unified API ==========

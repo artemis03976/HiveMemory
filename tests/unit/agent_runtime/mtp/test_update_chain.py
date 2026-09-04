@@ -28,7 +28,7 @@ from hivememory.core.models import (
 from hivememory.engines.generation.models import (
     MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
 )
-from hivememory.engines.perception.models import FlushReason
+from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
@@ -329,8 +329,8 @@ class TestApplyUpdate:
 
 # ========== Test 11: Active Flush Reason Removed ==========
 
-class TestFlushReasonActiveGenerationRemoved:
+class TestTriggerReasonActiveGenerationRemoved:
     """主动更新生成已脱离感知层，不再保留 MTP flush reason"""
 
     def test_mtp_update_removed(self):
-        assert "MTP_UPDATE" not in FlushReason.__members__
+        assert "MTP_UPDATE" not in TriggerReason.__members__

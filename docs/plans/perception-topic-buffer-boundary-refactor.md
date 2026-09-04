@@ -3,13 +3,17 @@ title: Perception Topic Buffer Boundary Refactor
 status: active
 owner: patchouli
 target: post-p7-perception-boundary-cleanup
-scope: perception-topic-buffer-state-ownership-trigger-execution-and-engine-cleanup
+scope: short-term-aggregate-storage-topic-lifecycle-trigger-orchestration-and-perception-engine-cleanup
 code_paths:
-  - src/hivememory/patchouli/services/perception.py
-  - src/hivememory/patchouli/services/topic_buffer.py
   - src/hivememory/patchouli/memory_library/stores.py
   - src/hivememory/patchouli/memory_library/ports.py
   - src/hivememory/patchouli/memory_library/adapters/short_term.py
+  - src/hivememory/patchouli/memory_library/short_term/
+  - src/hivememory/patchouli/services/perception.py
+  - src/hivememory/patchouli/services/trigger_plan.py
+  - src/hivememory/patchouli/services/topic_buffer.py
+  - src/hivememory/patchouli/contracts/topic_management.py
+  - src/hivememory/patchouli/control/memory_generation/models.py
   - src/hivememory/engines/perception/
   - src/hivememory/core/models/topic.py
   - src/hivememory/system/config/patchouli.py
@@ -18,163 +22,243 @@ updates:
   - docs/patchouli/perception.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/README.md
+  - docs/todo/short-term-memory-store-boundary-cleanup.md
+  - docs/todo/topic-shutdown-per-topic-failure-isolation.md
 related_docs:
   - docs/todo/short-term-memory-store-boundary-cleanup.md
+  - docs/todo/topic-shutdown-per-topic-failure-isolation.md
   - docs/patchouli/perception.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/README.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-09-03
+last_reviewed: 2026-09-04
 ---
 
 # Perception Topic Buffer 边界重组计划
 
-## 1. 背景与问题
+## 1. 背景：短期存储不是普通数据库表
 
-`ShortTermMemoryStore` 职责边界收敛后，原先的复杂度没有消失，而是集中转移到了 `engines/perception/trigger_manager.py`。当前 `TriggerManager` 同时承担触发矩阵解释、Topic 状态转换、Interaction 写入、资产绑定、Compact、settle、evict、快照构造和锁保护，已经成为一个有状态的 Topic 领域控制器。
+上一轮边界清理把 `ShortTermMemoryStore` 收敛成 CRUD，并把状态转换、Topic Pool 和 settlement 迁到了 `TopicBufferService`。这解决了 Store 业务方法过多的问题，却产生了新的结构性问题：
 
-这与项目既有分层不一致：`PerceptionFamiliar` 是面向上层 API、队列和结果的业务门面；`engines/` 下的 Perception 代码应当是无状态的底层能力实现。当前 `SemanticFlowPerceptionLayer` 同样持有 Store、InteractionApplyJournal、领域锁和生命周期方法，因而也不是纯 Engine。这个名称还是多个历史感知层实现逐步合并后遗留的命名，已经不能准确表达当前唯一的记忆感知引擎。另一方面，`PerceptionFamiliar` 直接读取 Store、选择 LRU、扫描 idle 和执行 shutdown，又把部分 Topic 池策略泄漏到了上层业务门面。
+- `TopicBufferService` 约 700 行，同时包含 CRUD 转发、Topic Pool 查询、Buffer 状态机、TriggerPlan、compact、settle、evict、Relay 调用和 reservation；
+- Engine 仍通过 `TopicBufferService`、`InteractionApplyJournal` 和 Patchouli 错误反向依赖上层服务，所谓“无状态 Engine”并未成立；
+- Runtime 与 Engine 工厂存在两套 Topic Buffer 组装入口；
+- 如果继续把所有状态逻辑放在一个外部服务中，下一步只能在 Store、TriggerManager、TopicBufferService 和 Familiar 之间反复搬运同一份复杂度。
 
-当前工厂还会在配置关闭感知时返回 `NullPerceptionLayer`，以空实现阻断整条能力链；但 Perception 已经是系统不可或缺的组成部分，这条可选分支只会制造第二套接口行为和静默丢弃数据的风险。
+根因不是某个类拆得不够细，而是此前把短期存储错误地套用了中期、长期存储的抽象。中期和长期主要保存 `MemoryAtom`，存储介质本身不拥有记忆生命周期；短期存储则同时承载两个必须联动的一致性层：
 
-本计划不是删除统一触发解释，也不是把每个 `TriggerReason`（现有实现中的 `FlushReason`）分散回各个调用方。三类操作仍然独立：`settle`、`compact`、`evict`；`settle=True` 必须伴随 `evict=True`，但 `evict=True` 可以独立存在。七种触发原因（包括三个 manual 触发）继续通过一张唯一决策矩阵解释。需要重组的是矩阵解释与 Topic Buffer 状态执行之间的边界。
+```text
+ShortTermMemoryStore
+├── Topic Pool：有限的驻留集合
+│   ├── 当前有哪些 Topic 存在
+│   ├── 最大驻留容量
+│   ├── 访问顺序、LRU、idle 和 shutdown 候选
+│   └── Topic 是否处于可写、压缩或结算预约状态
+│
+└── Topic Buffer：每个 Topic 的工作内容
+    ├── blocks
+    ├── state_summary
+    ├── TopicAssetBinding
+    ├── title / summary / model_used
+    └── token 与时间信息
+```
+
+settle 必须同时冻结 Buffer 并最终移除 Pool 中的 Topic；compact 只修改 Buffer，但仍需要通过 Pool 中的状态预约阻止交错写入；manual delete、LRU 和 shutdown 也必须遵守同一组驻留与状态不变量。因此，短期 Store 不能退化为“只会把记录交给 adapter 的无状态 CRUD facade”。
+
+本次修订采用新的底层判断：
+
+> `ShortTermMemoryStore` 是 `Topic Pool + Topic Buffer` 的一致性聚合存储。它封装短期存储自身的状态机制和原子提交，但不解释业务触发原因，也不调用任何外部服务。
+
+这不是把原来的万能 Store 原样恢复，也不是保留一个换名后的 `TriggerManager`。需要重新划分的是“存储状态机制”和“跨系统业务编排”之间的边界。
+
+### 1.1 与旧版“复杂 Store”的区别
+
+旧版 Store 的复杂度主要来自“按业务原因拼装流程”：`apply_interaction`、`freeze_and_evict`、`reserve_flushing`、`commit_flushing` 等入口同时知道触发来源、领域状态、快照字段以及队列前后的处理顺序。调用方只要换一种触发原因，就可能进入另一套状态约束；Store 也因此被迫解释业务意图。
+
+本计划收回的不是所有状态相关代码，而是收回短期存储为维持自身一致性所必需的最小协议。`append_interaction`、`begin/complete/abort_compact` 和 `begin/complete/abort_settlement` 的区别在于它们分别保护不同的存储不变量：Interaction 要一次性写入 Buffer 事实，compact 要保护锁外折叠后的条件写回，settlement 要冻结快照并在完成时联动删除 Pool 与 Buffer。它们不接收 `TriggerReason`，不调用外部服务，也不决定何时被触发。
+
+因此，Store 的方法数量可能仍多于普通数据库 facade，但每个入口都能从“短期存储协议”本身解释，而不是为 automatic、manual、idle、LRU、shutdown 各复制一套业务方法。触发矩阵集中由 Patchouli 侧的无状态 `TopicTriggerPolicy` 解释；`PerceptionFamiliar` 只调用该策略并在具体业务场景应用结果。Pool/Buffer 的事实与原子提交集中由 `ShortTermMemoryStore` 维护；两者不会再通过另一个状态 Controller 互相转发。
 
 ## 2. 目标与非目标
 
 ### 2.1 目标
 
-1. 保留一个统一的 `TriggerReason -> TriggerPlan` 解释入口，矩阵继续表达 `settle/compact/evict` 三个独立动作；所有 `settle=True` 的原因共用同一条 settle 时序。
-2. 在 Patchouli 内建立唯一的 Topic Buffer 领域服务，承接 `TopicData` 状态变换、Topic Pool 管理、快照冻结、binding 写入和矩阵计划执行。
-3. 让 `engines/perception/` 只提供无状态的 block 构造、事件归并、token 估算和摘要/折叠算法，不持有 Store、Topic 状态、Journal、锁或队列。
-4. 让 `PerceptionFamiliar` 只负责上层业务适配、当前 Topic 选择、generation admission、公开结果和运行时调度入口，不直接读写短期 Store 或判断 Buffer 状态。
-5. 让 Store 继续保持 CRUD 与快照存储职责，`WorkspaceTopicKey` 仍只在短期 adapter 的内部寻址实现中出现。
-6. 将 automatic 与 manual settle 统一为 `begin -> admission -> complete/abort`：材料冻结后才等待 Generation admission，接纳成功后结束 Topic 生命周期，明确失败则保留内容并恢复可重试状态；manual delete 仍为不写记忆的独立 evict，compact 仍至少保留一个 block。
-7. 将状态锁收敛到真正拥有 Topic Buffer 状态的 Patchouli 领域服务；外部摘要生成和队列提交不得在领域锁内执行。
-8. 清除历史感知层抽象：删除 `BasePerceptionLayer` 与 `NullPerceptionLayer`，将合并后的唯一实现统一命名为 `MemoryPerceptionEngine`，并使工厂始终装配真实感知能力。
-9. 将触发原因统一命名为 `TriggerReason`，将结算预约状态统一命名为 `BufferState.SETTLING`，删除 `FlushReason` 与 `BufferState.FLUSHING` 的生产语义。
-10. 将 `TopicData -> TopicMaterializeTask` 的字段转换、`worth_saving` 过滤和 no-material 判断收口到 `TopicMaterializeTask.from_topic_data()`，不在服务或调用方重复拼装。
+1. 将 `ShortTermMemoryStore` 明确定义为短期聚合存储边界，同时封装 Topic Pool 与 Topic Buffer 的驻留、一致性和生命周期机制。
+2. Store 的公开方法围绕稳定的存储协议组织，而不是按照 `MANUAL_SETTLE`、`IDLE_TIMEOUT`、`LRU_EVICTION` 等触发来源复制入口。
+3. 保留统一的 `TriggerReason -> TriggerPlan` 决策矩阵，但将其固定为 Patchouli 侧的无状态 `TopicTriggerPolicy`；`PerceptionFamiliar` 调用策略并应用计划，不在自身内嵌矩阵，也不由 Store 或 Engine 持有。
+4. 让所有需要跨 `await` 的本地状态转换通过 Store 的 reservation 协议完成：`begin -> 锁外外部工作 -> complete/abort`。
+5. 让 `PerceptionFamiliar` 成为现有 Patchouli 业务门面，负责路由、Journal、调用 `TopicTriggerPolicy`、Relay/Generation 协调、错误投影和调度入口；不新增另一个 Topic 状态控制组件。
+6. 让 `engines/perception/` 只提供 block 构造、事件归并、token 估算和纯折叠算法，不导入 Patchouli service、Store、Journal、队列或 Patchouli 错误。
+7. 让 `WorkspaceTopicKey` 继续封装在 adapter/内部索引，不进入 Store 以上的稳定契约；`topic_id` 仍按全局唯一值处理。
+8. 统一 `TriggerReason`、`BufferState.SETTLING`、`MemoryPerceptionEngine`、`create_perception_engine` 和 `TopicMaterializeTask.from_topic_data()` 等既有命名目标，并将 `TriggerReason` 从 Engine 模型归属中收回到 Patchouli 生命周期策略/交接契约。
+9. compact 仍强制 `retain_recent_blocks >= 1`；summary-only Topic 仍被视为有内容，且 settle 的 no-material 结果仍是正常生命周期完成。
+10. 通过内部模块拆分控制 Store 的代码规模，但不把这些内部模块暴露成新的跨层状态所有者。
 
 ### 2.2 非目标
 
-- 不新增跨系统 Topic Controller、Workspace Controller、single-flight 或新的队列/重试机制；
-- 不把 `TriggerManager` 拆成 `SettlementController`、`CompactionController`、`EvictionController` 等多个有状态控制组件；
-- 不删除或分散决策矩阵，不让 Familiar、Engine 或各个入口自行解释 `TriggerReason`；
-- 不改变 `topic_id` 的全局唯一规则、Workspace 归属校验或 `IdentityScope` 语义；
-- 不恢复 Store 中的业务复合方法，也不把状态机重新下沉到 `ShortTermMemoryStore`；
+- 不保留或重建 `TopicBufferService`、`TriggerManager` 这类独立的 Topic 状态控制器；矩阵代码只允许由无状态的 `TopicTriggerPolicy.resolve()` 提供，且不得放入 `engines/perception/`；
+- 不把 `ShortTermMemoryStore` 做成只允许七个 CRUD 方法的普通数据库 facade；短期存储的状态预约和 Pool/Buffer 联动属于其自身职责；
+- 不把 Relay、Generation queue、InteractionApplyJournal、HTTP、SSE、Gateway 或 WorkspaceAssetStore 生命周期下沉到 Store；
+- 不让 Store 解释 `TriggerReason`、决定用户业务意图或生成 API 响应；
+- 不通过 `put` 或通用 callback 允许调用方绕过 Store 的状态不变量；
+- 不新增跨系统 Topic Controller、Workspace Controller、single-flight、content revision、per-topic lock 或新的队列重试机制；
+- 不改变 `topic_id` 的全局唯一规则、Workspace 访问校验或 `IdentityScope` 语义；
 - 不在本计划中设计多用户、多进程、分布式 Topic 并发或持久化短期 Buffer；
-- 不引入 `content_revision`、跨 Store 事务或新的领域幂等记录，除非实施过程中出现可复现的不变量破坏并另行记录决策；
-- 不把 Generation queue admission、Artifact promotion 或 shutdown 总体顺序改成另一套协议；
-- 不把完整 Topic、SemanticBuffer 或 MemoryLibrary 设计复制进本计划以外的当前事实文档。
+- 不把 `TopicMaterializeTask` 的字段转换复制到多个调用方；
+- 不把完整 Topic、SemanticBuffer 或 MemoryLibrary 设计复制到其他当前事实文档。
 
 ## 3. 当前实现证据与缺口
 
-### 3.1 `TriggerManager` 的混合职责
+### 3.1 TopicBufferService 的边界错误
 
-当前 `src/hivememory/engines/perception/trigger_manager.py` 同时包含：
+当前 [topic_buffer.py](../../src/hivememory/patchouli/services/topic_buffer.py) 同时包含：
 
-- `DECISION_MATRIX` 和 `resolve_topic()`：解释触发原因并组合动作；
-- `settle_and_evict()`、`prepare_manual_settle()`、`commit_manual_settle()`、`abort_manual_settle()`：实现 automatic/manual settle 生命周期；
-- `reserve_processing()`、`release_processing()`：实现 Topic 状态机预约；
-- `apply_interaction()`：追加 block、判断并建立 `TopicAssetBinding`、更新模型信息；
-- `_compact_path()`：调用 RelayController、裁剪 blocks、写回 summary；
-- `delete_if_idle()`、`_set_state()`：直接执行 Store 读改写；
-- `_build_settle_payload*()`：在服务外侧逐字段构造跨异步边界的 generation task，重复承担模型转换细节。
+- `create_topic`、`get_topic`、`touch_topic`、`count_topics`、`list_topics` 等 CRUD 转发；
+- Topic Pool 的 LRU、idle、shutdown 候选查询；
+- `PROCESSING`、`SETTLING` 状态转换和领域锁；
+- Interaction block、asset binding、metadata 的写回；
+- TriggerPlan、矩阵和 `handle_trigger`；
+- Relay 调用、compact reservation 和写回；
+- settle reservation、Generation admission 前后的删除/恢复；
+- manual delete、空 Topic 清理和结果模型。
 
-因此它不是无状态“触发解释器”，而是一个同时知道存储、领域实体、Relay 和状态锁的执行器。`resolve_topic()` 还使用 `MANUAL_SETTLE` 特殊异常分支绕开通用矩阵，进一步说明策略和执行协议被挤在同一个入口。
+它既不是存储层，也不是单纯的业务门面，而是把短期存储自身机制和外部系统流程绑定在了一起。继续在此类中增删方法不能解决边界问题。
 
-### 3.2 Engine 层的状态泄漏
+### 3.2 Engine 仍反向依赖 Patchouli
 
-`src/hivememory/engines/perception/semantic_flow_perception_layer.py` 当前持有 `ShortTermMemoryStore`、`InteractionApplyJournal`、`_domain_lock` 和 `TriggerManager`，并暴露 `settle_topic`、`prepare_settlement`、`swap_out_topic` 等有状态操作。它同时构造 `LogicalBlock`、处理 retry journal、管理 Topic 路由并执行 Page Folding，超出了无状态底层能力的范围。
+当前 `semantic_flow_perception_layer.py` 仍持有 Store/TopicBufferService、InteractionApplyJournal、配置与 Patchouli 错误，并实现 Topic 路由、retry、状态预约和 compact 触发。`engines/perception/__init__.py` 还会延迟导入并组装 Patchouli `TopicBufferService`。
 
-`interfaces.py` 中的 `BasePerceptionLayer` 也把 `ingest_payload`、block 构造、Topic 管理、settle、evict 和 manual settle 协议放在同一个抽象接口中；`semantic_flow_perception_layer.py` 还通过 `NullPerceptionLayer` 提供一套静默 no-op 实现，工厂在 `enable=False` 时返回它。只要这两个历史抽象继续存在，调用方就会被迫把领域状态服务当作 Engine 使用，并且系统会保留“感知已关闭但请求仍被成功吞掉”的第二套行为。
+因此当前类虽然被描述为“无状态”，实际上仍然是一个带有外部状态和业务流程的 Perception Service。重命名而不移除这些依赖，只会把边界问题隐藏在 `MemoryPerceptionEngine` 名称之下。
 
-`engines/perception/__init__.py` 与包顶层 `hivememory/__init__.py` 目前还公开导出旧类名和 `create_perception_layer`，Runtime、Familiar 及测试通过这些入口建立依赖；名称收敛必须覆盖这些导出，而不是只移动实现文件。
+### 3.3 ShortTermMemoryStore 当前过度收缩
 
-### 3.3 Familiar 与领域状态重叠
+当前 [stores.py](../../src/hivememory/patchouli/memory_library/stores.py) 只有 CRUD 和快照复制。它无法表达：
 
-`src/hivememory/patchouli/services/perception.py` 当前直接使用 Store 完成：
+- Topic Pool 与 Buffer 必须一起删除；
+- settle 在 admission 完成前不能移除 Topic；
+- compact 的锁外生成与锁内条件写回；
+- `PROCESSING`/`SETTLING` 期间拒绝新的 Interaction；
+- binding、blocks、token 和 metadata 的一致写入；
+- Pool 查询与 Buffer 状态之间的安全联动。
 
-- LRU 候选选择、容量判断和候选重试；
-- idle 扫描和 shutdown 遍历；
-- 当前 Topic 的 touch 与本地 active 索引；
-- 空 Topic 清理。
-
-Familiar 同时还负责 generation queue admission、manual settle 的提交窗口和公开结果映射。这样既无法让它保持单纯的 API 业务适配，也无法让一个组件完整拥有 Topic Pool 状态。
+因此上层只好通过另一个 Service 拼接多次 CRUD 调用，并在外部维护本应属于短期存储的状态不变量。
 
 ## 4. 目标架构
 
 ```text
-PerceptionFamiliar
-  └─ 上层 API / queue admission / 公开结果 / 调度入口
-       ↓
-Patchouli TopicBufferService
-  ├─ TopicData 状态和 Topic Pool 的唯一领域所有者
-  ├─ TriggerPlan 执行（不解释策略来源）
-  ├─ Interaction / TopicAssetBinding 写入
-  ├─ Compact / Settle / Evict / LRU / idle / shutdown
-  └─ ShortTermMemoryStore CRUD
-       ↓
-ShortTermMemoryStore
-  └─ ShortTermStoragePort / adapter（内部 WorkspaceTopicKey）
-
-MemoryPerceptionEngine（无状态 Perception Engine）
-  ├─ InteractionPayload -> LogicalBlock
-  ├─ TurnEvent -> Action / Trace reduction
-  ├─ token estimate
-  └─ 无状态的摘要或折叠算法能力
+Patchouli Runtime
+  ├─ MemoryLibrary
+  │   └─ ShortTermMemoryStore
+  │       ├─ Topic Pool（有限驻留、索引、候选查询）
+  │       ├─ Topic Buffer（内容快照和状态）
+  │       ├─ reservation 与本地原子提交
+  │       └─ ShortTermStoragePort -> adapter（内部 WorkspaceTopicKey）
+  │
+  ├─ PerceptionFamiliar
+  │   ├─ 路由与当前 Topic 选择
+  │   ├─ InteractionApplyJournal / retry
+  │   ├─ 调用 TopicTriggerPolicy / 触发矩阵
+  │   ├─ Relay 与 Generation admission
+  │   ├─ 用户结果、maintenance、shutdown 报告
+  │   └─ 调用 ShortTermMemoryStore 的存储协议
+  │
+  └─ MemoryPerceptionEngine（无状态）
+      ├─ InteractionPayload -> LogicalBlock
+      ├─ TurnEvent -> Action / Trace reduction
+      ├─ token estimate
+      └─ 纯 folding / 摘要算法能力
 ```
 
-### 4.1 `TopicBufferService`
+### 4.1 ShortTermMemoryStore：短期聚合存储
 
-在 `src/hivememory/patchouli/services/topic_buffer.py` 建立唯一的有状态 Topic Buffer 领域服务。它不是跨系统 Controller，也不创建新的总线层；它是 Patchouli 内部负责短期 Topic 领域状态的单一所有者。
+`ShortTermMemoryStore` 是 MemoryLibrary 的短期层的封装者。它可以由多个内部实现模块组成，但外部仍只有一个 Store 入口和一张 Topic 状态图。
 
-它负责：
+#### Store 负责
 
-- 持有 `ShortTermMemoryStore`、Relay/无状态 Perception Engine 依赖和一把领域锁；
-- 以 `IdentityScope + topic_id` 读取/写回 `TopicData`；
-- 创建和确认 Topic、维护活跃池、选择 LRU、扫描 idle、提供 shutdown 快照列表；
-- 对 `PROCESSING`、`SETTLING` 和 `IDLE` 执行状态转换；
-- 原子地把 Interaction block、首次 binding 和相关 metadata 写回一个新快照；
-- 根据统一 `TriggerPlan` 执行 compact、settle 和 evict；
-- 冻结 `TopicMaterializeTask`，但不提交 generation queue；
-- 返回结构化的领域结果，由 Familiar 决定是否提交或如何投影。
+- 以 `IdentityScope + topic_id` 访问 Topic；在最底层构造和校验 `WorkspaceTopicKey`；
+- 创建、读取、替换普通 Topic 快照，以及按 Workspace/全量查询；
+- 维护有限驻留集合、访问时间和活跃索引；
+- 提供 LRU、idle、shutdown 候选的只读查询；
+- 保证 Topic Pool 与 Topic Buffer 的增删同步；
+- 执行 `append_interaction`，一次性保存 block、binding、token、时间和模型信息；
+- 只保存由本轮交互确认的 `TopicAssetBinding` 事实；未被用户实际使用的 WorkspaceAsset 保持 orphan，不因存在或被上传而建立关联；
+- 执行 `begin/complete/abort_compact`，保护 compact 的本地状态和条件写回；
+- 执行 `begin/complete/abort_settlement`，冻结快照并在完成后联动移除 Topic；
+- 执行独立的 IDLE Topic 删除，以及真正空 Topic 的清理；
+- 暴露健康检查和不可变 `TopicData` 快照边界。
 
-它不负责：HTTP、SSE、local/global bus、generation admission、API 响应模型、Gateway 命令解析、WorkspaceAssetStore 生命周期和跨 Store 协调。
+#### Store 不负责
 
-### 4.2 统一触发策略与矩阵
+- 解释 `TriggerReason` 或生成 `TriggerPlan`；
+- 调用 Relay、LLM、Generation queue、Bus 或 EventBus；
+- 读取或写入 InteractionApplyJournal；
+- 决定 settle 是由 manual、idle、LRU 还是 shutdown 触发；
+- 构造 HTTP/API 响应或向用户解释 admission 错误；
+- 把多个 Topic 的结果整合成业务报告；
+- 保存 WorkspaceAsset 内容或决定资源是否被用户使用。
 
-统一矩阵保留在 `topic_buffer.py` 内，以同一个 `TriggerPlan` 表达策略结果。计划不新增 `topic_buffer_models.py`；`TriggerPlan`、矩阵和 Topic 执行结果类型与 `TopicBufferService` 放在同一文件，避免为少量内部模型制造碎片模块。跨边界共享的 `TriggerReason` 则继续作为纯协议枚举放在现有感知模型模块中，供矩阵和 `TopicMaterializeTask` 共同引用。
+Store 的“状态管理”是短期存储自身的存储协议，不是上层业务原因的解释器。它知道某个 Topic 是否处于 `SETTLING`，但不知道它为什么进入该状态，也不知道外部队列是什么。
 
-本计划按消息中的文件约束理解为：只建立一个集中承载 Topic Buffer 领域服务、策略和内部模型的 `topic_buffer.py`，不另行创建重复的 `topic_buffer_policy.py` 或 `topic_buffer_models.py`。如代码树中后续已经存在同名兼容文件，也不得再形成第二份矩阵或模型真相源。
+### 4.2 Store API：按存储协议而非触发来源组织
 
-矩阵的三列仍为独立动作，但 `settle=True` 不再区分 automatic 与 manual 的驱逐时机：它们都进入同一个 settle 协议。只有 `MANUAL_DELETE` 这样的 `evict=True`、`settle=False` 原因才绕过 settle。
-
-| 原因 | settle | compact | evict | 实际执行 |
-|:---|:---:|:---:|:---:|:---|
-| `TOKEN_OVERFLOW` | 否 | 是 | 否 | `PROCESSING` 预约，锁外生成摘要，锁内写回 |
-| `IDLE_TIMEOUT` | 是 | 否 | 是 | 统一 settle，admission 成功后结束 Topic |
-| `LRU_EVICTION` | 是 | 否 | 是 | 统一 settle，admission 成功后释放 Topic 池容量 |
-| `SHUTDOWN` | 是 | 否 | 是 | 统一 settle，逐 Topic 记录结果 |
-| `MANUAL_SETTLE` | 是 | 否 | 是 | 统一 settle，成功后结束 Topic 并返回用户结果 |
-| `MANUAL_COMPACT` | 否 | 是 | 否 | manual `PROCESSING` 预约，完成后回到 `IDLE` |
-| `MANUAL_DELETE` | 否 | 否 | 是 | 只删除 Topic，不生成记忆 |
-
-`TriggerPlan` 只表达矩阵中的三类动作，不携带 `evict_timing`、`defer_evict` 或其他把时序差异重新编码为第二套协议的字段。`settle=True` 必须满足 `evict=True`；其统一时序由 TopicBufferService 的 settle 执行协议保证，而不是由计划模型表达。
-
-### `TriggerPlan` 数据模型示例
-
-计划中的 `TriggerPlan` 是不可变的内部策略值对象。它只描述“这次触发需要哪些动作”，不持有 Store、锁、队列或 Topic 快照，也不负责执行动作：
-
-下面示例中的 `TriggerReason` 是计划采用的新名称；现有实现的 `FlushReason` 只作为迁移来源，代码片段只展示计划值对象及其唯一映射，不重复定义该枚举。
+长期公共 API 由普通访问、Pool 查询和少量跨 `await` 的存储协议组成。下面是目标形状；实际命名可在实施时根据现有调用点微调，但不得重新按触发来源复制方法。
 
 ```python
-from dataclasses import dataclass
+# 普通存储访问
+get(scope, topic_id, *, touch=True) -> TopicData | None
+create(scope, *, topic_title, topic_summary, topic_id=None) -> TopicData
+put(topic_data) -> None
+delete(scope, topic_id) -> bool          # 只允许可删除的 IDLE Topic
+list_by_workspace(scope, *, include_empty=True) -> list[TopicData]
+list_all() -> list[TopicData]
+count(scope) -> int
+check_health() -> StorageHealthComponent
 
+# Topic Pool 查询
+select_lru_candidate(scope, *, exclude_ids=()) -> str | None
+list_idle_candidates(timeout_seconds) -> tuple[TopicCandidate, ...]
+list_shutdown_candidates() -> tuple[TopicCandidate, ...]
 
+# Buffer/Pool 联动的存储协议
+append_interaction(scope, topic_id, block, *, asset_bindings=(), model_used=None) -> TopicData
+begin_compact(scope, topic_id, *, retain_recent_blocks) -> CompactionReservation | None
+complete_compact(reservation, *, state_summary) -> TopicData | None
+abort_compact(reservation) -> bool
+begin_settlement(scope, topic_id) -> SettlementReservation | None
+complete_settlement(reservation) -> bool
+abort_settlement(reservation) -> bool
+delete_if_empty(scope, topic_id) -> bool
+```
+
+`begin_settlement()` 的参数只表达存储目标，不接收 `TriggerReason`；原因与用户/维护语义由 `PerceptionFamiliar` 保留，并通过 `TopicTriggerPolicy.resolve()` 决定后续流程。
+
+这些协议的共同约束如下：
+
+1. `put` 不能成为绕过生命周期状态机的后门。普通写回只能保存合法的非预约快照；`PROCESSING`/`SETTLING` 的进入、完成和恢复由对应协议控制。
+2. `append_interaction` 在 Store 内完成状态检查、binding 去重、block 追加和相关字段更新；它不接收 `TriggerReason`，也不负责判断是否应该 compact。
+3. `begin_compact` 在同步临界区内把 Topic 置为 `PROCESSING`，返回不可变折叠输入；Relay 在锁外执行；`complete_compact` 只在预约仍有效时写回摘要、保留 block 并恢复可写状态；失败调用 `abort_compact` 保留原内容。
+4. `begin_settlement` 在同步临界区内把 Topic 置为 `SETTLING`，返回冻结的 `TopicData`；外部完成 admission 后，`complete_settlement` 才同时删除 Buffer 和 Pool；明确失败调用 `abort_settlement` 恢复 `IDLE`。
+5. `delete`/`delete_if_empty` 只执行存储删除，不知道这次删除对应 manual delete、LRU 还是其他业务原因；非 `IDLE` Topic 不能被普通删除绕过。
+
+`SettlementReservation`、`CompactionReservation` 是短生命周期的进程内存储协议对象。它们携带内部预约标识、Workspace、topic_id 和冻结快照/期望前缀，不持久化，不跨进程恢复，也不携带 Queue 或 Relay handle。
+
+Store reservation 不携带 `TriggerReason`，因为同一个 settlement 存储协议不应因来源是 manual、idle、LRU 还是 shutdown 而改变。触发原因由 `PerceptionFamiliar` 与 `TopicTriggerPolicy` 在业务层保留，并在需要时附加到 `TopicMaterializeTask` 或 `SettlementOutcome`；Store 只处理预约标识、冻结快照和状态提交。
+
+Topic 的唯一性仍以全局 `topic_id` 为前提：`create` 在所有 Workspace 范围内检查 ID 冲突，同一 ID 即使携带不同 `IdentityScope` 也必须被拒绝；读取和列表则按 scope 做归属校验与可见范围限制。`WorkspaceTopicKey` 只服务于这一校验和底层索引，不构成允许跨 Workspace 复用 ID 的命名空间。
+
+### 4.3 TopicTriggerPolicy 与 PerceptionFamiliar
+
+`TriggerPlan` 仍然是七种 `TriggerReason` 的唯一决策矩阵，但它不属于 Store，也不属于 `engines/perception/`。它固定放在 `patchouli/services/trigger_plan.py`，由无状态的 `TopicTriggerPolicy.resolve()` 作为唯一解析入口；不得再建立一个持有状态的 TriggerManager，也不得在 `services/perception.py` 或其他入口复制矩阵。
+
+这里需要明确区分“策略翻译”和“计划执行”两件事：`TopicTriggerPolicy` 只回答“这个原因需要 settle、compact、evict 中哪些动作”，不读取 Topic、不调用 Store、不调用 Relay 或队列，也不选择目标话题。`PerceptionFamiliar` 是策略的使用者，负责把计划应用到具体 Topic，并统一协调 Store reservation、锁外外部调用和结果投影。若一个对象只做纯矩阵查表，就不应以 `TriggerManager` 命名；`Manager` 这个名称保留给有状态控制器会误导后续实现。
+
+`TriggerReason` 的语义来自 Patchouli Topic 生命周期：它同时覆盖 token overflow、idle/LRU/shutdown 维护和三个 manual 入口，不是感知算法输出。因此它不得继续由 `engines/perception/models.py` 作为 Engine 模型的所有者；阶段 4 将枚举收口到 `patchouli/services/trigger_plan.py`，交接模型只引用这一份定义，Engine 只接收与自身算法有关的输入。
+
+```python
 @dataclass(frozen=True, slots=True)
 class TriggerPlan:
-    """TriggerReason 解释后的三动作计划；不承载执行时序或外部副作用。"""
+    """触发原因解释后的三动作值对象，不持有 Store 或外部依赖。"""
 
     settle: bool = False
     compact: bool = False
@@ -188,7 +272,7 @@ class TriggerPlan:
             raise ValueError("TriggerPlan must contain at least one action")
 
 
-TRIGGER_PLANS: dict[TriggerReason, TriggerPlan] = {
+TRIGGER_PLANS = {
     TriggerReason.TOKEN_OVERFLOW: TriggerPlan(compact=True),
     TriggerReason.IDLE_TIMEOUT: TriggerPlan(settle=True, evict=True),
     TriggerReason.LRU_EVICTION: TriggerPlan(settle=True, evict=True),
@@ -197,427 +281,344 @@ TRIGGER_PLANS: dict[TriggerReason, TriggerPlan] = {
     TriggerReason.MANUAL_COMPACT: TriggerPlan(compact=True),
     TriggerReason.MANUAL_DELETE: TriggerPlan(evict=True),
 }
+
+
+class TopicTriggerPolicy:
+    """无状态的触发计划解析器，不持有 Topic 或任何外部依赖。"""
+
+    @staticmethod
+    def resolve(reason: TriggerReason) -> TriggerPlan:
+        return TRIGGER_PLANS[reason]
 ```
 
-实际实现可以用位置参数或带默认值的关键字参数，但应保持上述不变量和单一矩阵来源。`resolve_trigger_plan(reason)`（或等价的同文件纯函数）只从 `TRIGGER_PLANS` 返回计划；`TopicBufferService.handle_trigger()` 是唯一的计划执行入口，调用方不再根据 `TriggerReason` 复制分支。
+`PerceptionFamiliar` 是已有的 Patchouli 业务门面，不是新增控制层。它可以保留一个统一的内部 `handle_trigger()` 用例，但该方法先调用 `TopicTriggerPolicy.resolve()`，再只做以下工作：
 
-### 统一 settle 用户时序
+- 根据 `TriggerReason` 从 `TopicTriggerPolicy.resolve()` 取得 `TriggerPlan`；
+- 选择目标 Topic 或消费 Store 返回的 Pool 候选；
+- 调用 Store 的 `begin/complete/abort` 存储协议；
+- 在 Store 预约完成后于锁外调用 Relay 或 Generation queue；
+- 把 Store 结果投影成 `TopicSettleResult`、`TopicEvictionResult`、maintenance 结果或 shutdown 报告。
 
-从用户可观察角度，settle 表示“结束 Topic，并把已冻结内容交给记忆生成链路”，而不是单纯删除一个 buffer。所有 `settle=True` 的触发原因都遵循以下协议：
-
-```text
-begin_settlement
-  -> IDLE 进入 SETTLING
-  -> 冻结 TopicData / TopicMaterializeTask
-  -> 在领域锁外等待 Generation admission
-       ├─ 明确接纳成功 -> complete_settlement -> 删除 SETTLING Topic
-       ├─ 没有可生成材料 -> complete_settlement -> 删除 SETTLING Topic
-       └─ 明确拒绝/异常 -> abort_settlement -> SETTLING 回到 IDLE，内容保留
-```
-
-`SETTLING` 是一个短生命周期的领域预约状态，不代表普通 flush、compact 或 eviction，也不作为持久化历史状态长期保留。目标实现应直接使用 `BufferState.SETTLING`，删除 `BufferState.FLUSHING`，避免同一状态存在两套命名和解释。
-
-统一时序带来以下用户语义：
-
-- settle 开始后 Topic 不再接受新的 Interaction；
-- `TopicAssetBinding`、blocks 和 `state_summary` 在 begin 阶段一起冻结；
-- queue 明确接纳后，Topic 才从活跃池移除；
-- 没有可生成材料是正常成功，不是失败或 busy；
-- admission 明确失败时，Topic 保留原内容并恢复可重试状态；
-- queue 在已经返回成功 receipt 后的生成失败属于 Generation 自身的后续终态，不重新打开 Topic。
-
-内部结果可以统一为以下形状，再由 Familiar 投影为不同的公共报告：
+Familiar 的内部流程只按动作计划分派，不按七个原因复制流程分支；示意如下：
 
 ```python
-from dataclasses import dataclass
-from enum import Enum
-
-class SettlementStatus(str, Enum):
-    ACCEPTED = "accepted"
-    NO_MATERIAL = "no_material"
-    REJECTED = "rejected"
-    NOT_FOUND = "not_found"
-
-
-@dataclass(frozen=True, slots=True)
-class SettlementOutcome:
-    topic_id: str
-    status: SettlementStatus
-    removed: bool
-    generation_task_id: str | None = None
-    reason: TriggerReason | None = None
+plan = self._trigger_policy.resolve(reason)
+if plan.settle:
+    return await self._settle_candidate(target, reason)
+if plan.compact:
+    return await self._compact_topic(target)
+if plan.evict:
+    return await self._evict_topic(target)
 ```
 
-`BUSY` 仍通过 `TopicBusyError` 显式表达，不混入正常 settlement outcome。`ACCEPTED` 与 `NO_MATERIAL` 都表示 Topic 已经结束；`REJECTED` 表示 admission 未完成且 Topic 仍保留；`NOT_FOUND` 表示目标已被其他生命周期操作移除。该结果表示的是队列交接和 Topic 生命周期，不表示记忆已经生成或写入中期存储。
+`MANUAL_SETTLE` 与 `SHUTDOWN` 因而共享同一条 settlement 路径，差异只保留在目标选择和失败结果投影；`MANUAL_DELETE` 不会误进入 settlement。
 
-### 4.3 `TopicMaterializeTask` 转换边界
+Familiar 不直接 `get -> model_copy -> put` 拼装状态，也不直接修改 `TopicData.state`、blocks、summary 或 bindings。这样“统一解释”仍然存在，但状态所有权不再依赖一个额外的 TopicBuffer/TriggerManager 类。
 
-TopicBufferService 只负责冻结 `TopicData` 并提供本次操作的 `IdentityScope` 与 `TriggerReason`；它不应在服务方法中逐字段拼装生成任务。字段映射、`worth_saving` 过滤和“没有可生成材料”的判断收口在 `TopicMaterializeTask` 自身的类方法中。`identity_scope` 仍由调用方显式传入，因为 `TopicData` 只保存 Workspace 归属，不保存本次执行者身份：
+### 4.4 MemoryPerceptionEngine
 
-```python
-class TopicMaterializeTask(BaseModel):
-    @classmethod
-    def from_topic_data(
-        cls,
-        topic_data: TopicData,
-        *,
-        identity_scope: IdentityScope,
-        reason: TriggerReason,
-    ) -> "TopicMaterializeTask | None":
-        """从冻结 TopicData 构造生成交接任务；无可保存 block 时返回 None。"""
+`MemoryPerceptionEngine` 直接提供无状态能力：
 
-        # 结算任务只携带值得保存的 block，字段转换不泄露到调用方。
-        blocks = tuple(
-            block for block in topic_data.blocks if block.worth_saving is not False
-        )
-        if not blocks:
-            return None
+- `InteractionPayload + IdentityScope -> LogicalBlock`；
+- `TurnEvent -> ActionReducer/TraceReducer` 派生值；
+- token 估算和纯 folding 判断；
+- 可注入的纯摘要/折叠算法。
 
-        return cls(
-            topic_id=topic_data.topic_id,
-            identity_scope=identity_scope,
-            topic_title=topic_data.topic_title,
-            topic_summary=topic_data.topic_summary,
-            blocks=blocks,
-            state_summary=topic_data.state_summary,
-            asset_bindings=topic_data.bindings,
-            reason=reason,
-        )
-```
+它不得持有 Store、TopicData、InteractionApplyJournal、领域锁、Queue 或 Patchouli Service，也不得实现 `route_and_ingest`、`settle_topic`、`swap_out_topic` 等 Topic 用例。Interaction retry、路由和状态协议由 Familiar + Store 承接。
 
-后续若 `TopicData` 或 `TopicMaterializeTask` 增加字段，只修改该转换方法及其模型测试；`begin_settlement()`、Familiar 和队列适配层不再复制字段映射细节。`TriggerManager._build_settle_payload*` 迁移后应删除，不能与 `from_topic_data()` 并存为第二套转换真相源。
+`TopicMaterializeTask` 是 Perception 到 Generation 的交接契约，字段转换和 `worth_saving` 过滤统一由 `TopicMaterializeTask.from_topic_data(...)` 完成，不在 Engine 或 Familiar 中逐字段拼装。
 
-### 4.4 无状态 `MemoryPerceptionEngine`
+Settlement task 只携带已经形成的 asset ref/binding 快照，不复制或持有 WorkspaceAsset 的真实内容。后续创建 artifact 时再通过 ref 反查 `WorkspaceAssetStore`；asset 内容的读取和资源生命周期不属于 ShortTermMemoryStore。binding 的清理随 Buffer 的最终删除处理，若清理时机仍有缺口，另行作为技术债追踪，不在本次边界重组中增加跨 Store 控制器。
 
-`engines/perception/` 下的实现应收敛为无状态能力。合并后的唯一感知实现命名为 `MemoryPerceptionEngine`，文件名为 `memory_perception_engine.py`；最终 Engine 不得持有 Store、Journal、TopicData 可变状态、领域锁或队列，也不再依赖历史的 `SemanticFlowPerceptionLayer` 名称。
+## 5. 状态、预约与锁设计
 
-Engine 的稳定能力包括：
+### 5.1 两层存储的一致性边界
 
-- 从 `InteractionPayload` 和 `IdentityScope` 构造不可变 `LogicalBlock`；
-- 从 `TurnEvent` 归并 `ActionReducer`/`TraceReducer` 所需的派生值；
-- 计算 token 估算和是否达到 compact 阈值所需的纯判断；
-- 为 TopicBufferService 提供纯摘要/折叠算法依赖。
-
-Topic 状态、binding 去重和 `TopicData.model_copy()` 不属于 Engine 算法，应由 TopicBufferService 或同文件中的纯领域变换函数完成；`TopicMaterializeTask` 的字段转换统一由 `from_topic_data()` 负责。
-
-不再保留 `BasePerceptionLayer` 继承层，也不新增另一个同义的抽象基类；`MemoryPerceptionEngine` 直接提供上述无状态能力。`NullPerceptionLayer` 同步删除，感知工厂始终装配真实引擎，不能通过 no-op 实例静默吞掉 Interaction。`SemanticFlowPerceptionConfig.enable` 同步删除，不再作为关闭感知的开关；含有旧字段或禁用值的配置必须在迁移时显式处理，不能静默回退。若 `interfaces.py` 继续保留，它只承载 `BaseRelayController` 等仍有实际用途的最小协议，不再导出 `BasePerceptionLayer`。
-
-### 4.5 PerceptionFamiliar
-
-Familiar 继续是上层业务门面，负责：
-
-- 注入并调用唯一的 `MemoryPerceptionEngine`，不再依赖 `BasePerceptionLayer` 或 `NullPerceptionLayer`；
-- 接收 Active/Passive 已接纳的 Interaction payload；
-- 选择或传递用户明确指定的当前 Topic ID；
-- 调用 TopicBufferService 完成交互与 Topic 用例；
-- 将返回的 settlement task 提交到 Generation queue；
-- 对所有 `settle=True` 计划执行统一的 `begin -> admission -> complete/abort` 外部时序；
-- 将领域结果投影为 `TopicSettleResult`、`TopicEvictionResult` 和 shutdown 报告；
-- 处理 local route、上层异常和调度 callback。
-
-Familiar 不再直接访问 `ShortTermMemoryStore`，不读取 `BufferState`，不选择具体 LRU 候选，不遍历 TopicData，也不复制决策矩阵。当前 Topic 选择可以保留为 API 语义适配，但 Topic Pool 中“哪个 Topic 应当驱逐”由 TopicBufferService 决定。manual、idle、LRU 和 shutdown 只在目标选择、错误呈现和报告格式上不同，不再拥有两套 settle 提交与驱逐时序。
-
-## 5. 状态与锁设计
-
-### 5.1 领域操作的原子边界
-
-TopicBufferService 的复合操作遵循：
+Topic Pool 与 Topic Buffer 必须共享同一个 Store 聚合边界：
 
 ```text
-领域锁内：读取快照 -> 检查状态 -> 形成 reservation/新快照 -> Store 写回或删除
-领域锁外：Relay 摘要生成、Generation queue admission、EventBus 调用
-领域锁内：确认 reservation 仍然有效 -> 写回最终快照或完成/回滚本次变换
+Store lock 内：
+  读取 Pool/Buffer -> 检查状态 -> 形成新快照或 reservation ->
+  更新 Buffer 与 Pool 索引
+
+Store lock 外：
+  Relay、LLM、Generation admission、Bus 等外部调用，以及所有可能阻塞的 await
+
+Store lock 内：
+  校验 reservation 仍有效 -> 写回或同时删除两层存储
 ```
 
-同一 Topic 的当前保护依赖 `PROCESSING`/`SETTLING` 状态预约和领域锁，不新增 per-topic lock。摘要生成不能在领域锁内执行；如果摘要生成失败，必须通过既有状态恢复路径回到 `IDLE`，不能留下永久 busy。
+Store 可以使用一把聚合级 `RLock` 保护内存 adapter、Pool 索引和 reservation 状态。adapter 自身的锁只保护其底层 map 与快照复制；不得再由 `TopicBufferService` 或 Familiar 叠加第二把“领域锁”。
 
-Store/adapter 的锁只保护单次 CRUD、内部 map、Workspace 索引和快照复制。TopicBufferService 的锁保护跨多个 CRUD 调用组成的一次领域状态转换。两者不能通过让 Store 暴露 callback/mutate API 重新合并。
+当前运行基线是单用户、单进程、低并发。锁只用于保证同步检查与写回、Pool/Buffer 联动和跨 `await` 后的预约确认；不因为理论上的多用户并发新增全局协调器、revision 或 per-topic lock。
 
-### 5.2 统一 settle 协议
+### 5.2 Interaction
 
-`IDLE_TIMEOUT`、`LRU_EVICTION`、`SHUTDOWN` 和 `MANUAL_SETTLE` 虽然触发来源不同，但都使用同一个 `begin -> admission -> complete/abort` 协议。`TopicBufferService` 提供以下领域原语：
+`append_interaction` 是一个同步的存储协议：
 
-1. `begin_settlement(identity_scope, topic_id, reason)`：在领域锁内确认 Topic 为 `IDLE`，将其置为 `SETTLING`，并通过 `TopicMaterializeTask.from_topic_data(...)` 冻结包含 blocks、`state_summary`、`TopicAssetBinding` refs 的交接任务；
-2. Familiar 在锁外把可选 task 提交到 Generation queue。Topic 在 `SETTLING` 期间不能接受新的 Interaction；
-3. queue 明确接纳成功，或 begin 阶段判断没有可生成材料时，调用 `complete_settlement()`，只删除仍处于本次 settling 状态的 Topic；
-4. queue 明确拒绝或 admission 抛出异常时，调用 `abort_settlement()`，将 Topic 恢复为 `IDLE`，保留原始 blocks、summary 和 bindings；
-5. queue 已返回成功 receipt 后的后续生成失败由 Generation 自身处理，不重新打开 Topic，也不由 TopicBufferService 补偿。
+```text
+MemoryPerceptionEngine.build_block()
+  -> ShortTermMemoryStore.append_interaction()
+      -> 检查 Topic 为 IDLE
+      -> 一次性追加 block、binding、token、metadata
+      -> 返回新的 TopicData
+  -> Familiar 根据 token 阈值决定是否另行 begin_compact()
+```
 
-该协议不由 `TriggerPlan` 直接提交队列，也不允许 Familiar 绕过 TopicBufferService 直接写 Store。`settle=True` 的计划不再有“先驱逐”或“等待驱逐”的两种实现时序；Topic 只有在交接成功或无材料正常完成时才结束生命周期。
+由于追加本身不跨 `await`，正常单进程调用不需要把 `reserve_processing/release_processing` 暴露为上游流程。若将来出现可复现的跨线程并发写入，应以具体不变量和测试为依据扩展 Store 内部协议，而不是为每个消费者增加一套预约方法。
 
-### 5.3 触发来源差异只影响协调与结果投影
+### 5.3 Compact
 
-统一 settle 协议下，触发来源的差异仅限于目标选择、调用入口和结果呈现：
+```text
+Store.begin_compact()
+  -> IDLE -> PROCESSING
+  -> 返回折叠前缀与 previous state_summary
 
-- manual settle 由用户指定 Topic；admission 明确失败时恢复 Topic 并向用户返回可重试错误；成功或无材料时返回 `TopicSettleResult`；
-- idle 扫描由 scheduler 提供候选；admission 明确失败时保留 Topic，维护轮次记录失败并等待下一次调度，不在 queue 外增加 retry；
-- LRU 由 TopicBufferService 选择最久未访问的 IDLE 候选；admission 失败时不释放容量，调用方得到 backpressure/稍后重试语义；
-- shutdown 逐 Topic 执行同一协议；未完成 admission 的 Topic 不计入已完成清理，失败被记录到 shutdown report；
-- `MANUAL_DELETE` 仍是独立的 `evict=True`、`settle=False` 路径，不构造 generation task；`MANUAL_COMPACT` 仍是独立的 compact-only 路径。
+Familiar / Relay（锁外）
+  -> 生成新摘要
 
-Familiar 负责把这些统一的 `SettlementOutcome` 投影为用户 API 结果、maintenance 结果或 shutdown 报告，但不得为不同来源重新实现 begin/complete/abort。
+Store.complete_compact()
+  -> 校验预约与折叠前缀仍有效
+  -> 写入 state_summary、保留至少一个 block、重算 token
+  -> PROCESSING -> IDLE
+```
+
+Relay 失败或预约失效时调用 `abort_compact` 或返回 no-op，不能覆盖其他写入，也不能留下永久 `PROCESSING`。
+
+### 5.4 统一 settle
+
+所有 `settle=True` 的原因都使用同一套存储协议和用户时序：
+
+```text
+Store.begin_settlement()
+  -> IDLE -> SETTLING
+  -> 冻结 TopicData
+
+Familiar（锁外）
+  -> TopicMaterializeTask.from_topic_data(...)
+  -> Generation admission
+
+明确接纳或没有可生成材料
+  -> Store.complete_settlement()
+  -> Buffer 与 Topic Pool 一起删除
+
+明确拒绝或异常
+  -> Store.abort_settlement()
+  -> SETTLING -> IDLE，内容完整保留
+```
+
+`MANUAL_SETTLE`、`IDLE_TIMEOUT`、`LRU_EVICTION` 和 `SHUTDOWN` 的差异只影响目标选择、admission 失败的结果投影和维护报告；不再存在 automatic/manual 两套状态协议。`MANUAL_DELETE` 使用普通 IDLE 删除，不构造 settlement payload；`MANUAL_COMPACT` 只走 compact 协议。
+
+settlement 不在 Generation admission 之前删除 Topic。Familiar 只以队列提供的 admission/receipt 作为完成依据；队列的持久化、重试、幂等和裸提交失败处理属于队列机制本身，不在本计划中再套一层补偿队列。若 admission 明确拒绝且尚未形成 receipt，调用 `abort_settlement` 保留内容；成功 receipt 之后的 Generation 后续失败属于 Generation 自身的终态，不重新打开 Topic，也不由 Store 补偿。
 
 ## 6. 代码组织与迁移边界
 
 ### 6.1 目标文件组织
 
 ```text
-src/hivememory/engines/perception/
-  memory_perception_engine.py        # MemoryPerceptionEngine，无状态记忆感知能力
-  interfaces.py                      # Relay 等仍需的最小协议，不含 PerceptionLayer 基类
-  models.py                          # Engine/跨边界模型及 TopicMaterializeTask 转换
-  relay_controller.py                # 无状态摘要能力
+src/hivememory/patchouli/memory_library/
+  stores.py                         # MemoryLibrary 对外 Store 入口
+  ports.py                          # Port 契约，不暴露复合 key
+  adapters/short_term.py            # adapter，唯一构造 WorkspaceTopicKey
+  short_term/
+    pool.py                         # 内部 Topic Pool 索引与候选查询
+    reservations.py                 # Compact/Settlement reservation 值对象
+    mutations.py                    # 纯 TopicData 变换和局部不变量
 
 src/hivememory/patchouli/services/
-  perception.py                      # PerceptionFamiliar，上层业务门面
-  topic_buffer.py                    # TopicBufferService + TriggerPlan + 矩阵 + 内部结果
+  perception.py                     # PerceptionFamiliar 与跨系统业务编排
+  trigger_plan.py                   # TriggerPlan 与唯一决策矩阵（无状态）
 
-src/hivememory/patchouli/memory_library/
-  stores.py                          # ShortTermMemoryStore CRUD
+src/hivememory/engines/perception/
+  memory_perception_engine.py       # 无状态 MemoryPerceptionEngine
+  interfaces.py                     # Relay 等仍有用途的最小协议
+  models.py                         # 纯感知模型；不得继续承载 Topic 生命周期交接模型
+  relay_controller.py               # 无状态摘要能力
 ```
 
-不得新增 `topic_buffer_models.py`，也不得再维护第二份 `DECISION_MATRIX`、`TriggerPlan` 或 Topic 执行结果模型。若策略需要独立测试，可测试 `topic_buffer.py` 导出的纯策略函数，而不以拆分文件作为测试边界。
+`topic_buffer.py` 不再作为独立的 Topic 状态所有者。迁移期间可以保留短期兼容文件，但生产代码不得继续从中组装 Store、Relay 和业务流程；完成后应删除该文件及其兼容导出。内部 `short_term/` 模块不对外公开，不形成第二个 MemoryLibrary 或 Topic Controller。
 
 ### 6.2 方法迁移映射
 
 | 当前入口 | 目标归属 | 迁移说明 |
 |:---|:---|:---|
-| `TriggerManager.DECISION_MATRIX` / `resolve_topic` | `TopicBufferService` 同文件内的纯策略与 `handle_trigger` | 保留统一解释，不再位于 Engine |
-| `TriggerManager.reserve_processing/release_processing` | `TopicBufferService` | 状态预约只由 Topic 领域所有者执行 |
-| `TriggerManager.apply_interaction` | `TopicBufferService.apply_interaction` | block/binding/metadata 作为单次领域写回 |
-| `TriggerManager._compact_path` | `TopicBufferService.compact` | reservation、锁外摘要、锁内写回 |
-| `TriggerManager.*settle*` / `delete_if_idle` | `TopicBufferService` | 收敛为 `begin_settlement`、`complete_settlement`、`abort_settlement` 与独立 `evict`，所有 settle 来源共用同一协议 |
-| `TriggerManager._build_settle_payload*` | `TopicMaterializeTask.from_topic_data` | 将字段映射、worth_saving 过滤和 no-material 判断收口到数据模型；删除服务外侧的重复转换逻辑 |
-| `semantic_flow_perception_layer.py::SemanticFlowPerceptionLayer` | `memory_perception_engine.py::MemoryPerceptionEngine` | 完成历史命名收敛；不保留类级别别名或旧模块导出 |
-| `FlushReason` 与 `FlushEvent.reason` | `TriggerReason` 与同一事件模型的 `reason` 字段 | 将“刷新”这一过窄的历史命名改为统一触发原因；保留现有枚举字符串值，避免任务/事件载荷发生无关变化；事件载体是否改名不在本次范围内 |
-| `BufferState.FLUSHING` | `BufferState.SETTLING` | 结算预约只使用 `SETTLING`；删除旧枚举成员及其 `flushing` 序列化值，统一使用 `settling` |
-| `SemanticFlowPerceptionLayer._build_block` | `MemoryPerceptionEngine` | 重命名并收敛为无状态 block 构造，不再直接访问 Store 或 Journal |
-| `SemanticFlowPerceptionLayer.route_and_ingest` | Familiar + TopicBufferService | 路由与 Topic 状态移出 Engine，旧方法不在新引擎中保留 |
-| `create_perception_layer` 及顶层导出 | `create_perception_engine` | 始终创建 `MemoryPerceptionEngine`；删除 `enable=False` 的 no-op 分支以及旧类和基类导出 |
-| `PerceptionFamiliar._maybe_evict_lru` | TopicBufferService 的池操作 | Familiar 只消费结果并提交 task |
-| `PerceptionFamiliar.scan_idle_buffers_once` | TopicBufferService 扫描 + Familiar 提交 | 调度入口可留在 Familiar |
-| `PerceptionFamiliar.flush_all_for_shutdown` | TopicBufferService 批量计划 + Familiar drain | 保持逐 Topic 报告和失败语义 |
-| `ShortTermMemoryStore` | 保持 CRUD | 不回迁业务状态机或生命周期逻辑 |
+| `TopicBufferService.create/get/touch/count/list` | `ShortTermMemoryStore` | 直接成为短期聚合存储 API，不再经过 Service 转发 |
+| `TopicBufferService` 的 Pool/LRU/idle/shutdown 查询 | `ShortTermMemoryStore` 内部 Pool | Pool 查询属于短期驻留机制，返回只读候选 |
+| `TopicBufferService.apply_interaction` | `ShortTermMemoryStore.append_interaction` | Store 内一次性保存 block、binding、token 和 metadata；不接收 TriggerReason |
+| `reserve_processing/release_processing` | `append_interaction` 或 Store 内部同步临界区 | 正常 interaction 不再向上游暴露独立 processing gate |
+| `TopicBufferService._execute_compact` | `begin/complete/abort_compact` + Familiar Relay 调用 | Store 只做预约和写回，Relay 在锁外执行 |
+| `begin/complete/abort_settlement` | 同名 ShortTermMemoryStore 存储协议 | Store 冻结快照并联动 Pool/Buffer，Familiar 负责 admission |
+| `delete_if_idle` / `discard_if_empty` | `delete` / `delete_if_empty` | Store 执行本地删除；业务原因由 Familiar 解释 |
+| `TriggerReason`、`TriggerPlan` / `TRIGGER_PLANS` | `services/trigger_plan.py` | 从当前 Engine/混合入口收口为 TopicTriggerPolicy；只查表，不持有状态，不调用 Store |
+| `TopicBufferService.handle_trigger` | `PerceptionFamiliar.handle_trigger` | 统一业务入口调用 Store 协议，不建立新的控制组件 |
+| `TriggerManager._build_settle_payload*` | `TopicMaterializeTask.from_topic_data` | 删除重复字段转换 |
+| `SemanticFlowPerceptionLayer` | `MemoryPerceptionEngine` | 只保留无状态 block/token/folding 能力 |
+| `route_and_ingest`、Journal retry、Topic 路由 | `PerceptionFamiliar` + Store | Engine 不再承接 Topic 用例 |
+| `create_perception_layer` | `create_perception_engine` | 始终构造真实 Engine，删除 no-op 分支 |
+| `BasePerceptionLayer`、`NullPerceptionLayer` | 删除 | 不保留兼容别名或第二套接口 |
 
-### 6.3 兼容与删除策略
+### 6.3 `put` 与快照写回边界
 
-1. 先建立 TopicBufferService、`MemoryPerceptionEngine` 和 `create_perception_engine` 的新入口，更新 Runtime 装配、local route binding、公开导出和测试引用。
-2. 将所有调用点从 `SemanticFlowPerceptionLayer`、`BasePerceptionLayer` 和 `NullPerceptionLayer` 迁移到新入口；最终不保留这些类名或 no-op 兼容别名。
-3. 完成调用迁移后删除或明确标记旧 `engines/perception/trigger_manager.py`，避免它继续成为矩阵或状态逻辑的第二真相源。
-4. 在新模块稳定后删除旧的 `semantic_flow_perception_layer.py`（由重命名后的 `memory_perception_engine.py` 取代），并从 `interfaces.py` 移除 `BasePerceptionLayer` 定义；`interfaces.py` 如仍被 `BaseRelayController` 使用则保留文件，但不得重新引入感知层基类。
-5. 统一 settlement executor 后，删除 automatic `settle_and_evict` 与 manual `prepare/commit/abort` 的分叉实现；旧方法如需暂留，只能转发到同一 `begin/complete/abort` 协议。
-6. 迁移期间不改变公开 local route 名称、Topic 管理 HTTP 结果模型和 generation task payload；公共协议只在最终事实文档收口时更新。
+普通 `put` 只用于创建或替换合法的非预约 Topic 快照。任何改变 `PROCESSING`/`SETTLING`、完成预约、恢复预约或同时删除 Pool/Buffer 的操作，都必须经过 Store 内部协议。Familiar 不得通过 `model_copy()` 后直接 `put()` 模拟状态转换。
+
+这项约束是为了避免“Store 看似是 CRUD，调用方实际上可以随意改变生命周期”的隐性第二套状态机。若测试需要构造特殊状态，应使用 Store 的测试辅助或公开预约协议，而不是绕过生产不变量。
 
 ## 7. 实施阶段
 
-### 阶段 1：冻结契约和依赖图
+### 阶段 1：冻结新边界和依赖图
 
-- 盘点所有 `TriggerManager`、`SemanticFlowPerceptionLayer`、`BasePerceptionLayer`、`NullPerceptionLayer`、`PerceptionFamiliar` 和 Store 调用点；
-- 固定七种触发原因的矩阵、`settle => evict` 不变量、所有 settle 统一 `begin -> admission -> complete/abort` 顺序和 compact `retain_recent_blocks >= 1` 约束；
-- 固定目标命名为 `TriggerReason` 与 `BufferState.SETTLING`，列出 `FlushReason`、`BufferState.FLUSHING` 及其导入/序列化引用的迁移清单；
-- 确认 `MemoryPerceptionEngine` 的无状态调用契约、TopicBufferService 领域接口和 Familiar 业务接口的依赖方向；
-- 禁止在迁移期间新增新的 `by_key`、Store 复合方法或额外状态控制器。
+- 以本计划替代此前“Store 纯 CRUD、TopicBufferService 状态所有者”的目标模型；
+- 盘点 Store、TopicBufferService、TriggerManager、PerceptionFamiliar、Engine 的生产调用点和测试调用点；
+- 固定 `ShortTermMemoryStore = Topic Pool + Topic Buffer` 的所有权判断；
+- 固定 Store 存储协议、reservation 生命周期和 `put` 约束；
+- 固定 `TopicTriggerPolicy` 只属于 Patchouli 侧的无状态业务策略；Engine 不依赖 Patchouli 生命周期策略，也不拥有 `TriggerReason`。
 
-### 阶段 2：建立 TopicBufferService
+### 阶段 2：重组 ShortTermMemoryStore 内部
 
-- 在 `patchouli/services/topic_buffer.py` 内实现 `TriggerPlan`、矩阵、策略校验、统一 settlement 状态预约、快照变换和 `SettlementOutcome` 结果模型；
-- 在现有感知数据模型中实现 `TopicMaterializeTask.from_topic_data()`，集中处理 TopicData 快照到交接任务的字段转换、worth_saving 过滤和 no-material 结果；
-- 迁移 Interaction/binding、compact、automatic settle、manual settle、delete/evict、LRU、idle、shutdown 的状态执行；
-- 使用领域锁保护复合状态转换，保证 Relay 和 queue 调用在锁外；
-- 让所有 `settle=True` 触发原因都采用 admission-before-evict：明确接纳或无材料才完成删除，明确失败则恢复 Topic；
-- 将所有 Store 访问收口到该服务，保留 `IdentityScope + topic_id` 入口。
+- 把当前 adapter 的可变 Buffer、Pool 索引和全局 Topic ID 归属检查收敛到一个 Store 聚合边界；
+- 建立 `short_term/pool.py`、`reservations.py`、`mutations.py` 等内部模块，控制 `stores.py` 体积；
+- 实现 `append_interaction`、compact reservation、settlement reservation 和受约束删除；
+- 移除 Store 以上稳定契约中的 `WorkspaceTopicKey` 与所有 `by_key` 入口；
+- 补充 Pool/Buffer 联动、快照隔离和全局 Topic ID 唯一性测试。
 
-### 阶段 3：收敛并重命名无状态 Engine
+### 阶段 3：迁移 Trigger 与 PerceptionFamiliar
 
-- 将 `engines/perception/semantic_flow_perception_layer.py` 重命名为 `memory_perception_engine.py`，并将实现类重命名为 `MemoryPerceptionEngine`；
-- 从新引擎移除 Store、Journal、领域锁和 Topic 生命周期方法；
-- 将 block 构造、事件归并、token 估算和纯 folding 算法留在 Engine；
-- 删除 `BasePerceptionLayer` 与 `NullPerceptionLayer`，将工厂重命名为 `create_perception_engine`，同步清理 `enable=False` no-op 分支、顶层导出和相关配置语义；
-- 由 Runtime/Familiar 直接注入 `MemoryPerceptionEngine`，不通过旧类名或兼容基类转发。
+- 将 `TriggerReason`、`TriggerPlan` 与唯一矩阵迁移到 `patchouli/services/trigger_plan.py`，形成无状态 `TopicTriggerPolicy`；
+- 把 `TopicBufferService.handle_trigger` 的业务协调并入现有 `PerceptionFamiliar`，保留一个统一触发入口；Familiar 调用策略，不在类内复制矩阵；
+- Familiar 只调用 Store 存储协议，不直接改写 TopicData；
+- 统一 automatic/manual/idle/LRU/shutdown settle 时序，保持 admission-before-evict；
+- 保留 manual delete、manual compact 与 settle 的独立动作语义。
 
-### 阶段 4：收敛 PerceptionFamiliar
+### 阶段 4：收敛并重命名无状态 Engine
 
-- Familiar 改为注入 TopicBufferService 与无状态 Engine，不再持有 ShortTermMemoryStore；
-- 将 `_maybe_evict_lru`、idle、shutdown 和空 Topic 清理改为调用领域服务；
-- 保留 generation admission、统一 settle 外部三阶段时序、不同来源的结果投影和 scheduler callback；
-- 删除 Familiar 内复制的状态判断、矩阵分支和 TopicData 遍历。
+- 将 `semantic_flow_perception_layer.py` 重命名为 `memory_perception_engine.py`，实现 `MemoryPerceptionEngine`；
+- 删除 Engine 对 Store、Journal、Patchouli errors、TopicBufferService 和队列的依赖；
+- 将 `TriggerReason` 与 `TopicMaterializeTask` 从 `engines/perception/models.py` 的 Engine 模型归属中移出，避免 Engine 模型拥有 Patchouli Topic 生命周期语义；如交接模型需要序列化原因，改由 Patchouli 生命周期/Generation 契约引用唯一枚举；
+- 把 block 构造、事件归并、token 估算和纯 folding 算法留在 Engine；
+- 删除 `BasePerceptionLayer` 与 `NullPerceptionLayer`；
+- 将工厂重命名为 `create_perception_engine`，删除 `enable=False` 静默 no-op 分支和旧导出。
 
 ### 阶段 5：删除旧混合入口并收口文档
 
-- 删除或冻结 `TriggerManager` 的状态执行实现，确保只剩一个矩阵和一个 Topic Buffer 状态所有者；
-- 清理兼容 seam、旧导入和不再使用的 Store 复合 API；
-- 按最终代码更新 `docs/patchouli/perception.md`、`docs/patchouli/memory-library.md` 与 `docs/patchouli/README.md`；
-- 将本 Plan 在验收后移入 `docs/archive/plans/`，并把仍未完成的边界问题留在对应 Todo，而不是写入当前事实文档。
+- 删除 `TopicBufferService`、旧 `TriggerManager` 和相关兼容导出；
+- 清理旧 Store 复合方法、`by_key` 入口、旧感知层导入和测试 seam；
+- 更新 Runtime 组装，确保单进程只有一个 MemoryLibrary/ShortTermMemoryStore 状态图；
+- 按最终实现更新 `docs/patchouli/perception.md`、`docs/patchouli/memory-library.md` 和 `docs/patchouli/README.md`；
+- 修订或归档已经被本计划替代的旧 Todo 结论：ShortTermMemoryStore 纯 CRUD，以及 automatic SHUTDOWN 先 evict 后 admission；保留仍有效的 key 封装和逐 Topic 失败隔离要求；
+- 验收完成后归档本 Plan，仍未解决的并发、持久化或跨系统问题另建 Todo/Plan。
 
 ## 8. 测试与验收
 
-### 8.1 单元测试
+### 8.1 ShortTermMemoryStore 单元测试
 
-- 纯策略测试覆盖七种 `TriggerReason`、三列动作、`settle => evict` 和 `TriggerPlan` 不变量；
-- TopicBufferService 状态测试覆盖 `IDLE/PROCESSING/SETTLING` 的合法与非法转换、binding 幂等追加、快照写回和 busy 隔离；
-- Compact 测试验证 Relay 调用在锁外、异常后状态恢复、至少保留一个最近 block、无可折叠前缀时 no-op；
-- settlement 测试验证空 Topic、summary-only Topic、worth_saving 过滤，以及所有 settle 来源共用 `begin -> admission -> complete/abort`；
-- settlement 失败测试验证明确 admission 拒绝时 Topic 对所有触发来源均保留并恢复 `IDLE`，无材料时正常移除，成功 receipt 后的 Generation 失败不重新打开 Topic；
-- `TopicMaterializeTask.from_topic_data()` 测试验证字段映射、Workspace/执行者作用域传递、binding 快照、worth_saving 过滤和 no-material 返回值；
-- Topic Pool 测试验证 LRU、idle、shutdown、busy 候选跳过和全局唯一 Topic ID；
-- 无状态 `MemoryPerceptionEngine` 测试只验证 block/事件/token/摘要计算，不注入 Store 或领域锁；
-- 工厂与导出测试验证 `create_perception_engine` 始终返回 `MemoryPerceptionEngine`，不再存在 `NullPerceptionLayer`，且旧 `BasePerceptionLayer`/`SemanticFlowPerceptionLayer` 符号、模块路径和 `create_perception_layer` 导出均已清理；
-- Store 测试只验证 CRUD、Workspace 归属、快照复制和健康检查，不再测试 TriggerPlan 或生命周期组合。
+- CRUD、创建/替换/删除、Workspace 访问校验和全局 Topic ID 唯一性；
+- Topic Pool 容量、LRU、idle、shutdown 候选及 busy 候选跳过；
+- Pool 与 Buffer 同步删除，空 Topic 和 summary-only Topic 的判空语义；
+- `append_interaction` 的 block/binding/token/metadata 一次性写入与 binding 去重；
+- `begin/complete/abort_compact` 的状态预约、锁外生成边界、异常恢复和至少保留一个 block；
+- `begin/complete/abort_settlement` 的冻结快照、admission-before-evict、失败恢复和两层存储联动；
+- `put` 无法绕过 `PROCESSING`/`SETTLING` 生命周期约束；
+- adapter 可变对象与 Store 返回的不可变 `TopicData` 之间互不泄漏；
+- `WorkspaceTopicKey` 只存在于 adapter/内部索引，Store 以上公开接口不暴露复合 key。
 
-### 8.2 集成测试
+### 8.2 TriggerPlan 与 PerceptionFamiliar 测试
 
-使用真实 `PerceptionFamiliar + TopicBufferService + ShortTermMemoryStore + MemoryPerceptionEngine + deterministic Relay` 验证：
+- 七种 `TriggerReason` 的唯一矩阵、三动作独立性和 `settle => evict` 不变量；
+- `TopicTriggerPolicy` 只做纯矩阵解析，不读取 Topic、不调用 Store/Relay/队列；
+- `PerceptionFamiliar.handle_trigger` 调用唯一策略并执行对应 Store 协议，矩阵不在多个入口重复；
+- automatic、manual、idle、LRU 和 shutdown 共享 begin/admission/complete/abort；
+- manual delete 只删除、不生成记忆；manual compact 只压缩、不 settle、不删除；
+- admission 明确失败时 Topic 保留并恢复 `IDLE`，无材料时正常删除；
+- shutdown 逐 Topic 失败隔离，异常不伪装成 skip；
+- `TopicMaterializeTask.from_topic_data()` 的字段映射、binding 快照和 no-material 语义。
 
-- Active/Passive interaction 都通过同一 TopicBufferService 写入 Topic；
-- TOKEN_OVERFLOW 只 compact，不 settle、不 evict；
-- automatic idle/LRU/shutdown 与 manual settle 按矩阵使用同一 settle 时序，并返回各自稳定的 task/skip/失败报告；
-- manual settle 的用户错误、automatic 维护失败和 shutdown 未完成项只是结果投影差异，不产生第二套 Topic 生命周期；
-- manual compact 与 manual delete 不误触发其他动作；
-- 两个 Workspace 的同名/不同名 Topic 不串扰，Topic ID 全局唯一约束仍有效；
-- Familiar 不直接接触 Store 可变对象或 WorkspaceTopicKey。
+### 8.3 MemoryPerceptionEngine 与结构测试
 
-### 8.3 结构契约检查
+- Engine 测试只验证 block、事件、token 和纯 folding 算法，不注入 Store、Journal 或 Patchouli Service；
+- 静态搜索确认 `engines/perception/` 生产代码不导入 `hivememory.patchouli.*`；
+- 静态搜索确认不存在 `TopicBufferService`、`TriggerManager`、`BasePerceptionLayer`、`NullPerceptionLayer` 和 `SemanticFlowPerceptionLayer` 的生产导出；
+- 唯一工厂为 `create_perception_engine`，唯一引擎为 `MemoryPerceptionEngine`；
+- `TriggerReason` 不再由 `engines/perception/models.py` 定义或导出，Engine 包不承载 manual/idle/LRU/shutdown 等生命周期语义；
+- 只有一份 `TriggerPlan`/矩阵定义，不存在 `evict_timing`、`defer_evict` 等第二套时序字段；
+- Runtime/Familiar/Engine 不直接修改 `TopicData.state`、blocks、summary 或 bindings；
+- Runtime 只组装一个 `MemoryLibrary.short_term`，不存在另一套 Topic 存储实例。
 
-- 静态搜索确认 `engines/perception/` 不导入 `ShortTermMemoryStore`、`InteractionApplyJournal` 或队列控制器；
-- 静态搜索确认不存在 `BasePerceptionLayer`、`NullPerceptionLayer` 或 `SemanticFlowPerceptionLayer` 的生产导出，唯一感知引擎及装配入口分别为 `MemoryPerceptionEngine` 与 `create_perception_engine`；
-- 静态搜索确认触发原因统一命名为 `TriggerReason`，生产代码不再导出 `FlushReason`；BufferState 的结算状态统一为 `SETTLING`，不再保留 `FLUSHING`；
-- 静态搜索确认只存在一份决策矩阵和 `TriggerPlan` 定义，且不存在 `evict_timing`、`defer_evict` 等替代时序字段；
-- 静态搜索确认 `WorkspaceTopicKey` 不出现在 Store 以上的稳定契约中；
-- 检查 TopicBufferService 之外没有直接修改 `TopicData.state`、blocks、summary 或 bindings 的生产代码；
-- 检查 `topic_buffer.py` 是唯一新增 Topic Buffer 领域文件，不产生 `topic_buffer_models.py` 或平行 policy/model 真相源。
+### 8.4 集成与回归测试
+
+使用真实 `PerceptionFamiliar + ShortTermMemoryStore + MemoryPerceptionEngine + deterministic Relay` 验证：
+
+- Active/Passive interaction 共享同一 Store 写入协议；
+- TOKEN_OVERFLOW 只 compact；settle 原因只走统一 settlement；
+- LRU、idle、shutdown 和 manual settle 的 admission-before-evict；
+- 两个 Workspace 不串扰，跨 Workspace 复用同一全局 Topic ID 被拒绝；
+- receipt 成功后的 Generation 失败不会重新打开 Topic；
+- `TopicAssetBinding` 只记录用户实际使用的 asset ref，orphan asset 不进入 Topic 事实；
+- 现有 API、local route、shutdown 顺序和结果模型不发生未计划的变化。
 
 ## 9. 风险与待决事项
 
 ### 风险
 
-- 当前测试大量直接实例化 TriggerManager 并断言内部方法调用，迁移会造成较大测试重写量；测试应改为断言公开领域结果和 Topic 终态；
-- `BasePerceptionLayer`、`NullPerceptionLayer`、旧 `SemanticFlowPerceptionLayer` 名称及 `create_perception_layer` 工厂已被 Runtime、测试及顶层导出多处引用，直接清理会带来较大的迁移面；应集中更新调用点和工厂装配，并以缺失旧符号作为收口验收条件，不保留长期兼容别名；
-- 把 Relay 调用移出锁后，需要确保 reservation 能够阻止同一 Topic 被并发写入；当前单用户低并发基线下以状态预约和领域锁完成，不预先增加 revision 字段；
-- shutdown、idle 和 LRU 都涉及逐 Topic 失败处理，必须保持已有“异常不伪装成 skip”和逐 Topic 隔离语义；
-- 若 TopicBufferService 继续膨胀为新的万能类，应按“单 Topic 状态变换 / Topic Pool 管理 / TriggerPlan 执行”三个内部区域组织方法，但不拆成一组新的跨层 Controller。
+- Store 重新承接短期状态机制后，若不拆分内部模块，`stores.py` 仍可能膨胀；必须把 Pool、reservation 和纯变换拆成私有模块，但不把它们变成新公共层；
+- `put` 约束收紧会影响直接构造特殊状态的旧测试；测试应迁移到 Store 协议，而不是放宽生产 API；
+- 将 `TopicBufferService` 业务协调并入 Familiar 可能使 Familiar 的方法数量增加；应按“路由/交互、触发策略、settle admission、maintenance”组织私有方法，但不得再引入第二个状态所有者；
+- Relay/Generation 在锁外执行要求 reservation 能够阻止同一 Topic 的交错写入；Store 的状态预约和完成校验必须有针对性测试；
+- Engine 重命名会影响 Runtime、顶层导出和大量旧测试；应集中迁移，不保留长期兼容别名；
+- shutdown、idle 和 LRU 的逐 Topic 失败隔离必须保持，Store 只返回明确的状态结果，失败投影仍由 Familiar 完成。
+- 现有 `short-term-memory-store-boundary-cleanup.md` 与 `topic-shutdown-per-topic-failure-isolation.md` 分别保留“Store 纯 CRUD”和“automatic settle 先 evict 后 admission”的旧结论；它们在实现收口时必须被修订或归档，不能继续作为与本计划竞争的实施依据。
 
 ### 待决事项
 
-- 无新增待决事项；`TopicMaterializeTask.from_topic_data()` 的转换职责和 `TriggerReason`/`SETTLING` 命名已在本计划中固定，实施时只需完成调用点迁移。
+- `TopicMaterializeTask` 在 Patchouli/Generation 交接契约中的具体文件位置，需在阶段 4 结合现有导入面确定；`TriggerReason` 的唯一所有者已固定为 `patchouli/services/trigger_plan.py`，无论交接模型最终如何拆分，生命周期枚举与交接模型均不得由无状态 Engine 所有，字段转换方法和唯一真相不变；
+- `short_term/` 内部模块的具体命名可以在阶段 2 根据现有 adapter 代码确定，但不得改变 Store 是唯一短期聚合入口的结论；
+- 当前低并发基线不引入 revision/CAS；若测试发现同步 Store 协议仍无法保护真实竞态，另建针对性 ADR/Todo，不在本计划中预防性扩张。
 
 ## 10. 完成条件
 
-- `engines/perception/` 中的生产类不持有 Store、Topic Buffer、Journal、领域锁或队列状态，只提供无状态算法能力；
-- 唯一感知实现为 `MemoryPerceptionEngine`，`BasePerceptionLayer`、`NullPerceptionLayer`、`SemanticFlowPerceptionLayer` 及 `create_perception_layer` 均已移除，感知工厂不会再静默禁用能力；
-- `TopicBufferService` 是 Patchouli 内部唯一的 Topic Buffer 状态和 Topic Pool 所有者；
-- `TriggerPlan` 与七种触发原因的决策矩阵只有一个定义，三类动作仍可独立解释，`settle => evict` 约束得到测试保证；
-- `PerceptionFamiliar` 不直接读写 Store，不判断 BufferState，不选择 LRU 候选，不复制生命周期矩阵；
-- `ShortTermMemoryStore` 保持 CRUD/快照/健康检查职责，没有回迁业务状态机；
-- automatic settle、manual settle、manual compact、manual delete、idle、LRU 和 shutdown 的用户可观察行为与现行设计一致；
-- Relay 和 Generation queue 均不在 Topic 领域锁内调用；busy、abort、skip 和异常结果具有稳定语义；
-- `WorkspaceTopicKey` 仍被封装在短期 adapter/内部索引，不向 Familiar、Engine 或跨边界模型泄漏；
-- 单元、集成和结构契约测试通过，并完成旧 TriggerManager、旧感知层类名及兼容入口清理；
-- `docs/patchouli/perception.md`、`docs/patchouli/memory-library.md`、`docs/patchouli/README.md` 已根据最终实现更新，旧 Plan/Todo 链接不再把 TriggerManager 描述为当前状态所有者；
-- 实施完成后本 Plan 进入 `docs/archive/plans/`，若仍有未落地的并发、持久化或跨系统问题，分别创建新的 Todo/Plan，不在本文件继续扩展。
+- `ShortTermMemoryStore` 明确封装 Topic Pool 与 Topic Buffer，Pool/Buffer 的生命周期联动和本地状态预约不再由外部 Topic Service 承担；
+- Store 公开 API 按存储协议组织，不按触发来源复制方法，不暴露 `WorkspaceTopicKey`，也不允许 `put` 绕过状态机；
+- `TopicBufferService` 与 `TriggerManager` 不再作为生产状态所有者存在；统一 `TopicTriggerPolicy`/`TriggerPlan` 仍只有一份，由 Familiar 调用并应用 Store 协议；Engine 包中不存在恢复版 TriggerManager；
+- `PerceptionFamiliar` 负责业务编排、Journal、Relay/Generation admission、结果投影和维护入口，不直接拼装 Topic 状态快照；
+- `engines/perception/` 只包含无状态感知能力，唯一实现为 `MemoryPerceptionEngine`，不反向依赖 Patchouli；
+- `BufferState.SETTLING`、`TriggerReason`、`create_perception_engine` 和 `TopicMaterializeTask.from_topic_data()` 的命名与调用链完成收口；
+- automatic/manual/idle/LRU/shutdown settle 共用同一 admission-before-evict 时序，manual delete 和 manual compact 保持独立；
+- compact 至少保留一个最近 block；summary-only Topic 不被误判为空；
+- Store、PerceptionFamiliar、Engine、Runtime 和 adapter 的单元、集成、结构契约测试通过；
+- `docs/patchouli/perception.md`、`docs/patchouli/memory-library.md` 和 `docs/patchouli/README.md` 已根据最终实现更新；
+- 本 Plan 完成后进入 `docs/archive/plans/`，未完成的并发、持久化或跨系统事项另行追踪。
 
-## 11. 阶段实施记录
+## 11. 修订记录
 
-本节记录各阶段的实施证据与冻结结论，只作为本 Plan 的实施工作依据，不构成当前事实描述。
+本节记录本 Plan 的模型修订，不把仍在实施中的目标冒充当前事实。
 
-### 11.1 阶段 1：冻结契约和依赖图（2026-09-03 完成）
+### 11.1 2026-09-03：从“TopicBufferService 状态所有者”改为“ShortTermMemoryStore 聚合存储”
 
-#### 11.1.1 基线状态
+本次修订废止此前以下目标：
 
-- 基线提交：`0ff5a17`（`refactor/short-memory-store-cleanup` 分支）。
-- 全量测试基线：1997 passed，69 failed，49 errors（默认排除 `live_llm`/`e2e`/`slow`）。
-- 全部失败与错误均为上一轮 ShortTermMemoryStore 边界清理遗留的过期测试，与本次重构无关但必须随本次迁移一并重写：
+- `TopicBufferService` 作为 Topic Buffer 与 Topic Pool 的唯一状态所有者；
+- `ShortTermMemoryStore` 只保留 CRUD，禁止承接短期状态机制；
+- 以外部 TopicBufferService 作为 Engine 与 Store 之间的长期边界。
 
-| 测试文件 | 失败/错误数 | 遗留原因示例 |
-|:---|:---:|:---|
-| `tests/unit/patchouli/memory_library/test_memory_library.py` | 3 failed / 34 error | 引用已删除的 `create_buffer`、`max_resident_topics` 构造参数等旧 Store API |
-| `tests/integration/patchouli/test_perception_flush_chain.py` | 26 failed | 旧 `FlushEvent(topic_key=...)` / 旧 settle 签名 |
-| `tests/unit/engines/perception/test_trigger_manager.py` | 23 failed | `settle_and_evict(topic_key, reason)` 旧签名（现为 `identity_scope, topic_id, reason`） |
-| `tests/unit/patchouli/memory_library/test_binding_and_reservation.py` | 15 error | 引用已删除的 Store 预约/绑定方法 |
-| `tests/unit/patchouli/services/test_perception.py` | 6 failed | mock 的 `AutomaticSettleResult`/旧调用链 |
-| `tests/integration/patchouli/test_topic_access_chain.py` | 5 failed | 旧 key/签名 |
-| `tests/integration/patchouli/test_asset_binding_lifecycle.py` | 3 failed | 旧 Store API |
-| `tests/unit/patchouli/control/test_interaction_submission.py` | 2 failed | 旧调用链 |
-| `tests/integration/patchouli/test_workspace_interaction_retry.py` | 1 failed | 旧签名 |
+新的冻结判断为：
 
-#### 11.1.2 旧符号定义处与迁移目标
+1. 短期存储天然包含有限 Topic Pool 与 Topic Buffer 两层，二者需要在 settle、evict、compact 和容量管理中保持一致；
+2. `ShortTermMemoryStore` 负责本地状态预约、Pool/Buffer 联动和存储原子提交，但不负责 TriggerReason、Relay、Queue、Journal 或 API；
+3. `PerceptionFamiliar` 作为已有业务门面承接统一触发编排，不新增 `TriggerManager` 或其他状态控制组件；
+4. `MemoryPerceptionEngine` 必须真正无状态，所有 Topic 路由、retry 和生命周期用例移出 Engine；
+5. 内部模块拆分只用于控制代码体积，不形成新的公开状态所有者。
 
-| 符号 | 定义位置 | 目标 |
-|:---|:---|:---|
-| `TriggerManager`、`DECISION_MATRIX`、`resolve_topic`、`settle_and_evict`、`prepare/commit/abort_manual_settle`、`reserve_processing`、`release_processing`、`apply_interaction`、`_compact_path`、`delete_if_idle`、`_set_state`、`_build_settle_payload*` | `src/hivememory/engines/perception/trigger_manager.py` | 状态执行迁入 `TopicBufferService`（阶段 2）；`_build_settle_payload*` 由 `TopicMaterializeTask.from_topic_data()` 取代；最终删除该文件（阶段 5） |
-| `SemanticFlowPerceptionLayer` | `src/hivememory/engines/perception/semantic_flow_perception_layer.py` | 重命名为 `memory_perception_engine.py::MemoryPerceptionEngine`（阶段 3） |
-| `NullPerceptionLayer` | 同上 | 删除（阶段 3） |
-| `BasePerceptionLayer` | `src/hivememory/engines/perception/interfaces.py` | 删除；`BaseRelayController` 保留在原文件（阶段 3） |
-| `FlushReason`、`FlushEvent`、`AutomaticSettleResult` | `src/hivememory/engines/perception/models.py` | `FlushReason` 重命名为 `TriggerReason`（枚举字符串值不变）；`AutomaticSettleResult` 由 `SettlementOutcome` 取代；`FlushEvent` 载体是否改名不在范围内 |
-| `BufferState.FLUSHING`（序列化值 `flushing`） | `src/hivememory/core/models/topic.py:21` | 重命名为 `SETTLING`（序列化值 `settling`），删除 `FLUSHING` |
-| `create_perception_layer` | `src/hivememory/engines/perception/__init__.py` | 重命名为 `create_perception_engine`，删除 `enable=False` no-op 分支 |
-| `SemanticFlowPerceptionConfig.enable` | `src/hivememory/system/config/patchouli.py:51` | 删除该开关（阶段 3），配置加载需显式处理旧字段 |
-| `TopicMaterializeTask` | `src/hivememory/engines/perception/models.py` | 保留为跨边界模型，新增 `from_topic_data()` 类方法 |
+此前阶段 1 的调用点盘点和失败测试清单仍可作为迁移证据，但其中关于“状态执行迁入 TopicBufferService”和“领域锁归 TopicBufferService”的结论均由本修订替代。后续实施与验收以本版本的目标架构、Store 协议和完成条件为准。
 
-#### 11.1.3 生产代码调用点盘点
+### 11.2 2026-09-04：补充存储协议、资产引用和队列边界
 
-| 调用点 | 引用内容 | 迁移阶段 |
-|:---|:---|:---:|
-| `src/hivememory/__init__.py:159-177、355-372` | 顶层导出 `SemanticFlowPerceptionLayer`、`BasePerceptionLayer`、`NullPerceptionLayer`、`FlushEvent`、`FlushReason`、`TriggerManager`、`DECISION_MATRIX`、`create_perception_layer` | 阶段 3 |
-| `src/hivememory/engines/perception/__init__.py` | 包导出与工厂；`enable=False` 时返回 `NullPerceptionLayer`（:97-98）；`__all__` 中残留未导入的 `InteractionArtifactBuilder` 项 | 阶段 3 |
-| `src/hivememory/engines/perception/interfaces.py` | `BasePerceptionLayer` 八个抽象方法（settle/prepare/commit/abort/ingest/route/prepare_topic/swap_out） | 阶段 3 |
-| `src/hivememory/engines/perception/semantic_flow_perception_layer.py` | 持有 Store、Journal、`_domain_lock`、`TriggerManager`；`route_and_ingest`/`ingest_payload` 含 journal retry 协议与 `_compute_apply_digest`；`_maybe_fold_pages` 阈值判断；`settle_topic`/`prepare_settlement`/`commit_settlement`/`abort_settlement`/`swap_out_topic`/`discard_if_empty` | 阶段 3/4 |
-| `src/hivememory/patchouli/services/perception.py` | `PerceptionFamiliar` 持有 `memory_library.short_term`（:61）；直接 Store 调用（:115、:164、:180、:242）；LRU 候选选择与 IDLE 过滤（:189-220）；idle 扫描（:303-326）；shutdown 遍历（:328-366）；`_maintenance_scope` 重建访问作用域 | 阶段 4 |
-| `src/hivememory/patchouli/runtime/core.py:398-407、541-547` | `_build_perception_layer` 调用 `create_perception_layer`；`PerceptionFamiliar` 注入 `perception_layer` | 阶段 3/4 |
-| `src/hivememory/patchouli/control/interaction_apply_journal.py:9` | 仅类型引用 `TopicMaterializeTask` | 不迁移 |
-| `src/hivememory/patchouli/control/interaction_submission.py:197-207` | 适配 `PerceptionFamiliar.apply_interaction`（签名不变） | 不迁移 |
-| `src/hivememory/patchouli/runtime/route_bindings.py:99-112`、`system.py:94、171` | 绑定 Familiar 公开入口（`prepare_topic`/`evict_topic`/`discard_if_empty`/`manual_settle_topic`/`apply_interaction`/`scan_idle_buffers_once`） | 公开路由名不变 |
-| `src/hivememory/prompts/assembler.py:11` | `PerceptionContextConverter`（无状态门面，不在重构范围） | 不迁移 |
+- 明确本计划与旧版“复杂 Store”的差异：Store 只实现维持 Pool/Buffer 一致性所需的存储协议，不按触发原因复制业务入口；`TriggerPlan` 固定为 `services/trigger_plan.py` 的无状态策略。
+- 明确 settlement task 仅携带已确认的 asset ref/binding 快照，真实附件由后续 artifact 创建流程反查 `WorkspaceAssetStore`；orphan asset 不建立 Topic 事实关联。
+- 明确 admission-before-evict 的失败边界：Topic 不得在 admission 前删除；队列的持久化、重试、幂等和裸提交失败由队列机制负责，本计划不增加补偿队列；receipt 之后的 Generation 失败不重新打开 Topic。
+- 更新复合键和低并发锁的说明，继续禁止 `by_key` 上浮、per-topic lock、revision/CAS 及额外 Controller。
 
-#### 11.1.4 Store 消费方盘点
+### 11.3 2026-09-04：明确 TriggerPolicy 与 Engine 的分层
 
-| 消费方 | 用法 | 处置 |
-|:---|:---|:---|
-| `PerceptionFamiliar`（services/perception.py） | `get`/`count`/`list_by_workspace`/`list_all` + LRU、idle、shutdown 遍历 | 阶段 4 收口到 `TopicBufferService`，Familiar 不再持有 Store |
-| `RetrievalFamiliar`（services/retrieval.py:97、117） | `get`、`list_by_workspace`（话题池只读投影） | 保留（读模型） |
-| `PatchouliRuntime._build_memory_library`（runtime/core.py:332） | 构造与注入 | 保留（装配） |
-| `MemoryLibrary.short_term`（memory_library/library.py） | 持有与健康检查 | 保留 |
-
-`WorkspaceTopicKey` 目前只出现在 `adapters/short_term.py` 内部，上一轮清理已把它收敛到 adapter，本计划维持该封装。
-
-#### 11.1.5 `FlushReason` / `BufferState.FLUSHING` 迁移清单
-
-生产代码（静态搜索确认的全部引用）：
-
-- `core/models/topic.py:21`：`FLUSHING = "flushing"` 定义 → `SETTLING = "settling"`；
-- `engines/perception/models.py`：`FlushReason`/`FlushEvent` 定义 → `TriggerReason`（保留七个枚举字符串值：`token_overflow`/`idle_timeout`/`lru_eviction`/`shutdown`/`manual_settle`/`manual_compact`/`manual_delete`），`TopicMaterializeTask.reason` 字段类型随迁；
-- `engines/perception/trigger_manager.py`、`semantic_flow_perception_layer.py`、`interfaces.py`、`__init__.py`：随文件迁移/删除收口；
-- `hivememory/__init__.py`：顶层导出改名为 `TriggerReason`；
-- `patchouli/services/perception.py`：`FlushReason.LRU_EVICTION`/`IDLE_TIMEOUT`/`SHUTDOWN` 三处用法改为 `TriggerReason`；
-- `patchouli/control/interaction_apply_journal.py`：仅 `TopicMaterializeTask` 类型引用，无枚举引用。
-
-序列化影响核查：短期 buffer 为进程内存储（`InMemoryShortTermStorage`），`FLUSHING`/`flushing` 无持久化数据依赖；`flushing` 字符串不出现在配置、server 模型或队列 payload 中，重命名安全。`TriggerReason` 枚举字符串值保持不变，因此 `TopicMaterializeTask`/`FlushEvent` 的既有 payload 不受影响。
-
-测试侧引用（随对应阶段重写）：`tests/conftest.py`（`FlushRecorder`/`FlushEventRecorder`/perception fixture）、`tests/unit/agent_runtime/mtp/test_write_chain.py` 与 `test_update_chain.py`（仅断言 `FlushReason.__members__` 不含 `MTP_*`，需跟随新名称）、11.1.1 表列出的全部过期测试，以及 `tests/unit/patchouli/memory_library/test_buffer.py:191`（断言 `FLUSHING.value == "flushing"`）。
-
-#### 11.1.6 冻结契约
-
-以下契约为后续阶段的实施基准，实施中不得偏离或另立第二份定义：
-
-1. **决策矩阵**：七种触发原因与 `TriggerPlan(settle, compact, evict)` 的映射固定为 Plan §4.2 表格；`TOKEN_OVERFLOW`/`MANUAL_COMPACT` 仅 compact，`MANUAL_DELETE` 仅 evict，其余四种 settle 原因均为 `settle=True, evict=True`。
-2. **不变量**：`settle=True` 必须 `evict=True`；`TriggerPlan` 至少含一个动作；compact 的 `retain_recent_blocks >= 1`。
-3. **settle 统一时序**：所有 `settle=True` 原因共用 `begin_settlement -> 锁外 admission -> complete_settlement/abort_settlement`；`SETTLING` 期间拒绝新 Interaction；接纳成功或无材料才删除 Topic；明确拒绝/异常恢复 `IDLE` 并保留内容；queue 成功 receipt 后的生成失败不重开 Topic。
-4. **消除特殊分支**：现行 `resolve_topic` 中 `MANUAL_SETTLE` 的 ValueError 分支随统一协议消失；`MANUAL_SETTLE` 与 automatic settle 共用同一 begin/complete/abort 原语。
-5. **命名**：`TriggerReason`、`BufferState.SETTLING`、`TopicBufferService`、`MemoryPerceptionEngine`、`create_perception_engine`、`TriggerPlan`、`SettlementOutcome`（状态枚举 `SettlementStatus`：`ACCEPTED`/`NO_MATERIAL`/`REJECTED`/`NOT_FOUND`）。
-6. **迁移禁令**：不新增 `by_key` Store 入口、Store 复合方法、额外状态控制器、per-topic lock；不新增 `topic_buffer_models.py` 或第二份矩阵/`TriggerPlan`；`TriggerPlan` 不携带 `evict_timing`/`defer_evict` 等时序字段。
-7. **锁边界**：领域锁（RLock）归 `TopicBufferService`；Relay 摘要生成与 generation queue admission 在锁外；Store/adapter 锁只保护单次 CRUD 与内部索引。
-
-#### 11.1.7 目标依赖方向确认
-
-```text
-PerceptionFamiliar (patchouli/services)
-  -> TopicBufferService (patchouli/services/topic_buffer.py)
-       -> ShortTermMemoryStore (patchouli/memory_library) -> adapter
-  -> MemoryPerceptionEngine (engines/perception, 无状态)
-TopicBufferService -> MemoryPerceptionEngine（摘要/折叠纯算法）
-```
-
-- 允许方向：`patchouli -> engines/perception`（Familiar/Service 引用 Engine、Relay 协议与感知模型）；
-- 必须消除的反向依赖：现行 `trigger_manager.py`/`semantic_flow_perception_layer.py` 导入 `patchouli.errors`、`patchouli.control`、`patchouli.memory_library`；阶段 3 完成后 `engines/perception/` 生产代码不得导入 `patchouli.*`（`TopicBusyError` 的使用随状态执行迁入 `TopicBufferService`，journal retry 协议归 Familiar）；
-- `engines/perception/` 阶段 3 后只依赖 `core.models`、`core.protocol.models`、`system.config`（fold 阈值配置经注入或参数传入）、`utils.token_estimator`、`i18n` 与自身模块；
-- `interaction_apply_journal` 留在 `patchouli/control`，retry 协议（journal 检查、digest 等价性校验、journal 记录）由 Familiar 与 TopicBufferService 的调用顺序承接；
-- `context_converter.py` 为无状态渲染门面，不属于本次边界重构范围。
+- 不恢复 `engines/perception/trigger_manager.py`。触发矩阵不是感知算法能力，而是 Patchouli Topic 生命周期策略；统一由 `patchouli/services/trigger_plan.py::TopicTriggerPolicy.resolve()` 提供。
+- `PerceptionFamiliar` 作为策略使用者，按 `TriggerPlan` 的三类动作调用 Store 协议并协调锁外 Relay/Generation；它不在类内复制矩阵，也不把策略执行下沉到 Engine。
+- `TriggerReason` 与 `TopicMaterializeTask` 不再由 Engine 模型长期所有；`TriggerReason` 固定收口到 `trigger_plan.py`，交接模型迁移到 Patchouli/Generation 契约，Engine 只保留纯感知模型和算法输入。
+- Store 的 `begin_settlement()` 不接收 `TriggerReason`；触发来源只存在于业务上下文和必要的交接/结果模型中。

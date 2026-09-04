@@ -4,14 +4,7 @@ import pytest
 
 from hivememory.core.models import Identity, TurnEvent
 from hivememory.core.protocol import InteractionPayload
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    SemanticFlowPerceptionLayer,
-)
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.system.config import SemanticFlowPerceptionConfig
+from tests.helpers.perception import build_perception_stack
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -35,12 +28,8 @@ class TestSemanticFlowPerceptionLayer:
     def setup_method(self):
         self.relay = Mock()
         self.relay.should_relay.return_value = None
-        self.store = ShortTermMemoryStore()
-        self.layer = SemanticFlowPerceptionLayer(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
-            relay_controller=self.relay,
-            short_term_store=self.store,
-            interaction_journal=InMemoryInteractionApplyJournal(),
+        self.layer, self.store, self.service = build_perception_stack(
+            relay=self.relay
         )
 
     @pytest.mark.asyncio

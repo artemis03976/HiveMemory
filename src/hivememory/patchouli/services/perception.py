@@ -1,23 +1,20 @@
 """Patchouli 感知使魔。
 
-承接感知层代理职责，让 PerceptionLayer 保持为不感知总线和生成链路的底层 engine。
+承接感知层代理职责：接收已接纳的 Interaction、执行统一的 settle 外部时序
+（begin -> 锁外 admission -> complete/abort）、把领域结果投影为公开报告。
+Topic Buffer 状态、活跃池与 LRU/idle/shutdown 的状态执行由
+``TopicBufferService`` 唯一拥有，本使魔不直接读写短期 Store。
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Optional
 
-from hivememory.core.models import (
-    ActorIdentity,
-    BufferState,
-    IdentityScope,
-    WorkspaceAssetRef,
-    require_identity_scope,
-)
+from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import FlushReason, TopicMaterializeTask
+from hivememory.engines.perception.models import TopicMaterializeTask, TriggerReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -29,11 +26,12 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
+from hivememory.patchouli.services.topic_buffer import SettlementStatus
 
 if TYPE_CHECKING:
+    from hivememory.core.models import WorkspaceAssetRef
     from hivememory.engines.perception.interfaces import BasePerceptionLayer
-    from hivememory.patchouli.memory_library.library import MemoryLibrary
-    from hivememory.patchouli.runtime.bus import PatchouliBus
+    from hivememory.patchouli.services.topic_buffer import TopicBufferService
     from hivememory.system.config.patchouli import MemoryPerceptionConfig
 
 logger = logging.getLogger(__name__)
@@ -48,17 +46,17 @@ class PerceptionFamiliar:
         self,
         *,
         perception_layer: "BasePerceptionLayer",
-        bus: "PatchouliBus",
+        topic_buffer: "TopicBufferService",
+        bus,
         config: "MemoryPerceptionConfig",
-        memory_library: "MemoryLibrary",
         interaction_journal: InMemoryInteractionApplyJournal,
     ) -> None:
         self.perception_layer = perception_layer
+        self._topic_buffer = topic_buffer
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
         config_engine = getattr(config, "engine", config)
         self._max_resident_topics = getattr(config_engine, "max_resident_topics", 5)
-        self._short_term = memory_library.short_term
         self._last_active_topic_ids: dict[tuple[str, str], str] = {}
         self._interaction_journal = interaction_journal
 
@@ -71,7 +69,7 @@ class PerceptionFamiliar:
         identity_scope: IdentityScope,
         target_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
-        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
+        asset_id_and_refs: tuple[tuple[str, "WorkspaceAssetRef"], ...] = (),
     ) -> str:
         """应用一份已由队列接纳的交互载荷，并完成话题路由。"""
         apply_record = (
@@ -112,7 +110,7 @@ class PerceptionFamiliar:
         await self._submit_settlement_payload(settle_payload)
 
         workspace = identity_scope.workspace_identity
-        self._short_term.get(identity_scope, topic_id, touch=True)
+        self._topic_buffer.touch_topic(identity_scope, topic_id)
         self._last_active_topic_ids[
             (workspace.owner_user_id, workspace.workspace_id)
         ] = topic_id
@@ -129,18 +127,14 @@ class PerceptionFamiliar:
     ) -> MemoryGenerationTask | None:
         """提交可选的 Topic settlement payload，并返回已接纳任务。
 
-        automatic、manual 与 shutdown 的 Topic 生命周期顺序各不相同，不能在
-        此处合并；它们只共享这一段 transport 逻辑。``None`` 表示当前 Topic
-        没有可提交的 generation 材料，是正常的 skip，而不是异常。
+        ``None`` 表示当前 Topic 没有可提交的 generation 材料，是正常的 skip，
+        而不是异常；admission 的异常由调用方按各自来源投影。
         """
         if settlement is None:
             return None
-        return cast(
-            MemoryGenerationTask | None,
-            await self._bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-                settlement,
-            ),
+        return await self._bus.request(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
+            settlement,
         )
 
     async def prepare_topic(
@@ -161,12 +155,70 @@ class PerceptionFamiliar:
             new_topic_summary,
             identity_scope,
         )
-        if self._short_term.get(identity_scope, real_topic_id, touch=True) is not None:
+        if self._topic_buffer.touch_topic(identity_scope, real_topic_id) is not None:
             workspace = identity_scope.workspace_identity
             self._last_active_topic_ids[
                 (workspace.owner_user_id, workspace.workspace_id)
             ] = real_topic_id
         return real_topic_id
+
+    async def _settle_candidate(
+        self,
+        identity_scope: IdentityScope,
+        topic_id: str,
+        reason: TriggerReason,
+        *,
+        raise_on_admission_failure: bool,
+    ) -> tuple[bool, MemoryGenerationTask | None]:
+        """对单个话题执行统一 settle 外部时序：begin -> admission -> complete/abort。
+
+        所有 ``settle=True`` 触发来源共用本时序，差异只体现在 admission 失败的
+        投影上——``raise_on_admission_failure=True`` 时恢复 Topic 并向调用方传播
+        可重试错误（manual / LRU backpressure），否则记录失败并等待下一次维护
+        （idle）。begin 报告目标缺失、admission 失败或 complete 未删除时返回
+        ``completed=False``，调用方不得把它当作成功清理。
+
+        Returns:
+            (话题生命周期是否已结束, 已接纳的 generation task 或 None)
+        """
+        # 1. begin：IDLE -> SETTLING，冻结材料（领域锁内）；busy 显式抛出。
+        reservation = self._topic_buffer.begin_settlement(identity_scope, topic_id, reason)
+        if reservation is None:
+            # 目标已被其他生命周期操作移除。
+            return False, None
+
+        # 2. admission：领域锁外等待 Generation queue 接纳。
+        try:
+            task = await self._submit_settlement_payload(reservation.task)
+        except Exception:
+            self._topic_buffer.abort_settlement(identity_scope, topic_id, reason=reason)
+            if raise_on_admission_failure:
+                raise
+            logger.warning(
+                "settle admission 失败，Topic 保留并等待重试: topic_id=%s, reason=%s",
+                topic_id,
+                reason.value,
+                exc_info=True,
+            )
+            return False, None
+
+        # 3. complete：接纳成功或正常 skip 后结束 Topic 生命周期。
+        outcome = self._topic_buffer.complete_settlement(
+            identity_scope,
+            topic_id,
+            generation_task_id=task.task_id if task else None,
+            reason=reason,
+        )
+        if not outcome.removed:
+            # 目标在 admission 期间被并发操作移除；已接纳任务属于 Generation
+            # 自身的后续终态，不再重开 Topic。
+            logger.warning(
+                "settle 完成时目标已不存在: topic_id=%s, status=%s",
+                topic_id,
+                outcome.status.value,
+            )
+            return False, task
+        return True, task
 
     async def _maybe_evict_lru(
         self,
@@ -177,46 +229,40 @@ class PerceptionFamiliar:
         # 已有话题无需驱逐；未知目标必须直接拒绝，不能被误当成 NEW_TOPIC。
         # 该检查位于 LRU 操作之前，保证跨 Workspace ID 不会产生本域副作用。
         if target_topic_id != "NEW_TOPIC":
-            if self._short_term.get(identity_scope, target_topic_id, touch=False) is None:
+            if self._topic_buffer.get_topic(identity_scope, target_topic_id, touch=False) is None:
                 raise KeyError(
                     f"topic '{target_topic_id}' does not exist in requested Workspace"
                 )
             return
-        if self._short_term.count(identity_scope) < self._max_resident_topics:
+        if self._topic_buffer.count_topics(identity_scope) < self._max_resident_topics:
             return
 
         attempted_topic_ids: set[str] = set()
-        while self._short_term.count(identity_scope) >= self._max_resident_topics:
-            idle_topics = [
-                topic
-                for topic in self._short_term.list_by_workspace(identity_scope)
-                if topic.state is BufferState.IDLE and topic.topic_id not in attempted_topic_ids
-            ]
-            lru_topic_id = (
-                min(idle_topics, key=lambda topic: topic.last_accessed_at).topic_id
-                if idle_topics
-                else None
+        while self._topic_buffer.count_topics(identity_scope) >= self._max_resident_topics:
+            # 候选选择（只挑 IDLE、排除已尝试）由领域服务决定。
+            lru_topic_id = self._topic_buffer.select_lru_candidate(
+                identity_scope, exclude_ids=attempted_topic_ids
             )
-            if lru_topic_id is None or lru_topic_id in attempted_topic_ids:
+            if lru_topic_id is None:
                 # 池满但无未尝试的 IDLE 候选，无法安全驱逐。
                 raise TopicBusyError("LRU 驱逐无 IDLE 候选，稍后重试")
 
             try:
-                settle_result = await self.perception_layer.settle_topic(
+                completed, _ = await self._settle_candidate(
                     identity_scope,
                     lru_topic_id,
-                    FlushReason.LRU_EVICTION,
+                    TriggerReason.LRU_EVICTION,
+                    raise_on_admission_failure=True,
                 )
             except TopicBusyError:
-                # 候选在选择后进入 busy，重新读取 Store 以改选其他 IDLE Topic。
+                # 候选在选择后进入 busy，改选其他 IDLE Topic。
                 attempted_topic_ids.add(lru_topic_id)
                 continue
-
-            if not settle_result.evicted:
+            if not completed:
                 # 候选已被其他生命周期操作移除；重新检查容量，而不是误报驱逐成功。
                 attempted_topic_ids.add(lru_topic_id)
                 continue
-            await self._submit_settlement_payload(settle_result.settlement)
+            # admission 成功或正常 skip 后 Topic 已被 complete 删除，容量释放。
             return
 
     async def manual_settle_topic(
@@ -224,11 +270,11 @@ class PerceptionFamiliar:
         identity_scope: IdentityScope,
         topic_id: Optional[str] = None,
     ) -> TopicSettleResult:
-        """手动结算指定话题：FLUSHING prepare -> admission -> commit/abort。
+        """手动结算指定话题：SETTLING begin -> admission -> complete/abort。
 
-        先取得 FLUSHING 预约并冻结 settlement 材料，存在可写材料时先可靠接纳
-        memory generation task，接纳成功（或没有可提交材料）后再结束 Topic 生命
-        周期。admission 失败时 abort 恢复 IDLE，Topic、blocks 与 state_summary
+        先取得 SETTLING 预约并冻结 settlement 材料，存在可写材料时先可靠接纳
+        memory generation task，接纳成功（或没有可提交材料）后再结束 Topic 生
+        命周期。admission 失败时 abort 恢复 IDLE，Topic、blocks 与 state_summary
         保持完整可重试。
         """
         identity_scope = require_identity_scope(identity_scope)
@@ -239,32 +285,29 @@ class PerceptionFamiliar:
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
 
-        topic = self._short_term.get(identity_scope, target_id, touch=True)
+        topic = self._topic_buffer.get_topic(identity_scope, target_id, touch=True)
         if topic is None:
             raise KeyError(f"话题 {target_id} 不存在")
 
-        # 1. prepare：取得 FLUSHING 并只冻结材料，不清 blocks、不驱逐
-        settle_payload = await self.perception_layer.prepare_settlement(
-            identity_scope,
-            target_id,
-        )
-
-        # 2. admission：存在可提交材料时必须先可靠接纳
-        task: MemoryGenerationTask | None = None
         try:
-            task = await self._submit_settlement_payload(settle_payload)
-        except Exception as exc:
-            logger.warning(
-                "manual settle admission 失败: topic_id=%s", target_id,
-                exc_info=True,
+            completed, task = await self._settle_candidate(
+                identity_scope,
+                target_id,
+                TriggerReason.MANUAL_SETTLE,
+                raise_on_admission_failure=True,
             )
-            self.perception_layer.abort_settlement(identity_scope, target_id)
+        except TopicBusyError:
+            # 目标正忙是瞬态冲突，不是 admission 失败，保持原语义向用户抛出。
+            raise
+        except Exception as exc:
             raise TopicSettleAdmissionError(
                 f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
             ) from exc
+        if not completed:
+            if self._topic_buffer.get_topic(identity_scope, target_id, touch=False) is None:
+                raise KeyError(f"话题 {target_id} 不存在")
+            raise RuntimeError(f"话题 {target_id} 未能完成结算")
 
-        # 3. commit：接纳成功或正常 skip 后结束 Topic 生命周期
-        self.perception_layer.commit_settlement(identity_scope, target_id)
         self._last_active_topic_ids.pop(
             (workspace.owner_user_id, workspace.workspace_id),
             None,
@@ -284,7 +327,7 @@ class PerceptionFamiliar:
         topic_id: str,
     ) -> TopicEvictionResult:
         """从活跃话题池中驱逐话题，不触发结算。"""
-        removed = self.perception_layer.swap_out_topic(identity_scope, topic_id)
+        removed = self._topic_buffer.delete_if_idle(identity_scope, topic_id)
         if removed:
             workspace = identity_scope.workspace_identity
             scope = (workspace.owner_user_id, workspace.workspace_id)
@@ -298,64 +341,97 @@ class PerceptionFamiliar:
         topic_id: str,
     ) -> bool:
         """话题为空时清理该话题。"""
-        return self.perception_layer.discard_if_empty(identity_scope, topic_id)
+        return self._topic_buffer.discard_if_empty(identity_scope, topic_id)
 
     async def scan_idle_buffers_once(self) -> list[str]:
-        """扫描并 settle 空闲超时话题，策略由 Familiar 持有。"""
+        """扫描并 settle 空闲超时话题；候选由领域服务提供。"""
         flushed = []
-        for topic in self._short_term.list_all():
-            if topic.is_idle(self._idle_timeout_seconds):
-                logger.info(
-                    "检测到空闲话题: topic_id=%s, idle_time=%.1fs",
-                    topic.topic_id,
-                    datetime.now(timezone.utc).timestamp() - topic.last_update,
+        for candidate in self._topic_buffer.list_idle_candidates(
+            self._idle_timeout_seconds
+        ):
+            logger.info(
+                "检测到空闲话题: topic_id=%s, idle_time=%.1fs",
+                candidate.topic_id,
+                datetime.now(timezone.utc).timestamp() - candidate.last_update,
+            )
+            try:
+                completed, _ = await self._settle_candidate(
+                    candidate.identity_scope,
+                    candidate.topic_id,
+                    TriggerReason.IDLE_TIMEOUT,
+                    raise_on_admission_failure=False,
                 )
-                try:
-                    settle_result = await self.perception_layer.settle_topic(
-                        self._maintenance_scope(topic),
-                        topic.topic_id,
-                        FlushReason.IDLE_TIMEOUT,
-                    )
-                except TopicBusyError:
-                    # snapshot 后进入 busy 的 Topic 留给后续维护轮次处理。
-                    continue
-                if not settle_result.evicted:
-                    continue
-                await self._submit_settlement_payload(settle_result.settlement)
-                flushed.append(topic.topic_id)
+            except TopicBusyError:
+                # snapshot 后进入 busy 的 Topic 留给后续维护轮次处理。
+                continue
+            if completed:
+                flushed.append(candidate.topic_id)
         return flushed
 
     async def flush_all_for_shutdown(self) -> TopicShutdownFlushReport:
         """
-        服务关闭前强制结算并驱逐所有活跃话题。
+        服务关闭前逐 Topic 执行统一 settle 协议并驱逐。
 
         真正空 Topic 没有可提交的结算材料，但仍按 SHUTDOWN 矩阵执行 evict，
-        不留在活跃池中。没有建立 generation task 属于正常 skip；异常仍向上
-        传播，不能伪装成 skip。
+        不留在活跃池中。没有建立 generation task 属于正常 skip；单个 Topic 的
+        busy 或 admission 异常被隔离记录到报告的 ``failed_topic_ids``，不阻止
+        其余 Topic 清理与已接纳任务的 drain。未完成 admission 的 Topic 通过
+        abort 恢复 IDLE，不计入已完成清理。
         """
+        candidates = self._topic_buffer.list_shutdown_candidates()
+        resident_block_count = sum(candidate.block_count for candidate in candidates)
         settled_topic_ids: list[str] = []
         generation_skipped_topic_ids: list[str] = []
-        resident_block_count = 0
-        for topic in self._short_term.list_all():
-            resident_block_count += topic.block_count
-            settle_result = await self.perception_layer.settle_topic(
-                self._maintenance_scope(topic),
-                topic.topic_id,
-                FlushReason.SHUTDOWN,
-            )
-            if not settle_result.evicted:
-                # 目标已由其他生命周期操作移除，不把它伪装成本次 settled。
+        failed_topic_ids: list[str] = []
+        for candidate in candidates:
+            try:
+                reservation = self._topic_buffer.begin_settlement(
+                    candidate.identity_scope,
+                    candidate.topic_id,
+                    TriggerReason.SHUTDOWN,
+                )
+            except TopicBusyError:
+                # 无法安全结算（仍被 Interaction/compact 占用），隔离记录。
+                failed_topic_ids.append(candidate.topic_id)
                 continue
-            task = await self._submit_settlement_payload(settle_result.settlement)
-            settled_topic_ids.append(topic.topic_id)
+            if reservation is None:
+                # 目标已被其他生命周期操作移除，不把它伪装成本次 settled。
+                continue
+            try:
+                task = await self._submit_settlement_payload(reservation.task)
+            except Exception:
+                logger.exception(
+                    "shutdown settle admission 失败: topic_id=%s", candidate.topic_id
+                )
+                self._topic_buffer.abort_settlement(
+                    candidate.identity_scope,
+                    candidate.topic_id,
+                    reason=TriggerReason.SHUTDOWN,
+                )
+                failed_topic_ids.append(candidate.topic_id)
+                continue
+            outcome = self._topic_buffer.complete_settlement(
+                candidate.identity_scope,
+                candidate.topic_id,
+                generation_task_id=task.task_id if task else None,
+                reason=TriggerReason.SHUTDOWN,
+            )
+            if not outcome.removed:
+                if outcome.status is SettlementStatus.NOT_FOUND:
+                    # 已被其他生命周期操作移除，不记为失败也不计入本次 settled。
+                    continue
+                failed_topic_ids.append(candidate.topic_id)
+                continue
+            settled_topic_ids.append(candidate.topic_id)
             if task is None:
-                generation_skipped_topic_ids.append(topic.topic_id)
+                generation_skipped_topic_ids.append(candidate.topic_id)
 
         logger.info(
-            "shutdown flush 完成: settled=%d, generation_skipped=%d, "
+            "shutdown flush 完成: settled=%d, generation_skipped=%d, failed=%d, "
             "resident_blocks=%d",
             len(settled_topic_ids),
             len(generation_skipped_topic_ids),
+            len(failed_topic_ids),
             resident_block_count,
         )
 
@@ -363,19 +439,7 @@ class PerceptionFamiliar:
             settled_topic_ids=tuple(settled_topic_ids),
             generation_skipped_topic_ids=tuple(generation_skipped_topic_ids),
             resident_block_count=resident_block_count,
-        )
-
-    @staticmethod
-    def _maintenance_scope(topic) -> IdentityScope:
-        """Rebuild the access scope needed by a process-level lifecycle pass."""
-        actor = (
-            topic.blocks[-1].identity
-            if topic.blocks
-            else ActorIdentity(user_id=topic.workspace_identity.owner_user_id)
-        )
-        return IdentityScope(
-            actor_identity=actor,
-            workspace_identity=topic.workspace_identity,
+            failed_topic_ids=tuple(failed_topic_ids),
         )
 
 
