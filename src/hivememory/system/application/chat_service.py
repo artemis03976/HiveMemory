@@ -108,13 +108,17 @@ def _require_prepared_scope(
 ) -> None:
     """拒绝 prepare 返回与 control registry 不一致的请求级 scope。"""
     prepared_scope = getattr(prepared, "identity_scope", None)
-    if (
-        not isinstance(prepared_scope, IdentityScope)
-        or prepared_scope.scope_fingerprint != identity_scope.scope_fingerprint
-    ):
+    if not isinstance(prepared_scope, IdentityScope) or prepared_scope != identity_scope:
         raise WorkspaceMismatchError(
             "PreparedAgentRun 与 ChatGenerationRun 的身份作用域不一致",
-            details={"generation_scope": identity_scope.scope_fingerprint},
+            details={
+                "requested_workspace": identity_scope.workspace_identity.workspace_id,
+                "prepared_workspace": (
+                    prepared_scope.workspace_identity.workspace_id
+                    if isinstance(prepared_scope, IdentityScope)
+                    else None
+                ),
+            },
         )
 
 

@@ -61,7 +61,6 @@ def test_identity_scope_round_trip_preserves_scope_and_fingerprint():
     restored = IdentityScope.model_validate_json(original.model_dump_json())
 
     assert restored == original
-    assert restored.scope_fingerprint == original.scope_fingerprint
 
 
 def test_identity_scope_is_frozen_and_recursively_immutable():

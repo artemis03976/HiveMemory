@@ -141,9 +141,7 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
 
     frame = runtime._agent_runtime.run_frame.await_args.args[0]
     assert frame.identity_scope == context.identity_scope
-    assert frame.runtime_scope.identity_scope.scope_fingerprint == (
-        context.identity_scope.scope_fingerprint
-    )
+    assert frame.runtime_scope.identity_scope == context.identity_scope
 
 
 @pytest.mark.asyncio

@@ -82,11 +82,6 @@ class ChatGenerationRun:
         """旧 Chat 控制 API 的兼容句柄，只读派生自 interaction_id。"""
         return self.interaction_id
 
-    @property
-    def scope_fingerprint(self) -> str:
-        """保存注册时冻结的完整身份作用域指纹。"""
-        return self.identity_scope.scope_fingerprint
-
     def bind_phase(self, phase: ChatRunPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
         self.phase = phase
