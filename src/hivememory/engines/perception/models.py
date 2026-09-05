@@ -6,8 +6,8 @@ HiveMemory 感知层数据模型
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - TopicMaterializeTask: 感知层 → 生成层的话题结算传输包
 
-Note: BufferState 已随记录字段状态机废弃（占用权由 TopicWorkingSet 的
-      lease 表表达）；语义见 hivememory.core.models.topic。
+Note: 记录字段状态机（原 BufferState）已删除，跨 await 的占用权由
+      TopicWorkingSet 的 lease 表表达。
 """
 
 from __future__ import annotations
@@ -32,8 +32,9 @@ from hivememory.core.models import (
 class TriggerReason(str, Enum):
     """统一触发原因枚举。
 
-    七种原因通过 ``topic_buffer.TRIGGER_PLANS`` 的唯一决策矩阵解释为
-    ``settle/compact/evict`` 三类动作。历史命名 ``FlushReason`` 已删除；
+    七种原因对应 settle / compact / evict 三类具名用例，由
+    ``PerceptionFamiliar`` 编排；``reason`` 仅作为 ``TopicMaterializeTask``
+    的 provenance 标签，不驱动分支。历史命名 ``FlushReason`` 已删除；
     枚举字符串值保持不变，既有任务与事件载荷不受影响。
     """
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
@@ -51,8 +52,8 @@ class FlushEvent(BaseModel):
     """
     话题触发事件载体。
 
-    事件只携带触发目标与原因；动作组合由 TopicBufferService 的统一矩阵解释，
-    调用方不得依据 ``reason`` 自行分支。
+    事件只携带触发目标与原因；``reason`` 仅作为 provenance 标签传递，
+    settle / compact / evict 由 PerceptionFamiliar 的具名用例编排。
     """
     identity_scope: IdentityScope
     topic_id: str
@@ -80,7 +81,7 @@ class TopicMaterializeTask(BaseModel):
     state_summary: str = Field(default="", description="话题状态摘要")
 
     # 结束 Topic 生命周期的 settle 在清除 buffer 前冻结的资产关系事实。进入 queue
-    # 后不再依赖 SemanticBuffer；codec/retry 必须原样保留 ref，不从最近资产重推导。
+    # 后不再依赖短期 buffer 实体；codec/retry 必须原样保留 ref，不从最近资产重推导。
     asset_bindings: tuple[TopicAssetBinding, ...] = Field(
         default_factory=tuple,
         description="settle 前冻结的 Topic 真实使用资产关系",

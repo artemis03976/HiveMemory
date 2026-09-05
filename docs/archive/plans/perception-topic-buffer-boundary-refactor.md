@@ -1,6 +1,9 @@
 ---
 title: Perception Topic Buffer Boundary Refactor
-status: active
+status: archived
+archived_at: 2026-09-05
+implemented_by: branch refactor/short-memory-store-cleanup
+superseded_by: docs/patchouli/perception.md
 owner: patchouli
 target: post-p7-perception-boundary-cleanup
 scope: short-term-storage-topic-lifecycle-working-set-and-perception-engine-cleanup
@@ -25,6 +28,10 @@ last_reviewed: 2026-09-04
 ---
 
 # Perception Topic Buffer 边界重组计划（第三版）
+
+> **已归档（2026-09-05）**：本计划已实施完成并通过评审，当前设计事实见
+> [感知与短期话题](../../patchouli/perception.md) 与
+> [MemoryLibrary 与存储层](../../patchouli/memory-library.md)。本文件仅供追溯实施过程与设计取舍。
 
 ## 0. 执行摘要
 
@@ -1525,17 +1532,17 @@ def test_no_topic_buffer_service_imports():
 
 ## 8. 完成条件
 
-- [ ] `TopicWorkingSet` 实现完成，单元测试通过（≤ 150 行）；
-- [ ] `ShortTermMemoryStore` 简化为纯 CRUD（≤ 100 行）；
-- [ ] `SemanticBuffer` / `BufferState` 删除；
-- [ ] `PerceptionFamiliar` 重写，持有 WorkingSet + Store + Engine（≤ 400 行）；
-- [ ] `MemoryPerceptionEngine` 提取为纯算法（≤ 200 行）；
-- [ ] `TopicBufferService` / `BasePerceptionLayer` / `NullPerceptionLayer` 删除；
-- [ ] `TRIGGER_PLANS` 决策矩阵删除，换成 3 个具名用例；
-- [ ] 静态检查确认 `engines/perception/` 不导入 `hivememory.patchouli.*`；
-- [ ] 所有单元测试 + 集成测试通过；
-- [ ] 文档更新（`perception.md` / `memory-library.md` / `README.md`）；
-- [ ] 归档或修订已被替代的 todo。
+- [x] `TopicWorkingSet` 实现完成，单元测试通过（148 行 ≤ 150）；
+- [x] `ShortTermMemoryStore` 简化为纯 CRUD（82 行 ≤ 100）；
+- [x] `SemanticBuffer` / `BufferState` 删除；
+- [x] `PerceptionFamiliar` 重写，持有 WorkingSet + Store + Engine（见下方修订记录的行数口径说明）；
+- [x] `MemoryPerceptionEngine` 提取为纯算法（87 行 ≤ 200）；
+- [x] `TopicBufferService` / `BasePerceptionLayer` / `NullPerceptionLayer` 删除；
+- [x] `TRIGGER_PLANS` 决策矩阵删除，换成 3 个具名用例；
+- [x] 静态检查确认 `engines/perception/` 不导入 `hivememory.patchouli.*`（tests/unit/engines/perception/test_perception_package_contract.py）；
+- [x] 所有单元测试 + 集成测试通过（unit 1813 passed、integration 232 passed）；
+- [x] 文档更新（`perception.md` / `memory-library.md` / `README.md`）；
+- [x] 归档或修订已被替代的 todo。
 
 ---
 
@@ -1583,6 +1590,31 @@ TopicBufferService 把所有逻辑都塞进一个类，试图"成为短期存储
 ---
 
 ## 10. 修订记录
+
+### 10.2 2026-09-05：实施收口记录（归档）
+
+实施全部落地，与计划伪代码的偏差及行数口径记录如下，当前事实以
+`docs/patchouli/perception.md` 与 `docs/patchouli/memory-library.md` 为准：
+
+1. **WorkingSet 键**：驻留与 lease 以 `(WorkspaceIdentity, topic_id)` 为键，
+   而非 §3.2 草图的 `(IdentityScope, topic_id)`——同一 Workspace 存在多个
+   执行者作用域（不同 agent），完整 scope 做键会让同一话题双重驻留、租约
+   互斥被绕过；驻留条目内保存最后访问的完整 `IdentityScope` 以维持
+   `(scope, topic_id)` 候选返回形状。
+2. **`release` 令牌身份校验**：修复草图 `pop(key, None)` 的重复释放会误删
+   后来者租约的真实缺陷；`list_idle_candidates` 修复草图 `now or time.time()`
+   的 0.0 falsy 缺陷，并注入可控时钟（测试规范要求）。
+3. **行数口径**：验收按“组件含 docstring/注释总行数”执行——WorkingSet 148
+   （≤150）、Store 82（≤100）、Engine 87（≤200）达标；`PerceptionFamiliar`
+   模块 540 行 / 类约 490 行，超出 400 行估算。原因：Familiar 吸收了
+   TopicBufferService 的绑定合并与 layer 的 retry/digest 编排（§3.5 草图
+   本身约 300 行纯代码），且保留了中文 docstring 风格；纯代码约 425 行。
+   后续若需继续压缩，可将绑定合并下沉为 TopicData 模型方法。
+4. **阶段调整**：Engine 提取（阶段 4 任务 1-2）作为 Familiar 重写的先行
+   依赖在阶段 3 完成；`compute_apply_digest` 收口到 interaction journal
+   模块；`settle` 无需 abort（admission 失败时记录从未被改动）。
+5. **测试**：flush 触发器历史 e2e（live_llm 门控）随感知层删除，重建需要
+   真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试覆盖。
 
 ### 10.1 2026-09-04：第三版计划（推翻前两轮）
 

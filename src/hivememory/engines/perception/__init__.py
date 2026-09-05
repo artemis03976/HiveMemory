@@ -21,7 +21,6 @@ HiveMemory - 帕秋莉感知引擎 (Perception Engine / MMU 算法层)
 版本: 7.0.0
 """
 
-from hivememory.core.models import BufferState
 from hivememory.engines.perception.memory_perception_engine import (
     MemoryPerceptionEngine,
 )
@@ -46,7 +45,6 @@ __all__ = [
     # 数据模型
     "TraceItem",
     "LogicalBlock",
-    "BufferState",
     "FlushEvent",
     "TriggerReason",
     "TopicMaterializeTask",

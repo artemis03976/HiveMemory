@@ -1,22 +1,20 @@
 """Workspace scope 在真实 Interaction submission retry 链路中的集成测试。
 
 测试驱动 InteractionSubmissionQueue、真实 InteractionSubmissionHandler、
-PerceptionFamiliar、SemanticFlowPerceptionLayer 与 ShortTermMemoryStore；只在
-首次 attempt 的外部提交边界注入一次确定性的瞬态错误。
+PerceptionFamiliar（Engine + WorkingSet + Store）与真实 Journal；只在首次
+attempt 的外部提交边界注入一次确定性的瞬态错误。
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    SemanticFlowPerceptionLayer,
-)
+from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
@@ -25,24 +23,12 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
     TransientInteractionSubmissionError,
 )
-from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
+from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
 from tests.helpers.workspace import make_identity_scope
-
-
-class _DeterministicRelay:
-    """隔离 compact 的外部摘要模型；本场景不会实际触发 compact。"""
-
-    def should_relay(self, **_kwargs):
-        return None
-
-    def generate_summary(self, *, blocks_to_fold, previous_summary):
-        prefix = f"{previous_summary}|" if previous_summary else ""
-        return f"{prefix}folded:{len(blocks_to_fold)}"
 
 
 def _payload() -> InteractionPayload:
@@ -77,27 +63,17 @@ def _queue_policy() -> QueuePolicy:
 @pytest.mark.asyncio
 async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     """捕获 retry 丢失 scope、写错 Workspace 或重复写入 block 的缺陷。"""
-    store = ShortTermMemoryStore(max_resident_topics=4)
+    store = ShortTermMemoryStore()
     journal = InMemoryInteractionApplyJournal()
-    layer = SemanticFlowPerceptionLayer(
-        config=SemanticFlowPerceptionConfig(
-            fold_token_threshold=999999,
-            fold_retain_recent_blocks=1,
-        ),
-        relay_controller=_DeterministicRelay(),
-        short_term_store=store,
-        interaction_journal=journal,
-    )
-    bus = PatchouliBus()
     familiar = PerceptionFamiliar(
-        perception_layer=layer,
-        bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=900),
-        memory_library=MemoryLibrary(
-            short_term=store,
-            mid_term=Mock(),
-            long_term=Mock(),
+        engine=MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999)
         ),
+        store=store,
+        working_set=TopicWorkingSet(max_resident=4),
+        relay_controller=Mock(),
+        bus=Mock(request=AsyncMock(return_value=None)),
+        config=SimpleNamespace(idle_timeout_seconds=900),
         interaction_journal=journal,
     )
 
@@ -156,7 +132,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     assert [attempt for attempt, _ in attempts] == [1, 2]
     assert all(attempt_scope == scope for _, attempt_scope in attempts)
 
-    stored = store.get_topic_data(scope, outcome.topic_id, touch=False)
+    stored = store.get(scope, outcome.topic_id)
     assert stored.topic_id == outcome.topic_id
     assert [block.user_query for block in stored.blocks] == ["retry question"]
-    assert store.list_topic_data(other_scope) == []
+    assert store.list_by_workspace(other_scope) == []

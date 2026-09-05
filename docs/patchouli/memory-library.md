@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-05
 ---
 
 # MemoryLibrary 与存储层
@@ -36,15 +36,15 @@ MemoryLibrary
 
 ### 1.1 短期：话题工作台
 
-短期存储保存 Topic 记录。适配器内部可以使用可变 `SemanticBuffer`，但 Store/Port 对外只交换不可变 `TopicData` 快照；记录包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算、状态和最近访问时间。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
+短期存储保存 Topic 记录，是纯 CRUD 的存储事实封装：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算与最近模型名。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
 
-`topic_id` 是领域上的全局唯一身份；调用方通过 `IdentityScope + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。Topic 的内部状态和结算规则由 Perception 负责，MemoryLibrary 只维护存储事实与归属检查。
+`topic_id` 是领域上的全局唯一身份；调用方通过 `IdentityScope + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。写入同一 `topic_id` 到另一 Workspace 会被 adapter 以全局唯一性检查拒绝。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
 
 感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
 
-`ShortTermMemoryStore` 的长期公共 API 只有 `get`、`put`、`create`、`delete`、`list_by_workspace`、`list_all`、`count` 和 `check_health`。Perception 在自己的领域边界内从快照形成新记录，再通过一次 `put` 写回；Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`，不会接触 adapter 的可变 `SemanticBuffer`。
+`ShortTermMemoryStore` 的长期公共 API 只有 `get`、`put`、`create`、`delete`、`list_by_workspace`、`list_all`、`count` 和 `check_health`。Perception 在自己的领域边界内从快照形成新记录，再通过一次 `put` 写回；Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`。读取原样返回存储的 frozen 实例（零拷贝），frozen 模型保证调用方无法通过引用改写 Store 内事实。
 
-活跃池默认上限为 `max_resident_topics=5`。创建新话题且池已满时，PerceptionFamiliar 选择最近最少访问的话题，先按 LRU 结算，再从内存移除；命中已有话题不会触发驱逐。
+活跃话题容量与 LRU 驱逐不属于 Store：`perception.engine.max_resident_topics`（默认 5）配置的是 `TopicWorkingSet` 的驻留上限。创建新话题且池已满时，PerceptionFamiliar 从 WorkingSet 选择最近最少访问的话题，先按 LRU 结算，再从 Store 与驻留集合移除；命中已有话题不会触发驱逐。
 
 ### 1.2 中期：当前可检索书库
 
@@ -71,7 +71,7 @@ ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文
 短期 blocks 不由 MemoryLibrary 直接“升级”。Perception 形成 `TopicMaterializeTask`，Generation 从中提取、去重或更新记忆，MemoryGenerationFamiliar 挂载 artifacts 后再写入 MidTermMemoryStore。
 
 ```text
-SemanticBuffer
+TopicData 快照
   -> TopicMaterializeTask
   -> GenerationRequest
   -> GenerationOutcome

@@ -116,7 +116,7 @@ last_reviewed: 2026-09-02
 
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
-| `v0.6.2 W0` Workspace MVP | Current Development | 已实现 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；尚未发布 `v0.6.2` 标签 | 依赖 v0.6.1 与 Identity scope；当前事实见 [Workspace 架构](./architecture/workspace.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)，开放附件设计见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
+| `v0.6.2 W0` Workspace MVP | Current Development | 已实现 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 TopicAssetBinding；尚未发布 `v0.6.2` 标签 | 依赖 v0.6.1 与 Identity scope；当前事实见 [Workspace 架构](./architecture/workspace.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)，开放附件设计见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
 | `v0.6.2 W1` Chat Attachments | Candidate | 在已经验收的 Workspace 公共契约上实现上传、文本解析、asset refs、Context Compiler 与按需 Artifact promotion | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；独立正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -151,7 +151,7 @@ Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspac
 
 普通请求可以不传 Workspace，但只允许在最外层入口解析一次默认 `WorkspaceIdentity`。一次 Chat run 使用唯一 `interaction_id`，并由 `IdentityScope` 将 actor identity 与 WorkspaceIdentity 一起冻结；Gateway、Patchouli、Alice、MemoryLibrary、MTP、finalize 和后台 work 必须复用同一 scope。同一个 Agent 在两个后端 Workspace 并发运行时不得串扰。第一版不开放 Workspace 创建、切换或通信，只要求后端显式构造第二个 Workspace 验证隔离。
 
-W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease。TopicAssetBinding 由 Patchouli Perception 的 Topic 所有者在成功 Interaction 后形成，并作为不可变 `TopicData` 快照写回 `ShortTermMemoryStore`；短期 adapter 只在内部持有可变 `SemanticBuffer`。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
+W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease。TopicAssetBinding 由 Patchouli Perception 的 Topic 所有者在成功 Interaction 后形成，并作为不可变 `TopicData` 快照写回 `ShortTermMemoryStore`；短期 adapter 直接存储 frozen 快照。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
 
 现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`；历史转换脚本仍需独立规划和观察窗口，不能被当前 W0 状态或 W1 候选误读为已完成迁移。
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,21 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from hivememory.core.models.interaction import TurnRecord
 from hivememory.core.models.workspace import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import TopicAssetBinding
-
-
-class BufferState(str, Enum):
-    """短期话题缓冲区状态（已废弃，仅为兼容保留）。
-
-    占用权不再建模为记录字段：跨 await 的执行占用由
-    ``TopicWorkingSet`` 的 lease 表表达。TopicBufferService 重写移除前，
-    其旧状态机是仅存的（废弃）写入方。
-    """
-
-    IDLE = "idle"
-    PROCESSING = "processing"
-    # 结算预约：材料已冻结、等待 Generation admission 的短生命周期状态。
-    # admission 成功或无材料正常完成后删除 Topic，明确失败则恢复 IDLE。
-    SETTLING = "settling"
 
 
 class TopicLastTurn(BaseModel):
@@ -181,7 +165,6 @@ class TopicData(BaseModel):
 
 
 __all__ = [
-    "BufferState",
     "LogicalBlock",
     "TopicData",
     "TopicLastTurn",

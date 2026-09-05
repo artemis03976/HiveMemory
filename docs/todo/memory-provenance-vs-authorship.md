@@ -8,10 +8,10 @@ code_paths:
   - src/hivememory/engines/generation/engine.py
   - src/hivememory/engines/retrieval/filter_adapter.py
   - src/hivememory/engines/retrieval/models.py
-  - src/hivememory/patchouli/services/topic_buffer.py
+  - src/hivememory/patchouli/services/topic_working_set.py
   - src/hivememory/core/models/topic.py
 related_docs:
-  - docs/plans/perception-topic-buffer-boundary-refactor.md
+  - docs/archive/plans/perception-topic-buffer-boundary-refactor.md
   - docs/patchouli/perception.md
   - docs/architecture/workspace.md
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
@@ -27,10 +27,12 @@ last_reviewed: 2026-09-04
 Workspace 概念落地后，"topic 属于 Workspace，Agent 只是进入 Workspace 的工作者"，用户可以
 在一个话题内随时切换 Agent，于是**一个话题天然包含多个 Agent 的贡献**，单值字段无法表达。
 
-当前维护路径（IDLE_TIMEOUT / SHUTDOWN 扫描）通过
-[`build_maintenance_scope`](../../src/hivememory/patchouli/services/topic_buffer.py#L330-L346)
-从"最后一个 block 的 identity"猜出一个 Agent 作为归属，无 block 时回落到 Pydantic 默认值
-`omni_doll`。这既表达不了多 Agent 事实，也会把"未知"写成一个真实存在的 Agent 名字。
+历史维护路径（IDLE_TIMEOUT / SHUTDOWN 扫描）曾通过 `build_maintenance_scope`
+（已随 `TopicBufferService` 删除）从"最后一个 block 的 identity"猜出一个 Agent 作为归属，
+无 block 时回落到 Pydantic 默认值 `omni_doll`。这既表达不了多 Agent 事实，也会把"未知"
+写成一个真实存在的 Agent 名字。边界重构后维护路径直接复用 `TopicWorkingSet`
+（[topic_working_set.py](../../src/hivememory/patchouli/services/topic_working_set.py)）
+在 touch 时冻结的执行作用域，但"多 Agent 溯源"的语义缺口仍在，本 todo 继续有效。
 
 本事项**不是安全缺陷**（见下"授权已经分离"），而是溯源建模不准 + 一处默认值伪造。
 
@@ -163,8 +165,7 @@ contributing_agent_ids: tuple[str, ...] = ()   # 由 block identity 去重得到
 ### 2. `current_agent_id` 是死字段，应当删除
 
 [`TopicData.current_agent_id`](../../src/hivememory/core/models/topic.py#L110) 默认
-`"default"`，[e2e 测试注释](../../tests/e2e/system/test_flush_triggers_e2e.py#L122)
-明确记录"v4 架构下话题不记录 `current_agent_id`（恒为 default）"。渲染路径用的是
+`"default"`，已删除的 e2e flush 测试注释曾明确记录"v4 架构下话题不记录 `current_agent_id`（恒为 default）"。渲染路径用的是
 `context.identity.agent_id`（[assembler.py:54](../../src/hivememory/prompts/assembler.py#L54)），
 不读该字段。
 
@@ -177,8 +178,8 @@ contributing_agent_ids: tuple[str, ...] = ()   # 由 block identity 去重得到
   溯源集合（需要能区分 Mode A 与 Mode B/C）；
 - `engines/retrieval/filter_adapter.py`：`filters.source_agent_id` 改匹配溯源集合；
 - `core/constants.py`：新增保留系统 actor id 常量；
-- `patchouli/services/topic_buffer.py`：`build_maintenance_scope` 不再猜测 actor
-  （边界重构后会迁移到新的 `PerceptionFamiliar`，届时一并处理，**不要照搬**）；
+- 维护路径的执行作用域由 `TopicWorkingSet` 在 touch 时冻结（`build_maintenance_scope`
+  已随 `TopicBufferService` 删除，不照搬旧语义）；
 - `core/models/topic.py`：删除 `current_agent_id`；
 - 已写入的历史 `MemoryAtom`：**不做数据迁移**。已落库的 `source_agent_id` 无法可靠反推真值，
   回填只会制造第二种猜测。修复只保证此后写入正确。
@@ -191,7 +192,7 @@ contributing_agent_ids: tuple[str, ...] = ()   # 由 block identity 去重得到
 - 不升级 `schema_version`，不迁移或回填历史 `MemoryAtom.meta`；
 - 不改变 `IdentityScope` 的字段集，也不向其加入 topic 维度；
 - 不修改 Page Folding 的折叠策略来"保住" block 身份（裁定后不再需要）；
-- 不阻塞[感知层边界重构](../plans/perception-topic-buffer-boundary-refactor.md)。
+- 不阻塞[感知层边界重构](../archive/plans/perception-topic-buffer-boundary-refactor.md)（已实施完成）。
 
 ## 完成条件
 
@@ -211,8 +212,8 @@ contributing_agent_ids: tuple[str, ...] = ()   # 由 block identity 去重得到
 
 ## 相关事项
 
-- [感知层与短期记忆边界重构](../plans/perception-topic-buffer-boundary-refactor.md)：
-  会移动 `build_maintenance_scope` 的位置，但不修复其语义；
+- [感知层与短期记忆边界重构](../archive/plans/perception-topic-buffer-boundary-refactor.md)（已完成）：
+  `build_maintenance_scope` 已随 TopicBufferService 删除，但不修复其语义；
 - [Topic shutdown 逐 Topic 失败隔离](./topic-shutdown-per-topic-failure-isolation.md)：
   同样作用于 `flush_all_for_shutdown`，可能触及相同代码；
 - [ADR-0002：全局唯一身份与按需并发保护](../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md)。

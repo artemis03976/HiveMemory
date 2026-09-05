@@ -104,9 +104,9 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.3 Topic 实体与读取模型
 
-短期存储 adapter 内部维护可变的 `SemanticBuffer`，包含 blocks、摘要、状态、token 计数和访问时间；Store 与 Port 只交换冻结的 `TopicData` 或 `TopicSnapshot` 快照。
+短期存储 adapter 直接存储冻结的 `TopicData`（含 blocks、摘要、token 计数），Store 与 Port 只交换不可变 `TopicData` 或 `TopicSnapshot` 快照；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。
 
-“可变实体 + 不可变读取模型”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态。新增 append、touch、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把 `SemanticBuffer` 直接返回给 public route。当前实现中可变实体由 adapter 持有，Perception 通过不可变 `TopicData` 快照完成领域更新，再由 Store 写回。
+“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 通过不可变 `TopicData` 快照完成领域更新（读取 → model_copy → 整条替换写回），互斥由 TopicWorkingSet 的 lease 保证。
 
 ### 4.4 PendingAtom 状态机
 
