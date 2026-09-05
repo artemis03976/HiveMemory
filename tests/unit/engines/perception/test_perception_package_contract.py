@@ -17,7 +17,7 @@ def _iter_perception_sources() -> list[Path]:
 
 def test_engines_perception_does_not_import_patchouli():
     for py_file in _iter_perception_sources():
-        tree = ast.parse(py_file.read_text(encoding="utf-8-sig"))
+        tree = ast.parse(py_file.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
                 assert not (node.module or "").startswith("hivememory.patchouli"), (

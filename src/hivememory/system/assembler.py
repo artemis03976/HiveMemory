@@ -1,4 +1,4 @@
-﻿"""
+"""
 HiveMemory 系统装配器
 
 将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：

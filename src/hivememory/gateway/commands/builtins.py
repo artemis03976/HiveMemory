@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from hivememory.gateway.commands.models import (
     CommandCategory,

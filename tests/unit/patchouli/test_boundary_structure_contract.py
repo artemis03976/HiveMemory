@@ -35,7 +35,7 @@ def _iter_import_targets(tree: ast.AST):
 
 def test_no_topic_buffer_service_imports_in_production():
     for py_file in _iter_production_sources():
-        text = py_file.read_text(encoding="utf-8-sig")
+        text = py_file.read_text(encoding="utf-8")
         assert "TopicBufferService" not in text, (
             f"{py_file} 仍引用 TopicBufferService；编排归 PerceptionFamiliar"
         )
@@ -49,7 +49,7 @@ def test_no_topic_buffer_service_imports_in_production():
 
 def test_no_semantic_buffer_references_in_production():
     for py_file in _iter_production_sources():
-        text = py_file.read_text(encoding="utf-8-sig")
+        text = py_file.read_text(encoding="utf-8")
         assert "SemanticBuffer" not in text, (
             f"{py_file} 仍引用 SemanticBuffer；adapter 已直接存储 frozen TopicData"
         )

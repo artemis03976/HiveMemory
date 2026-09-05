@@ -1,4 +1,4 @@
-﻿from hivememory.gateway.commands.builtins import (
+from hivememory.gateway.commands.builtins import (
     create_builtin_command_registry,
     register_builtin_commands,
 )
