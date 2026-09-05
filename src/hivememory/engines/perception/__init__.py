@@ -33,6 +33,9 @@ from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
 
+from hivememory.engines.perception.memory_perception_engine import (
+    MemoryPerceptionEngine,
+)
 from hivememory.engines.perception.interfaces import (
     BasePerceptionLayer,
 )
@@ -119,6 +122,7 @@ def create_perception_layer(
 
 __all__ = [
     # 感知层实现
+    "MemoryPerceptionEngine",
     "SemanticFlowPerceptionLayer",
     "NullPerceptionLayer",
     # 接口
