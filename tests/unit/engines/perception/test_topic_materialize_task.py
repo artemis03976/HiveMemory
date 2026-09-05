@@ -71,9 +71,7 @@ class TestFromTopicData:
         """
         scope = _identity_scope(user_id="owner")
         # block 的历史身份与调用方作用域不同（内容事实不参与作用域拼装）。
-        topic = _topic_data(
-            scope, blocks=(_block("q", user_id="someone_else"),)
-        )
+        topic = _topic_data(scope, blocks=(_block("q", user_id="someone_else"),))
 
         task = TopicMaterializeTask.from_topic_data(
             topic, identity_scope=scope, reason=TriggerReason.IDLE_TIMEOUT

@@ -29,77 +29,6 @@ from hivememory.engines.perception.models import FlushEvent, TriggerReason
 from hivememory.i18n import set_default_language
 from hivememory.system.config import HiveMemoryConfig
 
-# ========== FlushRecorder 类 ==========
-
-class FlushRecorder:
-    """
-    Flush 事件记录器
-
-    用于在测试中记录感知层的 flush 事件，方便验证触发条件和原因。
-    """
-
-    def __init__(self):
-        self.records: list[dict[str, Any]] = []
-
-    def __call__(
-        self,
-        messages: list[StreamMessage],
-        reason: TriggerReason
-    ) -> None:
-        """
-        记录 flush 事件
-
-        Args:
-            messages: 被 flush 的消息列表
-            reason: Flush 原因
-        """
-        self.records.append({
-            "message_count": len(messages),
-            "reason": reason,
-            "messages": messages,
-            "preview": messages[0].content[:50] if messages else "",
-            "timestamp": datetime.now().timestamp(),
-        })
-
-    def get_flushes_by_reason(self, reason: TriggerReason) -> list[dict[str, Any]]:
-        """
-        获取指定原因的 flush 记录
-
-        Args:
-            reason: Flush 原因
-
-        Returns:
-            List[Dict]: 匹配的记录列表
-        """
-        return [r for r in self.records if r['reason'] == reason]
-
-    def get_last_flush(self) -> dict[str, Any] | None:
-        """获取最后一次 flush 记录"""
-        return self.records[-1] if self.records else None
-
-    def clear(self) -> None:
-        """清空所有记录"""
-        self.records.clear()
-
-    @property
-    def count(self) -> int:
-        """获取 flush 总次数"""
-        return len(self.records)
-
-    def summary(self) -> str:
-        """获取摘要字符串"""
-        if not self.records:
-            return "No flush records"
-
-        reason_counts = {}
-        for record in self.records:
-            reason = record['reason'].value
-            reason_counts[reason] = reason_counts.get(reason, 0) + 1
-
-        parts = [f"{reason}: {count}" for reason, count in reason_counts.items()]
-        return f"Total: {self.count}, " + ", ".join(parts)
-
-
 # ========== Pytest Fixtures ==========
 
 @pytest.fixture(autouse=True)
@@ -134,23 +63,6 @@ def test_config(mock_env):
 
 
 @pytest.fixture
-def flush_recorder() -> FlushRecorder:
-    """
-    提供 FlushRecorder 实例
-
-    Usage:
-        def test_something(flush_recorder):
-            recorder = flush_recorder
-            perception = SemanticFlowPerceptionLayer(
-                on_flush_callback=recorder
-            )
-            # ... test code ...
-            assert recorder.count > 0
-    """
-    return FlushRecorder()
-
-
-@pytest.fixture
 def console() -> Console:
     """
     提供 Rich Console 实例用于测试输出
@@ -163,40 +75,6 @@ def console() -> Console:
 
 
 # ========== 辅助函数 ==========
-
-def print_flush_summary(
-    console: Console,
-    flush_records: list[dict[str, Any]],
-    title: str = "Flush Events Summary"
-) -> None:
-    """
-    打印格式化的 flush 摘要表格
-
-    Args:
-        console: Rich Console 实例
-        flush_records: flush 记录列表
-        title: 表格标题
-    """
-    if not flush_records:
-        console.print("[dim]No flush records to display[/dim]")
-        return
-
-    table = Table(title=title, show_header=True, header_style="bold magenta")
-    table.add_column("#", style="dim", width=3)
-    table.add_column("Reason", style="yellow", width=20)
-    table.add_column("Messages", justify="right", width=8)
-    table.add_column("Preview", style="dim", width=40)
-
-    for i, record in enumerate(flush_records):
-        table.add_row(
-            str(i + 1),
-            record['reason'].value,
-            str(record['message_count']),
-            record['preview']
-        )
-
-    console.print(table)
-
 
 def print_buffer_comparison(
     console: Console,
@@ -375,8 +253,7 @@ class FlushEventRecorder:
     """
     Flush 事件记录器 (基于 FlushEvent 对象)
 
-    记录 FlushEvent 对象，用于验证 Flush 触发条件。
-    与 FlushRecorder 不同，此类直接接收 FlushEvent 对象。
+    记录 FlushEvent 对象（直接接收事件对象而非字段），用于验证 Flush 触发条件。
 
     Usage:
         >>> recorder = FlushEventRecorder()
@@ -455,14 +332,12 @@ def flush_event_recorder() -> FlushEventRecorder:
 
 __all__ = [
     # 记录器
-    "FlushRecorder",
     "FlushEventRecorder",
     # Mock 类
     "MockGenerationEngine",
     "MockLifecycleEngine",
     "MockRetrievalFamiliar",
     # 辅助函数
-    "print_flush_summary",
     "print_buffer_comparison",
     "print_test_header",
     "print_test_result",

@@ -157,8 +157,7 @@ from hivememory.engines.lifecycle import (
 )
 
 from hivememory.engines.perception import (
-    SemanticFlowPerceptionLayer,
-    BasePerceptionLayer,
+    MemoryPerceptionEngine,
     TraceItem,
     LogicalBlock,
     BufferState,
@@ -168,9 +167,7 @@ from hivememory.engines.perception import (
     NoOpRelayController,
     SimpleRelayController,
     LLMRelayController,
-    NullPerceptionLayer,
     create_relay_controller,
-    create_perception_layer,
 )
 from hivememory.core.protocol import InteractionPayload
 
@@ -349,8 +346,7 @@ __all__ = [
     "PeriodicGarbageCollector",
     "create_garbage_collector",
     # ========== Perception Engine ==========
-    "SemanticFlowPerceptionLayer",
-    "BasePerceptionLayer",
+    "MemoryPerceptionEngine",
     "TraceItem",
     "InteractionPayload",
     "LogicalBlock",
@@ -361,9 +357,7 @@ __all__ = [
     "NoOpRelayController",
     "SimpleRelayController",
     "LLMRelayController",
-    "NullPerceptionLayer",
     "create_relay_controller",
-    "create_perception_layer",
     # ========== Server Models ==========
     "ErrorResponse",
     "HealthResponse",

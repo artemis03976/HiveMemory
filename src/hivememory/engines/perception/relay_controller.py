@@ -13,15 +13,36 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
 """
 
 import logging
+from abc import ABC, abstractmethod
 from typing import List, Optional, Any, TYPE_CHECKING
 from hivememory.core.models import LogicalBlock
-from hivememory.engines.perception.interfaces import BaseRelayController
 from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
     from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
 
 logger = logging.getLogger(__name__)
+
+
+class BaseRelayController(ABC):
+    """Token 溢出接力控制器基类。
+
+    无状态服务，职责：为 Page Folding 生成 ``state_summary``
+    （``generate_summary``）。由 PerceptionFamiliar 在 lease 持有期间调用，
+    不感知 Store 与话题生命周期。
+    """
+
+    @abstractmethod
+    def generate_summary(
+        self,
+        blocks_to_fold: List[Any],
+        previous_summary: Optional[str] = None,
+    ) -> str:
+        """生成摘要（抽象方法）"""
+
+    def create_relay_context(self, summary: str) -> str:
+        """创建接力上下文文本"""
+        return f"[接力摘要] {summary}" if summary else ""
 
 
 class SimpleRelayController(BaseRelayController):
@@ -171,7 +192,7 @@ class LLMRelayController(BaseRelayController):
             # Add MTP semantic traces
             for trace in block.semantic_traces:
                 if trace.action == "SEARCH":
-                    lines.append(f"[Action]: SEARCH query=\"{trace.query}\"")
+                    lines.append(f'[Action]: SEARCH query="{trace.query}"')
                 elif trace.action == "READ":
                     lines.append(f"[Action]: READ target={trace.target}")
                 elif trace.action == "RUN":
@@ -232,7 +253,7 @@ class LLMRelayController(BaseRelayController):
             # Call LLM
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ]
 
             summary = self.summary_llm.complete(messages)

@@ -170,6 +170,17 @@ class TestApplyInteraction:
         assert topic.bindings[0].first_bound_interaction_id == "i-1"
 
     @pytest.mark.asyncio
+    async def test_empty_turn_events_rejected_without_legacy_fallback(self):
+        familiar, store, _, _, _, _ = _make_familiar()
+        payload = InteractionPayload(user_message="hello", turn_events=[])
+
+        with pytest.raises(ValueError, match="turn_events is required"):
+            await familiar.apply_interaction(
+                payload, identity_scope=_identity_scope(), interaction_id="i-1"
+            )
+        assert store.list_all() == []  # 未产生任何话题写入
+
+    @pytest.mark.asyncio
     async def test_busy_topic_rejects_interaction_without_writing(self):
         familiar, store, working_set, _, _, _ = _make_familiar()
         scope = _identity_scope()
@@ -315,12 +326,15 @@ class TestLruEviction:
 
 class TestCompact:
     @pytest.mark.asyncio
-    async def test_token_overflow_folds_old_blocks_and_writes_summary(self):
+    async def test_token_overflow_folds_old_blocks_and_writes_cumulative_summary(self):
         engine_config = SemanticFlowPerceptionConfig(
             fold_token_threshold=1, fold_retain_recent_blocks=1
         )
         familiar, store, _, relay, _, _ = _make_familiar(engine_config=engine_config)
-        relay.generate_summary.return_value = "folded-summary"
+        # 摘要在旧摘要之上累积（Relay 的 previous_summary 契约）
+        relay.generate_summary.side_effect = (
+            lambda blocks_to_fold, previous_summary=None: (previous_summary or "") + "---folded"
+        )
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
 
@@ -330,10 +344,14 @@ class TestCompact:
         await familiar.apply_interaction(
             _payload("b"), identity_scope=scope, target_topic_id="t1", interaction_id="i-2"
         )
+        await familiar.apply_interaction(
+            _payload("c"), identity_scope=scope, target_topic_id="t1", interaction_id="i-3"
+        )
 
         topic = store.get(scope, "t1")
-        assert topic.block_count == 1  # 保留最近 1 块
-        assert topic.state_summary == "folded-summary"
+        assert topic.block_count == 1  # 每轮折叠后只保留最近 1 块
+        # 第二次折叠收到第一次的摘要（"---folded"）作为 previous_summary，累积成链
+        assert topic.state_summary == "---folded---folded"
         assert topic.total_tokens == topic.blocks[0].total_tokens
 
     @pytest.mark.asyncio
