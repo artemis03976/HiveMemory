@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from hivememory.core.models import AgentProfile, Identity, IdentityScope, TopicSnapshot
+from hivememory.core.models import ActorIdentity, AgentProfile, IdentityScope, TopicSnapshot
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import AgentRunContext
 
@@ -35,7 +35,7 @@ class PreparedAgentRun:
         return self.agent_run_context.identity_scope
 
     @property
-    def identity(self) -> Identity:
+    def identity(self) -> ActorIdentity:
         return self.identity_scope.actor_identity
 
     @property

@@ -18,7 +18,6 @@ from uuid import UUID
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    Identity,
     MemoryAtom,
     MemoryType,
     TopicData,
@@ -30,7 +29,6 @@ from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
     MemoryTypeMismatchError,
-    PermissionDeniedError,
     StorageOfflineError,
     StorageReadError,
 )
@@ -90,16 +88,14 @@ class RetrievalFamiliar:
         topic_id: str,
         *,
         identity_scope: IdentityScope,
-        touch: bool = True,
     ) -> TopicData | None:
         """
-        读取短期话题上下文。
+        读取短期话题上下文（纯读，无访问追踪副作用）。
         """
         require_identity_scope(identity_scope)
-        return self._memory_library.short_term.get_topic_data(
+        return self._memory_library.short_term.get(
             identity_scope,
             topic_id,
-            touch=touch,
         )
 
     def list_active_topics(
@@ -107,23 +103,23 @@ class RetrievalFamiliar:
         *,
         identity_scope: IdentityScope,
         include_empty: bool = False,
-        sort_by_access: bool = True,
+        sort_by_recency: bool = True,
     ) -> tuple[TopicSnapshot, ...]:
         """
         列出指定用户的话题快照（短期检索入口）。
 
         默认排除空话题，供 Gateway 路由决策使用；include_empty=True
-        时可承接前端话题池展示。
+        时可承接前端话题池展示。按 ``last_update``（最近写入）倒序排列。
         """
         identity_scope = require_identity_scope(identity_scope)
-        topics = self._memory_library.short_term.list_topic_data(
+        topics = self._memory_library.short_term.list_by_workspace(
             identity_scope,
             include_empty=include_empty,
         )
         if not include_empty:
             topics = [topic for topic in topics if not topic.is_empty]
-        if sort_by_access:
-            topics = sorted(topics, key=lambda t: t.last_accessed_at, reverse=True)
+        if sort_by_recency:
+            topics = sorted(topics, key=lambda t: t.last_update, reverse=True)
         return tuple(topic.to_topic_snapshot() for topic in topics)
 
     # ========== 中期记忆查询 ==========
@@ -183,7 +179,6 @@ class RetrievalFamiliar:
         Omni-Doll。任何自定义 alias 的缺失、越权、类型错误或配置损坏都会显式失败。
         """
         identity_scope = require_identity_scope(identity_scope)
-        identity = identity_scope.actor_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE

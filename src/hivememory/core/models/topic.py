@@ -3,22 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.interaction import TurnRecord
-from hivememory.core.models.workspace import WorkspaceIdentity, WorkspaceTopicKey
-from hivememory.core.models.workspace_asset import TopicAssetBinding
-
-
-class BufferState(str, Enum):
-    """短期话题缓冲区状态。"""
-
-    IDLE = "idle"
-    PROCESSING = "processing"
-    FLUSHING = "flushing"
+from hivememory.core.models.workspace import WorkspaceIdentity
+from hivememory.core.models.workspace_asset import TopicAssetBinding, WorkspaceAssetRef
 
 
 class TopicLastTurn(BaseModel):
@@ -41,7 +32,6 @@ class TopicSnapshot(BaseModel):
     last_turn: TopicLastTurn | None = None
     total_tokens: int = 0
     block_count: int = 0
-    last_accessed_at: float = 0.0
     model_used: str = ""
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
@@ -101,7 +91,11 @@ class LogicalBlock(BaseModel):
 
 
 class TopicData(BaseModel):
-    """短期话题缓冲区的完整不可变读取对象。"""
+    """短期话题的业务快照（不可变读取对象）。
+
+    只承载内容事实（blocks、摘要、bindings、tokens）；执行占用不建模为
+    记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。
+    """
 
     topic_id: str
     workspace_identity: WorkspaceIdentity
@@ -111,22 +105,11 @@ class TopicData(BaseModel):
     state_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = Field(default_factory=tuple)
     bindings: tuple[TopicAssetBinding, ...] = Field(default_factory=tuple)
-    state: BufferState = BufferState.IDLE
     last_update: float
-    last_accessed_at: float
     total_tokens: int = 0
     model_used: str = ""
 
     model_config = ConfigDict(frozen=True, use_enum_values=False)
-
-    @property
-    def topic_key(self) -> WorkspaceTopicKey:
-        """返回已由短期 Store 验证的复合 Topic 键。"""
-        return WorkspaceTopicKey(
-            owner_user_id=self.workspace_identity.owner_user_id,
-            workspace_id=self.workspace_identity.workspace_id,
-            topic_id=self.topic_id,
-        )
 
     @property
     def user_id(self) -> str:
@@ -177,15 +160,58 @@ class TopicData(BaseModel):
             last_turn=last_turn,
             total_tokens=self.total_tokens,
             block_count=self.block_count,
-            last_accessed_at=self.last_accessed_at,
             model_used=self.model_used,
         )
 
 
+def merge_interaction_into_topic(
+    topic: TopicData,
+    block: LogicalBlock,
+    asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...],
+    interaction_id: str | None,
+    model_used: str | None,
+) -> TopicData:
+    """把一次 Interaction 的 block、首次绑定与元数据并成新快照。
+
+    binding 以 ``asset_id`` 幂等去重；原子性由「frozen 快照 → 新快照 →
+    ``Store.put`` 整条替换」承担，互斥由调用方持有的 lease 保证。
+    """
+    if asset_id_and_refs and not interaction_id:
+        raise ValueError("建立 asset binding 必须携带 interaction_id")
+    bindings = list(topic.bindings)
+    existing_ids = {binding.asset_id for binding in bindings}
+    now = datetime.now()
+    for asset_id, asset_ref in asset_id_and_refs:
+        if not isinstance(asset_id, str) or not asset_id.strip():
+            raise ValueError("asset_id 不能为空")
+        if not isinstance(asset_ref, WorkspaceAssetRef):
+            raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
+        if asset_id in existing_ids:
+            continue
+        bindings.append(
+            TopicAssetBinding(
+                asset_id=asset_id.strip(),
+                asset_ref=asset_ref,
+                first_bound_interaction_id=interaction_id,
+                bound_at=now,
+            )
+        )
+        existing_ids.add(asset_id)
+    return topic.model_copy(
+        update={
+            "blocks": (*topic.blocks, block),
+            "bindings": tuple(bindings),
+            "total_tokens": topic.total_tokens + block.total_tokens,
+            "last_update": now.timestamp(),
+            "model_used": model_used or topic.model_used,
+        }
+    )
+
+
 __all__ = [
-    "BufferState",
     "LogicalBlock",
     "TopicData",
     "TopicLastTurn",
     "TopicSnapshot",
+    "merge_interaction_into_topic",
 ]

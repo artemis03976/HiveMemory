@@ -9,7 +9,7 @@ import pytest
 
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     MemoryCreationArtifact,
     MemoryEventLog,
     MemoryEventType,
@@ -56,7 +56,7 @@ def _make_artifact(
 
 def _identity_scope(*, user_id: str = "u1", workspace_id: str = "main_workspace"):
     return make_identity_scope(
-        actor_identity=Identity(user_id=user_id, agent_id="agent-1"),
+        actor_identity=ActorIdentity(user_id=user_id, agent_id="agent-1"),
         workspace_id=workspace_id,
         interaction_id=f"i-{user_id}-{workspace_id}",
     )

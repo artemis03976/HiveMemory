@@ -16,7 +16,7 @@ from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Artifacts,
-    Identity,
+    ActorIdentity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
@@ -43,7 +43,12 @@ from tests.helpers.memory import make_memory_metadata
 def _make_memory(title="测试记忆") -> MemoryAtom:
     return MemoryAtom(
         meta=make_memory_metadata(source_agent_id="a1", user_id="u1", session_id="s1"),
-        index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t1"], memory_type=MemoryType.FACT),
+        index=IndexLayer(
+            title=title,
+            summary="这是一段足够长的测试摘要用于通过验证",
+            tags=["t1"],
+            memory_type=MemoryType.FACT,
+        ),
         payload=PayloadLayer(content="内容"),
     )
 
@@ -111,19 +116,21 @@ def _make_memory_library():
     return library
 
 
-def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_accessed_at=1.0):
+def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_update=1.0):
     identity_scope = make_identity_scope(user_id=user_id)
     return TopicData(
-        topic_id=topic_id, workspace_identity=identity_scope.workspace_identity,
-        topic_title=f"title-{topic_id}", topic_summary=f"summary-{topic_id}",
+        topic_id=topic_id,
+        workspace_identity=identity_scope.workspace_identity,
+        topic_title=f"title-{topic_id}",
+        topic_summary=f"summary-{topic_id}",
         state_summary=f"state-{topic_id}",
         blocks=tuple(blocks or []),
-        last_update=last_accessed_at, last_accessed_at=last_accessed_at, total_tokens=10,
+        last_update=last_update,
+        total_tokens=10,
     )
 
 
 class TestRetrievalFamiliarAgentProfiles:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(
@@ -146,7 +153,7 @@ class TestRetrievalFamiliarAgentProfiles:
     async def test_visible_profile_loads_for_identity(self):
         atom = _make_profile_memory()
         self.mock_library.mid_term.get_by_alias.return_value = atom
-        identity = Identity(user_id="u1", agent_id="omni_doll")
+        identity = ActorIdentity(user_id="u1", agent_id="omni_doll")
 
         result = await self.familiar.get_agent_profile(
             "coder_doll",
@@ -223,7 +230,6 @@ class TestRetrievalFamiliarAgentProfiles:
 
 
 class TestRetrievalFamiliarRetrieve:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
@@ -326,7 +332,10 @@ class TestRetrievalFamiliarRetrieve:
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
         bus = PatchouliBus()
-        bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, AsyncMock(side_effect=RuntimeError("fail")))
+        bus.register(
+            PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+            AsyncMock(side_effect=RuntimeError("fail")),
+        )
         familiar = RetrievalFamiliar(
             engine=self.mock_engine,
             memory_library=self.mock_library,
@@ -348,7 +357,6 @@ class TestRetrievalFamiliarRetrieve:
 
 
 class TestRetrievalFamiliarIdentityPropagation:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.mock_engine = AsyncMock()
@@ -359,7 +367,7 @@ class TestRetrievalFamiliarIdentityPropagation:
 
     @pytest.mark.asyncio
     async def test_identity_propagated_to_engine(self):
-        identity = Identity(user_id="u1", agent_id="coder_doll", team_id="team_a")
+        identity = ActorIdentity(user_id="u1", agent_id="coder_doll", team_id="team_a")
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
         await self.familiar.retrieve(
@@ -374,7 +382,7 @@ class TestRetrievalFamiliarIdentityPropagation:
 
     @pytest.mark.asyncio
     async def test_team_id_none_propagated(self):
-        identity = Identity(user_id="u1", agent_id="default", team_id=None)
+        identity = ActorIdentity(user_id="u1", agent_id="default", team_id=None)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
         await self.familiar.retrieve(
@@ -399,7 +407,6 @@ class TestRetrievalFamiliarIdentityPropagation:
 
 
 class TestRetrievalFamiliarRetrieveByAliases:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.mock_engine = Mock()
@@ -441,7 +448,6 @@ class TestRetrievalFamiliarRetrieveByAliases:
 
 
 class TestRetrievalFamiliarAccessStats:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
@@ -460,28 +466,29 @@ class TestRetrievalFamiliarAccessStats:
 
 
 class TestRetrievalFamiliarShortTermTopics:
-
     def setup_method(self):
         self.mock_library = _make_memory_library()
         self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
 
-    def test_list_active_topics_excludes_empty_and_sorts_by_access(self):
+    def test_list_active_topics_excludes_empty_and_sorts_by_recency(self):
         block = LogicalBlock()
-        old_topic = _make_topic_data("old", blocks=[block], last_accessed_at=1.0)
-        empty_topic = _make_topic_data("empty", blocks=[], last_accessed_at=3.0)
+        old_topic = _make_topic_data("old", blocks=[block], last_update=1.0)
+        empty_topic = _make_topic_data("empty", blocks=[], last_update=3.0)
         empty_topic = empty_topic.model_copy(update={"state_summary": ""})
-        summary_only = _make_topic_data("summary-only", blocks=[], last_accessed_at=4.0)
-        new_topic = _make_topic_data("new", blocks=[block], last_accessed_at=2.0)
-        self.mock_library.short_term.list_topic_data.return_value = [
-            old_topic, empty_topic, summary_only, new_topic,
+        summary_only = _make_topic_data("summary-only", blocks=[], last_update=4.0)
+        new_topic = _make_topic_data("new", blocks=[block], last_update=2.0)
+        self.mock_library.short_term.list_by_workspace.return_value = [
+            old_topic,
+            empty_topic,
+            summary_only,
+            new_topic,
         ]
 
         identity_scope = make_identity_scope(user_id="u1")
         snapshots = self.familiar.list_active_topics(identity_scope=identity_scope)
 
-        self.mock_library.short_term.list_topic_data.assert_called_once_with(
+        self.mock_library.short_term.list_by_workspace.assert_called_once_with(
             identity_scope, include_empty=False
         )
-        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按访问时间排序
+        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按最近写入排序
         assert [s.topic_id for s in snapshots] == ["summary-only", "new", "old"]
-

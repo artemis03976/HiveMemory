@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from hivememory.core.models.identity import ActorIdentity, Identity
+from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_mapping
 from hivememory.utils.token_estimator import estimate_tokens
 
@@ -38,7 +38,7 @@ class StreamMessage(BaseModel):
     timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
 
     # 身份标识
-    identity: Identity = Field(default_factory=Identity, description="身份标识")
+    identity: ActorIdentity = Field(default_factory=ActorIdentity, description="身份标识")
 
     # 工具调用相关字段（可选）
     tool_name: str | None = None
@@ -245,7 +245,7 @@ class TurnRecord(BaseModel):
     """
 
     turn_id: str = Field(default_factory=lambda: str(uuid4()))
-    identity: Identity = Field(default_factory=Identity)
+    identity: ActorIdentity = Field(default_factory=ActorIdentity)
 
     user_query: str = Field(default="", description="原始用户问题")
     rewritten_query: str | None = Field(

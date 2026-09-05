@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IdentityScope,
     require_identity_scope,
     resolve_default_identity_scope,
@@ -108,13 +108,17 @@ def _require_prepared_scope(
 ) -> None:
     """拒绝 prepare 返回与 control registry 不一致的请求级 scope。"""
     prepared_scope = getattr(prepared, "identity_scope", None)
-    if (
-        not isinstance(prepared_scope, IdentityScope)
-        or prepared_scope.scope_fingerprint != identity_scope.scope_fingerprint
-    ):
+    if not isinstance(prepared_scope, IdentityScope) or prepared_scope != identity_scope:
         raise WorkspaceMismatchError(
             "PreparedAgentRun 与 ChatGenerationRun 的身份作用域不一致",
-            details={"generation_scope": identity_scope.scope_fingerprint},
+            details={
+                "requested_workspace": identity_scope.workspace_identity.workspace_id,
+                "prepared_workspace": (
+                    prepared_scope.workspace_identity.workspace_id
+                    if isinstance(prepared_scope, IdentityScope)
+                    else None
+                ),
+            },
         )
 
 
@@ -164,7 +168,7 @@ class ChatApplicationService:
         generation_id: str | None = None,
     ) -> NonStreamingChatResult:
         """公共默认 Workspace 非流式入口。"""
-        identity = Identity(
+        identity = ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -369,7 +373,7 @@ class ChatApplicationService:
         generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """公共默认 Workspace 流式入口。"""
-        identity = Identity(
+        identity = ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -683,7 +687,7 @@ class ChatApplicationService:
     ) -> CancelResult:
         """公共默认 Workspace 的幂等取消入口。"""
         identity_scope = resolve_default_identity_scope(
-            Identity(user_id=user_id, agent_id=agent_id),
+            ActorIdentity(user_id=user_id, agent_id=agent_id),
         )
         return self.cancel_generation_scoped(
             generation_id,

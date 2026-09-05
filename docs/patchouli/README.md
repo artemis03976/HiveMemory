@@ -18,7 +18,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-05
 ---
 
 # Patchouli
@@ -35,7 +35,7 @@ Patchouli 的 Topic、Memory、Artifact 领域事实都在调用方交接的 `Id
 
 Patchouli 当前拥有：
 
-- 活跃话题及其短期语义缓冲；
+- 活跃话题的驻留工作集（WorkingSet）与短期内容存储；
 - `MemoryAtom` 的中期持久化、检索、创建、更新和删除；
 - 长期冷存储及中期记忆的 archive/revive 状态转移；
 - Interaction、Document、Memory Creation 与 Memory Version artifacts；
@@ -115,9 +115,9 @@ Passive Ingress 的去重、顺序缓冲、seal、retry 和降级属于 System�
 System Passive Ingress
   -> InteractionSubmissionQueue
   -> PerceptionFamiliar.apply_interaction
-  -> SemanticFlowPerceptionLayer
-  -> ShortTermMemoryStore / SemanticBuffer
-  -> idle | LRU | shutdown | manual settle
+       -> MemoryPerceptionEngine.build_block（纯算法）
+       -> TopicWorkingSet lease + ShortTermMemoryStore
+  -> idle | LRU | shutdown | manual settle（统一 settle 时序）
   -> TopicMaterializeTask
   -> background Generation task
 ```
@@ -154,7 +154,7 @@ Patchouli 向全局调度器注册两个业务任务：
 
 - [MemoryLibrary 与存储层](./memory-library.md)：短期、中期、长期和 artifact store 的所有权与状态转移；
 - [Artifacts 与来源追踪](./artifacts.md)：原始交互、外源文档、创建记录和版本快照；
-- [感知与短期话题](./perception.md)：结构化摄入、SemanticBuffer、Page Folding 与结算矩阵；
+- [感知与短期话题](./perception.md)：结构化摄入、驻留工作集与 lease、Page Folding 与 settle/compact/evict 具名用例；
 - [记忆生成](./generation.md)：三种生成模式、控制面/数据面、去重、任务和 PendingAtom settlement；
 - [记忆检索](./retrieval.md)：身份过滤、Dense/Sparse 召回、融合、重排和访问副作用；
 - [记忆生命周期](./lifecycle.md)：生命力、强化事件、gardening、archive 与 revive；
@@ -181,7 +181,7 @@ Patchouli 向全局调度器注册两个业务任务：
 - 短期话题默认只在内存中，关闭依赖 shutdown drain 尽力结算；异常退出仍可能丢失未结算 blocks；
 - Artifact 是可选旁路，写入失败目前不会阻止 `MemoryAtom` 持久化，因此“记忆存在”不保证“来源链完整”；
 - 中期与长期存储的 archive/revive 是顺序 I/O，不具备跨存储事务；
-- Perception 的 token overflow 目前只形成摘要并清空当前 blocks，不生成长期记忆，配置中的 recent-block 保留量也尚未接入；
+- Perception 的 token overflow 目前只形成摘要并折叠旧前缀，不生成长期记忆；
 - Retrieval 与 MemoryCompiler 已经解耦，但若干过滤字段、预算口径和保留 target 仍存在实现缺口，详见各模块文档；
 - `engines/` 仍是代码上的算法目录，不再是独立子系统或并行文档真相源。
 

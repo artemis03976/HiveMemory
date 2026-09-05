@@ -26,7 +26,7 @@ from hivememory.engines.generation.models import (
     MergeResult,
 )
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -42,8 +42,8 @@ from tests.helpers.memory import make_memory_identity_scope, make_memory_metadat
 GenerationRequest = GenerationRequestModel
 
 
-def _make_identity() -> Identity:
-    return Identity(user_id="u1", agent_id="a1")
+def _make_identity() -> ActorIdentity:
+    return ActorIdentity(user_id="u1", agent_id="a1")
 
 
 def _make_messages(n=2) -> list:

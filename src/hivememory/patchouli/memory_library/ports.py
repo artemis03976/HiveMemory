@@ -16,13 +16,12 @@ from uuid import UUID
 from hivememory.core.models import (
     MemoryAtom,
     IdentityScope,
+    TopicData,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
-    WorkspaceTopicKey,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from hivememory.patchouli.memory_library.models import (
     ArtifactIntegrityResult,
     StorageHealthComponent,
@@ -36,7 +35,10 @@ if TYPE_CHECKING:
 
 class ShortTermStoragePort(ABC):
     """
-    短期存储 Port — WorkspaceTopicKey → SemanticBuffer 的键值映射。
+    短期存储 Port。
+
+    Port 的稳定契约使用 WorkspaceIdentity + topic_id 和不可变 TopicData 快照；
+    复合物理键 WorkspaceTopicKey 只属于具体 adapter 的内部实现。
 
     ShortTermMemoryStore exposes synchronous APIs to the perception layer, so the
     short-term port is synchronous as well. Async backends should hide their I/O
@@ -48,19 +50,23 @@ class ShortTermStoragePort(ABC):
     """
 
     @abstractmethod
-    def get(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]: ...
+    def get(
+        self,
+        workspace: WorkspaceIdentity,
+        topic_id: str,
+    ) -> Optional[TopicData]: ...
 
     @abstractmethod
-    def put(self, key: WorkspaceTopicKey, buffer: SemanticBuffer) -> None: ...
+    def put(self, topic: TopicData) -> None: ...
 
     @abstractmethod
-    def pop(self, key: WorkspaceTopicKey) -> Optional[SemanticBuffer]: ...
+    def delete(self, workspace: WorkspaceIdentity, topic_id: str) -> bool: ...
 
     @abstractmethod
-    def list_by_workspace(self, workspace: WorkspaceIdentity) -> List[SemanticBuffer]: ...
+    def list_by_workspace(self, workspace: WorkspaceIdentity) -> List[TopicData]: ...
 
     @abstractmethod
-    def list_all(self) -> List[SemanticBuffer]: ...
+    def list_all(self) -> List[TopicData]: ...
 
     @abstractmethod
     def count(self, workspace: WorkspaceIdentity) -> int: ...

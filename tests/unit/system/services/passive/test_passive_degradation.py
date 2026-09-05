@@ -14,7 +14,7 @@ import asyncio
 
 import pytest
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -42,7 +42,7 @@ from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_degrade"
 CONVERSATION = "conv-degrade"
-IDENTITY = Identity(user_id="u1", agent_id="a1")
+IDENTITY = ActorIdentity(user_id="u1", agent_id="a1")
 
 
 def _decision(topic: str = "topic-1") -> GatewayDecisionOutcome:

@@ -21,14 +21,14 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import (
-    Identity, StreamMessage, StreamMessageType,
+    ActorIdentity, StreamMessage, StreamMessageType,
     MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
     UpdateFocus,
 )
 from hivememory.engines.generation.models import (
     MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
 )
-from hivememory.engines.perception.models import FlushReason
+from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
@@ -36,13 +36,13 @@ from tests.helpers.memory import make_memory_identity_scope, make_memory_metadat
 # ========== Fixtures ==========
 
 @pytest.fixture
-def identity() -> Identity:
-    return Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+def identity() -> ActorIdentity:
+    return ActorIdentity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
 
 @pytest.fixture
 def identity_scope():
-    """生成请求必须显式携带创建 Workspace，而不能从对话 Identity 猜测。"""
+    """生成请求必须显式携带创建 Workspace，而不能从对话 ActorIdentity 猜测。"""
     return make_memory_identity_scope(user_id="test_user", agent_id="test_agent")
 
 @pytest.fixture
@@ -329,8 +329,8 @@ class TestApplyUpdate:
 
 # ========== Test 11: Active Flush Reason Removed ==========
 
-class TestFlushReasonActiveGenerationRemoved:
+class TestTriggerReasonActiveGenerationRemoved:
     """主动更新生成已脱离感知层，不再保留 MTP flush reason"""
 
     def test_mtp_update_removed(self):
-        assert "MTP_UPDATE" not in FlushReason.__members__
+        assert "MTP_UPDATE" not in TriggerReason.__members__

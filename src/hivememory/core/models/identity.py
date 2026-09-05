@@ -12,8 +12,6 @@ request/trace 等关联 ID，也不缓存授权结果或 Workspace 当前状态�
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -72,11 +70,6 @@ class ActorIdentity(BaseModel):
     )
 
 
-# P2.5 兼容别名：历史代码可继续使用 ``Identity``，但它就是 ``ActorIdentity``；
-# 访问 Workspace 时仍须显式使用 ``IdentityScope`` 携带完整作用域。
-Identity = ActorIdentity
-
-
 class WorkspaceIdentity(BaseModel):
     """不可变的 Workspace 资源归属坐标。"""
 
@@ -120,23 +113,11 @@ class IdentityScope(BaseModel):
             )
         return self
 
-    @property
-    def scope_fingerprint(self) -> str:
-        """返回覆盖完整访问作用域的稳定指纹。"""
-        canonical = json.dumps(
-            self.model_dump(mode="json"),
-            ensure_ascii=True,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 __all__ = [
     "ActorIdentity",
-    "Identity",
     "WorkspaceIdentity",
     "IdentityScope",
 ]

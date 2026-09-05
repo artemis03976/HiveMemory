@@ -8,7 +8,7 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -56,7 +56,7 @@ def _identity_scope(
     agent_id: str = "agent-a",
 ):
     return build_internal_identity_scope(
-        Identity(user_id=user_id, agent_id=agent_id, team_id="team-a"),
+        ActorIdentity(user_id=user_id, agent_id=agent_id, team_id="team-a"),
         workspace_id,
     )
 

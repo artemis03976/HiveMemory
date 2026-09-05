@@ -5,7 +5,7 @@ import pytest
 
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, Identity
+from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, AgentProfile
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     BusRouteUnavailableError,
@@ -18,8 +18,8 @@ def _make_profile(alias: str = "coder_doll") -> AgentProfile:
     return AgentProfile(persona=f"{alias} persona")
 
 
-def _identity(user_id: str = "u1", agent_id: str = "omni_doll") -> Identity:
-    return Identity(user_id=user_id, agent_id=agent_id)
+def _identity(user_id: str = "u1", agent_id: str = "omni_doll") -> ActorIdentity:
+    return ActorIdentity(user_id=user_id, agent_id=agent_id)
 
 
 def _context(user_id: str = "u1", agent_id: str = "omni_doll"):

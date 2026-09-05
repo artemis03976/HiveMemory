@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-04
 ---
 
 # Todo
@@ -12,7 +12,6 @@ last_reviewed: 2026-09-01
 
 当前事项：
 
-- [Topic shutdown 逐 Topic 失败隔离](./topic-shutdown-per-topic-failure-isolation.md)；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；
@@ -22,6 +21,6 @@ last_reviewed: 2026-09-01
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [MTP 缓存命中作用域重验](./mtp-cache-scope-revalidation.md)；
-- [ShortTermMemoryStore 职责边界与存储键封装](./short-term-memory-store-boundary-cleanup.md)。
+- [记忆溯源与责任主体的分离](./memory-provenance-vs-authorship.md)；
 
 Todo 只保存问题、证据、影响和完成条件。若事项扩展为跨系统功能或身份架构，应升级为 Plan；若已有项目 Issue，则链接 Issue，避免维护两份详细状态。

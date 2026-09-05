@@ -1,6 +1,6 @@
 ---
 title: ShortTermMemoryStore Boundary Cleanup
-status: todo
+status: completed
 owner: patchouli
 scope: short-term-memory-store-crud-boundary-and-storage-key-encapsulation
 code_paths:
@@ -10,12 +10,14 @@ code_paths:
   - src/hivememory/patchouli/memory_library/buffer.py
   - src/hivememory/engines/perception/
 related_docs:
+  - docs/archive/plans/short-term-memory-store-boundary-cleanup.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/perception.md
   - docs/architecture/workspace.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-05
+completed_at: 2026-09-02
 ---
 
 # ShortTermMemoryStore 职责边界与存储键封装
@@ -24,7 +26,9 @@ last_reviewed: 2026-09-02
 
 这是一项针对短期记忆存储层的技术债收敛事项。当前 `ShortTermMemoryStore` 同时承担底层 CRUD、Topic 状态机、Interaction 应用、Compact、Settle、Evict、LRU 和资产绑定等职责；`WorkspaceTopicKey` 也从物理寻址细节扩散到了 Store、感知模型和流程契约。它们使存储层与业务编排层的边界变得不清晰，增加了后续修改和并发分析的理解成本。
 
-本 TODO 记录问题证据、目标边界和分阶段解决方案。若收回存储键需要同时迁移多个跨系统契约，或职责拆分已经形成独立的可验收迁移，应在实施前升级为 Plan；本文件不替代该 Plan。
+本事项已由[归档实施计划](../archive/plans/short-term-memory-store-boundary-cleanup.md)承接并完成；本文件保留问题证据、目标边界和验收条件，当前实现事实以相关 Patchouli 文档为准。
+
+2026-09-05 最终收口：第三轮边界重构（[Perception Topic Buffer 边界重组](../archive/plans/perception-topic-buffer-boundary-refactor.md)）在本事项目标之上进一步完成——Store 回归纯 CRUD（get/put/create/delete/list/count/health），adapter 直接存储 frozen `TopicData`（`SemanticBuffer` 已删除），占用权由 `TopicWorkingSet` 的 lease 表达（记录字段状态机与 `last_accessed_at` 已删除），编排归 `PerceptionFamiliar`。本文件 §“分阶段解决方案”中“这些行为应继续由 SemanticFlowPerceptionLayer、TriggerManager 拥有”的表述已被该计划替代：trigger/layer 亦已删除。
 
 ## 当前结论
 

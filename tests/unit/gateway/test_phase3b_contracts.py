@@ -8,8 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from hivememory.core.models import (
+    ActorIdentity,
     FrozenDict,
-    Identity,
     LogicalBlock,
     TopicData,
     TopicLastTurn,
@@ -57,7 +57,6 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
         topic_title="Gateway",
         blocks=[block],
         last_update=1.0,
-        last_accessed_at=1.0,
     )
 
     assert isinstance(topic.blocks, tuple)
@@ -72,7 +71,7 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
 
 
 def test_topic_snapshot_last_turn_and_identity_are_frozen() -> None:
-    identity = Identity(user_id="user-1")
+    identity = ActorIdentity(user_id="user-1")
     snapshot = TopicSnapshot(
         topic_id="topic-1",
         topic_title="Gateway",
@@ -127,7 +126,7 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
     )
     context = UserQueryAnalysisContext(
         raw_message="原问题",
-        identity=Identity(user_id="user-1"),
+        identity=ActorIdentity(user_id="user-1"),
         candidate_topics=candidates,
         topic_id="topic-1",
     )

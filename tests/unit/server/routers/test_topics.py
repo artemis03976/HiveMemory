@@ -61,7 +61,6 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
         last_turn=TopicLastTurn(user="hi", assistant="hello"),
         block_count=3,
         total_tokens=100,
-        last_accessed_at=123.5,
         topic_summary="topic summary",
         model_used="model-a",
     )
@@ -89,7 +88,6 @@ class TestTopicsRouter:
         assert data["topics"][0]["last_turn"] == {"user": "hi", "assistant": "hello"}
         assert data["topics"][0]["block_count"] == 3
         assert data["topics"][0]["total_tokens"] == 100
-        assert data["topics"][0]["last_accessed_at"] == 123.5
         assert data["topics"][0]["model_used"] == "model-a"
         assert "workspace_identity" not in data["topics"][0]
 

@@ -207,7 +207,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_cancelled_event_marks_alice_pending_atom_cancelled(self):
-        from hivememory.core.models import Identity
+        from hivememory.core.models import ActorIdentity
         from hivememory.core.models.pending import PendingAtomStatus
 
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
@@ -216,7 +216,7 @@ class TestAlicePublicRoutes:
             content="draft",
             title="Draft",
             reason=None,
-            identity=Identity(user_id="test_user", agent_id="test_agent"),
+            identity=ActorIdentity(user_id="test_user", agent_id="test_agent"),
             runtime_scope=make_runtime_scope(run_id="run-1"),
         )
 
@@ -230,7 +230,7 @@ class TestAlicePublicRoutes:
     @pytest.mark.asyncio
     async def test_settlement_refreshes_alice_l1_atom_cache(self):
         """结算事件以原 scope 查询资源 owner，再刷新共享 L1 cache。"""
-        from hivememory.core.models import Identity
+        from hivememory.core.models import ActorIdentity
 
         stale_atom = _make_memory("fact_canonical", "stale content")
         fresh_atom = _make_memory("fact_canonical", "fresh content")
@@ -246,7 +246,7 @@ class TestAlicePublicRoutes:
         )
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
-        identity = Identity(user_id="test_user", agent_id="test_agent")
+        identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
         identity_scope = make_identity_scope(actor_identity=identity)
         pending_runtime = system.runtime.alias_resolver.pending_runtime
         pending = pending_runtime.register_write(

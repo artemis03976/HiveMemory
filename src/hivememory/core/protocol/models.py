@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
+    ActorIdentity,
     AgentProfile,
-    Identity,
     IdentityScope,
     MemoryAtom,
     TraceItem,
@@ -107,7 +107,7 @@ class RetrievalRequest(ProtocolMessage):
         ...     semantic_query="如何部署贪吃蛇游戏？",
         ...     keywords=["部署", "贪吃蛇", "游戏"],
         ...     identity_scope=resolve_default_identity_scope(
-        ...         Identity(user_id="user123"),
+        ...         ActorIdentity(user_id="user123"),
         ...     )
         ... )
     """
@@ -129,7 +129,7 @@ class RetrievalRequest(ProtocolMessage):
     top_k: int = Field(default=5, ge=0, description="本次检索候选数量")
 
     @property
-    def identity(self) -> Identity:
+    def identity(self) -> ActorIdentity:
         """兼容读取 actor identity；检索 hard filter 使用完整 IdentityScope。"""
         return self.identity_scope.actor_identity
 
@@ -172,7 +172,7 @@ class AgentRunContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
-    def identity(self) -> Identity:
+    def identity(self) -> ActorIdentity:
         """兼容读取 actor identity；访问边界仍以完整 IdentityScope 为准。"""
         return self.identity_scope.actor_identity
 
@@ -274,7 +274,7 @@ class InteractionPayload(BaseModel):
         description="Gateway 价值判断"
     )
     # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
-    # 写入 SemanticBuffer，供 TopicSnapshot 展示给前端
+    # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
         default="",
         description="实际使用的模型展示名，空字符串表示注册表未启用"

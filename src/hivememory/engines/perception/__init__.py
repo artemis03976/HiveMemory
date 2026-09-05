@@ -1,144 +1,57 @@
 """
-HiveMemory - 帕秋莉感知层 / MMU (Perception Layer / Memory Management Unit)
+HiveMemory - 帕秋莉感知引擎 (Perception Engine / MMU 算法层)
 
 职责:
-    作为短期记忆的 MMU（内存管理单元），管理多话题的生命周期。
-    负责话题路由(route)、换入(swap-in)、换出(swap-out)和 LRU 驱逐。
+    提供无状态的短期记忆摄入纯算法（block 构造、事件归并、token 估算、
+    折叠阈值判断），以及 Relay / Page Folding 摘要生成器与触发交接协议模型。
+
+    话题路由、占用（lease）、settle/evict 生命周期与 LRU / idle / shutdown
+    维护由 ``PerceptionFamiliar``（Patchouli 服务层）编排；本包不持有
+    Store / Journal / Queue，也不导入 ``hivememory.patchouli.*``，保持
+    patchouli -> engines 的单向依赖，可被其他 runtime 复用。
 
 核心组件:
-    - BasePerceptionLayer: 感知层基类
-    - SemanticFlowPerceptionLayer: 语义流感知层 / MMU（多话题并发管理）
-    - ShortTermMemoryStore: 短期话题状态存储与调度入口
-    - TriggerManager: 话题结算调度器 - Flush 触发逻辑
-    - SemanticBuffer: 话题段 (TopicSegment)
-    - LogicalBlock: 页 (Page)
+    - MemoryPerceptionEngine: 无状态摄入算法引擎（纯函数）
+    - TriggerReason / FlushEvent / TopicMaterializeTask: 触发与交接协议模型
     - BaseRelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
-
-定时调度:
-    空闲超时扫描由 SystemAsyncScheduler 统一管理，
-    感知层只暴露 scan_idle_buffers_once() 供调度器调用。
 
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
 
 作者: HiveMemory Team
-版本: 5.0.0 (Phase S2 — 统一调度器接入)
+版本: 7.0.0
 """
-from hivememory.system.config import (
-    MemoryPerceptionConfig,
-    SemanticFlowPerceptionConfig,
-)
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
 
-from hivememory.engines.perception.interfaces import (
-    BasePerceptionLayer,
+from hivememory.engines.perception.memory_perception_engine import (
+    MemoryPerceptionEngine,
 )
 from hivememory.engines.perception.models import (
-    TraceItem,
-    LogicalBlock,
     FlushEvent,
-    FlushReason,
+    LogicalBlock,
     TopicMaterializeTask,
-)
-from hivememory.patchouli.memory_library.buffer import (
-    BufferState,
-    SemanticBuffer,
-)
-from hivememory.engines.perception.trigger_manager import (
-    TriggerManager,
-    DECISION_MATRIX,
+    TraceItem,
+    TriggerReason,
 )
 from hivememory.engines.perception.relay_controller import (
     BaseRelayController,
+    LLMRelayController,
     NoOpRelayController,
     SimpleRelayController,
-    LLMRelayController,
     create_relay_controller,
 )
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    SemanticFlowPerceptionLayer,
-    NullPerceptionLayer,
-)
-
-from typing import Optional
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-def create_perception_layer(
-    config: MemoryPerceptionConfig,
-    llm_service=None,
-    *,
-    short_term_store,
-    interaction_journal: InMemoryInteractionApplyJournal,
-) -> BasePerceptionLayer:
-    """
-    创建感知层 (MMU) 实例
-
-    Args:
-        config: 感知层配置 (MemoryPerceptionConfig)
-        llm_service: LLM 服务（用于 LLMRelayController 摘要生成）
-        short_term_store: ShortTermMemoryStore 实例，必须由 PatchouliRuntime 从 MemoryLibrary 注入
-        interaction_journal: interaction apply 的进程内幂等 journal
-
-    Returns:
-        SemanticFlowPerceptionLayer 实例
-    """
-    impl_config = config.engine
-
-    if not isinstance(impl_config, SemanticFlowPerceptionConfig):
-        logger.warning(
-            f"配置类型 {type(impl_config).__name__} 不是 SemanticFlowPerceptionConfig，"
-            f"将使用默认 SemanticFlowPerceptionConfig"
-        )
-        impl_config = SemanticFlowPerceptionConfig()
-
-    if not impl_config.enable:
-        return NullPerceptionLayer()
-
-    relay_config = getattr(config, "relay", None) or impl_config.relay
-    relay_controller = create_relay_controller(
-        config=relay_config,
-        llm_service=llm_service
-    )
-
-    perception = SemanticFlowPerceptionLayer(
-        config=impl_config,
-        relay_controller=relay_controller,
-        short_term_store=short_term_store,
-        interaction_journal=interaction_journal,
-    )
-
-    return perception
-
 
 __all__ = [
-    # 感知层实现
-    "SemanticFlowPerceptionLayer",
-    "NullPerceptionLayer",
-    # 接口
-    "BasePerceptionLayer",
+    # 感知引擎（纯算法）
+    "MemoryPerceptionEngine",
     # 数据模型
     "TraceItem",
     "LogicalBlock",
-    "BufferState",
-    "SemanticBuffer",
     "FlushEvent",
-    "FlushReason",
+    "TriggerReason",
     "TopicMaterializeTask",
-    # 话题结算调度器
-    "TriggerManager",
-    "DECISION_MATRIX",
     # 接力控制器 / Page Folding 摘要生成器
     "BaseRelayController",
     "NoOpRelayController",
     "SimpleRelayController",
     "LLMRelayController",
     "create_relay_controller",
-    # 工厂函数
-    "create_perception_layer",
-    # Artifact 构建
-    "InteractionArtifactBuilder",
 ]

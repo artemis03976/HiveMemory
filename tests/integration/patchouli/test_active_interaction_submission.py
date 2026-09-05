@@ -10,7 +10,7 @@ import pytest
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -89,7 +89,7 @@ def _prepared(
     is_new: bool = False,
     memories: list[MemoryAtom] | None = None,
 ) -> PreparedAgentRun:
-    identity = Identity(user_id="u1", agent_id="a1", session_id="session-1")
+    identity = ActorIdentity(user_id="u1", agent_id="a1", session_id="session-1")
     identity_scope = make_identity_scope(
         actor_identity=identity,
     )

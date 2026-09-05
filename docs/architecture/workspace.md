@@ -34,7 +34,7 @@ related_docs:
   - docs/patchouli/retrieval.md
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-02
 ---
 
 # Workspace 架构
@@ -123,12 +123,12 @@ Workspace 资源的最终寻址同时包含 WorkspaceIdentity 和资源 ID。复
 
 | 资源 | 当前寻址结构 | 主要所有者 |
 |:---|:---|:---|
-| Topic | `WorkspaceTopicKey(owner_user_id, workspace_id, topic_id)` | Patchouli `ShortTermMemoryStore` |
+| Topic | `IdentityScope + topic_id`（adapter 内部为 `WorkspaceTopicKey`） | Patchouli Perception / `ShortTermMemoryStore` |
 | Memory | `WorkspaceMemoryKey(workspace_identity, memory_id)` | Patchouli `MidTermMemoryStore` / 长期存储 |
 | Artifact | `WorkspaceArtifactKey(workspace_identity, artifact_id)`；`ArtifactRef` 同时带 WorkspaceIdentity | Patchouli `ArtifactStore` 及其适配器 |
 | WorkspaceAsset | `WorkspaceAssetKey(workspace_identity, asset_id)`；外部使用当前 Store 的 opaque `WorkspaceAssetRef` | System-owned `WorkspaceAssetStore` |
 
-`topic_id` 在领域上是全局唯一身份。正常创建路径由统一流程生成新的 UUID，两个 Workspace 可以使用相同标题，但不能把同一个 `topic_id` 作为两个合法 Topic 并存。`WorkspaceTopicKey` 只为读取、更新和拒绝跨 Workspace 访问提供明确的归属坐标。
+`topic_id` 在领域上是全局唯一身份。正常创建路径由统一流程生成新的 UUID，两个 Workspace 可以使用相同标题，但不能把同一个 `topic_id` 作为两个合法 Topic 并存。调用方以 `IdentityScope + topic_id` 访问；`WorkspaceTopicKey` 仅由短期 adapter 在内部构造，用于归属校验和物理索引。
 
 ### 4.2 Memory 的归属
 

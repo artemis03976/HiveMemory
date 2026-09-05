@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.core.models import Identity, LogicalBlock, TopicData, TurnRecord
+from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
@@ -36,7 +36,7 @@ from tests.helpers.workspace import make_identity_scope
 def _build_context(raw_message: str, **overrides) -> UserQueryAnalysisContext:
     kwargs = {
         "raw_message": raw_message,
-        "identity": Identity(user_id="u1"),
+        "identity": ActorIdentity(user_id="u1"),
         "candidate_topics": CandidateTopics(),
         "topic_id": "NEW_TOPIC",
     }
@@ -53,7 +53,7 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
         blocks=(
             LogicalBlock(
                 turn=TurnRecord(
-                    identity=Identity(user_id="u1"),
+                    identity=ActorIdentity(user_id="u1"),
                     user_query=last_user_query,
                     assistant_final_text="好的",
                 )
@@ -62,7 +62,6 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
         if last_user_query
         else (),
         last_update=now,
-        last_accessed_at=now,
     )
 
 

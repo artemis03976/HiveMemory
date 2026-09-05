@@ -1,4 +1,4 @@
-﻿"""
+"""
 帕秋莉体系 (The Patchouli System)
 
 HiveMemory 的分布式智能架构 v3.0。

@@ -3,7 +3,7 @@
 from typing import Any
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     MemoryAccessPolicy,
     IdentityScope,
     MemoryVisibility,
@@ -63,7 +63,7 @@ def make_memory_identity_scope(
 ) -> IdentityScope:
     """构造不读取进程状态的显式生成 scope。"""
     return IdentityScope(
-        actor_identity=Identity(
+        actor_identity=ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             team_id=team_id,

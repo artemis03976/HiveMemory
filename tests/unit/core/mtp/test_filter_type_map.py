@@ -22,7 +22,7 @@ class TestMTPFilterTypeMap:
         assert warnings == []
 
     def test_agent_filter_keeps_provenance_separate_from_actor_scope(self):
-        """捕获 agent 业务过滤被误写成授权 Identity、绕开统一 scope 的回归。"""
+        """捕获 agent 业务过滤被误写成授权 ActorIdentity、绕开统一 scope 的回归。"""
         filters, warnings = MTPFilterParser().parse("agent:researcher")
 
         assert filters is not None

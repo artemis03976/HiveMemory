@@ -1,154 +1,112 @@
-"""
-InMemoryShortTermStorage 单元测试
+"""InMemoryShortTermStorage adapter contract tests."""
 
-测试覆盖:
-- get/put/pop: 基本 CRUD 操作
-- list_by_user/list_all: 查询操作
-- 线程安全性测试
-"""
+from __future__ import annotations
 
 import threading
 
-from hivememory.core.models import LogicalBlock, TurnRecord, WorkspaceTopicKey
+import pytest
+from pydantic import ValidationError
+
+from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
-from hivememory.patchouli.memory_library.buffer import SemanticBuffer
 from tests.helpers.workspace import make_identity_scope
 
 
-def _make_buffer(topic_id="t1", user_id="u1") -> SemanticBuffer:
-    return SemanticBuffer(
+def _topic(scope, topic_id: str) -> TopicData:
+    return TopicData(
         topic_id=topic_id,
-        workspace_identity=_context(user_id).workspace_identity,
-        topic_title=f"话题{topic_id}",
-        blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
+        workspace_identity=scope.workspace_identity,
+        topic_title=f"topic-{topic_id}",
+        last_update=1.0,
+        blocks=(
+            LogicalBlock(
+                turn=TurnRecord(
+                    identity=scope.actor_identity,
+                    user_query="q",
+                    assistant_final_text="a",
+                )
+            ),
+        ),
     )
 
 
-def _context(user_id: str):
-    return make_identity_scope(user_id=user_id)
+@pytest.mark.unit
+def test_get_put_delete_use_workspace_and_topic_id():
+    storage = InMemoryShortTermStorage()
+    scope = make_identity_scope(user_id="u1", workspace_id="workspace-a")
+    topic = _topic(scope, "topic-1")
+
+    assert storage.get(scope.workspace_identity, topic.topic_id) is None
+    storage.put(topic)
+    loaded = storage.get(scope.workspace_identity, topic.topic_id)
+    assert loaded == topic
+    assert storage.delete(scope.workspace_identity, topic.topic_id) is True
+    assert storage.delete(scope.workspace_identity, topic.topic_id) is False
 
 
-def _key(topic_id: str, user_id: str) -> WorkspaceTopicKey:
-    return WorkspaceTopicKey.from_identity_scope(_context(user_id), topic_id)
+@pytest.mark.unit
+def test_workspace_listing_and_count_are_isolated():
+    storage = InMemoryShortTermStorage()
+    first = make_identity_scope(user_id="u1", workspace_id="workspace-a")
+    second = make_identity_scope(user_id="u1", workspace_id="workspace-b")
+    storage.put(_topic(first, "topic-a"))
+    storage.put(_topic(second, "topic-b"))
+
+    topics = storage.list_by_workspace(first.workspace_identity)
+    assert {topic.topic_id for topic in topics} == {"topic-a"}
+    assert storage.count(second.workspace_identity) == 1
+    assert len(storage.list_all()) == 2
 
 
-class TestInMemoryShortTermStorageBasic:
-    """InMemoryShortTermStorage 基本操作测试"""
+@pytest.mark.unit
+def test_topic_id_cannot_be_reused_in_another_workspace():
+    storage = InMemoryShortTermStorage()
+    first = make_identity_scope(user_id="u1", workspace_id="workspace-a")
+    second = make_identity_scope(user_id="u2", workspace_id="workspace-b")
+    storage.put(_topic(first, "globally-unique"))
 
-    def setup_method(self):
-        self.storage = InMemoryShortTermStorage()
-
-    def test_get_returns_none_for_missing(self):
-        result = self.storage.get(_key("missing", "u1"))
-        assert result is None
-
-    def test_put_and_get(self):
-        buf = _make_buffer("t1", "u1")
-        self.storage.put(_key("t1", "u1"), buf)
-
-        result = self.storage.get(_key("t1", "u1"))
-        assert result is buf
-
-    def test_put_overwrites_existing(self):
-        buf1 = _make_buffer("t1", "u1")
-        buf2 = _make_buffer("t1", "u2")
-
-        self.storage.put(_key("t1", "u1"), buf1)
-        self.storage.put(_key("t1", "u2"), buf2)
-
-        assert self.storage.get(_key("t1", "u1")) is buf1
-        assert self.storage.get(_key("t1", "u2")) is buf2
-
-    def test_pop_returns_and_removes(self):
-        buf = _make_buffer("t1", "u1")
-        self.storage.put(_key("t1", "u1"), buf)
-
-        result = self.storage.pop(_key("t1", "u1"))
-
-        assert result is buf
-        assert self.storage.get(_key("t1", "u1")) is None
-
-    def test_pop_returns_none_for_missing(self):
-        result = self.storage.pop(_key("missing", "u1"))
-        assert result is None
+    with pytest.raises(ValueError, match="another Workspace"):
+        storage.put(_topic(second, "globally-unique"))
 
 
-class TestInMemoryShortTermStorageList:
-    """InMemoryShortTermStorage 列表查询测试"""
+@pytest.mark.unit
+def test_get_returns_shared_frozen_snapshot():
+    """TopicData 是 frozen 模型，adapter 原样返回存储实例，不做防御性深拷贝。"""
+    storage = InMemoryShortTermStorage()
+    scope = make_identity_scope()
+    storage.put(_topic(scope, "topic-1"))
 
-    def setup_method(self):
-        self.storage = InMemoryShortTermStorage()
-
-    def test_list_by_user_returns_user_buffers(self):
-        self.storage.put(_key("t1", "u1"), _make_buffer("t1", "u1"))
-        self.storage.put(_key("t2", "u1"), _make_buffer("t2", "u1"))
-        self.storage.put(_key("t3", "u2"), _make_buffer("t3", "u2"))
-
-        result = self.storage.list_by_workspace(_context("u1").workspace_identity)
-
-        assert len(result) == 2
-        topic_ids = {b.topic_id for b in result}
-        assert topic_ids == {"t1", "t2"}
-
-    def test_list_by_user_returns_empty_for_no_such_user(self):
-        result = self.storage.list_by_workspace(_context("missing").workspace_identity)
-        assert result == []
-
-    def test_list_all_returns_all_buffers(self):
-        self.storage.put(_key("t1", "u1"), _make_buffer("t1", "u1"))
-        self.storage.put(_key("t2", "u2"), _make_buffer("t2", "u2"))
-
-        result = self.storage.list_all()
-
-        assert len(result) == 2
-
-    def test_list_all_returns_empty_when_empty(self):
-        result = self.storage.list_all()
-        assert result == []
-
-    def test_count_returns_buffer_count(self):
-        workspace = _context("u1").workspace_identity
-        assert self.storage.count(workspace) == 0
-        self.storage.put(_key("t1", "u1"), _make_buffer("t1", "u1"))
-        assert self.storage.count(workspace) == 1
+    first = storage.get(scope.workspace_identity, "topic-1")
+    second = storage.get(scope.workspace_identity, "topic-1")
+    assert first is not None and second is not None
+    assert first is second  # 零拷贝契约：frozen 对象共享是安全的
+    with pytest.raises(ValidationError):
+        first.topic_title = "mutated"
+    # 修改必须通过提交新快照完成，存储中的旧快照不受影响
+    storage.put(first.model_copy(update={"topic_title": "updated"}))
+    assert storage.get(scope.workspace_identity, "topic-1").topic_title == "updated"
 
 
-class TestInMemoryShortTermStorageThreadSafety:
-    """InMemoryShortTermStorage 线程安全测试"""
+@pytest.mark.unit
+def test_adapter_map_operations_are_thread_safe():
+    storage = InMemoryShortTermStorage()
+    errors: list[Exception] = []
 
-    def test_concurrent_put_get(self):
-        """验证并发 put/get 操作不会导致数据竞争"""
-        storage = InMemoryShortTermStorage()
-        errors = []
+    def worker(index: int) -> None:
+        try:
+            scope = make_identity_scope(user_id=f"u{index}")
+            for item in range(50):
+                topic = _topic(scope, f"topic-{index}-{item}")
+                storage.put(topic)
+                assert storage.get(scope.workspace_identity, topic.topic_id) is not None
+        except Exception as exc:  # pragma: no cover - failure is asserted below
+            errors.append(exc)
 
-        def put_task(topic_id):
-            try:
-                for i in range(100):
-                    buf = _make_buffer(f"{topic_id}_{i}", f"user_{topic_id}")
-                    storage.put(_key(f"{topic_id}_{i}", f"user_{topic_id}"), buf)
-            except Exception as e:
-                errors.append(e)
+    threads = [threading.Thread(target=worker, args=(index,)) for index in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
-        def get_task(topic_id):
-            try:
-                for i in range(100):
-                    storage.get(_key(f"{topic_id}_{i}", f"user_{topic_id}"))
-            except Exception as e:
-                errors.append(e)
-
-        threads = []
-        for i in range(5):
-            t1 = threading.Thread(target=put_task, args=(i,))
-            t2 = threading.Thread(target=get_task, args=(i,))
-            threads.extend([t1, t2])
-
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert errors == [], f"Thread safety errors: {errors}"
-        assert sum(
-            storage.count(_context(f"user_{topic_id}").workspace_identity)
-            for topic_id in range(5)
-        ) == 500
+    assert errors == []
+    assert len(storage.list_all()) == 200

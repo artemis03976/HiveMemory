@@ -1,6 +1,6 @@
 """系统指令内置 handler 测试。"""
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import CommandExecutionStatus
 from hivememory.gateway.commands.builtins import create_builtin_command_registry
 from hivememory.gateway.commands.handlers import (
@@ -72,7 +72,7 @@ class TestHandleHelp:
         result = handle_help(
             command=_parse_result(),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
         )
         assert result.status == CommandExecutionStatus.COMPLETED
         assert "/help" in result.message
@@ -86,7 +86,7 @@ class TestHandleHelp:
         result = handle_help(
             command=_parse_result(),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
             debug_enabled=True,
         )
         assert "/dbg" in result.message
@@ -96,7 +96,7 @@ class TestHandleHelp:
         result = handle_help(
             command=_parse_result(),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
             expose_listing=False,
         )
         assert result.data["commands"] == ()
@@ -106,7 +106,7 @@ class TestHandleHelp:
         result = handle_help(
             command=_parse_result(),
             registry=_registry(),
-            identity=Identity(user_id="admin_u"),
+            identity=ActorIdentity(user_id="admin_u"),
         )
         assert "/adm" in result.message
 
@@ -116,7 +116,7 @@ class TestHandleCommands:
         result = handle_commands(
             command=_parse_result(command_id="system.commands"),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
         )
         assert result.status == CommandExecutionStatus.COMPLETED
         assert result.message == "共 4 条可用系统指令。"
@@ -127,7 +127,7 @@ class TestHandleCommands:
         result = handle_commands(
             command=_parse_result(),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
             debug_enabled=True,
         )
         assert "dbg.cmd" in {entry["command_id"] for entry in result.data["commands"]}
@@ -136,7 +136,7 @@ class TestHandleCommands:
         result = handle_commands(
             command=_parse_result(),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
             expose_listing=False,
         )
         assert result.message == "共 0 条可用系统指令。"
@@ -147,7 +147,7 @@ class TestHandleStatus:
         result = handle_status(
             command=_parse_result(command_id="runtime.status"),
             registry=_registry(),
-            identity=Identity(),
+            identity=ActorIdentity(),
         )
         assert result.status == CommandExecutionStatus.COMPLETED
         assert result.data["gateway"] == "ok"

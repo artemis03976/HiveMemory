@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -29,7 +29,7 @@ from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_test"
 CONVERSATION = "conv-1"
-IDENTITY = Identity(user_id="u1", agent_id="a1")
+IDENTITY = ActorIdentity(user_id="u1", agent_id="a1")
 
 
 def _decision(topic: str = "topic-1") -> GatewayDecisionOutcome:

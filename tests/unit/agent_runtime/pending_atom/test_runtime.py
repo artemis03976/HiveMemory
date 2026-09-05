@@ -14,7 +14,7 @@ import pytest
 
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     InvalidStateTransition,
     PendingAtomResolution,
     PendingAtomSettlement,
@@ -187,7 +187,7 @@ class TestSnapshotInvariants:
 
 @pytest.fixture
 def identity():
-    return Identity(user_id="u1", agent_id="a1")
+    return ActorIdentity(user_id="u1", agent_id="a1")
 
 
 @pytest.fixture

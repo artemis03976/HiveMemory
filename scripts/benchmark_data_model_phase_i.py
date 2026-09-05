@@ -32,7 +32,7 @@ from hivememory.core.models.artifact import (  # noqa: E402
     MemoryEventType,
 )
 from hivememory.core.models.interaction import (  # noqa: E402
-    Identity,
+    ActorIdentity,
     TraceItem,
     TurnEvent,
     TurnRecord,
@@ -88,7 +88,7 @@ def _peak_mib(operation: Callable[[], Any]) -> float:
 
 
 def _build_turn(index: int, *, event_count: int = 2) -> TurnRecord:
-    identity = Identity(user_id="benchmark-user", agent_id="benchmark-agent")
+    identity = ActorIdentity(user_id="benchmark-user", agent_id="benchmark-agent")
     events = tuple(
         TurnEvent(
             kind="tool_call" if offset % 2 == 0 else "tool_result",
@@ -205,7 +205,7 @@ def _build_long_event_stream(size: int) -> tuple[TurnEvent, ...]:
 
 
 def _build_queue_payload(events: tuple[TurnEvent, ...]) -> InteractionPayload:
-    identity = Identity(user_id="benchmark-user", agent_id="benchmark-agent")
+    identity = ActorIdentity(user_id="benchmark-user", agent_id="benchmark-agent")
     materialize_task = PendingAtomMaterializeTask(
         pending_alias="draft_benchmark",
         intent_id="intent_benchmark",

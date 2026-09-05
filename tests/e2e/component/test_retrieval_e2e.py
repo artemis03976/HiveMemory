@@ -67,7 +67,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import (
-    Identity, MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
+    ActorIdentity, MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
@@ -227,16 +227,16 @@ def inject_golden_memories() -> None:
     console.print("[green]Golden Memories 注入完成[/green]")
 
 
-def create_test_identity(prefix: str = "test") -> Identity:
-    """创建测试用的 Identity"""
-    return Identity(
+def create_test_identity(prefix: str = "test") -> ActorIdentity:
+    """创建测试用的 ActorIdentity"""
+    return ActorIdentity(
         user_id=f"{prefix}_user_{uuid.uuid4().hex[:8]}",
         agent_id=f"{prefix}_agent",
         session_id=f"{prefix}_session_{uuid.uuid4().hex[:8]}",
     )
 
 
-def create_memory_from_data(data: Dict[str, Any], identity: Identity) -> MemoryAtom:
+def create_memory_from_data(data: Dict[str, Any], identity: ActorIdentity) -> MemoryAtom:
     """从测试数据创建 MemoryAtom"""
     try:
         mem_type = MemoryType(data["memory_type"])

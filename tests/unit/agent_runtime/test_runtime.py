@@ -14,7 +14,7 @@ from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Identity,
+    ActorIdentity,
     PendingAtomStatus,
     TurnEvent,
 )
@@ -165,7 +165,7 @@ def test_finalize_unsuccessful_frame_cancels_atoms_without_products():
 def test_finalize_completed_run_claims_tasks_and_advances_retention_epoch():
     pending_runtime = PendingAtomRuntime()
     runtime = _runtime_with_pending(pending_runtime)
-    identity = Identity(user_id="user-1", agent_id="omni_doll")
+    identity = ActorIdentity(user_id="user-1", agent_id="omni_doll")
     old_atom = pending_runtime.register_write(
         content="old",
         title="Old",
@@ -203,7 +203,7 @@ def test_finalize_completed_run_claims_tasks_and_advances_retention_epoch():
 def test_finalize_unsuccessful_run_does_not_advance_retention_epoch():
     pending_runtime = PendingAtomRuntime()
     runtime = _runtime_with_pending(pending_runtime)
-    identity = Identity(user_id="user-1", agent_id="omni_doll")
+    identity = ActorIdentity(user_id="user-1", agent_id="omni_doll")
     old_atom = pending_runtime.register_write(
         content="old",
         title="Old",

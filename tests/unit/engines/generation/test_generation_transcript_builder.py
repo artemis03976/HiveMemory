@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.core.models import Identity, LogicalBlock, TraceItem, TurnRecord, WriteFocus
+from hivememory.core.models import ActorIdentity, LogicalBlock, TraceItem, TurnRecord, WriteFocus
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
@@ -26,8 +26,8 @@ from tests.helpers.memory import make_memory_identity_scope
 
 # ============ 辅助工厂 ============
 
-def _identity(agent_id: str = "a1") -> Identity:
-    return Identity(user_id="u1", agent_id=agent_id)
+def _identity(agent_id: str = "a1") -> ActorIdentity:
+    return ActorIdentity(user_id="u1", agent_id=agent_id)
 
 
 def _request(**values) -> GenerationRequest:

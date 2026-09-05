@@ -17,7 +17,7 @@ import re
 from uuid import uuid4
 
 from hivememory.agent_runtime.pending_atom.store import _PendingAtomStore
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.models.pending import (
     InvalidStateTransition,
     PendingAtom,
@@ -71,7 +71,7 @@ class PendingAtomRuntime:
         content: str,
         title: str | None,
         reason: str | None,
-        identity: Identity,
+        identity: ActorIdentity,
         runtime_scope: RuntimeScope,
     ) -> PendingAtom:
         """注册 WRITE pending atom，返回带有生成 alias 的 PendingAtom。status=PENDING。"""
@@ -108,7 +108,7 @@ class PendingAtomRuntime:
         base_uuid: str,
         instruction: str,
         content: str | None,
-        identity: Identity,
+        identity: ActorIdentity,
         runtime_scope: RuntimeScope,
     ) -> PendingAtom:
         """注册 UPDATE pending revision，返回带有生成 alias 的 PendingAtom。status=PENDING。"""

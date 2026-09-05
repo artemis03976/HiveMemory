@@ -11,11 +11,7 @@ import pytest
 
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import TopicMaterializeTask
-from hivememory.engines.perception.semantic_flow_perception_layer import (
-    NullPerceptionLayer,
-    SemanticFlowPerceptionLayer,
-)
+from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
     InteractionApplyStage,
@@ -26,9 +22,9 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
     TransientInteractionSubmissionError,
 )
-from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
+from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.system.runtime.work_queue import (
     QueuePolicy,
@@ -37,7 +33,6 @@ from hivememory.system.runtime.work_queue import (
     WorkState,
     encode_canonical_json,
 )
-from tests.helpers.memory import make_memory_identity_scope
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -181,43 +176,54 @@ async def test_different_ordering_keys_can_execute_concurrently() -> None:
         await queue.stop()
 
 
+def _build_familiar(
+    store: ShortTermMemoryStore,
+    interaction_journal: InMemoryInteractionApplyJournal,
+    relay,
+    bus,
+    *,
+    max_resident_topics: int = 5,
+    engine="default",
+) -> PerceptionFamiliar:
+    """按当前装配形态构造 Familiar：Engine + Store + WorkingSet 编排。
+
+    ``engine="default"`` 构造默认阈值引擎；显式传 ``None`` 表示感知关闭。
+    """
+    if engine == "default":
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=relay,
+        )
+    return PerceptionFamiliar(
+        engine=engine,
+        store=store,
+        working_set=TopicWorkingSet(max_resident=max_resident_topics),
+        bus=bus,
+        config=SimpleNamespace(idle_timeout_seconds=30),
+        interaction_journal=interaction_journal,
+    )
+
+
 @pytest.mark.asyncio
 async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> None:
-    # 容量设为 1，确保 retry 的幂等快路径发生在 LRU 检查之前。
-    store = ShortTermMemoryStore(max_resident_topics=1)
+    store = ShortTermMemoryStore()
     interaction_journal = InMemoryInteractionApplyJournal()
     relay = Mock()
     relay.should_relay.return_value = None
-    layer = SemanticFlowPerceptionLayer(
-        config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
-        relay_controller=relay,
-        short_term_store=store,
-        interaction_journal=interaction_journal,
+    familiar = _build_familiar(
+        store, interaction_journal, relay, Mock(request=AsyncMock(return_value=None))
     )
-    original_fold = layer._maybe_fold_pages
+    original_fold = familiar._compact_topic_if_needed
     fold_calls = 0
 
-    async def fail_once_after_add(topic_key):
+    async def fail_once_after_add(identity_scope, topic_id):
         nonlocal fold_calls
         fold_calls += 1
         if fold_calls == 1:
             raise TransientInteractionSubmissionError("caller missed apply result")
-        return await original_fold(topic_key)
+        return await original_fold(identity_scope, topic_id)
 
-    layer._maybe_fold_pages = fail_once_after_add
-    bus = Mock()
-    bus.request = AsyncMock(return_value=None)
-    familiar = PerceptionFamiliar(
-        perception_layer=layer,
-        bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=30),
-        memory_library=MemoryLibrary(
-            short_term=store,
-            mid_term=Mock(),
-            long_term=Mock(),
-        ),
-        interaction_journal=interaction_journal,
-    )
+    familiar._compact_topic_if_needed = fail_once_after_add
     queue = InteractionSubmissionQueue(familiar.apply_interaction)
 
     try:
@@ -231,11 +237,15 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert outcome.state == WorkState.SUCCEEDED
     assert outcome.topic_id is not None
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic = store.get_topic_data(identity_scope, outcome.topic_id, touch=False)
+    topic = store.get(identity_scope, outcome.topic_id)
     assert topic is not None
     assert topic.block_count == 1
-    assert store.get_last_active_topic(identity_scope) == outcome.topic_id
+    # 行为断言：缺省 manual settle 命中的正是本次写入的最近活跃话题
+    settle_result = await familiar.manual_settle_topic(identity_scope)
+    assert settle_result.topic_id == outcome.topic_id
+    assert store.get(identity_scope, outcome.topic_id) is None
 
+    # retry 已全部完成（COMPLETED），幂等返回同一话题且不重复写块
     replayed_topic = await asyncio.wait_for(
         familiar.apply_interaction(
             _payload("interaction-ambiguous"),
@@ -246,7 +256,6 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
         timeout=1,
     )
     assert replayed_topic == outcome.topic_id
-    assert topic.block_count == 1
 
 
 @pytest.mark.asyncio
@@ -300,77 +309,74 @@ async def test_handler_timeout_is_not_retried() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_resubmits_pending_settlement_without_duplicating_block() -> None:
-    store = ShortTermMemoryStore(max_resident_topics=1)
+async def test_retry_resumes_pending_compact_without_duplicating_block() -> None:
+    """INTERACTION_APPLIED 阶段的 retry 补跑本地 compact 义务，不重复写块。"""
+    store = ShortTermMemoryStore()
     interaction_journal = InMemoryInteractionApplyJournal()
     relay = Mock()
-    relay.should_relay.return_value = None
-    layer = SemanticFlowPerceptionLayer(
-        config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+    relay.generate_summary.side_effect = [
+        TransientInteractionSubmissionError("relay missed"),
+        "folded-summary",
+    ]
+    engine = MemoryPerceptionEngine(
+        config=SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
         relay_controller=relay,
-        short_term_store=store,
-        interaction_journal=interaction_journal,
     )
-    settlement = TopicMaterializeTask(
-        topic_id="topic-settlement",
-        identity_scope=make_memory_identity_scope(user_id="u1", agent_id="a1"),
+    familiar = _build_familiar(
+        store,
+        interaction_journal,
+        relay,
+        Mock(request=AsyncMock(return_value=None)),
+        engine=engine,
     )
-    layer._maybe_fold_pages = AsyncMock(return_value=settlement)
-    bus = Mock()
-    bus.request = AsyncMock(
-        side_effect=[ConnectionError("queue admission failed"), None]
-    )
-    familiar = PerceptionFamiliar(
-        perception_layer=layer,
-        bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=30),
-        memory_library=MemoryLibrary(
-            short_term=store,
-            mid_term=Mock(),
-            long_term=Mock(),
-        ),
-        interaction_journal=interaction_journal,
+    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
+    topic_id = await familiar.apply_interaction(
+        _payload("first"), identity_scope=identity_scope, interaction_id="i-first"
     )
     queue = InteractionSubmissionQueue(familiar.apply_interaction)
+    submission = InteractionSubmission(
+        identity_scope=identity_scope,
+        interaction_id="interaction-settlement",
+        payload=_payload("second"),
+        requested_topic_id=topic_id,
+        ordering_key="conversation-1",
+        origin="passive_memory",
+        correlation={"turn_id": "interaction-settlement"},
+    )
 
     try:
         await queue.start()
-        receipt = await queue.submit(_submission("interaction-settlement"))
+        receipt = await queue.submit(submission)
         outcome = await queue.wait(receipt, timeout=2)
     finally:
         await queue.stop()
 
+    # 首次 attempt 写入 block 后 compact 失败（relay 抛瞬态错误）；retry 补跑
+    # compact 完成，不重复写块。
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
-    topic = store.get_topic_data(
-        make_identity_scope(user_id="u1", agent_id="a1"),
-        outcome.topic_id,
-        touch=False,
-    )
+    topic = store.get(identity_scope, topic_id)
     assert topic is not None
-    assert topic.block_count == 1
-    assert bus.request.await_count == 2
-    assert all(call.args[1] is settlement for call in bus.request.await_args_list)
+    assert topic.block_count == 1  # 折叠保留最近 1 块
+    assert topic.state_summary == "folded-summary"
     record = interaction_journal.get("interaction-settlement")
     assert record is not None
     assert record.stage is InteractionApplyStage.COMPLETED
     assert record.settlement_to_submit is None
+    # 首次 attempt 失败一次 + retry 补跑成功一次
+    assert relay.generate_summary.call_count == 2
 
 
 @pytest.mark.asyncio
 async def test_disabled_perception_does_not_require_apply_journal_entry() -> None:
     store = ShortTermMemoryStore()
     interaction_journal = InMemoryInteractionApplyJournal()
-    familiar = PerceptionFamiliar(
-        perception_layer=NullPerceptionLayer(),
+    familiar = _build_familiar(
+        store,
+        interaction_journal,
+        relay=Mock(),
         bus=Mock(request=AsyncMock()),
-        config=SimpleNamespace(idle_timeout_seconds=30),
-        memory_library=MemoryLibrary(
-            short_term=store,
-            mid_term=Mock(),
-            long_term=Mock(),
-        ),
-        interaction_journal=interaction_journal,
+        engine=None,  # 感知关闭（原 NullPerceptionLayer 语义）
     )
 
     topic_id = await familiar.apply_interaction(

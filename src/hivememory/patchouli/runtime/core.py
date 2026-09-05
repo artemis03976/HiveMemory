@@ -329,10 +329,7 @@ class PatchouliRuntime:
             FileBasedStorageAdapter,
         )
 
-        perception_config = self._patchouli_config.perception.engine
-        max_resident = getattr(perception_config, "max_resident_topics", 5)
-
-        short_term = ShortTermMemoryStore(max_resident_topics=max_resident)
+        short_term = ShortTermMemoryStore()
         mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
 
         archiver_config = self._patchouli_config.lifecycle.archiver
@@ -346,7 +343,9 @@ class PatchouliRuntime:
         artifact_config = self._patchouli_config.artifacts
         artifact_store = None
         if artifact_config.enabled:
-            from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+            from hivememory.patchouli.memory_library.adapters.artifact import (
+                FilesystemArtifactStorageAdapter,
+            )
             from hivememory.patchouli.memory_library.stores import ArtifactStore
             artifact_store = ArtifactStore(
                 FilesystemArtifactStorageAdapter(
@@ -371,7 +370,7 @@ class PatchouliRuntime:
         包含：perception, generation, lifecycle, retrieval, artifact
         """
         return {
-            "perception": self._build_perception_layer(),
+            "perception": self._build_perception_engine(),
             "generation": self._build_generation_engine(),
             "lifecycle": self._build_lifecycle_engine(),
             "retrieval": self._build_retrieval_engine(),
@@ -380,7 +379,11 @@ class PatchouliRuntime:
 
     def _build_retrieval_engine(self):
         """[私有构建器] 构建 Retrieval 引擎"""
-        from hivememory.engines.retrieval import RetrievalEngine, BaseMemoryRetriever, create_retriever
+        from hivememory.engines.retrieval import (
+            RetrievalEngine,
+            BaseMemoryRetriever,
+            create_retriever,
+        )
 
         config = self._patchouli_config.retrieval
 
@@ -392,16 +395,37 @@ class PatchouliRuntime:
 
         return RetrievalEngine(retriever=retriever)
 
-    def _build_perception_layer(self):
-        """[私有构建器] 组装 Perception 层，注入 MemoryLibrary.short_term"""
-        from hivememory.engines.perception import create_perception_layer
+    def _build_perception_engine(self):
+        """[私有构建器] 组装 Perception 纯算法引擎
 
-        return create_perception_layer(
-            config=self._patchouli_config.perception,
-            llm_service=self.librarian_llm_service,
-            short_term_store=self.memory_library.short_term,
-            interaction_journal=self._interaction_apply_journal,
+        Engine 不持有 Store / Journal / Queue 等运行时状态；编排依赖
+        （Relay、WorkingSet、Store）由 PerceptionFamiliar 持有。
+        感知关闭（``engine.enable=False``）时返回 ``None``，Familiar 以
+        no-op 模式运行（继承原 ``NullPerceptionLayer`` 语义）。
+        """
+        from hivememory.engines.perception import MemoryPerceptionEngine, create_relay_controller
+
+        impl_config = self._patchouli_config.perception.engine
+        if not impl_config.enable:
+            return None
+
+        relay_config = (
+            getattr(self._patchouli_config.perception, "relay", None)
+            or impl_config.relay
         )
+        relay_controller = create_relay_controller(
+            config=relay_config,
+            llm_service=self.librarian_llm_service,
+        )
+        return MemoryPerceptionEngine(config=impl_config, relay_controller=relay_controller)
+
+    def _build_perception_orchestration(self):
+        """[私有构建器] 组装 Perception 的编排依赖：驻留工作集"""
+        from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+
+        impl_config = self._patchouli_config.perception.engine
+        working_set = TopicWorkingSet(max_resident=impl_config.max_resident_topics)
+        return working_set
 
     def _build_generation_engine(self):
         """[私有构建器] 组装 Generation 引擎"""
@@ -535,11 +559,13 @@ class PatchouliRuntime:
             ),
         )
 
+        working_set = self._build_perception_orchestration()
         self._services["perception"] = PerceptionFamiliar(
-            perception_layer=self._engines["perception"],
+            engine=self._engines["perception"],
+            store=self.memory_library.short_term,
+            working_set=working_set,
             bus=self._local_bus,
             config=self._patchouli_config.perception,
-            memory_library=self.memory_library,
             interaction_journal=self._interaction_apply_journal,
         )
 

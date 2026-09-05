@@ -13,12 +13,12 @@ Note:
 import pytest
 from unittest.mock import Mock
 
-from hivememory.core.models import AgentAction, Identity, TraceItem, TurnRecord
+from hivememory.core.models import AgentAction, ActorIdentity, TraceItem, TurnRecord
 from hivememory.engines.perception.relay_controller import SimpleRelayController
 from hivememory.engines.perception.models import (
     FlushEvent,
     LogicalBlock,
-    FlushReason,
+    TriggerReason,
 )
 
 

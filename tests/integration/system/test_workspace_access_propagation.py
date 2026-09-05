@@ -132,13 +132,13 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
 
     assert main_result.agent_run_result.final_text == "main_workspace"
     assert isolation_result.agent_run_result.final_text == "isolation_workspace"
-    assert {context.scope_fingerprint for context in gateway_contexts} == {
-        main_context.scope_fingerprint,
-        isolation_context.scope_fingerprint,
+    assert {context for context in gateway_contexts} == {
+        main_context,
+        isolation_context,
     }
-    assert {context.scope_fingerprint for context in finalized_contexts} == {
-        main_context.scope_fingerprint,
-        isolation_context.scope_fingerprint,
+    assert {context for context in finalized_contexts} == {
+        main_context,
+        isolation_context,
     }
 
 

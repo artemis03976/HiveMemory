@@ -1,6 +1,6 @@
 ---
 title: Topic Shutdown Per-Topic Failure Isolation
-status: todo
+status: completed
 owner: patchouli-system
 scope: topic-shutdown-settlement-failure-isolation-and-drain-continuation
 related_docs:
@@ -8,10 +8,62 @@ related_docs:
   - docs/system/runtime-and-bus.md
   - docs/archive/plans/v0.6.2-workspace-mvp.md
   - docs/governance/testing/test-design-standards.md
-last_reviewed: 2026-09-01
+  - docs/archive/plans/perception-topic-buffer-boundary-refactor.md
+last_reviewed: 2026-09-05
+completed_at: 2026-09-05
 ---
 
 # Topic shutdown 逐 Topic 失败隔离
+
+## 实施记录
+
+**本事项已在 `refactor/short-memory-store-cleanup` 分支的感知层重构（阶段 1-3）中完成。**
+
+### 实现位置
+
+- **核心实现**：`src/hivememory/patchouli/services/perception.py` 的 `PerceptionFamiliar.flush_all_for_shutdown()`（[L399-439](../../src/hivememory/patchouli/services/perception.py#L399-L439)）
+- **报告模型**：`src/hivememory/patchouli/runtime/models.py` 的 `TopicShutdownFlushReport`（[L8-26](../../src/hivememory/patchouli/runtime/models.py#L8-L26)）
+- **统一 settle 时序**：`PerceptionFamiliar._settle_topic()`（[L186-239](../../src/hivememory/patchouli/services/perception.py#L186-L239)）
+
+### 实现要点
+
+1. **逐 Topic 异常隔离**：`except Exception` + `failed.append(topic_id)` + `continue`，单个 Topic 的 admission 失败不阻止后续处理
+2. **四类结果区分**：
+   - `settled_topic_ids`：成功完成生命周期的 Topic
+   - `generation_skipped_topic_ids`：settled 的子集，无材料正常 skip
+   - `failed_topic_ids`：未能完成统一 settle 协议（busy / admission 失败等）
+   - execution failure：由 `MemoryGenerationTaskController.wait_all()` 独立处理
+3. **Settlement 顺序**：lease 持有期间依次执行"冻结材料 → admission → 删除 Topic"，admission 失败时 Topic 原样保留（虽然在 shutdown 场景下会随进程退出消失）
+4. **`asyncio.CancelledError` 传播**：`except Exception` 不捕获它（继承自 `BaseException`）
+5. **Asset binding 冻结**：`TopicMaterializeTask.from_topic_data()` 已包含 `asset_bindings`，在删除 Topic 前冻结
+
+### 架构变更说明
+
+本文档写作时（2026-09-01）使用的术语在重构后已更新：
+- ~~`SemanticFlowPerceptionLayer`~~ → `PerceptionFamiliar`（直接持有 Engine + Store + WorkingSet）
+- ~~`TopicBufferService`~~ → 职责拆分到 `PerceptionFamiliar` + `TopicWorkingSet`
+- ~~`TriggerManager` 决策矩阵~~ → 统一 `_settle_topic` 时序，`TriggerReason` 只作 provenance 标签
+
+核心问题（逐 Topic 失败隔离）的解决方案与架构无关，在重构中被正确实现。
+
+### `TopicBusyError` 不需要特殊处理
+
+Shutdown 时 Topic 遇到 `TopicBusyError`（lease 已被占用）理论上不应发生，因为：
+- Interaction submission queue 已在 shutdown 前 drain 完毕
+- Shutdown 是单线程最后的维护操作，无并发 settle
+
+若发生则说明 lease 泄漏或 drain 顺序问题，**必须计入 `failed_topic_ids`** 以触发告警，因为：
+- 没有重试机会（进程即将退出）
+- Topic 数据将丢失（无持久化）
+- 需要人工介入修复 bug
+
+当前实现（统一捕获 `Exception`）是正确的。
+
+### 完成日期
+
+2026-09-05（感知层重构阶段 1-3 完成）
+
+---
 
 ## 当前裁定
 

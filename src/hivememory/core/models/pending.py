@@ -20,7 +20,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.models.interaction import Identity
+from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.workspace import IdentityScope
 
 # ===========================================================================
@@ -235,7 +235,7 @@ class PendingAtom(BaseModel):
     source_verb: Literal["WRITE", "UPDATE"]
 
     focus: WriteFocus | UpdateFocus
-    identity: Identity = Field(default_factory=Identity)
+    identity: ActorIdentity = Field(default_factory=ActorIdentity)
     runtime_scope: RuntimeScope
     created_at: datetime = Field(default_factory=datetime.now)
 

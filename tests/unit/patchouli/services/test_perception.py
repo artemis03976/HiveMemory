@@ -1,15 +1,15 @@
-"""
-PerceptionFamiliar 单元测试
+"""PerceptionFamiliar 单元测试（lease 编排架构）。
 
 测试覆盖:
-- apply_interaction: 交互应用与 settlement 提交（mock 边界）
-- manual_settle_topic: 手动结算
-- evict_topic: 话题驱逐
-- discard_if_empty: 空话题清理
-- scan_idle_buffers_once: 空闲话题扫描与结算
+- apply_interaction: 新建/指定话题写入、binding 幂等、busy 拒绝、未知目标、
+  retry 幂等与等价性冲突
+- LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
+- token 溢出 compact: 折叠摘要写回、relay 失败后 retry 续跑不重复写块
+- manual_settle_topic / evict_topic / discard_if_empty 具名用例
+- scan_idle_buffers_once / flush_all_for_shutdown 维护投影
 
-真实链路（PerceptionFamiliar + Layer + Store + TriggerManager 协作）测试
-位于 tests/integration/patchouli/test_perception_flush_chain.py。
+真实协作：Engine + Store + WorkingSet + Journal 均为真实对象；
+Relay（LLM 摘要）与 Bus（Generation 队列）是边界之外协作者，使用 Mock。
 """
 
 from types import SimpleNamespace
@@ -17,372 +17,593 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.core.models import LogicalBlock, TopicData, TurnRecord, WorkspaceTopicKey
+from hivememory.core.models import TurnEvent, WorkspaceAssetRef
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.perception.models import (
-    AutomaticSettleResult,
-    FlushReason,
-    TopicMaterializeTask,
-)
+from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.engines.perception.models import TriggerReason
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
+    InteractionApplyStage,
 )
-from hivememory.patchouli.errors import TopicSettleAdmissionError
+from hivememory.patchouli.control.interaction_submission import (
+    TransientInteractionSubmissionError,
+)
+from hivememory.patchouli.control.memory_generation.models import (
+    MemoryGenerationSource,
+    MemoryGenerationTask,
+)
+from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
+from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
-from tests.helpers.memory import make_memory_identity_scope
+from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from hivememory.system.config import SemanticFlowPerceptionConfig
 from tests.helpers.workspace import make_identity_scope
 
 
-class TestPerceptionFamiliar:
-    """PerceptionFamiliar 完整测试套件"""
+def _identity_scope(user_id="u1", agent_id="a1"):
+    return make_identity_scope(user_id=user_id, agent_id=agent_id)
 
-    def _make_familiar(self, layer=None, store=None, bus=None, idle_timeout=30):
-        layer = layer or Mock()
-        layer.route_and_ingest = AsyncMock(return_value=("t1", None))
-        layer.prepare_topic = AsyncMock(return_value="t1")
-        layer.settle_topic = AsyncMock(
-            return_value=AutomaticSettleResult(evicted=False)
-        )
-        layer.swap_out_topic = Mock(return_value=True)
-        layer.discard_if_empty = Mock(return_value=True)
 
-        store = store or Mock()
-        store.topic_exists = Mock(return_value=True)
-        store.needs_eviction = Mock(return_value=False)
-        store.get_lru_buffer = Mock(return_value=None)
-        store.list_topic_data = Mock(return_value=[])
-        store.get_last_active_topic = Mock(return_value="t1")
-        store.get_topic_data = Mock(return_value=TopicData(
-            topic_id="t1",
-            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-            topic_title="title",
-            last_update=1.0,
-            last_accessed_at=1.0,
-        ))
-
-        bus = bus or Mock()
-        bus.request = AsyncMock(return_value=None)
-
-        memory_lib = Mock()
-        memory_lib.short_term = store
-
-        return PerceptionFamiliar(
-            perception_layer=layer,
-            bus=bus,
-            config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
-            memory_library=memory_lib,
-            interaction_journal=InMemoryInteractionApplyJournal(),
-        )
-
-    @pytest.mark.asyncio
-    async def test_apply_interaction_delegates_to_layer_and_submits_settlement(self):
-        """验证 apply_interaction 正确调用 layer.route_and_ingest 并提交 settlement"""
-        payload = InteractionPayload(
-            user_message="hi",
-            assistant_final_text="hello",
-            turn_events=[],
-        )
-        settlement = TopicMaterializeTask(
-            topic_id="t1",
-            identity_scope=make_memory_identity_scope(user_id="u1"),
-            blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
-        )
-        layer = Mock()
-        layer.route_and_ingest = AsyncMock(return_value=("t1", settlement))
-        layer.settle_topic = AsyncMock(
-            return_value=AutomaticSettleResult(evicted=False)
-        )
-        layer.prepare_topic = AsyncMock(return_value="t1")
-        store = Mock()
-        store.topic_exists.return_value = True
-        store.needs_eviction.return_value = False
-        bus = Mock()
-        bus.request = AsyncMock(return_value=None)
-        familiar = PerceptionFamiliar(
-            perception_layer=layer,
-            bus=bus,
-            config=SimpleNamespace(idle_timeout_seconds=30),
-            memory_library=SimpleNamespace(short_term=store),
-            interaction_journal=InMemoryInteractionApplyJournal(),
-        )
-
-        result = await familiar.apply_interaction(
-            payload,
-            identity_scope=make_identity_scope(user_id="u1"),
-            target_topic_id="t1",
-        )
-
-        assert result == "t1"
-        layer.route_and_ingest.assert_awaited_once_with(
-            "t1",
-            payload,
-            identity_scope=make_identity_scope(user_id="u1"),
-            asset_id_and_refs=(),
-        )
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-            settlement,
-        )
-
-    @pytest.mark.asyncio
-    async def test_apply_interaction_no_settlement_when_route_returns_none(self):
-        """验证当 route_and_ingest 返回 None settlement 时，不调用 bus.request"""
-        payload = InteractionPayload(
-            user_message="hi",
-            assistant_final_text="hello",
-            turn_events=[],
-        )
-        layer = Mock()
-        layer.route_and_ingest = AsyncMock(return_value=("t1", None))  # 无 settlement
-        store = Mock()
-        store.topic_exists.return_value = True
-        store.needs_eviction.return_value = False
-
-        bus = Mock()
-        bus.request = AsyncMock()
-
-        familiar = self._make_familiar(layer=layer, store=store, bus=bus)
-
-        result = await familiar.apply_interaction(
-            payload,
-            identity_scope=make_identity_scope(user_id="u1"),
-            target_topic_id="t1",
-        )
-
-        assert result == "t1"
-        bus.request.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_apply_interaction_evicts_lru_before_new_topic_when_pool_full(self):
-        payload = InteractionPayload(
-            user_message="hi",
-            assistant_final_text="hello",
-            turn_events=[],
-        )
-        settlement = TopicMaterializeTask(
-            topic_id="old_topic",
-            identity_scope=make_memory_identity_scope(user_id="u1"),
-            blocks=[LogicalBlock(turn=TurnRecord(user_query="old", assistant_final_text="answer"))],
-            reason=FlushReason.LRU_EVICTION,
-        )
-        layer = Mock()
-        layer.route_and_ingest = AsyncMock(return_value=("new_topic", None))
-        layer.settle_topic = AsyncMock(
-            return_value=AutomaticSettleResult(
-                evicted=True,
-                settlement=settlement,
+def _payload(message: str = "hello") -> InteractionPayload:
+    return InteractionPayload(
+        user_message=message,
+        assistant_final_text=f"answer:{message}",
+        turn_events=[
+            TurnEvent(
+                kind="assistant_message",
+                sequence=0,
+                role="assistant",
+                content=f"answer:{message}",
             )
+        ],
+    )
+
+
+def _generation_task(task_id="task-1", topic_id="t1") -> MemoryGenerationTask:
+    return MemoryGenerationTask(
+        task_id=task_id,
+        topic_id=topic_id,
+        label=topic_id,
+        source=MemoryGenerationSource.SETTLE,
+    )
+
+
+class _FakeClock:
+    """可控单调时钟：由测试手动推进，替代真实时间。"""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _make_familiar(
+    *,
+    max_resident=5,
+    idle_timeout=30,
+    engine_config=None,
+    relay=None,
+    bus=None,
+    clock=None,
+    engine="default",
+):
+    """构造 (familiar, store, working_set, bus, journal) 测试组合。
+
+    Engine（含 RelayController）/ Store / WorkingSet / Journal 为真实对象；
+    时间使用可控时钟。
+    """
+    clock = clock or _FakeClock()
+    store = ShortTermMemoryStore()
+    working_set = TopicWorkingSet(max_resident=max_resident, clock=clock)
+    if relay is None:
+        relay = Mock()
+        relay.generate_summary = Mock(return_value="test summary")
+    bus = bus or Mock()
+    bus.request = AsyncMock(return_value=None)
+    if engine == "default":
+        engine = MemoryPerceptionEngine(
+            config=engine_config or SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=relay,
         )
-        store = Mock()
-        store.topic_exists.return_value = False
-        store.needs_eviction.return_value = True
-        store.get_lru_topic.return_value = "old_topic"
-        bus = Mock()
-        bus.request = AsyncMock(return_value=None)
-        familiar = PerceptionFamiliar(
-            perception_layer=layer,
-            bus=bus,
-            config=SimpleNamespace(idle_timeout_seconds=30),
-            memory_library=SimpleNamespace(short_term=store),
-            interaction_journal=InMemoryInteractionApplyJournal(),
+    journal = InMemoryInteractionApplyJournal()
+    familiar = PerceptionFamiliar(
+        engine=engine,
+        store=store,
+        working_set=working_set,
+        bus=bus,
+        config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
+        interaction_journal=journal,
+    )
+    return familiar, store, working_set, bus, journal
+
+
+# ========== apply_interaction：核心摄入用例 ==========
+
+
+class TestApplyInteraction:
+    @pytest.mark.asyncio
+    async def test_new_topic_creates_topic_and_completes_journal(self):
+        familiar, store, working_set, bus, journal = _make_familiar()
+        scope = _identity_scope()
+
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
         )
 
-        result = await familiar.apply_interaction(
-            payload,
-            identity_scope=make_identity_scope(user_id="u1"),
-            target_topic_id="NEW_TOPIC",
-        )
-
-        assert result == "new_topic"
-        layer.settle_topic.assert_awaited_once_with(
-            WorkspaceTopicKey.from_identity_scope(make_identity_scope(user_id="u1"), "old_topic"),
-            FlushReason.LRU_EVICTION,
-        )
-        bus.request.assert_awaited_once_with(
-            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
-            settlement,
-        )
-        layer.route_and_ingest.assert_awaited_once_with(
-            "NEW_TOPIC",
-            payload,
-            identity_scope=make_identity_scope(user_id="u1"),
-            asset_id_and_refs=(),
-        )
+        topic = store.get(scope, topic_id)
+        assert topic is not None
+        assert topic.block_count == 1
+        assert topic.topic_title == "新建话题"
+        assert journal.get("i-1").stage is InteractionApplyStage.COMPLETED
+        # 驻留工作集记录了话题（shutdown 候选可观察）
+        assert {tid for _, tid in working_set.list_shutdown_candidates()} == {topic_id}
 
     @pytest.mark.asyncio
-    async def test_manual_settle_evicts_empty_topic_without_generation(self):
-        """真正空 Topic 无可提交材料：不触发生成，但仍结束生命周期并返回成功。"""
-        store = Mock()
-        store.get_last_active_topic.return_value = "t1"
-        store.get_topic_data.return_value = TopicData(
-            topic_id="t1",
-            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-            topic_title="empty",
-            last_update=1.0,
-            last_accessed_at=1.0,
+    async def test_existing_topic_appends_blocks_and_dedupes_bindings(self):
+        familiar, store, _, _, _ = _make_familiar()
+        scope = _identity_scope()
+        store.create(scope, topic_id="t-fixed", topic_title="Fixed")
+        ref = WorkspaceAssetRef(token="token-1")
+
+        first = await familiar.apply_interaction(
+            _payload("a"),
+            identity_scope=scope,
+            target_topic_id="t-fixed",
+            interaction_id="i-1",
+            asset_id_and_refs=(("asset-1", ref),),
         )
-        layer = Mock()
-        layer.prepare_settlement = AsyncMock(return_value=None)
-        layer.commit_settlement = Mock(return_value=True)
-        bus = Mock()
-        bus.request = AsyncMock()
-        familiar = PerceptionFamiliar(
-            perception_layer=layer,
-            bus=bus,
-            config=SimpleNamespace(idle_timeout_seconds=30),
-            memory_library=SimpleNamespace(short_term=store),
-            interaction_journal=InMemoryInteractionApplyJournal(),
+        second = await familiar.apply_interaction(
+            _payload("b"),
+            identity_scope=scope,
+            target_topic_id="t-fixed",
+            interaction_id="i-2",
+            asset_id_and_refs=(("asset-1", WorkspaceAssetRef(token="token-1")),),
         )
 
-        result = await familiar.manual_settle_topic(make_identity_scope(user_id="u1"))
+        assert first == second == "t-fixed"
+        topic = store.get(scope, "t-fixed")
+        assert topic.block_count == 2
+        # 同一资产重复使用只保留首次交互事实
+        assert len(topic.bindings) == 1
+        assert topic.bindings[0].first_bound_interaction_id == "i-1"
 
-        assert result.topic_id == "t1"
+    @pytest.mark.asyncio
+    async def test_empty_turn_events_rejected_without_legacy_fallback(self):
+        familiar, store, _, _, _ = _make_familiar()
+        payload = InteractionPayload(user_message="hello", turn_events=[])
+
+        with pytest.raises(ValueError, match="turn_events is required"):
+            await familiar.apply_interaction(
+                payload, identity_scope=_identity_scope(), interaction_id="i-1"
+            )
+        assert store.list_all() == []  # 未产生任何话题写入
+
+    @pytest.mark.asyncio
+    async def test_busy_topic_rejects_interaction_without_writing(self):
+        familiar, store, working_set, _, _ = _make_familiar()
+        scope = _identity_scope()
+        store.create(scope, topic_id="t1")
+        lease = working_set.acquire(scope, "t1")
+        assert lease is not None
+
+        with pytest.raises(TopicBusyError, match="正忙"):
+            await familiar.apply_interaction(_payload(), identity_scope=scope, target_topic_id="t1")
+
+        assert store.get(scope, "t1").block_count == 0
+
+    @pytest.mark.asyncio
+    async def test_unknown_target_is_rejected(self):
+        familiar, _, _, _, _ = _make_familiar()
+
+        with pytest.raises(KeyError, match="does not exist"):
+            await familiar.apply_interaction(
+                _payload(), identity_scope=_identity_scope(), target_topic_id="missing"
+            )
+
+    @pytest.mark.asyncio
+    async def test_retry_with_same_payload_is_idempotent(self):
+        familiar, store, _, _, _ = _make_familiar()
+        scope = _identity_scope()
+        store.create(scope, topic_id="t1")
+        payload = _payload("m")
+
+        first = await familiar.apply_interaction(
+            payload, identity_scope=scope, target_topic_id="t1", interaction_id="i-1"
+        )
+        replayed = await familiar.apply_interaction(
+            payload, identity_scope=scope, target_topic_id="t1", interaction_id="i-1"
+        )
+
+        assert replayed == first
+        assert store.get(scope, "t1").block_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_with_different_payload_conflicts(self):
+        familiar, store, _, _, _ = _make_familiar()
+        scope = _identity_scope()
+        store.create(scope, topic_id="t1")
+
+        await familiar.apply_interaction(
+            _payload("m"), identity_scope=scope, target_topic_id="t1", interaction_id="i-1"
+        )
+        with pytest.raises(ValueError, match="different input"):
+            await familiar.apply_interaction(
+                _payload("other"),
+                identity_scope=scope,
+                target_topic_id="t1",
+                interaction_id="i-1",
+            )
+        assert store.get(scope, "t1").block_count == 1
+
+    @pytest.mark.asyncio
+    async def test_default_manual_settle_targets_last_active_topic(self):
+        familiar, store, _, bus, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+
+        result = await familiar.manual_settle_topic(scope)
+
+        assert result.topic_id == topic_id
+        assert store.get(scope, topic_id) is None
+
+
+# ========== LRU 驱逐 ==========
+
+
+class TestLruEviction:
+    @pytest.mark.asyncio
+    async def test_pool_full_evicts_least_recently_used_topic(self):
+        clock = _FakeClock()
+        familiar, store, _, bus, _ = _make_familiar(max_resident=2, clock=clock)
+        scope = _identity_scope()
+        t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
+        clock.advance(10)
+        t2 = await familiar.apply_interaction(_payload("2"), identity_scope=scope)
+        clock.advance(10)
+
+        t3 = await familiar.apply_interaction(_payload("3"), identity_scope=scope)
+
+        assert store.get(scope, t1) is None  # 最久未访问被驱逐
+        assert store.get(scope, t2) is not None
+        assert store.get(scope, t3) is not None
+        # 驱逐走统一 settle 时序并向 Generation 提交材料
+        assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+        task = bus.request.await_args.args[1]
+        assert task.topic_id == t1
+        assert task.reason is TriggerReason.LRU_EVICTION
+
+    @pytest.mark.asyncio
+    async def test_busy_candidate_is_skipped_for_older_leased_topic(self):
+        clock = _FakeClock()
+        familiar, store, working_set, _, _ = _make_familiar(max_resident=2, clock=clock)
+        scope = _identity_scope()
+        t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
+        clock.advance(10)
+        t2 = await familiar.apply_interaction(_payload("2"), identity_scope=scope)
+        clock.advance(10)
+        lease = working_set.acquire(scope, t1)
+        assert lease is not None
+
+        t3 = await familiar.apply_interaction(_payload("3"), identity_scope=scope)
+
+        # t1 被占用跳过，改选 t2 驱逐
+        assert store.get(scope, t1) is not None
+        assert store.get(scope, t2) is None
+        assert store.get(scope, t3) is not None
+        working_set.release(lease)
+
+    @pytest.mark.asyncio
+    async def test_admission_failure_preserves_topic_and_propagates(self):
+        familiar, store, _, bus, _ = _make_familiar(max_resident=1)
+        scope = _identity_scope()
+        t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
+        bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
+
+        with pytest.raises(RuntimeError, match="admission boom"):
+            await familiar.apply_interaction(_payload("2"), identity_scope=scope)
+
+        # admission 失败：话题内容完整保留，可重试
+        assert store.get(scope, t1) is not None
+        assert store.get(scope, t1).block_count == 1
+
+    @pytest.mark.asyncio
+    async def test_pool_full_with_all_candidates_busy_raises(self):
+        familiar, _, working_set, _, _ = _make_familiar(max_resident=1)
+        scope = _identity_scope()
+        t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
+        working_set.acquire(scope, t1)  # 唯一候选正被占用
+
+        with pytest.raises(TopicBusyError, match="无可占用候选"):
+            await familiar.apply_interaction(_payload("2"), identity_scope=scope)
+
+
+# ========== token 溢出 compact ==========
+
+
+class TestCompact:
+    @pytest.mark.asyncio
+    async def test_token_overflow_folds_old_blocks_and_writes_cumulative_summary(self):
+        engine_config = SemanticFlowPerceptionConfig(
+            fold_token_threshold=1, fold_retain_recent_blocks=1
+        )
+        mock_relay = Mock()
+        # 摘要在旧摘要之上累积（Relay 的 previous_summary 契约）
+        mock_relay.generate_summary.side_effect = (
+            lambda blocks_to_fold, previous_summary=None: (previous_summary or "") + "---folded"
+        )
+        familiar, store, _, _, _ = _make_familiar(engine_config=engine_config, relay=mock_relay)
+        scope = _identity_scope()
+        store.create(scope, topic_id="t1")
+
+        await familiar.apply_interaction(
+            _payload("a"), identity_scope=scope, target_topic_id="t1", interaction_id="i-1"
+        )
+        await familiar.apply_interaction(
+            _payload("b"), identity_scope=scope, target_topic_id="t1", interaction_id="i-2"
+        )
+        await familiar.apply_interaction(
+            _payload("c"), identity_scope=scope, target_topic_id="t1", interaction_id="i-3"
+        )
+
+        topic = store.get(scope, "t1")
+        assert topic.block_count == 1  # 每轮折叠后只保留最近 1 块
+        # 第二次折叠收到第一次的摘要（"---folded"）作为 previous_summary，累积成链
+        assert topic.state_summary == "---folded---folded"
+        assert topic.total_tokens == topic.blocks[0].total_tokens
+
+    @pytest.mark.asyncio
+    async def test_compact_failure_after_write_resumes_on_retry(self):
+        engine_config = SemanticFlowPerceptionConfig(
+            fold_token_threshold=1, fold_retain_recent_blocks=1
+        )
+        mock_relay = Mock()
+        mock_relay.generate_summary.side_effect = [
+            TransientInteractionSubmissionError("caller missed apply result"),
+            "folded-summary",
+        ]
+        familiar, store, _, _, journal = _make_familiar(engine_config=engine_config, relay=mock_relay)
+        scope = _identity_scope()
+        store.create(scope, topic_id="t1")
+        payload = _payload("b")
+
+        await familiar.apply_interaction(
+            _payload("a"), identity_scope=scope, target_topic_id="t1", interaction_id="i-1"
+        )
+        with pytest.raises(TransientInteractionSubmissionError):
+            await familiar.apply_interaction(
+                payload, identity_scope=scope, target_topic_id="t1", interaction_id="i-2"
+            )
+        # block 已写入、journal 停在 INTERACTION_APPLIED
+        assert store.get(scope, "t1").block_count == 2
+        assert journal.get("i-2").stage is InteractionApplyStage.INTERACTION_APPLIED
+
+        # 同 payload retry：不重复写块，compact 后置义务补跑完成
+        await familiar.apply_interaction(
+            payload, identity_scope=scope, target_topic_id="t1", interaction_id="i-2"
+        )
+        topic = store.get(scope, "t1")
+        assert topic.block_count == 1
+        assert topic.state_summary == "folded-summary"
+        assert journal.get("i-2").stage is InteractionApplyStage.COMPLETED
+
+
+# ========== manual_settle / evict / discard 具名用例 ==========
+
+
+class TestNamedUseCases:
+    @pytest.mark.asyncio
+    async def test_manual_settle_admits_task_then_deletes_topic(self):
+        familiar, store, _, bus, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+        accepted = _generation_task("task-1", topic_id)
+        bus.request = AsyncMock(return_value=accepted)
+
+        result = await familiar.manual_settle_topic(scope, topic_id)
+
+        assert result.topic_id == topic_id
+        assert result.generation_task_id == "task-1"
+        assert result.generation_submitted is True
+        assert store.get(scope, topic_id) is None
+        assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+
+    @pytest.mark.asyncio
+    async def test_manual_settle_empty_topic_skips_generation(self):
+        familiar, store, _, bus, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.prepare_topic("NEW_TOPIC", "标题", "摘要", scope)
+
+        result = await familiar.manual_settle_topic(scope, topic_id)
+
         assert result.generation_submitted is False
         assert result.generation_task_id is None
         bus.request.assert_not_awaited()
-        layer.commit_settlement.assert_called_once_with(
-            WorkspaceTopicKey.from_identity_scope(make_identity_scope(user_id="u1"), "t1")
-        )
+        assert store.get(scope, topic_id) is None
 
     @pytest.mark.asyncio
-    async def test_manual_settle_admits_task_then_evicts(self):
-        """manual settle：先接纳 generation task，成功后才驱逐 Topic。"""
-        from hivememory.patchouli.control.memory_generation.models import (
-            MemoryGenerationSource,
-            MemoryGenerationTask,
+    async def test_manual_settle_admission_failure_keeps_topic(self):
+        familiar, store, _, bus, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
         )
-        store = Mock()
-        store.get_last_active_topic.return_value = "t1"
-        store.get_topic_data.return_value = TopicData(
-            topic_id="t1",
-            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-            topic_title="title",
-            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
-            last_update=1.0,
-            last_accessed_at=1.0,
-        )
-        layer = Mock()
-        layer.prepare_settlement = AsyncMock(return_value=TopicMaterializeTask(
-            topic_id="t1",
-            identity_scope=make_memory_identity_scope(user_id="u1"),
-            topic_title="title",
-            topic_summary="",
-            blocks=[],
-            state_summary="",
-        ))
-        layer.commit_settlement = Mock(return_value=True)
-        bus = Mock()
-        expected_task = MemoryGenerationTask(
-            task_id="task-1",
-            topic_id="t1",
-            label="t1",
-            source=MemoryGenerationSource.SETTLE,
-        )
-        bus.request = AsyncMock(return_value=expected_task)
-        familiar = PerceptionFamiliar(
-            perception_layer=layer,
-            bus=bus,
-            config=SimpleNamespace(idle_timeout_seconds=30),
-            memory_library=SimpleNamespace(short_term=store),
-            interaction_journal=InMemoryInteractionApplyJournal(),
-        )
-
-        identity_scope = make_identity_scope(user_id="u1")
-        result = await familiar.manual_settle_topic(identity_scope)
-
-        assert result.topic_id == "t1"
-        assert result.generation_task_id == "task-1"
-        assert result.generation_submitted is True
-        layer.prepare_settlement.assert_awaited_once_with(
-            WorkspaceTopicKey.from_identity_scope(identity_scope, "t1")
-        )
-        assert (
-            bus.request.await_args.args[0]
-            == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
-        )
-        layer.commit_settlement.assert_called_once_with(
-            WorkspaceTopicKey.from_identity_scope(identity_scope, "t1")
-        )
-
-    @pytest.mark.asyncio
-    async def test_manual_settle_admission_failure_keeps_topic_intact(self):
-        """admission 失败：抛出受控错误，且 Topic 不被驱逐、材料不被清空。"""
-        store = Mock()
-        store.get_last_active_topic.return_value = "t1"
-        store.get_topic_data.return_value = TopicData(
-            topic_id="t1",
-            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-            topic_title="title",
-            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
-            last_update=1.0,
-            last_accessed_at=1.0,
-        )
-        layer = Mock()
-        layer.prepare_settlement = AsyncMock(return_value=TopicMaterializeTask(
-            topic_id="t1",
-            identity_scope=make_memory_identity_scope(user_id="u1"),
-            topic_title="title",
-            blocks=[LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))],
-        ))
-        layer.abort_settlement = Mock(return_value=None)
-        layer.commit_settlement = Mock(return_value=True)
-        bus = Mock()
         bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
-        familiar = PerceptionFamiliar(
-            perception_layer=layer,
-            bus=bus,
-            config=SimpleNamespace(idle_timeout_seconds=30),
-            memory_library=SimpleNamespace(short_term=store),
-            interaction_journal=InMemoryInteractionApplyJournal(),
-        )
 
         with pytest.raises(TopicSettleAdmissionError, match="可重试"):
-            await familiar.manual_settle_topic(make_identity_scope(user_id="u1"))
+            await familiar.manual_settle_topic(scope, topic_id)
 
-        layer.abort_settlement.assert_called_once_with(
-            WorkspaceTopicKey.from_identity_scope(make_identity_scope(user_id="u1"), "t1")
-        )
-        layer.commit_settlement.assert_not_called()
-        store.clear_blocks.assert_not_called()
+        assert store.get(scope, topic_id) is not None
 
     @pytest.mark.asyncio
-    async def test_evict_topic_calls_layer_swap_out(self):
-        """验证 evict_topic 正确调用 layer.swap_out_topic"""
-        layer = Mock()
-        layer.swap_out_topic = Mock(return_value=True)
-        familiar = self._make_familiar(layer=layer)
+    async def test_manual_settle_busy_topic_raises_busy_error(self):
+        familiar, store, working_set, _, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+        working_set.acquire(scope, topic_id)
 
-        identity_scope = make_identity_scope(user_id="u1")
-        result = await familiar.evict_topic(identity_scope, "topic_to_evict")
+        with pytest.raises(TopicBusyError):
+            await familiar.manual_settle_topic(scope, topic_id)
 
-        assert result.topic_id == "topic_to_evict"
+        assert store.get(scope, topic_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_manual_settle_without_topic_or_active_history_raises(self):
+        familiar, _, _, _, _ = _make_familiar()
+
+        with pytest.raises(ValueError, match="未指定"):
+            await familiar.manual_settle_topic(_identity_scope())
+
+    @pytest.mark.asyncio
+    async def test_evict_topic_removes_without_settlement(self):
+        familiar, store, working_set, bus, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+
+        result = await familiar.evict_topic(scope, topic_id)
+
         assert result.removed is True
-        layer.swap_out_topic.assert_called_once_with(
-            WorkspaceTopicKey.from_identity_scope(identity_scope, "topic_to_evict")
-        )
+        assert store.get(scope, topic_id) is None
+        assert working_set.list_shutdown_candidates() == []
+        bus.request.assert_not_awaited()  # evict 不触发结算
 
     @pytest.mark.asyncio
-    async def test_scan_idle_buffers_once_skips_non_idle_topics(self):
-        """验证空闲扫描跳过非空闲话题"""
-        from datetime import datetime
-        recent_topic_data = TopicData(
-            topic_id="recent_topic",
-            workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-            topic_title="recent",
-            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
-            last_update=datetime.now().timestamp(),  # 刚刚更新
-            last_accessed_at=datetime.now().timestamp(),
+    async def test_evict_busy_topic_reports_not_removed(self):
+        familiar, store, working_set, _, _ = _make_familiar()
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
         )
-        layer = Mock()
-        layer.settle_topic = AsyncMock()
-        store = Mock()
-        store.list_all_topic_data_for_maintenance = Mock(return_value=[recent_topic_data])
+        working_set.acquire(scope, topic_id)
 
-        bus = Mock()
-        familiar = self._make_familiar(layer=layer, store=store, bus=bus, idle_timeout=3600)
+        result = await familiar.evict_topic(scope, topic_id)
+
+        assert result.removed is False
+        assert store.get(scope, topic_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_discard_if_empty_removes_only_truly_empty_topic(self):
+        familiar, store, _, _, _ = _make_familiar()
+        scope = _identity_scope()
+        empty_id = await familiar.prepare_topic("NEW_TOPIC", "标题", "摘要", scope)
+        content_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+
+        assert familiar.discard_if_empty(scope, empty_id) is True
+        assert familiar.discard_if_empty(scope, content_id) is False
+        assert store.get(scope, empty_id) is None
+        assert store.get(scope, content_id) is not None
+
+
+# ========== 维护与 shutdown ==========
+
+
+class TestMaintenance:
+    @pytest.mark.asyncio
+    async def test_scan_idle_settles_only_timed_out_topics(self):
+        clock = _FakeClock()
+        familiar, store, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
+        scope = _identity_scope()
+        stale_id = await familiar.apply_interaction(
+            _payload("1"), identity_scope=scope, interaction_id="i-1"
+        )
+        clock.advance(100)
+        fresh_id = await familiar.apply_interaction(
+            _payload("2"), identity_scope=scope, interaction_id="i-2"
+        )
 
         flushed = await familiar.scan_idle_buffers_once()
 
-        assert len(flushed) == 0
-        layer.settle_topic.assert_not_called()
+        assert flushed == [stale_id]
+        assert store.get(scope, stale_id) is None
+        assert store.get(scope, fresh_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_scan_idle_skips_leased_topic(self):
+        clock = _FakeClock()
+        familiar, store, working_set, _, _ = _make_familiar(idle_timeout=30, clock=clock)
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+        clock.advance(100)
+        working_set.acquire(scope, topic_id)
+
+        flushed = await familiar.scan_idle_buffers_once()
+
+        assert flushed == []
+        assert store.get(scope, topic_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_scan_idle_admission_failure_skips_and_preserves(self):
+        clock = _FakeClock()
+        familiar, store, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
+        scope = _identity_scope()
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+        clock.advance(100)
+        bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
+
+        flushed = await familiar.scan_idle_buffers_once()
+
+        # idle 维护不向上传播；话题保留等待下一轮
+        assert flushed == []
+        assert store.get(scope, topic_id) is not None
+
+    @pytest.mark.asyncio
+    async def test_shutdown_flush_classifies_settled_skipped_and_failed(self):
+        familiar, store, _, bus, _ = _make_familiar()
+        scope = _identity_scope()
+        ok_id = await familiar.apply_interaction(
+            _payload("1"), identity_scope=scope, interaction_id="i-1"
+        )
+        empty_id = await familiar.prepare_topic("NEW_TOPIC", "标题", "摘要", scope)
+        bad_id = await familiar.apply_interaction(
+            _payload("3"), identity_scope=scope, interaction_id="i-3"
+        )
+        bus.request = AsyncMock(
+            side_effect=[_generation_task("task-1", ok_id), RuntimeError("admission boom")]
+        )
+
+        report = await familiar.flush_all_for_shutdown()
+
+        assert report.settled_topic_ids == (ok_id, empty_id)
+        assert report.generation_skipped_topic_ids == (empty_id,)
+        assert report.failed_topic_ids == (bad_id,)
+        assert report.resident_block_count == 2  # ok + bad 各 1 块
+        assert store.get(scope, ok_id) is None
+        assert store.get(scope, empty_id) is None
+        # admission 失败：话题内容保留（lease 释放后可重试），仅计入 failed
+        assert store.get(scope, bad_id) is not None
+
+
+# ========== 感知关闭（engine=None）==========
+
+
+class TestDisabledPerception:
+    @pytest.mark.asyncio
+    async def test_disabled_engine_has_no_side_effects(self):
+        familiar, store, _, _, journal = _make_familiar(engine=None)
+        scope = _identity_scope()
+
+        topic_id = await familiar.apply_interaction(
+            _payload(), identity_scope=scope, interaction_id="i-1"
+        )
+
+        assert topic_id == "NEW_TOPIC"
+        assert store.list_all() == []
+        assert journal.get("i-1") is None

@@ -69,7 +69,7 @@ class InteractionArtifactInput:
     topic_title: str = ""
     topic_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = ()
-    # settle 前冻结的 Topic 真实使用资产关系；进入 queue 后不再依赖 SemanticBuffer。
+    # settle 前冻结的 Topic 真实使用资产关系；进入 queue 后不再依赖短期 buffer 实体。
     asset_bindings: tuple[TopicAssetBinding, ...] = ()
 
 

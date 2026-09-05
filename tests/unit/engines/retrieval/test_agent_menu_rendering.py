@@ -19,7 +19,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     AgentProfile,
     MemoryAtom,
     MemoryType,
