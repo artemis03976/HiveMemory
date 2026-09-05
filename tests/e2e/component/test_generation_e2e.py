@@ -76,7 +76,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     StreamMessage,
     StreamMessageType,
     MemoryAtom,
@@ -240,9 +240,9 @@ def reset_test_env() -> None:
             console.print(f"[yellow]重置测试集合失败: {e}[/yellow]")
 
 
-def create_test_identity(prefix: str = "test") -> Identity:
-    """创建测试用的 Identity"""
-    return Identity(
+def create_test_identity(prefix: str = "test") -> ActorIdentity:
+    """创建测试用的 ActorIdentity"""
+    return ActorIdentity(
         user_id=f"{prefix}_user_{uuid.uuid4().hex[:8]}",
         agent_id=f"{prefix}_agent",
         session_id=f"{prefix}_session_{uuid.uuid4().hex[:8]}",
@@ -251,7 +251,7 @@ def create_test_identity(prefix: str = "test") -> Identity:
 
 def create_stream_messages(
     messages: List[Dict[str, str]],
-    identity: Identity
+    identity: ActorIdentity
 ) -> List[StreamMessage]:
     """将测试数据转换为 StreamMessage 列表"""
     role_mapping = {
@@ -272,7 +272,7 @@ def create_stream_messages(
 
 def create_generation_context(
     messages: List[Dict[str, str]],
-    identity: Identity,
+    identity: ActorIdentity,
 ) -> GenerationContext:
     """将测试消息转换为 generation 主路径使用的 GenerationContext。"""
     turns: List[GenerationTurn] = []
@@ -289,7 +289,7 @@ def create_generation_context(
     return GenerationContext(turns=turns)
 
 
-def create_memory_from_data(data: Dict[str, Any], identity: Identity) -> MemoryAtom:
+def create_memory_from_data(data: Dict[str, Any], identity: ActorIdentity) -> MemoryAtom:
     """从测试数据创建 MemoryAtom"""
     try:
         mem_type = MemoryType(data["memory_type"])

@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models import Identity, TopicData
+from hivememory.core.models import ActorIdentity, TopicData
 from hivememory.core.protocol.gateway import (
     IntentType,
     MemoryWriteSignal,
@@ -19,7 +19,7 @@ class UserQueryAnalysisContext(BaseModel):
     """路由完成后交给查询分析能力的只读上下文。"""
 
     raw_message: str
-    identity: Identity
+    identity: ActorIdentity
     candidate_topics: CandidateTopics
     topic_id: str
     new_topic_title: str | None = None

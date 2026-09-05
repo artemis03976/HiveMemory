@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     TopicSnapshot,
     resolve_default_identity_scope,
 )
@@ -40,7 +40,7 @@ class TopicApplicationService:
     async def list_active_topics(self, *, user_id: str) -> tuple[TopicSnapshot, ...]:
         """列出用户默认 Workspace 中的活跃 Topic 快照。"""
 
-        identity = Identity(user_id=user_id)
+        identity = ActorIdentity(user_id=user_id)
         identity_scope = resolve_default_identity_scope(identity)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
@@ -56,7 +56,7 @@ class TopicApplicationService:
         """结算 Topic，并原样返回 Patchouli 的业务结果。"""
 
         identity_scope = resolve_default_identity_scope(
-            Identity(user_id=user_id),
+            ActorIdentity(user_id=user_id),
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
@@ -73,7 +73,7 @@ class TopicApplicationService:
         """删除 Topic，并原样返回 Patchouli 的驱逐结果。"""
 
         identity_scope = resolve_default_identity_scope(
-            Identity(user_id=user_id),
+            ActorIdentity(user_id=user_id),
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_EVICT_TOPIC,

@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-05
 ---
 
 # 数据模型与可变性边界
@@ -76,7 +76,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 当前形成较完整不可变链路的模型包括：
 
-- `Identity`；
+- `ActorIdentity`；
 - `TurnEvent`、`AgentAction`、`TraceItem`、`TurnRecord`；
 - `TopicData`、`TopicSnapshot` 与相关展示值对象；
 - Gateway 的公共 decision / command outcome 及多项私有分析结果；

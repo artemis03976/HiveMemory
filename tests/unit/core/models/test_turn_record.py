@@ -11,8 +11,8 @@ import pytest
 from pydantic import ValidationError
 
 from hivememory.core.models import (
+    ActorIdentity,
     AgentAction,
-    Identity,
     LogicalBlock,
     TraceItem,
     TurnEvent,
@@ -20,8 +20,8 @@ from hivememory.core.models import (
 )
 
 
-def _identity() -> Identity:
-    return Identity(user_id="u1", agent_id="a1")
+def _identity() -> ActorIdentity:
+    return ActorIdentity(user_id="u1", agent_id="a1")
 
 
 def test_turn_record_anchor_text():

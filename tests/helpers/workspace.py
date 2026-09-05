@@ -1,7 +1,7 @@
 """测试专用 IdentityScope 与 RuntimeScope 构造器。"""
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     RuntimeScope,
     IdentityScope,
     build_internal_identity_scope,
@@ -10,7 +10,7 @@ from hivememory.core.models import (
 
 def make_identity_scope(
     *,
-    actor_identity: Identity | None = None,
+    actor_identity: ActorIdentity | None = None,
     user_id: str = "test_user",
     agent_id: str = "test_agent",
     workspace_id: str = "main_workspace",
@@ -22,14 +22,14 @@ def make_identity_scope(
     ``IdentityScope``。需要保存 interaction ID 的测试载体应独立持有该字段。
     """
     return build_internal_identity_scope(
-        actor_identity or Identity(user_id=user_id, agent_id=agent_id),
+        actor_identity or ActorIdentity(user_id=user_id, agent_id=agent_id),
         workspace_id,
     )
 
 
 def make_runtime_scope(
     *,
-    actor_identity: Identity | None = None,
+    actor_identity: ActorIdentity | None = None,
     user_id: str = "test_user",
     agent_id: str = "test_agent",
     run_id: str = "test_run",

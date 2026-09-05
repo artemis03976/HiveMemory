@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import (
+    ActorIdentity,
     Artifacts,
-    Identity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -52,7 +52,7 @@ class AgentApplicationService:
     ) -> MemoryAtom:
         # TODO: 复核 agent_id 的手写来源
         identity_scope = resolve_default_identity_scope(
-            Identity(user_id=user_id, agent_id="ui"),
+            ActorIdentity(user_id=user_id, agent_id="ui"),
         )
         atom = MemoryAtom(
             meta=MetaData(
@@ -86,7 +86,7 @@ class AgentApplicationService:
         limit: int = 100,
     ) -> list[MemoryAtom]:
         identity_scope = resolve_default_identity_scope(
-            Identity(user_id=user_id, agent_id="ui"),
+            ActorIdentity(user_id=user_id, agent_id="ui"),
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,

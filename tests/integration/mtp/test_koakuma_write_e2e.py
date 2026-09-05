@@ -7,7 +7,7 @@ import pytest
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -25,8 +25,8 @@ from .conftest import (
 
 
 @pytest.fixture
-def identity() -> Identity:
-    return Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+def identity() -> ActorIdentity:
+    return ActorIdentity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
 
 @pytest.fixture

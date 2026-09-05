@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IdentityScope,
     require_identity_scope,
     resolve_default_identity_scope,
@@ -148,7 +148,7 @@ class PassiveMessageIngressor:
     async def route_event(
         self,
         event: PassiveIngressEvent,
-        identity: Identity,
+        identity: ActorIdentity,
     ) -> PassiveIngressOutcome:
         """公共 passive 入口：为每个顶层事件解析默认 Workspace 与 interaction_id。"""
         identity_scope = resolve_default_identity_scope(identity)

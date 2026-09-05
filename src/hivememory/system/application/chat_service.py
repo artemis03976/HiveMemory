@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IdentityScope,
     require_identity_scope,
     resolve_default_identity_scope,
@@ -164,7 +164,7 @@ class ChatApplicationService:
         generation_id: str | None = None,
     ) -> NonStreamingChatResult:
         """公共默认 Workspace 非流式入口。"""
-        identity = Identity(
+        identity = ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -369,7 +369,7 @@ class ChatApplicationService:
         generation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """公共默认 Workspace 流式入口。"""
-        identity = Identity(
+        identity = ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=session_id,
@@ -683,7 +683,7 @@ class ChatApplicationService:
     ) -> CancelResult:
         """公共默认 Workspace 的幂等取消入口。"""
         identity_scope = resolve_default_identity_scope(
-            Identity(user_id=user_id, agent_id=agent_id),
+            ActorIdentity(user_id=user_id, agent_id=agent_id),
         )
         return self.cancel_generation_scoped(
             generation_id,

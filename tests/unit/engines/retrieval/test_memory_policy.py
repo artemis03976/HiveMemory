@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -47,13 +47,13 @@ def _memory(policy: MemoryAccessPolicy) -> MemoryAtom:
 @pytest.mark.parametrize(
     ("policy", "actor", "expected"),
     [
-        (MemoryAccessPolicy.public(), Identity(user_id="u1", agent_id="other"), True),
+        (MemoryAccessPolicy.public(), ActorIdentity(user_id="u1", agent_id="other"), True),
         (
             MemoryAccessPolicy(
                 visibility=MemoryVisibility.PRIVATE,
                 target_agent_id="target-agent",
             ),
-            Identity(user_id="u1", agent_id="target-agent"),
+            ActorIdentity(user_id="u1", agent_id="target-agent"),
             True,
         ),
         (
@@ -61,7 +61,7 @@ def _memory(policy: MemoryAccessPolicy) -> MemoryAtom:
                 visibility=MemoryVisibility.PRIVATE,
                 target_agent_id="target-agent",
             ),
-            Identity(user_id="u1", agent_id="other"),
+            ActorIdentity(user_id="u1", agent_id="other"),
             False,
         ),
         (
@@ -69,7 +69,7 @@ def _memory(policy: MemoryAccessPolicy) -> MemoryAtom:
                 visibility=MemoryVisibility.TEAM,
                 target_team_id="team-a",
             ),
-            Identity(user_id="u1", agent_id="agent", team_id="team-a"),
+            ActorIdentity(user_id="u1", agent_id="agent", team_id="team-a"),
             True,
         ),
         (
@@ -77,14 +77,14 @@ def _memory(policy: MemoryAccessPolicy) -> MemoryAtom:
                 visibility=MemoryVisibility.TEAM,
                 target_team_id="team-a",
             ),
-            Identity(user_id="u1", agent_id="agent", team_id="team-b"),
+            ActorIdentity(user_id="u1", agent_id="agent", team_id="team-b"),
             False,
         ),
     ],
 )
 def test_read_policy_is_applied_within_owning_workspace(
     policy: MemoryAccessPolicy,
-    actor: Identity,
+    actor: ActorIdentity,
     expected: bool,
 ) -> None:
     """捕获 PRIVATE/TEAM target 匹配方向错误或 PUBLIC 被错误拒绝的缺陷。"""
@@ -100,5 +100,5 @@ def test_public_policy_cannot_cross_workspace() -> None:
     assert not memory_is_readable(
         _memory(MemoryAccessPolicy.public()),
         workspace_identity=_workspace("isolation_workspace"),
-        actor_identity=Identity(user_id="u1", agent_id="source-agent"),
+        actor_identity=ActorIdentity(user_id="u1", agent_id="source-agent"),
     )

@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -41,7 +41,7 @@ from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_events"
 CONVERSATION = "conv-events"
-IDENTITY = Identity(user_id="u1", agent_id="a1")
+IDENTITY = ActorIdentity(user_id="u1", agent_id="a1")
 
 USER_SECRET = "私密的外部用户消息全文"
 TOOL_ARG_SECRET = "s3://private-bucket/secret-key"

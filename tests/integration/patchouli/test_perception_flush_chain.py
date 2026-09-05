@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord
+from hivememory.core.models import ActorIdentity, LogicalBlock, TurnEvent, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TriggerReason
@@ -60,7 +60,7 @@ class _FakeClock:
 
 
 def _make_identity(user="u1", agent="a1"):
-    return Identity(user_id=user, agent_id=agent)
+    return ActorIdentity(user_id=user, agent_id=agent)
 
 
 def _make_payload(user_msg="hello", assistant_msg="world"):

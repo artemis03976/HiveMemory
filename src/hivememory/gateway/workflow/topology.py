@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.core.models import Identity, TopicSnapshot, IdentityScope
+from hivememory.core.models import ActorIdentity, TopicSnapshot, IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
@@ -53,7 +53,7 @@ class EntryInterceptionInput:
 @dataclass(frozen=True)
 class CommandDispatchInput:
     command: CommandParseResult | None
-    identity: Identity
+    identity: ActorIdentity
 
 
 @dataclass(frozen=True)

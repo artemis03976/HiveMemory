@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.core.errors import WorkspaceMismatchError
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -32,7 +32,7 @@ from hivememory.system.services.passive import (
 )
 from tests.helpers.workspace import make_identity_scope
 
-IDENTITY = Identity(user_id="u1", agent_id="a1")
+IDENTITY = ActorIdentity(user_id="u1", agent_id="a1")
 
 
 class _SubmissionQueueRecorder:

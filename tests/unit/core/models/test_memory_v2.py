@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from hivememory.core.errors import OwnerMismatchError, ScopeRequiredError
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -97,7 +97,7 @@ def test_identity_scope_rejects_actor_owner_drift() -> None:
     """捕获生成入口用 actor user 覆盖另一资源 owner 的缺陷。"""
     with pytest.raises(OwnerMismatchError):
         IdentityScope(
-            actor_identity=Identity(user_id="actor", agent_id="agent-a"),
+            actor_identity=ActorIdentity(user_id="actor", agent_id="agent-a"),
             workspace_identity=_workspace(user_id="owner"),
         )
 

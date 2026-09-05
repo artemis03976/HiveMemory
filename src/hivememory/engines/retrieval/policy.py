@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     MemoryAtom,
     MemoryVisibility,
     WorkspaceIdentity,
@@ -18,7 +18,7 @@ def memory_belongs_to_workspace(
     return memory.workspace_identity == workspace_identity
 
 
-def memory_visible_to_actor(memory: MemoryAtom, actor_identity: Identity) -> bool:
+def memory_visible_to_actor(memory: MemoryAtom, actor_identity: ActorIdentity) -> bool:
     """在 ownership 已通过后执行 Workspace 内 actor read policy。"""
     policy = memory.meta.access_policy
     if policy.visibility == MemoryVisibility.PUBLIC:
@@ -37,7 +37,7 @@ def memory_is_readable(
     memory: MemoryAtom,
     *,
     workspace_identity: WorkspaceIdentity,
-    actor_identity: Identity,
+    actor_identity: ActorIdentity,
 ) -> bool:
     """按固定顺序组合 ownership hard filter 与 actor read policy。"""
     return memory_belongs_to_workspace(memory, workspace_identity) and memory_visible_to_actor(

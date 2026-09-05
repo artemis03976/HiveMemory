@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.core.models import Identity, LogicalBlock, TopicData, TurnRecord
+from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
 from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingEngine,
@@ -28,7 +28,7 @@ def _build_topic_data() -> TopicData:
         blocks=(
             LogicalBlock(
                 turn=TurnRecord(
-                    identity=Identity(user_id="u1"),
+                    identity=ActorIdentity(user_id="u1"),
                     user_query="那个报错怎么修？",
                     assistant_final_text="可以增加内存限制",
                 )
@@ -142,7 +142,7 @@ async def test_analyze_respects_configurable_context_limits() -> None:
         blocks=(
             LogicalBlock(
                 turn=TurnRecord(
-                    identity=Identity(user_id="u1"),
+                    identity=ActorIdentity(user_id="u1"),
                     user_query="上一轮用户输入的很长内容",
                     assistant_final_text="",
                 )

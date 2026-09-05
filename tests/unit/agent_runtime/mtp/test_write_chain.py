@@ -18,7 +18,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     StreamMessage,
     StreamMessageType,
     WriteFocus,
@@ -38,13 +38,13 @@ from tests.helpers.memory import make_memory_identity_scope
 # ========== Fixtures ==========
 
 @pytest.fixture
-def identity() -> Identity:
-    return Identity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+def identity() -> ActorIdentity:
+    return ActorIdentity(user_id="test_user", agent_id="test_agent", session_id="test_session")
 
 
 @pytest.fixture
 def identity_scope():
-    """保护生成入口不从对话 Identity 隐式推导 Memory owner 的回归。"""
+    """保护生成入口不从对话 ActorIdentity 隐式推导 Memory owner 的回归。"""
     return make_memory_identity_scope(user_id="test_user", agent_id="test_agent")
 
 

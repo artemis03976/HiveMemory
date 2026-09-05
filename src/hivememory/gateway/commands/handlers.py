@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -18,7 +18,7 @@ def handle_help(
     *,
     command: CommandParseResult,
     registry: CommandRegistry,
-    identity: Identity,
+    identity: ActorIdentity,
     debug_enabled: bool = False,
     expose_listing: bool = True,
 ) -> CommandExecutionResult:
@@ -43,7 +43,7 @@ def handle_commands(
     *,
     command: CommandParseResult,
     registry: CommandRegistry,
-    identity: Identity,
+    identity: ActorIdentity,
     debug_enabled: bool = False,
     expose_listing: bool = True,
 ) -> CommandExecutionResult:
@@ -66,7 +66,7 @@ def handle_status(
     *,
     command: CommandParseResult,
     registry: CommandRegistry,
-    identity: Identity,
+    identity: ActorIdentity,
     debug_enabled: bool = False,
     expose_listing: bool = True,
 ) -> CommandExecutionResult:
@@ -88,7 +88,7 @@ def handle_status(
 def _visible_definitions(
     registry: CommandRegistry,
     *,
-    identity: Identity,
+    identity: ActorIdentity,
     debug_enabled: bool,
 ) -> list[CommandDefinition]:
     return [
@@ -101,7 +101,7 @@ def _visible_definitions(
 def _is_visible(
     definition: CommandDefinition,
     *,
-    identity: Identity,
+    identity: ActorIdentity,
     debug_enabled: bool,
 ) -> bool:
     permission = definition.permission
@@ -113,7 +113,7 @@ def _is_visible(
 
 
 def _in_allowlist(
-    identity: Identity,
+    identity: ActorIdentity,
     allowed_user_ids: Iterable[str] | None,
     allowed_agent_ids: Iterable[str] | None,
 ) -> bool:

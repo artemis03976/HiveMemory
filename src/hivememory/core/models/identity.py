@@ -72,11 +72,6 @@ class ActorIdentity(BaseModel):
     )
 
 
-# P2.5 兼容别名：历史代码可继续使用 ``Identity``，但它就是 ``ActorIdentity``；
-# 访问 Workspace 时仍须显式使用 ``IdentityScope`` 携带完整作用域。
-Identity = ActorIdentity
-
-
 class WorkspaceIdentity(BaseModel):
     """不可变的 Workspace 资源归属坐标。"""
 
@@ -136,7 +131,6 @@ class IdentityScope(BaseModel):
 
 __all__ = [
     "ActorIdentity",
-    "Identity",
     "WorkspaceIdentity",
     "IdentityScope",
 ]

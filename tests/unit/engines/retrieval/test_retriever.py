@@ -13,7 +13,7 @@ from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from hivememory.core.models import Identity, MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
+from hivememory.core.models import ActorIdentity, MemoryAtom, MemoryType, IndexLayer, PayloadLayer, MetaData
 from hivememory.system.config import (
     DenseRetrieverConfig,
     SparseRetrieverConfig,

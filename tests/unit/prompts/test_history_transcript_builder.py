@@ -15,13 +15,13 @@ HistoryTranscriptBuilder 单测
 6. 无结构化事件的 fallback block 仍能正确回放
 """
 
-from hivememory.core.models import Identity, LogicalBlock, TurnEvent, TurnRecord
+from hivememory.core.models import ActorIdentity, LogicalBlock, TurnEvent, TurnRecord
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 # ============ 辅助工厂 ============
 
-def _identity(agent_id: str = "default") -> Identity:
-    return Identity(user_id="u1", agent_id=agent_id)
+def _identity(agent_id: str = "default") -> ActorIdentity:
+    return ActorIdentity(user_id="u1", agent_id=agent_id)
 
 
 def _block_fallback(user_query: str, assistant_final_text: str, agent_id: str = "default") -> LogicalBlock:

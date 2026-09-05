@@ -15,7 +15,7 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     UpdateFocus,
     WriteFocus,
 )
@@ -91,7 +91,7 @@ class GenerationTurn(BaseModel):
     user_query: str
     assistant_final_text: str = ""
     trace_summaries: List[str] = Field(default_factory=list)
-    identity: Identity = Field(default_factory=Identity)
+    identity: ActorIdentity = Field(default_factory=ActorIdentity)
 
 
 class GenerationContext(BaseModel):

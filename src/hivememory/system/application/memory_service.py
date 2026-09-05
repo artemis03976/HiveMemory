@@ -5,7 +5,7 @@ from uuid import UUID
 
 from hivememory.core.models import (
     Artifacts,
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -290,5 +290,5 @@ class MemoryApplicationService:
     def _default_identity_scope(user_id: str) -> IdentityScope:
         """HTTP/System 顶层为当前用户一次性解析默认 Workspace。"""
         return resolve_default_identity_scope(
-            Identity(user_id=user_id, agent_id="ui"),
+            ActorIdentity(user_id=user_id, agent_id="ui"),
         )

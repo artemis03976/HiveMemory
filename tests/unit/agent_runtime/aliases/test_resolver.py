@@ -7,7 +7,7 @@ from hivememory.agent_runtime.aliases.resolver import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -71,7 +71,7 @@ async def test_resolve_l0_pending_hit(resolver_parts):
         content="pending content",
         title="Pending Note",
         reason=None,
-        identity=Identity(user_id="test_user"),
+        identity=ActorIdentity(user_id="test_user"),
         runtime_scope=make_runtime_scope(),
     )
 
@@ -89,7 +89,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         content="pending content",
         title="Pending Note",
         reason=None,
-        identity=Identity(user_id="test_user"),
+        identity=ActorIdentity(user_id="test_user"),
         runtime_scope=make_runtime_scope(),
     )
     canonical = _make_memory(alias="fact_canonical", content="canonical content")
@@ -127,7 +127,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
         content="pending content",
         title="Pending Note",
         reason=None,
-        identity=Identity(user_id="test_user"),
+        identity=ActorIdentity(user_id="test_user"),
         runtime_scope=make_runtime_scope(),
     )
     canonical = _make_memory(alias="fact_canonical", content="from storage")
@@ -156,7 +156,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
         content="pending content",
         title="Pending Note",
         reason=None,
-        identity=Identity(user_id="test_user"),
+        identity=ActorIdentity(user_id="test_user"),
         runtime_scope=make_runtime_scope(),
     )
     settlement = PendingAtomSettlement(
@@ -268,7 +268,7 @@ async def test_resolve_expired_pending_returns_expired(resolver_parts):
         content="will expire",
         title="Expire Test",
         reason=None,
-        identity=Identity(user_id="test_user"),
+        identity=ActorIdentity(user_id="test_user"),
         runtime_scope=make_runtime_scope(),
     )
     pending_runtime.expire(pending.pending_alias)

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import OMNI_DOLL_PROFILE, Identity
+from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -122,7 +122,7 @@ async def test_prepare_stores_decision_and_derives_retrieval_request() -> None:
     assert request.semantic_query == "保持原查询"
     assert request.keywords == ["gateway"]
     assert request.top_k == 9
-    assert request.identity == Identity(user_id="u1")
+    assert request.identity == ActorIdentity(user_id="u1")
 
 
 @pytest.mark.asyncio

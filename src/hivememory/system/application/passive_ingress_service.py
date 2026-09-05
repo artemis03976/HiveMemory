@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from hivememory.core.constants import DEFAULT_AGENT_ID
-from hivememory.core.models import Identity, resolve_default_identity_scope
+from hivememory.core.models import ActorIdentity, resolve_default_identity_scope
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -139,7 +139,7 @@ class PassiveIngressService:
                 update={"external_conversation_id": session_id}
             )
 
-        identity = Identity(
+        identity = ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=event.external_conversation_id,
@@ -196,7 +196,7 @@ class PassiveIngressService:
         Returns:
             True 表示当前 turn 已被 queue 接收。
         """
-        identity = Identity(
+        identity = ActorIdentity(
             user_id=user_id,
             agent_id=agent_id,
             session_id=external_conversation_id,

@@ -16,7 +16,7 @@ from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     Artifacts,
-    Identity,
+    ActorIdentity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
@@ -153,7 +153,7 @@ class TestRetrievalFamiliarAgentProfiles:
     async def test_visible_profile_loads_for_identity(self):
         atom = _make_profile_memory()
         self.mock_library.mid_term.get_by_alias.return_value = atom
-        identity = Identity(user_id="u1", agent_id="omni_doll")
+        identity = ActorIdentity(user_id="u1", agent_id="omni_doll")
 
         result = await self.familiar.get_agent_profile(
             "coder_doll",
@@ -367,7 +367,7 @@ class TestRetrievalFamiliarIdentityPropagation:
 
     @pytest.mark.asyncio
     async def test_identity_propagated_to_engine(self):
-        identity = Identity(user_id="u1", agent_id="coder_doll", team_id="team_a")
+        identity = ActorIdentity(user_id="u1", agent_id="coder_doll", team_id="team_a")
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
         await self.familiar.retrieve(
@@ -382,7 +382,7 @@ class TestRetrievalFamiliarIdentityPropagation:
 
     @pytest.mark.asyncio
     async def test_team_id_none_propagated(self):
-        identity = Identity(user_id="u1", agent_id="default", team_id=None)
+        identity = ActorIdentity(user_id="u1", agent_id="default", team_id=None)
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
         await self.familiar.retrieve(

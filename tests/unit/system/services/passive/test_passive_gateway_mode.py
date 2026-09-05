@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -70,7 +70,7 @@ def _event(role: str, content: str, **kwargs) -> PassiveIngressEvent:
     )
 
 
-def _key(identity: Identity) -> PassiveConversationKey:
+def _key(identity: ActorIdentity) -> PassiveConversationKey:
     return PassiveConversationKey.build(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
@@ -94,7 +94,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
         interaction_queue=_SubmissionQueueRecorder(submitted),
         gateway_request_timeout_ms=123,
     )
-    identity = Identity(user_id="u1", session_id="s1")
+    identity = ActorIdentity(user_id="u1", session_id="s1")
 
     outcome = await ingressor.route_event(_event("user", "被动原问题"), identity)
 
@@ -178,7 +178,7 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
 
     outcome = await ingressor.route_event(
         _event("user", "你好"),
-        Identity(user_id="u1"),
+        ActorIdentity(user_id="u1"),
     )
 
     assert outcome.retrieval_result is not None
@@ -207,4 +207,4 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
     )
     # 契约违约不走 §6 降级路径，必须向上抛出
     with pytest.raises(PassiveIngressContractError, match="不得返回 command"):
-        await ingressor.route_event(_event("user", "/clear"), Identity(user_id="u1"))
+        await ingressor.route_event(_event("user", "/clear"), ActorIdentity(user_id="u1"))

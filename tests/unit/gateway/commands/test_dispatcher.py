@@ -2,7 +2,7 @@
 
 import pytest
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -106,7 +106,7 @@ class TestDispatcherPermissions:
         dispatcher = SystemCommandDispatcher(registry)
         result = await dispatcher.execute(
             _parse(command_id="adm.cmd"),
-            identity=Identity(user_id="other"),
+            identity=ActorIdentity(user_id="other"),
         )
         assert result.status == CommandExecutionStatus.REJECTED
         assert result.error_code == "command.permission_denied"
@@ -123,7 +123,7 @@ class TestDispatcherPermissions:
         dispatcher = SystemCommandDispatcher(registry)
         result = await dispatcher.execute(
             _parse(command_id="agent.cmd"),
-            identity=Identity(agent_id="other_agent"),
+            identity=ActorIdentity(agent_id="other_agent"),
         )
         assert result.status == CommandExecutionStatus.REJECTED
         assert result.error_code == "command.permission_denied"
@@ -261,7 +261,7 @@ class TestDispatcherDispatch:
         dispatcher = SystemCommandDispatcher(registry, global_bus=bus)
         result = await dispatcher.execute(
             _parse(command_id="route.cmd"),
-            identity=Identity(user_id="u1"),
+            identity=ActorIdentity(user_id="u1"),
         )
         assert result.status == CommandExecutionStatus.COMPLETED
         assert result.data["response"] == {"ok": True}

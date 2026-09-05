@@ -5,7 +5,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from hivememory.core.models import Identity
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -60,11 +60,11 @@ class SystemCommandDispatcher:
         self,
         command: CommandParseResult | None,
         *,
-        identity: Identity | None = None,
+        identity: ActorIdentity | None = None,
     ) -> CommandExecutionResult:
         """执行已解析的系统指令。"""
 
-        identity = identity or Identity()
+        identity = identity or ActorIdentity()
 
         if command is None:
             return self._rejected(
@@ -114,7 +114,7 @@ class SystemCommandDispatcher:
         self,
         definition: CommandDefinition,
         command: CommandParseResult,
-        identity: Identity,
+        identity: ActorIdentity,
     ) -> CommandExecutionResult:
         target = definition.route_target
         target_kind = target.kind
@@ -144,7 +144,7 @@ class SystemCommandDispatcher:
         self,
         definition: CommandDefinition,
         command: CommandParseResult,
-        identity: Identity,
+        identity: ActorIdentity,
     ) -> CommandExecutionResult:
         handler = self._handlers.get(definition.route_target.name)
         if handler is None:
@@ -170,7 +170,7 @@ class SystemCommandDispatcher:
         self,
         definition: CommandDefinition,
         command: CommandParseResult,
-        identity: Identity,
+        identity: ActorIdentity,
     ) -> CommandExecutionResult:
         if self.global_bus is None:
             return CommandExecutionResult(
@@ -200,7 +200,7 @@ class SystemCommandDispatcher:
     def _check_permission(
         self,
         definition: CommandDefinition,
-        identity: Identity,
+        identity: ActorIdentity,
     ) -> CommandExecutionResult | None:
         permission = definition.permission
 

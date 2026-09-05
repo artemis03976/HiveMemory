@@ -7,7 +7,7 @@ import pytest
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Identity,
+    ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -40,7 +40,7 @@ from tests.helpers.memory import make_memory_metadata
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
-    identity = Identity(user_id="u1", agent_id="omni_doll")
+    identity = ActorIdentity(user_id="u1", agent_id="omni_doll")
     identity_scope = make_identity_scope(
         actor_identity=identity,
         interaction_id="interaction-test",

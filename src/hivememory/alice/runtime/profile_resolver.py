@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
+    ActorIdentity,
     AgentProfile,
-    Identity,
     IdentityScope,
     require_identity_scope,
 )
@@ -38,11 +38,11 @@ class AgentProfileCache:
         self._cache: OrderedDict[tuple[str, str, str | None, str], AgentProfile] = OrderedDict()
 
     @staticmethod
-    def key(alias: str, identity: Identity) -> tuple[str, str, str | None, str]:
+    def key(alias: str, identity: ActorIdentity) -> tuple[str, str, str | None, str]:
         """构造 cache key：(user, agent, team, alias) 四维。"""
         return (identity.user_id, identity.agent_id, identity.team_id, alias)
 
-    def get(self, alias: str, identity: Identity) -> AgentProfile | None:
+    def get(self, alias: str, identity: ActorIdentity) -> AgentProfile | None:
         key = self.key(alias, identity)
         profile = self._cache.get(key)
         if profile is not None:
@@ -50,7 +50,7 @@ class AgentProfileCache:
             return profile
         return None
 
-    def store(self, alias: str, identity: Identity, profile: AgentProfile) -> None:
+    def store(self, alias: str, identity: ActorIdentity, profile: AgentProfile) -> None:
         key = self.key(alias, identity)
         if key in self._cache:
             self._cache.move_to_end(key)

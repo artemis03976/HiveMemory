@@ -7,7 +7,7 @@ no-material 判断统一由该类方法负责；服务与调用方不得重复�
 import pytest
 
 from hivememory.core.models import (
-    Identity,
+    ActorIdentity,
     LogicalBlock,
     TopicAssetBinding,
     TopicData,
@@ -24,7 +24,7 @@ def _identity_scope(user_id="u1"):
 
 def _block(text="q", *, worth_saving=None, user_id="u1") -> LogicalBlock:
     turn = TurnRecord(
-        identity=Identity(user_id=user_id, agent_id="a1"),
+        identity=ActorIdentity(user_id=user_id, agent_id="a1"),
         user_query=text,
         assistant_final_text="a",
     )

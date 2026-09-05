@@ -18,7 +18,7 @@ from hivememory.core.errors import (
 from hivememory.core.models import (
     ISOLATION_WORKSPACE_ID,
     MAIN_WORKSPACE_ID,
-    Identity,
+    ActorIdentity,
     IdentityScope,
     WorkspaceIdentity,
     WorkspaceTopicKey,
@@ -55,7 +55,7 @@ def test_workspace_identity_rejects_different_key_and_id():
 def test_identity_scope_round_trip_preserves_scope_and_fingerprint():
     """防止序列化重建时丢失 actor 或 Workspace 坐标。"""
     original = resolve_default_identity_scope(
-        Identity(user_id="user-a", agent_id="agent-a", team_id="team-a"),
+        ActorIdentity(user_id="user-a", agent_id="agent-a", team_id="team-a"),
     )
 
     restored = IdentityScope.model_validate_json(original.model_dump_json())
@@ -66,17 +66,17 @@ def test_identity_scope_round_trip_preserves_scope_and_fingerprint():
 
 def test_identity_scope_is_frozen_and_recursively_immutable():
     """防止 Run 传播过程中原地改写 IdentityScope 的 hard boundary。"""
-    scope = resolve_default_identity_scope(Identity(user_id="user-a"))
+    scope = resolve_default_identity_scope(ActorIdentity(user_id="user-a"))
 
     with pytest.raises(ValidationError, match="frozen"):
-        scope.actor_identity = Identity(user_id="user-b")
+        scope.actor_identity = ActorIdentity(user_id="user-b")
     with pytest.raises(ValidationError, match="frozen"):
         scope.workspace_identity.workspace_id = "other"
 
 
 def test_default_resolver_builds_current_users_main_workspace():
     """防止公共入口把默认 Workspace 解析到其他 owner 或非规范名称。"""
-    scope = resolve_default_identity_scope(Identity(user_id="user-a"))
+    scope = resolve_default_identity_scope(ActorIdentity(user_id="user-a"))
 
     assert scope.workspace_identity == WorkspaceIdentity(
         owner_user_id="user-a",
@@ -88,7 +88,7 @@ def test_default_resolver_builds_current_users_main_workspace():
 def test_internal_builder_can_address_isolation_workspace_explicitly():
     """防止双 Workspace 验收 seam 偷偷回退到 main_workspace。"""
     scope = build_internal_identity_scope(
-        Identity(user_id="user-a"),
+        ActorIdentity(user_id="user-a"),
         ISOLATION_WORKSPACE_ID,
     )
 
@@ -106,7 +106,7 @@ def test_identity_scope_rejects_cross_owner_actor():
 
     with pytest.raises(OwnerMismatchError) as caught:
         IdentityScope(
-            actor_identity=Identity(user_id="attacker"),
+            actor_identity=ActorIdentity(user_id="attacker"),
             workspace_identity=workspace,
         )
 
@@ -117,7 +117,7 @@ def test_identity_scope_rejects_interaction_id():
     """防止公共身份载体重新承载 interaction_id 等关联 ID。"""
     with pytest.raises(ValidationError):
         IdentityScope(
-            actor_identity=Identity(user_id="user-a"),
+            actor_identity=ActorIdentity(user_id="user-a"),
             workspace_identity=WorkspaceIdentity(
                 owner_user_id="user-a",
                 workspace_key=MAIN_WORKSPACE_ID,
@@ -130,7 +130,7 @@ def test_identity_scope_rejects_interaction_id():
 def test_workspace_topic_key_round_trip_keeps_owner_and_workspace():
     """防止 Topic key 序列化后退化为裸 topic_id。"""
     scope = build_internal_identity_scope(
-        Identity(user_id="user-a"),
+        ActorIdentity(user_id="user-a"),
         ISOLATION_WORKSPACE_ID,
     )
     original = WorkspaceTopicKey.from_identity_scope(scope, "topic-a")

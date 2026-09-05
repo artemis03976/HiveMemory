@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import Identity, MemoryAtom
+from hivememory.core.models import ActorIdentity, MemoryAtom
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.system.config import load_app_config
 from hivememory.core.protocol.models import RetrievalRequest

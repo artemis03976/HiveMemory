@@ -17,7 +17,7 @@ from typing import Any
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
     AgentProfile,
-    Identity,
+    ActorIdentity,
     RuntimeScope,
     TurnEvent,
     IdentityScope,
@@ -73,7 +73,7 @@ class ExecutionFrame:
         return self.runtime_scope.identity_scope
 
     @property
-    def identity(self) -> Identity:
+    def identity(self) -> ActorIdentity:
         """兼容读取当前执行者身份。"""
         return self.identity_scope.actor_identity
 
@@ -110,7 +110,7 @@ class MTPExecutionContext:
         return self.runtime_scope.identity_scope
 
     @property
-    def identity(self) -> Identity:
+    def identity(self) -> ActorIdentity:
         """兼容读取当前执行者身份。"""
         return self.identity_scope.actor_identity
 
