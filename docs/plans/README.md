@@ -14,6 +14,7 @@ last_reviewed: 2026-09-05
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
+| [v0.6.2 Identity 投影收敛](v0.6.2-identity-projection-cleanup.md) | Planned | 在 W0 身份契约上消除裸 `user_id` 兼容投影：应用服务入口统一 `IdentityScope`、`InteractionTurnSnapshot` actor 字段值对象化、读侧兼容属性收口；W0 裁定的存储 legacy 兼容保留至历史数据转换事项 |
 | [v0.6.2 W0 Workspace MVP（归档）](../archive/plans/v0.6.2-workspace-mvp.md) | Archived | 已完成 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；当前事实见 [Workspace 架构](../architecture/workspace.md) |
 
 `v0.6.2` 的 Workspace 工作拆分为 W0/W1 两个独立交付切片。W0 已完成并归档；W1 Chat Attachments 尚未建立正式 Plan，必须把 W0 的稳定公共契约作为硬前置，再独立规划上传、解析、Context Compiler、可选 ContextAttachmentUse 明细和 Artifact promotion。历史数据批量转换也不在 W0 主链路中执行，需要未来另立脚本或 Plan。
