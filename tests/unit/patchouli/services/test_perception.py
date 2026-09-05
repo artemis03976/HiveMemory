@@ -92,31 +92,34 @@ def _make_familiar(
     clock=None,
     engine="default",
 ):
-    """构造 (familiar, store, working_set, relay, bus, journal) 测试组合。
+    """构造 (familiar, store, working_set, bus, journal) 测试组合。
 
-    Engine / Store / WorkingSet / Journal 为真实对象；时间使用可控时钟。
+    Engine（含 RelayController）/ Store / WorkingSet / Journal 为真实对象；
+    时间使用可控时钟。
     """
     clock = clock or _FakeClock()
     store = ShortTermMemoryStore()
     working_set = TopicWorkingSet(max_resident=max_resident, clock=clock)
-    relay = relay or Mock()
+    if relay is None:
+        relay = Mock()
+        relay.generate_summary = Mock(return_value="test summary")
     bus = bus or Mock()
     bus.request = AsyncMock(return_value=None)
     if engine == "default":
         engine = MemoryPerceptionEngine(
-            config=engine_config or SemanticFlowPerceptionConfig(fold_token_threshold=999999)
+            config=engine_config or SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=relay,
         )
     journal = InMemoryInteractionApplyJournal()
     familiar = PerceptionFamiliar(
         engine=engine,
         store=store,
         working_set=working_set,
-        relay_controller=relay,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
         interaction_journal=journal,
     )
-    return familiar, store, working_set, relay, bus, journal
+    return familiar, store, working_set, bus, journal
 
 
 # ========== apply_interaction：核心摄入用例 ==========
@@ -125,7 +128,7 @@ def _make_familiar(
 class TestApplyInteraction:
     @pytest.mark.asyncio
     async def test_new_topic_creates_topic_and_completes_journal(self):
-        familiar, store, working_set, relay, bus, journal = _make_familiar()
+        familiar, store, working_set, bus, journal = _make_familiar()
         scope = _identity_scope()
 
         topic_id = await familiar.apply_interaction(
@@ -142,7 +145,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_existing_topic_appends_blocks_and_dedupes_bindings(self):
-        familiar, store, _, _, _, _ = _make_familiar()
+        familiar, store, _, _, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope, topic_id="t-fixed", topic_title="Fixed")
         ref = WorkspaceAssetRef(token="token-1")
@@ -171,7 +174,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_empty_turn_events_rejected_without_legacy_fallback(self):
-        familiar, store, _, _, _, _ = _make_familiar()
+        familiar, store, _, _, _ = _make_familiar()
         payload = InteractionPayload(user_message="hello", turn_events=[])
 
         with pytest.raises(ValueError, match="turn_events is required"):
@@ -182,7 +185,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_busy_topic_rejects_interaction_without_writing(self):
-        familiar, store, working_set, _, _, _ = _make_familiar()
+        familiar, store, working_set, _, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
         lease = working_set.acquire(scope, "t1")
@@ -195,7 +198,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_unknown_target_is_rejected(self):
-        familiar, _, _, _, _, _ = _make_familiar()
+        familiar, _, _, _, _ = _make_familiar()
 
         with pytest.raises(KeyError, match="does not exist"):
             await familiar.apply_interaction(
@@ -204,7 +207,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_retry_with_same_payload_is_idempotent(self):
-        familiar, store, _, _, _, _ = _make_familiar()
+        familiar, store, _, _, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
         payload = _payload("m")
@@ -221,7 +224,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_retry_with_different_payload_conflicts(self):
-        familiar, store, _, _, _, _ = _make_familiar()
+        familiar, store, _, _, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
 
@@ -239,7 +242,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_default_manual_settle_targets_last_active_topic(self):
-        familiar, store, _, _, bus, _ = _make_familiar()
+        familiar, store, _, bus, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -258,7 +261,7 @@ class TestLruEviction:
     @pytest.mark.asyncio
     async def test_pool_full_evicts_least_recently_used_topic(self):
         clock = _FakeClock()
-        familiar, store, _, _, bus, _ = _make_familiar(max_resident=2, clock=clock)
+        familiar, store, _, bus, _ = _make_familiar(max_resident=2, clock=clock)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
         clock.advance(10)
@@ -279,7 +282,7 @@ class TestLruEviction:
     @pytest.mark.asyncio
     async def test_busy_candidate_is_skipped_for_older_leased_topic(self):
         clock = _FakeClock()
-        familiar, store, working_set, _, _, _ = _make_familiar(max_resident=2, clock=clock)
+        familiar, store, working_set, _, _ = _make_familiar(max_resident=2, clock=clock)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
         clock.advance(10)
@@ -298,7 +301,7 @@ class TestLruEviction:
 
     @pytest.mark.asyncio
     async def test_admission_failure_preserves_topic_and_propagates(self):
-        familiar, store, _, _, bus, _ = _make_familiar(max_resident=1)
+        familiar, store, _, bus, _ = _make_familiar(max_resident=1)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
         bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
@@ -312,7 +315,7 @@ class TestLruEviction:
 
     @pytest.mark.asyncio
     async def test_pool_full_with_all_candidates_busy_raises(self):
-        familiar, _, working_set, _, _, _ = _make_familiar(max_resident=1)
+        familiar, _, working_set, _, _ = _make_familiar(max_resident=1)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(_payload("1"), identity_scope=scope)
         working_set.acquire(scope, t1)  # 唯一候选正被占用
@@ -330,11 +333,12 @@ class TestCompact:
         engine_config = SemanticFlowPerceptionConfig(
             fold_token_threshold=1, fold_retain_recent_blocks=1
         )
-        familiar, store, _, relay, _, _ = _make_familiar(engine_config=engine_config)
+        mock_relay = Mock()
         # 摘要在旧摘要之上累积（Relay 的 previous_summary 契约）
-        relay.generate_summary.side_effect = (
+        mock_relay.generate_summary.side_effect = (
             lambda blocks_to_fold, previous_summary=None: (previous_summary or "") + "---folded"
         )
+        familiar, store, _, _, _ = _make_familiar(engine_config=engine_config, relay=mock_relay)
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
 
@@ -359,11 +363,12 @@ class TestCompact:
         engine_config = SemanticFlowPerceptionConfig(
             fold_token_threshold=1, fold_retain_recent_blocks=1
         )
-        familiar, store, _, relay, _, journal = _make_familiar(engine_config=engine_config)
-        relay.generate_summary.side_effect = [
+        mock_relay = Mock()
+        mock_relay.generate_summary.side_effect = [
             TransientInteractionSubmissionError("caller missed apply result"),
             "folded-summary",
         ]
+        familiar, store, _, _, journal = _make_familiar(engine_config=engine_config, relay=mock_relay)
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
         payload = _payload("b")
@@ -395,7 +400,7 @@ class TestCompact:
 class TestNamedUseCases:
     @pytest.mark.asyncio
     async def test_manual_settle_admits_task_then_deletes_topic(self):
-        familiar, store, _, _, bus, _ = _make_familiar()
+        familiar, store, _, bus, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -413,7 +418,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_empty_topic_skips_generation(self):
-        familiar, store, _, _, bus, _ = _make_familiar()
+        familiar, store, _, bus, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic("NEW_TOPIC", "标题", "摘要", scope)
 
@@ -426,7 +431,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_admission_failure_keeps_topic(self):
-        familiar, store, _, _, bus, _ = _make_familiar()
+        familiar, store, _, bus, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -440,7 +445,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_busy_topic_raises_busy_error(self):
-        familiar, store, working_set, _, _, _ = _make_familiar()
+        familiar, store, working_set, _, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -454,14 +459,14 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_without_topic_or_active_history_raises(self):
-        familiar, _, _, _, _, _ = _make_familiar()
+        familiar, _, _, _, _ = _make_familiar()
 
         with pytest.raises(ValueError, match="未指定"):
             await familiar.manual_settle_topic(_identity_scope())
 
     @pytest.mark.asyncio
     async def test_evict_topic_removes_without_settlement(self):
-        familiar, store, working_set, _, bus, _ = _make_familiar()
+        familiar, store, working_set, bus, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -476,7 +481,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_evict_busy_topic_reports_not_removed(self):
-        familiar, store, working_set, _, _, _ = _make_familiar()
+        familiar, store, working_set, _, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -490,7 +495,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_discard_if_empty_removes_only_truly_empty_topic(self):
-        familiar, store, _, _, _, _ = _make_familiar()
+        familiar, store, _, _, _ = _make_familiar()
         scope = _identity_scope()
         empty_id = await familiar.prepare_topic("NEW_TOPIC", "标题", "摘要", scope)
         content_id = await familiar.apply_interaction(
@@ -510,7 +515,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_scan_idle_settles_only_timed_out_topics(self):
         clock = _FakeClock()
-        familiar, store, _, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
         stale_id = await familiar.apply_interaction(
             _payload("1"), identity_scope=scope, interaction_id="i-1"
@@ -529,7 +534,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_scan_idle_skips_leased_topic(self):
         clock = _FakeClock()
-        familiar, store, working_set, _, _, _ = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, working_set, _, _ = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -545,7 +550,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_scan_idle_admission_failure_skips_and_preserves(self):
         clock = _FakeClock()
-        familiar, store, _, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(), identity_scope=scope, interaction_id="i-1"
@@ -561,7 +566,7 @@ class TestMaintenance:
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_classifies_settled_skipped_and_failed(self):
-        familiar, store, _, _, bus, _ = _make_familiar()
+        familiar, store, _, bus, _ = _make_familiar()
         scope = _identity_scope()
         ok_id = await familiar.apply_interaction(
             _payload("1"), identity_scope=scope, interaction_id="i-1"
@@ -592,7 +597,7 @@ class TestMaintenance:
 class TestDisabledPerception:
     @pytest.mark.asyncio
     async def test_disabled_engine_has_no_side_effects(self):
-        familiar, store, _, _, _, journal = _make_familiar(engine=None)
+        familiar, store, _, _, journal = _make_familiar(engine=None)
         scope = _identity_scope()
 
         topic_id = await familiar.apply_interaction(

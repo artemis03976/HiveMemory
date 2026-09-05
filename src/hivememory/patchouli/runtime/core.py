@@ -403,19 +403,12 @@ class PatchouliRuntime:
         感知关闭（``engine.enable=False``）时返回 ``None``，Familiar 以
         no-op 模式运行（继承原 ``NullPerceptionLayer`` 语义）。
         """
-        from hivememory.engines.perception import MemoryPerceptionEngine
+        from hivememory.engines.perception import MemoryPerceptionEngine, create_relay_controller
 
         impl_config = self._patchouli_config.perception.engine
         if not impl_config.enable:
             return None
-        return MemoryPerceptionEngine(config=impl_config)
 
-    def _build_perception_orchestration(self):
-        """[私有构建器] 组装 Perception 的编排依赖：Relay 控制器与驻留工作集"""
-        from hivememory.engines.perception import create_relay_controller
-        from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-
-        impl_config = self._patchouli_config.perception.engine
         relay_config = (
             getattr(self._patchouli_config.perception, "relay", None)
             or impl_config.relay
@@ -424,8 +417,15 @@ class PatchouliRuntime:
             config=relay_config,
             llm_service=self.librarian_llm_service,
         )
+        return MemoryPerceptionEngine(config=impl_config, relay_controller=relay_controller)
+
+    def _build_perception_orchestration(self):
+        """[私有构建器] 组装 Perception 的编排依赖：驻留工作集"""
+        from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+
+        impl_config = self._patchouli_config.perception.engine
         working_set = TopicWorkingSet(max_resident=impl_config.max_resident_topics)
-        return relay_controller, working_set
+        return working_set
 
     def _build_generation_engine(self):
         """[私有构建器] 组装 Generation 引擎"""
@@ -559,12 +559,11 @@ class PatchouliRuntime:
             ),
         )
 
-        relay_controller, working_set = self._build_perception_orchestration()
+        working_set = self._build_perception_orchestration()
         self._services["perception"] = PerceptionFamiliar(
             engine=self._engines["perception"],
             store=self.memory_library.short_term,
             working_set=working_set,
-            relay_controller=relay_controller,
             bus=self._local_bus,
             config=self._patchouli_config.perception,
             interaction_journal=self._interaction_apply_journal,

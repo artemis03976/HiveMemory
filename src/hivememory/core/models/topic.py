@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.interaction import TurnRecord
 from hivememory.core.models.workspace import WorkspaceIdentity
-from hivememory.core.models.workspace_asset import TopicAssetBinding
+from hivememory.core.models.workspace_asset import TopicAssetBinding, WorkspaceAssetRef
 
 
 class TopicLastTurn(BaseModel):
@@ -164,9 +164,54 @@ class TopicData(BaseModel):
         )
 
 
+def merge_interaction_into_topic(
+    topic: TopicData,
+    block: LogicalBlock,
+    asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...],
+    interaction_id: str | None,
+    model_used: str | None,
+) -> TopicData:
+    """把一次 Interaction 的 block、首次绑定与元数据并成新快照。
+
+    binding 以 ``asset_id`` 幂等去重；原子性由「frozen 快照 → 新快照 →
+    ``Store.put`` 整条替换」承担，互斥由调用方持有的 lease 保证。
+    """
+    if asset_id_and_refs and not interaction_id:
+        raise ValueError("建立 asset binding 必须携带 interaction_id")
+    bindings = list(topic.bindings)
+    existing_ids = {binding.asset_id for binding in bindings}
+    now = datetime.now()
+    for asset_id, asset_ref in asset_id_and_refs:
+        if not isinstance(asset_id, str) or not asset_id.strip():
+            raise ValueError("asset_id 不能为空")
+        if not isinstance(asset_ref, WorkspaceAssetRef):
+            raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
+        if asset_id in existing_ids:
+            continue
+        bindings.append(
+            TopicAssetBinding(
+                asset_id=asset_id.strip(),
+                asset_ref=asset_ref,
+                first_bound_interaction_id=interaction_id,
+                bound_at=now,
+            )
+        )
+        existing_ids.add(asset_id)
+    return topic.model_copy(
+        update={
+            "blocks": (*topic.blocks, block),
+            "bindings": tuple(bindings),
+            "total_tokens": topic.total_tokens + block.total_tokens,
+            "last_update": now.timestamp(),
+            "model_used": model_used or topic.model_used,
+        }
+    )
+
+
 __all__ = [
     "LogicalBlock",
     "TopicData",
     "TopicLastTurn",
     "TopicSnapshot",
+    "merge_interaction_into_topic",
 ]

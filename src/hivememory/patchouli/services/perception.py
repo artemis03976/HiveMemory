@@ -1,9 +1,9 @@
 """Patchouli 感知使魔。
 
-感知业务的唯一编排者：持有 Engine（纯算法）、Store（内容）、WorkingSet
-（驻留与 lease）、Relay（摘要）与 Interaction journal，负责话题路由、
-Interaction 原子写入与 retry、统一 settle 时序、LRU / idle / shutdown 维护，
-并把领域结果投影为公开报告。
+感知业务的唯一编排者：持有 Engine（纯算法，含 RelayController）、Store（内容）、
+WorkingSet（驻留与 lease）与 Interaction journal，负责话题路由、Interaction
+原子写入与 retry、统一 settle 时序、LRU / idle / shutdown 维护，并把领域
+结果投影为公开报告。
 
 占用权统一由 WorkingSet 的 lease 表达（见 Plan §2.1/§3.5）：所有写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
@@ -20,9 +20,8 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
     IdentityScope,
-    TopicAssetBinding,
-    TopicData,
     WorkspaceAssetRef,
+    merge_interaction_into_topic,
     require_identity_scope,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -41,7 +40,6 @@ from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 
 if TYPE_CHECKING:
-    from hivememory.engines.perception.relay_controller import BaseRelayController
     from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
     from hivememory.system.config.patchouli import MemoryPerceptionConfig
 
@@ -49,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 class PerceptionFamiliar:
-    """感知业务门面：Engine + Store + WorkingSet + Relay + Journal 的编排者。
+    """感知业务门面：Engine + Store + WorkingSet + Journal 的编排者。
 
     ``engine=None`` 表示感知关闭（原 ``NullPerceptionLayer`` 语义）：摄入
     路径无任何存储与 journal 副作用；维护用例对空存储自然空转。
@@ -61,7 +59,6 @@ class PerceptionFamiliar:
         engine: MemoryPerceptionEngine | None,
         store: ShortTermMemoryStore,
         working_set: TopicWorkingSet,
-        relay_controller: BaseRelayController,
         bus,
         config: MemoryPerceptionConfig,
         interaction_journal: InMemoryInteractionApplyJournal,
@@ -69,7 +66,6 @@ class PerceptionFamiliar:
         self._engine = engine
         self._store = store
         self._working_set = working_set
-        self._relay_controller = relay_controller
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
         self._last_active_topic_ids: dict[tuple[str, str], str] = {}
@@ -134,7 +130,7 @@ class PerceptionFamiliar:
                 if topic is None:
                     raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
                 self._store.put(
-                    self._merge_interaction(
+                    merge_interaction_into_topic(
                         topic, block, asset_id_and_refs, interaction_id, payload.model_used
                     )
                 )
@@ -291,9 +287,7 @@ class PerceptionFamiliar:
         )
         if not blocks_to_fold:
             return
-        summary = self._relay_controller.generate_summary(
-            blocks_to_fold=blocks_to_fold, previous_summary=topic.state_summary
-        )
+        summary = self._engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
         retained = topic.blocks[len(blocks_to_fold) :]
         self._store.put(
             topic.model_copy(
@@ -467,50 +461,6 @@ class PerceptionFamiliar:
         if self._store.get(identity_scope, target_topic_id) is None:
             raise KeyError(f"topic '{target_topic_id}' does not exist in requested Workspace")
         return target_topic_id
-
-    @staticmethod
-    def _merge_interaction(
-        topic: TopicData,
-        block,
-        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...],
-        interaction_id: str | None,
-        model_used: str | None,
-    ) -> TopicData:
-        """把一次 Interaction 的 block、首次绑定与元数据并成新快照。
-
-        binding 以 ``asset_id`` 幂等去重；原子性由「frozen 快照 → 新快照 →
-        ``Store.put`` 整条替换」承担，互斥由调用方持有的 lease 保证。
-        """
-        if asset_id_and_refs and not interaction_id:
-            raise ValueError("建立 asset binding 必须携带 interaction_id")
-        bindings = list(topic.bindings)
-        existing_ids = {binding.asset_id for binding in bindings}
-        now = datetime.now()
-        for asset_id, asset_ref in asset_id_and_refs:
-            if not isinstance(asset_id, str) or not asset_id.strip():
-                raise ValueError("asset_id 不能为空")
-            if not isinstance(asset_ref, WorkspaceAssetRef):
-                raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
-            if asset_id in existing_ids:
-                continue
-            bindings.append(
-                TopicAssetBinding(
-                    asset_id=asset_id.strip(),
-                    asset_ref=asset_ref,
-                    first_bound_interaction_id=interaction_id,
-                    bound_at=now,
-                )
-            )
-            existing_ids.add(asset_id)
-        return topic.model_copy(
-            update={
-                "blocks": (*topic.blocks, block),
-                "bindings": tuple(bindings),
-                "total_tokens": topic.total_tokens + block.total_tokens,
-                "last_update": now.timestamp(),
-                "model_used": model_used or topic.model_used,
-            }
-        )
 
     def _refresh_residency(self, identity_scope: IdentityScope, topic_id: str) -> None:
         """更新驻留与活跃记录；话题已不存在时不复活陈旧条目。

@@ -5,9 +5,12 @@
   actions、mtp_traces 直传）、token 估算（含 traces 贡献）
 - should_compact: 阈值边界（严格大于）
 - select_blocks_to_fold: 最旧前缀选择、retain 边界、非法 retain 拒绝
+- generate_fold_summary: 委托给持有的 RelayController
 
-纯单元测试：Engine 为唯一真实对象，不依赖 Store / Relay / Journal。
+纯单元测试：Engine 为唯一真实对象，RelayController 使用 mock。
 """
+
+from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
@@ -64,12 +67,22 @@ def _block(total_tokens=10) -> LogicalBlock:
     )
 
 
+def _mock_relay():
+    """创建 mock RelayController，用于不涉及摘要生成的测试。"""
+    mock = Mock()
+    mock.generate_summary.return_value = "mocked summary"
+    return mock
+
+
 # ========== build_block：结构化摄入路径 ==========
 
 
 class TestBuildBlock:
     def test_persists_assistant_final_text_and_turn_events(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
         turn_event = _turn_event()
 
         block = engine.build_block(
@@ -82,7 +95,10 @@ class TestBuildBlock:
         assert block.turn_events[0].tool_kind == turn_event.tool_kind
 
     def test_reduces_turn_events_to_actions(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
         payload = InteractionPayload(
             user_message="hello",
             assistant_final_text="clean reply",
@@ -121,7 +137,10 @@ class TestBuildBlock:
         assert len(block.actions[0].results) == 1
 
     def test_persists_payload_mtp_traces(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
         payload = _payload("hello", "clean", traces=[TraceItem(action="SEARCH", query="my query")])
 
         block = engine.build_block(payload, _scope())
@@ -129,14 +148,20 @@ class TestBuildBlock:
         assert [trace.action for trace in block.semantic_traces] == ["SEARCH"]
 
     def test_keeps_semantic_traces_empty_when_payload_empty(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
 
         block = engine.build_block(_payload("hello", "clean"), _scope())
 
         assert block.semantic_traces == ()
 
     def test_empty_final_text_stays_empty(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
 
         block = engine.build_block(_payload("hello", ""), _scope())
 
@@ -148,14 +173,20 @@ class TestBuildBlock:
 
 class TestTokenEstimation:
     def test_total_tokens_computed_from_query_and_answer(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
 
         block = engine.build_block(_payload("What is Python?", "Python is a language"), _scope())
 
         assert block.total_tokens > 0
 
     def test_traces_increase_total_tokens(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
 
         with_traces = engine.build_block(
             _payload(
@@ -179,14 +210,16 @@ class TestTokenEstimation:
 class TestShouldCompact:
     def test_not_triggered_below_threshold(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=100)
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            relay_controller=_mock_relay()
         )
 
         assert engine.should_compact(99) is False
 
     def test_not_triggered_at_exact_threshold(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=100)
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            relay_controller=_mock_relay()
         )
 
         # 与旧 is_idle/折叠语义一致：达到阈值不触发，严格大于才触发
@@ -194,7 +227,8 @@ class TestShouldCompact:
 
     def test_triggered_above_threshold(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=100)
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            relay_controller=_mock_relay()
         )
 
         assert engine.should_compact(101) is True
@@ -205,7 +239,10 @@ class TestShouldCompact:
 
 class TestSelectBlocksToFold:
     def test_selects_oldest_prefix_and_retains_recent(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
         blocks = tuple(_block(total_tokens=i) for i in range(3))
 
         folded = engine.select_blocks_to_fold(blocks, retain_recent=2)
@@ -213,16 +250,41 @@ class TestSelectBlocksToFold:
         assert folded == [blocks[0]]  # 只折叠最旧的 1 块
 
     def test_defers_folding_when_retain_covers_all_blocks(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
         blocks = tuple(_block() for _ in range(3))
 
         assert engine.select_blocks_to_fold(blocks, retain_recent=5) == []
 
     def test_rejects_retain_below_one(self):
-        engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig())
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay()
+        )
 
         with pytest.raises(ValueError, match="retain_recent must be >= 1"):
             engine.select_blocks_to_fold((_block(),), retain_recent=0)
+
+
+# ========== generate_fold_summary：委托 RelayController ==========
+
+
+class TestGenerateFoldSummary:
+    def test_delegates_to_relay_controller(self):
+        mock_relay = _mock_relay()
+        mock_relay.generate_summary.return_value = "summarized content"
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=mock_relay
+        )
+        blocks = [_block(), _block()]
+
+        result = engine.generate_fold_summary(blocks, "previous summary")
+
+        assert result == "summarized content"
+        mock_relay.generate_summary.assert_called_once_with(blocks, "previous summary")
 
 
 # ========== 配置契约 ==========

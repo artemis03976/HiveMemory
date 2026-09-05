@@ -46,7 +46,7 @@ from .interaction import (
     TurnRecord,
 )
 from .immutable import FrozenDict, freeze_mapping, freeze_value
-from .topic import LogicalBlock, TopicData, TopicLastTurn, TopicSnapshot
+from .topic import LogicalBlock, TopicData, TopicLastTurn, TopicSnapshot, merge_interaction_into_topic
 from .agent import (
     AgentProfile,
     OMNI_DOLL_PROFILE,
@@ -133,6 +133,7 @@ __all__ = [
     "TopicLastTurn",
     "TopicData",
     "LogicalBlock",
+    "merge_interaction_into_topic",
     "FrozenDict",
     "freeze_mapping",
     "freeze_value",

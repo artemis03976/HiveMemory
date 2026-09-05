@@ -129,15 +129,26 @@ Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被
 
 当前 overflow 仍不执行 Settle。被移除的旧前缀不会自动进入 InteractionArtifact 或长期记忆；开放的 raw-evidence folding 方案仍位于 Ideas，尚不能当作当前能力。当 blocks 数量不大于保留数时没有可折叠前缀，本轮 compact 会延后，因此阈值是工作集软水位线，而不是严格的模型 context 上限。
 
-## 6. RelayController
+## 6. MemoryPerceptionEngine 与 RelayController
 
-RelayController 只有摘要职责，不拥有话题、存储或生成：
+`MemoryPerceptionEngine` 是无状态的短期记忆摄入与 compact 算法引擎，职责包括：
 
-- SimpleRelayController 以确定性规则形成简要接力摘要；
-- LLMRelayController 可调用 Librarian LLM 生成更丰富摘要；
-- NoOpRelayController 用于关闭折叠能力。
+- `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock`，归并结构化事件为 actions、估算 token；
+- `should_compact`: 判断话题总 token 是否超过折叠阈值；
+- `select_blocks_to_fold`: 选择待折叠的旧 blocks 前缀（保留最近 N 个）；
+- `generate_fold_summary`: 生成 Page Folding 摘要（委托给持有的 `RelayController`）。
 
-Relay 控制器由 Runtime 按配置创建并注入 PerceptionFamiliar。关闭 perception（`engine.enable=false`）时 Runtime 注入 `engine=None`，Familiar 的摄入路径变为无副作用 no-op（原 NullPerceptionLayer 语义），维护用例对空存储自然空转。
+Engine 持有 `RelayController`，封装了完整的 compact 算法能力。`PerceptionFamiliar` 通过 Engine 的 `generate_fold_summary()` 获取摘要，不再直接持有 Relay 组件。
+
+RelayController 有三种实现：
+
+- **SimpleRelayController**: 以确定性规则形成简要接力摘要；
+- **LLMRelayController**: 可调用 Librarian LLM 生成更丰富摘要；
+- **NoOpRelayController**: 用于关闭折叠能力。
+
+Relay 控制器由 Runtime 按配置创建并注入 Engine 构造。关闭 perception（`engine.enable=false`）时 Runtime 注入 `engine=None`，Familiar 的摄入路径变为无副作用 no-op（原 NullPerceptionLayer 语义），维护用例对空存储自然空转。
+
+Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`，可被其他 runtime 复用、可纯单元测试。
 
 ## 7. 维护与关闭
 

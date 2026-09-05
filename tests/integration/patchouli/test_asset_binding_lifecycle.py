@@ -60,11 +60,11 @@ def _make_familiar_with_store():
     store = ShortTermMemoryStore()
     familiar = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999)
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=Mock(),
         ),
         store=store,
         working_set=TopicWorkingSet(),
-        relay_controller=Mock(),
         bus=Mock(request=AsyncMock(return_value=None)),
         config=SimpleNamespace(idle_timeout_seconds=900),
         interaction_journal=InMemoryInteractionApplyJournal(),

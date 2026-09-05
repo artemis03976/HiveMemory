@@ -191,13 +191,13 @@ def _build_familiar(
     """
     if engine == "default":
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999)
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=relay,
         )
     return PerceptionFamiliar(
         engine=engine,
         store=store,
         working_set=TopicWorkingSet(max_resident=max_resident_topics),
-        relay_controller=relay,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=30),
         interaction_journal=interaction_journal,
@@ -240,10 +240,6 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     topic = store.get(identity_scope, outcome.topic_id)
     assert topic is not None
     assert topic.block_count == 1
-    scope_key = (
-        identity_scope.workspace_identity.owner_user_id,
-        identity_scope.workspace_identity.workspace_id,
-    )
     # 行为断言：缺省 manual settle 命中的正是本次写入的最近活跃话题
     settle_result = await familiar.manual_settle_topic(identity_scope)
     assert settle_result.topic_id == outcome.topic_id
@@ -323,7 +319,8 @@ async def test_retry_resumes_pending_compact_without_duplicating_block() -> None
         "folded-summary",
     ]
     engine = MemoryPerceptionEngine(
-        config=SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1)
+        config=SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
+        relay_controller=relay,
     )
     familiar = _build_familiar(
         store,

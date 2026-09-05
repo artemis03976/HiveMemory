@@ -67,11 +67,11 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     journal = InMemoryInteractionApplyJournal()
     familiar = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999)
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=Mock(),
         ),
         store=store,
         working_set=TopicWorkingSet(max_resident=4),
-        relay_controller=Mock(),
         bus=Mock(request=AsyncMock(return_value=None)),
         config=SimpleNamespace(idle_timeout_seconds=900),
         interaction_journal=journal,

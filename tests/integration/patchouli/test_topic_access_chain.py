@@ -68,7 +68,8 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         config=SemanticFlowPerceptionConfig(
             fold_token_threshold=999999,
             fold_retain_recent_blocks=1,
-        )
+        ),
+        relay_controller=relay,
     )
     working_set = TopicWorkingSet(max_resident=max_resident_topics)
     bus = PatchouliBus()
@@ -76,7 +77,6 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         engine=engine,
         store=store,
         working_set=working_set,
-        relay_controller=relay,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=900),
         interaction_journal=journal,

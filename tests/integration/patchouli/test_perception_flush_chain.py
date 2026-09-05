@@ -101,7 +101,8 @@ def _make_real_familiar(
         config=SemanticFlowPerceptionConfig(
             fold_token_threshold=fold_token_threshold,
             fold_retain_recent_blocks=fold_retain_recent_blocks,
-        )
+        ),
+        relay_controller=relay,
     )
     working_set = TopicWorkingSet(max_resident=max_resident_topics, clock=clock)
     bus = Mock()
@@ -110,7 +111,6 @@ def _make_real_familiar(
         engine=engine,
         store=store,
         working_set=working_set,
-        relay_controller=relay,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=idle_timeout_seconds),
         interaction_journal=interaction_journal,
