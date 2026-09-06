@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # Chat 工作区
@@ -39,14 +39,15 @@ Context Sidebar              Chat Workspace                Kernel Vision
 OmniInput 在发送前组装：
 
 - 文本内容；
-- 固定匿名 `user_id=default`；
-- 当前选中的 `agent_id`，默认 `omni_doll`；
+- 当前选中的 `agent_id`，默认 `omni_doll`（Chat 是 Agent action，必须携带具体 Agent，后端不回退到保留 `system`）；
 - `enable_memory_retrieval`；
 - 可选的模型注册表 ID，以及 temperature、top_p、max_tokens 单轮覆盖。
 
+用户导向基础选择（`user_id + workspace_id`）不在请求体中重复传递：`services/identity.ts` 统一以请求头 `x-user-id`/`x-workspace-id` 携带，由后端在 server 边界一次性冻结为 `IdentityScope`。
+
 `@` 菜单和 Agent 胶囊只改变本轮使用的 Agent，输入中的 `@name` 会在选中后被移除，不作为文本 mention 发送。持久化的 Agent ID 若不再存在，前端回退到 `omni_doll`。
 
-请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 generation ID 后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
+请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 generation ID 后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `generation_id`，身份校验与取消使用的 scope 由后端经 generation registry 复用创建该 run 时冻结的原始身份坐标，前端当前选择不参与构造。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
 
 ## 3. SSE 事件投影
 

@@ -19,7 +19,7 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
   - docs/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # 身份隔离与执行安全治理
@@ -38,7 +38,7 @@ HiveMemory 已经把 `IdentityScope`、MemoryVisibility、MTP permission、Agent
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、Chat 可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
-| Frontend identity | 前端已有默认 user id 和待办的 identity store 方向 | UI 字段不是认证/授权边界，多个请求可能使用不同默认身份；切换时 cache/stream 清理不完整 |
+| Frontend identity | 前端已统一用户导向身份选择上下文（`user_id + workspace_id` 基础选择经 `services/identity.ts` 以请求头携带） | UI 字段不是认证/授权边界；尚无登录/Workspace 切换 UI，切换时 cache/stream 清理仍待完整设计 |
 | Observability | RuntimeEvent 可携带 identity/run/frame/atom 关联 | 事件 payload 不能成为授权依据，也不能泄漏不应被当前身份看到的内容 |
 
 ## 2. 目标与非目标
@@ -76,6 +76,8 @@ IdentityScope
 ```
 
 子 Agent 默认继承父 run 的 `IdentityScope`，只能通过显式、经授权的 `context_refs` 缩小或选择可见资产；不能通过自然语言或 alias 自行扩大 scope。`request/run/frame` 等关联坐标属于其它运行模型，不应重新塞回 `IdentityScope`。
+
+入口层现状（v0.6.2 收敛后）：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_scope` 一次性校验并冻结，应用服务不再解析裸 `user_id`；非 Agent action 由 server 注入保留 `system` actor（仅 provenance 语义，不参与授权）；Memory 管理读取按 owner-management 语义在 ownership hard boundary 内跳过 actor 可见性过滤，Agent retrieval 仍执行 `MemoryAccessPolicy`。
 
 ### 3.2 所有者重新校验
 

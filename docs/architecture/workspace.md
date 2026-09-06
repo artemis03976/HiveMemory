@@ -10,6 +10,7 @@ code_paths:
   - src/hivememory/core/models/memory.py
   - src/hivememory/core/models/artifact.py
   - src/hivememory/core/models/workspace_asset.py
+  - src/hivememory/server/deps.py
   - src/hivememory/system/runtime/workspace/
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
@@ -34,7 +35,7 @@ related_docs:
   - docs/patchouli/retrieval.md
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-06
 ---
 
 # Workspace 架构
@@ -111,7 +112,14 @@ Workspace 只在资源所有者需要它的地方生效。共享组件收到领�
 
 ### 3.2 默认入口和内部 seam
 
-普通 Chat、Passive ingress 等顶层入口为当前用户解析一次 `main_workspace`，随后把完整 `IdentityScope` 传入应用服务和领域交接。W0 不提供 Workspace 创建或切换产品入口。`isolation_workspace` 仅由内部服务和隔离测试显式构造，用于验证同一用户和 Agent 在两个资源域中的访问不会串扰。
+HTTP 层的用户导向身份选择（`user_id + workspace_id`）由统一请求头 `x-user-id` / `x-workspace-id` 承载，并在 `server/deps.py` 的 `resolve_request_identity_scope` 一次性冻结为 `IdentityScope`。该函数是默认身份解析的唯一入口：
+
+1. 同一请求的 header 与 body/query 携带同一身份字段且不一致时显式拒绝（409），不静默择一；
+2. `workspace_id` 只允许已声明的公共入口 `main_workspace`，其余值按不存在拒绝（404）；全部缺省时在此唯一回退 `DEFAULT_USER_ID` 与默认 Workspace；
+3. Chat 等由具体 Agent 执行的 Agent action 必须显式提供 `agent_id`（缺失显式失败）；非 Agent action（管理读取、Topic 管理等）由 server 注入保留 `SYSTEM_AGENT_ID = "system"`，其语义是"没有具体 Agent 作为操作来源主体"，不是超级 Agent、不是前端可选 Agent，也不得写入 `MemoryAccessPolicy.target_agent_id`；
+4. `/chat/stop` 通过 generation registry 使用创建时冻结的原始 scope：请求方选择只做 owner/workspace 校验，取消与事件发布沿用 run 的身份坐标。
+
+应用服务公共方法只接受冻结的 `IdentityScope`，不再解析裸 `user_id`，也不得再次执行默认解析。W0 不提供 Workspace 创建或切换产品入口。`isolation_workspace` 仅由内部服务和隔离测试显式构造（`build_internal_identity_scope`），用于验证同一用户和 Agent 在两个资源域中的访问不会串扰。
 
 下游不能读取进程级 `current_workspace`，也不能在 retry 时重新执行默认解析；后台任务必须从自己的领域 payload 恢复原始 scope，并在最终访问 Workspace-owned 资源时重新执行归属检查。
 
@@ -173,14 +181,14 @@ Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic �
 当前入口的 Workspace 交接可以概括为：
 
 ```text
-顶层入口
-  -> 解析/构造 IdentityScope
-  -> System application service
+用户导向身份选择（user_id + workspace_id；Agent action 附加 agent_id）
+  -> server/deps.py 一次性校验并冻结 IdentityScope
+  -> System application service（只接受 identity_scope）
   -> public route / 领域所有者
   -> 在 Workspace-owned 资源边界校验 scope
 ```
 
-主动 Chat 与 Passive ingress 都在最外层确定身份，随后由领域载体携带 scope；Passive ingress 仍按自己的外部会话键缓冲并提交 Patchouli Interaction，但不因此建立第二套 Workspace 资源状态。下游不使用进程当前 Workspace 推断资源归属。
+主动 Chat 与 Passive ingest 都在最外层冻结身份（Chat 与被动接入是 Agent action，必须携带具体 `agent_id`；被动接入的 `agent_id` 参与外部会话分桶命名），随后由领域载体携带 scope。`/chat/stop` 不是 Agent action：服务端用请求方选择完成 owner/workspace 校验后，通过 generation registry 复用创建时冻结的原始 scope 执行取消。Passive ingress 仍按自己的外部会话键缓冲并提交 Patchouli Interaction，但不因此建立第二套 Workspace 资源状态。下游不使用进程当前 Workspace 推断资源归属。
 
 ### 7.2 后台任务和重试
 

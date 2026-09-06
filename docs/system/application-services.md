@@ -13,7 +13,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # System 应用服务
@@ -27,12 +27,12 @@ System 应用服务是 transport 与子系统之间的用例层。它们回答�
 应用服务的共同规则是：
 
 1. 通过 `GlobalSystemBus` 请求公开 route；
-2. 在边界处构造 `Identity`、请求模型或面向 API 的结果；
+2. 在边界处接受 server 冻结的 `IdentityScope`、请求模型或面向 API 的结果；
 3. 不持有另一个子系统的 Runtime、Service、Controller 或 local bus；
 4. 不把内部 execution state、fallback 原因和观测事件直接返回给外部客户端；
 5. 对取消、失败和 cleanup 保持与 Contracts 一致的终态。
 
-普通入口在应用服务边界一次性解析当前用户的 `main_workspace`，构造不可变 `IdentityScope` 后沿 route 和领域 payload 传递。后台 task、retry 和 finalize 不重新读取进程当前 Workspace；它们使用自身 DTO 中保存的 scope，在最终访问 Workspace-owned 资源时由领域所有者校验。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
+应用服务公共方法只接受 `identity_scope: IdentityScope` 唯一入口，不接受裸 `user_id`（由签名守卫测试约束）。用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）由 `server/deps.py resolve_request_identity_scope` 在 server 边界一次性校验并冻结为不可变 `IdentityScope`，随后沿 route 和领域 payload 传递；应用服务不再解析身份，也不得再次执行默认解析。非 Agent action 的 scope 由 server 注入保留 `system` actor，只标记"没有具体 Agent 作为操作来源主体"。后台 task、retry 和 finalize 不重新读取进程当前 Workspace；它们使用自身 DTO 中保存的 scope，在最终访问 Workspace-owned 资源时由领域所有者校验。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
 应用服务可以保存一次用例的短期控制状态，例如 chat generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
@@ -63,7 +63,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 ### 3.1 非流式链路
 
 ```text
-ChatApplicationService.chat
+ChatApplicationService.chat_scoped
   -> register ChatGenerationRun
   -> Gateway public process (ACTIVE_CHAT)
   -> command: return command outcome
@@ -80,7 +80,7 @@ Gateway 返回 command outcome 时，服务立即完成本次 run，不进入 to
 
 ### 3.2 流式链路
 
-`chat_stream()` 保持同一条阶段顺序，但把阶段事实以事件交给 transport：
+`chat_stream_scoped()` 保持同一条阶段顺序，但把阶段事实以事件交给 transport：
 
 ```text
 generation_id
@@ -94,7 +94,7 @@ generation_id
        done(completed + memory_task_ids + pool_topics)
 ```
 
-流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭时，SSE adapter 请求停止当前 generation，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。`chat_stream()` 随后关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。
+流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭时，SSE adapter 请求停止当前 generation，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。`chat_stream_scoped()` 随后关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。
 
 流式 `done`、`command_result` 和 `error` 是 transport 可消费的事件，不是新的跨子系统业务契约；它们的来源和调用顺序仍由本服务和 Contracts 共同约束。
 
@@ -118,7 +118,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 ### 5.1 Memory 与 Profile
 
-`MemoryApplicationService` 将 API 字段构造成 `MemoryAtom`，再通过 Patchouli public route 执行 create/list/get/update/delete/feedback。列表查询会显式排除 `AGENT_PROFILE`，避免普通记忆管理 API 与 Profile 资产混为一类；不存在的 get/update 被翻译为 `MemoryNotFoundError`。
+`MemoryApplicationService` 在显式 `IdentityScope` 中将 API 字段构造成 `MemoryAtom`，再通过 Patchouli public route 执行 create/list/get/update/delete/feedback。列表查询会显式排除 `AGENT_PROFILE`，避免普通记忆管理 API 与 Profile 资产混为一类；不存在的 get/update 被翻译为 `MemoryNotFoundError`。管理读写按 owner-management 语义执行：在 Workspace ownership hard boundary 之内访问该 Workspace 的全部 Memory，不执行 Agent 级 `MemoryAccessPolicy` 可见性过滤（见[Workspace 架构](../architecture/workspace.md)与[MemoryLibrary](../patchouli/memory-library.md)）。
 
 `AgentApplicationService` 用同样的 atom 结构创建 `AGENT_PROFILE`，Profile 的实际持久化和可见性仍由 Patchouli 负责。这里的 `agent_config` 是资产内容，不是 System 直接解释的运行时权限。
 
@@ -126,7 +126,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 `MemoryTaskApplicationService` 只转发 task list/get/cancel；它不从 Patchouli task 对象推导第二套状态机。
 
-`TopicApplicationService` 提供活跃话题、手动 settle 和 evict 入口；它在入口解析默认 `IdentityScope`，再通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
+`TopicApplicationService` 提供活跃话题、手动 settle 和 evict 入口；它只透传 server 冻结的 `IdentityScope`（管理用例的 actor 为保留 `system`），再通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
 
 ## 6. 错误、观测与 cleanup
 
@@ -156,6 +156,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 - `tests/unit/system/test_cancel_hardening.py`
 - `tests/unit/server/routers/test_chat.py`
 - `tests/unit/system/application/test_api_services.py`
+- `tests/unit/system/application/test_identity_entry_guards.py`（服务签名/身份入口守卫）
 - `tests/unit/system/application/test_memory_service.py`
 - `tests/unit/system/application/test_memory_task_service.py`
 - `tests/unit/system/application/test_agent_service.py`

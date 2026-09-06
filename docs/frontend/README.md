@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # HiveMemory Frontend
@@ -75,7 +75,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - 提供账户、权限隔离、移动端适配或离线工作保证；
 - 把 mock 数据伪装成已经由真实后端确认的结果。
 
-当前匿名界面请求使用 `user_id=default`，由后端入口解析为默认 `IdentityScope`；默认 Agent 为拥有完整权限的 `omni_doll`。前端尚无登录、租户或用户/Workspace 切换能力，`user_id` 只是请求上下文，不是认证或授权凭证。
+前端维护并传递用户导向身份选择上下文：基础选择为 `user_id + workspace_id`（默认 `default` + `main_workspace`），经 `services/identity.ts` 统一以请求头 `x-user-id`/`x-workspace-id` 携带；只有 Chat 等由具体 Agent 执行的操作才在请求体附加 `agent_id`（默认 `omni_doll`）。后端 `server/deps.py` 将该选择一次性冻结为 `IdentityScope`；保留值 `system` 由后端注入非 Agent action，前端不得把它作为可选 Agent。响应中的 `user_id`（如 MemoryResponse）是 owner 展示投影，前端不从响应反推下一次 actor 选择。前端尚无登录、租户或用户/Workspace 切换 UI，`user_id` 只是请求上下文，不是认证或授权凭证。
 
 ## 4. 当前文档
 

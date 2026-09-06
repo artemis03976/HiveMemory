@@ -55,6 +55,10 @@ class MemoryManagementService:
             query=query,
             filters=filters,
             limit=limit,
+            # owner-management 语义（D4）：ownership hard boundary 之内
+            # 读取该 Workspace 全部 Memory，不执行 Agent 可见性过滤；
+            # system actor 也不因此获得任何越权能力。
+            enforce_actor_visibility=False,
         )
         atoms = [
             atom for atom in atoms
@@ -75,6 +79,8 @@ class MemoryManagementService:
             PatchouliLocalRoutes.MEMORY_GET,
             normalize_uuid(memory_id),
             identity_scope=require_identity_scope(identity_scope),
+            # owner-management 语义（D4），同 list_memories。
+            enforce_actor_visibility=False,
         )
         if atom is not None and refresh_vitality:
             await self._refresh_vitality_for_response([atom])

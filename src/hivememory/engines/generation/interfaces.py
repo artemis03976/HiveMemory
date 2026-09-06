@@ -48,7 +48,8 @@ class BaseMemoryExtractor(ABC):
 
         Args:
             transcript: 格式化的对话文本
-            metadata: 元信息 (session_id, user_id, agent_id, timestamp)
+            metadata: 模式相关的生成元信息 (mode / write_content 等)；
+                身份归属一律由 IdentityScope 承载，不在此传递
 
         Returns:
             ExtractedMemoryDraft: 提取的记忆草稿，失败时返回 None

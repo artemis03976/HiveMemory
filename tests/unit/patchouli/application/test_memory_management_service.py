@@ -59,6 +59,8 @@ async def test_list_memories_uses_memory_list_and_refreshes_vitality(bus):
         "filters": {"index.memory_type": "FACT"},
         "limit": 10,
         "identity_scope": identity_scope,
+        # owner-management 语义（D4）：管理读取不做 Agent 可见性过滤
+        "enforce_actor_visibility": False,
     }
     assert bus.request.await_args_list[1].args == (
         PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
@@ -91,6 +93,7 @@ async def test_list_memories_excludes_agent_profiles_after_route_response(bus):
         query="test",
         filters=None,
         limit=5,
+        enforce_actor_visibility=False,
     )
 
 
@@ -109,4 +112,5 @@ async def test_get_memory_requests_memory_get_and_skips_refresh_when_missing(bus
         PatchouliLocalRoutes.MEMORY_GET,
         memory_id,
         identity_scope=identity_scope,
+        enforce_actor_visibility=False,
     )

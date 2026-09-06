@@ -71,6 +71,21 @@ def test_access_policy_rejects_invalid_target_combinations(
         )
 
 
+@pytest.mark.parametrize("target_field", ["target_agent_id", "target_team_id"])
+def test_access_policy_rejects_system_actor_as_target(target_field: str) -> None:
+    """保留 system 只表示'没有具体 Agent 作为操作来源主体'，不得成为授权目标。"""
+    kwargs = {"target_agent_id": None, "target_team_id": None}
+    kwargs[target_field] = "system"
+
+    if target_field == "target_agent_id":
+        expected_visibility = MemoryVisibility.PRIVATE
+    else:
+        expected_visibility = MemoryVisibility.TEAM
+
+    with pytest.raises(ValidationError, match="system"):
+        MemoryAccessPolicy(visibility=expected_visibility, **kwargs)
+
+
 def test_qdrant_payload_projects_v2_owner_without_legacy_user_authority() -> None:
     """捕获新写入继续双写 legacy user_id、形成第二 owner 权威的缺陷。"""
     payload = _atom().to_qdrant_payload()

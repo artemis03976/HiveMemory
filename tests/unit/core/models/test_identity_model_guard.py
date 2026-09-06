@@ -41,6 +41,33 @@ def _class_level_user_id_fields(path: Path) -> list[str]:
     return hits
 
 
+# DEFAULT_USER_ID / normalize_user_id 的合法使用边界（v0.6.2 计划 §4）：
+# 1. core/constants.py —— 定义处；
+# 2. core/models/identity.py —— ActorIdentity 字段默认值；
+# 3. server/deps.py —— HTTP 顶层身份解析的唯一缺省回退点。
+_DEFAULT_USER_ID_ALLOWED = {
+    "src/hivememory/core/constants.py",
+    "src/hivememory/core/models/identity.py",
+    "src/hivememory/server/deps.py",
+}
+
+
+def test_default_user_id_usage_stays_within_sanctioned_boundary():
+    """DEFAULT_USER_ID 回退不得扩散到应用服务或引擎层。"""
+    src_root = _REPO_ROOT / "src" / "hivememory"
+    violations = [
+        path.relative_to(_REPO_ROOT).as_posix()
+        for path in sorted(src_root.rglob("*.py"))
+        if path.relative_to(_REPO_ROOT).as_posix() not in _DEFAULT_USER_ID_ALLOWED
+        and "DEFAULT_USER_ID" in path.read_text(encoding="utf-8")
+    ]
+
+    assert violations == [], (
+        "DEFAULT_USER_ID 出现在合法边界之外（应用服务不得解析默认身份），"
+        "涉及文件：\n" + "\n".join(violations)
+    )
+
+
 def test_no_bare_user_id_fields_outside_whitelist():
     violations: list[str] = []
 

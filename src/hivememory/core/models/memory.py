@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models.artifact import ArtifactRef, MemoryEventLog
 from hivememory.core.models.workspace import (
     IdentityScope,
@@ -57,6 +58,12 @@ class MemoryAccessPolicy(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("Memory read policy target 不能为空")
+        if normalized == SYSTEM_AGENT_ID:
+            # 保留 system 只表示"没有具体 Agent 作为操作来源主体"，
+            # 不是可授权的执行主体，不得成为可见性 target。
+            raise ValueError(
+                "Memory read policy target 不得使用保留 system actor"
+            )
         return normalized
 
     @model_validator(mode="after")

@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # 前端状态、持久化与传输
@@ -59,6 +59,7 @@ Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢
 
 | 能力 | 传输 | 当前入口 | 终态/恢复语义 |
 |:---|:---|:---|:---|
+| 统一身份上下文 | HTTP 请求头 | `x-user-id` / `x-workspace-id`（`services/identity.ts`） | 所有身份相关请求统一携带；body/query 与 header 冲突时后端 409 |
 | Chat | fetch-based SSE | `POST /api/v1/chat` | `done` / `error`；无断线续传 |
 | Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认 |
 | Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
@@ -66,6 +67,8 @@ Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢
 | Logs | WebSocket | `/api/v1/ws/logs` | ping/pong、有限重连，无历史恢复 |
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
+
+身份选择传输约定：Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；Topic 旧的 `?user_id=` query 已不再由前端使用（后端保留兼容并与 header 做冲突检测）；Chat/stop 请求体不携带身份字段。管理请求（Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
 
 ## 4. Origin 与代理
 
@@ -111,7 +114,7 @@ Mock 的合理用途是让组件开发仍有可见状态，不是把离线体验
 - 没有 chat SSE 的 last-event-id、断线续传或消息历史；
 - 没有统一 query cache、请求去重或 stale-while-revalidate 层；
 - 多个页面的 mock 降级策略和错误可见性不一致；
-- 固定 `user_id=default`，没有认证 token、租户或 per-user storage namespace；
+- 基础身份选择当前固定为 `user_id=default + main_workspace`（`services/identity.ts`），没有认证 token、租户或 per-user storage namespace；
 - `VITE_BACKEND_ORIGIN` 不是全局 API base；
 - 浏览器 store 没有自动化持久化迁移测试或跨窗口一致性测试。
 

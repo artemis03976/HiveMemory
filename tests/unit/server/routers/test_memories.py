@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from hivememory.core.models import (
     MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
 )
-from hivememory.engines.retrieval.policy import memory_is_readable
+from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -73,24 +73,23 @@ class _MemoryManagementStub:
             atoms = self.storage.get_all_memories(filters=filters, limit=limit)
         if refresh_vitality and self.lifecycle_engine is not None:
             self.lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
+        # 对齐生产管理语义（D4）：ownership hard boundary 之内不过滤 actor 可见性
         return [
             atom for atom in atoms
             if (
                 atom.index.memory_type.value not in set(exclude_types or [])
-                and memory_is_readable(
+                and memory_belongs_to_workspace(
                     atom,
-                    workspace_identity=identity_scope.workspace_identity,
-                    actor_identity=identity_scope.actor_identity,
+                    identity_scope.workspace_identity,
                 )
             )
         ]
 
     async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True):
         atom = self.storage.get_memory(memory_id)
-        if atom is not None and not memory_is_readable(
+        if atom is not None and not memory_belongs_to_workspace(
             atom,
-            workspace_identity=identity_scope.workspace_identity,
-            actor_identity=identity_scope.actor_identity,
+            identity_scope.workspace_identity,
         ):
             return None
         if atom is not None and refresh_vitality and self.lifecycle_engine is not None:

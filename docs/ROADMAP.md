@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-06
 ---
 
 # HiveMemory 开发路线图
@@ -35,7 +35,7 @@ last_reviewed: 2026-09-02
 
 - 最新已发布标签：`v0.6.1`；
 - 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2`，整体状态为 Candidate（W0 已实现但尚未形成发布标签）；[W0 Workspace MVP](./archive/plans/v0.6.2-workspace-mvp.md)已完成并归档，当前事实见 [Workspace 架构](./architecture/workspace.md)，W1 Chat Attachments 仍以其公共契约为硬前置。
+- 下一计划版本：`v0.6.2`，整体状态为 Candidate（W0 与 Identity 收敛已实现但尚未形成发布标签）；[W0 Workspace MVP](./archive/plans/v0.6.2-workspace-mvp.md)与 [Identity 投影收敛](./archive/plans/v0.6.2-identity-projection-cleanup.md)均已完成并归档，当前事实见 [Workspace 架构](./architecture/workspace.md)与 [System 应用服务](./system/application-services.md)，W1 Chat Attachments 仍以其公共契约为硬前置。
 
 当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。`v0.6.1` Git tag、Python 包、前端清单和构建检查使用完全一致的版本口径。
 
@@ -117,7 +117,8 @@ last_reviewed: 2026-09-02
 | 目标 | 状态 | 目标结果 | 依赖/计划入口 |
 |:---|:---:|:---|:---|
 | `v0.6.2 W0` Workspace MVP | Current Development | 已实现 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 TopicAssetBinding；尚未发布 `v0.6.2` 标签 | 依赖 v0.6.1 与 Identity scope；当前事实见 [Workspace 架构](./architecture/workspace.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)，开放附件设计见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
-| `v0.6.2` Identity 投影收敛 | Planned | 消除裸 `user_id` 兼容投影：应用服务入口统一 `IdentityScope`、领域快照 actor 字段值对象化、读侧兼容属性收口；W0 裁定的存储 legacy 兼容保留至历史数据转换 | 依赖 `v0.6.2 W0` 身份契约；建议先于 `v0.6.2 W1` 合并；[Plan](./plans/v0.6.2-identity-projection-cleanup.md) |
+| `v0.6.2` Identity 投影收敛 | Implemented / Archived | 已消除裸 `user_id` 兼容投影：应用服务入口统一 `IdentityScope`、server 唯一身份解析入口、领域快照 actor 字段值对象化（含旧 JSON 读升级）、读侧兼容属性收口、`system` 保留 actor 与管理/检索可见性路径分离 | 依赖 `v0.6.2 W0` 身份契约，先于 `v0.6.2 W1` 合并；当前事实见 [Workspace 架构](./architecture/workspace.md)与 [System 应用服务](./system/application-services.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
+| `v0.6.2` V1 Memory Legacy 迁移 | Planned | V1 历史记录一次性迁移到 V2 归属/策略形状（fail closed + 迁移报告 + 观察窗口），随后删除 codec/filter/快照 legacy 解释分支 | 依赖 Identity 收敛冻结的 V2 身份与策略语义；[Plan](./plans/v0.6.2-v1-memory-legacy-migration.md) |
 | `v0.6.2 W1` Chat Attachments | Candidate | 在已经验收的 Workspace 公共契约上实现上传、文本解析、asset refs、Context Compiler 与按需 Artifact promotion | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；独立正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -154,7 +155,7 @@ Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspac
 
 W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease。TopicAssetBinding 由 Patchouli Perception 的 Topic 所有者在成功 Interaction 后形成，并作为不可变 `TopicData` 快照写回 `ShortTermMemoryStore`；短期 adapter 直接存储 frozen 快照。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
 
-现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`；历史转换脚本仍需独立规划和观察窗口，不能被当前 W0 状态或 W1 候选误读为已完成迁移。
+现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`。该兼容分支的删除已绑定独立迁移切片：[v0.6.2 V1 Memory Legacy 迁移 Plan](./plans/v0.6.2-v1-memory-legacy-migration.md) 承载字段映射、fail-closed 条件、迁移报告、观察窗口与 legacy 删除门槛；在其完成前不能把兼容投影误读为已完成迁移。
 
 #### 4.2.2 W1 Chat Attachments
 
