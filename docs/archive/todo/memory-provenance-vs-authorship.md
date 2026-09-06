@@ -1,6 +1,6 @@
 ---
 title: Memory Provenance vs Authorship
-status: todo
+status: archived
 owner: patchouli
 scope: separate-multi-agent-provenance-from-single-valued-authorship
 code_paths:
@@ -17,18 +17,30 @@ code_paths:
   - src/hivememory/core/models/topic.py
   - src/hivememory/core/models/identity.py
 related_docs:
-  - ../archive/plans/perception-topic-buffer-boundary-refactor.md
-  - ../archive/plans/v0.6.2-identity-projection-cleanup.md
-  - ../plans/v0.6.2-v1-memory-legacy-migration.md
-  - ./page-folding-cross-ingress-follow-ups.md
-  - ../patchouli/perception.md
-  - ../patchouli/artifacts.md
-  - ../architecture/workspace.md
-  - ../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
+  - ../plans/perception-topic-buffer-boundary-refactor.md
+  - ../plans/v0.6.2-identity-projection-cleanup.md
+  - ../../plans/v0.6.2-v1-memory-legacy-migration.md
+  - ../../todo/page-folding-cross-ingress-follow-ups.md
+  - ../../patchouli/perception.md
+  - ../../patchouli/artifacts.md
+  - ../../architecture/workspace.md
+  - ../../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
 last_reviewed: 2026-09-06
+completed_at: 2026-09-06
+archived_at: 2026-09-06
+implemented_by: branch refactor/identity-cleanup
+superseded_by:
+  - docs/patchouli/artifacts.md
+  - docs/patchouli/generation.md
 ---
 
 # 记忆溯源与责任主体的分离
+
+## 实施记录
+
+**本事项已在 `refactor/identity-cleanup` 分支完成（2026-09-06）。**
+
+落地内容：`MetaData.contributing_agent_ids` 贡献者集合；manual / idle / LRU / shutdown 四类 SETTLE 来源统一为保留 `SYSTEM_AGENT_ID` 并聚合 block 贡献者；`BaseArtifact.owner_agent_id` 删除，MemoryCreation/VersionArtifact 改为记录 `source_agent_id` 与 `contributing_agent_ids`；来源 Agent 查询匹配贡献者集合；`TopicData.current_agent_id` 删除。本文只保留问题证据、目标裁定与完成条件，当前系统归属语义以[Artifacts 与来源追踪](../../patchouli/artifacts.md)与[记忆生成](../../patchouli/generation.md)为准。
 
 ## 事项定位
 
@@ -60,14 +72,14 @@ MemoryAtom 与 Artifact 都是 Workspace 资产，持久化归属由 `workspace_
 
 新写入的 V2 Memory 中，读取授权只由 `access_policy` 决定：
 
-- [memory_visible_to_actor](../../src/hivememory/engines/retrieval/policy.py) 只读取 `memory.meta.access_policy`；
-- [filter_adapter](../../src/hivememory/engines/retrieval/filter_adapter.py) 的 V2 分支匹配 `meta.access_policy.visibility`、`target_agent_id` 和 `target_team_id`；
+- [memory_visible_to_actor](../../../src/hivememory/engines/retrieval/policy.py) 只读取 `memory.meta.access_policy`；
+- [filter_adapter](../../../src/hivememory/engines/retrieval/filter_adapter.py) 的 V2 分支匹配 `meta.access_policy.visibility`、`target_agent_id` 和 `target_team_id`；
 - `MemoryAccessPolicy` 已拒绝把保留的 `system` 作为可见性 target；
 - V2 新写入的 `source_agent_id` 和 `source_team_id` 只记录来源，不参与可见性决定。
 
 Memory 管理页面在通过 Workspace ownership 校验后可以观测该 Workspace 的全部记忆；Agent retrieval 仍执行 `MemoryAccessPolicy`。用户主动创建 PRIVATE/TEAM 记忆时，策略 target 必须由前端填写具体 Agent/Team，不能使用 `system`。
 
-V1 兼容读取仍保留旧耦合：对缺少 V2 schema 信息的记录，legacy 分支可能以 `meta.source_agent_id` 推断 PRIVATE 目标，[memory_codec](../../src/hivememory/engines/retrieval/memory_codec.py) 也保留 V1 policy 适配。这段行为只能作为历史兼容层存在，不能复制到 V2 写入或新的授权判断中。V1→V2 的历史迁移由独立计划跟踪，不能在本 todo 中假定已经完成。
+V1 兼容读取仍保留旧耦合：对缺少 V2 schema 信息的记录，legacy 分支可能以 `meta.source_agent_id` 推断 PRIVATE 目标，[memory_codec](../../../src/hivememory/engines/retrieval/memory_codec.py) 也保留 V1 policy 适配。这段行为只能作为历史兼容层存在，不能复制到 V2 写入或新的授权判断中。V1→V2 的历史迁移由独立计划跟踪，不能在本 todo 中假定已经完成。
 
 因此，为 V2 增加多值 provenance 不会自动扩大权限；实现时仍须测试“改变来源记录不改变 V2 可见性”。
 
@@ -95,10 +107,10 @@ V1 兼容读取仍保留旧耦合：对缺少 V2 schema 信息的记录，legacy
 
 被动结算（SETTLE）则存在明确的不一致：
 
-1. [TopicWorkingSet](../../src/hivememory/patchouli/services/topic_working_set.py) 按 `(WorkspaceIdentity, topic_id)` 保存最后一次 touch 的完整 `IdentityScope`；
-2. idle、LRU、shutdown 等维护路径以及手动 settle 复用该冻结作用域，并将其带入 [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)；
-3. [MemoryGenerationCoordinator](../../src/hivememory/patchouli/control/memory_generation/coordinator.py) 将任务标为 `MemoryGenerationSource.SETTLE`；
-4. `SETTLE.creation_artifact_intent` 已经返回 `"SYSTEM"`，但 [MemoryGenerationEngine](../../src/hivememory/engines/generation/engine.py) 构造 `Memory.meta.source_agent_id` 时仍写入冻结作用域中的最后访问 Agent；
+1. [TopicWorkingSet](../../../src/hivememory/patchouli/services/topic_working_set.py) 按 `(WorkspaceIdentity, topic_id)` 保存最后一次 touch 的完整 `IdentityScope`；
+2. idle、LRU、shutdown 等维护路径以及手动 settle 复用该冻结作用域，并将其带入 [TopicMaterializeTask](../../../src/hivememory/engines/perception/models.py)；
+3. [MemoryGenerationCoordinator](../../../src/hivememory/patchouli/control/memory_generation/coordinator.py) 将任务标为 `MemoryGenerationSource.SETTLE`；
+4. `SETTLE.creation_artifact_intent` 已经返回 `"SYSTEM"`，但 [MemoryGenerationEngine](../../../src/hivememory/engines/generation/engine.py) 构造 `Memory.meta.source_agent_id` 时仍写入冻结作用域中的最后访问 Agent；
 5. artifact builder 又以 `memory.meta.source_agent_id` 填充两个 Artifact 的 `owner_agent_id`，使“系统触发的结算”与“最后访问 Agent 的单值来源/owner”同时出现。
 
 这意味着 B1 已消除了“从最后一个 block 猜身份”和“无 block 时回落 `omni_doll`”的旧路径，但尚未消除 settle 的来源语义偏差。后续设计应裁定：
@@ -125,39 +137,39 @@ contributing_agent_ids: tuple[str, ...] = ()
 
 - 单 Agent 内容的集合应为 `(source_agent_id,)`（SETTLE 使用 system 时，集合仍应只包含实际贡献者，不应把 `system` 当作内容贡献者）；
 - 没有具体 Agent 作为操作来源的外部或管理操作，可以让 `source_agent_id = "system"`，但这不改变内容中实际贡献者的集合；
-- 查询侧的 [`QueryFilters.source_agent_id`](../../src/hivememory/engines/retrieval/models.py) 和 MTP `agent:` token 已改为匹配贡献者集合（保留 `meta.source_agent_id` 分支兼容无贡献者集合的历史记录），多 Agent 场景测试已补齐；
-- Qdrant 当前没有为这些 payload 建立专用 index，[vector_store](../../src/hivememory/infrastructure/storage/vector_store.py) 的现有索引策略无需因字段增加而改变，仍需以实际存储验证数组 MatchValue 行为。
+- 查询侧的 [`QueryFilters.source_agent_id`](../../../src/hivememory/engines/retrieval/models.py) 和 MTP `agent:` token 已改为匹配贡献者集合（保留 `meta.source_agent_id` 分支兼容无贡献者集合的历史记录），多 Agent 场景测试已补齐；
+- Qdrant 当前没有为这些 payload 建立专用 index，[vector_store](../../../src/hivememory/infrastructure/storage/vector_store.py) 的现有索引策略无需因字段增加而改变，仍需以实际存储验证数组 MatchValue 行为。
 
 Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 block 已由 `InteractionTurnSnapshot.actor_identity` 记录来源，不再添加顶层 Agent 来源字段；`MemoryCreationArtifact` 和 `MemoryVersionArtifact` 需要记录与 MemoryAtom 一致的 `source_agent_id` 和 `contributing_agent_ids`。`DocumentArtifact` 等其他类型是否需要来源字段，应依据其实际生产入口单独裁定，不能由 `BaseArtifact.owner_agent_id` 继承出默认语义。
 
-该字段属于向后兼容的增量模型扩展。历史记录缺少字段时应按空集合解码；是否为历史 V1/V2 记录补写贡献者，留给 [V1→V2 迁移计划](../plans/v0.6.2-v1-memory-legacy-migration.md) 和单独的数据证据裁定，不能在本 todo 中凭 `source_agent_id` 猜测并回填。
+该字段属于向后兼容的增量模型扩展。历史记录缺少字段时应按空集合解码；是否为历史 V1/V2 记录补写贡献者，留给 [V1→V2 迁移计划](../../plans/v0.6.2-v1-memory-legacy-migration.md) 和单独的数据证据裁定，不能在本 todo 中凭 `source_agent_id` 猜测并回填。
 
 在确认序列化兼容性后，预期保持 `schema_version = 2`；如果实现发现新增集合改变了持久化契约，再单独升级版本并更新迁移计划，不在本 todo 中隐式改变版本含义。
 
 ## Summary-only Topic 的已知限制
 
-当前 `TopicData.has_content` 允许 `blocks == ()` 且 `state_summary != ""` 的 summary-only Topic。它可以驻留、参与路由和生命周期处理，但 [`TopicMaterializeTask.from_topic_data`](../../src/hivememory/engines/perception/models.py) 在没有可保存 block 时返回 `None`，因此该 Topic 不会独立生成一个 summary-only Memory。
+当前 `TopicData.has_content` 允许 `blocks == ()` 且 `state_summary != ""` 的 summary-only Topic。它可以驻留、参与路由和生命周期处理，但 [`TopicMaterializeTask.from_topic_data`](../../../src/hivememory/engines/perception/models.py) 在没有可保存 block 时返回 `None`，因此该 Topic 不会独立生成一个 summary-only Memory。
 
 这已经不再是“无 block 时伪造 `omni_doll`”的问题。后续是否支持从 summary-only Topic 生成记忆，应作为独立能力设计，并明确其 provenance、来源主体和测试；本 todo 只记录边界，不把它与默认 Agent fallback 混为一谈。
 
 ## `current_agent_id` 是仍未删除的死字段
 
-[`TopicData.current_agent_id`](../../src/hivememory/core/models/topic.py) 仍以 `"default"` 为默认值，仓库中没有发现其业务消费者。感知/提示渲染中其他名为 `current_agent_id` 的函数参数用于当前渲染上下文，不能据此认定它们消费了 `TopicData.current_agent_id`。
+[`TopicData.current_agent_id`](../../../src/hivememory/core/models/topic.py) 仍以 `"default"` 为默认值，仓库中没有发现其业务消费者。感知/提示渲染中其他名为 `current_agent_id` 的函数参数用于当前渲染上下文，不能据此认定它们消费了 `TopicData.current_agent_id`。
 
 该字段不应被重新解释为 Memory provenance；后续应从 `TopicData` 删除，并清理序列化、fixture 和相关测试。
 
 ## 影响范围
 
-- [core/models/memory.py](../../src/hivememory/core/models/memory.py)：新增 `contributing_agent_ids`，并保持 V2 access policy 与 provenance 分离；
-- [core/models/artifact.py](../../src/hivememory/core/models/artifact.py)：将 Artifact 归属收敛为 Workspace 资产，移除或重命名 `BaseArtifact.owner_agent_id` 的 Agent owner 语义；按 Artifact 类型定义来源字段；
-- [engines/generation/engine.py](../../src/hivememory/engines/generation/engine.py)：按生成模式写入 source 与贡献者集合；
-- [engines/retrieval/filter_adapter.py](../../src/hivememory/engines/retrieval/filter_adapter.py)：让 `source_agent_id` 查询匹配贡献者集合，同时保留 legacy V1 分支；
-- [engines/artifacts/memory.py](../../src/hivememory/engines/artifacts/memory.py)：让 MemoryCreationArtifact/MemoryVersionArtifact 记录 `source_agent_id` 与 `contributing_agent_ids`，不再把 Agent 写作 owner；
-- [engines/artifacts/interaction.py](../../src/hivememory/engines/artifacts/interaction.py)：保持 InteractionArtifact 以 block 内 `actor_identity` 记录来源，不增加顶层 Agent 来源字段；
-- [core/constants.py](../../src/hivememory/core/constants.py)：使用现有 `SYSTEM_AGENT_ID`，避免再引入含义不同的默认值；
-- [patchouli/services/perception.py](../../src/hivememory/patchouli/services/perception.py) 与 [patchouli/services/topic_working_set.py](../../src/hivememory/patchouli/services/topic_working_set.py)：验证所有 settle 入口都复用冻结 scope，且不重新引入默认身份重建；
-- [engines/perception/models.py](../../src/hivememory/engines/perception/models.py)：明确 summary-only Topic 的 no-material 行为；
-- [core/models/topic.py](../../src/hivememory/core/models/topic.py)：删除无消费者的 `current_agent_id`；
+- [core/models/memory.py](../../../src/hivememory/core/models/memory.py)：新增 `contributing_agent_ids`，并保持 V2 access policy 与 provenance 分离；
+- [core/models/artifact.py](../../../src/hivememory/core/models/artifact.py)：将 Artifact 归属收敛为 Workspace 资产，移除或重命名 `BaseArtifact.owner_agent_id` 的 Agent owner 语义；按 Artifact 类型定义来源字段；
+- [engines/generation/engine.py](../../../src/hivememory/engines/generation/engine.py)：按生成模式写入 source 与贡献者集合；
+- [engines/retrieval/filter_adapter.py](../../../src/hivememory/engines/retrieval/filter_adapter.py)：让 `source_agent_id` 查询匹配贡献者集合，同时保留 legacy V1 分支；
+- [engines/artifacts/memory.py](../../../src/hivememory/engines/artifacts/memory.py)：让 MemoryCreationArtifact/MemoryVersionArtifact 记录 `source_agent_id` 与 `contributing_agent_ids`，不再把 Agent 写作 owner；
+- [engines/artifacts/interaction.py](../../../src/hivememory/engines/artifacts/interaction.py)：保持 InteractionArtifact 以 block 内 `actor_identity` 记录来源，不增加顶层 Agent 来源字段；
+- [core/constants.py](../../../src/hivememory/core/constants.py)：使用现有 `SYSTEM_AGENT_ID`，避免再引入含义不同的默认值；
+- [patchouli/services/perception.py](../../../src/hivememory/patchouli/services/perception.py) 与 [patchouli/services/topic_working_set.py](../../../src/hivememory/patchouli/services/topic_working_set.py)：验证所有 settle 入口都复用冻结 scope，且不重新引入默认身份重建；
+- [engines/perception/models.py](../../../src/hivememory/engines/perception/models.py)：明确 summary-only Topic 的 no-material 行为；
+- [core/models/topic.py](../../../src/hivememory/core/models/topic.py)：删除无消费者的 `current_agent_id`；
 - 已写入的历史 MemoryAtom：不在本 todo 中盲目回填。迁移按独立 V1→V2 计划执行。
 
 ## 明确非目标
@@ -190,8 +202,8 @@ Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 
 
 ## 相关事项
 
-- [v0.6.2 identity projection cleanup（已归档计划）](../archive/plans/v0.6.2-identity-projection-cleanup.md)：B1 identity/workspace 收敛的实现依据；
-- [V1→V2 memory legacy migration](../plans/v0.6.2-v1-memory-legacy-migration.md)：历史记录迁移与兼容门槛；
-- [page folding cross-ingress follow-ups](./page-folding-cross-ingress-follow-ups.md)：折叠态 Topic 和跨入口行为的后续问题；
-- [Topic shutdown 逐 Topic 失败隔离（已归档 todo）](../archive/todo/topic-shutdown-per-topic-failure-isolation.md)：同样作用于 `flush_all_for_shutdown`，可能触及相同维护路径；
-- [ADR-0002：全局唯一身份与按需并发保护](../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md)。
+- [v0.6.2 identity projection cleanup（已归档计划）](../plans/v0.6.2-identity-projection-cleanup.md)：B1 identity/workspace 收敛的实现依据；
+- [V1→V2 memory legacy migration](../../plans/v0.6.2-v1-memory-legacy-migration.md)：历史记录迁移与兼容门槛；
+- [page folding cross-ingress follow-ups](../../todo/page-folding-cross-ingress-follow-ups.md)：折叠态 Topic 和跨入口行为的后续问题；
+- [Topic shutdown 逐 Topic 失败隔离（已归档 todo）](../todo/topic-shutdown-per-topic-failure-isolation.md)：同样作用于 `flush_all_for_shutdown`，可能触及相同维护路径；
+- [ADR-0002：全局唯一身份与按需并发保护](../../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md)。

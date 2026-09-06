@@ -13,7 +13,7 @@ code_paths:
 related_docs:
   - ../frontend/management-views.md
   - ../architecture/workspace.md
-  - ./memory-provenance-vs-authorship.md
+  - ../archive/todo/memory-provenance-vs-authorship.md
 last_reviewed: 2026-09-06
 ---
 
