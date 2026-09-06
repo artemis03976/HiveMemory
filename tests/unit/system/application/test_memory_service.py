@@ -35,7 +35,7 @@ from hivememory.system.application.memory_service import (
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -160,20 +160,23 @@ class TestMemoryApplicationService:
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = created
 
+        identity_scope = make_management_identity_scope(user_id="u1")
         atom = await service.create_memory(
+            identity_scope=identity_scope,
             title="Created memory",
             summary="A sufficiently long memory summary",
             content="Created memory content",
             memory_type="FACT",
             tags=["created", "ui"],
             alias="created-memory",
-            user_id="u1",
         )
 
         mock_global_bus.request.assert_awaited_once()
-        route, identity_scope, payload = mock_global_bus.request.await_args.args
+        route, bus_scope, payload = mock_global_bus.request.await_args.args
         assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
-        assert payload.meta.source_agent_id == "ui"
+        # 管理 actor（保留 system）作为 provenance 来源透传，不参与授权
+        assert payload.meta.source_agent_id == "system"
+        assert bus_scope is identity_scope
         assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.workspace_identity.owner_user_id == "u1"
         assert payload.index.memory_type == MemoryType.FACT
@@ -185,7 +188,10 @@ class TestMemoryApplicationService:
         mock_global_bus.request.return_value = None
 
         with pytest.raises(MemoryNotFoundError):
-            await service.get_memory(uuid4(), user_id="u1")
+            await service.get_memory(
+                uuid4(),
+                identity_scope=make_management_identity_scope(user_id="u1"),
+            )
 
     @pytest.mark.asyncio
     async def test_record_feedback_without_lifecycle_raises_domain_error(
@@ -200,7 +206,7 @@ class TestMemoryApplicationService:
         with pytest.raises(MemoryLifecycleUnavailableError):
             await service.record_feedback(
                 uuid4(),
-                user_id="u1",
+                identity_scope=make_management_identity_scope(user_id="u1"),
                 positive=True,
                 source="ui.memory_ref",
             )

@@ -37,7 +37,6 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
         config=MagicMock(),
     )
     app.dependency_overrides[deps.get_topic_service] = lambda: service
-    app.dependency_overrides[deps.get_user_id] = lambda: "test_user"
 
     return app
 

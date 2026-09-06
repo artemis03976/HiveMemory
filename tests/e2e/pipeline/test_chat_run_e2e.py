@@ -18,7 +18,15 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.models import (
+    ActorIdentity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+    build_internal_identity_scope,
+)
+from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
 from hivememory.system.application.chat_service import NonStreamingChatAgentOutcome
 from tests.e2e.conftest import wait_for_memory_persistence_async
 from tests.helpers.memory import make_memory_metadata
@@ -57,10 +65,13 @@ async def _collect_stream_events(
     enable_memory_retrieval: bool = True,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.chat_service.chat_stream(
+    async for event in system.chat_service.chat_stream_scoped(
         user_message=user_message,
-        user_id=user_id,
-        agent_id=agent_id,
+        identity_scope=build_internal_identity_scope(
+            ActorIdentity(user_id=user_id, agent_id=agent_id),
+            MAIN_WORKSPACE_ID,
+        ),
+        interaction_id=f"interaction_{uuid4().hex}",
         enable_memory_retrieval=enable_memory_retrieval,
         generation_options={"temperature": 0, "top_p": 1},
     ):
@@ -77,12 +88,16 @@ class TestChatRun:
     async def test_chat_full_round_trip_persists_memory(self, e2e_system, clean_user):
         """chat() 完整闭环：回答 + finalize 触发记忆落库"""
         user_id = clean_user()
-        result = await e2e_system.chat_service.chat(
+        result = await e2e_system.chat_service.chat_scoped(
             user_message=(
                 "我叫小林，我在一家物流公司工作，每天通勤两小时。"
                 "请记住这些关于我的信息。"
             ),
-            user_id=user_id,
+            identity_scope=build_internal_identity_scope(
+                ActorIdentity(user_id=user_id, agent_id="omni_doll"),
+                MAIN_WORKSPACE_ID,
+            ),
+            interaction_id=f"interaction_{uuid4().hex}",
             enable_memory_retrieval=True,
         )
         assert isinstance(result, NonStreamingChatAgentOutcome), (
@@ -159,13 +174,17 @@ class TestChatRun:
         materialize_tasks 非空即证明走的是 WRITE 主动生成而非 finalize 自动提取。
         """
         user_id = clean_user()
-        result = await e2e_system.chat_service.chat(
+        result = await e2e_system.chat_service.chat_scoped(
             user_message=(
                 "请使用 MTP 的 WRITE 指令保存一条记忆，内容如下："
                 "我最好的朋友叫张伟，我们每个月一起打篮球。"
                 "你必须在回复中输出 WRITE 指令，把上面这句话完整写入记忆。"
             ),
-            user_id=user_id,
+            identity_scope=build_internal_identity_scope(
+                ActorIdentity(user_id=user_id, agent_id="omni_doll"),
+                MAIN_WORKSPACE_ID,
+            ),
+            interaction_id=f"interaction_{uuid4().hex}",
             enable_memory_retrieval=False,
         )
         run_result = result.agent_run_result

@@ -5,8 +5,6 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.constants import DEFAULT_AGENT_ID
-
 
 class PassiveIngressRequest(BaseModel):
     # ---------- 外部来源与关联标识 ----------
@@ -37,7 +35,14 @@ class PassiveIngressRequest(BaseModel):
     )
     content: str = Field(..., description="消息内容")
     user_id: str = Field(..., description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
+    workspace_id: str | None = Field(
+        default=None,
+        description="Workspace ID；缺省回退公共默认 Workspace",
+    )
+    agent_id: str = Field(
+        ...,
+        description="接入事件来源的具体 Agent ID（参与外部会话命名空间，无默认值）",
+    )
     action_id: Optional[str] = Field(
         default=None, description="工具调用 ID (tool_call/tool_result)"
     )
@@ -67,7 +72,14 @@ class PassiveFlushRequest(BaseModel):
     source: str = Field(..., description="外部来源标识")
     external_conversation_id: str = Field(..., description="外部会话 ID")
     user_id: str = Field(..., description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
+    workspace_id: str | None = Field(
+        default=None,
+        description="Workspace ID；缺省回退公共默认 Workspace",
+    )
+    agent_id: str = Field(
+        ...,
+        description="发起 flush 的具体 Agent ID（与会话分桶键一致，无默认值）",
+    )
 
 
 class PassiveFlushResponse(BaseModel):

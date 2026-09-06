@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
-from hivememory.core.constants import DEFAULT_AGENT_ID
-from hivememory.core.models import ActorIdentity, resolve_default_identity_scope
+from hivememory.core.models import IdentityScope
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -119,32 +119,21 @@ class PassiveIngressService:
     async def ingest_event(
         self,
         event: PassiveIngressEvent,
-        user_id: str,
-        agent_id: str = DEFAULT_AGENT_ID,
-        session_id: str | None = None,
+        identity_scope: IdentityScope,
     ) -> dict[str, Any]:
         """接收单个外部事件。
 
         公共响应只包含外部调用方实际需要的接收状态与 memory context，
         不暴露 Gateway 内部 execution state、runtime event 或 fallback 细节。
 
-        `session_id` 是过渡期兼容入参：当事件未显式携带
-        `external_conversation_id` 时，用它作为外部会话 ID。
-        新调用方应直接在事件上设置 `source` 与 `external_conversation_id`。
+        身份入口约定（v0.6.2 收敛）：connector 侧的 ``user_id + agent_id``
+        选择由 server 边界一次性冻结为 ``identity_scope``，本层不再解析。
         """
-        if session_id and event.external_conversation_id == (
-            DEFAULT_EXTERNAL_CONVERSATION_ID
-        ):
-            event = event.model_copy(
-                update={"external_conversation_id": session_id}
-            )
-
-        identity = ActorIdentity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=event.external_conversation_id,
+        outcome = await self._ingressor.route_event_scoped(
+            event=event,
+            identity_scope=identity_scope,
+            interaction_id=f"passive_{uuid4().hex}",
         )
-        outcome = await self._ingressor.route_event(event=event, identity=identity)
 
         if outcome.kind == "duplicate":
             return {
@@ -188,31 +177,27 @@ class PassiveIngressService:
         self,
         source: str,
         external_conversation_id: str,
-        user_id: str,
-        agent_id: str = DEFAULT_AGENT_ID,
+        identity_scope: IdentityScope,
     ) -> bool:
         """显式把指定外部会话的当前 turn 移交 submission queue。
+
+        会话分桶键由 ``source + external_conversation_id`` 与 scope 的
+        actor 三元组共同构成（共享 infra 命名键，不解释 scope 对象）。
 
         Returns:
             True 表示当前 turn 已被 queue 接收。
         """
-        identity = ActorIdentity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=external_conversation_id,
-        )
         key = PassiveConversationKey.build(
             source=source,
             external_conversation_id=external_conversation_id,
-            identity_scope=resolve_default_identity_scope(identity),
+            identity_scope=identity_scope,
         )
         submitted = await self._ingressor.flush_conversation(key)
         return submitted > 0
 
     async def flush_ingressor(
         self,
-        user_id: str,
-        agent_id: str = DEFAULT_AGENT_ID,
+        identity_scope: IdentityScope,
         session_id: str | None = None,
         source: str = DEFAULT_PASSIVE_SOURCE,
     ) -> bool:
@@ -223,6 +208,5 @@ class PassiveIngressService:
         return await self.flush_conversation(
             source=source,
             external_conversation_id=session_id or DEFAULT_EXTERNAL_CONVERSATION_ID,
-            user_id=user_id,
-            agent_id=agent_id,
+            identity_scope=identity_scope,
         )

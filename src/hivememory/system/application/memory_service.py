@@ -5,7 +5,6 @@ from uuid import UUID
 
 from hivememory.core.models import (
     Artifacts,
-    ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -13,7 +12,6 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
     IdentityScope,
-    resolve_default_identity_scope,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -34,8 +32,13 @@ class MemoryApplicationService:
     """Memory API use-case service.
 
     HTTP routers call this service instead of reaching into Patchouli internals.
-    This phase preserves the existing storage behavior while narrowing the
-    server-facing dependency boundary.
+
+    身份入口约定（v0.6.2 收敛）：所有用例只接受 server 边界一次性冻结的
+    ``IdentityScope``，不在服务内解析裸 ``user_id`` 或默认 Agent。管理用例
+    （本服务的全部读写）按 owner-management 语义在 Workspace ownership
+    hard boundary 内访问该 Workspace 的全部 Memory，不执行 Agent 级
+    ``MemoryAccessPolicy`` 可见性过滤；``system`` actor 只标记"没有具体
+    Agent 作为操作来源主体"，不承担任何权限绕过语义。
     """
 
     def __init__(
@@ -53,28 +56,6 @@ class MemoryApplicationService:
     async def create_memory(
         self,
         *,
-        title: str,
-        summary: str,
-        content: str,
-        memory_type: str,
-        tags: list[str],
-        alias: str | None = None,
-        user_id: str,
-    ) -> MemoryAtom:
-        identity_scope = self._default_identity_scope(user_id)
-        return await self.create_memory_scoped(
-            identity_scope=identity_scope,
-            title=title,
-            summary=summary,
-            content=content,
-            memory_type=memory_type,
-            tags=tags,
-            alias=alias,
-        )
-
-    async def create_memory_scoped(
-        self,
-        *,
         identity_scope: IdentityScope,
         title: str,
         summary: str,
@@ -83,7 +64,11 @@ class MemoryApplicationService:
         tags: list[str],
         alias: str | None = None,
     ) -> MemoryAtom:
-        """内部 seam：使用调用方提供的完整 Workspace scope 创建 Memory。"""
+        """管理创建入口：在显式 Workspace scope 中创建 Memory。
+
+        ``source_agent_id`` 记录来源 actor（管理入口为保留 ``system``），
+        只作 provenance 展示，不参与可见性授权。
+        """
         atom = MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,
@@ -112,27 +97,16 @@ class MemoryApplicationService:
     async def list_memories(
         self,
         *,
-        query: str | None = None,
-        user_id: str,
-        memory_type: str | None = None,
-        limit: int = 20,
-    ) -> list[MemoryAtom]:
-        return await self.list_memories_scoped(
-            identity_scope=self._default_identity_scope(user_id),
-            query=query,
-            memory_type=memory_type,
-            limit=limit,
-        )
-
-    async def list_memories_scoped(
-        self,
-        *,
         identity_scope: IdentityScope,
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
     ) -> list[MemoryAtom]:
-        """内部 seam：在显式 Workspace scope 中列出 Memory。"""
+        """管理读取入口：在显式 Workspace scope 中列出 Memory。
+
+        按 owner-management 语义返回该 Workspace 的全部 Memory（不含
+        Agent Profile），不做 Agent ``MemoryAccessPolicy`` 过滤。
+        """
         filters = self._build_filters(memory_type=memory_type)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_LIST,
@@ -144,19 +118,13 @@ class MemoryApplicationService:
             refresh_vitality=True,
         )
 
-    async def get_memory(self, memory_id: UUID, *, user_id: str) -> MemoryAtom:
-        return await self.get_memory_scoped(
-            memory_id,
-            identity_scope=self._default_identity_scope(user_id),
-        )
-
-    async def get_memory_scoped(
+    async def get_memory(
         self,
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
     ) -> MemoryAtom:
-        """内部 seam：在显式 Workspace scope 中读取 Memory。"""
+        """管理读取入口：在显式 Workspace scope 中读取 Memory。"""
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_GET,
             memory_id,
@@ -171,29 +139,6 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        user_id: str,
-        title: str | None = None,
-        summary: str | None = None,
-        content: str | None = None,
-        alias: str | None = None,
-        tags: list[str] | None = None,
-        agent_config: dict | None = None,
-    ) -> MemoryAtom:
-        return await self.update_memory_scoped(
-            memory_id,
-            identity_scope=self._default_identity_scope(user_id),
-            title=title,
-            summary=summary,
-            content=content,
-            alias=alias,
-            tags=tags,
-            agent_config=agent_config,
-        )
-
-    async def update_memory_scoped(
-        self,
-        memory_id: UUID,
-        *,
         identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
@@ -202,7 +147,7 @@ class MemoryApplicationService:
         tags: list[str] | None = None,
         agent_config: dict | None = None,
     ) -> MemoryAtom:
-        """内部 seam：显式授权 mutation，且不改变原 ownership/provenance。"""
+        """管理更新入口：显式授权 mutation，且不改变原 ownership/provenance。"""
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_UPDATE,
             memory_id,
@@ -222,26 +167,11 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        user_id: str,
-        positive: bool,
-        source: str,
-    ):
-        return await self.record_feedback_scoped(
-            memory_id,
-            identity_scope=self._default_identity_scope(user_id),
-            positive=positive,
-            source=source,
-        )
-
-    async def record_feedback_scoped(
-        self,
-        memory_id: UUID,
-        *,
         identity_scope: IdentityScope,
         positive: bool,
         source: str,
     ):
-        """内部 seam：在显式 Workspace scope 中记录反馈。"""
+        """管理反馈入口：在显式 Workspace scope 中记录反馈。"""
         try:
             return await self._global_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK,
@@ -257,19 +187,13 @@ class MemoryApplicationService:
         except ValueError as exc:
             raise MemoryNotFoundError(str(exc)) from exc
 
-    async def delete_memory(self, memory_id: UUID, *, user_id: str) -> bool:
-        return await self.delete_memory_scoped(
-            memory_id,
-            identity_scope=self._default_identity_scope(user_id),
-        )
-
-    async def delete_memory_scoped(
+    async def delete_memory(
         self,
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
     ) -> bool:
-        """内部 seam：在显式 Workspace scope 中删除 Memory。"""
+        """管理删除入口：在显式 Workspace scope 中删除 Memory。"""
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_DELETE,
             memory_id,
@@ -285,10 +209,3 @@ class MemoryApplicationService:
         if memory_type:
             filters["index.memory_type"] = memory_type
         return filters
-
-    @staticmethod
-    def _default_identity_scope(user_id: str) -> IdentityScope:
-        """HTTP/System 顶层为当前用户一次性解析默认 Workspace。"""
-        return resolve_default_identity_scope(
-            ActorIdentity(user_id=user_id, agent_id="ui"),
-        )

@@ -3,8 +3,6 @@
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_USER_ID
-
 
 class GenerationOptions(BaseModel):
     model: str | None = Field(default=None, min_length=1, description="模型名称")
@@ -14,18 +12,34 @@ class GenerationOptions(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    """Chat 请求的用户导向身份上下文。
+
+    Chat 是 Agent action：``agent_id`` 必填且必须为具体 Agent，不得回退到
+    保留 ``system`` actor。``user_id`` / ``workspace_id`` 兼容保留（缺省时
+    由 server 唯一入口回退默认值），与统一请求头同时出现且不一致时显式
+    拒绝。
+    """
+
     message: str = Field(..., description="用户消息")
-    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
+    user_id: str | None = Field(default=None, description="用户 ID（缺省回退默认用户）")
+    workspace_id: str | None = Field(default=None, description="Workspace ID（缺省回退公共默认 Workspace）")
+    agent_id: str = Field(..., description="执行本次对话的具体 Agent ID")
     session_id: str | None = Field(default=None, description="会话 ID")
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
     generation_options: GenerationOptions | None = Field(default=None, description="本次请求的生成参数覆盖")
 
 
 class StopChatRequest(BaseModel):
+    """Stop 请求体。
+
+    取消不是 Agent action：不携带 agent_id，取消与事件发布使用 generation
+    创建时冻结在 registry 里的原始 scope；请求只提供 generation 定位与
+    用户导向基础选择（``user_id`` / ``workspace_id``，兼容缺省）。
+    """
+
     generation_id: str = Field(..., description="要停止的生成任务 ID")
-    user_id: str = Field(default=DEFAULT_USER_ID, description="运行归属用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="发起停止请求的 Agent ID")
+    user_id: str | None = Field(default=None, description="运行归属用户 ID（缺省回退默认用户）")
+    workspace_id: str | None = Field(default=None, description="Workspace ID（缺省回退公共默认 Workspace）")
 
 
 # ========== SSE 事件数据模型 ==========

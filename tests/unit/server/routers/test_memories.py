@@ -178,7 +178,8 @@ class TestMemoriesRouter:
         storage.upsert_memory.assert_called_once()
         atom = storage.upsert_memory.call_args.args[0]
         assert isinstance(atom, MemoryAtom)
-        assert atom.meta.source_agent_id == "ui"
+        # 管理 actor 为保留 system（无具体 Agent 作为操作来源主体）
+        assert atom.meta.source_agent_id == "system"
         assert atom.workspace_identity.owner_user_id == "default"
         assert atom.index.title == "Created memory"
         assert atom.index.summary == "A sufficiently long memory summary"

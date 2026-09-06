@@ -12,6 +12,14 @@ DEFAULT_USER_ID = "default"
 DEFAULT_AGENT_ID = "omni_doll"
 """默认 Agent ID - 全能人偶，拥有完整权限"""
 
+SYSTEM_AGENT_ID = "system"
+"""非 Agent action 的保留 actor。
+
+准确语义是"没有具体 Agent 作为操作来源主体"：它只出现在 server 入口为
+无具体 Agent 的操作冻结 IdentityScope 时（管理读取、Topic 管理等），是
+actor/provenance 的保留值。
+"""
+
 DEFAULT_TEAM_ID = None
 """默认团队 ID - None 表示个人作用域"""
 

@@ -7,6 +7,7 @@ import pytest
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_management_identity_scope
 
 
 @pytest.fixture
@@ -44,11 +45,12 @@ class TestTopicApplicationService:
         handler = AsyncMock(return_value=["snapshot"])
         bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, handler)
 
-        await service.list_active_topics(user_id="u1")
+        identity_scope = make_management_identity_scope(user_id="u1")
+        await service.list_active_topics(identity_scope=identity_scope)
 
-        # 公共入口只在此处解析 main Workspace，Patchouli 不再接收裸 identity。
+        # 服务只透传 server 冻结的同一 scope 实例，不再自行解析身份。
         handler.assert_awaited_once()
-        identity_scope = handler.await_args.kwargs["identity_scope"]
+        assert handler.await_args.kwargs["identity_scope"] is identity_scope
         assert identity_scope.actor_identity.user_id == "u1"
         assert identity_scope.workspace_identity.workspace_id == "main_workspace"
 
@@ -63,14 +65,18 @@ class TestTopicApplicationService:
         )
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
-        result = await service.settle_topic(user_id="u1", topic_id="t1")
+        identity_scope = make_management_identity_scope(user_id="u1")
+        result = await service.settle_topic(identity_scope=identity_scope, topic_id="t1")
 
         assert result.topic_id == "t1"
         assert result.generation_task_id == "memtask_1"
         assert result.generation_submitted is True
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
-        assert handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id == "u1"
+        assert (
+            handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id
+            == "u1"
+        )
 
     @pytest.mark.asyncio
     async def test_settle_topic_without_generation_still_reports_success(self, service, bus):
@@ -83,7 +89,10 @@ class TestTopicApplicationService:
         )
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
 
-        result = await service.settle_topic(user_id="u1", topic_id="t1")
+        result = await service.settle_topic(
+            identity_scope=make_management_identity_scope(user_id="u1"),
+            topic_id="t1",
+        )
 
         assert result.topic_id == "t1"
         assert result.generation_task_id is None
@@ -95,10 +104,14 @@ class TestTopicApplicationService:
         handler = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, handler)
 
-        result = await service.evict_topic(user_id="u1", topic_id="t1")
+        identity_scope = make_management_identity_scope(user_id="u1")
+        result = await service.evict_topic(identity_scope=identity_scope, topic_id="t1")
 
         # evict_topic 是纯透传；约束力来自路由与参数
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
-        assert handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id == "u1"
+        assert (
+            handler.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id
+            == "u1"
+        )
         assert result.removed is True

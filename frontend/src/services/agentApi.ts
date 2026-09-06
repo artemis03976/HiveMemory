@@ -1,3 +1,4 @@
+import { identityHeaders } from '@/services/identity';
 import type { AgentData } from '@/types';
 
 function toPayload(agent: AgentData) {
@@ -20,7 +21,10 @@ function toPayload(agent: AgentData) {
 export async function createAgent(agent: AgentData) {
   const res = await fetch('/api/v1/agents', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...identityHeaders(),
+    },
     body: JSON.stringify(toPayload(agent)),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -30,7 +34,10 @@ export async function createAgent(agent: AgentData) {
 export async function saveAgent(agent: AgentData) {
   const res = await fetch(`/api/v1/memories/${agent.id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...identityHeaders(),
+    },
     body: JSON.stringify(toPayload(agent)),
   });
   if (!res.ok) throw new Error(await res.text());
@@ -39,6 +46,7 @@ export async function saveAgent(agent: AgentData) {
 export async function deleteAgent(agentId: string) {
   const res = await fetch(`/api/v1/memories/${agentId}`, {
     method: 'DELETE',
+    headers: identityHeaders(),
   });
   if (!res.ok) throw new Error(await res.text());
 }

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -24,6 +26,41 @@ from hivememory.core.protocol.models import (
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from tests.helpers.workspace import make_identity_scope
+
+
+def _u1_scope() -> IdentityScope:
+    """Chat 是 Agent action：构造携带具体 Agent 的显式 scope。"""
+    return make_identity_scope(user_id="u1", agent_id="omni_doll")
+
+
+async def _chat_scoped(
+    service: ChatApplicationService,
+    message: str,
+    *,
+    interaction_id: str | None = None,
+):
+    return await service.chat_scoped(
+        user_message=message,
+        identity_scope=_u1_scope(),
+        interaction_id=interaction_id or f"interaction_{uuid4().hex}",
+    )
+
+
+async def _stream_events(
+    service: ChatApplicationService,
+    message: str,
+    *,
+    interaction_id: str | None = None,
+) -> list[dict]:
+    return [
+        event
+        async for event in service.chat_stream_scoped(
+            user_message=message,
+            identity_scope=_u1_scope(),
+            interaction_id=interaction_id or f"interaction_{uuid4().hex}",
+        )
+    ]
 
 
 def _decision_outcome() -> GatewayDecisionOutcome:
@@ -63,7 +100,7 @@ async def test_non_streaming_command_short_circuits_patchouli_and_alice() -> Non
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
 
-    result = await ChatApplicationService(bus).chat("/clear", "u1")
+    result = await _chat_scoped(ChatApplicationService(bus), "/clear")
 
     assert result.kind == "command"
     assert result.command_execution_result.command_id == "system.clear"
@@ -102,7 +139,7 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, run_agent)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await ChatApplicationService(bus).chat("问题", "u1")
+    result = await _chat_scoped(ChatApplicationService(bus), "问题")
 
     assert result.kind == "agent"
     assert result.agent_run_result.final_text == "完成"
@@ -117,7 +154,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
         AsyncMock(return_value=_command_outcome()),
     )
 
-    events = [event async for event in ChatApplicationService(bus).chat_stream("/clear", "u1")]
+    events = await _stream_events(ChatApplicationService(bus), "/clear")
 
     assert [event["event"] for event in events] == [
         "generation_id",
@@ -140,9 +177,9 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     service = ChatApplicationService(bus)
 
-    task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-gateway"))
+    task = asyncio.create_task(_chat_scoped(service, "问题", interaction_id="gen-gateway"))
     await started.wait()
-    stop_result = service.cancel_generation("gen-gateway", user_id="u1")
+    stop_result = service.cancel_generation_scoped("gen-gateway", identity_scope=_u1_scope())
     result = await task
 
     assert stop_result.cancelled is True
@@ -176,7 +213,7 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
         cleanup,
     )
 
-    result = await ChatApplicationService(bus).chat("问题", "u1")
+    result = await _chat_scoped(ChatApplicationService(bus), "问题")
 
     assert result.kind == "agent"
     assert result.agent_run_result.status == "cancelled"
@@ -211,7 +248,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    result = await ChatApplicationService(bus).chat("问题", "u1")
+    result = await _chat_scoped(ChatApplicationService(bus), "问题")
 
     assert result.agent_run_result.status == AgentRunStatus.FAILED.value
     finalize.assert_not_awaited()
@@ -248,7 +285,7 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
     cleanup = AsyncMock(return_value=True)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    events = [event async for event in ChatApplicationService(bus).chat_stream("问题", "u1")]
+    events = await _stream_events(ChatApplicationService(bus), "问题")
 
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == AgentRunStatus.FAILED.value
@@ -288,9 +325,9 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = ChatApplicationService(bus)
 
-    task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-prepare"))
+    task = asyncio.create_task(_chat_scoped(service, "问题", interaction_id="gen-prepare"))
     await prepare_started.wait()
-    stop_result = service.cancel_generation("gen-prepare", user_id="u1")
+    stop_result = service.cancel_generation_scoped("gen-prepare", identity_scope=_u1_scope())
     release_prepare.set()
     result = await task
 
@@ -340,7 +377,7 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
         _collect_stream(service, generation_id="gen-stream-cancel")
     )
     await pull_started.wait()
-    stop_result = service.cancel_generation("gen-stream-cancel", user_id="u1")
+    stop_result = service.cancel_generation_scoped("gen-stream-cancel", identity_scope=_u1_scope())
     events = await task
 
     assert stop_result.cancelled is True
@@ -380,9 +417,9 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = ChatApplicationService(bus)
 
-    task = asyncio.create_task(service.chat("问题", "u1", generation_id="gen-finalize"))
+    task = asyncio.create_task(_chat_scoped(service, "问题", interaction_id="gen-finalize"))
     await finalize_started.wait()
-    stop_result = service.cancel_generation("gen-finalize", user_id="u1")
+    stop_result = service.cancel_generation_scoped("gen-finalize", identity_scope=_u1_scope())
     release_finalize.set()
     result = await task
 
@@ -397,11 +434,4 @@ async def _collect_stream(
     *,
     generation_id: str,
 ) -> list[dict]:
-    return [
-        event
-        async for event in service.chat_stream(
-            "问题",
-            "u1",
-            generation_id=generation_id,
-        )
-    ]
+    return await _stream_events(service, "问题", interaction_id=generation_id)

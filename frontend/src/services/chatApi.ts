@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_USER_ID, DEFAULT_AGENT_ID } from '@/constants/identity';
+import { getIdentitySelection, identityHeaders } from '@/services/identity';
 import { FetchSseClient } from '@/transports/sse/fetchSseClient';
 import type { ParsedSseEvent } from '@/transports/sse/parseSse';
 import type {
@@ -31,9 +32,12 @@ export class ChatSSEClient {
   async connect(params: ChatRequestParams, callbacks: SSECallbacks): Promise<void> {
     this.disconnect();
 
+    // Chat 是 Agent action：请求体必须携带具体 agent_id；user_id + workspace_id
+    // 基础选择同时随统一请求头传递，两者不一致时后端显式拒绝（409）。
     const requestBody = {
       message: params.message,
       user_id: params.user_id || DEFAULT_USER_ID,
+      workspace_id: params.workspace_id || getIdentitySelection().workspace_id,
       agent_id: params.agent_id || DEFAULT_AGENT_ID,
       session_id: params.session_id || null,
       enable_memory_retrieval: params.enable_memory_retrieval ?? true,
@@ -47,6 +51,7 @@ export class ChatSSEClient {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
+          ...identityHeaders(),
         },
         body: JSON.stringify(requestBody),
       },
@@ -155,9 +160,14 @@ export class ChatSSEClient {
 
 export async function stopGeneration(generationId: string): Promise<void> {
   try {
+    // 取消不是 Agent action：只携带 generation_id 与基础身份选择；
+    // 后端通过 generation registry 复用创建时冻结的原始 scope 执行取消。
     await fetch('/api/v1/chat/stop', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...identityHeaders(),
+      },
       body: JSON.stringify({ generation_id: generationId }),
     });
   } catch {

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import (
-    ActorIdentity,
     Artifacts,
     IndexLayer,
     MemoryAccessPolicy,
@@ -11,7 +10,7 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
-    resolve_default_identity_scope,
+    IdentityScope,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -23,8 +22,9 @@ if TYPE_CHECKING:
 class AgentApplicationService:
     """Agent profile API use-case service.
 
-    Phase 1 only establishes the dependency boundary. Router behavior will be
-    migrated into this service in later phases.
+    身份入口约定（v0.6.2 收敛）：Agent Profile 管理是用户导向的管理用例，
+    不是具体 Agent 的执行动作，因此 server 边界为其冻结 ``system`` actor
+    的 IdentityScope；``source_agent_id`` 只作 provenance 展示。
     """
 
     def __init__(
@@ -42,18 +42,15 @@ class AgentApplicationService:
     async def create_agent_profile(
         self,
         *,
+        identity_scope: IdentityScope,
         title: str,
         alias: str,
         summary: str = "",
         content: str = "",
         tags: list[str],
         agent_config: dict[str, Any] | None = None,
-        user_id: str,
     ) -> MemoryAtom:
-        # TODO: 复核 agent_id 的手写来源
-        identity_scope = resolve_default_identity_scope(
-            ActorIdentity(user_id=user_id, agent_id="ui"),
-        )
+        """在显式 Workspace scope 中创建 Agent Profile（管理用例）。"""
         atom = MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,
@@ -82,12 +79,10 @@ class AgentApplicationService:
     async def list_agent_profiles(
         self,
         *,
-        user_id: str,
+        identity_scope: IdentityScope,
         limit: int = 100,
     ) -> list[MemoryAtom]:
-        identity_scope = resolve_default_identity_scope(
-            ActorIdentity(user_id=user_id, agent_id="ui"),
-        )
+        """在显式 Workspace scope 中列出 Agent Profile（管理用例）。"""
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
             identity_scope=identity_scope,

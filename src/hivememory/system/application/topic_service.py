@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
-    ActorIdentity,
+    IdentityScope,
     TopicSnapshot,
-    resolve_default_identity_scope,
 )
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -21,8 +20,10 @@ if TYPE_CHECKING:
 class TopicApplicationService:
     """Topic HTTP 用例对应的系统应用服务。
 
-    本层只负责把用户身份转换为默认 Workspace 访问上下文，并通过全局总线
-    调用 Patchouli 公共能力；业务结果保持强类型，不在这里包装 HTTP 字典。
+    身份入口约定（v0.6.2 收敛）：Topic 管理是用户导向的管理用例，server
+    边界为其冻结 ``system`` actor 的 IdentityScope；本层不再解析裸
+    ``user_id``，只通过全局总线调用 Patchouli 公共能力，业务结果保持
+    强类型，不在这里包装 HTTP 字典。
     """
 
     def __init__(
@@ -37,11 +38,8 @@ class TopicApplicationService:
     def config(self) -> HiveMemoryConfig:
         return self._config
 
-    async def list_active_topics(self, *, user_id: str) -> tuple[TopicSnapshot, ...]:
-        """列出用户默认 Workspace 中的活跃 Topic 快照。"""
-
-        identity = ActorIdentity(user_id=user_id)
-        identity_scope = resolve_default_identity_scope(identity)
+    async def list_active_topics(self, *, identity_scope: IdentityScope) -> tuple[TopicSnapshot, ...]:
+        """在显式 Workspace scope 中列出活跃 Topic 快照。"""
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
             identity_scope=identity_scope,
@@ -50,14 +48,10 @@ class TopicApplicationService:
     async def settle_topic(
         self,
         *,
-        user_id: str,
+        identity_scope: IdentityScope,
         topic_id: str | None = None,
     ) -> TopicSettleResult:
         """结算 Topic，并原样返回 Patchouli 的业务结果。"""
-
-        identity_scope = resolve_default_identity_scope(
-            ActorIdentity(user_id=user_id),
-        )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
             identity_scope=identity_scope,
@@ -67,14 +61,10 @@ class TopicApplicationService:
     async def evict_topic(
         self,
         *,
-        user_id: str,
+        identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicEvictionResult:
         """删除 Topic，并原样返回 Patchouli 的驱逐结果。"""
-
-        identity_scope = resolve_default_identity_scope(
-            ActorIdentity(user_id=user_id),
-        )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_EVICT_TOPIC,
             identity_scope=identity_scope,

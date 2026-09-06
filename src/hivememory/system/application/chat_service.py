@@ -12,17 +12,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import (
-    ActorIdentity,
     IdentityScope,
     require_identity_scope,
-    resolve_default_identity_scope,
 )
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
@@ -142,7 +140,12 @@ type NonStreamingChatResult = (NonStreamingChatCommandOutcome | NonStreamingChat
 
 
 class ChatApplicationService:
-    """顶层聊天应用服务 — 纯总线编排，不直接持有任何子系统引用。"""
+    """顶层聊天应用服务 — 纯总线编排，不直接持有任何子系统引用。
+
+    身份入口约定（v0.6.2 收敛）：本服务只接受调用方在 server 边界冻结的
+    ``IdentityScope``，不再解析裸 ``user_id``。Chat 是 Agent action，必须
+    由具体 Agent 执行；actor 为保留 ``system`` 值的 scope 会在入口被拒绝。
+    """
 
     def __init__(
         self,
@@ -157,32 +160,6 @@ class ChatApplicationService:
 
     # ========== 非流式主链路 ==========
 
-    async def chat(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: dict[str, Any] | None = None,
-        generation_id: str | None = None,
-    ) -> NonStreamingChatResult:
-        """公共默认 Workspace 非流式入口。"""
-        identity = ActorIdentity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
-        identity_scope = resolve_default_identity_scope(identity)
-        interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
-        return await self.chat_scoped(
-            user_message=user_message,
-            identity_scope=identity_scope,
-            interaction_id=interaction_id,
-            enable_memory_retrieval=enable_memory_retrieval,
-            generation_options=generation_options,
-        )
-
     async def chat_scoped(
         self,
         user_message: str,
@@ -192,9 +169,10 @@ class ChatApplicationService:
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
     ) -> NonStreamingChatResult:
-        """显式 scope 的内部非流式入口。"""
+        """非流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。"""
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
+        self._reject_system_actor(identity.agent_id)
         agent_id = identity.agent_id
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
@@ -362,33 +340,6 @@ class ChatApplicationService:
 
     # ========== 流式主链路 ==========
 
-    async def chat_stream(
-        self,
-        user_message: str,
-        user_id: str,
-        agent_id: str = "omni_doll",
-        session_id: str | None = None,
-        enable_memory_retrieval: bool = True,
-        generation_options: dict[str, Any] | None = None,
-        generation_id: str | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """公共默认 Workspace 流式入口。"""
-        identity = ActorIdentity(
-            user_id=user_id,
-            agent_id=agent_id,
-            session_id=session_id,
-        )
-        identity_scope = resolve_default_identity_scope(identity)
-        interaction_id = generation_id or f"interaction_{uuid.uuid4().hex}"
-        async for event in self.chat_stream_scoped(
-            user_message=user_message,
-            identity_scope=identity_scope,
-            interaction_id=interaction_id,
-            enable_memory_retrieval=enable_memory_retrieval,
-            generation_options=generation_options,
-        ):
-            yield event
-
     async def chat_stream_scoped(
         self,
         user_message: str,
@@ -399,7 +350,7 @@ class ChatApplicationService:
         generation_options: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
-        显式 scope 的内部流式 chat 入口。
+        流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
 
         编排骨架: interaction_id -> prepare -> prelude events -> run_agent_stream
                   -> [finalize if not cancelled] -> done
@@ -409,6 +360,7 @@ class ChatApplicationService:
 
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
+        self._reject_system_actor(identity.agent_id)
         agent_id = identity.agent_id
         run = ChatGenerationRun(
             identity_scope=identity_scope,
@@ -677,24 +629,6 @@ class ChatApplicationService:
 
     # ========== Generation 控制 ==========
 
-    def cancel_generation(
-        self,
-        generation_id: str,
-        *,
-        user_id: str = "default",
-        agent_id: str = "omni_doll",
-        reason: str = "user_requested",
-    ) -> CancelResult:
-        """公共默认 Workspace 的幂等取消入口。"""
-        identity_scope = resolve_default_identity_scope(
-            ActorIdentity(user_id=user_id, agent_id=agent_id),
-        )
-        return self.cancel_generation_scoped(
-            generation_id,
-            identity_scope=identity_scope,
-            reason=reason,
-        )
-
     def cancel_generation_scoped(
         self,
         generation_id: str,
@@ -702,7 +636,12 @@ class ChatApplicationService:
         identity_scope: IdentityScope,
         reason: str = "user_requested",
     ) -> CancelResult:
-        """按 owner/workspace 校验的内部取消入口。"""
+        """幂等取消入口：请求方 scope 只做 owner/workspace 校验。
+
+        取消与事件发布一律使用 generation 创建时冻结在 registry 里的原始
+        scope；请求方当前选择（尤其是 agent 维度）不得重新构造出可能不同
+        的身份坐标，因此跨 user/workspace 的取消只会得到 ``not_found``。
+        """
         identity_scope = require_identity_scope(identity_scope)
         result = self._registry.cancel(
             generation_id,
@@ -710,12 +649,14 @@ class ChatApplicationService:
             reason=reason,
         )
         run = self._registry.get(generation_id, identity_scope)
+        # 事件承载 run 创建时冻结的身份坐标；请求方 scope 仅用于上面的校验。
+        frozen_scope = run.identity_scope if run is not None else identity_scope
         self._events.emit(
             RuntimeEvent(
                 event_type=RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
                 generation_id=generation_id,
                 interaction_id=generation_id,
-                workspace_id=identity_scope.workspace_identity.workspace_id,
+                workspace_id=frozen_scope.workspace_identity.workspace_id,
                 status=result.status,
                 reason=result.reason,
                 data={"cancelled": result.cancelled},
@@ -738,6 +679,15 @@ class ChatApplicationService:
         )
 
     # ========== 内部辅助 ==========
+
+    @staticmethod
+    def _reject_system_actor(agent_id: str) -> None:
+        """Chat 必须由具体 Agent 执行；保留 ``system`` actor 在此显式失败。"""
+        if agent_id == SYSTEM_AGENT_ID:
+            raise WorkspaceDomainError(
+                "Chat 不能使用保留 system actor：必须指定具体执行 Agent",
+                details={"agent_id": agent_id},
+            )
 
     @staticmethod
     def _cancelled_done(
