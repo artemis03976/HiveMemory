@@ -46,21 +46,6 @@ class StreamMessage(BaseModel):
     tool_result: str | None = None
 
     @property
-    def user_id(self) -> str:
-        """获取用户 ID (兼容属性)"""
-        return self.identity.user_id
-
-    @property
-    def agent_id(self) -> str:
-        """获取 Agent ID (兼容属性)"""
-        return self.identity.agent_id
-
-    @property
-    def session_id(self) -> str | None:
-        """获取会话 ID (兼容属性)"""
-        return self.identity.session_id
-
-    @property
     def role(self) -> str:
         """映射消息类型到 OpenAI 角色"""
         mapping = {

@@ -51,7 +51,7 @@ class AgentPromptAssembler:
 
         history_messages = PerceptionContextConverter.blocks_to_messages(
             blocks=recent_blocks,
-            current_agent_id=context.identity.agent_id,
+            current_agent_id=context.identity_scope.actor_identity.agent_id,
         )
         messages.extend(history_messages)
         messages.append({"role": "user", "content": context.user_message})

@@ -63,6 +63,7 @@ class LogicalBlock(BaseModel):
 
     @property
     def identity(self):
+        """只读派生自 ``turn.identity``；权限与边界判定一律以 IdentityScope 为准。"""
         return self.turn.identity
 
     @property
@@ -110,11 +111,6 @@ class TopicData(BaseModel):
     model_used: str = ""
 
     model_config = ConfigDict(frozen=True, use_enum_values=False)
-
-    @property
-    def user_id(self) -> str:
-        """兼容展示旧 owner 字段；资源寻址必须使用 workspace_identity。"""
-        return self.workspace_identity.owner_user_id
 
     @property
     def block_count(self) -> int:

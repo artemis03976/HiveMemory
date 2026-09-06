@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
-    ActorIdentity,
     AgentProfile,
     IdentityScope,
     MemoryAtom,
@@ -100,7 +99,7 @@ class RetrievalRequest(ProtocolMessage):
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
         identity_scope: 请求者身份与 Workspace hard boundary
-        filters: MTP filter 解析后的过滤条件 (可选，叠加到 identity 基线之上)
+        filters: MTP filter 解析后的过滤条件 (可选，叠加到 identity_scope 基线之上)
 
     Examples:
         >>> request = RetrievalRequest(
@@ -127,11 +126,6 @@ class RetrievalRequest(ProtocolMessage):
     filters: QueryFilters | None = Field(default=None, description="MTP filter 过滤条件")
 
     top_k: int = Field(default=5, ge=0, description="本次检索候选数量")
-
-    @property
-    def identity(self) -> ActorIdentity:
-        """兼容读取 actor identity；检索 hard filter 使用完整 IdentityScope。"""
-        return self.identity_scope.actor_identity
 
 
 class RetrievalResponse(ProtocolMessage):
@@ -170,11 +164,6 @@ class AgentRunContext(BaseModel):
     storage_available: bool = Field(default=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @property
-    def identity(self) -> ActorIdentity:
-        """兼容读取 actor identity；访问边界仍以完整 IdentityScope 为准。"""
-        return self.identity_scope.actor_identity
 
 
 class MTPExecutionResult(BaseModel):

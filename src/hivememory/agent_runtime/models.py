@@ -74,7 +74,7 @@ class ExecutionFrame:
 
     @property
     def identity(self) -> ActorIdentity:
-        """兼容读取当前执行者身份。"""
+        """只读派生的执行者身份展示；新代码应使用 ``identity_scope``（完整 Workspace hard boundary）。"""
         return self.identity_scope.actor_identity
 
     def is_transient(self) -> bool:
@@ -111,7 +111,7 @@ class MTPExecutionContext:
 
     @property
     def identity(self) -> ActorIdentity:
-        """兼容读取当前执行者身份。"""
+        """只读派生的执行者身份展示；新代码应使用 ``identity_scope``（完整 Workspace hard boundary）。"""
         return self.identity_scope.actor_identity
 
 
