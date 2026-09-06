@@ -93,7 +93,6 @@ class TestChatRouter:
             "/api/v1/chat",
             json={
                 "message": "hello",
-                "user_id": "test",
                 "agent_id": "test_agent",
                 "generation_options": {
                     "model": "gpt-4o",
@@ -137,7 +136,7 @@ class TestChatRouter:
 
         response = client.post(
             "/api/v1/chat",
-            json={"message": "hello", "user_id": "test", "agent_id": "test_agent"},
+            json={"message": "hello", "agent_id": "test_agent"},
         )
         assert response.status_code == 200
 
@@ -173,7 +172,7 @@ class TestChatRouter:
 
         response = client.post(
             "/api/v1/chat",
-            json={"message": "search something", "user_id": "test", "agent_id": "test_agent"},
+            json={"message": "search something", "agent_id": "test_agent"},
         )
         assert response.status_code == 200
 
@@ -204,7 +203,7 @@ class TestChatRouter:
 
         response = client.post(
             "/api/v1/chat",
-            json={"message": "hello", "user_id": "test", "agent_id": "test_agent"},
+            json={"message": "hello", "agent_id": "test_agent"},
         )
         assert response.status_code == 200
 
@@ -241,7 +240,7 @@ class TestChatRouter:
 
         response = client.post(
             "/api/v1/chat",
-            json={"message": "/clear", "user_id": "test", "agent_id": "test_agent"},
+            json={"message": "/clear", "agent_id": "test_agent"},
         )
         assert response.status_code == 200
 
@@ -296,7 +295,7 @@ class TestChatRouter:
 
         response = client.post(
             "/api/v1/chat",
-            json={"message": "hello", "user_id": "test", "agent_id": "test_agent"},
+            json={"message": "hello", "agent_id": "test_agent"},
         )
         assert response.status_code == 200
 
@@ -332,7 +331,7 @@ class TestChatRouter:
 
         response = await chat(
             request=FakeRequest(),
-            body=ChatRequest(message="hello", user_id="test", agent_id="test_agent"),
+            body=ChatRequest(message="hello", agent_id="test_agent"),
             selection=RequestIdentitySelection(user_id=None, workspace_id=None),
             service=mock_service,
         )
@@ -374,7 +373,7 @@ class TestChatRouter:
 
         response = await chat(
             request=FakeRequest(),
-            body=ChatRequest(message="hello", user_id="test", agent_id="test_agent"),
+            body=ChatRequest(message="hello", agent_id="test_agent"),
             selection=RequestIdentitySelection(user_id=None, workspace_id=None),
             service=mock_service,
         )
@@ -420,7 +419,7 @@ class TestChatRouter:
 
         response = await chat(
             request=FakeRequest(),
-            body=ChatRequest(message="hello", user_id="test", agent_id="test_agent"),
+            body=ChatRequest(message="hello", agent_id="test_agent"),
             selection=RequestIdentitySelection(user_id=None, workspace_id=None),
             service=mock_service,
         )
@@ -470,7 +469,7 @@ class TestChatRouter:
 
         response = await chat(
             request=FakeRequest(),
-            body=ChatRequest(message="hello", user_id="test", agent_id="test_agent"),
+            body=ChatRequest(message="hello", agent_id="test_agent"),
             selection=RequestIdentitySelection(user_id=None, workspace_id=None),
             service=mock_service,
         )

@@ -49,8 +49,8 @@ async def chat(
     """Stream an active chat run over SSE.
 
     Chat 是 Agent action：body 必须携带具体 ``agent_id``；用户导向基础选择
-    （user_id + workspace_id）与统一请求头在此一次性合并冻结为 IdentityScope，
-    冲突时显式拒绝。
+    （user_id + workspace_id）只来自统一请求头，在此一次性冻结为
+    IdentityScope。
     """
     interaction_id = f"interaction_{uuid.uuid4().hex}"
     identity_scope = resolve_request_identity_scope(
@@ -58,8 +58,6 @@ async def chat(
         require_agent=True,
         agent_id=body.agent_id,
         session_id=body.session_id,
-        explicit_user_id=body.user_id,
-        explicit_workspace_id=body.workspace_id,
     )
 
     async def event_generator():
@@ -144,15 +142,11 @@ async def stop_chat(
 ):
     """Idempotently cancel an active streaming generation.
 
-    取消不是 Agent action：请求只提供基础身份选择，服务端用其做
+    取消不是 Agent action：基础身份选择只来自统一请求头，服务端用其做
     owner/workspace 校验后，通过 generation registry 复用创建时冻结的
     原始 scope 执行取消，不从当前选择重新构造可能不同的 scope。
     """
-    identity_scope = resolve_request_identity_scope(
-        selection,
-        explicit_user_id=request.user_id,
-        explicit_workspace_id=request.workspace_id,
-    )
+    identity_scope = resolve_request_identity_scope(selection)
     result = service.cancel_generation_scoped(
         request.generation_id,
         identity_scope=identity_scope,

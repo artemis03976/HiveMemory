@@ -138,7 +138,7 @@ class TestChatEntryIdentity:
         client = TestClient(_create_chat_app(MagicMock()))
         response = client.post(
             "/api/v1/chat",
-            json={"message": "hello", "user_id": "u1"},
+            json={"message": "hello"},
         )
         assert response.status_code == 422
 
@@ -147,46 +147,40 @@ class TestChatEntryIdentity:
         client = TestClient(_create_chat_app(MagicMock()))
         response = client.post(
             "/api/v1/chat",
-            json={"message": "hello", "user_id": "u1", "agent_id": "  "},
+            json={"message": "hello", "agent_id": "  "},
         )
         assert response.status_code == 400
         assert "agent_id" in response.json()["detail"]
 
-    def test_body_user_id_conflicting_with_header_rejected(self):
-        client = TestClient(_create_chat_app(MagicMock()))
-        response = client.post(
-            "/api/v1/chat",
-            json={
-                "message": "hello",
-                "user_id": "body-user",
-                "agent_id": "omni_doll",
-            },
-            headers={"x-user-id": "header-user"},
-        )
-        assert response.status_code == 409
+    def test_identity_selection_comes_from_headers_only(self):
+        """Chat body 不携带基础身份选择：scope 完全由统一请求头冻结。"""
+        mock_service = MagicMock()
 
-    def test_body_workspace_id_conflicting_with_header_rejected(self):
-        client = TestClient(_create_chat_app(MagicMock()))
-        response = client.post(
-            "/api/v1/chat",
-            json={
-                "message": "hello",
-                "agent_id": "omni_doll",
-                "workspace_id": "body_workspace",
-            },
-            headers={"x-workspace-id": "main_workspace"},
-        )
-        assert response.status_code == 409
+        async def fake_stream(**kwargs):
+            yield {"event": "done", "data": {"final_text": "ok"}}
 
-    def test_unknown_workspace_rejected(self):
+        mock_service.chat_stream_scoped = MagicMock(
+            side_effect=lambda **kw: fake_stream(**kw)
+        )
+        client = TestClient(_create_chat_app(mock_service))
+
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "hello", "agent_id": "omni_doll"},
+            headers={"x-user-id": "u1", "x-workspace-id": "main_workspace"},
+        )
+        assert response.status_code == 200
+        scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
+        assert scope.actor_identity.user_id == "u1"
+        assert scope.actor_identity.agent_id == "omni_doll"
+        assert scope.workspace_identity.workspace_id == "main_workspace"
+
+    def test_unknown_workspace_via_header_rejected(self):
         client = TestClient(_create_chat_app(MagicMock()))
         response = client.post(
             "/api/v1/chat",
-            json={
-                "message": "hello",
-                "agent_id": "omni_doll",
-                "workspace_id": "ghost_workspace",
-            },
+            json={"message": "hello", "agent_id": "omni_doll"},
+            headers={"x-workspace-id": "ghost_workspace"},
         )
         assert response.status_code == 404
 
@@ -210,14 +204,27 @@ class TestStopEntryIdentity:
         assert scope.actor_identity.agent_id == SYSTEM_AGENT_ID
         assert scope.actor_identity.user_id == "default"
 
-    def test_stop_body_user_id_conflicting_with_header_rejected(self):
-        client = TestClient(_create_chat_app(MagicMock()))
+    def test_stop_uses_header_selection_for_ownership_check(self):
+        mock_service = MagicMock()
+        mock_service.cancel_generation_scoped.return_value = MagicMock(
+            generation_id="gen-1",
+            cancelled=True,
+            status="stop_requested",
+            reason="user_requested",
+        )
+        client = TestClient(_create_chat_app(mock_service))
+
         response = client.post(
             "/api/v1/chat/stop",
-            json={"generation_id": "gen-1", "user_id": "body-user"},
-            headers={"x-user-id": "header-user"},
+            json={"generation_id": "gen-1"},
+            headers={"x-user-id": "u1", "x-workspace-id": "main_workspace"},
         )
-        assert response.status_code == 409
+
+        assert response.status_code == 200
+        assert response.json()["cancelled"] is True
+        scope = mock_service.cancel_generation_scoped.call_args.kwargs["identity_scope"]
+        assert scope.actor_identity.user_id == "u1"
+        assert scope.actor_identity.agent_id == SYSTEM_AGENT_ID
 
 
 class TestTopicsEntryIdentity:
