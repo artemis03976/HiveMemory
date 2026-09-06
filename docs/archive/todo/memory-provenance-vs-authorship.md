@@ -19,7 +19,7 @@ code_paths:
 related_docs:
   - ../plans/perception-topic-buffer-boundary-refactor.md
   - ../plans/v0.6.2-identity-projection-cleanup.md
-  - ../../plans/v0.6.2-v1-memory-legacy-migration.md
+  - ../plans/v0.6.2-v1-memory-legacy-migration.md
   - ../../todo/page-folding-cross-ingress-follow-ups.md
   - ../../patchouli/perception.md
   - ../../patchouli/artifacts.md
@@ -142,7 +142,7 @@ contributing_agent_ids: tuple[str, ...] = ()
 
 Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 block 已由 `InteractionTurnSnapshot.actor_identity` 记录来源，不再添加顶层 Agent 来源字段；`MemoryCreationArtifact` 和 `MemoryVersionArtifact` 需要记录与 MemoryAtom 一致的 `source_agent_id` 和 `contributing_agent_ids`。`DocumentArtifact` 等其他类型是否需要来源字段，应依据其实际生产入口单独裁定，不能由 `BaseArtifact.owner_agent_id` 继承出默认语义。
 
-该字段属于向后兼容的增量模型扩展。历史记录缺少字段时应按空集合解码；是否为历史 V1/V2 记录补写贡献者，留给 [V1→V2 迁移计划](../../plans/v0.6.2-v1-memory-legacy-migration.md) 和单独的数据证据裁定，不能在本 todo 中凭 `source_agent_id` 猜测并回填。
+该字段属于向后兼容的增量模型扩展。历史记录缺少字段时应按空集合解码；是否为历史 V1/V2 记录补写贡献者，留给 [V1→V2 迁移计划](../plans/v0.6.2-v1-memory-legacy-migration.md) 和单独的数据证据裁定，不能在本 todo 中凭 `source_agent_id` 猜测并回填。
 
 在确认序列化兼容性后，预期保持 `schema_version = 2`；如果实现发现新增集合改变了持久化契约，再单独升级版本并更新迁移计划，不在本 todo 中隐式改变版本含义。
 
@@ -203,7 +203,7 @@ Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 
 ## 相关事项
 
 - [v0.6.2 identity projection cleanup（已归档计划）](../plans/v0.6.2-identity-projection-cleanup.md)：B1 identity/workspace 收敛的实现依据；
-- [V1→V2 memory legacy migration](../../plans/v0.6.2-v1-memory-legacy-migration.md)：历史记录迁移与兼容门槛；
+- [V1→V2 memory legacy migration](../plans/v0.6.2-v1-memory-legacy-migration.md)：历史记录迁移与兼容门槛；
 - [page folding cross-ingress follow-ups](../../todo/page-folding-cross-ingress-follow-ups.md)：折叠态 Topic 和跨入口行为的后续问题；
 - [Topic shutdown 逐 Topic 失败隔离（已归档 todo）](../todo/topic-shutdown-per-topic-failure-isolation.md)：同样作用于 `flush_all_for_shutdown`，可能触及相同维护路径；
 - [ADR-0002：全局唯一身份与按需并发保护](../../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md)。

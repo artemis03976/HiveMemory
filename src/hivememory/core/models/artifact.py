@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models.identity import ActorIdentity
@@ -118,8 +118,9 @@ class InteractionTurnSnapshot(BaseModel):
     仅保留交互本身的内容真相。
 
     执行者身份由单一 ``actor_identity`` 字段承载（W0 收敛后不再平铺
-    user_id / agent_id / team_id 三元组）；历史平铺 JSON 经
-    :meth:`_upgrade_legacy_flat_actor` 在读取时升级，不做批量回写。
+    user_id / agent_id / team_id 三元组）；历史平铺 JSON 的读取升级分支已随
+    legacy 数据迁移完成而删除，缺少 ``actor_identity`` 的旧记录 fail closed，
+    由迁移工具的 canonical replacement 处理。
     """
     block_id: str
     turn_id: str
@@ -135,35 +136,6 @@ class InteractionTurnSnapshot(BaseModel):
     turn_events: List[Dict[str, Any]] = Field(default_factory=list)
     actions: List[Dict[str, Any]] = Field(default_factory=list)
     semantic_traces: List[Dict[str, Any]] = Field(default_factory=list)
-
-    @model_validator(mode="before")
-    @classmethod
-    def _upgrade_legacy_flat_actor(cls, data: Any) -> Any:
-        """旧平铺 JSON 读取兼容：user_id/agent_id/team_id 重建为 actor_identity。
-
-        仅做读取升级，不批量回写已存储 artifact：
-
-        - 旧数据缺少具体 Agent 时使用保留 ``SYSTEM_AGENT_ID``，表示没有
-          具体 Agent 作为操作来源主体，不得回落到 ``omni_doll`` 等真实 Agent；
-        - 缺少用户归属（user_id 为空）等无法安全推断的字段时 fail closed，
-          交由迁移诊断处理，不猜测归属。
-        """
-        if not isinstance(data, dict) or "actor_identity" in data:
-            return data
-
-        legacy_user_id = (data.get("user_id") or "").strip()
-        if not legacy_user_id:
-            raise ValueError(
-                "旧版 InteractionTurnSnapshot 缺少用户归属（user_id 为空），"
-                "无法安全推断 actor_identity，已按 fail closed 拒绝读取；"
-                "请通过迁移诊断流程处理该 artifact"
-            )
-        data["actor_identity"] = {
-            "user_id": legacy_user_id,
-            "agent_id": (data.get("agent_id") or "").strip() or SYSTEM_AGENT_ID,
-            "team_id": data.get("team_id"),
-        }
-        return data
 
     model_config = ConfigDict(extra="ignore")
 

@@ -1,6 +1,6 @@
 """一次性迁移脚本：V1 Memory 与 Artifact legacy 数据 → canonical v2 形状。
 
-对应 docs/plans/v0.6.2-v1-memory-legacy-migration.md。默认 dry-run（只扫描、
+对应 docs/archive/plans/v0.6.2-v1-memory-legacy-migration.md。默认 dry-run（只扫描、
 转换与输出报告，不写入任何存储）；确认 dry-run 报告后加 ``--apply`` 真正执行。
 
 执行内容（Plan §2.1）：

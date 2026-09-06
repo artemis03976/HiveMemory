@@ -14,7 +14,6 @@ last_reviewed: 2026-09-05
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
-| [v0.6.2 V1 Memory Legacy 迁移](v0.6.2-v1-memory-legacy-migration.md) | Planned | 把存储中 V1 形状的历史 Memory 记录一次性迁移到 V2（补齐 `workspace_identity`/`access_policy`、fail closed + 迁移报告 + 观察窗口），随后删除 codec/filter/快照的 legacy 解释分支 |
 | [v0.6.2 W0 Workspace MVP（归档）](../archive/plans/v0.6.2-workspace-mvp.md) | Archived | 已完成 `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；当前事实见 [Workspace 架构](../architecture/workspace.md) |
 | [v0.6.2 Identity 投影收敛（归档）](../archive/plans/v0.6.2-identity-projection-cleanup.md) | Archived | 已完成服务入口统一 `IdentityScope`、`InteractionTurnSnapshot` actor 值对象化、读侧兼容属性收口与 `system` 保留 actor 语义；当前事实见 [Workspace 架构](../architecture/workspace.md) 与 [System 应用服务](../system/application-services.md) |
 

@@ -50,6 +50,8 @@ MemoryLibrary
 
 中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供 upsert、UUID/alias 读取、删除、scroll、count、访问统计更新以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
 
+持久化 payload 的读取统一经 `decode_memory_payload` 规范化，只接受 Memory schema v2（缺 `schema_version` 的 legacy 记录 fail closed，v1 兼容解释分支已随存量数据迁移完成删除；迁移入口见 `scripts/migrate_v1_memory_and_artifacts.py`）。
+
 `MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。写入会依次同步到各后端，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
 
 ### 1.3 长期：冷藏库

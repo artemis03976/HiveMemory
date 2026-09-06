@@ -3,7 +3,6 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.core.models.artifact import (
     InteractionArtifact,
@@ -43,18 +42,16 @@ def test_artifact_requires_canonical_workspace_ownership():
         InteractionArtifact(topic_id="topic-1")
 
 
-# ─── InteractionTurnSnapshot actor 收敛与旧 JSON 读兼容（v0.6.2 B2）──────────
+# ─── InteractionTurnSnapshot actor 单字段收敛（读取升级分支已删除）──────────
 
 
-def _legacy_snapshot_payload(**overrides) -> dict:
-    """v0.6.2 之前经 model_dump 持久化的平铺 actor 三元组 JSON。"""
+def _snapshot_payload(**overrides) -> dict:
+    """经 model_dump 持久化的 canonical 快照 JSON。"""
     payload = {
         "block_id": "block-1",
         "turn_id": "turn-1",
         "created_at": 1757000000.0,
-        "user_id": "u1",
-        "agent_id": "omni_doll",
-        "team_id": None,
+        "actor_identity": {"user_id": "u1", "agent_id": "omni_doll", "team_id": None},
         "user_query": "你好",
         "assistant_final_text": "你好！",
         "turn_events": [],
@@ -65,9 +62,9 @@ def _legacy_snapshot_payload(**overrides) -> dict:
     return payload
 
 
-def test_new_format_snapshot_roundtrips_actor_identity():
-    """新格式：actor_identity 单字段冻结并原样读回。"""
-    snapshot = InteractionTurnSnapshot.model_validate(_legacy_snapshot_payload())
+def test_snapshot_roundtrips_actor_identity():
+    """canonical 快照：actor_identity 单字段冻结并原样读回。"""
+    snapshot = InteractionTurnSnapshot.model_validate(_snapshot_payload())
     dumped = snapshot.model_dump(mode="json")
 
     assert "user_id" not in dumped
@@ -78,48 +75,45 @@ def test_new_format_snapshot_roundtrips_actor_identity():
     assert restored.actor_identity == snapshot.actor_identity
 
 
-def test_legacy_flat_json_upgrades_missing_agent_to_system_actor():
-    """旧平铺 JSON 缺少具体 Agent 时重建为保留 system，不得回落 omni_doll。"""
+def test_snapshot_preserves_concrete_agent_and_team():
     snapshot = InteractionTurnSnapshot.model_validate(
-        _legacy_snapshot_payload(agent_id="")
-    )
-
-    assert snapshot.actor_identity.user_id == "u1"
-    assert snapshot.actor_identity.agent_id == SYSTEM_AGENT_ID
-    assert snapshot.actor_identity.team_id is None
-    assert snapshot.user_query == "你好"
-
-
-def test_legacy_flat_json_preserves_concrete_agent_and_team():
-    snapshot = InteractionTurnSnapshot.model_validate(
-        _legacy_snapshot_payload(team_id="team-7")
+        _snapshot_payload(
+            actor_identity={"user_id": "u1", "agent_id": "omni_doll", "team_id": "team-7"}
+        )
     )
 
     assert snapshot.actor_identity.agent_id == "omni_doll"
     assert snapshot.actor_identity.team_id == "team-7"
 
 
-def test_legacy_flat_json_without_user_ownership_fails_closed():
-    """旧数据缺少用户归属时 fail closed，进入迁移诊断而非猜测归属。"""
-    with pytest.raises(ValidationError, match="user_id"):
+def test_legacy_flat_json_without_actor_identity_fails_closed():
+    """旧平铺 JSON 的读取升级分支已删除：缺 actor_identity 直接 fail closed。
+
+    历史平铺记录只能通过迁移工具的 canonical replacement 访问，
+    领域模型不再解释 user_id/agent_id/team_id 三元组。
+    """
+    legacy_flat = {
+        "block_id": "block-1",
+        "turn_id": "turn-1",
+        "user_id": "u1",
+        "agent_id": "omni_doll",
+        "team_id": None,
+    }
+    with pytest.raises(ValidationError, match="actor_identity"):
+        InteractionTurnSnapshot.model_validate(legacy_flat)
+
+    with pytest.raises(ValidationError, match="actor_identity"):
         InteractionTurnSnapshot.model_validate(
-            _legacy_snapshot_payload(user_id="")
+            {k: v for k, v in _snapshot_payload().items()
+             if k != "actor_identity"}
         )
 
-    with pytest.raises(ValidationError, match="user_id"):
-        InteractionTurnSnapshot.model_validate(
-            {k: v for k, v in _legacy_snapshot_payload().items()
-             if k not in {"user_id", "agent_id", "team_id"}}
-        )
 
-
-def test_legacy_flat_fields_are_dropped_after_upgrade():
-    """升级后旧平铺字段不再出现在模型字段与 JSON dump 中。"""
-    snapshot = InteractionTurnSnapshot.model_validate(_legacy_snapshot_payload())
-
-    assert "user_id" not in type(snapshot).model_fields
-    assert "agent_id" not in type(snapshot).model_fields
-    assert "team_id" not in type(snapshot).model_fields
+def test_flat_actor_fields_are_not_model_fields():
+    """平铺三元组不是模型字段，extra="ignore" 不会复活旧语义。"""
+    assert "user_id" not in InteractionTurnSnapshot.model_fields
+    assert "agent_id" not in InteractionTurnSnapshot.model_fields
+    assert "team_id" not in InteractionTurnSnapshot.model_fields
 
 
 def test_interaction_artifact_has_no_top_level_agent_source_field():

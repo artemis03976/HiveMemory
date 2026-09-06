@@ -118,7 +118,7 @@ last_reviewed: 2026-09-06
 |:---|:---:|:---|:---|
 | `v0.6.2 W0` Workspace MVP | Current Development | 已实现 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 TopicAssetBinding；尚未发布 `v0.6.2` 标签 | 依赖 v0.6.1 与 Identity scope；当前事实见 [Workspace 架构](./architecture/workspace.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)，开放附件设计见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
 | `v0.6.2` Identity 投影收敛 | Implemented / Archived | 已消除裸 `user_id` 兼容投影：应用服务入口统一 `IdentityScope`、server 唯一身份解析入口、领域快照 actor 字段值对象化（含旧 JSON 读升级）、读侧兼容属性收口、`system` 保留 actor 与管理/检索可见性路径分离 | 依赖 `v0.6.2 W0` 身份契约，先于 `v0.6.2 W1` 合并；当前事实见 [Workspace 架构](./architecture/workspace.md)与 [System 应用服务](./system/application-services.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
-| `v0.6.2` V1 Memory Legacy 迁移 | Planned | V1 历史记录一次性迁移到 V2 归属/策略形状（fail closed + 迁移报告 + 观察窗口），随后删除 codec/filter/快照 legacy 解释分支 | 依赖 Identity 收敛冻结的 V2 身份与策略语义；[Plan](./plans/v0.6.2-v1-memory-legacy-migration.md) |
+| `v0.6.2` V1 Memory Legacy 迁移 | Completed | V1 历史记录已一次性迁移到 V2 归属/策略形状（确定性 replacement ID + checkpoint 续跑 + fail closed + 迁移报告），codec/filter/快照 legacy 解释分支与 Artifact owner 解释路径已删除 | 已完成并归档：[Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)；当前事实见 [数据模型](./architecture/data-model.md) 与 [Retrieval](./patchouli/retrieval.md) |
 | `v0.6.2 W1` Chat Attachments | Candidate | 在已经验收的 Workspace 公共契约上实现上传、文本解析、asset refs、Context Compiler 与按需 Artifact promotion | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；独立正式 Plan 待建立 |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
@@ -155,7 +155,7 @@ Workspace 以不可变 `WorkspaceIdentity(owner_user_id, workspace_key, workspac
 
 W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStore；Store 以 WorkspaceIdentity 为 WorkspaceAsset 的资源归属键，实现 WorkspaceAsset/AssetRepresentation 两级状态机、READY-only 使用、删除与进程内 lease。TopicAssetBinding 由 Patchouli Perception 的 Topic 所有者在成功 Interaction 后形成，并作为不可变 `TopicData` 快照写回 `ShortTermMemoryStore`；短期 adapter 直接存储 frozen 快照。MVP 可以用极薄的单例 WorkspaceRuntime 聚合 Store，也可以先由 `_RuntimeBundle` 直接持有，但不得为每个 Workspace 创建 Runtime 或保存 `current_workspace`。W0 不实现真实附件上传、解析、Context Compiler、现有 cache 迁移或 Artifact promotion；WorkspaceAsset 只承诺当前进程内生命周期。
 
-现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`。该兼容分支的删除已绑定独立迁移切片：[v0.6.2 V1 Memory Legacy 迁移 Plan](./plans/v0.6.2-v1-memory-legacy-migration.md) 承载字段映射、fail-closed 条件、迁移报告、观察窗口与 legacy 删除门槛；在其完成前不能把兼容投影误读为已完成迁移。
+现有持久化数据不在 W0 落地期间批量改写。W0 先为关键模型增加 Workspace 字段，并通过受控兼容投影把历史缺字段记录解释为对应用户的 `main_workspace`。该兼容投影的删除已由 [v0.6.2 V1 Memory Legacy 迁移 Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md) 完成并归档：存量记录已迁移为 canonical v2 / canonical replacement，兼容解释分支已删除，不能把兼容投影误读为当前行为。
 
 #### 4.2.2 W1 Chat Attachments
 

@@ -63,7 +63,7 @@ Familiar 可查询 archive records 或检查 `is_archived`，但普通检索只�
 
 RetrievalFamiliar 总是从 `RetrievalRequest.identity_scope` 构造安全基线，调用方 filters 只能补充 memory type、source agent 与 min confidence 等业务维度，不能替换身份或 Workspace 边界。
 
-Qdrant 当前先要求记忆的 `workspace_identity` 与请求 Workspace 完全匹配；对旧的 main-workspace 记录保留受控兼容分支。通过 ownership hard filter 后，再按记忆的 actor read policy 选择：`PUBLIC` 对 Workspace 内所有已获准执行者可读，`TEAM` 仅目标 team 可读，`PRIVATE` 仅目标 agent 可读。因而 `PUBLIC` 也不表示跨 Workspace 或跨用户公开。
+Qdrant 当前先要求记忆的 `workspace_identity` 与请求 Workspace 完全匹配；归属只由 canonical owner/workspace 投影字段表达，对旧 main-workspace 记录的受控兼容分支已随存量迁移完成删除（不再存在 `meta.user_id` OR 分支与 legacy visibility 分支）。通过 ownership hard filter 后，再按记忆的 actor read policy 选择：`PUBLIC` 对 Workspace 内所有已获准执行者可读，`TEAM` 仅目标 team 可读，`PRIVATE` 仅目标 agent 可读。因而 `PUBLIC` 也不表示跨 Workspace 或跨用户公开。
 
 当前 converter 尚未把 `tags` 与 `time_range` 转为 Qdrant 条件；它们出现在模型中，但不是已经生效的过滤能力。文档和 API 不能仅因字段存在就宣称完整支持。
 
@@ -133,6 +133,6 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 - 普通异常可能被投影为空结果，调用方只能通过观测区分；
 - 普通检索不搜索长期 archive，也不自动 revive；
 - 当前 retrieval response 主要暴露 atoms，`SearchResult.match_reason` 等解释元信息没有完整进入公共响应；
-- Workspace ownership hard filter 已由 Memory store/adapter 统一执行；Generation 的 dedup search 已沿同一 `IdentityScope` 调用链受该边界约束，但 Retrieval 的 actor policy、legacy record 兼容和多种 threshold 口径仍需继续收敛。
+- Workspace ownership hard filter 已由 Memory store/adapter 统一执行；Generation 的 dedup search 已沿同一 `IdentityScope` 调用链受该边界约束，但 Retrieval 的 actor policy 与多种 threshold 口径仍需继续收敛（legacy record 兼容已随存量迁移删除）。
 
 修复这些缺口时应优先保持身份硬过滤和 Retrieval/Compiler 解耦，不能为了快速接入一个新字段而把 prompt 或跨系统状态重新塞回 retriever。

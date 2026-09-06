@@ -1,6 +1,6 @@
 """V1 Memory 与 Artifact legacy 数据迁移引擎。
 
-对应 docs/plans/v0.6.2-v1-memory-legacy-migration.md，是一次性维护工具，
+对应 docs/archive/plans/v0.6.2-v1-memory-legacy-migration.md，是一次性维护工具，
 不属于任何请求链路；CLI 入口见 ``scripts/migrate_v1_memory_and_artifacts.py``。
 
 迁移目标（Plan §2.1）：
@@ -556,6 +556,43 @@ def _resolve_memory_artifact_source(raw: dict[str, Any], *, kind: str) -> str:
     )
 
 
+def _upgraded_interaction_turns(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """把平铺 user_id/agent_id/team_id 三元组升级为 actor_identity。
+
+    模型层的读取升级分支删除后，canonical replacement 的构造由本工具显式
+    完成，升级语义与原 ``_upgrade_legacy_flat_actor`` 一致：缺具体 Agent 用
+    保留 ``system``；缺用户归属 fail closed，不猜测。
+    """
+    turns = raw.get("turns")
+    if not isinstance(turns, list):
+        return []
+    upgraded: list[dict[str, Any]] = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            upgraded.append(turn)
+            continue
+        if "actor_identity" in turn:
+            upgraded.append(turn)
+            continue
+        user_id = (turn.get("user_id") or "").strip()
+        if not user_id:
+            raise MigrationRejected(
+                "旧版 InteractionTurnSnapshot 缺少用户归属（user_id 为空），"
+                "无法安全推断 actor_identity（fail closed）"
+            )
+        upgraded.append(
+            {
+                **turn,
+                "actor_identity": {
+                    "user_id": user_id,
+                    "agent_id": (turn.get("agent_id") or "").strip() or SYSTEM_AGENT_ID,
+                    "team_id": turn.get("team_id"),
+                },
+            }
+        )
+    return upgraded
+
+
 def _aggregate_interaction_contributors(
     raw: dict[str, Any],
     records: dict[tuple[str, str, str], ArtifactScanRecord],
@@ -855,9 +892,10 @@ class ArtifactLegacyMigrator:
         }
         artifact_type = record.artifact_type
         if artifact_type == "interaction":
-            # 平铺 turn 三元组由 InteractionTurnSnapshot 的读取升级分支重建为
-            # actor_identity；缺 user_id 的 turn 触发 ValidationError → 诊断。
-            return InteractionArtifact.model_validate({**record.raw, **override})
+            # 平铺 turn 三元组由本工具显式升级为 actor_identity（模型读取
+            # 升级分支已删除）；缺 user_id 的 turn fail closed → 诊断。
+            upgraded = {**record.raw, "turns": _upgraded_interaction_turns(record.raw)}
+            return InteractionArtifact.model_validate({**upgraded, **override})
         if artifact_type == "document":
             # DocumentArtifact 没有任何 Agent provenance 字段，也不补造来源；
             # owner_agent_id 等旧键由 extra="ignore" 丢弃。
