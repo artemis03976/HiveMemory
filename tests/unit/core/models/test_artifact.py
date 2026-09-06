@@ -120,3 +120,14 @@ def test_legacy_flat_fields_are_dropped_after_upgrade():
     assert "user_id" not in type(snapshot).model_fields
     assert "agent_id" not in type(snapshot).model_fields
     assert "team_id" not in type(snapshot).model_fields
+
+
+def test_interaction_artifact_has_no_top_level_agent_source_field():
+    """InteractionArtifact 不设置顶层 Agent 来源字段。
+
+    来源 provenance 按 block 粒度由 ``InteractionTurnSnapshot.actor_identity``
+    记录；话题级单值来源无法表达同一话题内切换 Agent 的事实，也不得复活为
+    Agent owner 语义。
+    """
+    assert "source_agent_id" not in InteractionArtifact.model_fields
+    assert "owner_agent_id" not in InteractionArtifact.model_fields

@@ -17,6 +17,9 @@ class InteractionArtifactBuilder:
     """
     只读取 LogicalBlock.turn，不读取 GenerationContext。
     不写入 memory id / alias / source intent / capture policy。
+
+    来源 provenance 按 block 粒度由 ``InteractionTurnSnapshot.actor_identity``
+    记录，不设置顶层 Agent 来源字段。
     """
 
     def __init__(self, store: ArtifactStore) -> None:
@@ -33,7 +36,6 @@ class InteractionArtifactBuilder:
     ) -> ArtifactRef | None:
         artifact = InteractionArtifact(
             workspace_identity=identity_scope.workspace_identity,
-            owner_agent_id=identity_scope.actor_identity.agent_id,
             topic_id=topic_id,
             topic_title=topic_title,
             topic_summary=topic_summary,

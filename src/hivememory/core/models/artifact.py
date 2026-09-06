@@ -5,12 +5,13 @@ Artifact 数据模型 - v0.5.0 数据持久化与溯源层
 docs/archive/plans/implementation/v0.5.0-data-durability-and-async-cold-path.md。
 """
 
+from collections.abc import Iterable
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models.identity import ActorIdentity
@@ -26,6 +27,23 @@ class ArtifactType(str, Enum):
     DOCUMENT = "document"
     MEMORY_CREATION = "memory_creation"
     MEMORY_VERSION = "memory_version"
+
+
+def normalize_contributing_agent_ids(value: Iterable[str]) -> tuple[str, ...]:
+    """归一化内容贡献者集合：去重并保持首次出现顺序。
+
+    贡献者表达"哪些具体 Agent 的工作产出了内容"，不表达资产归属或授权
+    目标。保留 ``SYSTEM_AGENT_ID`` 表示"没有具体 Agent 作为操作来源主体"，
+    不是内容贡献者，与空白标识一并丢弃。
+    """
+    normalized: list[str] = []
+    for agent_id in value:
+        stripped = agent_id.strip() if isinstance(agent_id, str) else ""
+        if not stripped or stripped == SYSTEM_AGENT_ID:
+            continue
+        if stripped not in normalized:
+            normalized.append(stripped)
+    return tuple(normalized)
 
 
 class WorkspaceArtifactKey(BaseModel):
@@ -71,7 +89,11 @@ class ArtifactRef(BaseModel):
 # ============ 基础模型 ============
 
 class BaseArtifact(BaseModel):
-    """所有 Artifact 共有元数据。写入后不再修改（append-only）。"""
+    """所有 Artifact 共有元数据。写入后不再修改（append-only）。
+
+    资产归属由 ``workspace_identity`` 单一表达：Artifact 是 Workspace 资产，
+    不存在 Agent owner 语义；来源 provenance 按具体 Artifact 类型定义字段。
+    """
     artifact_id: str = Field(default_factory=lambda: f"art_{uuid4().hex}", min_length=1)
     artifact_type: ArtifactType
 
@@ -80,7 +102,6 @@ class BaseArtifact(BaseModel):
     content_hash: Optional[str] = None  # 由 ArtifactStore 在写入时填充
 
     workspace_identity: WorkspaceIdentity
-    owner_agent_id: str = ""
 
     title: str = ""
     summary: str = ""
@@ -236,16 +257,28 @@ class MemoryCreationArtifact(BaseArtifact):
 
     不保存 alias / title / tags 等可变字段，这些由 initial_version_ref 所指向的
     MemoryVersionArtifact(v1).snapshot_after 持有。
+
+    来源 provenance 与 MemoryAtom 语义一致：``source_agent_id`` 记录操作来源
+    （SETTLE 等没有具体 Agent 的操作使用保留 ``SYSTEM_AGENT_ID``），
+    ``contributing_agent_ids`` 记录实际贡献内容的 Agent 集合。
     """
     artifact_type: Literal[ArtifactType.MEMORY_CREATION] = ArtifactType.MEMORY_CREATION
 
     memory_id: str = ""
     source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"] = "WRITE"
+    source_agent_id: str = Field(..., min_length=1)
+    contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
 
     generation_view: Dict[str, Any] = Field(default_factory=dict)  # GenerationContext.model_dump()
     source_artifacts: List[ArtifactRef] = Field(default_factory=list)
     source_memory_refs: List[MemoryInputRef] = Field(default_factory=list)
     initial_version_ref: Optional[ArtifactRef] = None  # 指向 MemoryVersionArtifact(v1)
+
+    @field_validator("contributing_agent_ids")
+    @classmethod
+    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """去重并保持首次出现顺序；system 不是内容贡献者。"""
+        return normalize_contributing_agent_ids(value)
 
 
 class MemoryVersionArtifact(BaseArtifact):
@@ -253,12 +286,17 @@ class MemoryVersionArtifact(BaseArtifact):
 
     v1 对应初始创建状态（update_source="CREATE"，snapshot_before=None）。
     后续版本 snapshot_before/after 均包含全量可变字段，支持任意版本独立重建。
+
+    来源 provenance 与 MemoryAtom 语义一致（见 MemoryCreationArtifact）；
+    版本更新保留已有来源字段，不引入 Agent owner 语义。
     """
     artifact_type: Literal[ArtifactType.MEMORY_VERSION] = ArtifactType.MEMORY_VERSION
 
     memory_id: str = ""
     version_number: int = 1
     update_source: Literal["CREATE", "UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "CREATE"
+    source_agent_id: str = Field(..., min_length=1)
+    contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
 
     snapshot_before: Optional[MemoryVersionSnapshot] = None  # v1 时为 None
     snapshot_after: MemoryVersionSnapshot
@@ -267,6 +305,12 @@ class MemoryVersionArtifact(BaseArtifact):
     source_artifacts: List[ArtifactRef] = Field(default_factory=list)
     source_memory_refs: List[MemoryInputRef] = Field(default_factory=list)
     changed_at: datetime = Field(default_factory=datetime.now)
+
+    @field_validator("contributing_agent_ids")
+    @classmethod
+    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """去重并保持首次出现顺序；system 不是内容贡献者。"""
+        return normalize_contributing_agent_ids(value)
 
 
 # ============ MemoryEventLog ============

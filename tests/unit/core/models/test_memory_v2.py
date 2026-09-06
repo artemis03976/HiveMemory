@@ -123,3 +123,41 @@ def test_memory_key_construction_rejects_missing_scope() -> None:
         WorkspaceMemoryKey.from_identity_scope(None, uuid4())
 
     assert caught.value.code == "workspace.scope_required"
+
+
+def test_contributing_agent_ids_defaults_to_empty_collection() -> None:
+    """历史记录缺少贡献者集合时按空集合解码，不做回填猜测。"""
+    meta = MetaData(
+        workspace_identity=_workspace(),
+        source_agent_id="source-agent",
+        source_team_id="source-team",
+        access_policy=MemoryAccessPolicy.public(),
+    )
+
+    assert meta.contributing_agent_ids == ()
+
+
+def test_contributing_agent_ids_dedup_keep_order_and_exclude_system() -> None:
+    """贡献者集合按首次出现顺序去重，system 与空白标识不是内容贡献者。"""
+    meta = MetaData(
+        workspace_identity=_workspace(),
+        source_agent_id="system",
+        access_policy=MemoryAccessPolicy.public(),
+        contributing_agent_ids=["b2", " a1 ", "b2", "system", "", "a1"],
+    )
+
+    assert meta.contributing_agent_ids == ("b2", "a1")
+
+
+def test_provenance_fields_do_not_participate_in_access_policy() -> None:
+    """捕获 provenance 字段被当作授权 target 或影响可见性的缺陷。"""
+    meta = MetaData(
+        workspace_identity=_workspace(),
+        source_agent_id="system",
+        access_policy=MemoryAccessPolicy.public(),
+        contributing_agent_ids=("a1",),
+    )
+
+    assert meta.access_policy == MemoryAccessPolicy.public()
+    assert meta.access_policy.target_agent_id is None
+    assert meta.access_policy.target_team_id is None

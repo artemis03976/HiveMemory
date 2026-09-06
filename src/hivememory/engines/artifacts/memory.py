@@ -54,7 +54,8 @@ class MemoryArtifactBuilder:
         v1 = MemoryVersionArtifact(
             memory_id=memory_id,
             workspace_identity=memory.workspace_identity,
-            owner_agent_id=memory.meta.source_agent_id,
+            source_agent_id=memory.meta.source_agent_id,
+            contributing_agent_ids=memory.meta.contributing_agent_ids,
             version_number=1,
             update_source="CREATE",
             snapshot_before=None,
@@ -69,7 +70,8 @@ class MemoryArtifactBuilder:
         creation = MemoryCreationArtifact(
             memory_id=memory_id,
             workspace_identity=memory.workspace_identity,
-            owner_agent_id=memory.meta.source_agent_id,
+            source_agent_id=memory.meta.source_agent_id,
+            contributing_agent_ids=memory.meta.contributing_agent_ids,
             source_intent=source_intent,
             generation_view=context.model_dump(),
             source_artifacts=source_artifact_refs,
@@ -95,7 +97,8 @@ class MemoryArtifactBuilder:
         version = MemoryVersionArtifact(
             memory_id=str(memory_after.id),
             workspace_identity=memory_after.workspace_identity,
-            owner_agent_id=memory_after.meta.source_agent_id,
+            source_agent_id=memory_after.meta.source_agent_id,
+            contributing_agent_ids=memory_after.meta.contributing_agent_ids,
             version_number=memory_after.meta.version,
             update_source=update_source,
             snapshot_before=snapshot_before,

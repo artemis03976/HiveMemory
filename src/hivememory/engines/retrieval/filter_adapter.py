@@ -71,8 +71,9 @@ class QdrantFilterConverter(FilterConverter):
         构建逻辑:
         1. must 条件：Workspace 所有权 hard boundary；main Workspace 额外受控读取
            legacy 记录；随后叠加 Memory v2 的 actor 读取策略。
-        2. 业务过滤条件：按 memory_type、source_agent_id、min_confidence 等字段
-           进一步缩小候选集合。legacy ``WORKSPACE`` 仅在兼容分支中解释为团队可见。
+        2. 业务过滤条件：按 memory_type、来源 Agent（匹配贡献者集合）、
+           min_confidence 等字段进一步缩小候选集合。legacy ``WORKSPACE`` 仅在
+           兼容分支中解释为团队可见。
 
         Args:
             filters: 查询过滤器数据模型
@@ -91,12 +92,7 @@ class QdrantFilterConverter(FilterConverter):
             )
 
         if filters.source_agent_id is not None:
-            must_conditions.append(
-                FieldCondition(
-                    key="meta.source_agent_id",
-                    match=MatchValue(value=filters.source_agent_id),
-                )
-            )
+            must_conditions.append(self._source_agent_filter(filters.source_agent_id))
 
         if filters.min_confidence > 0:
             must_conditions.append(
@@ -105,6 +101,28 @@ class QdrantFilterConverter(FilterConverter):
 
         # 组装最终 Filter
         return Filter(must=must_conditions)
+
+    @staticmethod
+    def _source_agent_filter(agent_id: str) -> Filter:
+        """按贡献者集合匹配来源 Agent 过滤条件（OR 语义）。
+
+        v2 记录的操作来源可能是保留 ``system``（settle），真实内容贡献者记录
+        在 ``meta.contributing_agent_ids``，据此可检出"参与过但未收尾"的
+        Agent；``meta.source_agent_id`` 分支继续覆盖没有贡献者集合的历史
+        记录。该过滤是业务条件，与授权无关。
+        """
+        return Filter(
+            should=[
+                FieldCondition(
+                    key="meta.contributing_agent_ids",
+                    match=MatchValue(value=agent_id),
+                ),
+                FieldCondition(
+                    key="meta.source_agent_id",
+                    match=MatchValue(value=agent_id),
+                ),
+            ]
+        )
 
     @staticmethod
     def _ownership_filter(identity_scope: IdentityScope) -> Filter:

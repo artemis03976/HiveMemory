@@ -48,7 +48,6 @@ def _make_artifact(
         artifact_id=artifact_id,
         created_at=datetime(2026, 6, 14, 12, 0, 0),
         workspace_identity=workspace,
-        owner_agent_id="agent-1",
         topic_id=topic_id,
         captured_at=datetime(2026, 6, 14, 12, 0, 0),
     )
@@ -167,9 +166,9 @@ async def test_list_by_memory_is_workspace_scoped(store):
             MemoryCreationArtifact(
                 artifact_id=artifact_id,
                 workspace_identity=identity_scope.workspace_identity,
-                owner_agent_id=identity_scope.actor_identity.agent_id,
                 memory_id="memory-1",
                 source_intent="WRITE",
+                source_agent_id=identity_scope.actor_identity.agent_id,
             )
         )
 
@@ -280,7 +279,6 @@ async def test_artifact_builder_and_engine_preserve_workspace(tmp_path):
         content_hash=None,
         retrieved_at=datetime(2026, 1, 1),
         workspace_identity=identity_scope.workspace_identity,
-        owner_agent_id=identity_scope.actor_identity.agent_id,
     )
 
     assert ref is not None

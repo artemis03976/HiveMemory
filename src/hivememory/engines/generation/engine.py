@@ -31,11 +31,15 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.errors import WorkspaceMismatchError
-from hivememory.core.models.artifact import MemoryVersionSnapshot
+from hivememory.core.models.artifact import (
+    MemoryVersionSnapshot,
+    normalize_contributing_agent_ids,
+)
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft, GenerationRequest,
     GenerationOutcome,
+    MemoryProvenance,
     MergeResult,
 )
 from hivememory.engines.generation.interfaces import (
@@ -97,9 +101,17 @@ class MemoryGenerationEngine:
         """
         处理对话片段，提取记忆原子 (三模式)
 
-        Mode A (被动观察): request.write_focus=None, request.update_focus=None
+        Mode A (被动结算): request.write_focus=None, request.update_focus=None
+            没有具体 Agent 作为操作来源主体，来源记录使用保留 system；
         Mode B (主动响应): request.is_write=True (WRITE 指令触发)
+            以提交操作的 actor Agent 为来源；
         Mode C (合并更新): request.is_update=True (UPDATE 指令触发)
+            保留已有 metadata 的来源字段。
+
+        主动模式的贡献者先记录发起 Agent 本身，再合并上下文轮次贡献者；
+        SETTLE 的贡献者来自上下文轮次身份。版本演化（dedup 合并、Mode C）
+        会把本次贡献者并入已有集合，而来源字段只记录 provenance 事实，
+        不参与读取授权。
 
         Args:
             request: GenerationRequest 对象
@@ -126,9 +138,11 @@ class MemoryGenerationEngine:
         identity_scope: IdentityScope,
     ) -> List[GenerationOutcome]:
         """
-        Mode A: 被动观察模式 (默认)
+        Mode A: 被动结算模式 (默认)
 
-        从对话中被动提取有价值的记忆。
+        从对话中被动提取有价值的记忆。当前唯一生产入口是话题 SETTLE：
+        结算没有具体 Agent 作为操作来源主体，来源记录使用保留
+        ``SYSTEM_AGENT_ID``，实际参与内容的 Agent 进入贡献者集合。
         """
         logger.info(f"[Mode A] 开始处理...")
 
@@ -147,7 +161,11 @@ class MemoryGenerationEngine:
             return []
 
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
-        return await self._dedup_and_resolve(draft, identity_scope)
+        return await self._dedup_and_resolve(
+            draft,
+            identity_scope,
+            MemoryProvenance.system_settlement(request.context),
+        )
 
     async def _process_mode_b(
         self,
@@ -183,7 +201,11 @@ class MemoryGenerationEngine:
             draft = self._build_fallback_draft(focus)
 
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
-        return await self._dedup_and_resolve(draft, identity_scope)
+        return await self._dedup_and_resolve(
+            draft,
+            identity_scope,
+            MemoryProvenance.from_actor(identity_scope, request.context),
+        )
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
         """
@@ -260,8 +282,13 @@ class MemoryGenerationEngine:
             logger.warning("[Mode C] LLM 合并失败，启用 fallback")
             merge_result = self._build_update_fallback(uf, existing)
 
-        # Step 2: 版本历史 + 更新，持久化由 Familiar 负责
-        return self._apply_update(existing, merge_result)
+        # Step 2: 版本历史 + 更新，持久化由 Familiar 负责；
+        # 主动 UPDATE 以发起 Agent 及上下文贡献者演化已有记忆的贡献者集合。
+        return self._apply_update(
+            existing,
+            merge_result,
+            provenance=MemoryProvenance.from_actor(identity_scope, request.context),
+        )
 
     def _build_update_fallback(self, uf: UpdateFocus, existing: MemoryAtom) -> MergeResult:
         """
@@ -287,6 +314,8 @@ class MemoryGenerationEngine:
         self,
         memory: MemoryAtom,
         result: MergeResult,
+        *,
+        provenance: MemoryProvenance,
         dedup_draft: Optional[ExtractedMemoryDraft] = None,
     ) -> List[GenerationOutcome]:
         """
@@ -296,7 +325,8 @@ class MemoryGenerationEngine:
         2. 按需刷新 dedup index
         3. 更新 history_summary
         4. 覆盖 payload.content
-        5. 更新 meta (updated_at, confidence, version)
+        5. 并入本次生成的贡献者集合
+        6. 更新 meta (updated_at, confidence, version)
         """
         now = datetime.now()
 
@@ -312,6 +342,13 @@ class MemoryGenerationEngine:
 
         # Update Head: 覆盖 payload.content
         memory.payload.content = result.new_content
+
+        # 版本演化引入新的内容贡献者：把本次来源裁定中的贡献者并入已有集合
+        # （去重并保持首次出现顺序）。settle 贡献者因此能进入已有 Memory 及其
+        # 后续 Version Artifact；source_agent_id/source_team_id 按约定保留不改写。
+        memory.meta.contributing_agent_ids = normalize_contributing_agent_ids(
+            [*memory.meta.contributing_agent_ids, *provenance.contributing_agent_ids]
+        )
 
         # 更新 meta
         memory.meta.updated_at = now
@@ -334,9 +371,15 @@ class MemoryGenerationEngine:
         self,
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
+        provenance: MemoryProvenance,
     ) -> List[GenerationOutcome]:
         """
         查重 → 构建/演化决策 (Mode A/B 共用)
+
+        Args:
+            draft: 提取的草稿
+            identity_scope: 已验证的 Workspace ownership 来源
+            provenance: 本次生成的来源裁定（操作来源主体与内容贡献者）
         """
         query_text = f"{draft.title} {draft.summary}"
         candidates = await self._mid_term.search(
@@ -374,13 +417,14 @@ class MemoryGenerationEngine:
             return self._apply_update(
                 existing_memory,
                 merge_result,
+                provenance=provenance,
                 dedup_draft=draft,
             )
 
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
-            memory = self._draft_to_memory(draft, identity_scope)
+            memory = self._draft_to_memory(draft, identity_scope, provenance)
 
             return [GenerationOutcome(
                 atom=memory,
@@ -436,19 +480,22 @@ class MemoryGenerationEngine:
         self,
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
+        provenance: MemoryProvenance,
     ) -> MemoryAtom:
         """
         将草稿转换为完整的 MemoryAtom
 
         Args:
             draft: 提取的草稿
-            identity_scope: 已验证的创建来源与 Workspace ownership
+            identity_scope: 已验证的 Workspace ownership 来源
+            provenance: 本次生成的来源裁定；来源字段只记录 provenance，
+                不参与读取授权
 
         Returns:
             MemoryAtom: 记忆原子对象
 
         Examples:
-            >>> memory = orchestrator._draft_to_memory(draft, identity_scope)
+            >>> memory = orchestrator._draft_to_memory(draft, identity_scope, provenance)
             >>> memory.index.title
             "Python 快排算法"
         """
@@ -469,8 +516,9 @@ class MemoryGenerationEngine:
         return MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,
-                source_agent_id=identity_scope.actor_identity.agent_id,
-                source_team_id=identity_scope.actor_identity.team_id,
+                source_agent_id=provenance.source_agent_id,
+                source_team_id=provenance.source_team_id,
+                contributing_agent_ids=provenance.contributing_agent_ids,
                 access_policy=MemoryAccessPolicy.public(),
                 session_id=None,  # session_id 仅为兼容字段，不参与当前身份作用域传播
                 confidence_score=draft.confidence_score,

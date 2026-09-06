@@ -81,3 +81,24 @@ class TestTopicDataContentEmptiness:
         summary_only = _make_topic(blocks=[], state_summary="summary")
         assert summary_only.has_blocks is False
         assert summary_only.has_content is True
+
+
+class TestTopicDataNoTopicLevelAgentIdentity:
+    """话题级 Agent 身份字段的删除守卫（provenance 与责任主体分离）。"""
+
+    def test_current_agent_id_field_is_removed(self):
+        """TopicData 不再携带话题级 Agent 身份：来源由 block.turn.identity 记录。
+
+        历史 ``current_agent_id`` 曾以 ``"default"`` 为默认值且无业务消费者，
+        容易被误解释为 Memory provenance 来源；该测试防止字段以任何形式复活。
+        """
+        assert "current_agent_id" not in TopicData.model_fields
+
+    def test_serialized_snapshot_has_no_agent_identity_field(self):
+        """TopicData 序列化契约中不出现话题级 Agent 身份字段。"""
+        topic = _make_topic(blocks=[_make_block()])
+
+        dumped = topic.model_dump(mode="json")
+
+        assert "current_agent_id" not in dumped
+        assert "agent_id" not in dumped

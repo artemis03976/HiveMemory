@@ -106,6 +106,24 @@ def test_business_filters_are_added_without_replacing_hard_boundary() -> None:
     assert confidence.range.gte == pytest.approx(0.7)
 
 
+def test_source_agent_filter_matches_contributors_and_source_branches() -> None:
+    """来源 Agent 过滤匹配贡献者集合，并保留 source 字段兼容历史记录。
+
+    SETTLE 记忆的 meta.source_agent_id 是保留 system，实际参与内容的
+    Agent 在 contributing_agent_ids 中；只匹配 source 字段会漏检
+    "参与过但未收尾"的 Agent。
+    """
+    result = QdrantFilterConverter().convert(
+        QueryFilters(source_agent_id="agent-a"),
+        _identity_scope("isolation_workspace"),
+    )
+
+    values = _field_values(result)
+    assert values["meta.contributing_agent_ids"] == {"agent-a"}
+    assert values["meta.source_agent_id"] == {"agent-a"}
+    assert values["meta.workspace_id"] == {"isolation_workspace"}
+
+
 def test_filter_converter_rejects_missing_identity_scope() -> None:
     """捕获检索内部边界在 scope 缺失时退回无过滤查询的缺陷。"""
     with pytest.raises(ScopeRequiredError):

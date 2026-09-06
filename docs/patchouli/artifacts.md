@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # Artifacts 与来源追踪
@@ -45,12 +45,12 @@ Artifact 不进入普通向量检索，不承担 alias，也不因为某条记�
 
 InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary` 和多个 `InteractionTurnSnapshot`。每个 turn 从 `LogicalBlock.turn` 冻结得到，包括：
 
-- user/agent/team identity；
+- user/agent/team 三轴的 `actor_identity`；
 - 原始与重写后的用户问题；
 - assistant final text；
 - `turn_events`、`actions` 与 `semantic_traces` 的 dict 快照。
 
-它刻意不保存 memory id、alias、source intent 或 capture policy。原始交互先保持中立，哪条记忆由它派生则由 MemoryCreation/Version Artifact 表达。这样同一份证据不会因为生成出不同记忆而被重复解释为不同“原文”。
+它刻意不保存 memory id、alias、source intent、capture policy，也不设置顶层 Agent 来源字段：来源 provenance 由每个 block 冻结的 `actor_identity` 承载，因为同一 Workspace 话题内可以切换不同 Agent，话题级单值来源无法表达这一事实。原始交互先保持中立，哪条记忆由它派生则由 MemoryCreation/Version Artifact 表达。这样同一份证据不会因为生成出不同记忆而被重复解释为不同“原文”。
 
 当前生成任务在执行前根据 `InteractionArtifactInput` 构建它。被动 settlement 使用本次结算的 blocks；主动 WRITE/UPDATE 使用话题最近五个 blocks 作为背景。若一次 finalize 产生多个主动任务，每个 task 目前会独立捕获自己的 InteractionArtifact，并不共享单一 task-group artifact。
 
@@ -68,6 +68,7 @@ MemoryCreationArtifact 是一条记忆的 genesis record，记录：
 
 - `memory_id`；
 - `source_intent`：`ARCHIVE / WRITE / IMPORT / MANUAL / SYSTEM`；
+- `source_agent_id` 与 `contributing_agent_ids`：与 MemoryAtom 语义一致的操作来源与内容贡献者集合（见下文“来源与归属语义”）；
 - 当时的结构化 `GenerationContext`；
 - source artifacts 与 source memories；
 - 指向初始 `MemoryVersionArtifact(v1)` 的引用。
@@ -76,9 +77,13 @@ MemoryCreationArtifact 是一条记忆的 genesis record，记录：
 
 ### 2.4 MemoryVersionArtifact
 
-每个版本 artifact 保存 `version_number`、`update_source`、`snapshot_before`、`snapshot_after`、changelog、source artifacts/memories 与 changed time。`snapshot_after` 包含 content、alias、title、summary、tags 和 memory type，因此单个版本足以重建当时的可变字段，不依赖从 v1 顺序重放每个 patch。
+每个版本 artifact 保存 `version_number`、`update_source`、`snapshot_before`、`snapshot_after`、changelog、source artifacts/memories、`source_agent_id`/`contributing_agent_ids` 与 changed time。`snapshot_after` 包含 content、alias、title、summary、tags 和 memory type，因此单个版本足以重建当时的可变字段，不依赖从 v1 顺序重放每个 patch。
 
 创建时先写 v1，再写 creation artifact；更新、去重合并和手工编辑分别使用 `UPDATE / MERGE / MANUAL_EDIT / SYSTEM_REWRITE` 来源。MemoryAtom 的轻量 `history_summary` 目前仍保留为兼容展示，但正式来源与版本事实应以 artifacts 为准。
+
+### 2.5 来源与归属语义
+
+Artifact 是 Workspace 资产，归属只由 `workspace_identity` 表达，不存在 Agent owner 字段。来源 provenance 按类型定义：InteractionArtifact 以 block 内 `actor_identity` 记录来源；MemoryCreation/VersionArtifact 记录与 MemoryAtom 一致的 `source_agent_id`（操作来源，允许保留 `system` 表示"没有具体 Agent 作为操作来源主体"）与 `contributing_agent_ids`（实际贡献内容的 Agent 集合，去重、保持首次出现顺序、不含 `system`）。这些字段只记录 provenance 事实，不参与读取授权；DocumentArtifact 等其他类型的来源粒度按其生产入口单独裁定。
 
 ## 3. 生成链中的写入顺序
 

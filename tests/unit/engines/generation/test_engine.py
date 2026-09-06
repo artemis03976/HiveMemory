@@ -23,6 +23,7 @@ from hivememory.engines.generation.models import (
     GenerationRequest as GenerationRequestModel,
     GenerationContext,
     GenerationTurn,
+    MemoryProvenance,
     MergeResult,
 )
 from hivememory.core.models import (
@@ -72,6 +73,20 @@ def _make_context_from_messages(messages: list[StreamMessage]) -> GenerationCont
             )
         )
     return GenerationContext(turns=turns)
+
+
+def _make_context_with_agents(agent_ids: list[str]) -> GenerationContext:
+    """构造每个轮次携带指定 Agent 身份的生成上下文。"""
+    return GenerationContext(
+        turns=[
+            GenerationTurn(
+                user_query=f"q_{i}",
+                assistant_final_text=f"a_{i}",
+                identity=ActorIdentity(user_id="u1", agent_id=agent_id),
+            )
+            for i, agent_id in enumerate(agent_ids)
+        ]
+    )
 
 
 def _make_draft(has_value=True, title="测试记忆", alias_suffix="test_alias") -> ExtractedMemoryDraft:
@@ -211,6 +226,66 @@ class TestGenerationEngineModeA:
         assert result[0].atom.index.title == "测试记忆"
 
     @pytest.mark.asyncio
+    async def test_mode_a_create_records_system_source_with_contributors(self):
+        """被动结算没有具体 Agent 作为操作来源主体：来源为保留 system，
+        单 Agent 内容的贡献者集合只包含实际参与内容的 Agent。"""
+        draft = _make_draft()
+        self.mock_extractor.extract.return_value = draft
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+
+        request = GenerationRequest(context=_make_context_with_agents(["a1"]))
+        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+
+        atom = result[0].atom
+        assert atom.meta.source_agent_id == "system"
+        assert atom.meta.source_team_id is None
+        assert atom.meta.contributing_agent_ids == ("a1",)
+
+    @pytest.mark.asyncio
+    async def test_mode_a_contributors_dedup_keep_order_and_exclude_system(self):
+        """多 Agent 贡献按首次出现顺序去重，system 不是内容贡献者。"""
+        draft = _make_draft()
+        self.mock_extractor.extract.return_value = draft
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+
+        request = GenerationRequest(
+            context=_make_context_with_agents(["b2", "a1", "b2", "system"])
+        )
+        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+
+        assert result[0].atom.meta.contributing_agent_ids == ("b2", "a1")
+
+    @pytest.mark.asyncio
+    async def test_mode_a_dedup_update_merges_settle_contributors(self):
+        """SETTLE 撞上已有记忆触发演化时，本轮结算的贡献者并入已有集合并进入
+        Memory（Version Artifact 从 meta 拷贝）；来源字段按约定保留不改写。"""
+        existing = MemoryAtom(
+            meta=make_memory_metadata(
+                source_agent_id="creator",
+                user_id="u1",
+                contributing_agent_ids=("creator",),
+            ),
+            index=IndexLayer(
+                title="已有记忆",
+                summary="这是一段足够长的测试摘要用于通过验证",
+                tags=["t"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="旧内容"),
+        )
+        draft = _make_draft()
+        self.mock_extractor.extract.return_value = draft
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
+
+        request = GenerationRequest(context=_make_context_with_agents(["b2", "a1"]))
+        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+
+        atom = result[0].atom
+        assert atom is existing
+        assert atom.meta.source_agent_id == "creator"
+        assert atom.meta.contributing_agent_ids == ("creator", "b2", "a1")
+
+    @pytest.mark.asyncio
     async def test_mode_a_extract_no_value(self):
         """LLM 判断无价值返回空"""
         msgs = _make_messages()
@@ -271,6 +346,41 @@ class TestGenerationEngineModeB:
         result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
 
         assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_mode_b_create_seeds_actor_before_context_contributors(self):
+        """WRITE 主动创建以提交操作的 actor 为来源；贡献者先记录发起 Agent，
+        再合并上下文轮次贡献者。"""
+        focus = WriteFocus(content="主动写入的内容", reason="保存")
+        draft = _make_draft()
+        self.mock_extractor.extract.return_value = draft
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+
+        request = GenerationRequest(
+            context=_make_context_with_agents(["b2"]),
+            write_focus=focus,
+        )
+        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+
+        atom = result[0].atom
+        assert atom.meta.source_agent_id == "a1"
+        assert atom.meta.source_team_id is None
+        assert atom.meta.contributing_agent_ids == ("a1", "b2")
+
+    @pytest.mark.asyncio
+    async def test_mode_b_create_without_context_records_actor_as_contributor(self):
+        """无背景上下文的主动 WRITE：发起 Agent 本身仍作为内容贡献者记录。"""
+        focus = WriteFocus(content="无上下文的主动写入", reason="保存")
+        draft = _make_draft()
+        self.mock_extractor.extract.return_value = draft
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+
+        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
+        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+
+        atom = result[0].atom
+        assert atom.meta.source_agent_id == "a1"
+        assert atom.meta.contributing_agent_ids == ("a1",)
 
     @pytest.mark.asyncio
     async def test_mode_b_fallback_on_extract_failure(self):
@@ -351,6 +461,43 @@ class TestGenerationEngineModeC:
         assert result[0].atom.payload.content == "合并后内容"
 
     @pytest.mark.asyncio
+    async def test_mode_c_update_merges_actor_and_context_contributors(self):
+        """主动 UPDATE 保留已有来源字段，并把发起 Agent 与上下文贡献者并入集合。"""
+        existing = MemoryAtom(
+            meta=make_memory_metadata(
+                source_agent_id="creator",
+                user_id="u1",
+                contributing_agent_ids=("creator",),
+            ),
+            index=IndexLayer(
+                title="已有记忆",
+                summary="这是一段足够长的测试摘要用于通过验证",
+                tags=["t"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="旧内容"),
+        )
+        merge_result = MergeResult(new_content="合并后内容", changelog="更新了内容")
+        self.mock_extractor.merge.return_value = merge_result
+        self.mock_storage.upsert = AsyncMock()
+
+        uf = UpdateFocus(
+            instruction="更新内容",
+            base_uuid=str(existing.id),
+            base_alias="fact_test",
+        )
+        request = GenerationRequest(
+            context=_make_context_with_agents(["b2"]),
+            update_focus=uf,
+            existing_memory=existing,
+        )
+        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+
+        atom = result[0].atom
+        assert atom.meta.source_agent_id == "creator"
+        assert atom.meta.contributing_agent_ids == ("creator", "a1", "b2")
+
+    @pytest.mark.asyncio
     async def test_mode_c_no_existing_memory(self):
         """existing_memory=None 时返回空"""
         uf = UpdateFocus(
@@ -395,7 +542,11 @@ class TestGenerationEngineModeC:
         merge_result = MergeResult(new_content="新版本", changelog="v2 更新")
         self.mock_storage.upsert = Mock()
 
-        result = self.engine._apply_update(existing, merge_result)
+        result = self.engine._apply_update(
+            existing,
+            merge_result,
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+        )
 
         assert len(result) == 1
         mem = result[0].atom
@@ -432,6 +583,7 @@ class TestGenerationEngineDedup:
         result = await self.engine._dedup_and_resolve(
             draft,
             make_memory_identity_scope(),
+            MemoryProvenance.system_settlement(GenerationContext()),
         )
 
         self.mock_storage.upsert.assert_not_called()
@@ -457,6 +609,7 @@ class TestGenerationEngineDedup:
         result = await self.engine._dedup_and_resolve(
             draft,
             make_memory_identity_scope(),
+            MemoryProvenance.system_settlement(GenerationContext()),
         )
 
         self.mock_storage.upsert.assert_not_called()
@@ -482,6 +635,7 @@ class TestGenerationEngineDedup:
         result = await self.engine._dedup_and_resolve(
             draft,
             make_memory_identity_scope(),
+            MemoryProvenance.system_settlement(GenerationContext()),
         )
 
         self.mock_storage.upsert.assert_not_called()
@@ -497,6 +651,7 @@ class TestGenerationEngineDedup:
         result = await self.engine._dedup_and_resolve(
             draft,
             make_memory_identity_scope(),
+            MemoryProvenance.system_settlement(GenerationContext()),
         )
 
         assert len(result) == 1
@@ -564,14 +719,19 @@ class TestGenerationEngineHelpers:
         assert transcript == "(无背景对话)"
 
     def test_draft_to_memory(self):
-        """草稿转换为 MemoryAtom"""
+        """草稿按 provenance 裁定写入来源与贡献者字段"""
         draft = _make_draft(title="测试标题")
         identity_scope = make_memory_identity_scope()
+        provenance = MemoryProvenance.from_actor(
+            identity_scope, _make_context_with_agents(["a1"])
+        )
 
-        memory = self.engine._draft_to_memory(draft, identity_scope)
+        memory = self.engine._draft_to_memory(draft, identity_scope, provenance)
 
         assert memory.index.title == "测试标题"
         assert memory.workspace_identity.owner_user_id == "u1"
+        assert memory.meta.source_agent_id == "a1"
+        assert memory.meta.contributing_agent_ids == ("a1",)
         assert memory.meta.confidence_score == 0.9
 
     def test_draft_to_memory_unknown_type(self):
@@ -580,6 +740,10 @@ class TestGenerationEngineHelpers:
         draft.memory_type = "INVALID_TYPE"
         identity_scope = make_memory_identity_scope()
 
-        memory = self.engine._draft_to_memory(draft, identity_scope)
+        memory = self.engine._draft_to_memory(
+            draft,
+            identity_scope,
+            MemoryProvenance.system_settlement(GenerationContext()),
+        )
 
         assert memory.index.memory_type == MemoryType.FACT

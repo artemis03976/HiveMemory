@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IndexLayer,
@@ -41,13 +42,20 @@ def store(tmp_path):
     return ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
 
 
-def _make_atom(identity_scope, *, memory_id=None, source_agent_id="source-agent") -> MemoryAtom:
+def _make_atom(
+    identity_scope,
+    *,
+    memory_id=None,
+    source_agent_id="source-agent",
+    contributing_agent_ids=("contrib-agent",),
+) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id or uuid4(),
         meta=make_memory_metadata(
             source_agent_id=source_agent_id,
             user_id=identity_scope.workspace_identity.owner_user_id,
             workspace_id=identity_scope.workspace_identity.workspace_id,
+            contributing_agent_ids=contributing_agent_ids,
         ),
         index=IndexLayer(
             title="Test Title",
@@ -82,8 +90,12 @@ async def test_build_for_create_persists_scoped_artifacts_and_links_initial_vers
     assert creation["artifact_type"] == ArtifactType.MEMORY_CREATION.value
     assert version["workspace_identity"] == identity_scope.workspace_identity.model_dump()
     assert creation["initial_version_ref"]["artifact_id"] == bundle.initial_version_ref.artifact_id
-    assert version["owner_agent_id"] == "source-agent"
-    assert creation["owner_agent_id"] == "source-agent"
+    assert version["source_agent_id"] == "source-agent"
+    assert creation["source_agent_id"] == "source-agent"
+    assert version["contributing_agent_ids"] == ["contrib-agent"]
+    assert creation["contributing_agent_ids"] == ["contrib-agent"]
+    assert "owner_agent_id" not in version
+    assert "owner_agent_id" not in creation
     assert version["snapshot_after"]["content"] == "Initial content"
     assert version["snapshot_after"]["alias"] == "my-alias"
     assert version["snapshot_after"]["title"] == "Test Title"
@@ -112,7 +124,36 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
     assert data["version_number"] == 3
     assert data["update_source"] == "MERGE"
     assert data["workspace_identity"] == identity_scope.workspace_identity.model_dump()
-    assert data["owner_agent_id"] == atom.meta.source_agent_id
+    assert data["source_agent_id"] == atom.meta.source_agent_id
+    assert data["contributing_agent_ids"] == list(atom.meta.contributing_agent_ids)
+    assert "owner_agent_id" not in data
+
+
+@pytest.mark.asyncio
+async def test_build_for_create_allows_reserved_system_source_for_settlement(
+    store, identity_scope
+):
+    """SETTLE 没有具体 Agent 作为操作来源主体：artifact 允许记录保留 system 来源。"""
+    atom = _make_atom(
+        identity_scope,
+        source_agent_id=SYSTEM_AGENT_ID,
+        contributing_agent_ids=(),
+    )
+    builder = MemoryArtifactBuilder(store)
+
+    bundle = await builder.build_for_create(
+        memory=atom,
+        context=GenerationContext(),
+        source_intent="SYSTEM",
+        source_artifact_refs=[],
+    )
+
+    version = await store.get(identity_scope, bundle.initial_version_ref)
+    creation = await store.get(identity_scope, bundle.creation_ref)
+    assert version["source_agent_id"] == SYSTEM_AGENT_ID
+    assert creation["source_agent_id"] == SYSTEM_AGENT_ID
+    assert version["contributing_agent_ids"] == []
+    assert creation["contributing_agent_ids"] == []
 
 
 @pytest.mark.asyncio
@@ -126,7 +167,6 @@ async def test_builder_rejects_source_ref_from_another_workspace(store, identity
         InteractionArtifact(
             artifact_id="source-artifact",
             workspace_identity=other.workspace_identity,
-            owner_agent_id="other-agent",
             topic_id="other-topic",
             created_at=datetime(2026, 1, 1),
         )

@@ -17,7 +17,11 @@ from hivememory.engines.generation.engine import (
     MemoryGenerationEngine,
     MEMORY_TYPE_ALIAS_PREFIX,
 )
-from hivememory.engines.generation.models import ExtractedMemoryDraft
+from hivememory.engines.generation.models import (
+    ExtractedMemoryDraft,
+    GenerationContext,
+    MemoryProvenance,
+)
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -161,7 +165,7 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="quicksort_impl",
         )
-        memory = engine._draft_to_memory(draft, identity_scope)
+        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
         assert memory.index.alias == "code_quicksort_impl"
 
     def test_alias_fallback_from_title(self, engine, identity_scope):
@@ -176,7 +180,7 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="",
         )
-        memory = engine._draft_to_memory(draft, identity_scope)
+        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
         assert memory.index.alias == "fact_api_rate_limit"
 
     def test_alias_persists_to_qdrant_payload(self, engine, identity_scope):
@@ -191,7 +195,7 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="persistence_check",
         )
-        memory = engine._draft_to_memory(draft, identity_scope)
+        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
         payload = memory.to_qdrant_payload()
         assert payload["index"]["alias"] == "fact_persistence_check"
 
@@ -207,7 +211,7 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="",
         )
-        memory = engine._draft_to_memory(draft, identity_scope)
+        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
         assert memory.index.alias is None
 
 

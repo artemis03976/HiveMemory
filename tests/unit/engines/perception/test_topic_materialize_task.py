@@ -119,6 +119,22 @@ class TestFromTopicData:
             is None
         )
 
+    def test_summary_only_topic_returns_none_without_fabricating_blocks(self):
+        """summary-only Topic 可驻留但不独立生成记忆：无可保存 block 即 no-material。
+
+        ``has_content`` 允许 blocks == () 且 state_summary 非空的折叠态话题参与
+        路由与生命周期处理，但生成交接以真实 block 为材料边界，不凭摘要伪造。
+        """
+        scope = _identity_scope()
+        topic = _topic_data(scope, blocks=(), state_summary="已折叠的历史交互摘要")
+
+        assert (
+            TopicMaterializeTask.from_topic_data(
+                topic, identity_scope=scope, reason=TriggerReason.SHUTDOWN
+            )
+            is None
+        )
+
     def test_bindings_are_frozen_as_snapshot(self):
         from datetime import datetime
 

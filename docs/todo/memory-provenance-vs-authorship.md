@@ -91,7 +91,7 @@ V1 兼容读取仍保留旧耦合：对缺少 V2 schema 信息的记录，legacy
 主动 WRITE/UPDATE 的身份语义相对清楚：
 
 - WRITE 创建的 Memory 当前使用提交该操作的 actor Agent；
-- UPDATE 针对已有 Memory 生成新版本，当前保留已有 metadata 的来源字段；后续版本 Artifact 应同步记录来源与贡献者，不再引入 Agent owner 语义。
+- UPDATE 针对已有 Memory 生成新版本，保留已有 metadata 的来源字段，并把本次生成的贡献者并入已有集合（主动操作先记录发起 Agent，再合并上下文贡献者；SETTLE 演化同样合并本轮贡献者）；版本 Artifact 同步记录来源与合并后的贡献者，不引入 Agent owner 语义。
 
 被动结算（SETTLE）则存在明确的不一致：
 
@@ -109,7 +109,7 @@ V1 兼容读取仍保留旧耦合：对缺少 V2 schema 信息的记录，legacy
 - InteractionArtifact 不增加顶层 `source_agent_id`，每个 block 继续通过 `InteractionTurnSnapshot.actor_identity` 记录来源；
 - manual、idle、LRU、shutdown 四类 settle 共享上述来源裁定。
 
-上述是本 todo 的目标裁定，尚未完全落地。当前实现仍会把最后访问 Agent 写入 Memory metadata 和两个 Memory Artifact 的 `owner_agent_id`。
+上述裁定已于 2026-09-06 落地：SETTLE 的 `source_agent_id` 统一写入 `SYSTEM_AGENT_ID`，贡献者集合从 block identity 聚合；两个 Memory Artifact 记录 `source_agent_id` 与 `contributing_agent_ids`，`owner_agent_id` 已删除。
 
 ## 建议的多值 provenance 字段
 
@@ -121,11 +121,11 @@ contributing_agent_ids: tuple[str, ...] = ()
 
 生成时从参与该 Memory 内容的 `LogicalBlock` identity 聚合，去重并保持首次出现顺序。该字段表达“哪些具体 Agent 贡献过内容”，不表达 Agent 所有权、历史作者解释或授权目标。
 
-当前上述三个模型都没有该字段，也没有从 `LogicalBlock.turn.identity.agent_id` 聚合贡献者的实现。实现后：
+实现后（2026-09-06）：
 
 - 单 Agent 内容的集合应为 `(source_agent_id,)`（SETTLE 使用 system 时，集合仍应只包含实际贡献者，不应把 `system` 当作内容贡献者）；
 - 没有具体 Agent 作为操作来源的外部或管理操作，可以让 `source_agent_id = "system"`，但这不改变内容中实际贡献者的集合；
-- 查询侧的 [`QueryFilters.source_agent_id`](../../src/hivememory/engines/retrieval/models.py) 和 MTP `agent:` token 当前仍匹配 `meta.source_agent_id`，因此会漏检“参与过但未收尾”的 Agent。应改为匹配贡献者集合，并为多 Agent 场景补测试；
+- 查询侧的 [`QueryFilters.source_agent_id`](../../src/hivememory/engines/retrieval/models.py) 和 MTP `agent:` token 已改为匹配贡献者集合（保留 `meta.source_agent_id` 分支兼容无贡献者集合的历史记录），多 Agent 场景测试已补齐；
 - Qdrant 当前没有为这些 payload 建立专用 index，[vector_store](../../src/hivememory/infrastructure/storage/vector_store.py) 的现有索引策略无需因字段增加而改变，仍需以实际存储验证数组 MatchValue 行为。
 
 Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 block 已由 `InteractionTurnSnapshot.actor_identity` 记录来源，不再添加顶层 Agent 来源字段；`MemoryCreationArtifact` 和 `MemoryVersionArtifact` 需要记录与 MemoryAtom 一致的 `source_agent_id` 和 `contributing_agent_ids`。`DocumentArtifact` 等其他类型是否需要来源字段，应依据其实际生产入口单独裁定，不能由 `BaseArtifact.owner_agent_id` 继承出默认语义。
@@ -174,19 +174,19 @@ Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 
 
 ## 完成条件
 
-- [ ] 明确并实现 `MetaData.contributing_agent_ids`：按 block identity 去重、保持首次出现顺序；
-- [ ] manual、idle、LRU、shutdown 的 SETTLE 来源语义一致，并明确“没有具体 Agent 作为操作来源主体”时使用 `SYSTEM_AGENT_ID`；
-- [ ] Artifact 的 Workspace 归属只由 `workspace_identity` 表达，不再使用 `owner_agent_id` 表示 Agent 所有权；
-- [ ] MemoryCreationArtifact/MemoryVersionArtifact 的 `source_agent_id` 与 `contributing_agent_ids` 和 MemoryAtom 语义一致，SETTLE 允许 `source_agent_id = SYSTEM_AGENT_ID`；
-- [ ] InteractionArtifact 不增加顶层 `source_agent_id`，block 内来源记录保持完整；
-- [ ] Mode B/C 的真实 Agent 来源与 SETTLE 的 system 来源不互相污染；
-- [ ] 维护路径不再通过 Pydantic 默认值产生 `agent_id` / `team_id`，且不再出现 `omni_doll` 作为 settle 来源；
-- [ ] 明确 summary-only Topic 的行为并覆盖其 no-material 或生成路径测试；
-- [ ] `filters.source_agent_id`（包括 MTP `agent:` token）匹配贡献者集合，能检出“参与过但未收尾”的多 Agent 记忆；
-- [ ] provenance 字段不参与 V2 授权；测试改变来源记录不会改变 MemoryAccessPolicy 的可见性；
-- [ ] 历史 V1/V2 记录在新字段缺省下可正常解码，V1 source→visibility 兼容分支仅保留到迁移门槛；
-- [ ] 删除 `TopicData.current_agent_id`，并清理其序列化和测试引用；
-- [ ] 相关当前文档在实现收尾时再同步系统归属语义；本 todo 不提前把未实现设计写入 current 文档。
+- [x] 明确并实现 `MetaData.contributing_agent_ids`：按 block identity 去重、保持首次出现顺序；
+- [x] manual、idle、LRU、shutdown 的 SETTLE 来源语义一致，并明确“没有具体 Agent 作为操作来源主体”时使用 `SYSTEM_AGENT_ID`；
+- [x] Artifact 的 Workspace 归属只由 `workspace_identity` 表达，不再使用 `owner_agent_id` 表示 Agent 所有权；
+- [x] MemoryCreationArtifact/MemoryVersionArtifact 的 `source_agent_id` 与 `contributing_agent_ids` 和 MemoryAtom 语义一致，SETTLE 允许 `source_agent_id = SYSTEM_AGENT_ID`；
+- [x] InteractionArtifact 不增加顶层 `source_agent_id`，block 内来源记录保持完整；
+- [x] Mode B/C 的真实 Agent 来源与 SETTLE 的 system 来源不互相污染；
+- [x] 维护路径不再通过 Pydantic 默认值产生 `agent_id` / `team_id`，且不再出现 `omni_doll` 作为 settle 来源；
+- [x] 明确 summary-only Topic 的行为并覆盖其 no-material 或生成路径测试；
+- [x] `filters.source_agent_id`（包括 MTP `agent:` token）匹配贡献者集合，能检出“参与过但未收尾”的多 Agent 记忆；
+- [x] provenance 字段不参与 V2 授权；测试改变来源记录不会改变 MemoryAccessPolicy 的可见性；
+- [x] 历史 V1/V2 记录在新字段缺省下可正常解码，V1 source→visibility 兼容分支仅保留到迁移门槛；
+- [x] 删除 `TopicData.current_agent_id`，并清理其序列化和测试引用；
+- [x] 相关当前文档在实现收尾时再同步系统归属语义；本 todo 不提前把未实现设计写入 current 文档。
 
 ## 相关事项
 

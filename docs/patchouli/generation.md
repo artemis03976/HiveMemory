@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # 记忆生成
@@ -78,6 +78,8 @@ GenerationContext
 GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生成 `ExtractedMemoryDraft`；没有草稿或 `has_value=false` 时不产生记忆。有效草稿随后进入 dense top-1 查重。
 
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内。它仍作为 Patchouli 后台 memory task 执行。
+
+四种 settle 入口（manual / idle / LRU / shutdown）共享同一来源裁定：结算没有具体 Agent 作为操作来源主体，新建 Memory 的 `source_agent_id` 写入保留 `SYSTEM_AGENT_ID`（creation intent 为 `SYSTEM`），实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。版本更新（dedup 合并、Mode C）保留已有 metadata 的来源字段，并把本次生成的贡献者并入已有集合，合并结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
 
 ### 3.2 Mode B：主动 WRITE
 

@@ -132,3 +132,35 @@ def test_public_policy_cannot_cross_workspace() -> None:
         workspace_identity=_workspace("isolation_workspace"),
         actor_identity=ActorIdentity(user_id="u1", agent_id="source-agent"),
     )
+
+
+def test_changing_provenance_does_not_change_v2_visibility() -> None:
+    """provenance 与授权分离：改变来源记录不得改变 v2 可见性。
+
+    legacy 分支曾以 source_agent_id 推断 PRIVATE 目标；该测试防止
+    V2 判定重新耦合来源字段。
+    """
+    atom = _memory(
+        MemoryAccessPolicy(
+            visibility=MemoryVisibility.PRIVATE,
+            target_agent_id="target-agent",
+        )
+    )
+    readable_before = memory_is_readable(
+        atom,
+        workspace_identity=_workspace("main_workspace"),
+        actor_identity=ActorIdentity(user_id="u1", agent_id="other"),
+    )
+
+    atom.meta.source_agent_id = "system"
+    atom.meta.source_team_id = None
+    atom.meta.contributing_agent_ids = ("target-agent",)
+
+    readable_after = memory_is_readable(
+        atom,
+        workspace_identity=_workspace("main_workspace"),
+        actor_identity=ActorIdentity(user_id="u1", agent_id="other"),
+    )
+
+    assert readable_before is False
+    assert readable_after is False

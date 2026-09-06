@@ -100,3 +100,38 @@ def test_legacy_owner_only_belongs_to_corresponding_main_workspace() -> None:
     )
 
     assert atom.workspace_identity != isolation
+
+
+def _v2_payload() -> dict:
+    """schema v2 payload 模板（嵌套归属 + 完整 Workspace 投影，同 to_qdrant_payload）。"""
+    legacy = deepcopy(_legacy_payload())
+    legacy["schema_version"] = 2
+    legacy["meta"]["workspace_identity"] = {
+        "owner_user_id": "u1",
+        "workspace_key": "main_workspace",
+        "workspace_id": "main_workspace",
+    }
+    legacy["meta"]["owner_user_id"] = "u1"
+    legacy["meta"]["workspace_key"] = "main_workspace"
+    legacy["meta"]["workspace_id"] = "main_workspace"
+    legacy["meta"]["access_policy"] = {"visibility": "PUBLIC"}
+    for field in ("user_id", "team_id", "visibility"):
+        legacy["meta"].pop(field, None)
+    return legacy
+
+
+def test_v2_payload_without_contributors_decodes_to_empty_collection() -> None:
+    """历史 v2 记录缺少贡献者集合时按空集合解码，不做回填猜测。"""
+    atom = decode_memory_payload(_v2_payload())
+
+    assert atom.meta.contributing_agent_ids == ()
+
+
+def test_v2_contributor_list_decodes_to_normalized_tuple() -> None:
+    """贡献者集合从存储数组解码为去重、去 system、保持顺序的元组。"""
+    payload = _v2_payload()
+    payload["meta"]["contributing_agent_ids"] = ["b2", "a1", "b2", "system"]
+
+    atom = decode_memory_payload(payload)
+
+    assert atom.meta.contributing_agent_ids == ("b2", "a1")
