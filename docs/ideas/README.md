@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-07
 ---
 
 # Ideas
@@ -23,8 +23,9 @@ last_reviewed: 2026-09-01
 | [Workspace MVP 与 Chat Attachments 初步设计](./workspace-mvp-chat-attachments-design.md) | 已完成 W0 公共契约，以及 W1 Chat Attachments 的设计推导 | W0 当前事实见 [Workspace 架构](../architecture/workspace.md)，实施历史见[归档 Plan](../archive/plans/v0.6.2-workspace-mvp.md)；本文继续保存 W1 上传解析、Context Compiler、Materialization promotion 等开放问题，不表示 W1 已排期 |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |
 | [复合意图分解](./composite-intent-decomposition.md) | `COMPOSITE` 分类信号与私有 `sub_intents` | 真实样本能否证明单主意图路径存在稳定缺口，以及 envelope、消费所有权与 fallback 如何冻结 |
+| [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | `MemoryCompiler` target 体系、MTP `RUN` 两层分发、MemoryAtom/Artifact 分离 | 如何让 MTP RUN 编译为结构化执行意图，证明相对外部 harness + Patchouli 的结构性优势，以及 CODE_SNIPPET 的迁移边界、ToolInvocationIR 与共享 MemoryCompiler IR 的关系、执行证据回流与终端实践的晋升机制 |
 
-本索引已于 2026-09-01 对照当前代码与文档分类规范复核。这里的材料均保留为 `idea`：除 W0 已完成的历史实施稿外，没有一篇已经形成近期排期、依赖闭包和可验收实施范围，也没有一篇可以作为当前能力引用。Workspace Idea 中已完成部分只通过当前架构和归档 Plan 引用，不把 W1 开放设计提升为路线图承诺。既有 Ideas 的逐篇分类依据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
+本索引已于 2026-09-07 对照当前代码与文档分类规范复核。这里的材料均保留为 `idea`：除 W0 已完成的历史实施稿外，没有一篇已经形成近期排期、依赖闭包和可验收实施范围，也没有一篇可以作为当前能力引用。Workspace Idea 中已完成部分只通过当前架构和归档 Plan 引用，不把 W1 开放设计提升为路线图承诺。既有 Ideas 的逐篇分类依据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
 
 ## 升级规则
 
