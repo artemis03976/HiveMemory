@@ -49,23 +49,20 @@ def _empty_fields(condition: Any) -> set[str]:
     return result
 
 
-def test_main_workspace_filter_contains_current_and_legacy_owner_branches() -> None:
-    """捕获 main 查询漏掉受控 legacy 读取，或只按 user_id 过滤的缺陷。"""
+def test_main_workspace_ownership_filter_has_no_legacy_branch() -> None:
+    """捕获 main 查询仍保留 meta.user_id legacy OR 分支或 IsEmpty 守卫的缺陷。"""
     result = QdrantFilterConverter().convert(QueryFilters(), _identity_scope())
     values = _field_values(result)
 
     assert values["meta.owner_user_id"] == {"u1"}
     assert values["meta.workspace_id"] == {"main_workspace"}
-    assert values["meta.user_id"] == {"u1"}
-    assert _empty_fields(result) >= {
-        "meta.owner_user_id",
-        "meta.workspace_key",
-        "meta.workspace_id",
-    }
+    # legacy 分支已删除：不再按平铺 user_id / IsEmpty 兜底读取历史记录。
+    assert "meta.user_id" not in values
+    assert _empty_fields(result) == set()
 
 
-def test_isolation_workspace_filter_excludes_legacy_branch() -> None:
-    """捕获第二 Workspace 召回缺 owner/workspace 历史记录的缺陷。"""
+def test_isolation_workspace_filter_scoped_to_its_own_workspace() -> None:
+    """捕获第二 Workspace 查询越界读取其他 Workspace 记录的缺陷。"""
     result = QdrantFilterConverter().convert(
         QueryFilters(),
         _identity_scope("isolation_workspace"),
@@ -73,8 +70,9 @@ def test_isolation_workspace_filter_excludes_legacy_branch() -> None:
     values = _field_values(result)
 
     assert values["meta.workspace_id"] == {"isolation_workspace"}
+    assert values["meta.owner_user_id"] == {"u1"}
     assert "meta.user_id" not in values
-    assert "meta.owner_user_id" not in _empty_fields(result)
+    assert _empty_fields(result) == set()
 
 
 def test_v2_actor_policy_targets_are_distinct_from_provenance() -> None:
@@ -84,7 +82,9 @@ def test_v2_actor_policy_targets_are_distinct_from_provenance() -> None:
 
     assert values["meta.access_policy.target_agent_id"] == {"agent-a"}
     assert values["meta.access_policy.target_team_id"] == {"team-a"}
-    assert "meta.source_agent_id" in values  # 仅 legacy PRIVATE compatibility branch
+    # legacy PRIVATE 分支已删除：来源 provenance 字段不再进入授权过滤。
+    assert "meta.source_agent_id" not in values
+    assert "meta.visibility" not in values
     assert values["meta.access_policy.visibility"] == {"PUBLIC", "PRIVATE", "TEAM"}
 
 
@@ -104,6 +104,24 @@ def test_business_filters_are_added_without_replacing_hard_boundary() -> None:
         if isinstance(item, FieldCondition) and item.key == "meta.confidence_score"
     )
     assert confidence.range.gte == pytest.approx(0.7)
+
+
+def test_source_agent_filter_matches_contributors_and_source_branches() -> None:
+    """来源 Agent 过滤匹配贡献者集合，并保留 source 字段兼容历史记录。
+
+    SETTLE 记忆的 meta.source_agent_id 是保留 system，实际参与内容的
+    Agent 在 contributing_agent_ids 中；只匹配 source 字段会漏检
+    "参与过但未收尾"的 Agent。
+    """
+    result = QdrantFilterConverter().convert(
+        QueryFilters(source_agent_id="agent-a"),
+        _identity_scope("isolation_workspace"),
+    )
+
+    values = _field_values(result)
+    assert values["meta.contributing_agent_ids"] == {"agent-a"}
+    assert values["meta.source_agent_id"] == {"agent-a"}
+    assert values["meta.workspace_id"] == {"isolation_workspace"}
 
 
 def test_filter_converter_rejects_missing_identity_scope() -> None:

@@ -23,13 +23,11 @@ class DocumentArtifactBuilder:
         content_hash: Optional[str],
         retrieved_at: datetime,
         workspace_identity: WorkspaceIdentity,
-        owner_agent_id: str = "",
         locators: Optional[List[DocumentLocator]] = None,
         **kwargs,
     ) -> ArtifactRef | None:
         artifact = DocumentArtifact(
             workspace_identity=workspace_identity,
-            owner_agent_id=owner_agent_id,
             source_type=source_type,
             source_uri=source_uri,
             content_hash=content_hash,
@@ -49,7 +47,6 @@ class NoOpDocumentArtifactBuilder:
         content_hash: Optional[str],
         retrieved_at: datetime,
         workspace_identity: WorkspaceIdentity,
-        owner_agent_id: str = "",
         locators: Optional[List[DocumentLocator]] = None,
         **kwargs,
     ) -> ArtifactRef | None:

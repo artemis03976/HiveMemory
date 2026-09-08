@@ -31,7 +31,7 @@ from hivememory.patchouli.models import (
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -156,19 +156,21 @@ class TestAgentApplicationService:
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = created
 
+        identity_scope = make_management_identity_scope(user_id="u1")
         atom = await service.create_agent_profile(
+            identity_scope=identity_scope,
             title="Worker",
             alias="worker",
             summary="",
             content="persona",
             tags=["agent"],
             agent_config={"allowed_mtp_verbs": ["SEARCH"]},
-            user_id="u1",
         )
 
         mock_global_bus.request.assert_awaited_once()
-        route, identity_scope, payload = mock_global_bus.request.await_args.args
+        route, bus_scope, payload = mock_global_bus.request.await_args.args
         assert route == GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE
+        assert bus_scope is identity_scope
         assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.index.memory_type == MemoryType.AGENT_PROFILE
         assert payload.index.summary == "Worker agent profile"
@@ -181,13 +183,16 @@ class TestAgentApplicationService:
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = []
 
-        await service.list_agent_profiles(user_id="u1")
+        identity_scope = make_management_identity_scope(user_id="u1")
+        await service.list_agent_profiles(identity_scope=identity_scope)
         # 路由 + 默认 limit=100 是真实生产参数契约
         mock_global_bus.request.assert_awaited_once()
         route = mock_global_bus.request.await_args.args[0]
-        identity_scope = mock_global_bus.request.await_args.kwargs["identity_scope"]
         assert route == GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST
-        assert identity_scope.workspace_identity.owner_user_id == "u1"
+        assert (
+            mock_global_bus.request.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id
+            == "u1"
+        )
         assert mock_global_bus.request.await_args.kwargs["limit"] == 100
 
 

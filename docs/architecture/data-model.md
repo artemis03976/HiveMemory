@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-09-05
+last_reviewed: 2026-09-06
 ---
 
 # 数据模型与可变性边界
@@ -117,6 +117,17 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 ### 4.5 可变累积后冻结
 
 Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在交互完成后构造 tuple 化的 `TurnRecord` 与 `LogicalBlock`。Builder/Accumulator 在有限生命周期内可变，完成后产出稳定快照，是合理边界；累积器不应跨 run 传播，也不需要为了形式统一而冻结。
+
+### 4.6 身份收敛与读侧兼容投影收口
+
+v0.6.2 身份收敛后，领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`，跨边界传递使用 `IdentityScope`；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
+
+当前已经落地的事实：
+
+- `InteractionTurnSnapshot` 的执行者身份由单一 `actor_identity: ActorIdentity` 承载，不再平铺 `user_id/agent_id/team_id` 三元组；旧平铺 JSON 的读取升级分支已随 V1 存量数据迁移完成而删除，缺 `actor_identity` 的记录反序列化 fail closed，历史记录只能通过迁移工具的 canonical replacement 访问。
+- V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
+- 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 因无消费者而删除；剩余的 `.identity` 只读派生 property（`ExecutionFrame`、`MTPExecutionContext`）统一标注"只读派生，新代码走 `identity_scope`"。
+- `PassiveConversationKey` 等 shared infra 命名键保留从 `IdentityScope.actor_identity` 平铺的三元组，仅作 buffer/gate/ordering 的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
 
 ## 5. 当前仍然可变或仅浅层冻结的区域
 

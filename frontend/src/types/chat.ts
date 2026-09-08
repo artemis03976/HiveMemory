@@ -156,7 +156,6 @@ export interface ChatConnectionState {
 
 export interface ChatRequestParams {
   message: string;
-  user_id?: string;
   agent_id?: string;
   session_id?: string | null;
   enable_memory_retrieval?: boolean;

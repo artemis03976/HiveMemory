@@ -127,11 +127,6 @@ class TopicMaterializeTask(BaseModel):
         )
 
     @property
-    def user_id(self) -> str:
-        """兼容生成层旧展示字段；归属以 workspace_identity 为准。"""
-        return self.workspace_identity.owner_user_id
-
-    @property
     def workspace_identity(self) -> WorkspaceIdentity:
         """返回生成输入中唯一的 Workspace ownership。"""
         return self.identity_scope.workspace_identity

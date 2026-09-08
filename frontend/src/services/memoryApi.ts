@@ -1,3 +1,4 @@
+import { identityHeaders } from '@/services/identity';
 import type { MemoryAtom, MemoryListResponse } from '@/types/memory';
 
 export type UpdateMemoryPatch = Partial<Pick<
@@ -6,7 +7,10 @@ export type UpdateMemoryPatch = Partial<Pick<
 >>;
 
 export async function fetchMemories(limit = 100): Promise<MemoryListResponse> {
-  const response = await fetch(`/api/v1/memories?limit=${encodeURIComponent(limit)}`);
+  // Memory 管理请求统一携带 x-user-id / x-workspace-id 基础选择
+  const response = await fetch(`/api/v1/memories?limit=${encodeURIComponent(limit)}`, {
+    headers: identityHeaders(),
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch memories: ${response.statusText}`);
@@ -27,7 +31,10 @@ export interface CreateMemoryPayload {
 export async function createMemory(payload: CreateMemoryPayload): Promise<MemoryAtom> {
   const response = await fetch('/api/v1/memories', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...identityHeaders(),
+    },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
@@ -43,7 +50,10 @@ export async function updateMemory(
 ): Promise<MemoryAtom> {
   const response = await fetch(`/api/v1/memories/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...identityHeaders(),
+    },
     body: JSON.stringify(patch),
   });
 
@@ -57,6 +67,7 @@ export async function updateMemory(
 export async function deleteMemory(id: string): Promise<void> {
   const response = await fetch(`/api/v1/memories/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    headers: identityHeaders(),
   });
 
   if (!response.ok) {
@@ -81,7 +92,10 @@ export async function recordMemoryFeedback(
 ): Promise<MemoryFeedbackResult> {
   const response = await fetch(`/api/v1/memories/${encodeURIComponent(memoryId)}/feedback`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...identityHeaders(),
+    },
     body: JSON.stringify({ positive, source: 'ui.memory_ref' }),
   });
 

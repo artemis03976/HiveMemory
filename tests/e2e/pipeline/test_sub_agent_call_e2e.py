@@ -17,12 +17,15 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import (
+    ActorIdentity,
     Artifacts,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    build_internal_identity_scope,
 )
+from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
 from tests.helpers.memory import make_memory_metadata
 
 logger = logging.getLogger(__name__)
@@ -128,10 +131,13 @@ async def _collect_stream_events(
     agent_id: str = "omni_doll",
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.chat_service.chat_stream(
+    async for event in system.chat_service.chat_stream_scoped(
         user_message=user_message,
-        user_id=user_id,
-        agent_id=agent_id,
+        identity_scope=build_internal_identity_scope(
+            ActorIdentity(user_id=user_id, agent_id=agent_id),
+            MAIN_WORKSPACE_ID,
+        ),
+        interaction_id=f"interaction_{uuid4().hex}",
         enable_memory_retrieval=False,
         generation_options={"temperature": 0, "top_p": 1},
     ):

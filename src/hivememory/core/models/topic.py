@@ -63,6 +63,7 @@ class LogicalBlock(BaseModel):
 
     @property
     def identity(self):
+        """只读派生自 ``turn.identity``；权限与边界判定一律以 IdentityScope 为准。"""
         return self.turn.identity
 
     @property
@@ -95,11 +96,12 @@ class TopicData(BaseModel):
 
     只承载内容事实（blocks、摘要、bindings、tokens）；执行占用不建模为
     记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。
+    不携带话题级 Agent 身份：来源 provenance 由每个 block 的
+    ``turn.identity`` 记录，运行时授权一律以 ``IdentityScope`` 为准。
     """
 
     topic_id: str
     workspace_identity: WorkspaceIdentity
-    current_agent_id: str = "default"
     topic_title: str
     topic_summary: str = ""
     state_summary: str = ""
@@ -110,11 +112,6 @@ class TopicData(BaseModel):
     model_used: str = ""
 
     model_config = ConfigDict(frozen=True, use_enum_values=False)
-
-    @property
-    def user_id(self) -> str:
-        """兼容展示旧 owner 字段；资源寻址必须使用 workspace_identity。"""
-        return self.workspace_identity.owner_user_id
 
     @property
     def block_count(self) -> int:

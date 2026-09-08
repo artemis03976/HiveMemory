@@ -7,10 +7,26 @@ HiveMemory 核心常量定义
 # ============ 身份标识默认值 ============
 
 DEFAULT_USER_ID = "default"
-"""默认用户 ID - 用于未登录/匿名场景"""
+"""默认用户 ID - 用于未登录/匿名场景。
+
+使用边界（v0.6.2 身份收敛）：该回退值只允许出现在两处——
+1. ``server/deps.py resolve_request_identity_scope``：HTTP 顶层身份解析的
+   唯一缺省回退点；
+2. ``ActorIdentity.user_id`` 字段默认值（``core/models/identity.py``）。
+应用服务与引擎层不得再次解析或回退默认身份；新增使用位置前先确认
+不属于上述边界（由 tests/unit/core/models/test_identity_model_guard.py
+的导入边界守卫约束）。"""
 
 DEFAULT_AGENT_ID = "omni_doll"
 """默认 Agent ID - 全能人偶，拥有完整权限"""
+
+SYSTEM_AGENT_ID = "system"
+"""非 Agent action 的保留 actor。
+
+准确语义是"没有具体 Agent 作为操作来源主体"：它只出现在 server 入口为
+无具体 Agent 的操作冻结 IdentityScope 时（管理读取、Topic 管理等），是
+actor/provenance 的保留值。
+"""
 
 DEFAULT_TEAM_ID = None
 """默认团队 ID - None 表示个人作用域"""
@@ -45,6 +61,9 @@ DEFAULT_TOP_P = 1.0
 def normalize_user_id(user_id: str | None) -> str:
     """
     规范化 user_id，确保永远不会是 None 或空字符串
+
+    使用边界同 DEFAULT_USER_ID：当前无生产调用方，仅为兼容保留；
+    应用服务不得用它回退默认身份。
 
     Args:
         user_id: 原始 user_id

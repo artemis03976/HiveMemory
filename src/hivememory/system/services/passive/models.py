@@ -37,6 +37,11 @@ class PassiveConversationKey:
 
     source: str
     external_conversation_id: str
+
+    # 以下 actor 三元组是从 IdentityScope.actor_identity 平铺而来的命名键
+    # 字段（见 build()），仅用于 buffer/gate/ordering 的稳定命名域；共享
+    # infra 不解释 scope 对象，也不参与可见性授权，符合 W0「兼容投影只
+    # 允许存在于 storage adapter / filter builder / 命名键」的约束。
     user_id: str
     agent_id: str
     team_id: str | None = None

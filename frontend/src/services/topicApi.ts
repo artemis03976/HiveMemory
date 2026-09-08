@@ -2,9 +2,13 @@
  * Topic API Client
  *
  * Handles HTTP requests to the backend topic management API.
+ *
+ * 身份约定（v0.6.2 收敛）：Topic 请求统一携带 `user_id + workspace_id`
+ * 基础选择（x-user-id / x-workspace-id 请求头）；旧 `?user_id=` query
+ * 兼容入口已不再由前端使用。
  */
 
-import { DEFAULT_USER_ID } from '@/constants/identity';
+import { identityHeaders } from '@/services/identity';
 import type { Topic } from '@/types';
 
 export interface ApiTopicSnapshot {
@@ -40,8 +44,10 @@ export function mapTopic(raw: ApiTopicSnapshot, activeTopicId?: string): Topic {
   };
 }
 
-export async function fetchTopics(userId: string = DEFAULT_USER_ID): Promise<Topic[]> {
-  const res = await fetch(`/api/v1/topics?user_id=${encodeURIComponent(userId)}`);
+export async function fetchTopics(): Promise<Topic[]> {
+  const res = await fetch('/api/v1/topics', {
+    headers: identityHeaders(),
+  });
   if (!res.ok) throw new Error(`fetchTopics failed: ${res.status}`);
   const data: ActiveTopicListResponse = await res.json();
   return data.topics.map((topic) => mapTopic(topic));
@@ -50,6 +56,7 @@ export async function fetchTopics(userId: string = DEFAULT_USER_ID): Promise<Top
 export async function settleTopic(topicId: string): Promise<void> {
   const res = await fetch(`/api/v1/topics/${encodeURIComponent(topicId)}/settle`, {
     method: 'POST',
+    headers: identityHeaders(),
   });
   if (!res.ok) throw new Error(`settleTopic failed: ${res.status}`);
 }
@@ -57,6 +64,7 @@ export async function settleTopic(topicId: string): Promise<void> {
 export async function deleteTopic(topicId: string): Promise<void> {
   const res = await fetch(`/api/v1/topics/${encodeURIComponent(topicId)}`, {
     method: 'DELETE',
+    headers: identityHeaders(),
   });
   if (!res.ok) throw new Error(`deleteTopic failed: ${res.status}`);
 }

@@ -48,6 +48,8 @@ class QdrantStorageAdapter(MidTermStoragePort):
         self,
         identity_scope: IdentityScope,
         memory_id: UUID,
+        *,
+        enforce_actor_visibility: bool = True,
     ) -> Optional[MemoryAtom]:
         key = WorkspaceMemoryKey(
             workspace_identity=identity_scope.workspace_identity,
@@ -60,6 +62,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
             atom,
             workspace_identity=identity_scope.workspace_identity,
             actor_identity=identity_scope.actor_identity,
+            enforce_actor_visibility=enforce_actor_visibility,
         ):
             return None
         return atom
@@ -68,6 +71,8 @@ class QdrantStorageAdapter(MidTermStoragePort):
         self,
         identity_scope: IdentityScope,
         alias: str,
+        *,
+        enforce_actor_visibility: bool = True,
     ) -> Optional[MemoryAtom]:
         query_filter = self._filter_converter.convert(QueryFilters(), identity_scope)
         atom = await self._store.get_memory_by_alias(
@@ -81,6 +86,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
             atom,
             workspace_identity=identity_scope.workspace_identity,
             actor_identity=identity_scope.actor_identity,
+            enforce_actor_visibility=enforce_actor_visibility,
         ):
             return None
         return atom
@@ -147,6 +153,8 @@ class QdrantStorageAdapter(MidTermStoragePort):
         top_k: int,
         filters: Optional[QueryFilters] = None,
         mode: str = "dense",
+        *,
+        enforce_actor_visibility: bool = True,
         score_threshold: float = 0.0,
     ) -> List[Dict[str, Any]]:
         query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
@@ -166,6 +174,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
                 hit["memory"],
                 workspace_identity=identity_scope.workspace_identity,
                 actor_identity=identity_scope.actor_identity,
+                enforce_actor_visibility=enforce_actor_visibility,
             )
         ]
 
@@ -174,6 +183,8 @@ class QdrantStorageAdapter(MidTermStoragePort):
         identity_scope: IdentityScope,
         filters: Optional[QueryFilters] = None,
         limit: int = 100,
+        *,
+        enforce_actor_visibility: bool = True,
     ) -> List[MemoryAtom]:
         query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         memories = await self._store.get_all_memories(
@@ -188,6 +199,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
                 memory,
                 workspace_identity=identity_scope.workspace_identity,
                 actor_identity=identity_scope.actor_identity,
+                enforce_actor_visibility=enforce_actor_visibility,
             )
         ]
 

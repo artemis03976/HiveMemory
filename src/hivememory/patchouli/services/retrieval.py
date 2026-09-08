@@ -129,14 +129,20 @@ class RetrievalFamiliar:
         memory_id: UUID | str,
         *,
         identity_scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
         """
         根据记忆 ID 读取中期记忆原子。
+
+        ``enforce_actor_visibility=False`` 供 owner-management 管理入口使用
+        （D4）：ownership hard boundary 仍生效，跳过 Workspace 内 actor
+        可见性过滤；Agent retrieval 不得使用该开关。
         """
         normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
         return await self._memory_library.mid_term.get(
             require_identity_scope(identity_scope),
             normalized_id,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def list_memories(
@@ -146,9 +152,14 @@ class RetrievalFamiliar:
         query: str | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 20,
+        enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]:
         """
         根据查询和过滤条件列出中期记忆原子。
+
+        ``enforce_actor_visibility=False`` 供 owner-management 管理入口使用
+        （D4）：ownership hard boundary 仍生效，跳过 Workspace 内 actor
+        可见性过滤；Agent retrieval 不得使用该开关。
         """
         identity_scope = require_identity_scope(identity_scope)
         query_filters = self._build_business_filters(filters)
@@ -158,12 +169,14 @@ class RetrievalFamiliar:
                 query=query,
                 top_k=limit,
                 filters=query_filters,
+                enforce_actor_visibility=enforce_actor_visibility,
             )
             return [result["memory"] for result in results if "memory" in result]
         return await self._memory_library.mid_term.scroll(
             identity_scope,
             filters=query_filters,
             limit=limit,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def get_agent_profile(

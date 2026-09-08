@@ -42,7 +42,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         >>> extractor = LLMMemoryExtractor()
         >>> draft = extractor.extract(
         ...     transcript="User: 如何解析日期?\nAssistant: 使用 datetime...",
-        ...     metadata={"user_id": "user123", "session_id": "sess456"}
+        ...     metadata={"mode": "write", "write_content": "如何解析日期"}
         ... )
         >>> print(draft.title)
         "Python 日期解析方法"
@@ -112,11 +112,11 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
         Args:
             transcript: 格式化的对话文本
-            metadata: 元信息字典，包含:
-                - session_id: 会话ID
-                - user_id: 用户ID
-                - agent_id: Agent ID
-                - timestamp: 时间戳 (可选)
+            metadata: 模式相关的生成元信息（身份归属一律由 IdentityScope
+                承载，不在此传递），实际调用包含:
+                - mode: 生成模式（"write" / "update"）
+                - write_content / write_reason: Mode B WRITE 指令内容与理由
+                - instruction / new_content / memory_title 等: Mode C merge 上下文
 
         Returns:
             ExtractedMemoryDraft: 提取的草稿，失败时返回 None
@@ -128,7 +128,8 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             >>> extractor = LLMMemoryExtractor()
             >>> draft = extractor.extract(
             ...     transcript="User: 帮我写快排\nAssistant: 这是代码...",
-            ...     metadata={"user_id": "u1", "session_id": "s1", "agent_id": "a1"}
+            ...     metadata={"mode": "write", "write_content": "帮我写快排",
+            ...               "write_reason": "用户明确要求"}
             ... )
             >>> draft.memory_type
             'CODE_SNIPPET'

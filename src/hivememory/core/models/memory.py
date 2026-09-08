@@ -15,7 +15,12 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from hivememory.core.models.artifact import ArtifactRef, MemoryEventLog
+from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.models.artifact import (
+    ArtifactRef,
+    MemoryEventLog,
+    normalize_contributing_agent_ids,
+)
 from hivememory.core.models.workspace import (
     IdentityScope,
     WorkspaceIdentity,
@@ -57,6 +62,12 @@ class MemoryAccessPolicy(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("Memory read policy target 不能为空")
+        if normalized == SYSTEM_AGENT_ID:
+            # 保留 system 只表示"没有具体 Agent 作为操作来源主体"，
+            # 不是可授权的执行主体，不得成为可见性 target。
+            raise ValueError(
+                "Memory read policy target 不得使用保留 system actor"
+            )
         return normalized
 
     @model_validator(mode="after")
@@ -113,14 +124,29 @@ class VerificationStatus(str, Enum):
 class MetaData(BaseModel):
     """
     元数据 - Memory v2 的唯一归属、来源、读取策略与生命周期信息。
+
+    三个概念的承载字段相互独立，不得互相替代：
+    - 资产归属：``workspace_identity``，单一权威；
+    - 来源记录：``source_agent_id`` / ``source_team_id`` / ``contributing_agent_ids``，
+      只记录 provenance 事实。``source_agent_id`` 允许保留 ``system``
+      （表示"没有具体 Agent 作为操作来源主体"），不参与授权；
+    - 读取策略：``access_policy``，可见性的唯一依据。
     """
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="最后更新时间")
     last_accessed_at: Optional[datetime] = Field(default=None, description="最后访问时间")
 
     workspace_identity: WorkspaceIdentity = Field(description="Memory 的唯一持久化归属")
-    source_agent_id: str = Field(..., min_length=1, description="创建来源 Agent ID")
+    source_agent_id: str = Field(
+        ...,
+        min_length=1,
+        description="操作来源 Agent ID；没有具体 Agent 的操作使用保留 system",
+    )
     source_team_id: Optional[str] = Field(default=None, description="创建来源 Team ID")
+    contributing_agent_ids: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="实际贡献内容的 Agent 集合（去重、保持首次出现顺序、不含 system）",
+    )
 
     # TODO: 会话ID应由artifact保存
     session_id: Optional[str] = Field(default=None, description="原始会话ID")
@@ -146,6 +172,12 @@ class MetaData(BaseModel):
         default=VerificationStatus.UNVERIFIED,
         description="验证状态"
     )
+
+    @field_validator("contributing_agent_ids")
+    @classmethod
+    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """去重并保持首次出现顺序；system 表示无具体 Agent，不是内容贡献者。"""
+        return normalize_contributing_agent_ids(value)
 
     model_config = ConfigDict(
         extra="forbid",

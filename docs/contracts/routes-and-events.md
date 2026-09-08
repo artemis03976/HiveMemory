@@ -4,6 +4,7 @@ status: current
 owner: system
 scope: global-routes-and-events
 code_paths:
+  - src/hivememory/server/deps.py
   - src/hivememory/system/contracts/route_names.py
   - src/hivememory/system/contracts/events.py
   - src/hivememory/system/contracts/runtime_events.py
@@ -14,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-06
 ---
 
 # 公开路由与事件
@@ -181,7 +182,17 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `SystemEvent` / `SystemEventType` 是保留的冻结生命周期模型，当前有契约测试，但实际系统生命周期观测使用 `RuntimeEventType.SYSTEM_*`。在新的生产者出现前，不应把 `SystemEvent` 推断为正在运行的第二套事件流。
 
-## 6. 设计矛盾检查
+## 6. HTTP 入口的身份交接与管理读取边界
+
+HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。
+
+- 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、被动接入）附加具体 `agent_id`；基础选择经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop 请求体不再重复携带身份字段，Topic 的 `?user_id=` 旧 query 与 header 收敛到同一解析规则。
+- `server/deps.py resolve_request_identity_scope` 是唯一解析入口：header 与 body/query 冲突显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 显式失败；非 Agent action 注入保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
+- Chat 必须由具体 Agent 执行；`/chat/stop` 不是 Agent action，服务端用请求方选择完成 owner/workspace 校验后，通过 generation registry 复用创建时冻结的原始 scope 取消，不从当前选择重新构造 scope。
+- 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
+- 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
+
+## 7. 设计矛盾检查
 
 评审新的 route 或 event 时，应检查：
 

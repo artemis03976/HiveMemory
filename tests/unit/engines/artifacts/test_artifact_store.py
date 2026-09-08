@@ -48,7 +48,6 @@ def _make_artifact(
         artifact_id=artifact_id,
         created_at=datetime(2026, 6, 14, 12, 0, 0),
         workspace_identity=workspace,
-        owner_agent_id="agent-1",
         topic_id=topic_id,
         captured_at=datetime(2026, 6, 14, 12, 0, 0),
     )
@@ -167,9 +166,9 @@ async def test_list_by_memory_is_workspace_scoped(store):
             MemoryCreationArtifact(
                 artifact_id=artifact_id,
                 workspace_identity=identity_scope.workspace_identity,
-                owner_agent_id=identity_scope.actor_identity.agent_id,
                 memory_id="memory-1",
                 source_intent="WRITE",
+                source_agent_id=identity_scope.actor_identity.agent_id,
             )
         )
 
@@ -214,15 +213,20 @@ def _write_legacy_artifact(root: Path, *, artifact_id: str, owner_user_id: str) 
 
 
 @pytest.mark.asyncio
-async def test_legacy_artifact_is_visible_only_in_owner_main_workspace(tmp_path):
+async def test_legacy_owner_only_record_is_no_longer_interpreted(tmp_path):
+    """v0.5 owner-only 解释路径已删除：缺完整 Workspace 坐标的记录不可寻址。
+
+    历史记录只能通过迁移工具的 canonical replacement 访问，旧文件保留为
+    审计证据，不再被猜测归属到 owner 的 main_workspace。
+    """
     _write_legacy_artifact(tmp_path, artifact_id="legacy-1", owner_user_id="u1")
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
     main = _identity_scope(user_id="u1")
     isolated = _identity_scope(user_id="u1", workspace_id="isolation_workspace")
 
-    data = await store.get(main, "legacy-1")
-
-    assert data["topic_id"] == "legacy-topic"
+    with pytest.raises(FileNotFoundError, match="artifact not found"):
+        await store.get(main, "legacy-1")
+    assert await store.exists(main, "legacy-1") is False
     assert await store.exists(isolated, "legacy-1") is False
 
 
@@ -280,7 +284,6 @@ async def test_artifact_builder_and_engine_preserve_workspace(tmp_path):
         content_hash=None,
         retrieved_at=datetime(2026, 1, 1),
         workspace_identity=identity_scope.workspace_identity,
-        owner_agent_id=identity_scope.actor_identity.agent_id,
     )
 
     assert ref is not None

@@ -8,8 +8,12 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 
-from hivememory.core.models import ActorIdentity, resolve_default_identity_scope
-from hivememory.server.deps import get_chat_service
+from hivememory.server.deps import (
+    RequestIdentitySelection,
+    get_chat_service,
+    get_identity_selection,
+    resolve_request_identity_scope,
+)
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
 from hivememory.system.application.chat_service import ChatApplicationService
 
@@ -39,16 +43,21 @@ async def _cancel_and_join(task: asyncio.Task) -> None:
 async def chat(
     request: Request,
     body: ChatRequest,
+    selection: RequestIdentitySelection = Depends(get_identity_selection),
     service: ChatApplicationService = Depends(get_chat_service),
 ):
-    """Stream an active chat run over SSE."""
+    """Stream an active chat run over SSE.
+
+    Chat 是 Agent action：body 必须携带具体 ``agent_id``；用户导向基础选择
+    （user_id + workspace_id）只来自统一请求头，在此一次性冻结为
+    IdentityScope。
+    """
     interaction_id = f"interaction_{uuid.uuid4().hex}"
-    identity_scope = resolve_default_identity_scope(
-        ActorIdentity(
-            user_id=body.user_id,
-            agent_id=body.agent_id,
-            session_id=body.session_id,
-        ),
+    identity_scope = resolve_request_identity_scope(
+        selection,
+        require_agent=True,
+        agent_id=body.agent_id,
+        session_id=body.session_id,
     )
 
     async def event_generator():
@@ -128,12 +137,16 @@ async def chat(
 @router.post("/chat/stop")
 async def stop_chat(
     request: StopChatRequest,
+    selection: RequestIdentitySelection = Depends(get_identity_selection),
     service: ChatApplicationService = Depends(get_chat_service),
 ):
-    """Idempotently cancel an active streaming generation."""
-    identity_scope = resolve_default_identity_scope(
-        ActorIdentity(user_id=request.user_id, agent_id=request.agent_id),
-    )
+    """Idempotently cancel an active streaming generation.
+
+    取消不是 Agent action：基础身份选择只来自统一请求头，服务端用其做
+    owner/workspace 校验后，通过 generation registry 复用创建时冻结的
+    原始 scope 执行取消，不从当前选择重新构造可能不同的 scope。
+    """
+    identity_scope = resolve_request_identity_scope(selection)
     result = service.cancel_generation_scoped(
         request.generation_id,
         identity_scope=identity_scope,

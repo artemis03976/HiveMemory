@@ -71,6 +71,21 @@ def test_access_policy_rejects_invalid_target_combinations(
         )
 
 
+@pytest.mark.parametrize("target_field", ["target_agent_id", "target_team_id"])
+def test_access_policy_rejects_system_actor_as_target(target_field: str) -> None:
+    """保留 system 只表示'没有具体 Agent 作为操作来源主体'，不得成为授权目标。"""
+    kwargs = {"target_agent_id": None, "target_team_id": None}
+    kwargs[target_field] = "system"
+
+    if target_field == "target_agent_id":
+        expected_visibility = MemoryVisibility.PRIVATE
+    else:
+        expected_visibility = MemoryVisibility.TEAM
+
+    with pytest.raises(ValidationError, match="system"):
+        MemoryAccessPolicy(visibility=expected_visibility, **kwargs)
+
+
 def test_qdrant_payload_projects_v2_owner_without_legacy_user_authority() -> None:
     """捕获新写入继续双写 legacy user_id、形成第二 owner 权威的缺陷。"""
     payload = _atom().to_qdrant_payload()
@@ -108,3 +123,41 @@ def test_memory_key_construction_rejects_missing_scope() -> None:
         WorkspaceMemoryKey.from_identity_scope(None, uuid4())
 
     assert caught.value.code == "workspace.scope_required"
+
+
+def test_contributing_agent_ids_defaults_to_empty_collection() -> None:
+    """历史记录缺少贡献者集合时按空集合解码，不做回填猜测。"""
+    meta = MetaData(
+        workspace_identity=_workspace(),
+        source_agent_id="source-agent",
+        source_team_id="source-team",
+        access_policy=MemoryAccessPolicy.public(),
+    )
+
+    assert meta.contributing_agent_ids == ()
+
+
+def test_contributing_agent_ids_dedup_keep_order_and_exclude_system() -> None:
+    """贡献者集合按首次出现顺序去重，system 与空白标识不是内容贡献者。"""
+    meta = MetaData(
+        workspace_identity=_workspace(),
+        source_agent_id="system",
+        access_policy=MemoryAccessPolicy.public(),
+        contributing_agent_ids=["b2", " a1 ", "b2", "system", "", "a1"],
+    )
+
+    assert meta.contributing_agent_ids == ("b2", "a1")
+
+
+def test_provenance_fields_do_not_participate_in_access_policy() -> None:
+    """捕获 provenance 字段被当作授权 target 或影响可见性的缺陷。"""
+    meta = MetaData(
+        workspace_identity=_workspace(),
+        source_agent_id="system",
+        access_policy=MemoryAccessPolicy.public(),
+        contributing_agent_ids=("a1",),
+    )
+
+    assert meta.access_policy == MemoryAccessPolicy.public()
+    assert meta.access_policy.target_agent_id is None
+    assert meta.access_policy.target_team_id is None

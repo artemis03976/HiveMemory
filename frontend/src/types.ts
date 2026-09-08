@@ -1,5 +1,6 @@
 export * from './types/agent';
 export * from './types/chat';
+export * from './types/identity';
 export * from './types/kernel';
 export * from './types/memory';
 export * from './types/memoryTask';

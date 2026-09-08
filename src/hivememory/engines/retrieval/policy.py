@@ -38,12 +38,20 @@ def memory_is_readable(
     *,
     workspace_identity: WorkspaceIdentity,
     actor_identity: ActorIdentity,
+    enforce_actor_visibility: bool = True,
 ) -> bool:
-    """按固定顺序组合 ownership hard filter 与 actor read policy。"""
-    return memory_belongs_to_workspace(memory, workspace_identity) and memory_visible_to_actor(
-        memory,
-        actor_identity,
-    )
+    """按固定顺序组合 ownership hard filter 与 actor read policy。
+
+    ``enforce_actor_visibility=False`` 仅用于 owner-management 读取（D4）：
+    ownership hard boundary 仍然生效，Workspace 内 actor 可见性策略被跳过，
+    因此管理入口可以读取该 Workspace 的 PRIVATE/TEAM/PUBLIC 全部 Memory；
+    Agent retrieval 与运行上下文必须保持默认 True。
+    """
+    if not memory_belongs_to_workspace(memory, workspace_identity):
+        return False
+    if not enforce_actor_visibility:
+        return True
+    return memory_visible_to_actor(memory, actor_identity)
 
 
 __all__ = [

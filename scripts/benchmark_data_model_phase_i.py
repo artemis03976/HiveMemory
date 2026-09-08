@@ -140,7 +140,6 @@ def _project_topic(buffer: SemanticBuffer) -> TopicData:
     return TopicData(
         topic_id=buffer.topic_id,
         user_id=buffer.user_id,
-        current_agent_id=buffer.current_agent_id,
         topic_title=buffer.topic_title,
         topic_summary=buffer.topic_summary,
         state_summary=buffer.state_summary,

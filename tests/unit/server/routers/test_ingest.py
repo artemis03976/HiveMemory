@@ -38,6 +38,8 @@ def _body(**overrides):
         "source": SOURCE,
         "external_conversation_id": CONVERSATION,
         "user_id": "u1",
+        # 被动接入是 Agent-bearing action：connector 必须显式声明来源 Agent
+        "agent_id": "a1",
     }
     body.update(overrides)
     return body
@@ -109,6 +111,18 @@ class TestIngestRouter:
         )
         assert response.status_code == 422
 
+    def test_ingest_requires_agent_id(self):
+        """agent_id 无默认值：缺失来源 Agent 的请求在 DTO 层显式失败。"""
+        mock_service = _mock_service()
+        client = TestClient(_create_test_app(mock_service))
+
+        response = client.post(
+            "/api/v1/ingest",
+            json=_body(role="user", content="hello", agent_id=None),
+        )
+        assert response.status_code == 422
+        mock_service.ingest_event.assert_not_called()
+
     def test_ingest_duplicate_status_passthrough(self):
         mock_service = _mock_service(status="duplicate")
         client = TestClient(_create_test_app(mock_service))
@@ -178,6 +192,7 @@ class TestIngestFlushRouter:
                 "source": SOURCE,
                 "external_conversation_id": CONVERSATION,
                 "user_id": "u1",
+                "agent_id": "a1",
             },
         )
         assert response.status_code == 200
@@ -186,3 +201,4 @@ class TestIngestFlushRouter:
         kwargs = mock_service.flush_conversation.call_args.kwargs
         assert kwargs["source"] == SOURCE
         assert kwargs["external_conversation_id"] == CONVERSATION
+        assert kwargs["identity_scope"].actor_identity.agent_id == "a1"

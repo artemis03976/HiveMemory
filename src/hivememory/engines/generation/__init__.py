@@ -30,6 +30,7 @@ from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationOutcome,
     GenerationRequest,
+    MemoryProvenance,
     MergeResult,
 )
 
@@ -57,6 +58,7 @@ __all__ = [
     "ExtractedMemoryDraft",
     "GenerationOutcome",
     "GenerationRequest",
+    "MemoryProvenance",
     "MergeResult",
     # 记忆提取
     "LLMMemoryExtractor",

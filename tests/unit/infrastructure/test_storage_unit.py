@@ -318,7 +318,8 @@ class TestQdrantMemoryStore:
         scroll_filter = call_args.kwargs.get("scroll_filter") or call_args[1].get("scroll_filter")
         # Alias 之外，嵌套 hard filter 同时约束 canonical owner/workspace。
         assert scroll_filter.must[-1].key == "index.alias"
-        current_owner_conditions = scroll_filter.must[0].must[0].should[0].must
+        # legacy OR 分支删除后，ownership 过滤是单一 must 条件组。
+        current_owner_conditions = scroll_filter.must[0].must[0].must
         field_keys = [cond.key for cond in current_owner_conditions]
         assert field_keys == [
             "meta.owner_user_id",

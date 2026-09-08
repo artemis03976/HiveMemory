@@ -26,7 +26,7 @@ from hivememory.core.models import (
     UpdateFocus,
 )
 from hivememory.engines.generation.models import (
-    MergeResult, GenerationRequest, GenerationContext, GenerationTurn,
+    MergeResult, GenerationRequest, GenerationContext, GenerationTurn, MemoryProvenance,
 )
 from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -277,7 +277,7 @@ class TestApplyUpdate:
             mid_term=mock_storage, extractor=MagicMock(), deduplicator=MagicMock(),
         )
 
-        result = engine._apply_update(existing_memory, merge_result)
+        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
 
         assert len(result) == 1
         assert result[0].atom.meta.version == 2  # fixture 起点 version=1
@@ -286,7 +286,7 @@ class TestApplyUpdate:
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
         )
-        result = engine._apply_update(existing_memory, merge_result)
+        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
 
         assert result[0].atom.payload.content == merge_result.new_content
 
@@ -294,7 +294,7 @@ class TestApplyUpdate:
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
         )
-        result = engine._apply_update(existing_memory, merge_result)
+        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
 
         summary = result[0].atom.payload.history_summary
         assert len(summary) == 1
@@ -306,7 +306,7 @@ class TestApplyUpdate:
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
         )
-        result = engine._apply_update(existing_memory, merge_result)
+        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
 
         assert result[0].atom.meta.confidence_score == 1.0
 
@@ -317,11 +317,11 @@ class TestApplyUpdate:
 
         # 第一次更新
         r1 = MergeResult(new_content="v2 content", changelog="first update")
-        engine._apply_update(existing_memory, r1)
+        engine._apply_update(existing_memory, r1, provenance=MemoryProvenance.system_settlement(GenerationContext()))
 
         # 第二次更新
         r2 = MergeResult(new_content="v3 content", changelog="second update")
-        engine._apply_update(existing_memory, r2)
+        engine._apply_update(existing_memory, r2, provenance=MemoryProvenance.system_settlement(GenerationContext()))
 
         assert existing_memory.meta.version == 3
         assert len(existing_memory.payload.history_summary) == 2

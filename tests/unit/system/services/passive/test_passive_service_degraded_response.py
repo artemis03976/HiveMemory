@@ -19,10 +19,15 @@ from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.services.passive.models import PassiveIngressEvent
+from tests.helpers.workspace import make_identity_scope
 
 SOURCE = "unit_service"
 CONVERSATION = "conv-service"
 GATEWAY_SECRET = "gateway internal fallback detail"
+
+# connector 侧身份选择在 server 边界冻结为 scope；测试用同一构造方式
+def _u1_scope():
+    return make_identity_scope(user_id="u1", agent_id="a1")
 
 
 @pytest.fixture
@@ -86,8 +91,7 @@ async def test_degraded_user_response_is_accepted_without_memory(config) -> None
 
     response = await service.ingest_event(
         _event("user", "u1"),
-        user_id="u1",
-        agent_id="a1",
+        identity_scope=_u1_scope(),
     )
 
     assert response["status"] == "accepted"
@@ -101,8 +105,7 @@ async def test_degraded_response_leaks_no_internal_detail(config) -> None:
 
     response = await service.ingest_event(
         _event("user", "u1"),
-        user_id="u1",
-        agent_id="a1",
+        identity_scope=_u1_scope(),
     )
 
     serialized = repr(response)
@@ -116,13 +119,12 @@ async def test_degraded_turn_is_still_submitted_to_patchouli(config) -> None:
     """§6：降级后原始交互仍在 turn 完成后提交。"""
     service, _, submitted = _build(config, gateway_error=TimeoutError(GATEWAY_SECRET))
 
-    await service.ingest_event(_event("user", "u1"), user_id="u1", agent_id="a1")
-    await service.ingest_event(_event("assistant", "a1"), user_id="u1", agent_id="a1")
+    await service.ingest_event(_event("user", "u1"), identity_scope=_u1_scope())
+    await service.ingest_event(_event("assistant", "a1"), identity_scope=_u1_scope())
     flushed = await service.flush_conversation(
         source=SOURCE,
         external_conversation_id=CONVERSATION,
-        user_id="u1",
-        agent_id="a1",
+        identity_scope=_u1_scope(),
     )
 
     assert flushed is True
@@ -138,7 +140,7 @@ async def test_degraded_turn_is_still_submitted_to_patchouli(config) -> None:
 async def test_degradation_is_observable_via_sink(config) -> None:
     service, sink, _ = _build(config, gateway_error=TimeoutError(GATEWAY_SECRET))
 
-    await service.ingest_event(_event("user", "u1"), user_id="u1", agent_id="a1")
+    await service.ingest_event(_event("user", "u1"), identity_scope=_u1_scope())
 
     degraded = [event for event in sink.events if event.data.get("degraded") is True]
     assert degraded, "降级应通过 RuntimeEventSink 可观测"

@@ -136,9 +136,10 @@ class TestChatServiceCancelPath:
         service = ChatApplicationService(global_bus=bus)
 
         events = []
-        async for event in service.chat_stream(
+        async for event in service.chat_stream_scoped(
             user_message="hello",
-            user_id="u1",
+            identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+            interaction_id="interaction-cancel-1",
         ):
             events.append(event)
 

@@ -175,7 +175,12 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
 
     @staticmethod
     def _workspace_from_data(data: dict[str, Any]) -> WorkspaceIdentity:
-        """把新格式、扁平格式和 legacy owner 字段归一为唯一 Workspace。"""
+        """把新格式（嵌套归属）和完整扁平投影归一为唯一 Workspace。
+
+        v0.5 时代"仅凭 owner 字段兼容到 main_workspace"的解释路径已随
+        legacy 数据迁移完成而删除；缺少完整 Workspace 坐标的记录 fail
+        closed（旧文件保留为审计证据，只能通过迁移报告映射访问）。
+        """
         nested_present = "workspace_identity" in data
         nested = data.get("workspace_identity")
         flat_keys = {"workspace_key", "workspace_id"}
@@ -212,13 +217,6 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                 workspace_id=data["workspace_id"],
             )
 
-        if isinstance(owner, str) and owner.strip():
-            # v0.5 文件没有 Workspace 坐标，只能兼容到 owner 的 main_workspace。
-            return WorkspaceIdentity(
-                owner_user_id=owner,
-                workspace_key="main_workspace",
-                workspace_id="main_workspace",
-            )
         raise ValueError("Artifact 缺少完整 Workspace 归属")
 
     def _scan_legacy_once_locked(self) -> None:

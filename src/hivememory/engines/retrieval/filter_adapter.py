@@ -12,13 +12,10 @@ from typing import Any, List, TYPE_CHECKING
 from qdrant_client.models import (
     Filter,
     FieldCondition,
-    IsEmptyCondition,
     MatchValue,
-    PayloadField,
 )
 
 from hivememory.core.models import (
-    MAIN_WORKSPACE_ID,
     IdentityScope,
     require_identity_scope,
 )
@@ -56,8 +53,7 @@ class QdrantFilterConverter(FilterConverter):
     """
     Qdrant 向量数据库的过滤器转换器
 
-    先建立 owner/workspace hard boundary，再应用 v2 actor read policy；v1
-    compatibility branch 只允许对应用户的 main_workspace。
+    先建立 owner/workspace hard boundary，再应用 Memory v2 的 actor 读取策略。
     """
 
     def convert(
@@ -69,10 +65,10 @@ class QdrantFilterConverter(FilterConverter):
         转换为 Qdrant Filter 对象
 
         构建逻辑:
-        1. must 条件：Workspace 所有权 hard boundary；main Workspace 额外受控读取
-           legacy 记录；随后叠加 Memory v2 的 actor 读取策略。
-        2. 业务过滤条件：按 memory_type、source_agent_id、min_confidence 等字段
-           进一步缩小候选集合。legacy ``WORKSPACE`` 仅在兼容分支中解释为团队可见。
+        1. must 条件：Workspace 所有权 hard boundary，随后叠加 Memory v2 的
+           actor 读取策略。
+        2. 业务过滤条件：按 memory_type、来源 Agent（匹配贡献者集合）、
+           min_confidence 等字段进一步缩小候选集合。
 
         Args:
             filters: 查询过滤器数据模型
@@ -91,12 +87,7 @@ class QdrantFilterConverter(FilterConverter):
             )
 
         if filters.source_agent_id is not None:
-            must_conditions.append(
-                FieldCondition(
-                    key="meta.source_agent_id",
-                    match=MatchValue(value=filters.source_agent_id),
-                )
-            )
+            must_conditions.append(self._source_agent_filter(filters.source_agent_id))
 
         if filters.min_confidence > 0:
             must_conditions.append(
@@ -107,9 +98,32 @@ class QdrantFilterConverter(FilterConverter):
         return Filter(must=must_conditions)
 
     @staticmethod
+    def _source_agent_filter(agent_id: str) -> Filter:
+        """按贡献者集合匹配来源 Agent 过滤条件（OR 语义）。
+
+        v2 记录的操作来源可能是保留 ``system``（settle），实际参与内容的
+        Agent 记录在 ``meta.contributing_agent_ids``，据此可检出"参与过但未
+        收尾"的 Agent；``meta.source_agent_id`` 分支覆盖没有贡献者集合的
+        记录。该过滤是业务条件，与授权无关。
+        """
+        return Filter(
+            should=[
+                FieldCondition(
+                    key="meta.contributing_agent_ids",
+                    match=MatchValue(value=agent_id),
+                ),
+                FieldCondition(
+                    key="meta.source_agent_id",
+                    match=MatchValue(value=agent_id),
+                ),
+            ]
+        )
+
+    @staticmethod
     def _ownership_filter(identity_scope: IdentityScope) -> Filter:
+        """Workspace 所有权 hard boundary；归属只由 canonical 投影字段表达。"""
         workspace = identity_scope.workspace_identity
-        current = Filter(
+        return Filter(
             must=[
                 FieldCondition(
                     key="meta.owner_user_id",
@@ -125,35 +139,13 @@ class QdrantFilterConverter(FilterConverter):
                 ),
             ]
         )
-        branches = [current]
-        if workspace.workspace_id == MAIN_WORKSPACE_ID:
-            branches.append(
-                Filter(
-                    must=[
-                        FieldCondition(
-                            key="meta.user_id",
-                            match=MatchValue(value=workspace.owner_user_id),
-                        ),
-                        *[
-                            IsEmptyCondition(is_empty=PayloadField(key=f"meta.{field}"))
-                            for field in (
-                                "owner_user_id",
-                                "workspace_key",
-                                "workspace_id",
-                            )
-                        ],
-                    ]
-                )
-            )
-        return Filter(should=branches)
 
     @staticmethod
     def _read_policy_filter(identity_scope: IdentityScope) -> Filter:
         actor = identity_scope.actor_identity
-        v2_branches = [
+        branches = [
             Filter(
                 must=[
-                    FieldCondition(key="schema_version", match=MatchValue(value=2)),
                     FieldCondition(
                         key="meta.access_policy.visibility",
                         match=MatchValue(value="PUBLIC"),
@@ -162,10 +154,9 @@ class QdrantFilterConverter(FilterConverter):
             )
         ]
         if actor.agent_id:
-            v2_branches.append(
+            branches.append(
                 Filter(
                     must=[
-                        FieldCondition(key="schema_version", match=MatchValue(value=2)),
                         FieldCondition(
                             key="meta.access_policy.visibility",
                             match=MatchValue(value="PRIVATE"),
@@ -178,10 +169,9 @@ class QdrantFilterConverter(FilterConverter):
                 )
             )
         if actor.team_id:
-            v2_branches.append(
+            branches.append(
                 Filter(
                     must=[
-                        FieldCondition(key="schema_version", match=MatchValue(value=2)),
                         FieldCondition(
                             key="meta.access_policy.visibility",
                             match=MatchValue(value="TEAM"),
@@ -193,52 +183,7 @@ class QdrantFilterConverter(FilterConverter):
                     ]
                 )
             )
-
-        legacy_version = IsEmptyCondition(is_empty=PayloadField(key="schema_version"))
-        legacy_branches = [
-            Filter(
-                must=[
-                    legacy_version,
-                    FieldCondition(
-                        key="meta.visibility",
-                        match=MatchValue(value="PUBLIC"),
-                    ),
-                ]
-            )
-        ]
-        if actor.agent_id:
-            legacy_branches.append(
-                Filter(
-                    must=[
-                        legacy_version,
-                        FieldCondition(
-                            key="meta.visibility",
-                            match=MatchValue(value="PRIVATE"),
-                        ),
-                        FieldCondition(
-                            key="meta.source_agent_id",
-                            match=MatchValue(value=actor.agent_id),
-                        ),
-                    ]
-                )
-            )
-        if actor.team_id:
-            legacy_branches.append(
-                Filter(
-                    must=[
-                        legacy_version,
-                        FieldCondition(
-                            key="meta.visibility",
-                            match=MatchValue(value="WORKSPACE"),
-                        ),
-                        FieldCondition(
-                            key="meta.team_id",
-                            match=MatchValue(value=actor.team_id),
-                        ),
-                    ]
-                )
-            )
-        return Filter(should=[*v2_branches, *legacy_branches])
+        return Filter(should=branches)
 
 
 # ========== 导出列表 ==========

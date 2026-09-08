@@ -95,6 +95,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
+    MemoryProvenance,
     MergeResult,
 )
 
@@ -737,6 +738,7 @@ class TestMemoryMerger:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
             dedup_draft=new_draft,
         )
         merged = result[0].atom
@@ -787,6 +789,7 @@ class TestMemoryMerger:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
             dedup_draft=new_draft,
         )[0].atom
 
@@ -852,6 +855,7 @@ class TestMemoryMerger:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
             dedup_draft=new_draft,
         )[0].atom
 
@@ -986,6 +990,7 @@ class TestSchemaValidation:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
             dedup_draft=new_draft,
         )[0].atom
 

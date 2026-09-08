@@ -4,7 +4,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hivememory.server.deps import get_memory_service, get_user_id
+from hivememory.core.models import IdentityScope
+from hivememory.server.deps import get_identity_scope, get_memory_service
 from hivememory.server.models.memory import (
     MemoryCreateRequest,
     MemoryFeedbackRequest,
@@ -26,18 +27,18 @@ router = APIRouter(tags=["memories"])
 async def create_memory(
     body: MemoryCreateRequest,
     service: MemoryApplicationService = Depends(get_memory_service),
-    user_id: str = Depends(get_user_id),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
-    """创建新的记忆"""
+    """创建新的记忆（管理用例，actor 为保留 system）"""
     try:
         atom = await service.create_memory(
+            identity_scope=identity_scope,
             title=body.title,
             summary=body.summary,
             content=body.content,
             memory_type=body.memory_type,
             tags=body.tags,
             alias=body.alias,
-            user_id=user_id,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -47,15 +48,15 @@ async def create_memory(
 @router.get("/memories", response_model=MemoryListResponse)
 async def list_memories(
     query: str = Query(default=None, description="语义搜索查询"),
-    user_id: str = Depends(get_user_id),
     memory_type: str = Query(default=None, description="按记忆类型过滤"),
     limit: int = Query(default=20, le=100, description="最大返回数量"),
     service: MemoryApplicationService = Depends(get_memory_service),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
-    """检索记忆 — 支持语义搜索和过滤"""
+    """检索记忆 — 支持语义搜索和过滤（owner-management 语义，不做 Agent 可见性过滤）"""
     atoms = await service.list_memories(
+        identity_scope=identity_scope,
         query=query,
-        user_id=user_id,
         memory_type=memory_type,
         limit=limit,
     )
@@ -67,7 +68,7 @@ async def list_memories(
 async def get_memory(
     memory_id: str,
     service: MemoryApplicationService = Depends(get_memory_service),
-    user_id: str = Depends(get_user_id),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
     """获取单条记忆详情"""
     try:
@@ -76,7 +77,7 @@ async def get_memory(
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
     try:
-        atom = await service.get_memory(uid, user_id=user_id)
+        atom = await service.get_memory(uid, identity_scope=identity_scope)
     except MemoryNotFoundError:
         raise HTTPException(status_code=404, detail="记忆不存在")
     return MemoryResponse.from_atom(atom)
@@ -87,7 +88,7 @@ async def update_memory(
     memory_id: str,
     body: MemoryUpdateRequest,
     service: MemoryApplicationService = Depends(get_memory_service),
-    user_id: str = Depends(get_user_id),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
     """更新记忆的可编辑字段"""
     try:
@@ -98,7 +99,7 @@ async def update_memory(
     try:
         atom = await service.update_memory(
             uid,
-            user_id=user_id,
+            identity_scope=identity_scope,
             title=body.title,
             summary=body.summary,
             content=body.content,
@@ -116,7 +117,7 @@ async def record_memory_feedback(
     memory_id: str,
     body: MemoryFeedbackRequest,
     service: MemoryApplicationService = Depends(get_memory_service),
-    user_id: str = Depends(get_user_id),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
     """Record explicit user feedback for a memory."""
     try:
@@ -127,7 +128,7 @@ async def record_memory_feedback(
     try:
         result = await service.record_feedback(
             uid,
-            user_id=user_id,
+            identity_scope=identity_scope,
             positive=body.positive,
             source=body.source,
         )
@@ -156,7 +157,7 @@ async def record_memory_feedback(
 async def delete_memory(
     memory_id: str,
     service: MemoryApplicationService = Depends(get_memory_service),
-    user_id: str = Depends(get_user_id),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
     """删除记忆"""
     try:
@@ -164,7 +165,7 @@ async def delete_memory(
     except ValueError:
         raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
 
-    success = await service.delete_memory(uid, user_id=user_id)
+    success = await service.delete_memory(uid, identity_scope=identity_scope)
     if not success:
         raise HTTPException(status_code=404, detail="记忆不存在或删除失败")
 

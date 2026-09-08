@@ -3,8 +3,6 @@
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_USER_ID
-
 
 class GenerationOptions(BaseModel):
     model: str | None = Field(default=None, min_length=1, description="模型名称")
@@ -14,18 +12,30 @@ class GenerationOptions(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    """Chat 请求体。
+
+    Chat 是 Agent action：``agent_id`` 必填且必须为具体 Agent，不得回退到
+    保留 ``system`` actor。用户导向基础选择（``user_id + workspace_id``）
+    一律由统一请求头（``x-user-id`` / ``x-workspace-id``）承载，body 不再
+    重复传递，避免同一请求出现两种身份事实。
+    """
+
     message: str = Field(..., description="用户消息")
-    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
+    agent_id: str = Field(..., description="执行本次对话的具体 Agent ID")
     session_id: str | None = Field(default=None, description="会话 ID")
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
     generation_options: GenerationOptions | None = Field(default=None, description="本次请求的生成参数覆盖")
 
 
 class StopChatRequest(BaseModel):
+    """Stop 请求体。
+
+    取消不是 Agent action：不携带 agent_id，取消与事件发布使用 generation
+    创建时冻结在 registry 里的原始 scope。基础身份选择同样只来自统一请求头，
+    由 server 用于 owner/workspace 校验。
+    """
+
     generation_id: str = Field(..., description="要停止的生成任务 ID")
-    user_id: str = Field(default=DEFAULT_USER_ID, description="运行归属用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="发起停止请求的 Agent ID")
 
 
 # ========== SSE 事件数据模型 ==========

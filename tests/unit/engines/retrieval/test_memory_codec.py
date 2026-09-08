@@ -1,73 +1,86 @@
-"""Memory v1 compatibility decoder 与 v2 fail-closed 行为。"""
+"""Memory v2 受控解码与 fail-closed 行为（legacy v1 解释分支已删除）。"""
 
-from copy import deepcopy
 from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import MemoryVisibility, WorkspaceIdentity
 from hivememory.engines.retrieval.memory_codec import (
     MemoryDecodeError,
     decode_memory_payload,
 )
 
 
-def _legacy_payload(*, visibility: str = "PUBLIC", team_id: str | None = None) -> dict:
+def _v2_payload() -> dict:
+    """schema v2 payload 模板（嵌套归属 + 完整 Workspace 投影，同 to_qdrant_payload）。"""
     return {
+        "schema_version": 2,
         "id": str(uuid4()),
         "meta": {
             "source_agent_id": "source-agent",
-            "user_id": "u1",
-            "team_id": team_id,
-            "visibility": visibility,
+            "workspace_identity": {
+                "owner_user_id": "u1",
+                "workspace_key": "main_workspace",
+                "workspace_id": "main_workspace",
+            },
+            "owner_user_id": "u1",
+            "workspace_key": "main_workspace",
+            "workspace_id": "main_workspace",
+            "access_policy": {"visibility": "PUBLIC"},
+            "created_at": "2026-09-06T00:00:00",
+            "version": 1,
         },
         "index": {
-            "title": "Legacy memory",
-            "summary": "Legacy record used to verify safe compatibility read.",
+            "title": "Memory",
+            "summary": "Canonical v2 record used to verify decoding.",
             "memory_type": "FACT",
             "tags": [],
         },
-        "payload": {"content": "legacy content"},
+        "payload": {"content": "content"},
         "relations": {},
     }
 
 
-def test_v1_private_normalizes_owner_provenance_and_target_separately() -> None:
-    """捕获 legacy PRIVATE 把 source 字段继续当作 v2 ACL 权威的缺陷。"""
-    atom = decode_memory_payload(_legacy_payload(visibility="PRIVATE"))
+def test_v2_payload_decodes_to_canonical_atom() -> None:
+    """canonical v2 记录解码为领域对象，缺贡献者集合按空集合处理。"""
+    atom = decode_memory_payload(_v2_payload())
 
     assert atom.schema_version == 2
     assert atom.workspace_identity.workspace_id == "main_workspace"
     assert atom.meta.source_agent_id == "source-agent"
-    assert atom.meta.access_policy.visibility == MemoryVisibility.PRIVATE
-    assert atom.meta.access_policy.target_agent_id == "source-agent"
+    assert atom.meta.contributing_agent_ids == ()
 
 
-def test_v1_workspace_normalizes_to_team_without_linking_source_and_target() -> None:
-    """捕获旧 WORKSPACE 被误解释为新 Workspace-wide visibility 的缺陷。"""
-    atom = decode_memory_payload(
-        _legacy_payload(visibility="WORKSPACE", team_id="team-a")
-    )
+def test_v2_contributor_list_decodes_to_normalized_tuple() -> None:
+    """贡献者集合从存储数组解码为去重、去 system、保持顺序的元组。"""
+    payload = _v2_payload()
+    payload["meta"]["contributing_agent_ids"] = ["b2", "a1", "b2", "system"]
 
-    assert atom.meta.source_team_id == "team-a"
-    assert atom.meta.access_policy.visibility == MemoryVisibility.TEAM
-    assert atom.meta.access_policy.target_team_id == "team-a"
+    atom = decode_memory_payload(payload)
+
+    assert atom.meta.contributing_agent_ids == ("b2", "a1")
 
 
-def test_v1_partial_workspace_projection_is_rejected() -> None:
-    """捕获部分 owner/workspace 字段被 active Workspace 猜测补齐的缺陷。"""
-    payload = _legacy_payload()
-    payload["meta"]["owner_user_id"] = "u1"
+def test_missing_schema_version_is_rejected() -> None:
+    """legacy v1 解释分支已删除：缺少 schema_version 的记录 fail closed。"""
+    payload = _v2_payload()
+    payload.pop("schema_version")
 
-    with pytest.raises(MemoryDecodeError, match="部分 Workspace 投影"):
+    with pytest.raises(MemoryDecodeError, match="schema_version"):
+        decode_memory_payload(payload)
+
+
+def test_unknown_schema_version_is_rejected() -> None:
+    """捕获未知版本被静默按 v1 或 v2 读取的缺陷。"""
+    payload = _v2_payload()
+    payload["schema_version"] = 7
+
+    with pytest.raises(MemoryDecodeError, match="schema_version"):
         decode_memory_payload(payload)
 
 
 def test_v2_projection_mismatch_is_rejected() -> None:
     """捕获 Qdrant 平铺索引字段覆盖领域 canonical ownership 的缺陷。"""
-    legacy = _legacy_payload()
-    atom = decode_memory_payload(legacy)
-    payload = atom.to_qdrant_payload()
+    payload = _v2_payload()
     payload["meta"]["workspace_id"] = "isolation_workspace"
     payload["meta"]["workspace_key"] = "isolation_workspace"
 
@@ -75,28 +88,28 @@ def test_v2_projection_mismatch_is_rejected() -> None:
         decode_memory_payload(payload)
 
 
-def test_unknown_schema_version_is_rejected() -> None:
-    """捕获未知版本被静默按 v1 或 v2 读取的缺陷。"""
-    payload = deepcopy(_legacy_payload())
-    payload["schema_version"] = 7
+def test_v2_nested_ownership_conflicting_with_projection_is_rejected() -> None:
+    """嵌套归属与存储索引投影冲突时拒绝读取。"""
+    payload = _v2_payload()
+    payload["meta"]["workspace_identity"]["owner_user_id"] = "someone-else"
 
-    with pytest.raises(MemoryDecodeError, match="schema_version"):
+    with pytest.raises(MemoryDecodeError, match="不一致"):
         decode_memory_payload(payload)
 
 
-def test_v1_workspace_without_team_target_is_rejected() -> None:
-    """捕获 legacy WORKSPACE 缺 team_id 时制造默认 target 的缺陷。"""
-    with pytest.raises(MemoryDecodeError, match="缺少 team_id"):
-        decode_memory_payload(_legacy_payload(visibility="WORKSPACE"))
+def test_v2_partial_projection_is_rejected() -> None:
+    """部分 Workspace 投影拒绝猜测补齐。"""
+    payload = _v2_payload()
+    payload["meta"].pop("workspace_key")
+
+    with pytest.raises(MemoryDecodeError, match="部分 Workspace 投影"):
+        decode_memory_payload(payload)
 
 
-def test_legacy_owner_only_belongs_to_corresponding_main_workspace() -> None:
-    """捕获 legacy user_id 被解释为任意当前 Workspace owner 的缺陷。"""
-    atom = decode_memory_payload(_legacy_payload())
-    isolation = WorkspaceIdentity(
-        owner_user_id="u1",
-        workspace_key="isolation_workspace",
-        workspace_id="isolation_workspace",
-    )
+def test_v2_invalid_policy_target_is_rejected() -> None:
+    """PRIVATE 策略缺少合法 target 时 fail closed，不回落默认值。"""
+    payload = _v2_payload()
+    payload["meta"]["access_policy"] = {"visibility": "PRIVATE"}
 
-    assert atom.workspace_identity != isolation
+    with pytest.raises(MemoryDecodeError, match="无效的 Memory schema v2"):
+        decode_memory_payload(payload)

@@ -50,6 +50,51 @@ def _private_memory() -> MemoryAtom:
     )
 
 
+class _SingleMemoryStore(_LeakySearchStore):
+    """在 leaky store 之上补充按键读取，覆盖 get 路径。"""
+
+    async def get_memory(self, *_args, **_kwargs):
+        return self._memory
+
+
+@pytest.mark.asyncio
+async def test_management_read_returns_private_memory_within_owning_workspace() -> None:
+    """D4：管理读取（enforce_actor_visibility=False）在 ownership 通过后返回 PRIVATE Memory。"""
+    private_memory = _private_memory()
+    reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
+    adapter = QdrantStorageAdapter(_SingleMemoryStore(private_memory))
+
+    memories = await adapter.scroll(reader_access, enforce_actor_visibility=False)
+    hits = await adapter.search(
+        reader_access, query="private", top_k=1, enforce_actor_visibility=False
+    )
+    fetched = await adapter.get(
+        reader_access, private_memory.id, enforce_actor_visibility=False
+    )
+
+    assert memories == [private_memory]
+    assert [hit["memory"] for hit in hits] == [private_memory]
+    assert fetched == private_memory
+
+
+@pytest.mark.asyncio
+async def test_management_read_still_rejects_cross_workspace_memory() -> None:
+    """关闭 actor 可见性过滤不能绕过 ownership hard boundary。"""
+    other_workspace_access = make_identity_scope(
+        user_id="u1", agent_id="other-agent", workspace_id="isolation_workspace"
+    )
+    adapter = QdrantStorageAdapter(_SingleMemoryStore(_private_memory()))
+
+    assert await adapter.scroll(
+        other_workspace_access, enforce_actor_visibility=False
+    ) == []
+    assert await adapter.get(
+        other_workspace_access,
+        _private_memory().id,
+        enforce_actor_visibility=False,
+    ) is None
+
+
 @pytest.mark.asyncio
 async def test_search_discards_private_hit_not_authorized_for_actor() -> None:
     """捕获 Qdrant 预过滤失效后 PRIVATE Memory 直接泄漏给错误 Agent 的缺陷。"""

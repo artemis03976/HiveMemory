@@ -274,8 +274,9 @@ class PatchouliService:
             "topic_id": topic_id,
             "agent_id": prepared_run.agent_id,
         }
-        if prepared_run.identity.session_id:
-            correlation["session_id"] = prepared_run.identity.session_id
+        prepared_actor = prepared_run.identity_scope.actor_identity
+        if prepared_actor.session_id:
+            correlation["session_id"] = prepared_actor.session_id
 
         try:
             receipt = await self._interaction_queue.submit(
