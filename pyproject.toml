@@ -36,6 +36,7 @@ dependencies = [
     "rich>=13.0.0",
     "httpx>=0.26.0",
     "sse-starlette>=1.6.0",
+    "defusedxml>=0.7.1,<0.8",
 ]
 
 [project.optional-dependencies]
