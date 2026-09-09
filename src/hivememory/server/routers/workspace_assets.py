@@ -9,7 +9,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 
-from hivememory.core.errors import AssetOperationConflictError, AssetRemovedError
+from hivememory.core.errors import (
+    AssetNotFoundError,
+    AssetOperationConflictError,
+    AssetRemovedError,
+    StaleAssetResultError,
+)
 from hivememory.core.models import IdentityScope
 from hivememory.server.deps import (
     RequestIdentitySelection,
@@ -144,6 +149,17 @@ async def upload_workspace_asset(
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail="原上传操作对应的资产已被移除，请重新上传",
+        ) from exc
+    except StaleAssetResultError as exc:
+        # complete/fail 与 remove 等竞态中已有有效提交决定终态；结束本次请求。
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="上传结果提交冲突，请重新上传",
+        ) from exc
+    except AssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="附件不存在或已失效",
         ) from exc
     except AssetOperationConflictError as exc:
         if exc.details.get("reason") == "store_closed":

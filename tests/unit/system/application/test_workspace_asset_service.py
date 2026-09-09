@@ -1,13 +1,19 @@
-"""附件上传应用服务的单元测试。
+"""附件上传与请求内解析应用服务的单元测试。
 
 被测对象：``system/application/workspace_asset_service.py`` 的校验、受限
-读取、哈希计算与上传专用 Store 命令交接；协作者使用真实的
-``InMemoryWorkspaceAssetStore`` 轻量实现。
+读取、哈希计算、上传专用 Store 命令交接与请求内解析接纳；协作者使用
+真实的 ``InMemoryWorkspaceAssetStore`` 轻量实现，竞态与取消场景使用可控
+解析协议替身与事件屏障。
 """
+
 
 import pytest
 
-from hivememory.core.models import AssetRepresentationKind, WorkspaceAssetState
+from hivememory.core.models import (
+    AssetRepresentationKind,
+    AssetRepresentationState,
+    WorkspaceAssetState,
+)
 from hivememory.system.application.workspace_asset_service import (
     UPLOAD_PRODUCER,
     UPLOAD_PRODUCER_VERSION,
@@ -18,7 +24,9 @@ from hivememory.system.application.workspace_asset_service import (
 )
 from hivememory.system.config import AttachmentsConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from hivememory.system.services.attachments import UnsupportedAttachmentFormatError
+from hivememory.system.services.attachments import (
+    UnsupportedAttachmentFormatError,
+)
 from tests.helpers.workspace import make_identity_scope
 
 #: 独立确认的期望值（不调用生产逻辑计算）。
@@ -64,24 +72,29 @@ async def test_upload_registers_document_asset_with_actual_bytes_and_hash() -> N
     assert receipt.created is True
     asset = receipt.handle.asset
     raw = asset.representations[0]
+    extracted = asset.representations[1]
     assert (
         asset.kind,
         asset.display_name,
         asset.media_type,
         asset.size_bytes,
-        asset.state,
         asset.required_representation_kind,
     ) == (
         "document",
         "hello.txt",
         "text/plain",
         11,
-        WorkspaceAssetState.PROCESSING,
         AssetRepresentationKind.EXTRACTED_TEXT,
     )
+    # W1-C：同一请求内完成解析，RAW 保留原 bytes，required text 进入终态。
     assert raw.content_object == b"hello world"
     assert raw.content_hash == EXPECTED_SHA256_HELLO_WORLD
     assert (raw.producer, raw.producer_version) == (UPLOAD_PRODUCER, UPLOAD_PRODUCER_VERSION)
+    assert (asset.state, extracted.state) == (
+        WorkspaceAssetState.READY,
+        AssetRepresentationState.READY,
+    )
+    assert extracted.content_object["text"] == "hello world"
 
 
 @pytest.mark.asyncio
@@ -295,4 +308,5 @@ async def test_upload_replay_reuses_registered_asset_without_second_raw() -> Non
     assert replay.handle == first.handle
     assets = store.list_workspace_assets(scope)
     assert len(assets) == 1
-    assert len(assets[0].asset.representations) == 1
+    # 重放命中终态：不重复 register/start/parse，只有 RAW + EXTRACTED_TEXT 各一个。
+    assert len(assets[0].asset.representations) == 2

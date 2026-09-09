@@ -373,9 +373,7 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = ChatApplicationService(bus)
 
-    task = asyncio.create_task(
-        _collect_stream(service, generation_id="gen-stream-cancel")
-    )
+    task = asyncio.create_task(_collect_stream(service, generation_id="gen-stream-cancel"))
     await pull_started.wait()
     stop_result = service.cancel_generation_scoped("gen-stream-cancel", identity_scope=_u1_scope())
     events = await task

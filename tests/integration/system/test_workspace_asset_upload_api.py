@@ -1,17 +1,17 @@
-"""附件上传公开入口的集成测试：HTTP 路由 + 上传应用服务 + 真实 Store。
+"""附件上传公开入口的集成测试：HTTP 路由 + 上传应用服务 + 真实 Store + 真实 parser。
 
-覆盖计划 A 门与 A7 验收：HTTP 上传结果与同一 Workspace 的 Store 快照及
-资产列表一致；RAW-only 文档资产被 reader 拒绝；幂等重放、Workspace 隔离
-与各错误路径都有稳定的 HTTP 状态。
+覆盖计划 A 门/B/C 门验收：HTTP 上传结果与同一 Workspace 的 Store 快照及
+资产列表一致；上传响应在请求内到达 READY/FAILED 终态；幂等重放不重复
+解析；Workspace 隔离与各错误路径都有稳定的 HTTP 状态。
 """
 
 import io
+import zipfile
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hivememory.core.errors import AssetNotReadyError
 from hivememory.core.models import WorkspaceAssetRef
 from hivememory.server import deps
 from hivememory.server.routers.workspace_assets import router
@@ -44,6 +44,41 @@ def _upload_files(
     )
 
 
+def _make_docx(body_xml: str) -> bytes:
+    """构造最小有效 DOCX 包（真实 parser 转换链路使用）。"""
+    namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                '<Default Extension="xml" ContentType="application/xml"/>'
+                '<Override PartName="/word/document.xml" ContentType='
+                '"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'
+            ),
+        )
+        archive.writestr(
+            "_rels/.rels",
+            (
+                '<?xml version="1.0"?><Relationships '
+                'xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type='
+                '"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                'Target="word/document.xml"/></Relationships>'
+            ),
+        )
+        archive.writestr(
+            "word/document.xml",
+            (
+                f'<?xml version="1.0"?><w:document xmlns:w="{namespace}">'
+                f"<w:body>{body_xml}</w:body></w:document>"
+            ),
+        )
+    return buffer.getvalue()
+
+
 @pytest.fixture
 def upload_stack():
     """构造真实 router + 应用服务 + Store 的测试应用。"""
@@ -55,7 +90,7 @@ def upload_stack():
     return TestClient(app), store
 
 
-def test_upload_returns_201_with_safe_summary_matching_store_snapshot(upload_stack) -> None:
+def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload_stack) -> None:
     """捕获 HTTP 摘要与 Store 快照漂移、或响应泄露内部字段。"""
     client, store = upload_stack
 
@@ -81,13 +116,18 @@ def test_upload_returns_201_with_safe_summary_matching_store_snapshot(upload_sta
         body["media_type"],
         body["size_bytes"],
         body["state"],
-    ) == ("document", "notes.md", "text/markdown", 8, "processing")
+    ) == ("document", "notes.md", "text/markdown", 8, "ready")
     raw = body["raw_representation"]
     assert (raw["kind"], raw["revision"], raw["state"]) == ("raw", 1, "ready")
     assert raw["content_hash"] == "9e8b62f81ea5c66fa06ee53da032751386b37702153070c0e14dd1d316282fa7"
     assert (raw["producer"], raw["producer_version"]) == ("upload", "1")
-    # RAW 不是 required representation，文档资产在 required text 生成前保持 PROCESSING
-    assert body["required_representation"] is None
+    # W1-C：请求内解析完成，required representation 与 asset 同响应到达终态。
+    required = body["required_representation"]
+    assert (required["kind"], required["revision"], required["state"]) == (
+        "extracted_text",
+        1,
+        "ready",
+    )
     assert body["safe_error"] is None
 
     # A 门：HTTP 结果与同一 Workspace 的 Store 快照及资产列表一致。
@@ -96,13 +136,72 @@ def test_upload_returns_201_with_safe_summary_matching_store_snapshot(upload_sta
     asset = handles[0].asset
     assert asset.representations[0].content_hash == raw["content_hash"]
     assert asset.representations[0].revision == raw["revision"]
+    # required text READY 后 reader 才开放（B/C 门）。
+    resolved = store.resolve_asset(
+        make_identity_scope(user_id="user-1"),
+        WorkspaceAssetRef(token=body["asset_ref"]),
+    )
+    assert resolved.state.value == "ready"
 
-    # A 门：只有 RAW 的文档资产，reader resolve/acquire 必须拒绝。
-    asset_ref = WorkspaceAssetRef(token=body["asset_ref"])
-    with pytest.raises(AssetNotReadyError):
-        store.resolve_asset(make_identity_scope(user_id="user-1"), asset_ref)
-    with pytest.raises(AssetNotReadyError):
-        store.acquire_ready_representation(make_identity_scope(user_id="user-1"), asset_ref)
+
+def test_public_chain_reaches_terminal_for_all_approved_formats(upload_stack) -> None:
+    """捕获三类批准格式无法在公开入口到达 READY，或损坏 DOCX 未反馈解析失败。"""
+    client, store = upload_stack
+
+    txt = _upload_files(
+        client,
+        file_name="plain.txt",
+        content="中文正文\n".encode(),
+        content_type="text/plain",
+        operation_id="op-txt",
+    )
+    markdown = _upload_files(
+        client,
+        file_name="doc.md",
+        content=b"# title\n\nbody\n",
+        content_type="text/markdown",
+        operation_id="op-md",
+    )
+    docx = _upload_files(
+        client,
+        file_name="real.docx",
+        content=_make_docx(
+            "<w:p><w:r><w:t>正文段落</w:t></w:r></w:p>",
+        ),
+        content_type=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        operation_id="op-docx",
+    )
+    corrupt = _upload_files(
+        client,
+        file_name="broken.docx",
+        content=b"PK\x03\x04 not really a zip",
+        content_type=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        operation_id="op-corrupt",
+    )
+
+    assert txt.status_code == 201
+    assert txt.json()["state"] == "ready"
+    assert markdown.status_code == 201
+    assert markdown.json()["state"] == "ready"
+    assert docx.status_code == 201
+    assert docx.json()["state"] == "ready"
+    assert docx.json()["required_representation"]["state"] == "ready"
+
+    # 损坏 DOCX：RAW 保留，解析失败以 failed 终态与安全摘要反馈，不改写为上传失败。
+    assert corrupt.status_code == 201
+    corrupt_body = corrupt.json()
+    assert corrupt_body["state"] == "failed"
+    assert corrupt_body["safe_error"]["code"] == "workspace.asset.failed"
+    assert corrupt_body["raw_representation"]["state"] == "ready"
+    assert corrupt_body["required_representation"]["state"] == "failed"
+
+    states = [
+        handle.asset.state.value
+        for handle in store.list_workspace_assets(
+            make_identity_scope(user_id="user-1"),
+        )
+    ]
+    assert sorted(states) == ["failed", "ready", "ready", "ready"]
 
 
 def test_idempotent_replay_returns_200_with_same_logical_asset(upload_stack) -> None:

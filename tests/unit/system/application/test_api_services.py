@@ -11,7 +11,6 @@ from hivememory.system.application.memory_service import (
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.system import HiveMemorySystem
 
 
@@ -75,5 +74,3 @@ class TestApiApplicationServices:
             assert deps.get_topic_service() is system.topic_service
         finally:
             deps._system = previous_system
-
-

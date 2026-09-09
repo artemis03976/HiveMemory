@@ -38,6 +38,3 @@ class TestSystemReadinessService:
             "status": "warming_up",
             "models_ready": False,
         }
-
-
-
