@@ -1,3 +1,4 @@
+export { useAttachmentStore } from './attachment';
 export { useChatRuntimeConfigStore, useChatStore } from './chat';
 export { useKernelStore } from './kernel';
 export { useMemoryTaskStore, useMemoryViewStore } from './memory';

@@ -24,6 +24,9 @@ from hivememory.system.application.memory_task_service import MemoryTaskApplicat
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.application.workspace_asset_service import (
+    WorkspaceAssetApplicationService,
+)
 from hivememory.system.config import HiveMemoryConfig, RuntimeEventsConfig
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
@@ -74,6 +77,7 @@ class _ServicesBundle:
     agent: AgentApplicationService
     topic: TopicApplicationService
     readiness: SystemReadinessService
+    workspace_assets: WorkspaceAssetApplicationService
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +261,12 @@ class SystemAssembler:
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,
         )
+        # 上传应用服务直接持有进程级唯一的 WorkspaceAssetStore 命令端口，
+        # 附件上传不经过全局总线（资产状态真相由 Store 同步持有）。
+        workspace_assets = WorkspaceAssetApplicationService(
+            store=runtime.workspace_asset_store,
+            config=self._config.attachments,
+        )
 
         return _ServicesBundle(
             chat=chat,
@@ -266,6 +276,7 @@ class SystemAssembler:
             agent=agent,
             topic=topic,
             readiness=readiness,
+            workspace_assets=workspace_assets,
         )
 
 

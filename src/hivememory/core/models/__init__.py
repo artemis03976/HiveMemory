@@ -90,6 +90,7 @@ from .workspace_asset import (
     WorkspaceAssetMetadata,
     WorkspaceAssetRef,
     WorkspaceAssetState,
+    WorkspaceAssetUploadReceipt,
 )
 
 __all__ = [
@@ -172,4 +173,5 @@ __all__ = [
     "WorkspaceAssetMetadata",
     "WorkspaceAssetRef",
     "WorkspaceAssetState",
+    "WorkspaceAssetUploadReceipt",
 ]

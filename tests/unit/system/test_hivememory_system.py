@@ -95,6 +95,7 @@ def system(mock_patchouli):
         agent=agent_service,
         topic=topic_service,
         readiness=readiness_service,
+        workspace_assets=MagicMock(),
     )
 
     system = HiveMemorySystem(

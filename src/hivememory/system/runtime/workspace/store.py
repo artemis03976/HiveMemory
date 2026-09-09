@@ -35,6 +35,7 @@ from hivememory.core.models.workspace_asset import (
     WorkspaceAssetMetadata,
     WorkspaceAssetRef,
     WorkspaceAssetState,
+    WorkspaceAssetUploadReceipt,
 )
 
 
@@ -60,6 +61,19 @@ class _CreateReceipt:
 
 
 @dataclass(frozen=True)
+class _UploadReceipt:
+    """上传幂等索引保存的 operation fingerprint 与资源坐标。
+
+    fingerprint 由 metadata 与原始 content hash 共同组成，用于区分
+    "同一 operation 的同一内容重试" 与 "同一 operation 携带了另一份文件"。
+    """
+
+    metadata: WorkspaceAssetMetadata
+    raw_content_hash: str
+    asset_key: WorkspaceAssetKey
+
+
+@dataclass(frozen=True)
 class _LeaseEntry:
     """活跃 lease 对 READY 内容对象的唯一 Store 内持有。"""
 
@@ -80,6 +94,12 @@ class InMemoryWorkspaceAssetStore:
         self._idempotency_index: dict[
             tuple[WorkspaceIdentity, str],
             _CreateReceipt,
+        ] = {}
+        # 上传命令使用独立的幂等索引：fingerprint 除 metadata 外还包含原始
+        # content hash，与 create_asset 的 metadata-only 比较语义不同。
+        self._upload_idempotency_index: dict[
+            tuple[WorkspaceIdentity, str],
+            _UploadReceipt,
         ] = {}
         self._leases: dict[str, _LeaseEntry] = {}
         self._lock = threading.RLock()
@@ -135,6 +155,102 @@ class InMemoryWorkspaceAssetStore:
                 asset_key=asset_key,
             )
             return self._handle(entry)
+
+    def register_uploaded_asset(
+        self,
+        identity_scope: IdentityScope,
+        metadata: WorkspaceAssetMetadata,
+        client_operation_id: str,
+        *,
+        raw_content_object: bytes,
+        raw_content_hash: str,
+        raw_producer: str,
+        raw_producer_version: str,
+    ) -> WorkspaceAssetUploadReceipt:
+        """在一次临界区内原子完成上传资产的注册与 RAW representation 写入。
+
+        幂等键为 ``(workspace_identity, client_operation_id)``；fingerprint 由
+        metadata 与原始 content hash 组成：
+
+        - 相同 operation 重放且 fingerprint 相同：返回同一 asset/ref 的当前
+          handle，``created=False``；原资产已被移除时抛出
+          ``workspace.asset.removed``，不重新创建资产；
+        - fingerprint 不同：抛出 ``workspace.asset.operation_conflict``，
+          不创建第二个 asset。
+
+        对文档资产，RAW 不满足 required representation，因此聚合状态保持
+        ``PROCESSING``，等待后续 ``EXTRACTED_TEXT`` 终态原子提交。
+        """
+        scope = require_identity_scope(identity_scope)
+        operation_id = self._require_text(client_operation_id, "client_operation_id")
+        if not isinstance(metadata, WorkspaceAssetMetadata):
+            raise TypeError("metadata 必须是 WorkspaceAssetMetadata")
+        raw_bytes = self._require_raw_bytes(raw_content_object)
+        normalized_hash = self._require_text(raw_content_hash, "raw_content_hash")
+
+        with self._lock:
+            self._ensure_open()
+            idempotency_key = (scope.workspace_identity, operation_id)
+            existing = self._upload_idempotency_index.get(idempotency_key)
+            if existing is not None:
+                if (
+                    existing.metadata != metadata
+                    or existing.raw_content_hash != normalized_hash
+                ):
+                    raise AssetOperationConflictError(
+                        "同一上传操作使用了不一致的元数据或文件内容",
+                        details={"client_operation_id": operation_id},
+                    )
+                entry = self._assets[existing.asset_key]
+                if entry.state == WorkspaceAssetState.REMOVED:
+                    raise AssetRemovedError()
+                return WorkspaceAssetUploadReceipt(
+                    handle=self._handle(entry),
+                    created=False,
+                )
+
+            asset_id = self._new_prefixed_id("asset")
+            asset_key = WorkspaceAssetKey(
+                workspace_identity=scope.workspace_identity,
+                asset_id=asset_id,
+            )
+            asset_ref = WorkspaceAssetRef(token=self._new_ref_token())
+            entry = _AssetEntry(
+                key=asset_key,
+                metadata=metadata,
+                asset_ref=asset_ref,
+                created_at=datetime.now(UTC),
+            )
+            representation = AssetRepresentation(
+                representation_id=self._new_prefixed_id("representation"),
+                workspace_identity=entry.key.workspace_identity,
+                asset_id=entry.key.asset_id,
+                kind=AssetRepresentationKind.RAW,
+                revision=1,
+                content_object=raw_bytes,
+                content_hash=normalized_hash,
+                producer=self._require_text(raw_producer, "raw_producer"),
+                producer_version=self._require_text(
+                    raw_producer_version,
+                    "raw_producer_version",
+                ),
+                state=AssetRepresentationState.READY,
+            )
+            entry.representations[representation.representation_id] = representation
+            # RAW 不是文档资产的 required representation，聚合状态保持 PROCESSING。
+            self._aggregate_required_terminal(entry, representation)
+
+            self._assets[asset_key] = entry
+            self._ref_index[asset_ref.token] = asset_key
+            self._upload_idempotency_index[idempotency_key] = _UploadReceipt(
+                metadata=metadata,
+                raw_content_hash=normalized_hash,
+                asset_key=asset_key,
+            )
+            return WorkspaceAssetUploadReceipt(
+                handle=self._handle(entry),
+                created=True,
+            )
 
     def register_raw_representation(
         self,
@@ -417,7 +533,9 @@ class InMemoryWorkspaceAssetStore:
                 assets_cleared=len(self._assets),
                 representations_cleared=len(representations),
                 refs_cleared=len(self._ref_index),
-                idempotency_records_cleared=len(self._idempotency_index),
+                idempotency_records_cleared=(
+                    len(self._idempotency_index) + len(self._upload_idempotency_index)
+                ),
                 operation_tokens_cleared=sum(
                     representation.parse_operation_id is not None
                     for representation in representations
@@ -433,6 +551,7 @@ class InMemoryWorkspaceAssetStore:
             self._assets.clear()
             self._ref_index.clear()
             self._idempotency_index.clear()
+            self._upload_idempotency_index.clear()
             self._leases.clear()
             return summary
 
@@ -617,6 +736,13 @@ class InMemoryWorkspaceAssetStore:
                 for item in value.values()
             )
         return False
+
+    @staticmethod
+    def _require_raw_bytes(raw_content_object: Any) -> bytes:
+        """上传命令只接受不可变 bytes，避免调用方继续持有可变引用。"""
+        if not isinstance(raw_content_object, bytes):
+            raise TypeError("raw_content_object 必须是不可变 bytes")
+        return raw_content_object
 
     @staticmethod
     def _require_text(value: str, field_name: str) -> str:

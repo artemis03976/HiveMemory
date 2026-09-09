@@ -149,6 +149,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             agent=agent_service,
             topic=topic_service,
             readiness=readiness_service,
+            workspace_assets=MagicMock(),
         )
         return HiveMemorySystem(
             config=MagicMock(),

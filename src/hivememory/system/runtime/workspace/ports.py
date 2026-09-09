@@ -14,6 +14,7 @@ from hivememory.core.models.workspace_asset import (
     WorkspaceAssetHandle,
     WorkspaceAssetMetadata,
     WorkspaceAssetRef,
+    WorkspaceAssetUploadReceipt,
 )
 
 
@@ -52,6 +53,18 @@ class WorkspaceAssetCommandPort(Protocol):
         metadata: WorkspaceAssetMetadata,
         client_operation_id: str,
     ) -> WorkspaceAssetHandle: ...
+
+    def register_uploaded_asset(
+        self,
+        identity_scope: IdentityScope,
+        metadata: WorkspaceAssetMetadata,
+        client_operation_id: str,
+        *,
+        raw_content_object: bytes,
+        raw_content_hash: str,
+        raw_producer: str,
+        raw_producer_version: str,
+    ) -> WorkspaceAssetUploadReceipt: ...
 
     def register_raw_representation(
         self,

@@ -29,6 +29,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
     "numpy>=1.24.0",

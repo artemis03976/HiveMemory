@@ -218,6 +218,20 @@ class WorkspaceAssetHandle(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
 
+class WorkspaceAssetUploadReceipt(BaseModel):
+    """上传专用 Store 命令的结果回执。
+
+    在通用 :class:`WorkspaceAssetHandle` 之外附带 ``created`` 标记，用于区分
+    "本次请求新建了资产" 与 "同一 operation identity 的重放命中既有资产"；
+    HTTP 层依据该标记决定 201/200，不得根据 asset 状态猜测。
+    """
+
+    handle: WorkspaceAssetHandle
+    created: bool
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+
 class TopicAssetBinding(BaseModel):
     """冻结的 Topic 级资产真实使用关系事实。
 
@@ -302,4 +316,5 @@ __all__ = [
     "WorkspaceAssetMetadata",
     "WorkspaceAssetRef",
     "WorkspaceAssetState",
+    "WorkspaceAssetUploadReceipt",
 ]

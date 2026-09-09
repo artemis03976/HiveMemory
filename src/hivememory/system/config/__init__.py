@@ -46,6 +46,7 @@ from hivememory.system.config.alice import (
     MTPPromptConfig, KoakumaConfig, AgentRuntimeConfig,
     AliceConfig,
 )
+from hivememory.system.config.attachments import AttachmentsConfig
 from hivememory.system.config.passive import PassiveIngressConfig
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,7 @@ class HiveMemoryConfig(BaseSettings):
     memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
+    attachments: AttachmentsConfig = Field(default_factory=AttachmentsConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),
