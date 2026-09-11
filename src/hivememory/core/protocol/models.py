@@ -26,7 +26,10 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
-from hivememory.engines.attachment_compiler.models import AttachmentCompileResult
+from hivememory.engines.attachment_compiler.models import (
+    AttachmentCompileResult,
+    UsedAttachment,
+)
 from hivememory.engines.retrieval.models import QueryFilters
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
@@ -274,10 +277,16 @@ class InteractionPayload(BaseModel):
     )
 
     # W1-D 冻结的附件选择坐标（按用户选择顺序）：只传坐标，不复制正文。
-    # passive 提交投影为空数组；W1-E 的 used_attachments 不进入本模型。
+    # passive 提交投影为空数组。W1-F 另有 used_attachments 承载实际使用集合。
     selected_attachments: list[SelectedAttachmentCoordinate] = Field(
         default_factory=list,
         description="本轮 Chat 请求冻结的附件选择坐标，空数组表示未使用附件",
+    )
+    # W1-E 实际进入 attachment_context 的使用集合：handler 据此一次性投影
+    # asset_id_and_refs 建立 binding；与 selected_attachments 是两个概念。
+    used_attachments: list[UsedAttachment] = Field(
+        default_factory=list,
+        description="实际进入本轮上下文的附件使用坐标；passive 提交投影为空数组",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

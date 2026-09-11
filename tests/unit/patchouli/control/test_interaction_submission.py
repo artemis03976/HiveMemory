@@ -74,7 +74,9 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     attempts: list[InteractionPayload] = []
     attempt_scopes = []
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def submit(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_id_and_refs=()
+    ):
         attempts.append(payload)
         attempt_scopes.append(identity_scope)
         if len(attempts) == 1:
@@ -118,7 +120,9 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
     calls: list[str] = []
     first_attempt = 0
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def submit(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_id_and_refs=()
+    ):
         nonlocal first_attempt
         calls.append(payload.user_message)
         if payload.user_message == "first":
@@ -147,7 +151,9 @@ async def test_different_ordering_keys_can_execute_concurrently() -> None:
     second_started = asyncio.Event()
     release = asyncio.Event()
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def submit(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_id_and_refs=()
+    ):
         if payload.user_message == "first":
             first_started.set()
         else:
@@ -280,7 +286,9 @@ async def test_unclassified_failure_is_not_retried() -> None:
 async def test_handler_timeout_is_not_retried() -> None:
     attempts = 0
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def submit(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_id_and_refs=()
+    ):
         nonlocal attempts
         attempts += 1
         await asyncio.Event().wait()

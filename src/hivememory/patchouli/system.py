@@ -94,6 +94,7 @@ class PatchouliSystem(SubsystemProtocol):
             patchouli_config=self.config.patchouli,
             shared_config=self.config.shared,
             runtime_events=self._runtime_events,
+            workspace_asset_reader=workspace_asset_reader,
         )
 
         self._interaction_submission_queue = InteractionSubmissionQueue(

@@ -291,6 +291,7 @@ class MessageTurnBuffer:
             mtp_traces=[],
             # passive 链路没有附件选择，按 submission schema v2 约定投影空数组。
             selected_attachments=[],
+            used_attachments=[],
             rewritten_query=(
                 self._gateway_decision.rewritten_query if self._gateway_decision else None
             ),

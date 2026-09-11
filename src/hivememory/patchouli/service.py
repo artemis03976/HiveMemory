@@ -332,9 +332,14 @@ class PatchouliService:
             turn_events=loop_result.turn_events,
             model_used=loop_result.model_used,
             # W1-D 冻结的选择坐标原样进入 canonical submission；handler 不
-            # 会按文件名或"当前选择"重新推导。W1-F 在拿到 W1-E 的实际使用
-            # 集合后，才把对应 (asset_id, asset_ref) 投影给 Perception。
+            # 会按文件名或"当前选择"重新推导。used_attachments 是 W1-E 的
+            # 实际使用集合，由 handler 一次性投影为 binding 坐标。
             selected_attachments=list(agent_context.selected_attachments),
+            used_attachments=(
+                list(agent_context.attachment_compile_result.used_attachments)
+                if agent_context.attachment_compile_result is not None
+                else []
+            ),
         )
 
         continuation = self._active_finalizations.get(prepared_run.interaction_id)

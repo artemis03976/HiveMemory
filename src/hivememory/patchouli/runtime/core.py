@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
@@ -99,10 +99,14 @@ class PatchouliRuntime:
         patchouli_config: PatchouliConfig,
         shared_config: SharedConfig,
         runtime_events: RuntimeEventSink | None = None,
+        workspace_asset_reader=None,
     ):
         self._patchouli_config = patchouli_config
         self._shared_config = shared_config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
+        # 进程级唯一 WorkspaceAssetStore 的只读 reader（W1-F）：供记忆生成
+        # 使魔在 promotion 时按 binding.asset_ref acquire 内容。
+        self._workspace_asset_reader = workspace_asset_reader
         self._local_bus = PatchouliBus()
         self._pending_atom_settler = PendingAtomSettler(self._local_bus)
         self._local_routes_registered = False
@@ -113,10 +117,10 @@ class PatchouliRuntime:
         self._init_infrastructure()
 
         # 2. 构建引擎
-        self._engines: Dict[str, Any] = self._build_engines()
+        self._engines: dict[str, Any] = self._build_engines()
 
         # 3. 注册微服务
-        self._services: Dict[str, Any] = {}
+        self._services: dict[str, Any] = {}
         self._register_services()
 
         logger.info("PatchouliRuntime 帕秋莉运行时初始化完成")
@@ -136,7 +140,7 @@ class PatchouliRuntime:
     def pending_atom_settler(self) -> PendingAtomSettler:
         return self._pending_atom_settler
 
-    def mount_local_routes(self, service: "PatchouliService") -> None:
+    def mount_local_routes(self, service: PatchouliService) -> None:
         if self._local_routes_registered:
             return
 
@@ -173,6 +177,7 @@ class PatchouliRuntime:
         服务启动后由 lifespan 异步调用，不阻塞 HTTP 服务可用性。
         """
         import time
+
         start = time.time()
         logger.info("开始后台预热推理模型...")
 
@@ -205,10 +210,7 @@ class PatchouliRuntime:
 
         # 动态检查（覆盖懒加载已完成但 warmup 未调用的情况）
         storage_ready = self.storage.embedding_service.is_loaded()
-        reranker_ready = (
-            self.reranker_service is None
-            or self.reranker_service.is_loaded()
-        )
+        reranker_ready = self.reranker_service is None or self.reranker_service.is_loaded()
         return storage_ready and reranker_ready
 
     async def shutdown_drain(self) -> dict[str, Any]:
@@ -252,10 +254,7 @@ class PatchouliRuntime:
 
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
         generation_tasks = await self._task_controller.wait_all(
-            timeout=(
-                self._patchouli_config.shutdown
-                .generation_wait_timeout_seconds
-            ),
+            timeout=(self._patchouli_config.shutdown.generation_wait_timeout_seconds),
         )
         timed_out_task_ids = [
             task.task_id
@@ -296,22 +295,23 @@ class PatchouliRuntime:
         包含：存储层、Librarian LLM、Reranker、MemoryLibrary
         """
         from hivememory.infrastructure.storage import QdrantMemoryStore
+
         self.storage = QdrantMemoryStore(
             qdrant_config=self._patchouli_config.storage,
             embedding_config=self._shared_config.embedding.default,
         )
 
         from hivememory.infrastructure.llm import get_librarian_llm_service
+
         self.librarian_llm_service = get_librarian_llm_service(
             config=self._shared_config.llm.librarian
         )
 
         from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
+
         reranker_config = self._patchouli_config.retrieval.retriever.reranker
         if reranker_config.enabled:
-            self.reranker_service = get_fast_embed_reranker_service(
-                config=reranker_config
-            )
+            self.reranker_service = get_fast_embed_reranker_service(config=reranker_config)
         else:
             self.reranker_service = None
 
@@ -321,12 +321,12 @@ class PatchouliRuntime:
     def _build_memory_library(self):
         """构建 MemoryLibrary（三层存储协调层）"""
         from hivememory.patchouli.memory_library import (
-            MemoryLibrary,
-            ShortTermMemoryStore,
-            MidTermMemoryStore,
-            LongTermMemoryStore,
-            QdrantStorageAdapter,
             FileBasedStorageAdapter,
+            LongTermMemoryStore,
+            MemoryLibrary,
+            MidTermMemoryStore,
+            QdrantStorageAdapter,
+            ShortTermMemoryStore,
         )
 
         short_term = ShortTermMemoryStore()
@@ -347,6 +347,7 @@ class PatchouliRuntime:
                 FilesystemArtifactStorageAdapter,
             )
             from hivememory.patchouli.memory_library.stores import ArtifactStore
+
             artifact_store = ArtifactStore(
                 FilesystemArtifactStorageAdapter(
                     root_dir=artifact_config.root_dir,
@@ -363,7 +364,7 @@ class PatchouliRuntime:
 
     # ========== 引擎构建 ==========
 
-    def _build_engines(self) -> Dict[str, Any]:
+    def _build_engines(self) -> dict[str, Any]:
         """
         构建所有引擎，返回字典统一管理
 
@@ -380,17 +381,15 @@ class PatchouliRuntime:
     def _build_retrieval_engine(self):
         """[私有构建器] 构建 Retrieval 引擎"""
         from hivememory.engines.retrieval import (
-            RetrievalEngine,
             BaseMemoryRetriever,
+            RetrievalEngine,
             create_retriever,
         )
 
         config = self._patchouli_config.retrieval
 
         retriever: BaseMemoryRetriever = create_retriever(
-            self.memory_library.mid_term,
-            config.retriever,
-            self.reranker_service
+            self.memory_library.mid_term, config.retriever, self.reranker_service
         )
 
         return RetrievalEngine(retriever=retriever)
@@ -410,8 +409,7 @@ class PatchouliRuntime:
             return None
 
         relay_config = (
-            getattr(self._patchouli_config.perception, "relay", None)
-            or impl_config.relay
+            getattr(self._patchouli_config.perception, "relay", None) or impl_config.relay
         )
         relay_controller = create_relay_controller(
             config=relay_config,
@@ -430,9 +428,11 @@ class PatchouliRuntime:
     def _build_generation_engine(self):
         """[私有构建器] 组装 Generation 引擎"""
         from hivememory.engines.generation import (
+            BaseDeduplicator,
+            BaseMemoryExtractor,
             MemoryGenerationEngine,
-            BaseMemoryExtractor, create_extractor,
-            BaseDeduplicator, create_deduplicator,
+            create_deduplicator,
+            create_extractor,
         )
 
         config = self._patchouli_config.generation
@@ -442,9 +442,7 @@ class PatchouliRuntime:
             self.librarian_llm_service,
         )
 
-        deduplicator: BaseDeduplicator = create_deduplicator(
-            config.deduplicator
-        )
+        deduplicator: BaseDeduplicator = create_deduplicator(config.deduplicator)
 
         return MemoryGenerationEngine(
             mid_term=self.memory_library.mid_term,
@@ -476,10 +474,11 @@ class PatchouliRuntime:
     def _build_lifecycle_engine(self):
         """[私有构建器] 组装 Lifecycle 模块"""
         from hivememory.engines.lifecycle import (
+            BaseGarbageCollector,
+            DynamicReinforcementEngine,
             MemoryLifecycleEngine,
             VitalityCalculator,
-            DynamicReinforcementEngine,
-            BaseGarbageCollector, create_garbage_collector,
+            create_garbage_collector,
         )
 
         vitality_calculator = VitalityCalculator(
@@ -489,12 +488,11 @@ class PatchouliRuntime:
         reinforcement_engine = DynamicReinforcementEngine(
             mid_term=self.memory_library.mid_term,
             config=self._patchouli_config.lifecycle.reinforcement,
-            vitality_calculator=vitality_calculator
+            vitality_calculator=vitality_calculator,
         )
 
         garbage_collector: BaseGarbageCollector = create_garbage_collector(
-            self.memory_library,
-            self._patchouli_config.lifecycle.garbage_collector
+            self.memory_library, self._patchouli_config.lifecycle.garbage_collector
         )
 
         return MemoryLifecycleEngine(
@@ -532,6 +530,7 @@ class PatchouliRuntime:
             generation_engine=self._engines["generation"],
             memory_library=self.memory_library,
             artifact_engine=self._engines["artifact"],
+            asset_reader=self._workspace_asset_reader,
         )
 
         self._services["generation_coordinator"] = MemoryGenerationCoordinator(
@@ -548,12 +547,8 @@ class PatchouliRuntime:
             ),
             queue_policy=QueuePolicy(
                 capacity=self._patchouli_config.generation.queue_capacity,
-                max_concurrency=(
-                    self._patchouli_config.generation.queue_max_concurrency
-                ),
-                timeout_seconds=(
-                    self._patchouli_config.generation.queue_timeout_seconds
-                ),
+                max_concurrency=(self._patchouli_config.generation.queue_max_concurrency),
+                timeout_seconds=(self._patchouli_config.generation.queue_timeout_seconds),
                 max_attempts=1,
                 terminal_retention=100,
             ),
@@ -624,6 +619,7 @@ class PatchouliRuntime:
 
     async def ensure_storage_ready(self) -> None:
         await self.storage.ensure_ready()
+
 
 __all__ = [
     "PatchouliRuntime",

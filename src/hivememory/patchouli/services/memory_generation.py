@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
@@ -21,6 +22,7 @@ from hivememory.core.models.artifact import (
     MemoryEventType,
     MemoryVersionSnapshot,
 )
+from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -33,6 +35,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
+from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
@@ -51,12 +54,16 @@ class MemoryGenerationFamiliar:
         generation_engine: MemoryGenerationEngine,
         memory_library: MemoryLibrary,
         artifact_engine: ArtifactEngine | None = None,
+        asset_reader: WorkspaceAssetReaderPort | None = None,
     ) -> None:
         from hivememory.engines.artifacts.engine import ArtifactEngine
 
         self._generation_engine = generation_engine
         self._mid_term = memory_library.mid_term
         self._artifact_engine = artifact_engine or ArtifactEngine.noop()
+        # W1-F：附件 promotion 的只读 reader（assembler 经 PatchouliRuntime
+        # 注入进程级唯一 Store）；ref 失效或 Store 关闭时 best-effort 降级。
+        self._asset_reader = asset_reader
 
         logger.info("MemoryGenerationFamiliar 初始化完成")
 
@@ -192,11 +199,7 @@ class MemoryGenerationFamiliar:
         )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
-        logger.info(
-            f"Extracted {len(memories)} memories"
-            if memories
-            else "No memories extracted"
-        )
+        logger.info(f"Extracted {len(memories)} memories" if memories else "No memories extracted")
 
         # Step 2：构建 artifact，并在第一次写库前挂载到 MemoryAtom。
         await self._attach_memory_artifacts(
@@ -209,23 +212,111 @@ class MemoryGenerationFamiliar:
 
         # Step 3：写入 CREATE/UPDATE 结果。
         for outcome in outcomes:
-            if (
-                outcome.duplicate_decision != DuplicateDecision.DISCARD
-                and outcome.atom is not None
-            ):
+            if outcome.duplicate_decision != DuplicateDecision.DISCARD and outcome.atom is not None:
                 try:
                     await self._mid_term.upsert(outcome.atom)
                     logger.info(
-                        f"记忆已存储 '{outcome.atom.index.title}' "
-                        f"(ID: {outcome.atom.id})"
+                        f"记忆已存储 '{outcome.atom.index.title}' " f"(ID: {outcome.atom.id})"
                     )
                 except Exception as exc:
                     logger.error(f"存储记忆失败: {exc}", exc_info=True)
                     raise
 
+        # Step 4（W1-F）：只有确实产生 Memory CREATE/UPDATE 时才对 topic
+        # bindings 做附件 Artifact promotion；TOUCH/DISCARD 与纯上传/选择
+        # 不提升。失败沿 best-effort 语义记录 warning，不回滚本轮结果。
+        if any(
+            outcome.duplicate_decision in {DuplicateDecision.CREATE, DuplicateDecision.UPDATE}
+            for outcome in outcomes
+        ):
+            bindings = (
+                spec.interaction_input.asset_bindings if spec.interaction_input is not None else ()
+            )
+            await self._promote_attachment_bindings(
+                bindings,
+                identity_scope=spec.identity_scope,
+            )
+
         # 只有 artifact 与持久化均完成后，才把 Engine outcome 收缩为跨域事实；
         # settlement 随该结果交给控制面独立发布。
         return [self._build_generation_result(spec, outcome) for outcome in outcomes]
+
+    async def _promote_attachment_bindings(
+        self,
+        bindings: tuple[TopicAssetBinding, ...],
+        *,
+        identity_scope: IdentityScope,
+    ) -> None:
+        """沿 binding.asset_ref 提升附件 DocumentArtifact（best-effort）。
+
+        每个 binding 固定为：acquire READY representation → 构建
+        DocumentArtifact → 释放 lease。ref 已 remove、Store 已关闭或写入
+        失败时跳过该 binding 并记录结构化 warning；已提交的 binding 保持
+        不变，不回滚 Interaction/Memory 结果（计划 11.3 节）。promotion
+        retry 复用现有 generation operation identity 与同一 binding payload。
+        """
+        if not bindings:
+            return
+        for binding in bindings:
+            try:
+                await self._promote_single_binding(
+                    binding,
+                    identity_scope=identity_scope,
+                )
+            except WorkspaceDomainError as exc:
+                logger.warning(
+                    "附件 promotion 跳过: asset_id=%s, code=%s",
+                    binding.asset_id,
+                    exc.code,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "附件 promotion 写入失败: asset_id=%s, error=%s",
+                    binding.asset_id,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+
+    async def _promote_single_binding(
+        self,
+        binding: TopicAssetBinding,
+        *,
+        identity_scope: IdentityScope,
+    ) -> None:
+        if self._asset_reader is None:
+            return
+        lease = self._asset_reader.acquire_ready_representation(
+            identity_scope,
+            binding.asset_ref,
+        )
+        try:
+            representation = lease.representation
+            content_format = ""
+            if isinstance(representation.content_object, Mapping):
+                content_format = str(representation.content_object.get("format") or "")
+            source_type = "markdown" if content_format == "markdown" else "file"
+            mime_type = "text/markdown" if content_format == "markdown" else "text/plain"
+            # 冻结映射：source asset/representation 标识 + revision +
+            # producer/version 全部钉进 source_uri，content_hash 单列，
+            # 使提升产物自身锁定来源版本（ADR-0003 消费版本冻结不变量）。
+            source_uri = (
+                f"attachment://{binding.asset_id}"
+                f"#{representation.representation_id}"
+                f"?revision={representation.revision}"
+                f"&producer={representation.producer}"
+                f"&producer_version={representation.producer_version}"
+            )
+            await self._artifact_engine.document.build_and_store(
+                source_type=source_type,
+                source_uri=source_uri,
+                content_hash=representation.content_hash,
+                retrieved_at=datetime.now(UTC),
+                workspace_identity=identity_scope.workspace_identity,
+                mime_type=mime_type,
+                title=f"attachment:{binding.asset_id}",
+            )
+        finally:
+            self._asset_reader.release_representation_lease(lease.lease_id)
 
     def _build_generation_result(
         self,
@@ -263,10 +354,7 @@ class MemoryGenerationFamiliar:
             resolution=resolution,
             canonical_alias=canonical_alias,
             canonical_uuid=canonical_uuid,
-            message=(
-                f"Pending atom '{spec.pending_alias}' settled as "
-                f"{resolution.value}."
-            ),
+            message=(f"Pending atom '{spec.pending_alias}' settled as " f"{resolution.value}."),
         )
 
     def _resolution_for(
@@ -345,9 +433,7 @@ class MemoryGenerationFamiliar:
         gen_context: GenerationContext,
         interaction_ref: ArtifactRef | None,
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
-        update_source: Literal[
-            "UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"
-        ] = "UPDATE",
+        update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
     ) -> None:
         """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。"""
 
@@ -449,8 +535,7 @@ class MemoryGenerationFamiliar:
             raise WorkspaceMismatchError(details={"artifact_id": ref.artifact_id})
         refs = atom.payload.artifacts.refs
         exists = any(
-            existing.artifact_id == ref.artifact_id
-            and existing.artifact_type == ref.artifact_type
+            existing.artifact_id == ref.artifact_id and existing.artifact_type == ref.artifact_type
             for existing in refs
         )
         if not exists:
