@@ -5,7 +5,6 @@ from .limits import AttachmentCompileLimits
 from .models import (
     AttachmentCompileDiagnostic,
     AttachmentCompileResult,
-    UsedAttachment,
 )
 
 __all__ = [
@@ -14,5 +13,4 @@ __all__ = [
     "AttachmentCompileLimits",
     "AttachmentCompileResult",
     "AttachmentCompiler",
-    "UsedAttachment",
 ]

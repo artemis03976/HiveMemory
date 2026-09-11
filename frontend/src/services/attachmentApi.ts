@@ -9,11 +9,13 @@
  */
 
 import { identityHeaders } from '@/services/identity';
-import type { ApiAttachmentRepresentationSummary } from '@/types/attachment';
+import type {
+  ApiAttachmentRepresentationSummary,
+  WorkspaceAssetRef,
+} from '@/types/attachment';
 
 interface ApiAttachmentUploadResponse {
-  asset_ref: string;
-  asset_id: string;
+  asset_ref: WorkspaceAssetRef;
   kind: string;
   display_name: string;
   media_type: string;

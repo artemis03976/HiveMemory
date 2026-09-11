@@ -2,7 +2,7 @@
  * Chat 附件上传相关的共享类型
  *
  * 与后端 `server/models/workspace_asset.py` 的上传响应 DTO 对应；
- * opaque ref 只保存在当前运行时的附件状态中，不写入 localStorage，
+ * bound ref 只保存在当前运行时的附件状态中，不写入 localStorage，
  * 也不作为本地路径使用。
  */
 
@@ -17,6 +17,12 @@ export interface ApiAttachmentRepresentationSummary {
   producer_version: string;
 }
 
+/** 当前 WorkspaceAssetStore 生命周期内的绑定引用。 */
+export interface WorkspaceAssetRef {
+  token: string;
+  asset_id: string;
+}
+
 /** 前端上传队列项的本地上传状态 */
 export type AttachmentUploadStatus = 'queued' | 'uploading' | 'uploaded' | 'failed';
 
@@ -25,8 +31,7 @@ export type AttachmentAssetState = 'processing' | 'ready' | 'failed';
 
 /** 上传接口的响应摘要 */
 export interface AttachmentUploadResult {
-  assetRef: string;
-  assetId: string;
+  assetRef: WorkspaceAssetRef;
   displayName: string;
   mediaType: string;
   sizeBytes: number;
@@ -41,10 +46,11 @@ export interface AttachmentQueueItem {
   id: string;
   /** 原始文件对象，只保存在内存中，不持久化 raw bytes */
   file: File;
+  /** 服务端资产注册后确定的规范化展示名称；上传前暂以本地文件名占位。 */
+  displayName: string;
   status: AttachmentUploadStatus;
-  /** 上传成功后的 opaque ref（服务进程存活期内有效） */
-  assetRef: string | null;
-  assetId: string | null;
+  /** 上传成功后的 bound ref（服务进程存活期内有效） */
+  assetRef: WorkspaceAssetRef | null;
   /** 服务端资产状态；uploaded 项的解析 FAILED 仍属于 uploaded 的服务端状态 */
   assetState: AttachmentAssetState | null;
   /** required representation 摘要：READY 时作为可版本核对的选择依据 */

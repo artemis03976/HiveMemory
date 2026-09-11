@@ -95,7 +95,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
         identity_scope,
         target_topic_id,
         interaction_id,
-        asset_id_and_refs=(),
+        asset_refs=(),
     ):
         attempts.append((len(attempts) + 1, identity_scope))
         if len(attempts) == 1:

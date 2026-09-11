@@ -1,6 +1,6 @@
 """W1-F binding 投影与附件 promotion 的单元验收。
 
-- handler 把 payload.used_attachments 一次性投影为 asset_id_and_refs；
+- handler 把 payload.used_attachments 一次性投影为 bound refs；
 - promotion 只在 Memory CREATE/UPDATE 后发生，沿 binding.asset_ref
   acquire，写入冻结映射的 DocumentArtifact 并释放 lease；
 - ref 失效 / Store 关闭 / 写入失败按 best-effort 降级，不回滚本轮结果。
@@ -36,8 +36,8 @@ def _make_ready_asset(
     store: InMemoryWorkspaceAssetStore,
     *,
     operation_id: str,
-) -> str:
-    """通过公开 Store 命令建立 READY 文档资产，返回 ref token。"""
+) -> WorkspaceAssetRef:
+    """通过公开 Store 命令建立 READY 文档资产，返回 bound ref。"""
     metadata = WorkspaceAssetMetadata(
         kind="document",
         display_name=f"{operation_id}.md",
@@ -87,13 +87,13 @@ def _make_ready_asset(
         },
         content_hash="text-hash",
     )
-    return receipt.handle.asset_ref.token
+    return receipt.handle.asset_ref
 
 
-def _binding(store: InMemoryWorkspaceAssetStore, ref_token: str) -> TopicAssetBinding:
+def _binding(store: InMemoryWorkspaceAssetStore, asset_ref: WorkspaceAssetRef) -> TopicAssetBinding:
+    del store
     return TopicAssetBinding(
-        asset_id=f"asset-for-{ref_token[:8]}",
-        asset_ref=WorkspaceAssetRef(token=ref_token),
+        asset_ref=asset_ref,
         first_bound_interaction_id="interaction-bind",
         bound_at="2026-01-01T00:00:00Z",
     )
@@ -155,46 +155,20 @@ def _familiar(
 
 def test_handler_projects_used_attachments_into_binding_coordinates() -> None:
     """捕获 handler 丢失投影、重复投影或把 selected 当作 used。"""
-    from hivememory.core.models import SelectedAttachmentCoordinate
     from hivememory.core.protocol.models import InteractionPayload
-    from hivememory.engines.attachment_compiler.models import UsedAttachment
 
     captured: dict = {}
 
-    async def apply_interaction(payload, *, asset_id_and_refs=(), **_kwargs):
-        captured["asset_id_and_refs"] = asset_id_and_refs
+    async def apply_interaction(payload, *, asset_refs=(), **_kwargs):
+        captured["asset_refs"] = asset_refs
         return "topic-1"
 
     handler = InteractionSubmissionHandler(apply_interaction)
     payload = InteractionPayload(
         user_message="带附件",
-        # selected 但未进入上下文的项不应出现在投影里。
-        selected_attachments=[
-            SelectedAttachmentCoordinate(
-                asset_id="asset-skipped",
-                asset_ref="ref-skipped",
-                representation_id="rep-skipped",
-                revision=1,
-                content_hash="hs",
-            ),
-        ],
         used_attachments=[
-            UsedAttachment(
-                asset_id="asset-1",
-                asset_ref="ref-1",
-                representation_id="rep-1",
-                revision=1,
-                content_hash="h1",
-                representation_kind="extracted_text",
-            ),
-            UsedAttachment(
-                asset_id="asset-2",
-                asset_ref="ref-2",
-                representation_id="rep-2",
-                revision=1,
-                content_hash="h2",
-                representation_kind="extracted_text",
-            ),
+            WorkspaceAssetRef(asset_id="asset-1", token="ref-1"),
+            WorkspaceAssetRef(asset_id="asset-2", token="ref-2"),
         ],
     )
     submission = SimpleNamespace(
@@ -206,11 +180,11 @@ def test_handler_projects_used_attachments_into_binding_coordinates() -> None:
 
     asyncio.run(handler.execute(submission, context=None))
 
-    refs = captured["asset_id_and_refs"]
-    assert [(asset_id, ref.token) for asset_id, ref in refs] == [
-        ("asset-1", "ref-1"),
-        ("asset-2", "ref-2"),
-    ]
+    refs = captured["asset_refs"]
+    assert refs == (
+        WorkspaceAssetRef(asset_id="asset-1", token="ref-1"),
+        WorkspaceAssetRef(asset_id="asset-2", token="ref-2"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +264,7 @@ async def test_promotion_degrades_when_ref_removed() -> None:
     """捕获 ref 失效时 promotion 抛错或破坏已提交 binding。"""
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
-    store.remove_asset(_scope(), WorkspaceAssetRef(token=ref))
+    store.remove_asset(_scope(), ref)
     builder = _RecordingDocumentBuilder()
     familiar = _familiar(store, builder, [DuplicateDecision.CREATE])
     binding = _binding(store, ref)

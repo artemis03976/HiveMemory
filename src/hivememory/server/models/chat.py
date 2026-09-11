@@ -40,11 +40,11 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _reject_duplicate_asset_refs(self) -> "ChatRequest":
-        seen: set[str] = set()
+        seen_tokens: set[str] = set()
         for selection in self.attachments:
-            if selection.asset_ref in seen:
+            if selection.asset_ref.token in seen_tokens:
                 raise ValueError("同一 asset_ref 在 attachments 中重复出现")
-            seen.add(selection.asset_ref)
+            seen_tokens.add(selection.asset_ref.token)
         return self
 
 

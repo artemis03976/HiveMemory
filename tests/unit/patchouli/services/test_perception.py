@@ -148,21 +148,21 @@ class TestApplyInteraction:
         familiar, store, _, _, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope, topic_id="t-fixed", topic_title="Fixed")
-        ref = WorkspaceAssetRef(token="token-1")
+        ref = WorkspaceAssetRef(token="token-1", asset_id="asset-1")
 
         first = await familiar.apply_interaction(
             _payload("a"),
             identity_scope=scope,
             target_topic_id="t-fixed",
             interaction_id="i-1",
-            asset_id_and_refs=(("asset-1", ref),),
+            asset_refs=(ref,),
         )
         second = await familiar.apply_interaction(
             _payload("b"),
             identity_scope=scope,
             target_topic_id="t-fixed",
             interaction_id="i-2",
-            asset_id_and_refs=(("asset-1", WorkspaceAssetRef(token="token-1")),),
+            asset_refs=(WorkspaceAssetRef(token="token-1", asset_id="asset-1"),),
         )
 
         assert first == second == "t-fixed"

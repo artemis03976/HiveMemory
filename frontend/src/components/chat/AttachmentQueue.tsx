@@ -47,7 +47,7 @@ function StatusBadge({
 /**
  * 附件队列条：展示逐文件上传状态、提供重试/移除入口与 Chat 回合选择。
  *
- * 单项失败只影响该项；队列项与 opaque ref 只存在于当前运行时内存。
+ * 单项失败只影响该项；队列项与 bound ref 只存在于当前运行时内存。
  * 选择集合在发送时以快照冻结进 Chat 请求（计划 9.1 节）。
  */
 export default function AttachmentQueue() {
@@ -78,7 +78,7 @@ export default function AttachmentQueue() {
             <FileText className="w-4 h-4 shrink-0 text-slate-400" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-slate-200 truncate">{item.file.name}</span>
+                <span className="font-medium text-slate-200 truncate">{item.displayName}</span>
                 <span className="text-slate-500 shrink-0">{formatSize(item.file.size)}</span>
               </div>
               <div className="mt-0.5 flex items-center gap-2">
@@ -97,7 +97,7 @@ export default function AttachmentQueue() {
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
                 }`}
                 title={selected ? '取消选择（不发送该附件）' : '选择该附件随下一条消息发送'}
-                aria-label={selected ? `取消选择 ${item.file.name}` : `选择 ${item.file.name}`}
+                aria-label={selected ? `取消选择 ${item.displayName}` : `选择 ${item.displayName}`}
                 aria-pressed={selected}
               >
                 {selected ? <CheckCircle2 className="w-4 h-4" /> : <Circle className="w-4 h-4" />}
@@ -108,7 +108,7 @@ export default function AttachmentQueue() {
                 onClick={() => retry(item.id)}
                 className="p-1.5 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
                 title="重新上传（沿用同一上传标识）"
-                aria-label={`重新上传 ${item.file.name}`}
+                aria-label={`重新上传 ${item.displayName}`}
               >
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
@@ -118,7 +118,7 @@ export default function AttachmentQueue() {
                 onClick={() => dismiss(item.id)}
                 className="p-1.5 text-slate-500 hover:text-white hover:bg-white/5 rounded-lg transition-all"
                 title="从队列中移除"
-                aria-label={`移除 ${item.file.name}`}
+                aria-label={`移除 ${item.displayName}`}
               >
                 <X className="w-3.5 h-3.5" />
               </button>

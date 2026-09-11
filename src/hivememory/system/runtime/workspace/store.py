@@ -141,7 +141,10 @@ class InMemoryWorkspaceAssetStore:
                 workspace_identity=scope.workspace_identity,
                 asset_id=asset_id,
             )
-            asset_ref = WorkspaceAssetRef(token=self._new_ref_token())
+            asset_ref = WorkspaceAssetRef(
+                token=self._new_ref_token(),
+                asset_id=asset_id,
+            )
             entry = _AssetEntry(
                 key=asset_key,
                 metadata=metadata,
@@ -214,7 +217,10 @@ class InMemoryWorkspaceAssetStore:
                 workspace_identity=scope.workspace_identity,
                 asset_id=asset_id,
             )
-            asset_ref = WorkspaceAssetRef(token=self._new_ref_token())
+            asset_ref = WorkspaceAssetRef(
+                token=self._new_ref_token(),
+                asset_id=asset_id,
+            )
             entry = _AssetEntry(
                 key=asset_key,
                 metadata=metadata,
@@ -477,6 +483,7 @@ class InMemoryWorkspaceAssetStore:
                 asset_ref=entry.asset_ref,
                 representation=representation,
                 acquired_at=datetime.now(UTC),
+                display_name=entry.metadata.display_name,
             )
             self._leases[lease.lease_id] = _LeaseEntry(
                 lease=lease,
@@ -565,7 +572,11 @@ class InMemoryWorkspaceAssetStore:
         if not isinstance(asset_ref, WorkspaceAssetRef):
             raise AssetNotFoundError()
         asset_key = self._ref_index.get(asset_ref.token)
-        if asset_key is None or asset_key.workspace_identity != scope.workspace_identity:
+        if (
+            asset_key is None
+            or asset_key.workspace_identity != scope.workspace_identity
+            or asset_key.asset_id != asset_ref.asset_id
+        ):
             # 跨 Workspace 与未知 token 使用同一结果，避免泄露资源是否存在。
             raise AssetNotFoundError()
         entry = self._assets.get(asset_key)

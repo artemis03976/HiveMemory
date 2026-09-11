@@ -14,14 +14,12 @@ from hivememory.core.models import (
     AttachmentSelectionRequest,
     IdentityScope,
     MemoryAtom,
-    SelectedAttachmentCoordinate,
     TraceReducer,
     require_identity_scope,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.workspace_asset import (
     RepresentationLease,
-    WorkspaceAssetRef,
 )
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -136,15 +134,15 @@ class PatchouliService:
         ``selected_attachments`` 是 Chat 请求冻结的附件选择：prepare 在
         Patchouli 边界按用户顺序逐项 acquire READY representation 并核对
         版本摘要（计划 9.3 节）；任一项失败时释放已取得的 lease 并拒绝
-        整个 run。返回的 PreparedAgentRun 携带坐标与 lease 关联，正文
-        拼接与 token 预算属于 W1-E 的 AttachmentCompiler。
+        整个 run。返回的 PreparedAgentRun 携带有序 lease，正文
+        正文拼接与 token 预算属于 W1-E 的 AttachmentCompiler；display name 已在资产注册时
+        确定，并由 lease 传递给 compiler。
         """
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
         attachment_leases: list[RepresentationLease] = []
-        selected_coordinates: list[SelectedAttachmentCoordinate] = []
 
         try:
             agent_profile = await self._local_bus.request(
@@ -195,22 +193,11 @@ class PatchouliService:
             for selection in selected_attachments or []:
                 lease = await self._acquire_selected_attachment(identity_scope, selection)
                 attachment_leases.append(lease)
-                selected_coordinates.append(
-                    SelectedAttachmentCoordinate(
-                        asset_id=lease.representation.asset_id,
-                        asset_ref=selection.asset_ref,
-                        representation_id=lease.representation.representation_id,
-                        revision=lease.representation.revision,
-                        content_hash=lease.representation.content_hash or "",
-                        display_name=selection.display_name or "",
-                    ),
-                )
 
             # W1-E：附件正文编译发生在 prepare 阶段，lease 与编译同处一条
             # prepared-run 生命周期；此处即可确定 used_attachments。编译失败
             # （如全部附件无法编译）沿既有 except 路径释放 lease 并拒绝 run。
             attachment_compile_result: AttachmentCompileResult = self._attachment_compiler.compile(
-                selected_attachments=tuple(selected_coordinates),
                 leases=tuple(attachment_leases),
             )
 
@@ -263,11 +250,12 @@ class PatchouliService:
             )
         lease = self._asset_reader.acquire_ready_representation(
             identity_scope,
-            WorkspaceAssetRef(token=selection.asset_ref),
+            selection.asset_ref,
         )
         representation = lease.representation
         mismatch = (
-            (
+            lease.asset_ref != selection.asset_ref
+            or (
                 selection.representation_id is not None
                 and representation.representation_id != selection.representation_id
             )

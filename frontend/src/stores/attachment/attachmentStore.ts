@@ -10,7 +10,7 @@
  * - 队列项首次入队时生成稳定 operation ID（Idempotency-Key），重试沿用
  * - 上传是独立于 Chat SSE run 的资产命令，可在生成期间继续接收文件
  *
- * 明确不持久化：opaque ref、选择集合与 raw bytes 只保存在当前运行时内存
+ * 明确不持久化：bound ref、选择集合与 raw bytes 只保存在当前运行时内存
  * 中，不写入 localStorage；页面刷新后 ref 随服务进程内 Store 语义一并
  * 失效，用户需要重新上传或重新选择。
  */
@@ -63,9 +63,9 @@ export const useAttachmentStore = create<AttachmentStore>()(
         const newItems: AttachmentQueueItem[] = files.map((file) => ({
           id: newOperationId(),
           file,
+          displayName: file.name,
           status: 'queued',
           assetRef: null,
-          assetId: null,
           assetState: null,
           representationId: null,
           revision: null,
@@ -144,7 +144,7 @@ export const useAttachmentStore = create<AttachmentStore>()(
           get()._patchItem(id, {
             status: 'uploaded',
             assetRef: res.asset_ref,
-            assetId: res.asset_id,
+            displayName: res.display_name,
             assetState: res.state,
             // required representation READY 的项才可进入 Chat 回合选择集合
             representationId: required?.representation_id ?? null,
@@ -186,7 +186,6 @@ export function buildAttachmentSelection(
       representation_id: item.representationId ?? undefined,
       revision: item.revision ?? undefined,
       content_hash: item.contentHash ?? undefined,
-      display_name: item.file.name,
     });
   }
   return selections;

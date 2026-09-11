@@ -6,6 +6,7 @@
  */
 
 import type { MemoryAtom } from './memory';
+import type { WorkspaceAssetRef } from './attachment';
 
 // ========== SSE Event Data Types ==========
 
@@ -154,14 +155,12 @@ export interface ChatConnectionState {
 
 // ========== API Request Types ==========
 
-/** 本轮 Chat 请求携带的单个附件选择坐标（asset_ref 为 opaque ref，非本地路径） */
+/** 本轮 Chat 请求携带的单个附件选择引用（asset_ref 为绑定 ref，非本地路径） */
 export interface ChatAttachmentSelection {
-  asset_ref: string;
+  asset_ref: WorkspaceAssetRef;
   representation_id?: string;
   revision?: number;
   content_hash?: string;
-  /** 客户端展示名（原文件名）；只是编译 section 的展示元数据 */
-  display_name?: string;
 }
 
 export interface ChatRequestParams {

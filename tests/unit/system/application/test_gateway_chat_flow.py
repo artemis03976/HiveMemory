@@ -12,6 +12,7 @@ from hivememory.core.errors import AssetNotReadyError
 from hivememory.core.models import (
     AttachmentSelectionRequest,
     IdentityScope,
+    WorkspaceAssetRef,
 )
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
@@ -463,8 +464,14 @@ async def test_attachments_selection_is_forwarded_to_prepare_route() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
     selections = [
-        AttachmentSelectionRequest(asset_ref="ref-b"),
-        AttachmentSelectionRequest(asset_ref="ref-a", revision=1, content_hash="h"),
+        AttachmentSelectionRequest(
+            asset_ref=WorkspaceAssetRef(token="ref-b", asset_id="asset-b"),
+        ),
+        AttachmentSelectionRequest(
+            asset_ref=WorkspaceAssetRef(token="ref-a", asset_id="asset-a"),
+            revision=1,
+            content_hash="h",
+        ),
     ]
     service = ChatApplicationService(bus)
     result = await service.chat_scoped(

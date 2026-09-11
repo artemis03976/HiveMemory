@@ -7,8 +7,8 @@ canonical JSON roundtrip 后保持相同 ref、顺序与版本摘要（计划 15
 import pytest
 
 from hivememory.core.models import TurnEvent
+from hivememory.core.models.workspace_asset import WorkspaceAssetRef
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.engines.attachment_compiler.models import UsedAttachment
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionCodec,
@@ -21,19 +21,13 @@ from hivememory.system.runtime.work_queue import (
 from tests.helpers.workspace import make_identity_scope
 
 
-def _coordinate(asset_id: str, ref: str, revision: int = 1) -> UsedAttachment:
-    return UsedAttachment(
-        asset_id=asset_id,
-        asset_ref=ref,
-        representation_id=f"representation-{ref}",
-        revision=revision,
-        content_hash=f"hash-{ref}",
-        representation_kind="extracted_text",
-    )
+def _coordinate(asset_id: str, ref: str, revision: int = 1) -> WorkspaceAssetRef:
+    del revision
+    return WorkspaceAssetRef(asset_id=asset_id, token=ref)
 
 
 def _payload_with_selection(
-    coordinates: list[UsedAttachment] | None = None,
+    coordinates: list[WorkspaceAssetRef] | None = None,
 ) -> InteractionPayload:
     return InteractionPayload(
         user_message="带附件的消息",
@@ -142,7 +136,7 @@ def test_registry_accepts_v1_and_v2_side_by_side() -> None:
         InteractionSubmissionCodec.schema_version,
         encoded,
     )
-    assert decoded.payload.used_attachments[0].asset_ref == "ref-a"
+    assert decoded.payload.used_attachments[0].token == "ref-a"
 
 
 @pytest.mark.asyncio
@@ -166,7 +160,7 @@ async def test_queue_submit_stamps_schema_version_2() -> None:
         assert outcome.state.value == "succeeded"
         stored = queue._submissions[receipt.interaction_id]
         assert b'"used_attachments"' in stored.payload_bytes
-        assert b'"asset_ref":"ref-a"' in stored.payload_bytes
-        assert b'"asset_ref":"ref-b"' in stored.payload_bytes
+        assert b'"asset_id":"asset-a","token":"ref-a"' in stored.payload_bytes
+        assert b'"asset_id":"asset-b","token":"ref-b"' in stored.payload_bytes
     finally:
         await queue.stop()

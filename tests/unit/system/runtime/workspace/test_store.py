@@ -126,7 +126,7 @@ def test_create_is_idempotent_across_actors_but_rejects_conflicting_metadata() -
 
 
 def test_workspace_hard_boundary_hides_ref_while_same_workspace_actor_can_read() -> None:
-    """捕获 opaque ref 或 Agent/Team 差异绕过/扩大 Workspace ownership。"""
+    """捕获 bound ref 或 Agent/Team 差异绕过/扩大 Workspace ownership。"""
     store = InMemoryWorkspaceAssetStore()
     owner_scope = _scope(agent_id="agent-a", team_id="team-a")
     peer_scope = _scope(agent_id="agent-b", team_id="team-b")
@@ -140,6 +140,17 @@ def test_workspace_hard_boundary_hides_ref_while_same_workspace_actor_can_read()
     isolated = store.create_asset(other_workspace, _document_metadata(), "upload-1")
     assert isolated.asset.asset_id != handle.asset.asset_id
     assert isolated.asset_ref != handle.asset_ref
+
+
+def test_tampered_bound_ref_cannot_read_by_token_alone() -> None:
+    """捕获 token 与 asset_id 被拆开传递后绕过绑定校验。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+    handle = store.create_asset(scope, _document_metadata(), "upload-1")
+    tampered = handle.asset_ref.model_copy(update={"asset_id": "asset-other"})
+
+    with pytest.raises(AssetNotFoundError):
+        store.resolve_asset(scope, tampered)
 
 
 def test_same_content_hash_never_merges_distinct_logical_assets() -> None:
@@ -352,11 +363,12 @@ def test_existing_lease_survives_remove_until_idempotent_release() -> None:
     store.remove_asset(scope, handle.asset_ref)
 
     assert (
+        lease.display_name,
         lease.representation.kind,
         lease.representation.content_object,
         store.release_representation_lease(lease.lease_id),
         store.release_representation_lease(lease.lease_id),
-    ) == (AssetRepresentationKind.RAW, b"raw-content", True, False)
+    ) == ("notes.md", AssetRepresentationKind.RAW, b"raw-content", True, False)
     with pytest.raises(AssetRemovedError):
         store.acquire_ready_representation(scope, handle.asset_ref)
 

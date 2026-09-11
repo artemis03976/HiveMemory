@@ -41,9 +41,15 @@ class AssetRepresentationKind(str, Enum):
 
 
 class WorkspaceAssetRef(BaseModel):
-    """当前 Store 存活期内随机且不可解释的资产句柄。"""
+    """当前 Store 存活期内的资产绑定引用。
+
+    ``token`` 是 Store 的唯一寻址句柄；``asset_id`` 是 token 在创建时绑定的
+    逻辑资产身份。调用方不得只凭 ``asset_id`` 读取资产，Store 会在读取边界
+    校验 token 解析出的资产身份与该字段一致。
+    """
 
     token: str = Field(min_length=1)
+    asset_id: str = Field(min_length=1)
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -213,10 +219,16 @@ class WorkspaceAsset(BaseModel):
 
 
 class WorkspaceAssetHandle(BaseModel):
-    """将用户持有的 opaque ref 与当前权威资产快照配对。"""
+    """将用户持有的 bound ref 与当前权威资产快照配对。"""
 
     asset_ref: WorkspaceAssetRef
     asset: WorkspaceAsset
+
+    @model_validator(mode="after")
+    def _require_bound_asset(self) -> Self:
+        if self.asset_ref.asset_id != self.asset.asset_id:
+            raise ValueError("asset_ref.asset_id 必须与 asset.asset_id 一致")
+        return self
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
@@ -238,38 +250,15 @@ class WorkspaceAssetUploadReceipt(BaseModel):
 class AttachmentSelectionRequest(BaseModel):
     """Chat 请求中的单个附件选择（客户端视图，计划 9.2 节）。
 
-    只携带 opaque ref 与可选的预期版本摘要；字段严格校验，拒绝未知键。
+    只携带 bound ref 与可选的预期版本摘要；字段严格校验，拒绝未知键。
     ref 的 Workspace 归属、asset READY 状态与版本一致性由 Patchouli
     prepare 边界经 reader port 校验，不在 HTTP 层读取 Store。
     """
 
-    asset_ref: str = Field(min_length=1, description="当前 Store 存活期内的 opaque ref")
+    asset_ref: WorkspaceAssetRef
     representation_id: str | None = Field(default=None, min_length=1)
     revision: int | None = Field(default=None, ge=1)
     content_hash: str | None = Field(default=None, min_length=1)
-    display_name: str | None = Field(
-        default=None,
-        max_length=200,
-        description="客户端展示名（原文件名）；只是编译 section 的展示元数据，不参与寻址",
-    )
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class SelectedAttachmentCoordinate(BaseModel):
-    """prepare 冻结的附件选择坐标（服务端权威视图，不含正文）。
-
-    由 Patchouli prepare 在 acquire READY representation 并核对版本摘要后
-    按用户选择顺序生成；随 ``AgentRunContext`` 与 canonical
-    ``InteractionPayload`` 传递，供 W1-E/F 使用同一份选择事实。
-    """
-
-    asset_id: str = Field(min_length=1)
-    asset_ref: str = Field(min_length=1)
-    representation_id: str = Field(min_length=1)
-    revision: int = Field(ge=1)
-    content_hash: str = Field(min_length=1)
-    display_name: str = Field(default="", description="受控展示元数据，不是寻址依据")
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -278,21 +267,25 @@ class TopicAssetBinding(BaseModel):
     """冻结的 Topic 级资产真实使用关系事实。
 
     由 Perception 的 Topic 所有者在一次成功 Interaction 的原子 apply 中幂等维护。
-    只保存 ``asset_id`` 与 opaque ``asset_ref`` 的关系坐标，不保存
+    只保存 bound ``asset_ref``，其中包含 ``asset_id`` 与 opaque ``token``，不保存
     ``WorkspaceAsset`` 快照、representation 内容或 actor-policy 字段；
     ``workspace_identity`` 与 ``topic_id`` 由所属的短期话题快照提供，
     不在 binding 内保存第二份可漂移的资源坐标。
     """
 
-    asset_id: str = Field(min_length=1)
     asset_ref: WorkspaceAssetRef
     first_bound_interaction_id: str = Field(min_length=1)
     bound_at: datetime
 
-    @field_validator("asset_id", "first_bound_interaction_id")
+    @field_validator("first_bound_interaction_id")
     @classmethod
     def _normalize_required_text(cls, value: str, info: Any) -> str:
         return _validate_non_empty(value, info.field_name)
+
+    @property
+    def asset_id(self) -> str:
+        """返回 bound ref 携带的逻辑资产身份。"""
+        return self.asset_ref.asset_id
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -318,12 +311,23 @@ class RepresentationPreference(BaseModel):
 
 
 class RepresentationLease(BaseModel):
-    """消费者持有的进程内 READY representation 租约。"""
+    """消费者持有的进程内 READY representation 租约。
+
+    ``display_name`` 是资产注册时规范化后的展示名称快照。它随 lease 一起冻结，
+    让编译器和其他消费者使用资产的权威名称，而不接受客户端再次提供的副本。
+    """
 
     lease_id: str = Field(min_length=1)
     asset_ref: WorkspaceAssetRef
     representation: AssetRepresentation
     acquired_at: datetime
+    display_name: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _require_bound_representation(self) -> Self:
+        if self.asset_ref.asset_id != self.representation.asset_id:
+            raise ValueError("asset_ref.asset_id 必须与 representation.asset_id 一致")
+        return self
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
@@ -358,7 +362,6 @@ __all__ = [
     "WorkspaceAssetKey",
     "WorkspaceAssetMetadata",
     "WorkspaceAssetRef",
-    "SelectedAttachmentCoordinate",
     "WorkspaceAssetState",
     "WorkspaceAssetUploadReceipt",
 ]

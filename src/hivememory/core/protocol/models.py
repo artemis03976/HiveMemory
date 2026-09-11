@@ -22,12 +22,12 @@ from hivememory.core.models import (
     MemoryAtom,
     TraceItem,
     TurnEvent,
+    WorkspaceAssetRef,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
 from hivememory.engines.attachment_compiler.models import (
     AttachmentCompileResult,
-    UsedAttachment,
 )
 from hivememory.engines.retrieval.models import QueryFilters
 
@@ -275,13 +275,13 @@ class InteractionPayload(BaseModel):
     )
 
     # 实际进入 attachment_context 的使用集合（唯一附件事实）：handler
-    # 据此一次性投影 asset_id_and_refs 建立 binding。passive 提交投影为空数组。
-    used_attachments: list[UsedAttachment] = Field(
+    # 据此一次性投影 bound refs 建立 binding。passive 提交投影为空数组。
+    used_attachments: list[WorkspaceAssetRef] = Field(
         default_factory=list,
         description="实际进入本轮上下文的附件使用引用快照；passive 提交投影为空数组",
     )
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 __all__ = [

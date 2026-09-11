@@ -1,6 +1,6 @@
 """WorkspaceAsset 上传 HTTP 请求/响应模型。
 
-响应只包含安全摘要：opaque ref 的序列化值、资产元数据与 representation
+响应只包含安全摘要：bound ref 的序列化对象、资产元数据与 representation
 的版本坐标；不得暴露原始 bytes、物理路径、Store 内部对象或可当作永久
 授权凭证的 ref 解释。W1-A 与 W1-C 共用同一份摘要 DTO。
 """
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from hivememory.core.models.workspace_asset import (
     AssetRepresentation,
     AssetRepresentationKind,
+    WorkspaceAssetRef,
     WorkspaceAssetUploadReceipt,
 )
 
@@ -55,8 +56,7 @@ class WorkspaceAssetUploadResponse(BaseModel):
     （"已上传/可用/失败"），不另设可漂移的 ``is_ready`` 标志。
     """
 
-    asset_ref: str = Field(description="opaque ref 序列化值，仅当前 Store 存活期内有效")
-    asset_id: str
+    asset_ref: WorkspaceAssetRef = Field(description="当前 Store 存活期内的绑定 ref")
     kind: str
     display_name: str
     media_type: str
@@ -89,8 +89,7 @@ class WorkspaceAssetUploadResponse(BaseModel):
             else None
         )
         return cls(
-            asset_ref=handle.asset_ref.token,
-            asset_id=asset.asset_id,
+            asset_ref=handle.asset_ref,
             kind=asset.kind,
             display_name=asset.display_name,
             media_type=asset.media_type,

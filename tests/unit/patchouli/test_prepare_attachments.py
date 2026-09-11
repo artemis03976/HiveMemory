@@ -17,6 +17,7 @@ from hivememory.core.models import (
     AttachmentSelectionRequest,
     IdentityScope,
     WorkspaceAssetMetadata,
+    WorkspaceAssetRef,
 )
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -83,8 +84,8 @@ def _make_ready_asset(
     *,
     operation_id: str,
     content_hash: str = "text-hash",
-) -> str:
-    """仅通过公开 Store 命令建立 READY 文档资产，返回其 opaque ref token。"""
+) -> WorkspaceAssetRef:
+    """仅通过公开 Store 命令建立 READY 文档资产，返回其 bound ref。"""
     metadata = WorkspaceAssetMetadata(
         kind="document",
         display_name=f"{operation_id}.txt",
@@ -137,7 +138,7 @@ def _make_ready_asset(
         },
         content_hash=content_hash,
     )
-    return receipt.handle.asset_ref.token
+    return receipt.handle.asset_ref
 
 
 def _service(
@@ -157,7 +158,7 @@ def _service(
     )
 
 
-def _selection(ref: str, **overrides) -> AttachmentSelectionRequest:
+def _selection(ref: WorkspaceAssetRef, **overrides) -> AttachmentSelectionRequest:
     return AttachmentSelectionRequest(asset_ref=ref, **overrides)
 
 
@@ -172,8 +173,8 @@ async def _prepare(service: PatchouliService, scope: IdentityScope, selections):
 
 
 @pytest.mark.asyncio
-async def test_prepare_acquires_selections_in_user_order_and_freezes_coordinates() -> None:
-    """捕获选择顺序被打乱、坐标缺失或 lease 未随 prepared run 冻结。"""
+async def test_prepare_acquires_selections_in_user_order_and_freezes_leases() -> None:
+    """捕获选择顺序被打乱或 lease 未随 prepared run 冻结。"""
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1")
     ref_a = _make_ready_asset(store, scope, operation_id="op-a")
@@ -191,8 +192,7 @@ async def test_prepare_acquires_selections_in_user_order_and_freezes_coordinates
     # 实际使用顺序经由 compile_result.used_attachments 冻结。
     assert "selected_attachments" not in AgentRunContext.model_fields
     used = prepared.agent_run_context.attachment_compile_result.used_attachments
-    assert [used_item.asset_ref for used_item in used] == [ref_b, ref_a]
-    assert all(used_item.revision == 1 for used_item in used)
+    assert list(used) == [ref_b, ref_a]
     assert [lease.representation.asset_id for lease in prepared.attachment_leases] == [
         used_item.asset_id for used_item in used
     ]
@@ -201,7 +201,7 @@ async def test_prepare_acquires_selections_in_user_order_and_freezes_coordinates
     compile_result = prepared.agent_run_context.attachment_compile_result
     assert compile_result is not None
     assert "extracted-body" in compile_result.attachment_context
-    assert [used.asset_ref for used in compile_result.used_attachments] == [ref_b, ref_a]
+    assert list(compile_result.used_attachments) == [ref_b, ref_a]
 
     # 本轮持有的 lease 都已在 cleanup 中释放，Store 不应残留。
     await service.cleanup_prepared_agent_run(prepared)
@@ -241,7 +241,10 @@ async def test_prepare_rejects_unknown_ref_without_leaking_leases() -> None:
         await _prepare(
             _service(store),
             scope,
-            [_selection(ref_a), _selection("missing-ref")],
+            [
+                _selection(ref_a),
+                _selection(WorkspaceAssetRef(token="missing-ref", asset_id="asset-missing")),
+            ],
         )
 
     assert store.close_and_clear().leases_cleared == 0
@@ -253,9 +256,7 @@ async def test_prepare_rejects_removed_asset() -> None:
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1")
     ref_a = _make_ready_asset(store, scope, operation_id="op-a")
-    from hivememory.core.models import WorkspaceAssetRef
-
-    store.remove_asset(scope, WorkspaceAssetRef(token=ref_a))
+    store.remove_asset(scope, ref_a)
 
     with pytest.raises(AssetRemovedError):
         await _prepare(_service(store), scope, [_selection(ref_a)])

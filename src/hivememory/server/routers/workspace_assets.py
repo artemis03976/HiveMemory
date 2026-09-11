@@ -95,7 +95,7 @@ async def upload_workspace_asset(
     selection: RequestIdentitySelection = Depends(get_identity_selection),
     service: WorkspaceAssetApplicationService = Depends(get_workspace_asset_service),
 ) -> WorkspaceAssetUploadResponse:
-    """上传单个附件，创建 WorkspaceAsset 并返回 opaque ref 与 RAW 摘要。
+    """上传单个附件，创建 WorkspaceAsset 并返回 bound ref 与 RAW 摘要。
 
     首次创建返回 201；同一 ``Idempotency-Key`` 且内容一致的重放返回 200
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动

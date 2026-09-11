@@ -25,9 +25,9 @@ def test_attachments_default_to_empty_and_accept_ordered_selections() -> None:
     request = ChatRequest(
         **_body(
             attachments=[
-                {"asset_ref": "ref-b"},
+                {"asset_ref": {"token": "ref-b", "asset_id": "asset-b"}},
                 {
-                    "asset_ref": "ref-a",
+                    "asset_ref": {"token": "ref-a", "asset_id": "asset-a"},
                     "revision": 2,
                     "content_hash": "h",
                     "representation_id": "r",
@@ -35,7 +35,7 @@ def test_attachments_default_to_empty_and_accept_ordered_selections() -> None:
             ],
         )
     )
-    assert [selection.asset_ref for selection in request.attachments] == ["ref-b", "ref-a"]
+    assert [selection.asset_ref.token for selection in request.attachments] == ["ref-b", "ref-a"]
     assert request.attachments[1].revision == 2
 
 
@@ -45,8 +45,8 @@ def test_duplicate_asset_ref_is_rejected_as_conflict() -> None:
         ChatRequest(
             **_body(
                 attachments=[
-                    {"asset_ref": "ref-a"},
-                    {"asset_ref": "ref-a", "revision": 2},
+                    {"asset_ref": {"token": "ref-a", "asset_id": "asset-a"}},
+                    {"asset_ref": {"token": "ref-a", "asset_id": "asset-a"}, "revision": 2},
                 ],
             )
         )
@@ -58,7 +58,11 @@ def test_attachment_objects_reject_unknown_fields() -> None:
         ChatRequest(
             **_body(
                 attachments=[
-                    {"asset_ref": "ref-a", "content": "正文不应由请求携带"},
+                    {
+                        "asset_ref": {"token": "ref-a", "asset_id": "asset-a"},
+                        "content": "正文不应由请求携带",
+                        "display_name": "客户端不应覆盖资产名称",
+                    },
                 ],
             )
         )

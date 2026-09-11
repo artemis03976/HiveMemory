@@ -100,7 +100,6 @@ def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload
     body = response.json()
     assert set(body) == {
         "asset_ref",
-        "asset_id",
         "kind",
         "display_name",
         "media_type",
@@ -132,14 +131,14 @@ def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload
 
     # A 门：HTTP 结果与同一 Workspace 的 Store 快照及资产列表一致。
     handles = store.list_workspace_assets(make_identity_scope(user_id="user-1"))
-    assert [handle.asset.asset_id for handle in handles] == [body["asset_id"]]
+    assert [handle.asset.asset_id for handle in handles] == [body["asset_ref"]["asset_id"]]
     asset = handles[0].asset
     assert asset.representations[0].content_hash == raw["content_hash"]
     assert asset.representations[0].revision == raw["revision"]
     # required text READY 后 reader 才开放（B/C 门）。
     resolved = store.resolve_asset(
         make_identity_scope(user_id="user-1"),
-        WorkspaceAssetRef(token=body["asset_ref"]),
+        WorkspaceAssetRef.model_validate(body["asset_ref"]),
     )
     assert resolved.state.value == "ready"
 
@@ -214,7 +213,6 @@ def test_idempotent_replay_returns_200_with_same_logical_asset(upload_stack) -> 
     assert first.status_code == 201
     assert replay.status_code == 200
     assert replay.json()["asset_ref"] == first.json()["asset_ref"]
-    assert replay.json()["asset_id"] == first.json()["asset_id"]
     assert len(store.list_workspace_assets(make_identity_scope(user_id="user-1"))) == 1
 
 
@@ -235,7 +233,7 @@ def test_replay_after_remove_returns_410_and_does_not_recreate(upload_stack) -> 
 
     first = _upload_files(client)
     scope = make_identity_scope(user_id="user-1")
-    store.remove_asset(scope, WorkspaceAssetRef(token=first.json()["asset_ref"]))
+    store.remove_asset(scope, WorkspaceAssetRef.model_validate(first.json()["asset_ref"]))
     replay = _upload_files(client)
 
     assert replay.status_code == 410

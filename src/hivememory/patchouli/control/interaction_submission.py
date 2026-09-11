@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from hivememory.core.models import IdentityScope, WorkspaceAssetRef
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from hivememory.patchouli.errors import TopicBusyError
@@ -274,19 +274,16 @@ class InteractionSubmissionHandler(
         payload: InteractionSubmission,
         context: WorkExecutionContext,
     ) -> InteractionSubmissionResult:
-        # W1-F：只有实际进入 attachment_context 的 used_attachments 才投影为
-        # binding 坐标（按 payload 顺序一次性投影）；selected 但被编译跳过的
-        # 项不建立 binding，handler 也不按文件名或当前选择重新推导。
-        asset_id_and_refs = tuple(
-            (used.asset_id, WorkspaceAssetRef(token=used.asset_ref))
-            for used in payload.payload.used_attachments
-        )
+        # W1-F：只有实际进入 attachment_context 的 bound refs 才进入 binding
+        # 投影（按 payload 顺序一次性投影）；selected 但被编译跳过的项不建立
+        # binding，handler 也不按文件名或当前选择重新推导。
+        asset_refs = tuple(payload.payload.used_attachments)
         topic_id = await self._apply_interaction(
             payload.payload,
             identity_scope=payload.identity_scope,
             target_topic_id=payload.requested_topic_id,
             interaction_id=payload.interaction_id,
-            asset_id_and_refs=asset_id_and_refs,
+            asset_refs=asset_refs,
         )
         return InteractionSubmissionResult(
             interaction_id=payload.interaction_id,
