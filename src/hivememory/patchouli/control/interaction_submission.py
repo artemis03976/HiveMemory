@@ -91,8 +91,8 @@ class InteractionSubmission:
 class InteractionSubmissionCodec:
     """InteractionSubmission 的 v2 canonical JSON codec。
 
-    v2 相对 v1 的唯一变化是 ``payload.selected_attachments``：W1-D 冻结的
-    附件选择坐标（计划 9.5 节）。exact-key 约束在 envelope 层不变；
+    v2 相对 v1 的变化是 ``payload.used_attachments``：W1-E 实际进入上下文
+    的附件使用引用快照（计划 9.5 节）。exact-key 约束在 envelope 层不变；
     payload 新键随 schema version 提升生效，禁止写回 v1 payload。
     """
 
@@ -156,9 +156,9 @@ class InteractionSubmissionCodec:
 class InteractionSubmissionV1Codec:
     """InteractionSubmission 的 v1 只读兼容 codec。
 
-    仅用于解码 schema v2 引入 ``selected_attachments`` 之前写入的存量
-    work item（进程内队列，不跨重启）；不得用本 codec 编码新提交——
-    禁止在 v1 payload 中携带附件选择键（计划 9.5 节）。
+    仅用于解码 schema v2 引入附件使用键之前写入的存量 work item（进程内
+    队列，不跨重启）；不得用本 codec 编码新提交——禁止在 v1 payload 中
+    携带附件使用键（计划 9.5 节）。
     """
 
     kind = "patchouli.interaction_submission"
@@ -170,10 +170,10 @@ class InteractionSubmissionV1Codec:
         return {
             "identity_scope": submission.identity_scope.model_dump(mode="json"),
             "interaction_id": submission.interaction_id,
-            # v1 payload 不含 W1-D/W1-F 引入的附件键。
+            # v1 payload 不含 W1-E 引入的附件使用键。
             "payload": submission.payload.model_dump(
                 mode="json",
-                exclude={"selected_attachments", "used_attachments"},
+                exclude={"used_attachments"},
             ),
             "requested_topic_id": submission.requested_topic_id,
             "ordering_key": submission.ordering_key,

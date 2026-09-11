@@ -93,14 +93,15 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
         ],
     )
 
-    coordinates = prepared.agent_run_context.selected_attachments
-    assert [coordinate.asset_ref for coordinate in coordinates] == [
+    # 用户选择只作为 compiler input；实际使用顺序由编译产物冻结。
+    used = prepared.agent_run_context.attachment_compile_result.used_attachments
+    assert [item.asset_ref for item in used] == [
         second.handle.asset_ref.token,
         first.handle.asset_ref.token,
     ]
     # required representation 的版本摘要与上传响应一致（revision=1）。
-    assert all(coordinate.revision == 1 for coordinate in coordinates)
-    assert coordinates[0].content_hash == (second.handle.asset.representations[1].content_hash)
+    assert all(item.revision == 1 for item in used)
+    assert used[0].content_hash == (second.handle.asset.representations[1].content_hash)
     assert len(prepared.attachment_leases) == 2
 
     await patchouli.cleanup_prepared_agent_run(prepared)

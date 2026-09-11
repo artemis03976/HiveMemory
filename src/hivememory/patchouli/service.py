@@ -226,7 +226,6 @@ class PatchouliService:
                 storage_available=await self._local_bus.request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
                 ),
-                selected_attachments=tuple(selected_coordinates),
                 attachment_compile_result=attachment_compile_result,
             )
             stream_prelude = StreamPrelude(
@@ -331,10 +330,7 @@ class PatchouliService:
             assistant_final_text=loop_result.final_text,
             turn_events=loop_result.turn_events,
             model_used=loop_result.model_used,
-            # W1-D 冻结的选择坐标原样进入 canonical submission；handler 不
-            # 会按文件名或"当前选择"重新推导。used_attachments 是 W1-E 的
-            # 实际使用集合，由 handler 一次性投影为 binding 坐标。
-            selected_attachments=list(agent_context.selected_attachments),
+            # 从 AttachmentCompileResult 生成一份实际使用引用快照
             used_attachments=(
                 list(agent_context.attachment_compile_result.used_attachments)
                 if agent_context.attachment_compile_result is not None

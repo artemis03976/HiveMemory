@@ -20,7 +20,6 @@ from hivememory.core.models import (
     AgentProfile,
     IdentityScope,
     MemoryAtom,
-    SelectedAttachmentCoordinate,
     TraceItem,
     TurnEvent,
 )
@@ -163,15 +162,14 @@ class AgentRunContext(BaseModel):
     user_message: str = Field(default="")
     topic_context: TopicData | None = Field(default=None)
     retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
+
     # 已编译的记忆上下文文本，用于注入 system prompt。
     # retrieval_result 只保留记忆原子，供缓存、引用记录等流程使用。
     memory_context: str = Field(default="")
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
-    # W1-D 冻结的附件选择坐标（按用户选择顺序）：只含身份与版本坐标，
-    # 不携带正文；lease 关联保留在 Patchouli 的 PreparedAgentRun 中。
-    selected_attachments: tuple[SelectedAttachmentCoordinate, ...] = Field(default_factory=tuple)
-    # W1-E AttachmentCompiler 的产物（prepare 阶段生成）：携带 prompt-ready
+
+    # AttachmentCompiler 的产物（prepare 阶段生成）：携带 prompt-ready
     # section、used_attachments 与诊断；未选择附件时为 None。
     attachment_compile_result: AttachmentCompileResult | None = Field(default=None)
 
@@ -276,17 +274,11 @@ class InteractionPayload(BaseModel):
         default="", description="实际使用的模型展示名，空字符串表示注册表未启用"
     )
 
-    # W1-D 冻结的附件选择坐标（按用户选择顺序）：只传坐标，不复制正文。
-    # passive 提交投影为空数组。W1-F 另有 used_attachments 承载实际使用集合。
-    selected_attachments: list[SelectedAttachmentCoordinate] = Field(
-        default_factory=list,
-        description="本轮 Chat 请求冻结的附件选择坐标，空数组表示未使用附件",
-    )
-    # W1-E 实际进入 attachment_context 的使用集合：handler 据此一次性投影
-    # asset_id_and_refs 建立 binding；与 selected_attachments 是两个概念。
+    # 实际进入 attachment_context 的使用集合（唯一附件事实）：handler
+    # 据此一次性投影 asset_id_and_refs 建立 binding。passive 提交投影为空数组。
     used_attachments: list[UsedAttachment] = Field(
         default_factory=list,
-        description="实际进入本轮上下文的附件使用坐标；passive 提交投影为空数组",
+        description="实际进入本轮上下文的附件使用引用快照；passive 提交投影为空数组",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

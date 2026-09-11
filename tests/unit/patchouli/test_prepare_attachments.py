@@ -24,7 +24,7 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import AgentRunResult, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, RetrievalResponse
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
@@ -187,11 +187,14 @@ async def test_prepare_acquires_selections_in_user_order_and_freezes_coordinates
     )
 
     assert isinstance(prepared, PreparedAgentRun)
-    coordinates = prepared.agent_run_context.selected_attachments
-    assert [coordinate.asset_ref for coordinate in coordinates] == [ref_b, ref_a]
-    assert all(coordinate.revision == 1 for coordinate in coordinates)
+    # 用户选择只作为 compiler input：AgentRunContext 不再保留独立坐标字段，
+    # 实际使用顺序经由 compile_result.used_attachments 冻结。
+    assert "selected_attachments" not in AgentRunContext.model_fields
+    used = prepared.agent_run_context.attachment_compile_result.used_attachments
+    assert [used_item.asset_ref for used_item in used] == [ref_b, ref_a]
+    assert all(used_item.revision == 1 for used_item in used)
     assert [lease.representation.asset_id for lease in prepared.attachment_leases] == [
-        coordinate.asset_id for coordinate in coordinates
+        used_item.asset_id for used_item in used
     ]
 
     # W1-E：编译产物在 prepare 阶段即写入 AgentRunContext。

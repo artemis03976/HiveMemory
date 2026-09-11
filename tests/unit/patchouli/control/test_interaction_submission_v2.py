@@ -1,13 +1,14 @@
-"""InteractionSubmission codec schema v2（附件选择坐标）的单元测试。
+"""InteractionSubmission codec schema v2（附件使用引用快照）的单元测试。
 
-被测边界：v2 是唯一写入口；v1 只读兼容存量 work item；坐标经 canonical
-JSON roundtrip 后保持相同 ref、顺序与版本摘要（计划 15.2 / D 门）。
+被测边界：v2 是唯一写入口；v1 只读兼容存量 work item；使用引用经
+canonical JSON roundtrip 后保持相同 ref、顺序与版本摘要（计划 15.2 / D 门）。
 """
 
 import pytest
 
-from hivememory.core.models import SelectedAttachmentCoordinate, TurnEvent
+from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.engines.attachment_compiler.models import UsedAttachment
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionCodec,
@@ -20,18 +21,19 @@ from hivememory.system.runtime.work_queue import (
 from tests.helpers.workspace import make_identity_scope
 
 
-def _coordinate(asset_id: str, ref: str, revision: int = 1) -> SelectedAttachmentCoordinate:
-    return SelectedAttachmentCoordinate(
+def _coordinate(asset_id: str, ref: str, revision: int = 1) -> UsedAttachment:
+    return UsedAttachment(
         asset_id=asset_id,
         asset_ref=ref,
         representation_id=f"representation-{ref}",
         revision=revision,
         content_hash=f"hash-{ref}",
+        representation_kind="extracted_text",
     )
 
 
 def _payload_with_selection(
-    coordinates: list[SelectedAttachmentCoordinate] | None = None,
+    coordinates: list[UsedAttachment] | None = None,
 ) -> InteractionPayload:
     return InteractionPayload(
         user_message="带附件的消息",
@@ -43,7 +45,7 @@ def _payload_with_selection(
                 content="answer",
             ),
         ],
-        selected_attachments=list(coordinates or []),
+        used_attachments=list(coordinates or []),
     )
 
 
@@ -59,8 +61,8 @@ def _submission(payload: InteractionPayload) -> InteractionSubmission:
     )
 
 
-def test_v2_codec_roundtrip_preserves_selection_order_and_versions() -> None:
-    """捕获 codec roundtrip 丢失选择顺序、ref 或版本摘要。"""
+def test_v2_codec_roundtrip_preserves_usage_order_and_versions() -> None:
+    """捕获 codec roundtrip 丢失使用顺序、ref 或版本摘要。"""
     coordinates = [
         _coordinate("asset-a", "ref-a"),
         _coordinate("asset-b", "ref-b", revision=3),
@@ -71,17 +73,17 @@ def test_v2_codec_roundtrip_preserves_selection_order_and_versions() -> None:
     encoded = codec.encode(submission)
     decoded = codec.decode(encoded)
 
-    assert decoded.payload.selected_attachments == coordinates
+    assert decoded.payload.used_attachments == coordinates
     assert codec.encode(decoded) == encoded
 
 
-def test_v2_codec_projects_empty_selection_without_attachments() -> None:
-    """捕获缺省请求被投影为非空选择数组。"""
+def test_v2_codec_projects_empty_usage_without_attachments() -> None:
+    """捕获未使用附件时被投影为非空使用数组。"""
     submission = _submission(_payload_with_selection())
 
     encoded = InteractionSubmissionCodec().encode(submission)
 
-    assert encoded["payload"]["selected_attachments"] == []
+    assert encoded["payload"]["used_attachments"] == []
 
 
 def test_v1_codec_decodes_legacy_payload_and_v1_cannot_read_v2() -> None:
@@ -111,9 +113,9 @@ def test_v1_codec_decodes_legacy_payload_and_v1_cannot_read_v2() -> None:
 
     v1_codec = InteractionSubmissionV1Codec()
     decoded = v1_codec.decode(legacy)
-    assert decoded.payload.selected_attachments == []
+    assert decoded.payload.used_attachments == []
 
-    # v2 编码结果携带 selected_attachments 键，v1 只读 codec 必须拒绝。
+    # v2 编码结果携带 used_attachments 键，v1 只读 codec 必须拒绝。
     v2_encoded = InteractionSubmissionCodec().encode(
         _submission(_payload_with_selection([_coordinate("asset-a", "ref-a")])),
     )
@@ -140,7 +142,7 @@ def test_registry_accepts_v1_and_v2_side_by_side() -> None:
         InteractionSubmissionCodec.schema_version,
         encoded,
     )
-    assert decoded.payload.selected_attachments[0].asset_ref == "ref-a"
+    assert decoded.payload.used_attachments[0].asset_ref == "ref-a"
 
 
 @pytest.mark.asyncio
@@ -163,7 +165,7 @@ async def test_queue_submit_stamps_schema_version_2() -> None:
 
         assert outcome.state.value == "succeeded"
         stored = queue._submissions[receipt.interaction_id]
-        assert b'"selected_attachments"' in stored.payload_bytes
+        assert b'"used_attachments"' in stored.payload_bytes
         assert b'"asset_ref":"ref-a"' in stored.payload_bytes
         assert b'"asset_ref":"ref-b"' in stored.payload_bytes
     finally:
