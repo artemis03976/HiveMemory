@@ -150,9 +150,7 @@ class MessageTurnBuffer:
         self._interaction_id = interaction_id
         self._user_content = content
         self._gateway_decision = gateway_decision
-        self._target_topic = (
-            gateway_decision.target_topic_id if gateway_decision else None
-        )
+        self._target_topic = gateway_decision.target_topic_id if gateway_decision else None
         self._turn_id = turn_id
         self._append_event(
             TurnEvent(
@@ -263,10 +261,7 @@ class MessageTurnBuffer:
         """在显式 final 已写入 buffer 后记录其可恢复 admission 状态。"""
         if not self.has_pending_round:
             raise RuntimeError("cannot mark finalization on an idle turn buffer")
-        if (
-            self._pending_final_event_key is not None
-            and self._pending_final_event_key != event_key
-        ):
+        if self._pending_final_event_key is not None and self._pending_final_event_key != event_key:
             raise RuntimeError("another explicit final event is already pending admission")
         self._pending_final_event_key = event_key
 
@@ -287,25 +282,19 @@ class MessageTurnBuffer:
         )
 
     def _build_payload(self) -> InteractionPayload:
-        assistant_final_text = (
-            "\n".join(self._assistant_parts) if self._assistant_parts else ""
-        )
+        assistant_final_text = "\n".join(self._assistant_parts) if self._assistant_parts else ""
 
         return InteractionPayload(
             user_message=self._user_content or "",
             assistant_final_text=assistant_final_text or None,
             turn_events=list(self._turn_events),
             mtp_traces=[],
+            # passive 链路没有附件选择，按 submission schema v2 约定投影空数组。
+            selected_attachments=[],
             rewritten_query=(
-                self._gateway_decision.rewritten_query
-                if self._gateway_decision
-                else None
+                self._gateway_decision.rewritten_query if self._gateway_decision else None
             ),
-            worth_saving=(
-                self._gateway_decision.worth_saving
-                if self._gateway_decision
-                else None
-            ),
+            worth_saving=(self._gateway_decision.worth_saving if self._gateway_decision else None),
         )
 
 
@@ -330,9 +319,7 @@ class MessageTurnBufferManager:
             if key not in self._buffers:
                 self._buffers[key] = MessageTurnBuffer(
                     conversation_key=key,
-                    max_buffered_events_per_turn=(
-                        self._max_buffered_events_per_turn
-                    ),
+                    max_buffered_events_per_turn=(self._max_buffered_events_per_turn),
                 )
                 logger.debug(f"创建新 MessageTurnBuffer: {key.label}")
             return self._buffers[key]

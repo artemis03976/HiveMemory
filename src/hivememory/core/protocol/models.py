@@ -20,6 +20,7 @@ from hivememory.core.models import (
     AgentProfile,
     IdentityScope,
     MemoryAtom,
+    SelectedAttachmentCoordinate,
     TraceItem,
     TurnEvent,
 )
@@ -134,6 +135,7 @@ class RetrievalResponse(ProtocolMessage):
 
     从 RetrievalFamiliar 返回的检索结果，供外部 Worker Agent 使用
     """
+
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
 
     # 检索到的记忆
@@ -162,12 +164,16 @@ class AgentRunContext(BaseModel):
     memory_context: str = Field(default="")
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
+    # W1-D 冻结的附件选择坐标（按用户选择顺序）：只含身份与版本坐标，
+    # 不携带正文；lease 关联保留在 Patchouli 的 PreparedAgentRun 中。
+    selected_attachments: tuple[SelectedAttachmentCoordinate, ...] = Field(default_factory=tuple)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class MTPExecutionResult(BaseModel):
     """MTP 指令执行结果"""
+
     command: Any | None = Field(default=None)
     response_status: str = Field(default="error")
     response_content: str = Field(default="")
@@ -199,6 +205,7 @@ class AgentRunResult(BaseModel):
         model_used          → 本次 run 实际使用的模型展示名（来自 ModelRegistry）；
                               空字符串表示注册表未启用或解析失败
     """
+
     status: AgentRunStatus = Field(default=AgentRunStatus.COMPLETED)
     final_text: str = Field(default="")
     mtp_iterations: int = Field(default=0)
@@ -229,44 +236,44 @@ class InteractionPayload(BaseModel):
         P2.5 起不再内嵌 ``identity_scope``；身份坐标由 ``InteractionSubmission``
         的 ``identity_scope`` 单独承载，避免 payload 成为第二份身份事实。
     """
+
     user_message: str = Field(..., description="原始用户消息")
 
-    rewritten_query: str | None = Field(
-        default=None,
-        description="Gateway 重写后的查询"
-    )
+    rewritten_query: str | None = Field(default=None, description="Gateway 重写后的查询")
 
     # ========== 结构化轮次事件 ==========
     # 模型最终自然语言回复
     assistant_final_text: str | None = Field(
-        default=None,
-        description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
+        default=None, description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
     )
     # 收集的结构化轮次事件列表
     turn_events: list[TurnEvent] = Field(
         default_factory=list,
-        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径"
+        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径",
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
-        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表"
+        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表",
     )
 
     # 控制信号
     materialize_tasks: list[PendingAtomMaterializeTask] = Field(
         default_factory=list,
-        description="本 run 产出的不可变物化请求列表，由 finalize 分发 mode b/c"
+        description="本 run 产出的不可变物化请求列表，由 finalize 分发 mode b/c",
     )
 
-    worth_saving: bool | None = Field(
-        default=None,
-        description="Gateway 价值判断"
-    )
+    worth_saving: bool | None = Field(default=None, description="Gateway 价值判断")
     # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
     # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
-        default="",
-        description="实际使用的模型展示名，空字符串表示注册表未启用"
+        default="", description="实际使用的模型展示名，空字符串表示注册表未启用"
+    )
+
+    # W1-D 冻结的附件选择坐标（按用户选择顺序）：只传坐标，不复制正文。
+    # passive 提交投影为空数组；W1-E 的 used_attachments 不进入本模型。
+    selected_attachments: list[SelectedAttachmentCoordinate] = Field(
+        default_factory=list,
+        description="本轮 Chat 请求冻结的附件选择坐标，空数组表示未使用附件",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

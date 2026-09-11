@@ -8,7 +8,11 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import IdentityScope
+from hivememory.core.errors import AssetNotReadyError
+from hivememory.core.models import (
+    AttachmentSelectionRequest,
+    IdentityScope,
+)
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
@@ -433,3 +437,69 @@ async def _collect_stream(
     generation_id: str,
 ) -> list[dict]:
     return await _stream_events(service, "问题", interaction_id=generation_id)
+
+
+@pytest.mark.asyncio
+async def test_attachments_selection_is_forwarded_to_prepare_route() -> None:
+    """捕获附件选择未按用户顺序透传到 prepare 边界。"""
+    bus = GlobalSystemBus()
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+    seen_kwargs: dict = {}
+
+    async def prepare(**kwargs):
+        seen_kwargs.update(kwargs)
+        prepared.identity_scope = kwargs["identity_scope"]
+        return prepared
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        AsyncMock(return_value=AgentRunResult(final_text="完成")),
+    )
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+
+    selections = [
+        AttachmentSelectionRequest(asset_ref="ref-b"),
+        AttachmentSelectionRequest(asset_ref="ref-a", revision=1, content_hash="h"),
+    ]
+    service = ChatApplicationService(bus)
+    result = await service.chat_scoped(
+        "问题",
+        identity_scope=_u1_scope(),
+        interaction_id="interaction-attachments",
+        attachments=selections,
+    )
+
+    assert result.kind == "agent"
+    assert seen_kwargs["attachments"] == selections
+
+
+@pytest.mark.asyncio
+async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
+    """捕获附件拒绝等 Workspace 领域错误丢失安全 code 或被包装成系统错误。"""
+    bus = GlobalSystemBus()
+
+    async def prepare(**_kwargs):
+        raise AssetNotReadyError("附件尚未完成解析，不能在本轮使用")
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=False))
+
+    events = [
+        event
+        async for event in ChatApplicationService(bus).chat_stream_scoped(
+            "问题",
+            identity_scope=_u1_scope(),
+            interaction_id="interaction-domain-error",
+        )
+    ]
+
+    errors = [event for event in events if event["event"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["data"]["code"] == "workspace.asset.not_ready"
+    assert "附件" in errors[0]["data"]["message"]

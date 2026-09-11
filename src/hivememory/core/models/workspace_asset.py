@@ -192,9 +192,12 @@ class WorkspaceAsset(BaseModel):
             required is None or required.state != AssetRepresentationState.READY
         ):
             raise ValueError("READY asset 的 required representation 必须 READY")
-        if self.state == WorkspaceAssetState.PROCESSING and required is not None and (
-            required.state
-            in {AssetRepresentationState.READY, AssetRepresentationState.FAILED}
+        if (
+            self.state == WorkspaceAssetState.PROCESSING
+            and required is not None
+            and (
+                required.state in {AssetRepresentationState.READY, AssetRepresentationState.FAILED}
+            )
         ):
             raise ValueError("required representation 终态必须与 asset 聚合状态原子提交")
         if self.state == WorkspaceAssetState.FAILED:
@@ -230,6 +233,39 @@ class WorkspaceAssetUploadReceipt(BaseModel):
     created: bool
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+
+class AttachmentSelectionRequest(BaseModel):
+    """Chat 请求中的单个附件选择（客户端视图，计划 9.2 节）。
+
+    只携带 opaque ref 与可选的预期版本摘要；字段严格校验，拒绝未知键。
+    ref 的 Workspace 归属、asset READY 状态与版本一致性由 Patchouli
+    prepare 边界经 reader port 校验，不在 HTTP 层读取 Store。
+    """
+
+    asset_ref: str = Field(min_length=1, description="当前 Store 存活期内的 opaque ref")
+    representation_id: str | None = Field(default=None, min_length=1)
+    revision: int | None = Field(default=None, ge=1)
+    content_hash: str | None = Field(default=None, min_length=1)
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class SelectedAttachmentCoordinate(BaseModel):
+    """prepare 冻结的附件选择坐标（服务端权威视图，不含正文）。
+
+    由 Patchouli prepare 在 acquire READY representation 并核对版本摘要后
+    按用户选择顺序生成；随 ``AgentRunContext`` 与 canonical
+    ``InteractionPayload`` 传递，供 W1-E/F 使用同一份选择事实。
+    """
+
+    asset_id: str = Field(min_length=1)
+    asset_ref: str = Field(min_length=1)
+    representation_id: str = Field(min_length=1)
+    revision: int = Field(ge=1)
+    content_hash: str = Field(min_length=1)
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class TopicAssetBinding(BaseModel):
@@ -306,6 +342,7 @@ __all__ = [
     "AssetRepresentationKind",
     "AssetRepresentationState",
     "AssetSafeError",
+    "AttachmentSelectionRequest",
     "RepresentationLease",
     "RepresentationPreference",
     "TopicAssetBinding",
@@ -315,6 +352,7 @@ __all__ = [
     "WorkspaceAssetKey",
     "WorkspaceAssetMetadata",
     "WorkspaceAssetRef",
+    "SelectedAttachmentCoordinate",
     "WorkspaceAssetState",
     "WorkspaceAssetUploadReceipt",
 ]

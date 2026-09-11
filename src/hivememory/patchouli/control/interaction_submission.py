@@ -51,9 +51,7 @@ def _require_exact_keys(
     if actual != expected:
         missing = sorted(expected - actual)
         extra = sorted(str(key) for key in actual - expected)
-        raise ValueError(
-            f"{field_name} schema mismatch: missing={missing}, extra={extra}"
-        )
+        raise ValueError(f"{field_name} schema mismatch: missing={missing}, extra={extra}")
 
 
 @dataclass(frozen=True)
@@ -91,10 +89,15 @@ class InteractionSubmission:
 
 
 class InteractionSubmissionCodec:
-    """InteractionSubmission 的 v1 canonical JSON codec。"""
+    """InteractionSubmission 的 v2 canonical JSON codec。
+
+    v2 相对 v1 的唯一变化是 ``payload.selected_attachments``：W1-D 冻结的
+    附件选择坐标（计划 9.5 节）。exact-key 约束在 envelope 层不变；
+    payload 新键随 schema version 提升生效，禁止写回 v1 payload。
+    """
 
     kind = "patchouli.interaction_submission"
-    schema_version = 1
+    schema_version = 2
 
     def encode(self, submission: InteractionSubmission) -> object:
         if not isinstance(submission, InteractionSubmission):
@@ -145,6 +148,73 @@ class InteractionSubmissionCodec:
         )
         # 部分嵌套 Pydantic DTO 为兼容历史入口会忽略额外字段；codec 边界必须
         # 重新编码完整领域对象并要求规范等值，防止任何层级的篡改被静默吞掉。
+        if self.encode(submission) != payload:
+            raise ValueError("interaction submission payload is not canonical")
+        return submission
+
+
+class InteractionSubmissionV1Codec:
+    """InteractionSubmission 的 v1 只读兼容 codec。
+
+    仅用于解码 schema v2 引入 ``selected_attachments`` 之前写入的存量
+    work item（进程内队列，不跨重启）；不得用本 codec 编码新提交——
+    禁止在 v1 payload 中携带附件选择键（计划 9.5 节）。
+    """
+
+    kind = "patchouli.interaction_submission"
+    schema_version = 1
+
+    def encode(self, submission: InteractionSubmission) -> object:
+        if not isinstance(submission, InteractionSubmission):
+            raise TypeError("interaction submission payload has an unexpected type")
+        return {
+            "identity_scope": submission.identity_scope.model_dump(mode="json"),
+            "interaction_id": submission.interaction_id,
+            # v1 payload 不含 selected_attachments 键。
+            "payload": submission.payload.model_dump(
+                mode="json",
+                exclude={"selected_attachments"},
+            ),
+            "requested_topic_id": submission.requested_topic_id,
+            "ordering_key": submission.ordering_key,
+            "origin": submission.origin,
+            "correlation": dict(submission.correlation),
+        }
+
+    def decode(self, payload: object) -> InteractionSubmission:
+        if not isinstance(payload, dict):
+            raise TypeError("interaction submission payload must be an object")
+        _require_exact_keys(
+            payload,
+            expected={
+                "identity_scope",
+                "interaction_id",
+                "payload",
+                "requested_topic_id",
+                "ordering_key",
+                "origin",
+                "correlation",
+            },
+            field_name="interaction submission payload",
+        )
+        raw_payload = payload.get("payload")
+        if not isinstance(raw_payload, dict):
+            raise TypeError("interaction submission payload.payload must be an object")
+        raw_scope = payload.get("identity_scope")
+        if not isinstance(raw_scope, dict):
+            raise TypeError("interaction submission payload.identity_scope must be an object")
+        correlation = payload.get("correlation")
+        if not isinstance(correlation, dict):
+            raise TypeError("interaction submission payload.correlation must be an object")
+        submission = InteractionSubmission(
+            identity_scope=IdentityScope.model_validate(raw_scope),
+            interaction_id=payload["interaction_id"],
+            payload=InteractionPayload.model_validate(raw_payload),
+            requested_topic_id=payload["requested_topic_id"],
+            ordering_key=payload["ordering_key"],
+            origin=payload["origin"],
+            correlation=correlation,
+        )
         if self.encode(submission) != payload:
             raise ValueError("interaction submission payload is not canonical")
         return submission
@@ -222,7 +292,9 @@ class InteractionSubmissionHandler(
     ) -> FailureDecision:
         """仅重试已明确分类、且可复用同一 interaction identity 的失败。"""
 
-        if isinstance(error, (ConnectionError, TransientInteractionSubmissionError, TopicBusyError)):
+        if isinstance(
+            error, (ConnectionError, TransientInteractionSubmissionError, TopicBusyError)
+        ):
             return FailureDecision(
                 action=FailureAction.RETRY,
                 retry_after_seconds=0.05,
@@ -254,7 +326,9 @@ class InteractionSubmissionQueue:
         policy: QueuePolicy | None = None,
     ) -> None:
         self._codecs = WorkPayloadCodecRegistry()
+        # v2 为唯一写入口；v1 只读兼容存量 work item 的解码。
         self._codecs.register(InteractionSubmissionCodec())
+        self._codecs.register(InteractionSubmissionV1Codec())
         lane_policy = policy or QueuePolicy(
             capacity=256,
             max_concurrency=4,
@@ -276,9 +350,7 @@ class InteractionSubmissionQueue:
             handler=InteractionSubmissionHandler(apply_interaction),
             policy=lane_policy,
         )
-        self._max_submission_entries = (
-            lane_policy.capacity + lane_policy.terminal_retention
-        )
+        self._max_submission_entries = lane_policy.capacity + lane_policy.terminal_retention
         self._submissions: OrderedDict[str, _StoredSubmission] = OrderedDict()
         self._submit_lock = asyncio.Lock()
         self._stopped = asyncio.Event()
@@ -401,9 +473,7 @@ class InteractionSubmissionQueue:
         stored = self._submissions.get(interaction_id)
         if stored is None:
             return None
-        wait_task = asyncio.create_task(
-            self._runtime.wait(stored.receipt.work_id, timeout=timeout)
-        )
+        wait_task = asyncio.create_task(self._runtime.wait(stored.receipt.work_id, timeout=timeout))
         stopped_task = asyncio.create_task(self._stopped.wait())
         try:
             done, _ = await asyncio.wait(
@@ -500,5 +570,6 @@ __all__ = [
     "InteractionSubmissionQueue",
     "InteractionSubmissionReceipt",
     "InteractionSubmissionResult",
+    "InteractionSubmissionV1Codec",
     "TransientInteractionSubmissionError",
 ]

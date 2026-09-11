@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from hivememory.core.models import AgentProfile, IdentityScope, TopicSnapshot
+from hivememory.core.models.workspace_asset import RepresentationLease
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import AgentRunContext
 
@@ -22,12 +23,19 @@ class StreamPrelude:
 
 @dataclass(frozen=True)
 class PreparedAgentRun:
-    """Complete context prepared by Patchouli for one Agent run."""
+    """Complete context prepared by Patchouli for one Agent run.
+
+    ``attachment_leases`` 是本轮附件选择的进程内 lease 关联（按用户选择
+    顺序冻结）：由 prepare 边界 acquire，随 prepared run 交给 W1-E 编译
+    边界，并在 finalize continuation 或 prepared cleanup 中释放。它不是
+    新的 WorkspaceAsset 状态，也不进入任何序列化载荷。
+    """
 
     agent_run_context: AgentRunContext
     gateway_decision: GatewayDecision
     stream_prelude: StreamPrelude
     generation_options: dict[str, Any] | None = field(default=None)
+    attachment_leases: tuple[RepresentationLease, ...] = field(default=())
 
     @property
     def identity_scope(self) -> IdentityScope:

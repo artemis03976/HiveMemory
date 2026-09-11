@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Paperclip, Hash, Send, Square, BrainCircuit, ChevronDown } from 'lucide-react';
 import { useChatRuntimeConfigStore, useChatStore, useChatUiStore } from '@/stores';
+import { useAttachmentStore } from '@/stores/attachment';
+import { buildAttachmentSelection } from '@/stores/attachment/attachmentStore';
 import { Toggle } from '../common/FormControls';
 import { useAgents } from '@/hooks/useAgents';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
@@ -21,6 +23,9 @@ export default function OmniInput() {
 
   const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
+  const attachmentItems = useAttachmentStore((state) => state.items);
+  const selectedAttachmentIds = useAttachmentStore((state) => state.selectedIds);
+  const clearAttachmentSelection = useAttachmentStore((state) => state.clearSelection);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
@@ -133,11 +138,17 @@ export default function OmniInput() {
         options.top_p = generationOptions.top_p;
         options.max_tokens = generationOptions.max_tokens;
       }
+      // 发送时冻结附件选择快照：发送后再修改选择不影响已开始的 Chat run
+      const attachments = buildAttachmentSelection(attachmentItems, selectedAttachmentIds);
       sendMessage(message, {
         enable_memory_retrieval: enableMemory,
         generation_options: options,
+        attachments,
       });
       setMessage('');
+      if (attachments.length > 0) {
+        clearAttachmentSelection();
+      }
     }
   };
 

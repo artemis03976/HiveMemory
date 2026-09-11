@@ -205,6 +205,9 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             scheduler=runtime.scheduler,
             runtime_events=runtime.event_sink.scoped("patchouli"),
+            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
+            # Patchouli：附件选择在 prepare 边界 resolve/acquire（W1-D）。
+            workspace_asset_reader=runtime.workspace_asset_store,
         )
 
         alice = AliceSystem(

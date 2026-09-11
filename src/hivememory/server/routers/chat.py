@@ -74,6 +74,7 @@ async def chat(
                     if body.generation_options
                     else None
                 ),
+                attachments=body.attachments,
             )
 
             while True:

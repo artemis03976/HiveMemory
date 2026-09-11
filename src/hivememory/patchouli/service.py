@@ -5,14 +5,24 @@ import logging
 from typing import Any, Literal
 from uuid import UUID
 
+from hivememory.core.errors import (
+    AssetOperationConflictError,
+    WorkspaceDomainError,
+)
 from hivememory.core.models import (
     ActionReducer,
+    AttachmentSelectionRequest,
     IdentityScope,
     MemoryAtom,
+    SelectedAttachmentCoordinate,
     TraceReducer,
     require_identity_scope,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
+from hivememory.core.models.workspace_asset import (
+    RepresentationLease,
+    WorkspaceAssetRef,
+)
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
@@ -45,6 +55,7 @@ from hivememory.system.runtime.work_queue import (
     WorkQueueStoppedError,
     WorkState,
 )
+from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +95,15 @@ class PatchouliService:
         interaction_queue: InteractionSubmissionQueue,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         pending_atom_settler: PendingAtomSettler | None = None,
+        asset_reader: WorkspaceAssetReaderPort | None = None,
     ) -> None:
         if interaction_queue is None:
             raise TypeError("interaction_queue is required")
         self._local_bus = bus
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
+        # 进程级唯一的 WorkspaceAsset reader（由 assembler 注入）：prepare
+        # 边界用它完成附件 resolve/acquire，finalize/cleanup 负责 release。
+        self._asset_reader = asset_reader
         self._interaction_queue = interaction_queue
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
@@ -107,12 +122,22 @@ class PatchouliService:
         gateway_decision: GatewayDecision,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
+        selected_attachments: list[AttachmentSelectionRequest] | None = None,
     ) -> PreparedAgentRun:
-        """根据 GatewayDecision 准备一次完整的 Agent 运行上下文。"""
+        """根据 GatewayDecision 准备一次完整的 Agent 运行上下文。
+
+        ``selected_attachments`` 是 Chat 请求冻结的附件选择：prepare 在
+        Patchouli 边界按用户顺序逐项 acquire READY representation 并核对
+        版本摘要（计划 9.3 节）；任一项失败时释放已取得的 lease 并拒绝
+        整个 run。返回的 PreparedAgentRun 携带坐标与 lease 关联，正文
+        拼接与 token 预算属于 W1-E 的 AttachmentCompiler。
+        """
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
+        attachment_leases: list[RepresentationLease] = []
+        selected_coordinates: list[SelectedAttachmentCoordinate] = []
 
         try:
             agent_profile = await self._local_bus.request(
@@ -157,6 +182,22 @@ class PatchouliService:
                 else ""
             )
 
+            # 附件选择：逐项 acquire READY representation 并核对版本摘要。
+            # reader 的同一 Store 临界区已完成 Workspace/ref、asset READY 与
+            # representation READY 校验并建立 lease，无需先做 resolve_asset。
+            for selection in selected_attachments or []:
+                lease = await self._acquire_selected_attachment(identity_scope, selection)
+                attachment_leases.append(lease)
+                selected_coordinates.append(
+                    SelectedAttachmentCoordinate(
+                        asset_id=lease.representation.asset_id,
+                        asset_ref=selection.asset_ref,
+                        representation_id=lease.representation.representation_id,
+                        revision=lease.representation.revision,
+                        content_hash=lease.representation.content_hash or "",
+                    ),
+                )
+
             agent_run_context = AgentRunContext(
                 identity_scope=identity_scope,
                 interaction_id=interaction_id,
@@ -169,6 +210,7 @@ class PatchouliService:
                 storage_available=await self._local_bus.request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
                 ),
+                selected_attachments=tuple(selected_coordinates),
             )
             stream_prelude = StreamPrelude(
                 topic_id=real_topic_id,
@@ -182,11 +224,75 @@ class PatchouliService:
                 gateway_decision=gateway_decision,
                 stream_prelude=stream_prelude,
                 generation_options=generation_options,
+                attachment_leases=tuple(attachment_leases),
             )
         except Exception:
+            # prepare 失败：立即释放本轮已取得的 lease（容忍 Store 关闭），
+            # 并沿既有路径清理可能预创建的空话题。
+            self._release_attachment_leases(attachment_leases)
             if is_new and real_topic_id:
                 await self._cleanup_empty_topic_if_needed(identity_scope, real_topic_id)
             raise
+
+    async def _acquire_selected_attachment(
+        self,
+        identity_scope: IdentityScope,
+        selection: AttachmentSelectionRequest,
+    ) -> RepresentationLease:
+        """acquire 单个选中附件并核对客户端提供的版本摘要。"""
+        if self._asset_reader is None:
+            raise WorkspaceDomainError(
+                "当前系统未装配附件读取能力，不能处理附件选择",
+                details={"reason": "asset_reader_unavailable"},
+            )
+        lease = self._asset_reader.acquire_ready_representation(
+            identity_scope,
+            WorkspaceAssetRef(token=selection.asset_ref),
+        )
+        representation = lease.representation
+        mismatch = (
+            (
+                selection.representation_id is not None
+                and representation.representation_id != selection.representation_id
+            )
+            or (selection.revision is not None and representation.revision != selection.revision)
+            or (
+                selection.content_hash is not None
+                and representation.content_hash != selection.content_hash
+            )
+        )
+        if mismatch:
+            self._release_lease(lease)
+            raise AssetOperationConflictError(
+                "所选附件版本与当前可用表示不一致，请重新选择附件",
+                details={
+                    "reason": "selection_version_mismatch",
+                    "asset_id": representation.asset_id,
+                },
+            )
+        return lease
+
+    def _release_attachment_leases(
+        self,
+        leases: list[RepresentationLease] | tuple[RepresentationLease, ...],
+    ) -> None:
+        """逐项释放 lease；Store 关闭等清理错误容忍并记录摘要。"""
+        for lease in leases:
+            self._release_lease(lease)
+
+    def _release_lease(self, lease: RepresentationLease) -> None:
+        """释放单个 lease；幂等语义下重复释放返回 False，不视为错误。"""
+        if self._asset_reader is None:
+            return
+        try:
+            self._asset_reader.release_representation_lease(lease.lease_id)
+        except WorkspaceDomainError as exc:
+            # Store 已关闭等清理路径：记录摘要，不改变已经确定的 Chat 终态。
+            logger.warning(
+                "释放附件 lease 失败: lease_id=%s, code=%s",
+                lease.lease_id,
+                exc.code,
+            )
 
     async def finalize_agent_run(
         self,
@@ -208,6 +314,10 @@ class PatchouliService:
             assistant_final_text=loop_result.final_text,
             turn_events=loop_result.turn_events,
             model_used=loop_result.model_used,
+            # W1-D 冻结的选择坐标原样进入 canonical submission；handler 不
+            # 会按文件名或"当前选择"重新推导。W1-F 在拿到 W1-E 的实际使用
+            # 集合后，才把对应 (asset_id, asset_ref) 投影给 Perception。
+            selected_attachments=list(agent_context.selected_attachments),
         )
 
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
@@ -240,18 +350,19 @@ class PatchouliService:
             receipt = await self._admit_active_interaction(prepared_run, payload)
             await self._wait_active_interaction(prepared_run, receipt)
         except ActiveInteractionFinalizationError as error:
-            if (
-                prepared_run.stream_prelude.is_new_topic
-                and (
-                    error.stage == "interaction_apply"
-                    or prepared_run.interaction_id in self._detached_finalizations
-                )
+            if prepared_run.stream_prelude.is_new_topic and (
+                error.stage == "interaction_apply"
+                or prepared_run.interaction_id in self._detached_finalizations
             ):
                 await self._cleanup_empty_topic_if_needed(
                     prepared_run.identity_scope,
                     prepared_run.topic_id,
                 )
             raise
+        finally:
+            # 进入 finalize 后 lease 由 finalization continuation 持有：
+            # Interaction 与后置工作结束（无论成败）即释放（计划 9.3 节）。
+            self._release_attachment_leases(prepared_run.attachment_leases)
 
         # Interaction applied 后 Chat 的业务终态已经锁定。后续工作各自结算，
         # 不得再把 Chat 改写为 failed。
@@ -429,7 +540,12 @@ class PatchouliService:
         self,
         prepared_run: PreparedAgentRun,
     ) -> bool:
-        """清理已 prepare 但未 finalize 的预创建空话题。"""
+        """清理已 prepare 但未 finalize 的预创建空话题与附件 lease。
+
+        lease 释放无条件执行：finalize 接管路径由 continuation 自行释放，
+        此处的重复释放沿 Store 幂等语义返回 False，不产生副作用。
+        """
+        self._release_attachment_leases(prepared_run.attachment_leases)
 
         if not prepared_run.stream_prelude.is_new_topic:
             return False

@@ -47,6 +47,10 @@ export interface AttachmentQueueItem {
   assetId: string | null;
   /** 服务端资产状态；uploaded 项的解析 FAILED 仍属于 uploaded 的服务端状态 */
   assetState: AttachmentAssetState | null;
+  /** required representation 摘要：READY 时作为可版本核对的选择依据 */
+  representationId: string | null;
+  revision: number | null;
+  contentHash: string | null;
   /** 上传失败或解析失败时可见的安全文案 */
   errorMessage: string | null;
 }

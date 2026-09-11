@@ -49,6 +49,7 @@ from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
+from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 
 if TYPE_CHECKING:
     from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
@@ -78,6 +79,7 @@ class PatchouliSystem(SubsystemProtocol):
         global_bus: GlobalSystemBus | None = None,
         scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
+        workspace_asset_reader: WorkspaceAssetReaderPort | None = None,
     ):
         self.config = config
         self._global_bus = global_bus
@@ -104,6 +106,9 @@ class PatchouliSystem(SubsystemProtocol):
             interaction_queue=self._interaction_submission_queue,
             memory_compiler_config=self.config.memory_compiler,
             pending_atom_settler=self.runtime.pending_atom_settler,
+            # 进程级唯一的 WorkspaceAssetStore 由 assembler 注入为只读
+            # reader：附件选择在 prepare 边界 resolve/acquire（计划 9.3 节）。
+            asset_reader=workspace_asset_reader,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
