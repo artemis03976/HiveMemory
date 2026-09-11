@@ -10,12 +10,12 @@ import zipfile
 
 import pytest
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments import (
     CONTENT_UNREADABLE,
     RESOURCE_LIMIT,
     AttachmentParseError,
     DocxAttachmentParser,
-    ParseLimits,
 )
 
 _W_NS_TRANSITIONAL = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -83,7 +83,7 @@ def _parse(
 ):
     return DocxAttachmentParser().parse(
         raw,
-        limits=ParseLimits(**limit_overrides),
+        config=AttachmentParserConfig(**limit_overrides),
         source_raw_revision=1,
         source_raw_hash="raw-hash",
     )
@@ -451,7 +451,7 @@ def test_parse_budget_exceeded_with_injectable_clock() -> None:
     with pytest.raises(AttachmentParseError) as error:
         DocxAttachmentParser().parse(
             _make_docx(_para("budget")),
-            limits=ParseLimits(parse_budget_seconds=5.0),
+            config=AttachmentParserConfig(parse_budget_seconds=5.0),
             source_raw_revision=1,
             source_raw_hash="h",
             clock=_SteppingClock(step=10.0),

@@ -50,7 +50,7 @@ class ScriptedAttachmentParser:
         self,
         raw: bytes,
         *,
-        limits,
+        config,
         source_raw_revision: int,
         source_raw_hash: str,
         clock=None,
@@ -69,7 +69,7 @@ class ScriptedAttachmentParser:
             content_format="plain_text",
             source_raw_revision=source_raw_revision,
             source_raw_hash=source_raw_hash,
-            limits=limits,
+            config=config,
         )
         builder.append_text(self._result_text)
         builder.add_locator(kind="paragraph", number=1, start=0, end=len(self._result_text))

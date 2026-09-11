@@ -35,7 +35,7 @@ from hivememory.core.models.workspace_asset import (
     WorkspaceAssetState,
     WorkspaceAssetUploadReceipt,
 )
-from hivememory.system.config import AttachmentsConfig
+from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.ports import WorkspaceAssetCommandPort
 from hivememory.system.services.attachments import (
     CONTENT_UNREADABLE,
@@ -44,7 +44,6 @@ from hivememory.system.services.attachments import (
     AttachmentParseError,
     AttachmentParser,
     ParsedAttachmentContent,
-    ParseLimits,
     resolve_attachment_format,
     resolve_parser,
 )
@@ -64,6 +63,9 @@ _GENERIC_PARSE_FAILURE_MESSAGE = "附件解析失败，请重新上传"
 
 #: 分块读取的窗口大小；读取期间内存占用与该值加已累计字节成正比。
 _READ_CHUNK_SIZE = 64 * 1024
+
+#: 规范化后 display_name 的长度上限（展示元数据，非配置项）。
+_MAX_DISPLAY_NAME_LENGTH = 200
 
 logger = logging.getLogger(__name__)
 
@@ -124,11 +126,12 @@ class WorkspaceAssetApplicationService:
     def __init__(
         self,
         store: WorkspaceAssetCommandPort,
-        config: AttachmentsConfig,
+        parser_config: AttachmentParserConfig,
         parser_factory: Callable[[str], AttachmentParser] | None = None,
     ) -> None:
         self._store = store
-        self._config = config
+        # 上传接收与解析共用同一个 RAW 字节数上限（计划 7.7 节）。
+        self._parser_config = parser_config
         self._parser_factory = parser_factory or resolve_parser
         self._gates: dict[tuple[WorkspaceIdentity, str], _OperationGate] = {}
         self._gate_guard = asyncio.Lock()
@@ -261,7 +264,7 @@ class WorkspaceAssetApplicationService:
             result = await asyncio.to_thread(
                 parser.parse,
                 raw.content_object,
-                limits=self._parse_limits(),
+                config=self._parser_config,
                 source_raw_revision=raw.revision,
                 source_raw_hash=raw.content_hash,
             )
@@ -454,22 +457,6 @@ class WorkspaceAssetApplicationService:
         except WorkspaceDomainError as exc:
             logger.warning("解析失败提交被 Store 拒绝：%r", exc)
 
-    def _parse_limits(self) -> ParseLimits:
-        """把 System 配置映射为本次解析固定的资源限制。"""
-        return ParseLimits(
-            max_raw_bytes=self._config.max_raw_bytes,
-            max_extracted_text_bytes=self._config.max_extracted_text_bytes,
-            max_canonical_content_bytes=self._config.max_canonical_content_bytes,
-            max_locator_count=self._config.max_locator_count,
-            max_docx_members=self._config.max_docx_members,
-            max_docx_member_uncompressed_bytes=self._config.max_docx_member_uncompressed_bytes,
-            max_docx_package_uncompressed_bytes=self._config.max_docx_package_uncompressed_bytes,
-            max_docx_compression_ratio=self._config.max_docx_compression_ratio,
-            max_xml_depth=self._config.max_xml_depth,
-            max_xml_nodes=self._config.max_xml_nodes,
-            parse_budget_seconds=self._config.parse_budget_seconds,
-        )
-
     # ------------------------------------------------------------------
     # W1-A 输入校验与受限接收
     # ------------------------------------------------------------------
@@ -488,9 +475,9 @@ class WorkspaceAssetApplicationService:
         ).strip()
         if not cleaned:
             raise InvalidAttachmentNameError("文件名无效，请重命名后重新上传")
-        if len(cleaned) > self._config.max_display_name_length:
+        if len(cleaned) > _MAX_DISPLAY_NAME_LENGTH:
             raise InvalidAttachmentNameError(
-                f"文件名过长，请控制在 {self._config.max_display_name_length} 个字符以内"
+                f"文件名过长，请控制在 {_MAX_DISPLAY_NAME_LENGTH} 个字符以内"
             )
         return cleaned
 
@@ -507,9 +494,9 @@ class WorkspaceAssetApplicationService:
             if not chunk:
                 break
             buffer.extend(chunk)
-            if len(buffer) > self._config.max_raw_bytes:
+            if len(buffer) > self._parser_config.max_raw_bytes:
                 raise AttachmentTooLargeError(
-                    f"文件超过大小上限（{self._config.max_raw_bytes} 字节）"
+                    f"文件超过大小上限（{self._parser_config.max_raw_bytes} 字节）"
                 )
             digest.update(chunk)
         if not buffer:

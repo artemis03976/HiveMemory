@@ -1,38 +1,31 @@
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
+
 import yaml
 from dotenv import dotenv_values
-from pydantic import BaseModel, Field, ConfigDict, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-from hivememory.system.config.shared import (
-    LLMConfig, LLMGlobalConfig,
-    EmbeddingConfig, EmbeddingGlobalConfig,
-    ProviderCredentials,
-    SharedConfig,
+from hivememory.system.config.alice import (
+    AgentRuntimeConfig,
+    AliceConfig,
+    KoakumaConfig,
+    MTPPromptConfig,
+)
+from hivememory.system.config.attachments import (
+    AttachmentCompilerConfig,
+    AttachmentParserConfig,
 )
 from hivememory.system.config.gateway import (
     GatewayContextPreparationConfig,
     GatewayWorkflowConfig,
-    RuleInterceptorConfig, SystemCommandConfig, SystemGatewayConfig,
+    RuleInterceptorConfig,
+    SystemCommandConfig,
+    SystemGatewayConfig,
     TopicRouterConfig,
     UserQueryAnalysisConfig,
-)
-from hivememory.system.config.patchouli import (
-    QdrantConfig,
-    SimpleRelayConfig, LLMRelayConfig, RelayControllerConfig,
-    SemanticFlowPerceptionConfig, MemoryPerceptionConfig,
-    ExtractorConfig, DeduplicatorConfig, MemoryGenerationConfig,
-    ReciprocalRankFusionConfig, RetrievalModeConfig, AdaptiveWeightedFusionConfig,
-    RerankerConfig, DenseRetrieverConfig, SparseRetrieverConfig, HybridRetrieverConfig,
-    MemoryRetrievalConfig,
-    VitalityCalculatorConfig, ReinforcementEngineConfig, ArchiverConfig,
-    GarbageCollectorConfig, MemoryLifecycleConfig,
-    ArtifactComponentConfig, ArtifactConfig,
-    PatchouliShutdownConfig,
-    PatchouliConfig,
 )
 from hivememory.system.config.memory_compiler import (
     CascadeContextStrategyConfig,
@@ -42,17 +35,48 @@ from hivememory.system.config.memory_compiler import (
     RetrievalContextCompileConfig,
     RetrievalContextStrategyConfig,
 )
-from hivememory.system.config.alice import (
-    MTPPromptConfig, KoakumaConfig, AgentRuntimeConfig,
-    AliceConfig,
-)
-from hivememory.system.config.attachments import AttachmentsConfig
 from hivememory.system.config.passive import PassiveIngressConfig
+from hivememory.system.config.patchouli import (
+    AdaptiveWeightedFusionConfig,
+    ArchiverConfig,
+    ArtifactComponentConfig,
+    ArtifactConfig,
+    DeduplicatorConfig,
+    DenseRetrieverConfig,
+    ExtractorConfig,
+    GarbageCollectorConfig,
+    HybridRetrieverConfig,
+    LLMRelayConfig,
+    MemoryGenerationConfig,
+    MemoryLifecycleConfig,
+    MemoryPerceptionConfig,
+    MemoryRetrievalConfig,
+    PatchouliConfig,
+    PatchouliShutdownConfig,
+    QdrantConfig,
+    ReciprocalRankFusionConfig,
+    ReinforcementEngineConfig,
+    RelayControllerConfig,
+    RerankerConfig,
+    RetrievalModeConfig,
+    SemanticFlowPerceptionConfig,
+    SimpleRelayConfig,
+    SparseRetrieverConfig,
+    VitalityCalculatorConfig,
+)
+from hivememory.system.config.shared import (
+    EmbeddingConfig,
+    EmbeddingGlobalConfig,
+    LLMConfig,
+    LLMGlobalConfig,
+    ProviderCredentials,
+    SharedConfig,
+)
 
 logger = logging.getLogger(__name__)
 
 HIVEMEMORY_ENV_PREFIX = "HIVEMEMORY__"
-LEGACY_ENV_ALIASES: Dict[str, Tuple[str, ...]] = {
+LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "LLM__GATEWAY__PROVIDER": ("shared", "llm", "gateway", "provider"),
     "LLM__GATEWAY__MODEL": ("shared", "llm", "gateway", "model"),
     "LLM__GATEWAY__API_KEY": ("shared", "llm", "gateway", "api_key"),
@@ -93,7 +117,7 @@ def get_config_file_path() -> Path:
     return get_default_config_file_path()
 
 
-def _set_nested_value(data: Dict[str, Any], path: Tuple[str, ...], value: Any) -> None:
+def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
     target = data
     for part in path[:-1]:
         next_target = target.get(part)
@@ -104,8 +128,8 @@ def _set_nested_value(data: Dict[str, Any], path: Tuple[str, ...], value: Any) -
     target[path[-1]] = value
 
 
-def _load_dotenv_sources() -> Dict[str, str]:
-    values: Dict[str, str] = {}
+def _load_dotenv_sources() -> dict[str, str]:
+    values: dict[str, str] = {}
     for env_file in (".env", "configs/.env", "configs\\.env"):
         path = Path(env_file)
         if not path.exists():
@@ -116,13 +140,13 @@ def _load_dotenv_sources() -> Dict[str, str]:
     return values
 
 
-def legacy_env_alias_settings_source() -> Dict[str, Any]:
+def legacy_env_alias_settings_source() -> dict[str, Any]:
     """Map pre-config-split env vars into the current nested config schema."""
     raw_values = _load_dotenv_sources()
     raw_values.update(os.environ)
     normalized = {key.upper(): value for key, value in raw_values.items()}
 
-    aliased: Dict[str, Any] = {}
+    aliased: dict[str, Any] = {}
     for legacy_key, target_path in LEGACY_ENV_ALIASES.items():
         value = normalized.get(f"{HIVEMEMORY_ENV_PREFIX}{legacy_key}")
         if value is not None:
@@ -130,7 +154,7 @@ def legacy_env_alias_settings_source() -> Dict[str, Any]:
     return aliased
 
 
-def provider_credentials_settings_source() -> Dict[str, Any]:
+def provider_credentials_settings_source() -> dict[str, Any]:
     """扫描 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 环境变量。
 
     provider 名是动态的（deepseek / openai / anthropic ...），无法用静态别名表
@@ -141,7 +165,7 @@ def provider_credentials_settings_source() -> Dict[str, Any]:
     raw_values.update(os.environ)
 
     prefix = f"{HIVEMEMORY_ENV_PREFIX}PROVIDERS__"
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
     for key, value in raw_values.items():
         if value is None:
             continue
@@ -160,7 +184,7 @@ def provider_credentials_settings_source() -> Dict[str, Any]:
     return result
 
 
-def yaml_config_settings_source() -> Dict[str, Any]:
+def yaml_config_settings_source() -> dict[str, Any]:
     default_path = get_default_config_file_path()
     path = get_config_file_path()
 
@@ -171,7 +195,7 @@ def yaml_config_settings_source() -> Dict[str, Any]:
         raise FileNotFoundError(f"配置文件不存在: {path}")
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             yaml_content = yaml.safe_load(f) or {}
         return yaml_content
     except Exception as e:
@@ -191,10 +215,10 @@ class SystemConfig(BaseModel):
 class LoggingConfig(BaseModel):
     level: str = Field(default="INFO")
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    file_path: Optional[str] = Field(default=None)
+    file_path: str | None = Field(default=None)
     console_output: bool = Field(default=True)
     websocket_enabled: bool = Field(default=False)
-    websocket_namespaces: List[str] = Field(default_factory=lambda: ["hivememory.*"])
+    websocket_namespaces: list[str] = Field(default_factory=lambda: ["hivememory.*"])
     websocket_level: str = Field(default="INFO")
     websocket_buffer_size: int = Field(default=100)
     websocket_max_rate: int = Field(default=100)
@@ -234,7 +258,7 @@ class RuntimeEventsConfig(BaseModel):
 class I18nConfig(BaseModel):
     default_language: str = Field(default="zh")
     fallback_language: str = Field(default="en")
-    supported_languages: List[str] = Field(default_factory=lambda: ["zh", "en"])
+    supported_languages: list[str] = Field(default_factory=lambda: ["zh", "en"])
 
     model_config = ConfigDict(extra="ignore")
 
@@ -256,7 +280,12 @@ class HiveMemoryConfig(BaseSettings):
     memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
-    attachments: AttachmentsConfig = Field(default_factory=AttachmentsConfig)
+    attachment_parser: AttachmentParserConfig = Field(
+        default_factory=AttachmentParserConfig
+    )
+    attachment_compiler: AttachmentCompilerConfig = Field(
+        default_factory=AttachmentCompilerConfig
+    )
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),
@@ -276,12 +305,12 @@ class HiveMemoryConfig(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
-        settings_cls: Type[BaseSettings],
+        settings_cls: type[BaseSettings],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
-    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
             init_settings,
             env_settings,
@@ -299,7 +328,7 @@ class HiveMemoryConfig(BaseSettings):
         return self.shared.llm.gateway
 
 
-def load_app_config(config_path: Optional[str] = None) -> HiveMemoryConfig:
+def load_app_config(config_path: str | None = None) -> HiveMemoryConfig:
     if config_path:
         os.environ["HIVEMEMORY_CONFIG_PATH"] = str(config_path)
     return HiveMemoryConfig()

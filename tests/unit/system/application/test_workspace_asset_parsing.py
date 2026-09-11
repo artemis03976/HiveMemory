@@ -20,7 +20,7 @@ from hivememory.system.application.workspace_asset_service import (
     ASSET_FAILED_CODE,
     WorkspaceAssetApplicationService,
 )
-from hivememory.system.config import AttachmentsConfig
+from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import (
     CONTENT_UNREADABLE,
@@ -51,10 +51,10 @@ def _service(
     parser_factory=None,
     **config_overrides,
 ) -> WorkspaceAssetApplicationService:
-    config = AttachmentsConfig(**config_overrides)
+    config = AttachmentParserConfig(**config_overrides)
     return WorkspaceAssetApplicationService(
         store=store,
-        config=config,
+        parser_config=config,
         parser_factory=parser_factory,
     )
 

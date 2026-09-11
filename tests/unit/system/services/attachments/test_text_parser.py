@@ -6,11 +6,11 @@
 
 import pytest
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments import (
     CONTENT_UNREADABLE,
     RESOURCE_LIMIT,
     AttachmentParseError,
-    ParseLimits,
     TextAttachmentParser,
 )
 
@@ -26,7 +26,7 @@ def _parse(
 ):
     return TextAttachmentParser(content_format=content_format).parse(
         raw,
-        limits=ParseLimits(**overrides),
+        config=AttachmentParserConfig(**overrides),
         source_raw_revision=1,
         source_raw_hash="raw-hash",
     )
@@ -60,8 +60,8 @@ def test_full_result_matches_frozen_sample_hash() -> None:
 
 def test_repeated_parse_is_deterministic() -> None:
     """捕获同一输入重复解析产生不同 hash 或内容。"""
-    first = _parse("重复解析\n确定性\n".encode("utf-8"))
-    second = _parse("重复解析\n确定性\n".encode("utf-8"))
+    first = _parse("重复解析\n确定性\n".encode())
+    second = _parse("重复解析\n确定性\n".encode())
 
     assert second.content_hash == first.content_hash
     assert second.content_object == first.content_object
@@ -186,12 +186,12 @@ def test_parse_budget_is_enforced_with_injectable_clock() -> None:
             return self.now
 
     parser = TextAttachmentParser(content_format="plain_text")
-    limits = ParseLimits(parse_budget_seconds=5.0)
+    config = AttachmentParserConfig(parse_budget_seconds=5.0)
 
     # 预算内正常完成。
     result = parser.parse(
         b"ok\n",
-        limits=limits,
+        config=config,
         source_raw_revision=1,
         source_raw_hash="h",
         clock=_SteppingClock(step=1.0),
@@ -202,7 +202,7 @@ def test_parse_budget_is_enforced_with_injectable_clock() -> None:
     with pytest.raises(AttachmentParseError) as error:
         parser.parse(
             b"late\n",
-            limits=limits,
+            config=config,
             source_raw_revision=1,
             source_raw_hash="h",
             clock=_SteppingClock(step=10.0),

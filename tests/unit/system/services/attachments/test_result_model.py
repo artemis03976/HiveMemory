@@ -7,6 +7,7 @@
 
 import pytest
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments import (
     CONTENT_UNREADABLE,
     EXECUTION_FAILURE,
@@ -14,7 +15,6 @@ from hivememory.system.services.attachments import (
     SCHEMA_VERSION,
     AttachmentContentBuilder,
     AttachmentParseError,
-    ParseLimits,
     canonical_content_bytes,
 )
 
@@ -37,7 +37,7 @@ def _builder(**overrides) -> AttachmentContentBuilder:
         "content_format": "plain_text",
         "source_raw_revision": 1,
         "source_raw_hash": "raw-hash",
-        "limits": ParseLimits(),
+        "config": AttachmentParserConfig(),
     }
     kwargs.update(overrides)
     return AttachmentContentBuilder(**kwargs)
@@ -137,8 +137,8 @@ def test_locator_beyond_final_text_is_rejected_at_build() -> None:
 
 def test_locator_count_limit_fails_whole_result_not_truncate() -> None:
     """捕获 locator 超限被静默截断为部分成功。"""
-    limits = ParseLimits(max_locator_count=2)
-    builder = _builder(limits=limits)
+    config = AttachmentParserConfig(max_locator_count=2)
+    builder = _builder(config=config)
     builder.append_text("abcd")
     builder.add_locator(kind="line", number=1, start=0, end=1)
     builder.add_locator(kind="line", number=2, start=1, end=2)
@@ -153,8 +153,8 @@ def test_locator_count_limit_fails_whole_result_not_truncate() -> None:
 
 def test_extracted_text_size_limit_fails_during_accumulation() -> None:
     """捕获正文 UTF-8 大小超限未被及时中止。"""
-    limits = ParseLimits(max_extracted_text_bytes=5)
-    builder = _builder(limits=limits)
+    config = AttachmentParserConfig(max_extracted_text_bytes=5)
+    builder = _builder(config=config)
     builder.append_text("12345")
 
     with pytest.raises(AttachmentParseError) as error:
@@ -167,8 +167,8 @@ def test_extracted_text_size_limit_fails_during_accumulation() -> None:
 
 def test_canonical_content_size_limit_is_enforced_at_build() -> None:
     """捕获 canonical 内容大小上限未按完整编码结果计算。"""
-    limits = ParseLimits(max_canonical_content_bytes=100)
-    builder = _builder(limits=limits)
+    config = AttachmentParserConfig(max_canonical_content_bytes=100)
+    builder = _builder(config=config)
     builder.append_text("x" * 200)
 
     with pytest.raises(AttachmentParseError) as error:

@@ -16,7 +16,7 @@ from .formats import (
     UnsupportedAttachmentFormatError,
     resolve_attachment_format,
 )
-from .limits import ParseBudget, ParseLimits
+from .limits import ParseBudget
 from .models import (
     FORMAT_MARKDOWN,
     FORMAT_PLAIN_TEXT,
@@ -49,7 +49,6 @@ __all__ = [
     "AttachmentFormat",
     "DocxAttachmentParser",
     "ParseBudget",
-    "ParseLimits",
     "ParsedAttachmentContent",
     "TextAttachmentParser",
     "UnsupportedAttachmentFormatError",

@@ -21,12 +21,13 @@ from xml.etree.ElementTree import ParseError
 
 from defusedxml import ElementTree as DefusedElementTree
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments.errors import (
     CONTENT_UNREADABLE,
     RESOURCE_LIMIT,
     AttachmentParseError,
 )
-from hivememory.system.services.attachments.limits import ParseBudget, ParseLimits
+from hivememory.system.services.attachments.limits import ParseBudget
 from hivememory.system.services.attachments.models import (
     LOCATOR_KIND_PARAGRAPH,
     AttachmentContentBuilder,
@@ -108,7 +109,7 @@ def _corrupt() -> AttachmentParseError:
     )
 
 
-def _parse_rels(data: bytes, limits: ParseLimits) -> list[tuple[str, str, str]]:
+def _parse_rels(data: bytes, config: AttachmentParserConfig) -> list[tuple[str, str, str]]:
     """解析一个 .rels part，返回 (Type, Target, TargetMode) 列表。"""
     try:
         root = DefusedElementTree.fromstring(
@@ -131,7 +132,7 @@ def _parse_rels(data: bytes, limits: ParseLimits) -> list[tuple[str, str, str]]:
                 element.get("TargetMode", "Internal"),
             ),
         )
-        if len(relationships) > limits.max_docx_members:
+        if len(relationships) > config.max_docx_members:
             raise AttachmentParseError(
                 RESOURCE_LIMIT,
                 "附件结构过于复杂，请缩小文件后重新上传",
@@ -157,19 +158,23 @@ class DocxAttachmentParser:
         self,
         raw: bytes,
         *,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
         source_raw_revision: int,
         source_raw_hash: str,
         clock: Callable[[], float] | None = None,
     ) -> ParsedAttachmentContent:
         """把 DOCX 包 bytes 转为带段落级 locator 的正文文字表示。"""
-        if len(raw) > limits.max_raw_bytes:
+        if len(raw) > config.max_raw_bytes:
             raise AttachmentParseError(
                 RESOURCE_LIMIT,
                 "文件超过大小上限，请缩小后重新上传",
                 params={"reason": "raw_input_limit"},
             )
-        budget = ParseBudget(limits, clock) if clock else ParseBudget(limits)
+        budget = (
+            ParseBudget(config.parse_budget_seconds, clock)
+            if clock
+            else ParseBudget(config.parse_budget_seconds)
+        )
 
         if raw.startswith(_CFB_MAGIC):
             raise AttachmentParseError(
@@ -185,31 +190,31 @@ class DocxAttachmentParser:
             raise _corrupt() from exc
 
         with archive:
-            members = self._precheck_directory(archive, limits)
-            content_types = self._read_member(archive, members, _PACKAGE_CONTENT_TYPES, limits)
+            members = self._precheck_directory(archive, config)
+            content_types = self._read_member(archive, members, _PACKAGE_CONTENT_TYPES, config)
             package_rels = self._read_member(
                 archive,
                 members,
                 _PACKAGE_RELS,
-                limits,
+                config,
                 required=False,
             )
-            main_part = self._resolve_main_part(content_types, package_rels, members, limits)
-            document_xml = self._read_member(archive, members, main_part, limits)
+            main_part = self._resolve_main_part(content_types, package_rels, members, config)
+            document_xml = self._read_member(archive, members, main_part, config)
             covered_warnings = self._collect_covered_warnings(
                 archive,
                 members,
                 main_part,
-                limits,
+                config,
             )
 
         builder = AttachmentContentBuilder(
             content_format="plain_text",
             source_raw_revision=source_raw_revision,
             source_raw_hash=source_raw_hash,
-            limits=limits,
+            config=config,
         )
-        image_count, numbered_count = self._extract_body(document_xml, builder, limits, budget)
+        image_count, numbered_count = self._extract_body(document_xml, builder, config, budget)
         for message_key in covered_warnings:
             builder.add_warning(message_key)
         if image_count:
@@ -227,11 +232,11 @@ class DocxAttachmentParser:
     def _precheck_directory(
         self,
         archive: zipfile.ZipFile,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
     ) -> dict[str, zipfile.ZipInfo]:
         """目录预检：成员数、路径寻址、加密标志、声明大小与压缩比。"""
         infos = archive.infolist()
-        if len(infos) > limits.max_docx_members:
+        if len(infos) > config.max_docx_members:
             raise AttachmentParseError(
                 RESOURCE_LIMIT,
                 "附件结构过于复杂，请缩小文件后重新上传",
@@ -264,7 +269,7 @@ class DocxAttachmentParser:
                     "附件已加密，请解密后另存为 .docx 重新上传",
                     params={"reason": "encrypted_package"},
                 )
-            if info.file_size > limits.max_docx_member_uncompressed_bytes:
+            if info.file_size > config.max_docx_member_uncompressed_bytes:
                 raise AttachmentParseError(
                     RESOURCE_LIMIT,
                     "文件超过大小上限，请缩小后重新上传",
@@ -276,7 +281,7 @@ class DocxAttachmentParser:
                     "附件损坏或不是有效的 Word 文档（.docx），请重新导出后上传",
                     params={"reason": "compression_ratio_limit"},
                 )
-            if info.file_size > info.compress_size * limits.max_docx_compression_ratio:
+            if info.file_size > info.compress_size * config.max_docx_compression_ratio:
                 raise AttachmentParseError(
                     CONTENT_UNREADABLE,
                     "附件损坏或不是有效的 Word 文档（.docx），请重新导出后上传",
@@ -284,7 +289,7 @@ class DocxAttachmentParser:
                 )
             total_declared += info.file_size
             members[name] = info
-        if total_declared > limits.max_docx_package_uncompressed_bytes:
+        if total_declared > config.max_docx_package_uncompressed_bytes:
             raise AttachmentParseError(
                 RESOURCE_LIMIT,
                 "文件超过大小上限，请缩小后重新上传",
@@ -297,7 +302,7 @@ class DocxAttachmentParser:
         archive: zipfile.ZipFile,
         members: dict[str, zipfile.ZipInfo],
         name: str,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
         *,
         required: bool = True,
     ) -> bytes:
@@ -312,7 +317,7 @@ class DocxAttachmentParser:
                 )
             return b""
         chunks: list[bytes] = []
-        remaining = limits.max_docx_member_uncompressed_bytes
+        remaining = config.max_docx_member_uncompressed_bytes
         with archive.open(info) as stream:
             while True:
                 chunk = stream.read(min(_READ_CHUNK_SIZE, remaining + 1))
@@ -333,13 +338,13 @@ class DocxAttachmentParser:
         content_types: bytes,
         package_rels: bytes,
         members: dict[str, zipfile.ZipInfo],
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
     ) -> str:
         """定位主文档 part，并验证其为非宏 Word 文档。"""
         office_document_types = {f"{ns}/{_REL_OFFICE_DOCUMENT}" for ns in _REL_NS}
         office_targets = [
             (target, mode)
-            for rel_type, target, mode in _parse_rels(package_rels, limits)
+            for rel_type, target, mode in _parse_rels(package_rels, config)
             if rel_type in office_document_types
         ]
         if not office_targets:
@@ -355,7 +360,7 @@ class DocxAttachmentParser:
         if main_part is None or main_part not in members:
             raise _corrupt()
 
-        overrides = self._content_type_overrides(content_types, limits)
+        overrides = self._content_type_overrides(content_types, config)
         main_content_type = overrides.get(f"/{main_part}")
         if main_content_type == _CT_MACRO_MAIN_DOCUMENT or _CT_VBA_PROJECT in (overrides.values()):
             raise AttachmentParseError(
@@ -374,7 +379,7 @@ class DocxAttachmentParser:
     def _content_type_overrides(
         self,
         content_types: bytes,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
     ) -> dict[str, str]:
         """解析 [Content_Types].xml 的 Override 表（PartName → ContentType）。"""
         try:
@@ -395,7 +400,7 @@ class DocxAttachmentParser:
             if not part_name:
                 raise _corrupt()
             overrides[part_name] = element.get("ContentType", "")
-            if len(overrides) > limits.max_docx_members:
+            if len(overrides) > config.max_docx_members:
                 raise AttachmentParseError(
                     RESOURCE_LIMIT,
                     "附件结构过于复杂，请缩小文件后重新上传",
@@ -408,16 +413,16 @@ class DocxAttachmentParser:
         archive: zipfile.ZipFile,
         members: dict[str, zipfile.ZipInfo],
         main_part: str,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
     ) -> list[str]:
         """按主文档关系识别首轮未覆盖的内容（页眉页脚/脚注尾注/批注）。"""
         directory, _, filename = main_part.rpartition("/")
         rels_name = f"{directory}/_rels/{filename}.rels" if directory else f"_rels/{filename}.rels"
-        rels_data = self._read_member(archive, members, rels_name, limits, required=False)
+        rels_data = self._read_member(archive, members, rels_name, config, required=False)
         if not rels_data:
             return []
         covered: set[str] = set()
-        for rel_type, _target, _mode in _parse_rels(rels_data, limits):
+        for rel_type, _target, _mode in _parse_rels(rels_data, config):
             ns, _, local = rel_type.rpartition("/")
             if ns not in _REL_NS:
                 continue
@@ -437,7 +442,7 @@ class DocxAttachmentParser:
         self,
         document_xml: bytes,
         builder: AttachmentContentBuilder,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
         budget: ParseBudget,
     ) -> tuple[int, int]:
         """流式遍历 document.xml，返回 (未覆盖图片数, 自动编号段落计数)。
@@ -500,13 +505,13 @@ class DocxAttachmentParser:
                 if event == "start":
                     depth += 1
                     nodes += 1
-                    if depth > limits.max_xml_depth:
+                    if depth > config.max_xml_depth:
                         raise AttachmentParseError(
                             RESOURCE_LIMIT,
                             "附件结构过于复杂，请缩小文件后重新上传",
                             params={"reason": "xml_depth_limit"},
                         )
-                    if nodes > limits.max_xml_nodes:
+                    if nodes > config.max_xml_nodes:
                         raise AttachmentParseError(
                             RESOURCE_LIMIT,
                             "附件结构过于复杂，请缩小文件后重新上传",

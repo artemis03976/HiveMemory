@@ -268,7 +268,7 @@ class SystemAssembler:
         # 附件上传不经过全局总线（资产状态真相由 Store 同步持有）。
         workspace_assets = WorkspaceAssetApplicationService(
             store=runtime.workspace_asset_store,
-            config=self._config.attachments,
+            parser_config=self._config.attachment_parser,
         )
 
         return _ServicesBundle(

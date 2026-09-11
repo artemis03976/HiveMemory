@@ -18,7 +18,7 @@ from hivememory.server.routers.workspace_assets import router
 from hivememory.system.application.workspace_asset_service import (
     WorkspaceAssetApplicationService,
 )
-from hivememory.system.config import AttachmentsConfig
+from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from tests.helpers.workspace import make_identity_scope
 
@@ -83,7 +83,7 @@ def _make_docx(body_xml: str) -> bytes:
 def upload_stack():
     """构造真实 router + 应用服务 + Store 的测试应用。"""
     store = InMemoryWorkspaceAssetStore()
-    service = WorkspaceAssetApplicationService(store=store, config=AttachmentsConfig())
+    service = WorkspaceAssetApplicationService(store=store, parser_config=AttachmentParserConfig())
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_workspace_asset_service] = lambda: service
@@ -314,7 +314,7 @@ def test_oversized_file_returns_413(upload_stack) -> None:
     store = InMemoryWorkspaceAssetStore()
     service = WorkspaceAssetApplicationService(
         store=store,
-        config=AttachmentsConfig(max_raw_bytes=8),
+        parser_config=AttachmentParserConfig(max_raw_bytes=8),
     )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")

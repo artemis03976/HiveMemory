@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,11 +37,7 @@ class CompactContextStrategyConfig(BaseModel):
 
 
 RetrievalContextStrategyConfig = Annotated[
-    Union[
-        FullContextStrategyConfig,
-        CascadeContextStrategyConfig,
-        CompactContextStrategyConfig,
-    ],
+    FullContextStrategyConfig | CascadeContextStrategyConfig | CompactContextStrategyConfig,
     Field(discriminator="type"),
 ]
 

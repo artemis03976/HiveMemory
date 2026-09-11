@@ -21,13 +21,13 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments.errors import (
     CONTENT_UNREADABLE,
     EXECUTION_FAILURE,
     RESOURCE_LIMIT,
     AttachmentParseError,
 )
-from hivememory.system.services.attachments.limits import ParseLimits
 
 #: 内容结构版本；改变 content_object 字段结构时必须提升并同步 producer version。
 SCHEMA_VERSION = 1
@@ -94,7 +94,7 @@ class AttachmentContentBuilder:
         content_format: str,
         source_raw_revision: int,
         source_raw_hash: str,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
     ) -> None:
         if content_format not in {FORMAT_PLAIN_TEXT, FORMAT_MARKDOWN}:
             raise ValueError(f"未知的提取结果格式：{content_format}")
@@ -105,7 +105,7 @@ class AttachmentContentBuilder:
             "revision": source_raw_revision,
             "content_hash": source_raw_hash,
         }
-        self._limits = limits
+        self._limits = config
         self._segments: list[str] = []
         self._utf8_size = 0
         self._char_count = 0

@@ -14,12 +14,13 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments.errors import (
     CONTENT_UNREADABLE,
     RESOURCE_LIMIT,
     AttachmentParseError,
 )
-from hivememory.system.services.attachments.limits import ParseBudget, ParseLimits
+from hivememory.system.services.attachments.limits import ParseBudget
 from hivememory.system.services.attachments.models import (
     FORMAT_MARKDOWN,
     FORMAT_PLAIN_TEXT,
@@ -89,19 +90,21 @@ class TextAttachmentParser:
         self,
         raw: bytes,
         *,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
         source_raw_revision: int,
         source_raw_hash: str,
         clock: Callable[[], float] | None = None,
     ) -> ParsedAttachmentContent:
         """把 RAW bytes 转为带行级 locator 的确定性正文。"""
-        if len(raw) > limits.max_raw_bytes:
+        if len(raw) > config.max_raw_bytes:
             raise AttachmentParseError(
                 RESOURCE_LIMIT,
                 "文件超过大小上限，请缩小后重新上传",
                 params={"reason": "raw_input_limit"},
             )
-        budget = ParseBudget(limits, clock) if clock else ParseBudget(limits)
+        budget = ParseBudget(config.parse_budget_seconds, clock) if clock else (
+            ParseBudget(config.parse_budget_seconds)
+        )
 
         text = _decode_bytes(raw)
         budget.check()
@@ -127,7 +130,7 @@ class TextAttachmentParser:
             content_format=self.content_format,
             source_raw_revision=source_raw_revision,
             source_raw_hash=source_raw_hash,
-            limits=limits,
+            config=config,
         )
         # 行号从 1 开始且计入空行；只有非空行记录 line locator。
         # split 后仅在行间补分隔符，原始末尾换行结构保持不变。

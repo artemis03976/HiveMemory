@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from hivememory.system.config.attachments import AttachmentParserConfig
 from hivememory.system.services.attachments.docx_parser import DocxAttachmentParser
 from hivememory.system.services.attachments.errors import (
     EXECUTION_FAILURE,
@@ -21,7 +22,6 @@ from hivememory.system.services.attachments.formats import (
     MEDIA_TYPE_MARKDOWN,
     MEDIA_TYPE_PLAIN_TEXT,
 )
-from hivememory.system.services.attachments.limits import ParseLimits
 from hivememory.system.services.attachments.models import ParsedAttachmentContent
 from hivememory.system.services.attachments.text_parser import TextAttachmentParser
 
@@ -45,7 +45,7 @@ class AttachmentParser(Protocol):
         self,
         raw: bytes,
         *,
-        limits: ParseLimits,
+        config: AttachmentParserConfig,
         source_raw_revision: int,
         source_raw_hash: str,
         clock: Callable[[], float] | None = None,

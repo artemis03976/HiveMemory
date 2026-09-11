@@ -22,7 +22,7 @@ from hivememory.system.application.workspace_asset_service import (
     InvalidAttachmentNameError,
     WorkspaceAssetApplicationService,
 )
-from hivememory.system.config import AttachmentsConfig
+from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import (
     UnsupportedAttachmentFormatError,
@@ -50,8 +50,8 @@ def _service(
     store: InMemoryWorkspaceAssetStore,
     **config_overrides,
 ) -> WorkspaceAssetApplicationService:
-    config = AttachmentsConfig(**config_overrides)
-    return WorkspaceAssetApplicationService(store=store, config=config)
+    config = AttachmentParserConfig(**config_overrides)
+    return WorkspaceAssetApplicationService(store=store, parser_config=config)
 
 
 @pytest.mark.asyncio
@@ -228,10 +228,15 @@ async def test_upload_normalizes_fullwidth_unicode_filename() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_rejects_filename_over_configured_length() -> None:
+async def test_upload_rejects_filename_over_configured_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """捕获过长文件名未被稳定拒绝。"""
+    import hivememory.system.application.workspace_asset_service as service_module
+
+    monkeypatch.setattr(service_module, "_MAX_DISPLAY_NAME_LENGTH", 5)
     store = InMemoryWorkspaceAssetStore()
-    service = _service(store, max_display_name_length=5)
+    service = _service(store)
 
     with pytest.raises(InvalidAttachmentNameError):
         await service.upload_asset(

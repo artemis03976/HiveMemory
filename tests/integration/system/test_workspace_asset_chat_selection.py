@@ -17,7 +17,7 @@ from hivememory.patchouli.service import PatchouliService
 from hivememory.system.application.workspace_asset_service import (
     WorkspaceAssetApplicationService,
 )
-from hivememory.system.config import AttachmentsConfig
+from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.patchouli.test_prepare_attachments import _prepare_bus
@@ -43,11 +43,11 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
     scope = make_identity_scope(user_id="user-1")
     upload_service = WorkspaceAssetApplicationService(
         store=store,
-        config=AttachmentsConfig(),
+        parser_config=AttachmentParserConfig(),
     )
     upload_service_2 = WorkspaceAssetApplicationService(
         store=store,
-        config=AttachmentsConfig(),
+        parser_config=AttachmentParserConfig(),
     )
 
     first = await upload_service.upload_asset(
@@ -109,7 +109,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     scope = make_identity_scope(user_id="user-1")
     upload_service = WorkspaceAssetApplicationService(
         store=store,
-        config=AttachmentsConfig(),
+        parser_config=AttachmentParserConfig(),
     )
     receipt = await upload_service.upload_asset(
         identity_scope=scope,

@@ -31,10 +31,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from hivememory.engines.attachment_compiler import (
-    AttachmentCompileLimits,
-    AttachmentCompiler,
-)
+from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     MemoryManagementService,
@@ -114,11 +111,9 @@ class PatchouliSystem(SubsystemProtocol):
             # 进程级唯一的 WorkspaceAssetStore 由 assembler 注入为只读
             # reader：附件选择在 prepare 边界 resolve/acquire（计划 9.3 节）。
             asset_reader=workspace_asset_reader,
-            # W1-E 附件编译器：预算来自 System attachments 配置。
+            # W1-E 附件编译器：预算来自 System attachment_compiler 配置。
             attachment_compiler=AttachmentCompiler(
-                AttachmentCompileLimits.from_attachments_config(
-                    self.config.attachments,
-                ),
+                self.config.attachment_compiler,
             ),
         )
         self._memory_management_service = MemoryManagementService(

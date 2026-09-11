@@ -1,5 +1,5 @@
-from typing import Dict, Optional
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.constants import (
     DEFAULT_MAX_TOKENS,
@@ -13,10 +13,10 @@ class LLMConfig(BaseModel):
     # model_id：引用注册表 ID（如 "deepseek-chat"）。
     # 设置时，由 ModelRegistry.resolve_for_llm_config() 填入 model/api_key/api_base；
     # 未设置时回落到直接使用 model 字段（向后兼容旧配置）。
-    model_id: Optional[str] = Field(default=None)
-    model: Optional[str] = Field(default=None)
-    api_key: Optional[str] = Field(default=None)
-    api_base: Optional[str] = Field(default=None)
+    model_id: str | None = Field(default=None)
+    model: str | None = Field(default=None)
+    api_key: str | None = Field(default=None)
+    api_base: str | None = Field(default=None)
     temperature: float = Field(default=DEFAULT_TEMPERATURE)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS)
     top_p: float = Field(default=DEFAULT_TOP_P)
@@ -31,8 +31,8 @@ class ProviderCredentials(BaseModel):
     由环境变量 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 注入。
     ModelRegistry 在解析模型时，按模型的 provider 字段查此表补齐凭证。
     """
-    api_key: Optional[str] = Field(default=None)
-    api_base: Optional[str] = Field(default=None)
+    api_key: str | None = Field(default=None)
+    api_base: str | None = Field(default=None)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -53,7 +53,7 @@ class LLMGlobalConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     model_name: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
     device: str = Field(default="cpu")
-    cache_dir: Optional[str] = Field(default=None)
+    cache_dir: str | None = Field(default=None)
     batch_size: int = Field(default=32)
     normalize_embeddings: bool = Field(default=True)
     dimension: int = Field(default=384)
@@ -72,6 +72,6 @@ class SharedConfig(BaseModel):
     embedding: EmbeddingGlobalConfig = Field(default_factory=EmbeddingGlobalConfig)
     # 提供商凭证表：key 为 provider 名（如 "deepseek"、"openai"），
     # 供 ModelRegistry 按模型的 provider 字段解析 api_key / api_base。
-    providers: Dict[str, ProviderCredentials] = Field(default_factory=dict)
+    providers: dict[str, ProviderCredentials] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="ignore")

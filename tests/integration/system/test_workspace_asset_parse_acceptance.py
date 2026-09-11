@@ -15,7 +15,7 @@ from hivememory.core.models import WorkspaceAssetState
 from hivememory.system.application.workspace_asset_service import (
     WorkspaceAssetApplicationService,
 )
-from hivememory.system.config import AttachmentsConfig
+from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import CONTENT_UNREADABLE, AttachmentParseError
 from tests.helpers.attachment_parsing import (
@@ -60,7 +60,7 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
     parser = ScriptedAttachmentParser(error=parse_error)
     service = WorkspaceAssetApplicationService(
         store=store,
-        config=AttachmentsConfig(),
+        parser_config=AttachmentParserConfig(),
         parser_factory=scripted_factory(parser),
     )
 

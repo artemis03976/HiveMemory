@@ -14,9 +14,9 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.workspace_asset import RepresentationLease, WorkspaceAssetRef
 from hivememory.engines.attachment_compiler import (
-    AttachmentCompileLimits,
     AttachmentCompiler,
 )
+from hivememory.system.config.attachments import AttachmentCompilerConfig
 from hivememory.utils.token_estimator import TokenEstimator
 from tests.helpers.workspace import make_identity_scope
 
@@ -81,8 +81,8 @@ def _lease_for(
     )  # type: ignore[arg-type]
 
 
-def _compile(leases, *, limits=None):
-    return AttachmentCompiler(limits).compile(leases=tuple(leases))
+def _compile(leases, *, config=None):
+    return AttachmentCompiler(config).compile(leases=tuple(leases))
 
 
 def _healthy(ref: str, index: int):
@@ -169,14 +169,14 @@ def test_oversized_content_truncates_at_locator_boundary() -> None:
             "warnings": [],
         },
     )
-    limits = AttachmentCompileLimits(
+    config = AttachmentCompilerConfig(
         max_attachment_chars=21,
         max_chunk_chars=10,
         max_chunks_per_attachment=2,
         max_total_context_chars=48_000,
     )
 
-    result = _compile([lease], limits=limits)
+    result = _compile([lease], config=config)
 
     assert result.used_attachments[0] == coordinate
     assert len(result.attachment_context) < len(text) + 200
@@ -192,7 +192,7 @@ def test_total_budget_skips_remaining_attachments_with_diagnostic() -> None:
     """捕获总预算耗尽后继续塞入后续附件或静默丢弃。"""
     first = _ref("ref-1", index=1)
     second = _ref("ref-2", index=2)
-    limits = AttachmentCompileLimits(
+    config = AttachmentCompilerConfig(
         max_attachment_chars=100,
         max_chunk_chars=4_000,
         max_chunks_per_attachment=12,
@@ -200,7 +200,7 @@ def test_total_budget_skips_remaining_attachments_with_diagnostic() -> None:
     )
     result = _compile(
         [_lease_for(first, text="A" * 30), _lease_for(second, text="B" * 30)],
-        limits=limits,
+        config=config,
     )
 
     assert [used.token for used in result.used_attachments] == ["ref-1"]
@@ -266,7 +266,7 @@ def test_first_unit_over_budget_fails_instead_of_empty_section() -> None:
     """捕获首行超预算时被静默截断为空 section。"""
     coordinate = _ref("ref-a")
     lease = _lease_for(coordinate, text="超长首行" * 100 + "\n")
-    limits = AttachmentCompileLimits(
+    config = AttachmentCompilerConfig(
         max_attachment_chars=10,
         max_chunk_chars=4_000,
         max_chunks_per_attachment=12,
@@ -274,4 +274,4 @@ def test_first_unit_over_budget_fails_instead_of_empty_section() -> None:
     )
 
     with pytest.raises(WorkspaceDomainError, match="预算内编译"):
-        _compile([lease], limits=limits)
+        _compile([lease], config=config)
