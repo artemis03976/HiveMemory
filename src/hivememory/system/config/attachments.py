@@ -34,4 +34,14 @@ class AttachmentsConfig(BaseModel):
     max_xml_nodes: int = Field(default=200_000, ge=1)
     parse_budget_seconds: float = Field(default=5.0, gt=0)
 
+    # ---- 编译阶段预算（计划 10.4 节，W1-E AttachmentCompiler 使用） ----
+    # 单附件参与编译的最大正文字符数；超出部分按 locator 边界截断。
+    max_attachment_chars: int = Field(default=24_000, ge=1)
+    # 内部 chunk 的最大字符数（chunk 只是编译内部处理步骤）。
+    max_chunk_chars: int = Field(default=4_000, ge=1)
+    # 单附件保留的最大 chunk 数；与字符预算共同决定截断点。
+    max_chunks_per_attachment: int = Field(default=12, ge=1)
+    # 全部附件 section 合计的最大字符数；超出时跳过剩余附件。
+    max_total_context_chars: int = Field(default=48_000, ge=1)
+
     model_config = ConfigDict(extra="ignore")

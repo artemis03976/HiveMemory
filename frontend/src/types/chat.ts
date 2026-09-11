@@ -160,6 +160,8 @@ export interface ChatAttachmentSelection {
   representation_id?: string;
   revision?: number;
   content_hash?: string;
+  /** 客户端展示名（原文件名）；只是编译 section 的展示元数据 */
+  display_name?: string;
 }
 
 export interface ChatRequestParams {

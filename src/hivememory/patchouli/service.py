@@ -34,6 +34,10 @@ from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
+from hivememory.engines.attachment_compiler import (
+    AttachmentCompiler,
+    AttachmentCompileResult,
+)
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -96,6 +100,7 @@ class PatchouliService:
         memory_compiler_config: MemoryCompilerConfig | None = None,
         pending_atom_settler: PendingAtomSettler | None = None,
         asset_reader: WorkspaceAssetReaderPort | None = None,
+        attachment_compiler: AttachmentCompiler | None = None,
     ) -> None:
         if interaction_queue is None:
             raise TypeError("interaction_queue is required")
@@ -104,6 +109,8 @@ class PatchouliService:
         # 进程级唯一的 WorkspaceAsset reader（由 assembler 注入）：prepare
         # 边界用它完成附件 resolve/acquire，finalize/cleanup 负责 release。
         self._asset_reader = asset_reader
+        # W1-E 附件编译组件：与 MemoryCompiler 职责独立（计划 10.1 节）。
+        self._attachment_compiler = attachment_compiler or AttachmentCompiler()
         self._interaction_queue = interaction_queue
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._compiler = MemoryCompiler()
@@ -195,8 +202,17 @@ class PatchouliService:
                         representation_id=lease.representation.representation_id,
                         revision=lease.representation.revision,
                         content_hash=lease.representation.content_hash or "",
+                        display_name=selection.display_name or "",
                     ),
                 )
+
+            # W1-E：附件正文编译发生在 prepare 阶段，lease 与编译同处一条
+            # prepared-run 生命周期；此处即可确定 used_attachments。编译失败
+            # （如全部附件无法编译）沿既有 except 路径释放 lease 并拒绝 run。
+            attachment_compile_result: AttachmentCompileResult = self._attachment_compiler.compile(
+                selected_attachments=tuple(selected_coordinates),
+                leases=tuple(attachment_leases),
+            )
 
             agent_run_context = AgentRunContext(
                 identity_scope=identity_scope,
@@ -211,6 +227,7 @@ class PatchouliService:
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
                 ),
                 selected_attachments=tuple(selected_coordinates),
+                attachment_compile_result=attachment_compile_result,
             )
             stream_prelude = StreamPrelude(
                 topic_id=real_topic_id,

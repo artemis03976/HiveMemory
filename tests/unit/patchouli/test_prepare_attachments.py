@@ -119,12 +119,22 @@ def _make_ready_asset(
         for item in processing.representations
         if item.representation_id == target_id
     )
+    # 按 W1-B 产物契约构造 content_object（compiler 依赖映射结构与 text）。
     store.complete_representation(
         scope,
         receipt.handle.asset_ref,
         target_id,
         token,
-        content_object="extracted-body",
+        content_object={
+            "schema_version": 1,
+            "format": "plain_text",
+            "text": "extracted-body",
+            "source_raw": {"revision": 1, "content_hash": "raw-hash"},
+            "locators": [
+                {"kind": "paragraph", "number": 1, "start": 0, "end": len("extracted-body")},
+            ],
+            "warnings": [],
+        },
         content_hash=content_hash,
     )
     return receipt.handle.asset_ref.token
@@ -183,6 +193,12 @@ async def test_prepare_acquires_selections_in_user_order_and_freezes_coordinates
     assert [lease.representation.asset_id for lease in prepared.attachment_leases] == [
         coordinate.asset_id for coordinate in coordinates
     ]
+
+    # W1-E：编译产物在 prepare 阶段即写入 AgentRunContext。
+    compile_result = prepared.agent_run_context.attachment_compile_result
+    assert compile_result is not None
+    assert "extracted-body" in compile_result.attachment_context
+    assert [used.asset_ref for used in compile_result.used_attachments] == [ref_b, ref_a]
 
     # 本轮持有的 lease 都已在 cleanup 中释放，Store 不应残留。
     await service.cleanup_prepared_agent_run(prepared)

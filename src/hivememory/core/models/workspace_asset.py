@@ -247,6 +247,11 @@ class AttachmentSelectionRequest(BaseModel):
     representation_id: str | None = Field(default=None, min_length=1)
     revision: int | None = Field(default=None, ge=1)
     content_hash: str | None = Field(default=None, min_length=1)
+    display_name: str | None = Field(
+        default=None,
+        max_length=200,
+        description="客户端展示名（原文件名）；只是编译 section 的展示元数据，不参与寻址",
+    )
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -264,6 +269,7 @@ class SelectedAttachmentCoordinate(BaseModel):
     representation_id: str = Field(min_length=1)
     revision: int = Field(ge=1)
     content_hash: str = Field(min_length=1)
+    display_name: str = Field(default="", description="受控展示元数据，不是寻址依据")
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

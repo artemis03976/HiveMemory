@@ -43,6 +43,12 @@ class AgentPromptAssembler:
         recent_blocks = topic_context.recent_blocks(5) if topic_context is not None else []
 
         builder.with_memory_context(context.memory_context)
+        # W1-E：附件 section 固定位于 memory_context 之后、topic state 之前；
+        # 只消费 AttachmentCompileResult.attachment_context，不接触 Store/lease。
+        if context.attachment_compile_result is not None:
+            builder.with_attachment_context(
+                context.attachment_compile_result.attachment_context,
+            )
         builder.with_topic_state(topic_state)
 
         system_prompt = builder.build()

@@ -186,6 +186,7 @@ export function buildAttachmentSelection(
       representation_id: item.representationId ?? undefined,
       revision: item.revision ?? undefined,
       content_hash: item.contentHash ?? undefined,
+      display_name: item.file.name,
     });
   }
   return selections;

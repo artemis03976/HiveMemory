@@ -26,6 +26,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
+from hivememory.engines.attachment_compiler.models import AttachmentCompileResult
 from hivememory.engines.retrieval.models import QueryFilters
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
@@ -167,6 +168,9 @@ class AgentRunContext(BaseModel):
     # W1-D 冻结的附件选择坐标（按用户选择顺序）：只含身份与版本坐标，
     # 不携带正文；lease 关联保留在 Patchouli 的 PreparedAgentRun 中。
     selected_attachments: tuple[SelectedAttachmentCoordinate, ...] = Field(default_factory=tuple)
+    # W1-E AttachmentCompiler 的产物（prepare 阶段生成）：携带 prompt-ready
+    # section、used_attachments 与诊断；未选择附件时为 None。
+    attachment_compile_result: AttachmentCompileResult | None = Field(default=None)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
