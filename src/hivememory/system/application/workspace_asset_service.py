@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from hivememory.core.models.identity import IdentityScope
+from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     WorkspaceAssetHandle,
     WorkspaceAssetUploadReceipt,
 )
 from hivememory.system.config import AttachmentParserConfig
+from hivememory.system.runtime.serial_gate import KeyedSerialGate
 from hivememory.system.runtime.workspace.ports import WorkspaceAssetCommandPort
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
-from hivememory.system.services.attachments.serial_gate import AttachmentUploadSerialGate
 from hivememory.system.services.attachments.upload import (
     UPLOAD_PRODUCER,
     UPLOAD_PRODUCER_VERSION,
@@ -35,7 +35,7 @@ class WorkspaceAssetApplicationService:
         self._store = store
         self._parser_config = parser_config
         self._parse_service = parse_service
-        self._serial_gate = AttachmentUploadSerialGate()
+        self._serial_gate = KeyedSerialGate[tuple[WorkspaceIdentity, str]]()
 
     async def upload_asset(
         self,

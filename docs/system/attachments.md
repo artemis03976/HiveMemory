@@ -107,7 +107,7 @@ DOCX 使用标准库 `zipfile` 与 `defusedxml` 流式解析：包校验（成�
 
 解析服务在 Store 锁外经标准线程转交执行 parser。成功结果经来源核对（RAW revision/hash 与 producer/version 匹配）后以原 parse token 调用 `complete_representation`；预期失败调用 `fail_representation` 并附 `AssetSafeError(code="workspace.asset.failed")`。required representation 与资产聚合状态在同一临界区原子进入 READY/FAILED，上传响应因此只会是终态快照或稳定错误。RAW 注册成功后的解析失败仍以 201/200 返回 `state=failed` 与安全摘要，不改写为上传失败；失败保留 RAW，但普通 reader 拒绝 FAILED 资产。应用层用最终快照重建回执并保留 Store 原始 `created` 标记，解析服务不参与 HTTP 201/200 判定。
 
-同一 `(workspace_identity, client_operation_id)` 的并发上传由 `AttachmentUploadSerialGate` 在单 event loop 内串行化，应用服务持门范围覆盖接收、注册与解析收尾全过程。等待方在持有方到达终态或错误收尾后继续，随后命中既有重放或冲突路径。门只记录持有者和等待者，取消等待会释放计数，最后一人离开即回收 key，不保存幂等结果或第二份资产状态。重复请求不重复解析；解析失败后的重新上传使用新的 operation，形成新资产。
+同一 `(workspace_identity, client_operation_id)` 的并发上传由应用服务持有的独立 `KeyedSerialGate` 实例在单 event loop 内串行化，持门范围覆盖接收、注册与解析收尾全过程。等待方在持有方到达终态或错误收尾后继续，随后命中既有重放或冲突路径。公共门的取消与回收机制见[System 运行时](./runtime-and-bus.md#5-keyedserialgate)；上传服务不保存另一份幂等结果或资产状态。重复请求不重复解析；解析失败后的重新上传使用新的 operation，形成新资产。
 
 complete/fail 被 Store 以 stale、removed 或 closed 拒绝时直接传播既有错误，HTTP 分别映射 409、410、503；不查询列表后回退到旧上传快照。请求取消时，解析服务以原 token 尽力提交安全失败，Store 拒绝只记录日志，继续传播 `CancelledError`。这些行为保证晚到结果不能覆盖已有终态，也不会因收尾回退而返回 PROCESSING。
 
@@ -159,7 +159,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 后端：
 
 - 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`system/application/workspace_asset_service.py`](../../src/hivememory/system/application/workspace_asset_service.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
-- 接收、解析交接与串行门：[`upload.py`](../../src/hivememory/system/services/attachments/upload.py)、[`parse_service.py`](../../src/hivememory/system/services/attachments/parse_service.py)、[`serial_gate.py`](../../src/hivememory/system/services/attachments/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`system/services/attachments/`](../../src/hivememory/system/services/attachments/)；
+- 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/system/services/attachments/upload.py)、[`parse_service.py`](../../src/hivememory/system/services/attachments/parse_service.py)、[`runtime/serial_gate.py`](../../src/hivememory/system/runtime/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`system/services/attachments/`](../../src/hivememory/system/services/attachments/)；
 - Chat 选择与编译交接：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；
 - 配置：[`system/config/attachments.py`](../../src/hivememory/system/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。

@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/system/runtime-and-bus.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-11
 ---
 
 # 被动对话摄入
@@ -95,6 +95,8 @@ admission 成功只表示 work 已由通用队列接受，不表示 Patchouli ap
 ## 4. 维护与关闭
 
 `PassiveIngressService.start()` 在全局 scheduler 中注册 `observer_idle_flush`。扫描逐会话取得同一串行门，在门内重新检查 idle 时间，再调用统一 finalize 入口。
+
+`PassiveMessageIngressor` 在初始化时创建独立的 `KeyedSerialGate[PassiveConversationKey]`，事件路由、手动 flush、idle 扫描与 shutdown 共用该实例。shutdown 将活动 buffer 与 `active_keys()` 快照中的会话合并，再逐个持门等待在途事件后 finalize，避免漏掉尚未写入 buffer 的事件。公共互斥与回收机制见[System 运行时](./runtime-and-bus.md#5-keyedserialgate)。
 
 关闭时，System 先停 scheduler，再执行：
 
