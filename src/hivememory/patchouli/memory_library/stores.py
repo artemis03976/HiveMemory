@@ -191,9 +191,9 @@ class MidTermMemoryStore:
             require_identity_scope(scope),
             query,
             top_k,
-            filters,
-            mode,
-            score_threshold,
+            filters=filters,
+            mode=mode,
+            score_threshold=score_threshold,
         )
 
     async def scroll(
