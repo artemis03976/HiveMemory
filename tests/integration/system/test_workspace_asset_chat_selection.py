@@ -143,3 +143,73 @@ def _decision_for_prepare():
         retrieval_plan=RetrievalPlan(),
         intent_type=IntentType.RAG,
     )
+
+
+@pytest.mark.asyncio
+async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
+    """回归：总线 kwargs 名称必须与真实 prepare handler 签名一致。
+
+    ChatApplicationService 经 GlobalSystemBus 传递的 ``selected_attachments``
+    必须被真实 ``PatchouliService.prepare_agent_run`` 接纳——此前因调用方
+    传 ``attachments``、handler 收 ``selected_attachments`` 而在运行时 TypeError。
+    """
+    from unittest.mock import AsyncMock
+
+    from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+    from hivememory.core.protocol.models import AgentRunResult
+    from hivememory.system.application.chat_service import ChatApplicationService
+    from hivememory.system.contracts.routes import GlobalRoutes
+    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+
+    store = InMemoryWorkspaceAssetStore()
+    scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
+    upload_service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+    )
+    receipt = await upload_service.upload_asset(
+        identity_scope=scope,
+        file_name="chat.md",
+        declared_media_type="text/markdown",
+        source=ChunkedSource("# 选中正文\n".encode()),
+        client_operation_id="op-chat",
+    )
+    assert receipt.handle.asset.state.value == "ready"
+
+    async def apply_interaction(_payload, **_kwargs):
+        return "topic-1"
+
+    patchouli_service = PatchouliService(
+        _prepare_bus(),
+        interaction_queue=InteractionSubmissionQueue(apply_interaction),
+        asset_reader=store,
+    )
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, patchouli_service.prepare_agent_run)
+    bus.register(
+        GlobalRoutes.GATEWAY_PROCESS,
+        AsyncMock(return_value=GatewayDecisionOutcome(decision=_decision_for_prepare())),
+    )
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        AsyncMock(return_value=AgentRunResult(final_text="完成")),
+    )
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+
+    chat = ChatApplicationService(bus)
+    result = await chat.chat_scoped(
+        "总结这份附件",
+        identity_scope=scope,
+        interaction_id="interaction-via-bus",
+        attachments=[
+            AttachmentSelectionRequest(
+                asset_ref=receipt.handle.asset_ref,
+                revision=1,
+                content_hash=receipt.handle.asset.representations[1].content_hash,
+            ),
+        ],
+    )
+
+    # 真实 prepare 接纳了总线 kwargs，链路完整走通。
+    assert result.kind == "agent"
+    assert result.agent_run_result.final_text == "完成"

@@ -233,7 +233,7 @@ class ChatApplicationService:
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
-                attachments=attachments or [],
+                selected_attachments=attachments or [],
             )
             _require_prepared_scope(prepared, identity_scope)
 
@@ -438,7 +438,7 @@ class ChatApplicationService:
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
-                attachments=attachments or [],
+                selected_attachments=attachments or [],
             )
             _require_prepared_scope(prepared, identity_scope)
 

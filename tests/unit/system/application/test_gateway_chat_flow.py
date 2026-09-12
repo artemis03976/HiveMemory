@@ -482,7 +482,7 @@ async def test_attachments_selection_is_forwarded_to_prepare_route() -> None:
     )
 
     assert result.kind == "agent"
-    assert seen_kwargs["attachments"] == selections
+    assert seen_kwargs["selected_attachments"] == selections
 
 
 @pytest.mark.asyncio
