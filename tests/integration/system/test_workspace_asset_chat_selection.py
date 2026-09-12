@@ -19,21 +19,9 @@ from hivememory.system.application.workspace_asset_service import (
 )
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from tests.helpers.attachment_parsing import ChunkedSource
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.patchouli.test_prepare_attachments import _prepare_bus
-
-
-class _ChunkedSource:
-    """按块返回固定内容的受控上传源，兼容 ``SupportsAsyncRead`` 协议。"""
-
-    def __init__(self, content: bytes) -> None:
-        self._content = content
-
-    async def read(self, size: int = -1) -> bytes:
-        if not self._content:
-            return b""
-        chunk, self._content = self._content, b""
-        return chunk
 
 
 @pytest.mark.asyncio
@@ -54,14 +42,14 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
         identity_scope=scope,
         file_name="first.md",
         declared_media_type="text/markdown",
-        source=_ChunkedSource("# 第一份\n".encode()),
+        source=ChunkedSource("# 第一份\n".encode()),
         client_operation_id="op-first",
     )
     second = await upload_service_2.upload_asset(
         identity_scope=scope,
         file_name="second.md",
         declared_media_type="text/markdown",
-        source=_ChunkedSource("# 第二份\n".encode()),
+        source=ChunkedSource("# 第二份\n".encode()),
         client_operation_id="op-second",
     )
     assert (first.handle.asset.state.value, second.handle.asset.state.value) == (
@@ -115,7 +103,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
         identity_scope=scope,
         file_name="gone.txt",
         declared_media_type="text/plain",
-        source=_ChunkedSource("正文".encode()),
+        source=ChunkedSource("正文".encode()),
         client_operation_id="op-gone",
     )
     store.remove_asset(scope, receipt.handle.asset_ref)

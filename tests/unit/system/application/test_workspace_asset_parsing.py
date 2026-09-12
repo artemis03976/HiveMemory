@@ -27,23 +27,12 @@ from hivememory.system.services.attachments import (
     AttachmentParseError,
 )
 from tests.helpers.attachment_parsing import (
+    ChunkedSource,
     ScriptedAttachmentParser,
     scripted_factory,
     wait_until_condition,
 )
 from tests.helpers.workspace import make_identity_scope
-
-
-class _ChunkedSource:
-    """按块返回固定内容的受控上传源，兼容 ``SupportsAsyncRead`` 协议。"""
-
-    def __init__(self, *chunks: bytes) -> None:
-        self._chunks = list(chunks)
-
-    async def read(self, size: int = -1) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
 
 
 def _service(
@@ -64,7 +53,7 @@ def _upload(service, scope, *, content: bytes, operation_id: str = "op-1", name:
         identity_scope=scope,
         file_name=name,
         declared_media_type="text/plain",
-        source=_ChunkedSource(content),
+        source=ChunkedSource(content),
         client_operation_id=operation_id,
     )
 

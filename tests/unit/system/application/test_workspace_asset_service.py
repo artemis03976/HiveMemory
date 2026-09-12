@@ -6,7 +6,6 @@
 解析协议替身与事件屏障。
 """
 
-
 import pytest
 
 from hivememory.core.models import (
@@ -27,23 +26,12 @@ from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStor
 from hivememory.system.services.attachments import (
     UnsupportedAttachmentFormatError,
 )
+from tests.helpers.attachment_parsing import ChunkedSource
 from tests.helpers.workspace import make_identity_scope
 
 #: 独立确认的期望值（不调用生产逻辑计算）。
 EXPECTED_SHA256_HELLO_WORLD = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 EXPECTED_SHA256_12345678 = "ef797c8118f02dfb649607dd5d3f8c7623048c9c063d532cc95c5ed7a898a64f"
-
-
-class _ChunkedSource:
-    """按块返回固定内容的受控上传源，兼容 ``SupportsAsyncRead`` 协议。"""
-
-    def __init__(self, *chunks: bytes) -> None:
-        self._chunks = list(chunks)
-
-    async def read(self, size: int = -1) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
 
 
 def _service(
@@ -65,7 +53,7 @@ async def test_upload_registers_document_asset_with_actual_bytes_and_hash() -> N
         identity_scope=scope,
         file_name="hello.txt",
         declared_media_type="text/plain",
-        source=_ChunkedSource(b"hello world"),
+        source=ChunkedSource(b"hello world"),
         client_operation_id="op-1",
     )
 
@@ -107,7 +95,7 @@ async def test_upload_hash_covers_chunked_reads_not_only_first_chunk() -> None:
         identity_scope=make_identity_scope(user_id="user-1"),
         file_name="bound.txt",
         declared_media_type="text/plain",
-        source=_ChunkedSource(b"12345678"),
+        source=ChunkedSource(b"12345678"),
         client_operation_id="op-1",
     )
 
@@ -127,7 +115,7 @@ async def test_upload_rejects_empty_file_without_orphan_asset() -> None:
             identity_scope=make_identity_scope(user_id="user-1"),
             file_name="empty.txt",
             declared_media_type="text/plain",
-            source=_ChunkedSource(),
+            source=ChunkedSource(),
             client_operation_id="op-1",
         )
 
@@ -145,7 +133,7 @@ async def test_upload_aborts_when_actual_bytes_exceed_configured_limit() -> None
             identity_scope=make_identity_scope(user_id="user-1"),
             file_name="big.txt",
             declared_media_type="text/plain",
-            source=_ChunkedSource(b"12345678", b"9"),
+            source=ChunkedSource(b"12345678", b"9"),
             client_operation_id="op-1",
         )
 
@@ -162,7 +150,7 @@ async def test_upload_accepts_content_exactly_at_limit() -> None:
         identity_scope=make_identity_scope(user_id="user-1"),
         file_name="edge.txt",
         declared_media_type="text/plain",
-        source=_ChunkedSource(b"12345678"),
+        source=ChunkedSource(b"12345678"),
         client_operation_id="op-1",
     )
 
@@ -186,7 +174,7 @@ async def test_upload_rejects_invalid_or_path_like_names_with_no_side_effect(
             identity_scope=make_identity_scope(user_id="user-1"),
             file_name=raw_name,
             declared_media_type=None,
-            source=_ChunkedSource(b"x"),
+            source=ChunkedSource(b"x"),
             client_operation_id="op-1",
         )
 
@@ -203,7 +191,7 @@ async def test_upload_sanitizes_separators_and_control_characters() -> None:
         identity_scope=make_identity_scope(user_id="user-1"),
         file_name=" notes/draft\x1b\x00.md ",
         declared_media_type="text/markdown",
-        source=_ChunkedSource(b"x"),
+        source=ChunkedSource(b"x"),
         client_operation_id="op-1",
     )
 
@@ -220,7 +208,7 @@ async def test_upload_normalizes_fullwidth_unicode_filename() -> None:
         identity_scope=make_identity_scope(user_id="user-1"),
         file_name="Ｎｏｔｅｓ.txt",
         declared_media_type="text/plain",
-        source=_ChunkedSource(b"x"),
+        source=ChunkedSource(b"x"),
         client_operation_id="op-1",
     )
 
@@ -243,7 +231,7 @@ async def test_upload_rejects_filename_over_configured_length(
             identity_scope=make_identity_scope(user_id="user-1"),
             file_name="abcdefg.txt",
             declared_media_type="text/plain",
-            source=_ChunkedSource(b"x"),
+            source=ChunkedSource(b"x"),
             client_operation_id="op-1",
         )
 
@@ -261,7 +249,7 @@ async def test_upload_rejects_unapproved_format_before_store_write() -> None:
             identity_scope=make_identity_scope(user_id="user-1"),
             file_name="paper.pdf",
             declared_media_type="application/pdf",
-            source=_ChunkedSource(b"%PDF-1.4"),
+            source=ChunkedSource(b"%PDF-1.4"),
             client_operation_id="op-1",
         )
     assert error.value.reason == "unsupported_format"
@@ -280,7 +268,7 @@ async def test_upload_rejects_conflicting_media_type_declaration() -> None:
             identity_scope=make_identity_scope(user_id="user-1"),
             file_name="notes.txt",
             declared_media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            source=_ChunkedSource(b"x"),
+            source=ChunkedSource(b"x"),
             client_operation_id="op-1",
         )
     assert error.value.reason == "conflicting_media_type"
@@ -292,7 +280,7 @@ async def test_upload_replay_reuses_registered_asset_without_second_raw() -> Non
     store = InMemoryWorkspaceAssetStore()
     service = _service(store)
     scope = make_identity_scope(user_id="user-1")
-    source_factory = lambda: _ChunkedSource(b"hello world")  # noqa: E731 — 每次请求需要新的读取源
+    source_factory = lambda: ChunkedSource(b"hello world")  # noqa: E731 — 每次请求需要新的读取源
 
     first = await service.upload_asset(
         identity_scope=scope,

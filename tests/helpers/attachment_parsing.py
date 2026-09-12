@@ -13,6 +13,21 @@ import threading
 from hivememory.system.services.attachments import AttachmentContentBuilder
 
 
+class ChunkedSource:
+    """按块返回固定内容的受控上传源，兼容 ``SupportsAsyncRead`` 协议。
+
+    每个位置参数是一次 ``read()`` 返回的块；块耗尽后返回空 bytes 表示 EOF。
+    """
+
+    def __init__(self, *chunks: bytes) -> None:
+        self._chunks = list(chunks)
+
+    async def read(self, size: int = -1) -> bytes:
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+
 class ScriptedAttachmentParser:
     """可控解析协议替身。
 

@@ -19,23 +19,12 @@ from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import CONTENT_UNREADABLE, AttachmentParseError
 from tests.helpers.attachment_parsing import (
+    ChunkedSource,
     ScriptedAttachmentParser,
     scripted_factory,
     wait_until_condition,
 )
 from tests.helpers.workspace import make_identity_scope
-
-
-class _ChunkedSource:
-    """按块返回固定内容的受控上传源，兼容 ``SupportsAsyncRead`` 协议。"""
-
-    def __init__(self, *chunks: bytes) -> None:
-        self._chunks = list(chunks)
-
-    async def read(self, size: int = -1) -> bytes:
-        if not self._chunks:
-            return b""
-        return self._chunks.pop(0)
 
 
 @pytest.mark.asyncio
@@ -69,7 +58,7 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
             identity_scope=scope,
             file_name="raced.txt",
             declared_media_type="text/plain",
-            source=_ChunkedSource(b"raced"),
+            source=ChunkedSource(b"raced"),
             client_operation_id="op-race",
         ),
     )

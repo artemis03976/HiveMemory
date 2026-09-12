@@ -29,17 +29,6 @@ export type AttachmentUploadStatus = 'queued' | 'uploading' | 'uploaded' | 'fail
 /** 服务端 WorkspaceAsset 聚合状态（HTTP 响应中的 state 字段） */
 export type AttachmentAssetState = 'processing' | 'ready' | 'failed';
 
-/** 上传接口的响应摘要 */
-export interface AttachmentUploadResult {
-  assetRef: WorkspaceAssetRef;
-  displayName: string;
-  mediaType: string;
-  sizeBytes: number;
-  assetState: AttachmentAssetState;
-  safeErrorMessage: string | null;
-  rawRepresentation: ApiAttachmentRepresentationSummary | null;
-}
-
 /** 附件上传队列中的一个文件项（仅存在于当前运行时内存） */
 export interface AttachmentQueueItem {
   /** 稳定 operation identity（Idempotency-Key），重试沿用同一取值 */
