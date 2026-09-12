@@ -159,7 +159,7 @@ W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStor
 
 #### 4.2.2 W1 Chat Attachments
 
-W1 已把上传文件注册到 W0 建立的 System-owned `WorkspaceAsset` working set，并完成上传、确定性解析（TXT/Markdown/DOCX）、Chat 选择、lease、AttachmentCompiler、binding 与 promotion 的完整链路。只有 required representation READY 后，asset ref 才能进入 Chat 选择；解析失败返回稳定错误且保留 RAW，用户重新上传创建新的逻辑资产。`InteractionPayload` 只携带 W1-E 确认实际进入上下文的 bound ref 快照；只有 Memory CREATE/UPDATE 且 Interaction 成功时才按 `binding.asset_ref` 做来源 Artifact promotion。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复。
+W1 已把上传文件注册到 W0 建立的 System-owned `WorkspaceAsset` working set，并完成上传、确定性解析（TXT/Markdown/DOCX）、Chat 选择、lease、AttachmentCompiler、binding 与 promotion 的完整链路。只有 required representation READY 后，asset ref 才能进入 Chat 选择；解析失败返回稳定错误且保留 RAW，用户重新上传创建新的逻辑资产。`InteractionPayload` 只携带 AttachmentCompiler 确认实际进入上下文的 bound ref 快照；只有 Memory CREATE/UPDATE 且 Interaction 成功时才按 `binding.asset_ref` 做来源 Artifact promotion。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复。
 
 当前事实入口是[Chat 附件链路](./system/attachments.md)；实施范围、验收矩阵与开放决策记录保留在 [v0.6.2 W1 Chat Attachments Plan](./plans/v0.6.2-w1-chat-attachments.md)（待归档）。
 

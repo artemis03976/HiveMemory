@@ -9,9 +9,12 @@ code_paths:
   - src/hivememory/server/models/chat.py
   - src/hivememory/server/routers/chat.py
   - src/hivememory/system/application/workspace_asset_service.py
+  - src/hivememory/system/services/attachments/upload.py
+  - src/hivememory/system/services/attachments/parse_service.py
   - src/hivememory/system/config/attachments.py
   - src/hivememory/system/services/attachments/
   - src/hivememory/system/runtime/workspace/store.py
+  - src/hivememory/system/runtime/serial_gate.py
   - src/hivememory/engines/attachment_compiler/
   - src/hivememory/patchouli/service.py
   - src/hivememory/patchouli/control/interaction_submission.py
@@ -39,7 +42,7 @@ last_reviewed: 2026-09-11
 
 本文是 Chat 附件从上传、确定性解析、Chat 选择、上下文编译到 Topic binding 与 Artifact promotion 的当前事实入口。它描述一条横跨 System（上传应用服务与 WorkspaceAssetStore）、Patchouli（prepare/finalize 与 binding）和前端（上传队列与选择状态）的完整链路；WorkspaceAssetStore 本身的两级状态机、READY-only 使用、删除与 lease 底层语义以[Workspace 架构](../architecture/workspace.md)为准，跨子系统身份与 interaction 时序以[子系统公共契约](../contracts/subsystem-contracts.md)为准。
 
-链路的核心不变量只有一条：**Interaction 载荷只携带一份附件事实——W1-E 确认实际进入上下文的使用引用**。用户选择只作为 prepare/compiler 的短期输入，上传、选择或编译跳过本身不产生任何长期关系。
+链路的核心不变量只有一条：**Interaction 载荷只携带一份附件事实——AttachmentCompiler 确认实际进入上下文的使用引用**。用户选择只作为 prepare/compiler 的短期输入，上传、选择或编译跳过本身不产生任何长期关系。
 
 ## 1. 阶段链路总览
 
@@ -59,7 +62,7 @@ Chat 请求 attachments（bound ref + 可选版本摘要）
 
 finalize
   -> InteractionPayload.used_attachments（不可变 transport snapshot）
-  -> submission handler 一次性投影 asset_id_and_refs
+  -> submission handler 以 asset_refs 形参传入 Perception apply
   -> Perception apply：TopicAssetBinding（按 asset_id 幂等）
 
 Topic settlement
@@ -71,7 +74,7 @@ Topic settlement
 
 上传入口是 `POST /api/v1/workspace/assets`，单文件 `multipart/form-data`，文件字段名 `file`；重复 file part、多文件 part 或额外业务字段按非法请求拒绝。请求头 `Idempotency-Key` 是本次上传的稳定 operation identity，服务层将其映射为 Store 的 `client_operation_id`；同一文件重试必须沿用同一取值。身份仍由 `x-user-id` / `x-workspace-id` 统一承载。
 
-上传应用服务（`WorkspaceAssetApplicationService`）只负责用例顺序：持有 operation 串行门、接收文件、调用 Store 原子注册、交给解析服务并返回最终回执。文件接收由 `system/services/attachments/upload.py` 的 `receive_upload` 完成，返回现有 `WorkspaceAssetMetadata`、原始字节与 SHA-256，不额外引入上传数据模型。
+上传应用服务（`WorkspaceAssetApplicationService`）只负责用例顺序：持有 operation 串行门（`system/runtime/serial_gate.py` 的 `KeyedSerialGate`）、接收文件、调用 Store 原子注册、交给解析服务并返回最终回执。文件接收由 `system/services/attachments/upload.py` 的 `receive_upload` 完成，解析接纳由同目录 `parse_service.py` 的 `AttachmentParseService` 承担；两者都不额外引入上传数据模型。
 
 接收阶段在创建资产前完成全部无副作用校验：拒绝空文件；文件名做 NFKC 规范化、去除路径分隔符与控制字符并限制为 200 字符（只作展示用途的 `display_name`）；按批准格式集合分派规范媒体类型（`.txt`/`.md`/`.markdown`/`.docx`，客户端 MIME 只作提示、明确冲突即拒绝）。读取按 64 KiB 分块进行，`size_bytes` 与 SHA-256 均以实际读取字节为准，超出 `max_raw_bytes` 立即中止。上传流与框架临时文件由 router 在 transport 边界关闭；接收函数不访问 Store，也不持有资产生命周期。
 
@@ -131,11 +134,11 @@ lease 生命周期覆盖 prepare acquire、附件编译到 Interaction finalize�
 
 预算规则固定为：多附件严格按用户顺序；单附件超预算时在 locator 边界保留前部完整内容并声明 truncated；合计超总预算时跳过剩余附件；首个完整单元无法保留且此前无保留内容时整体编译失败；全部选中项被跳过同样整体失败，不生成空 section。正文中的指令样式文本只保留字面内容。
 
-`selected_attachments`（用户选择）只是 compiler 调用期间的输入，不是 `AgentRunContext` 或 `InteractionPayload` 的字段；`used_attachments` 是 compiler 的输出，也是 W1-F 投影 binding 的唯一输入。
+用户选择只存在于 prepare 的短期输入（有序 lease）；compiler 的输入就是这组 lease，输出 `used_attachments`（bound ref 集合）是 binding 投影的唯一输入，`AgentRunContext` 与 `InteractionPayload` 中不存在独立的选择字段。
 
 ## 6. Interaction binding
 
-finalize 从 `AttachmentCompileResult` 生成一份有序的实际使用引用快照，写入 `InteractionPayload.used_attachments`。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 只把这份快照一次性投影为 `apply_interaction` 的 `asset_id_and_refs`，不回查原始选择、asset 列表或当前 UI 状态。
+finalize 从 `AttachmentCompileResult` 生成一份有序的实际使用引用快照，写入 `InteractionPayload.used_attachments`。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。
 
 Perception 在 Interaction 成功 apply 的同一 Topic 快照更新中，把去重后的 `(asset_id, asset_ref)` 写入 `TopicAssetBinding`（按 `asset_id` 幂等，保留首次绑定时间语义）。编译跳过、预算未保留、admission/apply 失败与取消均不建立 binding；上传和解析本身同样不产生 binding。快照中的引用坐标可参与 interaction digest 以防 retry 替换 ref，但正文与 lease 不进入长期载荷。
 
