@@ -16,7 +16,9 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-06
+  - docs/system/attachments.md
+  - docs/frontend/state-and-transports.md
+last_reviewed: 2026-09-11
 ---
 
 # Chat 工作区
@@ -105,7 +107,8 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 - Enter 发送、Shift+Enter 换行；
 - 流式状态、停止生成；
 - MTP 与子 Agent 卡片；
-- 引用记忆、memory task 和 Kernel 日志面板。
+- 引用记忆、memory task 和 Kernel 日志面板；
+- 附件上传（拖拽/Paperclip 进入同一串行队列，请求内解析到 READY/FAILED）、READY 附件的本轮选择与发送时冻结，选择随 `attachments` 字段提交。
 
 尚未接线：
 
@@ -128,5 +131,6 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 ## 8. 验证入口与限制
 
 主要入口为 `frontend/src/services/chatApi.ts`、`stores/chat/`、`components/chat/`、`stores/kernel/` 和 `stores/topic/`；后端契约与路由测试位于 `tests/unit/server/routers/test_chat.py`、`test_topics.py`、`test_runtime_events.py`、`test_logs.py`。
+附件上传与选择的入口为 `services/attachmentApi.ts`、`stores/attachment/`、`components/chat/AttachmentQueue.tsx` 和 `hooks/useAttachmentUpload.ts`；链路事实见[Chat 附件链路](../system/attachments.md)。
 
 当前 Chat 更接近“单次运行工作区”而非完整聊天产品：它没有服务端消息历史、账户边界、断线续传和跨刷新恢复，也没有证明多窗口选举在所有浏览器挂起/崩溃情形下可靠。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。

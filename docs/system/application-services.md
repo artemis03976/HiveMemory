@@ -13,7 +13,8 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
-last_reviewed: 2026-09-06
+  - docs/system/attachments.md
+last_reviewed: 2026-09-11
 ---
 
 # System 应用服务
@@ -55,6 +56,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `AgentApplicationService` | 构造 Agent Profile atom 并调用 Patchouli profile routes | Patchouli profile routes |
 | `TopicApplicationService` | 活跃话题查询、手动 settle、evict | Patchouli topic routes |
 | `SystemReadinessService` | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
+| `WorkspaceAssetApplicationService` | Chat 附件上传：校验、受限读取、请求内确定性解析到 READY/FAILED | System-owned WorkspaceAssetStore（命令端口）；链路事实见[Chat 附件链路](./attachments.md) |
 
 这些服务的“拥有”只指顶层用例入口，不改变表中后端子系统的状态所有权。例如 `MemoryTaskApplicationService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。
 
@@ -162,3 +164,4 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 - `tests/unit/system/application/test_agent_service.py`
 - `tests/unit/system/application/test_topic_service.py`
 - `tests/unit/system/application/test_readiness_service.py`
+- `tests/unit/system/application/test_workspace_asset_service.py`、`test_workspace_asset_parsing.py`（附件上传与请求内解析）

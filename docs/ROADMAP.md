@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-07
+last_reviewed: 2026-09-11
 ---
 
 # HiveMemory 开发路线图
@@ -35,7 +35,7 @@ last_reviewed: 2026-09-07
 
 - 最新已发布标签：`v0.6.1`；
 - 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2`，整体状态为 Candidate（W0 与 Identity 收敛已实现但尚未形成发布标签）；[W0 Workspace MVP](./archive/plans/v0.6.2-workspace-mvp.md)与 [Identity 投影收敛](./archive/plans/v0.6.2-identity-projection-cleanup.md)均已完成并归档，当前事实见 [Workspace 架构](./architecture/workspace.md)与 [System 应用服务](./system/application-services.md)，W1 Chat Attachments 仍以其公共契约为硬前置。
+- 下一计划版本：`v0.6.2`，整体状态为 Candidate（W0、Identity 收敛与 W1 Chat Attachments 已实现但尚未形成发布标签）；[W0 Workspace MVP](./archive/plans/v0.6.2-workspace-mvp.md)与 [Identity 投影收敛](./archive/plans/v0.6.2-identity-projection-cleanup.md)已完成并归档，[W1 Chat Attachments](./plans/v0.6.2-w1-chat-attachments.md) 实现与验收已完成（Plan 待归档），当前事实见 [Workspace 架构](./architecture/workspace.md)、[System 应用服务](./system/application-services.md)与[Chat 附件链路](./system/attachments.md)。
 
 当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。`v0.6.1` Git tag、Python 包、前端清单和构建检查使用完全一致的版本口径。
 
@@ -119,7 +119,7 @@ last_reviewed: 2026-09-07
 | `v0.6.2 W0` Workspace MVP | Current Development | 已实现 `WorkspaceIdentity`、默认 `main_workspace`、端到端 scope、双 Workspace 隔离、System-owned WorkspaceAssetStore、两级状态机和 TopicAssetBinding；尚未发布 `v0.6.2` 标签 | 依赖 v0.6.1 与 Identity scope；当前事实见 [Workspace 架构](./architecture/workspace.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)，开放附件设计见 [Workspace MVP Idea](./ideas/workspace-mvp-chat-attachments-design.md) |
 | `v0.6.2` Identity 投影收敛 | Implemented / Archived | 已消除裸 `user_id` 兼容投影：应用服务入口统一 `IdentityScope`、server 唯一身份解析入口、领域快照 actor 字段值对象化（含旧 JSON 读升级）、读侧兼容属性收口、`system` 保留 actor 与管理/检索可见性路径分离 | 依赖 `v0.6.2 W0` 身份契约，先于 `v0.6.2 W1` 合并；当前事实见 [Workspace 架构](./architecture/workspace.md)与 [System 应用服务](./system/application-services.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
 | `v0.6.2` V1 Memory Legacy 迁移 | Completed | V1 历史记录已一次性迁移到 V2 归属/策略形状（确定性 replacement ID + checkpoint 续跑 + fail closed + 迁移报告），codec/filter/快照 legacy 解释分支与 Artifact owner 解释路径已删除 | 已完成并归档：[Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)；当前事实见 [数据模型](./architecture/data-model.md) 与 [Retrieval](./patchouli/retrieval.md) |
-| `v0.6.2 W1` Chat Attachments | Planned | 在已经验收的 Workspace 公共契约上实现上传、确定性解析、asset refs、Context Compiler、Topic binding 与按需 Artifact promotion；不包含 Agent 主动解析、MTP RUN 或强沙箱 | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；[正式 Plan](./plans/v0.6.2-w1-chat-attachments.md) |
+| `v0.6.2 W1` Chat Attachments | Implemented / Plan 待归档 | 已在 Workspace 公共契约上实现上传、确定性解析（TXT/Markdown/DOCX）、请求内 representation READY/FAILED、Chat 选择与 lease、AttachmentCompiler、Topic binding 与 CREATE/UPDATE 门控的 Artifact promotion；不包含 Agent 主动解析、MTP RUN 或强沙箱 | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；[正式 Plan](./plans/v0.6.2-w1-chat-attachments.md)（待归档）；当前事实见 [Chat 附件链路](./system/attachments.md) |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
 | `v0.7.1` MTP READ Provenance | Candidate | 将已经稳定的版本、来源 artifact 和检索证据暴露给 READ | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
@@ -159,7 +159,9 @@ W0 还负责由 System runtime 建立一个进程级唯一的 WorkspaceAssetStor
 
 #### 4.2.2 W1 Chat Attachments
 
-W1 把上传文件注册到 W0 已建立的 System-owned `WorkspaceAsset` working set。原始内容、提取文本和 metadata 是同一资产内的 runtime representations；只有 required representation 解析 READY 后，asset ref 才能进入 Chat。解析失败直接向用户返回稳定错误且不自动重试，用户重新上传创建新的逻辑资产。`WorkspaceAssetRef` 在 Chat 中显式选择，再按当前对话需要编译为上下文。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复；这一口径与当前 Topic 仍为内存态一致。具体实施范围和验收出口见 [v0.6.2 W1 Chat Attachments Plan](./plans/v0.6.2-w1-chat-attachments.md)。
+W1 已把上传文件注册到 W0 建立的 System-owned `WorkspaceAsset` working set，并完成上传、确定性解析（TXT/Markdown/DOCX）、Chat 选择、lease、AttachmentCompiler、binding 与 promotion 的完整链路。只有 required representation READY 后，asset ref 才能进入 Chat 选择；解析失败返回稳定错误且保留 RAW，用户重新上传创建新的逻辑资产。`InteractionPayload` 只携带 W1-E 确认实际进入上下文的 bound ref 快照；只有 Memory CREATE/UPDATE 且 Interaction 成功时才按 `binding.asset_ref` 做来源 Artifact promotion。WorkspaceAsset 继续只承诺当前进程内可用，不承诺跨重启恢复。
+
+当前事实入口是[Chat 附件链路](./system/attachments.md)；实施范围、验收矩阵与开放决策记录保留在 [v0.6.2 W1 Chat Attachments Plan](./plans/v0.6.2-w1-chat-attachments.md)（待归档）。
 
 上传和 UI 选择本身都不创建 Topic 关系或 Artifact。只有用户显式选择 READY ref、本轮通过 lease 真实使用且 Interaction 成功完成，系统才由 Patchouli Perception 的 Topic 所有者把 block 与 `TopicAssetBinding` 作为一个不可变 `TopicData` 快照写入 `ShortTermMemoryStore`；binding 是历史使用事实，不存在“只绑定但未使用”的第二状态。asset remove 只终止 AssetStore 中后续 resolve/acquire，不跨 Store 清理 binding，也不引入额外协调控制器。Topic settlement 从快照中把全部 binding refs 以及 W1 冻结的附件使用明细（如 `ContextAttachmentUse` 或等价载体）冻结进 Materialization task；这些明细记录实际 representation revision/hash、locator、token 与 compile 诊断。当 Topic Materialization 得到 Memory CREATE/UPDATE 时，consumer 用 task ref 反查 WorkspaceAssetStore、持有 lease，并将对应内容提升为不可变来源 Artifact；`DISCARD` 不执行 promotion。提升是创建独立证据快照，不是把 WorkspaceAsset 原地转换；task/ref 只在当前进程和 Store 存活期内结算，已提升 Artifact 才按自身持久化契约存在。
 

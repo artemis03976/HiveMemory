@@ -105,6 +105,7 @@ prepare_agent_run(
     gateway_decision: GatewayDecision,
     enable_memory_retrieval: bool = True,
     generation_options: dict[str, Any] | None = None,
+    selected_attachments: list[AttachmentSelectionRequest] | None = None,
 ) -> PreparedAgentRun
 ```
 
@@ -116,6 +117,8 @@ prepare_agent_run(
 - `generation_options`：本轮生成覆盖参数。
 
 `AgentRunContext` 至少包含 `identity_scope: IdentityScope`、`interaction_id`、真实 topic id、用户消息、话题上下文、原始 `RetrievalResponse`、MemoryCompiler 编译文本、Agent Profile 和存储可用性。`IdentityScope` 是该上下文的唯一身份来源，不再由 `user_id`、`agent_id` 或 `session_id` 在下游重新拼接。
+
+`selected_attachments` 是 Chat 请求冻结的附件选择（bound ref + 可选版本摘要）：prepare 在 Patchouli 边界逐项 acquire READY representation 并核对版本摘要，任一失败释放已取得的 lease 并拒绝整个 run。`AgentRunContext` 携带 W1-E `AttachmentCompiler` 的产物 `attachment_compile_result`（prompt-ready section、实际使用引用与诊断）；用户选择本身不作为该上下文的字段。附件链路事实见[Chat 附件链路](../system/attachments.md)。
 
 prepare 的意义不只是拼装参数。它把 Gateway 的入口决定解析成 Alice 可以直接执行的本轮记忆视图，并由 Patchouli 在交出控制权前确认真实话题、可见性和 Profile。Alice 因而无需理解 Patchouli 内部存储，也不会在执行途中重新推导另一套记忆上下文。
 
@@ -231,6 +234,8 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
 
 `InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：`identity_scope` 是唯一身份来源，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不重复嵌入 scope。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
+
+`InteractionPayload.used_attachments` 携带 W1-E 确认实际进入上下文的 bound ref 快照：submission handler 只把这份快照一次性投影为 `apply_interaction` 的 `asset_id_and_refs`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
