@@ -22,9 +22,13 @@ from hivememory.core.models import (
     MemoryAtom,
     TraceItem,
     TurnEvent,
+    WorkspaceAssetRef,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.mtp.models import MTPCallRequest
+from hivememory.engines.attachment_compiler.models import (
+    AttachmentCompileResult,
+)
 from hivememory.engines.retrieval.models import QueryFilters
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
@@ -134,6 +138,7 @@ class RetrievalResponse(ProtocolMessage):
 
     从 RetrievalFamiliar 返回的检索结果，供外部 Worker Agent 使用
     """
+
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
 
     # 检索到的记忆
@@ -157,17 +162,23 @@ class AgentRunContext(BaseModel):
     user_message: str = Field(default="")
     topic_context: TopicData | None = Field(default=None)
     retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
+
     # 已编译的记忆上下文文本，用于注入 system prompt。
     # retrieval_result 只保留记忆原子，供缓存、引用记录等流程使用。
     memory_context: str = Field(default="")
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
 
+    # AttachmentCompiler 的产物（prepare 阶段生成）：携带 prompt-ready
+    # section、used_attachments 与诊断；未选择附件时为 None。
+    attachment_compile_result: AttachmentCompileResult | None = Field(default=None)
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class MTPExecutionResult(BaseModel):
     """MTP 指令执行结果"""
+
     command: Any | None = Field(default=None)
     response_status: str = Field(default="error")
     response_content: str = Field(default="")
@@ -199,6 +210,7 @@ class AgentRunResult(BaseModel):
         model_used          → 本次 run 实际使用的模型展示名（来自 ModelRegistry）；
                               空字符串表示注册表未启用或解析失败
     """
+
     status: AgentRunStatus = Field(default=AgentRunStatus.COMPLETED)
     final_text: str = Field(default="")
     mtp_iterations: int = Field(default=0)
@@ -229,47 +241,47 @@ class InteractionPayload(BaseModel):
         P2.5 起不再内嵌 ``identity_scope``；身份坐标由 ``InteractionSubmission``
         的 ``identity_scope`` 单独承载，避免 payload 成为第二份身份事实。
     """
+
     user_message: str = Field(..., description="原始用户消息")
 
-    rewritten_query: str | None = Field(
-        default=None,
-        description="Gateway 重写后的查询"
-    )
+    rewritten_query: str | None = Field(default=None, description="Gateway 重写后的查询")
 
     # ========== 结构化轮次事件 ==========
     # 模型最终自然语言回复
     assistant_final_text: str | None = Field(
-        default=None,
-        description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
+        default=None, description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
     )
     # 收集的结构化轮次事件列表
     turn_events: list[TurnEvent] = Field(
         default_factory=list,
-        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径"
+        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径",
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
-        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表"
+        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表",
     )
 
     # 控制信号
     materialize_tasks: list[PendingAtomMaterializeTask] = Field(
         default_factory=list,
-        description="本 run 产出的不可变物化请求列表，由 finalize 分发 mode b/c"
+        description="本 run 产出的不可变物化请求列表，由 finalize 分发 mode b/c",
     )
 
-    worth_saving: bool | None = Field(
-        default=None,
-        description="Gateway 价值判断"
-    )
+    worth_saving: bool | None = Field(default=None, description="Gateway 价值判断")
     # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
     # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
-        default="",
-        description="实际使用的模型展示名，空字符串表示注册表未启用"
+        default="", description="实际使用的模型展示名，空字符串表示注册表未启用"
     )
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # 实际进入 attachment_context 的使用集合（唯一附件事实）：handler
+    # 据此一次性投影 bound refs 建立 binding。passive 提交投影为空数组。
+    used_attachments: list[WorkspaceAssetRef] = Field(
+        default_factory=list,
+        description="实际进入本轮上下文的附件使用引用快照；passive 提交投影为空数组",
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 __all__ = [

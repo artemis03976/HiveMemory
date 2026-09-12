@@ -4,65 +4,71 @@ HiveMemory 核心数据模型
 重导出记忆、智能体、交互流转等领域模型，以保持向下兼容性。
 """
 
+from .agent import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+)
 from .artifact import (
-    ArtifactType,
     ArtifactRef,
-    WorkspaceArtifactKey,
+    ArtifactType,
     BaseArtifact,
-    InteractionTurnSnapshot,
-    InteractionArtifact,
-    DocumentLocator,
     DocumentArtifact,
-    MemoryInputRef,
-    MemoryVersionSnapshot,
+    DocumentLocator,
+    InteractionArtifact,
+    InteractionTurnSnapshot,
     MemoryCreationArtifact,
-    MemoryVersionArtifact,
-    MemoryEventType,
     MemoryEventLog,
-)
-from .memory import (
-    MemoryAccessPolicy,
-    MemoryType,
-    MemoryVisibility,
-    VerificationStatus,
-    MetaData,
-    IndexLayer,
-    Artifacts,
-    PayloadLayer,
-    RelationLayer,
-    MemoryAtom,
-    WorkspaceMemoryKey,
-)
-from .interaction import (
-    ActionReducer,
-    TraceReducer,
-    ActorIdentity,
-    StreamMessageType,
-    StreamMessage,
-    TurnEvent,
-    AgentAction,
-    TraceItem,
-    TurnRecord,
+    MemoryEventType,
+    MemoryInputRef,
+    MemoryVersionArtifact,
+    MemoryVersionSnapshot,
+    WorkspaceArtifactKey,
 )
 from .immutable import FrozenDict, freeze_mapping, freeze_value
-from .topic import LogicalBlock, TopicData, TopicLastTurn, TopicSnapshot, merge_interaction_into_topic
-from .agent import (
-    AgentProfile,
-    OMNI_DOLL_PROFILE,
+from .interaction import (
+    ActionReducer,
+    ActorIdentity,
+    AgentAction,
+    StreamMessage,
+    StreamMessageType,
+    TraceItem,
+    TraceReducer,
+    TurnEvent,
+    TurnRecord,
+)
+from .memory import (
+    Artifacts,
+    IndexLayer,
+    MemoryAccessPolicy,
+    MemoryAtom,
+    MemoryType,
+    MemoryVisibility,
+    MetaData,
+    PayloadLayer,
+    RelationLayer,
+    VerificationStatus,
+    WorkspaceMemoryKey,
 )
 from .model_definition import ModelDefinition
 from .pending import (
-    PendingAtomStatus,
-    PendingAtomResolution,
-    PendingAtomSnapshot,
-    is_legal_transition,
-    allowed_transitions,
     InvalidStateTransition,
-    WriteFocus,
-    UpdateFocus,
-    RuntimeScope,
     PendingAtom,
+    PendingAtomResolution,
     PendingAtomSettlement,
+    PendingAtomSnapshot,
+    PendingAtomStatus,
+    RuntimeScope,
+    UpdateFocus,
+    WriteFocus,
+    allowed_transitions,
+    is_legal_transition,
+)
+from .topic import (
+    LogicalBlock,
+    TopicData,
+    TopicLastTurn,
+    TopicSnapshot,
+    merge_interaction_into_topic,
 )
 from .workspace import (
     ISOLATION_WORKSPACE_ID,
@@ -80,6 +86,7 @@ from .workspace_asset import (
     AssetRepresentationKind,
     AssetRepresentationState,
     AssetSafeError,
+    AttachmentSelectionRequest,
     RepresentationLease,
     RepresentationPreference,
     TopicAssetBinding,
@@ -90,6 +97,7 @@ from .workspace_asset import (
     WorkspaceAssetMetadata,
     WorkspaceAssetRef,
     WorkspaceAssetState,
+    WorkspaceAssetUploadReceipt,
 )
 
 __all__ = [
@@ -162,6 +170,7 @@ __all__ = [
     "AssetRepresentationKind",
     "AssetRepresentationState",
     "AssetSafeError",
+    "AttachmentSelectionRequest",
     "RepresentationLease",
     "RepresentationPreference",
     "TopicAssetBinding",
@@ -172,4 +181,5 @@ __all__ = [
     "WorkspaceAssetMetadata",
     "WorkspaceAssetRef",
     "WorkspaceAssetState",
+    "WorkspaceAssetUploadReceipt",
 ]

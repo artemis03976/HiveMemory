@@ -10,6 +10,7 @@ code_paths:
   - src/hivememory/infrastructure/work_queue/
   - src/hivememory/system/runtime/control.py
   - src/hivememory/system/runtime/operations.py
+  - src/hivememory/system/runtime/serial_gate.py
   - src/hivememory/system/runtime/workspace/
 related_contracts:
   - docs/contracts/routes-and-events.md
@@ -21,7 +22,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-11
 ---
 
 # System 运行时与总线
@@ -208,13 +209,21 @@ Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的�
 
 该 registry 不提供持久化恢复、跨进程广播或历史查询。不要把它误认为用户可见长期任务状态；此类能力当前没有版本承诺，需在真实负载出现后独立设计。
 
-## 5. RuntimeOperationObserver
+## 5. KeyedSerialGate
+
+[`KeyedSerialGate`](../../src/hivememory/system/runtime/serial_gate.py) 是按可哈希 key 串行化异步操作的公共机制。`hold(key)` 负责互斥、取消/异常退出时释放和最后一人离开后的条目回收；`active_keys()` 返回当前持有者或等待者涉及的 key 快照，供调用方执行自己的收尾流程。它不保存幂等结果或业务状态。
+
+实例由需要协调的服务在初始化时创建并复用，key 的构造和持锁范围由业务所有者决定。附件上传应用服务使用 `(WorkspaceIdentity, client_operation_id)`，被动摄入使用 `PassiveConversationKey`；两者持有独立实例，同一 key 在不同实例之间也不会互斥。公共实现只在同一 event loop 内使用，不支持同 key 重入或跨线程协调；登记、回收与快照读取不含 `await`，不另加线程锁。
+
+`active_keys()` 只是调用时的快照，不会阻止后续操作进入。停止接纳和 shutdown 顺序继续由调用方负责，不能把空快照当作系统已经停止的证明。被动摄入的 drain 会将该快照与活动 buffer 的 key 合并，逐个取得同一实例的门，等待在途事件后再执行 finalize。
+
+## 6. RuntimeOperationObserver
 
 `RuntimeOperationObserver` 为一个具体 subsystem operation 发布 `started/completed/failed` 三类 RuntimeEvent，并记录耗时、状态和摘要。它只封装观测，不驱动业务流程、重试或 fallback。
 
 因此业务代码应先决定结果，再让 observer 记录结果；不能通过“是否成功 emit completed”来决定事务是否提交，也不能让 observer 捕获异常后替调用方吞掉原异常。
 
-## 6. 调度、队列与总线的边界
+## 7. 调度、队列与总线的边界
 
 ```text
 System application service -> GlobalSystemBus RPC -> subsystem owner
@@ -233,7 +242,7 @@ Chat cancel -> ChatGenerationRunRegistry -> current phase task
 - 用 RuntimeEvent 触发业务重试、finalize 或 cleanup；
 - 让 scheduler 直接修改 Patchouli、Gateway 或 Alice 的内部状态。
 
-## 7. 设计矛盾检查
+## 8. 设计矛盾检查
 
 评审新 runtime 组件时，检查：
 
@@ -245,7 +254,7 @@ Chat cancel -> ChatGenerationRunRegistry -> current phase task
 6. stop 是否仅停止调度，还是误承诺可以回滚已执行的业务副作用？
 7. 一个 work 的状态真相是否仍只有 WorkStore，还是 controller、旁路索引和事件各自维护了一份？
 
-## 8. 验证入口
+## 9. 验证入口
 
 - `tests/unit/system/runtime/bus/test_async_bus.py`
 - `tests/unit/system/runtime/scheduler/test_async_scheduler.py`
@@ -255,4 +264,5 @@ Chat cancel -> ChatGenerationRunRegistry -> current phase task
 - `tests/unit/patchouli/control/test_memory_generation_*.py`
 - `tests/integration/patchouli/test_active_interaction_submission.py`
 - `tests/unit/system/runtime/test_operations.py`
+- `tests/unit/system/runtime/test_serial_gate.py`
 - `tests/unit/system/test_cancel_hardening.py`

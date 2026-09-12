@@ -29,6 +29,9 @@ if TYPE_CHECKING:
     from hivememory.system.application.passive_ingress_service import PassiveIngressService
     from hivememory.system.application.readiness_service import SystemReadinessService
     from hivememory.system.application.topic_service import TopicApplicationService
+    from hivememory.system.application.workspace_asset_service import (
+        WorkspaceAssetApplicationService,
+    )
 
 
 class HiveMemorySystem:
@@ -69,6 +72,7 @@ class HiveMemorySystem:
         self._agent_service = services.agent
         self._topic_service = services.topic
         self._readiness_service = services.readiness
+        self._workspace_asset_service = services.workspace_assets
 
         # 注册表：全局单例，供 API 层（deps.py）注入到路由
         self._model_registry = registries.model_registry
@@ -357,6 +361,10 @@ class HiveMemorySystem:
     @property
     def readiness_service(self) -> SystemReadinessService:
         return self._readiness_service
+
+    @property
+    def workspace_asset_service(self) -> WorkspaceAssetApplicationService:
+        return self._workspace_asset_service
 
     @property
     def gateway(self) -> GatewaySystem:

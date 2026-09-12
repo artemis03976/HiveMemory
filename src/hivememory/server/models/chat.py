@@ -1,7 +1,8 @@
 """Chat 相关的 Request/Response 模型"""
 
+from pydantic import BaseModel, Field, model_validator
 
-from pydantic import BaseModel, Field
+from hivememory.core.models import AttachmentSelectionRequest
 
 
 class GenerationOptions(BaseModel):
@@ -18,13 +19,33 @@ class ChatRequest(BaseModel):
     保留 ``system`` actor。用户导向基础选择（``user_id + workspace_id``）
     一律由统一请求头（``x-user-id`` / ``x-workspace-id``）承载，body 不再
     重复传递，避免同一请求出现两种身份事实。
+
+    ``attachments`` 是用户显式选择的附件数组（计划 9.2 节）：空数组与缺少
+    字段等价；同一 ``asset_ref`` 只能出现一次，重复即请求冲突；顺序属于
+    用户输入，保留进请求 canonical 表示。ref 归属与版本校验在 Patchouli
+    prepare 边界完成，HTTP 层只校验字段类型与数组结构。
     """
 
     message: str = Field(..., description="用户消息")
     agent_id: str = Field(..., description="执行本次对话的具体 Agent ID")
     session_id: str | None = Field(default=None, description="会话 ID")
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
-    generation_options: GenerationOptions | None = Field(default=None, description="本次请求的生成参数覆盖")
+    generation_options: GenerationOptions | None = Field(
+        default=None, description="本次请求的生成参数覆盖"
+    )
+    attachments: list[AttachmentSelectionRequest] = Field(
+        default_factory=list,
+        description="本轮显式选择的附件坐标数组；空数组表示不使用附件",
+    )
+
+    @model_validator(mode="after")
+    def _reject_duplicate_asset_refs(self) -> "ChatRequest":
+        seen_tokens: set[str] = set()
+        for selection in self.attachments:
+            if selection.asset_ref.token in seen_tokens:
+                raise ValueError("同一 asset_ref 在 attachments 中重复出现")
+            seen_tokens.add(selection.asset_ref.token)
+        return self
 
 
 class StopChatRequest(BaseModel):
@@ -40,6 +61,7 @@ class StopChatRequest(BaseModel):
 
 # ========== SSE 事件数据模型 ==========
 
+
 class StreamNamespace(BaseModel):
     """流式事件命名空间：用于区分主/子 Agent 输出来源。"""
 
@@ -51,11 +73,13 @@ class StreamNamespace(BaseModel):
 
 class ChatTokenEvent(StreamNamespace):
     """token 事件: LLM 生成的文本增量"""
+
     content: str
 
 
 class MTPStartEvent(StreamNamespace):
     """mtp_start 事件: MTP 指令被拦截"""
+
     verb: str
     target: str = ""
     args: dict = Field(default_factory=dict)
@@ -65,6 +89,7 @@ class MTPStartEvent(StreamNamespace):
 
 class MTPResultEvent(StreamNamespace):
     """mtp_result 事件: MTP 执行完成"""
+
     verb: str
     target: str = ""
     args: dict = Field(default_factory=dict)
@@ -91,6 +116,7 @@ class SubAgentEndEvent(StreamNamespace):
 
 class TopicInfoEvent(BaseModel):
     """topic_info 事件: 话题路由结果"""
+
     topic_id: str
     is_new: bool
     pool_topics: list[dict] = Field(default_factory=list)
@@ -98,6 +124,7 @@ class TopicInfoEvent(BaseModel):
 
 class ChatDoneEvent(BaseModel):
     """done 事件: 生成完成"""
+
     final_text: str
     mtp_iterations: int
     total_iterations: int
@@ -122,5 +149,6 @@ class CommandResultEvent(BaseModel):
 
 class ChatErrorEvent(BaseModel):
     """error 事件: 错误发生"""
+
     message: str
     detail: str | None = None

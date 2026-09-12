@@ -4,8 +4,6 @@
 no-material 判断统一由该类方法负责；服务与调用方不得重复拼装。
 """
 
-import pytest
-
 from hivememory.core.models import (
     ActorIdentity,
     LogicalBlock,
@@ -140,8 +138,7 @@ class TestFromTopicData:
 
         scope = _identity_scope()
         binding = TopicAssetBinding(
-            asset_id="asset-1",
-            asset_ref=WorkspaceAssetRef(token="token-1"),
+            asset_ref=WorkspaceAssetRef(token="token-1", asset_id="asset-1"),
             first_bound_interaction_id="i1",
             bound_at=datetime.now(),
         )

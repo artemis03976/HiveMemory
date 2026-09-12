@@ -133,6 +133,7 @@ from hivememory.server.routers.models import router as models_router
 from hivememory.server.routers.providers import router as providers_router
 from hivememory.server.routers.runtime_events import router as runtime_events_router
 from hivememory.server.routers.topics import router as topics_router
+from hivememory.server.routers.workspace_assets import router as workspace_assets_router
 
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
@@ -145,6 +146,7 @@ app.include_router(models_router, prefix="/api/v1")
 app.include_router(providers_router, prefix="/api/v1")
 app.include_router(runtime_events_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
+app.include_router(workspace_assets_router, prefix="/api/v1")
 
 # ==========================================
 # 前后端整合与静态资源挂载 (生产环境与开发环境切换)

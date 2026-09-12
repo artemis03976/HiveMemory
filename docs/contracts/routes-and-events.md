@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-06
+last_reviewed: 2026-09-11
 ---
 
 # 公开路由与事件

@@ -42,8 +42,8 @@ from hivememory.patchouli.service import (
     PatchouliService,
 )
 from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
-from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
@@ -129,7 +129,9 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def apply(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()
+    ):
         calls.append("apply_started")
         apply_started.set()
         await release_apply.wait()
@@ -244,8 +246,8 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     try:
         await queue.start()
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
-                await service.finalize_agent_run(
-                    prepared,
+            await service.finalize_agent_run(
+                prepared,
                 AgentRunResult(
                     final_text="answer",
                     materialize_tasks=[_write_task()],
@@ -349,7 +351,9 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def apply(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()
+    ):
         apply_started.set()
         await release_apply.wait()
         return target_topic_id
@@ -401,7 +405,9 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, identity_scope, target_topic_id, interaction_id):
+    async def apply(
+        payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()
+    ):
         apply_started.set()
         await release_apply.wait()
         raise ConnectionError("interaction store unavailable")

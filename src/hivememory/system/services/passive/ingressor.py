@@ -24,6 +24,7 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.system.config.passive import PassiveIngressConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import RuntimeEventSink
+from hivememory.system.runtime.serial_gate import KeyedSerialGate
 from hivememory.system.services.passive.dedup import ExternalEventDedupRegistry
 from hivememory.system.services.passive.events import PassiveIngressEventEmitter
 from hivememory.system.services.passive.memory_context import MemoryContextProvider
@@ -33,7 +34,6 @@ from hivememory.system.services.passive.models import (
     PassiveIngressOutcome,
     SealReason,
 )
-from hivememory.system.services.passive.serial_gate import PassiveIngressSerialGate
 from hivememory.system.services.passive.turn_buffer import MessageTurnBufferManager
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class PassiveMessageIngressor:
             ttl_seconds=self._config.dedup_ttl_seconds,
             max_entries=self._config.max_dedup_entries,
         )
-        self._serial_gate = PassiveIngressSerialGate()
+        self._serial_gate = KeyedSerialGate[PassiveConversationKey]()
         self._idle_timeout: float = 30.0
 
     # ------------------------------------------------------------------

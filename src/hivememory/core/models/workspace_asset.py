@@ -41,9 +41,15 @@ class AssetRepresentationKind(str, Enum):
 
 
 class WorkspaceAssetRef(BaseModel):
-    """当前 Store 存活期内随机且不可解释的资产句柄。"""
+    """当前 Store 存活期内的资产绑定引用。
+
+    ``token`` 是 Store 的唯一寻址句柄；``asset_id`` 是 token 在创建时绑定的
+    逻辑资产身份。调用方不得只凭 ``asset_id`` 读取资产，Store 会在读取边界
+    校验 token 解析出的资产身份与该字段一致。
+    """
 
     token: str = Field(min_length=1)
+    asset_id: str = Field(min_length=1)
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -192,9 +198,12 @@ class WorkspaceAsset(BaseModel):
             required is None or required.state != AssetRepresentationState.READY
         ):
             raise ValueError("READY asset 的 required representation 必须 READY")
-        if self.state == WorkspaceAssetState.PROCESSING and required is not None and (
-            required.state
-            in {AssetRepresentationState.READY, AssetRepresentationState.FAILED}
+        if (
+            self.state == WorkspaceAssetState.PROCESSING
+            and required is not None
+            and (
+                required.state in {AssetRepresentationState.READY, AssetRepresentationState.FAILED}
+            )
         ):
             raise ValueError("required representation 终态必须与 asset 聚合状态原子提交")
         if self.state == WorkspaceAssetState.FAILED:
@@ -210,33 +219,73 @@ class WorkspaceAsset(BaseModel):
 
 
 class WorkspaceAssetHandle(BaseModel):
-    """将用户持有的 opaque ref 与当前权威资产快照配对。"""
+    """将用户持有的 bound ref 与当前权威资产快照配对。"""
 
     asset_ref: WorkspaceAssetRef
     asset: WorkspaceAsset
 
+    @model_validator(mode="after")
+    def _require_bound_asset(self) -> Self:
+        if self.asset_ref.asset_id != self.asset.asset_id:
+            raise ValueError("asset_ref.asset_id 必须与 asset.asset_id 一致")
+        return self
+
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+
+class WorkspaceAssetUploadReceipt(BaseModel):
+    """上传专用 Store 命令的结果回执。
+
+    在通用 :class:`WorkspaceAssetHandle` 之外附带 ``created`` 标记，用于区分
+    "本次请求新建了资产" 与 "同一 operation identity 的重放命中既有资产"；
+    HTTP 层依据该标记决定 201/200，不得根据 asset 状态猜测。
+    """
+
+    handle: WorkspaceAssetHandle
+    created: bool
+
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+
+class AttachmentSelectionRequest(BaseModel):
+    """Chat 请求中的单个附件选择（客户端视图，计划 9.2 节）。
+
+    只携带 bound ref 与可选的预期版本摘要；字段严格校验，拒绝未知键。
+    ref 的 Workspace 归属、asset READY 状态与版本一致性由 Patchouli
+    prepare 边界经 reader port 校验，不在 HTTP 层读取 Store。
+    """
+
+    asset_ref: WorkspaceAssetRef
+    representation_id: str | None = Field(default=None, min_length=1)
+    revision: int | None = Field(default=None, ge=1)
+    content_hash: str | None = Field(default=None, min_length=1)
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class TopicAssetBinding(BaseModel):
     """冻结的 Topic 级资产真实使用关系事实。
 
     由 Perception 的 Topic 所有者在一次成功 Interaction 的原子 apply 中幂等维护。
-    只保存 ``asset_id`` 与 opaque ``asset_ref`` 的关系坐标，不保存
+    只保存 bound ``asset_ref``，其中包含 ``asset_id`` 与 opaque ``token``，不保存
     ``WorkspaceAsset`` 快照、representation 内容或 actor-policy 字段；
     ``workspace_identity`` 与 ``topic_id`` 由所属的短期话题快照提供，
     不在 binding 内保存第二份可漂移的资源坐标。
     """
 
-    asset_id: str = Field(min_length=1)
     asset_ref: WorkspaceAssetRef
     first_bound_interaction_id: str = Field(min_length=1)
     bound_at: datetime
 
-    @field_validator("asset_id", "first_bound_interaction_id")
+    @field_validator("first_bound_interaction_id")
     @classmethod
     def _normalize_required_text(cls, value: str, info: Any) -> str:
         return _validate_non_empty(value, info.field_name)
+
+    @property
+    def asset_id(self) -> str:
+        """返回 bound ref 携带的逻辑资产身份。"""
+        return self.asset_ref.asset_id
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -262,12 +311,23 @@ class RepresentationPreference(BaseModel):
 
 
 class RepresentationLease(BaseModel):
-    """消费者持有的进程内 READY representation 租约。"""
+    """消费者持有的进程内 READY representation 租约。
+
+    ``display_name`` 是资产注册时规范化后的展示名称快照。它随 lease 一起冻结，
+    让编译器和其他消费者使用资产的权威名称，而不接受客户端再次提供的副本。
+    """
 
     lease_id: str = Field(min_length=1)
     asset_ref: WorkspaceAssetRef
     representation: AssetRepresentation
     acquired_at: datetime
+    display_name: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _require_bound_representation(self) -> Self:
+        if self.asset_ref.asset_id != self.representation.asset_id:
+            raise ValueError("asset_ref.asset_id 必须与 representation.asset_id 一致")
+        return self
 
     model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
 
@@ -292,6 +352,7 @@ __all__ = [
     "AssetRepresentationKind",
     "AssetRepresentationState",
     "AssetSafeError",
+    "AttachmentSelectionRequest",
     "RepresentationLease",
     "RepresentationPreference",
     "TopicAssetBinding",
@@ -302,4 +363,5 @@ __all__ = [
     "WorkspaceAssetMetadata",
     "WorkspaceAssetRef",
     "WorkspaceAssetState",
+    "WorkspaceAssetUploadReceipt",
 ]

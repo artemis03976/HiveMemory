@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,10 +11,10 @@ class QdrantConfig(BaseModel):
     prefer_grpc: bool = Field(default=True)
     timeout: int = Field(default=60)
     deployment: Literal["external", "sidecar"] = Field(default="external")
-    data_dir: Optional[str] = Field(default=None)
-    binary_path: Optional[str] = Field(default=None)
+    data_dir: str | None = Field(default=None)
+    binary_path: str | None = Field(default=None)
     startup_timeout_seconds: int = Field(default=30)
-    api_key: Optional[str] = Field(default=None)
+    api_key: str | None = Field(default=None)
     collection_name: str = Field(default="hivememory_main")
     vector_dimension: int = Field(default=1024)
     distance_metric: str = Field(default="Cosine")
@@ -39,7 +39,7 @@ class LLMRelayConfig(BaseModel):
 
 class RelayControllerConfig(BaseModel):
     enable: bool = Field(default=True)
-    engine: Union[SimpleRelayConfig, LLMRelayConfig] = Field(
+    engine: SimpleRelayConfig | LLMRelayConfig = Field(
         default_factory=SimpleRelayConfig,
         discriminator="type",
     )
@@ -136,7 +136,7 @@ class RerankerConfig(BaseModel):
     enabled: bool = Field(default=True)
     model_name: str = Field(default="BAAI/bge-reranker-base")
     device: str = Field(default="cpu")
-    cache_dir: Optional[str] = Field(default="data/model_cache")
+    cache_dir: str | None = Field(default="data/model_cache")
     use_fp16: bool = Field(default=True)
     batch_size: int = Field(default=32)
     top_k: int = Field(default=20)
@@ -173,7 +173,7 @@ class HybridRetrieverConfig(BaseModel):
     enable_parallel: bool = Field(default=True)
     dense: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig)
     sparse: SparseRetrieverConfig = Field(default_factory=SparseRetrieverConfig)
-    fusion: Union[ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig] = Field(
+    fusion: ReciprocalRankFusionConfig | AdaptiveWeightedFusionConfig = Field(
         default_factory=ReciprocalRankFusionConfig,
         discriminator="type",
     )
@@ -183,7 +183,7 @@ class HybridRetrieverConfig(BaseModel):
 
 
 class MemoryRetrievalConfig(BaseModel):
-    retriever: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig] = Field(
+    retriever: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig = Field(
         default_factory=HybridRetrieverConfig,
         discriminator="type",
     )

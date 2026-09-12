@@ -17,6 +17,9 @@ from hivememory.system.application.memory_service import MemoryApplicationServic
 from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.application.workspace_asset_service import (
+    WorkspaceAssetApplicationService,
+)
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system import HiveMemorySystem
 from hivememory.system.model_registry import ModelRegistry
@@ -80,6 +83,11 @@ def get_agent_service() -> AgentApplicationService:
 def get_topic_service() -> TopicApplicationService:
     """FastAPI Depends 注入 — 获取话题 API 应用服务。"""
     return get_system().topic_service
+
+
+def get_workspace_asset_service() -> WorkspaceAssetApplicationService:
+    """FastAPI Depends 注入 — 获取附件上传应用服务。"""
+    return get_system().workspace_asset_service
 
 
 @dataclass(frozen=True)

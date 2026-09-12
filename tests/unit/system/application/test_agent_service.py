@@ -31,8 +31,8 @@ from hivememory.patchouli.models import (
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
@@ -100,9 +100,11 @@ def mock_global_bus():
         elif route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
             return True
         elif route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+
             async def _stream():
                 yield {"event": "token", "data": {"content": "hi"}}
                 yield {"event": "done", "data": chat_result.model_dump()}
+
             return _stream()
         return None
 
@@ -190,9 +192,9 @@ class TestAgentApplicationService:
         route = mock_global_bus.request.await_args.args[0]
         assert route == GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST
         assert (
-            mock_global_bus.request.await_args.kwargs["identity_scope"].workspace_identity.owner_user_id
+            mock_global_bus.request.await_args.kwargs[
+                "identity_scope"
+            ].workspace_identity.owner_user_id
             == "u1"
         )
         assert mock_global_bus.request.await_args.kwargs["limit"] == 100
-
-

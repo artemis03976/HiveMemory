@@ -161,8 +161,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
 def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
     """settle 冻结的 binding refs 必须原样通过 codec/retry 保留。"""
     binding = TopicAssetBinding(
-        asset_id="asset-1",
-        asset_ref=WorkspaceAssetRef(token="token-1"),
+        asset_ref=WorkspaceAssetRef(token="token-1", asset_id="asset-1"),
         first_bound_interaction_id="i1",
         bound_at=datetime.now(UTC),
     )

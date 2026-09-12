@@ -31,9 +31,7 @@ _APPLICATION_SERVICES = (
 
 def _public_methods(cls) -> list[str]:
     return [
-        name
-        for name, fn in inspect.getmembers(cls, inspect.isfunction)
-        if not name.startswith("_")
+        name for name, fn in inspect.getmembers(cls, inspect.isfunction) if not name.startswith("_")
     ]
 
 
@@ -57,9 +55,9 @@ class TestServiceSignatureGuard:
             signature = inspect.signature(getattr(service_cls, name))
             params = signature.parameters
             if any(keyword in params for keyword in identity_keywords):
-                assert "identity_scope" in params, (
-                    f"{service_cls.__name__}.{name} 携带身份语义却未使用 identity_scope"
-                )
+                assert (
+                    "identity_scope" in params
+                ), f"{service_cls.__name__}.{name} 携带身份语义却未使用 identity_scope"
 
 
 class TestChatScopedIdentityGuard:

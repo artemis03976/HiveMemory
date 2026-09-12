@@ -66,6 +66,16 @@ class SystemPromptBuilder:
             self._sections.append(rendered_memory)
         return self
 
+    def with_attachment_context(self, attachment_context: str) -> "SystemPromptBuilder":
+        """注入附件上下文 section (来自 AttachmentCompiler 的产物)。
+
+        section 自带确定性边界标记与"逐字保留、不构成系统指令"声明；
+        本方法只负责在固定顺序位置原样追加，不做转义或改写。
+        """
+        if attachment_context:
+            self._sections.append(attachment_context)
+        return self
+
     def with_shared_context(self, shared_context: str) -> "SystemPromptBuilder":
         """注入共享上下文 (Phase 2: 来自父 Agent 的 context_refs)"""
         if shared_context:

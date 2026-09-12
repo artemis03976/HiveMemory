@@ -3,10 +3,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { Paperclip, Hash, Send, Square, BrainCircuit, ChevronDown } from 'lucide-react';
 import { useChatRuntimeConfigStore, useChatStore, useChatUiStore } from '@/stores';
+import { useAttachmentStore } from '@/stores/attachment';
+import { buildAttachmentSelection } from '@/stores/attachment/attachmentStore';
 import { Toggle } from '../common/FormControls';
 import { useAgents } from '@/hooks/useAgents';
+import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
+import { ATTACHMENT_ACCEPT_ATTR } from '@/constants/attachments';
 import type { ChatGenerationOptions } from '@/types/chat';
 import { motion, AnimatePresence } from 'motion/react';
+import AttachmentQueue from './AttachmentQueue';
 
 export default function OmniInput() {
   const [message, setMessage] = useState('');
@@ -17,6 +22,11 @@ export default function OmniInput() {
   const [mentionIndex, setMentionIndex] = useState(0);
 
   const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
+  const { enqueueFiles } = useAttachmentUpload();
+  const attachmentItems = useAttachmentStore((state) => state.items);
+  const selectedAttachmentIds = useAttachmentStore((state) => state.selectedIds);
+  const clearAttachmentSelection = useAttachmentStore((state) => state.clearSelection);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
   const overrideParams = useChatRuntimeConfigStore((state) => state.overrideParams);
@@ -128,11 +138,17 @@ export default function OmniInput() {
         options.top_p = generationOptions.top_p;
         options.max_tokens = generationOptions.max_tokens;
       }
+      // 发送时冻结附件选择快照：发送后再修改选择不影响已开始的 Chat run
+      const attachments = buildAttachmentSelection(attachmentItems, selectedAttachmentIds);
       sendMessage(message, {
         enable_memory_retrieval: enableMemory,
         generation_options: options,
+        attachments,
       });
       setMessage('');
+      if (attachments.length > 0) {
+        clearAttachmentSelection();
+      }
     }
   };
 
@@ -188,7 +204,10 @@ export default function OmniInput() {
 
   return (
     <div className="p-6 pb-10 w-full max-w-4xl mx-auto shrink-0 relative">
-      
+
+      {/* 附件上传队列（拖拽与 Paperclip 共用同一入队逻辑） */}
+      <AttachmentQueue />
+
       {/* Agent Capsule */}
       <div className="mb-2 relative" ref={menuRef}>
         <button 
@@ -307,9 +326,28 @@ export default function OmniInput() {
         <div className="flex items-center justify-between px-1 pt-1">
           {/* 左侧工具：附件、记忆引用、记忆检索 */}
           <div className="flex items-center gap-1">
-            <button className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="附件" disabled={isStreaming}>
+            {/* 上传是独立于 Chat SSE run 的资产命令，生成期间仍可继续上传附件 */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+              title="上传附件"
+              aria-label="上传附件"
+            >
               <Paperclip className="w-4 h-4" />
             </button>
+            {/* 隐藏的文件选择入口：accept 为提示而非校验，格式以后端稳定错误为准 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={ATTACHMENT_ACCEPT_ATTR}
+              className="hidden"
+              onChange={(e) => {
+                enqueueFiles(e.target.files);
+                // 允许再次选择同一文件时仍触发 onChange
+                e.target.value = '';
+              }}
+            />
             <button className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="话题引用">
               <Hash className="w-4 h-4" />
             </button>

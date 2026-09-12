@@ -6,6 +6,7 @@
  */
 
 import type { MemoryAtom } from './memory';
+import type { WorkspaceAssetRef } from './attachment';
 
 // ========== SSE Event Data Types ==========
 
@@ -154,12 +155,22 @@ export interface ChatConnectionState {
 
 // ========== API Request Types ==========
 
+/** 本轮 Chat 请求携带的单个附件选择引用（asset_ref 为绑定 ref，非本地路径） */
+export interface ChatAttachmentSelection {
+  asset_ref: WorkspaceAssetRef;
+  representation_id?: string;
+  revision?: number;
+  content_hash?: string;
+}
+
 export interface ChatRequestParams {
   message: string;
   agent_id?: string;
   session_id?: string | null;
   enable_memory_retrieval?: boolean;
   generation_options?: ChatGenerationOptions;
+  /** 发送时冻结的附件选择快照；空数组与缺省等价 */
+  attachments?: ChatAttachmentSelection[];
 }
 
 export interface ChatGenerationOptions {

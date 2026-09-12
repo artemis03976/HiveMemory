@@ -24,6 +24,9 @@ from hivememory.system.application.memory_task_service import MemoryTaskApplicat
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.system.application.workspace_asset_service import (
+    WorkspaceAssetApplicationService,
+)
 from hivememory.system.config import HiveMemoryConfig, RuntimeEventsConfig
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
@@ -36,6 +39,7 @@ from hivememory.system.runtime.events import (
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.system.services.attachments.parse_service import AttachmentParseService
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -74,6 +78,7 @@ class _ServicesBundle:
     agent: AgentApplicationService
     topic: TopicApplicationService
     readiness: SystemReadinessService
+    workspace_assets: WorkspaceAssetApplicationService
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +206,9 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             scheduler=runtime.scheduler,
             runtime_events=runtime.event_sink.scoped("patchouli"),
+            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
+            # Patchouli：附件选择在 prepare 边界 resolve/acquire（W1-D）。
+            workspace_asset_reader=runtime.workspace_asset_store,
         )
 
         alice = AliceSystem(
@@ -257,6 +265,16 @@ class SystemAssembler:
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,
         )
+        # 上传应用服务直接持有进程级唯一的 WorkspaceAssetStore 命令端口，
+        # 附件上传不经过全局总线（资产状态真相由 Store 同步持有）。
+        workspace_assets = WorkspaceAssetApplicationService(
+            store=runtime.workspace_asset_store,
+            parser_config=self._config.attachment_parser,
+            parse_service=AttachmentParseService(
+                store=runtime.workspace_asset_store,
+                config=self._config.attachment_parser,
+            ),
+        )
 
         return _ServicesBundle(
             chat=chat,
@@ -266,6 +284,7 @@ class SystemAssembler:
             agent=agent,
             topic=topic,
             readiness=readiness,
+            workspace_assets=workspace_assets,
         )
 
 

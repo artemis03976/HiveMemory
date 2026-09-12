@@ -1,0 +1,215 @@
+"""附件选择跨阶段集成验收（计划 D 门）。
+
+从 W1-C 的真实出口出发：真实上传应用服务（真实 text parser）把文件推进
+到 EXTRACTED_TEXT READY，随后 Patchouli prepare 按用户选择顺序
+resolve/acquire 并冻结坐标。捕获选择绕过 READY 门槛、版本摘要漂移或
+removed 竞态下继续使用 representation 的缺陷。
+"""
+
+import pytest
+
+from hivememory.core.errors import AssetRemovedError
+from hivememory.core.models import AttachmentSelectionRequest
+from hivememory.patchouli.control.interaction_submission import (
+    InteractionSubmissionQueue,
+)
+from hivememory.patchouli.service import PatchouliService
+from hivememory.system.config import AttachmentParserConfig
+from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
+from tests.helpers.workspace import make_identity_scope
+from tests.unit.patchouli.test_prepare_attachments import _prepare_bus
+
+
+@pytest.mark.asyncio
+async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
+    """捕获选择坐标与上传产物漂移，或 PROCESSING 资产被提前选择。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = make_identity_scope(user_id="user-1")
+    upload_service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+    )
+    upload_service_2 = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+    )
+
+    first = await upload_service.upload_asset(
+        identity_scope=scope,
+        file_name="first.md",
+        declared_media_type="text/markdown",
+        source=ChunkedSource("# 第一份\n".encode()),
+        client_operation_id="op-first",
+    )
+    second = await upload_service_2.upload_asset(
+        identity_scope=scope,
+        file_name="second.md",
+        declared_media_type="text/markdown",
+        source=ChunkedSource("# 第二份\n".encode()),
+        client_operation_id="op-second",
+    )
+    assert (first.handle.asset.state.value, second.handle.asset.state.value) == (
+        "ready",
+        "ready",
+    )
+
+    async def apply_interaction(_payload, **_kwargs):
+        return "topic-1"
+
+    patchouli = PatchouliService(
+        _prepare_bus(),
+        interaction_queue=InteractionSubmissionQueue(apply_interaction),
+        asset_reader=store,
+    )
+    prepared = await patchouli.prepare_agent_run(
+        "总结这两份附件",
+        identity_scope=scope,
+        interaction_id="interaction-selection",
+        gateway_decision=_decision_for_prepare(),
+        selected_attachments=[
+            # 用户顺序：第二份在前。
+            AttachmentSelectionRequest(
+                asset_ref=second.handle.asset_ref,
+                revision=1,
+                content_hash=second.handle.asset.representations[1].content_hash,
+            ),
+            AttachmentSelectionRequest(asset_ref=first.handle.asset_ref),
+        ],
+    )
+
+    # 用户选择只作为 compiler input；实际使用顺序由编译产物冻结。
+    used = prepared.agent_run_context.attachment_compile_result.used_attachments
+    assert list(used) == [second.handle.asset_ref, first.handle.asset_ref]
+    assert len(prepared.attachment_leases) == 2
+
+    await patchouli.cleanup_prepared_agent_run(prepared)
+    assert store.close_and_clear().leases_cleared == 0
+
+
+@pytest.mark.asyncio
+async def test_removed_asset_rejects_selection_after_upload() -> None:
+    """捕获 removed 后的选择绕过 not-found/removed 语义进入本轮。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = make_identity_scope(user_id="user-1")
+    upload_service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+    )
+    receipt = await upload_service.upload_asset(
+        identity_scope=scope,
+        file_name="gone.txt",
+        declared_media_type="text/plain",
+        source=ChunkedSource("正文".encode()),
+        client_operation_id="op-gone",
+    )
+    store.remove_asset(scope, receipt.handle.asset_ref)
+
+    async def apply_interaction(_payload, **_kwargs):
+        return "topic-1"
+
+    patchouli = PatchouliService(
+        _prepare_bus(),
+        interaction_queue=InteractionSubmissionQueue(apply_interaction),
+        asset_reader=store,
+    )
+    with pytest.raises(AssetRemovedError):
+        await patchouli.prepare_agent_run(
+            "使用已删除附件",
+            identity_scope=scope,
+            interaction_id="interaction-removed",
+            gateway_decision=_decision_for_prepare(),
+            selected_attachments=[
+                AttachmentSelectionRequest(asset_ref=receipt.handle.asset_ref),
+            ],
+        )
+    # remove 清除全部 representation：同一 ref 不可能复活，也不会残留 lease。
+    # 同 Workspace 内已知 ref 的既有 Store 语义是 AssetRemovedError。
+    assert store.close_and_clear().leases_cleared == 0
+
+
+def _decision_for_prepare():
+    from hivememory.core.protocol.gateway import (
+        GatewayDecision,
+        IntentType,
+        MemoryWriteSignal,
+        RetrievalPlan,
+    )
+
+    return GatewayDecision(
+        target_topic_id="topic-1",
+        rewritten_query="原查询",
+        memory_write_signal=MemoryWriteSignal.WRITE,
+        retrieval_plan=RetrievalPlan(),
+        intent_type=IntentType.RAG,
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
+    """回归：总线 kwargs 名称必须与真实 prepare handler 签名一致。
+
+    ChatApplicationService 经 GlobalSystemBus 传递的 ``selected_attachments``
+    必须被真实 ``PatchouliService.prepare_agent_run`` 接纳——此前因调用方
+    传 ``attachments``、handler 收 ``selected_attachments`` 而在运行时 TypeError。
+    """
+    from unittest.mock import AsyncMock
+
+    from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+    from hivememory.core.protocol.models import AgentRunResult
+    from hivememory.system.application.chat_service import ChatApplicationService
+    from hivememory.system.contracts.routes import GlobalRoutes
+    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+
+    store = InMemoryWorkspaceAssetStore()
+    scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
+    upload_service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+    )
+    receipt = await upload_service.upload_asset(
+        identity_scope=scope,
+        file_name="chat.md",
+        declared_media_type="text/markdown",
+        source=ChunkedSource("# 选中正文\n".encode()),
+        client_operation_id="op-chat",
+    )
+    assert receipt.handle.asset.state.value == "ready"
+
+    async def apply_interaction(_payload, **_kwargs):
+        return "topic-1"
+
+    patchouli_service = PatchouliService(
+        _prepare_bus(),
+        interaction_queue=InteractionSubmissionQueue(apply_interaction),
+        asset_reader=store,
+    )
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, patchouli_service.prepare_agent_run)
+    bus.register(
+        GlobalRoutes.GATEWAY_PROCESS,
+        AsyncMock(return_value=GatewayDecisionOutcome(decision=_decision_for_prepare())),
+    )
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        AsyncMock(return_value=AgentRunResult(final_text="完成")),
+    )
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+
+    chat = ChatApplicationService(bus)
+    result = await chat.chat_scoped(
+        "总结这份附件",
+        identity_scope=scope,
+        interaction_id="interaction-via-bus",
+        attachments=[
+            AttachmentSelectionRequest(
+                asset_ref=receipt.handle.asset_ref,
+                revision=1,
+                content_hash=receipt.handle.asset.representations[1].content_hash,
+            ),
+        ],
+    )
+
+    # 真实 prepare 接纳了总线 kwargs，链路完整走通。
+    assert result.kind == "agent"
+    assert result.agent_run_result.final_text == "完成"

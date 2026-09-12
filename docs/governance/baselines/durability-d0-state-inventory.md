@@ -80,7 +80,7 @@ Phase D0 的四项任务：
 | InteractionSubmissionQueue（已接纳 interaction work） | Patchouli | 进程内 `WorkQueueRuntime` + `InMemoryWorkStore`（[interaction_submission.py](../../../src/hivememory/patchouli/control/interaction_submission.py#L194-L235)） | Recoverable（本应） | `InteractionSubmissionCodec` v1；WorkItem 带 kind/schema/idempotency key | lane capacity 256；终态旁路索引最多 768 条 | 无。进程崩溃/重启后已接纳但未完成的 interaction work 与终态丢失；SQLite 持久化后置 |
 | MessageTurnBuffer（进行中 turn） | System | 进程内 `MessageTurnBufferManager`（[turn_buffer.py](../../../src/hivememory/system/services/passive/turn_buffer.py)） | Recoverable（本应） | 无 | 每轮 256 事件；idle 30s seal | 无。崩溃丢未 seal 内容 |
 | ExternalEventDedupRegistry | System | 进程内（[dedup.py](../../../src/hivememory/system/services/passive/dedup.py)） | Ephemeral derived | 无 | TTL 300s / 4096 条 LRU | 重建即丢幂等窗口（重复提交风险） |
-| PassiveIngressSerialGate | System | 进程内（[serial_gate.py](../../../src/hivememory/system/services/passive/serial_gate.py)） | Ephemeral derived | 无 | users==0 即移除 | 无（仅并发协调） |
+| PassiveIngressSerialGate | System | 进程内（基线时位于 `services/passive/serial_gate.py`；[现公共实现](../../../src/hivememory/system/runtime/serial_gate.py)） | Ephemeral derived | 无 | users==0 即移除 | 无（仅并发协调） |
 | RuntimeEventBus | System | 进程内环形缓冲（[events.py](../../../src/hivememory/system/runtime/events.py)） | Ephemeral derived | 无 | 1000 条环形；订阅队列 100 | 允许丢失，明确不承担审计 |
 | `config.yaml` / `models.yaml` / `providers.secrets.yaml` | System | YAML 文件 | Durable authoritative | 无版本字段；未知字段 ignore | 无备份、无版本历史 | 无（读时校验失败则报错；config 有原子替换） |
 | ModelRegistry / ProviderRegistry 内存镜像 | System | 内存 `_models` / `_yaml` 副本 | Ephemeral derived（权威在文件） | 无 | 无 | 启动重新加载文件 |

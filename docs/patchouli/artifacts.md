@@ -13,7 +13,8 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-06
+  - docs/system/attachments.md
+last_reviewed: 2026-09-11
 ---
 
 # Artifacts 与来源追踪
@@ -37,7 +38,9 @@ ArtifactStore
 
 Artifact 不进入普通向量检索，不承担 alias，也不因为某条记忆被合并就随之改写。相反，一份原始 InteractionArtifact 可以成为记忆创建或更新的 source artifact；一个 MemoryVersionArtifact 又可以记录某次完整状态变化。
 
-`TopicAssetBinding.asset_ref` 不是 `ArtifactRef`，也不代表已经生成了一份 Artifact。它只是 Topic 对已使用 WorkspaceAsset 的不透明关系事实，随 `InteractionArtifactInput` 进入生成任务；当前 Artifact 链不会把 WorkspaceAsset 原地转换为 Artifact，也不会在本层复制资产状态机或可见性策略。WorkspaceAsset 的所有权和 ref 生命周期以[Workspace 架构](../architecture/workspace.md)为准。
+`TopicAssetBinding.asset_ref` 不是 `ArtifactRef`，也不代表已经生成了一份 Artifact。它只是 Topic 对已使用 WorkspaceAsset 的不透明关系事实，随 `InteractionArtifactInput` 进入生成任务；Artifact 链不会把 WorkspaceAsset 原地转换为 Artifact，也不会在本层复制资产状态机或可见性策略。WorkspaceAsset 的所有权和 ref 生命周期以[Workspace 架构](../architecture/workspace.md)为准。
+
+Chat 附件的来源 promotion 已接入本链路（见[Chat 附件链路](../system/attachments.md)）：记忆生成确实产生 CREATE/UPDATE 时，生成数据面对 task 中的每个 binding 按 `asset_ref` acquire READY representation，创建独立的 `DocumentArtifact` 证据快照后释放 lease；产物的 `source_uri` 钉住源 asset/representation 标识、revision 与 parser producer/version，`content_hash` 保存 representation 哈希。ref 已 remove、Store 已关闭或写入失败时按 best-effort 跳过并记录 warning，已提交的 binding 与 Memory 结果不变。
 
 ## 2. 当前四种类型
 

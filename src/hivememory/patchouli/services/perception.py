@@ -80,7 +80,7 @@ class PerceptionFamiliar:
         identity_scope: IdentityScope,
         target_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
-        asset_id_and_refs: tuple[tuple[str, WorkspaceAssetRef], ...] = (),
+        asset_refs: tuple[WorkspaceAssetRef, ...] = (),
     ) -> str:
         """应用一份已接纳的交互载荷并完成话题路由（核心用例）。
 
@@ -111,7 +111,7 @@ class PerceptionFamiliar:
 
         # block 构造与 digest 是纯计算；retry 等价性校验在取得占用权之前完成。
         block = self._engine.build_block(payload, identity_scope)
-        digest = compute_apply_digest(block, asset_id_and_refs, payload.model_used, identity_scope)
+        digest = compute_apply_digest(block, asset_refs, payload.model_used, identity_scope)
         if apply_record is not None:
             if apply_record.input_digest != digest:
                 raise ValueError(
@@ -131,7 +131,7 @@ class PerceptionFamiliar:
                     raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
                 self._store.put(
                     merge_interaction_into_topic(
-                        topic, block, asset_id_and_refs, interaction_id, payload.model_used
+                        topic, block, asset_refs, interaction_id, payload.model_used
                     )
                 )
                 if interaction_id:

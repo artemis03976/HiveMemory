@@ -126,7 +126,7 @@ def test_create_is_idempotent_across_actors_but_rejects_conflicting_metadata() -
 
 
 def test_workspace_hard_boundary_hides_ref_while_same_workspace_actor_can_read() -> None:
-    """捕获 opaque ref 或 Agent/Team 差异绕过/扩大 Workspace ownership。"""
+    """捕获 bound ref 或 Agent/Team 差异绕过/扩大 Workspace ownership。"""
     store = InMemoryWorkspaceAssetStore()
     owner_scope = _scope(agent_id="agent-a", team_id="team-a")
     peer_scope = _scope(agent_id="agent-b", team_id="team-b")
@@ -140,6 +140,17 @@ def test_workspace_hard_boundary_hides_ref_while_same_workspace_actor_can_read()
     isolated = store.create_asset(other_workspace, _document_metadata(), "upload-1")
     assert isolated.asset.asset_id != handle.asset.asset_id
     assert isolated.asset_ref != handle.asset_ref
+
+
+def test_tampered_bound_ref_cannot_read_by_token_alone() -> None:
+    """捕获 token 与 asset_id 被拆开传递后绕过绑定校验。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+    handle = store.create_asset(scope, _document_metadata(), "upload-1")
+    tampered = handle.asset_ref.model_copy(update={"asset_id": "asset-other"})
+
+    with pytest.raises(AssetNotFoundError):
+        store.resolve_asset(scope, tampered)
 
 
 def test_same_content_hash_never_merges_distinct_logical_assets() -> None:
@@ -352,11 +363,12 @@ def test_existing_lease_survives_remove_until_idempotent_release() -> None:
     store.remove_asset(scope, handle.asset_ref)
 
     assert (
+        lease.display_name,
         lease.representation.kind,
         lease.representation.content_object,
         store.release_representation_lease(lease.lease_id),
         store.release_representation_lease(lease.lease_id),
-    ) == (AssetRepresentationKind.RAW, b"raw-content", True, False)
+    ) == ("notes.md", AssetRepresentationKind.RAW, b"raw-content", True, False)
     with pytest.raises(AssetRemovedError):
         store.acquire_ready_representation(scope, handle.asset_ref)
 
@@ -559,3 +571,224 @@ def test_asset_public_schema_has_no_actor_visibility_or_provenance_fields() -> N
         "safe_error_message",
         "created_at",
     }
+
+
+def test_register_uploaded_asset_creates_asset_and_raw_in_one_step() -> None:
+    """捕获上传命令分步提交，或文档资产在 RAW 后被误判为 READY。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+
+    receipt = store.register_uploaded_asset(
+        scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"raw-bytes",
+        raw_content_hash="raw-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+
+    assert receipt.created is True
+    asset = receipt.handle.asset
+    raw = asset.representations[0]
+    assert (
+        asset.state,
+        len(asset.representations),
+        raw.kind,
+        raw.state,
+        raw.revision,
+        raw.content_hash,
+        raw.content_object,
+    ) == (
+        WorkspaceAssetState.PROCESSING,
+        1,
+        AssetRepresentationKind.RAW,
+        AssetRepresentationState.READY,
+        1,
+        "raw-hash",
+        b"raw-bytes",
+    )
+    # RAW 不满足文档资产的 required representation，reader 必须拒绝提前使用。
+    with pytest.raises(AssetNotReadyError):
+        store.resolve_asset(scope, receipt.handle.asset_ref)
+    with pytest.raises(AssetNotReadyError):
+        store.acquire_ready_representation(scope, receipt.handle.asset_ref)
+
+
+def test_upload_replay_with_same_fingerprint_reuses_asset_and_marks_replay() -> None:
+    """捕获相同 operation 与内容的重试生成重复 asset/RAW 或丢失重放标记。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+
+    first = store.register_uploaded_asset(
+        scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"raw-bytes",
+        raw_content_hash="raw-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+    replay = store.register_uploaded_asset(
+        scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"raw-bytes",
+        raw_content_hash="raw-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+
+    assert replay.created is False
+    assert replay.handle == first.handle
+    assert len(store.list_workspace_assets(scope)) == 1
+
+
+def test_upload_replay_with_other_content_or_metadata_is_operation_conflict() -> None:
+    """捕获同一 operation 携带另一份文件或元数据时被静默接受。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+    store.register_uploaded_asset(
+        scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"raw-bytes",
+        raw_content_hash="raw-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+
+    with pytest.raises(AssetOperationConflictError):
+        store.register_uploaded_asset(
+            scope,
+            _document_metadata(),
+            "upload-1",
+            raw_content_object=b"other-bytes",
+            raw_content_hash="other-hash",
+            raw_producer="upload",
+            raw_producer_version="1",
+        )
+    with pytest.raises(AssetOperationConflictError):
+        store.register_uploaded_asset(
+            scope,
+            _document_metadata("renamed.md"),
+            "upload-1",
+            raw_content_object=b"raw-bytes",
+            raw_content_hash="raw-hash",
+            raw_producer="upload",
+            raw_producer_version="1",
+        )
+
+    assert len(store.list_workspace_assets(scope)) == 1
+
+
+def test_upload_replay_after_remove_is_removed_error_without_recreation() -> None:
+    """捕获已移除资产的重放被复活或创建第二个资产。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+    receipt = store.register_uploaded_asset(
+        scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"raw-bytes",
+        raw_content_hash="raw-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+    store.remove_asset(scope, receipt.handle.asset_ref)
+
+    with pytest.raises(AssetRemovedError):
+        store.register_uploaded_asset(
+            scope,
+            _document_metadata(),
+            "upload-1",
+            raw_content_object=b"raw-bytes",
+            raw_content_hash="raw-hash",
+            raw_producer="upload",
+            raw_producer_version="1",
+        )
+
+    assert store.list_workspace_assets(scope) == []
+
+
+def test_upload_rejects_mutable_or_non_bytes_raw_content() -> None:
+    """捕获可变内容引用或非 bytes 对象进入上传冻结路径。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+
+    for bad_content in (bytearray(b"mutable"), "text", 42):
+        with pytest.raises(TypeError):
+            store.register_uploaded_asset(
+                scope,
+                _document_metadata(),
+                "upload-1",
+                raw_content_object=bad_content,
+                raw_content_hash="raw-hash",
+                raw_producer="upload",
+                raw_producer_version="1",
+            )
+
+    assert store.list_workspace_assets(scope) == []
+
+
+def test_upload_operation_identity_is_isolated_across_workspaces() -> None:
+    """捕获相同 operation ID 与文件跨 Workspace 串味或共享幂等记录。"""
+    store = InMemoryWorkspaceAssetStore()
+    main_scope = _scope("main_workspace")
+    isolated_scope = _scope("isolation_workspace")
+
+    main = store.register_uploaded_asset(
+        main_scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"same-content",
+        raw_content_hash="same-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+    isolated = store.register_uploaded_asset(
+        isolated_scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"same-content",
+        raw_content_hash="same-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+
+    assert (main.created, isolated.created) == (True, True)
+    assert main.handle.asset_ref != isolated.handle.asset_ref
+    assert main.handle.asset.asset_id != isolated.handle.asset.asset_id
+    assert len(store.list_workspace_assets(main_scope)) == 1
+    assert len(store.list_workspace_assets(isolated_scope)) == 1
+
+
+def test_close_and_clear_counts_upload_idempotency_records_and_rejects_new_uploads() -> None:
+    """捕获上传幂等记录在关闭清理后残留，或关闭后的上传被静默接纳。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+    store.register_uploaded_asset(
+        scope,
+        _document_metadata(),
+        "upload-1",
+        raw_content_object=b"raw-bytes",
+        raw_content_hash="raw-hash",
+        raw_producer="upload",
+        raw_producer_version="1",
+    )
+    store.create_asset(scope, _document_metadata(), "create-1")
+
+    summary = store.close_and_clear()
+
+    assert summary.idempotency_records_cleared == 2
+    with pytest.raises(AssetOperationConflictError) as error:
+        store.register_uploaded_asset(
+            scope,
+            _document_metadata(),
+            "upload-2",
+            raw_content_object=b"raw-bytes",
+            raw_content_hash="raw-hash",
+            raw_producer="upload",
+            raw_producer_version="1",
+        )
+    assert error.value.details == {"reason": "store_closed"}

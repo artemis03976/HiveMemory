@@ -35,8 +35,8 @@ from hivememory.system.application.memory_service import (
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
@@ -104,9 +104,11 @@ def mock_global_bus():
         elif route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
             return True
         elif route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
+
             async def _stream():
                 yield {"event": "token", "data": {"content": "hi"}}
                 yield {"event": "done", "data": chat_result.model_dump()}
+
             return _stream()
         return None
 
@@ -199,9 +201,7 @@ class TestMemoryApplicationService:
         service,
         mock_global_bus,
     ):
-        mock_global_bus.request.side_effect = RuntimeError(
-            "Memory lifecycle engine is unavailable"
-        )
+        mock_global_bus.request.side_effect = RuntimeError("Memory lifecycle engine is unavailable")
 
         with pytest.raises(MemoryLifecycleUnavailableError):
             await service.record_feedback(
@@ -210,5 +210,3 @@ class TestMemoryApplicationService:
                 positive=True,
                 source="ui.memory_ref",
             )
-
-

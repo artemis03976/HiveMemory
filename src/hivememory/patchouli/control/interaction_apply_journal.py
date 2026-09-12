@@ -12,13 +12,13 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from enum import StrEnum
 
-from hivememory.core.models import IdentityScope, LogicalBlock
+from hivememory.core.models import IdentityScope, LogicalBlock, WorkspaceAssetRef
 from hivememory.engines.perception.models import TopicMaterializeTask
 
 
 def compute_apply_digest(
     block: LogicalBlock,
-    asset_id_and_refs,
+    asset_refs: tuple[WorkspaceAssetRef, ...],
     model_used: str | None,
     identity_scope: IdentityScope,
 ) -> str:
@@ -42,7 +42,7 @@ def compute_apply_digest(
         "gateway_intent": block.gateway_intent,
         "model_used": model_used or "",
         "asset_refs": sorted(
-            (asset_id, asset_ref.token) for asset_id, asset_ref in asset_id_and_refs
+            (asset_ref.asset_id, asset_ref.token) for asset_ref in asset_refs
         ),
     }
     payload = json.dumps(canonical, ensure_ascii=True, separators=(",", ":"), sort_keys=True)

@@ -19,6 +19,7 @@ from typing import Any, Literal
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import (
+    AttachmentSelectionRequest,
     IdentityScope,
     require_identity_scope,
 )
@@ -87,10 +88,7 @@ async def _run_interruptible(
     except asyncio.CancelledError:
         if owner_task.cancelling() > entry_cancelling:
             raise
-        if (
-            control.outcome is ChatRunOutcome.STOP_REQUESTED
-            and control.active_task is task
-        ):
+        if control.outcome is ChatRunOutcome.STOP_REQUESTED and control.active_task is task:
             raise _ChatRunCancelled(
                 phase,
                 control.stop_reason or "user_requested",
@@ -168,8 +166,13 @@ class ChatApplicationService:
         interaction_id: str,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
+        attachments: list[AttachmentSelectionRequest] | None = None,
     ) -> NonStreamingChatResult:
-        """非流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。"""
+        """非流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
+
+        ``attachments`` 只透传用户选择；ref/READY/版本校验发生在 Patchouli
+        prepare 边界（计划 9.3 节），本层不读取 Store。
+        """
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
         self._reject_system_actor(identity.agent_id)
@@ -230,6 +233,7 @@ class ChatApplicationService:
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
+                selected_attachments=attachments or [],
             )
             _require_prepared_scope(prepared, identity_scope)
 
@@ -348,9 +352,13 @@ class ChatApplicationService:
         interaction_id: str,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
+        attachments: list[AttachmentSelectionRequest] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
+
+        ``attachments`` 只透传用户选择；ref/READY/版本校验发生在 Patchouli
+        prepare 边界（计划 9.3 节），本层不读取 Store。
 
         编排骨架: interaction_id -> prepare -> prelude events -> run_agent_stream
                   -> [finalize if not cancelled] -> done
@@ -430,6 +438,7 @@ class ChatApplicationService:
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
+                selected_attachments=attachments or [],
             )
             _require_prepared_scope(prepared, identity_scope)
 
@@ -575,6 +584,25 @@ class ChatApplicationService:
             terminal_state = "cancelled"
             yield self._cancelled_done(run)
             return
+        except WorkspaceDomainError as exc:
+            # Workspace 领域错误（如附件 not_found/not_ready/failed/removed）
+            # 携带安全文案：沿现有 Chat 错误边界原样翻译，不做二次包装。
+            logger.warning("Chat stream 领域错误: %s", exc.code)
+            run.mark_failed()
+            self._emit_chat_event(
+                RuntimeEventType.CHAT_RUN_FAILED,
+                run,
+                trace_id=trace_id,
+                agent_id=agent_id,
+                topic_id=prepared.topic_id if prepared is not None else None,
+                severity="error",
+                message=exc.code,
+            )
+            terminal_state = "failed"
+            yield {
+                "event": "error",
+                "data": {"message": str(exc), "code": exc.code},
+            }
         except Exception as e:
             logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
             run.mark_failed()

@@ -126,7 +126,7 @@ async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
         identity_scope=scope,
         target_topic_id=topic.topic_id,
         interaction_id="i1",
-        asset_id_and_refs=((asset.asset_id, ref),),
+        asset_refs=(ref,),
     )
 
     bindings = store.get(scope, topic.topic_id).bindings
@@ -153,7 +153,7 @@ async def test_commit_before_remove_preserves_binding():
         identity_scope=scope,
         target_topic_id=topic.topic_id,
         interaction_id="i1",
-        asset_id_and_refs=((asset.asset_id, ref),),
+        asset_refs=(ref,),
     )
 
     asset_store.remove_asset(scope, ref)
