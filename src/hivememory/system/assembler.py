@@ -39,6 +39,7 @@ from hivememory.system.runtime.events import (
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.system.services.attachments.parse_service import AttachmentParseService
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -269,6 +270,10 @@ class SystemAssembler:
         workspace_assets = WorkspaceAssetApplicationService(
             store=runtime.workspace_asset_store,
             parser_config=self._config.attachment_parser,
+            parse_service=AttachmentParseService(
+                store=runtime.workspace_asset_store,
+                config=self._config.attachment_parser,
+            ),
         )
 
         return _ServicesBundle(

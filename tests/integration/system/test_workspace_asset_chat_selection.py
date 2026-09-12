@@ -14,12 +14,9 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from tests.helpers.attachment_parsing import ChunkedSource
+from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.patchouli.test_prepare_attachments import _prepare_bus
 
@@ -29,11 +26,11 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
     """捕获选择坐标与上传产物漂移，或 PROCESSING 资产被提前选择。"""
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1")
-    upload_service = WorkspaceAssetApplicationService(
+    upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
     )
-    upload_service_2 = WorkspaceAssetApplicationService(
+    upload_service_2 = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
     )
@@ -95,7 +92,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     """捕获 removed 后的选择绕过 not-found/removed 语义进入本轮。"""
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1")
-    upload_service = WorkspaceAssetApplicationService(
+    upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
     )

@@ -10,7 +10,24 @@ from __future__ import annotations
 import asyncio
 import threading
 
+from hivememory.system.application.workspace_asset_service import WorkspaceAssetApplicationService
+from hivememory.system.config import AttachmentParserConfig
+from hivememory.system.runtime.workspace.ports import WorkspaceAssetCommandPort
 from hivememory.system.services.attachments import AttachmentContentBuilder
+from hivememory.system.services.attachments.parse_service import AttachmentParseService
+
+
+def make_upload_service(
+    store: WorkspaceAssetCommandPort,
+    parser_config: AttachmentParserConfig,
+    parser_factory=None,
+) -> WorkspaceAssetApplicationService:
+    """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。"""
+    return WorkspaceAssetApplicationService(
+        store=store,
+        parser_config=parser_config,
+        parse_service=AttachmentParseService(store, parser_config, parser_factory),
+    )
 
 
 class ChunkedSource:
@@ -31,7 +48,7 @@ class ChunkedSource:
 class ScriptedAttachmentParser:
     """可控解析协议替身。
 
-    ``parse`` 运行在应用服务的解析线程内：可记录收到的 RAW bytes、
+    ``parse`` 运行在解析服务的线程内：可记录收到的 RAW bytes、
     在解析开始时观察 Store 快照、用 ``gate``（threading.Event）阻塞
     模拟耗时解析，并按注入的 ``error``/``producer_override`` 制造
     受控失败或来源漂移。

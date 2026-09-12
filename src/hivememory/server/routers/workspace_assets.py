@@ -2,7 +2,7 @@
 
 路由只负责 HTTP 解析、依赖注入和错误翻译：multipart 严格校验（单文件、
 拒绝额外业务字段）、``Idempotency-Key`` 提取与身份冻结都在这里完成，
-资产注册、受限读取与哈希计算由上传应用服务承担。
+上传用例由应用服务编排，输入校验与解析交给附件服务。
 """
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
@@ -24,12 +24,14 @@ from hivememory.server.deps import (
 )
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
 from hivememory.system.application.workspace_asset_service import (
-    AttachmentTooLargeError,
-    EmptyAttachmentError,
-    InvalidAttachmentNameError,
     WorkspaceAssetApplicationService,
 )
 from hivememory.system.services.attachments import UnsupportedAttachmentFormatError
+from hivememory.system.services.attachments.errors import (
+    AttachmentTooLargeError,
+    EmptyAttachmentError,
+    InvalidAttachmentNameError,
+)
 
 router = APIRouter(tags=["workspace-assets"])
 

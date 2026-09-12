@@ -1,4 +1,4 @@
-"""附件上传与请求内解析应用服务的单元测试。
+"""真实上传应用服务、附件服务与 Store 的集成测试。
 
 被测对象：``system/application/workspace_asset_service.py`` 的校验、受限
 读取、哈希计算、上传专用 Store 命令交接与请求内解析接纳；协作者使用
@@ -14,11 +14,6 @@ from hivememory.core.models import (
     WorkspaceAssetState,
 )
 from hivememory.system.application.workspace_asset_service import (
-    UPLOAD_PRODUCER,
-    UPLOAD_PRODUCER_VERSION,
-    AttachmentTooLargeError,
-    EmptyAttachmentError,
-    InvalidAttachmentNameError,
     WorkspaceAssetApplicationService,
 )
 from hivememory.system.config import AttachmentParserConfig
@@ -26,7 +21,13 @@ from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStor
 from hivememory.system.services.attachments import (
     UnsupportedAttachmentFormatError,
 )
-from tests.helpers.attachment_parsing import ChunkedSource
+from hivememory.system.services.attachments.errors import (
+    AttachmentTooLargeError,
+    EmptyAttachmentError,
+    InvalidAttachmentNameError,
+)
+from hivememory.system.services.attachments.upload import UPLOAD_PRODUCER, UPLOAD_PRODUCER_VERSION
+from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.workspace import make_identity_scope
 
 #: 独立确认的期望值（不调用生产逻辑计算）。
@@ -39,7 +40,7 @@ def _service(
     **config_overrides,
 ) -> WorkspaceAssetApplicationService:
     config = AttachmentParserConfig(**config_overrides)
-    return WorkspaceAssetApplicationService(store=store, parser_config=config)
+    return make_upload_service(store=store, parser_config=config)
 
 
 @pytest.mark.asyncio
@@ -216,20 +217,15 @@ async def test_upload_normalizes_fullwidth_unicode_filename() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_rejects_filename_over_configured_length(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_upload_rejects_filename_over_display_length_limit() -> None:
     """捕获过长文件名未被稳定拒绝。"""
-    import hivememory.system.application.workspace_asset_service as service_module
-
-    monkeypatch.setattr(service_module, "_MAX_DISPLAY_NAME_LENGTH", 5)
     store = InMemoryWorkspaceAssetStore()
     service = _service(store)
 
     with pytest.raises(InvalidAttachmentNameError):
         await service.upload_asset(
             identity_scope=make_identity_scope(user_id="user-1"),
-            file_name="abcdefg.txt",
+            file_name="a" * 197 + ".txt",
             declared_media_type="text/plain",
             source=ChunkedSource(b"x"),
             client_operation_id="op-1",

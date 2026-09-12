@@ -56,9 +56,11 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `AgentApplicationService` | 构造 Agent Profile atom 并调用 Patchouli profile routes | Patchouli profile routes |
 | `TopicApplicationService` | 活跃话题查询、手动 settle、evict | Patchouli topic routes |
 | `SystemReadinessService` | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
-| `WorkspaceAssetApplicationService` | Chat 附件上传：校验、受限读取、请求内确定性解析到 READY/FAILED | System-owned WorkspaceAssetStore（命令端口）；链路事实见[Chat 附件链路](./attachments.md) |
+| `WorkspaceAssetApplicationService` | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义 | System-owned WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门；链路事实见[Chat 附件链路](./attachments.md) |
 
 这些服务的“拥有”只指顶层用例入口，不改变表中后端子系统的状态所有权。例如 `MemoryTaskApplicationService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。
+
+附件上传同样遵守这一边界：应用层只有 `upload_asset()` 用例入口，文件名规则、受限读取和 SHA-256 计算由附件接收函数实现，解析接纳、来源校验和失败/取消收尾由 `AttachmentParseService` 实现。应用层决定串行门覆盖整个请求，并保留 Store 返回的 `created` 标记；它不实现解析算法，也不维护另一份资产状态。完整职责与错误语义统一维护在[Chat 附件链路](./attachments.md)。
 
 ## 3. 主动 chat：唯一编排者
 
@@ -164,4 +166,4 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 - `tests/unit/system/application/test_agent_service.py`
 - `tests/unit/system/application/test_topic_service.py`
 - `tests/unit/system/application/test_readiness_service.py`
-- `tests/unit/system/application/test_workspace_asset_service.py`、`test_workspace_asset_parsing.py`（附件上传与请求内解析）
+- `tests/integration/system/application/test_workspace_asset_service.py`、`test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）

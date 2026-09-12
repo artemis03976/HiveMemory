@@ -1,4 +1,4 @@
-"""Chat 附件领域服务：固定格式分派、确定性 parser 与共享结果模型。"""
+"""Chat 附件服务：上传接收、解析交接、确定性 parser 与共享结果模型。"""
 
 from .docx_parser import DocxAttachmentParser
 from .errors import (
@@ -27,6 +27,7 @@ from .models import (
     ParsedAttachmentContent,
     canonical_content_bytes,
 )
+from .parse_service import AttachmentParseService
 from .parser import AttachmentParser, resolve_parser
 from .text_parser import TextAttachmentParser
 
@@ -45,6 +46,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "AttachmentContentBuilder",
     "AttachmentParseError",
+    "AttachmentParseService",
     "AttachmentParser",
     "AttachmentFormat",
     "DocxAttachmentParser",

@@ -15,11 +15,9 @@ from fastapi.testclient import TestClient
 from hivememory.core.models import WorkspaceAssetRef
 from hivememory.server import deps
 from hivememory.server.routers.workspace_assets import router
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from tests.helpers.attachment_parsing import make_upload_service
 from tests.helpers.workspace import make_identity_scope
 
 USER_HEADERS = {"x-user-id": "user-1"}
@@ -83,7 +81,7 @@ def _make_docx(body_xml: str) -> bytes:
 def upload_stack():
     """构造真实 router + 应用服务 + Store 的测试应用。"""
     store = InMemoryWorkspaceAssetStore()
-    service = WorkspaceAssetApplicationService(store=store, parser_config=AttachmentParserConfig())
+    service = make_upload_service(store=store, parser_config=AttachmentParserConfig())
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_workspace_asset_service] = lambda: service
@@ -312,7 +310,7 @@ def test_unsupported_format_returns_415_with_stable_hint(upload_stack) -> None:
 def test_oversized_file_returns_413(upload_stack) -> None:
     """捕获超限文件未被稳定拒绝。"""
     store = InMemoryWorkspaceAssetStore()
-    service = WorkspaceAssetApplicationService(
+    service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(max_raw_bytes=8),
     )

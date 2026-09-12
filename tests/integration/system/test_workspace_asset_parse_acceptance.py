@@ -10,17 +10,15 @@ import threading
 
 import pytest
 
-from hivememory.core.errors import AssetRemovedError
-from hivememory.core.models import WorkspaceAssetState
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
+from hivememory.core.errors import AssetRemovedError, StaleAssetResultError
+from hivememory.core.models import AssetRepresentationKind, AssetSafeError, WorkspaceAssetState
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import CONTENT_UNREADABLE, AttachmentParseError
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
     ScriptedAttachmentParser,
+    make_upload_service,
     scripted_factory,
     wait_until_condition,
 )
@@ -46,8 +44,8 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1")
     gate = threading.Event()
-    parser = ScriptedAttachmentParser(error=parse_error)
-    service = WorkspaceAssetApplicationService(
+    parser = ScriptedAttachmentParser(error=parse_error, gate=gate)
+    service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
         parser_factory=scripted_factory(parser),
@@ -73,9 +71,52 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
 
     assert store.list_workspace_assets(scope) == []
     # 资产记录保持 REMOVED，未因晚到结果复活。
-    gate_is_set = gate.is_set()
-    assert gate_is_set
     await wait_until_condition(lambda: parser.finished.is_set())
+
+
+@pytest.mark.asyncio
+async def test_late_parse_failure_preserves_winner_and_reports_stale_result() -> None:
+    """其他提交已决定终态时，晚到失败应返回冲突，不能回退到上传旧快照。"""
+    store = InMemoryWorkspaceAssetStore()
+    scope = make_identity_scope(user_id="user-1")
+    gate = threading.Event()
+    parser = ScriptedAttachmentParser(error=RuntimeError("late failure"), gate=gate)
+    service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+        parser_factory=scripted_factory(parser),
+    )
+    task = asyncio.create_task(
+        service.upload_asset(
+            identity_scope=scope,
+            file_name="raced.txt",
+            declared_media_type="text/plain",
+            source=ChunkedSource(b"raced"),
+            client_operation_id="op-race",
+        )
+    )
+    try:
+        await wait_until_condition(parser.started.is_set)
+        handle = store.list_workspace_assets(scope)[0]
+        target = next(
+            item
+            for item in handle.asset.representations
+            if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
+        )
+        winner = store.fail_representation(
+            scope,
+            handle.asset_ref,
+            target.representation_id,
+            target.parse_operation_id,
+            safe_error=AssetSafeError(code="workspace.asset.failed", message="first failure"),
+        )
+        gate.set()
+        with pytest.raises(StaleAssetResultError):
+            await task
+        assert store.list_workspace_assets(scope)[0].asset == winner
+    finally:
+        gate.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 def _current_ref(store: InMemoryWorkspaceAssetStore, scope):

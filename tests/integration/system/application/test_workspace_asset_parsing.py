@@ -1,4 +1,4 @@
-"""请求内解析交接的单元验收（计划 15.5 节）。
+"""上传用例、解析服务与真实 Store 的请求内解析集成验收。
 
 被测边界：真实 ``InMemoryWorkspaceAssetStore`` + 上传应用服务 + 可控
 解析替身。覆盖状态接纳、结果提交、失败收尾、取消安全收尾、同 key
@@ -17,7 +17,6 @@ from hivememory.core.models import (
     WorkspaceAssetState,
 )
 from hivememory.system.application.workspace_asset_service import (
-    ASSET_FAILED_CODE,
     WorkspaceAssetApplicationService,
 )
 from hivememory.system.config import AttachmentParserConfig
@@ -26,9 +25,11 @@ from hivememory.system.services.attachments import (
     CONTENT_UNREADABLE,
     AttachmentParseError,
 )
+from hivememory.system.services.attachments.parse_service import ASSET_FAILED_CODE
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
     ScriptedAttachmentParser,
+    make_upload_service,
     scripted_factory,
     wait_until_condition,
 )
@@ -41,7 +42,7 @@ def _service(
     **config_overrides,
 ) -> WorkspaceAssetApplicationService:
     config = AttachmentParserConfig(**config_overrides)
-    return WorkspaceAssetApplicationService(
+    return make_upload_service(
         store=store,
         parser_config=config,
         parser_factory=parser_factory,

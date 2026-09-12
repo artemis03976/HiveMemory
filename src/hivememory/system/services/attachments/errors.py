@@ -1,4 +1,4 @@
-"""附件解析的内部受控失败类型。
+"""附件上传与解析的受控失败类型。
 
 解析器只返回内容或受控失败；失败类别是供日志、RuntimeEvent 与前端文案
 选择的内部分类，不作为客户端机器分支的稳定错误码（计划 7.7 节）。
@@ -21,6 +21,26 @@ EXECUTION_FAILURE = "execution_failure"
 _INTERNAL_CATEGORIES = frozenset(
     {CONTENT_UNREADABLE, RESOURCE_LIMIT, EXECUTION_FAILURE},
 )
+
+
+class AttachmentUploadError(Exception):
+    """注册前的上传拒绝；message 是供 HTTP 边界展示的安全文案。"""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class EmptyAttachmentError(AttachmentUploadError):
+    """上传了 0 字节的空文件。"""
+
+
+class InvalidAttachmentNameError(AttachmentUploadError):
+    """文件名规范化后为空或超过展示长度上限。"""
+
+
+class AttachmentTooLargeError(AttachmentUploadError):
+    """实际读取字节数超过 RAW 输入硬上限。"""
 
 
 class AttachmentParseError(Exception):
@@ -55,4 +75,8 @@ __all__ = [
     "EXECUTION_FAILURE",
     "RESOURCE_LIMIT",
     "AttachmentParseError",
+    "AttachmentUploadError",
+    "AttachmentTooLargeError",
+    "EmptyAttachmentError",
+    "InvalidAttachmentNameError",
 ]
