@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.products import RuntimeProducts
@@ -33,7 +34,7 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
 
 
@@ -74,6 +75,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     runtime = AliceRuntime(
         alice_config=config.alice,
         memory_compiler_config=config.memory_compiler,
+        atom_cache=KoakumaAtomCache(),
     )
     frame_factory = FrameFactory()
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
@@ -116,7 +118,10 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 
     await service.run_agent(context)
 
-    cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
+    cached = runtime._koakuma.atom_cache.get_atom_by_alias(
+        "mem_alias",
+        workspace_identity=make_workspace_identity(owner_user_id="u1"),
+    )
     assert cached is memory
     runtime._agent_runtime.run_frame.assert_awaited_once()
 
@@ -194,7 +199,10 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 
     events = [event async for event in service.run_agent_stream(context)]
 
-    cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
+    cached = runtime._koakuma.atom_cache.get_atom_by_alias(
+        "mem_alias",
+        workspace_identity=make_workspace_identity(owner_user_id="u1"),
+    )
     assert cached is memory
     assert [event["event"] for event in events] == ["done"]
     assert events[0]["data"]["status"] == AgentRunStatus.COMPLETED.value

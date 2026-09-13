@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
+from hivememory.agent_runtime.aliases import AtomCachePort, RuntimeAliasResolver
 from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
@@ -26,11 +26,17 @@ class AliceRuntime:
         alice_config: AliceConfig,
         memory_compiler_config: MemoryCompilerConfig,
         model_registry: ModelRegistry | None = None,
+        *,
+        atom_cache: AtomCachePort,
     ) -> None:
+        if not isinstance(atom_cache, AtomCachePort):
+            raise TypeError("atom_cache 必须实现 AtomCachePort")
+        # atom cache 由 WorkspaceRuntime 创建并持有所有权；Alice 只经窄化
+        # port 注入，不再自行实例化（见 v0.6.2 cache 迁移计划 §6.1）。
+        self._atom_cache = atom_cache
         self._local_bus = AliceBus()
         self._profile_resolver = AgentProfileResolver(local_bus=self._local_bus)
         self._pending_runtime = PendingAtomRuntime()
-        self._atom_cache = KoakumaAtomCache()
         self._alias_resolver = RuntimeAliasResolver(
             pending_runtime=self._pending_runtime,
             atom_cache=self._atom_cache,
@@ -72,8 +78,8 @@ class AliceRuntime:
         return self._profile_resolver
 
     @property
-    def atom_cache(self) -> KoakumaAtomCache:
-        """供 AgentRunService 预热本次 run 的检索别名。"""
+    def atom_cache(self) -> AtomCachePort:
+        """供 AgentRunService 预热本次 run 的检索别名（读写需携带 Workspace）。"""
         return self._atom_cache
 
     async def on_pending_atom_settled(
@@ -124,7 +130,12 @@ class AliceRuntime:
         if not canonical_alias:
             return
 
-        self._atom_cache.invalidate_alias(canonical_alias)
+        # 失效与回填都使用 PendingAtom 原始 Workspace 分区，不写入当前
+        # 调用方或默认 Workspace。
+        self._atom_cache.invalidate_alias(
+            canonical_alias,
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
         try:
             retrieval_response = await self._local_bus.request(
@@ -149,7 +160,10 @@ class AliceRuntime:
             )
             return
 
-        self._atom_cache.ingest_atom(memory)
+        self._atom_cache.ingest_atom(
+            memory,
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
     def health(self) -> dict[str, Any]:
         return {

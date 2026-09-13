@@ -38,8 +38,10 @@ from hivememory.core.mtp import (
 )
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
+
+MAIN = make_workspace_identity()
 
 # ========== Helpers ==========
 
@@ -348,8 +350,8 @@ class TestSearchAliasRegistration:
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="api spec" ⟫')
 
-        assert koakuma.atom_cache.has_alias("fact_api_spec")
-        atom = koakuma.atom_cache.get_atom_by_alias("fact_api_spec")
+        assert koakuma.atom_cache.has_alias("fact_api_spec", workspace_identity=MAIN)
+        atom = koakuma.atom_cache.get_atom_by_alias("fact_api_spec", workspace_identity=MAIN)
         assert atom is not None
         assert str(atom.id) == str(mem.id)
 
@@ -362,8 +364,8 @@ class TestSearchAliasRegistration:
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
-        assert koakuma.atom_cache.has_alias("fact_a")
-        assert koakuma.atom_cache.has_alias("fact_b")
+        assert koakuma.atom_cache.has_alias("fact_a", workspace_identity=MAIN)
+        assert koakuma.atom_cache.has_alias("fact_b", workspace_identity=MAIN)
 
     def test_registered_alias_resolvable_by_read(self, koakuma):
         """SEARCH 注册的 alias 可被 READ 解析"""

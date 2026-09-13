@@ -217,6 +217,9 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             event_publisher=runtime.event_publisher.scoped(subsystem="alice"),
             model_registry=registries.model_registry,
+            # KoakumaAtomCache 由 WorkspaceRuntime 创建并持有；Alice 只接收
+            # Workspace 分区的窄化 cache port，不再自行实例化。
+            atom_cache=runtime.workspace_runtime.atom_cache_port,
         )
 
         return _SubsystemBundle(gateway=gateway, patchouli=patchouli, alice=alice)

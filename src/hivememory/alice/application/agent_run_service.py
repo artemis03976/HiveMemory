@@ -15,7 +15,7 @@ from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import Any
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
+from hivememory.agent_runtime.aliases import AtomCachePort
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -35,6 +35,7 @@ from hivememory.core.models import (
     AgentProfile,
     MemoryAtom,
     IdentityScope,
+    WorkspaceIdentity,
 )
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -66,7 +67,7 @@ class AgentRunService:
         call_coordinator: CallCoordinator,
         frame_factory: FrameFactory,
         prompt_assembler: AgentPromptAssembler,
-        atom_cache: KoakumaAtomCache,
+        atom_cache: AtomCachePort,
         stream_adapter: AgentRunStreamAdapter,
         agent_run_events: AgentRunEventEmitter,
     ) -> None:
@@ -92,7 +93,10 @@ class AgentRunService:
         run_events.started()
 
         try:
-            self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
+            self._register_preretrieval_aliases(
+                agent_run_context.retrieval_result.memories,
+                workspace_identity=agent_run_context.identity_scope.workspace_identity,
+            )
             messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
             frame = self._create_root_frame(
                 messages=messages,
@@ -140,7 +144,10 @@ class AgentRunService:
         executor_stream: AsyncGenerator[dict[str, Any], None] | None = None
 
         try:
-            self._register_preretrieval_aliases(agent_run_context.retrieval_result.memories)
+            self._register_preretrieval_aliases(
+                agent_run_context.retrieval_result.memories,
+                workspace_identity=agent_run_context.identity_scope.workspace_identity,
+            )
             messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
             agent_stream = self._stream_adapter.create(session)
             frame = self._create_root_frame(
@@ -212,8 +219,17 @@ class AgentRunService:
                 except Exception:
                     logger.warning("关闭 Agent executor stream 失败", exc_info=True)
 
-    def _register_preretrieval_aliases(self, memories: list[MemoryAtom]) -> None:
-        self._atom_cache.ingest_atoms(memories)
+    def _register_preretrieval_aliases(
+        self,
+        memories: list[MemoryAtom],
+        *,
+        workspace_identity: WorkspaceIdentity,
+    ) -> None:
+        """把预检索记忆预热到调用方 Workspace 分区的 L1 cache。"""
+        self._atom_cache.ingest_atoms(
+            memories,
+            workspace_identity=workspace_identity,
+        )
         if memories:
             logger.debug("预检索记忆缓存完成: %s 条记忆已缓存到 Koakuma", len(memories))
 

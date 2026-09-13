@@ -4,6 +4,7 @@ import ast
 import inspect
 from pathlib import Path
 
+from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
@@ -80,7 +81,11 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
 
 def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
     config = HiveMemoryConfig()
-    runtime = AliceRuntime(config.alice, config.memory_compiler)
+    runtime = AliceRuntime(
+        config.alice,
+        config.memory_compiler,
+        atom_cache=KoakumaAtomCache(),
+    )
 
     assert isinstance(runtime.profile_resolver, AgentProfileResolver)
 

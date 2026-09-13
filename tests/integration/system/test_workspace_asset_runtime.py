@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -14,6 +15,10 @@ from hivememory.core.models import (
     ActorIdentity,
     AssetRepresentationKind,
     IdentityScope,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
     WorkspaceAssetMetadata,
     WorkspaceIdentity,
 )
@@ -36,6 +41,8 @@ from hivememory.system.runtime.workspace import (
     WorkspaceRuntime,
 )
 from hivememory.system.system import HiveMemorySystem
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_workspace_identity
 
 
 class _RecordingWorkspaceRuntime(WorkspaceRuntime):
@@ -281,6 +288,36 @@ def test_assemble_wires_single_workspace_runtime_and_store_across_consumers() ->
     assert system._patchouli.runtime._workspace_asset_reader is store
     assert system._workspace_asset_service._store is store
     assert system._workspace_asset_service._parse_service._store is store
+
+
+def test_assemble_injects_aggregate_atom_cache_into_alice() -> None:
+    """组合根对象图：Alice 消费的 atom cache 即 WorkspaceRuntime 持有的那一份。"""
+    system = SystemAssembler(
+        HiveMemoryConfig(runtime_events={"enabled": False})
+    ).assemble()
+    atom = MemoryAtom(
+        id=uuid4(),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
+        index=IndexLayer(
+            title="Wired Memory",
+            summary="Wired summary",
+            memory_type=MemoryType.FACT,
+            alias="fact_wired",
+        ),
+        payload=PayloadLayer(content="wired"),
+    )
+
+    # 经聚合 port 写入，Alice runtime 侧的注入引用必须读到同一条目。
+    system._workspace_runtime.atom_cache_port.ingest_atom(
+        atom,
+        workspace_identity=make_workspace_identity(),
+    )
+    cached = system._alice.runtime.atom_cache.get_atom_by_alias(
+        "fact_wired",
+        workspace_identity=make_workspace_identity(),
+    )
+
+    assert cached is atom
 
 
 def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:

@@ -34,8 +34,10 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
+
+MAIN = make_workspace_identity()
 
 # ========== Helpers ==========
 
@@ -212,7 +214,7 @@ class TestRunUserToolPath:
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
         mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
-        koakuma.atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_l1 | ⟫')
 
@@ -248,7 +250,7 @@ class TestRunUserToolPath:
     def test_non_code_snippet_rejected(self, koakuma):
         """类型不是 CODE_SNIPPET 时拒绝执行"""
         fact_mem = _make_fact_memory()
-        koakuma.atom_cache.ingest_atom(fact_mem)
+        koakuma.atom_cache.ingest_atom(fact_mem, workspace_identity=MAIN)
 
         result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
 
@@ -311,7 +313,7 @@ class TestRunUserToolPath:
     def test_cache_hit_after_ingest(self, koakuma):
         """缓存命中后直接执行，不查 Qdrant"""
         mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
-        koakuma.atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cached_ingest | ⟫')
 
@@ -333,7 +335,7 @@ class TestRunUserToolPath:
             code="print('redirected tool output')",
             alias="tool_canonical",
         )
-        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
         koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
         koakuma.pending_runtime.settle(
             PendingAtomSettlement(
@@ -440,7 +442,7 @@ class TestRunUserToolPath:
             code="print('redirected tool output')",
             alias="tool_canonical",
         )
-        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
         koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
         koakuma.pending_runtime.settle(
             PendingAtomSettlement(
@@ -493,7 +495,7 @@ class TestRunUserToolPath:
 
     def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
         mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
-        koakuma.atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cite_fail | ⟫')

@@ -8,10 +8,16 @@ from hivememory.core.models import (
     ActorIdentity,
     AssetRepresentationKind,
     IdentityScope,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
     WorkspaceAssetMetadata,
     WorkspaceIdentity,
 )
 from hivememory.system.runtime.workspace import WorkspaceRuntime
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_workspace_identity
 
 
 def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
@@ -78,3 +84,51 @@ def test_each_aggregate_instance_owns_an_independent_store():
     assert first.asset_store.list_workspace_assets(scope)[0].asset.asset_id == (
         first_handle.asset.asset_id
     )
+
+
+def _atom(alias: str) -> MemoryAtom:
+    return MemoryAtom(
+        id=uuid4(),
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
+        index=IndexLayer(
+            title="Cached Memory",
+            summary="Cached summary",
+            memory_type=MemoryType.FACT,
+            alias=alias,
+        ),
+        payload=PayloadLayer(content="cached"),
+    )
+
+
+def test_shutdown_clears_derived_atom_cache_and_keeps_asset_store():
+    """shutdown 清空派生 atom cache；AssetStore 不受影响；重复调用幂等。"""
+    workspace_runtime = WorkspaceRuntime()
+    scope = _scope()
+    handle = _ready_asset(workspace_runtime, scope)
+    atom_cache_port = workspace_runtime.atom_cache_port
+    atom = _atom("fact_shutdown")
+    atom_cache_port.ingest_atom(atom, workspace_identity=make_workspace_identity())
+
+    workspace_runtime.shutdown()
+
+    assert atom_cache_port.get_atom_by_alias(
+        "fact_shutdown",
+        workspace_identity=make_workspace_identity(),
+    ) is None
+    assert atom_cache_port.get_atom_by_uuid(str(atom.id)) is None
+    # shutdown 只针对派生 cache；AssetStore 保持打开且资产仍可读。
+    assert workspace_runtime.asset_store.is_closed is False
+    resolved = workspace_runtime.asset_store.resolve_asset(scope, handle.asset_ref)
+    assert resolved.asset_id == handle.asset.asset_id
+
+    # 重复 shutdown 幂等：标志已置位后不再重复清理（即使期间出现新写入）。
+    post_shutdown = _atom("fact_after_shutdown")
+    atom_cache_port.ingest_atom(
+        post_shutdown,
+        workspace_identity=make_workspace_identity(),
+    )
+    workspace_runtime.shutdown()
+    assert atom_cache_port.get_atom_by_alias(
+        "fact_after_shutdown",
+        workspace_identity=make_workspace_identity(),
+    ) is post_shutdown

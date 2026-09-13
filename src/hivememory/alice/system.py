@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from hivememory.agent_runtime.aliases import AtomCachePort
 from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
@@ -44,6 +45,8 @@ class AliceSystem(SubsystemProtocol):
         global_bus: GlobalSystemBus | None = None,
         event_publisher: RuntimeEventPublisher | None = None,
         model_registry: ModelRegistry | None = None,
+        *,
+        atom_cache: AtomCachePort,
     ) -> None:
         self._config = config
         publisher = event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
@@ -52,6 +55,7 @@ class AliceSystem(SubsystemProtocol):
             alice_config=config.alice,
             memory_compiler_config=config.memory_compiler,
             model_registry=model_registry,
+            atom_cache=atom_cache,
         )
 
         frame_factory = FrameFactory()

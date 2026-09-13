@@ -16,7 +16,7 @@ from hivememory.core.models import (
     UpdateFocus,
 )
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
 
 from .conftest import (
@@ -24,6 +24,8 @@ from .conftest import (
     make_mock_bus,
     normalize_worker_agent_mtp_output,
 )
+
+MAIN = make_workspace_identity()
 
 
 @pytest.fixture
@@ -77,7 +79,7 @@ class TestKoakumaUpdateE2E:
         )
 
         # 注册 alias 到缓存
-        koakuma.atom_cache.ingest_atom(existing_memory)
+        koakuma.atom_cache.ingest_atom(existing_memory, workspace_identity=MAIN)
         return koakuma
 
     @pytest.mark.asyncio
@@ -148,7 +150,8 @@ class TestKoakumaUpdateValidation:
                     alias="fact_api_port",
                 ),
                 payload=PayloadLayer(content="port = 8080"),
-            )
+            ),
+            workspace_identity=MAIN,
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
         result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
@@ -211,7 +214,7 @@ class TestKoakumaUpdateValidation:
                 frame_id="frame_main_update",
             ),
         )
-        koakuma.atom_cache.ingest_atom(existing_memory)
+        koakuma.atom_cache.ingest_atom(existing_memory, workspace_identity=MAIN)
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
         result = await _intercept_and_execute(koakuma, agent_text, context=context)

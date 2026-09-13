@@ -17,8 +17,11 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.unit.agent_runtime.mtp.conftest import make_mock_bus
+
+MAIN = make_workspace_identity()
+ISOLATED = make_workspace_identity(workspace_id="isolation_workspace")
 
 
 def _context(*, workspace_id: str = "main_workspace") -> MTPExecutionContext:
@@ -99,7 +102,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         runtime_scope=make_runtime_scope(),
     )
     canonical = _make_memory(alias="fact_canonical", content="canonical content")
-    atom_cache.ingest_atom(canonical)
+    atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
@@ -152,7 +155,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
 
     assert result.kind == "redirect"
     assert result.atom is canonical
-    assert atom_cache.get_atom_by_alias("fact_canonical") is canonical
+    assert atom_cache.get_atom_by_alias("fact_canonical", workspace_identity=MAIN) is canonical
 
 
 @pytest.mark.asyncio
@@ -187,7 +190,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
 async def test_resolve_l1_atom_hit(resolver_parts):
     resolver, _pending_runtime, atom_cache, bus = resolver_parts
     atom = _make_memory(alias="fact_l1", content="from l1")
-    atom_cache.ingest_atom(atom)
+    atom_cache.ingest_atom(atom, workspace_identity=MAIN)
 
     result = await resolver.resolve("fact_l1", context=_context())
 
@@ -197,16 +200,42 @@ async def test_resolve_l1_atom_hit(resolver_parts):
 
 
 @pytest.mark.asyncio
-async def test_l1_hit_revalidates_workspace_without_partitioning_cache(resolver_parts):
-    """捕获共享 alias cache 命中被误作 Workspace 授权结果的缺陷。
-
-    WRT-0 标记待改行为：本测试中"L1 命中后必须重验 ownership/actor policy"
-    是稳定契约，予以保留；但末尾对 ``get_atom_by_alias`` 全局索引覆盖的断言
-    固化的是迁移前语义，WRT-2 引入 ``(WorkspaceIdentity, alias)`` 分区索引后
-    将随索引 key 携带 Workspace 坐标改写。
-    参考：docs/plans/v0.6.2-workspace-runtime-cache-migration.md §5.2 / §7
-    """
+async def test_same_alias_partitions_per_workspace_with_scoped_l2_backfill(resolver_parts):
+    """同 alias 在不同 Workspace 各自命中自己的 atom，L2 回填只写调用方分区。"""
     resolver, _pending_runtime, atom_cache, bus = resolver_parts
+    isolated_atom = _make_memory(
+        alias="fact_shared",
+        content="isolated",
+        workspace_id="isolation_workspace",
+    )
+    authorized = _make_memory(
+        alias="fact_shared",
+        content="main",
+        workspace_id="main_workspace",
+    )
+    atom_cache.ingest_atom(isolated_atom, workspace_identity=ISOLATED)
+    bus._mock_storage.get_memory_by_alias.return_value = authorized
+
+    result = await resolver.resolve("fact_shared", context=_context())
+
+    assert result.kind == "atom"
+    # 隔离 Workspace 的缓存条目不会泄露给 main 调用方；L1 未命中走 L2 授权副本。
+    assert result.atom is authorized
+    assert atom_cache.get_atom_by_alias("fact_shared", workspace_identity=MAIN) is authorized
+    assert (
+        atom_cache.get_atom_by_alias("fact_shared", workspace_identity=ISOLATED)
+        is isolated_atom
+    )
+    # 回填不污染其他分区，也从未为隔离分区触发过 L2 写入。
+    third = make_workspace_identity(workspace_id="third_workspace")
+    assert atom_cache.has_alias("fact_shared", workspace_identity=third) is False
+
+
+@pytest.mark.asyncio
+async def test_l1_hit_still_revalidates_ownership_and_actor_policy(resolver_parts):
+    """同分区内命中仍重验 Workspace ownership 与 actor policy，越权条目不返回。"""
+    resolver, _pending_runtime, atom_cache, bus = resolver_parts
+    # main 分区内存在 meta 归属 isolation_workspace 的越权缓存条目。
     cached = _make_memory(
         alias="fact_shared",
         content="isolated",
@@ -217,14 +246,14 @@ async def test_l1_hit_revalidates_workspace_without_partitioning_cache(resolver_
         content="main",
         workspace_id="main_workspace",
     )
-    atom_cache.ingest_atom(cached)
+    atom_cache.ingest_atom(cached, workspace_identity=MAIN)
     bus._mock_storage.get_memory_by_alias.return_value = authorized
 
     result = await resolver.resolve("fact_shared", context=_context())
 
     assert result.kind == "atom"
     assert result.atom is authorized
-    assert atom_cache.get_atom_by_alias("fact_shared") is authorized
+    assert atom_cache.get_atom_by_alias("fact_shared", workspace_identity=MAIN) is authorized
 
 
 @pytest.mark.asyncio
@@ -238,7 +267,7 @@ async def test_resolve_l2_hit_promotes_to_l1(resolver_parts):
 
     assert result.kind == "atom"
     assert result.atom is atom
-    assert atom_cache.get_atom_by_alias("fact_l2") is atom
+    assert atom_cache.get_atom_by_alias("fact_l2", workspace_identity=MAIN) is atom
 
     bus._mock_storage.get_memory_by_alias.reset_mock()
     second = await resolver.resolve("fact_l2", context=context)
@@ -366,7 +395,7 @@ async def test_resolve_rejects_settled_redirect_from_other_workspace_without_can
         runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
     )
     canonical = _make_memory(alias="fact_canonical", content="canonical content")
-    atom_cache.ingest_atom(canonical)
+    atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
