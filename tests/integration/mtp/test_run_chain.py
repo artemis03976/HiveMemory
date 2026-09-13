@@ -380,6 +380,93 @@ class TestRunUserToolPath:
         assert "reclaimed" in result.formatted_response
         assert "Alias Not Found" in result.formatted_response
 
+    def test_run_in_flight_pending_same_scope_returns_pending_not_runnable(self, koakuma):
+        """同 scope 注册的 in-flight pending 仍按 pending 不可执行语义拒绝。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=make_runtime_scope().identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(),
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "[Invalid Argument]" in result.formatted_response
+        assert "是运行时 pending atom" in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
+    def test_run_pending_from_other_scope_returns_alias_not_found(self, koakuma):
+        """跨 Workspace RUN 他人 pending alias：报 Alias Not Found，不泄露 pending 状态。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+        )
+
+        result = _execute_mtp(
+            koakuma,
+            f'⟪ RUN | {pending.pending_alias} | ⟫',
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            ),
+        )
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "[Alias Not Found]" in result.formatted_response
+        assert "是运行时 pending atom" not in result.formatted_response
+        assert "[Invalid Argument]" not in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
+    def test_run_settled_redirect_from_other_scope_does_not_execute_canonical_tool(self, koakuma):
+        """跨 Workspace RUN 已结算 redirect：不得执行 canonical 工具。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+        )
+        canonical = _make_code_memory(
+            code="print('redirected tool output')",
+            alias="tool_canonical",
+        )
+        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
+        koakuma.pending_runtime.settle(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                resolution=PendingAtomResolution.CREATED,
+                duplicate_decision=DuplicateDecision.CREATE,
+                canonical_alias="tool_canonical",
+                canonical_uuid=str(canonical.id),
+            )
+        )
+
+        result = _execute_mtp(
+            koakuma,
+            f'⟪ RUN | {pending.pending_alias} | ⟫',
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            ),
+        )
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "redirected tool output" not in result.formatted_response
+        assert "[Alias Not Found]" in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="print('traced')", alias="tool_trace")

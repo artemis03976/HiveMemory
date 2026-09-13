@@ -216,7 +216,7 @@ PendingAtom 当前没有墙钟 TTL。回收发生在成功根 run 的 `finalize_
 ## 10. 当前限制与设计张力
 
 - PendingAtomRuntime、三个索引与 settlement 视图全部在进程内；没有 durable ledger、重启恢复、事件重放或未结任务扫描。进程在 ACK 后、物化前退出时，Alice 无法恢复该意图；
-- PendingAtomRuntime 和 KoakumaAtomCache 由 AliceRuntime 全局共享。L1 atom cache 命中与 L2 冷查询已在 resolver/owner 边界重验 `IdentityScope`；L0 PendingAtom alias 命中仍未重新检查调用方 scope，缺口见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)；
+- PendingAtomRuntime 和 KoakumaAtomCache 由 AliceRuntime 全局共享。L0 pending 命中、L1 atom cache 命中与 L2 冷查询都已在 resolver/owner 边界重验调用方 `IdentityScope`；L0 命中作用域不匹配时按 alias 不存在处理，回归入口见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)；
 - 回收以成功根 run 的收尾为节拍，而非用户/session TTL。当前个人本地服务允许一个成功 run 推进另一个已结束句柄进入 EXPIRED 或删除；取消/失败 run 不推进 epoch；
 - alias 只使用 4 位十六进制随机后缀，store 写入前不检查碰撞。同名碰撞会覆盖 alias 对应对象，并可能留下不一致反查索引；
 - 中文标题通常生成 `draft_untitled_*`，可读性有限；alias 也没有进程外唯一性承诺；

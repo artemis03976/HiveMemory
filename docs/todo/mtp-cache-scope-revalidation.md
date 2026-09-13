@@ -1,6 +1,6 @@
 ---
 title: MTP 缓存命中作用域重验
-status: todo
+status: completed
 owner: alice
 scope: mtp-alias-cache-scope-revalidation
 code_paths:
@@ -12,7 +12,7 @@ related_docs:
   - docs/alice/mtp-runtime.md
   - docs/alice/pending-atom.md
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-12
 ---
 
 # MTP 缓存命中作用域重验
@@ -52,3 +52,13 @@ L1 `KoakumaAtomCache` 命中当前已经通过 `memory_is_readable()` 重验 Mem
 - 修复不引入新的缓存分区、持久化记录或跨 Store 控制组件。
 
 实现完成后，应同步更新 [MTP 契约](../contracts/mtp.md)、[MTP Runtime](../alice/mtp-runtime.md) 和 [PendingAtom](../alice/pending-atom.md) 中的已知限制描述，并从本 Todo 链接到对应的测试入口。
+
+## 完成记录（2026-09-12）
+
+修复在 `RuntimeAliasResolver._resolve_pending_hit()` 的 L0 命中边界执行 scope 重验：pending 的 `runtime_scope.identity_scope` 与当前 `MTPExecutionContext.identity_scope` 不完全一致时，直接返回 `not_found`，不继续解析 pending、redirect 或其终态，也不触发 canonical atom 查询、缓存回填或 citation。未改动 `PendingAtomRuntime`、`KoakumaAtomCache` 与 resolver 的进程级共享结构，未新增缓存分区或跨 Store 控制组件；L1/L2 既有重验与 pending 生命周期语义保持不变。
+
+回归测试入口：
+
+- resolver 链路（unit）：[`tests/unit/agent_runtime/aliases/test_resolver.py`](../../tests/unit/agent_runtime/aliases/test_resolver.py) —— 跨 Workspace / 跨 actor 的 pending、redirect、expired 越权命中按不可见处理；同 scope 的 pending、failed、redirect、discarded、expired 正常解析；
+- READ 消费者（integration）：[`tests/integration/mtp/test_read_chain.py`](../../tests/integration/mtp/test_read_chain.py) 的 `TestReadPendingScopeIsolation` —— 同 scope pending 内容正常渲染；越权 pending 与已结算 redirect 返回 Alias Not Found，不泄露内容、不触发 canonical 读取与 citation；
+- RUN 消费者（integration）：[`tests/integration/mtp/test_run_chain.py`](../../tests/integration/mtp/test_run_chain.py) —— 同 scope in-flight pending 仍报 pending 不可执行；越权 pending 与已结算 redirect 返回 Alias Not Found，不执行 canonical 工具、不产生 citation。

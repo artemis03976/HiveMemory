@@ -108,7 +108,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
-1. 修复 L0 PendingAtom alias 命中不重新校验调用方 `IdentityScope`；L1 atom cache 已有命中后重验，必须保持该边界（详见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
+1. 已完成：L0 PendingAtom alias 命中已在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不存在处理；L1 atom cache 命中后重验边界保持不变（见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
 2. 对需要 scope-sensitive 的 PendingAtom store/cache、Profile cache 和 compiled context，按 scope 隔离或在命中后由 owner/resolver 重验；共享组件不因 Workspace 自动拆分；
 3. 为 MemoryLibrary、Artifact、archive/revive 和后台恢复入口统一 scope 检查；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；

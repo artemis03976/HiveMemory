@@ -440,3 +440,92 @@ class TestReadL2Fallback:
         assert result.success
         assert "from cache" in result.response_content
         assert "from L2" in result.response_content
+
+
+# ========== Test 6: L0 Pending Scope Isolation ==========
+
+class TestReadPendingScopeIsolation:
+    """READ 对越权 pending alias 按不存在处理（L0 scope 重验）"""
+
+    def test_read_in_flight_pending_same_scope_renders_pending_content(self, koakuma):
+        """同 scope 注册的 in-flight pending 仍可通过 READ 读取。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="draft body",
+            title="Draft Note",
+            reason=None,
+            identity=make_runtime_scope().identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(),
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ READ | {pending.pending_alias} | ⟫')
+
+        assert result.success
+        assert "draft body" in result.response_content
+
+    def test_read_pending_from_other_workspace_reports_not_found(self, koakuma):
+        """跨 Workspace 调用方 READ 他人 pending alias：报 Alias Not Found，不泄露内容。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="cross workspace draft",
+            title="Secret Draft",
+            reason=None,
+            identity=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+        )
+        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
+
+        result = _execute_mtp(
+            koakuma,
+            f'⟪ READ | {pending.pending_alias} | ⟫',
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            ),
+        )
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "cross workspace draft" not in result.formatted_response
+        assert "[Alias Not Found]" in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
+    def test_read_settled_redirect_from_other_workspace_does_not_read_canonical(self, koakuma):
+        """跨 Workspace READ 已结算 redirect：不触发 canonical 读取与 citation。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending content",
+            title="Pending Note",
+            reason=None,
+            identity=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+        )
+        canonical = _make_memory(content="canonical content", alias="fact_canonical")
+        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
+        koakuma.pending_runtime.settle(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                resolution=PendingAtomResolution.CREATED,
+                duplicate_decision=DuplicateDecision.CREATE,
+                canonical_alias="fact_canonical",
+                canonical_uuid=str(canonical.id),
+            )
+        )
+
+        result = _execute_mtp(
+            koakuma,
+            f'⟪ READ | {pending.pending_alias} | ⟫',
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            ),
+        )
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "canonical content" not in result.formatted_response
+        assert "[Alias Redirected]" not in result.formatted_response
+        assert "[Alias Not Found]" in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()

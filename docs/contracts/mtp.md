@@ -216,7 +216,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - 记忆访问使用调用方 `IdentityScope`，先执行 Workspace ownership hard boundary，再执行 Workspace 内的 actor 可见性策略，不能绕过任一边界；
 - cancellation 不能被转换成普通 success。
 
-> **当前实现偏差**：L2 冷查询会携带调用方 `IdentityScope`，并由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 KoakumaAtomCache 命中也会执行同样的重验。AliceRuntime 进程级共享的 L0 PendingAtomRuntime 仍会直接返回 pending 命中，尚未比较 pending 自身 `runtime_scope.identity_scope` 与当前调用方 scope。因此 MTP 仍未完全满足所有别名路径的可见性不变量；这是需要修复的隔离缺口，而不是放宽契约的理由。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md) 和 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
+> **实现说明**：该不变量在别名解析的全部三级命中路径上执行。L2 冷查询携带调用方 `IdentityScope`，由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 KoakumaAtomCache 命中在 resolver 边界执行同样的重验；AliceRuntime 进程级共享的 L0 PendingAtomRuntime 命中也比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理，不泄露 pending 的状态、内容或 canonical 指向。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md)；修复记录与测试入口见 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
 
 ## 7. 设计矛盾检查
 

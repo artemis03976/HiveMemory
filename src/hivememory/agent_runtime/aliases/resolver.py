@@ -119,6 +119,12 @@ class RuntimeAliasResolver:
         context: MTPExecutionContext,
     ) -> ResolveResult:
         """解析 L0 pending 命中，包括已结算后的 redirect 状态。"""
+        if pending.runtime_scope.identity_scope != context.identity_scope:
+            # PendingAtomRuntime 进程级共享，alias 命中不代表当前调用方可见；
+            # 作用域不匹配时按 alias 不存在处理，不泄露状态、内容与 canonical 指向。
+            logger.debug("L0 pending hit rejected by scope: alias='%s'", alias)
+            return ResolveResult(kind="not_found", requested_alias=alias)
+
         settlement = pending.settlement
 
         if pending.status.is_in_flight:

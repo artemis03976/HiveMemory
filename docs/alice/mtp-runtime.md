@@ -191,7 +191,7 @@ Alice 配置当前分为两组：
 - 同步 syscall 执行期间不会轮询取消状态，因此 task cancellation 不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
-- RuntimeAliasResolver 的 L1 atom cache 命中已在 resolver 边界重验 `IdentityScope`，L2 冷查询也由最终资源 owner 再次校验；L0 PendingAtom alias 命中仍未重验调用方 scope，当前代码尚未完全兑现 MTP 契约中“记忆访问使用调用方 scope”的不变量，详见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)；
+- RuntimeAliasResolver 的三级命中都在 resolver/owner 边界重验调用方 scope：L1 atom cache 命中与 L2 冷查询重验 `IdentityScope` 与资源 ownership；L0 PendingAtom 命中比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理（回归入口见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)）；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
 - Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，但 frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
