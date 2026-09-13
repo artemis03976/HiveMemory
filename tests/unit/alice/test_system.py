@@ -8,13 +8,18 @@ tests/integration/alice/test_system.py。本文件保留 health 报告测试。
 import pytest
 
 from hivememory.agent_runtime.aliases import KoakumaAtomCache
+from hivememory.alice.runtime.profile_resolver import AgentProfileCache
 from hivememory.alice.system import AliceSystem
 from hivememory.system.config import HiveMemoryConfig
 
 
 @pytest.mark.asyncio
 async def test_health_reports_runtime_health():
-    system = AliceSystem(config=HiveMemoryConfig(), atom_cache=KoakumaAtomCache())
+    system = AliceSystem(
+        config=HiveMemoryConfig(),
+        atom_cache=KoakumaAtomCache(),
+        profile_cache=AgentProfileCache(),
+    )
 
     health = await system.health()
 

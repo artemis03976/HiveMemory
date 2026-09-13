@@ -10,6 +10,7 @@ import pytest
 
 from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.alice.contracts.public_routes import AliceRoutes
+from hivememory.alice.runtime.profile_resolver import AgentProfileCache
 from hivememory.alice.system import AliceSystem
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -22,6 +23,7 @@ async def test_start_registers_public_routes_and_stop_unregisters():
         config=HiveMemoryConfig(),
         global_bus=bus,
         atom_cache=KoakumaAtomCache(),
+        profile_cache=AgentProfileCache(),
     )
 
     await system.start()

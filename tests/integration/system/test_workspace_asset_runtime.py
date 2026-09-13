@@ -320,6 +320,20 @@ def test_assemble_injects_aggregate_atom_cache_into_alice() -> None:
     assert cached is atom
 
 
+def test_assemble_injects_aggregate_profile_cache_into_alice() -> None:
+    """组合根对象图：Alice profile resolver 使用的就是聚合持有的那份 cache。"""
+    system = SystemAssembler(
+        HiveMemoryConfig(runtime_events={"enabled": False})
+    ).assemble()
+
+    # AgentProfileCache 由聚合唯一创建，resolver 持有的是同一实例，
+    # 不存在第二个 profile cache。
+    assert (
+        system._alice.runtime._profile_resolver._cache
+        is system._workspace_runtime.profile_cache_port
+    )
+
+
 def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
     """捕获同名资产或 opaque ref 被错误合并、跨域读取或删除的缺陷。"""
     store = InMemoryWorkspaceAssetStore()

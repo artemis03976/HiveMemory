@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.aliases import KoakumaAtomCache
+from hivememory.alice.runtime.profile_resolver import AgentProfileCache
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.products import RuntimeProducts
@@ -76,6 +77,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         alice_config=config.alice,
         memory_compiler_config=config.memory_compiler,
         atom_cache=KoakumaAtomCache(),
+        profile_cache=AgentProfileCache(),
     )
     frame_factory = FrameFactory()
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)

@@ -8,6 +8,7 @@ import pytest
 
 from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.alice.contracts.public_routes import AliceRoutes
+from hivememory.alice.runtime.profile_resolver import AgentProfileCache
 from hivememory.alice.system import AliceSystem
 from hivememory.core.models import (
     IndexLayer,
@@ -59,6 +60,7 @@ class TestAlicePublicRoutes:
         self.config.llm = MagicMock()
         self.config.llm.worker = MagicMock()
         self.atom_cache = KoakumaAtomCache()
+        self.profile_cache = AgentProfileCache()
 
     @pytest.mark.asyncio
     async def test_start_registers_public_routes_on_global_bus(self):
@@ -66,6 +68,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
 
@@ -79,6 +82,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
         await system.stop()
@@ -93,6 +97,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         received = []
 
@@ -118,6 +123,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
 
         async def _stream(**kwargs):
@@ -145,6 +151,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=None,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
         await system.stop()
@@ -187,6 +194,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
         identity_scope = make_identity_scope()
@@ -228,6 +236,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
 
@@ -248,6 +257,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
         atom = system.runtime._pending_runtime.register_write(
@@ -286,6 +296,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
         identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
@@ -353,6 +364,7 @@ class TestAlicePublicRoutes:
             config=self.config,
             global_bus=self.global_bus,
             atom_cache=self.atom_cache,
+            profile_cache=self.profile_cache,
         )
         await system.start()
         identity = ActorIdentity(user_id="test_user", agent_id="test_agent")

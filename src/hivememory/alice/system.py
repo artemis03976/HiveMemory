@@ -15,6 +15,7 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
+from hivememory.alice.runtime.profile_resolver import ProfileCachePort
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.prompts.assembler import AgentPromptAssembler
@@ -47,6 +48,7 @@ class AliceSystem(SubsystemProtocol):
         model_registry: ModelRegistry | None = None,
         *,
         atom_cache: AtomCachePort,
+        profile_cache: ProfileCachePort,
     ) -> None:
         self._config = config
         publisher = event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
@@ -56,6 +58,7 @@ class AliceSystem(SubsystemProtocol):
             memory_compiler_config=config.memory_compiler,
             model_registry=model_registry,
             atom_cache=atom_cache,
+            profile_cache=profile_cache,
         )
 
         frame_factory = FrameFactory()

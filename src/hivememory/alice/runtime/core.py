@@ -9,7 +9,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver, ProfileCachePort
 from hivememory.core.models import IdentityScope, PendingAtomSettlement
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -28,14 +28,20 @@ class AliceRuntime:
         model_registry: ModelRegistry | None = None,
         *,
         atom_cache: AtomCachePort,
+        profile_cache: ProfileCachePort,
     ) -> None:
         if not isinstance(atom_cache, AtomCachePort):
             raise TypeError("atom_cache 必须实现 AtomCachePort")
-        # atom cache 由 WorkspaceRuntime 创建并持有所有权；Alice 只经窄化
-        # port 注入，不再自行实例化（见 v0.6.2 cache 迁移计划 §6.1）。
+        if not isinstance(profile_cache, ProfileCachePort):
+            raise TypeError("profile_cache 必须实现 ProfileCachePort")
+        # 两个派生 cache 由 WorkspaceRuntime 创建并持有所有权；Alice 只经
+        # 窄化 port 注入，不再自行实例化（见 v0.6.2 cache 迁移计划 §6.1）。
         self._atom_cache = atom_cache
         self._local_bus = AliceBus()
-        self._profile_resolver = AgentProfileResolver(local_bus=self._local_bus)
+        self._profile_resolver = AgentProfileResolver(
+            local_bus=self._local_bus,
+            profile_cache=profile_cache,
+        )
         self._pending_runtime = PendingAtomRuntime()
         self._alias_resolver = RuntimeAliasResolver(
             pending_runtime=self._pending_runtime,

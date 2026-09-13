@@ -12,7 +12,7 @@ from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
-from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.alice.runtime.profile_resolver import AgentProfileCache, AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.system.config import HiveMemoryConfig
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
@@ -85,6 +85,7 @@ def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
         config.alice,
         config.memory_compiler,
         atom_cache=KoakumaAtomCache(),
+        profile_cache=AgentProfileCache(),
     )
 
     assert isinstance(runtime.profile_resolver, AgentProfileResolver)

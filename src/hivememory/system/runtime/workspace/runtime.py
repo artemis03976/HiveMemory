@@ -7,6 +7,7 @@ import threading
 
 from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
 from hivememory.agent_runtime.aliases.ports import AtomCachePort
+from hivememory.alice.runtime.profile_resolver import AgentProfileCache, ProfileCachePort
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ class WorkspaceRuntime:
 
     职责：
     - 组合并暴露进程内唯一的 ``InMemoryWorkspaceAssetStore`` 与派生 cache
-      （当前阶段：Koakuma atom cache；Agent profile cache 随 WRT-3 接入）；
+      （Koakuma atom cache、Agent profile cache）；
     - 提供幂等的分阶段 ``shutdown()``，只清理派生 cache，不替代消费者各自
       的关闭语义。
 
@@ -31,8 +32,9 @@ class WorkspaceRuntime:
     def __init__(self) -> None:
         # WorkspaceAsset 是 System-owned working set；聚合内部只创建这一份。
         self._asset_store = InMemoryWorkspaceAssetStore()
-        # 派生 cache 由聚合创建并持有所有权；Alice 侧只经 atom_cache_port 注入。
+        # 派生 cache 由聚合创建并持有所有权；Alice 侧只经窄化 port 注入。
         self._atom_cache = KoakumaAtomCache()
+        self._profile_cache = AgentProfileCache()
         self._shutdown_lock = threading.Lock()
         self._shutdown_done = False
 
@@ -46,6 +48,11 @@ class WorkspaceRuntime:
         """供 Alice 侧消费的 atom cache 窄化端口（读写必须携带 Workspace）。"""
         return self._atom_cache
 
+    @property
+    def profile_cache_port(self) -> ProfileCachePort:
+        """供 Alice 侧消费的 profile cache 窄化端口（按授权坐标分区）。"""
+        return self._profile_cache
+
     def shutdown(self) -> None:
         """幂等清理聚合内的派生 cache；不触碰 AssetStore 的关闭语义。
 
@@ -57,11 +64,14 @@ class WorkspaceRuntime:
             if self._shutdown_done:
                 return
             cleared_atoms = self._atom_cache.size
+            cleared_profiles = self._profile_cache.size
             self._atom_cache.clear()
+            self._profile_cache.clear()
             self._shutdown_done = True
         logger.info(
-            "WorkspaceRuntime shutdown 完成：清空派生 atom cache（%s atoms）",
+            "WorkspaceRuntime shutdown 完成：清空派生 cache（%s atoms, %s profiles）",
             cleared_atoms,
+            cleared_profiles,
         )
 
 

@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from hivememory.core.models import (
     ActorIdentity,
+    AgentProfile,
     AssetRepresentationKind,
     IdentityScope,
     IndexLayer,
@@ -100,14 +101,21 @@ def _atom(alias: str) -> MemoryAtom:
     )
 
 
-def test_shutdown_clears_derived_atom_cache_and_keeps_asset_store():
-    """shutdown 清空派生 atom cache；AssetStore 不受影响；重复调用幂等。"""
+def test_shutdown_clears_derived_caches_and_keeps_asset_store():
+    """shutdown 清空派生 atom/profile cache；AssetStore 不受影响；重复调用幂等。"""
     workspace_runtime = WorkspaceRuntime()
     scope = _scope()
     handle = _ready_asset(workspace_runtime, scope)
     atom_cache_port = workspace_runtime.atom_cache_port
+    profile_cache_port = workspace_runtime.profile_cache_port
     atom = _atom("fact_shutdown")
     atom_cache_port.ingest_atom(atom, workspace_identity=make_workspace_identity())
+    profile_cache_port.store(
+        make_workspace_identity(),
+        scope.actor_identity,
+        "coder_doll",
+        AgentProfile(persona="shutdown"),
+    )
 
     workspace_runtime.shutdown()
 
@@ -116,6 +124,14 @@ def test_shutdown_clears_derived_atom_cache_and_keeps_asset_store():
         workspace_identity=make_workspace_identity(),
     ) is None
     assert atom_cache_port.get_atom_by_uuid(str(atom.id)) is None
+    assert (
+        profile_cache_port.get(
+            make_workspace_identity(),
+            scope.actor_identity,
+            "coder_doll",
+        )
+        is None
+    )
     # shutdown 只针对派生 cache；AssetStore 保持打开且资产仍可读。
     assert workspace_runtime.asset_store.is_closed is False
     resolved = workspace_runtime.asset_store.resolve_asset(scope, handle.asset_ref)
