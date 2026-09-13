@@ -198,7 +198,14 @@ async def test_resolve_l1_atom_hit(resolver_parts):
 
 @pytest.mark.asyncio
 async def test_l1_hit_revalidates_workspace_without_partitioning_cache(resolver_parts):
-    """捕获共享 alias cache 命中被误作 Workspace 授权结果的缺陷。"""
+    """捕获共享 alias cache 命中被误作 Workspace 授权结果的缺陷。
+
+    WRT-0 标记待改行为：本测试中"L1 命中后必须重验 ownership/actor policy"
+    是稳定契约，予以保留；但末尾对 ``get_atom_by_alias`` 全局索引覆盖的断言
+    固化的是迁移前语义，WRT-2 引入 ``(WorkspaceIdentity, alias)`` 分区索引后
+    将随索引 key 携带 Workspace 坐标改写。
+    参考：docs/plans/v0.6.2-workspace-runtime-cache-migration.md §5.2 / §7
+    """
     resolver, _pending_runtime, atom_cache, bus = resolver_parts
     cached = _make_memory(
         alias="fact_shared",

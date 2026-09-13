@@ -120,7 +120,14 @@ def test_alias_maps_to_cached_atom(sample_atom):
 
 
 def test_same_alias_keeps_existing_global_cache_semantics(sample_atom):
-    """捕获 Atom cache 被 IdentityScope 或 Workspace 隐式分区的缺陷。"""
+    """固定迁移前基线：alias 索引全局共享，同 alias 后写入者覆盖先写入者。
+
+    WRT-0 标记待改行为：v0.6.2 cache 迁移（WRT-2）后 alias 索引改为
+    ``(WorkspaceIdentity, alias) -> UUID``，同 alias 在不同 Workspace 各自
+    命中，本测试的全局覆盖断言将被跨 Workspace 不串扰断言替换。迁移完成
+    前勿把本测试当作稳定契约。
+    参考：docs/plans/v0.6.2-workspace-runtime-cache-migration.md §5.2 / §7
+    """
     replacement = sample_atom.model_copy(deep=True)
     replacement.id = uuid4()
     replacement.meta.workspace_identity = replacement.meta.workspace_identity.model_copy(

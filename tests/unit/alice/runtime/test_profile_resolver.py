@@ -54,7 +54,14 @@ async def test_resolve_loads_profile_from_bus_and_caches():
 
 @pytest.mark.asyncio
 async def test_same_actor_profile_cache_is_shared_across_workspaces():
-    """捕获 Profile cache 因 Workspace scope 被隐式拆分的缺陷。"""
+    """固定迁移前基线：同 Actor 同 alias 的 profile cache 跨 Workspace 共享。
+
+    WRT-0 标记待改行为：v0.6.2 cache 迁移（WRT-3）后 profile cache key 改为
+    ``(WorkspaceIdentity, ActorIdentity, alias)``，同 Actor 在不同 Workspace
+    的同名 profile 必须各自缓存、互不串扰，本测试断言将被反转替换。迁移完成
+    前勿把本测试当作稳定契约。
+    参考：docs/plans/v0.6.2-workspace-runtime-cache-migration.md §5.1 / §7
+    """
     class _ProfileBus:
         def __init__(self) -> None:
             self.load_count = 0

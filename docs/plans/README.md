@@ -22,7 +22,7 @@ last_reviewed: 2026-09-13
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
-| [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移](./v0.6.2-workspace-runtime-cache-migration.md) | Planned | 作为 v0.6.2 W0/W1 后续增量，建立单实例 WorkspaceRuntime，迁移 Agent profile cache 与 Koakuma atom cache 的持有关系和 Workspace-aware key；PendingAtomRuntime 保持 Alice 所有 |
+| [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移](./v0.6.2-workspace-runtime-cache-migration.md) | Active（WRT-0 完成） | 作为 v0.6.2 W0/W1 后续增量，建立单实例 WorkspaceRuntime，迁移 Agent profile cache 与 Koakuma atom cache 的持有关系和 Workspace-aware key；PendingAtomRuntime 保持 Alice 所有 |
 
 `v0.6.2` 的 Workspace 工作拆分为 W0/W1 两个独立交付切片。W0 已完成并归档；W1 Chat Attachments 已按 Plan 完成实施与验收，把 W0 的稳定公共契约作为硬前置，落地了上传、解析、AttachmentCompiler、Topic binding 与 Artifact promotion。历史数据批量转换也不在 W0/W1 主链路中执行，需要未来另立脚本或 Plan。
 
