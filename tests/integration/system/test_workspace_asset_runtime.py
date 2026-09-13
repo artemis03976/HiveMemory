@@ -33,8 +33,21 @@ from hivememory.system.runtime.workspace import (
     InMemoryWorkspaceAssetStore,
     WorkspaceAssetCommandPort,
     WorkspaceAssetReaderPort,
+    WorkspaceRuntime,
 )
 from hivememory.system.system import HiveMemorySystem
+
+
+class _RecordingWorkspaceRuntime(WorkspaceRuntime):
+    """记录 shutdown 调用次数的聚合，用于固定停止顺序与幂等语义。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.shutdown_calls = 0
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
+        super().shutdown()
 
 
 class _Scheduler:
@@ -182,7 +195,7 @@ def _ready_asset(store: InMemoryWorkspaceAssetStore, scope: IdentityScope):
 
 
 def _build_system(
-    store: InMemoryWorkspaceAssetStore,
+    workspace_runtime: WorkspaceRuntime,
     scope: IdentityScope,
     asset_ref: Any,
     *,
@@ -193,7 +206,8 @@ def _build_system(
     dict[str, _AssetReadingSubsystem],
     RecordingRuntimeEventSink,
 ]:
-    """组合真实 System+Store，并以 fake 隔离本测试边界外的子系统。"""
+    """组合真实 System+WorkspaceRuntime，并以 fake 隔离本测试边界外的子系统。"""
+    store = workspace_runtime.asset_store
     calls: list[str] = []
     sink = RecordingRuntimeEventSink()
     subsystems = {
@@ -210,7 +224,7 @@ def _build_system(
     runtime = _RuntimeBundle(
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
-        workspace_asset_store=store,
+        workspace_runtime=workspace_runtime,
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
@@ -242,15 +256,31 @@ def _build_system(
     return system, calls, subsystems, sink
 
 
-def test_assembler_constructs_one_store_implementing_both_narrow_ports() -> None:
-    """捕获 runtime 遗漏 Store、重复容器或只提供宽泛 service locator。"""
+def test_assembler_constructs_single_workspace_runtime_with_store_ports() -> None:
+    """捕获 runtime 遗漏聚合、重复容器或只提供宽泛 service locator。"""
     runtime = SystemAssembler(
         HiveMemoryConfig(runtime_events={"enabled": False})
     )._build_runtime()
 
-    assert isinstance(runtime.workspace_asset_store, InMemoryWorkspaceAssetStore)
-    assert isinstance(runtime.workspace_asset_store, WorkspaceAssetReaderPort)
-    assert isinstance(runtime.workspace_asset_store, WorkspaceAssetCommandPort)
+    assert isinstance(runtime.workspace_runtime, WorkspaceRuntime)
+    store = runtime.workspace_runtime.asset_store
+    assert isinstance(store, InMemoryWorkspaceAssetStore)
+    assert isinstance(store, WorkspaceAssetReaderPort)
+    assert isinstance(store, WorkspaceAssetCommandPort)
+
+
+def test_assemble_wires_single_workspace_runtime_and_store_across_consumers() -> None:
+    """组合根对象图：全图只有一个 WorkspaceRuntime，Store 是唯一共享实例。"""
+    system = SystemAssembler(
+        HiveMemoryConfig(runtime_events={"enabled": False})
+    ).assemble()
+
+    store = system._workspace_runtime.asset_store
+    # Patchouli 读取端、上传服务命令端与附件解析服务拿到的都是聚合持有的
+    # 同一份 Store，不存在第二个 Store 实例或按 Workspace 复制的运行时。
+    assert system._patchouli.runtime._workspace_asset_reader is store
+    assert system._workspace_asset_service._store is store
+    assert system._workspace_asset_service._parse_service._store is store
 
 
 def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
@@ -314,10 +344,15 @@ def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
 @pytest.mark.asyncio
 async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None:
     """捕获 Topic settlement 或其他消费者停止前提前清空 AssetStore。"""
-    store = InMemoryWorkspaceAssetStore()
+    workspace_runtime = WorkspaceRuntime()
+    store = workspace_runtime.asset_store
     scope = _scope()
     handle = _ready_asset(store, scope)
-    system, calls, subsystems, sink = _build_system(store, scope, handle.asset_ref)
+    system, calls, subsystems, sink = _build_system(
+        workspace_runtime,
+        scope,
+        handle.asset_ref,
+    )
 
     await system.start()
     sink.events.clear()
@@ -344,11 +379,12 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
 @pytest.mark.asyncio
 async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() -> None:
     """捕获上游 shutdown 失败后仍清空 Store 并谎报有序停止成功。"""
-    store = InMemoryWorkspaceAssetStore()
+    workspace_runtime = _RecordingWorkspaceRuntime()
+    store = workspace_runtime.asset_store
     scope = _scope()
     handle = _ready_asset(store, scope)
     system, calls, _, sink = _build_system(
-        store,
+        workspace_runtime,
         scope,
         handle.asset_ref,
         failing_subsystem="patchouli",
@@ -360,6 +396,8 @@ async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() ->
         await system.stop()
 
     assert calls == ["scheduler", "ingress", "alice", "patchouli"]
+    # drain 未完成前 WorkspaceRuntime 派生状态与 Store 都不能被清理。
+    assert workspace_runtime.shutdown_calls == 0
     assert store.is_closed is False
     assert store.resolve_asset(scope, handle.asset_ref).asset_id == handle.asset.asset_id
     assert [event.event_type for event in sink.events] == [
@@ -369,9 +407,48 @@ async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() ->
 
 
 @pytest.mark.asyncio
+async def test_system_shuts_workspace_runtime_after_consumers_before_store_close() -> None:
+    """捕获派生状态被提前清理，或 WorkspaceRuntime shutdown 与 Store 关闭顺序漂移。"""
+    workspace_runtime = _RecordingWorkspaceRuntime()
+    store = workspace_runtime.asset_store
+    scope = _scope()
+    handle = _ready_asset(store, scope)
+    system, calls, subsystems, sink = _build_system(
+        workspace_runtime,
+        scope,
+        handle.asset_ref,
+    )
+
+    await system.start()
+    sink.events.clear()
+    await system.stop()
+
+    # 全部消费者停止之后才 shutdown 聚合；close_and_clear 仍是最后一步。
+    assert calls == ["scheduler", "ingress", "alice", "patchouli", "gateway"]
+    assert workspace_runtime.shutdown_calls == 1
+    assert all(
+        subsystem.asset_id_seen_on_stop == handle.asset.asset_id
+        for subsystem in subsystems.values()
+    )
+    assert store.is_closed is True
+    assert sink.events[-1].data["completed_steps"][-2:] == [
+        "workspace_runtime.shutdown",
+        "workspace_asset_store.close_and_clear",
+    ]
+
+    # 重复 stop 幂等：System 重试路径会再次调用 shutdown，幂等由
+    # WorkspaceRuntime 内部标志保证；Store 保持已关闭，不重复清理。
+    await system.stop()
+    assert workspace_runtime.shutdown_calls == 2
+    assert sink.events[-1].data["already_stopped"] is True
+    assert store.is_closed is True
+
+
+@pytest.mark.asyncio
 async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     """真实 lease 贯穿 shutdown：消费者先显式 release，close_and_clear 不掩盖泄漏。"""
-    store = InMemoryWorkspaceAssetStore()
+    workspace_runtime = WorkspaceRuntime()
+    store = workspace_runtime.asset_store
     scope = _scope()
     handle = _ready_asset(store, scope)
     calls: list[str] = []
@@ -385,7 +462,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     runtime = _RuntimeBundle(
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
-        workspace_asset_store=store,
+        workspace_runtime=workspace_runtime,
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),

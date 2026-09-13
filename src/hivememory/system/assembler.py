@@ -2,7 +2,7 @@
 HiveMemory 系统装配器
 
 将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：
-  - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set
+  - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceRuntime 聚合
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
   - _build_subsystems  : Gateway + Patchouli + Alice
   - _build_services    : 全部应用服务
@@ -38,7 +38,7 @@ from hivememory.system.runtime.events import (
 )
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.system.runtime.workspace import WorkspaceRuntime
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ from hivememory.system.services.attachments.parse_service import AttachmentParse
 class _RuntimeBundle:
     global_bus: GlobalSystemBus
     scheduler: GlobalMaintenanceScheduler
-    workspace_asset_store: InMemoryWorkspaceAssetStore
+    workspace_runtime: WorkspaceRuntime
     event_bus: RuntimeEventBus | None
     event_sink: RuntimeEventSink
     event_publisher: RuntimeEventPublisher
@@ -123,8 +123,9 @@ class SystemAssembler:
 
     def _build_runtime(self) -> _RuntimeBundle:
         global_bus = GlobalSystemBus()
-        # WorkspaceAsset 是 System-owned working set；整个进程只装配一个 Store。
-        workspace_asset_store = InMemoryWorkspaceAssetStore()
+        # WorkspaceRuntime 是进程级唯一的 Workspace-oriented 运行时聚合；
+        # WorkspaceAssetStore 等子组件由聚合内部创建，System 不单独实例化。
+        workspace_runtime = WorkspaceRuntime()
 
         runtime_events_config = getattr(self._config, "runtime_events", None)
         if not isinstance(runtime_events_config, RuntimeEventsConfig):
@@ -153,7 +154,7 @@ class SystemAssembler:
         return _RuntimeBundle(
             global_bus=global_bus,
             scheduler=scheduler,
-            workspace_asset_store=workspace_asset_store,
+            workspace_runtime=workspace_runtime,
             event_bus=event_bus,
             event_sink=event_sink,
             event_publisher=event_publisher,
@@ -208,7 +209,7 @@ class SystemAssembler:
             runtime_events=runtime.event_sink.scoped("patchouli"),
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
             # Patchouli：附件选择在 prepare 边界 resolve/acquire（W1-D）。
-            workspace_asset_reader=runtime.workspace_asset_store,
+            workspace_asset_reader=runtime.workspace_runtime.asset_store,
         )
 
         alice = AliceSystem(
@@ -268,10 +269,10 @@ class SystemAssembler:
         # 上传应用服务直接持有进程级唯一的 WorkspaceAssetStore 命令端口，
         # 附件上传不经过全局总线（资产状态真相由 Store 同步持有）。
         workspace_assets = WorkspaceAssetApplicationService(
-            store=runtime.workspace_asset_store,
+            store=runtime.workspace_runtime.asset_store,
             parser_config=self._config.attachment_parser,
             parse_service=AttachmentParseService(
-                store=runtime.workspace_asset_store,
+                store=runtime.workspace_runtime.asset_store,
                 config=self._config.attachment_parser,
             ),
         )
