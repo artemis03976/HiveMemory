@@ -27,7 +27,7 @@ snapshot_at: 2026-08-12
 
 # Phase D0 持久化状态清单（耐久性与恢复）
 
-本文是[运行时状态持久化与故障恢复治理](../reliability/durability-and-recovery.md) **Phase D0** 的冻结基线。D0 的目标是记录截至 `snapshot_at` “哪些状态落在哪里、承诺到什么耐久性、缺失什么恢复能力”的现状，为后续可独立排期的恢复工作提供输入。最新系统事实仍以当前设计和代码为准。
+本文是[运行时状态持久化与故障恢复治理](../reliability/durability-and-recovery.md) **Phase D0** 的冻结基线。D0 的目标是记录截至 `snapshot_at` “哪些状态落在哪里、承诺到什么耐久性、缺失什么恢复能力”的现状，为后续可独立排期的恢复工作提供输入。最新系统事实仍以当前设计和代码为准。本基线冻结于 2026-08-12；v0.6.2 Workspace cache 迁移落地后，KoakumaAtomCache 与 AgentProfileCache 已迁移至 `system/runtime/workspace/` 并由 WorkspaceRuntime 持有（正文中的路径与行号锚点为快照时点事实），当前限制见[耐久性治理](../reliability/durability-and-recovery.md)。
 
 Phase D0 的四项任务：
 
@@ -101,8 +101,8 @@ Gateway 不持有任何跨请求业务状态；决策结果不落库，其可重
 | PendingAtom（写意图、intent、settlement、canonical 绑定） | Alice | 进程内 `_PendingAtomStore`（[store.py](../../../src/hivememory/agent_runtime/pending_atom/store.py)） | **Recoverable → 应 durable** | 无 | `evict_by_run` 两轮回收 | **无**。崩溃丢未结算 WRITE/UPDATE 意图，settlement redirect 关系消失 |
 | RunSession（frame 注册表、CallRecord 记账） | Alice | 单 run 内存（[run_session.py](../../../src/hivememory/alice/orchestration/run_session.py)） | Recoverable | 无 | run 结束销毁 | 无。挂起 frame 无法恢复，D3 处理 |
 | ExecutionFrame（working_history、progress、harvested_aliases） | Alice | 单 run 内存（[models.py](../../../src/hivememory/agent_runtime/models.py)） | Recoverable | 无 | run 结束销毁 | 无。D3 定义 checkpoint 边界 |
-| KoakumaAtomCache（L1） | Alice | 进程内双索引 dict（[cache.py](../../../src/hivememory/agent_runtime/aliases/cache.py)） | Ephemeral derived | 无 | 无上限、无 LRU | 可从 Qdrant 重建 |
-| AgentProfileCache | Alice | 进程内 LRU 32（[profile_resolver.py](../../../src/hivememory/alice/runtime/profile_resolver.py)） | Ephemeral derived | 无 | LRU 32 | 可从路由重新加载 |
+| KoakumaAtomCache（L1） | Alice | 进程内双索引 dict（[cache.py](../../../src/hivememory/system/runtime/workspace/atom_cache.py)） | Ephemeral derived | 无 | 无上限、无 LRU | 可从 Qdrant 重建 |
+| AgentProfileCache | Alice | 进程内 LRU 32（[profile_cache.py](../../../src/hivememory/system/runtime/workspace/profile_cache.py)） | Ephemeral derived | 无 | LRU 32 | 可从路由重新加载 |
 | AgentRunStream / QueueAgentRunOutput | Alice | 单 run 有界队列 256（[streaming.py](../../../src/hivememory/alice/runtime/streaming.py)） | Ephemeral derived | 无 | run 结束销毁 | 允许丢失（流式缓冲） |
 
 ### 3.4 Patchouli（记忆领域）

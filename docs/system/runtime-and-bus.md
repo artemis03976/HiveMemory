@@ -22,7 +22,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-09-13
 ---
 
 # System 运行时与总线
@@ -183,9 +183,9 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 
 ### 3.6 Workspace 与共享运行时
 
-`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 System 装配的进程级唯一 working set。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过自己的 scope 和 ref 遵守窄化 Asset port 交接约定；当前 W0 尚无真实附件业务消费者。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。
+`WorkspaceRuntime`（含 `WorkspaceAssetStore` 与 atom/profile 两个派生 cache）不属于通用 Work Queue Runtime，也不改变 GlobalSystemBus、GlobalMaintenanceScheduler、Work Queue 和 EventBus 的进程级共享语义；它是 System 装配的进程级唯一聚合，经窄化端口向 Patchouli 与 Alice 提供资产与派生缓存能力。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过自己的 scope 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，先清空派生 cache、最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。
 
-同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
+同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组；两个派生 cache 的 Workspace 分区 key 只服务于各自的命中语义，不改变总线、队列和调度器的共享行为。
 
 历史实施步骤、迁移取舍和已完成验收见
 [v0.6.1 Local Work Queue Runtime 归档计划](../archive/plans/v0.6.1-local-work-queue-runtime.md)。

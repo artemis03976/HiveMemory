@@ -43,7 +43,7 @@ AgentRunService
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
 - 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
 
-`AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢热缓存和三级解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunExecutor；执行层不再位于 Alice 编排目录中。
+`AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢三级别名解析，`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。L1 atom cache 不在 `agent_runtime/` 内：它由 System 组合根装配的 `WorkspaceRuntime` 创建并按 Workspace 分区，AliceRuntime 在进程启动时经注入的 `AtomCachePort` / `ProfileCachePort` 消费（见 [ADR-0004](../architecture/decisions/0004-workspace-derived-cache-partitioning.md)）。AliceRuntime 构造 resolver 与其余执行资源，AgentRunService 把同一个门面交给每次 run 的 RunExecutor；执行层不再位于 Alice 编排目录中。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
 

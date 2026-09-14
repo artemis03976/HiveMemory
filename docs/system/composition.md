@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-13
 ---
 
 # System 组合根与生命周期
@@ -33,7 +33,10 @@ HiveMemorySystem.build(config)
        -> runtime bundle
              GlobalSystemBus
              GlobalMaintenanceScheduler
-             InMemoryWorkspaceAssetStore（进程级唯一）
+             WorkspaceRuntime（进程级唯一聚合）
+               InMemoryWorkspaceAssetStore
+               AgentProfileCache（派生 cache）
+               KoakumaAtomCache（派生 cache）
              RuntimeEventBus / NullRuntimeEventSink
        -> registries bundle
             ProviderRegistry
@@ -41,10 +44,11 @@ HiveMemorySystem.build(config)
        -> subsystem bundle
             GatewaySystem
             PatchouliSystem
-            AliceSystem
+            AliceSystem（注入 atom/profile cache port）
        -> application-service bundle
             Chat / PassiveIngress / Memory / MemoryTask
             Agent / Topic / Readiness services
+            WorkspaceAssetApplicationService（持有 AssetStore 命令端口）
 ```
 
 四个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，子系统共享全局基础设施，应用服务最后只拿到公共总线和必要配置。
@@ -55,7 +59,9 @@ HiveMemorySystem.build(config)
 - `GlobalMaintenanceScheduler`：在当前主 `asyncio` loop 调度维护任务；
 - `RuntimeEventBus`：启用时保存有界观测事件和订阅队列；
 - `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
-- `InMemoryWorkspaceAssetStore`：System-owned 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例。
+- `WorkspaceRuntime`：进程级唯一的 Workspace-oriented 运行时聚合，内部创建且仅创建一份 `InMemoryWorkspaceAssetStore`（WorkspaceAsset working set）与两个派生 cache（`KoakumaAtomCache`、`AgentProfileCache`，key 携带 Workspace 坐标，见 [Workspace 架构](../architecture/workspace.md)第 6 节）；对外只暴露 `asset_store`、`atom_cache_port`、`profile_cache_port` 与幂等的 `shutdown()`，不按 Workspace 复制实例。
+
+AliceSystem 装配时接收 WorkspaceRuntime 提供的 `atom_cache` / `profile_cache` 端口；AliceRuntime 不自行实例化任何 cache，也不对外暴露 cache 访问属性。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 
@@ -72,8 +78,8 @@ HiveMemorySystem.build(config)
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
 | Gateway | 注入配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入配置、全局总线、维护调度器和观测 sink | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
-| Alice | 注入配置、全局总线、模型注册表和观测 sink | Agent run、frame、MTP、工具和 PendingAtom 运行时 |
+| Patchouli | 注入配置、全局总线、维护调度器、观测 sink 和 AssetStore 只读 reader | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Alice | 注入配置、全局总线、模型注册表、观测 sink 和 atom/profile cache 端口 | Agent run、frame、MTP、工具和 PendingAtom 运行时 |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由应用服务通过 `GlobalSystemBus` 发起。
 
@@ -106,15 +112,16 @@ GlobalMaintenanceScheduler.stop
   -> Alice.stop
   -> Patchouli.stop
   -> Gateway.stop
+  -> WorkspaceRuntime.shutdown（清空派生 cache）
   -> WorkspaceAssetStore.close_and_clear
   -> SYSTEM_STOPPED
 ```
 
-先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止后，Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止后，Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 先调用 `WorkspaceRuntime.shutdown()` 幂等清空两个派生 cache（此时全部 cache 消费者已停止），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`shutdown()` 在清理动作前先读取统计、动作本身幂等，重试路径重复调用无副作用。
 
-重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
+重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain、runtime shutdown 与 Store 清理，并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常；失败路径不会执行 runtime shutdown 或 Store 清理。
 
-对于从未成功启动的 System，`stop()` 在完成必要的 Passive drain 后即可清空 AssetStore 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
+对于从未成功启动的 System，`stop()` 在完成必要的 Passive drain 后同样执行 runtime shutdown 与 Store 清理并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
 
 ## 4. 健康状态与公共入口
 
@@ -135,15 +142,19 @@ System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `ch
 - 维护任务必须在 scheduler 注册，不能由业务组件偷偷创建第二个 interval loop；
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
 - `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
-- `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
+- `WorkspaceRuntime.shutdown()` 与 `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain 和全部 cache 消费者停止；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
+- 全进程只存在一个 `WorkspaceRuntime`；任何子系统或服务不得自行实例化 AssetStore、atom cache 或 profile cache，只能经组合根注入的端口消费；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。
 
-评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。
+评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus 或 WorkspaceRuntime、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。
 
 ## 6. 验证入口
 
 - `src/hivememory/system/assembler.py`
 - `src/hivememory/system/system.py`
+- `src/hivememory/system/runtime/workspace/runtime.py`
 - `tests/unit/system/test_hivememory_system.py`
 - `tests/unit/system/test_lifecycle.py`
+- `tests/unit/system/runtime/workspace/test_runtime.py`
+- `tests/integration/system/test_workspace_asset_runtime.py`（对象图与停止顺序）
 - `tests/unit/system/contracts/test_contracts.py`

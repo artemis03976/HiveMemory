@@ -28,6 +28,7 @@ related_docs:
   - docs/architecture/overview.md
   - docs/architecture/boundaries.md
   - docs/architecture/data-model.md
+  - docs/architecture/decisions/0004-workspace-derived-cache-partitioning.md
   - docs/system/composition.md
   - docs/system/runtime-and-bus.md
   - docs/patchouli/memory-library.md
@@ -36,20 +37,20 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-09-13
 ---
 
 # Workspace 架构
 
 本文是 Workspace 在当前系统架构中的事实入口，说明身份坐标、资源归属、运行时生命周期以及与 System、Patchouli、Gateway、Alice 和共享基础设施的边界。具体路由、事件字段和错误类型以[跨子系统契约](../contracts/subsystem-contracts.md)、[公开路由与事件](../contracts/routes-and-events.md)和[错误模型](../contracts/error-model.md)为准。
 
-Workspace 在 W0 中是资源归属和访问硬边界，不是一个独立的子系统或一组按 Workspace 复制的 Runtime。System 进程只装配一套 Gateway、Patchouli、Alice、缓存、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。
+Workspace 在 W0 中是资源归属和访问硬边界，不是一个独立的子系统或一组按 Workspace 复制的 Runtime。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。唯一显式例外是 System-owned `WorkspaceRuntime` 聚合内的两个派生缓存（见第 6 节与 [ADR-0004](./decisions/0004-workspace-derived-cache-partitioning.md)）。
 
 ## 1. 为什么建立 Workspace：初步的“ME 网络”边界
 
 HiveMemory 引入 Workspace，不是为了给现有对象再增加一个筛选字段，而是为了回答同一个问题的三个部分：谁在执行、资源归属于哪个稳定边界、一次后台或重试操作应当沿用哪一份身份事实。只有把这三部分放进同一个不可变坐标系，Topic、Memory、Artifact、WorkspaceAsset 以及它们的 binding/ref 生命周期才不会在共享进程运行时中相互串台。
 
-Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：cache、queue、registry、scheduler、runtime 和 EventBus 继续共享，只有已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
+Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享；只有两个由 `WorkspaceRuntime` 持有的派生缓存按显式设计决策携带 Workspace 分区 key，以及已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
 
 在这个意义上，当前 Workspace 已经形成一个初步的“ME 网络”概念。这里的“ME 网络”是借用 AE2 的架构隐喻，不是代码中的独立类、网络进程或完整运行时；它指的是一片能够被稳定寻址、由同一资源归属边界约束、并通过明确交接承载执行结果的最小资源网络：
 
@@ -83,17 +84,19 @@ flowchart TB
     PA["Patchouli\nTopic / Memory / Artifact"]
     AL["Alice\nAgent run / MTP"]
     TOPIC["Patchouli Topic Store"]
-    ASSET["WorkspaceAssetStore\n进程级唯一"]
-    SHARED["共享 Runtime\ncache / queue / registry / scheduler / EventBus"]
+    WRT["WorkspaceRuntime\nAssetStore + 派生 cache"]
+    SHARED["共享 Runtime\nqueue / registry / scheduler / EventBus"]
 
     IN --> SCOPE --> APP --> BUS
     BUS --> GW
     BUS --> PA
     BUS --> AL
     PA --> TOPIC
-    APP --> ASSET
+    APP --> WRT
+    AL -. "cache port 注入" .-> WRT
     SCOPE -. "最终资源边界重新校验" .-> TOPIC
-    SCOPE -. "最终资源边界重新校验" .-> ASSET
+    SCOPE -. "最终资源边界重新校验" .-> WRT
+    SCOPE -. "派生 cache 分区 key；最终授权仍重验" .-> WRT
     SCOPE -. "领域 payload 中传递；不建立分区" .-> SHARED
 ```
 
@@ -143,9 +146,11 @@ Workspace 资源的最终寻址同时包含 WorkspaceIdentity 和资源 ID。复
 
 Memory 在 `MetaData.workspace_identity` 中保存唯一持久化归属；读取时先限定 owning Workspace，再由 Patchouli 的记忆策略判断 actor 是否可读。具体 policy 与检索规则属于 [MemoryLibrary](../patchouli/memory-library.md) 与 [Retrieval](../patchouli/retrieval.md)，本文只确认 Workspace 是 Memory 的唯一归属边界；存储层的 legacy 兼容解释分支已随存量数据迁移完成而删除，`workspace_identity` 是归属字段的唯一权威。
 
-### 4.3 共享基础设施不按 Workspace 分区
+### 4.3 共享基础设施与派生 cache 的分区边界
 
-cache、work queue、ordering/idempotency key、task/run registry、scheduler、runtime container 和 EventBus 维持进程级共享语义。领域 TaskSpec 可以携带唯一的 `IdentityScope`，但通用 WorkItem、WorkRecord 和 RuntimeEvent infrastructure 不把它解释为资源分区字段。`RuntimeEvent.workspace_id` 只是可选观测标签，不参与路由、订阅、sequence、授权或缓存分组。
+cache 之外的共享基础设施——work queue、ordering/idempotency key、task/run registry、scheduler、runtime container 和 EventBus——维持进程级共享语义。领域 TaskSpec 可以携带唯一的 `IdentityScope`，但通用 WorkItem、WorkRecord 和 RuntimeEvent infrastructure 不把它解释为资源分区字段。`RuntimeEvent.workspace_id` 只是可选观测标签，不参与路由、订阅、sequence、授权或缓存分组。
+
+唯一的显式例外是 `WorkspaceRuntime` 聚合内的两个派生 cache：L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区（[ADR-0004](./decisions/0004-workspace-derived-cache-partitioning.md)）。分区解决的是"错误命中、无效覆盖和不必要的冷查询"，不替代授权——L1 atom cache 命中后仍由 resolver 重验 Workspace ownership 与 actor policy，profile cache 只复用同授权坐标内已通过 Patchouli 校验的结果。两个 cache 的详细边界见第 6 节。
 
 ## 5. WorkspaceAssetStore
 
@@ -167,7 +172,28 @@ System 在 `_RuntimeBundle` 中只创建一个 `InMemoryWorkspaceAssetStore`。S
 
 WorkspaceAsset 不保存 `visibility`、`created_by_agent_id`、`created_by_team_id` 或 actor-policy target。同一 Workspace 内不同 Agent/Team 的资产访问结果一致；跨 Workspace 的 ref、asset key 或 URI 均不能绕过归属校验。
 
-## 6. TopicAssetBinding 交接事实
+## 6. WorkspaceRuntime 聚合与派生 cache
+
+`WorkspaceRuntime` 是 System 在 runtime bundle 中装配的进程级唯一聚合（决策依据见 [ADR-0004](./decisions/0004-workspace-derived-cache-partitioning.md)）。它组合 Workspace-owned working set 与两个派生 cache，只对外暴露窄化端口，不接收"当前 Workspace"，也不按 Workspace 创建子 Runtime：
+
+| 成员 | 角色 | 对外端口 |
+|:---|:---|:---|
+| `InMemoryWorkspaceAssetStore` | WorkspaceAsset 状态与可用性真相源 | `asset_store`（Reader/Command port，见第 5 节） |
+| `KoakumaAtomCache` | L1 记忆原子缓存：`(WorkspaceIdentity, alias) -> UUID` 分区别名索引 + 全局 `UUID -> MemoryAtom` | `atom_cache_port`（`AtomCachePort`） |
+| `AgentProfileCache` | 人偶图纸 LRU 缓存（32 项）：key 为 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)`，`session_id` 不参与 key | `profile_cache_port`（`ProfileCachePort`） |
+
+所有端口读写都必须显式携带 `WorkspaceIdentity`（profile cache 还要求 `ActorIdentity`），缺失或类型不符直接拒绝，不存在无 scope 的公共读写。两个实现与端口同居于 `system/runtime/workspace/` 包；消费方（Alice runtime、Agent runtime resolver、Agent run 应用服务）只从该包导入端口，不 import 具体实现。
+
+分区语义的边界：
+
+- **分区不替代授权**。L1 atom cache 命中后由 `RuntimeAliasResolver` 重验 Workspace ownership 与 actor policy，越权条目继续走 L2 冷查询；profile cache 只缓存已通过 Patchouli profile route 校验的结果，跨授权坐标永不复用；
+- **同 UUID 全局共享**。UUID 是全局资源 ID，`get_atom_by_uuid` 不带 Workspace 坐标；alias 分区只影响"按名字找对象"的路径；
+- **同 alias 写入按替换语义处理**，不会留下相互矛盾的 alias 反查结果；跨分区共享同一 UUID 时，单分区失效会保留仍被其他分区引用的原子条目；
+- **可观测性**。两个 cache 各自提供命中/未命中（profile cache 含淘汰）统计；无淘汰语义的 atom cache 不产生淘汰计数。
+
+生命周期上，`WorkspaceRuntime.shutdown()` 幂等清空两个派生 cache 并输出统计，不触碰 AssetStore 的关闭语义；System stop 序列在全部消费者停止后调用它，再执行 `WorkspaceAssetStore.close_and_clear()`（见第 9 节）。两个派生 cache 不跨进程持久化、不跨重启恢复；profile cache 没有 TTL 或失效事件，Profile 更新后的旧值在 LRU 驻留期内（上限为进程生命周期）可能 stale。
+
+## 7. TopicAssetBinding 交接事实
 
 `TopicAssetBinding` 是 Workspace 与 Patchouli Topic 之间需要在本文保留的 Topic 交接事实。它只记录 `asset_id`、opaque `asset_ref`、首次使用它的 `interaction_id` 和时间，不复制 WorkspaceAsset snapshot、representation 内容、actor-policy 字段或第二份 Topic/Workspace 坐标。
 
@@ -175,9 +201,9 @@ WorkspaceAsset 不保存 `visibility`、`created_by_agent_id`、`created_by_team
 
 Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic 所有者之间不使用共同控制器、两阶段提交或额外协调器；binding 随所属 Topic 的 settle/evict 生命周期完成清理。Topic buffer 的结构、并发保护、compact/settle/evict 矩阵和 shutdown 批处理属于[Perception 与短期话题](../patchouli/perception.md)及 [MemoryLibrary](../patchouli/memory-library.md)，不在本文重复定义。
 
-## 7. Scope 传播与跨边界交接
+## 8. Scope 传播与跨边界交接
 
-### 7.1 主动和被动入口
+### 8.1 主动和被动入口
 
 当前入口的 Workspace 交接可以概括为：
 
@@ -191,13 +217,13 @@ Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic �
 
 主动 Chat 与 Passive ingest 都在最外层冻结身份（Chat 与被动接入是 Agent action，必须携带具体 `agent_id`；被动接入的 `agent_id` 参与外部会话分桶命名），随后由领域载体携带 scope。`/chat/stop` 不是 Agent action：服务端用请求方选择完成 owner/workspace 校验后，通过 generation registry 复用创建时冻结的原始 scope 执行取消。Passive ingress 仍按自己的外部会话键缓冲并提交 Patchouli Interaction，但不因此建立第二套 Workspace 资源状态。下游不使用进程当前 Workspace 推断资源归属。
 
-### 7.2 后台任务和重试
+### 8.2 后台任务和重试
 
 `InteractionSubmission`、`MemoryGenerationTaskSpec` 等领域 DTO 各自保存一份完整 `IdentityScope`，并携带所需的 interaction、intent、topic 或 task ID。codec 负责 scope 的完整 round-trip；Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 恢复原 scope 和领域 ID，再到真正的 Workspace-owned resource 边界执行授权；它不重跑默认 resolver、不读取进程当前 Workspace，也不改变身份坐标。队列的状态机和重试策略见[System 运行时与总线](../system/runtime-and-bus.md)。
 
-## 8. System 生命周期与 shutdown
+## 9. System 生命周期与 shutdown
 
-### 8.1 启动
+### 9.1 启动
 
 System 的启动顺序为：
 
@@ -205,9 +231,9 @@ System 的启动顺序为：
 Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 ```
 
-WorkspaceAssetStore 在 System 装配阶段创建，但在启动阶段不单独复制或按 Workspace 启动。它的可用性由 System 生命周期承载。
+`WorkspaceRuntime`（含 WorkspaceAssetStore 与两个派生 cache）在 System 装配阶段创建，但在启动阶段不单独复制或按 Workspace 启动。它们的可用性由 System 生命周期承载。
 
-### 8.2 停止
+### 9.2 停止
 
 停止顺序为：
 
@@ -221,25 +247,27 @@ Scheduler.stop
        -> Perception Topic settlement / generation drain
        -> Memory generation queue stop
   -> Gateway.stop
+  -> WorkspaceRuntime.shutdown（清空派生 cache）
   -> WorkspaceAssetStore.close_and_clear
   -> SYSTEM_STOPPED
 ```
 
-先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；Alice 和 Patchouli 完成各自已接纳工作的 drain 后，才清空 WorkspaceAssetStore。这样 settlement consumer 可以在 drain 期间按既有交接约定用 task 中的 asset ref 反查 Store、持有 lease 并在完成后 release；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何 asset/ref。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
+先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；Alice 和 Patchouli 完成各自已接纳工作的 drain 后，才清空派生状态。`WorkspaceRuntime.shutdown()` 与 `close_and_clear()` 都晚于全部消费者停止，避免清空仍会被读取的 cache 或 Store。这样 settlement consumer 可以在 drain 期间按既有交接约定用 task 中的 asset ref 反查 Store、持有 lease 并在完成后 release；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`shutdown()` 与 `close_and_clear()` 均幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
 
-### 8.3 失败边界
+### 9.3 失败边界
 
-WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代品。若上游 shutdown 尚未完成，System 不应以提前清空 Store 来掩盖活跃 lease；如果关闭过程失败，System 报告失败事件而不是把未完成的消费者工作伪装成正常的 `SYSTEM_STOPPED`。
+WorkspaceRuntime 派生 cache 与 AssetStore 的清理不是队列可靠性或跨 Store 事务的替代品。若上游 shutdown 尚未完成，System 不应以提前清空状态来掩盖活跃消费者；如果关闭过程失败，System 报告失败事件而不是把未完成的消费者工作伪装成正常的 `SYSTEM_STOPPED`——此时 `WorkspaceRuntime.shutdown()` 与 `close_and_clear()` 都不会执行。
 
-## 9. 当前边界与限制
+## 10. 当前边界与限制
 
 - W0 只支持默认 `main_workspace` 的公开入口和内部 `isolation_workspace` 测试 seam，不提供用户可见的 Workspace 创建、切换、Mount、Bridge、Grant 或跨 Workspace sharing；
 - 服务端当前没有完整认证/多租户安全沙箱，WorkspaceIdentity 是资源归属和业务硬过滤，不是独立的认证凭证；
-- WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
-- W0 当前只定义并测试 System-owned working set、窄化 Asset port 与 settlement ref 交接边界，尚无实际附件业务消费者；附件上传及其下游处理不属于本文范围；
-- WorkspaceIdentity 的传播不意味着所有组件都参与隔离。任何新增资源都必须先明确其所有者，再决定是否使用 Workspace 复合键，不能从 scope 的存在自动推导隔离。
+- WorkspaceRuntime 内的 AssetStore、opaque ref、lease 和两个派生 cache 只承诺当前进程生命周期，不提供跨重启恢复；`shutdown()` 与 `close_and_clear()` 后必须重新装配进程；
+- profile cache 没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能 stale（见第 6 节）；
+- atom cache 返回原始 `MemoryAtom` 引用，可变性语义遵循[数据模型 ADR-0001](./decisions/0001-data-model-mutability-and-boundary-projection.md)，未做深冻结；
+- WorkspaceIdentity 的传播不意味着所有组件都参与隔离。任何新增资源都必须先明确其所有者，再决定是否使用 Workspace 复合键或派生 cache 分区，不能从 scope 的存在自动推导隔离。
 
-## 10. 代码与测试入口
+## 11. 代码与测试入口
 
 核心模型和资源键：
 
@@ -248,16 +276,18 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 
 运行时和生命周期：
 
-- [`WorkspaceAssetStore`](../../src/hivememory/system/runtime/workspace/store.py)、[`workspace ports`](../../src/hivememory/system/runtime/workspace/ports.py)；
+- [`WorkspaceRuntime`](../../src/hivememory/system/runtime/workspace/runtime.py)、[`InMemoryWorkspaceAssetStore`](../../src/hivememory/system/runtime/workspace/store.py)、[`workspace ports`](../../src/hivememory/system/runtime/workspace/ports.py)；
+- 派生 cache：[`KoakumaAtomCache`](../../src/hivememory/system/runtime/workspace/atom_cache.py)、[`AgentProfileCache`](../../src/hivememory/system/runtime/workspace/profile_cache.py)；消费侧 resolver 见 [`RuntimeAliasResolver`](../../src/hivememory/agent_runtime/aliases/resolver.py) 与 [`AgentProfileResolver`](../../src/hivememory/alice/runtime/profile_resolver.py)；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；
 - [`TopicAssetBinding`](../../src/hivememory/core/models/workspace_asset.py)、[`ShortTermMemoryStore`](../../src/hivememory/patchouli/memory_library/stores.py) 和 [`PerceptionFamiliar`](../../src/hivememory/patchouli/services/perception.py)。
 
 代表性行为测试：
 
 - [`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)；
-- [`tests/unit/system/runtime/workspace/test_store.py`](../../tests/unit/system/runtime/workspace/test_store.py)；
+- [`tests/unit/system/runtime/workspace/test_store.py`](../../tests/unit/system/runtime/workspace/test_store.py)、[`test_runtime.py`](../../tests/unit/system/runtime/workspace/test_runtime.py)、[`test_atom_cache.py`](../../tests/unit/system/runtime/workspace/test_atom_cache.py)、[`test_profile_cache.py`](../../tests/unit/system/runtime/workspace/test_profile_cache.py)；
 - [`tests/integration/patchouli/test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)；
 - [`tests/integration/system/test_workspace_asset_runtime.py`](../../tests/integration/system/test_workspace_asset_runtime.py)、[`test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)；
+- cache 串扰与授权重验：[`tests/unit/agent_runtime/aliases/test_resolver.py`](../../tests/unit/agent_runtime/aliases/test_resolver.py)、[`tests/unit/alice/runtime/test_profile_resolver.py`](../../tests/unit/alice/runtime/test_profile_resolver.py)；
 - 附件链路：[`tests/integration/system/application/test_workspace_asset_service.py`](../../tests/integration/system/application/test_workspace_asset_service.py)、[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)；完整入口见[Chat 附件链路](../system/attachments.md)。
 
 相关入口：[总体架构](./overview.md)、[系统边界与所有权](./boundaries.md)、[数据模型与可变性边界](./data-model.md)、[System 组合根与生命周期](../system/composition.md)、[MemoryLibrary](../patchouli/memory-library.md)、[Perception 与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)、[Chat 附件链路](../system/attachments.md)和[Workspace 文档收口历史审计](../archive/plans/documentation-migration-finalization-audit.md)。
