@@ -35,8 +35,8 @@ class AliceRuntime:
         if not isinstance(profile_cache, ProfileCachePort):
             raise TypeError("profile_cache 必须实现 ProfileCachePort")
         # 两个派生 cache 由 WorkspaceRuntime 创建并持有所有权；Alice 只经
-        # 窄化 port 注入，不再自行实例化（见 v0.6.2 cache 迁移计划 §6.1）。
-        self._atom_cache = atom_cache
+        # 窄化 port 注入，不再自行实例化，也不对外暴露 cache 访问属性
+        # （见 v0.6.2 cache 迁移计划 §6.1/§7 WRT-4）。
         self._local_bus = AliceBus()
         self._profile_resolver = AgentProfileResolver(
             local_bus=self._local_bus,
@@ -45,7 +45,7 @@ class AliceRuntime:
         self._pending_runtime = PendingAtomRuntime()
         self._alias_resolver = RuntimeAliasResolver(
             pending_runtime=self._pending_runtime,
-            atom_cache=self._atom_cache,
+            atom_cache=atom_cache,
             bus=self._local_bus,
         )
         self._koakuma = KoakumaRuntime(
@@ -82,11 +82,6 @@ class AliceRuntime:
     def profile_resolver(self) -> AgentProfileResolver:
         """供 Alice 编排层解析受 caller identity 授权的 Agent Profile。"""
         return self._profile_resolver
-
-    @property
-    def atom_cache(self) -> AtomCachePort:
-        """供 AgentRunService 预热本次 run 的检索别名（读写需携带 Workspace）。"""
-        return self._atom_cache
 
     async def on_pending_atom_settled(
         self,
@@ -131,14 +126,15 @@ class AliceRuntime:
         *,
         identity_scope: IdentityScope,
     ) -> None:
-        """以原 PendingAtom scope 查询资源 owner，再刷新共享 L1 cache。"""
+        """以原 PendingAtom scope 查询资源 owner，再刷新对应 Workspace 分区。"""
         canonical_alias = settlement.canonical_alias
         if not canonical_alias:
             return
 
-        # 失效与回填都使用 PendingAtom 原始 Workspace 分区，不写入当前
-        # 调用方或默认 Workspace。
-        self._atom_cache.invalidate_alias(
+        # L1 cache 的唯一持有引用在 alias resolver 上；失效与回填都使用
+        # PendingAtom 原始 Workspace 分区，不写入当前调用方或默认 Workspace。
+        atom_cache = self._alias_resolver.atom_cache
+        atom_cache.invalidate_alias(
             canonical_alias,
             workspace_identity=identity_scope.workspace_identity,
         )
@@ -166,7 +162,7 @@ class AliceRuntime:
             )
             return
 
-        self._atom_cache.ingest_atom(
+        atom_cache.ingest_atom(
             memory,
             workspace_identity=identity_scope.workspace_identity,
         )

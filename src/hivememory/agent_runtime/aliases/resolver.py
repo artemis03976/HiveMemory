@@ -3,11 +3,11 @@ RuntimeAliasResolver - 统一三级别名解析层。
 
 解析优先级:
   L0: PendingAtomRuntime (运行时 pending atom)
-  L1: KoakumaAtomCache (会话级正式 atom 缓存)
+  L1: AtomCachePort (Workspace 分区的 L1 atom cache，由 WorkspaceRuntime 持有)
   L2: Storage (冷查询长期存储)
 
 作者: HiveMemory Team
-版本: 1.0
+版本: 1.1
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ class RuntimeAliasResolver:
             logger.debug(f"L0 pending cache hit: alias='{alias}'")
             return await self._resolve_pending_hit(pending, alias, context)
 
-        # L1: KoakumaAtomCache（alias 索引按调用方 Workspace 分区读取）
+        # L1: Workspace 分区 atom cache（经 AtomCachePort 按调用方坐标读取）
         atom = self._atom_cache.get_atom_by_alias(
             alias,
             workspace_identity=context.identity_scope.workspace_identity,

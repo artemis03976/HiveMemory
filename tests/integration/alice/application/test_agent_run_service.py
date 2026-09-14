@@ -73,10 +73,12 @@ def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
 
 def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunService]:
     config = HiveMemoryConfig()
+    # AliceRuntime 不再暴露 cache 属性；测试持有注入实例并直接传给 service。
+    atom_cache = KoakumaAtomCache()
     runtime = AliceRuntime(
         alice_config=config.alice,
         memory_compiler_config=config.memory_compiler,
-        atom_cache=KoakumaAtomCache(),
+        atom_cache=atom_cache,
         profile_cache=AgentProfileCache(),
     )
     frame_factory = FrameFactory()
@@ -92,7 +94,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         call_coordinator=coordinator,
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
-        atom_cache=runtime.atom_cache,
+        atom_cache=atom_cache,
         stream_adapter=AgentRunStreamAdapter(),
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())

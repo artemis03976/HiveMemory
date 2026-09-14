@@ -310,7 +310,7 @@ class TestAlicePublicRoutes:
             runtime_scope=make_runtime_scope(actor_identity=identity, run_id="run-1"),
         )
         pending_runtime.start_materializing(pending.pending_alias)
-        system.runtime.atom_cache.ingest_atom(
+        self.atom_cache.ingest_atom(
             stale_atom,
             workspace_identity=make_workspace_identity(),
         )
@@ -331,14 +331,14 @@ class TestAlicePublicRoutes:
         assert refresh_requests == [(["fact_canonical"], identity_scope)]
         # settlement 以原 PendingAtom scope 刷新对应 Workspace 分区。
         assert (
-            system.runtime.atom_cache.get_atom_by_alias(
+            self.atom_cache.get_atom_by_alias(
                 "fact_canonical",
                 workspace_identity=make_workspace_identity(),
             )
             is fresh_atom
         )
         assert (
-            system.runtime.atom_cache.get_atom_by_uuid(
+            self.atom_cache.get_atom_by_uuid(
                 str(stale_atom.id),
             )
             is None
@@ -399,7 +399,7 @@ class TestAlicePublicRoutes:
         # L2 查询与回填都使用 PendingAtom 原始 isolation scope。
         assert refresh_requests[0][1].workspace_identity == isolation
         assert (
-            system.runtime.atom_cache.get_atom_by_alias(
+            self.atom_cache.get_atom_by_alias(
                 "fact_canonical",
                 workspace_identity=isolation,
             )
@@ -407,7 +407,7 @@ class TestAlicePublicRoutes:
         )
         # 默认 Workspace 分区不得被写入。
         assert (
-            system.runtime.atom_cache.get_atom_by_alias(
+            self.atom_cache.get_atom_by_alias(
                 "fact_canonical",
                 workspace_identity=main,
             )

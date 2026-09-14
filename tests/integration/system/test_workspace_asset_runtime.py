@@ -307,12 +307,12 @@ def test_assemble_injects_aggregate_atom_cache_into_alice() -> None:
         payload=PayloadLayer(content="wired"),
     )
 
-    # 经聚合 port 写入，Alice runtime 侧的注入引用必须读到同一条目。
+    # 经聚合 port 写入，Alice 侧 resolver 持有的注入引用必须读到同一条目。
     system._workspace_runtime.atom_cache_port.ingest_atom(
         atom,
         workspace_identity=make_workspace_identity(),
     )
-    cached = system._alice.runtime.atom_cache.get_atom_by_alias(
+    cached = system._alice.runtime.alias_resolver.atom_cache.get_atom_by_alias(
         "fact_wired",
         workspace_identity=make_workspace_identity(),
     )

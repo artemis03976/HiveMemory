@@ -73,12 +73,14 @@ class AliceSystem(SubsystemProtocol):
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
         )
+        # AgentRunService 直接接收 WorkspaceRuntime 注入的 atom cache port；
+        # AliceRuntime 不再对外暴露 cache 访问属性。
         self._service = AgentRunService(
             agent_runtime=self._runtime.agent_runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
-            atom_cache=self._runtime.atom_cache,
+            atom_cache=atom_cache,
             stream_adapter=AgentRunStreamAdapter(),
             agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
         )

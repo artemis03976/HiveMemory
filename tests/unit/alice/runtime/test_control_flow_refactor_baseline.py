@@ -79,6 +79,16 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
     assert inspect.isasyncgenfunction(AgentRunService.run_agent_stream)
 
 
+def test_alice_runtime_does_not_expose_cache_accessors() -> None:
+    """架构守卫：cache 由 WorkspaceRuntime 持有，AliceRuntime 不暴露 cache 属性。"""
+    public_attributes = {
+        name for name in dir(AliceRuntime) if not name.startswith("_")
+    }
+
+    assert "atom_cache" not in public_attributes
+    assert "profile_cache" not in public_attributes
+
+
 def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
     config = HiveMemoryConfig()
     runtime = AliceRuntime(
