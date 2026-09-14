@@ -36,42 +36,42 @@ class TestBuildAlias:
     """测试 MemoryGenerationEngine._build_alias() 别名构建"""
 
     def test_code_snippet_with_suffix(self):
-        """CODE_SNIPPET + LLM suffix → code_quicksort_impl"""
+        """CODE_SNIPPET + LLM 后缀 → code_quicksort_impl"""
         result = MemoryGenerationEngine._build_alias(
             "CODE_SNIPPET", "quicksort_impl", "Quick Sort Algorithm"
         )
         assert result == "code_quicksort_impl"
 
     def test_fact_with_suffix(self):
-        """FACT + LLM suffix → fact_project_env"""
+        """FACT + LLM 后缀 → fact_project_env"""
         result = MemoryGenerationEngine._build_alias(
             "FACT", "project_env", "Project Environment"
         )
         assert result == "fact_project_env"
 
     def test_url_resource_with_suffix(self):
-        """URL_RESOURCE + LLM suffix → url_python_datetime_docs"""
+        """URL_RESOURCE + LLM 后缀 → url_python_datetime_docs"""
         result = MemoryGenerationEngine._build_alias(
             "URL_RESOURCE", "python_datetime_docs", "Python Docs"
         )
         assert result == "url_python_datetime_docs"
 
     def test_reflection_with_suffix(self):
-        """REFLECTION → ref_ prefix"""
+        """REFLECTION → ref_ 前缀"""
         result = MemoryGenerationEngine._build_alias(
             "REFLECTION", "avoid_global_state", "Avoid Global State"
         )
         assert result == "ref_avoid_global_state"
 
     def test_user_profile_with_suffix(self):
-        """USER_PROFILE → user_ prefix"""
+        """USER_PROFILE → user_ 前缀"""
         result = MemoryGenerationEngine._build_alias(
             "USER_PROFILE", "prefers_typescript", "Prefers TypeScript"
         )
         assert result == "user_prefers_typescript"
 
     def test_wip_with_suffix(self):
-        """WORK_IN_PROGRESS → wip_ prefix"""
+        """WORK_IN_PROGRESS → wip_ 前缀"""
         result = MemoryGenerationEngine._build_alias(
             "WORK_IN_PROGRESS", "refactor_auth", "Refactor Auth Module"
         )
@@ -96,8 +96,8 @@ class TestBuildAlias:
         result = MemoryGenerationEngine._build_alias(
             "CODE_SNIPPET", "  UPPER Case!! ", "irrelevant"
         )
-        # Space between "UPPER" and "Case" is removed by [^a-z0-9_] sanitization
-        # after lowercasing: "upper case!!" → "uppercase"
+        # "UPPER" 与 "Case" 之间的空格被 [^a-z0-9_] 清洗移除
+        # 小写化后："upper case!!" → "uppercase"
         assert result == "code_uppercase"
 
     def test_unknown_type_uses_mem_prefix(self):

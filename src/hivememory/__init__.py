@@ -115,7 +115,7 @@ from hivememory.engines.generation import (
     NoOpDeduplicator,
     create_deduplicator,
 )
-# WriteFocus / UpdateFocus are shared core DTOs; DuplicateDecision belongs to generation.
+# WriteFocus / UpdateFocus 是共享的核心 DTO；DuplicateDecision 属于 generation。
 from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
@@ -297,7 +297,7 @@ __all__ = [
     "GatewaySystem",
     "GatewayRuntime",
     "GatewayService",
-    # ========== Generation Engine ==========
+    # ========== 生成引擎 ==========
     "MemoryGenerationEngine",
     "BaseMemoryExtractor",
     "BaseDeduplicator",
@@ -313,7 +313,7 @@ __all__ = [
     "MemoryDeduplicator",
     "NoOpDeduplicator",
     "create_deduplicator",
-    # ========== Retrieval Engine ==========
+    # ========== 检索引擎 ==========
     "RetrievalEngine",
     "RetrievalQuery",
     "RetrievalResult",
@@ -332,7 +332,7 @@ __all__ = [
     "NoopReranker",
     "CrossEncoderReranker",
     "create_retriever",
-    # ========== Lifecycle Engine ==========
+    # ========== 生命周期引擎 ==========
     "MemoryLifecycleEngine",
     "BaseGarbageCollector",
     "EventType",
@@ -344,7 +344,7 @@ __all__ = [
     "DynamicReinforcementEngine",
     "PeriodicGarbageCollector",
     "create_garbage_collector",
-    # ========== Perception Engine ==========
+    # ========== 感知引擎 ==========
     "MemoryPerceptionEngine",
     "TraceItem",
     "InteractionPayload",
@@ -356,7 +356,7 @@ __all__ = [
     "SimpleRelayController",
     "LLMRelayController",
     "create_relay_controller",
-    # ========== Server Models ==========
+    # ========== 服务端模型 ==========
     "ErrorResponse",
     "HealthResponse",
     "ChatRequest",

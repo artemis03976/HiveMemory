@@ -14,7 +14,7 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 
 class AgentProfileManagementService:
-    """Patchouli application service for public agent profile management APIs."""
+    """Patchouli 面向公开 agent profile 管理 API 的应用服务。"""
 
     def __init__(self, *, bus: Any) -> None:
         self._bus = bus

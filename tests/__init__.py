@@ -1,4 +1,4 @@
-"""Project test package marker.
+"""项目测试包标记。
 
-Ensures local `tests` package resolution wins over any third-party `tests` package.
+确保本地 `tests` 包的解析优先于任何第三方 `tests` 包。
 """

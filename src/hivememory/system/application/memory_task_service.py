@@ -1,4 +1,4 @@
-"""Application facade for Patchouli-owned memory generation tasks."""
+"""Patchouli 记忆生成任务的应用层门面。"""
 
 from __future__ import annotations
 

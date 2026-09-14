@@ -1,4 +1,4 @@
-"""Chat routes for POST /api/v1/chat and /api/v1/chat/stop."""
+"""聊天路由 — POST /api/v1/chat 与 /api/v1/chat/stop。"""
 
 import asyncio
 import json
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _cancel_and_join(task: asyncio.Task) -> None:
-    """Cancel and settle one in-flight Chat stream pull."""
+    """取消并结算一次进行中的 Chat 流式拉取。"""
     owner = asyncio.current_task()
     entry_cancelling = owner.cancelling() if owner is not None else 0
 

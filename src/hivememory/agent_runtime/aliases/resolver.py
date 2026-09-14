@@ -108,7 +108,7 @@ class RuntimeAliasResolver:
             # 未通过 ownership/actor policy 重验时继续向最终资源 owner 查询。
             logger.debug("L1 atom cache hit requires scoped owner lookup: alias='%s'", alias)
 
-        # L2: Storage cold lookup
+        # L2: 存储冷查询
         atom = await self._cold_lookup(alias, context)
         if atom is not None:
             return ResolveResult(kind="atom", requested_alias=alias, atom=atom)

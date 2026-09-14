@@ -1,4 +1,4 @@
-"""Perception contracts must not expose the physical Topic storage key."""
+"""Perception 契约不得暴露物理的 Topic 存储键。"""
 
 from __future__ import annotations
 

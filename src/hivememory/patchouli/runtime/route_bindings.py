@@ -1,4 +1,4 @@
-"""Declarative local route bindings for PatchouliRuntime."""
+"""PatchouliRuntime 的声明式局部路由绑定。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def build_patchouli_route_bindings(
     runtime: "PatchouliRuntime",
     service: "PatchouliService",
 ) -> tuple[RouteBinding, ...]:
-    """Build Patchouli local route bindings from the runtime composition root."""
+    """从运行时组合根构建 Patchouli 局部路由绑定。"""
     return (
         (
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,

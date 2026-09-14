@@ -1,4 +1,4 @@
-"""TimeFormatter i18n text."""
+"""TimeFormatter i18n 文案。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _TIME_FORMATTER_TEXT_EN = {
 
 
 def get_time_formatter_text(key: str, language: str | Language | None = None) -> str:
-    """Return a TimeFormatter text fragment."""
+    """返回 TimeFormatter 文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _TIME_FORMATTER_TEXT_EN if resolved == Language.EN else _TIME_FORMATTER_TEXT_ZH
     try:

@@ -33,7 +33,7 @@ from hivememory.system.config import HiveMemoryConfig
 
 @pytest.fixture(autouse=True)
 def reset_i18n_default_language_between_tests():
-    """Keep process-wide i18n state from leaking between tests."""
+    """防止进程级 i18n 状态在测试之间泄漏。"""
     set_default_language("zh")
     yield
     set_default_language("zh")

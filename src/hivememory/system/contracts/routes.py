@@ -1,10 +1,10 @@
-"""Global route constants for public cross-subsystem APIs."""
+"""跨子系统公开 API 的全局路由常量。"""
 
 from hivememory.system.contracts.route_names import RouteNames
 
 
 class GlobalRoutes:
-    """Routes that are accessible through GlobalSystemBus."""
+    """可经 GlobalSystemBus 访问的路由。"""
 
     GATEWAY_PROCESS = RouteNames.GATEWAY_PROCESS
 

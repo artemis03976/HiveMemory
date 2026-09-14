@@ -25,7 +25,7 @@ class AsyncSystemBus:
         self._handlers: dict[str, Callable[..., Awaitable[Any]]] = {}
         self._subscribers: dict[str, list[Callable[..., Awaitable[None]]]] = {}
 
-    # ========== RPC (Request-Response) ==========
+    # ========== RPC（请求-响应）==========
 
     def register(self, route: str, handler: Callable[..., Awaitable[Any]]) -> None:
         if route in self._handlers:
@@ -44,7 +44,7 @@ class AsyncSystemBus:
             return await result
         return result
 
-    # ========== Pub/Sub (Event Broadcast) ==========
+    # ========== Pub/Sub（事件广播）==========
 
     def subscribe(self, event: str, callback: Callable[..., Awaitable[None]]) -> None:
         if event not in self._subscribers:

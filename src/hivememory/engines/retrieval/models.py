@@ -49,7 +49,7 @@ class RetrievalQuery(BaseModel):
     semantic_query: str  # 用于向量检索的语义查询
     keywords: List[str] = Field(default_factory=list)  # 提取的关键词
     filters: QueryFilters = Field(default_factory=QueryFilters)  # 过滤条件
-    identity_scope: IdentityScope  # Workspace hard boundary
+    identity_scope: IdentityScope  # Workspace 硬边界
     
     def get_search_text(self) -> str:
         """

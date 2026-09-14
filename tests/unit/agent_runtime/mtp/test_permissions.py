@@ -1,4 +1,4 @@
-"""Koakuma permission checks use explicit execution context."""
+"""Koakuma 权限检查使用显式执行上下文。"""
 
 import pytest
 

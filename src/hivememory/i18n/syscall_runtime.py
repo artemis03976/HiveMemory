@@ -1,4 +1,4 @@
-"""Syscall runtime i18n templates."""
+"""Syscall 运行时 i18n 文案模板。"""
 
 from __future__ import annotations
 
@@ -217,7 +217,7 @@ def get_syscall_error_text(
     params: dict[str, Any] | None = None,
     language: str | Language | None = None,
 ) -> str:
-    """Return localized syscall error text."""
+    """返回本地化的 syscall 错误文案。"""
     return _get_syscall_runtime_text(
         key,
         params,
@@ -233,7 +233,7 @@ def get_syscall_info_text(
     params: dict[str, Any] | None = None,
     language: str | Language | None = None,
 ) -> str:
-    """Return localized syscall success/info text."""
+    """返回本地化的 syscall 成功/信息文案。"""
     return _get_syscall_runtime_text(
         key,
         params,

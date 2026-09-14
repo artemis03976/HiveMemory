@@ -1,4 +1,4 @@
-"""Patchouli internal microservices."""
+"""Patchouli 内部微服务。"""
 
 from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar

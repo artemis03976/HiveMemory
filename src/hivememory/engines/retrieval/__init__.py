@@ -42,7 +42,7 @@ from hivememory.engines.retrieval.models import (
     SearchResults,
 )
 
-# Engine
+# 引擎实例
 from hivememory.engines.retrieval.engine import RetrievalEngine
 
 # 过滤器适配器

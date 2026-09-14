@@ -101,7 +101,7 @@ class SystemCommandDispatcher:
 
         try:
             return await self._dispatch(definition, command, identity)
-        except Exception as exc:  # pragma: no cover - tested through handler failure
+        except Exception as exc:  # pragma: no cover - 由 handler 失败路径测试
             logger.error("System command dispatch failed: %s", exc, exc_info=True)
             return CommandExecutionResult(
                 command_id=definition.command_id,

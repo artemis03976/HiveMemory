@@ -1,8 +1,8 @@
-"""Canonical public route names shared by subsystem and global route views."""
+"""子系统路由视图与全局路由视图共享的规范公开路由名。"""
 
 
 class RouteNames:
-    """Single source of truth for public GlobalSystemBus route strings."""
+    """公开 GlobalSystemBus 路由字符串的唯一事实来源。"""
 
     GATEWAY_PROCESS = "gateway.public.process"
 

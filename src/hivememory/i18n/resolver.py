@@ -9,14 +9,14 @@ _default_language: Language | None = None
 
 
 def set_default_language(language: str | Language | None) -> Language:
-    """Set the process-wide i18n default language."""
+    """设置进程级 i18n 默认语言。"""
     global _default_language
     _default_language = normalize_language(language) or DEFAULT_LANGUAGE
     return _default_language
 
 
 def get_default_language() -> Language:
-    """Return the process-wide i18n default language."""
+    """返回进程级 i18n 默认语言。"""
     return _default_language or DEFAULT_LANGUAGE
 
 

@@ -1,7 +1,7 @@
 """
-HiveMemory Utility Modules.
+HiveMemory 工具模块集合。
 
-Common utility classes and functions used across the project.
+项目各处共用的工具类与工具函数。
 """
 
 from hivememory.utils.time_formatter import (

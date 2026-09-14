@@ -102,7 +102,7 @@ class MemoryLibrary:
 
 
     async def check_storage_health(self) -> StorageHealthReport:
-        """Return a health report for the complete memory storage system."""
+        """返回完整记忆存储系统的健康报告。"""
         components = [
             await self.short_term.check_health(),
             await self.mid_term.check_health(),

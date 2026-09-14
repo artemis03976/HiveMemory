@@ -99,7 +99,7 @@ class CallCoordinator:
 
         match prepared:
             case ExecutionFrame() as callee_frame:
-                # Session binding failures are orchestration invariant violations.
+                # 会话绑定失败属于编排不变量违规。
                 session.register_callee_frame(callee_frame, record)
                 await output.call_started(
                     CallOutputStarted(
@@ -284,7 +284,7 @@ class CallCoordinator:
         callee_result: FrameExecutionResult | None,
         run_output: AgentRunOutput,
     ) -> CallCompletionResult:
-        """Commit a caller-consumable response before publishing completion output."""
+        """在发布完成输出前，先提交调用方可消费的响应。"""
         call_request = suspension.call_request
         action_id = suspension.suspend_action_id
 

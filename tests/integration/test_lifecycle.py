@@ -1,4 +1,4 @@
-"""Integration tests for lifecycle components on the Patchouli memory boundary."""
+"""针对 Patchouli 记忆边界上生命周期组件的集成测试。"""
 
 from __future__ import annotations
 

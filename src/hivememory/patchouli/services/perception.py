@@ -269,7 +269,7 @@ class PerceptionFamiliar:
             topic_id=target_id, generation_task_id=task.task_id if task else None
         )
 
-    # ========== Compact（Page Folding） ==========
+    # ========== Compact（页面折叠） ==========
 
     async def _compact_topic_if_needed(self, identity_scope: IdentityScope, topic_id: str) -> None:
         """token 溢出时执行 compact：生成折叠摘要并写回保留的近期 blocks。
@@ -300,7 +300,7 @@ class PerceptionFamiliar:
             )
         )
 
-    # ========== LRU / Evict ==========
+    # ========== LRU / 驱逐 ==========
 
     async def _maybe_evict_lru(self, identity_scope: IdentityScope, target_topic_id: str) -> None:
         """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。

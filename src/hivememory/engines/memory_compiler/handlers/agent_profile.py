@@ -1,4 +1,4 @@
-"""Agent profile menu target handler."""
+"""Agent profile 菜单 target 处理器。"""
 
 from __future__ import annotations
 

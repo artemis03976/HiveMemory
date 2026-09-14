@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class ModelReadinessService:
-    """Patchouli model readiness public API."""
+    """Patchouli 模型就绪公开 API。"""
 
     def __init__(self, bus: "PatchouliBus") -> None:
         # 模型就绪 public API 只编排 runtime primitive，不直接依赖 PatchouliRuntime。

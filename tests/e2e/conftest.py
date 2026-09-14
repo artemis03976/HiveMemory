@@ -40,7 +40,7 @@ def _make_qdrant_store(system: HiveMemorySystem) -> QdrantMemoryStore:
     )
 
 
-# ========== Session-scoped HiveMemorySystem ==========
+# ========== 会话级 HiveMemorySystem ==========
 
 @pytest.fixture(scope="session")
 def e2e_config():
@@ -70,7 +70,7 @@ def qdrant_store(e2e_system) -> QdrantMemoryStore:
     return _make_qdrant_store(e2e_system)
 
 
-# ========== Clean User Factory ==========
+# ========== 干净用户工厂 ==========
 
 @pytest.fixture
 def clean_user(e2e_system):
@@ -119,7 +119,7 @@ def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
         logger.warning(f"清理用户 {user_id} 记忆时出错: {e}")
 
 
-# ========== Wait for Memory Persistence ==========
+# ========== 等待记忆持久化 ==========
 
 def wait_until(
     predicate,

@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# ========== Storage ==========
+# ========== 存储 ==========
 
 class QdrantConfig(BaseModel):
     host: str = Field(default="127.0.0.1")
@@ -23,7 +23,7 @@ class QdrantConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ========== Perception ==========
+# ========== 感知 ==========
 
 class SimpleRelayConfig(BaseModel):
     type: Literal["simple"] = Field(default="simple")
@@ -65,7 +65,7 @@ class MemoryPerceptionConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ========== Generation ==========
+# ========== 生成 ==========
 
 class ExtractorConfig(BaseModel):
     enabled: bool = Field(default=True)
@@ -93,7 +93,7 @@ class MemoryGenerationConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ========== Retrieval ==========
+# ========== 检索 ==========
 
 class ReciprocalRankFusionConfig(BaseModel):
     type: Literal["rrf"] = "rrf"
@@ -191,7 +191,7 @@ class MemoryRetrievalConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ========== Lifecycle ==========
+# ========== 生命周期 ==========
 
 class VitalityCalculatorConfig(BaseModel):
     # 固有价值权重 (I)：作为抗衰减调制因子，λ_eff = λ * (2 - I)
@@ -276,7 +276,7 @@ class ArtifactConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ========== Shutdown ==========
+# ========== 关停 ==========
 
 class PatchouliShutdownConfig(BaseModel):
     generation_wait_timeout_seconds: float = Field(default=30.0, ge=0)

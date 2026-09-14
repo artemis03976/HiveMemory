@@ -377,7 +377,7 @@ _INFO_TEXT_EN: dict[str, str] = {
         "It is readable during this run via READ. "
         "Final memory update will complete asynchronously."
     ),
-    # ---- loop / CALL response wrapper labels (Phase C) ----
+    # ---- loop / CALL 响应包装文案标签（Phase C）----
     "mtp.loop.execution_result_title": "[System MTP Execution Result]",
     "mtp.call_response.title": "[System MTP Call Response]",
     "mtp.call_response.reply_label": "[Sub-Agent Reply]:",
@@ -454,7 +454,7 @@ _WARNING_TEXT_EN: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Getter
+# 取值函数
 # ---------------------------------------------------------------------------
 
 
@@ -507,7 +507,7 @@ def get_mtp_warning_text(
     params: dict[str, Any] | None = None,
     language: str | Language | None = None,
 ) -> str:
-    """Return a localized MTP warning/status backfill text."""
+    """返回本地化的 MTP 警告/状态回填文案。"""
     return _get_mtp_runtime_text(
         key,
         params,
@@ -523,7 +523,7 @@ def get_mtp_info_text(
     params: dict[str, Any] | None = None,
     language: str | Language | None = None,
 ) -> str:
-    """Return a localized MTP informational wrapper text."""
+    """返回本地化的 MTP 信息包装文案。"""
     return _get_mtp_runtime_text(
         key,
         params,

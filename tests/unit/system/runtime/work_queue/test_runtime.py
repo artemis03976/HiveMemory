@@ -133,7 +133,7 @@ class _RetryOnceHandler(_ImmediateHandler):
 
 
 class _AuthoritativeStore(InMemoryWorkStore):
-    """Injects store-owned values so Runtime cannot reproduce transitions itself."""
+    """注入 store 持有的值，使 Runtime 无法自行复现状态转换。"""
 
     finished_at = datetime(2040, 1, 2, 3, 4, 5, tzinfo=UTC)
     retry_at = datetime(2040, 2, 3, 4, 5, 6, tzinfo=UTC)
@@ -698,8 +698,8 @@ async def test_queued_cancel_event_uses_authoritative_record_without_follow_up_g
     cancelled = next(
         event for event in sink.events if event.event_type == RuntimeEventType.WORK_CANCELLED
     )
-    # One read is required to locate the item and lane before cancellation; there is no
-    # transition-following read because cancel() itself returns the committed record.
+    # 取消前需要一次读取来定位 item 与 lane；不存在跟随状态转换的第二次读取，
+    # 因为 cancel() 本身就会返回已提交的记录。
     assert store.get_calls == 1
     assert cancelled.status == WorkState.CANCELLED.value
     assert cancelled.data["attempt_count"] == 37

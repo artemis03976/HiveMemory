@@ -1,4 +1,4 @@
-"""Read models exposed by MemoryLibrary stores."""
+"""MemoryLibrary store 暴露的读模型。"""
 
 from __future__ import annotations
 

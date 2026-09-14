@@ -39,7 +39,7 @@ from tests.helpers.memory import make_memory_metadata
 
 MAIN = make_workspace_identity()
 
-# ========== Helpers ==========
+# ========== 辅助函数 ==========
 
 def _make_code_memory(
     code: str = "print('hello')",
@@ -104,7 +104,7 @@ def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context
     )
 
 
-# ========== Test 1: Target Validation ==========
+# ========== Test 1：Target 校验 ==========
 
 class TestRunTargetValidation:
     """RUN 指令 target 校验"""
@@ -125,7 +125,7 @@ class TestRunTargetValidation:
         assert not result.success
 
 
-# ========== Test 2: Kernel Fast Path ==========
+# ========== Test 2：内核快速路径 ==========
 
 class TestRunKernelFastPath:
     """Level 0 内核工具快速路径"""
@@ -144,7 +144,7 @@ class TestRunKernelFastPath:
     def test_sys_clock_date(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | format="date" ⟫')
         assert result.success
-        # YYYY-MM-DD format
+        # YYYY-MM-DD 格式
         assert "-" in result.response_content
         assert len(result.response_content.strip()) == 10 or "20" in result.response_content
 
@@ -166,7 +166,7 @@ class TestRunKernelFastPath:
         assert "30" in result.response_content
 
 
-# ========== Test 3: User Tool Path (Level 1) ==========
+# ========== Test 3：用户工具路径（Level 1） ==========
 
 class TestRunUserToolPath:
     """Level 1 用户态工具慢速路径"""

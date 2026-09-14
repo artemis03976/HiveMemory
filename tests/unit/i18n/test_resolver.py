@@ -1,4 +1,4 @@
-"""Tests for hivememory.i18n.resolver module."""
+"""hivememory.i18n.resolver 模块的测试。"""
 
 import pytest
 

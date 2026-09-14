@@ -158,7 +158,7 @@ class DynamicReinforcementEngine:
         return result
 
     def _handle_citation(self, memory: MemoryAtom) -> None:
-        # Reset decay before recalculating vitality.
+        # 重置衰减后再重新计算活力。
         memory.meta.updated_at = datetime.now()
         logger.debug("Citation handled for %s: decay reset", memory.id)
 

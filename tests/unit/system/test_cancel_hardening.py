@@ -1,4 +1,4 @@
-"""Unit tests for Phase 1: Cancel Contract Hardening
+"""Phase 1：cancel 契约加固的单元测试
 
 覆盖 RuntimeControlRegistry 幂等性、ChatApplicationService cancel 路径、
 AgentRunResult.status 终态传播。

@@ -1,4 +1,4 @@
-"""Stable RuntimeEvent contract for run/task observability."""
+"""面向 run/task 可观测性的稳定 RuntimeEvent 契约。"""
 
 from __future__ import annotations
 

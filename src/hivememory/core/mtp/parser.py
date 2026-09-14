@@ -1,5 +1,5 @@
 """
-MTP parser & filter parser。
+MTP 协议与过滤器解析器。
 
 协议语法: ⟪ VERB | TARGET | ARGS ⟫
 - VERB: SEARCH, READ, RUN, WRITE, UPDATE, CALL

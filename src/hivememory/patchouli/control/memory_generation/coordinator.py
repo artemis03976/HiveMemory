@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class SpecBuildError(RuntimeError):
-    """Raised when one active generation spec cannot be built."""
+    """某个生效的生成规范无法构建时抛出。"""
 
 
 class MemoryGenerationCoordinator:

@@ -119,7 +119,7 @@ async def record_memory_feedback(
     service: MemoryApplicationService = Depends(get_memory_service),
     identity_scope: IdentityScope = Depends(get_identity_scope),
 ):
-    """Record explicit user feedback for a memory."""
+    """记录用户对某条记忆的显式反馈。"""
     try:
         uid = UUID(memory_id)
     except ValueError:

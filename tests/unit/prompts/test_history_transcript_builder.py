@@ -139,7 +139,7 @@ class TestStructuredReplay:
         ]
         block = _block_structured("帮我找一下", events)
         msgs = builder.build_messages([block])
-        assert len(msgs) == 5  # user + 4 events
+        assert len(msgs) == 5  # user + 4 个事件
         assert msgs[0] == {"role": "user", "content": "帮我找一下"}
         assert msgs[1] == {"role": "assistant", "content": "正在查找"}
         assert msgs[2] == {"role": "assistant", "content": "⟪ READ | alias_x ⟫"}

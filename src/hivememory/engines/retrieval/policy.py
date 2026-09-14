@@ -1,4 +1,4 @@
-"""Memory ownership hard boundary 与 Workspace 内 actor read policy。"""
+"""Memory ownership 硬边界与 Workspace 内 actor 读取策略。"""
 
 from __future__ import annotations
 

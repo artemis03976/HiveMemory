@@ -1,4 +1,4 @@
-"""InMemoryShortTermStorage adapter contract tests."""
+"""InMemoryShortTermStorage 适配器契约测试。"""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def test_adapter_map_operations_are_thread_safe():
                 topic = _topic(scope, f"topic-{index}-{item}")
                 storage.put(topic)
                 assert storage.get(scope.workspace_identity, topic.topic_id) is not None
-        except Exception as exc:  # pragma: no cover - failure is asserted below
+        except Exception as exc:  # pragma: no cover - 失败在下方断言
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(index,)) for index in range(4)]

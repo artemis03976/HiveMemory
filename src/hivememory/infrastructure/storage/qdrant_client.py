@@ -1,4 +1,4 @@
-"""Qdrant client construction and readiness helpers."""
+"""Qdrant 客户端构建与就绪检查辅助。"""
 
 from __future__ import annotations
 

@@ -141,7 +141,7 @@ def _load_dotenv_sources() -> dict[str, str]:
 
 
 def legacy_env_alias_settings_source() -> dict[str, Any]:
-    """Map pre-config-split env vars into the current nested config schema."""
+    """把配置拆分前的环境变量映射到当前的嵌套配置结构。"""
     raw_values = _load_dotenv_sources()
     raw_values.update(os.environ)
     normalized = {key.upper(): value for key, value in raw_values.items()}
@@ -203,7 +203,7 @@ def yaml_config_settings_source() -> dict[str, Any]:
         return {}
 
 
-# ========== Top-level infrastructure configs ==========
+# ========== 顶层基础设施配置 ==========
 
 class SystemConfig(BaseModel):
     name: str = Field(default="HiveMemory")
@@ -263,7 +263,7 @@ class I18nConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ========== Root config ==========
+# ========== 根配置 ==========
 
 class HiveMemoryConfig(BaseSettings):
     system: SystemConfig = Field(default_factory=SystemConfig)
@@ -343,7 +343,7 @@ def get_gateway_llm_config() -> LLMConfig:
 
 
 __all__ = [
-    # shared
+    # 共享配置
     "LLMConfig", "LLMGlobalConfig",
     "EmbeddingConfig", "EmbeddingGlobalConfig",
     "ProviderCredentials",
@@ -365,7 +365,7 @@ __all__ = [
     "ArtifactComponentConfig", "ArtifactConfig",
     "PatchouliShutdownConfig",
     "PatchouliConfig",
-    # memory compiler
+    # 记忆编译
     "FullContextStrategyConfig",
     "CascadeContextStrategyConfig",
     "CompactContextStrategyConfig",
@@ -375,14 +375,14 @@ __all__ = [
     # alice
     "MTPPromptConfig", "KoakumaConfig", "AgentRuntimeConfig",
     "AliceConfig",
-    # passive ingress
+    # 被动接入
     "PassiveIngressConfig",
-    # top-level
+    # 顶层
     "SystemConfig", "LoggingConfig",
     "MaintenanceTasksConfig", "SchedulerConfig",
     "RuntimeEventsConfig", "I18nConfig",
     "HiveMemoryConfig",
-    # factory
+    # 工厂函数
     "load_app_config", "get_librarian_llm_config", "get_gateway_llm_config",
     "HIVEMEMORY_ENV_PREFIX",
     "LEGACY_ENV_ALIASES",

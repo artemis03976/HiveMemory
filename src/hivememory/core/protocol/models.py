@@ -190,7 +190,7 @@ class MTPExecutionResult(BaseModel):
 
 
 class AgentRunStatus(str, Enum):
-    """Terminal status for a single Alice agent.run."""
+    """单次 Alice agent.run 的终态状态。"""
 
     COMPLETED = "completed"
     CANCELLED = "cancelled"

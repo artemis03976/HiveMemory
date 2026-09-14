@@ -1,4 +1,4 @@
-"""MemoryCompiler unified memory-to-text compilation layer."""
+"""MemoryCompiler 统一的记忆到文本编译层。"""
 
 from __future__ import annotations
 

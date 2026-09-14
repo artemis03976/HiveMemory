@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class MemoryTaskManagementService:
-    """Patchouli application service for public memory task APIs."""
+    """Patchouli 面向公开记忆任务 API 的应用服务。"""
 
     def __init__(self, *, bus: PatchouliBus) -> None:
         # Public use-case 层只通过 local bus 访问任务控制面，避免直接持有 controller。

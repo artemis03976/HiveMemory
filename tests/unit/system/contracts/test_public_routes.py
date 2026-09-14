@@ -361,7 +361,7 @@ class TestAlicePublicRoutes:
         )
 
 
-# ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
+# ========== Patchouli（轻量级 — 完整集成在 test_bootstrap 中测试） ==========
 
 
 class TestPatchouliPublicRoutes:

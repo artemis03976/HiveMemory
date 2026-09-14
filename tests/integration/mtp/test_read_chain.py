@@ -37,7 +37,7 @@ from tests.helpers.memory import make_memory_metadata
 
 MAIN = make_workspace_identity()
 
-# ========== Helpers ==========
+# ========== 辅助函数 ==========
 
 def _make_memory(
     mem_id=None,
@@ -86,7 +86,7 @@ def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context
     )
 
 
-# ========== Test 1: Wildcard Rejection ==========
+# ========== Test 1：通配符拒绝 ==========
 
 class TestReadWildcardRejection:
     """READ 不支持通配符"""
@@ -104,7 +104,7 @@ class TestReadWildcardRejection:
         assert not result.success
 
 
-# ========== Test 2: Alias Resolution ==========
+# ========== Test 2：Alias 解析 ==========
 
 class TestReadAliasResolution:
     """READ 别名解析测试"""
@@ -122,7 +122,7 @@ class TestReadAliasResolution:
         ]
 
     def test_all_invalid(self, koakuma):
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss
+        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 未命中
         result = _execute_mtp(koakuma, '⟪ READ | nonexistent_alias | ⟫')
 
         assert not result.success
@@ -134,7 +134,7 @@ class TestReadAliasResolution:
         """混合有效/无效别名"""
         mem = _make_memory(content="valid content", alias="good_alias")
         koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss for bad_alias
+        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # bad_alias 的 L2 未命中
 
         result = _execute_mtp(koakuma, '⟪ READ | [good_alias, bad_alias] | ⟫')
 
@@ -278,7 +278,7 @@ class TestReadAliasResolution:
         assert "Alias Not Found" not in result.response_content
 
 
-# ========== Test 3: Koakuma READ E2E ==========
+# ========== Test 3：Koakuma READ E2E ==========
 
 class TestKoakumaReadE2E:
     """通过 execute_mtp 端到端测试 READ"""
@@ -305,7 +305,7 @@ class TestKoakumaReadE2E:
         assert "Doc B" in result.response_content
 
     def test_read_alias_not_found(self, koakuma):
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 miss
+        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # L2 未命中
         result = _execute_mtp(koakuma, '⟪ READ | unknown_alias | ⟫')
 
         assert not result.success
@@ -346,7 +346,7 @@ class TestKoakumaReadE2E:
         koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
 
-# ========== Test 4: Koakuma READ Validation ==========
+# ========== Test 4：Koakuma READ 校验 ==========
 
 class TestKoakumaReadValidation:
     """READ 参数校验"""
@@ -368,7 +368,7 @@ class TestKoakumaReadValidation:
         assert not result.success
 
 
-# ========== Test 5: L2 Cold Lookup Fallback ==========
+# ========== Test 5：L2 冷查询回退 ==========
 
 class TestReadL2Fallback:
     """READ 指令 L2 冷检索回退测试"""
@@ -444,7 +444,7 @@ class TestReadL2Fallback:
         assert "from L2" in result.response_content
 
 
-# ========== Test 6: L0 Pending Scope Isolation ==========
+# ========== Test 6：L0 Pending Scope 隔离 ==========
 
 class TestReadPendingScopeIsolation:
     """READ 对越权 pending alias 按不存在处理（L0 scope 重验）"""

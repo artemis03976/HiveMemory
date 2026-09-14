@@ -1,4 +1,4 @@
-"""Public Patchouli service contract models."""
+"""Patchouli 公开服务契约模型。"""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from hivememory.core.protocol.models import AgentRunContext
 
 @dataclass(frozen=True)
 class StreamPrelude:
-    """Data emitted before streaming Agent tokens."""
+    """流式输出 Agent token 前发出的数据。"""
 
     topic_id: str
     is_new_topic: bool

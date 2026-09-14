@@ -94,7 +94,7 @@ class PassiveMessageIngressor:
         self._idle_timeout = timeout_seconds
 
     # ------------------------------------------------------------------
-    # accumulator -> submission queue
+    # 累加器 -> 提交队列
     # ------------------------------------------------------------------
 
     async def _finalize_current_turn(

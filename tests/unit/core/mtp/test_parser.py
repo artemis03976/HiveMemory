@@ -327,7 +327,7 @@ class TestMTPFormatter:
         assert '<mtp_response status="ack">' in result
 
     def test_format_response_does_not_include_command_text(self, formatter: MTPFormatter):
-        """MTP command text is structural metadata and is not repeated in backfill."""
+        """MTP 命令文本是结构化元数据，不会在 backfill 中重复。"""
         response = MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="[mem_01]: def login(): ...",
