@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-14
 ---
 
 # HiveMemory 项目总览
@@ -134,11 +134,12 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
-| 最新已发布标签 | `v0.6.1` | 最近一次可由 Git tag 指认的发布基线 |
-| 当前发布基线 | `v0.6.1` | 已发布 Local Work Queue、Active/Passive Interaction Submission 统一接入、Memory Generation queue 及对应契约与测试 |
-| 规范代码版本 | `0.6.1` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
+| 本次发布标签 | `v0.6.2` | 本次内容收尾对应的标签，合并后创建 |
+| 最近已发布基线 | `v0.6.1` | 已发布 Local Work Queue、Active/Passive Interaction Submission 统一接入、Memory Generation queue 及对应契约与测试 |
+| 当前内容基线 | `v0.6.2` | Workspace、Identity 收敛、W1 附件和 MTP scope 修复已收尾 |
+| 规范代码版本 | `0.6.2` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
-版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。v0.6.1 发布使用完全匹配规范代码版本的稳定标签；后续开发分支可以先进入下一个目标版本而不创建 tag，此时才属于未发布快照。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
+版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单已同步为 0.6.2，本次发布标签为 v0.6.2，待合并后创建；最近已发布基线仍为 v0.6.1。核对记录见 [v0.6.2 收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
 
 发布信息以 Git tag 为准，开发中的设计状态以本文、[当前架构](./architecture/overview.md)和[路线图](./ROADMAP.md)为准。
 
@@ -161,12 +162,15 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - MemoryCompiler 的统一检索上下文与 MTP READ 渲染；
 - 可查询、可取消、可观测的记忆生成任务。
 
+Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX 经上传、确定性解析、READY 选择和 AttachmentCompiler 进入 Chat；成功 Interaction 才形成 TopicAssetBinding，后续 Memory CREATE/UPDATE 按需生成来源 Artifact。WorkspaceAsset 仍是进程内 working set，事实入口见 [Workspace](./architecture/workspace.md) 与 [Chat 附件](./system/attachments.md)。
+
 ### 5.3 Agent Runtime
 
 - Agent Profile 驱动的模型、采样参数、语言和权限；
 - Agent loop、结构化 turn events、取消与运行终态；
 - MTP `SEARCH / READ / RUN / WRITE / UPDATE / CALL`；
 - PendingAtom 延迟物化、alias redirect 和结算通知；
+- MTP 的 L0 pending、L1 cache、L2 owner 路径均重验 scope；派生缓存仍由 AliceRuntime 持有，alias 索引按 Workspace 分区；
 - 根 Agent 对子 Agent 的有限深度 CALL 编排。
 
 ### 5.4 运行与观测

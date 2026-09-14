@@ -7,13 +7,14 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.6.1 release baseline where the top-level HiveMemory System orchestrates the peer Gateway, Patchouli, and Alice subsystems.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.6.2 implementation baseline where the top-level HiveMemory System orchestrates the peer Gateway, Patchouli, and Alice subsystems. Workspace identity isolation, Chat attachments, and MTP cache scope checks have completed closeout.
 
 ## Release Status
 
-- Latest released tag: `v0.6.1`
-- Current release baseline: `v0.6.1`
-- Code and package version: `0.6.1`
+- Release tag for this baseline: `v0.6.2` (create after merge)
+- Latest published baseline: `v0.6.1`
+- Current implementation baseline: `v0.6.2` (closeout complete)
+- Code and package version: `0.6.2`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
@@ -26,6 +27,13 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 - **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, orchestrated by `ChatApplicationService` through Patchouli prepare/finalize and Alice agent execution
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
 - **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks; the System-layer `PassiveIngressService` orchestrates Gateway decisions, buffering, retrieval, and Patchouli submission
+
+### Workspaces and Chat Attachments
+
+- Memories, topics, and attachments carry explicit Workspace ownership; ingress uses IdentityScope and checks access across Workspaces.
+- TXT, Markdown, and DOCX uploads support deterministic parsing; only READY representations can be selected for Chat.
+- AttachmentCompiler applies a context budget; successful interactions record use, and Memory CREATE/UPDATE can promote sources into Artifacts.
+- WorkspaceAsset availability remains process-local, and derived caches remain owned by AliceRuntime. See [Workspace Architecture](docs/architecture/workspace.md) and [Chat Attachments](docs/system/attachments.md) for the implemented boundaries.
 
 ### Memory and Topic Management
 
@@ -307,7 +315,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. The repository is currently on the v0.6.1 release baseline. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. The v0.6.2 implementation has completed closeout, and its release tag is `v0.6.2` to be created after merge. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

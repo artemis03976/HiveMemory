@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-14
 ---
 
 # Archived Plans
@@ -12,13 +12,15 @@ last_reviewed: 2026-09-13
 
 当前记录：
 
+- [v0.6.2 版本收尾审计](./v0.6.2-release-closeout-audit.md)：记录已合并范围、归档承接、版本声明、测试与构建结果；代码版本与本次发布标签为 0.6.2（标签在合并后创建）。
+- [v0.6.2 W1 Chat Attachments](./v0.6.2-w1-chat-attachments.md)：W1-A 至 W1-F 已随 PR #97 合并并归档；当前事实见 [Chat 附件链路](../../system/attachments.md)、[Workspace 架构](../../architecture/workspace.md) 与 [Artifacts](../../patchouli/artifacts.md)。
+
 - [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移](./v0.6.2-workspace-runtime-cache-migration.md)：WRT-0～WRT-5 已完成——进程级唯一 `WorkspaceRuntime` 聚合（AssetStore + 两个派生 cache + 窄化端口）落地，KoakumaAtomCache 按 `(WorkspaceIdentity, alias)`、AgentProfileCache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区，PendingAtomRuntime 保持 Alice 所有；后续经 [ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md) 将派生缓存所有权归还 AliceRuntime、聚合解体（分区键控保留）；当前事实见 [Workspace 架构](../../architecture/workspace.md)、[System 组合根](../../system/composition.md)、[Alice](../../alice/README.md)、[MTP 契约](../../contracts/mtp.md) 与两份治理文档。
 - [Perception Topic Buffer 边界重组](./perception-topic-buffer-boundary-refactor.md)：TopicWorkingSet（驻留 + lease）、纯 CRUD 短期 Store、纯算法 MemoryPerceptionEngine 与 lease 编排的 PerceptionFamiliar 已落地；`TopicBufferService`/`SemanticBuffer`/`BufferState`/决策矩阵与感知层已删除；当前事实见 [Patchouli Perception](../../patchouli/perception.md) 与 [Patchouli MemoryLibrary](../../patchouli/memory-library.md)。
 - [ShortTermMemoryStore 边界收敛](./short-term-memory-store-boundary-cleanup.md)：ShortTermMemoryStore 已收敛为 CRUD 与快照边界，WorkspaceTopicKey 已封装在短期 adapter；当前事实见 [Patchouli MemoryLibrary](../../patchouli/memory-library.md) 与 [Patchouli Perception](../../patchouli/perception.md)。
 - [v0.6.2 用户身份上下文与裸 user_id 兼容投影收敛](./v0.6.2-identity-projection-cleanup.md)：B1–B4 已实施并通过守卫测试——应用服务入口统一 `IdentityScope`、server 唯一身份解析、`InteractionTurnSnapshot` actor 值对象化与旧 JSON 读升级、读侧兼容属性收口、`MemoryAccessPolicy` 禁用 `system` target、管理/检索可见性路径分离；当前事实见 [Workspace 架构](../../architecture/workspace.md)、[System 应用服务](../../system/application-services.md)、[公开路由与事件](../../contracts/routes-and-events.md)与[数据模型](../../architecture/data-model.md)；V1 存储数据迁移后续事项见 [v0.6.2 迁移 Plan](./v0.6.2-v1-memory-legacy-migration.md)（已完成并归档）。
 - [v0.6.2 V1 Memory 与 Artifact Legacy 数据迁移及 legacy 分支删除](./v0.6.2-v1-memory-legacy-migration.md)：已实施并通过验收——存量 32 条 V1 Memory 与 6 个 legacy Artifact 迁移为 canonical v2 / canonical replacement（确定性迁移 ID、checkpoint 续跑、fail-closed 与修复清单见 `data/migration/`），codec/filter/快照读升级与 Artifact owner 解释路径删除，§7 当前文档已更新；当前事实见 [Workspace 架构](../../architecture/workspace.md)、[数据模型](../../architecture/data-model.md)、[Retrieval](../../patchouli/retrieval.md) 与 [MemoryLibrary](../../patchouli/memory-library.md)。
 - [v0.6.2 W0 Workspace MVP](./v0.6.2-workspace-mvp.md)：P0–P6 实施、双 Workspace 隔离回归和 P7 文档收口已完成。当前 Workspace 事实见 [Workspace 架构](../../architecture/workspace.md)，System、Patchouli、Contracts、Alice、Gateway、Frontend 与治理文档承接各自边界；本计划仅保留实施历史、补充裁定、迁移边界和验收证据。
-- [Workspace 文档收口审计](./workspace-documentation-closeout-audit.md)：记录 D0–D5 对 Workspace Plan、Idea、Roadmap、Architecture、System、Patchouli、Contracts、治理、Alice、Gateway 与 Frontend 的逐项承接和最终链接/状态验证；当前事实见 [Workspace 架构](../../architecture/workspace.md)。
 - [v0.6.1 Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：Q0–Q4 已完成，Active/Passive Interaction Submission 与 Memory Generation 已接入进程内通用运行时；当前事实见 System Runtime、Passive Ingress 与 Patchouli Generation，SQLite 后续由持久化治理承接。
 - [Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md)：已完成的 phase task 控制、Gateway/Alice 原生 task cancellation、prepare 延迟响应、finalize 门禁，以及 SSE/Worker/unwind 清理加固；当前事实见 `docs/system/application-services.md`、`docs/system/runtime-and-bus.md`、`docs/gateway/`、`docs/alice/` 与 `docs/contracts/`。
 - [Alice 父子 Agent 进程调度流程收口](./alice-parent-child-run-scheduler.md)：已完成的 run-local RunScheduler、统一 root/callee 活动 frame 循环、CALL begin/complete、取消/异常收口与编排兼容层删除；当前事实见 `docs/alice/` 与 `docs/contracts/mtp.md`。

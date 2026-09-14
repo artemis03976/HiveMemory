@@ -22,7 +22,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-  - docs/todo/mtp-cache-scope-revalidation.md
+  - docs/archive/todo/mtp-cache-scope-revalidation.md
 last_reviewed: 2026-09-13
 ---
 

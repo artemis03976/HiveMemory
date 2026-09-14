@@ -34,7 +34,7 @@ related_docs:
   - docs/frontend/chat-workspace.md
   - docs/patchouli/artifacts.md
 related_plans:
-  - docs/plans/v0.6.2-w1-chat-attachments.md
+  - docs/archive/plans/v0.6.2-w1-chat-attachments.md
 last_reviewed: 2026-09-11
 ---
 

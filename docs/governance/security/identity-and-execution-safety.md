@@ -18,7 +18,7 @@ related_docs:
   - docs/alice/mtp-runtime.md
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
-  - docs/todo/mtp-cache-scope-revalidation.md
+  - docs/archive/todo/mtp-cache-scope-revalidation.md
 last_reviewed: 2026-09-13
 ---
 
@@ -108,7 +108,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
-1. 已完成：L0 PendingAtom alias 命中已在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不存在处理；L1 atom cache 命中后重验边界保持不变（见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
+1. 已完成：L0 PendingAtom alias 命中已在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不存在处理；L1 atom cache 命中后重验边界保持不变（见 [MTP cache scope revalidation 归档记录](../../archive/todo/mtp-cache-scope-revalidation.md)）；
 2. 已完成（v0.6.2）：L1 atom cache 与 profile cache 按 Workspace(+Actor) 坐标分区且由 AliceRuntime 持有，同分区命中仍重验 ownership/actor policy；PendingAtom store、compiled context 等其余共享组件不因 Workspace 自动拆分（[ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md)）；
 3. 为 MemoryLibrary、Artifact、archive/revive 和后台恢复入口统一 scope 检查；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
