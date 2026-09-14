@@ -25,6 +25,7 @@ last_reviewed: 2026-09-14
 |:---|:---|
 | Released | 已有对应 Git tag 的发布版本 |
 | Current Development | 当前开发基线，主体可能已合并但尚未发布 |
+| Completed | 版本或事项内容已收尾；是否已发布仍以 Git tag 为准 |
 | Planned | 已形成目标和大致边界，尚未成为当前事实 |
 | Candidate | 候选排期，范围和顺序仍可调整 |
 | Unscheduled | 已确认问题或方向，但尚未进入具体版本承诺 |
@@ -34,10 +35,11 @@ last_reviewed: 2026-09-14
 当前版本事实如下：
 
 - 最新已发布标签：`v0.6.1`；
-- 当前发布基线：`v0.6.1`；
-- 下一计划版本：`v0.6.2`，整体状态为 Candidate（W0、Identity 收敛与 W1 Chat Attachments 已实现但尚未形成发布标签）；[W0 Workspace MVP](./archive/plans/v0.6.2-workspace-mvp.md)与 [Identity 投影收敛](./archive/plans/v0.6.2-identity-projection-cleanup.md)已完成并归档，[W1 Chat Attachments](./plans/v0.6.2-w1-chat-attachments.md) 实现与验收已完成（Plan 待归档），当前事实见 [Workspace 架构](./architecture/workspace.md)、[System 应用服务](./system/application-services.md)与[Chat 附件链路](./system/attachments.md)。
+- 最近已发布基线：`v0.6.1`；
+- 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档，尚未创建发布标签）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
+- 下一计划版本：`v0.7.0`，Workspace 资源体系与 Actor 边界重构，状态为 Planned。
 
-当前规范代码版本为 `0.6.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。`v0.6.1` Git tag、Python 包、前端清单和构建检查使用完全一致的版本口径。
+当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；最新已有 Git tag 仍为 `v0.6.1`，不得将此次版本调整记为已发布 `v0.6.2`。
 
 ## 2. 发布历史
 
@@ -53,7 +55,7 @@ last_reviewed: 2026-09-14
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
-## 3. 当前发布：v0.6.1
+## 3. 最近已发布基线：v0.6.1
 
 主题：**Reliable Local Work Runtime**。
 
@@ -132,19 +134,21 @@ last_reviewed: 2026-09-14
 
 除已有正式 Plan 的 `v0.7.0` 外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
 
-### 4.2 v0.6.2：已实现基础与发布收口
+### 4.2 v0.6.2：内容已收尾
 
-状态：W0、Identity 收敛、V1 Memory 迁移、W1 已完成相应实施，整体尚无 `v0.6.2` 发布标签。资源体系重构从本版本移出。
+状态：Completed。W0、Identity 收敛、V1 Memory 迁移、W1、Topic 存储边界整理与 MTP scope 修复已完成内容核对；相关计划和修复记录均已归档，规范版本已调整至 0.6.2，尚无发布标签。资源体系重构归属 v0.7.0。
 
 | 切片 | 已形成的基础 | 事实与历史入口 |
 |:---|:---|:---|
 | W0 Workspace MVP | WorkspaceIdentity、默认 main_workspace、端到端 scope、双 Workspace 隔离、进程级 WorkspaceAssetStore、两级状态机与 TopicAssetBinding | [Workspace 架构](./architecture/workspace.md)、[W0 归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md) |
 | Identity 投影收敛 | 服务入口统一 IdentityScope、身份解析入口收口、actor 值对象化、管理与检索可见性分离 | [System 应用服务](./system/application-services.md)、[Identity 归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
 | V1 Memory Legacy 迁移 | 已有 V1 记录迁入 canonical v2，移除 legacy 解释分支 | [数据模型](./architecture/data-model.md)、[迁移归档 Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md) |
-| W1 Chat Attachments | 上传、确定性解析、READY/FAILED、选择与 lease、AttachmentCompiler、Topic binding、按需 Artifact promotion | [附件链路](./system/attachments.md)、[W1 Plan](./plans/v0.6.2-w1-chat-attachments.md)（已实现，待归档） |
+| W1 Chat Attachments | 上传、确定性解析、READY/FAILED、选择与 lease、AttachmentCompiler、Topic binding、按需 Artifact promotion | [附件链路](./system/attachments.md)、[W1 归档 Plan](./archive/plans/v0.6.2-w1-chat-attachments.md) |
+| MTP scope 修复 | L0 pending 与 L1/L2 atom 查找重验 scope，越权按不可见处理 | [MTP 契约](./contracts/mtp.md)、[归档修复记录](./archive/todo/mtp-cache-scope-revalidation.md) |
+| Topic 与短期存储边界 | TopicWorkingSet、lease 与短期 CRUD/快照责任收敛 | [Perception](./patchouli/perception.md)、[归档 Plan](./archive/plans/short-term-memory-store-boundary-cleanup.md) |
 | 旧缓存迁移及后续所有权调整 | Workspace-aware cache key 已形成；随后按 ADR-0004 由 AliceRuntime 持有，WorkspaceRuntime 聚合解体 | [旧迁移归档 Plan](./archive/plans/v0.6.2-workspace-runtime-cache-migration.md)、[ADR-0004](./architecture/decisions/0004-execution-path-derived-caches.md) |
 
-发布收口继续核对上述范围的测试、文档、W1 归档和版本产物一致性。W0/W1 不因此重新承担外源文档全文摄入、强沙箱或外部 harness 完整接入。已完成的 V1 数据转换也不同于未来的历史对话导入。
+本次收尾已核对上述范围的测试、事实文档、归档和版本产物一致性，结果见 [收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。W0/W1 不因此重新承担外源文档全文摄入、强沙箱或外部 harness 完整接入。已完成的 V1 数据转换也不同于未来的历史对话导入。
 
 ### 4.3 目标总览
 
@@ -241,7 +245,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 
 | Todo | 排期方式 | 范围约束 |
 |:---|:---|:---|
-| [MTP 缓存作用域重验](./todo/mtp-cache-scope-revalidation.md) | Completed；保留为 v0.7.0 回归基线 | 已修复的 L0/L1/L2 隔离语义不重排为待开发功能 |
+| [MTP 缓存作用域重验（归档）](./archive/todo/mtp-cache-scope-revalidation.md) | Completed / Archived；保留为 v0.7.0 回归基线 | 已修复的 L0/L1/L2 隔离语义不重排为待开发功能 |
 | [全局路由签名校验](./todo/global-route-signature-consistency-check.md) | v0.7.0 契约迁移时纳入质量切片 | 检测参数不匹配；不重做路由系统 |
 | [Alice 健康探针](./todo/alice-health-probes.md) | v0.7.0 生命周期切片 | 反映执行器实际就绪/故障；不令资源 readiness 依赖 Alice 在线 |
 | [RuntimeEvent 生产端迁移](./todo/runtime-event-producer-migration.md) | v0.7.0/1 按受影响生产域迁移 | 保持事件只做观测，不以事件投递成功控制业务状态 |

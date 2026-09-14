@@ -7,13 +7,14 @@
 
 HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
-当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 编排 Gateway、Patchouli 和 Alice 三个同级子系统的 v0.6.1 发布基线。
+当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 编排 Gateway、Patchouli 和 Alice 三个同级子系统的 v0.6.2 内容基线。Workspace 身份隔离、Chat 附件和 MTP 缓存作用域修复已收尾。
 
 ## 发布状态
 
 - 最新已发布标签：`v0.6.1`
-- 当前发布基线：`v0.6.1`
-- 代码与包版本：`0.6.1`
+- 最近已发布基线：`v0.6.1`
+- 当前内容基线：`v0.6.2`（已收尾，尚未创建发布标签）
+- 代码与包版本：`0.6.2`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
 
@@ -26,6 +27,13 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `ChatApplicationService` 编排 Patchouli prepare/finalize 与 Alice Agent 执行
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
 - **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 System 层 `PassiveIngressService` 负责编排 Gateway 决策、缓冲、检索和 Patchouli 提交
+
+### Workspace 与 Chat 附件
+
+- Memory、Topic 和附件携带明确的 Workspace 归属，入口统一 IdentityScope，并校验跨 Workspace 访问；
+- 支持 TXT、Markdown、DOCX 上传与确定性解析，READY 表示可显式选择进入 Chat；
+- AttachmentCompiler 按预算编译上下文，成功 Interaction 记录使用关系，Memory CREATE/UPDATE 按需生成来源 Artifact；
+- WorkspaceAsset 仅承诺当前进程内可用，缓存继续由 AliceRuntime 持有；完整边界见 [Workspace 架构](docs/architecture/workspace.md)和 [Chat 附件链路](docs/system/attachments.md)。
 
 ### 记忆与话题管理
 
@@ -307,7 +315,7 @@ HiveMemory/
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。当前仓库处于 v0.6.1 发布基线；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
+欢迎提交 Issue 和 Pull Request。当前仓库的 v0.6.2 内容已收尾，最新已发布标签仍为 v0.6.1；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
 
 ## 许可证
 
