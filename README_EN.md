@@ -11,9 +11,9 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 
 ## Release Status
 
-- Latest released tag: `v0.6.1`
+- Release tag for this baseline: `v0.6.2` (create after merge)
 - Latest published baseline: `v0.6.1`
-- Current implementation baseline: `v0.6.2` (closeout complete; release tag not created)
+- Current implementation baseline: `v0.6.2` (closeout complete)
 - Code and package version: `0.6.2`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
@@ -315,7 +315,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. The v0.6.2 implementation has completed closeout; the latest published tag remains v0.6.1. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. The v0.6.2 implementation has completed closeout, and its release tag is `v0.6.2` to be created after merge. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

@@ -12,7 +12,7 @@ last_reviewed: 2026-09-14
 
 当前记录：
 
-- [v0.6.2 版本收尾审计](./v0.6.2-release-closeout-audit.md)：记录已合并范围、归档承接、版本声明、测试与构建结果；代码版本为 0.6.2，尚未创建发布标签。
+- [v0.6.2 版本收尾审计](./v0.6.2-release-closeout-audit.md)：记录已合并范围、归档承接、版本声明、测试与构建结果；代码版本与本次发布标签为 0.6.2（标签在合并后创建）。
 - [v0.6.2 W1 Chat Attachments](./v0.6.2-w1-chat-attachments.md)：W1-A 至 W1-F 已随 PR #97 合并并归档；当前事实见 [Chat 附件链路](../../system/attachments.md)、[Workspace 架构](../../architecture/workspace.md) 与 [Artifacts](../../patchouli/artifacts.md)。
 
 - [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移](./v0.6.2-workspace-runtime-cache-migration.md)：WRT-0～WRT-5 已完成——进程级唯一 `WorkspaceRuntime` 聚合（AssetStore + 两个派生 cache + 窄化端口）落地，KoakumaAtomCache 按 `(WorkspaceIdentity, alias)`、AgentProfileCache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区，PendingAtomRuntime 保持 Alice 所有；后续经 [ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md) 将派生缓存所有权归还 AliceRuntime、聚合解体（分区键控保留）；当前事实见 [Workspace 架构](../../architecture/workspace.md)、[System 组合根](../../system/composition.md)、[Alice](../../alice/README.md)、[MTP 契约](../../contracts/mtp.md) 与两份治理文档。
