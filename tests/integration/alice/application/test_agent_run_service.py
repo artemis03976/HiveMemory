@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
-from hivememory.alice.runtime.profile_resolver import AgentProfileCache
+from hivememory.system.runtime.workspace import KoakumaAtomCache
+from hivememory.system.runtime.workspace import AgentProfileCache
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.products import RuntimeProducts

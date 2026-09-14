@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
-from hivememory.alice.runtime.profile_resolver import AgentProfileCache
+from hivememory.system.runtime.workspace import KoakumaAtomCache
+from hivememory.system.runtime.workspace import AgentProfileCache
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory

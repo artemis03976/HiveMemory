@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import threading
 
-from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
-from hivememory.agent_runtime.aliases.ports import AtomCachePort
-from hivememory.alice.runtime.profile_resolver import AgentProfileCache, ProfileCachePort
+from hivememory.system.runtime.workspace.atom_cache import KoakumaAtomCache
+from hivememory.system.runtime.workspace.ports import AtomCachePort, ProfileCachePort
+from hivememory.system.runtime.workspace.profile_cache import AgentProfileCache
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 
 logger = logging.getLogger(__name__)

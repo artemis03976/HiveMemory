@@ -15,7 +15,6 @@ from collections.abc import AsyncGenerator
 from enum import Enum
 from typing import Any
 
-from hivememory.agent_runtime.aliases import AtomCachePort
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -43,6 +42,7 @@ from hivememory.core.protocol.models import (
     AgentRunStatus,
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.system.runtime.workspace import AtomCachePort
 
 logger = logging.getLogger(__name__)
 

@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.system.runtime.workspace import KoakumaAtomCache
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_workspace_identity
 

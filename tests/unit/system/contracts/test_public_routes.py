@@ -6,9 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.runtime.profile_resolver import AgentProfileCache
 from hivememory.alice.system import AliceSystem
 from hivememory.core.models import (
     IndexLayer,
@@ -25,6 +23,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.workspace import AgentProfileCache, KoakumaAtomCache
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_identity_scope,

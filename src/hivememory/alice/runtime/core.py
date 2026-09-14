@@ -3,17 +3,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime.aliases import AtomCachePort, RuntimeAliasResolver
+from hivememory.agent_runtime.aliases import RuntimeAliasResolver
 from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.alice.runtime.profile_resolver import AgentProfileResolver, ProfileCachePort
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import IdentityScope, PendingAtomSettlement
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.runtime.workspace import AtomCachePort, ProfileCachePort
 
 logger = logging.getLogger(__name__)
 

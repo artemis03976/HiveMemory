@@ -34,9 +34,9 @@ from hivememory.core.mtp.exceptions import (
 from hivememory.engines.retrieval.policy import memory_is_readable
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.aliases.ports import AtomCachePort
     from hivememory.agent_runtime.models import MTPExecutionContext
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
+    from hivememory.system.runtime.workspace import AtomCachePort
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,6 @@ import ast
 import inspect
 from pathlib import Path
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
@@ -12,9 +11,10 @@ from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
-from hivememory.alice.runtime.profile_resolver import AgentProfileCache, AgentProfileResolver
+from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.system.config import HiveMemoryConfig
+from hivememory.system.runtime.workspace import AgentProfileCache, KoakumaAtomCache
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 

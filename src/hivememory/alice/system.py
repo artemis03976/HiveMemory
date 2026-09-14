@@ -9,13 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime.aliases import AtomCachePort
 from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
-from hivememory.alice.runtime.profile_resolver import ProfileCachePort
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.prompts.assembler import AgentPromptAssembler
@@ -25,6 +23,7 @@ from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
+from hivememory.system.runtime.workspace import AtomCachePort, ProfileCachePort
 
 logger = logging.getLogger(__name__)
 

@@ -8,12 +8,11 @@ AliceSystem 集成测试 — 真实 System + GlobalSystemBus 协作
 
 import pytest
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.runtime.profile_resolver import AgentProfileCache
 from hivememory.alice.system import AliceSystem
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.system.runtime.workspace import AgentProfileCache, KoakumaAtomCache
 
 
 @pytest.mark.asyncio
