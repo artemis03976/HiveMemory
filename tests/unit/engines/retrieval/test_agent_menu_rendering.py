@@ -44,7 +44,7 @@ from hivememory.core.mtp import (
 from tests.helpers.memory import make_memory_metadata
 
 
-# ========== ExecutionFrame Tests ==========
+# ========== ExecutionFrame 测试 ==========
 
 
 class TestRAGMenuRendering:

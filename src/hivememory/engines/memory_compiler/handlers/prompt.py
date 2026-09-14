@@ -1,4 +1,4 @@
-"""Prompt-oriented memory target handlers."""
+"""面向 Prompt 的记忆 target 处理器。"""
 
 from __future__ import annotations
 

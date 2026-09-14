@@ -17,13 +17,22 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.unit.agent_runtime.mtp.conftest import make_mock_bus
+
+MAIN = make_workspace_identity()
+ISOLATED = make_workspace_identity(workspace_id="isolation_workspace")
 
 
 def _context(*, workspace_id: str = "main_workspace") -> MTPExecutionContext:
     return MTPExecutionContext(
         runtime_scope=make_runtime_scope(workspace_id=workspace_id)
+    )
+
+
+def _scoped_context(*, agent_id: str, workspace_id: str = "main_workspace") -> MTPExecutionContext:
+    return MTPExecutionContext(
+        runtime_scope=make_runtime_scope(agent_id=agent_id, workspace_id=workspace_id)
     )
 
 
@@ -93,7 +102,7 @@ async def test_resolve_settled_pending_redirect_l1_hit(resolver_parts):
         runtime_scope=make_runtime_scope(),
     )
     canonical = _make_memory(alias="fact_canonical", content="canonical content")
-    atom_cache.ingest_atom(canonical)
+    atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
     settlement = PendingAtomSettlement(
         pending_alias=pending.pending_alias,
         intent_id=pending.intent_id,
@@ -146,7 +155,7 @@ async def test_resolve_settled_pending_redirect_l2_hit(resolver_parts):
 
     assert result.kind == "redirect"
     assert result.atom is canonical
-    assert atom_cache.get_atom_by_alias("fact_canonical") is canonical
+    assert atom_cache.get_atom_by_alias("fact_canonical", workspace_identity=MAIN) is canonical
 
 
 @pytest.mark.asyncio
@@ -181,7 +190,7 @@ async def test_resolve_discarded_pending_without_redirect(resolver_parts):
 async def test_resolve_l1_atom_hit(resolver_parts):
     resolver, _pending_runtime, atom_cache, bus = resolver_parts
     atom = _make_memory(alias="fact_l1", content="from l1")
-    atom_cache.ingest_atom(atom)
+    atom_cache.ingest_atom(atom, workspace_identity=MAIN)
 
     result = await resolver.resolve("fact_l1", context=_context())
 
@@ -191,9 +200,42 @@ async def test_resolve_l1_atom_hit(resolver_parts):
 
 
 @pytest.mark.asyncio
-async def test_l1_hit_revalidates_workspace_without_partitioning_cache(resolver_parts):
-    """捕获共享 alias cache 命中被误作 Workspace 授权结果的缺陷。"""
+async def test_same_alias_partitions_per_workspace_with_scoped_l2_backfill(resolver_parts):
+    """同 alias 在不同 Workspace 各自命中自己的 atom，L2 回填只写调用方分区。"""
     resolver, _pending_runtime, atom_cache, bus = resolver_parts
+    isolated_atom = _make_memory(
+        alias="fact_shared",
+        content="isolated",
+        workspace_id="isolation_workspace",
+    )
+    authorized = _make_memory(
+        alias="fact_shared",
+        content="main",
+        workspace_id="main_workspace",
+    )
+    atom_cache.ingest_atom(isolated_atom, workspace_identity=ISOLATED)
+    bus._mock_storage.get_memory_by_alias.return_value = authorized
+
+    result = await resolver.resolve("fact_shared", context=_context())
+
+    assert result.kind == "atom"
+    # 隔离 Workspace 的缓存条目不会泄露给 main 调用方；L1 未命中走 L2 授权副本。
+    assert result.atom is authorized
+    assert atom_cache.get_atom_by_alias("fact_shared", workspace_identity=MAIN) is authorized
+    assert (
+        atom_cache.get_atom_by_alias("fact_shared", workspace_identity=ISOLATED)
+        is isolated_atom
+    )
+    # 回填不污染其他分区，也从未为隔离分区触发过 L2 写入。
+    third = make_workspace_identity(workspace_id="third_workspace")
+    assert atom_cache.has_alias("fact_shared", workspace_identity=third) is False
+
+
+@pytest.mark.asyncio
+async def test_l1_hit_still_revalidates_ownership_and_actor_policy(resolver_parts):
+    """同分区内命中仍重验 Workspace ownership 与 actor policy，越权条目不返回。"""
+    resolver, _pending_runtime, atom_cache, bus = resolver_parts
+    # main 分区内存在 meta 归属 isolation_workspace 的越权缓存条目。
     cached = _make_memory(
         alias="fact_shared",
         content="isolated",
@@ -204,14 +246,14 @@ async def test_l1_hit_revalidates_workspace_without_partitioning_cache(resolver_
         content="main",
         workspace_id="main_workspace",
     )
-    atom_cache.ingest_atom(cached)
+    atom_cache.ingest_atom(cached, workspace_identity=MAIN)
     bus._mock_storage.get_memory_by_alias.return_value = authorized
 
     result = await resolver.resolve("fact_shared", context=_context())
 
     assert result.kind == "atom"
     assert result.atom is authorized
-    assert atom_cache.get_atom_by_alias("fact_shared") is authorized
+    assert atom_cache.get_atom_by_alias("fact_shared", workspace_identity=MAIN) is authorized
 
 
 @pytest.mark.asyncio
@@ -225,7 +267,7 @@ async def test_resolve_l2_hit_promotes_to_l1(resolver_parts):
 
     assert result.kind == "atom"
     assert result.atom is atom
-    assert atom_cache.get_atom_by_alias("fact_l2") is atom
+    assert atom_cache.get_atom_by_alias("fact_l2", workspace_identity=MAIN) is atom
 
     bus._mock_storage.get_memory_by_alias.reset_mock()
     second = await resolver.resolve("fact_l2", context=context)
@@ -277,3 +319,121 @@ async def test_resolve_expired_pending_returns_expired(resolver_parts):
 
     assert result.kind == "expired"
     assert result.requested_alias == pending.pending_alias
+
+
+@pytest.mark.asyncio
+async def test_resolve_failed_pending_same_scope_returns_failed(resolver_parts):
+    resolver, pending_runtime, _atom_cache, _bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="will fail",
+        title="Fail Test",
+        reason=None,
+        identity=ActorIdentity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(),
+    )
+    pending_runtime.claim_for_materialization([pending.pending_alias])
+    pending_runtime.mark_failed(pending.pending_alias)
+
+    result = await resolver.resolve(pending.pending_alias, context=_context())
+
+    assert result.kind == "failed"
+    assert result.pending is pending
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_pending_from_other_workspace_as_not_found(resolver_parts):
+    """跨 Workspace 调用方命中他人 pending alias 必须按不存在处理，且不触发存储查询。"""
+    resolver, pending_runtime, _atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="secret draft",
+        title="Secret Draft",
+        reason=None,
+        identity=ActorIdentity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+    )
+
+    result = await resolver.resolve(
+        pending.pending_alias, context=_context(workspace_id="main_workspace")
+    )
+
+    assert result.kind == "not_found"
+    assert result.pending is None
+    assert result.settlement is None
+    assert result.atom is None
+    bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_pending_from_other_actor_in_same_workspace(resolver_parts):
+    """同 Workspace 不同 actor 命中他人 pending alias 同样按不存在处理。"""
+    resolver, pending_runtime, _atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="secret draft",
+        title="Secret Draft",
+        reason=None,
+        identity=ActorIdentity(user_id="test_user", agent_id="other_agent"),
+        runtime_scope=make_runtime_scope(agent_id="other_agent"),
+    )
+
+    result = await resolver.resolve(pending.pending_alias, context=_context())
+
+    assert result.kind == "not_found"
+    assert result.pending is None
+    assert result.settlement is None
+    bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_settled_redirect_from_other_workspace_without_canonical_read(resolver_parts):
+    """跨 Workspace 命中已结算 redirect 时不得泄露 canonical 指向或触发 canonical 查询。"""
+    resolver, pending_runtime, atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="pending content",
+        title="Pending Note",
+        reason=None,
+        identity=ActorIdentity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+    )
+    canonical = _make_memory(alias="fact_canonical", content="canonical content")
+    atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
+    settlement = PendingAtomSettlement(
+        pending_alias=pending.pending_alias,
+        intent_id=pending.intent_id,
+        resolution=PendingAtomResolution.CREATED,
+        canonical_alias="fact_canonical",
+        canonical_uuid=str(canonical.id),
+    )
+    pending_runtime.claim_for_materialization([pending.pending_alias])
+    pending_runtime.settle(settlement)
+
+    result = await resolver.resolve(
+        pending.pending_alias, context=_context(workspace_id="main_workspace")
+    )
+
+    assert result.kind == "not_found"
+    assert result.canonical_alias is None
+    assert result.canonical_uuid is None
+    assert result.atom is None
+    bus._mock_storage.get_memory_by_alias.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_rejects_expired_pending_from_other_workspace(resolver_parts):
+    """跨 Workspace 命中已过期 pending 时不得泄露 expired 终态。"""
+    resolver, pending_runtime, _atom_cache, bus = resolver_parts
+    pending = pending_runtime.register_write(
+        content="will expire",
+        title="Expire Test",
+        reason=None,
+        identity=ActorIdentity(user_id="test_user"),
+        runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+    )
+    pending_runtime.expire(pending.pending_alias)
+
+    result = await resolver.resolve(
+        pending.pending_alias, context=_context(workspace_id="main_workspace")
+    )
+
+    assert result.kind == "not_found"
+    assert result.pending is None
+    bus._mock_storage.get_memory_by_alias.assert_not_called()

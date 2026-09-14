@@ -38,10 +38,12 @@ from hivememory.core.mtp import (
 )
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
 
-# ========== Helpers ==========
+MAIN = make_workspace_identity()
+
+# ========== 辅助函数 ==========
 
 def _make_memory(
     title: str = "Test Memory",
@@ -113,7 +115,7 @@ def _handle_search(koakuma: KoakumaRuntime, args, context=None):
     )
 
 
-# ========== Test 1: _parse_mtp_filter ==========
+# ========== Test 1：_parse_mtp_filter ==========
 
 
 class TestParseFilter:
@@ -176,7 +178,7 @@ class TestParseFilter:
 
     def test_confidence_out_of_range(self, koakuma):
         filters, warnings = koakuma.parse("confidence:1.5")
-        # should ignore out of range and fallback to 0.0
+        # 越界值应被忽略并回退到 0.0
         assert filters is None
         assert len(warnings) == 1
         assert warnings[0].message_key == "mtp.filter.confidence_out_of_range"
@@ -235,7 +237,7 @@ class TestParseFilter:
         assert not warnings
 
 
-# ========== Test 2: SEARCH → RetrievalRequest ==========
+# ========== Test 2：SEARCH → RetrievalRequest ==========
 
 class TestSearchRetrievalRequest:
     """验证 SEARCH → RetrievalFamiliar.retrieve() 调用参数"""
@@ -285,7 +287,7 @@ class TestSearchRetrievalRequest:
         assert call_args.filters is None
 
 
-# ========== Test 3: Search Result Rendering ==========
+# ========== Test 3：搜索结果渲染 ==========
 
 class TestSearchResultRendering:
     """SEARCH 通过 MemoryCompiler 编译 RetrievalResponse.memories。"""
@@ -330,14 +332,14 @@ class TestSearchResultRendering:
             )
 
         assert response.status == MTPResponseStatus.SUCCESS
-        assert response.content  # compiled non-empty
+        assert response.content  # 编译结果非空
         assert compile_mock.call_count == 1
         assert len(response.warnings) == 1
         assert response.warnings[0].message_key == "mtp.filter.unknown_key"
         assert response.warnings[0].params == {"key": "unknown"}
 
 
-# ========== Test 4: Alias Registration ==========
+# ========== Test 4：Alias 注册 ==========
 
 class TestSearchAliasRegistration:
     """SEARCH 后别名注册到 KoakumaAtomCache"""
@@ -348,8 +350,8 @@ class TestSearchAliasRegistration:
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="api spec" ⟫')
 
-        assert koakuma.atom_cache.has_alias("fact_api_spec")
-        atom = koakuma.atom_cache.get_atom_by_alias("fact_api_spec")
+        assert koakuma.atom_cache.has_alias("fact_api_spec", workspace_identity=MAIN)
+        atom = koakuma.atom_cache.get_atom_by_alias("fact_api_spec", workspace_identity=MAIN)
         assert atom is not None
         assert str(atom.id) == str(mem.id)
 
@@ -362,8 +364,8 @@ class TestSearchAliasRegistration:
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
-        assert koakuma.atom_cache.has_alias("fact_a")
-        assert koakuma.atom_cache.has_alias("fact_b")
+        assert koakuma.atom_cache.has_alias("fact_a", workspace_identity=MAIN)
+        assert koakuma.atom_cache.has_alias("fact_b", workspace_identity=MAIN)
 
     def test_registered_alias_resolvable_by_read(self, koakuma):
         """SEARCH 注册的 alias 可被 READ 解析"""
@@ -380,7 +382,7 @@ class TestSearchAliasRegistration:
         assert "API documentation content" in result.response_content
 
 
-# ========== Test 5: Koakuma SEARCH E2E ==========
+# ========== Test 5：Koakuma SEARCH E2E ==========
 
 class TestKoakumaSearchE2E:
     """通过 execute_mtp 端到端测试 SEARCH"""
@@ -392,7 +394,7 @@ class TestKoakumaSearchE2E:
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
 
         assert result.success
-        assert result.response_content  # non-empty compiled output
+        assert result.response_content  # 编译输出非空
         assert "Test Memory" in result.response_content or "Test summary" in result.response_content
 
     def test_search_with_filter(self, koakuma):
@@ -496,7 +498,7 @@ class TestKoakumaSearchE2E:
         assert result.success
 
 
-# ========== Test 6: Koakuma SEARCH Validation ==========
+# ========== Test 6：Koakuma SEARCH 校验 ==========
 
 class TestKoakumaSearchValidation:
     """SEARCH 参数校验"""

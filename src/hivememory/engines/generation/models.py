@@ -25,7 +25,7 @@ from hivememory.core.models.artifact import normalize_contributing_agent_ids
 
 
 class DuplicateDecision(str, Enum):
-    """Deduplication decision produced inside the generation pipeline."""
+    """生成管线内部产出的去重决策。"""
 
     CREATE = "create"
     UPDATE = "update"
@@ -210,7 +210,7 @@ class GenerationRequest(BaseModel):
 
 
 class GenerationOutcome(BaseModel):
-    """Pure compute result produced by the generation engine."""
+    """生成引擎产出的纯计算结果。"""
 
     atom: Optional[Any] = None
     duplicate_decision: DuplicateDecision

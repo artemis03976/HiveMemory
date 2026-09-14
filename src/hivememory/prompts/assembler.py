@@ -1,4 +1,4 @@
-"""Agent prompt assembly entrypoints."""
+"""Agent 提示词组装入口。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from hivememory.prompts.system_prompt import SystemPromptBuilder
 
 
 class AgentPromptAssembler:
-    """Build complete Worker Agent messages from prepared context."""
+    """从准备好的上下文构建完整的 Worker Agent 消息。"""
 
     def __init__(self, koakuma_config: Any) -> None:
         self._koakuma_config = koakuma_config

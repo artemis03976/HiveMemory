@@ -24,7 +24,7 @@ _TERMINAL_KINDS = {"discarded", "failed", "expired"}
 
 
 def build_resolve_result_ir(resolve_result: "ResolveResult") -> MemoryUnitIR:
-    """Build IR for redirect or terminal ResolveResult kinds only."""
+    """只为 redirect 或终态的 ResolveResult kind 构建 IR。"""
     kind = resolve_result.kind
     settlement = resolve_result.settlement
 
@@ -42,7 +42,7 @@ def build_resolve_result_ir(resolve_result: "ResolveResult") -> MemoryUnitIR:
             metadata=inner.metadata,
         )
 
-    # terminal kinds: discarded / failed / expired
+    # 终态 kind：discarded / failed / expired
     if kind not in _TERMINAL_KINDS:
         raise ValueError(
             f"build_resolve_result_ir only handles 'redirect' and terminal kinds "

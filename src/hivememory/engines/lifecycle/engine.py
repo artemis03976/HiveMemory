@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryLifecycleEngine:
-    """Coordinate lifecycle scoring, reinforcement events, and garbage collection."""
+    """协调生命周期评分、强化事件与垃圾回收。"""
 
     def __init__(
         self,
@@ -49,7 +49,7 @@ class MemoryLifecycleEngine:
         *,
         persist: bool = False,
     ) -> float:
-        """Refresh a MemoryAtom vitality score in place."""
+        """就地刷新单个 MemoryAtom 的活力评分。"""
         vitality = self.vitality_calculator.calculate(memory)
         memory.meta.vitality_score = vitality
         if persist:
@@ -62,7 +62,7 @@ class MemoryLifecycleEngine:
         *,
         persist: bool = False,
     ) -> List[Tuple[UUID, float]]:
-        """Refresh vitality scores for the caller-provided memory collection."""
+        """刷新调用方传入记忆集合的活力评分。"""
         results = []
         for memory in memories:
             vitality = await self.refresh_vitality(memory, persist=persist)

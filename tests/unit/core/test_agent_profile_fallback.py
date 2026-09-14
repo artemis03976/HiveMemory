@@ -9,6 +9,7 @@
 import pytest
 
 from hivememory.agent_runtime.mtp.syscalls.registry import build_kernel_registry
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models.agent import (
     OMNI_DOLL_ALLOWED_MTP_VERBS,
@@ -33,7 +34,10 @@ async def test_resolver_fallback_uses_omni_doll_profile_without_bus(alias):
     from unittest.mock import MagicMock
 
     bus = MagicMock()
-    resolver = AgentProfileResolver(local_bus=bus)
+    resolver = AgentProfileResolver(
+        local_bus=bus,
+        profile_cache=AgentProfileCache(),
+    )
 
     profile = await resolver.resolve(alias, identity_scope=make_identity_scope())
 

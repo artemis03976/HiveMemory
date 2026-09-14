@@ -23,7 +23,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-13
 ---
 
 # 多 Agent 编排
@@ -52,13 +52,13 @@ AliceSystem
   │    └─ AgentRunEventEmitter
   │         └─ global best-effort agent.run.* observability
   └─ AliceRuntime
-       ├─ AgentProfileResolver -> ActorIdentity + alias keyed AgentProfile LRU cache
+       ├─ AgentProfileResolver -> (Workspace, Actor, alias) 授权坐标 keyed AgentProfile LRU cache
        ├─ RuntimeAliasResolver -> context_refs pending / redirect / atom
        └─ AgentRuntime facade -> execute one frame to a terminal/trap outcome
 ```
 
 - AgentRunService 是 Alice 的公开 run 用例入口，负责创建入口 frame、为每次 run 构造 Executor、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
-- AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache 和 PendingAtom 运行时投影，不参与单次 run 的控制链；
+- AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache 和 PendingAtom 运行时投影（cache 按授权坐标分区），不参与单次 run 的控制链；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并且是唯一调用 `finalize_run()` 的位置；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
@@ -66,7 +66,7 @@ AliceSystem
 - CallContextProvider 按 caller `IdentityScope` 解析目标 Profile 与 `context_refs`，返回不含 frame 或 CALL ledger 状态的 `CallContext`；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
-- AgentProfileResolver 负责把可读 agent alias 解析为运行图纸；其实例和按 `ActorIdentity + alias` 组织的 cache 由 AliceRuntime 持有，Workspace scope 随请求交给 Patchouli owner route，不单独切分该共享 cache；
+- AgentProfileResolver 负责把可读 agent alias 解析为运行图纸；其实例和按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 授权坐标分区的 cache 由 AliceRuntime 持有，Workspace scope 随请求交给 Patchouli owner route，跨授权坐标不复用缓存条目；
 - RuntimeAliasResolver 让 context refs 复用与 READ 相同的运行时寻址；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
 
@@ -116,7 +116,7 @@ current frame emits CALL
 
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
 
-其他 alias 必须随父 frame 的 `IdentityScope` 解析。CallContextProvider 调用 AliceRuntime 持有的 AgentProfileResolver；Resolver 先查 `ActorIdentity + alias` 维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力，并在请求中携带完整 scope。并发 cache miss 会串行复查，避免一个 actor 的结果污染另一个请求。Patchouli 作为 Profile atom 所有者执行 Workspace ownership、user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。cache 生命周期因此跟随 AliceRuntime，而不是某个 run 或 CallCoordinator；`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
+其他 alias 必须随父 frame 的 `IdentityScope` 解析。CallContextProvider 调用 AliceRuntime 持有的 AgentProfileResolver；Resolver 先查 `(WorkspaceIdentity, Actor 投影, alias)` 授权坐标维度的 32 项 LRU cache，再通过 local bus 请求 Patchouli 的 `GET_AGENT_PROFILE` 能力，并在请求中携带完整 scope。并发 cache miss 会串行复查，避免一个坐标的结果污染另一个坐标。Patchouli 作为 Profile atom 所有者执行 Workspace ownership、user 与 PUBLIC / WORKSPACE / PRIVATE 可见性校验，再解析 persona、模型和权限。cache 生命周期跟随 AliceRuntime 与 `AliceSystem.stop()`，而不是某个 run 或 CallCoordinator；`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
 
 显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
 
@@ -227,7 +227,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 ## 10. 当前限制
 
-- AgentProfile cache 按 `ActorIdentity + alias` 组织、上限固定为 32；Workspace scope 通过解析请求传播而不自动形成 cache 分区。缓存没有 TTL、版本检查或管理事件失效，Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
+- AgentProfile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 组织、上限固定为 32（键控规则见 [ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）。缓存没有 TTL、版本检查或管理事件失效，Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 `IdentityScope`。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 actor projection 证明真实 CALL 目标；
 - frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；

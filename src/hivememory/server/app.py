@@ -69,12 +69,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:6918",      # Custom frontend port
-        "http://127.0.0.1:6918",      # Custom frontend port
-        "http://localhost:3000",      # Legacy port
-        "http://127.0.0.1:3000",      # Legacy port
-        "http://localhost:5173",      # Vite default (may be reserved by Windows)
-        "http://127.0.0.1:5173",      # Vite default (may be reserved by Windows)
+        "http://localhost:6918",      # 自定义前端端口
+        "http://127.0.0.1:6918",      # 自定义前端端口
+        "http://localhost:3000",      # 旧版端口
+        "http://127.0.0.1:3000",      # 旧版端口
+        "http://localhost:5173",      # Vite 默认端口（可能被 Windows 保留）
+        "http://127.0.0.1:5173",      # Vite 默认端口（可能被 Windows 保留）
     ],
     allow_credentials=True,
     allow_methods=["*"],

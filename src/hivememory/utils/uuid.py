@@ -4,5 +4,5 @@ from uuid import UUID
 
 
 def normalize_uuid(value: UUID | str) -> UUID:
-    """Return a UUID object from an existing UUID or UUID-compatible string."""
+    """从现有 UUID 或兼容 UUID 的字符串返回 UUID 对象。"""
     return value if isinstance(value, UUID) else UUID(str(value))

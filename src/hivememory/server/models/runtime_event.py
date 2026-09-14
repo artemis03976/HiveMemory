@@ -1,4 +1,4 @@
-"""RuntimeEvent API models."""
+"""RuntimeEvent API 模型。"""
 
 from __future__ import annotations
 

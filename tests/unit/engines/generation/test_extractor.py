@@ -158,8 +158,8 @@ class TestLLMMemoryExtractor:
         assert "No new material" in messages[1]["content"]
         assert "No background conversation" in messages[1]["content"]
 
-    # test_parse_json_* tests removed as they test internal implementation details
-    # or should be tested via parse_llm_json unit tests.
+    # test_parse_json_* 系列测试已移除：它们测试的是内部实现细节，
+    # 或应通过 parse_llm_json 单元测试覆盖。
 
     def test_extract_success(self):
         """测试成功提取流程"""
@@ -184,7 +184,7 @@ class TestLLMMemoryExtractor:
         assert draft.title == "Extracted"
         self.mock_service.complete_with_retry.assert_called_once()
 
-    # test_extract_retry_logic removed as retry logic is handled by llm_service
+    # test_extract_retry_logic 已移除：重试逻辑由 llm_service 处理
 
     def test_extract_all_retries_fail(self):
         """测试 LLM 调用失败的情况"""

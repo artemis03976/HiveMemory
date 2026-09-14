@@ -1,11 +1,10 @@
-"""Patchouli subsystem-local route constants."""
+"""Patchouli 子系统内部路由常量。"""
 
 
 class PatchouliLocalRoutes:
-    """Internal PatchouliBus route names.
+    """PatchouliBus 内部路由名。
 
-    Local routes describe composable Patchouli primitives. Public workflows such
-    as prepare/finalize agent run belong to Patchouli public routes instead.
+    局部路由描述可组合的 Patchouli 原语。prepare/finalize agent run 等公开工作流归入 Patchouli 公开路由。
     """
 
     MEMORY_CREATE = "memory.create"

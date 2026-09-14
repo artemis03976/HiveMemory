@@ -1,4 +1,4 @@
-"""Best-effort RuntimeEvent bus and sinks."""
+"""best-effort 的 RuntimeEvent 总线与 sink。"""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def safe_runtime_event_value(value: Any) -> Any:
 
 class RuntimeEventSink(Protocol):
     def emit(self, event: RuntimeEvent) -> None:
-        """Emit an observational event without affecting business flow."""
+        """发出观测事件，不影响业务流程。"""
 
     def scoped(
         self,
@@ -47,11 +47,11 @@ class RuntimeEventSink(Protocol):
         source: str | None = None,
         component: str | None = None,
     ) -> RuntimeEventSink:
-        """Return a sink that fills source metadata."""
+        """返回一个补全 source 元数据的 sink。"""
 
 
 class NullRuntimeEventSink:
-    """RuntimeEvent sink used when the transport is disabled."""
+    """传输禁用时使用的 RuntimeEvent sink。"""
 
     def emit(self, event: RuntimeEvent) -> None:
         return
@@ -67,7 +67,7 @@ class NullRuntimeEventSink:
 
 
 class RecordingRuntimeEventSink:
-    """Test helper sink that records emitted events."""
+    """记录已发出事件的测试辅助 sink。"""
 
     def __init__(self) -> None:
         self.events: list[RuntimeEvent] = []
@@ -135,7 +135,7 @@ class RuntimeEventSubscription:
 
 
 class RuntimeEventBus:
-    """Independent best-effort bus for runtime observability events."""
+    """独立的 best-effort 总线，用于运行时可观测性事件。"""
 
     def __init__(
         self,

@@ -24,7 +24,7 @@ snapshot_at: 2026-08-07
 
 # Phase S0 身份与威胁模型清单
 
-本文是[身份隔离与执行安全治理](../security/identity-and-execution-safety.md) **Phase S0** 的冻结基线。S0 不实现隔离机制，而是记录截至 `snapshot_at` “每个入口的身份输入、授权所有者、身份继承关系、当前威胁面”的现状，并保存最小复现样本，为后续可独立排期的身份收紧、run-local 隔离验证和执行资产安全工作提供输入。最新系统事实仍以当前设计和代码为准。
+本文是[身份隔离与执行安全治理](../security/identity-and-execution-safety.md) **Phase S0** 的冻结基线。S0 不实现隔离机制，而是记录截至 `snapshot_at` “每个入口的身份输入、授权所有者、身份继承关系、当前威胁面”的现状，并保存最小复现样本，为后续可独立排期的身份收紧、run-local 隔离验证和执行资产安全工作提供输入。最新系统事实仍以当前设计和代码为准。本基线冻结于 2026-08-07；v0.6.2 Workspace cache 迁移（见[归档 Plan](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md)）落地后，L1 atom cache 与 profile cache 已按 Workspace(+Actor) 坐标分区并由 AliceRuntime 持有，正文中的 key、路径与行号锚点均为快照时点事实。
 
 Phase S0 的四项任务：
 
@@ -84,7 +84,7 @@ Phase S0 的四项任务：
 |:--|:--|:--|:--|:--|
 | C1 | KoakumaAtomCache（L1，[cache.py](../../../src/hivememory/agent_runtime/aliases/cache.py#L33-L54)） | alias / uuid，**无 user/team/scope** | **无** | **核心缺口**：alias 跨用户冲突，后写覆盖（[:L47/L54](../../../src/hivememory/agent_runtime/aliases/cache.py#L47-L54)） |
 | C2 | PendingAtom store（L0，[store.py](../../../src/hivememory/agent_runtime/pending_atom/store.py)） | alias / intent 全局 dict | **无**；`get_by_intent` 不区分用户（[:L47-L52](../../../src/hivememory/agent_runtime/pending_atom/store.py#L47-L52)） | **核心缺口**：进程级单例共享；settle/claim/cancel 均不校验身份 |
-| C3 | AgentProfileCache（[profile_resolver.py](../../../src/hivememory/alice/runtime/profile_resolver.py#L24-L52)） | `(user_id, agent_id, team_id, alias)` 四维 | key 已含 scope；`identity=None` 时直接抛 `PermissionDeniedError`（[:L73-L77](../../../src/hivememory/alice/runtime/profile_resolver.py#L73-L77)） | **已满足（key）**，但无失效机制 → Profile stale（见 §4.3）；且 `default`/`omni_doll`/空 alias 直返内置 `OMNI_DOLL_PROFILE` 不经过缓存与身份检查（[:L70-L71](../../../src/hivememory/alice/runtime/profile_resolver.py#L70-L71)） |
+| C3 | AgentProfileCache（[profile_cache.py](../../../src/hivememory/alice/runtime/profile_cache.py#L24-L52)） | `(user_id, agent_id, team_id, alias)` 四维 | key 已含 scope；`identity=None` 时直接抛 `PermissionDeniedError`（[:L73-L77](../../../src/hivememory/alice/runtime/profile_resolver.py#L73-L77)） | **已满足（key）**，但无失效机制 → Profile stale（见 §4.3）；且 `default`/`omni_doll`/空 alias 直返内置 `OMNI_DOLL_PROFILE` 不经过缓存与身份检查（[:L70-L71](../../../src/hivememory/alice/runtime/profile_resolver.py#L70-L71)） |
 | C4 | ExternalEventDedupRegistry（[dedup.py](../../../src/hivememory/system/services/passive/dedup.py#L27)） | `(source, external_event_id)`，**无 user_id** | n/a | 缺失：跨用户误判重复（见 §4.4） |
 | C5 | MessageTurnBufferManager（[turn_buffer.py](../../../src/hivememory/system/services/passive/turn_buffer.py#L294)） | `PassiveConversationKey`（source + external_conversation_id + user_id + agent_id + team_id） | key 含身份 | **已满足** |
 | C6 | RuntimeAliasResolver（L0/L1/L2 三级，[resolver.py](../../../src/hivememory/agent_runtime/aliases/resolver.py)） | L0/L1 无身份；L2 带 identity（context 为 None 时退化为默认 Identity，[:L197-L201](../../../src/hivememory/agent_runtime/aliases/resolver.py#L197-L201)） | L2 结果回填共享 L1 → 跨身份投毒 | 缺失 |

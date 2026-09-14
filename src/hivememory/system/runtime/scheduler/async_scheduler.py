@@ -1,16 +1,15 @@
 """
 AsyncMaintenanceScheduler — 异步维护调度器基类
 
-Pure asyncio maintenance scheduler serving as the foundation for all
-system-level scheduled task execution. Does not create threads or
-hidden event loops.
+纯 asyncio 维护调度器，是所有系统级定时任务执行的基座。不创建线程，
+也不创建隐藏事件循环。
 
 Responsibilities:
-    - Task registry with owner-based partitioning
-    - Tick-based scheduling in the main asyncio loop
-    - Non-reentrant protection and exception isolation
-    - Graceful shutdown with drain timeout
-    - Introspection and runtime status queries
+    - 任务注册表，按 owner 分区
+    - 在主 asyncio 循环内按 tick 调度
+    - 防重入保护与异常隔离
+    - 带 drain 超时的优雅关停
+    - 自省与运行时状态查询
 """
 
 from __future__ import annotations
@@ -34,10 +33,9 @@ logger = logging.getLogger(__name__)
 
 class AsyncMaintenanceScheduler:
     """
-    Pure-asyncio maintenance scheduler base class.
+    纯 asyncio 维护调度器基类。
 
-    All system-layer schedulers inherit from this. The internal dict is
-    keyed by `spec.task_key` (i.e. `{owner}.{name}`).
+    所有系统层调度器都继承自它。内部字典以 `spec.task_key`（即 `{owner}.{name}`）为键。
     """
 
     def __init__(
@@ -54,7 +52,7 @@ class AsyncMaintenanceScheduler:
         self._loop_task: Optional[asyncio.Task] = None
         self._started = False
 
-    # ========== Task Registration ==========
+    # ========== 任务注册 ==========
 
     def register(
         self,
@@ -107,7 +105,7 @@ class AsyncMaintenanceScheduler:
     def list_tasks(self) -> List[MaintenanceTaskSpec]:
         return [state.spec for state in self._tasks.values()]
 
-    # ========== Lifecycle ==========
+    # ========== 生命周期 ==========
 
     def start(self) -> None:
         if self._started:
@@ -163,7 +161,7 @@ class AsyncMaintenanceScheduler:
         self._started = False
         logger.info("AsyncMaintenanceScheduler stopped")
 
-    # ========== Scheduling Loop ==========
+    # ========== 调度循环 ==========
 
     async def _run_loop(self) -> None:
         assert self._shutdown is not None
@@ -282,7 +280,7 @@ class AsyncMaintenanceScheduler:
             return "alice"
         return "system"
 
-    # ========== Introspection ==========
+    # ========== 自省 ==========
 
     def get_status(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {}

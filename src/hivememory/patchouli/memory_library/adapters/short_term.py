@@ -1,12 +1,9 @@
-"""In-memory adapter for the short-term storage port.
+"""短期存储端口的内存适配器。
 
-The adapter is the only short-term component that knows about
-``WorkspaceTopicKey``.  The port and store exchange immutable ``TopicData``
-snapshots and the adapter stores those frozen objects directly — reads return
-the stored snapshot as-is (callers cannot mutate it), so no defensive deep
-copy is needed.  A topic ID is globally unique: attempting to write the same
-ID into another workspace is rejected instead of silently creating a second
-local namespace.
+该适配器是唯一知晓 ``WorkspaceTopicKey`` 的短期组件。端口与 store 交换不可变
+的 ``TopicData`` 快照，适配器直接存储这些冻结对象——读取原样返回已存快照
+（调用方无法修改），因此无需防御性深拷贝。topic ID 全局唯一：把同一 ID 写入
+另一个 Workspace 会被拒绝，而不是静默创建第二个局部命名空间。
 """
 
 from __future__ import annotations
@@ -19,11 +16,10 @@ from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
 
 
 class InMemoryShortTermStorage(ShortTermStoragePort):
-    """Thread-safe in-memory implementation of :class:`ShortTermStoragePort`.
+    """:class:`ShortTermStoragePort` 的线程安全内存实现。
 
-    ``WorkspaceTopicKey`` remains an implementation detail here.  The adapter
-    never mutates a stored ``TopicData``: writers must submit a new frozen
-    snapshot (``model_copy``) to change topic content.
+    ``WorkspaceTopicKey`` 在此仅为实现细节。适配器从不修改已存的
+    ``TopicData``：写入方必须提交新的冻结快照（``model_copy``）才能变更话题内容。
     """
 
     def __init__(self) -> None:

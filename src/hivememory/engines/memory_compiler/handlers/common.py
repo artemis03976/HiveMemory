@@ -1,4 +1,4 @@
-"""Shared helpers for target-first memory compiler handlers."""
+"""target 优先记忆编译处理器的共享辅助函数。"""
 
 from __future__ import annotations
 

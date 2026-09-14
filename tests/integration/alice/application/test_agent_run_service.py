@@ -33,8 +33,8 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -116,7 +116,10 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 
     await service.run_agent(context)
 
-    cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
+    cached = runtime._koakuma.atom_cache.get_atom_by_alias(
+        "mem_alias",
+        workspace_identity=make_workspace_identity(owner_user_id="u1"),
+    )
     assert cached is memory
     runtime._agent_runtime.run_frame.assert_awaited_once()
 
@@ -194,7 +197,10 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 
     events = [event async for event in service.run_agent_stream(context)]
 
-    cached = runtime._koakuma.atom_cache.get_atom_by_alias("mem_alias")
+    cached = runtime._koakuma.atom_cache.get_atom_by_alias(
+        "mem_alias",
+        workspace_identity=make_workspace_identity(owner_user_id="u1"),
+    )
     assert cached is memory
     assert [event["event"] for event in events] == ["done"]
     assert events[0]["data"]["status"] == AgentRunStatus.COMPLETED.value

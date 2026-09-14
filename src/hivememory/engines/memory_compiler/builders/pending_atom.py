@@ -1,4 +1,4 @@
-"""PendingAtom → MemoryUnitIR builder."""
+"""PendingAtom → MemoryUnitIR 构建器。"""
 
 from __future__ import annotations
 

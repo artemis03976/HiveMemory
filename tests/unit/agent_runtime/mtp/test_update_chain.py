@@ -105,7 +105,7 @@ def _mock_mid_term():
     return mid_term
 
 
-# ========== Test 4: Mode C Merge Prompt ==========
+# ========== Test 4：Mode C 合并提示词 ==========
 
 class TestModeCMergePrompt:
     """验证 Generation Engine Mode C 路径调用 extractor.merge()"""
@@ -175,7 +175,7 @@ class TestModeCMergePrompt:
         assert str(result[0].atom.id) == str(existing_memory.id)
 
 
-# ========== Test 5: Mode C Fallback ==========
+# ========== Test 5：Mode C 回退 ==========
 
 class TestModeCFallback:
     """验证 LLM 合并失败时的 fallback 拼接"""
@@ -266,7 +266,7 @@ class TestModeCFallback:
         mock_extractor.merge.assert_not_called()
 
 
-# ========== Test 6: _apply_update Version Tracking ==========
+# ========== Test 6：_apply_update 版本追踪 ==========
 
 class TestApplyUpdate:
     """验证版本追踪 (history_summary, version++, changelog)"""
@@ -327,7 +327,7 @@ class TestApplyUpdate:
         assert len(existing_memory.payload.history_summary) == 2
 
 
-# ========== Test 11: Active Flush Reason Removed ==========
+# ========== Test 11：Active Flush 原因已移除 ==========
 
 class TestTriggerReasonActiveGenerationRemoved:
     """主动更新生成已脱离感知层，不再保留 MTP flush reason"""

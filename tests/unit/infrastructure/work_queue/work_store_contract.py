@@ -1,4 +1,4 @@
-"""Reusable contract tests for WorkStorePort adapters."""
+"""WorkStorePort 适配器的可复用契约测试。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _item(work_id: str) -> WorkItem:
 
 
 class WorkStoreContract:
-    """Contract shared by every WorkStorePort adapter implementation."""
+    """所有 WorkStorePort 适配器实现共享的契约。"""
 
     store_factory: WorkStoreFactory
 

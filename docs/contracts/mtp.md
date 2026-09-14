@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-13
 ---
 
 # Memory Tool Protocol (MTP)
@@ -76,7 +76,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 - filter 中的非法 token 不使整次搜索失败，而是忽略过滤并返回 warning；
 - 经 `patchouli.public.memory.retrieve` 检索；
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
-- 命中的完整 MemoryAtom 写入当前 Koakuma alias cache；
+- 命中的完整 MemoryAtom 写入调用方 Workspace 分区的 L1 atom cache；
 - 空结果仍为 `success`，并带 `no_memories_found` warning。
 
 SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”当成系统故障。检索本身具有不确定性，空结果只说明当前查询没有证据；Agent 仍可以改写查询、继续回答或明确告知信息不足。
@@ -142,10 +142,10 @@ ACK 表示意图已被运行时接收，不表示长期记忆已经持久化。
 - TARGET 必须是单 alias；`instruction` 必填，`content` 可选；
 - 目标必须解析为正式 atom，pending alias 不能再次 UPDATE；
 - 注册以原记忆 UUID 为基线的 pending revision；
-- 使当前 alias cache 失效，防止后续脏读；
+- 使调用方 Workspace 分区内的 alias cache 失效，防止后续脏读；
 - 返回 `ack + pending_alias`，实际更新延迟到 Patchouli finalize 后处理。
 
-UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pending revision，使当前 run 能表达修订意图，又保留旧版本和来源链；alias cache 立即失效，是为了避免 Agent 在同一轮继续把待修订内容当成无变化的权威事实。
+UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pending revision，使当前 run 能表达修订意图，又保留旧版本和来源链；调用方 Workspace 分区内的 alias cache 立即失效，是为了避免 Agent 在同一轮继续把待修订内容当成无变化的权威事实。
 
 ### 3.6 CALL
 
@@ -216,7 +216,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - 记忆访问使用调用方 `IdentityScope`，先执行 Workspace ownership hard boundary，再执行 Workspace 内的 actor 可见性策略，不能绕过任一边界；
 - cancellation 不能被转换成普通 success。
 
-> **当前实现偏差**：L2 冷查询会携带调用方 `IdentityScope`，并由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 KoakumaAtomCache 命中也会执行同样的重验。AliceRuntime 进程级共享的 L0 PendingAtomRuntime 仍会直接返回 pending 命中，尚未比较 pending 自身 `runtime_scope.identity_scope` 与当前调用方 scope。因此 MTP 仍未完全满足所有别名路径的可见性不变量；这是需要修复的隔离缺口，而不是放宽契约的理由。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md) 和 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
+> **实现说明**：该不变量在别名解析的全部三级命中路径上执行。L2 冷查询携带调用方 `IdentityScope`，由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 atom cache 与 L0 PendingAtomRuntime 同属 AliceRuntime，前者按 `(WorkspaceIdentity, alias)` 分区（[ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)），命中在 resolver 边界执行同样的重验，后者比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理，不泄露 pending 的状态、内容或 canonical 指向。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md)；修复记录与测试入口见 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
 
 ## 7. 设计矛盾检查
 

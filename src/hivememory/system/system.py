@@ -234,7 +234,8 @@ class HiveMemorySystem:
             completed_steps.append("patchouli.stop")
             await self._gateway.stop()
             completed_steps.append("gateway.stop")
-            # 最终清理必须晚于 Patchouli Topic settlement/generation drain 与剩余消费者。
+            # 最终清理必须晚于 Patchouli Topic settlement/generation drain 与剩余消费者；
+            # Alice 派生 cache 已在其自身 stop 中清空，这里只收尾 AssetStore。
             self._workspace_asset_store.close_and_clear()
             completed_steps.append("workspace_asset_store.close_and_clear")
             self._started = False

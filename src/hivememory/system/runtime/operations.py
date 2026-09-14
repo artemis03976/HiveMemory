@@ -1,4 +1,4 @@
-"""Reusable observer for RuntimeEvent-backed subsystem operations."""
+"""基于 RuntimeEvent 的子系统操作可复用观测器。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ T = TypeVar("T")
 
 
 class RuntimeOperationObserver:
-    """Emit STARTED/COMPLETED/FAILED events for one subsystem operation."""
+    """为单次子系统操作发出 STARTED/COMPLETED/FAILED 事件。"""
 
     def __init__(
         self,

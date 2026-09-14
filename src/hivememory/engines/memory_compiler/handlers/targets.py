@@ -1,4 +1,4 @@
-"""Target-first MemoryUnitIR compilation dispatch."""
+"""target 优先的 MemoryUnitIR 编译分发。"""
 
 from __future__ import annotations
 

@@ -88,7 +88,7 @@ class TestQdrantMemoryStore:
         e_config = EmbeddingConfig()
         store = QdrantMemoryStore(qdrant_config=q_config, embedding_config=e_config)
 
-        # Mock embedding service encode method behavior
+        # Mock embedding service 的 encode 方法行为
         def side_effect(dense_texts=None, sparse_texts=None):
             if sparse_texts:
                 return {
@@ -96,7 +96,7 @@ class TestQdrantMemoryStore:
                     "sparse_text": sparse_texts
                 }
             else:
-                # Dense only
+                # 仅 Dense
                 return [0.1] * 1024
 
         store.embedding_service.encode.side_effect = side_effect

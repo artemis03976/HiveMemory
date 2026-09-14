@@ -3,11 +3,11 @@ RuntimeAliasResolver - 统一三级别名解析层。
 
 解析优先级:
   L0: PendingAtomRuntime (运行时 pending atom)
-  L1: KoakumaAtomCache (会话级正式 atom 缓存)
+  L1: AtomCachePort (Workspace 分区的 L1 atom cache，由 AliceRuntime 持有)
   L2: Storage (冷查询长期存储)
 
 作者: HiveMemory Team
-版本: 1.0
+版本: 1.1
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from hivememory.core.mtp.exceptions import (
 from hivememory.engines.retrieval.policy import memory_is_readable
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
+    from hivememory.agent_runtime.aliases.ports import AtomCachePort
     from hivememory.agent_runtime.models import MTPExecutionContext
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
@@ -64,7 +64,7 @@ class RuntimeAliasResolver:
     def __init__(
         self,
         pending_runtime: PendingAtomRuntime,
-        atom_cache: KoakumaAtomCache,
+        atom_cache: AtomCachePort,
         bus: AsyncSystemBus,
     ) -> None:
         self._pending_runtime = pending_runtime
@@ -92,20 +92,23 @@ class RuntimeAliasResolver:
         # L0: PendingAtomRuntime
         pending = self._pending_runtime.get(alias)
         if pending is not None:
-            logger.debug(f"L0 pending cache hit: alias='{alias}'")
+            logger.debug("L0 pending cache hit: alias='%s'", alias)
             return await self._resolve_pending_hit(pending, alias, context)
 
-        # L1: KoakumaAtomCache
-        atom = self._atom_cache.get_atom_by_alias(alias)
+        # L1: Workspace 分区 atom cache（经 AtomCachePort 按调用方坐标读取）
+        atom = self._atom_cache.get_atom_by_alias(
+            alias,
+            workspace_identity=context.identity_scope.workspace_identity,
+        )
         if atom is not None and self._is_readable(atom, context):
-            logger.debug(f"L1 atom cache hit: alias='{alias}'")
+            logger.debug("L1 atom cache hit: alias='%s'", alias)
             return ResolveResult(kind="atom", requested_alias=alias, atom=atom)
         if atom is not None:
-            # Cache 维持既有 alias/UUID key；命中只代表存在加速对象，不代表
-            # 当前 Workspace/actor 已获授权。未通过时继续向最终资源 owner 查询。
+            # 同分区内命中只代表存在加速对象，不代表当前 actor 已获授权；
+            # 未通过 ownership/actor policy 重验时继续向最终资源 owner 查询。
             logger.debug("L1 atom cache hit requires scoped owner lookup: alias='%s'", alias)
 
-        # L2: Storage cold lookup
+        # L2: 存储冷查询
         atom = await self._cold_lookup(alias, context)
         if atom is not None:
             return ResolveResult(kind="atom", requested_alias=alias, atom=atom)
@@ -119,6 +122,12 @@ class RuntimeAliasResolver:
         context: MTPExecutionContext,
     ) -> ResolveResult:
         """解析 L0 pending 命中，包括已结算后的 redirect 状态。"""
+        if pending.runtime_scope.identity_scope != context.identity_scope:
+            # PendingAtomRuntime 进程级共享，alias 命中不代表当前调用方可见；
+            # 作用域不匹配时按 alias 不存在处理，不泄露状态、内容与 canonical 指向。
+            logger.debug("L0 pending hit rejected by scope: alias='%s'", alias)
+            return ResolveResult(kind="not_found", requested_alias=alias)
+
         settlement = pending.settlement
 
         if pending.status.is_in_flight:
@@ -191,7 +200,10 @@ class RuntimeAliasResolver:
             if atom is not None and self._is_readable(atom, context):
                 return atom
         if settlement.canonical_alias:
-            atom = self._atom_cache.get_atom_by_alias(settlement.canonical_alias)
+            atom = self._atom_cache.get_atom_by_alias(
+                settlement.canonical_alias,
+                workspace_identity=context.identity_scope.workspace_identity,
+            )
             if atom is not None and self._is_readable(atom, context):
                 return atom
         return None
@@ -223,7 +235,7 @@ class RuntimeAliasResolver:
             memories = getattr(retrieval_response, "memories", []) or []
             memory = memories[0] if memories else None
             if memory is None:
-                logger.debug(f"L2 cold-lookup miss: alias='{alias}'")
+                logger.debug("L2 cold-lookup miss: alias='%s'", alias)
                 return None
 
             # Storage route 是最终资源 owner；这里保留防御性验证，确保错误的
@@ -235,13 +247,17 @@ class RuntimeAliasResolver:
             uuid_str = str(memory.id)
             UUID(uuid_str)
 
-            self._atom_cache.ingest_atom(memory)
+            # L2 回填按调用方 scope 写入对应 Workspace 分区，不污染其他分区。
+            self._atom_cache.ingest_atom(
+                memory,
+                workspace_identity=context.identity_scope.workspace_identity,
+            )
             logger.debug(
                 f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, cached"
             )
             return memory
         except KeyError as e:
-            logger.error(f"L2 cold-lookup route unavailable: alias='{alias}', error={e}")
+            logger.error("L2 cold-lookup route unavailable: alias='%s', error=%s", alias, e)
             raise BusRouteUnavailableError(cause=e) from e
         except (StorageOfflineError, StorageReadError):
             raise
@@ -252,7 +268,7 @@ class RuntimeAliasResolver:
             raise StorageReadError(cause=e) from e
 
     @property
-    def atom_cache(self) -> KoakumaAtomCache:
+    def atom_cache(self) -> AtomCachePort:
         return self._atom_cache
 
     @property

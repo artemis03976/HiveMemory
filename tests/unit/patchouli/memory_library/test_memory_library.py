@@ -130,7 +130,7 @@ class TestMemoryLibraryArchiveRevive:
 
 
 class TestMemoryLibraryStorageHealth:
-    """MemoryLibrary storage health aggregation tests."""
+    """MemoryLibrary 存储健康度聚合测试。"""
 
     def setup_method(self):
         self.short_term = Mock(spec=ShortTermMemoryStore)

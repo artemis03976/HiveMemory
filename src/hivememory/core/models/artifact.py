@@ -212,7 +212,7 @@ class MemoryVersionSnapshot(BaseModel):
 
     @classmethod
     def from_memory_atom(cls, memory: Any) -> "MemoryVersionSnapshot":
-        """Build the canonical mutable-field snapshot for a MemoryAtom."""
+        """构建 MemoryAtom 的规范可变字段快照。"""
         memory_type = memory.index.memory_type
         return cls(
             content=memory.payload.content,
@@ -295,7 +295,7 @@ class MemoryEventType(str, Enum):
 
 
 class MemoryEventLog(BaseModel):
-    """Lifecycle event log entry attached to one MemoryAtom."""
+    """挂在单个 MemoryAtom 上的生命周期事件日志条目。"""
 
     event_type: MemoryEventType
     at: datetime = Field(default_factory=datetime.now)

@@ -1,4 +1,4 @@
-"""Memory Compiler i18n templates."""
+"""Memory Compiler i18n 文案模板。"""
 
 from __future__ import annotations
 
@@ -398,13 +398,13 @@ def _language(value: str | Language | None = None) -> Language:
 
 
 def get_memory_section_title(kind: str, language: str | Language | None = None) -> str:
-    """Return a retrieval context section title."""
+    """返回检索上下文小节标题。"""
     titles = _SECTION_TITLES_EN if _language(language) == Language.EN else _SECTION_TITLES_ZH
     return titles.get(kind, kind)
 
 
 def get_memory_envelope_text(key: str, language: str | Language | None = None) -> str:
-    """Return a small Memory Compiler envelope text fragment."""
+    """返回 Memory Compiler 的 Envelope 小片段文案。"""
     texts = _ENVELOPE_TEXT_EN if _language(language) == Language.EN else _ENVELOPE_TEXT_ZH
     try:
         return texts[key]
@@ -413,7 +413,7 @@ def get_memory_envelope_text(key: str, language: str | Language | None = None) -
 
 
 def get_memory_atom_text(key: str, language: str | Language | None = None) -> str:
-    """Return a MemoryAtom compilation text fragment."""
+    """返回 MemoryAtom 编译文案片段。"""
     texts = _MEMORY_ATOM_TEXT_EN if _language(language) == Language.EN else _MEMORY_ATOM_TEXT_ZH
     try:
         return texts[key]
@@ -422,7 +422,7 @@ def get_memory_atom_text(key: str, language: str | Language | None = None) -> st
 
 
 def get_pending_atom_text(key: str, language: str | Language | None = None) -> str:
-    """Return a PendingAtom compilation text fragment."""
+    """返回 PendingAtom 编译文案片段。"""
     texts = _PENDING_ATOM_TEXT_EN if _language(language) == Language.EN else _PENDING_ATOM_TEXT_ZH
     try:
         return texts[key]
@@ -431,7 +431,7 @@ def get_pending_atom_text(key: str, language: str | Language | None = None) -> s
 
 
 def get_resolve_result_text(key: str, language: str | Language | None = None) -> str:
-    """Return a ResolveResult compilation text fragment."""
+    """返回 ResolveResult 编译文案片段。"""
     texts = _RESOLVE_RESULT_TEXT_EN if _language(language) == Language.EN else _RESOLVE_RESULT_TEXT_ZH
     try:
         return texts[key]

@@ -30,7 +30,7 @@ def main():
     uvicorn.run(
         "hivememory.server.app:app",
         host="0.0.0.0",
-        port=8769,  # Custom port to avoid Windows reserved ranges
+        port=8769,  # 自定义端口，避开 Windows 保留端口段
         log_level="info",
     )
 

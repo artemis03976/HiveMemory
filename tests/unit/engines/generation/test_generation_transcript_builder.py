@@ -300,7 +300,7 @@ class TestEngineWithGenerationContext:
     async def test_process_empty_context_skipped(self):
         """context 为空时跳过 extractor"""
         engine, extractor, _ = self._make_engine()
-        req = _request(context=GenerationContext())  # no turns
+        req = _request(context=GenerationContext())  # 无 turns
         result = await engine.process(req, identity_scope=make_memory_identity_scope())
         assert result == []
         extractor.extract.assert_not_called()

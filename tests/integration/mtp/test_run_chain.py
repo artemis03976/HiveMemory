@@ -34,10 +34,12 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
 
-# ========== Helpers ==========
+MAIN = make_workspace_identity()
+
+# ========== 辅助函数 ==========
 
 def _make_code_memory(
     code: str = "print('hello')",
@@ -102,7 +104,7 @@ def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context
     )
 
 
-# ========== Test 1: Target Validation ==========
+# ========== Test 1：Target 校验 ==========
 
 class TestRunTargetValidation:
     """RUN 指令 target 校验"""
@@ -123,7 +125,7 @@ class TestRunTargetValidation:
         assert not result.success
 
 
-# ========== Test 2: Kernel Fast Path ==========
+# ========== Test 2：内核快速路径 ==========
 
 class TestRunKernelFastPath:
     """Level 0 内核工具快速路径"""
@@ -142,7 +144,7 @@ class TestRunKernelFastPath:
     def test_sys_clock_date(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | format="date" ⟫')
         assert result.success
-        # YYYY-MM-DD format
+        # YYYY-MM-DD 格式
         assert "-" in result.response_content
         assert len(result.response_content.strip()) == 10 or "20" in result.response_content
 
@@ -164,7 +166,7 @@ class TestRunKernelFastPath:
         assert "30" in result.response_content
 
 
-# ========== Test 3: User Tool Path (Level 1) ==========
+# ========== Test 3：用户工具路径（Level 1） ==========
 
 class TestRunUserToolPath:
     """Level 1 用户态工具慢速路径"""
@@ -212,7 +214,7 @@ class TestRunUserToolPath:
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
         mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
-        koakuma.atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_l1 | ⟫')
 
@@ -248,7 +250,7 @@ class TestRunUserToolPath:
     def test_non_code_snippet_rejected(self, koakuma):
         """类型不是 CODE_SNIPPET 时拒绝执行"""
         fact_mem = _make_fact_memory()
-        koakuma.atom_cache.ingest_atom(fact_mem)
+        koakuma.atom_cache.ingest_atom(fact_mem, workspace_identity=MAIN)
 
         result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
 
@@ -311,7 +313,7 @@ class TestRunUserToolPath:
     def test_cache_hit_after_ingest(self, koakuma):
         """缓存命中后直接执行，不查 Qdrant"""
         mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
-        koakuma.atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cached_ingest | ⟫')
 
@@ -333,7 +335,7 @@ class TestRunUserToolPath:
             code="print('redirected tool output')",
             alias="tool_canonical",
         )
-        koakuma.atom_cache.ingest_atom(canonical)
+        koakuma.atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
         koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
         koakuma.pending_runtime.settle(
             PendingAtomSettlement(
@@ -380,6 +382,93 @@ class TestRunUserToolPath:
         assert "reclaimed" in result.formatted_response
         assert "Alias Not Found" in result.formatted_response
 
+    def test_run_in_flight_pending_same_scope_returns_pending_not_runnable(self, koakuma):
+        """同 scope 注册的 in-flight pending 仍按 pending 不可执行语义拒绝。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=make_runtime_scope().identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(),
+        )
+
+        result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "[Invalid Argument]" in result.formatted_response
+        assert "是运行时 pending atom" in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
+    def test_run_pending_from_other_scope_returns_alias_not_found(self, koakuma):
+        """跨 Workspace RUN 他人 pending alias：报 Alias Not Found，不泄露 pending 状态。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+        )
+
+        result = _execute_mtp(
+            koakuma,
+            f'⟪ RUN | {pending.pending_alias} | ⟫',
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            ),
+        )
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "[Alias Not Found]" in result.formatted_response
+        assert "是运行时 pending atom" not in result.formatted_response
+        assert "[Invalid Argument]" not in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
+    def test_run_settled_redirect_from_other_scope_does_not_execute_canonical_tool(self, koakuma):
+        """跨 Workspace RUN 已结算 redirect：不得执行 canonical 工具。"""
+        pending = koakuma.pending_runtime.register_write(
+            content="pending tool",
+            title="Pending Tool",
+            reason=None,
+            identity=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.actor_identity,
+            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+        )
+        canonical = _make_code_memory(
+            code="print('redirected tool output')",
+            alias="tool_canonical",
+        )
+        koakuma.atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
+        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
+        koakuma.pending_runtime.settle(
+            PendingAtomSettlement(
+                pending_alias=pending.pending_alias,
+                intent_id=pending.intent_id,
+                resolution=PendingAtomResolution.CREATED,
+                duplicate_decision=DuplicateDecision.CREATE,
+                canonical_alias="tool_canonical",
+                canonical_uuid=str(canonical.id),
+            )
+        )
+
+        result = _execute_mtp(
+            koakuma,
+            f'⟪ RUN | {pending.pending_alias} | ⟫',
+            context=MTPExecutionContext(
+                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            ),
+        )
+
+        assert not result.success
+        assert result.response_content == ""
+        assert "redirected tool output" not in result.formatted_response
+        assert "[Alias Not Found]" in result.formatted_response
+        assert koakuma._bus._memory_citations == []
+
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="print('traced')", alias="tool_trace")
@@ -406,7 +495,7 @@ class TestRunUserToolPath:
 
     def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
         mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
-        koakuma.atom_cache.ingest_atom(mem)
+        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_cite_fail | ⟫')

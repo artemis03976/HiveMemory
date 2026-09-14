@@ -1,4 +1,4 @@
-"""Tests for hivememory.i18n.types module."""
+"""hivememory.i18n.types 模块的测试。"""
 
 import pytest
 

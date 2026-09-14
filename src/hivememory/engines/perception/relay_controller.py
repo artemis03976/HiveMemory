@@ -112,7 +112,7 @@ class SimpleRelayController(BaseRelayController):
                     tool_names.add(action.tool_name)
                 elif action.tool_kind:
                     tool_names.add(action.tool_kind.lower())
-            # v3.0 path: TraceItem.tool (RUN) / TraceItem.action (READ/SEARCH)
+            # v3.0 路径：TraceItem.tool（RUN）/ TraceItem.action（READ/SEARCH）
             for t in b.semantic_traces:
                 if t.tool:
                     tool_names.add(t.tool)
@@ -189,7 +189,7 @@ class LLMRelayController(BaseRelayController):
         lines = []
 
         for block in blocks:
-            # Add MTP semantic traces
+            # 添加 MTP 语义轨迹
             for trace in block.semantic_traces:
                 if trace.action == "SEARCH":
                     lines.append(f'[Action]: SEARCH query="{trace.query}"')
@@ -199,17 +199,17 @@ class LLMRelayController(BaseRelayController):
                     status = trace.status or "unknown"
                     lines.append(f"[Action]: RUN tool={trace.tool} (Status: {status})")
 
-            # Add user query
+            # 添加用户查询
             user_query = block.rewritten_query or block.user_query
             if user_query:
                 lines.append(f"User: {user_query}")
 
-            # Add assistant response
+            # 添加助手响应
             response = block.assistant_final_text
             if response:
                 lines.append(f"Agent: {response}")
 
-            lines.append("")  # Blank line between blocks
+            lines.append("")  # 块之间空一行
 
         return "\n".join(lines)
 
@@ -228,17 +228,17 @@ class LLMRelayController(BaseRelayController):
         Returns:
             str: 摘要文本
         """
-        # Fallback if no LLM service
+        # 无 LLM 服务时的回退
         if self.summary_llm is None:
             logger.warning("summary_llm 未配置，回退到简单摘要")
             simple_controller = SimpleRelayController()
             return simple_controller._generate_simple_summary(blocks)
 
         try:
-            # Build recent events text
+            # 构建近期事件文本
             recent_events = self._build_recent_events(blocks)
 
-            # Build user prompt
+            # 构建用户提示词
             previous_summary_text = previous_summary or get_relay_prompt_text(
                 "previous_summary_empty"
             )
@@ -247,10 +247,10 @@ class LLMRelayController(BaseRelayController):
                 recent_events=recent_events,
             )
 
-            # Get system prompt (default to global i18n fallback)
+            # 获取系统提示词（默认回退到全局 i18n 兜底文案）
             system_prompt = get_relay_prompt_text("system_prompt")
 
-            # Call LLM
+            # 调用 LLM
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -267,7 +267,7 @@ class LLMRelayController(BaseRelayController):
 
 
 class NoOpRelayController(BaseRelayController):
-    """RelayController disabled implementation."""
+    """RelayController 的禁用实现。"""
 
     def generate_summary(
         self,

@@ -19,7 +19,7 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
   - docs/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-06
+last_reviewed: 2026-09-13
 ---
 
 # 身份隔离与执行安全治理
@@ -32,9 +32,9 @@ HiveMemory 已经把 `IdentityScope`、MemoryVisibility、MTP permission、Agent
 
 | 边界 | 当前实现基础 | 当前风险 |
 |:---|:---|:---|
-| Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | L1 atom cache 命中与 L2 冷查询已由资源 owner/resolver 按完整 scope 重验；L0 pending alias 命中仍缺少调用方 scope 重验 |
-| PendingAtom | atom 通过 `runtime_scope.identity_scope` 保存完整归属，Alice 通过 alias/intent 解析 | 进程级 cache/store 与并发 run 共享；L0 pending 命中尚未完成 scope 隔离 |
-| Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | alias cache 进程级、失效不完整；显式 Profile 加载失败与未指定 Profile 的 Omni-Doll fallback 语义混淆 |
+| Memory visibility | MemoryAtom 有 user/team/session/visibility，Patchouli 是可见性所有者 | L0/L1/L2 三级命中路径均已在 resolver/owner 边界按完整 scope 重验；L1 atom cache 另按 `(WorkspaceIdentity, alias)` 分区 |
+| PendingAtom | atom 通过 `runtime_scope.identity_scope` 保存完整归属，Alice 通过 alias/intent 解析 | 进程级 store 与并发 run 共享，无持久化 ledger；L0 命中已按 scope 重验，作用域不匹配按 alias 不可见处理 |
+| Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | Profile cache 已按 `(WorkspaceIdentity, Actor 投影, alias)` 分区，失败结果不进入缓存；仍无失效事件/TTL，Profile 更新存在 LRU 驻留期 stale 窗口 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、Chat 可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
@@ -85,7 +85,7 @@ Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、Mem
 
 ### 3.3 缓存不承载授权
 
-共享 cache 不会自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以完整 `IdentityScope` 重新验证。缓存可以按已有 actor/alias 等维度组织，但这些 key 不能替代 Workspace ownership 校验。失效不完整时宁可返回 miss，也不能返回另一个用户或 Workspace 最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
+通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以完整 `IdentityScope` 重新验证。v0.6.2 起派生视图缓存按派生源坐标键控（[ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md)）：Alice 持有的 L1 atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**——L1 命中仍走重验，失败结果不进入缓存。失效不完整时宁可返回 miss，也不能返回另一个用户或 Workspace 最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
 
 ### 3.4 可执行资产是更高风险能力
 
@@ -108,8 +108,8 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
-1. 修复 L0 PendingAtom alias 命中不重新校验调用方 `IdentityScope`；L1 atom cache 已有命中后重验，必须保持该边界（详见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
-2. 对需要 scope-sensitive 的 PendingAtom store/cache、Profile cache 和 compiled context，按 scope 隔离或在命中后由 owner/resolver 重验；共享组件不因 Workspace 自动拆分；
+1. 已完成：L0 PendingAtom alias 命中已在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不存在处理；L1 atom cache 命中后重验边界保持不变（见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
+2. 已完成（v0.6.2）：L1 atom cache 与 profile cache 按 Workspace(+Actor) 坐标分区且由 AliceRuntime 持有，同分区命中仍重验 ownership/actor policy；PendingAtom store、compiled context 等其余共享组件不因 Workspace 自动拆分（[ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md)）；
 3. 为 MemoryLibrary、Artifact、archive/revive 和后台恢复入口统一 scope 检查；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
@@ -138,10 +138,10 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ## 5. 治理成熟度目标
 
-- 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际 `IdentityScope` 校验；当前 L0 pending alias 缺口由上述 Todo 追踪，L1/L2 已具备 owner/resolver 重验；
+- 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际 `IdentityScope` 校验；L0/L1/L2 已全部具备 owner/resolver 重验；
 - 两个并发用户使用相同 alias、topic 或 Profile 名称不会读取对方状态；
 - 子 Agent、后台 retry 和恢复任务不会扩大或错误继承身份权限；
-- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；PendingAtom 与 cache 的跨用户隔离仍需按本治理主题验证；
+- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；两个派生 cache 的跨 Workspace/跨 Actor 隔离已有回归测试，PendingAtom store 的并发隔离仍按本治理主题验证；
 - 指定 Profile 失败不会静默加载全权限 Omni-Doll；未指定 Profile 的 fallback 仍有明确且可观察语义；
 - MTP RUN 在未满足可信资产和硬限制时拒绝执行或明确降级，不能把 prompt 当安全边界；
 - 前端身份切换不会留下旧用户的请求、缓存、stream 或页面状态；

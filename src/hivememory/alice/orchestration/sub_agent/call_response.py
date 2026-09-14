@@ -67,7 +67,7 @@ def response_for_frame_result(
     profile: AgentProfile | None = None,
     generation_options: Mapping[str, Any] | None = None,
 ) -> MTPCallResponse:
-    """Map a finalized callee result to the only response visible to its caller."""
+    """把被调方已定稿的结果映射为调用方唯一可见的响应。"""
     match result.status:
         case FrameExecutionStatus.COMPLETED:
             return success_response(

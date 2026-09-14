@@ -1,4 +1,4 @@
-"""Unit tests for long-term file storage replacing the legacy archiver."""
+"""针对替代旧版 archiver 的长期文件存储的单元测试。"""
 
 from pathlib import Path
 from uuid import uuid4

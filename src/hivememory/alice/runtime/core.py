@@ -9,6 +9,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import IdentityScope, PendingAtomSettlement
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig
@@ -27,10 +28,18 @@ class AliceRuntime:
         memory_compiler_config: MemoryCompilerConfig,
         model_registry: ModelRegistry | None = None,
     ) -> None:
-        self._local_bus = AliceBus()
-        self._profile_resolver = AgentProfileResolver(local_bus=self._local_bus)
-        self._pending_runtime = PendingAtomRuntime()
+        # L1 atom cache 与 profile cache 是 Alice 执行路径的运行时状态
+        # （ADR-0005）：与 PendingAtomRuntime 一样由 AliceRuntime 创建并持有，
+        # AgentRunService 经 atom_cache property 注入。
         self._atom_cache = KoakumaAtomCache()
+        self._profile_cache = AgentProfileCache()
+        self._caches_cleared = False
+        self._local_bus = AliceBus()
+        self._profile_resolver = AgentProfileResolver(
+            local_bus=self._local_bus,
+            profile_cache=self._profile_cache,
+        )
+        self._pending_runtime = PendingAtomRuntime()
         self._alias_resolver = RuntimeAliasResolver(
             pending_runtime=self._pending_runtime,
             atom_cache=self._atom_cache,
@@ -73,8 +82,28 @@ class AliceRuntime:
 
     @property
     def atom_cache(self) -> KoakumaAtomCache:
-        """供 AgentRunService 预热本次 run 的检索别名。"""
+        """供 AgentRunService 预热本次 run 的检索别名（读写需携带 Workspace 坐标）。"""
         return self._atom_cache
+
+    def clear_derived_caches(self) -> tuple[int, int]:
+        """幂等清空 L1 atom cache 与 profile cache，返回各自清理的条目数。
+
+        由 ``AliceSystem.stop()`` 在 bridge 卸载（不再接受新请求）之后调用；
+        重复调用返回 ``(0, 0)``，不会重复清空或重复记日志。
+        """
+        if self._caches_cleared:
+            return 0, 0
+        atoms = self._atom_cache.size
+        profiles = self._profile_cache.size
+        self._atom_cache.clear()
+        self._profile_cache.clear()
+        self._caches_cleared = True
+        logger.info(
+            "AliceRuntime 派生 cache 已清空（%s atoms, %s profiles）",
+            atoms,
+            profiles,
+        )
+        return atoms, profiles
 
     async def on_pending_atom_settled(
         self,
@@ -119,12 +148,17 @@ class AliceRuntime:
         *,
         identity_scope: IdentityScope,
     ) -> None:
-        """以原 PendingAtom scope 查询资源 owner，再刷新共享 L1 cache。"""
+        """以原 PendingAtom scope 查询资源 owner，再刷新对应 Workspace 分区。"""
         canonical_alias = settlement.canonical_alias
         if not canonical_alias:
             return
 
-        self._atom_cache.invalidate_alias(canonical_alias)
+        # 失效与回填都使用 PendingAtom 原始 Workspace 分区，不写入当前
+        # 调用方或默认 Workspace。
+        self._atom_cache.invalidate_alias(
+            canonical_alias,
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
         try:
             retrieval_response = await self._local_bus.request(
@@ -149,7 +183,10 @@ class AliceRuntime:
             )
             return
 
-        self._atom_cache.ingest_atom(memory)
+        self._atom_cache.ingest_atom(
+            memory,
+            workspace_identity=identity_scope.workspace_identity,
+        )
 
     def health(self) -> dict[str, Any]:
         return {

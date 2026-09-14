@@ -54,10 +54,10 @@ class TestReciprocalRankFusion:
         fused = fusion.fuse(dense_results, sparse_results)
         
         assert len(fused.results) == 2
-        # Score calculation:
-        # id1 (rank 1 in dense): 1.0 / (60 + 1) = 0.01639
-        # id2 (rank 1 in sparse): 1.0 / (60 + 1) = 0.01639
-        # Since scores are equal and sorted is stable/deterministic by key, check existence
+        # 分数计算：
+        # id1（dense 中排名 1）：1.0 / (60 + 1) = 0.01639
+        # id2（sparse 中排名 1）：1.0 / (60 + 1) = 0.01639
+        # 由于分数相等且 sorted 按键稳定/确定性排序，只检查存在性
         ids = [r.memory.id for r in fused.results]
         assert id1 in ids
         assert id2 in ids
@@ -69,7 +69,7 @@ class TestReciprocalRankFusion:
         common_id = uuid4()
         only_dense_id = uuid4()
         
-        # Common ID is rank 1 in dense, rank 1 in sparse
+        # 公共 ID 在 dense 中排名 1，在 sparse 中排名 1
         dense_results = SearchResults(results=[
             self.create_result(common_id, 0.9, "dense"),
             self.create_result(only_dense_id, 0.7, "dense_only")
@@ -83,39 +83,39 @@ class TestReciprocalRankFusion:
         
         assert len(fused.results) == 2
         
-        # Check common_id score
-        # Dense rank 1: 1/61
-        # Sparse rank 1: 1/61
-        # Total: 2/61 ≈ 0.03278
+        # 检查 common_id 的分数
+        # Dense 排名 1：1/61
+        # Sparse 排名 1：1/61
+        # 总计：2/61 ≈ 0.03278
         common_res = next(r for r in fused.results if r.memory.id == common_id)
         assert common_res.score == pytest.approx(2/61, rel=1e-4)
         
-        # Check match reason merging
+        # 检查 match reason 的合并
         assert "dense" in common_res.match_reason
         assert "sparse" in common_res.match_reason
         
-        # Check sorting: common (0.032) > only_dense (1/62 ≈ 0.016)
+        # 检查排序：common (0.032) > only_dense (1/62 ≈ 0.016)
         assert fused.results[0].memory.id == common_id
         
     def test_fuse_weights(self):
         """测试不同权重的影响"""
         config = ReciprocalRankFusionConfig(
-            rrf_k=1, # Small k to make weight impact larger
+            rrf_k=1, # 用较小的 k 放大权重影响
             dense_weight=10.0,
             sparse_weight=1.0
         )
         fusion = ReciprocalRankFusion(config)
         
-        id1 = uuid4() # Dense rank 1
-        id2 = uuid4() # Sparse rank 1
+        id1 = uuid4() # Dense 排名 1
+        id2 = uuid4() # Sparse 排名 1
         
         dense_results = SearchResults(results=[self.create_result(id1, 0.9, "dense")])
         sparse_results = SearchResults(results=[self.create_result(id2, 0.9, "sparse")])
         
         fused = fusion.fuse(dense_results, sparse_results)
         
-        # id1 score: 10 / (1+1) = 5.0
-        # id2 score: 1 / (1+1) = 0.5
+        # id1 分数：10 / (1+1) = 5.0
+        # id2 分数：1 / (1+1) = 0.5
         
         assert fused.results[0].memory.id == id1
         assert fused.results[0].score == pytest.approx(5.0)
@@ -140,24 +140,24 @@ class TestReciprocalRankFusion:
         r2 = SearchResults(results=[self.create_result(id2, 0.9, "r2")])
         r3 = SearchResults(results=[self.create_result(id3, 0.9, "r3")])
         
-        # Test with equal weights
+        # 使用相等权重测试
         fused = fusion.fuse_multi([r1, r2, r3])
         assert len(fused.results) == 3
         
-        # Test with custom weights
+        # 使用自定义权重测试
         weights = [10.0, 1.0, 0.1]
         fused_weighted = fusion.fuse_multi([r1, r2, r3], weights=weights)
         
-        assert fused_weighted.results[0].memory.id == id1 # weight 10
-        assert fused_weighted.results[1].memory.id == id2 # weight 1
-        assert fused_weighted.results[2].memory.id == id3 # weight 0.1
+        assert fused_weighted.results[0].memory.id == id1 # 权重 10
+        assert fused_weighted.results[1].memory.id == id2 # 权重 1
+        assert fused_weighted.results[2].memory.id == id3 # 权重 0.1
 
     def test_top_k_truncation(self):
         """测试结果截断"""
         config = ReciprocalRankFusionConfig(final_top_k=2)
         fusion = ReciprocalRankFusion(config)
         
-        # Create 3 distinct results
+        # 创建 3 个不同的结果
         r1 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r1")])
         r2 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r2")])
         r3 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r3")])

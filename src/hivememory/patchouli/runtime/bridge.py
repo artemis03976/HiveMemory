@@ -1,4 +1,4 @@
-"""Patchouli cross-system bus bridge."""
+"""Patchouli 跨系统总线桥。"""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PatchouliPublicApi:
-    """Public Patchouli API surface mounted by PatchouliBridge."""
+    """PatchouliBridge 挂载的 Patchouli 公开 API 面。"""
 
     chat: PatchouliService
     memory: MemoryManagementService
@@ -37,7 +37,7 @@ class PatchouliPublicApi:
 
 
 class PatchouliBridge:
-    """Bridge Patchouli local capabilities and events to system-level buses."""
+    """把 Patchouli 局部能力与事件桥接到系统级总线。"""
 
 
     def __init__(

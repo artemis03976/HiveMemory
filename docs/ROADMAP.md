@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-11
+last_reviewed: 2026-09-13
 ---
 
 # HiveMemory 开发路线图
@@ -120,6 +120,8 @@ last_reviewed: 2026-09-11
 | `v0.6.2` Identity 投影收敛 | Implemented / Archived | 已消除裸 `user_id` 兼容投影：应用服务入口统一 `IdentityScope`、server 唯一身份解析入口、领域快照 actor 字段值对象化（含旧 JSON 读升级）、读侧兼容属性收口、`system` 保留 actor 与管理/检索可见性路径分离 | 依赖 `v0.6.2 W0` 身份契约，先于 `v0.6.2 W1` 合并；当前事实见 [Workspace 架构](./architecture/workspace.md)与 [System 应用服务](./system/application-services.md)，实施历史见[归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
 | `v0.6.2` V1 Memory Legacy 迁移 | Completed | V1 历史记录已一次性迁移到 V2 归属/策略形状（确定性 replacement ID + checkpoint 续跑 + fail closed + 迁移报告），codec/filter/快照 legacy 解释分支与 Artifact owner 解释路径已删除 | 已完成并归档：[Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)；当前事实见 [数据模型](./architecture/data-model.md) 与 [Retrieval](./patchouli/retrieval.md) |
 | `v0.6.2 W1` Chat Attachments | Implemented / Plan 待归档 | 已在 Workspace 公共契约上实现上传、确定性解析（TXT/Markdown/DOCX）、请求内 representation READY/FAILED、Chat 选择与 lease、AttachmentCompiler、Topic binding 与 CREATE/UPDATE 门控的 Artifact promotion；不包含 Agent 主动解析、MTP RUN 或强沙箱 | 硬依赖 `v0.6.2 W0` Workspace MVP 与 Artifact provenance；[正式 Plan](./plans/v0.6.2-w1-chat-attachments.md)（待归档）；当前事实见 [Chat 附件链路](./system/attachments.md) |
+| `v0.6.2` Workspace Runtime 聚合与缓存所有权迁移 | Completed / Archived | 已完成 Workspace-aware cache key（atom cache alias 索引按 `(WorkspaceIdentity, alias)`、profile cache 按完整授权坐标分区）；后续经 [ADR-0004](./architecture/decisions/0004-execution-path-derived-caches.md) 将派生缓存所有权归还 AliceRuntime、`WorkspaceRuntime` 聚合解体，PendingAtomRuntime 保持 Alice 所有 | 依赖 `v0.6.2` W0/W1 的 Workspace 资源边界与附件 Store；已完成并归档：[Plan](./archive/plans/v0.6.2-workspace-runtime-cache-migration.md)；当前事实见 [Workspace 架构](./architecture/workspace.md)、[System 组合根](./system/composition.md)、[ADR-0004](./architecture/decisions/0004-execution-path-derived-caches.md) 与 [Alice](./alice/README.md) |
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | Planned | 重新建立进程级 WorkspaceRuntime 资源聚合，统一 Profile/Memory/Attachment 读取与派生缓存失效；以 Passive Ingress 为首个 Actor adapter，让 Alice/AgentRuntime 聚焦执行并保持可替换，PendingAtom 暂留执行工作集，拆出 run-level settlement 协调 | 依赖 W0/W1 已冻结的 Workspace scope、AssetStore 和 Patchouli canonical provider；[Plan](./plans/v0.6.2-workspace-resource-system-and-agent-execution-boundaries.md) |
 | Frontend Reliability | Partially Landed / Parallel | 统一 identity、真实/mock 来源、Settings 契约以及 loading/error/waiting 状态，不把视觉个性化作为后端能力前置条件 | [Frontend 当前设计](./frontend/README.md)与相关 Todo；正式 Plan 待建立 |
 | `v0.7.0` Document Ingestion & Provenance Contract | Candidate | document artifact -> chunk/evidence -> 可审核候选记忆，并在该阶段冻结 provenance 数据契约 | 依赖 v0.6.1/v0.6.2 与 Patchouli provenance；正式 Plan 待建立 |
 | `v0.7.1` MTP READ Provenance | Candidate | 将已经稳定的版本、来源 artifact 和检索证据暴露给 READ | [MTP 当前契约](./contracts/mtp.md)；正式 Plan 待建立 |
@@ -145,7 +147,7 @@ last_reviewed: 2026-09-11
 
 ### 4.2 v0.6.2 Workspace MVP 与 Chat Attachments
 
-`v0.6.2` 使用两份独立开发切片。W0 Workspace MVP 已完成并归档，当前事实由 [Workspace 架构](./architecture/workspace.md) 及其链接的领域/契约文档承接；历史实施细节见[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)。W1 Chat Attachments 是其下游候选计划，必须复用已经稳定的 Workspace scope、资源归属和隔离契约，不得通过私有兼容字段或局部容器绕过这些边界。
+`v0.6.2` 的 Workspace 基础能力由 W0/W1 两个已完成切片建立，当前事实由 [Workspace 架构](./architecture/workspace.md) 及其链接的领域/契约文档承接；历史实施细节见对应[归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md)。W1 Chat Attachments 已复用稳定的 Workspace scope、资源归属和隔离契约。随后进行的资源体系与 Agent 执行边界重构仍属于同一 v0.6.2 版本，目标是修正代码组织与依赖方向，不回溯改写 W0/W1 的历史范围；详细入口见 [Workspace 资源体系计划](./plans/v0.6.2-workspace-resource-system-and-agent-execution-boundaries.md)。
 
 #### 4.2.1 W0 Workspace MVP
 
@@ -168,6 +170,12 @@ W1 已把上传文件注册到 W0 建立的 System-owned `WorkspaceAsset` workin
 首个附件格式及其 Artifact 映射由 W1 Plan 在实现前冻结；文档型附件可以评估复用 `DocumentArtifact`，并通过 `origin=CHAT_ATTACHMENT`、源 asset/revision、parser version 和 content hash 等 metadata 与 `v0.7.0` Document Ingestion 区分入口，但这不是当前已确定的公共契约。Artifact 类型按内容语义而不是入口选择；未来非文档附件不能被强塞进 DocumentArtifact。附件还必须复用 v0.6.1 的 operation identity 与重试语义：同一进程内相同 upload operation 只返回一个逻辑资产，同一 materialization retry 不重复生成来源 Artifact。
 
 W1 只消费 W0 已经稳定的 `WorkspaceIdentity`、`IdentityScope`、WorkspaceAssetStore 和 Topic binding 契约，不重新定义 Workspace 所有权或 fallback。大文件异步解析需要在出现真实负载后独立设计，不预设复用 v0.6.1 的业务 lane。Agent 主动解析、MTP RUN 和强沙箱不属于 W1，按独立执行能力计划推进。
+
+#### 4.2.3 Workspace 资源体系与 Agent 执行边界（计划中）
+
+这项后续重构仍属于 `v0.6.2`，不回溯修改 W0/W1 的已完成范围。它以 AE2 类比中的“Workspace 主网 / Agent CPU”为边界目标：建立进程级 `WorkspaceRuntime`，统一 Memory、Profile、WorkspaceAsset 的正式读取、派生缓存、授权重验和失效；Patchouli 继续持有 canonical 数据和领域算法；Alice/AgentRuntime 收缩为 run/frame/loop、模型调用、工作集和提交动作；MTP 作为跨边界适配层。`PendingAtomRuntime` 暂留 Alice 执行工作集，只把 run-level harvesting/materialization 协调从单帧 AgentRuntime 中拆出，不在本计划内把 PendingAtom 变成 Workspace 资源。
+
+计划的主要验收是：没有 Alice 运行时仍能读取已授权 Workspace 资源；多个 Workspace 和并发 Agent run 不串扰；canonical mutation 后缓存不返回旧授权结果；关闭流程不会丢失 settlement；删除缓存不改变资源真相。完整实施阶段、契约兼容矩阵、测试和回滚要求见 [Workspace 资源体系计划](./plans/v0.6.2-workspace-resource-system-and-agent-execution-boundaries.md)。
 
 ### 4.3 Frontend Reliability（并行工作流）
 

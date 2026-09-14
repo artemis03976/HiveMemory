@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-13
 ---
 
 # 系统边界与所有权
@@ -158,13 +158,15 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 - 一次 Agent run 的 frame、消息、turn events 和终态；
 - Agent loop 的迭代与流式执行资源；task cancellation 的业务裁决属于 System，Alice 只负责原生传播与本地 unwind；
-- Koakuma 的 MTP parser、权限检查、alias cache 与 syscall registry；
+- Koakuma 的 MTP parser、权限检查、alias cache 与 syscall registry（alias cache 按 `(WorkspaceIdentity, alias)` 分区，键控规则见 [ADR-0004](./decisions/0004-execution-path-derived-caches.md)）；
 - PendingAtom 在当前运行期内的别名、redirect 和 terminal view；
 - CALL 的父子 frame 调度。
 
 ### 7.2 依赖方向
 
 Alice 接收 Patchouli 准备好的 `AgentRunContext`。需要检索、别名读取、Profile 或引用记录时，经映射到 Alice local bus 的全局公开路由访问 Patchouli。
+
+Alice 执行路径的派生缓存（L1 atom cache、profile cache）与 PendingAtomRuntime 一样由 AliceRuntime 创建并持有：派生自 Workspace-owned 资源的视图按派生源的 Workspace 坐标键控（[ADR-0004](./decisions/0004-execution-path-derived-caches.md)），分区不替代命中后的 ownership/actor policy 重验。
 
 Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行时视图。Alice 不以此取得正式记忆所有权。
 

@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-13
 ---
 
 # System 组合根与生命周期
@@ -45,6 +45,7 @@ HiveMemorySystem.build(config)
        -> application-service bundle
             Chat / PassiveIngress / Memory / MemoryTask
             Agent / Topic / Readiness services
+            WorkspaceAssetApplicationService（持有 AssetStore 命令端口）
 ```
 
 四个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，子系统共享全局基础设施，应用服务最后只拿到公共总线和必要配置。
@@ -56,6 +57,8 @@ HiveMemorySystem.build(config)
 - `RuntimeEventBus`：启用时保存有界观测事件和订阅队列；
 - `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
 - `InMemoryWorkspaceAssetStore`：System-owned 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例。
+
+Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 PendingAtomRuntime 一样属于 Alice 的运行时状态，由 AliceRuntime 在进程启动时创建（[ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）；System 组合根不感知其内部缓存实例。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 
@@ -72,8 +75,8 @@ HiveMemorySystem.build(config)
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
 | Gateway | 注入配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入配置、全局总线、维护调度器和观测 sink | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
-| Alice | 注入配置、全局总线、模型注册表和观测 sink | Agent run、frame、MTP、工具和 PendingAtom 运行时 |
+| Patchouli | 注入配置、全局总线、维护调度器、观测 sink 和 AssetStore 只读 reader | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Alice | 注入配置、全局总线、模型注册表和观测 sink | Agent run、frame、MTP、工具、PendingAtom 运行时与执行路径派生 cache |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由应用服务通过 `GlobalSystemBus` 发起。
 
@@ -110,7 +113,7 @@ GlobalMaintenanceScheduler.stop
   -> SYSTEM_STOPPED
 ```
 
-先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止后，Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时在 bridge 卸载后自行清空其执行路径的派生 cache；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
 
@@ -136,6 +139,7 @@ System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `ch
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
 - `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
 - `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
+- 全进程只存在一个 WorkspaceAssetStore；Alice 执行路径的派生 cache 与 PendingAtomRuntime 由 AliceRuntime 创建并持有，System 组合根不感知其内部缓存实例；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。
 
 评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。
@@ -146,4 +150,6 @@ System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `ch
 - `src/hivememory/system/system.py`
 - `tests/unit/system/test_hivememory_system.py`
 - `tests/unit/system/test_lifecycle.py`
+- `tests/unit/system/runtime/workspace/test_runtime.py`
+- `tests/integration/system/test_workspace_asset_runtime.py`（对象图与停止顺序）
 - `tests/unit/system/contracts/test_contracts.py`

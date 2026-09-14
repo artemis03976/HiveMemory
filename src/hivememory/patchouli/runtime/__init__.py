@@ -1,4 +1,4 @@
-"""Patchouli runtime package."""
+"""Patchouli 运行时包。"""
 
 from hivememory.patchouli.runtime.bus import PatchouliBus
 

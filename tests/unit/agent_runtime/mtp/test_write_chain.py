@@ -75,7 +75,7 @@ def _mock_mid_term():
     return mid_term
 
 
-# ========== Test 3: Engine Mode B Extraction ==========
+# ========== Test 3：Engine Mode B 提取 ==========
 
 class TestModeBExtraction:
     """验证 Generation Engine Mode B 路径"""
@@ -138,7 +138,7 @@ class TestModeBExtraction:
         assert "mode" not in metadata
 
 
-# ========== Test 4: Mode B Fallback ==========
+# ========== Test 4：Mode B 回退 ==========
 
 class TestModeBFallback:
     """验证 LLM 提取失败时的 fallback 草稿构建"""
@@ -199,7 +199,7 @@ class TestModeBFallback:
         assert draft.title == "A very long content that should be truncated for t"
 
 
-# ========== Test 8: Active Flush Reason Removed ==========
+# ========== Test 8：Active Flush 原因已移除 ==========
 
 class TestTriggerReasonActiveGenerationRemoved:
     """主动写生成已脱离感知层，不再保留 MTP flush reason"""
@@ -208,7 +208,7 @@ class TestTriggerReasonActiveGenerationRemoved:
         assert "MTP_WRITE" not in TriggerReason.__members__
 
 
-# ========== Test 9: Engine unified API ==========
+# ========== Test 9：Engine 统一 API ==========
 
 class TestEngineUnifiedAPI:
     """验证 process() 统一使用 GenerationRequest"""

@@ -21,11 +21,11 @@ if TYPE_CHECKING:
 
 
 class MemoryLifecycleUnavailableError(RuntimeError):
-    """Raised when lifecycle feedback operations are unavailable."""
+    """生命周期反馈操作不可用时抛出。"""
 
 
 class MemoryNotFoundError(ValueError):
-    """Raised when the requested memory does not exist."""
+    """请求的记忆不存在时抛出。"""
 
 
 class MemoryApplicationService:

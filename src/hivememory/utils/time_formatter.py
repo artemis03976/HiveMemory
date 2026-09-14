@@ -1,7 +1,7 @@
 """
-Time formatting utilities for HiveMemory.
+HiveMemory 时间格式化工具。
 
-Provides relative time formatting with multilingual support.
+提供多语言支持的相对时间格式化。
 """
 
 from datetime import datetime
@@ -12,14 +12,14 @@ from hivememory.i18n import Language, get_time_formatter_text, resolve_language
 
 class TimeFormatter:
     """
-    Utility class for formatting datetime objects into human-readable relative time strings.
+    把 datetime 对象格式化为人类可读相对时间字符串的工具类。
 
-    Supports multiple languages and customizable stale memory warnings.
+    支持多语言与可自定义的陈旧记忆警告。
 
     Features:
-    - Bilingual support (English/Chinese)
-    - Configurable stale warning threshold
-    - Flexible time units (months, days, hours, recent)
+    - 双语支持（英文/中文）
+    - 可配置的陈旧警告阈值
+    - 灵活的时间单位（月/天/小时/刚刚）
 
     Example:
         >>> from datetime import timedelta
@@ -33,7 +33,7 @@ class TimeFormatter:
         '5 days ago'
     """
 
-    # Threshold constants (days)
+    # 阈值常量（单位：天）
     MONTH_THRESHOLD = 30
     DEFAULT_STALE_DAYS = 90
 
@@ -43,25 +43,25 @@ class TimeFormatter:
         stale_days: int = DEFAULT_STALE_DAYS,
     ):
         """
-        Initialize the TimeFormatter.
+        初始化 TimeFormatter。
 
         Args:
-            language: The language for output strings (default: global fallback)
-            stale_days: Number of days after which a memory is considered stale (default: 90)
+            language: 输出文案语言（默认：全局回退语言）
+            stale_days: 记忆超过多少天视为陈旧（默认 90）
         """
         self.language = resolve_language(explicit=language)
         self.stale_days = stale_days
 
     def format(self, dt: datetime, reference: Optional[datetime] = None) -> str:
         """
-        Format a datetime as a relative time string.
+        把 datetime 格式化为相对时间字符串。
 
         Args:
-            dt: The datetime to format
-            reference: Reference datetime (defaults to current time)
+            dt: 要格式化的 datetime
+            reference: 参考时间（默认取当前时间）
 
         Returns:
-            Formatted relative time string, e.g., "5 天前" or "2 months ago"
+            格式化后的相对时间字符串，例如 "5 天前" 或 "2 months ago"
         """
         dt, reference = self._normalize_datetimes(dt=dt, reference=reference)
 
@@ -88,11 +88,11 @@ class TimeFormatter:
     @staticmethod
     def _normalize_datetimes(dt: datetime, reference: Optional[datetime]) -> tuple[datetime, datetime]:
         """
-        Normalize datetime timezone awareness to avoid naive/aware subtraction errors.
+        归一化 datetime 的时区感知，避免 naive 与 aware 相减报错。
 
         Rules:
-        - If `reference` is None, derive it with the same awareness as `dt`.
-        - If one is naive and the other is aware, align the naive one to the aware one's tzinfo.
+        - 若 `reference` 为 None，则以与 `dt` 相同的感知性推导它。
+        - 若一方 naive 另一方 aware，把 naive 一方对齐到 aware 一方的 tzinfo。
         """
         if reference is None:
             if dt.tzinfo is not None:
@@ -116,16 +116,16 @@ def format_time_ago(
     reference: Optional[datetime] = None,
 ) -> str:
     """
-    Quick function to format a datetime as relative time.
+    把 datetime 格式化为相对时间的快捷函数。
 
     Args:
-        dt: The datetime to format
-        language: The language for output (default: Chinese)
-        stale_days: Days before showing stale warning (default: 90)
-        reference: Reference datetime (defaults to current time)
+        dt: 要格式化的 datetime
+        language: 输出语言（默认中文）
+        stale_days: 显示陈旧警告的天数阈值（默认 90）
+        reference: 参考时间（默认取当前时间）
 
     Returns:
-        Formatted relative time string
+        格式化后的相对时间字符串
 
     Example:
         >>> from datetime import timedelta

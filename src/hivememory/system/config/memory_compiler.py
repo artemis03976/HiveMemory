@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FullContextStrategyConfig(BaseModel):
-    """Compile every retrieved memory as full prompt context."""
+    """把每条检索到的记忆编译为完整提示词上下文。"""
 
     type: Literal["full"] = "full"
     max_tokens: int = Field(default=2000)
@@ -15,7 +15,7 @@ class FullContextStrategyConfig(BaseModel):
 
 
 class CascadeContextStrategyConfig(BaseModel):
-    """Compile top results as full context and later results as index context."""
+    """把头部结果编译为完整上下文，其余编译为索引上下文。"""
 
     type: Literal["cascade"] = "cascade"
     max_memory_tokens: int = Field(default=2000)
@@ -27,7 +27,7 @@ class CascadeContextStrategyConfig(BaseModel):
 
 
 class CompactContextStrategyConfig(BaseModel):
-    """Compile every retrieved memory as compact index context."""
+    """把每条检索到的记忆编译为紧凑索引上下文。"""
 
     type: Literal["compact"] = "compact"
     max_memory_tokens: int = Field(default=2000)

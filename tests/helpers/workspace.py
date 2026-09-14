@@ -5,8 +5,26 @@ from hivememory.core.models import (
     ActorIdentity,
     RuntimeScope,
     IdentityScope,
+    WorkspaceIdentity,
     build_internal_identity_scope,
 )
+
+
+def make_workspace_identity(
+    *,
+    owner_user_id: str = "test_user",
+    workspace_id: str = "main_workspace",
+) -> WorkspaceIdentity:
+    """构造与 ``make_identity_scope`` 同构的 Workspace 归属坐标。
+
+    供 Workspace 分区 cache 的读写测试显式传入 key 坐标，默认值与
+    ``make_identity_scope``/``make_runtime_scope`` 的默认 scope 一致。
+    """
+    return WorkspaceIdentity(
+        owner_user_id=owner_user_id,
+        workspace_key=workspace_id,
+        workspace_id=workspace_id,
+    )
 
 
 def make_identity_scope(

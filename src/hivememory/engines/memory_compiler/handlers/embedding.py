@@ -1,4 +1,4 @@
-"""Embedding-oriented memory target handlers."""
+"""面向 Embedding 的记忆 target 处理器。"""
 
 from __future__ import annotations
 

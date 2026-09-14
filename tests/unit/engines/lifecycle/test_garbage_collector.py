@@ -1,4 +1,4 @@
-"""Unit tests for the lifecycle garbage collector."""
+"""生命周期垃圾回收器的单元测试。"""
 
 import pytest
 from unittest.mock import AsyncMock, Mock

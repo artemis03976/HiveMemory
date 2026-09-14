@@ -242,15 +242,30 @@ def _build_system(
     return system, calls, subsystems, sink
 
 
-def test_assembler_constructs_one_store_implementing_both_narrow_ports() -> None:
+def test_assembler_constructs_store_implementing_both_narrow_ports() -> None:
     """捕获 runtime 遗漏 Store、重复容器或只提供宽泛 service locator。"""
     runtime = SystemAssembler(
         HiveMemoryConfig(runtime_events={"enabled": False})
     )._build_runtime()
 
-    assert isinstance(runtime.workspace_asset_store, InMemoryWorkspaceAssetStore)
-    assert isinstance(runtime.workspace_asset_store, WorkspaceAssetReaderPort)
-    assert isinstance(runtime.workspace_asset_store, WorkspaceAssetCommandPort)
+    store = runtime.workspace_asset_store
+    assert isinstance(store, InMemoryWorkspaceAssetStore)
+    assert isinstance(store, WorkspaceAssetReaderPort)
+    assert isinstance(store, WorkspaceAssetCommandPort)
+
+
+def test_assemble_wires_single_store_across_consumers() -> None:
+    """组合根对象图：Store 是全图唯一共享实例。"""
+    system = SystemAssembler(
+        HiveMemoryConfig(runtime_events={"enabled": False})
+    ).assemble()
+
+    store = system._workspace_asset_store
+    # Patchouli 读取端、上传服务命令端与附件解析服务拿到的都是组合根持有的
+    # 同一份 Store，不存在第二个 Store 实例或按 Workspace 复制的运行时。
+    assert system._patchouli.runtime._workspace_asset_reader is store
+    assert system._workspace_asset_service._store is store
+    assert system._workspace_asset_service._parse_service._store is store
 
 
 def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:

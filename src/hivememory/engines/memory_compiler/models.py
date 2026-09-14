@@ -1,4 +1,4 @@
-"""Core data models for MemoryCompiler."""
+"""MemoryCompiler 核心数据模型。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from hivememory.system.config.memory_compiler import RetrievalContextStrategyCon
 
 
 class MemoryCompileTarget(str, Enum):
-    """Unit compile targets."""
+    """单元（Unit）编译 target。"""
 
     PROMPT_FULL = "prompt_full"
     PROMPT_INDEX = "prompt_index"
@@ -24,7 +24,7 @@ class MemoryCompileTarget(str, Enum):
 
 
 class MemoryEnvelopeTarget(str, Enum):
-    """Envelope compile targets."""
+    """信封（Envelope）编译 target。"""
 
     RETRIEVAL_CONTEXT = "retrieval_context"
     MTP_READ_RESPONSE = "mtp_read_response"
@@ -32,7 +32,7 @@ class MemoryEnvelopeTarget(str, Enum):
 
 
 class CompiledMemory(BaseModel):
-    """Unified compile() output for unit artifacts and envelope text."""
+    """compile() 对单元产物与 Envelope 文本的统一输出。"""
 
     target: MemoryCompileTarget | MemoryEnvelopeTarget
     text: str
@@ -46,14 +46,14 @@ class CompiledMemory(BaseModel):
 
 
 class MemoryEnvelopeSection(BaseModel):
-    """A named section in a compiled memory envelope."""
+    """编译后记忆 Envelope 中的命名小节。"""
 
     kind: str
     artifacts: List[CompiledMemory] = Field(default_factory=list)
     empty_text: Optional[str] = None
 
 
-# Compatibility type names. They point to the unified runtime model.
+# 兼容类型别名，指向统一的运行时模型。
 CompiledMemoryArtifact = CompiledMemory
 CompiledMemoryEnvelope = CompiledMemory
 

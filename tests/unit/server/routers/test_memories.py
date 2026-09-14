@@ -236,7 +236,7 @@ class TestMemoriesRouter:
         lifecycle.refresh_vitality_batch.side_effect = (
             lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
         )
-        # lifecycle injected into the application service
+        # lifecycle 注入应用服务
 
         app = _create_test_app(storage, lifecycle)
         client = TestClient(app)
@@ -257,7 +257,7 @@ class TestMemoriesRouter:
         lifecycle.refresh_vitality_batch.side_effect = (
             lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 44.0)
         )
-        # lifecycle injected into the application service
+        # lifecycle 注入应用服务
 
         app = _create_test_app(storage, lifecycle)
         client = TestClient(app)
@@ -290,7 +290,7 @@ class TestMemoriesRouter:
         lifecycle.refresh_vitality_batch.side_effect = (
             lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 55.0)
         )
-        # lifecycle injected into the application service
+        # lifecycle 注入应用服务
 
         app = _create_test_app(storage, lifecycle)
         client = TestClient(app)

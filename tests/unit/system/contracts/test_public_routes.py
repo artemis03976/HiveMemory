@@ -24,7 +24,11 @@ from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope, make_runtime_scope
+from tests.helpers.workspace import (
+    make_identity_scope,
+    make_runtime_scope,
+    make_workspace_identity,
+)
 
 # ========== Alice ==========
 
@@ -229,7 +233,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_settlement_refreshes_alice_l1_atom_cache(self):
-        """结算事件以原 scope 查询资源 owner，再刷新共享 L1 cache。"""
+        """结算事件以原 scope 查询资源 owner，再刷新对应 Workspace 分区的 L1 cache。"""
         from hivememory.core.models import ActorIdentity
 
         stale_atom = _make_memory("fact_canonical", "stale content")
@@ -257,7 +261,10 @@ class TestAlicePublicRoutes:
             runtime_scope=make_runtime_scope(actor_identity=identity, run_id="run-1"),
         )
         pending_runtime.start_materializing(pending.pending_alias)
-        system.runtime.atom_cache.ingest_atom(stale_atom)
+        system.runtime.atom_cache.ingest_atom(
+            stale_atom,
+            workspace_identity=make_workspace_identity(),
+        )
 
         settlement = PendingAtomSettlement(
             pending_alias=pending.pending_alias,
@@ -273,7 +280,14 @@ class TestAlicePublicRoutes:
         )
 
         assert refresh_requests == [(["fact_canonical"], identity_scope)]
-        assert system.runtime.atom_cache.get_atom_by_alias("fact_canonical") is fresh_atom
+        # settlement 以原 PendingAtom scope 刷新对应 Workspace 分区。
+        assert (
+            system.runtime.atom_cache.get_atom_by_alias(
+                "fact_canonical",
+                workspace_identity=make_workspace_identity(),
+            )
+            is fresh_atom
+        )
         assert (
             system.runtime.atom_cache.get_atom_by_uuid(
                 str(stale_atom.id),
@@ -281,8 +295,73 @@ class TestAlicePublicRoutes:
             is None
         )
 
+    @pytest.mark.asyncio
+    async def test_settlement_refresh_scopes_to_pending_original_workspace(self):
+        """结算刷新必须写入 PendingAtom 原始 Workspace 分区，不落默认 Workspace。"""
+        from hivememory.core.models import ActorIdentity
 
-# ========== Patchouli (lightweight — full integration tested in test_bootstrap) ==========
+        fresh_atom = _make_memory("fact_canonical", "fresh content")
+        refresh_requests = []
+
+        async def retrieve_by_aliases(*, aliases, identity_scope):
+            refresh_requests.append((aliases, identity_scope))
+            return SimpleNamespace(memories=[fresh_atom])
+
+        self.global_bus.register(
+            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            retrieve_by_aliases,
+        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        await system.start()
+        identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
+        pending_runtime = system.runtime.alias_resolver.pending_runtime
+        pending = pending_runtime.register_write(
+            content="draft",
+            title="Draft",
+            reason=None,
+            identity=identity,
+            runtime_scope=make_runtime_scope(
+                actor_identity=identity,
+                run_id="run-iso",
+                workspace_id="isolation_workspace",
+            ),
+        )
+        pending_runtime.start_materializing(pending.pending_alias)
+
+        settlement = PendingAtomSettlement(
+            pending_alias=pending.pending_alias,
+            intent_id=pending.intent_id,
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="fact_canonical",
+            canonical_uuid=str(fresh_atom.id),
+        )
+        await self.global_bus.publish(
+            GlobalEvents.PENDING_ATOM_SETTLED,
+            settlement=settlement,
+        )
+
+        isolation = make_workspace_identity(workspace_id="isolation_workspace")
+        main = make_workspace_identity()
+        # L2 查询与回填都使用 PendingAtom 原始 isolation scope。
+        assert refresh_requests[0][1].workspace_identity == isolation
+        assert (
+            system.runtime.atom_cache.get_atom_by_alias(
+                "fact_canonical",
+                workspace_identity=isolation,
+            )
+            is fresh_atom
+        )
+        # 默认 Workspace 分区不得被写入。
+        assert (
+            system.runtime.atom_cache.get_atom_by_alias(
+                "fact_canonical",
+                workspace_identity=main,
+            )
+            is None
+        )
+
+
+# ========== Patchouli（轻量级 — 完整集成在 test_bootstrap 中测试） ==========
 
 
 class TestPatchouliPublicRoutes:

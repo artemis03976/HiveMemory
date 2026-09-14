@@ -30,7 +30,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
+from hivememory.agent_runtime.aliases import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.errors import ScopeRequiredError
@@ -71,6 +71,7 @@ from hivememory.i18n.resolver import resolve_language
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
+    from hivememory.agent_runtime.aliases import AtomCachePort
     from hivememory.core.models import MemoryAtom
     from hivememory.system.config import KoakumaConfig, MemoryCompilerConfig
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
@@ -326,8 +327,8 @@ class KoakumaRuntime:
     # ========== 别名管理 ==========
 
     @property
-    def atom_cache(self) -> KoakumaAtomCache:
-        """访问统一原子缓存"""
+    def atom_cache(self) -> AtomCachePort:
+        """访问 Workspace 分区的统一原子缓存（读写需携带 Workspace 坐标）"""
         return self._alias_resolver.atom_cache
 
     @property
@@ -460,8 +461,11 @@ class KoakumaRuntime:
         ).text
         response_warnings = list(filter_warnings)
 
-        # 将检索到的记忆原子缓存（完整对象，而非仅 UUID）
-        self.atom_cache.ingest_atoms(result.memories)
+        # 将检索到的记忆原子缓存到调用方 Workspace 分区（完整对象，而非仅 UUID）
+        self.atom_cache.ingest_atoms(
+            result.memories,
+            workspace_identity=context.identity_scope.workspace_identity,
+        )
 
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
@@ -754,10 +758,10 @@ class KoakumaRuntime:
         atom = resolved.atom
         uuid = str(atom.id)
 
-        # 4. 获取可选的 content
+        # 获取可选的 content
         content = command.args.get("content", None)
 
-        # 5. 注册 pending revision
+        # 注册 pending revision
         pending = self.pending_runtime.register_update(
             base_alias=alias,
             base_uuid=uuid,
@@ -767,8 +771,11 @@ class KoakumaRuntime:
             runtime_scope=context.runtime_scope,
         )
 
-        # 7. 使缓存失效，防止脏读
-        self.atom_cache.invalidate_alias(alias)
+        # 使当前 Workspace 分区内的缓存失效，防止脏读
+        self.atom_cache.invalidate_alias(
+            alias,
+            workspace_identity=context.identity_scope.workspace_identity,
+        )
 
         logger.info(
             f"MTP UPDATE 延迟捕获: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"

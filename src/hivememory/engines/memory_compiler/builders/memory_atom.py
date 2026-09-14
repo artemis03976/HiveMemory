@@ -1,4 +1,4 @@
-"""MemoryAtom → MemoryUnitIR builder."""
+"""MemoryAtom → MemoryUnitIR 构建器。"""
 
 from __future__ import annotations
 

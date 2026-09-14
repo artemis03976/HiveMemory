@@ -1,4 +1,4 @@
-"""Prompt template i18n text fragments."""
+"""提示词模板 i18n 文案片段。"""
 
 from hivememory.i18n.resolver import resolve_language
 from hivememory.i18n.types import Language
@@ -717,35 +717,35 @@ Output JSON: {{ "new_content": "...", "changelog": "..." }}
 
 
 def get_system_prompt_text(key: str, language: str | Language | None = None) -> str:
-    """Return a SystemPromptBuilder text fragment."""
+    """返回 SystemPromptBuilder 文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _SYSTEM_PROMPT_TEXT_EN if resolved == Language.EN else _SYSTEM_PROMPT_TEXT_ZH
     return texts[key]
 
 
 def get_mtp_prompt_text(key: str, language: str | Language | None = None) -> str:
-    """Return an MTP prompt text fragment."""
+    """返回 MTP 提示词文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _MTP_PROMPT_TEXT_EN if resolved == Language.EN else _MTP_PROMPT_TEXT_ZH
     return texts[key]
 
 
 def get_mtp_verb_text(verb: str, language: str | Language | None = None) -> str:
-    """Return an MTP verb description."""
+    """返回 MTP 动词说明文案。"""
     resolved = resolve_language(explicit=language)
     texts = _MTP_VERB_TEXT_EN if resolved == Language.EN else _MTP_VERB_TEXT_ZH
     return texts[verb.upper()]
 
 
 def get_gateway_prompt_text(key: str, language: str | Language | None = None) -> str:
-    """Return a Gateway prompt text fragment."""
+    """返回 Gateway 提示词文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _GATEWAY_PROMPT_TEXT_EN if resolved == Language.EN else _GATEWAY_PROMPT_TEXT_ZH
     return texts[key]
 
 
 def get_relay_prompt_text(key: str, language: str | Language | None = None) -> str:
-    """Return a relay compression prompt text fragment."""
+    """返回中继压缩提示词文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _RELAY_PROMPT_TEXT_EN if resolved == Language.EN else _RELAY_PROMPT_TEXT_ZH
     return texts[key]
@@ -756,7 +756,7 @@ def get_generation_prompt_text(
     key: str,
     language: str | Language | None = None,
 ) -> str:
-    """Return a generation prompt text fragment for a specific generation mode."""
+    """返回指定生成模式的生成提示词文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _GENERATION_PROMPT_TEXT_EN if resolved == Language.EN else _GENERATION_PROMPT_TEXT_ZH
     return texts[mode][key]

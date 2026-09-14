@@ -692,7 +692,7 @@ class TestGenerationEngineAlias:
         """长 suffix 截断到 40 字符"""
         long_suffix = "a" * 100
         alias = MemoryGenerationEngine._build_alias("FACT", long_suffix, "标题")
-        # prefix "fact_" + 40 chars
+        # 前缀 "fact_" + 40 字符
         assert len(alias) == 45
 
 

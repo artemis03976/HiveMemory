@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-13
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -80,7 +80,7 @@ Agent Profile 的权限同时作用于 prompt 和 runtime：
 
 | Verb | 当前 Runtime 行为 | 主要交接边界 |
 |:---|:---|:---|
-| `SEARCH` | 解析 query/filter，经 Alice local bus 请求 Patchouli retrieval；用 MemoryCompiler 编译结果并预热 L1 alias cache | Patchouli 拥有检索，Alice 拥有本帧缓存与回填 |
+| `SEARCH` | 解析 query/filter，经 Alice local bus 请求 Patchouli retrieval；用 MemoryCompiler 编译结果并预热调用方 Workspace 分区的 L1 atom cache | Patchouli 拥有检索，Alice 拥有本帧缓存与回填 |
 | `READ` | 通过 L0 PendingAtom、L1 atom cache、L2 Patchouli 冷查询解析一个或多个 alias；编译 pending、redirect、atom 与终态 | alias 语义由 RuntimeAliasResolver 统一 |
 | `RUN` | 先匹配 Kernel syscall；否则解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | Profile 控制工具可见面，但不等于 OS 沙箱 |
 | `WRITE` | 校验 content，注册 `WriteFocus` PendingAtom，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
@@ -191,9 +191,9 @@ Alice 配置当前分为两组：
 - 同步 syscall 执行期间不会轮询取消状态，因此 task cancellation 不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
-- RuntimeAliasResolver 的 L1 atom cache 命中已在 resolver 边界重验 `IdentityScope`，L2 冷查询也由最终资源 owner 再次校验；L0 PendingAtom alias 命中仍未重验调用方 scope，当前代码尚未完全兑现 MTP 契约中“记忆访问使用调用方 scope”的不变量，详见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)；
+- RuntimeAliasResolver 的三级命中都在 resolver/owner 边界重验调用方 scope：L1 atom cache 命中与 L2 冷查询重验 `IdentityScope` 与资源 ownership；L0 PendingAtom 命中比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理（回归入口见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)）；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
-- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，但 frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
+- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区（[ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）；frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

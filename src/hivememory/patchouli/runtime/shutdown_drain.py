@@ -1,4 +1,4 @@
-"""Shutdown drain observability summaries for PatchouliRuntime."""
+"""PatchouliRuntime 关停排空的观测性摘要。"""
 
 from __future__ import annotations
 

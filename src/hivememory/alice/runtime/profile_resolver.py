@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import OrderedDict
 from typing import TYPE_CHECKING
 
+from hivememory.alice.runtime.profile_cache import ProfileCachePort
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    ActorIdentity,
     AgentProfile,
     IdentityScope,
     require_identity_scope,
@@ -26,47 +25,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AgentProfileCache:
-    """按既有 ActorIdentity key 保存人偶图纸的 LRU 缓存。
+class AgentProfileResolver:
+    """把可读 agent alias 解析为人偶图纸，并按完整授权坐标缓存。
 
-    Workspace scope 只随解析请求传播，不改变该共享 cache 的 key、owner 或
-    生命周期。
+    profile cache 由 AliceRuntime 创建并持有所有权（实现见同包``profile_cache.py``）；
+    resolver 只经窄化 port 注入使用。
     """
 
-    def __init__(self, max_size: int = 32):
-        self._max_size = max_size
-        self._cache: OrderedDict[tuple[str, str, str | None, str], AgentProfile] = OrderedDict()
-
-    @staticmethod
-    def key(alias: str, identity: ActorIdentity) -> tuple[str, str, str | None, str]:
-        """构造 cache key：(user, agent, team, alias) 四维。"""
-        return (identity.user_id, identity.agent_id, identity.team_id, alias)
-
-    def get(self, alias: str, identity: ActorIdentity) -> AgentProfile | None:
-        key = self.key(alias, identity)
-        profile = self._cache.get(key)
-        if profile is not None:
-            self._cache.move_to_end(key)
-            return profile
-        return None
-
-    def store(self, alias: str, identity: ActorIdentity, profile: AgentProfile) -> None:
-        key = self.key(alias, identity)
-        if key in self._cache:
-            self._cache.move_to_end(key)
-            self._cache[key] = profile
-        else:
-            if len(self._cache) >= self._max_size:
-                self._cache.popitem(last=False)
-            self._cache[key] = profile
-
-
-class AgentProfileResolver:
-    """把可读 agent alias 解析为人偶图纸，并按既有 actor key 缓存。"""
-
-    def __init__(self, local_bus: AliceBus) -> None:
+    def __init__(
+        self,
+        local_bus: AliceBus,
+        *,
+        profile_cache: ProfileCachePort,
+    ) -> None:
+        if not isinstance(profile_cache, ProfileCachePort):
+            raise TypeError("profile_cache 必须实现 ProfileCachePort")
         self._local_bus = local_bus
-        self._cache = AgentProfileCache()
+        self._cache = profile_cache
         self._load_lock = asyncio.Lock()
 
     async def resolve(
@@ -77,18 +52,19 @@ class AgentProfileResolver:
     ) -> AgentProfile:
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
+        workspace_identity = identity_scope.workspace_identity
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return OMNI_DOLL_PROFILE
 
-        cached = self._cache.get(normalized_alias, identity)
+        cached = self._cache.get(workspace_identity, identity, normalized_alias)
         if cached is not None:
             return cached
 
-        # 并发 cache miss 通过锁串行复查，避免一个 actor 的结果污染另一个
-        # actor 条目；Workspace 不参与这份既有 cache key。
+        # 并发 cache miss 通过锁串行复查；key 含完整授权坐标，串行化只是
+        # 合并同坐标的重复加载，不会让一个坐标的结果污染另一个坐标的条目。
         async with self._load_lock:
-            cached = self._cache.get(normalized_alias, identity)
+            cached = self._cache.get(workspace_identity, identity, normalized_alias)
             if cached is not None:
                 return cached
 
@@ -133,7 +109,7 @@ class AgentProfileResolver:
                 )
 
             logger.info("Agent profile %r loaded and cached", normalized_alias)
-            self._cache.store(normalized_alias, identity, profile)
+            self._cache.store(workspace_identity, identity, normalized_alias, profile)
             return profile
 
 

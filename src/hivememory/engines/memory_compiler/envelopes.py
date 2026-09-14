@@ -1,4 +1,4 @@
-"""Envelope compilation for compiled memory artifacts."""
+"""面向编译后记忆产物的 Envelope 编译。"""
 
 from __future__ import annotations
 
@@ -175,7 +175,7 @@ def _apply_compact_strategy(units, cfg: CompactContextStrategyConfig, opts, comp
     return artifacts
 
 
-# ========== Envelope rendering ==========
+# ========== Envelope 渲染 ==========
 
 def _compile_retrieval_context(
     sections: list[MemorySectionIR],

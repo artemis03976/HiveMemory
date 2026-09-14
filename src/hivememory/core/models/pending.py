@@ -55,11 +55,11 @@ class PendingAtomStatus(str, Enum):
 class PendingAtomResolution(str, Enum):
     """SETTLED 状态下的终结分类（其他状态此字段为 None）。"""
 
-    CREATED = "created"  # dedup decision = CREATE
-    MERGED = "merged"  # dedup decision = UPDATE
-    TOUCHED = "touched"  # dedup decision = TOUCH
+    CREATED = "created"  # 去重决策 = CREATE
+    MERGED = "merged"  # 去重决策 = UPDATE
+    TOUCHED = "touched"  # 去重决策 = TOUCH
     UPDATED = "updated"  # Mode C UPDATE 应用完成
-    DISCARDED = "discarded"  # dedup decision = DISCARD
+    DISCARDED = "discarded"  # 去重决策 = DISCARD
 
     @property
     def has_canonical(self) -> bool:
@@ -103,7 +103,7 @@ def allowed_transitions(from_status: PendingAtomStatus) -> frozenset[PendingAtom
 
 
 class InvalidStateTransition(RuntimeError):
-    """Raised when a PendingAtom lifecycle transition violates the state machine."""
+    """PendingAtom 生命周期迁移违反状态机时抛出。"""
 
 
 # ===========================================================================
@@ -152,7 +152,7 @@ class RuntimeScope(BaseModel):
     action_id: Optional[str] = None
 
     def with_action(self, action_id: str) -> "RuntimeScope":
-        """Return a copy scoped to one agent action."""
+        """返回限定在单个 agent 动作范围内的副本。"""
         return self.model_copy(update={"action_id": action_id})
 
     model_config = ConfigDict(frozen=True)
@@ -239,7 +239,7 @@ class PendingAtom(BaseModel):
     runtime_scope: RuntimeScope
     created_at: datetime = Field(default_factory=datetime.now)
 
-    # Phase 2: settlement tracking
+    # Phase 2：结算跟踪
     settlement: Optional[PendingAtomSettlement] = None
 
 
@@ -298,7 +298,7 @@ __all__ = [
     "is_legal_transition",
     "allowed_transitions",
     "InvalidStateTransition",
-    # Focus
+    # Focus 相关字段
     "WriteFocus",
     "UpdateFocus",
     # 执行坐标

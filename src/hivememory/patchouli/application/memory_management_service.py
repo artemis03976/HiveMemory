@@ -15,7 +15,7 @@ from hivememory.utils.uuid import normalize_uuid
 
 
 class MemoryManagementService:
-    """Patchouli application service for public memory management APIs."""
+    """Patchouli 面向公开记忆管理 API 的应用服务。"""
 
     def __init__(
         self,
