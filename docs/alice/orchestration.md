@@ -227,7 +227,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 ## 10. 当前限制
 
-- AgentProfile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 组织、上限固定为 32（键控规则见 [ADR-0005](../architecture/decisions/0005-execution-path-derived-caches.md)）。缓存没有 TTL、版本检查或管理事件失效，Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
+- AgentProfile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 组织、上限固定为 32（键控规则见 [ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）。缓存没有 TTL、版本检查或管理事件失效，Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
 - `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 `IdentityScope`。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 actor projection 证明真实 CALL 目标；
 - frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；

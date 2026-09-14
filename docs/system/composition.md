@@ -58,7 +58,7 @@ HiveMemorySystem.build(config)
 - `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
 - `InMemoryWorkspaceAssetStore`：System-owned 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例。
 
-Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 PendingAtomRuntime 一样属于 Alice 的运行时状态，由 AliceRuntime 在进程启动时创建（[ADR-0005](../architecture/decisions/0005-execution-path-derived-caches.md)）；System 组合根不感知其内部缓存实例。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
+Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 PendingAtomRuntime 一样属于 Alice 的运行时状态，由 AliceRuntime 在进程启动时创建（[ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）；System 组合根不感知其内部缓存实例。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 

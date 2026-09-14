@@ -24,7 +24,7 @@ snapshot_at: 2026-08-07
 
 # Phase S0 身份与威胁模型清单
 
-本文是[身份隔离与执行安全治理](../security/identity-and-execution-safety.md) **Phase S0** 的冻结基线。S0 不实现隔离机制，而是记录截至 `snapshot_at` “每个入口的身份输入、授权所有者、身份继承关系、当前威胁面”的现状，并保存最小复现样本，为后续可独立排期的身份收紧、run-local 隔离验证和执行资产安全工作提供输入。最新系统事实仍以当前设计和代码为准。本基线冻结于 2026-08-07；v0.6.2 Workspace cache 迁移（见[归档 Plan](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0005](../../architecture/decisions/0005-execution-path-derived-caches.md)）落地后，L1 atom cache 与 profile cache 已按 Workspace(+Actor) 坐标分区并由 AliceRuntime 持有，正文中的 key、路径与行号锚点均为快照时点事实。
+本文是[身份隔离与执行安全治理](../security/identity-and-execution-safety.md) **Phase S0** 的冻结基线。S0 不实现隔离机制，而是记录截至 `snapshot_at` “每个入口的身份输入、授权所有者、身份继承关系、当前威胁面”的现状，并保存最小复现样本，为后续可独立排期的身份收紧、run-local 隔离验证和执行资产安全工作提供输入。最新系统事实仍以当前设计和代码为准。本基线冻结于 2026-08-07；v0.6.2 Workspace cache 迁移（见[归档 Plan](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0004](../../architecture/decisions/0004-execution-path-derived-caches.md)）落地后，L1 atom cache 与 profile cache 已按 Workspace(+Actor) 坐标分区并由 AliceRuntime 持有，正文中的 key、路径与行号锚点均为快照时点事实。
 
 Phase S0 的四项任务：
 
