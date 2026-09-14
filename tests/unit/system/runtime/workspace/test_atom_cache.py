@@ -132,6 +132,8 @@ def test_same_alias_resolves_per_workspace(sample_atom):
     """同 alias 在不同 Workspace 分区各自命中各自的 atom，互不串扰。"""
     replacement = sample_atom.model_copy(deep=True)
     replacement.id = uuid4()
+    # cache key 只看调用方传入的 Workspace 坐标；把 meta 归属对齐到
+    # isolation 是为了贴近 resolver 层会用 meta 重验 ownership 的真实形态。
     replacement.meta.workspace_identity = replacement.meta.workspace_identity.model_copy(
         update={
             "workspace_key": "isolation_workspace",
@@ -213,7 +215,7 @@ def test_clear():
     assert cache.get_atom_by_alias("fact_memory_0", workspace_identity=ISOLATED) is None
 
 
-def test_alias_maps_to_cached_atom(sample_atom):
+def test_alias_and_uuid_indexes_resolve_to_same_atom(sample_atom):
     cache = KoakumaAtomCache()
     cache.ingest_atom(sample_atom, workspace_identity=MAIN)
     atom = cache.get_atom_by_alias("fact_test_memory", workspace_identity=MAIN)

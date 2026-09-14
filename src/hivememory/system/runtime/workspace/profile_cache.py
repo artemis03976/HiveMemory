@@ -22,7 +22,8 @@ class AgentProfileCache:
 
     容量保持既有 LRU 语义（默认 32），附带命中/未命中/淘汰统计。
     已知限制：本轮没有 profile mutation 失效事件与 TTL，Profile 更新后
-    旧值最长可驻留至被 LRU 淘汰或进程停止（stale 窗口，见迁移计划 §9.1）。
+    旧值最长可驻留至被 LRU 淘汰或进程停止（stale 窗口，详见
+    docs/architecture/decisions/0004-workspace-derived-cache-partitioning.md）。
     """
 
     def __init__(self, max_size: int = 32):

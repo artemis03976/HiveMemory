@@ -758,10 +758,10 @@ class KoakumaRuntime:
         atom = resolved.atom
         uuid = str(atom.id)
 
-        # 4. 获取可选的 content
+        # 获取可选的 content
         content = command.args.get("content", None)
 
-        # 5. 注册 pending revision
+        # 注册 pending revision
         pending = self.pending_runtime.register_update(
             base_alias=alias,
             base_uuid=uuid,
@@ -771,7 +771,7 @@ class KoakumaRuntime:
             runtime_scope=context.runtime_scope,
         )
 
-        # 7. 使当前 Workspace 分区内的缓存失效，防止脏读
+        # 使当前 Workspace 分区内的缓存失效，防止脏读
         self.atom_cache.invalidate_alias(
             alias,
             workspace_identity=context.identity_scope.workspace_identity,

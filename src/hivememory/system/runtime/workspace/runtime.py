@@ -45,7 +45,7 @@ class WorkspaceRuntime:
 
     @property
     def atom_cache_port(self) -> AtomCachePort:
-        """供 Alice 侧消费的 atom cache 窄化端口（读写必须携带 Workspace）。"""
+        """供 Agent runtime/Alice 侧消费的 atom cache 窄化端口（读写必须携带 Workspace）。"""
         return self._atom_cache
 
     @property

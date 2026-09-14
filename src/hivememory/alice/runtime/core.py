@@ -37,7 +37,7 @@ class AliceRuntime:
             raise TypeError("profile_cache 必须实现 ProfileCachePort")
         # 两个派生 cache 由 WorkspaceRuntime 创建并持有所有权；Alice 只经
         # 窄化 port 注入，不再自行实例化，也不对外暴露 cache 访问属性
-        # （见 v0.6.2 cache 迁移计划 §6.1/§7 WRT-4）。
+        # （见 docs/architecture/decisions/0004-workspace-derived-cache-partitioning.md）。
         self._local_bus = AliceBus()
         self._profile_resolver = AgentProfileResolver(
             local_bus=self._local_bus,

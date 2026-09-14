@@ -76,7 +76,10 @@ class AtomCachePort(Protocol):
         *,
         workspace_identity: WorkspaceIdentity,
     ) -> None:
-        """使指定 Workspace 分区内的别名及其对应原子缓存失效。"""
+        """使指定 Workspace 分区内的别名缓存失效。
+
+        对应原子条目仅在没有其他分区的别名仍引用同一 UUID 时一并移除。
+        """
         ...
 
 

@@ -9,11 +9,11 @@ Workspace 分区的记忆原子缓存实现（KoakumaAtomCache）。
 - UPDATE 后缓存失效支持
 
 作者: HiveMemory Team
-版本: 2.0
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Dict, List, Optional
 
 from hivememory.core.models import MemoryAtom, WorkspaceIdentity
 
@@ -25,7 +25,7 @@ class KoakumaAtomCache:
     Workspace 分区的统一记忆原子缓存，带别名解析功能
 
     会话级缓存，存储完整的 MemoryAtom 对象。
-    消除 SEARCH/READ/RUN 流程中的冗余数据库查询。
+    减少 SEARCH/READ/RUN 流程中的重复冷查询。
 
     alias 索引按 ``(WorkspaceIdentity, alias)`` 分区，Workspace 之间的同名
     alias 互不可见；UUID 是全局资源 ID，``UUID -> MemoryAtom`` 索引保持全局。
@@ -36,9 +36,9 @@ class KoakumaAtomCache:
     def __init__(self):
         """初始化双索引缓存结构。"""
         # 核心缓存：UUID -> MemoryAtom（UUID 全局唯一，不按 Workspace 分区）
-        self._uuid_to_atom: Dict[str, MemoryAtom] = {}
+        self._uuid_to_atom: dict[str, MemoryAtom] = {}
         # 别名映射：(WorkspaceIdentity, alias) -> UUID
-        self._alias_to_uuid: Dict[tuple[WorkspaceIdentity, str], str] = {}
+        self._alias_to_uuid: dict[tuple[WorkspaceIdentity, str], str] = {}
         # 可观测统计：alias 读取路径的命中/未命中次数
         self._alias_hits = 0
         self._alias_misses = 0
@@ -54,7 +54,7 @@ class KoakumaAtomCache:
 
     def ingest_atoms(
         self,
-        atoms: List[MemoryAtom],
+        atoms: list[MemoryAtom],
         *,
         workspace_identity: WorkspaceIdentity,
     ) -> None:
@@ -87,7 +87,7 @@ class KoakumaAtomCache:
         alias: str,
         *,
         workspace_identity: WorkspaceIdentity,
-    ) -> Optional[MemoryAtom]:
+    ) -> MemoryAtom | None:
         """通过指定 Workspace 分区内的别名获取缓存原子，未命中返回 None。"""
         workspace = self._require_workspace_identity(workspace_identity)
         uuid_str = self._alias_to_uuid.get((workspace, alias))
@@ -101,7 +101,7 @@ class KoakumaAtomCache:
         self._alias_hits += 1
         return atom
 
-    def get_atom_by_uuid(self, uuid: str) -> Optional[MemoryAtom]:
+    def get_atom_by_uuid(self, uuid: str) -> MemoryAtom | None:
         """通过 UUID 获取缓存原子；授权由调用方在资源 owner 边界重验。"""
         return self._uuid_to_atom.get(uuid)
 

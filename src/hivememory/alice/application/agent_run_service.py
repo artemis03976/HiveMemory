@@ -32,8 +32,8 @@ from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    MemoryAtom,
     IdentityScope,
+    MemoryAtom,
     WorkspaceIdentity,
 )
 from hivememory.core.protocol.models import (
@@ -231,7 +231,11 @@ class AgentRunService:
             workspace_identity=workspace_identity,
         )
         if memories:
-            logger.debug("预检索记忆缓存完成: %s 条记忆已缓存到 Koakuma", len(memories))
+            logger.debug(
+                "预检索记忆预热完成: %s 条已写入 L1 atom cache (workspace=%s)",
+                len(memories),
+                workspace_identity.workspace_id,
+            )
 
     def _create_root_frame(
         self,

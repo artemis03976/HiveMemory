@@ -92,7 +92,7 @@ class RuntimeAliasResolver:
         # L0: PendingAtomRuntime
         pending = self._pending_runtime.get(alias)
         if pending is not None:
-            logger.debug(f"L0 pending cache hit: alias='{alias}'")
+            logger.debug("L0 pending cache hit: alias='%s'", alias)
             return await self._resolve_pending_hit(pending, alias, context)
 
         # L1: Workspace 分区 atom cache（经 AtomCachePort 按调用方坐标读取）
@@ -101,7 +101,7 @@ class RuntimeAliasResolver:
             workspace_identity=context.identity_scope.workspace_identity,
         )
         if atom is not None and self._is_readable(atom, context):
-            logger.debug(f"L1 atom cache hit: alias='{alias}'")
+            logger.debug("L1 atom cache hit: alias='%s'", alias)
             return ResolveResult(kind="atom", requested_alias=alias, atom=atom)
         if atom is not None:
             # 同分区内命中只代表存在加速对象，不代表当前 actor 已获授权；
@@ -235,7 +235,7 @@ class RuntimeAliasResolver:
             memories = getattr(retrieval_response, "memories", []) or []
             memory = memories[0] if memories else None
             if memory is None:
-                logger.debug(f"L2 cold-lookup miss: alias='{alias}'")
+                logger.debug("L2 cold-lookup miss: alias='%s'", alias)
                 return None
 
             # Storage route 是最终资源 owner；这里保留防御性验证，确保错误的
@@ -257,7 +257,7 @@ class RuntimeAliasResolver:
             )
             return memory
         except KeyError as e:
-            logger.error(f"L2 cold-lookup route unavailable: alias='{alias}', error={e}")
+            logger.error("L2 cold-lookup route unavailable: alias='%s', error=%s", alias, e)
             raise BusRouteUnavailableError(cause=e) from e
         except (StorageOfflineError, StorageReadError):
             raise

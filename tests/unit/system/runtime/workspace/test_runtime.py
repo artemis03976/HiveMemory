@@ -20,6 +20,8 @@ from hivememory.system.runtime.workspace import WorkspaceRuntime
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_workspace_identity
 
+MAIN = make_workspace_identity()
+
 
 def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
     return IdentityScope(
@@ -109,9 +111,9 @@ def test_shutdown_clears_derived_caches_and_keeps_asset_store():
     atom_cache_port = workspace_runtime.atom_cache_port
     profile_cache_port = workspace_runtime.profile_cache_port
     atom = _atom("fact_shutdown")
-    atom_cache_port.ingest_atom(atom, workspace_identity=make_workspace_identity())
+    atom_cache_port.ingest_atom(atom, workspace_identity=MAIN)
     profile_cache_port.store(
-        make_workspace_identity(),
+        MAIN,
         scope.actor_identity,
         "coder_doll",
         AgentProfile(persona="shutdown"),
@@ -121,12 +123,12 @@ def test_shutdown_clears_derived_caches_and_keeps_asset_store():
 
     assert atom_cache_port.get_atom_by_alias(
         "fact_shutdown",
-        workspace_identity=make_workspace_identity(),
+        workspace_identity=MAIN,
     ) is None
     assert atom_cache_port.get_atom_by_uuid(str(atom.id)) is None
     assert (
         profile_cache_port.get(
-            make_workspace_identity(),
+            MAIN,
             scope.actor_identity,
             "coder_doll",
         )
@@ -141,10 +143,10 @@ def test_shutdown_clears_derived_caches_and_keeps_asset_store():
     post_shutdown = _atom("fact_after_shutdown")
     atom_cache_port.ingest_atom(
         post_shutdown,
-        workspace_identity=make_workspace_identity(),
+        workspace_identity=MAIN,
     )
     workspace_runtime.shutdown()
     assert atom_cache_port.get_atom_by_alias(
         "fact_after_shutdown",
-        workspace_identity=make_workspace_identity(),
+        workspace_identity=MAIN,
     ) is post_shutdown
