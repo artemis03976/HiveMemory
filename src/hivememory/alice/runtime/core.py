@@ -3,18 +3,18 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime.aliases import RuntimeAliasResolver
+from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import IdentityScope, PendingAtomSettlement
 from hivememory.system.config import AliceConfig, MemoryCompilerConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.model_registry import ModelRegistry
-from hivememory.system.runtime.workspace import AtomCachePort, ProfileCachePort
 
 logger = logging.getLogger(__name__)
 
@@ -27,26 +27,22 @@ class AliceRuntime:
         alice_config: AliceConfig,
         memory_compiler_config: MemoryCompilerConfig,
         model_registry: ModelRegistry | None = None,
-        *,
-        atom_cache: AtomCachePort,
-        profile_cache: ProfileCachePort,
     ) -> None:
-        if not isinstance(atom_cache, AtomCachePort):
-            raise TypeError("atom_cache 必须实现 AtomCachePort")
-        if not isinstance(profile_cache, ProfileCachePort):
-            raise TypeError("profile_cache 必须实现 ProfileCachePort")
-        # 两个派生 cache 由 WorkspaceRuntime 创建并持有所有权；Alice 只经
-        # 窄化 port 注入，不再自行实例化，也不对外暴露 cache 访问属性
-        # （见 docs/architecture/decisions/0004-workspace-derived-cache-partitioning.md）。
+        # L1 atom cache 与 profile cache 是 Alice 执行路径的运行时状态
+        # （ADR-0005）：与 PendingAtomRuntime 一样由 AliceRuntime 创建并持有，
+        # AgentRunService 经 atom_cache property 注入。
+        self._atom_cache = KoakumaAtomCache()
+        self._profile_cache = AgentProfileCache()
+        self._caches_cleared = False
         self._local_bus = AliceBus()
         self._profile_resolver = AgentProfileResolver(
             local_bus=self._local_bus,
-            profile_cache=profile_cache,
+            profile_cache=self._profile_cache,
         )
         self._pending_runtime = PendingAtomRuntime()
         self._alias_resolver = RuntimeAliasResolver(
             pending_runtime=self._pending_runtime,
-            atom_cache=atom_cache,
+            atom_cache=self._atom_cache,
             bus=self._local_bus,
         )
         self._koakuma = KoakumaRuntime(
@@ -83,6 +79,31 @@ class AliceRuntime:
     def profile_resolver(self) -> AgentProfileResolver:
         """供 Alice 编排层解析受 caller identity 授权的 Agent Profile。"""
         return self._profile_resolver
+
+    @property
+    def atom_cache(self) -> KoakumaAtomCache:
+        """供 AgentRunService 预热本次 run 的检索别名（读写需携带 Workspace 坐标）。"""
+        return self._atom_cache
+
+    def clear_derived_caches(self) -> tuple[int, int]:
+        """幂等清空 L1 atom cache 与 profile cache，返回各自清理的条目数。
+
+        由 ``AliceSystem.stop()`` 在 bridge 卸载（不再接受新请求）之后调用；
+        重复调用返回 ``(0, 0)``，不会重复清空或重复记日志。
+        """
+        if self._caches_cleared:
+            return 0, 0
+        atoms = self._atom_cache.size
+        profiles = self._profile_cache.size
+        self._atom_cache.clear()
+        self._profile_cache.clear()
+        self._caches_cleared = True
+        logger.info(
+            "AliceRuntime 派生 cache 已清空（%s atoms, %s profiles）",
+            atoms,
+            profiles,
+        )
+        return atoms, profiles
 
     async def on_pending_atom_settled(
         self,
@@ -132,10 +153,9 @@ class AliceRuntime:
         if not canonical_alias:
             return
 
-        # L1 cache 的唯一持有引用在 alias resolver 上；失效与回填都使用
-        # PendingAtom 原始 Workspace 分区，不写入当前调用方或默认 Workspace。
-        atom_cache = self._alias_resolver.atom_cache
-        atom_cache.invalidate_alias(
+        # 失效与回填都使用 PendingAtom 原始 Workspace 分区，不写入当前
+        # 调用方或默认 Workspace。
+        self._atom_cache.invalidate_alias(
             canonical_alias,
             workspace_identity=identity_scope.workspace_identity,
         )
@@ -163,7 +183,7 @@ class AliceRuntime:
             )
             return
 
-        atom_cache.ingest_atom(
+        self._atom_cache.ingest_atom(
             memory,
             workspace_identity=identity_scope.workspace_identity,
         )

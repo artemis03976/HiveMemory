@@ -4,6 +4,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from hivememory.alice.runtime.profile_cache import ProfileCachePort
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -17,7 +18,6 @@ from hivememory.core.mtp.exceptions import (
     SystemFault,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.workspace import ProfileCachePort
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -28,9 +28,8 @@ logger = logging.getLogger(__name__)
 class AgentProfileResolver:
     """把可读 agent alias 解析为人偶图纸，并按完整授权坐标缓存。
 
-    profile cache 由 WorkspaceRuntime 创建并持有所有权（实现见
-    ``system/runtime/workspace/profile_cache.py``）；resolver 只经窄化
-    port 注入，不自行实例化。
+    profile cache 由 AliceRuntime 创建并持有所有权（实现见同包``profile_cache.py``）；
+    resolver 只经窄化 port 注入使用。
     """
 
     def __init__(

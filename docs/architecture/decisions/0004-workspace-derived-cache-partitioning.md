@@ -1,13 +1,16 @@
 ---
 title: ADR-0004 Workspace 派生缓存的分区与所有权聚合
-status: accepted
+status: superseded
 owner: project
 scope: workspace-derived-cache-partitioning-and-workspace-runtime-ownership
 decided_at: 2026-09-13
 last_reviewed: 2026-09-13
+superseded_by: ADR-0005
 ---
 
 # ADR-0004：Workspace 派生缓存的分区与所有权聚合
+
+> **已替代（2026-09-13）**：本决策的键控结论（两个派生缓存按 Workspace 坐标分区、分区不替代授权）由 [ADR-0005](./0005-execution-path-derived-caches.md) 承接；其所有权结论（WorkspaceRuntime 聚合持有两个缓存、组合根例外叙事）已被替代——派生缓存归 AliceRuntime 所有，聚合解体。本文仅供历史追溯。
 
 ## Context
 
@@ -56,7 +59,7 @@ Accepted（2026-09-13，随 v0.6.2 Workspace Runtime 聚合与缓存所有权迁
 
 ## Related documents
 
-- [Workspace 架构](../workspace.md)：WorkspaceRuntime 与派生 cache 的当前事实边界；
+- [Workspace 架构](../workspace.md)：§4.3 派生缓存键控规则的当前事实；
 - [System 组合根与生命周期](../../system/composition.md)：装配与分阶段关闭；
 - [身份隔离与执行安全治理](../../governance/security/identity-and-execution-safety.md)：命中重验与分区的关系；
 - [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移（归档 Plan）](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)：实施记录与验收。

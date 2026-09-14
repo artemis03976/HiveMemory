@@ -3,7 +3,7 @@ RuntimeAliasResolver - 统一三级别名解析层。
 
 解析优先级:
   L0: PendingAtomRuntime (运行时 pending atom)
-  L1: AtomCachePort (Workspace 分区的 L1 atom cache，由 WorkspaceRuntime 持有)
+  L1: AtomCachePort (Workspace 分区的 L1 atom cache，由 AliceRuntime 持有)
   L2: Storage (冷查询长期存储)
 
 作者: HiveMemory Team
@@ -34,9 +34,9 @@ from hivememory.core.mtp.exceptions import (
 from hivememory.engines.retrieval.policy import memory_is_readable
 
 if TYPE_CHECKING:
+    from hivememory.agent_runtime.aliases.ports import AtomCachePort
     from hivememory.agent_runtime.models import MTPExecutionContext
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
-    from hivememory.system.runtime.workspace import AtomCachePort
 
 logger = logging.getLogger(__name__)
 

@@ -11,8 +11,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.system.runtime.workspace import KoakumaAtomCache
-from hivememory.system.runtime.workspace import AgentProfileCache
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.products import RuntimeProducts
@@ -35,8 +33,8 @@ from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -73,13 +71,9 @@ def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
 
 def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunService]:
     config = HiveMemoryConfig()
-    # AliceRuntime 不再暴露 cache 属性；测试持有注入实例并直接传给 service。
-    atom_cache = KoakumaAtomCache()
     runtime = AliceRuntime(
         alice_config=config.alice,
         memory_compiler_config=config.memory_compiler,
-        atom_cache=atom_cache,
-        profile_cache=AgentProfileCache(),
     )
     frame_factory = FrameFactory()
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
@@ -94,7 +88,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         call_coordinator=coordinator,
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
-        atom_cache=atom_cache,
+        atom_cache=runtime.atom_cache,
         stream_adapter=AgentRunStreamAdapter(),
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())

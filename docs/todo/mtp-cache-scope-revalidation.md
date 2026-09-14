@@ -6,7 +6,7 @@ scope: mtp-alias-cache-scope-revalidation
 code_paths:
   - src/hivememory/agent_runtime/aliases/resolver.py
   - src/hivememory/agent_runtime/pending_atom/runtime.py
-  - src/hivememory/system/runtime/workspace/atom_cache.py
+  - src/hivememory/agent_runtime/aliases/cache.py
 related_docs:
   - docs/contracts/mtp.md
   - docs/alice/mtp-runtime.md
@@ -55,7 +55,7 @@ L1 `KoakumaAtomCache` 命中当前已经通过 `memory_is_readable()` 重验 Mem
 
 ## 完成记录（2026-09-12）
 
-> 后续变化（2026-09-13）：v0.6.2 cache 迁移落地后，本记录中“未改动 KoakumaAtomCache 进程级共享结构”的表述已被取代——L1 atom cache 现由 WorkspaceRuntime 持有并按 `(WorkspaceIdentity, alias)` 分区，L0 重验语义不变。见[归档 Plan](../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0004](../architecture/decisions/0004-workspace-derived-cache-partitioning.md)。
+> 后续变化（2026-09-13）：v0.6.2 cache 迁移落地后，本记录中“未改动 KoakumaAtomCache 进程级共享结构”的表述已被取代——L1 atom cache 现按 `(WorkspaceIdentity, alias)` 分区并由 AliceRuntime 持有，L0 重验语义不变。见[归档 Plan](../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0005](../architecture/decisions/0005-execution-path-derived-caches.md)。
 
 修复在 `RuntimeAliasResolver._resolve_pending_hit()` 的 L0 命中边界执行 scope 重验：pending 的 `runtime_scope.identity_scope` 与当前 `MTPExecutionContext.identity_scope` 不完全一致时，直接返回 `not_found`，不继续解析 pending、redirect 或其终态，也不触发 canonical atom 查询、缓存回填或 citation。未改动 `PendingAtomRuntime`、`KoakumaAtomCache` 与 resolver 的进程级共享结构，未新增缓存分区或跨 Store 控制组件；L1/L2 既有重验与 pending 生命周期语义保持不变。
 

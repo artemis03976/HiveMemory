@@ -23,7 +23,6 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.system.contracts.events import GlobalEvents
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.workspace import AgentProfileCache, KoakumaAtomCache
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_identity_scope,
@@ -58,17 +57,10 @@ class TestAlicePublicRoutes:
         self.config.koakuma.enabled = False
         self.config.llm = MagicMock()
         self.config.llm.worker = MagicMock()
-        self.atom_cache = KoakumaAtomCache()
-        self.profile_cache = AgentProfileCache()
 
     @pytest.mark.asyncio
     async def test_start_registers_public_routes_on_global_bus(self):
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
 
         routes = self.global_bus.list_routes()
@@ -77,12 +69,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_stop_removes_public_routes_from_global_bus(self):
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
         await system.stop()
 
@@ -92,12 +79,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_request_through_global_bus_reaches_handler(self):
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         received = []
 
         async def fake_run_agent(*, messages, identity):
@@ -118,12 +100,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_stream_route_returns_async_generator(self):
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
 
         async def _stream(**kwargs):
             yield {"event": "token"}
@@ -146,12 +123,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_no_global_bus_skips_public_routes(self):
-        system = AliceSystem(
-            config=self.config,
-            global_bus=None,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=None)
         await system.start()
         await system.stop()
 
@@ -189,12 +161,7 @@ class TestAlicePublicRoutes:
             record_citation,
         )
 
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
         identity_scope = make_identity_scope()
 
@@ -231,12 +198,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_alice_unmount_unsubscribes_settlement_event(self):
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
 
         assert GlobalEvents.PENDING_ATOM_SETTLED in self.global_bus.list_events()
@@ -252,12 +214,7 @@ class TestAlicePublicRoutes:
         from hivememory.core.models import ActorIdentity
         from hivememory.core.models.pending import PendingAtomStatus
 
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
         atom = system.runtime._pending_runtime.register_write(
             content="draft",
@@ -291,12 +248,7 @@ class TestAlicePublicRoutes:
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             retrieve_by_aliases,
         )
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
         identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
         identity_scope = make_identity_scope(actor_identity=identity)
@@ -309,7 +261,7 @@ class TestAlicePublicRoutes:
             runtime_scope=make_runtime_scope(actor_identity=identity, run_id="run-1"),
         )
         pending_runtime.start_materializing(pending.pending_alias)
-        self.atom_cache.ingest_atom(
+        system.runtime.atom_cache.ingest_atom(
             stale_atom,
             workspace_identity=make_workspace_identity(),
         )
@@ -330,14 +282,14 @@ class TestAlicePublicRoutes:
         assert refresh_requests == [(["fact_canonical"], identity_scope)]
         # settlement 以原 PendingAtom scope 刷新对应 Workspace 分区。
         assert (
-            self.atom_cache.get_atom_by_alias(
+            system.runtime.atom_cache.get_atom_by_alias(
                 "fact_canonical",
                 workspace_identity=make_workspace_identity(),
             )
             is fresh_atom
         )
         assert (
-            self.atom_cache.get_atom_by_uuid(
+            system.runtime.atom_cache.get_atom_by_uuid(
                 str(stale_atom.id),
             )
             is None
@@ -359,12 +311,7 @@ class TestAlicePublicRoutes:
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             retrieve_by_aliases,
         )
-        system = AliceSystem(
-            config=self.config,
-            global_bus=self.global_bus,
-            atom_cache=self.atom_cache,
-            profile_cache=self.profile_cache,
-        )
+        system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
         identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
         pending_runtime = system.runtime.alias_resolver.pending_runtime
@@ -398,7 +345,7 @@ class TestAlicePublicRoutes:
         # L2 查询与回填都使用 PendingAtom 原始 isolation scope。
         assert refresh_requests[0][1].workspace_identity == isolation
         assert (
-            self.atom_cache.get_atom_by_alias(
+            system.runtime.atom_cache.get_atom_by_alias(
                 "fact_canonical",
                 workspace_identity=isolation,
             )
@@ -406,7 +353,7 @@ class TestAlicePublicRoutes:
         )
         # 默认 Workspace 分区不得被写入。
         assert (
-            self.atom_cache.get_atom_by_alias(
+            system.runtime.atom_cache.get_atom_by_alias(
                 "fact_canonical",
                 workspace_identity=main,
             )

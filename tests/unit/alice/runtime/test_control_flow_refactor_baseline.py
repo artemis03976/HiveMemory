@@ -4,6 +4,7 @@ import ast
 import inspect
 from pathlib import Path
 
+from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
@@ -11,10 +12,10 @@ from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.runtime.workspace import AgentProfileCache, KoakumaAtomCache
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
@@ -79,24 +80,18 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
     assert inspect.isasyncgenfunction(AgentRunService.run_agent_stream)
 
 
-def test_alice_runtime_does_not_expose_cache_accessors() -> None:
-    """架构守卫：cache 由 WorkspaceRuntime 持有，AliceRuntime 不暴露 cache 属性。"""
-    public_attributes = {
-        name for name in dir(AliceRuntime) if not name.startswith("_")
-    }
+def test_alice_runtime_owns_derived_caches() -> None:
+    """架构守卫：两个派生 cache 由 AliceRuntime 创建并持有（ADR-0005）。"""
+    config = HiveMemoryConfig()
+    runtime = AliceRuntime(config.alice, config.memory_compiler)
 
-    assert "atom_cache" not in public_attributes
-    assert "profile_cache" not in public_attributes
+    assert isinstance(runtime.atom_cache, KoakumaAtomCache)
+    assert isinstance(runtime._profile_cache, AgentProfileCache)
 
 
 def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
     config = HiveMemoryConfig()
-    runtime = AliceRuntime(
-        config.alice,
-        config.memory_compiler,
-        atom_cache=KoakumaAtomCache(),
-        profile_cache=AgentProfileCache(),
-    )
+    runtime = AliceRuntime(config.alice, config.memory_compiler)
 
     assert isinstance(runtime.profile_resolver, AgentProfileResolver)
 

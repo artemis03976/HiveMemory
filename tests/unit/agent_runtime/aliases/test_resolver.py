@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.agent_runtime.aliases.cache import KoakumaAtomCache
 from hivememory.agent_runtime.aliases.resolver import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
@@ -15,7 +16,6 @@ from hivememory.core.models import (
     PendingAtomSettlement,
 )
 from hivememory.core.mtp.exceptions import BusRouteUnavailableError, StorageReadError
-from hivememory.system.runtime.workspace import KoakumaAtomCache
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.unit.agent_runtime.mtp.conftest import make_mock_bus

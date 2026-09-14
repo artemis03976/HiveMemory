@@ -24,7 +24,7 @@ snapshot_at: 2026-08-07
 
 # Phase S0 身份与威胁模型清单
 
-本文是[身份隔离与执行安全治理](../security/identity-and-execution-safety.md) **Phase S0** 的冻结基线。S0 不实现隔离机制，而是记录截至 `snapshot_at` “每个入口的身份输入、授权所有者、身份继承关系、当前威胁面”的现状，并保存最小复现样本，为后续可独立排期的身份收紧、run-local 隔离验证和执行资产安全工作提供输入。最新系统事实仍以当前设计和代码为准。本基线冻结于 2026-08-07；v0.6.2 Workspace cache 迁移（见[归档 Plan](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0004](../../architecture/decisions/0004-workspace-derived-cache-partitioning.md)）落地后，L1 atom cache 与 profile cache 已按 Workspace(+Actor) 坐标分区并收敛到 WorkspaceRuntime 持有，正文中的 key、路径与行号锚点均为快照时点事实。
+本文是[身份隔离与执行安全治理](../security/identity-and-execution-safety.md) **Phase S0** 的冻结基线。S0 不实现隔离机制，而是记录截至 `snapshot_at` “每个入口的身份输入、授权所有者、身份继承关系、当前威胁面”的现状，并保存最小复现样本，为后续可独立排期的身份收紧、run-local 隔离验证和执行资产安全工作提供输入。最新系统事实仍以当前设计和代码为准。本基线冻结于 2026-08-07；v0.6.2 Workspace cache 迁移（见[归档 Plan](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)与 [ADR-0005](../../architecture/decisions/0005-execution-path-derived-caches.md)）落地后，L1 atom cache 与 profile cache 已按 Workspace(+Actor) 坐标分区并由 AliceRuntime 持有，正文中的 key、路径与行号锚点均为快照时点事实。
 
 Phase S0 的四项任务：
 
@@ -37,7 +37,7 @@ Phase S0 的四项任务：
 
 - **全局没有认证/鉴权层**：Server 仅装配 CORS + 请求日志中间件（[app.py](../../../src/hivememory/server/app.py#L69-L92)），无 token、session、auth middleware；`x-user-id` header 只被 topics 一个路由读取且纯透传不校验（[deps.py](../../../src/hivememory/server/deps.py#L82-L84)）。
 - **身份输入碎片化，四种来源并存且默认值兜底**：请求体字段（chat/ingest）、header（topics）、query param（memories 列表）、服务层字面量硬编码（`POST /memories` 与 `POST /agents` 在服务层写死 `user_id="default"`，路由层无法覆盖，[memory_service.py](../../../src/hivememory/system/application/memory_service.py#L60)、[agent_service.py](../../../src/hivememory/system/application/agent_service.py#L50)）。全项目约 25 处 `DEFAULT_*` 常量引用 + 2 处绕过常量的字面量。
-- **核心隔离缺口在进程级共享缓存**：L0 PendingAtom store（[store.py](../../../src/hivememory/agent_runtime/pending_atom/store.py)）与 L1 KoakumaAtomCache（[cache.py](../../../src/hivememory/system/runtime/workspace/atom_cache.py)）都是 AliceRuntime 进程级单例，**cache key 完全不含 user/team/scope**；READ/UPDATE/RUN 的 alias 解析在 L1 命中时**不做任何身份重验**（[resolver.py](../../../src/hivememory/agent_runtime/aliases/resolver.py#L94-L97)）。
+- **核心隔离缺口在进程级共享缓存**：L0 PendingAtom store（[store.py](../../../src/hivememory/agent_runtime/pending_atom/store.py)）与 L1 KoakumaAtomCache（[cache.py](../../../src/hivememory/agent_runtime/aliases/cache.py)）都是 AliceRuntime 进程级单例，**cache key 完全不含 user/team/scope**；READ/UPDATE/RUN 的 alias 解析在 L1 命中时**不做任何身份重验**（[resolver.py](../../../src/hivememory/agent_runtime/aliases/resolver.py#L94-L97)）。
 - **检索链是唯一有系统性身份过滤的路径**：SEARCH 携带 identity，服务端以 `meta.user_id` 为 must 基线、visibility 为 should 作用域（[filter_adapter.py](../../../src/hivememory/engines/retrieval/filter_adapter.py#L75-L105)），且 MTP filter 无法覆盖该基线。但同一检索服务的 `get_memory`（[retrieval.py](../../../src/hivememory/patchouli/services/retrieval.py#L126-L131)）与 `list_memories`（[:133-L153](../../../src/hivememory/patchouli/services/retrieval.py#L133-L153)）无 identity 参数；archive/revive/artifact 读写全部无身份校验。
 - **子 Agent 完整继承 caller 的 Identity**（user_id/agent_id/team_id 不变，[call_coordinator.py](../../../src/hivememory/alice/orchestration/sub_agent/call_coordinator.py#L178)）；CALL 权限由 `FrameExecutionPolicy` 硬检查，且子 Agent 被禁止递归 CALL（[:L163-L167](../../../src/hivememory/alice/orchestration/sub_agent/call_coordinator.py#L163-L167)）。这是"身份不扩大"的少数已成立机制。
 - **RUN 无执行身份、无审计、沙箱不足**：syscall 签名不接收 identity（[types.py](../../../src/hivememory/agent_runtime/mtp/syscalls/types.py#L23)）；`sys_python_repl` 用裸 `subprocess.run` 无容器隔离（[repl.py](../../../src/hivememory/agent_runtime/mtp/syscalls/repl.py#L127-L134)）；`sys_web_search` 的 timeout 参数未消费（[web_search.py](../../../src/hivememory/agent_runtime/mtp/syscalls/web_search.py#L20-L22)）；全库无 approval/trusted/审批边界概念。
@@ -82,9 +82,9 @@ Phase S0 的四项任务：
 
 | # | 组件（位置） | key 维度 | 命中后身份重验 | 现状 |
 |:--|:--|:--|:--|:--|
-| C1 | KoakumaAtomCache（L1，[cache.py](../../../src/hivememory/system/runtime/workspace/atom_cache.py#L33-L54)） | alias / uuid，**无 user/team/scope** | **无** | **核心缺口**：alias 跨用户冲突，后写覆盖（[:L47/L54](../../../src/hivememory/system/runtime/workspace/atom_cache.py#L47-L54)） |
+| C1 | KoakumaAtomCache（L1，[cache.py](../../../src/hivememory/agent_runtime/aliases/cache.py#L33-L54)） | alias / uuid，**无 user/team/scope** | **无** | **核心缺口**：alias 跨用户冲突，后写覆盖（[:L47/L54](../../../src/hivememory/agent_runtime/aliases/cache.py#L47-L54)） |
 | C2 | PendingAtom store（L0，[store.py](../../../src/hivememory/agent_runtime/pending_atom/store.py)） | alias / intent 全局 dict | **无**；`get_by_intent` 不区分用户（[:L47-L52](../../../src/hivememory/agent_runtime/pending_atom/store.py#L47-L52)） | **核心缺口**：进程级单例共享；settle/claim/cancel 均不校验身份 |
-| C3 | AgentProfileCache（[profile_cache.py](../../../src/hivememory/system/runtime/workspace/profile_cache.py#L24-L52)） | `(user_id, agent_id, team_id, alias)` 四维 | key 已含 scope；`identity=None` 时直接抛 `PermissionDeniedError`（[:L73-L77](../../../src/hivememory/alice/runtime/profile_resolver.py#L73-L77)） | **已满足（key）**，但无失效机制 → Profile stale（见 §4.3）；且 `default`/`omni_doll`/空 alias 直返内置 `OMNI_DOLL_PROFILE` 不经过缓存与身份检查（[:L70-L71](../../../src/hivememory/alice/runtime/profile_resolver.py#L70-L71)） |
+| C3 | AgentProfileCache（[profile_cache.py](../../../src/hivememory/alice/runtime/profile_cache.py#L24-L52)） | `(user_id, agent_id, team_id, alias)` 四维 | key 已含 scope；`identity=None` 时直接抛 `PermissionDeniedError`（[:L73-L77](../../../src/hivememory/alice/runtime/profile_resolver.py#L73-L77)） | **已满足（key）**，但无失效机制 → Profile stale（见 §4.3）；且 `default`/`omni_doll`/空 alias 直返内置 `OMNI_DOLL_PROFILE` 不经过缓存与身份检查（[:L70-L71](../../../src/hivememory/alice/runtime/profile_resolver.py#L70-L71)） |
 | C4 | ExternalEventDedupRegistry（[dedup.py](../../../src/hivememory/system/services/passive/dedup.py#L27)） | `(source, external_event_id)`，**无 user_id** | n/a | 缺失：跨用户误判重复（见 §4.4） |
 | C5 | MessageTurnBufferManager（[turn_buffer.py](../../../src/hivememory/system/services/passive/turn_buffer.py#L294)） | `PassiveConversationKey`（source + external_conversation_id + user_id + agent_id + team_id） | key 含身份 | **已满足** |
 | C6 | RuntimeAliasResolver（L0/L1/L2 三级，[resolver.py](../../../src/hivememory/agent_runtime/aliases/resolver.py)） | L0/L1 无身份；L2 带 identity（context 为 None 时退化为默认 Identity，[:L197-L201](../../../src/hivememory/agent_runtime/aliases/resolver.py#L197-L201)） | L2 结果回填共享 L1 → 跨身份投毒 | 缺失 |
@@ -153,7 +153,7 @@ Frontend：
 |:--|:--|
 | 场景 | 用户 B 读取/修改/执行用户 A 的私有记忆 |
 | 复现 | ① 用户 A 执行 SEARCH（结果 `ingest_atoms` 写入进程级共享 L1，[runtime.py#L461](../../../src/hivememory/agent_runtime/mtp/runtime.py#L461)）；② 同进程用户 B 用相同 alias 发 READ（[:L500](../../../src/hivememory/agent_runtime/mtp/runtime.py#L500)）→ resolver L1 命中（[resolver.py#L94-L97](../../../src/hivememory/agent_runtime/aliases/resolver.py#L94-L97)）→ 直接返回 A 的 atom；③ UPDATE（[:L740](../../../src/hivememory/agent_runtime/mtp/runtime.py#L740)）对同一 atom 发起修订，无可见性校验；④ 若 A 的记忆是 `MemoryType.CODE_SNIPPET`，B 的 RUN 直接执行（[:L643-L652](../../../src/hivememory/agent_runtime/mtp/runtime.py#L643-L652)） |
-| 根因 | L1 cache key 无 scope（[cache.py#L33-L54](../../../src/hivememory/system/runtime/workspace/atom_cache.py#L33-L54)）；`_is_memory_visible_to` 仅用于 SEARCH 服务端与 CALL profile 解析，未覆盖 READ/UPDATE/RUN 的 L1 命中路径 |
+| 根因 | L1 cache key 无 scope（[cache.py#L33-L54](../../../src/hivememory/agent_runtime/aliases/cache.py#L33-L54)）；`_is_memory_visible_to` 仅用于 SEARCH 服务端与 CALL profile 解析，未覆盖 READ/UPDATE/RUN 的 L1 命中路径 |
 | 当前防御 | 无 |
 | S1 方向 | L1 命中后按 identity 重验；cache key 含 scope 或按用户分缓存；READ/UPDATE 读后补可见性检查 |
 
@@ -163,7 +163,7 @@ Frontend：
 |:--|:--|
 | 场景 | 用户 B 因 L1 缓存投毒读到用户 A 的 atom |
 | 复现 | ① 用户 A 的 alias 被用户 B 的 L2 冷查询命中（L2 带 identity 过滤，但 PUBLIC/alias 撞车时仍可返回 A 的原子）；② 结果回填**共享 L1**（[resolver.py#L216](../../../src/hivememory/agent_runtime/aliases/resolver.py#L216)）；③ 此后任何用户对该 alias 的 READ 直接 L1 命中 |
-| 根因 | L1 无身份标记；L2 结果回填未按身份分桶；alias 是进程级全局字符串 key，后写覆盖（[cache.py#L47/L54](../../../src/hivememory/system/runtime/workspace/atom_cache.py#L47-L54)） |
+| 根因 | L1 无身份标记；L2 结果回填未按身份分桶；alias 是进程级全局字符串 key，后写覆盖（[cache.py#L47/L54](../../../src/hivememory/agent_runtime/aliases/cache.py#L47-L54)） |
 | 当前防御 | 无 |
 | S1 方向 | L2 回填写入按身份分桶的缓存；或回填后不参与无身份命中 |
 

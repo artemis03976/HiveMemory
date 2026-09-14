@@ -85,7 +85,7 @@ Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、Mem
 
 ### 3.3 缓存不承载授权
 
-通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以完整 `IdentityScope` 重新验证。v0.6.2 起存在一个显式例外（[ADR-0004](../../architecture/decisions/0004-workspace-derived-cache-partitioning.md)）：WorkspaceRuntime 持有的 L1 atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**——L1 命中仍走重验，失败结果不进入缓存。失效不完整时宁可返回 miss，也不能返回另一个用户或 Workspace 最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
+通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以完整 `IdentityScope` 重新验证。v0.6.2 起派生视图缓存按派生源坐标键控（[ADR-0005](../../architecture/decisions/0005-execution-path-derived-caches.md)）：Alice 持有的 L1 atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**——L1 命中仍走重验，失败结果不进入缓存。失效不完整时宁可返回 miss，也不能返回另一个用户或 Workspace 最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
 
 ### 3.4 可执行资产是更高风险能力
 
@@ -109,7 +109,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
 1. 已完成：L0 PendingAtom alias 命中已在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不存在处理；L1 atom cache 命中后重验边界保持不变（见 [MTP cache scope revalidation Todo](../../todo/mtp-cache-scope-revalidation.md)）；
-2. 对需要 scope-sensitive 的 PendingAtom store/cache、Profile cache 和 compiled context，按 scope 隔离或在命中后由 owner/resolver 重验；共享组件不因 Workspace 自动拆分；
+2. 已完成（v0.6.2）：L1 atom cache 与 profile cache 按 Workspace(+Actor) 坐标分区且由 AliceRuntime 持有，同分区命中仍重验 ownership/actor policy；PendingAtom store、compiled context 等其余共享组件不因 Workspace 自动拆分（[ADR-0005](../../architecture/decisions/0005-execution-path-derived-caches.md)）；
 3. 为 MemoryLibrary、Artifact、archive/revive 和后台恢复入口统一 scope 检查；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。

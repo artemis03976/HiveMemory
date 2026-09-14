@@ -23,7 +23,6 @@ from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink
 from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from hivememory.system.runtime.workspace import AtomCachePort, ProfileCachePort
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +44,6 @@ class AliceSystem(SubsystemProtocol):
         global_bus: GlobalSystemBus | None = None,
         event_publisher: RuntimeEventPublisher | None = None,
         model_registry: ModelRegistry | None = None,
-        *,
-        atom_cache: AtomCachePort,
-        profile_cache: ProfileCachePort,
     ) -> None:
         self._config = config
         publisher = event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
@@ -56,8 +52,6 @@ class AliceSystem(SubsystemProtocol):
             alice_config=config.alice,
             memory_compiler_config=config.memory_compiler,
             model_registry=model_registry,
-            atom_cache=atom_cache,
-            profile_cache=profile_cache,
         )
 
         frame_factory = FrameFactory()
@@ -72,14 +66,12 @@ class AliceSystem(SubsystemProtocol):
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
         )
-        # AgentRunService 直接接收 WorkspaceRuntime 注入的 atom cache port；
-        # AliceRuntime 不再对外暴露 cache 访问属性。
         self._service = AgentRunService(
             agent_runtime=self._runtime.agent_runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
-            atom_cache=atom_cache,
+            atom_cache=self._runtime.atom_cache,
             stream_adapter=AgentRunStreamAdapter(),
             agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
         )
@@ -110,6 +102,9 @@ class AliceSystem(SubsystemProtocol):
 
     async def stop(self) -> None:
         self._bridge.unmount()
+        # bridge 卸载后不再有新请求进入；派生 cache 属于 Alice 执行路径，
+        # 由其所有者在自身停止时清空，不依赖 System stop 序列的额外步骤。
+        self._runtime.clear_derived_caches()
 
     async def health(self) -> dict[str, Any]:
         return {

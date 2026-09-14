@@ -216,7 +216,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - 记忆访问使用调用方 `IdentityScope`，先执行 Workspace ownership hard boundary，再执行 Workspace 内的 actor 可见性策略，不能绕过任一边界；
 - cancellation 不能被转换成普通 success。
 
-> **实现说明**：该不变量在别名解析的全部三级命中路径上执行。L2 冷查询携带调用方 `IdentityScope`，由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 atom cache 由 WorkspaceRuntime 持有并按 `(WorkspaceIdentity, alias)` 分区（[ADR-0004](../architecture/decisions/0004-workspace-derived-cache-partitioning.md)），命中仍在 resolver 边界执行同样的重验；AliceRuntime 持有的 L0 PendingAtomRuntime 命中也比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理，不泄露 pending 的状态、内容或 canonical 指向。PendingAtom 不属于 WorkspaceRuntime 聚合。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md)；修复记录与测试入口见 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
+> **实现说明**：该不变量在别名解析的全部三级命中路径上执行。L2 冷查询携带调用方 `IdentityScope`，由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 atom cache 与 L0 PendingAtomRuntime 同属 AliceRuntime，前者按 `(WorkspaceIdentity, alias)` 分区（[ADR-0005](../architecture/decisions/0005-execution-path-derived-caches.md)），命中在 resolver 边界执行同样的重验，后者比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理，不泄露 pending 的状态、内容或 canonical 指向。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md)；修复记录与测试入口见 [MTP 缓存命中作用域重验 Todo](../todo/mtp-cache-scope-revalidation.md)。
 
 ## 7. 设计矛盾检查
 

@@ -174,7 +174,7 @@ Alice 配置当前分为两组：
 | parser、formatter 与协议模型 | `src/hivememory/core/mtp/` |
 | Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py` |
 | Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/executor.py` |
-| alias 解析与热缓存 | `src/hivememory/agent_runtime/aliases/resolver.py`、`src/hivememory/system/runtime/workspace/atom_cache.py` |
+| alias 解析与热缓存 | `src/hivememory/agent_runtime/aliases/resolver.py`、`cache.py` |
 | syscall 注册与实现 | `src/hivememory/agent_runtime/mtp/syscalls/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
 | Alice 配置 | `src/hivememory/system/config/alice.py` |
@@ -194,6 +194,6 @@ Alice 配置当前分为两组：
 - RuntimeAliasResolver 的三级命中都在 resolver/owner 边界重验调用方 scope：L1 atom cache 命中与 L2 冷查询重验 `IdentityScope` 与资源 ownership；L0 PendingAtom 命中比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理（回归入口见 [MTP cache scope revalidation Todo](../todo/mtp-cache-scope-revalidation.md)）；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
-- Koakuma 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，L1 atom cache 则由 WorkspaceRuntime 创建并按 Workspace 分区（Alice 经端口消费）；frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
+- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区（[ADR-0005](../architecture/decisions/0005-execution-path-derived-caches.md)）；frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

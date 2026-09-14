@@ -41,7 +41,7 @@ last_reviewed: 2026-09-13
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
-| Profile/atom cache | WorkspaceRuntime 持有的派生 cache：atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区并附带命中/淘汰统计 | 仍无失效事件/TTL，Profile 更新存在 LRU 驻留期 stale 窗口；不跨重启保留，`WorkspaceRuntime.shutdown()` 幂等清空 | 保持 ephemeral derived 语义（atom cache 可从 Qdrant 重建、profile cache 可从路由重载）；命中必须由最终 owner/resolver 重验 `IdentityScope`，不把 cache 当事实 |
+| Profile/atom cache | AliceRuntime 持有的派生 cache：atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区并附带命中/淘汰统计 | 仍无失效事件/TTL，Profile 更新存在 LRU 驻留期 stale 窗口；不跨重启保留，`AliceSystem.stop()` 幂等清空 | 保持 ephemeral derived 语义（atom cache 可从 Qdrant 重建、profile cache 可从路由重载）；命中必须由最终 owner/resolver 重验 `IdentityScope`，不把 cache 当事实 |
 | RuntimeEvent | 进程内 bounded ring buffer | 允许丢失、不可跨进程连续，不是审计账本 | 继续作为 best-effort 观测；需要历史时建立独立审计/任务查询模型 |
 | feedback/reinforcement history 与 GC stats | 主要为进程内历史 | 跨会话无法解释反馈来源，维护统计重启即归零 | 按产品与审计需要选择持久化事件或聚合快照 |
 

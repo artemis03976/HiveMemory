@@ -9,16 +9,11 @@ import pytest
 
 from hivememory.alice.system import AliceSystem
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.runtime.workspace import AgentProfileCache, KoakumaAtomCache
 
 
 @pytest.mark.asyncio
 async def test_health_reports_runtime_health():
-    system = AliceSystem(
-        config=HiveMemoryConfig(),
-        atom_cache=KoakumaAtomCache(),
-        profile_cache=AgentProfileCache(),
-    )
+    system = AliceSystem(config=HiveMemoryConfig())
 
     health = await system.health()
 

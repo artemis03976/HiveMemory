@@ -71,10 +71,10 @@ from hivememory.i18n.resolver import resolve_language
 from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
+    from hivememory.agent_runtime.aliases import AtomCachePort
     from hivememory.core.models import MemoryAtom
     from hivememory.system.config import KoakumaConfig, MemoryCompilerConfig
     from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
-    from hivememory.system.runtime.workspace import AtomCachePort
 
 logger = logging.getLogger(__name__)
 

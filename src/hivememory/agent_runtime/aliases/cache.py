@@ -1,8 +1,8 @@
 """
 Workspace 分区的记忆原子缓存实现（KoakumaAtomCache）。
 
-由 WorkspaceRuntime 创建并持有所有权，Alice/Agent runtime 侧只经
-``AtomCachePort``（见 ports.py）消费。提供：
+由 AliceRuntime 创建并持有所有权，消费方经 ``AtomCachePort``
+（见 ports.py）注入使用。提供：
 - 完整 MemoryAtom 对象缓存
 - 双索引：(WorkspaceIdentity, alias) 分区别名索引 + 全局 UUID -> MemoryAtom
 - 会话级生命周期（无需 LRU 淘汰），附带可观测的 alias 命中/未命中统计

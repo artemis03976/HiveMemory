@@ -9,6 +9,7 @@
 import pytest
 
 from hivememory.agent_runtime.mtp.syscalls.registry import build_kernel_registry
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.models.agent import (
     OMNI_DOLL_ALLOWED_MTP_VERBS,
@@ -16,7 +17,6 @@ from hivememory.core.models.agent import (
     OMNI_DOLL_PROFILE,
 )
 from hivememory.core.mtp.models import MTPVerb
-from hivememory.system.runtime.workspace import AgentProfileCache
 from tests.helpers.workspace import make_identity_scope
 
 

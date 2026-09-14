@@ -4,8 +4,8 @@ AgentProfileCache 单元测试
 
 import pytest
 
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.core.models import ActorIdentity, AgentProfile
-from hivememory.system.runtime.workspace import AgentProfileCache
 from tests.helpers.workspace import make_workspace_identity
 
 MAIN = make_workspace_identity()

@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, AgentProfile
@@ -11,7 +12,6 @@ from hivememory.core.mtp.exceptions import (
     BusRouteUnavailableError,
     PermissionDeniedError,
 )
-from hivememory.system.runtime.workspace import AgentProfileCache
 from tests.helpers.workspace import make_identity_scope
 
 

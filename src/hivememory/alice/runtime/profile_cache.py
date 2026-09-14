@@ -1,15 +1,44 @@
 """
-Workspace 分区的人偶图纸缓存实现（AgentProfileCache）。
+Workspace 分区的人偶图纸缓存实现与窄化端口（AgentProfileCache）。
 
-由 WorkspaceRuntime 创建并持有所有权，Alice 侧只经 ``ProfileCachePort``
-（见 ports.py）消费。
+由 AliceRuntime 创建并持有所有权，消费方经 ``ProfileCachePort`` 注入使用。
 """
 
 from __future__ import annotations
 
 from collections import OrderedDict
+from typing import Protocol, runtime_checkable
 
 from hivememory.core.models import ActorIdentity, AgentProfile, WorkspaceIdentity
+
+
+@runtime_checkable
+class ProfileCachePort(Protocol):
+    """Alice 侧人偶图纸缓存的窄化端口。
+
+    读写按完整授权坐标分区（Workspace + Actor + alias），同一 Actor 在不同
+    Workspace 的同名 profile 各自缓存；命中只在同授权坐标内复用已通过
+    Patchouli profile route 校验的结果，跨坐标永不复用。
+    """
+
+    def get(
+        self,
+        workspace_identity: WorkspaceIdentity,
+        actor_identity: ActorIdentity,
+        alias: str,
+    ) -> AgentProfile | None:
+        """按授权坐标读取缓存 profile，未命中返回 None。"""
+        ...
+
+    def store(
+        self,
+        workspace_identity: WorkspaceIdentity,
+        actor_identity: ActorIdentity,
+        alias: str,
+        profile: AgentProfile,
+    ) -> None:
+        """按授权坐标写入缓存 profile。"""
+        ...
 
 
 class AgentProfileCache:
@@ -23,7 +52,7 @@ class AgentProfileCache:
     容量保持既有 LRU 语义（默认 32），附带命中/未命中/淘汰统计。
     已知限制：本轮没有 profile mutation 失效事件与 TTL，Profile 更新后
     旧值最长可驻留至被 LRU 淘汰或进程停止（stale 窗口，详见
-    docs/architecture/decisions/0004-workspace-derived-cache-partitioning.md）。
+    docs/architecture/decisions/0005-execution-path-derived-caches.md）。
     """
 
     def __init__(self, max_size: int = 32):
@@ -132,4 +161,4 @@ class AgentProfileCache:
         return self._evictions
 
 
-__all__ = ["AgentProfileCache"]
+__all__ = ["AgentProfileCache", "ProfileCachePort"]
