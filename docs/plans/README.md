@@ -3,14 +3,20 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-14
 ---
 
 # Plans
 
 本目录只存放已经绑定明确版本或里程碑、能够独立实施和验收，但尚未完全成为当前事实的功能、重构与迁移计划。已完成的计划移入 [Archived Plans](../archive/plans/README.md)，不在此目录继续作为活动实施入口。
 
-v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace 架构](../architecture/workspace.md) 与 [Chat 附件链路](../system/attachments.md) 为事实入口，Plan 本体保留在此目录等待归档；Workspace Runtime 聚合与缓存所有权迁移已完成并归档。已归档的历史计划如下：
+v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace 架构](../architecture/workspace.md) 与 [Chat 附件链路](../system/attachments.md) 为事实入口，Plan 本体保留在此目录等待归档。当前版本新增 Workspace 资源体系与 Agent 执行边界重构计划；Workspace Runtime 聚合与缓存所有权迁移已完成并归档。已归档的历史计划如下：
+
+| 当前计划 | 状态 | 目标结果 |
+|:---|:---:|:---|
+| [v0.6.2 Workspace 资源体系与 Agent 执行边界](./v0.6.2-workspace-resource-system-and-agent-execution-boundaries.md) | Planned | 建立独立于 Alice 执行的进程级 WorkspaceRuntime，统一资源读取、Profile/Atom 派生缓存、授权重验与失效；以 Passive Ingress 为首个 Actor adapter，收缩 Alice/AgentRuntime，明确 PendingAtom 暂留和 MTP 适配边界 |
+
+已归档的历史计划：
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
