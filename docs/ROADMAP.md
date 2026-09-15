@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-14
+last_reviewed: 2026-09-15
 ---
 
 # HiveMemory 开发路线图
@@ -37,7 +37,7 @@ last_reviewed: 2026-09-14
 - 本次发布标签：`v0.6.2`（合并后创建）；
 - 最近已发布基线：`v0.6.1`；
 - 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 下一计划版本：`v0.7.0`，Workspace 资源体系与 Actor 边界重构，状态为 Planned。
+- 下一计划版本：`v0.7.0`，Workspace 资源与内部执行边界（计划 A）、外部记忆服务与 Actor 交互契约（计划 B），状态均为 Planned。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.6.2`，待合并后创建，最近已发布基线为 `v0.6.1`。
 
@@ -124,7 +124,7 @@ last_reviewed: 2026-09-14
 
 | 原排期 | 新排期 | 调整原因 |
 |:---|:---|:---|
-| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0`，Planned | 跨系统资源边界、Actor 契约和执行职责的整体重构，独立于 W0/W1 收口 |
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0` 计划 A / B，均为 Planned | 分开实施内部资源与执行边界、外部记忆服务与 Actor 协议，共同构成本版本，独立于 W0/W1 收口 |
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
@@ -132,7 +132,7 @@ last_reviewed: 2026-09-14
 
 旧 Idea、W1 实施记录及历史材料中出现的上述旧版本号，按本表解释其后续排期；不重写历史使其看起来曾采用新顺序。新建 Plan 必须使用新目标版本。
 
-除已有正式 Plan 的 `v0.7.0` 外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
+除已有两份正式 Plan 的 `v0.7.0` 外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
 
 ### 4.2 v0.6.2：内容已收尾
 
@@ -154,23 +154,25 @@ last_reviewed: 2026-09-14
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` Workspace Resource Plane & Actor Boundary | Planned | 统一资源访问和派生缓存，收缩 Alice，形成与 Actor 无关的读取/提交契约及 Passive 适配切片 | v0.6.2 基础；[正式 Plan](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
-| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 端口；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
-| `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 资源与提交契约；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
-| `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
+| `v0.7.0` A：Workspace Resource System & Agent Execution Boundary | Planned | 统一资源访问和派生缓存，收缩 Alice，交付不依赖执行器的内部资源与领域端口 | v0.6.2 基础；[计划 A](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
+| `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的资源与领域端口；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
+| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的端口；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
+| `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
+| `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | A 的资源边界、B 的身份/来源/提交契约、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
 | 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.0 期间启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.10 节 Todo；正式 Plan 待建立 |
 | Electron 桌面客户端 | Candidate / `v0.8.x` 产品化窗口 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 前端传输与资源生命周期稳定；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md)；正式 Plan 待建立 |
 
-### 4.4 v0.7.0：Workspace 资源平面与 Actor 边界
+### 4.4 v0.7.0：Workspace 资源边界与外部交互两份计划
 
-以 [Workspace 资源体系 Plan](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) 为唯一详细实施入口。本版本建立一个进程级 WorkspaceRuntime，内部按适当的资源 key 分区；统一 Memory/Profile/Asset 的资源访问、派生缓存、授权重验和失效。Patchouli 继续持有 canonical 数据及领域算法，Alice 聚焦执行和工作集，MTP 接入独立的资源、执行与工具端口。
+本版本由两份 Planned 文档共同承接，各有实施阶段、迁移策略与独立验收出口。
 
-Passive Ingress 在本版本完成对公共能力的适配和契约验证。它是一条接入通道，实际 Actor 是通道外的 harness；adapter 本身不拥有 Agent loop。当前 PendingAtom 状态机继续由 Alice 工作集持有，外部 Actor 无需创建同形的 PendingAtom 才能提交结果。
+- [计划 A：Workspace 资源体系与 Agent 执行边界](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)建立一个进程级 WorkspaceRuntime，内部按资源 key 分区，统一 Memory/Profile/Asset 访问、派生缓存、授权重验和失效。Patchouli 继续持有 canonical 数据及领域算法，Alice 聚焦执行和工作集；PendingAtom 暂留 Alice，MTP 消费独立的资源、执行与工具端口。A 提供最小内部交接面，并保持现有 Passive 行为。
+- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的端口，定义被动对话与主动资源交互的外部协议，补齐身份、来源、提交关联与结果查询，并用参考客户端完成无 Alice 的闭环。Passive Ingress 保留被动摄入职责；主动操作由独立应用入口承接，外部 Actor 无需创建 PendingAtom。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
-验收以“无 Alice 可使用资源服务”“不同 Workspace 和执行状态不串扰”“任一合法 mutation 后缓存一致”“保留最后 settlement 的 shutdown drain”为核心。本版本不实现完整沙箱、研究编排或特定厂商连接器，也不承诺所有 Workspace 资源都已持久化。
+A 的验收以“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“保留最后 settlement 的 shutdown drain”为核心，不等待 B 的外部协议或客户端。B 的验收使用 A 的真实组件，覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两者均须完成。两份计划均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
 
 ### 4.5 v0.7.1：执行基座与真实外部 Actor 两个独立切片
 
@@ -184,11 +186,11 @@ Passive Ingress 在本版本完成对公共能力的适配和契约验证。它�
 
 #### 4.5.2 首个真实外部 harness 接入
 
-状态：Candidate，目标窗口为 v0.7.1。它依赖 v0.7.0 的契约，不强依赖 HiveMemory 本地沙箱；外部 harness 可继续使用自己的工具和执行环境。优先选一个用户实际使用且有可用接入方式的 harness，具体通过 API、MCP、skill、hook 或 connector 由样本与支持接口决定。
+状态：Candidate，目标窗口为 v0.7.1。它消费 v0.7.0 计划 B 已验证的外部交互协议，不强依赖 HiveMemory 本地沙箱；外部 harness 可继续使用自己的工具和执行环境。优先选一个用户实际使用且有可用接入方式的 harness，具体通过 API、MCP、skill、hook 或 connector 由样本与支持接口决定。
 
-验收必须形成真实闭环：已有记忆被检索并实际用于外部任务；对话或工具结果经 Passive Ingress 回流；下一次会话能召回新形成的知识并定位来源。仅采集日志、仅发送事件或仅返回 memory context 均不足以证明 Actor 接入完成。
+验收必须形成真实闭环：已有记忆被检索并实际用于外部任务；对话经 Passive Ingress 回流，显式写入/修订经主动领域提交入口处理；下一次会话能召回新形成的知识并定位来源。仅采集日志、仅发送事件或仅返回 memory context 均不足以证明 Actor 接入完成。
 
-接入需明确外部身份与 Workspace 的可信映射、事件顺序、重发去重、turn 结束、来源以及失败披露。外部 harness 默认保有自己的 prompt history；HiveMemory 不隐式接管上下文压缩。当前 Passive 的 accepted/buffered/duplicate/ignored 响应与队列成功、正式记忆物化是不同阶段，新增状态契约应显式兼容或版本化。重复提交不产生额外副作用的承诺必须限定在实际幂等与持久化能力范围内，不宣称跨重启 exactly-once。
+接入需把具体平台的身份、事件顺序、重发、turn 结束和来源映射到 B 的契约，验证平台能力不足时的失败披露。外部 harness 默认保有自己的 prompt history；HiveMemory 不隐式接管上下文压缩。B 定义的 ingress、交互应用和记忆物化状态继续分开；connector 不重写领域状态机，也不扩大已有幂等与持久化承诺。
 
 ### 4.6 v0.7.2：冷启动、历史导入与外源文档资产化
 
@@ -196,7 +198,7 @@ Passive Ingress 在本版本完成对公共能力的适配和契约验证。它�
 
 **冷启动与历史对话导入**解决“空库如何首次产生价值”和“既有会话如何保真迁入”。冷启动允许用户显式选择少量项目事实、偏好、Profile 或资料作为种子；不得自动把默认示例当作用户事实。历史导入保留 source、conversation/turn 标识、发生时间、说话者及分支/编辑关系；助手的推测或旧结论不能直接升级成用户当前事实。
 
-导入过程支持预览、来源与 Workspace 选择、稳定导入标识、去重、进度/失败报告，以及只保留证据、稍后提炼记忆。它复用 Patchouli 的物化入口，但不简单按实时顺序把全部历史文本重放进当前活动话题，避免改写当前偏好或丢失历史时间关系。
+导入过程支持预览、来源与 Workspace 选择、稳定导入标识、去重、进度/失败报告，以及只保留证据、稍后提炼记忆。它承接 v0.7.0 B 的身份、来源和领域提交契约及历史样例缺口，另行定义批次、历史时间、冲突和恢复语义；复用 Patchouli 的物化入口，不简单按实时顺序把全部历史文本重放进当前活动话题，避免改写当前偏好或丢失历史时间关系。
 
 **外源文档摄入**先形成 RAW/Artifact，再产生 representation、chunk、locator 和 evidence，最后按策略提炼候选与正式 Memory。复用 W1 的附件与 provenance 基础，并明确进程内 WorkspaceAsset 与持久化 Artifact 的区别。来源获取、确定性解析、模型辅助理解和记忆物化各自有成功/失败边界。
 
@@ -262,15 +264,16 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 ### 4.11 依赖与验收门槛
 
 ```text
-v0.6.2 已实现基础 -> v0.7.0 Workspace / Actor boundary
+v0.6.2 已实现基础 -> v0.7.0 A：Workspace 资源与内部执行边界
                           |
+                          +-> v0.7.0 B：外部记忆服务与 Actor 交互
+                          |       +-> v0.7.1 真实外部 harness 闭环
+                          |       |          (不强依赖本地沙箱)
+                          |       +-> v0.7.2 历史导入契约与批次能力
                           +-> v0.7.1 本地执行基座
-                          +-> v0.7.1 真实外部 harness 闭环
-                          |          (不强依赖本地沙箱)
-                          +-> v0.7.2 冷启动 / 历史导入 / 文档证据
-                                      |
-                                      +-> v0.7.3 READ 专项编译
-                                                    |
+                          +-> v0.7.2 冷启动 / 文档资源与证据
+
+v0.7.2 来源 / 证据 / 版本契约 -> v0.7.3 READ 专项编译
 可靠执行提供者 + 证据 / READ + 研究状态恢复契约 -> v0.7.4 Deep Research
 
 价值策略最小切片 -> v0.7.2 批量自动物化
@@ -278,7 +281,7 @@ v0.6.2 已实现基础 -> v0.7.0 Workspace / Actor boundary
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
 ```
 
-确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
+A/B 在起始阶段核对内部交接面，B 的最终集成依赖 A，A 的完成不依赖 B 的完整协议；v0.7.0 发布同时核对两份计划。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
 
 每项候选进入实施前必须冻结范围、权威状态、数据来源、失败/取消/恢复承诺、幂等边界和观察指标。任何跨重启恢复、强隔离或 Actor 替换承诺都必须有对应实现证据。仍未具备的能力不能通过 UI、accepted 响应或事件日志伪装成完成。
 

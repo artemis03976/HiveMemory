@@ -3,18 +3,21 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-09-14
+last_reviewed: 2026-09-15
 ---
 
 # Plans
 
 本目录只存放已经绑定明确版本或里程碑、能够独立实施和验收，但尚未完全成为当前事实的功能、重构与迁移计划。已完成的计划移入 [Archived Plans](../archive/plans/README.md)，不在此目录继续作为活动实施入口。
 
-v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace 架构](../architecture/workspace.md) 与 [Chat 附件链路](../system/attachments.md) 为事实入口，W1 Plan 已移入 archive/plans，保留实施历史。Workspace 资源体系与 Agent 执行边界重构已独立排入 v0.7.0；旧的 Workspace Runtime 聚合与缓存所有权迁移保留 v0.6.2 的已完成历史。其他候选工作与版本顺序见 [ROADMAP](../ROADMAP.md)，实施前分别建立正式 Plan。
+v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace 架构](../architecture/workspace.md) 与 [Chat 附件链路](../system/attachments.md) 为事实入口，W1 Plan 已移入 archive/plans，保留实施历史。v0.7.0 拆为 Workspace 资源体系与内部执行边界、外部记忆服务与 Actor 交互契约两份计划；旧的 Workspace Runtime 聚合与缓存所有权迁移保留 v0.6.2 的已完成历史。其他候选工作与版本顺序见 [ROADMAP](../ROADMAP.md)，实施前分别建立正式 Plan。
 
 | 当前计划 | 状态 | 目标结果 |
 |:---|:---:|:---|
-| [v0.7.0 Workspace 资源体系与 Agent 执行边界](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Planned | 建立独立于 Alice 执行的进程级 WorkspaceRuntime，统一资源读取、Profile/Atom 派生缓存、授权重验与失效；以 Passive Ingress 为首个外部 Actor 适配通道，收缩 Alice/AgentRuntime，明确 PendingAtom 暂留和 MTP 适配边界 |
+| [v0.7.0 计划 A：Workspace 资源体系与 Agent 执行边界](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Planned | 建立独立于 Alice 执行的进程级 WorkspaceRuntime，统一资源读取、Profile/Atom 派生缓存、授权重验与失效；收缩 Alice/AgentRuntime，明确 PendingAtom 暂留、MTP 适配和供其他消费者使用的内部端口 |
+| [v0.7.0 计划 B：外部记忆服务与 Actor 交互契约](./v0.7.0-external-memory-service-and-actor-interaction.md) | Planned | 建立被动对话与主动资源交互的外部协议，明确身份、来源、领域提交与结果查询；以无 Alice 的参考客户端验收，并用历史样例验证后续导入的契约边界 |
+
+A 可独立实施和验收，不等待 B 的外部协议与客户端；B 消费 A 的资源与领域端口，最终使用真实组件完成集成。两份计划共同构成 v0.7.0 的发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
 
 已完成计划与实施历史：
 
