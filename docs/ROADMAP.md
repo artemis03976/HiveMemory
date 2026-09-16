@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-15
+last_reviewed: 2026-09-16
 ---
 
 # HiveMemory 开发路线图
@@ -37,7 +37,7 @@ last_reviewed: 2026-09-15
 - 本次发布标签：`v0.6.2`（合并后创建）；
 - 最近已发布基线：`v0.6.1`；
 - 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 下一计划版本：`v0.7.0`，Workspace 资源与内部执行边界（计划 A）、外部记忆服务与 Actor 交互契约（计划 B），状态均为 Planned。
+- 下一计划版本：`v0.7.0`，Workspace 资源与内部执行边界（计划 A，Active）、外部记忆服务与 Actor 交互契约（计划 B，Planned）。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.6.2`，待合并后创建，最近已发布基线为 `v0.6.1`。
 
@@ -154,7 +154,7 @@ last_reviewed: 2026-09-15
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource System & Agent Execution Boundary | Planned | 统一资源访问和派生缓存，收缩 Alice，交付不依赖执行器的内部资源与领域端口 | v0.6.2 基础；[计划 A](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
+| `v0.7.0` A：Workspace Resource System & Agent Execution Boundary | Active | 统一资源访问、Workspace admission/operation authorization 和派生缓存，收缩 Alice，交付不依赖执行器的内部资源与领域端口 | v0.6.2 基础；[计划 A](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
 | `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的资源与领域端口；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
 | `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的端口；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
@@ -255,7 +255,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [Mock fallback 披露](./todo/frontend-mock-fallback-disclosure.md) | 前端可靠性优先项 | 可辨认的数据来源与可兑现的写操作 |
 | [Memory Garden 语义检索](./todo/frontend-memory-semantic-search.md) | 前端资源体验 | 复用真实后端能力，保留失败和空结果 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |
-| [Page Folding 跨入口后续](./todo/page-folding-cross-ingress-follow-ups.md) | v0.7.1 接入/v0.7.2 导入时提取所需切片 | 优先明确来源、上下文所有者和原始证据保留；summary-only、外部 context 管理等独立成 Plan |
+| [Page Folding 跨入口后续](./todo/page-folding-cross-ingress-follow-ups.md) | 由[话题折叠、Actor 上下文与原始证据计划](./plans/topic-folding-context-and-raw-evidence.md)集中承接，Planned / 占位；发布版本待详细设计确定 | 统筹折叠算法、原文证据与长 turn 两份 Idea；本次仅建立独立里程碑，不扩大 v0.7.0 A/B 的发布范围 |
 | [Topic /compact](./todo/topic-compact-command-ingress.md) | 独立小切片，可并行 | 不作为 Workspace、文档或 Research 的统一前置 |
 | [Work Queue 多 lane 拓扑](./todo/work-queue-runtime-lane-topology.md) | 保持 Deferred | 只有共享 Store、跨 lane 调度或可复现故障触发才重评 |
 
