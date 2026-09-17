@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import TopicData, TopicSnapshot, IdentityScope
+from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,

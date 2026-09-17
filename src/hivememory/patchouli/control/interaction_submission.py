@@ -32,8 +32,9 @@ from hivememory.system.runtime.work_queue import (
     WorkState,
 )
 
-# ``workspace_port`` 供 Workspace 领域提交端口（DomainMutationPort）使用：
-# 与 active/passive 并列的第三条程序化提交来源（WRX-1）。
+# ``workspace_port`` 供 Patchouli 交互提交 application 用例
+# （InteractionSubmissionService）使用：与 active/passive 并列的程序化提交
+# 来源（WRX-1）。
 InteractionOrigin = Literal["active_chat", "passive_memory", "workspace_port"]
 
 

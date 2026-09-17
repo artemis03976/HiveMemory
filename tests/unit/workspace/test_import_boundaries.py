@@ -1,10 +1,11 @@
 """workspace 包静态依赖边界的单元测试。
 
-保护父计划 4.2 节的依赖方向：``workspace`` 只能依赖资源端口、scope/DTO、
-Policy 与明确的 Patchouli provider；不得导入 AliceRuntime、AgentRuntime
-或 MTP handler。以 AST 静态扫描直接 import（含相对导入）判定；动态
-``importlib`` 间接导入与传递依赖（workspace→patchouli→…）不在本检查
-范围内，由 code review 与集成测试覆盖。
+保护父计划 4.2 节的依赖方向：``workspace`` 只承担访问边界、cache、失效
+和快照基础设施，只能依赖 core；不得导入 AliceRuntime、AgentRuntime、
+MTP handler 或任何 Patchouli 实现（业务统一由 application/GlobalSystemBus
+承接，Patchouli 反向消费本包基础设施）。以 AST 静态扫描直接 import（含
+相对导入）判定；动态 ``importlib`` 间接导入与传递依赖不在本检查范围内，
+由 code review 与集成测试覆盖。
 """
 
 from __future__ import annotations
@@ -18,14 +19,10 @@ WORKSPACE_PACKAGE = SRC_ROOT / "workspace"
 FORBIDDEN_PREFIXES = (
     "hivememory.alice",
     "hivememory.agent_runtime",
+    "hivememory.patchouli",
 )
 
-ALLOWED_TOP_LEVEL = (
-    "hivememory.core",
-    "hivememory.patchouli",
-    "hivememory.engines.retrieval.policy",
-    "hivememory.workspace",
-)
+ALLOWED_INTERNAL = ("hivememory.core", "hivememory.workspace")
 
 
 def _package_parts(path: Path) -> list[str]:
@@ -80,12 +77,12 @@ def test_workspace_package_never_imports_alice_or_agent_runtime():
 
 
 def test_workspace_package_imports_stay_within_allowed_boundaries():
-    """workspace 包的 hivememory 内部 import 只允许 core / patchouli / 自身。"""
+    """workspace 包的 hivememory 内部 import 只允许 core / 自身基础设施。"""
     violations: list[str] = []
     for path in _workspace_sources():
         for module in _imports_of(path):
             if not module.startswith("hivememory"):
                 continue
-            if not module.startswith(ALLOWED_TOP_LEVEL):
+            if not module.startswith(ALLOWED_INTERNAL):
                 violations.append(f"{path}: {module}")
     assert violations == [], f"workspace 包出现边界外依赖: {violations}"

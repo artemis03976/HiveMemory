@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING, Any
 from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
+    InteractionSubmissionService,
+    MemoryIntentSubmissionService,
     MemoryManagementService,
     MemoryTaskManagementService,
     ModelReadinessService,
@@ -125,6 +127,14 @@ class PatchouliSystem(SubsystemProtocol):
         self._agent_profile_management_service = AgentProfileManagementService(
             bus=self.runtime.local_bus,
         )
+        # 公开交互提交/意图提交用例（WRX-1）：封装内部 queue 与生成提交链，
+        # Passive/Alice/外部 adapter 统一经此提交，不直接持有内部协作者。
+        self._interaction_submission_service = InteractionSubmissionService(
+            interaction_queue=self._interaction_submission_queue,
+        )
+        self._memory_intent_submission_service = MemoryIntentSubmissionService(
+            bus=self.runtime.local_bus,
+        )
         self._topic_management_service = TopicManagementService(
             bus=self.runtime.local_bus,
         )
@@ -136,6 +146,8 @@ class PatchouliSystem(SubsystemProtocol):
             memory=self._memory_management_service,
             memory_tasks=self._memory_task_management_service,
             agent_profiles=self._agent_profile_management_service,
+            interactions=self._interaction_submission_service,
+            memory_intents=self._memory_intent_submission_service,
             topics=self._topic_management_service,
             readiness=self._model_readiness_service,
         )

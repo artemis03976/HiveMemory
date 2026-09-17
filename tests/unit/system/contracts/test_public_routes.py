@@ -376,6 +376,10 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
         assert PatchouliRoutes.MEMORY_TASK_GET == "patchouli.public.memory_task.get"
         assert PatchouliRoutes.MEMORY_TASK_CANCEL == "patchouli.public.memory_task.cancel"
+        assert PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT == "patchouli.public.get_agent_profile_snapshot"
+        assert PatchouliRoutes.MEMORY_READ == "patchouli.public.memory.read"
+        assert PatchouliRoutes.INTERACTION_SUBMIT == "patchouli.public.interaction.submit"
+        assert PatchouliRoutes.MEMORY_INTENT_SUBMIT == "patchouli.public.memory_intent.submit"
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
         assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
@@ -526,6 +530,8 @@ class TestPatchouliPublicRoutes:
             memory=memory_management_service,
             memory_tasks=memory_task_management_service,
             agent_profiles=agent_profile_management_service,
+            interactions=MagicMock(),
+            memory_intents=MagicMock(),
             topics=topic_management_service,
             readiness=model_readiness_service,
         )

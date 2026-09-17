@@ -36,6 +36,7 @@ class PatchouliLocalRoutes:
     MEMORY_TASK_WAIT_ALL = "memory_task.wait_all"
 
     GET_AGENT_PROFILE = "memory.get_agent_profile"
+    GET_AGENT_PROFILE_SNAPSHOT = "memory.get_agent_profile_snapshot"
 
     TOPIC_PREPARE = "topic.prepare"
     TOPIC_GET = "topic.get"
@@ -74,6 +75,7 @@ class PatchouliLocalRoutes:
         MEMORY_TASK_WAIT_MANY,
         MEMORY_TASK_WAIT_ALL,
         GET_AGENT_PROFILE,
+        GET_AGENT_PROFILE_SNAPSHOT,
         TOPIC_PREPARE,
         TOPIC_GET,
         TOPIC_LIST_ACTIVE,

@@ -104,10 +104,13 @@ async def test_get_memory_requests_memory_get_and_skips_refresh_when_missing(bus
     service = MemoryManagementService(bus=bus)
     identity_scope = make_identity_scope(user_id="u1")
 
-    assert await service.get_memory(
-        memory_id,
-        identity_scope=identity_scope,
-    ) is None
+    assert (
+        await service.get_memory(
+            memory_id,
+            identity_scope=identity_scope,
+        )
+        is None
+    )
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_GET,
         memory_id,

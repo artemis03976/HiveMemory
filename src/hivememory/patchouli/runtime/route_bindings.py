@@ -96,6 +96,10 @@ def build_patchouli_route_bindings(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             runtime.retrieval_familiar.get_agent_profile,
         ),
+        (
+            PatchouliLocalRoutes.GET_AGENT_PROFILE_SNAPSHOT,
+            runtime.retrieval_familiar.get_agent_profile_snapshot,
+        ),
         (PatchouliLocalRoutes.TOPIC_PREPARE, runtime.perception_familiar.prepare_topic),
         (PatchouliLocalRoutes.TOPIC_GET, runtime.retrieval_familiar.get_topic),
         (

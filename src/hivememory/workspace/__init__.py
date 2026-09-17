@@ -1,11 +1,15 @@
-"""Workspace 资源平面：进程级资源访问、缓存、授权与失效的聚合入口。
+"""Workspace 基础设施：统一访问边界、授权上下文与派生失效协作。
 
-父计划（docs/plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md）
-按阶段落地本包；WRX-1 交付访问边界（access）、端口（ports）、不可变快照
-（projections）与 Patchouli 低层 provider 适配（services）。Runtime 聚合
-入口于 WRX-2 加入，派生 cache 与失效实现于 WRX-3 加入。
+父计划（docs/plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md，
+2026-09-16 application 边界修订）确立的分工：本包只承担
+``WorkspaceAccessBoundary``、access context、派生 cache、失效和快照等
+基础设施职责；资源读取、领域提交和结果查询统一由既有 Patchouli
+application service 与 ``GlobalSystemBus`` 公开路由承接，本包不提供
+第二套业务 API，也不导入 Patchouli 内部 store/familiar/controller/local
+route 或 Alice/AgentRuntime 的任何实现。
 
-依赖方向：本包不得导入 ``hivememory.alice`` 或 ``hivememory.agent_runtime``。
+依赖方向：``workspace`` 只依赖 core；Patchouli application 与未来接入的
+组合根消费本包的访问与缓存基础设施（WRX-2/3 起扩展 runtime 与 cache）。
 """
 
 from hivememory.workspace.access import (
@@ -17,55 +21,22 @@ from hivememory.workspace.access import (
     require_access_context,
 )
 from hivememory.workspace.ports import (
-    DomainMutationPort,
-    DomainResultPort,
     ResourceInvalidationPort,
     WorkspaceAdmissionPort,
-    WorkspaceResourcePort,
 )
-from hivememory.workspace.projections import (
-    CanonicalResourceChange,
-    DomainHandle,
-    DomainResult,
-    DomainSubmission,
-    InteractionApplyRequest,
-    InteractionApplyResult,
-    MemoryIntentRequest,
-    MemorySnapshot,
-    ProfileSnapshot,
-)
-from hivememory.workspace.services import (
-    PatchouliDomainGateway,
-    ProfileResourceService,
-    WorkspaceMemoryService,
-)
+from hivememory.workspace.projections import CanonicalResourceChange
 
 __all__ = [
     # 访问边界
     "CallerPrincipal",
     "LocalTrustedAdmissionService",
     "WorkspaceAccessContext",
-    "WorkspaceAdmissionPort",
     "WorkspaceOperation",
     "issue_access_context",
     "require_access_context",
-    # 端口
-    "DomainMutationPort",
-    "DomainResultPort",
+    # 基础设施端口
     "ResourceInvalidationPort",
-    "WorkspaceResourcePort",
-    # 快照与 DTO
+    "WorkspaceAdmissionPort",
+    # 基础设施 DTO
     "CanonicalResourceChange",
-    "DomainHandle",
-    "DomainResult",
-    "DomainSubmission",
-    "InteractionApplyRequest",
-    "InteractionApplyResult",
-    "MemoryIntentRequest",
-    "MemorySnapshot",
-    "ProfileSnapshot",
-    # 服务
-    "PatchouliDomainGateway",
-    "ProfileResourceService",
-    "WorkspaceMemoryService",
 ]

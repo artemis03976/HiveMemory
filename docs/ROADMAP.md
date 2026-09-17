@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-16
+last_reviewed: 2026-09-17
 ---
 
 # HiveMemory 开发路线图
@@ -118,7 +118,7 @@ last_reviewed: 2026-09-16
 
 本轮规划依据 [VISION](./VISION.md) 的双轨策略：Workspace/Patchouli 提供可独立使用的资源与记忆基础设施；Alice 是 memory-native reference runtime，外部 harness 可以通过适配器成为其他 Actor。先验证资源可复用、执行可替换，再推进文档、研究和桌面产品化。
 
-“脱离 Actor”在此指资源身份、授权、证据、结果和任务状态不依赖某个特定 Actor。确定性解析可由普通服务完成；搜索、浏览或代码执行可以调用工具 worker 或 Actor。Deep Research 的执行仍需要执行者，但研究状态和结果应在执行者离开后继续存在。外部 harness 无需采用 Alice 的 loop、PendingAtom 或完整 MTP 语法。
+“脱离 Actor”在此指资源身份、授权、证据、结果和任务状态不依赖某个特定 Actor。确定性解析可由普通服务完成；搜索、浏览或代码执行可以调用工具 worker 或 Actor。Deep Research 的执行仍需要执行者，但研究状态和结果应在执行者离开后继续存在。外部 harness 无需采用 Alice 的 loop、run/frame 工作集或完整 MTP 语法；主动写入的 Pending 读取与结算属于共同资源能力。
 
 版本重新安排如下；这些是目标与候选排期，不改变当前规范代码版本、Git tag 或已完成阶段的归属：
 
@@ -167,10 +167,10 @@ last_reviewed: 2026-09-16
 
 ### 4.4 v0.7.0：Workspace 资源边界与外部交互两份计划
 
-本版本由两份 Planned 文档共同承接，各有实施阶段、迁移策略与独立验收出口。
+本版本由计划 A（Active）与计划 B（Planned）共同承接，各有实施阶段、迁移策略与独立验收出口；以下为规划目标，未表示全部实现已完成。
 
-- [计划 A：Workspace 资源体系与 Agent 执行边界](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)建立进程级 WorkspaceRuntime，按资源 key 分区持有访问与缓存基础设施。管理员、Alice 和外部 Actor 均经 WorkspaceAccessBoundary 后使用既有 application/GlobalSystemBus，Patchouli 继续拥有领域 API、canonical 数据与算法；不另建 Workspace 业务 port 或 Patchouli provider 层。PendingAtom 暂留 Alice，MTP 保留协议/执行适配。WRX-1 先验证公开 API 契约，生产组合根在后续接口稳定后接入；三种调用示例和迁移验收以计划 A 为准。
-- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的统一访问边界与公开 application 契约，定义被动对话与主动资源交互的外部协议，补齐身份、来源、提交关联与结果查询，并用参考客户端完成无 Alice 的闭环。Passive Ingress 保留被动摄入职责；主动操作由独立应用入口承接，外部 Actor 无需创建 PendingAtom。历史样例用于验证后续导入契约，完整批次导入仍后置。
+- [计划 A：Workspace 资源体系与 Agent 执行边界](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)建立进程级 WorkspaceRuntime，按资源 key 分区持有访问与缓存基础设施。管理员、Alice 和外部 Actor 均经 WorkspaceAccessBoundary 使用既有 application/GlobalSystemBus，Patchouli 保留领域 API、canonical 数据与算法，不另建 Workspace 业务 port/provider 层。Pending 通用登记、读取和结算归资源侧，Alice 保留执行关联；交互与主动写入使用独立路由，空 Topic 不阻断有效写入。WRX-1 先验证契约，WRX-5 实施 Pending 分离，生产装配在接口稳定后接入；详细规则见计划 A 第 9 节。
+- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开用例及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
 A 的验收以“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“保留最后 settlement 的 shutdown drain”为核心，不等待 B 的外部协议或客户端。B 的验收使用 A 的真实组件，覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两者均须完成。两份计划均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
 

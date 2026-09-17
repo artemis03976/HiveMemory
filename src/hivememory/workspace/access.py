@@ -36,8 +36,14 @@ class WorkspaceOperation(str, Enum):
     """Actor→Workspace 的窄能力 operation 枚举（父计划 5.6.2 能力表）。
 
     每个 capability 只授予其语义声明的能力；"不能推导出的权限"列见父计划。
-    ``MANAGEMENT_MEMORY`` 是显式管理 operation：供 owner-management 管理入口
-    （如 ``MemoryManagementService``）迁移后使用，绝不进入 Agent resource port。
+    ``MANAGEMENT_MEMORY``/``MANAGEMENT_TASK`` 是显式管理 operation：供
+    owner-management 管理入口（如 ``MemoryManagementService``）与任务管理
+    用例（取消）迁移后使用，绝不作为 Agent 读取/提交 grant 的超集。
+    已冻结的绑定例外：Profile 的管理写入/列表（create/list_agent_profiles）
+    实为 AGENT_PROFILE 类型 atom 的管理操作，绑定 ``MANAGEMENT_MEMORY``，
+    与 Profile 读取的 ``PROFILE_READ`` 分别授权、互不推导；其余既有管理
+    用例（Topic、Asset 等）在各自签名迁移时绑定明确 operation，不得借用
+    本枚举泛化放行。
     """
 
     RESOURCE_READ = "resource.read"
@@ -48,6 +54,7 @@ class WorkspaceOperation(str, Enum):
     MEMORY_INTENT_SUBMIT = "memory_intent.submit"
     TASK_OBSERVE = "task.observe"
     MANAGEMENT_MEMORY = "management.memory"
+    MANAGEMENT_TASK = "management.task"
 
 
 @dataclass(frozen=True)
