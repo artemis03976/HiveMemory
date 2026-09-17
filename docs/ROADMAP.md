@@ -170,9 +170,11 @@ last_reviewed: 2026-09-17
 本版本由计划 A（Active）与计划 B（Planned）共同承接，各有实施阶段、迁移策略与独立验收出口；以下为规划目标，未表示全部实现已完成。
 
 - [计划 A：Workspace 资源体系与 Agent 执行边界](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)建立进程级 WorkspaceRuntime，按资源 key 分区持有访问与缓存基础设施。管理员、Alice 和外部 Actor 均经 WorkspaceAccessBoundary 使用既有 application/GlobalSystemBus，Patchouli 保留领域 API、canonical 数据与算法，不另建 Workspace 业务 port/provider 层。Pending 通用登记、读取和结算归资源侧，Alice 保留执行关联；交互与主动写入使用独立路由，空 Topic 不阻断有效写入。WRX-1 先验证契约，WRX-5 实施 Pending 分离，生产装配在接口稳定后接入；详细规则见计划 A 第 9 节。
-- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开用例及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
+- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
 A 的验收以“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“保留最后 settlement 的 shutdown drain”为核心，不等待 B 的外部协议或客户端。B 的验收使用 A 的真实组件，覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两者均须完成。两份计划均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
+
+统一 API 以 System、Alice、外部 Actor 的共同操作为依据，详细映射见[计划 A 第 5.0 节](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md#50-patchouli-统一-api-与三方-adapter)。三方 adapter 对相同操作调用相同总线路由，Patchouli application 继续按处理领域实现。A 拆解旧 prepare/finalize 的运行编排与领域能力；B 区分主动工具调用和自动交接，完整交互由 adapter 自动提交，不依赖模型选择保存工具，也不因外部接入新增另一套资源 API。
 
 ### 4.5 v0.7.1：执行基座与真实外部 Actor 两个独立切片
 
