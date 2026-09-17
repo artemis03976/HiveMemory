@@ -14,11 +14,11 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 
 | 当前计划 | 状态 | 目标结果 |
 |:---|:---:|:---|
-| [v0.7.0 计划 A：Workspace 资源体系与 Agent 执行边界](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 建立独立于 Alice 执行的进程级 WorkspaceRuntime，统一资源读取、Workspace admission/operation authorization、Profile/Atom 派生缓存、授权重验与失效；收缩 Alice/AgentRuntime，明确 PendingAtom 暂留、MTP 适配和供其他消费者使用的内部端口 |
+| [v0.7.0 计划 A：Workspace 资源体系与 Agent 执行边界](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 建立独立于 Alice 的 WorkspaceRuntime，统一管理员、Alice 与外部 Actor 的访问边界和既有 application/GlobalSystemBus 调用；迁移 Profile/Atom 派生缓存与失效，收缩执行侧；不新增平行业务 port/provider 层 |
 | [v0.7.0 计划 B：外部记忆服务与 Actor 交互契约](./v0.7.0-external-memory-service-and-actor-interaction.md) | Planned | 建立被动对话与主动资源交互的外部协议，明确身份、来源、领域提交与结果查询；以无 Alice 的参考客户端验收，并用历史样例验证后续导入的契约边界 |
 | [话题折叠、Actor 上下文与原始证据统一改造](./topic-folding-context-and-raw-evidence.md) | Planned / 占位 | 独立里程碑，统筹话题折叠算法重构、原始证据和长 turn 上下文两份 Idea；详细设计与发布版本待补齐 |
 
-A 可独立实施和验收，不等待 B 的外部协议与客户端；B 消费 A 的资源与领域端口，最终使用真实组件完成集成。两份计划共同构成 v0.7.0 的发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
+A 可独立实施和验收，不等待 B 的外部协议与客户端；B 消费 A 的统一访问边界与公开 application 契约，最终使用真实组件完成集成。三类调用主体的例子见计划 A 第 5.6.5 节。两份计划共同构成 v0.7.0 的发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
 
 已完成计划与实施历史：
 

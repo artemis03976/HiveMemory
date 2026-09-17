@@ -10,12 +10,12 @@ MemoryLibrary 三层存储 Port 接口定义
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.core.models import (
-    MemoryAtom,
     IdentityScope,
+    MemoryAtom,
     TopicData,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
@@ -54,7 +54,7 @@ class ShortTermStoragePort(ABC):
         self,
         workspace: WorkspaceIdentity,
         topic_id: str,
-    ) -> Optional[TopicData]: ...
+    ) -> TopicData | None: ...
 
     @abstractmethod
     def put(self, topic: TopicData) -> None: ...
@@ -63,10 +63,10 @@ class ShortTermStoragePort(ABC):
     def delete(self, workspace: WorkspaceIdentity, topic_id: str) -> bool: ...
 
     @abstractmethod
-    def list_by_workspace(self, workspace: WorkspaceIdentity) -> List[TopicData]: ...
+    def list_by_workspace(self, workspace: WorkspaceIdentity) -> list[TopicData]: ...
 
     @abstractmethod
-    def list_all(self) -> List[TopicData]: ...
+    def list_all(self) -> list[TopicData]: ...
 
     @abstractmethod
     def count(self, workspace: WorkspaceIdentity) -> int: ...
@@ -90,24 +90,32 @@ class MidTermStoragePort(ABC):
     async def upsert(self, memory: MemoryAtom) -> None: ...
 
     @abstractmethod
-    async def get(self, identity_scope: IdentityScope, memory_id: UUID) -> Optional[MemoryAtom]: ...
+    async def get(
+        self,
+        identity_scope: IdentityScope,
+        memory_id: UUID,
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> MemoryAtom | None: ...
 
     @abstractmethod
     async def get_by_alias(
         self,
         identity_scope: IdentityScope,
         alias: str,
-    ) -> Optional[MemoryAtom]: ...
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> MemoryAtom | None: ...
 
     @abstractmethod
     async def get_for_mutation(
         self,
         identity_scope: IdentityScope,
         memory_id: UUID,
-    ) -> Optional[MemoryAtom]: ...
+    ) -> MemoryAtom | None: ...
 
     @abstractmethod
-    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]: ...
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None: ...
 
     @abstractmethod
     async def update_access_info(
@@ -130,7 +138,7 @@ class MidTermStoragePort(ABC):
     async def batch_delete(
         self,
         identity_scope: IdentityScope,
-        ids: List[UUID],
+        ids: list[UUID],
     ) -> int: ...
 
     @abstractmethod
@@ -139,28 +147,28 @@ class MidTermStoragePort(ABC):
         identity_scope: IdentityScope,
         query: str,
         top_k: int,
-        filters: Optional["QueryFilters"] = None,
+        filters: QueryFilters | None = None,
         mode: str = "dense",
         score_threshold: float = 0.0,
-    ) -> List[Dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
     async def scroll(
         self,
         identity_scope: IdentityScope,
-        filters: Optional["QueryFilters"] = None,
+        filters: QueryFilters | None = None,
         limit: int = 100,
-    ) -> List[MemoryAtom]: ...
+    ) -> list[MemoryAtom]: ...
 
     @abstractmethod
     async def count(
         self,
         identity_scope: IdentityScope,
-        filters: Optional["QueryFilters"] = None,
+        filters: QueryFilters | None = None,
     ) -> int: ...
 
     @abstractmethod
-    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]: ...
+    async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]: ...
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="mid_term", healthy=True)
@@ -195,8 +203,8 @@ class LongTermStoragePort(ABC):
     async def query(
         self,
         limit: int = 100,
-        vitality_threshold: Optional[float] = None,
-    ) -> List[ArchiveRecord]: ...
+        vitality_threshold: float | None = None,
+    ) -> list[ArchiveRecord]: ...
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="long_term", healthy=True)
@@ -220,8 +228,8 @@ class ArtifactStoragePort(ABC):
     async def get(
         self,
         identity_scope: IdentityScope,
-        ref_or_id: "ArtifactRef | str",
-    ) -> Dict[str, Any]: ...
+        ref_or_id: ArtifactRef | str,
+    ) -> dict[str, Any]: ...
 
     @abstractmethod
     async def exists(
@@ -235,8 +243,8 @@ class ArtifactStoragePort(ABC):
         self,
         identity_scope: IdentityScope,
         memory_id: str,
-        artifact_type: Optional[ArtifactType] = None,
-    ) -> List[ArtifactRef]: ...
+        artifact_type: ArtifactType | None = None,
+    ) -> list[ArtifactRef]: ...
 
     @abstractmethod
     async def verify(

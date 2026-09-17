@@ -83,11 +83,54 @@ class AssetOperationConflictError(WorkspaceDomainError):
     code = "workspace.asset.operation_conflict"
 
 
+class AdmissionDeniedError(WorkspaceDomainError):
+    """CallerPrincipal 未获准代表该 Actor 进入该 Workspace。
+
+    由 Workspace admission 边界（父计划 5.6 节）在 principal 映射或
+    owner 约束校验失败时抛出；请求体中的身份声明字符串不构成准入依据。
+    """
+
+    code = "workspace.admission_denied"
+
+
+class OperationDeniedError(WorkspaceDomainError):
+    """当前 principal/坐标未获准执行请求的 operation capability。"""
+
+    code = "workspace.operation_denied"
+
+
+class ResourceNotFoundError(WorkspaceDomainError):
+    """当前 Workspace 作用域内不存在目标资源。"""
+
+    code = "workspace.resource.not_found"
+
+
+class ResourceNotVisibleError(WorkspaceDomainError):
+    """资源存在但当前 Actor 未通过可见性授权。
+
+    与 ``ResourceNotFoundError`` 有意区分：调用方（如 MTP adapter）可
+    按既有契约把两者合并呈现，但边界语义必须可分别判断。
+    """
+
+    code = "workspace.resource.not_visible"
+
+
+class ResourceUnavailableError(WorkspaceDomainError):
+    """资源 provider 暂时不可用；不代表资源不存在或被拒绝。"""
+
+    code = "workspace.resource.unavailable"
+
+
 __all__ = [
     "WorkspaceDomainError",
     "ScopeRequiredError",
     "OwnerMismatchError",
     "WorkspaceMismatchError",
+    "AdmissionDeniedError",
+    "OperationDeniedError",
+    "ResourceNotFoundError",
+    "ResourceNotVisibleError",
+    "ResourceUnavailableError",
     "AssetNotFoundError",
     "AssetExpiredError",
     "AssetNotReadyError",

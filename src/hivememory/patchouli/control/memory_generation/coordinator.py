@@ -8,8 +8,8 @@ from uuid import UUID
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    LogicalBlock,
     IdentityScope,
+    LogicalBlock,
     require_identity_scope,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
@@ -83,8 +83,13 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         *,
         identity_scope: IdentityScope,
+        submitted_by: str | None = None,
     ) -> list[MemoryGenerationTask]:
-        """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。"""
+        """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。
+
+        ``submitted_by`` 记录提交方 principal 标识（Workspace 访问边界，
+        父计划 5.6.4）：随 spec 进入任务归属投影；MTP 既有路径不传该值，
+        保持 ``None``。"""
         if not tasks:
             return []
         identity_scope = require_identity_scope(identity_scope)
@@ -116,6 +121,7 @@ class MemoryGenerationCoordinator:
                     gen_context=gen_context,
                     interaction_input=interaction_input,
                     identity_scope=identity_scope,
+                    submitted_by=submitted_by,
                 )
                 for task in tasks
             ]
@@ -157,6 +163,7 @@ class MemoryGenerationCoordinator:
         gen_context,
         interaction_input: InteractionArtifactInput | None,
         identity_scope: IdentityScope,
+        submitted_by: str | None = None,
     ) -> MemoryGenerationTaskSpec | None:
         try:
             return await self._build_active_spec(
@@ -165,6 +172,7 @@ class MemoryGenerationCoordinator:
                 gen_context=gen_context,
                 interaction_input=interaction_input,
                 identity_scope=identity_scope,
+                submitted_by=submitted_by,
             )
         except SpecBuildError as exc:
             logger.error(
@@ -189,6 +197,7 @@ class MemoryGenerationCoordinator:
         gen_context,
         interaction_input: InteractionArtifactInput | None,
         identity_scope: IdentityScope,
+        submitted_by: str | None = None,
     ) -> MemoryGenerationTaskSpec:
         if task.identity_scope.workspace_identity != identity_scope.workspace_identity:
             raise WorkspaceMismatchError(details={"pending_alias": task.pending_alias})
@@ -236,6 +245,7 @@ class MemoryGenerationCoordinator:
             interaction_input=interaction_input,
             intent_id=task.intent_id,
             pending_alias=task.pending_alias,
+            submitted_by=submitted_by,
         )
 
     def _build_interaction_input(
@@ -257,5 +267,6 @@ class MemoryGenerationCoordinator:
             blocks=tuple(blocks),
             asset_bindings=tuple(asset_bindings),
         )
+
 
 __all__ = ["MemoryGenerationCoordinator"]

@@ -154,9 +154,9 @@ last_reviewed: 2026-09-16
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource System & Agent Execution Boundary | Active | 统一资源访问、Workspace admission/operation authorization 和派生缓存，收缩 Alice，交付不依赖执行器的内部资源与领域端口 | v0.6.2 基础；[计划 A](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
-| `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的资源与领域端口；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
-| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的端口；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
+| `v0.7.0` A：Workspace Resource System & Agent Execution Boundary | Active | 统一所有访问主体的 Workspace admission/operation 与既有 application/GlobalSystemBus 链路；迁移派生缓存、收缩 Alice，不新增平行业务 port/provider 层 | v0.6.2 基础；[计划 A](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
+| `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的访问边界与公开 application 契约；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
+| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | A 的资源边界、B 的身份/来源/提交契约、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
@@ -169,8 +169,8 @@ last_reviewed: 2026-09-16
 
 本版本由两份 Planned 文档共同承接，各有实施阶段、迁移策略与独立验收出口。
 
-- [计划 A：Workspace 资源体系与 Agent 执行边界](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)建立一个进程级 WorkspaceRuntime，内部按资源 key 分区，统一 Memory/Profile/Asset 访问、派生缓存、授权重验和失效。Patchouli 继续持有 canonical 数据及领域算法，Alice 聚焦执行和工作集；PendingAtom 暂留 Alice，MTP 消费独立的资源、执行与工具端口。A 提供最小内部交接面，并保持现有 Passive 行为。
-- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的端口，定义被动对话与主动资源交互的外部协议，补齐身份、来源、提交关联与结果查询，并用参考客户端完成无 Alice 的闭环。Passive Ingress 保留被动摄入职责；主动操作由独立应用入口承接，外部 Actor 无需创建 PendingAtom。历史样例用于验证后续导入契约，完整批次导入仍后置。
+- [计划 A：Workspace 资源体系与 Agent 执行边界](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)建立进程级 WorkspaceRuntime，按资源 key 分区持有访问与缓存基础设施。管理员、Alice 和外部 Actor 均经 WorkspaceAccessBoundary 后使用既有 application/GlobalSystemBus，Patchouli 继续拥有领域 API、canonical 数据与算法；不另建 Workspace 业务 port 或 Patchouli provider 层。PendingAtom 暂留 Alice，MTP 保留协议/执行适配。WRX-1 先验证公开 API 契约，生产组合根在后续接口稳定后接入；三种调用示例和迁移验收以计划 A 为准。
+- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的统一访问边界与公开 application 契约，定义被动对话与主动资源交互的外部协议，补齐身份、来源、提交关联与结果查询，并用参考客户端完成无 Alice 的闭环。Passive Ingress 保留被动摄入职责；主动操作由独立应用入口承接，外部 Actor 无需创建 PendingAtom。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
 A 的验收以“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“保留最后 settlement 的 shutdown drain”为核心，不等待 B 的外部协议或客户端。B 的验收使用 A 的真实组件，覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两者均须完成。两份计划均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
 
