@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-17
+last_reviewed: 2026-09-18
 ---
 
 # HiveMemory 开发路线图
@@ -37,7 +37,7 @@ last_reviewed: 2026-09-17
 - 本次发布标签：`v0.6.2`（合并后创建）；
 - 最近已发布基线：`v0.6.1`；
 - 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 下一计划版本：`v0.7.0`，Workspace 资源平面重构计划组（A 协调入口，A1/A2 Active，A3–A6 Planned）、外部记忆服务与 Actor 交互契约（B，Planned）。
+- 下一计划版本：`v0.7.0`，Workspace 资源平面重构计划组（A 协调入口，A1/A2/A5 Active，A3/A4/A6 Planned）、外部记忆服务与 Actor 交互契约（B，Planned）。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.6.2`，待合并后创建，最近已发布基线为 `v0.6.1`。
 
@@ -154,7 +154,7 @@ last_reviewed: 2026-09-17
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 以协调计划统筹 A1–A6：访问边界、Patchouli 共同 API、WorkspaceRuntime/cache、Session/Topic 投影、共享 Pending、Actor 适配与集成收口；不新增平行业务 port/provider 层 | v0.6.2 基础；[计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
+| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 以协调计划统筹 A1–A6：访问边界、资源读取与 WorkspaceRuntime/cache、Session/Topic 投影、共享 Pending、统一 API 收敛、Actor 适配与集成收口；不新增平行业务 port/provider 层 | v0.6.2 基础；[计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
 | `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的访问边界与公开 application 契约；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
 | `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
@@ -169,13 +169,16 @@ last_reviewed: 2026-09-17
 
 本版本由计划 A 的六个内部子计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
 
-- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)把 Workspace 资源平面和 Actor 执行平面拆成六个可独立验收的切片：A1 统一 admission/operation/resource/domain 四阶段授权；A2 从三方共同操作收敛 Patchouli application API 并削减旧 PatchouliService；A3 建立进程级 WorkspaceRuntime、Profile/Atom cache 与失效；A4 建立 ConversationSession/ConversationSegment/ConversationPart 到 Topic/LogicalBlock 的分层；A5 将 Pending 的通用读写一致性与主动意图提交从 Alice 执行关联中分离；A6 切换 Root/CALL/MTP/Passive/管理消费者、接入稳定装配并完成 shutdown/旧旁路收口。所有子计划遵守同一 GlobalSystemBus 业务链路，不增加 Workspace 业务 port/provider 层。
-- [A1 Workspace 访问边界与授权](./plans/v0.7.0-a1-workspace-access-boundary.md)、[A2 Patchouli 共同 API](./plans/v0.7.0-a2-patchouli-unified-api.md)、[A3 WorkspaceRuntime 与缓存](./plans/v0.7.0-a3-workspace-runtime-and-caches.md)、[A4 Session 与 Topic 投影](./plans/v0.7.0-a4-conversation-session-and-topic-projection.md)、[A5 共享 Pending 与主动写入](./plans/v0.7.0-a5-pending-memory-intents.md)可以在独立组合和真实 application 链中并行推进；[A6 Actor 适配与集成收口](./plans/v0.7.0-a6-actor-adapters-and-integration.md)在依赖就绪后切换真实消费者。A4 的 Session/Topic 模型不等于完整折叠算法，后者由[话题折叠专项计划](./plans/topic-folding-context-and-raw-evidence.md)另行设计。
+- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)将六份计划按交付依赖排序：A1 建立四阶段授权和 operation 绑定基线；A2 交付 canonical/Profile 读取、快照、WorkspaceRuntime/cache 和失效；A3 交付 Session/Segment/Part、Topic 生命周期与交互/资料公共路由；A4 交付共享 Pending、主动提交及完整引用解析；A5 在前置模型与路由齐备后收敛整体 API、补检索/使用报告差额并明确旧服务职责；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一 GlobalSystemBus 领域链，不增加 Workspace 业务 port/provider 层。
+- 默认实施顺序为 [A1 访问边界](./plans/v0.7.0-a1-workspace-access-boundary.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2/A3 可在 A1 后并行，A4 消费二者成果。领域计划各自公开并验证 API，靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
+
 - [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
 A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“Session 与 Topic 各自承担正确生命周期”“Pending 写后可读、结算可解析”“保留最后 settlement 的 shutdown drain”。A1–A5 不等待完整外部协议；A6 使用真实内部组件完成集成。B 的验收覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两组出口均须完成。A 系列与 B 均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
 
-统一 API 以 System、Alice、外部 Actor 的共同操作为依据，详细映射见[A2](./plans/v0.7.0-a2-patchouli-unified-api.md)；三方 adapter 对相同操作调用相同总线路由，Patchouli application 继续按处理领域实现。A4 解决外部确定性 Session 与内部 Topic 的数据边界，A5 解决主动写入的 Pending 一致性；B 区分主动工具调用和自动交接，完整交互由 adapter 自动提交，不依赖模型选择保存工具，也不因外部接入新增另一套资源 API。
+统一 API 以 System、Alice、外部 Actor 的共同操作为依据，详细映射见[A5](./plans/v0.7.0-a5-patchouli-unified-api.md)；三方 adapter 对相同操作调用相同总线路由，Patchouli application 继续按处理领域实现。A3 解决外部确定性 Session 与内部 Topic 的数据边界，A4 解决主动写入的 Pending 一致性；B 区分主动工具调用和自动交接，完整交互由 adapter 自动提交，不依赖模型选择保存工具，也不因外部接入新增另一套资源 API。
+
+2026-09-17 规划裁定：按 [A2 第 1.1 节](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md)明确 ADR-0004 的继承/替换范围，通用缓存从 Alice 客户端加速转为 Patchouli 读取链内部使用的基础设施，由单一 WorkspaceRuntime 聚合。A2 交付 canonical 读取，A4 扩展统一 Pending/canonical 引用解析，A6 删除 Alice 独立 resolver 路径；Profile 定义读取留在资源侧，执行配置和 system prompt 应用留在各 Actor。外部 harness 无需支持动态 Profile 即可使用记忆服务。ADR-0004 仍记录 v0.6.2 已落地基线，正式后继 ADR 在 A6 联合验收收尾后建立；该安排不改变后续版本排期。
 
 ### 4.5 v0.7.1：执行基座与真实外部 Actor 两个独立切片
 
@@ -284,7 +287,7 @@ v0.7.2 来源 / 证据 / 版本契约 -> v0.7.3 READ 专项编译
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
 ```
 
-A1/A2 与 B 先核对共同 API，A4 冻结 Session/交互输入，A5 冻结 Pending；B 的最终集成使用真实领域能力，A6 负责既有消费者及稳定生产装配。A 系列不等待 B 的完整协议；v0.7.0 发布同时核对 A1–A6 与 B 的出口。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
+A1 先完成访问基线，A2/A3 交付读取和交互/Topic，A4 交付主动意图与完整读取，A5 再核对完整 API；B 可先调查场景，随后按这些交付分批冻结外部协议并以真实领域能力验收。A6 负责既有消费者及稳定生产装配。A 系列不等待 B 的完整协议；v0.7.0 发布同时核对 A1–A6 与 B 的出口。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
 
 每项候选进入实施前必须冻结范围、权威状态、数据来源、失败/取消/恢复承诺、幂等边界和观察指标。任何跨重启恢复、强隔离或 Actor 替换承诺都必须有对应实现证据。仍未具备的能力不能通过 UI、accepted 响应或事件日志伪装成完成。
 

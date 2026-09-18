@@ -10,7 +10,7 @@ related_docs:
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/page-folding-cross-ingress-follow-ups.md
   - docs/plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md
-  - docs/plans/v0.7.0-a4-conversation-session-and-topic-projection.md
+  - docs/plans/v0.7.0-a3-conversation-session-and-topic-projection.md
   - docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md
 updates:
   - docs/patchouli/perception.md
@@ -20,7 +20,7 @@ updates:
   - docs/system/passive-ingress.md
   - docs/contracts/subsystem-contracts.md
   - docs/ROADMAP.md
-last_reviewed: 2026-09-17
+last_reviewed: 2026-09-18
 ---
 
 # 话题折叠、Actor 上下文与原始证据统一改造计划（占位）
@@ -54,13 +54,13 @@ last_reviewed: 2026-09-17
 
 以上是设计覆盖范围，不预先要求落地全部候选机制；最终实现切片和非目标在详细设计时逐项冻结。具体类名、字段、存储实现、同步或异步执行方式、可靠性等级和默认策略均未确定。
 
-A4 的 ConversationSegment 表示一次完成或明确封口的交互；本计划的长 turn 分片/checkpoint 是运行中预算与覆盖机制，不能因都使用 segment 一词就视为同一生命周期。后续应引用 Part/Segment 范围建立证据与折叠覆盖关系，避免另建一套来源 ID。资源 Topic 工作集、Session 历史和 Actor prompt history 分离是输入边界；本计划继续设计算法、原文保留与质量，不重新接管外部 harness 压缩。
+A3 的 ConversationSegment 表示一次完成或明确封口的交互；本计划的长 turn 分片/checkpoint 是运行中预算与覆盖机制，不能因都使用 segment 一词就视为同一生命周期。后续应引用 Part/Segment 范围建立证据与折叠覆盖关系，避免另建一套来源 ID。资源 Topic 工作集、Session 历史和 Actor prompt history 分离是输入边界；本计划继续设计算法、原文保留与质量，不重新接管外部 harness 压缩。
 
 ## 3. 与现有计划的关系
 
-- [v0.7.0 计划 A 协调入口](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)提供整体边界；[A4 Session 与 Topic 投影计划](./v0.7.0-a4-conversation-session-and-topic-projection.md)冻结 Session/Segment/Part 与 Topic/LogicalBlock 的交接。本计划只在此基础上继续设计折叠、长 turn 和原始证据，不重新定义会话容器。
+- [v0.7.0 计划 A 协调入口](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)提供整体边界；[A3 Session 与 Topic 投影计划](./v0.7.0-a3-conversation-session-and-topic-projection.md)冻结 Session/Segment/Part 与 Topic/LogicalBlock 的交接。本计划只在此基础上继续设计折叠、长 turn 和原始证据，不重新定义会话容器。
 - [v0.7.0 计划 B](./v0.7.0-external-memory-service-and-actor-interaction.md)提供外部接入与交互契约；本计划需与其对齐上下文所有权、来源和可能的 checkpoint/上下文服务交接。
-- 本次占位不改变 A 系列/B 已有验收出口，不将完整原文保全、长 turn 管理或上下文托管自动设为 A4、A5 或 B 的完成前提。具体依赖、交付顺序和版本调整在详细设计时一并评估。
+- 本次占位不改变 A 系列/B 已有验收出口，不将完整原文保全、长 turn 管理或上下文托管自动设为 A3、A4 或 B 的完成前提。具体依赖、交付顺序和版本调整在详细设计时一并评估。
 - 完整历史导入、特定厂商 connector、沙箱及通用工作流平台不因本文建立而并入范围；本计划只需明确与它们相关的交接。
 
 ## 4. 后续补齐清单

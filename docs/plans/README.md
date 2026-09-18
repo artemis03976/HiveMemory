@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plans
-last_reviewed: 2026-09-17
+last_reviewed: 2026-09-18
 ---
 
 # Plans
@@ -15,18 +15,22 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | 当前计划 | 状态 | 目标结果 |
 |:---|:---:|:---|
 | [v0.7.0 计划 A：Workspace 资源平面重构协调计划](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 维护 A1–A6 的共同边界、依赖和发布出口；不再重复维护子计划的完整实施细节 |
-| [A1 Workspace 访问边界与授权](./v0.7.0-a1-workspace-access-boundary.md) | Active | 统一 CallerPrincipal、Workspace admission、operation grant、四阶段检查和可信上下文传播 |
-| [A2 Patchouli 共同 API 与业务职责收敛](./v0.7.0-a2-patchouli-unified-api.md) | Active | 从 System、Alice、外部 Actor 的共同操作收敛 Patchouli application API，退出旧复合领域路径 |
-| [A3 WorkspaceRuntime 与派生缓存迁移](./v0.7.0-a3-workspace-runtime-and-caches.md) | Planned | 建立进程级 WorkspaceRuntime，迁移 Profile/Atom cache，统一 revision、epoch、失效和关闭 |
-| [A4 Conversation Session 与 Topic 投影边界](./v0.7.0-a4-conversation-session-and-topic-projection.md) | Planned | 冻结 Session/Segment/Part 与 Topic/LogicalBlock 的分层、路由、顺序、来源和结构化投影时机 |
-| [A5 共享 Pending 与主动记忆写入](./v0.7.0-a5-pending-memory-intents.md) | Planned | 提供跨 Actor 的 Pending 读写一致性、独立 memory_intent.submit、完整 Topic 资料和结算解析 |
-| [A6 Actor 适配与集成收口](./v0.7.0-a6-actor-adapters-and-integration.md) | Planned | 切换 Alice、Passive、管理和 MTP 消费者，接入稳定装配，完成旧旁路退出与 shutdown 验收 |
+| [A1 Workspace 访问边界与授权](./v0.7.0-a1-workspace-access-boundary.md) | Active | 统一访问基线、四阶段检查、operation 绑定与后续扩展规则 |
+| [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active | 合并 canonical/Profile 读取、快照与缓存实施，保留 ADR-0004 裁定；不等待 Pending 状态扩展 |
+| [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 同时交付 Segment/Topic 模型、prepare/handle 生命周期、交互/资料公共路由和真实领域行为 |
+| [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |
+| [A5 Patchouli 共同 API 与业务职责收敛](./v0.7.0-a5-patchouli-unified-api.md) | Active | 消费 A1–A4 成果核对全局 API，补检索/使用报告差额，形成旧服务职责退出清单 |
+| [A6 Actor 适配与集成收口](./v0.7.0-a6-actor-adapters-and-integration.md) | Planned | 切换 Alice、Passive、管理和 MTP 消费者，完成稳定装配、旧旁路退出与 shutdown 验收 |
 | [v0.7.0 计划 B：外部记忆服务与 Actor 交互契约](./v0.7.0-external-memory-service-and-actor-interaction.md) | Planned | 建立被动对话与主动资源交互的外部协议，明确身份、来源、领域提交与结果查询；以无 Alice 的参考客户端验收，并用历史样例验证后续导入的契约边界 |
 | [话题折叠、Actor 上下文与原始证据统一改造](./topic-folding-context-and-raw-evidence.md) | Planned / 占位 | 独立里程碑，统筹话题折叠算法重构、原始证据和长 turn 上下文两份 Idea；详细设计与发布版本待补齐 |
 
-A1–A5 可在独立组合和真实 application 链中分别验收，A6 负责跨计划消费者切换和生产收口；A 系列不等待 B 的外部客户端。三类调用主体如何收敛到同一业务链路的例子集中在 [A2](./v0.7.0-a2-patchouli-unified-api.md)。A4 的 Session/Topic 交互模型与 [话题折叠专项占位计划](./topic-folding-context-and-raw-evidence.md)交接，但折叠算法不自动纳入 A4。B 消费 A1/A2/A4/A5 的稳定能力并用真实组件集成；两组计划共同构成 v0.7.0 的发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
+默认按 A1 → A2 → A3 → A4 → A5 → A6 推进；A2/A3 可在 A1 后并行，其余完整依赖见[协调入口第 3 节](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md#3-依赖图与执行顺序)。每份领域计划交付模型、公共路由和真实行为，A5 不再是前置 API 发布平台。A1/A2/A5 的 Active 承接既有工作，不代表新增范围已经完成；旧编号迁移表见协调入口第 1 节。
+
+A1–A5 可独立组合验收，A6 负责真实消费者与生产收口，A 系列不等待 B 外部客户端。三方调用示例集中在 [A5](./v0.7.0-a5-patchouli-unified-api.md)；Topic 生命周期只在 [A3 第 4 节](./v0.7.0-a3-conversation-session-and-topic-projection.md#4-topic-路由指令与交接)定义，完整折叠算法仍归[专项占位计划](./topic-folding-context-and-raw-evidence.md)。B 按 A1–A5 实际交付能力映射外部协议；A/B 共同构成 v0.7.0 发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
 
 已完成计划与实施历史：
+
+v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系以 [A2 第 1.1 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md)裁定为准；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 1.4 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#14-profile-定义读取与执行配置应用)，正式 ADR 替代须在 A6 联合验收收尾后进行。
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
