@@ -15,7 +15,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | 当前计划 | 状态 | 目标结果 |
 |:---|:---:|:---|
 | [v0.7.0 计划 A：Workspace 资源平面重构协调计划](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 维护 A1–A6 的共同边界、依赖和发布出口；不再重复维护子计划的完整实施细节 |
-| [A1 Workspace 访问边界与授权](./v0.7.0-a1-workspace-access-boundary.md) | Active / 待重新实现 | System 统一网关完成来源认证与 Workspace 准入；Workspace Actor 记录提供行为白名单，application 逐次检查操作、资源 owner 独立授权 |
+| [A1 Workspace 访问边界与授权](./v0.7.0-a1-workspace-access-boundary.md) | Active / 实现调整中 | System 统一网关编排来源认证与 Workspace 准入；Workspace guard 持有最小 context 和有效性状态，并按 Actor 记录逐次授权；资源 owner 独立授权 |
 | [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active | 合并 canonical/Profile 读取、快照与缓存实施；不等待 Pending 状态扩展 |
 | [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 新增 Session，演进 InteractionPayload/TurnEvent；交付 Topic 生命周期、交互/资料公共路由与授权结果查询 |
 | [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |
@@ -26,7 +26,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 
 默认按 A1 → A2 → A3 → A4 → A5 → A6 推进；A2/A3 可在 A1 后并行，其余完整依赖见[协调入口第 3 节](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md#3-依赖图与执行顺序)。每份领域计划交付模型、公共路由和真实行为，A5 不再是前置 API 发布平台。A1/A2/A5 的 Active 承接既有工作，不代表新增范围已经完成；旧编号迁移表见协调入口第 1 节。
 
-2026-09-19 基线核对：上一轮 A1 工作区代码改动已撤销，重新实施以 `b4eeaece` 保留的 WRX-0/1 代码为起点，详见 [A1 第 1.1 节](./v0.7.0-a1-workspace-access-boundary.md#11-撤销-a1-实现后的代码基线)。当前仍有旧 admission、单次 operation context 和裸 scope 兼容路径，不能把统一网关或 System access 传播视为已经交付。A1 目标保留一个对外认证入口、两项内部认证和两类运行时授权；原 `Domain operation policy` 的权限职责并入 `Operation authorization`。A1 通过独立组合验收，不提前要求生产装配；真实入口切换和兼容退出由 A6 完成，具体外部协议由 B 提供。
+2026-09-19 状态更新：撤销时的 `b4eeaece` 快照保留在 [A1 第 1.1 节](./v0.7.0-a1-workspace-access-boundary.md#11-撤销-a1-实现后的代码基线)；`ebce0f15` 已重新实现网关与两类登记，本轮继续调整 context/guard 所有权。目标保持一个对外认证入口、两项内部认证和两类运行时授权；principal 归 System，最小准入结果及有效性归 Workspace，具体设计只在 [A1 第 2.4 节](./v0.7.0-a1-workspace-access-boundary.md#24-访问上下文及受控构造)维护。A1 仍未整体收口，通过独立组合验收；真实入口切换、shutdown 和兼容退出由 A6 完成，具体外部协议由 B 提供。
 
 A1–A5 可独立组合验收，A6 负责真实消费者与生产收口，A 系列不等待 B 外部客户端。三方调用示例集中在 [A5](./v0.7.0-a5-patchouli-unified-api.md)；Topic 生命周期只在 [A3 第 4 节](./v0.7.0-a3-conversation-session-and-topic-projection.md#4-topic-路由指令与交接)定义，完整折叠算法仍归[专项占位计划](./topic-folding-context-and-raw-evidence.md)。B 按 A1–A5 实际交付能力映射外部协议；A/B 共同构成 v0.7.0 发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
 

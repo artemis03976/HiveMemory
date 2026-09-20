@@ -8,11 +8,11 @@ Actor 身份和目标 Workspace；网关内部顺序完成两项认证，全部�
     1. Principal authentication —— 匹配 System 接入登记与 adapter，
        确认 CallerPrincipal 和 ActorIdentity；
     2. Workspace authentication / admission —— 核对 Workspace Actor
-       准入记录（含 W0 owner 约束），取得 allowed_operations 的可信关联。
+       准入记录（含 W0 owner 约束），由 Workspace guard 签发准入结果。
 
 认证入口不要求提供待执行的 operation，也不向调用方返回"只完成第一项
-认证"的可访问上下文。网关统一流程不改变数据所有权：它查询 System 接入
-登记和 Workspace 访问登记（后者由 ``workspace.registry`` 持有），但不
+认证"的可访问上下文。网关查询 System 接入登记，并委托 Workspace guard
+完成内部准入；网关不持有 Workspace 签发状态或授权配置，也不
 执行 search/read/submit，不接受任意 action 代执行业务，也不替代全局
 总线路由——认证成功后，调用侧沿既有 adapter/service/bridge 发起业务调用。
 
@@ -31,25 +31,15 @@ Actor 身份和目标 Workspace；网关内部顺序完成两项认证，全部�
 
 from __future__ import annotations
 
-import time
-from typing import Callable
-
-from hivememory.core.errors import AdmissionDeniedError, OwnerMismatchError
-from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
-
-from hivememory.system.access.credentials import (
-    AccessContextValidity,
-    issue_access_context,
-)
+from hivememory.core.errors import AdmissionDeniedError
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.system.access.principal import CallerPrincipal
 from hivememory.system.access.registry import SystemActorAccessRegistry
+from hivememory.workspace.access import WorkspaceAccessContext, WorkspaceAccessGuard
 
 __all__ = [
     "ActorAuthenticationGateway",
 ]
-
-_DEFAULT_ISSUED_BY = "system-actor-authentication"
 
 
 class ActorAuthenticationGateway:
@@ -61,9 +51,9 @@ class ActorAuthenticationGateway:
     负责按登记规则统一验证并作出认证结论。
 
     生命周期（A1 第 3.4 节）：context 仅在本网关（其所在运行实例）内
-    复用；``context_ttl_seconds`` 声明认证有效区间上限，``None`` 表示
-    不设固定 TTL、随网关关闭一并失效；:meth:`close` 后旧 context 一律
-    拒绝使用，调用侧必须重新认证。本类不提供配置热更新——首版本地
+    复用；有效区间由 Workspace guard 的 ``context_ttl_seconds`` 声明，
+    ``None`` 表示不设固定 TTL。:meth:`close` 关闭共享 guard，使旧 context
+    一并失效。本类不提供配置热更新——首版本地
     配置在运行实例内不可变，修改经重启生效。
     """
 
@@ -71,30 +61,19 @@ class ActorAuthenticationGateway:
         self,
         *,
         system_registry: SystemActorAccessRegistry,
-        workspace_registry: WorkspaceActorAccessRegistry,
-        issued_by: str = _DEFAULT_ISSUED_BY,
-        context_ttl_seconds: float | None = None,
-        clock: Callable[[], float] = time.monotonic,
+        workspace_access: WorkspaceAccessGuard,
     ) -> None:
-        if context_ttl_seconds is not None and context_ttl_seconds <= 0:
-            raise ValueError("context_ttl_seconds 必须为正数或 None")
         self._system_registry = system_registry
-        self._workspace_registry = workspace_registry
-        self._issued_by = issued_by
-        self._context_ttl_seconds = context_ttl_seconds
-        self._clock = clock
-        # 有效期锚点随签发写入每份 grant；close() 使其签发的全部 context
-        # 一并失效（``workspace.access.AccessContextValidity``）。
-        self._validity = AccessContextValidity()
+        self._workspace_access = workspace_access
 
     @property
     def is_closed(self) -> bool:
         """网关是否已关闭；关闭后不再签发 context，旧 context 一并失效。"""
-        return self._validity.closed
+        return self._workspace_access.is_closed
 
     def close(self) -> None:
-        """关闭网关：已签发 context 随有效期锚点一并失效（A1 第 3.4 节）。"""
-        self._validity.close()
+        """关闭同一运行实例的 Workspace guard，使已签发 context 失效。"""
+        self._workspace_access.close()
 
     async def authenticate(
         self,
@@ -110,7 +89,7 @@ class ActorAuthenticationGateway:
         受信 adapter 依据其接入证据构造。认证成功返回的 context 与单次
         operation 解耦，可在此后各次获准动作中复用。
         """
-        if self._validity.closed:
+        if self.is_closed:
             raise AdmissionDeniedError(
                 message="认证网关已关闭，拒绝新的认证请求",
                 details={"reason": "authentication_gateway_closed"},
@@ -156,46 +135,4 @@ class ActorAuthenticationGateway:
             )
 
         # ---- 2. Workspace authentication / admission ----
-        try:
-            identity_scope = IdentityScope(
-                actor_identity=actor,
-                workspace_identity=workspace,
-            )
-        except OwnerMismatchError as exc:
-            # W0 兼容基线：actor user ≠ workspace owner 时按 admission 拒绝，
-            # 而不是把矛盾坐标放行到资源层。
-            raise AdmissionDeniedError(
-                message="actor 与 workspace owner 不一致，admission 拒绝",
-                details={
-                    "principal_id": principal.principal_id,
-                    "actor_user_id": actor.user_id,
-                    "owner_user_id": workspace.owner_user_id,
-                    "reason": "actor_not_owner",
-                },
-            ) from exc
-
-        access_record = self._workspace_registry.record_for(workspace, actor)
-        if access_record is None or not access_record.enabled:
-            # 相同 owner 也不表示自动获准进入；缺失或禁用的访问记录是
-            # Workspace 准入失败，不是身份认证失败。
-            raise AdmissionDeniedError(
-                message="该 Actor 在目标 Workspace 没有有效的访问登记",
-                details={
-                    "principal_id": principal.principal_id,
-                    "reason": "actor_not_admitted",
-                },
-            )
-
-        expires_at = (
-            self._clock() + self._context_ttl_seconds
-            if self._context_ttl_seconds is not None
-            else None
-        )
-        return issue_access_context(
-            principal,
-            identity_scope,
-            access_record=access_record,
-            validity=self._validity,
-            issued_by=self._issued_by,
-            expires_at=expires_at,
-        )
+        return self._workspace_access._admit(actor=actor, workspace=workspace)

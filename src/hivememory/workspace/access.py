@@ -1,46 +1,27 @@
-"""Workspace 访问基础设施：操作目录与共享行为检查。
+"""Workspace 准入、访问上下文生命周期与逐次行为授权。
 
-A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md）确立的检查
-模型中，本模块承担 Workspace 侧的两项职责（第 1.2/3.2 节）：
-
-- ``WorkspaceOperation``：操作定义目录——"系统有哪些操作、哪个
-  application 方法需要哪个操作"的代码契约；
-- ``WorkspaceAccessGuard``：公共 application 的共享行为检查
-  （Operation authorization）——验证凭据可用性关联、从 Workspace Actor
-  访问注册表（``registry.py``）取出该 Actor 的记录，确认包含方法所需
-  operation。
-
-凭据本身（``CallerPrincipal``/``WorkspaceAccessContext``/grant/有效期
-锚点/受控工厂）随签发者归属 System 统一认证网关
-（``system.access``）：guard 通过中立的 :class:`IssuedWorkspaceAccess`
-结构契约消费凭据，凭据的完整性/有效期由其自检
-（``WorkspaceAccessContext.ensure_usable``）负责。依赖方向保持
-``workspace`` 只依赖 core；Patchouli 只消费本包的中立检查能力，不反向
-依赖 System 认证网关的实现。
-
-检查模型全景：
-
-    System 统一 Actor Authentication 网关（唯一对外认证入口）
-      1. Principal authentication   —— System 接入登记（system/access/）
-      2. Workspace authentication   —— Workspace Actor 访问注册表（registry.py）
-      两项均通过 → 签发可在有效期内复用的 WorkspaceAccessContext
-    每次 API 动作
-      3. Operation authorization    —— 本模块 ``WorkspaceAccessGuard``
-      4. Resource authorization     —— 资源 owner（PRIVATE/TEAM/PUBLIC、
-           归属投影等）仍由各资源服务在行为授权之后执行
+System 统一认证网关完成 Principal authentication 后调用本模块的内部
+准入方法。WorkspaceAccessGuard 根据 Workspace Actor 注册表确认准入，
+签发最小上下文，并在每次 API 动作前验证其有效性及行为白名单。
+资源自身的可见性仍由资源 owner 判断；本模块不依赖 System 或 Patchouli。
 """
 
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable
+from weakref import WeakKeyDictionary
 
 from hivememory.core.errors import (
+    AdmissionDeniedError,
     OperationDeniedError,
+    OwnerMismatchError,
     ScopeRequiredError,
 )
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 
 
 class WorkspaceOperation(str, Enum):
@@ -89,80 +70,134 @@ class WorkspaceOperation(str, Enum):
     MANAGEMENT_ASSET = "management.asset"
 
 
-@runtime_checkable
-class IssuedWorkspaceAccess(Protocol):
-    """统一认证网关签发凭据的消费面契约（结构化最小视图）。
+@dataclass(frozen=True, eq=False, slots=True, weakref_slot=True)
+class WorkspaceAccessContext:
+    """不可变的 Workspace 准入结果，只公开已验证的身份坐标。
 
-    凭据类型与受控构造随签发者维护在 ``system.access.credentials``；
-    本协议只声明共享行为检查依赖的最小结构，使 workspace 侧无需反向
-    依赖 System 认证网关的实现即可核对凭据并执行白名单授权。
-
-    - ``ensure_usable``：凭据自检（绑定完整性/网关关闭/有效期），返回其
-      绑定的 ``WorkspaceActorAccessRecord``；
-    - ``identity_scope``：凭据冻结的 Actor + Workspace 坐标。
+    调用侧经 System 统一认证网关取得；直接构造或复制的同值对象不获得
+    准入资格。有效性由签发它的 guard 检查，context 不自检、不持有来源
+    principal、授权配置或单次 operation，也不作为可序列化的远端凭据。
     """
 
-    def ensure_usable(self, *, clock: Callable[[], float]) -> object: ...
-
-    @property
-    def identity_scope(self) -> IdentityScope: ...
+    identity_scope: IdentityScope
 
 
 class WorkspaceAccessGuard:
-    """公共 application 的共享行为检查（Operation authorization）。
+    """持有准入结果的有效性状态，并供公共 application 逐次检查行为许可。
 
-    Workspace 访问基础设施提供的中立检查能力：公共 application 在资源
-    读取或业务副作用之前调用 :meth:`authorize_operation`，经凭据自检
-    确认其仍可用，并从有效注册配置取出该 Actor 的访问记录，确认包含
-    方法所需 operation。Patchouli 与 WorkspaceAsset 等各资源公共入口
-    共用本检查，不依赖 System 认证网关的实现，也不在每次动作中重新
-    执行两项认证。
-
-    拒绝语义（A1 第 3.4 节）：
-
-    - 凭据缺失、伪造或不满足签发契约 → ``ScopeRequiredError``；
-      完整性/有效期/网关关闭由凭据自检以稳定 reason 细分；
-    - 凭据与有效 Workspace 访问注册配置不匹配 → ``ScopeRequiredError``；
-    - 缺少行为许可 → ``OperationDeniedError``。
-
-    资源归属、可见性与各资源的自身规则仍由资源 owner 在本检查之后执行。
+    一个运行实例共享同一个 guard。内部准入只供统一认证网关调用；业务
+    入口调用 authorize_operation 后使用返回的可信 scope。签发记录仅为
+    私有进程内状态，弱引用避免无 TTL 的上下文在请求结束后持续积累。
+    该机制维护可信进程内调用纪律，不隔离任意恶意 Python 代码。
     """
 
-    def __init__(self, access_registry, *, clock: Callable[[], float] = time.monotonic) -> None:
-        # ``access_registry`` 是 WorkspaceActorAccessRegistry（同包
-        # registry.py）；运行期以鸭子类型消费，避免注解层面的相互引用。
+    def __init__(
+        self,
+        access_registry: WorkspaceActorAccessRegistry,
+        *,
+        context_ttl_seconds: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if context_ttl_seconds is not None and context_ttl_seconds <= 0:
+            raise ValueError("context_ttl_seconds 必须为正数或 None")
         self._registry = access_registry
         self._clock = clock
+        self._context_ttl_seconds = context_ttl_seconds
+        self._closed = False
+        self._issued: WeakKeyDictionary[WorkspaceAccessContext, float | None] = WeakKeyDictionary()
+
+    @property
+    def is_closed(self) -> bool:
+        return self._closed
+
+    def close(self) -> None:
+        """结束本运行实例的准入生命周期，既有上下文一并失效。"""
+        self._closed = True
+        self._issued.clear()
+
+    def _admit(
+        self, *, actor: ActorIdentity, workspace: WorkspaceIdentity
+    ) -> WorkspaceAccessContext:
+        """网关内部第二项认证：确认 Workspace 准入并登记签发结果。
+
+        不检查 principal；System 网关必须先完成来源与 adapter 验证。
+        此方法不作为 adapter 或领域服务的另一认证入口。
+        """
+        if self._closed:
+            raise AdmissionDeniedError(
+                message="认证网关已关闭",
+                details={"reason": "authentication_gateway_closed"},
+            )
+        if not isinstance(actor, ActorIdentity):
+            raise TypeError("actor 必须是 ActorIdentity")
+        if not isinstance(workspace, WorkspaceIdentity):
+            raise TypeError("workspace 必须是 WorkspaceIdentity")
+        try:
+            scope = IdentityScope(actor_identity=actor, workspace_identity=workspace)
+        except OwnerMismatchError as exc:
+            raise AdmissionDeniedError(
+                message="actor 与 workspace owner 不一致，admission 拒绝",
+                details={
+                    "actor_user_id": actor.user_id,
+                    "owner_user_id": workspace.owner_user_id,
+                    "reason": "actor_not_owner",
+                },
+            ) from exc
+        record = self._registry.record_for(workspace, actor)
+        if record is None or not record.enabled:
+            raise AdmissionDeniedError(
+                message="该 Actor 在目标 Workspace 没有有效的访问登记",
+                details={"reason": "actor_not_admitted"},
+            )
+        context = WorkspaceAccessContext(identity_scope=scope)
+        self._issued[context] = (
+            self._clock() + self._context_ttl_seconds
+            if self._context_ttl_seconds is not None
+            else None
+        )
+        return context
 
     def authorize_operation(
         self,
-        access: IssuedWorkspaceAccess | None,
+        access: WorkspaceAccessContext | None,
         operation: WorkspaceOperation,
-    ) -> IssuedWorkspaceAccess:
-        """验证凭据并确认行为白名单包含 ``operation``；通过时原样返回。
+    ) -> IdentityScope:
+        """检查本实例签发的上下文及当前行为许可，返回可信 scope。
 
         同一有效凭据可反复调用本检查先后执行不同的获准操作；切换
         Actor/Workspace、到期或网关关闭后必须重新经统一网关认证。
         """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
-        if not isinstance(access, IssuedWorkspaceAccess):
+        if type(access) is not WorkspaceAccessContext:
             raise ScopeRequiredError(
                 "公共入口需要经统一认证网关签发的 WorkspaceAccessContext"
             )
-        # 凭据自检：绑定完整性、网关关闭与有效期由签发侧负责（缺失、
-        # 替换、过期分别以稳定 reason 拒绝），返回其绑定的访问记录。
-        bound_record = access.ensure_usable(clock=self._clock)
-        # 权限配置关联：当前有效注册配置中该 Actor 的记录必须仍是签发时
-        # 关联的那条（配置关联不可替换）。
+        if self._closed:
+            raise ScopeRequiredError(
+                "认证网关已关闭，access context 失效",
+                details={"reason": "authentication_gateway_closed"},
+            )
+        if access not in self._issued:
+            raise ScopeRequiredError(
+                "access context 未由本运行实例签发",
+                details={"reason": "context_not_issued"},
+            )
+        expires_at = self._issued[access]
+        if expires_at is not None and self._clock() >= expires_at:
+            raise ScopeRequiredError(
+                "access context 已过认证有效区间",
+                details={"reason": "context_expired"},
+            )
+        # 每次动作按完整坐标查询权限，不把配置对象地址或白名单绑定进凭据。
         scope = access.identity_scope
         record = self._registry.record_for(
             scope.workspace_identity, scope.actor_identity
         )
-        if record is None or record is not bound_record:
+        if record is None or not record.enabled:
             raise ScopeRequiredError(
-                "access context 与有效 Workspace 访问注册配置不匹配",
-                details={"reason": "access_record_mismatch"},
+                "该 Actor 已无有效的 Workspace 访问登记",
+                details={"reason": "actor_not_admitted"},
             )
         # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
         if operation not in record.allowed_operations:
@@ -172,11 +207,11 @@ class WorkspaceAccessGuard:
                     "reason": "operation_not_allowed",
                 }
             )
-        return access
+        return scope
 
 
 __all__ = [
-    "IssuedWorkspaceAccess",
+    "WorkspaceAccessContext",
     "WorkspaceAccessGuard",
     "WorkspaceOperation",
 ]

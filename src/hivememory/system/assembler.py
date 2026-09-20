@@ -259,12 +259,13 @@ class SystemAssembler:
 
         system_registry = SystemActorAccessRegistry(system_entries)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
-        access_guard = WorkspaceAccessGuard(workspace_registry)
+        access_guard = WorkspaceAccessGuard(
+            workspace_registry,
+            context_ttl_seconds=access_config.context_ttl_seconds,
+        )
         access_gateway = ActorAuthenticationGateway(
             system_registry=system_registry,
-            workspace_registry=workspace_registry,
-            issued_by=access_config.issued_by,
-            context_ttl_seconds=access_config.context_ttl_seconds,
+            workspace_access=access_guard,
         )
         return _AccessControlBundle(
             system_registry=system_registry,

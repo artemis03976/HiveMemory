@@ -22,7 +22,7 @@ from hivememory.system.services.attachments.upload import (
 from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace import WorkspaceAccessContext
     from hivememory.workspace.access import WorkspaceAccessGuard
 
 

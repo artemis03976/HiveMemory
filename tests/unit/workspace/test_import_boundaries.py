@@ -86,3 +86,16 @@ def test_workspace_package_imports_stay_within_allowed_boundaries():
             if not module.startswith(ALLOWED_INTERNAL):
                 violations.append(f"{path}: {module}")
     assert violations == [], f"workspace 包出现边界外依赖: {violations}"
+
+
+def test_patchouli_application_does_not_import_system_authentication():
+    """包含 TYPE_CHECKING 注解在内，Patchouli 只消费 Workspace 的访问契约。"""
+    files = sorted((SRC_ROOT / "patchouli" / "application").glob("*.py"))
+    assert files, "未扫描到 Patchouli application 源文件"
+    violations = [
+        f"{path}: {module}"
+        for path in files
+        for module in _imports_of(path)
+        if module.startswith("hivememory.system.access")
+    ]
+    assert violations == [], f"Patchouli application 依赖了 System 认证实现: {violations}"

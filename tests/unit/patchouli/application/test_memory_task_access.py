@@ -71,7 +71,6 @@ def _task(task_id="active:i1", workspace=MAIN, *, scoped=True):
             if scoped
             else None
         ),
-        submitted_by="local-process:test" if scoped else None,
     )
 
 

@@ -1,11 +1,11 @@
 """InteractionSubmissionService / MemoryIntentSubmissionService 的单元测试。
 
-被测对象：两个公开提交用例的授权绑定与载荷语义（A1 计划第 4.1 节）：
+被测对象：两个公开提交 API的授权绑定与载荷语义（A1 计划第 4.1 节）：
 - ``submit_interaction`` 绑定 ``interaction.submit``，经真实内存队列接纳并
   返回收据投影；scope 不一致与未获准 operation 拒绝；
 - ``submit_memory_intent`` 绑定 ``memory_intent.submit``，把中立意图转换
   为内部生成任务（出站载荷契约），确定性 alias 支持重试幂等，
-  ``submitted_by`` 携带提交方 principal。
+  来源字段不由 application API 重复写入。
 """
 
 from __future__ import annotations
@@ -170,14 +170,13 @@ def test_submit_interaction_without_access_rejected():
 
 
 def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
-    """write 意图转换为内部 WRITE 任务：focus/坐标/submitted_by 逐项对应。"""
+    """write 意图转换为内部 WRITE 任务：focus 与坐标逐项对应。"""
     bus = PatchouliBus()
     captured = {}
 
-    async def _submit_active(tasks, topic_id, *, identity_scope, submitted_by=None):
+    async def _submit_active(tasks, topic_id, *, identity_scope):
         captured["task"] = tasks[0]
         captured["topic_id"] = topic_id
-        captured["submitted_by"] = submitted_by
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
@@ -202,7 +201,7 @@ def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
     assert isinstance(task.focus, WriteFocus)
     assert task.focus.content == "remember this"
     assert task.identity_scope == context.identity_scope
-    assert captured["submitted_by"] == "local-process:test"
+    assert captured["topic_id"] == "topic_1"
 
 
 def test_submit_memory_intent_update_maps_update_focus():
@@ -210,7 +209,7 @@ def test_submit_memory_intent_update_maps_update_focus():
     bus = PatchouliBus()
     captured = {}
 
-    async def _submit_active(tasks, topic_id, *, identity_scope, submitted_by=None):
+    async def _submit_active(tasks, topic_id, *, identity_scope):
         captured["task"] = tasks[0]
         return []
 
@@ -243,7 +242,7 @@ def test_same_intent_id_derives_identical_pending_alias():
     bus = PatchouliBus()
     aliases: list[str] = []
 
-    async def _submit_active(tasks, topic_id, *, identity_scope, submitted_by=None):
+    async def _submit_active(tasks, topic_id, *, identity_scope):
         aliases.append(tasks[0].pending_alias)
         return []
 

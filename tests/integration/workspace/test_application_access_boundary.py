@@ -19,6 +19,7 @@ Qdrant ``:memory:`` 存储 + 真实 InteractionSubmissionQueue。只替换进程
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -303,12 +304,14 @@ async def wired():
             global_bus=global_bus,
             store=qdrant.store,
             controller=controller,
+            queue=queue,
             access=access,
             clock=clock,
             system_memory=system_memory,
             system_tasks=system_tasks,
         )
     finally:
+        await queue.stop()
         await controller.stop()
         await qdrant.close()
 
@@ -322,6 +325,7 @@ class _Wired:
         global_bus,
         store,
         controller,
+        queue,
         access: AccessTestComposition,
         clock: FakeClock,
         system_memory,
@@ -330,6 +334,7 @@ class _Wired:
         self.global_bus = global_bus
         self.store = store
         self.controller = controller
+        self.queue = queue
         self.access = access
         self.clock = clock
         self.system_memory = system_memory
@@ -607,6 +612,60 @@ async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
     )
     assert receipt.interaction_id == "interaction_boundary_1"
     assert receipt.work_id.startswith("interaction:")
+    record = await wired.queue.runtime.get(receipt.work_id)
+    persisted = json.loads(record.item.payload)
+    assert persisted["correlation"] == {}
+    assert persisted["identity_scope"] == context.identity_scope.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_delayed_interaction_rechecks_access_and_accepted_work_survives_close(wired):
+    """过期授权不能进入队列；已接纳交互只携带 scope，关闭网关后仍可应用。"""
+    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    payload = InteractionPayload(
+        user_message="delayed question",
+        mtp_traces=[],
+        assistant_final_text="delayed answer",
+        turn_events=[],
+    )
+    wired.clock.now += 60
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
+            access=context,
+            payload=payload,
+            interaction_id="delayed_interaction",
+        )
+    assert exc_info.value.details["reason"] == "context_expired"
+    assert not await wired.queue.is_accepted("delayed_interaction")
+
+    renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    receipt = await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
+        access=renewed,
+        payload=payload,
+        interaction_id="delayed_interaction",
+        requested_topic_id="topic_delayed",
+    )
+    wired.access.gateway.close()
+    await wired.queue.start()
+    outcome = await wired.queue.wait(receipt.interaction_id, timeout=2)
+    assert outcome.state.value == "succeeded"
+    assert outcome.topic_id == "topic_delayed"
+
+
+@pytest.mark.asyncio
+async def test_delayed_intent_cannot_create_a_task_with_expired_access(wired):
+    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    wired.clock.now += 60
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+            access=context,
+            intent=MemoryIntent(kind="write", topic_id="topic_boundary", content="delayed"),
+        )
+    assert exc_info.value.details["reason"] == "context_expired"
+    assert await wired.controller.list_tasks() == []
 
 
 @pytest.mark.asyncio
@@ -639,7 +698,6 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
     assert result.status.value == "completed"
     assert result.canonical_alias == "memory_alias"
     assert result.identity_scope == intent_context.identity_scope
-    assert result.submitted_by == "local-process:test"
 
     # OTHER Workspace 的观察 Actor：归属不一致统一 not found，不泄漏存在性
     other_context = await _other_observe_context(wired)

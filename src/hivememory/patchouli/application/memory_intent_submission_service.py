@@ -1,11 +1,11 @@
-"""Patchouli 记忆意图提交 application 用例（memory_intent.submit）。
+"""Patchouli 记忆意图提交 application API（memory_intent.submit）。
 
 承接中立的记忆意图参数并转换为内部生成任务：由 controller admission 与
 generation engine 决定生成、更新、合并或丢弃；**不映射为管理 CRUD，也
 不由调用方构造内部任务投影**。Alice 的 settlement coordinator（WRX-5）
-与计划 B 的外部 adapter 都经本用例提交。
+与计划 B 的外部 adapter 都经本 API 提交。
 
-本用例不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
+本 API 不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
 拒绝，不进入裸 scope 受信适配。
 
 幂等语义：``MemoryIntent.intent_id`` 是幂等键——``pending_alias`` 由
@@ -34,7 +34,7 @@ from hivememory.workspace.access import WorkspaceOperation
 if TYPE_CHECKING:
     from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
-    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace import WorkspaceAccessContext
     from hivememory.workspace.access import WorkspaceAccessGuard
 
 
@@ -93,7 +93,7 @@ class MemoryIntentSubmissionResult:
     """意图提交回执，说明"是否被接纳"；接纳不等于已应用。
 
     ``accepted=False`` 表示生成 admission 未接纳（确定性拒绝或批量响应
-    缺失）；应用进度经任务观察用例以同一 task_id 查询。
+    缺失）；应用进度经任务观察 API 以同一 task_id 查询。
     """
 
     accepted: bool
@@ -103,7 +103,7 @@ class MemoryIntentSubmissionResult:
 
 
 class MemoryIntentSubmissionService:
-    """经 Patchouli 生成提交链的公开意图提交用例（``memory_intent.submit``）。"""
+    """经 Patchouli 生成提交链的公开意图提交 API（``memory_intent.submit``）。"""
 
     def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessGuard) -> None:
         self._bus = bus
@@ -116,7 +116,9 @@ class MemoryIntentSubmissionService:
         intent: MemoryIntent,
         identity_scope: IdentityScope | None = None,
     ) -> MemoryIntentSubmissionResult:
-        """提交记忆意图；结果由 Patchouli 生成链决定并经任务观察用例查询。"""
+        """
+        提交记忆意图；结果由 Patchouli 生成链决定并经任务观察 API 查询。
+        """
         scope = required_scope(
             access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, identity_scope,
             access_guard=self._access_guard,
@@ -128,7 +130,6 @@ class MemoryIntentSubmissionService:
             tasks=[task],
             topic_id=intent.topic_id,
             identity_scope=scope,
-            submitted_by=access.principal.principal_id,
         )
         tasks = list(accepted or [])
         if not tasks:
@@ -152,7 +153,7 @@ class MemoryIntentSubmissionService:
         intent: MemoryIntent,
         scope: IdentityScope,
     ) -> PendingAtomMaterializeTask:
-        """把中立意图转换为内部生成任务投影（本用例的内部实现细节）。"""
+        """把中立意图转换为内部生成任务投影（本 API 的内部实现细节）。"""
         resolved_intent_id = intent.intent_id or f"intent_{uuid4().hex[:12]}"
         token = _intent_token(resolved_intent_id)
         if intent.kind == "write":

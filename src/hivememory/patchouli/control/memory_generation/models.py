@@ -83,8 +83,8 @@ class MemoryGenerationTaskSpec:
     """记忆生成控制面与数据面共享的规范化输入。
 
     ``identity_scope`` 是唯一的身份/ownership 来源；GenerationRequest 不再携带权限字段。
-    ``submitted_by`` 记录提交方 principal 标识（WRX-1 任务归属投影），
-    与 intent_id 一起参与幂等比较：同一 intent 换提交方按冲突拒绝。
+    完整 Actor/Workspace 归属由 identity_scope 表达；来源记录由 Patchouli
+    内部生成链维护，不在任务规范中重复保存。
     """
 
     identity_scope: IdentityScope
@@ -95,7 +95,6 @@ class MemoryGenerationTaskSpec:
     interaction_input: InteractionArtifactInput | None = None
     intent_id: str | None = None
     pending_alias: str | None = None
-    submitted_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,7 +135,6 @@ class MemoryGenerationTask:
     # 任务归属投影（父计划 5.6.4）：查询侧据此拒绝跨 scope/无归属的
     # 观察请求；legacy 快照允许为 None，查询侧必须 fail closed。
     identity_scope: IdentityScope | None = None
-    submitted_by: str | None = None
 
     @classmethod
     def from_spec(
@@ -155,7 +153,6 @@ class MemoryGenerationTask:
             source=spec.source,
             pending_alias=spec.pending_alias,
             identity_scope=spec.identity_scope,
-            submitted_by=spec.submitted_by,
             created_at=created_at,
         )
 

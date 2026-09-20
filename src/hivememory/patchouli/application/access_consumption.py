@@ -1,9 +1,9 @@
 """Patchouli application 的统一 access 消费辅助（A1 计划第 3.2/4.1 节）。
 
-所有公开 application 用例在资源读取或业务副作用之前调用共享行为检查
+所有公开 application API 在资源读取或业务副作用之前调用共享行为检查
 （``workspace.access.WorkspaceAccessGuard``）：
 
-- 提供 ``access`` 时：验证 context 完整性/有效期/权限配置关联，并确认
+- 提供 ``access`` 时：验证 context 的签发实例与有效期，并确认
   该 Actor 在此 Workspace 的行为白名单包含当前方法所需的 operation；
   请求 DTO 中残留的 ``identity_scope``（迁移期兼容参数）不得覆盖可信
   坐标；
@@ -21,7 +21,7 @@ from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace import WorkspaceAccessContext
     from hivememory.workspace.access import WorkspaceAccessGuard
 
 __all__ = ["required_scope", "verified_scope"]
@@ -66,9 +66,9 @@ def verified_scope(
     if access is None:
         return require_identity_scope(identity_scope)
 
-    context = access_guard.authorize_operation(access, operation)
-    _assert_scope_consistency(context, identity_scope)
-    return context.identity_scope
+    scope = access_guard.authorize_operation(access, operation)
+    _assert_scope_consistency(scope, identity_scope)
+    return scope
 
 
 def required_scope(
@@ -88,21 +88,21 @@ def required_scope(
             "该公共入口需要经统一认证网关签发的 WorkspaceAccessContext"
             f"（所需 operation: {operation.value}），不接受裸 scope"
         )
-    context = access_guard.authorize_operation(access, operation)
-    _assert_scope_consistency(context, identity_scope)
-    return context.identity_scope
+    scope = access_guard.authorize_operation(access, operation)
+    _assert_scope_consistency(scope, identity_scope)
+    return scope
 
 
 def _assert_scope_consistency(
-    context: WorkspaceAccessContext,
+    scope: IdentityScope,
     identity_scope: IdentityScope | None,
 ) -> None:
     """请求 DTO 携带的 scope 只能作一致性校验，不能覆盖可信 context。"""
-    if identity_scope is not None and identity_scope != context.identity_scope:
+    if identity_scope is not None and identity_scope != scope:
         raise WorkspaceMismatchError(
             details={
                 "reason": "request_scope_mismatches_access_context",
-                "access_workspace_id": context.identity_scope.workspace_identity.workspace_id,
+                "access_workspace_id": scope.workspace_identity.workspace_id,
                 "request_workspace_id": identity_scope.workspace_identity.workspace_id,
             }
         )

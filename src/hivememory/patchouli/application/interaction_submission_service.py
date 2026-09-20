@@ -1,11 +1,11 @@
-"""Patchouli 交互提交 application 用例（interaction.submit）。
+"""Patchouli 交互提交 application API（interaction.submit）。
 
 公开的独立交互提交入口：封装 ``InteractionSubmissionQueue`` 的接纳与
 收据，绑定 ``interaction.submit`` operation。队列继续是 Patchouli 的
-内部协作者——Passive/Alice/外部 adapter 统一经本用例提交，不直接持有
+内部协作者——Passive/Alice/外部 adapter 统一经本 API 提交，不直接持有
 queue；单条事件接收、队列接纳、交互应用与 Memory 物化是不同事实。
 
-本用例不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
+本 API 不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
 拒绝，不进入裸 scope 受信适配。
 """
 
@@ -26,7 +26,7 @@ from hivememory.workspace.access import WorkspaceOperation
 if TYPE_CHECKING:
     from hivememory.core.models import IdentityScope
     from hivememory.core.protocol.models import InteractionPayload
-    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace import WorkspaceAccessContext
     from hivememory.workspace.access import WorkspaceAccessGuard
 
 
@@ -40,7 +40,7 @@ class InteractionSubmitResult:
 
 
 class InteractionSubmissionService:
-    """经 Patchouli 交互队列的公开提交用例（``interaction.submit``）。"""
+    """经 Patchouli 交互队列的公开提交 API（``interaction.submit``）。"""
 
     def __init__(
         self,
@@ -84,10 +84,7 @@ class InteractionSubmissionService:
             requested_topic_id=requested_topic_id,
             ordering_key=f"topic:{requested_topic_id}",
             origin=origin,
-            correlation={
-                "principal_id": access.principal.principal_id,
-                "submitted_by": scope.actor_identity.agent_id,
-            },
+            correlation={},
         )
         receipt = await self._queue.submit(submission)
         return InteractionSubmitResult(

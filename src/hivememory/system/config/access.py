@@ -83,9 +83,5 @@ class AccessControlConfig(BaseModel):
         default=None,
         description="context 认证有效区间上限（秒）；None 表示随网关生命周期",
     )
-    issued_by: str = Field(
-        default="system-actor-authentication",
-        description="网关签发标识（写入 grant，仅作观测）",
-    )
 
     model_config = ConfigDict(extra="forbid")

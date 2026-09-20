@@ -16,9 +16,9 @@ from hivememory.system.access import (
     CallerPrincipal,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
-    WorkspaceAccessContext,
 )
 from hivememory.workspace import (
+    WorkspaceAccessContext,
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
     WorkspaceAccessGuard,
@@ -190,16 +190,14 @@ def make_access_composition(
         ]
     )
     workspace_registry = WorkspaceActorAccessRegistry(records)
-    gateway = ActorAuthenticationGateway(
-        system_registry=system_registry,
-        workspace_registry=workspace_registry,
-        issued_by="test",
+    guard = WorkspaceAccessGuard(
+        workspace_registry,
         context_ttl_seconds=context_ttl_seconds,
         **({"clock": clock} if clock is not None else {}),
     )
-    guard = WorkspaceAccessGuard(
-        workspace_registry,
-        **({"clock": clock} if clock is not None else {}),
+    gateway = ActorAuthenticationGateway(
+        system_registry=system_registry,
+        workspace_access=guard,
     )
     return AccessTestComposition(
         gateway=gateway,

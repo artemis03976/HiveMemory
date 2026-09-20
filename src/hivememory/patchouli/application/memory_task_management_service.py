@@ -8,8 +8,9 @@ from hivememory.patchouli.control.memory_generation.models import MemoryGenerati
 from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
+    from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
-    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace import WorkspaceAccessContext
     from hivememory.workspace.access import WorkspaceAccessGuard
 
 
@@ -47,7 +48,7 @@ class MemoryTaskManagementService:
         *,
         access: WorkspaceAccessContext | None = None,
     ) -> list[MemoryGenerationTask]:
-        context = (
+        scope = (
             None
             if access is None
             else self._access_guard.authorize_operation(
@@ -55,13 +56,13 @@ class MemoryTaskManagementService:
             )
         )
         tasks = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_LIST)
-        if context is None:
+        if scope is None:
             return tasks
         # 归属投影检查在取得任务列表后执行。
         return [
             task
             for task in tasks
-            if task.identity_scope is not None and task.identity_scope == context.identity_scope
+            if task.identity_scope is not None and task.identity_scope == scope
         ]
 
     async def get_memory_task(
@@ -71,12 +72,12 @@ class MemoryTaskManagementService:
         access: WorkspaceAccessContext | None = None,
     ) -> MemoryGenerationTask | None:
         if access is not None:
-            context = self._access_guard.authorize_operation(
+            scope = self._access_guard.authorize_operation(
                 access, WorkspaceOperation.TASK_OBSERVE
             )
         task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
         if access is not None:
-            self._assert_scope_matches(context, task, task_id)
+            self._assert_scope_matches(scope, task, task_id)
         return task
 
     async def cancel_memory_task(
@@ -89,11 +90,11 @@ class MemoryTaskManagementService:
             # 取消绑定 management.task（task.observe 不授予取消）；行为检查
             # 先行，归属校验在取得投影后执行：不能取消其他 Workspace 的
             # 任务，也不暴露其存在。
-            context = self._access_guard.authorize_operation(
+            scope = self._access_guard.authorize_operation(
                 access, WorkspaceOperation.MANAGEMENT_TASK
             )
             task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
-            self._assert_scope_matches(context, task, task_id)
+            self._assert_scope_matches(scope, task, task_id)
         return await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_CANCEL, task_id)
 
     async def wait_memory_task(
@@ -105,11 +106,11 @@ class MemoryTaskManagementService:
     ) -> MemoryGenerationTask | None:
         if access is not None:
             # 公开等待与观察同一 operation；归属校验先于等待副作用。
-            context = self._access_guard.authorize_operation(
+            scope = self._access_guard.authorize_operation(
                 access, WorkspaceOperation.TASK_OBSERVE
             )
             task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
-            self._assert_scope_matches(context, task, task_id)
+            self._assert_scope_matches(scope, task, task_id)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_WAIT,
             task_id,
@@ -140,17 +141,17 @@ class MemoryTaskManagementService:
 
     def _assert_scope_matches(
         self,
-        context: WorkspaceAccessContext,
+        scope: IdentityScope,
         task: MemoryGenerationTask | None,
         task_id: str,
     ) -> None:
         """任务归属校验：跨 scope/无归属与不存在统一 not found，不泄漏存在性。
 
-        ``context`` 是已完成行为检查的上下文；本断言只做资源归属投影比较，
+        ``scope`` 是行为检查返回的可信坐标；本断言只做资源归属投影比较，
         不重复执行行为授权。
         """
         task_scope = getattr(task, "identity_scope", None) if task is not None else None
-        if task is None or task_scope != context.identity_scope:
+        if task is None or task_scope != scope:
             raise ResourceNotFoundError(details={"task_id": task_id})
 
 

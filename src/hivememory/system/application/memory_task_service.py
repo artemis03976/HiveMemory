@@ -9,7 +9,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace import WorkspaceAccessContext
 
 
 class MemoryTaskApplicationService:

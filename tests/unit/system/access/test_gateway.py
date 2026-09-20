@@ -19,7 +19,11 @@ from hivememory.system.access import (
     SystemActorAccessRegistry,
 )
 from hivememory.system.access import CallerPrincipal
-from hivememory.workspace import WorkspaceActorAccessRegistry, WorkspaceOperation
+from hivememory.workspace import (
+    WorkspaceAccessGuard,
+    WorkspaceActorAccessRegistry,
+    WorkspaceOperation,
+)
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -63,10 +67,11 @@ async def test_unregistered_and_disabled_principal_share_same_denial_reason():
                 SystemActorAccessEntry(principal_id="local-process:retired", enabled=False),
             ]
         ),
-        workspace_registry=WorkspaceActorAccessRegistry(
-            [make_actor_access_record(owner_user_id="u1", agent_id="a1")]
+        workspace_access=WorkspaceAccessGuard(
+            WorkspaceActorAccessRegistry(
+                [make_actor_access_record(owner_user_id="u1", agent_id="a1")]
+            )
         ),
-        issued_by="test",
     )
 
     for principal_id in ("local-process:stranger", "local-process:retired"):
@@ -116,10 +121,11 @@ async def test_principal_identity_rule_rejects_foreign_user():
                 )
             ]
         ),
-        workspace_registry=WorkspaceActorAccessRegistry(
-            [make_actor_access_record(owner_user_id="u1", agent_id="a1")]
+        workspace_access=WorkspaceAccessGuard(
+            WorkspaceActorAccessRegistry(
+                [make_actor_access_record(owner_user_id="u1", agent_id="a1")]
+            )
         ),
-        issued_by="test",
     )
 
     with pytest.raises(AdmissionDeniedError) as exc_info:
