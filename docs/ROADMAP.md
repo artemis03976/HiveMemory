@@ -124,7 +124,7 @@ last_reviewed: 2026-09-20
 
 | 原排期 | 新排期 | 调整原因 |
 |:---|:---|:---|
-| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0` A 计划组 / B，状态见第 4.4 节 | 内部重构拆为 A1–A6（A1 已完成归档），外部服务与协议由 B 承接，共同构成本版本，独立于 W0/W1 收口 |
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0` A 计划组 / B，状态见第 4.4 节 | 内部重构由 A1–A6 及新增 A2-P 前置承接（A1 已完成归档），外部服务与协议由 B 承接，共同构成本版本，独立于 W0/W1 收口 |
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
@@ -154,12 +154,12 @@ last_reviewed: 2026-09-20
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 以协调计划统筹 A1–A6：统一 Actor 认证网关与 Workspace 授权、资源读取与 WorkspaceRuntime/cache、Session/Topic 投影、共享 Pending、统一 API 收敛、Actor 适配与集成收口；A1（访问边界与授权）已完成并归档，事实入口见 [Workspace 架构](./architecture/workspace.md)第 4 节，不新增平行业务 port/provider 层 | v0.6.2 基础及已提交的 WRX-0/1 成果；[计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
+| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 统筹 A1–A6 及 A2-P：统一认证/授权、完整记忆版本与 lifecycle 更新、资源读取/cache、Session/Topic、共享 Pending、API 收敛和 Actor 集成；A1 已完成并归档，事实入口见 [Workspace 架构](./architecture/workspace.md)第 4 节，不新增平行业务 port/provider 层 | v0.6.2 与 WRX-0/1 基础；[协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)；[A2-P](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)为 A2 的 Planned 前置 |
 | `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的访问边界与公开 application 契约；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
 | `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | A 的资源边界、B 的身份/来源/提交契约、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
-| `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
+| `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
 | 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.0 期间启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.10 节 Todo；正式 Plan 待建立 |
@@ -167,10 +167,12 @@ last_reviewed: 2026-09-20
 
 ### 4.4 v0.7.0：Workspace 资源平面与外部交互计划组
 
-本版本由计划 A 的六个内部子计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
+本版本由计划 A 的 A1–A6、新增 A2-P 前置计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
 
-- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)将六份计划按交付依赖排序：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2 交付完整 canonical 原子/Profile 定义读取、WorkspaceRuntime/cache 和写入失效，按 Workspace 共享资源条目、命中执行资源授权且不回源；A3 新增 ConversationSession，演进既有 InteractionPayload/TurnEvent，交付 Topic 生命周期、交互/资料公共路由和授权结果查询；A4 交付共享 Pending、主动提交及完整引用解析；A5 在前置模型与路由齐备后收敛整体 API、补检索/使用报告差额并明确旧服务职责；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一 GlobalSystemBus 领域链，不增加 Workspace 业务 port/provider 层。
-- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2/A3 可在 A1 后并行，A4 消费二者成果。领域计划各自公开并验证 API，靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
+- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)按交付依赖组织计划：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2-P 先交付内容版本、完整历史、lifecycle 聚合与受控更新；A2 再交付 canonical/Profile 读取、WorkspaceRuntime/cache 与同步更新/失效，按 Workspace 共享条目、命中执行资源授权且不回源；A3 交付 ConversationSession、InteractionPayload/TurnEvent、Topic 生命周期及交互/资料 API；A4 交付共享 Pending、主动提交及完整引用解析；A5 收敛整体 API、补检索/使用报告差额并明确旧服务职责；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一领域链，不增加 Workspace 业务 port/provider 层。
+- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2-P 内容版本与 Lifecycle](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2-P 与 A3 可在 A1 后并行，A2 等待 A2-P 完成交付，A4 再消费 A2/A3。靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
+
+2026-09-20 新增 A2-P（Planned）：动态字段聚合到 `meta.lifecycle`，维护不得推进内容 version、整颗重写原子或重新计算向量；新内容提交必须关联完整版本记录，并显式迁移旧 schema/披露历史缺口。A2 保留 Active 以承接已有工作，但缓存实现以该前置完成为门槛。历史记录从 v0.7.0 开始完整保存，v0.7.3 负责读取编译，不延后保存责任。
 
 - [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
@@ -218,9 +220,9 @@ A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与�
 
 ### 4.7 v0.7.3：MTP READ 专项编译与来源表达
 
-状态：Candidate。基于 v0.7.2 的来源、表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。
+状态：Candidate。基于 [v0.7.0 A2-P](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)的完整记忆历史，以及 v0.7.2 的来源、文档表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。完整历史存储、内容版本与 lifecycle 更新边界由 A2-P 提前交付，本阶段不再反向定义记忆写入格式。
 
-结果应说明读到哪个资源和版本、选择了哪个片段、引用如何回到原始证据，以及截断、缺失来源和无权限如何表达。不能仅在现有文本末尾追加一个链接，也不能建立第二套 provenance 或检索状态。其编译能力可由外部 adapter 复用，MTP 负责自己的协议呈现。
+结果应说明读到哪个资源和版本、选择了哪个片段、引用如何回到原始证据，以及截断、缺失来源、旧裁剪历史和无权限如何表达。历史记录中的 lifecycle 是捕获时状态，额外展示当前评估时必须区分时点，不能用当前原子补造历史。不能仅在现有文本末尾追加一个链接，也不能建立第二套 provenance 或检索状态。其编译能力可由外部 adapter 复用，MTP 负责自己的协议呈现。
 
 ### 4.8 v0.7.4：Deep Research MVP
 
@@ -283,7 +285,7 @@ v0.6.2 已实现基础 -> v0.7.0 A：Workspace 资源与内部执行边界
                           +-> v0.7.1 本地执行基座
                           +-> v0.7.2 冷启动 / 文档资源与证据
 
-v0.7.2 来源 / 证据 / 版本契约 -> v0.7.3 READ 专项编译
+v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专项编译
 可靠执行提供者 + 证据 / READ + 研究状态恢复契约 -> v0.7.4 Deep Research
 
 价值策略最小切片 -> v0.7.2 批量自动物化
@@ -291,7 +293,7 @@ v0.7.2 来源 / 证据 / 版本契约 -> v0.7.3 READ 专项编译
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
 ```
 
-A1 先完成访问基线，A2/A3 交付读取和交互/Topic，A4 交付主动意图与完整读取，A5 再核对完整 API；B 可先调查场景，随后按这些交付分批冻结外部协议并以真实领域能力验收。A6 负责既有消费者及稳定生产装配。A 系列不等待 B 的完整协议；v0.7.0 发布同时核对 A1–A6 与 B 的出口。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
+A1 先完成访问基线，A2-P 交付版本/lifecycle 与迁移后 A2 再交付读取/cache，A3 可独立推进交互/Topic；A4 消费二者交付主动意图与完整读取，A5 再核对完整 API。B 可先调查场景，随后按这些交付分批冻结外部协议并以真实领域能力验收。A6 负责既有消费者及稳定生产装配。A 系列不等待 B 的完整协议；v0.7.0 发布同时核对 A1–A6、A2-P 与 B 的出口。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
 
 每项候选进入实施前必须冻结范围、权威状态、数据来源、失败/取消/恢复承诺、幂等边界和观察指标。任何跨重启恢复、强隔离或 Actor 替换承诺都必须有对应实现证据。仍未具备的能力不能通过 UI、accepted 响应或事件日志伪装成完成。
 
