@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-19
 ---
 
 # 系统边界与所有权
@@ -57,13 +57,15 @@ last_reviewed: 2026-09-13
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
+访问控制的所有权同样分属两处：System 持有 Actor 接入登记与唯一对外认证网关（`system/access`），Workspace 访问基础设施持有准入判定、签发生命周期与行为白名单（`workspace/access`、`workspace/registry`）。网关在内部完成两项认证后，每次动作的行为授权由公共 application 调用共享行为检查执行，资源 owner 再独立执行资源规则。依赖方向为 `system.access → workspace → core`；`workspace` 不导入 System 任何模块，Patchouli 只消费中立的访问检查能力，不反向依赖认证网关实现。完整模型见[Workspace 架构](./workspace.md)第 4 节。
+
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 
 ## 3. 责任矩阵
 
 | 边界 | 负责 | 明确不负责 |
 |:---|:---|:---|
-| System | 组合根、应用服务、生命周期、全局总线、运行控制、被动摄入、调度、注册表 | 查询分析、记忆算法、Agent loop、MTP 具体执行 |
+| System | 组合根、应用服务、生命周期、全局总线、运行控制、被动摄入、调度、注册表、Actor 接入登记与统一认证网关 | 查询分析、记忆算法、Agent loop、MTP 具体执行、Workspace 准入与行为白名单（归 Workspace 访问基础设施） |
 | Gateway | 入口拦截、命令、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
 | Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
 | Alice | Agent run、frame 编排、MTP/工具执行、PendingAtom 运行时 | 长期记忆所有权、Gateway 分析、HTTP 与顶层 chat 生命周期 |
@@ -199,6 +201,7 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 ```text
 Server adapters -> System application services
 System application services -> GlobalSystemBus public routes
+system.access 网关 -> workspace 访问基础设施（内部准入；不对 adapter 暴露第二个认证入口）
 Gateway -> Patchouli public read routes (话题上下文)
 Alice -> Patchouli public read/citation routes (MTP)
 Patchouli -> GlobalEvents -> Alice (PendingAtom 结算通知)
@@ -238,4 +241,4 @@ Subsystem -> RuntimeEventSink (观测旁路)
 - Workspace-owned 资源的所有权或复合寻址变化；
 - 共享基础设施开始按 Workspace 复制或分区。
 
-主要验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/system/runtime/workspace/`、`tests/unit/gateway/`、`tests/unit/patchouli/`、`tests/unit/alice/`，以及 `tests/integration/system/test_workspace_access_propagation.py`、`tests/integration/patchouli/test_memory_workspace_isolation.py`。
+主要验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/system/runtime/workspace/`、`tests/unit/gateway/`、`tests/unit/patchouli/`、`tests/unit/alice/`、`tests/unit/workspace/`、`tests/unit/system/access/`，以及 `tests/integration/system/test_workspace_access_propagation.py`、`tests/integration/patchouli/test_memory_workspace_isolation.py`、`tests/integration/workspace/test_application_access_boundary.py`。

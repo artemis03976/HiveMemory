@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/workspace/access.py
   - src/hivememory/system/runtime/workspace/store.py
 related_docs:
-  - docs/plans/v0.7.0-a1-workspace-access-boundary.md
+  - docs/archive/plans/v0.7.0-a1-workspace-access-boundary.md
   - docs/system/attachments.md
 last_reviewed: 2026-09-19
 ---
@@ -18,7 +18,7 @@ last_reviewed: 2026-09-19
 
 ## 状态与处理决定
 
-2026-09-19 在 v0.7.0 A1 重新实现的代码审查中确认，记录为已知 bug，尚未修复。由于修复可能涉及 Asset 链路的身份传递及兼容行为，按用户决定单独留待后续处理，具体修复版本未定。本记录承接该审查发现，不改变 [A1](../plans/v0.7.0-a1-workspace-access-boundary.md) 中“请求 DTO 不得覆盖可信身份”的目标约束，也不将记录问题等同于验收通过。
+2026-09-19 在 v0.7.0 A1 重新实现的代码审查中确认，记录为已知 bug，尚未修复。由于修复可能涉及 Asset 链路的身份传递及兼容行为，按用户决定单独留待后续处理，具体修复版本未定。本记录承接该审查发现，不改变 [A1（已归档）](../archive/plans/v0.7.0-a1-workspace-access-boundary.md) 中“请求 DTO 不得覆盖可信身份”的目标约束，也不将记录问题等同于验收通过。
 
 证据基线为 `318d8f02` 之上的 A1 工作区实现；以下描述针对当时的带 access 上传路径，不代表 v0.6.2 的稳定基线。
 

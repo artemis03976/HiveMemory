@@ -4,18 +4,21 @@ status: current
 owner: system
 scope: cross-boundary-errors-and-degradation
 code_paths:
+  - src/hivememory/core/errors.py
   - src/hivememory/core/mtp/exceptions.py
   - src/hivememory/core/mtp/models.py
   - src/hivememory/core/mtp/formatter.py
   - src/hivememory/core/protocol/gateway.py
   - src/hivememory/system/services/passive/exceptions.py
   - src/hivememory/system/runtime/bus/async_bus.py
+  - src/hivememory/system/access/
+  - src/hivememory/workspace/access.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-19
 ---
 
 # 跨边界错误模型
@@ -150,15 +153,20 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 `PassiveIngressContractError` 表示下游违反协议，例如 `PASSIVE_MEMORY` 返回 command outcome。它不是可重试基础设施错误。submission queue admission 失败会向调用方抛出明确异常，同时保留当前 accumulator；admission 后的 apply 失败由 Work Queue Runtime 按 policy 重试并通过通用 RuntimeEvent 观测。
 
-### 4.4 Workspace 边界错误
+### 4.4 Workspace 与访问边界错误
 
-Workspace 错误在资源所有者或身份交接边界产生，不能由 RuntimeEvent 或 HTTP 层伪装成空结果。缺少作用域、actor 与 owner 不一致、或资源不属于请求 Workspace 时，应分别保留稳定机器码；WorkspaceAsset 的运行时状态错误同样由其 Store 直接表达：
+Workspace 错误在资源所有者、访问边界或身份交接边界产生，不能由 RuntimeEvent 或 HTTP 层伪装成空结果。缺少作用域、actor 与 owner 不一致、或资源不属于请求 Workspace 时，应分别保留稳定机器码；WorkspaceAsset 的运行时状态错误同样由其 Store 直接表达：
 
 | Code | 语义 |
 |:---|:---|
-| `workspace.scope_required` | 缺少完整 `IdentityScope` |
+| `workspace.scope_required` | 缺少完整 `IdentityScope`，或访问上下文缺失、伪造、未由本实例签发、过期或实例已关闭（`details.reason` 区分：`context_not_issued`、`context_expired`、`authentication_gateway_closed` 等） |
 | `workspace.owner_mismatch` | actor 用户与 Workspace owner 不一致 |
-| `workspace.mismatch` | 资源与请求 Workspace 不一致 |
+| `workspace.mismatch` | 资源与请求 Workspace 不一致；请求 DTO scope 与可信访问上下文冲突时同样使用 |
+| `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`actor_not_allowed_for_principal`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
+| `workspace.operation_denied` | 行为授权失败：该 Actor 在此 Workspace 的白名单不含方法所需 operation（`reason=operation_not_allowed`） |
+| `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
+| `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
+| `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
 | `workspace.asset.not_found` | 当前作用域找不到资产 |
 | `workspace.asset.expired` | ref 已随当前进程运行时失效 |
 | `workspace.asset.not_ready` | 资产尚未达到可用状态 |
@@ -167,7 +175,9 @@ Workspace 错误在资源所有者或身份交接边界产生，不能由 Runtim
 | `workspace.asset.stale_result` | revision 或 operation token 已过期 |
 | `workspace.asset.operation_conflict` | 相同幂等操作携带了不一致输入 |
 
-这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则。Workspace 资源归属、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)。
+访问边界错误的阶段语义（自 v0.7.0 A1 起）：接入未登记/禁用、adapter 不匹配、身份解析不允许是第一层认证失败；W0 owner 约束与缺失 Workspace Actor 访问记录是准入失败——两者均为 `AdmissionDeniedError`。缺少行为许可是 `OperationDeniedError`，属于授权失败而非身份认证失败；空白名单可进入但所有资源动作被拒绝。context 缺失、伪造、复制重建、跨实例、过期或网关关闭使用 `ScopeRequiredError` 并以稳定 reason 细分。未知 operation 与未绑定公共方法默认拒绝。拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
+
+这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
 ## 5. 观测失败与业务失败
 
@@ -225,4 +235,4 @@ RuntimeEventSink 是 best-effort：
 5. 为重试/取消/降级边界增加测试；
 6. 同步更新[MTP 契约](./mtp.md)和调用方文档。
 
-验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/gateway/test_phase3c_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/system/runtime/test_runtime_events.py`。
+验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/gateway/test_phase3c_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/system/runtime/test_runtime_events.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。

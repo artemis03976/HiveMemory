@@ -14,7 +14,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-09-19
 ---
 
 # System 应用服务
@@ -37,6 +37,8 @@ System 应用服务是 transport 与子系统之间的用例层。它们回答�
 
 应用服务可以保存一次用例的短期控制状态，例如 chat generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
+Memory、Agent、Topic、Task 管理服务和附件上传服务还接收统一认证网关签发的 `WorkspaceAccessContext`（`access` 参数）并**原样透传**给 Patchouli/Asset 公共路由：本层不解释、不裁剪 access，也不以 DTO scope 覆盖可信坐标，最终行为授权在 application 层落实（见[Workspace 架构](../architecture/workspace.md)第 4 节）。`access` 缺省时依赖下游冻结的迁移期兼容分支（裸 `IdentityScope` 受信适配），兼容窗口由 A6 完成生产消费者切换后关闭。
+
 ### 1.1 Transport / Router 边界
 
 FastAPI router 是 transport adapter，而不是另一层业务编排者。它的职责应收敛为：解析和校验 request、取得窄化的应用服务依赖、调用一个用例、把结果转换成 HTTP/SSE response，并在 transport 边界映射状态码或公开错误。
@@ -51,16 +53,16 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `ChatApplicationService` | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 编排 | Gateway、Patchouli、Alice public routes；RuntimeEventSink |
 | `PassiveIngressService` | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
-| `MemoryApplicationService` | Memory CRUD、feedback 和查询参数转换 | Patchouli memory routes |
-| `MemoryTaskApplicationService` | 查询/取消 Patchouli 拥有的 memory generation task | Patchouli task routes |
+| `MemoryApplicationService` | Memory CRUD、feedback 和查询参数转换；接收并透传访问上下文 | Patchouli memory routes |
+| `MemoryTaskApplicationService` | 查询/取消 Patchouli 拥有的 memory generation task；透传观察/取消访问上下文 | Patchouli task routes |
 | `AgentApplicationService` | 构造 Agent Profile atom 并调用 Patchouli profile routes | Patchouli profile routes |
-| `TopicApplicationService` | 活跃话题查询、手动 settle、evict | Patchouli topic routes |
+| `TopicApplicationService` | 活跃话题查询、手动 settle、evict；透传读取/Topic 管理访问上下文 | Patchouli topic routes |
 | `SystemReadinessService` | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
-| `WorkspaceAssetApplicationService` | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义 | System-owned WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门；链路事实见[Chat 附件链路](./attachments.md) |
+| `WorkspaceAssetApplicationService` | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；携带 access 时先经共享行为检查（`management.asset`） | System-owned WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、Workspace 行为检查；链路事实见[Chat 附件链路](./attachments.md) |
 
 这些服务的“拥有”只指顶层用例入口，不改变表中后端子系统的状态所有权。例如 `MemoryTaskApplicationService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。
 
-附件上传同样遵守这一边界：应用层只有 `upload_asset()` 用例入口，文件名规则、受限读取和 SHA-256 计算由附件接收函数实现，解析接纳、来源校验和失败/取消收尾由 `AttachmentParseService` 实现。应用层决定串行门覆盖整个请求，并保留 Store 返回的 `created` 标记；它不实现解析算法，也不维护另一份资产状态。完整职责与错误语义统一维护在[Chat 附件链路](./attachments.md)。
+附件上传同样遵守这一边界：应用层只有 `upload_asset()` 用例入口，文件名规则、受限读取和 SHA-256 计算由附件接收函数实现，解析接纳、来源校验和失败/取消收尾由 `AttachmentParseService` 实现。应用层决定串行门覆盖整个请求，并保留 Store 返回的 `created` 标记；它不实现解析算法，也不维护另一份资产状态。完整职责与错误语义统一维护在[Chat 附件链路](./attachments.md)。已知缺陷：带 access 上传时行为权限与传入 scope 缺少一致性校验（详见[Todo：WorkspaceAsset 上传的认证上下文与 scope 不一致](../todo/workspace-asset-upload-access-scope-mismatch.md)），修复前带 access 的上传路径不视为已通过身份一致性验收。
 
 ## 3. 主动 chat：唯一编排者
 
@@ -128,7 +130,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 ### 5.2 Task、Topic 与 Readiness
 
-`MemoryTaskApplicationService` 只转发 task list/get/cancel；它不从 Patchouli task 对象推导第二套状态机。
+`MemoryTaskApplicationService` 只转发 task list/get/cancel 并透传访问上下文（观察绑定 `task.observe`、取消绑定 `management.task`）；它不从 Patchouli task 对象推导第二套状态机。
 
 `TopicApplicationService` 提供活跃话题、手动 settle 和 evict 入口；它只透传 server 冻结的 `IdentityScope`（管理用例的 actor 为保留 `system`），再通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
 

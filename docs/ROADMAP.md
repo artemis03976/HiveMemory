@@ -37,7 +37,7 @@ last_reviewed: 2026-09-19
 - 本次发布标签：`v0.6.2`（合并后创建）；
 - 最近已发布基线：`v0.6.1`；
 - 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 下一计划版本：`v0.7.0`，Workspace 资源平面重构计划组（A 协调入口，A1/A2/A5 Active，A3/A4/A6 Planned）、外部记忆服务与 Actor 交互契约（B，Planned）。
+- 下一计划版本：`v0.7.0`，Workspace 资源平面重构计划组（A 协调入口，A1 已完成归档，A2/A5 Active，A3/A4/A6 Planned）、外部记忆服务与 Actor 交互契约（B，Planned）。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.6.2`，待合并后创建，最近已发布基线为 `v0.6.1`。
 
@@ -124,7 +124,7 @@ last_reviewed: 2026-09-19
 
 | 原排期 | 新排期 | 调整原因 |
 |:---|:---|:---|
-| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0` A 计划组 / B，状态见第 4.4 节 | 内部重构拆为 A1–A6，外部服务与协议由 B 承接，共同构成本版本，独立于 W0/W1 收口 |
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0` A 计划组 / B，状态见第 4.4 节 | 内部重构拆为 A1–A6（A1 已完成归档），外部服务与协议由 B 承接，共同构成本版本，独立于 W0/W1 收口 |
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
@@ -154,7 +154,7 @@ last_reviewed: 2026-09-19
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 以协调计划统筹 A1–A6：统一 Actor 认证网关与 Workspace 授权、资源读取与 WorkspaceRuntime/cache、Session/Topic 投影、共享 Pending、统一 API 收敛、Actor 适配与集成收口；A1 正在调整准入结果与 guard 所有权，不新增平行业务 port/provider 层 | v0.6.2 基础及已提交的 WRX-0/1 成果；[计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
+| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 以协调计划统筹 A1–A6：统一 Actor 认证网关与 Workspace 授权、资源读取与 WorkspaceRuntime/cache、Session/Topic 投影、共享 Pending、统一 API 收敛、Actor 适配与集成收口；A1（访问边界与授权）已完成并归档，事实入口见 [Workspace 架构](./architecture/workspace.md)第 4 节，不新增平行业务 port/provider 层 | v0.6.2 基础及已提交的 WRX-0/1 成果；[计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) |
 | `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的访问边界与公开 application 契约；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
 | `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
@@ -170,13 +170,13 @@ last_reviewed: 2026-09-19
 本版本由计划 A 的六个内部子计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
 
 - [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)将六份计划按交付依赖排序：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2 交付 canonical/Profile 读取、快照、WorkspaceRuntime/cache 和失效；A3 新增 ConversationSession，演进既有 InteractionPayload/TurnEvent，交付 Topic 生命周期、交互/资料公共路由和授权结果查询；A4 交付共享 Pending、主动提交及完整引用解析；A5 在前置模型与路由齐备后收敛整体 API、补检索/使用报告差额并明确旧服务职责；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一 GlobalSystemBus 领域链，不增加 Workspace 业务 port/provider 层。
-- 默认实施顺序为 [A1 访问边界](./plans/v0.7.0-a1-workspace-access-boundary.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2/A3 可在 A1 后并行，A4 消费二者成果。领域计划各自公开并验证 API，靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
+- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2/A3 可在 A1 后并行，A4 消费二者成果。领域计划各自公开并验证 API，靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
 
 - [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
-2026-09-19 A1 状态修订：撤销时的 `b4eeaece` 快照保留为[历史代码基线](./plans/v0.7.0-a1-workspace-access-boundary.md#11-撤销-a1-实现后的代码基线)，`ebce0f15` 已重新实现统一网关与两类登记；本轮继续调整准入结果与有效性检查的归属。A1 仍为 Active，整体验收尚未收口；实现进展不表示 A6 生产接入和兼容退出已经完成。
+2026-09-19 A1 完成收口：统一认证网关、两类登记、guard 签发生命周期与逐次行为授权已实现、测试、验收并通过代码审查，[A1 计划](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)已归档。当前事实入口：[Workspace 架构](./architecture/workspace.md)第 4 节、[错误模型](./contracts/error-model.md)第 4.4 节、[子系统公共契约](./contracts/subsystem-contracts.md)第 3.5 节与 [ADR-0005](./architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。附件上传的 scope 一致性缺陷单独追踪于 [Todo](./todo/workspace-asset-upload-access-scope-mismatch.md)；A6 生产接入和兼容退出仍待完成。
 
-A1 的规划目标是由一个 **System Actor Authentication 网关**内部完成 Principal authentication 与 Workspace authentication。principal 留在 System，Workspace guard 持有最小准入 context、有效性状态与逐次行为检查，具体边界见 [A1 第 2.4 节](./plans/v0.7.0-a1-workspace-access-boundary.md#24-访问上下文及受控构造)。公共 application 按实际方法检查 Actor 的 Workspace 行为白名单，资源 owner 再检查资源权限；原 `Domain operation policy` 与 `Operation authorization` 合并。网关负责认证，不代理资源业务。首版采用本地配置及真实组件独立组合验证；A6 接入生产消费者，B 负责外部协议，A1 不以这两者完成为验收前提。
+A1 落地的目标设计：由一个 **System Actor Authentication 网关**内部完成 Principal authentication 与 Workspace authentication。principal 留在 System，Workspace guard 持有最小准入 context、签发生命周期状态与逐次行为检查。公共 application 按实际方法检查 Actor 的 Workspace 行为白名单，资源 owner 再检查资源权限；原 `Domain operation policy` 与 `Operation authorization` 合并。网关负责认证，不代理资源业务。首版采用本地配置及真实组件独立组合验证；A6 接入生产消费者，B 负责外部协议，A1 不以这两者完成为验收前提。
 
 A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“Session 与 Topic 各自承担正确生命周期”“Pending 写后可读、结算可解析”“保留最后 settlement 的 shutdown drain”。A1–A5 不等待完整外部协议；A6 使用真实内部组件完成集成。B 的验收覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两组出口均须完成。A 系列与 B 均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
 
