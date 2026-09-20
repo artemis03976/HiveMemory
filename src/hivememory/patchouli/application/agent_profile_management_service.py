@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
@@ -12,7 +12,11 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.application.access_consumption import verified_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.workspace.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.workspace.access import WorkspaceOperation
+
+if TYPE_CHECKING:
+    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace.access import WorkspaceAccessGuard
 
 
 class AgentProfileManagementService:
@@ -20,13 +24,17 @@ class AgentProfileManagementService:
 
     Profile 读取用例绑定 ``profile.read`` operation，经局部
     ``GET_AGENT_PROFILE_SNAPSHOT`` 返回携带 source atom UUID/revision 的
-    不可变快照（父计划 5.2 节）；builtin/alias/类型校验只维护在 Patchouli
-    内部实现，Workspace 不复制解析逻辑。``get_agent_profile`` 保留为既有
-    裸 Profile 契约的兼容投影（AliceBridge/Alice resolver 消费）。
+    不可变快照；Profile 管理写入/列表沿用 AGENT_PROFILE atom 的既有绑定
+    例外，绑定 ``management.memory``，与读取分别授权、互不推导（A1
+    计划第 4.1 节）。管理/读取入口均在资源读取前经共享行为检查。
+
+    ``get_agent_profile`` 保留为既有裸 Profile 契约的兼容投影（Alice
+    resolver 消费，A1 第 6 节兼容清单），A6 完成消费者切换后收紧。
     """
 
-    def __init__(self, *, bus: Any) -> None:
+    def __init__(self, *, bus: Any, access_guard: WorkspaceAccessGuard) -> None:
         self._bus = bus
+        self._access_guard = access_guard
 
     async def create_agent_profile(
         self,
@@ -37,7 +45,10 @@ class AgentProfileManagementService:
     ) -> MemoryAtom:
         if atom is None:
             raise ValueError("create_agent_profile 需要 atom 载荷")
-        scope = verified_scope(access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope)
+        scope = verified_scope(
+            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access_guard=self._access_guard,
+        )
         if atom.workspace_identity != scope.workspace_identity:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         atom.index.memory_type = MemoryType.AGENT_PROFILE
@@ -55,7 +66,10 @@ class AgentProfileManagementService:
         access: WorkspaceAccessContext | None = None,
         limit: int = 100,
     ) -> list[MemoryAtom]:
-        scope = verified_scope(access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope)
+        scope = verified_scope(
+            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access_guard=self._access_guard,
+        )
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
             identity_scope=scope,
@@ -85,7 +99,10 @@ class AgentProfileManagementService:
         access: WorkspaceAccessContext | None = None,
     ) -> ProfileSnapshot:
         """读取 Profile 快照（profile.read）：唯一解析规则 + source 归属投影。"""
-        scope = verified_scope(access, WorkspaceOperation.PROFILE_READ, identity_scope)
+        scope = verified_scope(
+            access, WorkspaceOperation.PROFILE_READ, identity_scope,
+            access_guard=self._access_guard,
+        )
         return await self._bus.request(
             PatchouliLocalRoutes.GET_AGENT_PROFILE_SNAPSHOT,
             agent_alias,

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from hivememory.system.assembler import (
     SystemAssembler,
+    _AccessControlBundle,
     _RegistriesBundle,
     _RuntimeBundle,
     _ServicesBundle,
@@ -49,6 +50,7 @@ class HiveMemorySystem:
         registries: _RegistriesBundle,
         subsystems: _SubsystemBundle,
         services: _ServicesBundle,
+        access_control: _AccessControlBundle | None = None,
     ) -> None:
         self._config = config
 
@@ -77,6 +79,10 @@ class HiveMemorySystem:
         # 注册表：全局单例，供 API 层（deps.py）注入到路由
         self._model_registry = registries.model_registry
         self._provider_registry = registries.provider_registry
+
+        # 访问控制（A1）：统一认证网关是唯一对外认证入口；A6 完成生产
+        # 消费者切换。缺省 None 仅兼容旧装配调用，正常构建由 assembler 注入。
+        self._access_gateway = access_control.access_gateway if access_control else None
 
         self._started = False
         self._scheduler_stopped = False
@@ -397,3 +403,8 @@ class HiveMemorySystem:
     @property
     def provider_registry(self) -> ProviderRegistry:
         return self._provider_registry
+
+    @property
+    def access_gateway(self):
+        """统一 Actor Authentication 网关（A1）；未装配时为 ``None``。"""
+        return self._access_gateway

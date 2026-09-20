@@ -84,10 +84,13 @@ class AssetOperationConflictError(WorkspaceDomainError):
 
 
 class AdmissionDeniedError(WorkspaceDomainError):
-    """CallerPrincipal 未获准代表该 Actor 进入该 Workspace。
+    """调用来源或 Actor 未获准进入目标 Workspace。
 
-    由 Workspace admission 边界（父计划 5.6 节）在 principal 映射或
-    owner 约束校验失败时抛出；请求体中的身份声明字符串不构成准入依据。
+    当前唯一签发方是 System 统一认证网关
+    （``system.access.ActorAuthenticationGateway``，A1 计划第 3.1 节）：
+    接入未登记/禁用、adapter 不匹配、owner 约束或 Workspace Actor 访问
+    记录缺失等第一、二层认证失败均以本错误抛出，并以稳定 ``reason``
+    区分阶段；请求体中的身份声明字符串不构成准入依据。
     """
 
     code = "workspace.admission_denied"

@@ -1,120 +1,176 @@
-"""LocalTrustedAdmissionService 与 WorkspaceAccessContext 受控工厂的单元测试。
+"""WorkspaceAccessGuard 共享行为检查的单元测试。
 
-被测对象：workspace.access 模块。保护的是父计划 5.6 节的准入规则：
-未注册 principal 拒绝、未授权 operation 拒绝、owner 约束拒绝、上下文
-只能由 admission 工厂签发、端口消费点拒绝裸 scope 与 operation 不匹配。
+被测对象：workspace.access（A1 计划第 3.2/3.4 节）。保护的契约：同一
+有效凭据可先后执行不同获准操作；白名单外的 operation 拒绝且不触达
+资源后端；缺失/裸 scope/伪造凭据、权限配置关联替换均被拒绝。凭据自身
+的完整性/有效期自检由 ``tests/unit/system/access/test_credentials.py``
+覆盖；此处验证守卫与 Workspace Actor 访问注册表的协作。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from hivememory.core.errors import (
-    AdmissionDeniedError,
-    OperationDeniedError,
-    ScopeRequiredError,
+from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+from hivememory.system.access import CallerPrincipal, WorkspaceAccessContext
+from hivememory.workspace import WorkspaceOperation
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_identity_scope,
+    make_workspace_identity,
 )
-from hivememory.core.models import ActorIdentity
-from hivememory.workspace import (
-    CallerPrincipal,
-    LocalTrustedAdmissionService,
-    WorkspaceAccessContext,
-    WorkspaceOperation,
-    require_access_context,
-)
-from tests.helpers.workspace import make_identity_scope, make_workspace_identity
+
+MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
 
-async def _admit(
-    service, *, principal_id="local-process:test", operation=WorkspaceOperation.RESOURCE_READ
-):
-    return await service.admit(
-        CallerPrincipal(principal_id),
-        ActorIdentity(user_id="u1", agent_id="a1"),
-        make_workspace_identity(owner_user_id="u1"),
-        operation,
+@pytest.mark.asyncio
+async def test_guard_allows_whitelisted_operations_and_reuse_across_operations():
+    """同一有效凭据可先后执行 read/search 等不同获准操作（A1 证据 6）。"""
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="a1",
+                allowed_operations=frozenset(
+                    {WorkspaceOperation.RESOURCE_READ, WorkspaceOperation.RESOURCE_SEARCH}
+                ),
+            )
+        ],
+        default_workspace=MAIN,
     )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    first = composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+    second = composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_SEARCH)
+    # 同一凭据复用，且没有因换操作而重建身份
+    assert first is context and second is context
 
 
 @pytest.mark.asyncio
-async def test_admit_issues_context_with_verified_scope_and_operation():
-    """已注册 principal + 已授权 operation 签发携带验证坐标的上下文。"""
-    service = LocalTrustedAdmissionService(
-        {"local-process:test": [WorkspaceOperation.RESOURCE_READ]}
+async def test_guard_rejects_operation_out_of_whitelist():
+    """白名单外的 operation 拒绝；错误 reason 指向行为授权阶段。"""
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="a1",
+                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+            )
+        ],
+        default_workspace=MAIN,
     )
-
-    context = await _admit(service)
-
-    assert isinstance(context, WorkspaceAccessContext)
-    # grant 由 admission 私有签发，上下文冻结且坐标与请求一致
-    assert context.operation is WorkspaceOperation.RESOURCE_READ
-    assert context.identity_scope == make_identity_scope(user_id="u1", agent_id="a1")
-    with pytest.raises(Exception):  # 冻结校验：任何字段赋值都必须失败
-        context.operation = WorkspaceOperation.PROFILE_READ
-
-
-@pytest.mark.asyncio
-async def test_admit_rejects_unknown_principal_fail_closed():
-    """未注册 principal 一律 admission denied，不泄漏配置细节。"""
-    service = LocalTrustedAdmissionService({"local-process:test": WorkspaceOperation.RESOURCE_READ})
-
-    with pytest.raises(AdmissionDeniedError) as exc_info:
-        await _admit(service, principal_id="local-process:impersonator")
-
-    assert exc_info.value.code == "workspace.admission_denied"
-    assert exc_info.value.details["reason"] == "unknown_principal"
-
-
-@pytest.mark.asyncio
-async def test_admit_rejects_operation_out_of_grant():
-    """principal 注册但未授予该 operation 时拒绝。"""
-    service = LocalTrustedAdmissionService({"local-process:test": WorkspaceOperation.RESOURCE_READ})
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(OperationDeniedError) as exc_info:
-        await _admit(service, operation=WorkspaceOperation.MEMORY_INTENT_SUBMIT)
+        composition.guard.authorize_operation(context, WorkspaceOperation.MEMORY_INTENT_SUBMIT)
 
+    assert exc_info.value.details["reason"] == "operation_not_allowed"
     assert exc_info.value.details["operation"] == "memory_intent.submit"
 
 
 @pytest.mark.asyncio
-async def test_admit_rejects_actor_mismatching_workspace_owner():
-    """actor user 与 workspace owner 不一致时按 admission 拒绝（W0 兼容基线）。"""
-    service = LocalTrustedAdmissionService({"local-process:test": WorkspaceOperation.RESOURCE_READ})
+async def test_guard_rejects_missing_and_bare_scope_context():
+    """缺失凭据与裸 scope 都不满足签发契约。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+    )
 
-    with pytest.raises(AdmissionDeniedError) as exc_info:
-        await service.admit(
-            CallerPrincipal("local-process:test"),
-            ActorIdentity(user_id="mallory", agent_id="a1"),
-            make_workspace_identity(owner_user_id="u1"),
+    with pytest.raises(ScopeRequiredError):
+        composition.guard.authorize_operation(None, WorkspaceOperation.RESOURCE_READ)
+    with pytest.raises(ScopeRequiredError):
+        composition.guard.authorize_operation(
+            make_identity_scope(user_id="u1", agent_id="a1"),
             WorkspaceOperation.RESOURCE_READ,
         )
 
-    assert exc_info.value.details["reason"] == "actor_not_owner"
 
+@pytest.mark.asyncio
+async def test_guard_rejects_tampered_binding_preserving_valid_grant():
+    """保留合法 grant 但替换 principal/scope 的伪造凭据被守卫拒绝（证据 6）。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
 
-def test_require_access_context_rejects_bare_scope_and_missing_context():
-    """端口消费点拒绝裸 IdentityScope 与缺失上下文：授权不能由坐标自证。"""
-    bare_scope = make_identity_scope(user_id="u1", agent_id="a1")
-
+    tampered_scope = WorkspaceAccessContext(
+        principal=context.principal,
+        identity_scope=make_identity_scope(user_id="u1", agent_id="a2", workspace_id=MAIN.workspace_id),
+        grant=context.grant,
+    )
+    tampered_principal = WorkspaceAccessContext(
+        principal=CallerPrincipal("local-process:impersonator"),
+        identity_scope=context.identity_scope,
+        grant=context.grant,
+    )
+    with pytest.raises(ScopeRequiredError) as scope_exc:
+        composition.guard.authorize_operation(tampered_scope, WorkspaceOperation.RESOURCE_READ)
+    assert scope_exc.value.details["reason"] == "context_binding_invalid"
     with pytest.raises(ScopeRequiredError):
-        require_access_context(bare_scope, operation=WorkspaceOperation.RESOURCE_READ)
-    with pytest.raises(ScopeRequiredError):
-        require_access_context(None, operation=WorkspaceOperation.RESOURCE_READ)
+        composition.guard.authorize_operation(tampered_principal, WorkspaceOperation.RESOURCE_READ)
 
 
 @pytest.mark.asyncio
-async def test_require_access_context_rejects_operation_mismatch():
-    """签发的 grant 与请求的 operation 不一致时拒绝（一次准入对应一个能力）。"""
-    service = LocalTrustedAdmissionService({"local-process:test": WorkspaceOperation.RESOURCE_READ})
-    context = await _admit(service, operation=WorkspaceOperation.RESOURCE_READ)
+async def test_guard_rejects_context_from_foreign_registry_config():
+    """权限配置关联不可替换：另一份等价配置签发的凭据不被本守卫接受。"""
+    first = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+    )
+    second = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+    )
+    context = await first.authenticate(agent_id="a1", user_id="u1")
 
-    with pytest.raises(OperationDeniedError):
-        require_access_context(context, operation=WorkspaceOperation.TASK_OBSERVE)
-    # 匹配的 operation 正常通过并返回原上下文
-    assert require_access_context(context, operation=WorkspaceOperation.RESOURCE_READ) is context
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        second.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+
+    assert exc_info.value.details["reason"] == "access_record_mismatch"
 
 
-def test_caller_principal_rejects_blank_identity():
-    """principal 标识不能为空，防止匿名声明成为受信身份。"""
-    with pytest.raises(ValueError):
-        CallerPrincipal("  ")
+@pytest.mark.asyncio
+async def test_guard_rejects_expired_context_and_new_context_remains_issuable():
+    """超过认证有效区间后旧凭据拒绝；重新认证取得的新凭据可用（证据 7）。"""
+    now = 1000.0
+
+    def clock():
+        return now
+
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+        context_ttl_seconds=60,
+        clock=clock,
+    )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    now += 61  # 越过 60 秒有效期
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+    assert exc_info.value.details["reason"] == "context_expired"
+
+    # 到期不是网关关闭：重新认证可取得新的有效凭据
+    renewed = await composition.authenticate(agent_id="a1", user_id="u1")
+    assert composition.guard.authorize_operation(
+        renewed, WorkspaceOperation.RESOURCE_READ
+    ) is renewed
+
+
+@pytest.mark.asyncio
+async def test_guard_rejects_context_after_gateway_close():
+    """网关关闭即运行实例结束：已签发凭据一并失效（证据 7）。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    composition.gateway.close()
+    assert composition.gateway.is_closed
+
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+    assert exc_info.value.details["reason"] == "authentication_gateway_closed"

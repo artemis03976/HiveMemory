@@ -53,6 +53,8 @@ from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 
 if TYPE_CHECKING:
     from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
@@ -83,6 +85,7 @@ class PatchouliSystem(SubsystemProtocol):
         scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
         workspace_asset_reader: WorkspaceAssetReaderPort | None = None,
+        access_guard: WorkspaceAccessGuard | None = None,
     ):
         self.config = config
         self._global_bus = global_bus
@@ -118,25 +121,37 @@ class PatchouliSystem(SubsystemProtocol):
                 self.config.attachment_compiler,
             ),
         )
+        # A1 统一访问边界：System composition 装载 Workspace Actor 访问
+        # 注册表并注入共享行为检查；Patchouli 只消费中立的检查能力，不
+        # 反向依赖 System 认证网关实现。缺省空注册表 fail closed。
+        if access_guard is None:
+            access_guard = WorkspaceAccessGuard(WorkspaceActorAccessRegistry([]))
+        self._access_guard = access_guard
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
+            access_guard=access_guard,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
             bus=self.runtime.local_bus,
+            access_guard=access_guard,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
             bus=self.runtime.local_bus,
+            access_guard=access_guard,
         )
         # 公开交互提交/意图提交用例（WRX-1）：封装内部 queue 与生成提交链，
         # Passive/Alice/外部 adapter 统一经此提交，不直接持有内部协作者。
         self._interaction_submission_service = InteractionSubmissionService(
             interaction_queue=self._interaction_submission_queue,
+            access_guard=access_guard,
         )
         self._memory_intent_submission_service = MemoryIntentSubmissionService(
             bus=self.runtime.local_bus,
+            access_guard=access_guard,
         )
         self._topic_management_service = TopicManagementService(
             bus=self.runtime.local_bus,
+            access_guard=access_guard,
         )
         self._model_readiness_service = ModelReadinessService(
             bus=self.runtime.local_bus,

@@ -1,49 +1,79 @@
-"""
-Workspace 访问边界：CallerPrincipal、operation capability 与受控准入。
+"""Workspace 访问基础设施：操作目录与共享行为检查。
 
-父计划（docs/plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md
-第 5.6 节）冻结的四层检查顺序在本模块落地为：
+A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md）确立的检查
+模型中，本模块承担 Workspace 侧的两项职责（第 1.2/3.2 节）：
 
-    受信入口建立 CallerPrincipal
-      -> Workspace admission：principal 能否代表该 Actor 进入该 Workspace
-      -> Operation authorization：该 operation 是否在 grant 能力内
-      -> 返回只能由本模块工厂构造的 WorkspaceAccessContext
+- ``WorkspaceOperation``：操作定义目录——"系统有哪些操作、哪个
+  application 方法需要哪个操作"的代码契约；
+- ``WorkspaceAccessGuard``：公共 application 的共享行为检查
+  （Operation authorization）——验证凭据可用性关联、从 Workspace Actor
+  访问注册表（``registry.py``）取出该 Actor 的记录，确认包含方法所需
+  operation。
 
-资源 ownership/visibility 与领域 policy 不在本模块判断，仍由资源服务与
-Patchouli 在准入之后分层执行。授权上下文（grant）是一次准入的结果，
-不写入 Profile/Atom cache，也不因缓存命中而跳过重新校验。
+凭据本身（``CallerPrincipal``/``WorkspaceAccessContext``/grant/有效期
+锚点/受控工厂）随签发者归属 System 统一认证网关
+（``system.access``）：guard 通过中立的 :class:`IssuedWorkspaceAccess`
+结构契约消费凭据，凭据的完整性/有效期由其自检
+（``WorkspaceAccessContext.ensure_usable``）负责。依赖方向保持
+``workspace`` 只依赖 core；Patchouli 只消费本包的中立检查能力，不反向
+依赖 System 认证网关的实现。
 
-v0.7.0 首版只支持显式的本地/受信配置映射（``LocalTrustedAdmissionService``），
-不建设完整成员目录、远程 token/IAM 或跨 Workspace 委托；外部 connector
-的 principal 建立与映射由计划 B 负责，A 不把外部认证材料写入资源模型。
+检查模型全景：
+
+    System 统一 Actor Authentication 网关（唯一对外认证入口）
+      1. Principal authentication   —— System 接入登记（system/access/）
+      2. Workspace authentication   —— Workspace Actor 访问注册表（registry.py）
+      两项均通过 → 签发可在有效期内复用的 WorkspaceAccessContext
+    每次 API 动作
+      3. Operation authorization    —— 本模块 ``WorkspaceAccessGuard``
+      4. Resource authorization     —— 资源 owner（PRIVATE/TEAM/PUBLIC、
+           归属投影等）仍由各资源服务在行为授权之后执行
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import time
 from enum import Enum
+from typing import Callable, Protocol, runtime_checkable
 
 from hivememory.core.errors import (
-    AdmissionDeniedError,
     OperationDeniedError,
-    OwnerMismatchError,
     ScopeRequiredError,
 )
-from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
+from hivememory.core.models import IdentityScope
 
 
 class WorkspaceOperation(str, Enum):
-    """Actor→Workspace 的窄能力 operation 枚举（父计划 5.6.2 能力表）。
+    """Actor→Workspace 的行为目录（A1 计划第 4.1 节绑定基线）。
 
-    每个 capability 只授予其语义声明的能力；"不能推导出的权限"列见父计划。
-    ``MANAGEMENT_MEMORY``/``MANAGEMENT_TASK`` 是显式管理 operation：供
-    owner-management 管理入口（如 ``MemoryManagementService``）与任务管理
-    用例（取消）迁移后使用，绝不作为 Agent 读取/提交 grant 的超集。
-    已冻结的绑定例外：Profile 的管理写入/列表（create/list_agent_profiles）
-    实为 AGENT_PROFILE 类型 atom 的管理操作，绑定 ``MANAGEMENT_MEMORY``，
-    与 Profile 读取的 ``PROFILE_READ`` 分别授权、互不推导；其余既有管理
-    用例（Topic、Asset 等）在各自签名迁移时绑定明确 operation，不得借用
-    本枚举泛化放行。
+    枚举表达"系统有哪些操作"；某个 Actor 实际获准的集合只由 Workspace
+    Actor 访问注册表（``workspace.registry``）表达，两者必须分开。每个
+    operation 只授予其语义声明的能力，互不隐含、不可推导：
+
+    - ``RESOURCE_READ``：canonical 资源点读（Memory 点读、Topic 快照/数据
+      读取）；不授予检索、写入或管理能力；
+    - ``RESOURCE_SEARCH``：语义检索；不授予点读之外的新增能力，也不授予
+      主动写入；
+    - ``PROFILE_READ``：Agent Profile 定义读取；与 Profile 的管理写入/
+      列表（``MANAGEMENT_MEMORY`` 绑定例外）分别授权；
+    - ``ASSET_ACQUIRE``：WorkspaceAsset 解析/获取；**不授权上传**；
+    - ``INTERACTION_SUBMIT``：交互提交；不授予检索或主动意图；
+    - ``MEMORY_INTENT_SUBMIT``：主动记忆意图提交；不保证生成结果；
+    - ``TASK_OBSERVE``：生成任务观察/等待；不授予取消、Pending 内容读
+      或 canonical Memory 读取；
+    - ``MANAGEMENT_MEMORY``：完整的 Memory 管理能力（含已绑定的
+      AGENT_PROFILE atom 管理写入/列表例外）；不是"只读管理"，不得借
+      用为 Topic/Asset/Task 的放行依据；
+    - ``MANAGEMENT_TASK``：生成任务取消等任务管理动作；观察不授予取消；
+    - ``MANAGEMENT_TOPIC``：Topic 结算/驱逐等生命周期变更（Topic 快照
+      读取绑定 ``RESOURCE_READ``，不借本项放行）；
+    - ``MANAGEMENT_ASSET``：WorkspaceAsset 上传登记（``ASSET_ACQUIRE``
+      不授权上传）。
+
+    方法与 operation 的绑定维护在各 application 服务的类 docstring 与
+    ``patchouli.application.access_consumption`` 的兼容清单中；新增
+    operation 由引入方同步维护目录、配置与行为测试，且不自动加入已有
+    白名单。
     """
 
     RESOURCE_READ = "resource.read"
@@ -55,201 +85,98 @@ class WorkspaceOperation(str, Enum):
     TASK_OBSERVE = "task.observe"
     MANAGEMENT_MEMORY = "management.memory"
     MANAGEMENT_TASK = "management.task"
+    MANAGEMENT_TOPIC = "management.topic"
+    MANAGEMENT_ASSET = "management.asset"
 
 
-@dataclass(frozen=True)
-class CallerPrincipal:
-    """已被受信入口建立的调用方身份。
+@runtime_checkable
+class IssuedWorkspaceAccess(Protocol):
+    """统一认证网关签发凭据的消费面契约（结构化最小视图）。
 
-    回答"哪个被信任的进程、connector 或本地调用方在发起请求"；请求体中的
-    ``user_id``/``agent_id``/``role`` 字符串只是待验证的 claim，不能自封
-    principal。``principal_id`` 使用稳定的带命名空间标识（如
-    ``local-process:alice-runtime``）。
+    凭据类型与受控构造随签发者维护在 ``system.access.credentials``；
+    本协议只声明共享行为检查依赖的最小结构，使 workspace 侧无需反向
+    依赖 System 认证网关的实现即可核对凭据并执行白名单授权。
+
+    - ``ensure_usable``：凭据自检（绑定完整性/网关关闭/有效期），返回其
+      绑定的 ``WorkspaceActorAccessRecord``；
+    - ``identity_scope``：凭据冻结的 Actor + Workspace 坐标。
     """
 
-    principal_id: str
-    kind: str = "local-process"
+    def ensure_usable(self, *, clock: Callable[[], float]) -> object: ...
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.principal_id, str) or not self.principal_id.strip():
-            raise ValueError("principal_id 不能为空")
-        if not isinstance(self.kind, str) or not self.kind.strip():
-            raise ValueError("kind 不能为空")
+    @property
+    def identity_scope(self) -> IdentityScope: ...
 
 
-class _AdmissionGrant:
-    """准入签发凭证（模块私有）。
+class WorkspaceAccessGuard:
+    """公共 application 的共享行为检查（Operation authorization）。
 
-    ``WorkspaceAccessContext`` 只能携带本类实例构造，而本类仅在
-    ``issue_access_context`` 工厂中创建——以此把"谁有权签发访问上下文"
-    收敛到 admission 边界，防止调用方用普通字典伪造 grant。
+    Workspace 访问基础设施提供的中立检查能力：公共 application 在资源
+    读取或业务副作用之前调用 :meth:`authorize_operation`，经凭据自检
+    确认其仍可用，并从有效注册配置取出该 Actor 的访问记录，确认包含
+    方法所需 operation。Patchouli 与 WorkspaceAsset 等各资源公共入口
+    共用本检查，不依赖 System 认证网关的实现，也不在每次动作中重新
+    执行两项认证。
+
+    拒绝语义（A1 第 3.4 节）：
+
+    - 凭据缺失、伪造或不满足签发契约 → ``ScopeRequiredError``；
+      完整性/有效期/网关关闭由凭据自检以稳定 reason 细分；
+    - 凭据与有效 Workspace 访问注册配置不匹配 → ``ScopeRequiredError``；
+    - 缺少行为许可 → ``OperationDeniedError``。
+
+    资源归属、可见性与各资源的自身规则仍由资源 owner 在本检查之后执行。
     """
 
-    __slots__ = ("issued_by",)
+    def __init__(self, access_registry, *, clock: Callable[[], float] = time.monotonic) -> None:
+        # ``access_registry`` 是 WorkspaceActorAccessRegistry（同包
+        # registry.py）；运行期以鸭子类型消费，避免注解层面的相互引用。
+        self._registry = access_registry
+        self._clock = clock
 
-    def __init__(self, issued_by: str) -> None:
-        self.issued_by = issued_by
-
-
-@dataclass(frozen=True)
-class WorkspaceAccessContext:
-    """一次准入得到的不可变访问上下文。
-
-    包含已验证的 ``IdentityScope``（冻结 Actor + Workspace 坐标）、请求的
-    operation 以及 admission 签发的 grant。``IdentityScope`` 继续只表达
-    坐标，不携带 principal、run/frame、policy cache 或"当前 Workspace"。
-
-    构造受控：只能通过 admission 边界的 ``issue_access_context`` 获得，
-    进程内 Alice 也必须走同一工厂，不以"内部调用"绕过。
-    """
-
-    principal: CallerPrincipal
-    identity_scope: IdentityScope
-    operation: WorkspaceOperation
-    grant: _AdmissionGrant = field(repr=False, compare=False)
-
-
-def issue_access_context(
-    principal: CallerPrincipal,
-    identity_scope: IdentityScope,
-    operation: WorkspaceOperation,
-    *,
-    issued_by: str,
-) -> WorkspaceAccessContext:
-    """admission 边界的受控工厂：签发一个不可变访问上下文。
-
-    只应由 admission 服务调用；其他模块构造不出携带合法 grant 的上下文。
-    """
-    if not isinstance(principal, CallerPrincipal):
-        raise TypeError("principal 必须是 CallerPrincipal")
-    if not isinstance(identity_scope, IdentityScope):
-        raise ScopeRequiredError("access context 需要已验证的 IdentityScope")
-    if not isinstance(operation, WorkspaceOperation):
-        raise TypeError("operation 必须是 WorkspaceOperation")
-    return WorkspaceAccessContext(
-        principal=principal,
-        identity_scope=identity_scope,
-        operation=operation,
-        grant=_AdmissionGrant(issued_by=issued_by),
-    )
-
-
-def require_access_context(
-    access: WorkspaceAccessContext | None,
-    *,
-    operation: WorkspaceOperation,
-) -> WorkspaceAccessContext:
-    """资源/领域端口的统一消费点：校验 access context 与 operation 匹配。
-
-    - 缺失或类型不符 → ``ScopeRequiredError``（拒绝未经准入的裸 scope）；
-    - operation 与签发的 grant 不一致 → ``OperationDeniedError``。
-    """
-    if not isinstance(access, WorkspaceAccessContext) or not isinstance(
-        access.grant, _AdmissionGrant
-    ):
-        raise ScopeRequiredError("资源/领域入口需要经 admission 签发的 WorkspaceAccessContext")
-    if access.operation is not operation:
-        raise OperationDeniedError(
-            details={
-                "granted_operation": access.operation.value,
-                "required_operation": operation.value,
-            }
-        )
-    return access
-
-
-class LocalTrustedAdmissionService:
-    """v0.7.0 本地/受信映射 admission 实现。
-
-    端口契约见 ``workspace.ports.WorkspaceAdmissionPort``（Protocol）；本类
-    按该形状结构化实现。通过显式配置声明"哪些 principal 可以请求哪些
-    operation"；Actor 与 Workspace 的归属关系仍由 ``IdentityScope`` 的
-    owner 约束校验（actor user 必须等于 workspace owner），该约束不得在
-    请求体中放宽。
-
-    未注册 principal、未授权 operation、owner 不一致都会 fail closed。
-    """
-
-    def __init__(
+    def authorize_operation(
         self,
-        trusted_principals: dict[str, WorkspaceOperation | list[WorkspaceOperation]],
-        *,
-        issued_by: str = "local-trusted-admission",
-    ) -> None:
-        normalized: dict[str, frozenset[WorkspaceOperation]] = {}
-        for principal_id, operations in trusted_principals.items():
-            if isinstance(operations, WorkspaceOperation):
-                operations = [operations]
-            ops = frozenset(operations)
-            if not ops:
-                raise ValueError(f"principal {principal_id!r} 至少需要一个 operation")
-            normalized[principal_id] = ops
-        self._trusted = normalized
-        self._issued_by = issued_by
-
-    async def admit(
-        self,
-        principal: CallerPrincipal,
-        actor: ActorIdentity,
-        workspace: WorkspaceIdentity,
+        access: IssuedWorkspaceAccess | None,
         operation: WorkspaceOperation,
-    ) -> WorkspaceAccessContext:
-        """校验 principal 注册与 operation 授权后签发访问上下文。"""
-        if not isinstance(principal, CallerPrincipal):
-            raise TypeError("principal 必须是 CallerPrincipal")
-        if not isinstance(actor, ActorIdentity):
-            raise TypeError("actor 必须是 ActorIdentity")
-        if not isinstance(workspace, WorkspaceIdentity):
-            raise TypeError("workspace 必须是 WorkspaceIdentity")
+    ) -> IssuedWorkspaceAccess:
+        """验证凭据并确认行为白名单包含 ``operation``；通过时原样返回。
+
+        同一有效凭据可反复调用本检查先后执行不同的获准操作；切换
+        Actor/Workspace、到期或网关关闭后必须重新经统一网关认证。
+        """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
-
-        allowed = self._trusted.get(principal.principal_id)
-        if allowed is None:
-            # 未知 principal 一律拒绝；不区分"未注册"与"已吊销"，避免泄漏配置。
-            raise AdmissionDeniedError(
-                details={"principal_id": principal.principal_id, "reason": "unknown_principal"}
+        if not isinstance(access, IssuedWorkspaceAccess):
+            raise ScopeRequiredError(
+                "公共入口需要经统一认证网关签发的 WorkspaceAccessContext"
             )
-        if operation not in allowed:
+        # 凭据自检：绑定完整性、网关关闭与有效期由签发侧负责（缺失、
+        # 替换、过期分别以稳定 reason 拒绝），返回其绑定的访问记录。
+        bound_record = access.ensure_usable(clock=self._clock)
+        # 权限配置关联：当前有效注册配置中该 Actor 的记录必须仍是签发时
+        # 关联的那条（配置关联不可替换）。
+        scope = access.identity_scope
+        record = self._registry.record_for(
+            scope.workspace_identity, scope.actor_identity
+        )
+        if record is None or record is not bound_record:
+            raise ScopeRequiredError(
+                "access context 与有效 Workspace 访问注册配置不匹配",
+                details={"reason": "access_record_mismatch"},
+            )
+        # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
+        if operation not in record.allowed_operations:
             raise OperationDeniedError(
                 details={
-                    "principal_id": principal.principal_id,
                     "operation": operation.value,
-                    "reason": "operation_not_granted",
+                    "reason": "operation_not_allowed",
                 }
             )
-
-        try:
-            identity_scope = IdentityScope(
-                actor_identity=actor,
-                workspace_identity=workspace,
-            )
-        except OwnerMismatchError as exc:
-            # owner 约束是 v0.7.0 的准入基线：actor user ≠ workspace owner
-            # 时按 admission 拒绝，而不是把矛盾坐标放行到资源层。
-            raise AdmissionDeniedError(
-                message="actor 与 workspace owner 不一致，admission 拒绝",
-                details={
-                    "principal_id": principal.principal_id,
-                    "actor_user_id": actor.user_id,
-                    "owner_user_id": workspace.owner_user_id,
-                    "reason": "actor_not_owner",
-                },
-            ) from exc
-
-        return issue_access_context(
-            principal,
-            identity_scope,
-            operation,
-            issued_by=self._issued_by,
-        )
+        return access
 
 
 __all__ = [
-    "CallerPrincipal",
+    "IssuedWorkspaceAccess",
+    "WorkspaceAccessGuard",
     "WorkspaceOperation",
-    "WorkspaceAccessContext",
-    "LocalTrustedAdmissionService",
-    "issue_access_context",
-    "require_access_context",
 ]

@@ -15,6 +15,7 @@ from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.ports import WorkspaceAssetCommandPort
 from hivememory.system.services.attachments import AttachmentContentBuilder
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
+from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
 def make_upload_service(
@@ -22,11 +23,18 @@ def make_upload_service(
     parser_config: AttachmentParserConfig,
     parser_factory=None,
 ) -> WorkspaceAssetApplicationService:
-    """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。"""
+    """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。
+
+    A1：注入共享行为检查（全操作本地注册表）以满足构造契约；上传测试
+    走无 access 的迁移期兼容路径，不触发行为授权。
+    """
     return WorkspaceAssetApplicationService(
         store=store,
         parser_config=parser_config,
         parse_service=AttachmentParseService(store, parser_config, parser_factory),
+        access_guard=make_access_composition(
+            [make_actor_access_record()]
+        ).guard,
     )
 
 

@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-09-14
+last_reviewed: 2026-09-19
 ---
 
 # Todo
@@ -12,6 +12,7 @@ last_reviewed: 2026-09-14
 
 当前事项：
 
+- [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；

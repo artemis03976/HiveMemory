@@ -103,7 +103,19 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         )
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, admit_settlement)
-    return TopicManagementService(bus=bus), familiar, working_set, store
+    # A1：公共入口统一消费共享行为检查；测试组合用全操作本地注册表
+    from tests.helpers.workspace import make_access_composition, make_actor_access_record
+
+    access = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="test_agent")],
+        default_workspace=make_identity_scope(user_id="u1").workspace_identity,
+    )
+    return (
+        TopicManagementService(bus=bus, access_guard=access.guard),
+        familiar,
+        working_set,
+        store,
+    )
 
 
 @pytest.mark.asyncio

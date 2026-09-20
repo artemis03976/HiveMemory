@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
     Artifacts,
     IndexLayer,
@@ -18,6 +19,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+    from hivememory.system.access import WorkspaceAccessContext
 
 
 class MemoryLifecycleUnavailableError(RuntimeError):
@@ -39,6 +41,12 @@ class MemoryApplicationService:
     hard boundary 内访问该 Workspace 的全部 Memory，不执行 Agent 级
     ``MemoryAccessPolicy`` 可见性过滤；``system`` actor 只标记"没有具体
     Agent 作为操作来源主体"，不承担任何权限绕过语义。
+
+    访问上下文约定（A1 计划第 1.2/3.3 节）：全部用例接收统一认证网关
+    签发的 ``WorkspaceAccessContext`` 并**原样透传**给 Patchouli 公共
+    路由，最终行为检查在 Patchouli application 落实；本层不解释、不裁剪
+    access，也不以 DTO scope 覆盖可信坐标。``access`` 缺省时依赖下游
+    冻结的迁移期兼容分支（管理入口 HTTP 链路），A6 切换生产入口后收紧。
     """
 
     def __init__(
@@ -63,6 +71,7 @@ class MemoryApplicationService:
         memory_type: str,
         tags: list[str],
         alias: str | None = None,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> MemoryAtom:
         """管理创建入口：在显式 Workspace scope 中创建 Memory。
 
@@ -92,6 +101,7 @@ class MemoryApplicationService:
             GlobalRoutes.PATCHOULI_MEMORY_CREATE,
             identity_scope,
             atom,
+            access=access,
         )
 
     async def list_memories(
@@ -101,6 +111,7 @@ class MemoryApplicationService:
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> list[MemoryAtom]:
         """管理读取入口：在显式 Workspace scope 中列出 Memory。
 
@@ -116,6 +127,7 @@ class MemoryApplicationService:
             limit=limit,
             exclude_types=[MemoryType.AGENT_PROFILE.value],
             refresh_vitality=True,
+            access=access,
         )
 
     async def get_memory(
@@ -123,6 +135,7 @@ class MemoryApplicationService:
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> MemoryAtom:
         """管理读取入口：在显式 Workspace scope 中读取 Memory。"""
         atom = await self._global_bus.request(
@@ -130,6 +143,7 @@ class MemoryApplicationService:
             memory_id,
             identity_scope=identity_scope,
             refresh_vitality=True,
+            access=access,
         )
         if atom is None:
             raise MemoryNotFoundError("记忆不存在")
@@ -146,6 +160,7 @@ class MemoryApplicationService:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> MemoryAtom:
         """管理更新入口：显式授权 mutation，且不改变原 ownership/provenance。"""
         atom = await self._global_bus.request(
@@ -158,6 +173,7 @@ class MemoryApplicationService:
             alias=alias,
             tags=tags,
             agent_config=agent_config,
+            access=access,
         )
         if atom is None:
             raise MemoryNotFoundError("记忆不存在")
@@ -170,6 +186,7 @@ class MemoryApplicationService:
         identity_scope: IdentityScope,
         positive: bool,
         source: str,
+        access: "WorkspaceAccessContext | None" = None,
     ):
         """管理反馈入口：在显式 Workspace scope 中记录反馈。"""
         try:
@@ -179,7 +196,12 @@ class MemoryApplicationService:
                 identity_scope=identity_scope,
                 positive=positive,
                 source=source,
+                access=access,
             )
+        except WorkspaceDomainError:
+            # 访问/领域受控错误必须按原语义传播（A1 第 3.4 节），
+            # 不得被通用 RuntimeError 分支包装成"服务不可用"。
+            raise
         except RuntimeError as exc:
             raise MemoryLifecycleUnavailableError(
                 "Memory lifecycle engine is unavailable"
@@ -192,12 +214,14 @@ class MemoryApplicationService:
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> bool:
         """管理删除入口：在显式 Workspace scope 中删除 Memory。"""
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_DELETE,
             memory_id,
             identity_scope=identity_scope,
+            access=access,
         )
 
     @staticmethod

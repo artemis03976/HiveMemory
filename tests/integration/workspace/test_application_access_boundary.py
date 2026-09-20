@@ -1,17 +1,20 @@
-"""统一访问边界与公开 application 链路的集成测试（WRX-1 核心验收）。
+"""统一认证网关、共享行为检查与公开 application 链路的集成测试（A1 验收）。
 
-真实协作边界（父计划 11.2/5.7.2）：GlobalSystemBus + PatchouliBridge +
-PatchouliPublicApi（真实 application 服务）+ Patchouli local bus（真实
-familiar/controller/coordinator handler）+ 真实 Qdrant ``:memory:`` 存储 +
-真实 InteractionSubmissionQueue。只替换进程外依赖：embedding 用确定性
-二维向量、生成执行（LLM）与 Topic 会话读取用确定性实现。不创建
-Alice/PendingAtomRuntime/MTP（headless）。
+真实协作边界：GlobalSystemBus + PatchouliBridge + PatchouliPublicApi（真实
+application 服务 + 共享行为检查）+ 统一认证网关（真实两类注册表）+
+Patchouli local bus（真实 familiar/controller/coordinator handler）+ 真实
+Qdrant ``:memory:`` 存储 + 真实 InteractionSubmissionQueue。只替换进程外
+依赖：embedding 用确定性二维向量、生成执行（LLM）与 Topic 会话读取用
+确定性实现。不创建 Alice/PendingAtomRuntime/MTP（headless）。
 
-保护父计划 5.6/5.7 与 WRX-1 验收：
-- admission → operation → ownership/visibility → domain policy 顺序；
-- 裸 scope/错误 grant 被拒绝；管理操作不泄漏给 Agent；
-- 交互提交不隐含检索权；无 Alice 的真实提交/结果可用；
-- Profile source 语义与归属任务投影经公开路由可达。
+保护 A1 计划第 5 节验收证据：
+- 两项认证在统一网关一次完成；三类调用侧共用同一业务路由与行为检查；
+- 同一 principal 多 Actor、同一 Actor 多 Workspace 的许可互不串扰；
+- 空白名单可进入但资源动作全拒绝；operation 互不隐含；
+- 行为许可与资源 owner 规则分别生效；方法授权先于资源访问与副作用；
+- context 与单次 operation 解耦：同一 context 先后执行不同获准操作；
+- 到期 context 拒绝、重新认证恢复；授权拒绝不产生副作用、不包装成
+  服务不可用。
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ from hivememory.patchouli.application import (
     MemoryIntentSubmissionService,
     MemoryManagementService,
     MemoryTaskManagementService,
+    TopicManagementService,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
@@ -68,17 +72,79 @@ from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.system.application.memory_service import MemoryApplicationService
+from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.workspace import (
-    CallerPrincipal,
-    LocalTrustedAdmissionService,
-    WorkspaceOperation,
+from hivememory.system.access import CallerPrincipal
+from hivememory.workspace import WorkspaceOperation
+from tests.helpers.workspace import (
+    AccessTestComposition,
+    make_access_composition,
+    make_actor_access_record,
+    make_workspace_identity,
 )
-from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 OTHER = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
+
+READ = WorkspaceOperation.RESOURCE_READ
+SEARCH = WorkspaceOperation.RESOURCE_SEARCH
+INTENT = WorkspaceOperation.MEMORY_INTENT_SUBMIT
+INTERACT = WorkspaceOperation.INTERACTION_SUBMIT
+OBSERVE = WorkspaceOperation.TASK_OBSERVE
+MANAGE_MEMORY = WorkspaceOperation.MANAGEMENT_MEMORY
+MANAGE_TASK = WorkspaceOperation.MANAGEMENT_TASK
+
+
+def _access_records() -> list:
+    """两类注册表共用的访问矩阵：同 owner 多 Actor、同 Actor 多 Workspace。"""
+    return [
+        # MAIN：a1 全量基线操作；a2 仅读取；a3 空白名单；a4 仅观察；a5 仅 Memory 管理
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=MAIN.workspace_id,
+            agent_id="a1",
+            allowed_operations={READ, SEARCH, INTERACT, INTENT, OBSERVE, MANAGE_TASK},
+        ),
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=MAIN.workspace_id,
+            agent_id="a2",
+            allowed_operations={READ},
+        ),
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=MAIN.workspace_id,
+            agent_id="a3",
+            allowed_operations=frozenset(),
+        ),
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=MAIN.workspace_id,
+            agent_id="a4",
+            allowed_operations={OBSERVE},
+        ),
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=MAIN.workspace_id,
+            agent_id="a5",
+            allowed_operations={MANAGE_MEMORY},
+        ),
+        # OTHER：a1 的白名单与 MAIN 不同；a2 无准入记录；a4 仅有观察
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=OTHER.workspace_id,
+            agent_id="a1",
+            allowed_operations={READ, INTENT},
+        ),
+        make_actor_access_record(
+            owner_user_id="u1",
+            workspace_id=OTHER.workspace_id,
+            agent_id="a4",
+            allowed_operations={OBSERVE},
+        ),
+    ]
 
 
 class _DeterministicEmbedding:
@@ -112,9 +178,19 @@ class _FakeRetrievalEngine:
         return _Result()
 
 
+class FakeClock:
+    """可控单调时钟：仅 TTL 到期用例推进。"""
+
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
 @pytest_asyncio.fixture
 async def wired():
-    """装配真实 bridge/application/local-route 协作链。"""
+    """装配真实 bridge/application/local-route/统一网关协作链。"""
     qdrant = QdrantMemoryStoreStub()
     await qdrant.setup()
 
@@ -137,6 +213,10 @@ async def wired():
     local_bus.register(
         PatchouliLocalRoutes.MEMORY_GET,
         familiar.get_memory,
+    )
+    local_bus.register(
+        PatchouliLocalRoutes.MEMORY_RETRIEVE,
+        familiar.retrieve_async,
     )
     local_bus.register(
         PatchouliLocalRoutes.GET_AGENT_PROFILE_SNAPSHOT,
@@ -178,13 +258,25 @@ async def wired():
 
     queue = InteractionSubmissionQueue(_apply)
 
-    memory_service = MemoryManagementService(bus=local_bus)
-    profile_service = AgentProfileManagementService(bus=local_bus)
-    task_service = MemoryTaskManagementService(bus=local_bus)
-    interactions = InteractionSubmissionService(interaction_queue=queue)
-    memory_intents = MemoryIntentSubmissionService(bus=local_bus)
+    clock = FakeClock()
+    access = make_access_composition(
+        _access_records(),
+        default_workspace=MAIN,
+        context_ttl_seconds=60,
+        clock=clock,
+    )
 
-    # 本验收不触达 run 编排/Topic/模型就绪用例，入口以 MagicMock 占位
+    memory_service = MemoryManagementService(bus=local_bus, access_guard=access.guard)
+    profile_service = AgentProfileManagementService(bus=local_bus, access_guard=access.guard)
+    task_service = MemoryTaskManagementService(bus=local_bus, access_guard=access.guard)
+    interactions = InteractionSubmissionService(
+        interaction_queue=queue,
+        access_guard=access.guard,
+    )
+    memory_intents = MemoryIntentSubmissionService(bus=local_bus, access_guard=access.guard)
+    topics = TopicManagementService(bus=local_bus, access_guard=access.guard)
+
+    # 本验收不触达 run 编排/模型就绪用例，入口以 MagicMock 占位
     public_api = PatchouliPublicApi(
         chat=MagicMock(),
         memory=memory_service,
@@ -192,7 +284,7 @@ async def wired():
         agent_profiles=profile_service,
         interactions=interactions,
         memory_intents=memory_intents,
-        topics=MagicMock(),
+        topics=topics,
         readiness=MagicMock(),
     )
     bridge = PatchouliBridge(
@@ -202,16 +294,19 @@ async def wired():
     )
     bridge.mount()
 
-    admission = LocalTrustedAdmissionService(
-        {"local-process:test": list(WorkspaceOperation)},
-        issued_by="test",
-    )
+    # System 管理门面：与外部 adapter 同一全局总线，验证 context 传播
+    system_memory = MemoryApplicationService(global_bus=global_bus, config=MagicMock())
+    system_tasks = MemoryTaskApplicationService(global_bus=global_bus)
+
     try:
         yield _Wired(
             global_bus=global_bus,
             store=qdrant.store,
             controller=controller,
-            admission=admission,
+            access=access,
+            clock=clock,
+            system_memory=system_memory,
+            system_tasks=system_tasks,
         )
     finally:
         await controller.stop()
@@ -221,22 +316,24 @@ async def wired():
 class _Wired:
     """测试组合的已装配组件集合。"""
 
-    def __init__(self, *, global_bus, store, controller, admission):
+    def __init__(
+        self,
+        *,
+        global_bus,
+        store,
+        controller,
+        access: AccessTestComposition,
+        clock: FakeClock,
+        system_memory,
+        system_tasks,
+    ):
         self.global_bus = global_bus
         self.store = store
         self.controller = controller
-        self.admission = admission
-
-    async def context(self, operation, workspace=MAIN):
-        actor = make_identity_scope(
-            user_id="u1", agent_id="a1", workspace_id=workspace.workspace_id
-        ).actor_identity
-        return await self.admission.admit(
-            CallerPrincipal("local-process:test"),
-            actor,
-            workspace,
-            operation,
-        )
+        self.access = access
+        self.clock = clock
+        self.system_memory = system_memory
+        self.system_tasks = system_tasks
 
 
 class QdrantMemoryStoreStub:
@@ -307,64 +404,91 @@ async def _seed_public_fact(store, *, alias, content, workspace=MAIN, agent_id="
 
 
 @pytest.mark.asyncio
-async def test_unknown_principal_denied_before_application(wired):
-    """未注册 principal 在 admission 被拒绝，请求不进入 application。"""
-    with pytest.raises(AdmissionDeniedError):
-        actor = ActorIdentity(user_id="u1", agent_id="a1")
-        await wired.admission.admit(
-            CallerPrincipal("local-process:stranger"),
-            actor,
-            MAIN,
-            WorkspaceOperation.RESOURCE_READ,
+async def test_unregistered_source_denied_before_workspace_admission(wired):
+    """未登记来源在系统接入层拒绝，不进入 Workspace 准入（证据 1）。"""
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        await wired.access.gateway.authenticate(
+            adapter="local",
+            principal=CallerPrincipal("local-process:stranger"),
+            actor=ActorIdentity(user_id="u1", agent_id="a1"),
+            workspace=MAIN,
         )
+    assert exc_info.value.details["reason"] == "unknown_principal"
 
 
 @pytest.mark.asyncio
-async def test_agent_read_grant_cannot_reach_management_get(wired):
-    """resource.read grant 调用管理 GET 路由：application 入口 OperationDenied。"""
-    await _seed_public_fact(wired.store, alias="fact_mgmt", content="managed")
-    context = await wired.context(WorkspaceOperation.RESOURCE_READ)
+async def test_same_owner_actors_have_different_admission_across_workspaces(wired):
+    """同一 owner：a2 在 MAIN 获准、在 OTHER 无准入记录；权限互不串扰（证据 1/2）。"""
+    main_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
+    assert main_context.identity_scope.workspace_identity == MAIN
+
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        await wired.access.authenticate(agent_id="a2", workspace=OTHER)
+    assert exc_info.value.details["reason"] == "actor_not_admitted"
+
+
+@pytest.mark.asyncio
+async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wired):
+    """空白名单 Actor 可进入，但资源动作全部拒绝（证据 3）。"""
+    context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError):
         await wired.global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_GET,
+            GlobalRoutes.PATCHOULI_MEMORY_READ,
             str(uuid4()),
-            identity_scope=context.identity_scope,
             access=context,
         )
 
 
 @pytest.mark.asyncio
-async def test_management_grant_reads_via_owner_semantics(wired):
-    """management.memory grant 走管理 GET：owner-management 语义读取成功。"""
-    atom = await _seed_public_fact(wired.store, alias="fact_owned", content="managed content")
-    context = await wired.context(WorkspaceOperation.MANAGEMENT_MEMORY)
+async def test_read_only_actor_cannot_submit_intent_or_reach_management(wired):
+    """仅有 read 的 Actor 无法写；也不能借读取进入管理路由（证据 3）。"""
+    read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
 
-    result = await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_MEMORY_GET,
-        str(atom.id),
-        identity_scope=context.identity_scope,
-        access=context,
-    )
-
-    assert result is not None
-    assert result.payload.content == "managed content"
+    with pytest.raises(OperationDeniedError):
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+            intent=MemoryIntent(kind="write", topic_id="t", content="x"),
+            access=read_context,
+        )
+    with pytest.raises(OperationDeniedError):
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_GET,
+            str(uuid4()),
+            identity_scope=read_context.identity_scope,
+            access=read_context,
+        )
 
 
 @pytest.mark.asyncio
-async def test_bare_scope_without_access_rejected_on_read_route(wired):
-    """新公开读路由不接受裸 scope（无迁移路径）。"""
-    with pytest.raises(ScopeRequiredError):
+async def test_observe_operation_cannot_cancel_task(wired):
+    """task.observe 不授予取消：取消绑定 management.task（证据 3）。"""
+    intent_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    submission = await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+        intent=MemoryIntent(
+            kind="write",
+            topic_id="topic_boundary",
+            content="observe cancel boundary",
+            title="Observe Note",
+        ),
+        access=intent_context,
+    )
+    assert submission.accepted is True
+
+    observe_context = await wired.access.authenticate(agent_id="a4", workspace=MAIN)
+    with pytest.raises(OperationDeniedError):
         await wired.global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_READ,
-            str(uuid4()),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+            GlobalRoutes.PATCHOULI_MEMORY_TASK_CANCEL,
+            submission.task_id,
+            access=observe_context,
         )
 
 
 @pytest.mark.asyncio
 async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
-    """Actor-visible 点读：可见 atom 读取；PRIVATE 他者与跨 Workspace 不可见。"""
+    """行为许可与资源 owner 规则分别生效（证据 4）：PUBLIC 可读；PRIVATE
+    只对目标 Agent；跨 Workspace 不可见；管理语义独立验证。"""
     public_atom = await _seed_public_fact(wired.store, alias="fact_public", content="visible")
     private_atom = MemoryAtom(
         meta=MetaData(
@@ -372,7 +496,7 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
             source_agent_id="a1",
             access_policy=MemoryAccessPolicy(
                 visibility=MemoryVisibility.PRIVATE,
-                target_agent_id="a1",
+                target_agent_id="a2",
             ),
         ),
         index=IndexLayer(
@@ -389,120 +513,106 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
         wired.store, alias="fact_foreign_ws", content="other ws", workspace=OTHER
     )
 
-    read_context = await wired.context(WorkspaceOperation.RESOURCE_READ)
-
-    from hivememory.core.models import ActorIdentity as _Actor
-
-    other_agent_access = await wired.admission.admit(
-        CallerPrincipal("local-process:test"),
-        _Actor(user_id="u1", agent_id="a2"),
-        MAIN,
-        WorkspaceOperation.RESOURCE_READ,
-    )
+    a1_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
 
     visible = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_MEMORY_READ,
         str(public_atom.id),
-        access=read_context,
+        access=a1_context,
     )
     assert visible is not None
     assert visible.payload.content == "visible"
 
-    # PRIVATE 只对目标 Agent 可见：其他 Agent 视为不存在
+    # 有 read 行为许可但资源 PRIVATE 只对 a2：对 a1 按不存在呈现
     secret = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_MEMORY_READ,
         str(private_atom.id),
-        access=other_agent_access,
+        access=a1_context,
     )
     assert secret is None
 
     # 跨 Workspace 的 canonical uuid 不可见
-    foreign = await wired.global_bus.request(
+    outside = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_MEMORY_READ,
         str(foreign.id),
-        access=other_agent_access,
+        access=a1_context,
     )
-    assert foreign is None
+    assert outside is None
 
 
 @pytest.mark.asyncio
-async def test_profile_snapshot_route_with_profile_read_grant(wired):
-    """profile.read 走 snapshot 路由取得 source 归属；管理 grant 被拒绝。"""
-    profile_atom = MemoryAtom(
-        meta=MetaData(
-            workspace_identity=MAIN,
-            source_agent_id="a1",
-            access_policy=MemoryAccessPolicy.public(),
-        ),
-        index=IndexLayer(
-            title="profile",
-            summary="profile summary text",
-            tags=[],
-            memory_type=MemoryType.AGENT_PROFILE,
-            alias="agent_config",
-        ),
-        payload=PayloadLayer(
-            content="persona",
-            artifacts={"agent_config": {"model_name": "gpt-test"}},
-        ),
-    )
-    await wired.store.upsert(profile_atom)
-    profile_context = await wired.context(WorkspaceOperation.PROFILE_READ)
+async def test_management_memory_reads_with_owner_semantics_independently(wired):
+    """management.memory 的 owner-management 读取独立生效（证据 4）。"""
+    atom = await _seed_public_fact(wired.store, alias="fact_owned", content="managed content")
+    manage_context = await wired.access.authenticate(agent_id="a5", workspace=MAIN)
 
-    snapshot = await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE_SNAPSHOT,
-        "agent_config",
-        identity_scope=profile_context.identity_scope,
-        access=profile_context,
+    result = await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_GET,
+        str(atom.id),
+        identity_scope=manage_context.identity_scope,
+        access=manage_context,
     )
-    assert snapshot.source_kind == "atom"
-    assert snapshot.source_atom_uuid == str(profile_atom.id)
+    assert result is not None
+    assert result.payload.content == "managed content"
 
-    management_context = await wired.context(WorkspaceOperation.MANAGEMENT_MEMORY)
+
+@pytest.mark.asyncio
+async def test_single_context_reused_across_different_permitted_operations(wired):
+    """同一有效 context 先后执行 read/search/intent；未获准的管理操作仍拒绝（证据 6）。"""
+    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+
+    public_atom = await _seed_public_fact(wired.store, alias="fact_reuse", content="reuse")
+    read = await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_READ,
+        str(public_atom.id),
+        access=context,
+    )
+    assert read is not None
+
+    retrieval = await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+        request=RetrievalRequest(
+            semantic_query="reuse",
+            identity_scope=context.identity_scope,
+        ),
+        access=context,
+    )
+    assert retrieval is not None
+
+    # 换操作不重建身份，但方法所需的 operation 不在白名单内时仍拒绝
     with pytest.raises(OperationDeniedError):
         await wired.global_bus.request(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE_SNAPSHOT,
-            "agent_config",
-            identity_scope=management_context.identity_scope,
-            access=management_context,
+            GlobalRoutes.PATCHOULI_MEMORY_GET,
+            str(public_atom.id),
+            identity_scope=context.identity_scope,
+            access=context,
         )
 
 
 @pytest.mark.asyncio
-async def test_interaction_submit_does_not_imply_search(wired):
-    """交互提交用例接纳收据；同一 grant 调用检索被拒绝（能力不互相推导）。"""
-    submit_context = await wired.context(WorkspaceOperation.INTERACTION_SUBMIT)
-    payload = InteractionPayload(
-        user_message="boundary question",
-        mtp_traces=[],
-        assistant_final_text="boundary answer",
-        turn_events=[],
-    )
+async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
+    """interaction.submit 经真实全局路由与内存队列接纳；收据可用（无 Alice）。"""
+    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     receipt = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
-        payload=payload,
-        access=submit_context,
+        payload=InteractionPayload(
+            user_message="boundary question",
+            mtp_traces=[],
+            assistant_final_text="boundary answer",
+            turn_events=[],
+        ),
+        access=context,
         requested_topic_id="topic_boundary",
         interaction_id="interaction_boundary_1",
     )
     assert receipt.interaction_id == "interaction_boundary_1"
-
-    retrieval_request = RetrievalRequest(
-        semantic_query="boundary",
-        identity_scope=submit_context.identity_scope,
-    )
-    with pytest.raises(OperationDeniedError):
-        await wired.global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
-            request=retrieval_request,
-            access=submit_context,
-        )
+    assert receipt.work_id.startswith("interaction:")
 
 
 @pytest.mark.asyncio
-async def test_memory_intent_submit_and_observe_result_without_alice(wired):
-    """意图提交 → 真实生成链 → task.observe 观察真实结果；跨 scope 拒绝。"""
-    intent_context = await wired.context(WorkspaceOperation.MEMORY_INTENT_SUBMIT)
+async def test_intent_submit_and_observe_result_without_alice(wired):
+    """意图提交 → 真实生成链 → task.observe 观察真实结果；跨 scope 拒绝（证据 8）。"""
+    intent_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     submission = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
         intent=MemoryIntent(
@@ -519,7 +629,8 @@ async def test_memory_intent_submit_and_observe_result_without_alice(wired):
     final = await wired.controller.wait_task(submission.task_id)
     assert final.status.value == "completed"
 
-    observe_context = await wired.context(WorkspaceOperation.TASK_OBSERVE)
+    # 任务归属按权威 identity_scope 投影判断：提交者自己的观察 context 可见
+    observe_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     result = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_MEMORY_TASK_GET,
         submission.task_id,
@@ -530,10 +641,118 @@ async def test_memory_intent_submit_and_observe_result_without_alice(wired):
     assert result.identity_scope == intent_context.identity_scope
     assert result.submitted_by == "local-process:test"
 
-    other_context = await wired.context(WorkspaceOperation.TASK_OBSERVE, workspace=OTHER)
+    # OTHER Workspace 的观察 Actor：归属不一致统一 not found，不泄漏存在性
+    other_context = await _other_observe_context(wired)
     with pytest.raises(ResourceNotFoundError):
         await wired.global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_TASK_GET,
             submission.task_id,
             access=other_context,
         )
+
+
+@pytest.mark.asyncio
+async def test_system_management_facade_propagates_context_via_global_bus(wired):
+    """System 管理门面与 adapter 走同一全局总线，context 完整传播（证据 5）。"""
+    atom = await _seed_public_fact(wired.store, alias="fact_system", content="system path")
+    manage_context = await wired.access.authenticate(agent_id="a5", workspace=MAIN)
+
+    found = await wired.system_memory.get_memory(
+        atom.id,
+        identity_scope=manage_context.identity_scope,
+        access=manage_context,
+    )
+    assert found is not None
+    assert found.payload.content == "system path"
+
+    # 无 permission 的 context 经同一 System 门面在 application 入口被拒
+    read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
+    with pytest.raises(OperationDeniedError):
+        await wired.system_memory.get_memory(
+            atom.id,
+            identity_scope=read_context.identity_scope,
+            access=read_context,
+        )
+
+
+@pytest.mark.asyncio
+async def test_access_error_propagates_through_system_feedback_facade(wired):
+    """访问错误沿 System 门面原语义传播，不被包装成服务不可用（A1 第 3.4 节）。"""
+    read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
+
+    # System 门面的 record_feedback 曾把 RuntimeError 分支包装为
+    # MemoryLifecycleUnavailableError；行为授权拒绝必须以原错误冒出。
+    with pytest.raises(OperationDeniedError):
+        await wired.system_memory.record_feedback(
+            uuid4(),
+            identity_scope=read_context.identity_scope,
+            positive=True,
+            source="boundary",
+            access=read_context,
+        )
+
+
+@pytest.mark.asyncio
+async def test_system_task_facade_propagates_observe_context(wired):
+    """System 任务门面补齐访问参数：观察经真实总线到达 application 检查。"""
+    intent_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    submission = await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+        intent=MemoryIntent(
+            kind="write",
+            topic_id="topic_boundary",
+            content="system task facade",
+            title="System Task Note",
+        ),
+        access=intent_context,
+    )
+    # 任务归属按权威 identity_scope 投影判断：观察 context 与提交者同 scope
+    observe_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+
+    task = await wired.system_tasks.get_memory_task(
+        submission.task_id,
+        access=observe_context,
+    )
+    assert task is not None
+    assert task.task_id == submission.task_id
+
+    # OTHER Workspace 的观察 Actor：归属不一致按 not found 拒绝
+    with pytest.raises(ResourceNotFoundError):
+        await wired.system_tasks.get_memory_task(
+            submission.task_id,
+            access=await _other_observe_context(wired),
+        )
+
+
+async def _other_observe_context(wired):
+    """OTHER Workspace 的观察 context（共享注册矩阵中的 OTHER/a4）。"""
+    return await wired.access.authenticate(agent_id="a4", workspace=OTHER)
+
+
+@pytest.mark.asyncio
+async def test_expired_context_rejected_and_reauthentication_restores_access(wired):
+    """超过认证有效区间后旧 context 拒绝；重新认证恢复（证据 7）。"""
+    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    public_atom = await _seed_public_fact(wired.store, alias="fact_ttl", content="ttl")
+    assert await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_READ,
+        str(public_atom.id),
+        access=context,
+    ) is not None
+
+    wired.clock.now += 61
+
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_READ,
+            str(public_atom.id),
+            access=context,
+        )
+    assert exc_info.value.details["reason"] == "context_expired"
+
+    renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    assert await wired.global_bus.request(
+        GlobalRoutes.PATCHOULI_MEMORY_READ,
+        str(public_atom.id),
+        access=renewed,
+    ) is not None

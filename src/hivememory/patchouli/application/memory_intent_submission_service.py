@@ -1,9 +1,12 @@
-"""Patchouli 记忆意图提交 application 用例（父计划 5.7.1 / 9.1 节）。
+"""Patchouli 记忆意图提交 application 用例（memory_intent.submit）。
 
 承接中立的记忆意图参数并转换为内部生成任务：由 controller admission 与
 generation engine 决定生成、更新、合并或丢弃；**不映射为管理 CRUD，也
 不由调用方构造内部任务投影**。Alice 的 settlement coordinator（WRX-5）
 与计划 B 的外部 adapter 都经本用例提交。
+
+本用例不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
+拒绝，不进入裸 scope 受信适配。
 
 幂等语义：``MemoryIntent.intent_id`` 是幂等键——``pending_alias`` 由
 ``intent_id`` 确定性派生，同一 intent 携带相同载荷重试命中 controller
@@ -19,22 +22,20 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
     UpdateFocus,
     WriteFocus,
 )
+from hivememory.patchouli.application.access_consumption import required_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.workspace.access import (
-    WorkspaceAccessContext,
-    WorkspaceOperation,
-    require_access_context,
-)
+from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
     from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
+    from hivememory.system.access import WorkspaceAccessContext
+    from hivememory.workspace.access import WorkspaceAccessGuard
 
 
 def _slugify(text: str, max_len: int = 30) -> str:
@@ -104,8 +105,9 @@ class MemoryIntentSubmissionResult:
 class MemoryIntentSubmissionService:
     """经 Patchouli 生成提交链的公开意图提交用例（``memory_intent.submit``）。"""
 
-    def __init__(self, *, bus: PatchouliBus) -> None:
+    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessGuard) -> None:
         self._bus = bus
+        self._access_guard = access_guard
 
     async def submit_memory_intent(
         self,
@@ -115,15 +117,10 @@ class MemoryIntentSubmissionService:
         identity_scope: IdentityScope | None = None,
     ) -> MemoryIntentSubmissionResult:
         """提交记忆意图；结果由 Patchouli 生成链决定并经任务观察用例查询。"""
-        context = require_access_context(access, operation=WorkspaceOperation.MEMORY_INTENT_SUBMIT)
-        scope = context.identity_scope
-        if identity_scope is not None and identity_scope != scope:
-            raise WorkspaceMismatchError(
-                details={
-                    "reason": "request_scope_mismatches_access_context",
-                    "access_workspace_id": scope.workspace_identity.workspace_id,
-                }
-            )
+        scope = required_scope(
+            access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, identity_scope,
+            access_guard=self._access_guard,
+        )
 
         task = self._build_materialize_task(intent, scope)
         accepted = await self._bus.request(
@@ -131,7 +128,7 @@ class MemoryIntentSubmissionService:
             tasks=[task],
             topic_id=intent.topic_id,
             identity_scope=scope,
-            submitted_by=context.principal.principal_id,
+            submitted_by=access.principal.principal_id,
         )
         tasks = list(accepted or [])
         if not tasks:

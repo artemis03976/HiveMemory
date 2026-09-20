@@ -17,6 +17,7 @@ from hivememory.system.contracts.routes import GlobalRoutes
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
     from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+    from hivememory.system.access import WorkspaceAccessContext
 
 
 class AgentApplicationService:
@@ -25,6 +26,9 @@ class AgentApplicationService:
     身份入口约定（v0.6.2 收敛）：Agent Profile 管理是用户导向的管理用例，
     不是具体 Agent 的执行动作，因此 server 边界为其冻结 ``system`` actor
     的 IdentityScope；``source_agent_id`` 只作 provenance 展示。
+
+    访问上下文约定（A1 计划）：``access`` 为统一认证网关签发的可信
+    context，原样透传给 Patchouli 公共路由，行为检查在 application 落实。
     """
 
     def __init__(
@@ -49,6 +53,7 @@ class AgentApplicationService:
         content: str = "",
         tags: list[str],
         agent_config: dict[str, Any] | None = None,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> MemoryAtom:
         """在显式 Workspace scope 中创建 Agent Profile（管理用例）。"""
         atom = MemoryAtom(
@@ -74,6 +79,7 @@ class AgentApplicationService:
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
             identity_scope,
             atom,
+            access=access,
         )
 
     async def list_agent_profiles(
@@ -81,12 +87,14 @@ class AgentApplicationService:
         *,
         identity_scope: IdentityScope,
         limit: int = 100,
+        access: "WorkspaceAccessContext | None" = None,
     ) -> list[MemoryAtom]:
         """在显式 Workspace scope 中列出 Agent Profile（管理用例）。"""
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
             identity_scope=identity_scope,
             limit=limit,
+            access=access,
         )
 
     @staticmethod

@@ -1,8 +1,8 @@
 """InteractionSubmissionService / MemoryIntentSubmissionService 的单元测试。
 
-被测对象：两个公开提交用例的授权绑定与载荷语义（父计划 5.7.1，WRX-1）：
+被测对象：两个公开提交用例的授权绑定与载荷语义（A1 计划第 4.1 节）：
 - ``submit_interaction`` 绑定 ``interaction.submit``，经真实内存队列接纳并
-  返回收据投影；scope 不一致与错误 grant 拒绝；
+  返回收据投影；scope 不一致与未获准 operation 拒绝；
 - ``submit_memory_intent`` 绑定 ``memory_intent.submit``，把中立意图转换
   为内部生成任务（出站载荷契约），确定性 alias 支持重试幂等，
   ``submitted_by`` 携带提交方 principal。
@@ -16,6 +16,7 @@ import pytest
 
 from hivememory.core.errors import (
     OperationDeniedError,
+    ScopeRequiredError,
     WorkspaceMismatchError,
 )
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
@@ -28,12 +29,13 @@ from hivememory.patchouli.application import (
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.workspace import (
-    CallerPrincipal,
-    LocalTrustedAdmissionService,
-    WorkspaceOperation,
+from hivememory.workspace import WorkspaceOperation
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_identity_scope,
+    make_workspace_identity,
 )
-from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 OTHER = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
@@ -44,14 +46,20 @@ def _run(coro):
 
 
 async def _context(operation, workspace=MAIN):
-    admission = LocalTrustedAdmissionService(
-        {"local-process:test": list(WorkspaceOperation)},
-        issued_by="test",
+    """按指定 operation 构造最小许可的认证上下文与配套守卫。"""
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                workspace_id=workspace.workspace_id,
+                agent_id="a1",
+                allowed_operations=frozenset({operation}),
+            )
+        ],
+        default_workspace=workspace,
     )
-    actor = make_identity_scope(
-        user_id="u1", agent_id="a1", workspace_id=workspace.workspace_id
-    ).actor_identity
-    return await admission.admit(CallerPrincipal("local-process:test"), actor, workspace, operation)
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+    return context, composition.guard
 
 
 def _payload():
@@ -76,8 +84,11 @@ def test_submit_interaction_accepts_via_queue_and_returns_receipt():
         applied.append(interaction_id)
         return target_topic_id
 
-    service = InteractionSubmissionService(interaction_queue=InteractionSubmissionQueue(_apply))
-    context = _run(_context(WorkspaceOperation.INTERACTION_SUBMIT))
+    context, guard = _run(_context(WorkspaceOperation.INTERACTION_SUBMIT))
+    service = InteractionSubmissionService(
+        interaction_queue=InteractionSubmissionQueue(_apply),
+        access_guard=guard,
+    )
 
     result = _run(
         service.submit_interaction(
@@ -94,13 +105,34 @@ def test_submit_interaction_accepts_via_queue_and_returns_receipt():
     assert applied == []
 
 
-def test_submit_interaction_rejects_wrong_grant_and_scope_mismatch():
-    """其他 grant 不能提交交互；残留 scope 参数偏离上下文即拒绝。"""
-    service = InteractionSubmissionService(
-        interaction_queue=InteractionSubmissionQueue(_apply_noop)
+def test_submit_interaction_rejects_wrong_operation_and_scope_mismatch():
+    """未获准 operation 不能提交交互；残留 scope 参数偏离上下文即拒绝。"""
+
+    async def _apply_noop(payload, **kwargs):
+        return "topic"
+
+    # 同一注册表下两个 Actor：a1 持有 interaction.submit，a2 仅 read
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="a1",
+                allowed_operations=frozenset({WorkspaceOperation.INTERACTION_SUBMIT}),
+            ),
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="a2",
+                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+            ),
+        ],
+        default_workspace=MAIN,
     )
-    read_context = _run(_context(WorkspaceOperation.RESOURCE_READ))
-    submit_context = _run(_context(WorkspaceOperation.INTERACTION_SUBMIT))
+    submit_context = _run(composition.authenticate(agent_id="a1"))
+    read_context = _run(composition.authenticate(agent_id="a2"))
+    service = InteractionSubmissionService(
+        interaction_queue=InteractionSubmissionQueue(_apply_noop),
+        access_guard=composition.guard,
+    )
 
     with pytest.raises(OperationDeniedError):
         _run(service.submit_interaction(access=read_context, payload=_payload()))
@@ -118,8 +150,20 @@ def test_submit_interaction_rejects_wrong_grant_and_scope_mismatch():
         )
 
 
-async def _apply_noop(payload, **kwargs):
-    return "topic"
+def test_submit_interaction_without_access_rejected():
+    """交互提交不在兼容清单内：缺少 access 一律拒绝，不进入裸 scope 适配。"""
+
+    async def _apply_noop(payload, **kwargs):
+        return "topic"
+
+    _, guard = _run(_context(WorkspaceOperation.INTERACTION_SUBMIT))
+    service = InteractionSubmissionService(
+        interaction_queue=InteractionSubmissionQueue(_apply_noop),
+        access_guard=guard,
+    )
+
+    with pytest.raises(ScopeRequiredError):
+        _run(service.submit_interaction(access=None, payload=_payload()))
 
 
 # ---- 意图提交 ----
@@ -137,8 +181,8 @@ def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    service = MemoryIntentSubmissionService(bus=bus)
-    context = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
+    context, guard = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
+    service = MemoryIntentSubmissionService(bus=bus, access_guard=guard)
 
     result = _run(
         service.submit_memory_intent(
@@ -171,8 +215,8 @@ def test_submit_memory_intent_update_maps_update_focus():
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    service = MemoryIntentSubmissionService(bus=bus)
-    context = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
+    context, guard = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
+    service = MemoryIntentSubmissionService(bus=bus, access_guard=guard)
 
     _run(
         service.submit_memory_intent(
@@ -204,8 +248,8 @@ def test_same_intent_id_derives_identical_pending_alias():
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    service = MemoryIntentSubmissionService(bus=bus)
-    context = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
+    context, guard = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
+    service = MemoryIntentSubmissionService(bus=bus, access_guard=guard)
     intent = MemoryIntent(
         kind="write",
         topic_id="topic_1",
@@ -221,15 +265,16 @@ def test_same_intent_id_derives_identical_pending_alias():
     assert aliases[0].startswith("draft_stable_title_")
 
 
-def test_submit_memory_intent_rejects_wrong_grant():
-    """非 memory_intent.submit grant 提交意图被拒绝。"""
-    service = MemoryIntentSubmissionService(bus=PatchouliBus())
-    observe_context = _run(_context(WorkspaceOperation.TASK_OBSERVE))
+def test_submit_memory_intent_rejects_unpermitted_operation():
+    """task.observe 不能提交主动意图：行为授权拒绝（能力互不隐含）。"""
+    context, guard = _run(_context(WorkspaceOperation.TASK_OBSERVE))
+    service = MemoryIntentSubmissionService(bus=PatchouliBus(), access_guard=guard)
 
     with pytest.raises(OperationDeniedError):
         _run(
             service.submit_memory_intent(
-                access=observe_context,
+                access=context,
                 intent=MemoryIntent(kind="write", topic_id="topic_1", content="x"),
             )
         )
+
