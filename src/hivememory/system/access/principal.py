@@ -4,7 +4,8 @@ A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md 第 2.1 节）
 的身份坐标之一：``CallerPrincipal`` 回答"本次请求来自哪个已注册的调用
 来源"，由统一网关根据 System 接入登记（``system.access.registry``）与
 对应 adapter 的受信接入信息确认——它是 System 认证平面的概念，不属于
-Workspace 访问基础设施。
+Workspace 访问基础设施。接入方式与来源分类由接入登记
+（``SystemActorAccessEntry``）承载；本类型只携带请求所需的来源标识。
 """
 
 from __future__ import annotations
@@ -27,10 +28,7 @@ class CallerPrincipal:
     """
 
     principal_id: str
-    kind: str = "local-process"
 
     def __post_init__(self) -> None:
         if not isinstance(self.principal_id, str) or not self.principal_id.strip():
             raise ValueError("principal_id 不能为空")
-        if not isinstance(self.kind, str) or not self.kind.strip():
-            raise ValueError("kind 不能为空")

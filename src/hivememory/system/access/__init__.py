@@ -14,7 +14,6 @@ Workspace 侧持有准入结果、签发生命周期及行为白名单检查；�
 from hivememory.system.access.gateway import ActorAuthenticationGateway
 from hivememory.system.access.principal import CallerPrincipal
 from hivememory.system.access.registry import (
-    LOCAL_ADAPTER,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
 )
@@ -25,7 +24,6 @@ __all__ = [
     # 调用来源身份
     "CallerPrincipal",
     # System 接入登记
-    "LOCAL_ADAPTER",
     "SystemActorAccessEntry",
     "SystemActorAccessRegistry",
 ]

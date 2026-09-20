@@ -120,18 +120,11 @@ class WorkspaceAccessGuard:
     ) -> WorkspaceAccessContext:
         """网关内部第二项认证：确认 Workspace 准入并登记签发结果。
 
-        不检查 principal；System 网关必须先完成来源与 adapter 验证。
+        不检查 principal，也不重复校验入参类型与关闭状态——唯一调用方
+        System 网关在公开入口已完成来源/adapter 验证、入参类型检查与
+        关闭检查（认证流程内无 await，两项检查间不存在状态变化）。
         此方法不作为 adapter 或领域服务的另一认证入口。
         """
-        if self._closed:
-            raise AdmissionDeniedError(
-                message="认证网关已关闭",
-                details={"reason": "authentication_gateway_closed"},
-            )
-        if not isinstance(actor, ActorIdentity):
-            raise TypeError("actor 必须是 ActorIdentity")
-        if not isinstance(workspace, WorkspaceIdentity):
-            raise TypeError("workspace 必须是 WorkspaceIdentity")
         try:
             scope = IdentityScope(actor_identity=actor, workspace_identity=workspace)
         except OwnerMismatchError as exc:

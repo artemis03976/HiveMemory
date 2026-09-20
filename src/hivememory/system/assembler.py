@@ -49,7 +49,7 @@ from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
-from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.access import WorkspaceAccessGuard, WorkspaceOperation
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
@@ -275,10 +275,8 @@ class SystemAssembler:
         )
 
     @staticmethod
-    def _parse_operation(name: str, entry: WorkspaceActorAccessEntry):
+    def _parse_operation(name: str, entry: WorkspaceActorAccessEntry) -> WorkspaceOperation:
         """把配置中的 operation 枚举值解析为枚举成员；未知值装载期失败。"""
-        from hivememory.workspace.access import WorkspaceOperation
-
         try:
             return WorkspaceOperation(name)
         except ValueError as exc:

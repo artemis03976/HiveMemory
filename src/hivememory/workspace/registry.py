@@ -23,7 +23,7 @@ A1 范围内）；相同 owner 也不表示自动获准——缺失记录即准�
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -51,9 +51,7 @@ class WorkspaceActorAccessRecord:
     user_id: str
     agent_id: str
     enabled: bool = True
-    allowed_operations: frozenset[WorkspaceOperation] = field(
-        default=frozenset(), compare=True
-    )
+    allowed_operations: frozenset[WorkspaceOperation] = frozenset()
 
     @property
     def key(self) -> tuple[str, str, str, str]:
