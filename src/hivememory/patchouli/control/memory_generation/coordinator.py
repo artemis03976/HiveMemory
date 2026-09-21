@@ -8,8 +8,8 @@ from uuid import UUID
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    LogicalBlock,
     IdentityScope,
+    LogicalBlock,
     require_identity_scope,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
@@ -84,7 +84,9 @@ class MemoryGenerationCoordinator:
         *,
         identity_scope: IdentityScope,
     ) -> list[MemoryGenerationTask]:
-        """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。"""
+        """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。
+        来源记录由 Patchouli 生成链内部维护；任务只携带 identity_scope。
+        """
         if not tasks:
             return []
         identity_scope = require_identity_scope(identity_scope)
@@ -257,5 +259,6 @@ class MemoryGenerationCoordinator:
             blocks=tuple(blocks),
             asset_bindings=tuple(asset_bindings),
         )
+
 
 __all__ = ["MemoryGenerationCoordinator"]

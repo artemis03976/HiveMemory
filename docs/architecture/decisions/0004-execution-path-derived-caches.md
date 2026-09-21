@@ -4,10 +4,13 @@ status: accepted
 owner: project
 scope: execution-path-derived-cache-ownership-and-workspace-keying
 decided_at: 2026-09-13
-last_reviewed: 2026-09-13
+applies_to: v0.6.2-client-cache-baseline
+last_reviewed: 2026-09-17
 ---
 
 # ADR-0004：执行路径派生缓存的所有权与键控
+
+> 适用范围：本文记录 v0.6.2 已落地的 Alice 客户端缓存基线，正文保留当时的决定与理由。v0.7.0 的替代裁定、逐条继承/替换范围及晋升条件统一维护在 [A2 第 1.1/5 节](../../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md)。本 ADR 不作为否决该版本目标设计的依据；accepted 状态表示基线尚未由完成验收的后继 ADR 正式替代，不表示两个版本必须采用相同所有权。此说明不宣称缓存迁移或共同解析已经实现。
 
 ## Context
 
@@ -48,6 +51,8 @@ v0.6.2 缓存迁移的第一阶段曾把 Alice 的两个派生缓存（L1 atom c
 ## Status
 
 Accepted（2026-09-13）。同日回退了第一阶段基于"共享基础设施例外"叙事的聚合实现；其键控结论由本决策第 3、4 条承接。
+
+2026-09-17 补充版本适用范围和替代裁定入口；未改写原决定为新的实现事实。正式 supersede 由上述计划的稳定收尾门禁处理。
 
 ## Related documents
 

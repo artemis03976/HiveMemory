@@ -136,11 +136,31 @@ class MidTermMemoryStore:
         for secondary in self._secondary:
             await secondary.upsert(memory)
 
-    async def get(self, scope: IdentityScope, memory_id: UUID) -> MemoryAtom | None:
-        return await self._primary.get(require_identity_scope(scope), memory_id)
+    async def get(
+        self,
+        scope: IdentityScope,
+        memory_id: UUID,
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> MemoryAtom | None:
+        return await self._primary.get(
+            require_identity_scope(scope),
+            memory_id,
+            enforce_actor_visibility=enforce_actor_visibility,
+        )
 
-    async def get_by_alias(self, scope: IdentityScope, alias: str) -> MemoryAtom | None:
-        return await self._primary.get_by_alias(require_identity_scope(scope), alias)
+    async def get_by_alias(
+        self,
+        scope: IdentityScope,
+        alias: str,
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> MemoryAtom | None:
+        return await self._primary.get_by_alias(
+            require_identity_scope(scope),
+            alias,
+            enforce_actor_visibility=enforce_actor_visibility,
+        )
 
     async def get_for_mutation(
         self,

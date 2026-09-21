@@ -305,10 +305,22 @@ class _InMemoryMidTermPort(MidTermStoragePort):
     async def upsert(self, memory: MemoryAtom) -> None:
         self.memories[self._key(memory)] = memory
 
-    async def get(self, scope, memory_id: UUID) -> MemoryAtom | None:
+    async def get(
+        self,
+        scope,
+        memory_id: UUID,
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> MemoryAtom | None:
         return self.memories.get(self._scope_key(scope, memory_id))
 
-    async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
+    async def get_by_alias(
+        self,
+        scope,
+        alias: str,
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> MemoryAtom | None:
         for memory in self.memories.values():
             if (
                 memory.workspace_identity == scope.workspace_identity

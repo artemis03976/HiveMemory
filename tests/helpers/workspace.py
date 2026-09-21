@@ -1,4 +1,7 @@
-"""测试专用 IdentityScope 与 RuntimeScope 构造器。"""
+"""测试专用 IdentityScope、RuntimeScope 与 A1 访问组合构造器。"""
+
+from dataclasses import dataclass
+from typing import Iterable
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -7,6 +10,19 @@ from hivememory.core.models import (
     IdentityScope,
     WorkspaceIdentity,
     build_internal_identity_scope,
+)
+from hivememory.system.access import (
+    ActorAuthenticationGateway,
+    CallerPrincipal,
+    SystemActorAccessEntry,
+    SystemActorAccessRegistry,
+)
+from hivememory.workspace import (
+    WorkspaceAccessContext,
+    WorkspaceActorAccessRecord,
+    WorkspaceActorAccessRegistry,
+    WorkspaceAccessGuard,
+    WorkspaceOperation,
 )
 
 
@@ -85,4 +101,110 @@ def make_runtime_scope(
         ),
         run_id=run_id,
         frame_id=frame_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# A1 访问组合辅助：统一认证网关 + 共享行为检查的显式本地组合
+# ---------------------------------------------------------------------------
+
+ALL_OPERATIONS = frozenset(WorkspaceOperation)
+
+
+def make_actor_access_record(
+    *,
+    owner_user_id: str = "test_user",
+    workspace_id: str = "main_workspace",
+    user_id: str | None = None,
+    agent_id: str = "test_agent",
+    enabled: bool = True,
+    allowed_operations: Iterable[WorkspaceOperation] | None = None,
+) -> WorkspaceActorAccessRecord:
+    """构造 Workspace Actor 访问记录。
+
+    ``allowed_operations`` 缺省授予全部 operation（测试便利，不对应任何
+    生产行为）；显式传 ``frozenset()`` 表达"可进入但无资源操作"。
+    """
+    return WorkspaceActorAccessRecord(
+        owner_user_id=owner_user_id,
+        workspace_id=workspace_id,
+        user_id=user_id or owner_user_id,
+        agent_id=agent_id,
+        enabled=enabled,
+        allowed_operations=(
+            ALL_OPERATIONS if allowed_operations is None else frozenset(allowed_operations)
+        ),
+    )
+
+
+@dataclass
+class AccessTestComposition:
+    """一次性装配的网关 + 守卫组合，供各层测试显式认证。"""
+
+    gateway: ActorAuthenticationGateway
+    guard: WorkspaceAccessGuard
+    principal: CallerPrincipal
+    default_workspace: WorkspaceIdentity
+
+    async def authenticate(
+        self,
+        *,
+        agent_id: str = "test_agent",
+        user_id: str | None = None,
+        workspace: WorkspaceIdentity | None = None,
+        adapter: str = "local",
+        principal_id: str | None = None,
+    ) -> WorkspaceAccessContext:
+        """按组合内的默认坐标完成两项认证并返回访问上下文。"""
+        target_user = user_id or (
+            self.default_workspace.owner_user_id
+        )
+        return await self.gateway.authenticate(
+            adapter=adapter,
+            principal=CallerPrincipal(principal_id or self.principal.principal_id),
+            actor=ActorIdentity(user_id=target_user, agent_id=agent_id),
+            workspace=workspace or self.default_workspace,
+        )
+
+
+def make_access_composition(
+    records: list[WorkspaceActorAccessRecord],
+    *,
+    principal_id: str = "local-process:test",
+    adapters: tuple[str, ...] = ("local",),
+    context_ttl_seconds: float | None = None,
+    clock=None,
+    default_workspace: WorkspaceIdentity | None = None,
+) -> AccessTestComposition:
+    """构造 System 接入登记 + Workspace Actor 注册表 + 网关 + 守卫。
+
+    ``clock`` 注入可控时钟以验证 TTL；``None`` 使用真实单调时钟。
+    """
+    principal = CallerPrincipal(principal_id)
+    system_registry = SystemActorAccessRegistry(
+        [
+            SystemActorAccessEntry(
+                principal_id=principal_id,
+                adapters=frozenset(adapters),
+            )
+        ]
+    )
+    workspace_registry = WorkspaceActorAccessRegistry(records)
+    guard = WorkspaceAccessGuard(
+        workspace_registry,
+        context_ttl_seconds=context_ttl_seconds,
+        **({"clock": clock} if clock is not None else {}),
+    )
+    gateway = ActorAuthenticationGateway(
+        system_registry=system_registry,
+        workspace_access=guard,
+    )
+    return AccessTestComposition(
+        gateway=gateway,
+        guard=guard,
+        principal=principal,
+        default_workspace=default_workspace
+        or make_workspace_identity(
+            owner_user_id=records[0].owner_user_id if records else "test_user",
+        ),
     )

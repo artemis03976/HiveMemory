@@ -146,7 +146,7 @@ class TestRetrievalFamiliarAgentProfiles:
             identity_scope=make_identity_scope(),
         )
 
-        assert result is OMNI_DOLL_PROFILE
+        assert result == OMNI_DOLL_PROFILE
         self.mock_library.mid_term.get_by_alias.assert_not_awaited()
 
     @pytest.mark.asyncio

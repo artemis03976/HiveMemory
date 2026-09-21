@@ -7,7 +7,7 @@ from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLa
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_access_composition, make_actor_access_record, make_identity_scope
 
 
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
@@ -43,7 +43,10 @@ async def test_list_memories_uses_memory_list_and_refreshes_vitality(bus):
         raise AssertionError(route)
 
     bus.request.side_effect = request
-    service = MemoryManagementService(bus=bus)
+    service = MemoryManagementService(
+        bus=bus,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
+    )
     identity_scope = make_identity_scope(user_id="u1")
 
     atoms = await service.list_memories(
@@ -51,6 +54,7 @@ async def test_list_memories_uses_memory_list_and_refreshes_vitality(bus):
         filters={"index.memory_type": "FACT"},
         limit=10,
     )
+    assert atoms == [atom]
 
     # 编排顺序契约：MEMORY_LIST → REFRESH_MEMORY_VITALITY(persist=False)
     assert bus.request.await_args_list[0].args == (PatchouliLocalRoutes.MEMORY_LIST,)
@@ -75,7 +79,10 @@ async def test_list_memories_excludes_agent_profiles_after_route_response(bus):
     profile = _make_memory_atom(title="Agent")
     profile.index.memory_type = MemoryType.AGENT_PROFILE
     bus.request.return_value = [fact, profile]
-    service = MemoryManagementService(bus=bus)
+    service = MemoryManagementService(
+        bus=bus,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
+    )
     identity_scope = make_identity_scope(user_id="u1")
 
     atoms = await service.list_memories(
@@ -101,13 +108,19 @@ async def test_list_memories_excludes_agent_profiles_after_route_response(bus):
 async def test_get_memory_requests_memory_get_and_skips_refresh_when_missing(bus):
     memory_id = uuid4()
     bus.request.return_value = None
-    service = MemoryManagementService(bus=bus)
+    service = MemoryManagementService(
+        bus=bus,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
+    )
     identity_scope = make_identity_scope(user_id="u1")
 
-    assert await service.get_memory(
-        memory_id,
-        identity_scope=identity_scope,
-    ) is None
+    assert (
+        await service.get_memory(
+            memory_id,
+            identity_scope=identity_scope,
+        )
+        is None
+    )
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_GET,
         memory_id,

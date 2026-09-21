@@ -13,7 +13,7 @@ from hivememory.core.models import (
 from hivememory.patchouli.application import AgentProfileManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_access_composition, make_actor_access_record, make_identity_scope
 
 
 def _make_memory_atom(title: str = "Worker", user_id: str = "u1") -> MemoryAtom:
@@ -39,7 +39,10 @@ def bus():
 
 @pytest.mark.asyncio
 async def test_create_agent_profile_forces_profile_type_and_requests_memory_create(bus):
-    service = AgentProfileManagementService(bus=bus)
+    service = AgentProfileManagementService(
+        bus=bus,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
+    )
     atom = _make_memory_atom()
     identity_scope = make_identity_scope(user_id="u1")
 
@@ -57,7 +60,10 @@ async def test_create_agent_profile_forces_profile_type_and_requests_memory_crea
 @pytest.mark.asyncio
 async def test_create_agent_profile_rejects_foreign_workspace_atom(bus):
     """捕获 profile 创建在下游前篡改异域 Memory 类型的缺陷。"""
-    service = AgentProfileManagementService(bus=bus)
+    service = AgentProfileManagementService(
+        bus=bus,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
+    )
     foreign_atom = _make_memory_atom(user_id="u2")
 
     with pytest.raises(WorkspaceMismatchError):
@@ -72,7 +78,10 @@ async def test_create_agent_profile_rejects_foreign_workspace_atom(bus):
 
 @pytest.mark.asyncio
 async def test_list_agent_profiles_uses_agent_profile_filter(bus):
-    service = AgentProfileManagementService(bus=bus)
+    service = AgentProfileManagementService(
+        bus=bus,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
+    )
     identity_scope = make_identity_scope(user_id="u1")
 
     await service.list_agent_profiles(identity_scope=identity_scope)

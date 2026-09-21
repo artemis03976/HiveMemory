@@ -63,6 +63,10 @@ from .pending import (
     allowed_transitions,
     is_legal_transition,
 )
+from .projections import (
+    MemorySnapshot,
+    ProfileSnapshot,
+)
 from .topic import (
     LogicalBlock,
     TopicData,
@@ -126,6 +130,8 @@ __all__ = [
     "RelationLayer",
     "MemoryAtom",
     "WorkspaceMemoryKey",
+    "MemorySnapshot",
+    "ProfileSnapshot",
     "ActionReducer",
     "TraceReducer",
     "ActorIdentity",

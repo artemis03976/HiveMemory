@@ -3,7 +3,7 @@ title: Architecture Decision Records
 status: current
 owner: project
 scope: architecture-decisions
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-19
 ---
 
 # Architecture Decision Records
@@ -16,6 +16,7 @@ last_reviewed: 2026-09-13
 - [ADR-0002：全局唯一身份与按需并发保护](./0002-unique-identities-and-minimal-concurrency.md)
 - [ADR-0003：Memory-as-a-Tool 与 MTP RUN 的边界语义](./0003-memory-as-a-tool-and-mtp-run-boundary.md)
 - [ADR-0004：执行路径派生缓存的所有权与键控](./0004-execution-path-derived-caches.md)
+- [ADR-0005：统一 Actor 认证网关与 Workspace 持有的授权](./0005-unified-actor-authentication-and-workspace-authorization.md)
 
 后续从历史设计中提炼 ADR 时，优先评估以下主题：
 

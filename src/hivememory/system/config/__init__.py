@@ -8,6 +8,11 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
+from hivememory.system.config.access import (
+    AccessControlConfig,
+    SystemPrincipalAccessEntry,
+    WorkspaceActorAccessEntry,
+)
 from hivememory.system.config.alice import (
     AgentRuntimeConfig,
     AliceConfig,
@@ -286,6 +291,7 @@ class HiveMemoryConfig(BaseSettings):
     attachment_compiler: AttachmentCompilerConfig = Field(
         default_factory=AttachmentCompilerConfig
     )
+    access: AccessControlConfig = Field(default_factory=AccessControlConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),
@@ -343,6 +349,10 @@ def get_gateway_llm_config() -> LLMConfig:
 
 
 __all__ = [
+    # 访问控制（A1 统一认证网关与注册表）
+    "AccessControlConfig",
+    "SystemPrincipalAccessEntry",
+    "WorkspaceActorAccessEntry",
     # 共享配置
     "LLMConfig", "LLMGlobalConfig",
     "EmbeddingConfig", "EmbeddingGlobalConfig",

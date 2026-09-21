@@ -18,11 +18,12 @@ from uuid import UUID
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
+    IdentityScope,
     MemoryAtom,
     MemoryType,
+    ProfileSnapshot,
     TopicData,
     TopicSnapshot,
-    IdentityScope,
     require_identity_scope,
 )
 from hivememory.core.mtp.exceptions import (
@@ -191,10 +192,31 @@ class RetrievalFamiliar:
         只有未指定 alias 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
         Omni-Doll。任何自定义 alias 的缺失、越权、类型错误或配置损坏都会显式失败。
         """
+        snapshot = await self.get_agent_profile_snapshot(
+            agent_alias,
+            identity_scope=identity_scope,
+        )
+        return snapshot.profile
+
+    async def get_agent_profile_snapshot(
+        self,
+        agent_alias: str | None,
+        *,
+        identity_scope: IdentityScope,
+    ) -> ProfileSnapshot:
+        """
+        Profile 解析的唯一实现（父计划 5.2 节）：builtin/alias 查找/类型校验/
+        profile 解析只维护在本方法，返回携带 source atom UUID/revision 的
+        不可变快照；``get_agent_profile`` 是其裸 Profile 兼容投影。
+        """
         identity_scope = require_identity_scope(identity_scope)
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
-            return OMNI_DOLL_PROFILE
+            return ProfileSnapshot(
+                agent_alias=None,
+                profile=OMNI_DOLL_PROFILE.model_copy(deep=True),
+                source_kind="builtin",
+            )
 
         atom = await self._memory_library.mid_term.get_by_alias(
             identity_scope,
@@ -217,7 +239,13 @@ class RetrievalFamiliar:
                 message_key="mtp.call.profile_invalid",
                 params={"agent_alias": normalized_alias},
             )
-        return profile
+        return ProfileSnapshot(
+            agent_alias=normalized_alias,
+            profile=profile.model_copy(deep=True),
+            source_kind="atom",
+            source_atom_uuid=str(atom.id),
+            source_revision=atom.meta.version,
+        )
 
     async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
         """

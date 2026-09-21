@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from hivememory.alice.system import AliceSystem
 from hivememory.gateway import GatewaySystem
 from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.access import (
+    ActorAuthenticationGateway,
+    SystemActorAccessEntry,
+    SystemActorAccessRegistry,
+)
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.memory_service import MemoryApplicationService
@@ -27,7 +32,11 @@ from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.application.workspace_asset_service import (
     WorkspaceAssetApplicationService,
 )
-from hivememory.system.config import HiveMemoryConfig, RuntimeEventsConfig
+from hivememory.system.config import (
+    AccessControlConfig,
+    HiveMemoryConfig,
+    RuntimeEventsConfig,
+)
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -40,6 +49,11 @@ from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
+from hivememory.workspace.access import WorkspaceAccessGuard, WorkspaceOperation
+from hivememory.workspace.registry import (
+    WorkspaceActorAccessRecord,
+    WorkspaceActorAccessRegistry,
+)
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -60,6 +74,16 @@ class _RuntimeBundle:
 class _RegistriesBundle:
     provider_registry: ProviderRegistry
     model_registry: ModelRegistry
+
+
+@dataclass
+class _AccessControlBundle:
+    """访问控制产物：两类注册表、共享行为检查与统一认证网关。"""
+
+    system_registry: SystemActorAccessRegistry
+    workspace_registry: WorkspaceActorAccessRegistry
+    access_guard: WorkspaceAccessGuard
+    access_gateway: ActorAuthenticationGateway
 
 
 @dataclass
@@ -106,13 +130,15 @@ class SystemAssembler:
 
         runtime = self._build_runtime()
         registries = self._build_registries()
-        subsystems = self._build_subsystems(runtime, registries)
-        services = self._build_services(runtime, subsystems)
+        access_control = self._build_access_control()
+        subsystems = self._build_subsystems(runtime, registries, access_control)
+        services = self._build_services(runtime, subsystems, access_control)
 
         return HiveMemorySystem(
             config=self._config,
             runtime=runtime,
             registries=registries,
+            access_control=access_control,
             subsystems=subsystems,
             services=services,
         )
@@ -187,6 +213,79 @@ class SystemAssembler:
         )
 
     # ------------------------------------------------------------------
+    # 层二点五：访问控制（A1 统一认证网关 + 两类访问注册表）
+    # ------------------------------------------------------------------
+
+    def _build_access_control(self) -> _AccessControlBundle:
+        """装载访问控制配置并构造网关与共享行为检查（A1 计划第 1.2 节）。
+
+        System composition 负责"装载和注入配置"：System 接入登记转入
+        System 注册表，Workspace Actor 访问登记转入 Workspace 注册表，
+        operation 枚举值在装载期校验（未知值显式失败，不静默丢弃）。
+        缺省空配置即 fail closed——网关拒绝一切认证；既有裸 scope 兼容
+        链路不受影响，生产消费者切换由 A6 完成。
+        """
+        access_config = self._config.access
+        if not isinstance(access_config, AccessControlConfig):
+            access_config = AccessControlConfig()
+
+        system_entries = [
+            SystemActorAccessEntry(
+                principal_id=entry.principal_id,
+                kind=entry.kind,
+                enabled=entry.enabled,
+                adapters=frozenset(entry.adapters),
+                allowed_user_ids=(
+                    frozenset(entry.allowed_user_ids)
+                    if entry.allowed_user_ids is not None
+                    else None
+                ),
+            )
+            for entry in access_config.principals
+        ]
+        workspace_records = [
+            WorkspaceActorAccessRecord(
+                owner_user_id=entry.owner_user_id,
+                workspace_id=entry.workspace_id,
+                user_id=entry.user_id,
+                agent_id=entry.agent_id,
+                enabled=entry.enabled,
+                allowed_operations=frozenset(
+                    self._parse_operation(name, entry) for name in entry.allowed_operations
+                ),
+            )
+            for entry in access_config.workspace_actors
+        ]
+
+        system_registry = SystemActorAccessRegistry(system_entries)
+        workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
+        access_guard = WorkspaceAccessGuard(
+            workspace_registry,
+            context_ttl_seconds=access_config.context_ttl_seconds,
+        )
+        access_gateway = ActorAuthenticationGateway(
+            system_registry=system_registry,
+            workspace_access=access_guard,
+        )
+        return _AccessControlBundle(
+            system_registry=system_registry,
+            workspace_registry=workspace_registry,
+            access_guard=access_guard,
+            access_gateway=access_gateway,
+        )
+
+    @staticmethod
+    def _parse_operation(name: str, entry: WorkspaceActorAccessEntry) -> WorkspaceOperation:
+        """把配置中的 operation 枚举值解析为枚举成员；未知值装载期失败。"""
+        try:
+            return WorkspaceOperation(name)
+        except ValueError as exc:
+            raise ValueError(
+                f"Workspace Actor 访问登记包含未知 operation {name!r}: "
+                f"({entry.owner_user_id}, {entry.workspace_id}, {entry.user_id}, {entry.agent_id})"
+            ) from exc
+
+    # ------------------------------------------------------------------
     # 层三：子系统（Gateway / Patchouli / Alice 平级装配）
     # ------------------------------------------------------------------
 
@@ -194,6 +293,7 @@ class SystemAssembler:
         self,
         runtime: _RuntimeBundle,
         registries: _RegistriesBundle,
+        access_control: _AccessControlBundle,
     ) -> _SubsystemBundle:
         gateway = GatewaySystem(
             config=self._config,
@@ -209,6 +309,9 @@ class SystemAssembler:
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
             # Patchouli：附件选择在 prepare 边界 resolve/acquire（W1-D）。
             workspace_asset_reader=runtime.workspace_asset_store,
+            # A1：System composition 注入共享行为检查；Patchouli 公共入口
+            # 据此执行操作授权，不反向依赖认证网关实现。
+            access_guard=access_control.access_guard,
         )
 
         alice = AliceSystem(
@@ -228,6 +331,7 @@ class SystemAssembler:
         self,
         runtime: _RuntimeBundle,
         subsystems: _SubsystemBundle,
+        access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
         chat = ChatApplicationService(
             global_bus=runtime.global_bus,
@@ -274,6 +378,8 @@ class SystemAssembler:
                 store=runtime.workspace_asset_store,
                 config=self._config.attachment_parser,
             ),
+            # A1：上传在自己的公共入口调用同一共享行为检查。
+            access_guard=access_control.access_guard,
         )
 
         return _ServicesBundle(

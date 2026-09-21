@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-19
 ---
 
 # 子系统公共契约
@@ -165,7 +165,13 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题。已有话题
 | Citation | 记录 MTP READ/RUN 等来源的记忆引用 |
 | Readiness | 模型 warmup 与 ready 查询 |
 
-Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见。Topic ID 在领域上保持全局唯一；`IdentityScope` 用于确认访问归属，不构造另一套局部 ID 命名空间。
+Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；以上能力在携带访问上下文时按第 3.5 节执行行为授权，任务归属按权威 `IdentityScope` 投影判断，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；`IdentityScope` 用于确认访问归属，不构造另一套局部 ID 命名空间。
+
+### 3.5 访问上下文与行为授权
+
+公共 application 方法约定接收 `access: WorkspaceAccessContext | None` 参数：context 由 System 统一认证网关签发、由 Workspace 访问基础设施逐次校验。提供 access 时，application 在资源读取或副作用之前按方法绑定的 operation 调用共享行为检查，取得可信 `IdentityScope` 后才进入领域链；请求 DTO 中携带的 scope 只能作一致性校验，不得覆盖可信坐标。`WorkspaceAccessContext` 只公开已准入的 `IdentityScope`，不携带调用来源、行为白名单或单次 operation；同一有效 context 可先后执行不同的获准操作。
+
+两类入口并存是显式契约而非疏漏：`read_memory`、`interaction.submit`、`memory_intent.submit` 等不在迁移兼容清单内，缺失 access 一律拒绝；管理 CRUD、检索、Profile、Topic 管理和附件上传等既有调用方在缺失 access 时按裸 scope 受信适配运行，清单（保留入口、已有调用方、A6 删除点）唯一维护在 `patchouli/application/access_consumption.py`，A6 完成生产消费者切换后删除兼容分支。Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义（接入认证、准入、行为授权、context 有效性）见[错误模型](./error-model.md)，完整访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
 ## 4. Alice 契约
 
@@ -275,4 +281,4 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 - 改变 AgentRunResult 终态和 finalize 资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/test_service.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/test_service.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。

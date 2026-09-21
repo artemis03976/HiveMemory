@@ -165,7 +165,7 @@ class TestProfileLoadingErrors:
                 alias,
                 identity_scope=make_identity_scope(user_id="u1"),
             )
-            assert profile is OMNI_DOLL_PROFILE
+            assert profile == OMNI_DOLL_PROFILE
 
         get_by_alias.assert_not_awaited()
 
@@ -178,7 +178,7 @@ class TestProfileLoadingErrors:
                 alias,
                 identity_scope=make_identity_scope(user_id="u1"),
             )
-            assert profile is OMNI_DOLL_PROFILE
+            assert profile == OMNI_DOLL_PROFILE
 
         get_by_alias.assert_not_awaited()
 

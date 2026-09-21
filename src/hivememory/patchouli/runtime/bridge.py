@@ -16,6 +16,12 @@ if TYPE_CHECKING:
     from hivememory.patchouli.application.agent_profile_management_service import (
         AgentProfileManagementService,
     )
+    from hivememory.patchouli.application.interaction_submission_service import (
+        InteractionSubmissionService,
+    )
+    from hivememory.patchouli.application.memory_intent_submission_service import (
+        MemoryIntentSubmissionService,
+    )
     from hivememory.patchouli.application.memory_management_service import MemoryManagementService
     from hivememory.patchouli.application.memory_task_management_service import (
         MemoryTaskManagementService,
@@ -32,13 +38,14 @@ class PatchouliPublicApi:
     memory: MemoryManagementService
     memory_tasks: MemoryTaskManagementService
     agent_profiles: AgentProfileManagementService
+    interactions: InteractionSubmissionService
+    memory_intents: MemoryIntentSubmissionService
     topics: TopicManagementService
     readiness: ModelReadinessService
 
 
 class PatchouliBridge:
     """把 Patchouli 局部能力与事件桥接到系统级总线。"""
-
 
     def __init__(
         self,
@@ -146,6 +153,22 @@ class PatchouliBridge:
             (
                 PatchouliRoutes.GET_AGENT_PROFILE,
                 self._public_api.agent_profiles.get_agent_profile,
+            ),
+            (
+                PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT,
+                self._public_api.agent_profiles.get_agent_profile_snapshot,
+            ),
+            (
+                PatchouliRoutes.MEMORY_READ,
+                self._public_api.memory.read_memory,
+            ),
+            (
+                PatchouliRoutes.INTERACTION_SUBMIT,
+                self._public_api.interactions.submit_interaction,
+            ),
+            (
+                PatchouliRoutes.MEMORY_INTENT_SUBMIT,
+                self._public_api.memory_intents.submit_memory_intent,
             ),
             (
                 PatchouliRoutes.PREPARE_AGENT_RUN,

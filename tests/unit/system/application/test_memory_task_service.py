@@ -31,7 +31,7 @@ async def test_get_memory_task_requests_patchouli_route():
     result = await service.get_memory_task("task_1")
 
     assert result == "task"
-    handler.assert_awaited_once_with("task_1")
+    handler.assert_awaited_once_with("task_1", access=None)
 
 
 @pytest.mark.asyncio
@@ -44,4 +44,4 @@ async def test_cancel_memory_task_requests_patchouli_route():
     result = await service.cancel_memory_task("task_1")
 
     assert result is True
-    handler.assert_awaited_once_with("task_1")
+    handler.assert_awaited_once_with("task_1", access=None)

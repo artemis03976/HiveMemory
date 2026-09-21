@@ -48,7 +48,7 @@ class _MemoryManagementStub:
         self.storage = storage
         self.lifecycle_engine = lifecycle_engine
 
-    async def create_memory(self, identity_scope, atom):
+    async def create_memory(self, identity_scope, atom, access=None):
         self.storage.upsert_memory(atom)
         return atom
 
@@ -61,6 +61,7 @@ class _MemoryManagementStub:
         limit=20,
         exclude_types=None,
         refresh_vitality=True,
+        access=None,
     ):
         if query:
             results = self.storage.search_memories(
@@ -85,7 +86,7 @@ class _MemoryManagementStub:
             )
         ]
 
-    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True):
+    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True, access=None):
         atom = self.storage.get_memory(memory_id)
         if atom is not None and not memory_belongs_to_workspace(
             atom,
@@ -118,10 +119,10 @@ class _MemoryManagementStub:
         self.storage.upsert_memory(atom)
         return atom
 
-    async def delete_memory(self, memory_id, *, identity_scope):
+    async def delete_memory(self, memory_id, *, identity_scope, access=None):
         return self.storage.delete_memory(memory_id)
 
-    async def record_feedback(self, memory_id, *, identity_scope, positive, source):
+    async def record_feedback(self, memory_id, *, identity_scope, positive, source, access=None):
         if self.lifecycle_engine is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
         return self.lifecycle_engine.record_feedback(

@@ -32,7 +32,10 @@ from hivememory.system.runtime.work_queue import (
     WorkState,
 )
 
-InteractionOrigin = Literal["active_chat", "passive_memory"]
+# ``workspace_port`` 供 Patchouli 交互提交 application 用例
+# （InteractionSubmissionService）使用：与 active/passive 并列的程序化提交
+# 来源（WRX-1）。
+InteractionOrigin = Literal["active_chat", "passive_memory", "workspace_port"]
 
 
 def _require_text(value: str, *, field_name: str) -> None:
@@ -76,8 +79,8 @@ class InteractionSubmission:
         _require_text(self.interaction_id, field_name="interaction_id")
         _require_text(self.requested_topic_id, field_name="requested_topic_id")
         _require_text(self.ordering_key, field_name="ordering_key")
-        if self.origin not in {"active_chat", "passive_memory"}:
-            raise ValueError("origin must be active_chat or passive_memory")
+        if self.origin not in {"active_chat", "passive_memory", "workspace_port"}:
+            raise ValueError("origin must be active_chat, passive_memory or workspace_port")
         if not isinstance(self.correlation, Mapping):
             raise TypeError("correlation must be a mapping")
 
