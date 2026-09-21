@@ -16,7 +16,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 |:---|:---:|:---|
 | [v0.7.0 计划 A：Workspace 资源平面重构协调计划](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 维护 A1–A6 及 A2-P 的共同边界、依赖和发布出口；不再重复维护子计划的完整实施细节 |
 | [A2-P 记忆内容版本与 Lifecycle 状态重构](./v0.7.0-a2-pre-memory-version-and-lifecycle.md) | Planned / A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
-| [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 等待 A2-P 前置交付 | 消费完整原子与受控 mutation，交付 canonical/Profile 读取、Workspace 共享缓存与同步更新/失效；命中逐次资源授权且不回源 |
+| [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 等待 A2-P 前置交付 | 公共读取返回完整 MemoryAtom/列表和 AgentProfile，旧 envelope 留在 adapter；交付 Workspace 共享缓存与同步更新/失效，命中逐次资源授权且不回源 |
 | [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 新增 Session，演进 InteractionPayload/TurnEvent；交付 Topic 生命周期、交互/资料公共路由与授权结果查询 |
 | [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |
 | [A5 Patchouli 共同 API 与业务职责收敛](./v0.7.0-a5-patchouli-unified-api.md) | Active | 消费 A1–A4 成果核对全局 API，补检索/使用报告差额，形成旧服务职责退出清单 |

@@ -174,6 +174,8 @@ last_reviewed: 2026-09-20
 
 2026-09-20 新增 A2-P（Planned）：动态字段聚合到 `meta.lifecycle`，维护不得推进内容 version、整颗重写原子或重新计算向量；新内容提交必须关联完整版本记录，并显式迁移旧 schema/披露历史缺口。A2 保留 Active 以承接已有工作，但缓存实现以该前置完成为门槛。历史记录从 v0.7.0 开始完整保存，v0.7.3 负责读取编译，不延后保存责任。
 
+同日修订 [A2 公共读取结果](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md#13-canonical-读取结果与公开路由)：canonical 点读返回完整 MemoryAtom/None，alias 与检索返回原子列表，Profile 返回已有 AgentProfile。MemorySnapshot/ProfileSnapshot 退出目标设计，RetrievalResponse 仅用于 adapter 或本地运行上下文过渡；A4 的 Pending 状态结果保留完整 canonical 原子，A6/B 承担消费者和协议映射。该修订仍是计划目标。
+
 - [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
 2026-09-19 A1 完成收口：统一认证网关、两类登记、guard 签发生命周期与逐次行为授权已实现、测试、验收并通过代码审查，[A1 计划](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)已归档。当前事实入口：[Workspace 架构](./architecture/workspace.md)第 4 节、[错误模型](./contracts/error-model.md)第 4.4 节、[子系统公共契约](./contracts/subsystem-contracts.md)第 3.5 节与 [ADR-0005](./architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。附件上传的 scope 一致性缺陷单独追踪于 [Todo](./todo/workspace-asset-upload-access-scope-mismatch.md)；A6 生产接入和兼容退出仍待完成。
