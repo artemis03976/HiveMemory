@@ -3,7 +3,6 @@ syscall 注册表构建器。
 """
 
 from functools import partial
-from typing import Dict
 
 from hivememory.agent_runtime.mtp.syscalls.clock import sys_clock
 from hivememory.agent_runtime.mtp.syscalls.file_io import sys_read_file, sys_write_file
@@ -19,7 +18,7 @@ def build_kernel_registry(
     file_read_max_bytes: int = 102400,
     file_write_max_bytes: int = 102400,
     web_search_timeout: int = 15,
-) -> Dict[str, KernelSyscall]:
+) -> dict[str, KernelSyscall]:
     """
     构建内核工具注册表 (KERNEL_REGISTRY)。
     """

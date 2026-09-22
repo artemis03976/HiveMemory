@@ -9,15 +9,12 @@ KoakumaRuntime 已重构为 bus-based 架构 (bus, config)，
 """
 
 from unittest.mock import MagicMock
-from typing import Optional
 
-import pytest
-
-from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
+from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
 class MockAsyncBus(AsyncSystemBus):
@@ -34,9 +31,9 @@ class MockAsyncBus(AsyncSystemBus):
 
     def __init__(
         self,
-        mock_storage: Optional[MagicMock] = None,
-        mock_retrieval: Optional[MagicMock] = None,
-        mock_generation: Optional[MagicMock] = None,
+        mock_storage: MagicMock | None = None,
+        mock_retrieval: MagicMock | None = None,
+        mock_generation: MagicMock | None = None,
     ):
         super().__init__()
         self._mock_storage = mock_storage or MagicMock()
@@ -102,9 +99,9 @@ class MockAsyncBus(AsyncSystemBus):
 
 
 def make_mock_bus(
-    mock_storage: Optional[MagicMock] = None,
-    mock_retrieval: Optional[MagicMock] = None,
-    mock_generation: Optional[MagicMock] = None,
+    mock_storage: MagicMock | None = None,
+    mock_retrieval: MagicMock | None = None,
+    mock_generation: MagicMock | None = None,
 ) -> MockAsyncBus:
     """工厂函数: 创建配置好的异步 mock bus"""
     return MockAsyncBus(

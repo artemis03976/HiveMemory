@@ -11,9 +11,10 @@ AsyncSystemBus — 纯异步系统总线基类
     - publish() 对无订阅者的事件静默 no-op
 """
 
-import logging
 import inspect
-from typing import Any, Awaitable, Callable
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

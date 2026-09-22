@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock, PropertyMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -71,7 +71,7 @@ class TestLifecycleEngineVitality:
         mem = _make_memory(vitality_score=10.0)
         self.mock_vitality.calculate.return_value = 72.0
 
-        result = await self.engine.refresh_vitality(mem, persist=False)
+        await self.engine.refresh_vitality(mem, persist=False)
 
         assert mem.meta.vitality_score == pytest.approx(72.0)
         self.mock_mid_term.upsert.assert_not_called()
@@ -81,7 +81,7 @@ class TestLifecycleEngineVitality:
         mem = _make_memory(vitality_score=10.0)
         self.mock_vitality.calculate.return_value = 72.0
 
-        result = await self.engine.refresh_vitality(mem, persist=True)
+        await self.engine.refresh_vitality(mem, persist=True)
 
         assert mem.meta.vitality_score == pytest.approx(72.0)
         self.mock_mid_term.upsert.assert_awaited_once_with(mem)
@@ -180,7 +180,7 @@ class TestLifecycleEngineDelegation:
         self.mock_vitality.calculate.side_effect = [12.0, 88.0]
         self.mock_gc.collect.return_value = 3
 
-        result = await self.engine.run_garbage_collection(force=True)
+        await self.engine.run_garbage_collection(force=True)
 
         self.mock_mid_term.list_all_for_maintenance.assert_awaited_once_with(limit=10000)
         assert self.mock_mid_term.upsert.await_count == 2

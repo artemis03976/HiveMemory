@@ -36,6 +36,7 @@ from hivememory.system.config import (
     AccessControlConfig,
     HiveMemoryConfig,
     RuntimeEventsConfig,
+    WorkspaceActorAccessEntry,
 )
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry

@@ -38,8 +38,8 @@ from hivememory.core.mtp import (
 )
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
 

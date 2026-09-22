@@ -10,19 +10,17 @@ E2E 测试共享 Fixtures
 版本: 1.0
 """
 
-import time
 import asyncio
 import logging
-from typing import Optional, List
+import time
 from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import ActorIdentity, MemoryAtom
+from hivememory.core.models import MemoryAtom
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.system.config import load_app_config
-from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.system import HiveMemorySystem
+from hivememory.system.config import load_app_config
 
 logger = logging.getLogger(__name__)
 
@@ -84,9 +82,9 @@ def clean_user(e2e_system):
             user_id = clean_user()
             # ... 测试逻辑 ...
     """
-    created_user_ids: List[str] = []
+    created_user_ids: list[str] = []
 
-    def _factory(user_id: Optional[str] = None) -> str:
+    def _factory(user_id: str | None = None) -> str:
         uid = user_id or f"e2e-test-{uuid4().hex[:8]}"
         # 测试前清理
         _cleanup_user_memories(e2e_system, uid)
@@ -163,7 +161,7 @@ def wait_for_memory_persistence(
     min_count: int = 1,
     timeout: float = 15.0,
     poll_interval: float = 1.0,
-) -> List[MemoryAtom]:
+) -> list[MemoryAtom]:
     """
     轮询 Qdrant 直到记忆持久化
 
@@ -213,7 +211,7 @@ async def wait_for_memory_persistence_async(
     min_count: int = 1,
     timeout: float = 15.0,
     poll_interval: float = 1.0,
-) -> List[MemoryAtom]:
+) -> list[MemoryAtom]:
     """
     异步版本：在线程中执行同步轮询，避免阻塞事件循环
 

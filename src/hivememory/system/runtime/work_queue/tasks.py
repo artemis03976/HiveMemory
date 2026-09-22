@@ -47,7 +47,7 @@ class QueueTaskAdapter(Protocol[TaskT]):
     def decode(self, payload: object) -> TaskT: ...
 
 
-def adapt_queue_task(
+def adapt_queue_task[TaskT](
     task: TaskT,
     *,
     lane: str,

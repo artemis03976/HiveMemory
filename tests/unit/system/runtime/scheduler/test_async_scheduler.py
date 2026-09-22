@@ -11,8 +11,9 @@ AsyncMaintenanceScheduler 单元测试
 
 import asyncio
 from typing import Any
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.events import RecordingRuntimeEventSink
@@ -225,7 +226,7 @@ class TestSchedulerExecution:
             fake_clock.advance(0.5)
             await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow", 1)
             await scheduler.stop()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await scheduler.stop()
             raise
 
@@ -336,7 +337,7 @@ class TestSchedulerExecution:
             fake_clock.advance(0.5)
             await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow_events", 1)
             await scheduler.stop()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await scheduler.stop()
             raise
 

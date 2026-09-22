@@ -1,5 +1,5 @@
-from fastapi import WebSocketDisconnect
 import pytest
+from fastapi import WebSocketDisconnect
 
 from hivememory.server.routers.logs import websocket_logs_endpoint
 

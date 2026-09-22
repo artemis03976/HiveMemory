@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService

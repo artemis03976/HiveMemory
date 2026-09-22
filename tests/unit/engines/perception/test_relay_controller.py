@@ -10,16 +10,13 @@ Note:
     v3.0 重构：should_trigger_relay() 改为 should_relay()，返回 Optional[FlushEvent]
 """
 
-import pytest
 from unittest.mock import Mock
 
-from hivememory.core.models import AgentAction, ActorIdentity, TraceItem, TurnRecord
-from hivememory.engines.perception.relay_controller import SimpleRelayController
+from hivememory.core.models import AgentAction, TraceItem, TurnRecord
 from hivememory.engines.perception.models import (
-    FlushEvent,
     LogicalBlock,
-    TriggerReason,
 )
+from hivememory.engines.perception.relay_controller import SimpleRelayController
 
 
 class TestRelayController:

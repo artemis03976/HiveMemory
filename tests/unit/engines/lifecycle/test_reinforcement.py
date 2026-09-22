@@ -9,14 +9,15 @@ HiveMemory - 强化引擎单元测试
 - 事件历史跟踪
 """
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
-from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
+import pytest
+
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.engines.lifecycle.models import EventType, MemoryEvent
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
-from hivememory.engines.lifecycle.models import MemoryEvent, EventType
 from hivememory.system.config import ReinforcementEngineConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope

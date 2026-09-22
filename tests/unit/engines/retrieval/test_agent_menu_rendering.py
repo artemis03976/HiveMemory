@@ -14,32 +14,9 @@ Phase 2 多智能体子代理调用集成测试
 版本: 1.0
 """
 
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from hivememory.core.models import (
-    ActorIdentity,
-    AgentProfile,
     MemoryAtom,
     MemoryType,
-    OMNI_DOLL_PROFILE,
-    RuntimeScope,
-)
-from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.system.config import KoakumaConfig
-from hivememory.core.mtp import (
-    MTPCallResponse,
-    MTPVerb,
-    MTPResponseStatus,
-    MTPParser,
-    MTPCommand,
-    MTPCallRequest,
-    MTPErrorInfo,
-    MTPErrorSeverity,
-    MTPFormatter,
-    MTPResponse,
 )
 from tests.helpers.memory import make_memory_metadata
 
@@ -51,7 +28,7 @@ class TestRAGMenuRendering:
 
     def test_render_agent_menu(self):
         """通过 MemoryCompiler envelope 渲染子代理区域"""
-        from hivememory.core.models import IndexLayer, MetaData, PayloadLayer
+        from hivememory.core.models import IndexLayer, PayloadLayer
         from hivememory.engines.memory_compiler import (
             MemoryCompiler,
             MemoryEnvelopeTarget,
@@ -90,12 +67,12 @@ class TestRAGMenuRendering:
 
     def test_render_agent_menu_empty(self):
         """无子代理 section 时不渲染子代理区域"""
-        from hivememory.i18n import get_memory_envelope_text, get_default_language
-        from hivememory.core.models import IndexLayer, MetaData, PayloadLayer
+        from hivememory.core.models import IndexLayer, PayloadLayer
         from hivememory.engines.memory_compiler import (
             MemoryCompiler,
             MemoryEnvelopeTarget,
         )
+        from hivememory.i18n import get_default_language, get_memory_envelope_text
 
         agent_empty_hint = get_memory_envelope_text(
             "retrieval_agent_empty_hint", get_default_language().value

@@ -10,11 +10,10 @@ TimeFormatter 单元测试
 - 边界情况
 """
 
-import pytest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from hivememory.utils import TimeFormatter, Language, format_time_ago
+from hivememory.utils import Language, TimeFormatter, format_time_ago
 
 
 class TestTimeFormatter:

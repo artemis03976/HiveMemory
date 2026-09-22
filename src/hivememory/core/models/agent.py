@@ -4,7 +4,7 @@ HiveMemory 核心数据模型 - 智能体领域
 定义与多智能体系统（Agentic System）相关的数据模型。
 """
 
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, Field
 
@@ -29,27 +29,27 @@ class AgentProfile(BaseModel):
 
     persona: str = Field(default="", description="Agent 人设提示词")
     model_name: str = Field(default="default", description="基底模型名称")
-    temperature: Optional[float] = Field(
+    temperature: float | None = Field(
         default=None, ge=0.0, le=2.0, description="推理温度覆盖。None 表示沿用注册表模型定义的温度"
     )
-    top_p: Optional[float] = Field(
+    top_p: float | None = Field(
         default=None,
         ge=0.0,
         le=1.0,
         description="核采样阈值覆盖。None 表示沿用注册表模型定义的 top_p",
     )
 
-    allowed_mtp_verbs: Optional[List[str]] = Field(
+    allowed_mtp_verbs: list[str] | None = Field(
         default=None, description="允许的 MTP 指令动词白名单，None=全部允许，[]=禁止所有"
     )
-    allowed_sys_tools: Optional[List[str]] = Field(
+    allowed_sys_tools: list[str] | None = Field(
         default=None, description="允许的系统工具白名单，None=全部允许，[]=禁止所有"
     )
 
     language: str = Field(default="zh", description="提示词语言 (zh/en)")
 
-    _verb_set: Optional[Set[str]] = None
-    _tool_set: Optional[Set[str]] = None
+    _verb_set: set[str] | None = None
+    _tool_set: set[str] | None = None
 
     @classmethod
     def from_atom(cls, atom: "MemoryAtom") -> Optional["AgentProfile"]:
@@ -65,7 +65,7 @@ class AgentProfile(BaseModel):
         except Exception:
             return None
 
-    def get_verb_set(self) -> Set[str]:
+    def get_verb_set(self) -> set[str]:
         """获取 MTP 动词白名单的 set 版本（惰性构建）"""
         if self._verb_set is None:
             self._verb_set = (
@@ -73,7 +73,7 @@ class AgentProfile(BaseModel):
             )
         return self._verb_set
 
-    def get_tool_set(self) -> Set[str]:
+    def get_tool_set(self) -> set[str]:
         """获取系统工具白名单的 set 版本（惰性构建）"""
         if self._tool_set is None:
             self._tool_set = set(self.allowed_sys_tools) if self.allowed_sys_tools else set()

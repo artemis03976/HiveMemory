@@ -28,10 +28,7 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 版本: 1.0 (Phase 3)
 """
 
-from typing import List, Optional
-
-from hivememory.core.models import ActorIdentity, TraceItem
-from hivememory.core.models import LogicalBlock
+from hivememory.core.models import LogicalBlock, TraceItem
 from hivememory.engines.generation.models import GenerationContext, GenerationTurn
 
 
@@ -45,7 +42,7 @@ class GenerationTranscriptBuilder:
 
     def build_context(
         self,
-        blocks: List[LogicalBlock],
+        blocks: list[LogicalBlock],
         state_summary: str = "",
     ) -> GenerationContext:
         """
@@ -104,7 +101,7 @@ class GenerationTranscriptBuilder:
             identity=identity,
         )
 
-    def _traces_to_summaries(self, traces: List[TraceItem]) -> List[str]:
+    def _traces_to_summaries(self, traces: list[TraceItem]) -> list[str]:
         """将 TraceItem 列表转换为可读的动作摘要字符串列表。"""
         summaries = []
         for trace in traces:
@@ -113,7 +110,7 @@ class GenerationTranscriptBuilder:
                 summaries.append(summary)
         return summaries
 
-    def _trace_to_summary(self, trace: TraceItem) -> Optional[str]:
+    def _trace_to_summary(self, trace: TraceItem) -> str | None:
         """将单个 TraceItem 转换为动作摘要字符串。"""
         action = trace.action.upper()
 
@@ -135,7 +132,7 @@ class GenerationTranscriptBuilder:
 
     def _format_context(self, context: GenerationContext) -> str:
         """将 GenerationContext 渲染为文本。"""
-        sections: List[str] = []
+        sections: list[str] = []
 
         if context.state_summary:
             sections.append(f"[Topic State]\n{context.state_summary}")

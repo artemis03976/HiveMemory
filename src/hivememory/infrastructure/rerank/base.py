@@ -6,8 +6,11 @@ Rerank 服务基础模块
 
 import logging
 import threading
-from typing import List, Union, Optional
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from hivememory.system.config import RerankerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +24,8 @@ class BaseRerankService(ABC):
 
     @abstractmethod
     def compute_score(
-        self, pairs: List[List[str]], batch_size: int = 256, max_length: int = 512
-    ) -> List[float]:
+        self, pairs: list[list[str]], batch_size: int = 256, max_length: int = 512
+    ) -> list[float]:
         """
         计算文本对的相似度分数
 

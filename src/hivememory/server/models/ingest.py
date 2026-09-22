@@ -1,7 +1,7 @@
 """Passive ingest HTTP API 的 Request/Response 模型"""
 
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,13 +16,13 @@ class PassiveIngressRequest(BaseModel):
         ...,
         description="外部会话 ID，与 source 一起构成外部会话命名空间",
     )
-    external_event_id: Optional[str] = Field(
+    external_event_id: str | None = Field(
         default=None,
         description="外部事件 ID，与 source 一起构成幂等键；缺省时由服务端生成",
     )
-    turn_id: Optional[str] = Field(default=None, description="外部 turn 关联 ID")
-    occurred_at: Optional[datetime] = Field(default=None, description="事件在外部系统发生的时间")
-    sequence: Optional[int] = Field(default=None, description="外部事件序号")
+    turn_id: str | None = Field(default=None, description="外部 turn 关联 ID")
+    occurred_at: datetime | None = Field(default=None, description="事件在外部系统发生的时间")
+    sequence: int | None = Field(default=None, description="外部事件序号")
     is_final: bool = Field(default=False, description="该事件是否完成当前 turn（与 role 无关）")
 
     # ---------- 事件内容 ----------
@@ -39,14 +39,12 @@ class PassiveIngressRequest(BaseModel):
         ...,
         description="接入事件来源的具体 Agent ID（参与外部会话命名空间，无默认值）",
     )
-    action_id: Optional[str] = Field(
-        default=None, description="工具调用 ID (tool_call/tool_result)"
-    )
-    tool_name: Optional[str] = Field(default=None, description="工具名称 (tool_call)")
-    tool_kind: Optional[str] = Field(default=None, description="工具类型 (tool_call)")
-    tool_args: Optional[Dict[str, Any]] = Field(default=None, description="工具参数 (tool_call)")
-    target: Optional[str] = Field(default=None, description="目标 (tool_call)")
-    status: Optional[str] = Field(default=None, description="执行状态 (tool_result)")
+    action_id: str | None = Field(default=None, description="工具调用 ID (tool_call/tool_result)")
+    tool_name: str | None = Field(default=None, description="工具名称 (tool_call)")
+    tool_kind: str | None = Field(default=None, description="工具类型 (tool_call)")
+    tool_args: dict[str, Any] | None = Field(default=None, description="工具参数 (tool_call)")
+    target: str | None = Field(default=None, description="目标 (tool_call)")
+    status: str | None = Field(default=None, description="执行状态 (tool_result)")
     render_as: str = Field(default="plain", description="渲染方式 (tool_result)")
 
 
@@ -59,7 +57,7 @@ class PassiveIngressResponse(BaseModel):
 
     status: Literal["accepted", "buffered", "duplicate", "ignored"]
     external_event_id: str
-    memory: Optional[str] = None
+    memory: str | None = None
 
 
 class PassiveFlushRequest(BaseModel):

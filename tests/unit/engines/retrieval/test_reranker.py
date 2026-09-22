@@ -4,26 +4,26 @@
 测试 BGE-Reranker-v2-m3 重排序器的功能。
 """
 
+from datetime import datetime
+from unittest.mock import Mock
+from uuid import uuid4
+
 import pytest
-from unittest.mock import Mock, patch
+
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+)
+from hivememory.engines.retrieval.models import RetrievalQuery, SearchResult, SearchResults
 from hivememory.engines.retrieval.reranker import (
     CrossEncoderReranker,
     NoopReranker,
     create_reranker,
 )
-from hivememory.engines.retrieval.models import SearchResults, SearchResult, RetrievalQuery
-from hivememory.core.models import (
-    MemoryAtom,
-    IndexLayer,
-    MetaData,
-    PayloadLayer,
-    MemoryType,
-    MemoryVisibility,
-)
-from hivememory.system.config import RerankerConfig
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from datetime import datetime
-from uuid import uuid4
+from hivememory.system.config import RerankerConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

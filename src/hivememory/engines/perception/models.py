@@ -108,7 +108,7 @@ class TopicMaterializeTask(BaseModel):
         *,
         identity_scope: IdentityScope,
         reason: TriggerReason,
-    ) -> "TopicMaterializeTask | None":
+    ) -> TopicMaterializeTask | None:
         """从冻结 TopicData 构造生成交接任务；无可保存 block 时返回 None。
 
         TopicData 只保存 Workspace 归属，不保存本次执行者身份，因此

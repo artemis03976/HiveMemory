@@ -1,7 +1,5 @@
 """Agents 路由 — Agent Profile 列表"""
 
-from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.core.models import IdentityScope
@@ -34,7 +32,7 @@ async def create_agent(
     return AgentProfileResponse.from_atom(atom)
 
 
-@router.get("/agents", response_model=List[AgentProfileResponse])
+@router.get("/agents", response_model=list[AgentProfileResponse])
 async def list_agents(
     service: AgentApplicationService = Depends(get_agent_service),
     identity_scope: IdentityScope = Depends(get_identity_scope),

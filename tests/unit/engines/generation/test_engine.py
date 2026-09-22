@@ -11,21 +11,11 @@ MemoryGenerationEngine 单元测试
 - 版本历史追踪
 """
 
-import pytest
-from unittest.mock import Mock, patch, call, AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
-from datetime import datetime
 
-from hivememory.engines.generation.engine import MemoryGenerationEngine, MEMORY_TYPE_ALIAS_PREFIX
-from hivememory.engines.generation.models import (
-    DuplicateDecision,
-    ExtractedMemoryDraft,
-    GenerationRequest as GenerationRequestModel,
-    GenerationContext,
-    GenerationTurn,
-    MemoryProvenance,
-    MergeResult,
-)
+import pytest
+
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -36,6 +26,18 @@ from hivememory.core.models import (
     StreamMessageType,
     UpdateFocus,
     WriteFocus,
+)
+from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.models import (
+    DuplicateDecision,
+    ExtractedMemoryDraft,
+    GenerationContext,
+    GenerationTurn,
+    MemoryProvenance,
+    MergeResult,
+)
+from hivememory.engines.generation.models import (
+    GenerationRequest as GenerationRequestModel,
 )
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 

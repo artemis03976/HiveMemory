@@ -14,8 +14,8 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope
 
 from .conftest import (
     make_koakuma_runtime,

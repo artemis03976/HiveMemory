@@ -3,11 +3,11 @@
 import pytest
 
 from hivememory.engines.perception.models import TopicMaterializeTask
-from tests.helpers.memory import make_memory_identity_scope
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
     InteractionApplyStage,
 )
+from tests.helpers.memory import make_memory_identity_scope
 
 
 def test_journal_records_all_apply_stages() -> None:

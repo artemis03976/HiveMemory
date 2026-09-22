@@ -29,8 +29,8 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
-from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_profile_atom(

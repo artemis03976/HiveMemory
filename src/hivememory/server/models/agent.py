@@ -1,6 +1,6 @@
 """Agent 请求/响应模型"""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -12,8 +12,8 @@ class AgentCreateRequest(BaseModel):
     alias: str
     summary: str = ""
     content: str = ""
-    tags: List[str] = []
-    agent_config: Optional[Dict[str, Any]] = None
+    tags: list[str] = []
+    agent_config: dict[str, Any] | None = None
 
 
 class AgentProfileResponse(BaseModel):
@@ -21,9 +21,9 @@ class AgentProfileResponse(BaseModel):
     alias: str
     title: str
     summary: str
-    tags: List[str]
+    tags: list[str]
     content: str = ""  # payload.content — Agent 的人格/系统指令
-    agent_config: Optional[Dict[str, Any]] = None
+    agent_config: dict[str, Any] | None = None
 
     @classmethod
     def from_atom(cls, atom: MemoryAtom) -> "AgentProfileResponse":

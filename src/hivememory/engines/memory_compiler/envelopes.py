@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
-from hivememory.i18n import (
-    get_memory_envelope_text,
-    get_memory_section_title,
-)
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemory,
@@ -17,6 +11,10 @@ from hivememory.engines.memory_compiler.models import (
     MemoryCompileTarget,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
+)
+from hivememory.i18n import (
+    get_memory_envelope_text,
+    get_memory_section_title,
 )
 from hivememory.system.config.memory_compiler import (
     CascadeContextStrategyConfig,
@@ -88,19 +86,19 @@ def _resolve_section_units(
 
 
 def _compile_units_for_target(
-    units: List[MemoryUnitIR],
+    units: list[MemoryUnitIR],
     target: MemoryCompileTarget,
     options: MemoryCompileOptions,
-) -> List[CompiledMemoryArtifact]:
+) -> list[CompiledMemoryArtifact]:
     from hivememory.engines.memory_compiler.handlers.targets import compile_unit_from_ir
 
     return [compile_unit_from_ir(unit, target, options) for unit in units]
 
 
 def _compile_units_with_strategy(
-    units: List[MemoryUnitIR],
+    units: list[MemoryUnitIR],
     options: MemoryCompileOptions,
-) -> List[CompiledMemoryArtifact]:
+) -> list[CompiledMemoryArtifact]:
     from hivememory.engines.memory_compiler.handlers.targets import compile_unit_from_ir
 
     cfg = options.retrieval_strategy_config
@@ -117,7 +115,7 @@ def _compile_units_with_strategy(
 
 
 def _apply_full_strategy(units, cfg: FullContextStrategyConfig, opts, compile_unit_from_ir):
-    artifacts: List[CompiledMemoryArtifact] = []
+    artifacts: list[CompiledMemoryArtifact] = []
     total = 0
     unit_opts = opts.model_copy(
         update={
@@ -135,7 +133,7 @@ def _apply_full_strategy(units, cfg: FullContextStrategyConfig, opts, compile_un
 
 
 def _apply_cascade_strategy(units, cfg: CascadeContextStrategyConfig, opts, compile_unit_from_ir):
-    artifacts: List[CompiledMemoryArtifact] = []
+    artifacts: list[CompiledMemoryArtifact] = []
     remaining = cfg.max_memory_tokens
     for i, unit in enumerate(units):
         if i < cfg.full_payload_count:
@@ -164,7 +162,7 @@ def _apply_cascade_strategy(units, cfg: CascadeContextStrategyConfig, opts, comp
 
 
 def _apply_compact_strategy(units, cfg: CompactContextStrategyConfig, opts, compile_unit_from_ir):
-    artifacts: List[CompiledMemoryArtifact] = []
+    artifacts: list[CompiledMemoryArtifact] = []
     remaining = cfg.max_memory_tokens
     index_opts = opts.model_copy(update={"max_summary_length": cfg.index_max_summary_length})
     for unit in units:

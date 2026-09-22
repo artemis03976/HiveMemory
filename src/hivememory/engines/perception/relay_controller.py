@@ -14,12 +14,13 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
 
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 from hivememory.core.models import LogicalBlock
 from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
-    from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
+    from hivememory.system.config import RelayControllerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +36,8 @@ class BaseRelayController(ABC):
     @abstractmethod
     def generate_summary(
         self,
-        blocks_to_fold: List[Any],
-        previous_summary: Optional[str] = None,
+        blocks_to_fold: list[Any],
+        previous_summary: str | None = None,
     ) -> str:
         """生成摘要（抽象方法）"""
 
@@ -57,7 +58,7 @@ class SimpleRelayController(BaseRelayController):
     """
 
     def generate_summary(
-        self, blocks_to_fold: List[LogicalBlock], previous_summary: Optional[str] = None
+        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         """
         生成简单摘要并合并之前的摘要
@@ -81,7 +82,7 @@ class SimpleRelayController(BaseRelayController):
         else:
             return new_summary
 
-    def _generate_simple_summary(self, blocks: List[LogicalBlock]) -> str:
+    def _generate_simple_summary(self, blocks: list[LogicalBlock]) -> str:
         """
         生成简单摘要（基于规则）
 
@@ -142,7 +143,7 @@ class LLMRelayController(BaseRelayController):
     使用 LLM 生成更智能、更语义化的摘要。
     """
 
-    def __init__(self, summary_llm: Optional[Any] = None):
+    def __init__(self, summary_llm: Any | None = None):
         """
         初始化 LLM 接力控制器
 
@@ -152,7 +153,7 @@ class LLMRelayController(BaseRelayController):
         self.summary_llm = summary_llm
 
     def generate_summary(
-        self, blocks_to_fold: List[LogicalBlock], previous_summary: Optional[str] = None
+        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         """
         使用 LLM 生成智能摘要并合并之前的摘要
@@ -172,7 +173,7 @@ class LLMRelayController(BaseRelayController):
 
         return new_summary
 
-    def _build_recent_events(self, blocks: List[LogicalBlock]) -> str:
+    def _build_recent_events(self, blocks: list[LogicalBlock]) -> str:
         """
         构建 recent_events 文本（包含 MTP 轨迹和对话）
 
@@ -210,7 +211,7 @@ class LLMRelayController(BaseRelayController):
         return "\n".join(lines)
 
     def _generate_llm_summary(
-        self, blocks: List[LogicalBlock], previous_summary: Optional[str] = None
+        self, blocks: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         """
         使用 LLM 生成智能摘要
@@ -264,7 +265,7 @@ class NoOpRelayController(BaseRelayController):
     """RelayController 的禁用实现。"""
 
     def generate_summary(
-        self, blocks_to_fold: List[LogicalBlock], previous_summary: Optional[str] = None
+        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         return previous_summary or ""
 
@@ -273,7 +274,7 @@ class NoOpRelayController(BaseRelayController):
 
 
 def create_relay_controller(
-    config: "RelayControllerConfig", llm_service: Optional[Any] = None
+    config: "RelayControllerConfig", llm_service: Any | None = None
 ) -> BaseRelayController:
     """
     创建 RelayController 实例（工厂函数）
@@ -294,7 +295,7 @@ def create_relay_controller(
         >>> isinstance(controller, SimpleRelayController)
         True
     """
-    from hivememory.system.config import SimpleRelayConfig, LLMRelayConfig
+    from hivememory.system.config import LLMRelayConfig, SimpleRelayConfig
 
     if not config.enable:
         return NoOpRelayController()

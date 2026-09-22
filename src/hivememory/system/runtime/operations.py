@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from time import monotonic
-from typing import Any, Awaitable, Callable, Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.events import (

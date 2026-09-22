@@ -20,5 +20,5 @@ class TestHiveMemoryConfigI18n:
         assert config.i18n.default_language == "en"
 
     def test_keeps_default_language_zh(self):
-        config = HiveMemoryConfig()
+        HiveMemoryConfig()
         assert get_default_language() == "zh"

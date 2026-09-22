@@ -9,12 +9,12 @@ QdrantStorageAdapter — MidTermStoragePort 的 Qdrant 实现
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.core.models import (
-    MemoryAtom,
     IdentityScope,
+    MemoryAtom,
     WorkspaceMemoryKey,
 )
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
@@ -22,8 +22,6 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.engines.retrieval.policy import memory_is_readable
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -34,7 +32,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     def __init__(
         self,
-        store: "QdrantMemoryStore",
+        store: QdrantMemoryStore,
         *,
         use_sparse: bool = True,
     ) -> None:
@@ -51,7 +49,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
         memory_id: UUID,
         *,
         enforce_actor_visibility: bool = True,
-    ) -> Optional[MemoryAtom]:
+    ) -> MemoryAtom | None:
         key = WorkspaceMemoryKey(
             workspace_identity=identity_scope.workspace_identity,
             memory_id=memory_id,
@@ -74,7 +72,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
         alias: str,
         *,
         enforce_actor_visibility: bool = True,
-    ) -> Optional[MemoryAtom]:
+    ) -> MemoryAtom | None:
         query_filter = self._filter_converter.convert(QueryFilters(), identity_scope)
         atom = await self._store.get_memory_by_alias(
             alias,
@@ -96,12 +94,12 @@ class QdrantStorageAdapter(MidTermStoragePort):
         self,
         identity_scope: IdentityScope,
         memory_id: UUID,
-    ) -> Optional[MemoryAtom]:
+    ) -> MemoryAtom | None:
         return await self.get_by_key(
             WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
         )
 
-    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return await self._store.get_memory(key)
 
     async def update_access_info(
@@ -134,7 +132,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
     async def batch_delete(
         self,
         identity_scope: IdentityScope,
-        ids: List[UUID],
+        ids: list[UUID],
     ) -> int:
         existing = [
             memory_id
@@ -152,12 +150,12 @@ class QdrantStorageAdapter(MidTermStoragePort):
         identity_scope: IdentityScope,
         query: str,
         top_k: int,
-        filters: Optional[QueryFilters] = None,
+        filters: QueryFilters | None = None,
         mode: str = "dense",
         *,
         enforce_actor_visibility: bool = True,
         score_threshold: float = 0.0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         hits = await self._store.search_memories(
             query_text=query,
@@ -182,11 +180,11 @@ class QdrantStorageAdapter(MidTermStoragePort):
     async def scroll(
         self,
         identity_scope: IdentityScope,
-        filters: Optional[QueryFilters] = None,
+        filters: QueryFilters | None = None,
         limit: int = 100,
         *,
         enforce_actor_visibility: bool = True,
-    ) -> List[MemoryAtom]:
+    ) -> list[MemoryAtom]:
         query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         memories = await self._store.get_all_memories(
             filters=query_filter,
@@ -207,12 +205,12 @@ class QdrantStorageAdapter(MidTermStoragePort):
     async def count(
         self,
         identity_scope: IdentityScope,
-        filters: Optional[QueryFilters] = None,
+        filters: QueryFilters | None = None,
     ) -> int:
         query_filter = self._filter_converter.convert(filters or QueryFilters(), identity_scope)
         return await self._store.count_memories(query_filter)
 
-    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
+    async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return await self._store.get_all_memories_for_maintenance(limit=limit)
 
     async def check_health(self) -> StorageHealthComponent:

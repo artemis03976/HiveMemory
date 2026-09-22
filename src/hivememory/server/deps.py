@@ -2,7 +2,6 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
 
@@ -11,6 +10,7 @@ from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
+from hivememory.system import HiveMemorySystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.memory_service import MemoryApplicationService
@@ -21,17 +21,16 @@ from hivememory.system.application.workspace_asset_service import (
     WorkspaceAssetApplicationService,
 )
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system import HiveMemorySystem
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
-_system: Optional[HiveMemorySystem] = None
-_ws_manager: Optional[WebSocketConnectionManager] = None
+_system: HiveMemorySystem | None = None
+_ws_manager: WebSocketConnectionManager | None = None
 
 
-def init_system(config: Optional[HiveMemoryConfig] = None) -> HiveMemorySystem:
+def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
     """lifespan startup 时调用，组装并返回 HiveMemorySystem"""
     global _system
     _system = HiveMemorySystem.build(config=config)
@@ -229,7 +228,7 @@ def get_identity_scope(
 
 def init_websocket_log_broadcasting(
     config: HiveMemoryConfig,
-) -> Optional[WebSocketConnectionManager]:
+) -> WebSocketConnectionManager | None:
     """
     初始化 WebSocket 日志广播系统
 
@@ -282,7 +281,7 @@ def init_websocket_log_broadcasting(
 
 
 async def shutdown_websocket_log_broadcasting(
-    manager: Optional[WebSocketConnectionManager],
+    manager: WebSocketConnectionManager | None,
 ) -> None:
     """
     关闭 WebSocket 日志广播系统

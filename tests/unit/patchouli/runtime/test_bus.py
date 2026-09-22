@@ -9,8 +9,9 @@ PatchouliBus 继承自 AsyncSystemBus，测试覆盖:
 - list_routes / list_events: 查询接口
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, Mock
 
 from hivememory.patchouli.runtime.bus import PatchouliBus
 

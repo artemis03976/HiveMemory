@@ -14,16 +14,11 @@ HiveMemory Lifecycle 组件单元测试。
     - 验证评分公式、强化机制、归档流程
 """
 
-import sys
 import os
-import math
-import tempfile
-import shutil
+import sys
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List
-from datetime import datetime, timedelta
-from uuid import UUID, uuid4
-from unittest.mock import patch, MagicMock
+from uuid import UUID
 
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
@@ -43,22 +38,20 @@ logging.basicConfig(
 # ========== 其他导入 ==========
 
 import pytest
-
 from rich.console import Console
 from rich.panel import Panel
 
 # 核心模型
-from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceMemoryKey
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
+from hivememory.engines.lifecycle.models import (
+    ArchiveRecord,
+    EventType,
+    MemoryEvent,
+)
+from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 
 # Lifecycle 组件
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
-from hivememory.engines.lifecycle.models import (
-    EventType,
-    MemoryEvent,
-    ReinforcementResult,
-    ArchiveRecord,
-)
 from hivememory.patchouli.memory_library import (
     LongTermMemoryStore,
     MemoryLibrary,
@@ -69,21 +62,18 @@ from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStor
 
 # 配置
 from hivememory.system.config import (
-    VitalityCalculatorConfig,
-    ReinforcementEngineConfig,
     ArchiverConfig,
+    ReinforcementEngineConfig,
+    VitalityCalculatorConfig,
 )
 
 # 导入测试数据
 from tests.fixtures.lifecycle_test_data import (
-    SCORING_TEST_CASES,
-    REINFORCEMENT_TEST_CASES,
-    ARCHIVING_TEST_CASES,
-    create_test_memory,
     create_memory_with_age,
-    get_scoring_test_by_id,
-    get_reinforcement_test_by_id,
+    create_test_memory,
     get_archiving_test_by_id,
+    get_reinforcement_test_by_id,
+    get_scoring_test_by_id,
 )
 from tests.helpers.workspace import make_identity_scope
 
@@ -97,19 +87,19 @@ class _MockMidTermAdapter:
     async def upsert(self, memory: MemoryAtom) -> None:
         await self._storage.upsert_memory(memory)
 
-    async def get(self, scope, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get(self, scope, memory_id: UUID) -> MemoryAtom | None:
         return await self._storage.get_memory(memory_id)
 
-    async def get_by_alias(self, scope, alias: str) -> Optional[MemoryAtom]:
+    async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
         return None
 
-    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
         memory = await self._storage.get_memory(memory_id)
         if memory is None or memory.workspace_identity != identity_scope.workspace_identity:
             return None
         return memory
 
-    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         memory = await self._storage.get_memory(key.memory_id)
         if memory is None or memory.workspace_identity != key.workspace_identity:
             return None
@@ -124,7 +114,7 @@ class _MockMidTermAdapter:
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         return await self._storage.delete_memory(key.memory_id)
 
-    async def batch_delete(self, identity_scope, ids: List[UUID]) -> int:
+    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
         count = 0
         for memory_id in ids:
             if await self.delete(identity_scope, memory_id):
@@ -142,7 +132,7 @@ class _MockMidTermAdapter:
     ):
         return []
 
-    async def scroll(self, scope, filters=None, limit: int = 100) -> List[MemoryAtom]:
+    async def scroll(self, scope, filters=None, limit: int = 100) -> list[MemoryAtom]:
         return [
             memory
             for memory in self._storage.list_all_memories(limit=limit)
@@ -152,7 +142,7 @@ class _MockMidTermAdapter:
     async def count(self, scope, filters=None) -> int:
         return len(await self.scroll(scope, filters=filters))
 
-    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
+    async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return self._storage.list_all_memories(limit=limit)
 
 
@@ -183,7 +173,7 @@ class _LegacyArchiverFixture:
     def _memory_key(cls, memory_id: UUID) -> WorkspaceMemoryKey:
         return WorkspaceMemoryKey.from_identity_scope(cls._identity_scope(), memory_id)
 
-    async def get_archive_record(self, memory_id: UUID) -> Optional[ArchiveRecord]:
+    async def get_archive_record(self, memory_id: UUID) -> ArchiveRecord | None:
         records = await self._library.long_term.query(limit=100)
         return next((record for record in records if record.memory_id == memory_id), None)
 
@@ -199,10 +189,10 @@ class MockQdrantMemoryStore:
     """
 
     def __init__(self):
-        self.memories: Dict[UUID, MemoryAtom] = {}
-        self._call_log: List[Dict] = []
+        self.memories: dict[UUID, MemoryAtom] = {}
+        self._call_log: list[dict] = []
 
-    async def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get_memory(self, memory_id: UUID) -> MemoryAtom | None:
         """获取记忆"""
         self._call_log.append({"method": "get_memory", "memory_id": memory_id})
         return self.memories.get(memory_id)
@@ -220,7 +210,7 @@ class MockQdrantMemoryStore:
             return True
         return False
 
-    def list_all_memories(self, limit: int = 100) -> List[MemoryAtom]:
+    def list_all_memories(self, limit: int = 100) -> list[MemoryAtom]:
         """列出所有记忆"""
         self._call_log.append({"method": "list_all_memories", "limit": limit})
         return list(self.memories.values())[:limit]
@@ -428,7 +418,7 @@ class TestVitalityScoring:
         actual_ratio = old_score / fresh_score if fresh_score > 0 else 0
         assert abs(actual_ratio - expected_decay) < tolerance, (
             f"Decay ratio ({actual_ratio:.4f}) should be close to "
-            f"expected ({expected_decay:.4f}) under λ_eff={lambda_eff}"
+            f"expected ({expected_decay:.4f})"
         )
 
         print_test_result(
@@ -581,7 +571,6 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_vitality = memory.meta.vitality_score
         initial_access_count = memory.meta.access_count
 
         # 触发 HIT 事件
@@ -602,10 +591,10 @@ class TestReinforcement:
         # 验证
         assert (
             updated_memory.meta.access_count == initial_access_count + 1
-        ), f"Access count should increase by 1"
+        ), "Access count should increase by 1"
         assert (
             result.new_vitality >= result.previous_vitality
-        ), f"Vitality should increase or stay same after HIT"
+        ), "Vitality should increase or stay same after HIT"
 
         print_test_result(
             case["id"],
@@ -657,7 +646,7 @@ class TestReinforcement:
         # 验证生命力提升
         assert (
             result.new_vitality > result.previous_vitality
-        ), f"Vitality should increase after CITATION"
+        ), "Vitality should increase after CITATION"
 
         print_test_result(
             case["id"],
@@ -880,7 +869,7 @@ class TestArchiving:
             case["id"],
             case["name"],
             True,
-            f"Data integrity verified: title, content, tags all match",
+            "Data integrity verified: title, content, tags all match",
         )
 
     @pytest.mark.asyncio
@@ -916,9 +905,7 @@ class TestArchiving:
         record_after = await archiver.get_archive_record(memory_id)
         assert record_after.storage_path == first_path, "Archive path should remain the same"
 
-        print_test_result(
-            case["id"], case["name"], True, f"Idempotent: no error, no duplicate file"
-        )
+        print_test_result(case["id"], case["name"], True, "Idempotent: no error, no duplicate file")
 
 
 # ========== 主入口 ==========

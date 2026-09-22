@@ -8,16 +8,14 @@
 - 错误处理与重试机制
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 import json
-from datetime import datetime
+from unittest.mock import Mock
 
-from hivememory.core.models import StreamMessage
-from hivememory.system.config import LLMConfig, ExtractorConfig
+import pytest
+
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
-from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.i18n import set_default_language
+from hivememory.system.config import ExtractorConfig, LLMConfig
 
 
 @pytest.fixture(autouse=True)

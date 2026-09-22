@@ -26,13 +26,13 @@ class MemoryTaskApplicationService:
     读取，任务归属校验在 Patchouli application 落实。
     """
 
-    def __init__(self, global_bus: "GlobalSystemBus") -> None:
+    def __init__(self, global_bus: GlobalSystemBus) -> None:
         self._global_bus = global_bus
 
     async def list_memory_tasks(
         self,
         *,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> list[MemoryGenerationTask]:
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST,
@@ -43,7 +43,7 @@ class MemoryTaskApplicationService:
         self,
         task_id: str,
         *,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> MemoryGenerationTask | None:
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_TASK_GET,
@@ -55,7 +55,7 @@ class MemoryTaskApplicationService:
         self,
         task_id: str,
         *,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> bool:
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_TASK_CANCEL,

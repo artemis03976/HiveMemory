@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
-from hivememory.agent_runtime.output import NullFrameOutputSink, TokenDelta
+from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_session import RunSession

@@ -12,7 +12,7 @@ HiveMemory Retrieval 模块测试数据 Fixtures
 版本: 1.0.0
 """
 
-from typing import List, Dict, Any
+from typing import Any
 
 # ========== Golden Memories - 预注入 Qdrant 的标准记忆库 ==========
 
@@ -436,7 +436,7 @@ RENDERING_TEST_CASES = [
 # ========== 辅助函数 ==========
 
 
-def get_golden_memory_by_id(memory_id: str) -> Dict[str, Any]:
+def get_golden_memory_by_id(memory_id: str) -> dict[str, Any]:
     """根据 ID 获取 Golden Memory"""
     for memory in GOLDEN_MEMORIES:
         if memory["id"] == memory_id:
@@ -444,7 +444,7 @@ def get_golden_memory_by_id(memory_id: str) -> Dict[str, Any]:
     raise ValueError(f"Golden memory not found: {memory_id}")
 
 
-def get_hybrid_test_by_id(test_id: str) -> Dict[str, Any]:
+def get_hybrid_test_by_id(test_id: str) -> dict[str, Any]:
     """根据 ID 获取混合检索测试用例"""
     for case in HYBRID_SEARCH_TEST_CASES:
         if case["id"] == test_id:
@@ -452,7 +452,7 @@ def get_hybrid_test_by_id(test_id: str) -> Dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_reranking_test_by_id(test_id: str) -> Dict[str, Any]:
+def get_reranking_test_by_id(test_id: str) -> dict[str, Any]:
     """根据 ID 获取重排序测试用例"""
     for case in RERANKING_TEST_CASES:
         if case["id"] == test_id:
@@ -460,7 +460,7 @@ def get_reranking_test_by_id(test_id: str) -> Dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_rendering_test_by_id(test_id: str) -> Dict[str, Any]:
+def get_rendering_test_by_id(test_id: str) -> dict[str, Any]:
     """根据 ID 获取渲染测试用例"""
     for case in RENDERING_TEST_CASES:
         if case["id"] == test_id:
@@ -468,7 +468,7 @@ def get_rendering_test_by_id(test_id: str) -> Dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_p0_test_cases() -> List[Dict[str, Any]]:
+def get_p0_test_cases() -> list[dict[str, Any]]:
     """获取所有 P0 优先级测试用例"""
     p0_cases = []
     for case in HYBRID_SEARCH_TEST_CASES:
@@ -483,7 +483,7 @@ def get_p0_test_cases() -> List[Dict[str, Any]]:
     return p0_cases
 
 
-def get_all_golden_memory_ids() -> List[str]:
+def get_all_golden_memory_ids() -> list[str]:
     """获取所有 Golden Memory 的 ID 列表"""
     return [m["id"] for m in GOLDEN_MEMORIES]
 

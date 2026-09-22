@@ -12,8 +12,7 @@ HiveMemory Generation Module Test Data Fixtures
 版本: 1.0.0
 """
 
-from typing import List, Dict, Any
-from datetime import datetime
+from typing import Any
 
 # ========== Group 1: 记忆提取测试数据 ==========
 
@@ -372,7 +371,7 @@ SCHEMA_VALIDATION_CASES = [
 # ========== 辅助函数 ==========
 
 
-def get_extraction_test_by_id(test_id: str) -> Dict[str, Any]:
+def get_extraction_test_by_id(test_id: str) -> dict[str, Any]:
     """根据 ID 获取提取测试用例"""
     for case in EXTRACTION_TEST_CASES:
         if case["id"] == test_id:
@@ -380,7 +379,7 @@ def get_extraction_test_by_id(test_id: str) -> Dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_deduplication_test_by_id(test_id: str) -> Dict[str, Any]:
+def get_deduplication_test_by_id(test_id: str) -> dict[str, Any]:
     """根据 ID 获取去重测试用例"""
     for case in DEDUPLICATION_TEST_CASES:
         if case["id"] == test_id:
@@ -388,7 +387,7 @@ def get_deduplication_test_by_id(test_id: str) -> Dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_merge_test_by_id(test_id: str) -> Dict[str, Any]:
+def get_merge_test_by_id(test_id: str) -> dict[str, Any]:
     """根据 ID 获取合并测试用例"""
     for case in MERGE_TEST_CASES:
         if case["id"] == test_id:
@@ -396,7 +395,7 @@ def get_merge_test_by_id(test_id: str) -> Dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_p0_test_cases() -> List[Dict[str, Any]]:
+def get_p0_test_cases() -> list[dict[str, Any]]:
     """获取所有 P0 优先级测试用例"""
     p0_cases = []
     for case in EXTRACTION_TEST_CASES:

@@ -5,17 +5,17 @@ Fusion 模块单元测试
 测试 AdaptiveWeightedFusion 自适应加权融合算法
 """
 
-import pytest
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
 
-from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType
+import pytest
+
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.engines.retrieval.fusion import AdaptiveWeightedFusion, ReciprocalRankFusion
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.system.config import (
-    ReciprocalRankFusionConfig,
     AdaptiveWeightedFusionConfig,
-    RetrievalModeConfig,
+    ReciprocalRankFusionConfig,
 )
-from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, AdaptiveWeightedFusion
 from tests.helpers.memory import make_memory_metadata
 
 

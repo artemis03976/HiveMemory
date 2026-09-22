@@ -114,7 +114,6 @@ def _create_topics_app() -> FastAPI:
 
     bus = MagicMock()
     handler = AsyncMock(return_value=[])
-    from hivememory.system.contracts.routes import GlobalRoutes
 
     bus.request = handler
     app.dependency_overrides[deps.get_topic_service] = lambda: _TopicServiceStub(bus)

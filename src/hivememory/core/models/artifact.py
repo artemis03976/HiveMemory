@@ -8,7 +8,7 @@ docs/archive/plans/implementation/v0.5.0-data-durability-and-async-cold-path.md�
 from collections.abc import Iterable
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Self
+from typing import Any, Literal, Self
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -104,7 +104,7 @@ class BaseArtifact(BaseModel):
 
     schema_version: str = "1"
     created_at: datetime = Field(default_factory=datetime.now)
-    content_hash: Optional[str] = None  # 由 ArtifactStore 在写入时填充
+    content_hash: str | None = None  # 由 ArtifactStore 在写入时填充
 
     workspace_identity: WorkspaceIdentity
 
@@ -131,18 +131,18 @@ class InteractionTurnSnapshot(BaseModel):
 
     block_id: str
     turn_id: str
-    created_at: Optional[float] = None
+    created_at: float | None = None
 
     actor_identity: ActorIdentity
 
     user_query: str = ""
-    rewritten_query: Optional[str] = None
+    rewritten_query: str | None = None
     assistant_final_text: str = ""
 
     # 使用 dict 快照而非强类型对象，避免 runtime 模型变更时破坏 artifact 读取
-    turn_events: List[Dict[str, Any]] = Field(default_factory=list)
-    actions: List[Dict[str, Any]] = Field(default_factory=list)
-    semantic_traces: List[Dict[str, Any]] = Field(default_factory=list)
+    turn_events: list[dict[str, Any]] = Field(default_factory=list)
+    actions: list[dict[str, Any]] = Field(default_factory=list)
+    semantic_traces: list[dict[str, Any]] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -156,7 +156,7 @@ class InteractionArtifact(BaseArtifact):
     topic_title: str = ""
     topic_summary: str = ""
 
-    turns: List[InteractionTurnSnapshot] = Field(default_factory=list)
+    turns: list[InteractionTurnSnapshot] = Field(default_factory=list)
     captured_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -166,14 +166,14 @@ class InteractionArtifact(BaseArtifact):
 class DocumentLocator(BaseModel):
     """文档定位符 - 精确指向文档内的位置"""
 
-    page: Optional[int] = None
-    heading_path: List[str] = Field(default_factory=list)
-    section: Optional[str] = None
-    line_start: Optional[int] = None
-    line_end: Optional[int] = None
-    char_start: Optional[int] = None
-    char_end: Optional[int] = None
-    quote: Optional[str] = None
+    page: int | None = None
+    heading_path: list[str] = Field(default_factory=list)
+    section: str | None = None
+    line_start: int | None = None
+    line_end: int | None = None
+    char_start: int | None = None
+    char_end: int | None = None
+    quote: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -184,17 +184,17 @@ class DocumentArtifact(BaseArtifact):
     artifact_type: Literal[ArtifactType.DOCUMENT] = ArtifactType.DOCUMENT
 
     source_type: Literal["url", "file", "pdf", "markdown", "html", "repo", "unknown"] = "unknown"
-    source_uri: Optional[str] = None
-    canonical_uri: Optional[str] = None
-    mime_type: Optional[str] = None
-    retrieved_at: Optional[datetime] = None
-    etag: Optional[str] = None
-    last_modified: Optional[str] = None
+    source_uri: str | None = None
+    canonical_uri: str | None = None
+    mime_type: str | None = None
+    retrieved_at: datetime | None = None
+    etag: str | None = None
+    last_modified: str | None = None
 
-    locators: List[DocumentLocator] = Field(default_factory=list)
-    snapshot_uri: Optional[str] = None  # 原始内容快照的物理存储地址
-    snapshot_hash: Optional[str] = None  # 快照内容 sha256
-    extracted_text_uri: Optional[str] = None  # 提取后纯文本的物理存储地址
+    locators: list[DocumentLocator] = Field(default_factory=list)
+    snapshot_uri: str | None = None  # 原始内容快照的物理存储地址
+    snapshot_hash: str | None = None  # 快照内容 sha256
+    extracted_text_uri: str | None = None  # 提取后纯文本的物理存储地址
 
 
 # ============ MemoryCreationArtifact / MemoryVersionArtifact ============
@@ -204,9 +204,9 @@ class MemoryInputRef(BaseModel):
     """记忆输入引用 - 记录生成时引用了哪些已有记忆"""
 
     memory_id: str
-    alias: Optional[str] = None
-    title: Optional[str] = None
-    version: Optional[int] = None
+    alias: str | None = None
+    title: str | None = None
+    version: int | None = None
     used_as: Literal["context", "citation", "update_target"] = "context"
 
     model_config = ConfigDict(extra="ignore")
@@ -216,11 +216,11 @@ class MemoryVersionSnapshot(BaseModel):
     """记忆原子某一版本下所有可变字段的完整快照。"""
 
     content: str
-    alias: Optional[str] = None
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
-    memory_type: Optional[str] = None
+    alias: str | None = None
+    title: str | None = None
+    summary: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    memory_type: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -256,10 +256,10 @@ class MemoryCreationArtifact(BaseArtifact):
     source_agent_id: str = Field(..., min_length=1)
     contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
 
-    generation_view: Dict[str, Any] = Field(default_factory=dict)  # GenerationContext.model_dump()
-    source_artifacts: List[ArtifactRef] = Field(default_factory=list)
-    source_memory_refs: List[MemoryInputRef] = Field(default_factory=list)
-    initial_version_ref: Optional[ArtifactRef] = None  # 指向 MemoryVersionArtifact(v1)
+    generation_view: dict[str, Any] = Field(default_factory=dict)  # GenerationContext.model_dump()
+    source_artifacts: list[ArtifactRef] = Field(default_factory=list)
+    source_memory_refs: list[MemoryInputRef] = Field(default_factory=list)
+    initial_version_ref: ArtifactRef | None = None  # 指向 MemoryVersionArtifact(v1)
 
     @field_validator("contributing_agent_ids")
     @classmethod
@@ -286,12 +286,12 @@ class MemoryVersionArtifact(BaseArtifact):
     source_agent_id: str = Field(..., min_length=1)
     contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
 
-    snapshot_before: Optional[MemoryVersionSnapshot] = None  # v1 时为 None
+    snapshot_before: MemoryVersionSnapshot | None = None  # v1 时为 None
     snapshot_after: MemoryVersionSnapshot
 
-    changelog: Optional[str] = None
-    source_artifacts: List[ArtifactRef] = Field(default_factory=list)
-    source_memory_refs: List[MemoryInputRef] = Field(default_factory=list)
+    changelog: str | None = None
+    source_artifacts: list[ArtifactRef] = Field(default_factory=list)
+    source_memory_refs: list[MemoryInputRef] = Field(default_factory=list)
     changed_at: datetime = Field(default_factory=datetime.now)
 
     @field_validator("contributing_agent_ids")
@@ -316,7 +316,7 @@ class MemoryEventLog(BaseModel):
 
     event_type: MemoryEventType
     at: datetime = Field(default_factory=datetime.now)
-    artifact_refs: List[ArtifactRef] = Field(default_factory=list)
-    note: Optional[str] = None
+    artifact_refs: list[ArtifactRef] = Field(default_factory=list)
+    note: str | None = None
 
     model_config = ConfigDict(extra="ignore")

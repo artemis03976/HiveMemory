@@ -16,9 +16,9 @@ HiveMemory Retrieval Module E2E Tests
 版本: 1.0.0
 """
 
-import sys
-import os
 import asyncio
+import os
+import sys
 from pathlib import Path
 
 from tests.helpers.memory import make_memory_metadata
@@ -51,9 +51,8 @@ for logger_name, level in _log_levels_to_disable.items():
 
 # ========== 其他导入 ==========
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime
 import uuid
+from typing import Any
 
 import pytest
 
@@ -66,50 +65,47 @@ sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import (
     ActorIdentity,
-    MemoryAtom,
     IndexLayer,
-    PayloadLayer,
+    MemoryAtom,
     MemoryType,
+    PayloadLayer,
 )
-from hivememory.engines.retrieval.engine import RetrievalEngine
-from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
-from hivememory.engines.retrieval.reranker import CrossEncoderReranker, create_reranker
-from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, create_fusion
-from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.engines.memory_compiler import (
-    MemoryCompiler,
     MemoryCompileOptions,
+    MemoryCompiler,
     MemoryEnvelopeTarget,
 )
+from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
+from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
+from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
+from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.system.config import load_app_config
 from hivememory.system.config.memory_compiler import (
     CascadeContextStrategyConfig,
     CompactContextStrategyConfig,
     FullContextStrategyConfig,
 )
-from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
-
+from tests.conftest import print_test_result
 from tests.fixtures.retrieval_test_data import (
     GOLDEN_MEMORIES,
     HYBRID_SEARCH_TEST_CASES,
-    RERANKING_TEST_CASES,
     RENDERING_TEST_CASES,
+    RERANKING_TEST_CASES,
     get_golden_memory_by_id,
 )
-from tests.conftest import print_test_result
 
 console = Console(force_terminal=True, legacy_windows=False)
 
 # ========== 全局测试状态 ==========
 
-_shared_storage: Optional[QdrantMemoryStore] = None
-_shared_mid_term: Optional[MidTermMemoryStore] = None
-_shared_retriever: Optional[HybridRetriever] = None
-_shared_reranker_service: Optional[FastEmbedRerankerService] = None
-_shared_engine: Optional[RetrievalEngine] = None
+_shared_storage: QdrantMemoryStore | None = None
+_shared_mid_term: MidTermMemoryStore | None = None
+_shared_retriever: HybridRetriever | None = None
+_shared_reranker_service: FastEmbedRerankerService | None = None
+_shared_engine: RetrievalEngine | None = None
 _test_collection_name: str = "hivememory_retrieval_test"
 _golden_memories_injected: bool = False
 
@@ -242,7 +238,7 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
     )
 
 
-def create_memory_from_data(data: Dict[str, Any], identity: ActorIdentity) -> MemoryAtom:
+def create_memory_from_data(data: dict[str, Any], identity: ActorIdentity) -> MemoryAtom:
     """从测试数据创建 MemoryAtom"""
     try:
         mem_type = MemoryType(data["memory_type"])
@@ -762,12 +758,11 @@ class TestEndToEndFlow:
             else ""
         )
         has_context = len(memory_context) > 0
-        has_latency = result.latency_ms > 0
 
         success = has_memories and has_context
 
         print_test_result(console, "E2E-001: 完整检索流程", success)
-        console.print(f"    [dim]查询: 水果的营养价值[/dim]")
+        console.print("    [dim]查询: 水果的营养价值[/dim]")
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
         console.print(f"    [dim]编译上下文长度: {len(memory_context)} 字符[/dim]")
         console.print(f"    [dim]检索耗时: {result.latency_ms:.1f}ms[/dim]")

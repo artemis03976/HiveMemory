@@ -2,6 +2,7 @@
 
 import pytest
 
+from hivememory.core.mtp.exceptions import SyscallInternalError, SystemFault
 from hivememory.i18n.mtp_runtime import (
     get_mtp_error_text,
     get_mtp_info_text,
@@ -11,7 +12,6 @@ from hivememory.i18n.syscall_runtime import (
     get_syscall_error_text,
     get_syscall_info_text,
 )
-from hivememory.core.mtp.exceptions import SyscallInternalError, SystemFault
 
 
 def test_get_mtp_warning_text_en():

@@ -15,7 +15,6 @@ from hivememory.system.runtime.work_queue import (
     FailureDecision,
     QueuePolicy,
     WorkItem,
-    WorkReceipt,
     WorkRecord,
     WorkState,
     can_transition_work_state,

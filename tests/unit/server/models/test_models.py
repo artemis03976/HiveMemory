@@ -6,20 +6,21 @@ server/models 单元测试
     2. Common 模型的版本守护
 """
 
-from hivememory.server.models.memory import MemoryResponse
 from hivememory.server.models.common import HealthResponse
+from hivememory.server.models.memory import MemoryResponse
 
 
 class TestMemoryResponse:
     def test_from_atom(self):
         """测试 MemoryAtom → MemoryResponse 转换"""
-        from hivememory.core.models import (
-            MemoryAtom,
-            IndexLayer,
-            PayloadLayer,
-            MemoryType,
-        )
         from uuid import uuid4
+
+        from hivememory.core.models import (
+            IndexLayer,
+            MemoryAtom,
+            MemoryType,
+            PayloadLayer,
+        )
         from tests.helpers.memory import make_memory_metadata
 
         atom = MemoryAtom(

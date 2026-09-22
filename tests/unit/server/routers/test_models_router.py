@@ -10,15 +10,15 @@ Models 路由单元测试
 - api_key 脱敏规则验证
 """
 
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.server import deps
 from hivememory.server.routers.models import router
 from hivememory.system.model_registry import DuplicateModelIdError, ModelNotFoundError
-from hivememory.server import deps
 
 # ---------------------------------------------------------------------------
 # 测试 App 工厂

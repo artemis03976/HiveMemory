@@ -1,7 +1,7 @@
 """MemoryArtifactBuilder - 处理 MemoryAtom 创建与更新时的 artifact 写入。"""
 
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -22,8 +22,8 @@ from hivememory.system.config.patchouli import ArtifactComponentConfig
 class MemoryCreationBundle(BaseModel):
     """build_for_create 的原子返回值 - 两个强关联 artifact 作为整体返回。"""
 
-    creation_ref: Optional[ArtifactRef] = None
-    initial_version_ref: Optional[ArtifactRef] = None  # MemoryVersionArtifact v1
+    creation_ref: ArtifactRef | None = None
+    initial_version_ref: ArtifactRef | None = None  # MemoryVersionArtifact v1
 
     @property
     def refs(self) -> list[ArtifactRef]:
@@ -40,8 +40,8 @@ class MemoryArtifactBuilder:
         memory: MemoryAtom,
         context: GenerationContext,
         source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
-        source_artifact_refs: List[ArtifactRef],
-        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+        source_artifact_refs: list[ArtifactRef],
+        source_memory_refs: list[MemoryInputRef] | None = None,
     ) -> MemoryCreationBundle:
         """原子写入 MemoryVersionArtifact(v1) 与 MemoryCreationArtifact。v1 先写。"""
         memory_id = str(memory.id)
@@ -83,11 +83,11 @@ class MemoryArtifactBuilder:
         self,
         *,
         memory_after: MemoryAtom,
-        snapshot_before: Optional[MemoryVersionSnapshot] = None,
+        snapshot_before: MemoryVersionSnapshot | None = None,
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
-        changelog: Optional[str] = None,
-        source_artifact_refs: Optional[List[ArtifactRef]] = None,
-        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+        changelog: str | None = None,
+        source_artifact_refs: list[ArtifactRef] | None = None,
+        source_memory_refs: list[MemoryInputRef] | None = None,
     ) -> ArtifactRef | None:
         """写入 MemoryVersionArtifact(v2+)，返回 version ref。"""
         _require_source_refs_in_workspace(memory_after, source_artifact_refs or [])
@@ -115,8 +115,8 @@ class NoOpMemoryArtifactBuilder:
         memory: MemoryAtom,
         context: GenerationContext,
         source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
-        source_artifact_refs: List[ArtifactRef],
-        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+        source_artifact_refs: list[ArtifactRef],
+        source_memory_refs: list[MemoryInputRef] | None = None,
     ) -> MemoryCreationBundle:
         return MemoryCreationBundle()
 
@@ -124,11 +124,11 @@ class NoOpMemoryArtifactBuilder:
         self,
         *,
         memory_after: MemoryAtom,
-        snapshot_before: Optional[MemoryVersionSnapshot] = None,
+        snapshot_before: MemoryVersionSnapshot | None = None,
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
-        changelog: Optional[str] = None,
-        source_artifact_refs: Optional[List[ArtifactRef]] = None,
-        source_memory_refs: Optional[List[MemoryInputRef]] = None,
+        changelog: str | None = None,
+        source_artifact_refs: list[ArtifactRef] | None = None,
+        source_memory_refs: list[MemoryInputRef] | None = None,
     ) -> ArtifactRef | None:
         return None
 

@@ -10,14 +10,13 @@
 对应设计文档: PROJECT.md 5.1 节
 """
 
-from typing import Optional, List
 import logging
 
-from hivememory.engines.retrieval.interfaces import BaseReranker
-from hivememory.engines.retrieval.models import SearchResults, RetrievalQuery
-from hivememory.system.config import RerankerConfig
-from hivememory.infrastructure.rerank.base import BaseRerankService
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
+from hivememory.engines.retrieval.interfaces import BaseReranker
+from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults
+from hivememory.infrastructure.rerank.base import BaseRerankService
+from hivememory.system.config import RerankerConfig
 
 logger = logging.getLogger(__name__)
 

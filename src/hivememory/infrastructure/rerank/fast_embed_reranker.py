@@ -3,9 +3,12 @@ FastEmbed Cross-Encoder Reranker 服务实现
 """
 
 import logging
-from typing import List
+from typing import TYPE_CHECKING
 
 from hivememory.infrastructure.rerank.base import SingletonModelService
+
+if TYPE_CHECKING:
+    from hivememory.system.config import RerankerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,8 @@ class FastEmbedRerankerService(SingletonModelService):
             raise
 
     def compute_score(
-        self, pairs: List[List[str]], batch_size: int = 256, max_length: int = 512
-    ) -> List[float]:
+        self, pairs: list[list[str]], batch_size: int = 256, max_length: int = 512
+    ) -> list[float]:
         """
         计算文本对的相似度分数
 

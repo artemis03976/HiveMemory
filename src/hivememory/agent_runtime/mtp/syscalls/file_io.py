@@ -3,7 +3,6 @@
 """
 
 from pathlib import Path
-from typing import Dict
 
 from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
 from hivememory.core.mtp.exceptions import (
@@ -31,7 +30,7 @@ def _resolve_safe_path(path_str: str, workspace: str) -> Path:
 
 
 def sys_read_file(
-    args: Dict[str, str],
+    args: dict[str, str],
     *,
     workspace: str = "./workspace",
     max_bytes: int = 102400,
@@ -79,11 +78,11 @@ def sys_read_file(
     truncated = file_size > max_bytes
 
     try:
-        with open(target, "r", encoding="utf-8") as f:
+        with open(target, encoding="utf-8") as f:
             content = f.read(max_bytes)
     except UnicodeDecodeError:
         try:
-            with open(target, "r", encoding="latin-1") as f:
+            with open(target, encoding="latin-1") as f:
                 content = f.read(max_bytes)
         except OSError as exc:
             raise SyscallExecutionError(
@@ -108,7 +107,7 @@ def sys_read_file(
 
 
 def sys_write_file(
-    args: Dict[str, str],
+    args: dict[str, str],
     *,
     workspace: str = "./workspace",
     max_bytes: int = 102400,

@@ -6,8 +6,8 @@ HiveMemory Embedding 基础模块
 
 import logging
 import threading
-from typing import List, Union, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from hivememory.system.config import EmbeddingConfig
@@ -24,8 +24,8 @@ class BaseEmbeddingService(ABC):
 
     @abstractmethod
     def encode(
-        self, texts: Union[str, List[str]], normalize: bool = True, show_progress: bool = False
-    ) -> Union[List[float], List[List[float]]]:
+        self, texts: str | list[str], normalize: bool = True, show_progress: bool = False
+    ) -> list[float] | list[list[float]]:
         """
         编码文本为向量
 
@@ -44,7 +44,7 @@ class BaseEmbeddingService(ABC):
         """获取向量维度"""
         pass
 
-    def compute_cosine_similarity(self, vector_a: List[float], vector_b: List[float]) -> float:
+    def compute_cosine_similarity(self, vector_a: list[float], vector_b: list[float]) -> float:
         """
         计算两个向量的余弦相似度
 

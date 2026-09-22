@@ -18,25 +18,8 @@ HiveMemory - 记忆生命周期管理模块 (MemoryLifeCycleManagement)
 
 import logging
 
-# 接口
-from hivememory.engines.lifecycle.interfaces import (
-    BaseGarbageCollector,
-)
-
-# 类型定义
-from hivememory.engines.lifecycle.models import (
-    EventType,
-    ReinforcementResult,
-    MemoryEvent,
-    ArchiveStatus,
-    ArchiveRecord,
-)
-
-# 具体实现 - 生命力计算
-from hivememory.engines.lifecycle.vitality import VitalityCalculator
-
-# 具体实现 - 强化引擎
-from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
+# 具体实现 - 生命周期引擎
+from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
 
 # 具体实现 - 垃圾回收器
 from hivememory.engines.lifecycle.garbage_collector import (
@@ -44,8 +27,25 @@ from hivememory.engines.lifecycle.garbage_collector import (
     create_garbage_collector,
 )
 
-# 具体实现 - 生命周期引擎
-from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
+# 接口
+from hivememory.engines.lifecycle.interfaces import (
+    BaseGarbageCollector,
+)
+
+# 类型定义
+from hivememory.engines.lifecycle.models import (
+    ArchiveRecord,
+    ArchiveStatus,
+    EventType,
+    MemoryEvent,
+    ReinforcementResult,
+)
+
+# 具体实现 - 强化引擎
+from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
+
+# 具体实现 - 生命力计算
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
 
 logger = logging.getLogger(__name__)
 

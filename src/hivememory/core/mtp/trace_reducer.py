@@ -10,7 +10,7 @@ MTPTraceReducer — 轻量门面：TurnEvent / AgentAction -> TraceItem
 版本: 1.0 (Phase 1)
 """
 
-from typing import Any, Dict, List, Union
+from typing import Any
 
 from hivememory.core.models import ActionReducer, AgentAction, TraceItem, TraceReducer
 
@@ -23,8 +23,8 @@ class MTPTraceReducer:
     @classmethod
     def reduce(
         cls,
-        items: List[Union[Any, Dict[str, Any]]],
-    ) -> List[TraceItem]:
+        items: list[Any | dict[str, Any]],
+    ) -> list[TraceItem]:
         """
         将 TurnEvent 或 AgentAction 列表转换为 TraceItem 列表。
 
@@ -45,14 +45,14 @@ class MTPTraceReducer:
         return TraceReducer.reduce(actions)
 
     @classmethod
-    def _looks_like_action(cls, item: Union[Any, Dict[str, Any]]) -> bool:
+    def _looks_like_action(cls, item: Any | dict[str, Any]) -> bool:
         """粗略判断输入项是否已经是 AgentAction。"""
         if isinstance(item, dict):
             return "results" in item and "action_id" in item
         return hasattr(item, "results") and hasattr(item, "action_id")
 
     @classmethod
-    def _normalize_action(cls, item: Union[Any, Dict[str, Any]]) -> AgentAction:
+    def _normalize_action(cls, item: Any | dict[str, Any]) -> AgentAction:
         """统一兼容对象与 dict 输入。"""
         if isinstance(item, AgentAction):
             return item

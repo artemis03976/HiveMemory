@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.server.routers.agents import router
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.server.routers.agents import router
 
 
 def _create_test_app(storage):

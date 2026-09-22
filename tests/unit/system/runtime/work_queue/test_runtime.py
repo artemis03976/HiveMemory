@@ -600,7 +600,7 @@ async def test_queued_cancellation_never_invokes_handler() -> None:
 
     assert await runtime.cancel("work-1")
     await runtime.start()
-    record = await _wait_for_state(runtime, "work-1", WorkState.CANCELLED)
+    await _wait_for_state(runtime, "work-1", WorkState.CANCELLED)
 
     assert handler.started.empty()
     await runtime.stop()

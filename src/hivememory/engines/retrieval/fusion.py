@@ -6,17 +6,16 @@
 对应设计文档: PROJECT.md 5.1.5 节
 """
 
-from typing import Optional, Dict, List, Union
-from collections import defaultdict
 import logging
+from collections import defaultdict
 
+from hivememory.engines.retrieval.interfaces import BaseFusion
+from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.system.config import (
-    ReciprocalRankFusionConfig,
     AdaptiveWeightedFusionConfig,
+    ReciprocalRankFusionConfig,
     RetrievalModeConfig,
 )
-from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.engines.retrieval.interfaces import BaseFusion
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +61,8 @@ class ReciprocalRankFusion(BaseFusion):
             融合后的结果集合
         """
         # 分数累加器
-        scores: Dict[str, float] = defaultdict(float)
-        result_map: Dict[str, SearchResult] = {}
+        scores: dict[str, float] = defaultdict(float)
+        result_map: dict[str, SearchResult] = {}
 
         # 处理稠密检索结果
         for rank, result in enumerate(dense_results.results, start=1):
@@ -108,7 +107,7 @@ class ReciprocalRankFusion(BaseFusion):
         )
 
     def fuse_multi(
-        self, result_lists: List[SearchResults], weights: Optional[List[float]] = None
+        self, result_lists: list[SearchResults], weights: list[float] | None = None
     ) -> SearchResults:
         """
         融合多路检索结果 (通用接口)
@@ -127,8 +126,8 @@ class ReciprocalRankFusion(BaseFusion):
             raise ValueError("结果列表数量与权重数量不匹配")
 
         # 分数累加器
-        scores: Dict[str, float] = defaultdict(float)
-        result_map: Dict[str, SearchResult] = {}
+        scores: dict[str, float] = defaultdict(float)
+        result_map: dict[str, SearchResult] = {}
 
         # 处理每一路结果
         for results, weight in zip(result_lists, weights):
@@ -176,7 +175,7 @@ class AdaptiveWeightedFusion(BaseFusion):
         - brainstorm: 高 dense 权重，无惩罚 (发散思维场景)
     """
 
-    def __init__(self, config: Optional[AdaptiveWeightedFusionConfig] = None):
+    def __init__(self, config: AdaptiveWeightedFusionConfig | None = None):
         """
         初始化自适应加权融合器
 
@@ -189,7 +188,7 @@ class AdaptiveWeightedFusion(BaseFusion):
         self,
         dense_results: SearchResults,
         sparse_results: SearchResults,
-        mode: Optional[str] = None,
+        mode: str | None = None,
     ) -> SearchResults:
         """
         使用自适应加权算法融合检索结果
@@ -207,8 +206,8 @@ class AdaptiveWeightedFusion(BaseFusion):
         mode_config = self._get_mode_config(mode)
 
         # 分数累加器
-        scores: Dict[str, float] = defaultdict(float)
-        result_map: Dict[str, SearchResult] = {}
+        scores: dict[str, float] = defaultdict(float)
+        result_map: dict[str, SearchResult] = {}
 
         # 计算权重归一化因子
         total_weight = mode_config.dense_weight + mode_config.sparse_weight
@@ -381,7 +380,7 @@ class AdaptiveWeightedFusion(BaseFusion):
 
 
 def create_fusion(
-    config: Union[ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig],
+    config: ReciprocalRankFusionConfig | AdaptiveWeightedFusionConfig,
 ) -> BaseFusion:
     """
     创建融合器工厂

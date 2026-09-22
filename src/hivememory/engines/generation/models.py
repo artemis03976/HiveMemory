@@ -12,7 +12,8 @@ HiveMemory Generation 模块数据模型
 """
 
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
@@ -53,7 +54,7 @@ class ExtractedMemoryDraft(BaseModel):
 
     title: str = Field(..., description="简洁明确的标题 (不超过100字)")
     summary: str = Field(..., description="一句话摘要 (不超过200字)")
-    tags: List[str] = Field(..., description="3-5个语义标签")
+    tags: list[str] = Field(..., description="3-5个语义标签")
     memory_type: str = Field(
         ...,
         description="记忆类型: CODE_SNIPPET/FACT/URL_RESOURCE/REFLECTION/USER_PROFILE/WORK_IN_PROGRESS",
@@ -100,7 +101,7 @@ class GenerationTurn(BaseModel):
 
     user_query: str
     assistant_final_text: str = ""
-    trace_summaries: List[str] = Field(default_factory=list)
+    trace_summaries: list[str] = Field(default_factory=list)
     identity: ActorIdentity = Field(default_factory=ActorIdentity)
 
 
@@ -117,7 +118,7 @@ class GenerationContext(BaseModel):
     """
 
     state_summary: str = ""
-    turns: List[GenerationTurn] = Field(default_factory=list)
+    turns: list[GenerationTurn] = Field(default_factory=list)
 
 
 class MemoryProvenance(BaseModel):
@@ -134,7 +135,7 @@ class MemoryProvenance(BaseModel):
     """
 
     source_agent_id: str = Field(..., min_length=1)
-    source_team_id: Optional[str] = None
+    source_team_id: str | None = None
     contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
 
     @field_validator("contributing_agent_ids")
@@ -196,9 +197,9 @@ class GenerationRequest(BaseModel):
     context: GenerationContext = Field(
         default_factory=lambda: GenerationContext(), description="结构化生成上下文"
     )
-    write_focus: Optional[WriteFocus] = None
-    update_focus: Optional[UpdateFocus] = None
-    existing_memory: Optional[Any] = None
+    write_focus: WriteFocus | None = None
+    update_focus: UpdateFocus | None = None
+    existing_memory: Any | None = None
 
     @property
     def is_write(self) -> bool:
@@ -221,11 +222,11 @@ class GenerationRequest(BaseModel):
 class GenerationOutcome(BaseModel):
     """生成引擎产出的纯计算结果。"""
 
-    atom: Optional[Any] = None
+    atom: Any | None = None
     duplicate_decision: DuplicateDecision
-    memory_before_snapshot: Optional[Any] = None
-    changelog: Optional[str] = None
-    message: Optional[str] = None
+    memory_before_snapshot: Any | None = None
+    changelog: str | None = None
+    message: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 

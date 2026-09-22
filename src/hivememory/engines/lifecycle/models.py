@@ -13,10 +13,10 @@ HiveMemory - Lifecycle 模块数据模型定义
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventType(str, Enum):
@@ -97,7 +97,7 @@ class MemoryEvent(BaseModel):
     memory_id: UUID
     timestamp: datetime = Field(default_factory=datetime.now)
     source: str = Field(..., description="触发来源，如 agent_id 或 'system'")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="事件额外信息")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="事件额外信息")
 
 
 class ArchiveStatus(str, Enum):
@@ -134,7 +134,7 @@ class ArchiveRecord(BaseModel):
     original_vitality: float
     archived_at: datetime
     storage_path: str
-    compressed_size_bytes: Optional[int] = None
+    compressed_size_bytes: int | None = None
 
     model_config = ConfigDict(
         json_schema_extra={

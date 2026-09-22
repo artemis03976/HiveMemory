@@ -14,8 +14,9 @@ WRITE 指令执行链路测试
 版本: 1.0
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from hivememory.core.models import (
     ActorIdentity,
@@ -23,15 +24,15 @@ from hivememory.core.models import (
     StreamMessageType,
     WriteFocus,
 )
+from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
     DuplicateDecision,
-    GenerationRequest,
-    GenerationContext,
-    GenerationTurn,
     ExtractedMemoryDraft,
+    GenerationContext,
+    GenerationRequest,
+    GenerationTurn,
 )
 from hivememory.engines.perception.models import TriggerReason
-from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope
 
 # ========== Fixtures ==========
@@ -153,7 +154,7 @@ class TestModeBExtraction:
         request = GenerationRequest(
             context=sample_context,
         )
-        result = await engine.process(request, identity_scope=identity_scope)
+        await engine.process(request, identity_scope=identity_scope)
 
         call_args = mock_extractor.extract.call_args
         metadata = call_args[1]["metadata"] if "metadata" in call_args[1] else call_args[0][1]

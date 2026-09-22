@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 _TERMINAL_STATUSES = {"settled", "failed", "cancelled", "expired"}
 
 
-def build_pending_atom_ir(pending: "PendingAtom") -> MemoryUnitIR:
+def build_pending_atom_ir(pending: PendingAtom) -> MemoryUnitIR:
     from hivememory.core.models.pending import UpdateFocus, WriteFocus
 
     focus = pending.focus

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.core.models import ActorIdentity, TopicSnapshot, IdentityScope
+from hivememory.core.models import ActorIdentity, IdentityScope, TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,

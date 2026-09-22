@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class SystemReadinessService:
     """系统级模型就绪服务。"""
 
-    def __init__(self, global_bus: "GlobalSystemBus") -> None:
+    def __init__(self, global_bus: GlobalSystemBus) -> None:
         self._global_bus = global_bus
 
     async def warmup_models(self) -> None:

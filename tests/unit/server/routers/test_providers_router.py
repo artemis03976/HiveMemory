@@ -9,12 +9,11 @@ Providers 路由单元测试
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
 
+from hivememory.server import deps
 from hivememory.server.routers.providers import router
 from hivememory.system.config.shared import ProviderCredentials
-from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
-from hivememory.server import deps
+from hivememory.system.provider_registry import ProviderRegistry
 
 # ---------------------------------------------------------------------------
 # 测试 App 工厂

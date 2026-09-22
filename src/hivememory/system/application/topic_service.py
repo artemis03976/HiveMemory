@@ -48,7 +48,7 @@ class TopicApplicationService:
         self,
         *,
         identity_scope: IdentityScope,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> tuple[TopicSnapshot, ...]:
         """在显式 Workspace scope 中列出活跃 Topic 快照。"""
         return await self._global_bus.request(
@@ -62,7 +62,7 @@ class TopicApplicationService:
         *,
         identity_scope: IdentityScope,
         topic_id: str | None = None,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> TopicSettleResult:
         """结算 Topic，并原样返回 Patchouli 的业务结果。"""
         return await self._global_bus.request(
@@ -77,7 +77,7 @@ class TopicApplicationService:
         *,
         identity_scope: IdentityScope,
         topic_id: str,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> TopicEvictionResult:
         """删除 Topic，并原样返回 Patchouli 的驱逐结果。"""
         return await self._global_bus.request(

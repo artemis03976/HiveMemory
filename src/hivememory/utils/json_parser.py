@@ -13,11 +13,11 @@ HiveMemory - JSON 解析工具 (JSON Parser Utility)
 作者: HiveMemory Team
 """
 
-import json
 import ast
+import json
 import logging
 import re
-from typing import Any, Optional, TypeVar, Type, Union
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,9 @@ class LLMJSONParser:
     def parse(
         self,
         raw_output: str,
-        as_model: Optional[Type[T]] = None,
+        as_model: type[T] | None = None,
         default: Any = None,
-    ) -> Optional[T]:
+    ) -> T | None:
         """
         解析 JSON 字符串
 
@@ -146,7 +146,7 @@ class LLMJSONParser:
     def parse_many(
         self,
         raw_output: str,
-        as_model: Optional[Type[T]] = None,
+        as_model: type[T] | None = None,
     ) -> list[T]:
         """
         批量解析多个 JSON 对象
@@ -174,7 +174,7 @@ class LLMJSONParser:
 
         return results
 
-    def safe_parse(self, raw_output: str) -> Optional[dict]:
+    def safe_parse(self, raw_output: str) -> dict | None:
         """
         安全解析（始终返回 dict 或 None，不抛出异常）
 
@@ -190,7 +190,7 @@ class LLMJSONParser:
             return None
         return result if isinstance(result, dict) else None
 
-    def _parse_with_strategies(self, raw_output: str) -> Optional[dict]:
+    def _parse_with_strategies(self, raw_output: str) -> dict | None:
         """
         使用多种策略解析 JSON
 
@@ -280,7 +280,7 @@ class LLMJSONParser:
         text: str,
         open_char: str,
         close_char: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         提取括号包围的完整块
 
@@ -358,7 +358,7 @@ class LLMJSONParser:
 
         return unique_candidates
 
-    def _try_parse_json_string(self, json_str: str) -> Optional[Any]:
+    def _try_parse_json_string(self, json_str: str) -> Any | None:
         """
         尝试解析 JSON 字符串
 
@@ -399,11 +399,11 @@ class LLMJSONParser:
 _default_parser = LLMJSONParser()
 
 
-def parse_llm_json(
+def parse_llm_json[T](
     raw_output: str,
-    as_model: Optional[Type[T]] = None,
+    as_model: type[T] | None = None,
     default: Any = None,
-) -> Optional[T]:
+) -> T | None:
     """
     便捷函数：解析 LLM 返回的 JSON
 
@@ -426,9 +426,9 @@ def parse_llm_json(
     return _default_parser.parse(raw_output, as_model=as_model, default=default)
 
 
-def parse_llm_json_many(
+def parse_llm_json_many[T](
     raw_output: str,
-    as_model: Optional[Type[T]] = None,
+    as_model: type[T] | None = None,
 ) -> list[T]:
     """
     便捷函数：批量解析多个 JSON 对象
@@ -443,7 +443,7 @@ def parse_llm_json_many(
     return _default_parser.parse_many(raw_output, as_model=as_model)
 
 
-def safe_parse_llm_json(raw_output: str) -> Optional[dict]:
+def safe_parse_llm_json(raw_output: str) -> dict | None:
     """
     便捷函数：安全解析（始终返回 dict 或 None）
 

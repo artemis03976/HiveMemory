@@ -8,27 +8,25 @@ MemoryRetriever 单元测试
 - 时间衰减逻辑
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from hivememory.core.models import (
-    ActorIdentity,
+    IndexLayer,
     MemoryAtom,
     MemoryType,
-    IndexLayer,
     PayloadLayer,
-    MetaData,
 )
+from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery, SearchResult
+from hivememory.engines.retrieval.retriever import DenseRetriever, HybridRetriever, SearchResults
 from hivememory.system.config import (
     DenseRetrieverConfig,
-    SparseRetrieverConfig,
-    ReciprocalRankFusionConfig,
     HybridRetrieverConfig,
+    ReciprocalRankFusionConfig,
 )
-from hivememory.engines.retrieval.retriever import HybridRetriever, DenseRetriever, SearchResults
-from hivememory.engines.retrieval.models import RetrievalQuery, QueryFilters, SearchResult
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -217,7 +215,6 @@ class TestHybridRetriever:
     async def test_search_hybrid(self):
         """测试混合检索 (Dense + Sparse + 真实 RRF 融合)"""
         from hivememory.engines.retrieval.fusion import ReciprocalRankFusion
-        from hivememory.system.config import ReciprocalRankFusionConfig
 
         self.searcher.fusion = ReciprocalRankFusion(config=ReciprocalRankFusionConfig())
         self.mock_dense.retrieve = AsyncMock(

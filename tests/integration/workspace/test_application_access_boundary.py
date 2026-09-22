@@ -73,11 +73,11 @@ from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.system.access import CallerPrincipal
 from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.access import CallerPrincipal
 from hivememory.workspace import WorkspaceOperation
 from tests.helpers.workspace import (
     AccessTestComposition,

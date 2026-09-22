@@ -8,10 +8,11 @@ HiveMemory - 生命周期管理器
 """
 
 import logging
-from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, IdentityScope
+from hivememory.core.models import IdentityScope, MemoryAtom
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -61,7 +62,7 @@ class MemoryLifecycleEngine:
         memories: Iterable[MemoryAtom],
         *,
         persist: bool = False,
-    ) -> List[Tuple[UUID, float]]:
+    ) -> list[tuple[UUID, float]]:
         """刷新调用方传入记忆集合的活力评分。"""
         results = []
         for memory in memories:
@@ -124,7 +125,7 @@ class MemoryLifecycleEngine:
 
     async def get_low_vitality_memories(
         self, threshold: float = 20.0, limit: int = 100
-    ) -> List[Tuple[UUID, float]]:
+    ) -> list[tuple[UUID, float]]:
         """
         获取低于阈值的记忆列表
 
@@ -144,8 +145,8 @@ class MemoryLifecycleEngine:
         return results[:limit]
 
     def get_event_history(
-        self, memory_id: Optional[UUID] = None, limit: int = 100
-    ) -> List[ReinforcementResult]:
+        self, memory_id: UUID | None = None, limit: int = 100
+    ) -> list[ReinforcementResult]:
         """
         获取事件历史
 

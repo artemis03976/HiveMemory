@@ -1,13 +1,11 @@
 """提供商凭证路由 — 管理 LLM 提供商的 API 密钥与地址"""
 
-from typing import List, Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from hivememory.system.config.shared import ProviderCredentials
-from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
 from hivememory.server.deps import get_provider_registry
 from hivememory.server.models.provider import ProviderResponse, ProviderUpsertRequest
+from hivememory.system.config.shared import ProviderCredentials
+from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
 
 router = APIRouter(tags=["providers"])
 
@@ -17,7 +15,7 @@ router = APIRouter(tags=["providers"])
 # ------------------------------------------------------------------
 
 
-def _mask_api_key(api_key: Optional[str]) -> Optional[str]:
+def _mask_api_key(api_key: str | None) -> str | None:
     """对 API 密钥做脱敏处理，只返回前后片段。"""
     if api_key is None:
         return None
@@ -31,7 +29,7 @@ def _mask_api_key(api_key: Optional[str]) -> Optional[str]:
 # ------------------------------------------------------------------
 
 
-@router.get("/providers", response_model=List[ProviderResponse])
+@router.get("/providers", response_model=list[ProviderResponse])
 def list_providers(
     registry: ProviderRegistry = Depends(get_provider_registry),
 ):

@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hivememory.core.models import IdentityScope
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.deps import (
     RequestIdentitySelection,

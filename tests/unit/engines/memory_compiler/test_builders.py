@@ -19,8 +19,8 @@ from hivememory.core.models import (
 from hivememory.engines.memory_compiler.builders.memory_atom import build_memory_atom_ir
 from hivememory.engines.memory_compiler.builders.pending_atom import build_pending_atom_ir
 from hivememory.engines.memory_compiler.builders.resolve_result import build_resolve_result_ir
-from tests.helpers.workspace import make_runtime_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope
 
 
 @pytest.fixture

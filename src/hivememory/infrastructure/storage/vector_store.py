@@ -9,7 +9,7 @@ Qdrant 向量存储层封装
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client.models import (
@@ -21,7 +21,6 @@ from qdrant_client.models import (
     Modifier,
     PointStruct,
     Range,
-    SparseVector,
     SparseVectorParams,
     VectorParams,
 )
@@ -29,8 +28,8 @@ from qdrant_client.models import (
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    MemoryAtom,
     IdentityScope,
+    MemoryAtom,
     MemoryType,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
@@ -85,7 +84,7 @@ class QdrantMemoryStore:
 
         self.client = create_async_qdrant_client(self.qdrant_config)
 
-        logger.info(f"加载 BGE-M3 Embedding 服务")
+        logger.info("加载 BGE-M3 Embedding 服务")
 
         bge_config = self.embedding_config
         if "bge-m3" not in bge_config.model_name.lower():
@@ -210,7 +209,7 @@ class QdrantMemoryStore:
             logger.error(f"存储记忆失败: {e}")
             raise
 
-    async def get_memory(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
+    async def get_memory(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
         from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
@@ -255,7 +254,7 @@ class QdrantMemoryStore:
         *,
         query_filter: Filter,
         workspace_identity: WorkspaceIdentity,
-    ) -> Optional[MemoryAtom]:
+    ) -> MemoryAtom | None:
         """
         根据别名精确匹配检索记忆 (L2 Cold Lookup, MTP Section 2.3.2)
 
@@ -350,11 +349,11 @@ class QdrantMemoryStore:
         query_text: str,
         top_k: int = 5,
         score_threshold: float = 0.0,
-        filters: Optional[Union[Dict[str, Any], Filter]] = None,
+        filters: dict[str, Any] | Filter | None = None,
         mode: str = "dense",
         *,
         workspace_identity: WorkspaceIdentity,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         语义检索记忆 (支持稠密和稀疏向量检索)
 
@@ -460,7 +459,7 @@ class QdrantMemoryStore:
 
     async def count_memories(
         self,
-        filters: Optional[Union[Dict[str, Any], Filter]] = None,
+        filters: dict[str, Any] | Filter | None = None,
     ) -> int:
         try:
             filter_obj = (
@@ -481,10 +480,10 @@ class QdrantMemoryStore:
     async def get_all_memories(
         self,
         *,
-        filters: Union[Dict[str, Any], Filter],
+        filters: dict[str, Any] | Filter,
         workspace_identity: WorkspaceIdentity,
         limit: int = 100,
-    ) -> List[MemoryAtom]:
+    ) -> list[MemoryAtom]:
         """
         获取所有记忆（不分相似度排序）
 
@@ -565,7 +564,7 @@ class QdrantMemoryStore:
 
     async def get_memories_by_vitality_range(
         self, min_vitality: float = 0.0, max_vitality: float = 100.0, limit: int = 100
-    ) -> List[MemoryAtom]:
+    ) -> list[MemoryAtom]:
         """
         获取指定生命力范围的记忆
 
@@ -608,7 +607,7 @@ class QdrantMemoryStore:
             logger.error(f"按生命力范围获取记忆失败: {e}")
             return []
 
-    async def batch_delete_memories(self, keys: List[WorkspaceMemoryKey]) -> int:
+    async def batch_delete_memories(self, keys: list[WorkspaceMemoryKey]) -> int:
         if not keys:
             return 0
 
@@ -632,7 +631,7 @@ class QdrantMemoryStore:
 
     # ========== 内部辅助方法 ==========
 
-    def _build_filter(self, filters: Dict[str, Any]) -> Filter:
+    def _build_filter(self, filters: dict[str, Any]) -> Filter:
         """
         构建 Qdrant 过滤条件
 
@@ -667,7 +666,7 @@ class QdrantMemoryStore:
 
         return Filter(must=must_conditions) if must_conditions else None
 
-    def _payload_to_memory(self, payload: Dict[str, Any]) -> MemoryAtom:
+    def _payload_to_memory(self, payload: dict[str, Any]) -> MemoryAtom:
         """
         将 Qdrant Payload 转换回 MemoryAtom 对象
 

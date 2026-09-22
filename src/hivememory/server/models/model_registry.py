@@ -1,6 +1,6 @@
 """Model Registry 请求/响应模型"""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -12,7 +12,7 @@ from hivememory.core.constants import (
 from hivememory.core.models.model_definition import ModelDefinition
 
 
-def _mask_api_key(api_key: Optional[str]) -> Optional[str]:
+def _mask_api_key(api_key: str | None) -> str | None:
     """
     对 API 密钥做脱敏处理，避免通过 API 泄露明文密钥。
 
@@ -35,10 +35,10 @@ class ModelResponse(BaseModel):
     display_name: str
     litellm_model: str
     provider: str
-    api_key_masked: Optional[str] = Field(
+    api_key_masked: str | None = Field(
         default=None, description="脱敏后的 API 密钥，如 'sk-...abcd'；未设置则为 null"
     )
-    api_base: Optional[str] = None
+    api_base: str | None = None
     temperature: float
     max_tokens: int
     top_p: float
@@ -67,10 +67,10 @@ class ModelCreateRequest(BaseModel):
     display_name: str = Field(description="前端展示名称，如 'GPT-4o'")
     litellm_model: str = Field(description="litellm 模型标识符，如 'gpt-4o'")
     provider: str = Field(default="", description="提供商标识，留空自动从 litellm_model 前缀推导")
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         default=None, description="API 密钥，留空则由 provider 凭证或环境变量提供"
     )
-    api_base: Optional[str] = Field(default=None, description="自定义 API 地址，留空使用默认")
+    api_base: str | None = Field(default=None, description="自定义 API 地址，留空使用默认")
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0)
     top_p: float = Field(default=DEFAULT_TOP_P, ge=0.0, le=1.0)
@@ -84,17 +84,17 @@ class ModelUpdateRequest(BaseModel):
     注意：api_key 传空字符串 "" 可清除已设置的密钥（改为从环境变量读取）。
     """
 
-    display_name: Optional[str] = None
-    litellm_model: Optional[str] = None
-    provider: Optional[str] = None
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
-    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, gt=0)
-    top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    is_default: Optional[bool] = None
+    display_name: str | None = None
+    litellm_model: str | None = None
+    provider: str | None = None
+    api_key: str | None = None
+    api_base: str | None = None
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    is_default: bool | None = None
 
-    def to_updates_dict(self) -> Dict[str, Any]:
+    def to_updates_dict(self) -> dict[str, Any]:
         """
         只返回客户端实际传入（非 None）的字段，
         防止把未设置的字段误覆盖为 None。

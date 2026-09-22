@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -102,7 +102,8 @@ def allowed_transitions(from_status: PendingAtomStatus) -> frozenset[PendingAtom
     return _TRANSITIONS[from_status]
 
 
-class InvalidStateTransition(RuntimeError):
+# 契约命名：PendingAtom 状态机术语，不加 Error 后缀
+class InvalidStateTransition(RuntimeError):  # noqa: N818
     """PendingAtom 生命周期迁移违反状态机时抛出。"""
 
 
@@ -119,8 +120,8 @@ class WriteFocus(BaseModel):
     """
 
     content: str
-    reason: Optional[str] = None
-    title: Optional[str] = None
+    reason: str | None = None
+    title: str | None = None
     model_config = ConfigDict(frozen=True)
 
 
@@ -132,7 +133,7 @@ class UpdateFocus(BaseModel):
     """
 
     instruction: str
-    content: Optional[str] = None
+    content: str | None = None
     base_uuid: str
     base_alias: str
     model_config = ConfigDict(frozen=True)
@@ -149,9 +150,9 @@ class RuntimeScope(BaseModel):
     identity_scope: IdentityScope
     run_id: str
     frame_id: str
-    action_id: Optional[str] = None
+    action_id: str | None = None
 
-    def with_action(self, action_id: str) -> "RuntimeScope":
+    def with_action(self, action_id: str) -> RuntimeScope:
         """返回限定在单个 agent 动作范围内的副本。"""
         return self.model_copy(update={"action_id": action_id})
 
@@ -179,11 +180,11 @@ class PendingAtomSettlement(BaseModel):
     pending_alias: str
     intent_id: str
     resolution: PendingAtomResolution
-    canonical_alias: Optional[str] = None
-    canonical_uuid: Optional[str] = None
+    canonical_alias: str | None = None
+    canonical_uuid: str | None = None
     message: str = ""
-    error: Optional[str] = None
-    reason: Optional[str] = None
+    error: str | None = None
+    reason: str | None = None
 
 
 # ===========================================================================
@@ -207,11 +208,11 @@ class PendingAtomMaterializeTask(BaseModel):
     intent_id: str
     source_verb: Literal["WRITE", "UPDATE"]
     identity_scope: IdentityScope
-    focus: "WriteFocus | UpdateFocus"
+    focus: WriteFocus | UpdateFocus
     model_config = ConfigDict(frozen=True)
 
     @classmethod
-    def from_pending_atom(cls, pa: "PendingAtom") -> "PendingAtomMaterializeTask":
+    def from_pending_atom(cls, pa: PendingAtom) -> PendingAtomMaterializeTask:
         return cls(
             pending_alias=pa.pending_alias,
             intent_id=pa.intent_id,
@@ -240,7 +241,7 @@ class PendingAtom(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
 
     # Phase 2：结算跟踪
-    settlement: Optional[PendingAtomSettlement] = None
+    settlement: PendingAtomSettlement | None = None
 
 
 # ===========================================================================

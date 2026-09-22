@@ -21,19 +21,17 @@ HIT 不重置 updated_at —— 让时间衰减在遗忘曲线上持续作用，
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from hivememory.core.models import MemoryAtom, IdentityScope
+from hivememory.core.models import IdentityScope, MemoryAtom
 from hivememory.engines.lifecycle.models import (
-    MemoryEvent,
     EventType,
+    MemoryEvent,
     ReinforcementResult,
 )
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.system.config import ReinforcementEngineConfig
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -69,7 +67,7 @@ class DynamicReinforcementEngine:
     ):
         self._mid_term = mid_term
         self.config = config
-        self._event_history: List[ReinforcementResult] = []
+        self._event_history: list[ReinforcementResult] = []
         self.vitality_calculator = vitality_calculator
         self.vitality_adjustments = {
             EventType.HIT: self.config.hit_boost,
@@ -194,8 +192,8 @@ class DynamicReinforcementEngine:
         return max(0.0, min(100.0, value))
 
     def get_event_history(
-        self, memory_id: Optional[UUID] = None, limit: int = 100
-    ) -> List[ReinforcementResult]:
+        self, memory_id: UUID | None = None, limit: int = 100
+    ) -> list[ReinforcementResult]:
         """
         获取事件历史
 
@@ -221,7 +219,7 @@ class DynamicReinforcementEngine:
         self._event_history.clear()
         logger.info("Event history cleared")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         获取统计信息
 

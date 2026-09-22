@@ -5,12 +5,12 @@ HiveMemory LiteLLM 服务实现
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 import litellm
 
-from hivememory.system.config import LLMConfig
 from hivememory.infrastructure.llm.base import SingletonLLMService
+from hivememory.system.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,9 @@ class LiteLLMService(SingletonLLMService):
 
     def complete(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> str:
         """
@@ -78,11 +78,11 @@ class LiteLLMService(SingletonLLMService):
 
     def complete_with_tools(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> Any:
         """
@@ -185,9 +185,9 @@ class LiteLLMService(SingletonLLMService):
 
     async def acomplete_json(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> str:
         llm_params = {
@@ -225,8 +225,8 @@ class LiteLLMService(SingletonLLMService):
         return content
 
     def complete_with_retry(
-        self, messages: List[Dict[str, str]], max_retries: int = 2, **kwargs
-    ) -> Optional[str]:
+        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
+    ) -> str | None:
         """
         带重试机制的补全（覆盖基类实现，添加更详细的日志）
 
@@ -238,8 +238,6 @@ class LiteLLMService(SingletonLLMService):
         Returns:
             Optional[str]: LLM 响应内容，失败时返回 None
         """
-        last_error = None
-
         for attempt in range(max_retries):
             try:
                 logger.debug(f"调用 LLM (尝试 {attempt + 1}/{max_retries})...")
@@ -247,7 +245,6 @@ class LiteLLMService(SingletonLLMService):
                 return result
 
             except Exception as e:
-                last_error = e
                 logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
 
                 # 最后一次尝试失败时才记录警告
@@ -258,9 +255,9 @@ class LiteLLMService(SingletonLLMService):
 
     async def acomplete(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> str:
         """
@@ -307,8 +304,8 @@ class LiteLLMService(SingletonLLMService):
         return content
 
     async def acomplete_with_retry(
-        self, messages: List[Dict[str, str]], max_retries: int = 2, **kwargs
-    ) -> Optional[str]:
+        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
+    ) -> str | None:
         """
         带重试机制的异步补全
 

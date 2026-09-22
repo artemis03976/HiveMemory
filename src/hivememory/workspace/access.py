@@ -9,9 +9,9 @@ System 统一认证网关完成 Principal authentication 后调用本模块的�
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
 from weakref import WeakKeyDictionary
 
 from hivememory.core.errors import (

@@ -17,28 +17,29 @@ UPDATE 指令执行链路测试
 版本: 1.0
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from hivememory.core.models import (
     ActorIdentity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
     StreamMessage,
     StreamMessageType,
-    MemoryAtom,
-    IndexLayer,
-    PayloadLayer,
-    MemoryType,
     UpdateFocus,
 )
+from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
-    MergeResult,
-    GenerationRequest,
     GenerationContext,
+    GenerationRequest,
     GenerationTurn,
     MemoryProvenance,
+    MergeResult,
 )
 from hivememory.engines.perception.models import TriggerReason
-from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 # ========== Fixtures ==========
@@ -145,8 +146,6 @@ class TestModeCMergePrompt:
             extractor=mock_extractor,
             deduplicator=MagicMock(),
         )
-
-        old_content = existing_memory.payload.content  # 保存旧内容 (apply_update 会原地修改)
 
         uf = UpdateFocus(
             instruction="把端口改成 9090",

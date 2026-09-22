@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Tuple, Union
-
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.memory_compiler.builders import (
     build_memory_atom_ir,
@@ -30,7 +28,7 @@ class MemoryCompiler:
     def compile(
         self,
         source,
-        target: Union[MemoryCompileTarget, MemoryEnvelopeTarget],
+        target: MemoryCompileTarget | MemoryEnvelopeTarget,
         options: MemoryCompileOptions | None = None,
     ) -> CompiledMemory | list[CompiledMemory]:
         """
@@ -130,7 +128,7 @@ class MemoryCompiler:
 
     def _build_unit_ir(
         self, source, options: MemoryCompileOptions
-    ) -> Tuple[MemoryUnitIR, MemoryCompileOptions]:
+    ) -> tuple[MemoryUnitIR, MemoryCompileOptions]:
         """
         从可编译单元 source 构建 MemoryUnitIR。
         """

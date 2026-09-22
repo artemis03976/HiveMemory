@@ -11,7 +11,8 @@ MTPTraceReducer 单测
 """
 
 import pytest
-from hivememory.core.models import TraceItem, TurnEvent
+
+from hivememory.core.models import TurnEvent
 from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 
 

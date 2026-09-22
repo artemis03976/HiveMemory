@@ -15,7 +15,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import yaml
 
@@ -53,9 +53,9 @@ class ModelRegistry:
 
     def __init__(
         self,
-        registry_path: Optional[Path] = None,
+        registry_path: Path | None = None,
         provider_registry: Optional["ProviderRegistry"] = None,
-        provider_credentials: Optional[Dict[str, ProviderCredentials]] = None,
+        provider_credentials: dict[str, ProviderCredentials] | None = None,
     ):
         """
         Args:
@@ -69,14 +69,14 @@ class ModelRegistry:
         self._path = registry_path or self._default_path()
         # 优先使用 ProviderRegistry（支持运行时更新）；
         # 兜底使用静态字典（兼容旧调用路径和单元测试）
-        self._provider_registry: Optional["ProviderRegistry"] = provider_registry
-        self._provider_credentials: Dict[str, ProviderCredentials] = (
+        self._provider_registry: ProviderRegistry | None = provider_registry
+        self._provider_credentials: dict[str, ProviderCredentials] = (
             {}
             if provider_registry is not None
             else {name.lower(): cred for name, cred in (provider_credentials or {}).items()}
         )
         # 按插入顺序保存，以 id 为键
-        self._models: Dict[str, ModelDefinition] = {}
+        self._models: dict[str, ModelDefinition] = {}
         self._load()
 
     # ------------------------------------------------------------------
@@ -101,10 +101,10 @@ class ModelRegistry:
             return
 
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(self._path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
 
-            raw_models: List[dict] = data.get("models", [])
+            raw_models: list[dict] = data.get("models", [])
             for raw in raw_models:
                 try:
                     model = ModelDefinition(**raw)
@@ -153,11 +153,11 @@ class ModelRegistry:
     # 查询接口
     # ------------------------------------------------------------------
 
-    def list_models(self) -> List[ModelDefinition]:
+    def list_models(self) -> list[ModelDefinition]:
         """返回所有模型定义，顺序与 YAML 文件一致。"""
         return list(self._models.values())
 
-    def get_model(self, model_id: str) -> Optional[ModelDefinition]:
+    def get_model(self, model_id: str) -> ModelDefinition | None:
         """
         按 ID 获取模型定义。
 
@@ -166,7 +166,7 @@ class ModelRegistry:
         """
         return self._models.get(model_id)
 
-    def get_default_model(self) -> Optional[ModelDefinition]:
+    def get_default_model(self) -> ModelDefinition | None:
         """
         获取默认模型（is_default=True 的那条）。
 
@@ -252,7 +252,7 @@ class ModelRegistry:
     # LLM 配置解析
     # ------------------------------------------------------------------
 
-    def _resolve_credentials(self, model: ModelDefinition) -> Tuple[Optional[str], Optional[str]]:
+    def _resolve_credentials(self, model: ModelDefinition) -> tuple[str | None, str | None]:
         """解析模型的 (api_key, api_base)。
 
         优先级：模型自身显式设置（高级覆盖）> provider 凭证 > None（litellm 环境变量兜底）。
@@ -352,10 +352,10 @@ class ModelRegistry:
     def resolve(
         self,
         model_name: str,
-        temperature_override: Optional[float] = None,
-        max_tokens_override: Optional[int] = None,
-        top_p_override: Optional[float] = None,
-    ) -> Tuple[LLMConfig, str]:
+        temperature_override: float | None = None,
+        max_tokens_override: int | None = None,
+        top_p_override: float | None = None,
+    ) -> tuple[LLMConfig, str]:
         """
         解析模型名称，返回运行时所需的 LLMConfig 和展示名称。
 
@@ -402,7 +402,7 @@ class ModelRegistry:
 
     def _clear_default_flag(self) -> None:
         """将所有模型的 is_default 设为 False。"""
-        updated: Dict[str, ModelDefinition] = {}
+        updated: dict[str, ModelDefinition] = {}
         for mid, m in self._models.items():
             if m.is_default:
                 updated[mid] = m.model_copy(update={"is_default": False})

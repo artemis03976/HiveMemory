@@ -9,7 +9,7 @@ MTP 异常定义。
         - 归因严重度（AGENT_FAULT 可重试 / SYSTEM_FAULT 不可重试）
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from hivememory.core.mtp.models import MTPErrorInfo, MTPErrorSeverity
 
@@ -30,8 +30,8 @@ class MTPError(Exception):
         message: str = "",
         *,
         message_key: str = "",
-        params: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None,
+        params: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
         self.message_key = message_key or self.default_message_key
         self.params = params or {}
@@ -67,7 +67,7 @@ class MTPError(Exception):
         )
 
 
-class AgentFault(MTPError):
+class AgentFault(MTPError):  # noqa: N818 -- MTP 契约术语
     """Agent 侧可修复问题（允许修正后重试）。"""
 
     code = "mtp.agent_fault"
@@ -110,7 +110,7 @@ class PermissionDeniedError(AgentFault):
     code = "mtp.permission.denied"
 
 
-class SystemFault(MTPError):
+class SystemFault(MTPError):  # noqa: N818 -- MTP 契约术语
     """系统级故障（禁止同参数重试）。"""
 
     code = "mtp.system.fault"

@@ -1,8 +1,9 @@
 """生命周期垃圾回收器的单元测试。"""
 
-import pytest
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
+
+import pytest
 
 from hivememory.core.models import (
     IndexLayer,

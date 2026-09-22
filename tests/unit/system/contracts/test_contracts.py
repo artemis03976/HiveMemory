@@ -1,11 +1,12 @@
 """SubsystemProtocol 协议检查测试"""
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.contracts.events import SystemEvent, SystemEventType
+from hivememory.system.contracts.subsystem import SubsystemProtocol
 
 
 class _ValidSubsystem:

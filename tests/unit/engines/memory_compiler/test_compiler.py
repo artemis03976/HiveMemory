@@ -23,8 +23,8 @@ from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
 from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_ir
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 from hivememory.i18n import set_default_language
-from tests.helpers.workspace import make_runtime_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope
 
 
 @pytest.fixture(autouse=True)

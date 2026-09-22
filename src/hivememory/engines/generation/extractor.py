@@ -13,15 +13,15 @@ HiveMemory - 记忆提取器 (Memory Extractor)
 作者: HiveMemory Team
 """
 
-import logging
 import json
-from typing import Dict, Any, Optional
+import logging
+from typing import Any
 
-from hivememory.system.config import ExtractorConfig
-from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
 from hivememory.i18n import get_generation_prompt_text, resolve_language
+from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.system.config import ExtractorConfig
 from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         )
         logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {model_name})")
 
-    def extract(self, transcript: str, metadata: Dict[str, Any]) -> Optional[ExtractedMemoryDraft]:
+    def extract(self, transcript: str, metadata: dict[str, Any]) -> ExtractedMemoryDraft | None:
         """
         提取记忆草稿
 
@@ -226,8 +226,8 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
     def merge(
         self,
         old_content: str,
-        metadata: Dict[str, Any],
-    ) -> Optional[MergeResult]:
+        metadata: dict[str, Any],
+    ) -> MergeResult | None:
         """
         Mode C: 执行 LLM 驱动的记忆合并 (UPDATE 指令)
 
@@ -303,7 +303,7 @@ class NoOpMemoryExtractor(BaseMemoryExtractor):
     用于在配置未启用提取器时作为默认实现。
     """
 
-    def extract(self, transcript: str, metadata: Dict[str, Any]) -> Optional[ExtractedMemoryDraft]:
+    def extract(self, transcript: str, metadata: dict[str, Any]) -> ExtractedMemoryDraft | None:
         """
         提取记忆草稿 (No-Op)
 

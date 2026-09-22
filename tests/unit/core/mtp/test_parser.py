@@ -14,16 +14,16 @@ import pytest
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
-    MTPVerb,
+    MTPCallResponse,
     MTPErrorInfo,
     MTPErrorSeverity,
-    MTPResponseStatus,
-    MTPWarningInfo,
-    MTPCallResponse,
-    MTPResponse,
-    MTPParser,
-    MTPParseError,
     MTPFormatter,
+    MTPParseError,
+    MTPParser,
+    MTPResponse,
+    MTPResponseStatus,
+    MTPVerb,
+    MTPWarningInfo,
 )
 from hivememory.i18n.mtp_runtime import get_mtp_error_text
 

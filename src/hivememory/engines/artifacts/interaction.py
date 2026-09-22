@@ -1,7 +1,7 @@
 """InteractionArtifactBuilder - 从 LogicalBlock[] 构建 raw interaction artifact。"""
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Sequence
 
 from hivememory.core.models import IdentityScope, LogicalBlock
 from hivememory.core.models.artifact import (

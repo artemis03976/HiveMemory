@@ -5,8 +5,6 @@ ModelDefinition 是注册表中单条模型记录的数据结构。
 AgentProfile.model_name 通过 id 字段引用对应的模型定义。
 """
 
-from typing import Optional
-
 from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.constants import (
@@ -50,10 +48,10 @@ class ModelDefinition(BaseModel):
             "留空时自动从 litellm_model 的前缀推导（'deepseek/xxx' → 'deepseek'）"
         ),
     )
-    api_key: Optional[str] = Field(
+    api_key: str | None = Field(
         default=None, description="API 密钥。None 表示回落到 provider 凭证或 litellm 环境变量"
     )
-    api_base: Optional[str] = Field(
+    api_base: str | None = Field(
         default=None,
         description="自定义 API 基础 URL。None 表示回落到 provider 凭证或提供商默认地址",
     )

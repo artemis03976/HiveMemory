@@ -1,18 +1,17 @@
 """syscalls 测试共享 fixture 与 helper。"""
 
 import asyncio
-from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.system.config import KoakumaConfig
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.system.config import KoakumaConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
@@ -20,9 +19,9 @@ from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 class MockAsyncBus(AsyncSystemBus):
     def __init__(
         self,
-        mock_storage: Optional[MagicMock] = None,
-        mock_retrieval: Optional[MagicMock] = None,
-        mock_generation: Optional[MagicMock] = None,
+        mock_storage: MagicMock | None = None,
+        mock_retrieval: MagicMock | None = None,
+        mock_generation: MagicMock | None = None,
     ):
         super().__init__()
         self._mock_storage = mock_storage or MagicMock()
@@ -74,9 +73,9 @@ class MockAsyncBus(AsyncSystemBus):
 
 
 def make_mock_bus(
-    mock_storage: Optional[MagicMock] = None,
-    mock_retrieval: Optional[MagicMock] = None,
-    mock_generation: Optional[MagicMock] = None,
+    mock_storage: MagicMock | None = None,
+    mock_retrieval: MagicMock | None = None,
+    mock_generation: MagicMock | None = None,
 ) -> MockAsyncBus:
     return MockAsyncBus(
         mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation

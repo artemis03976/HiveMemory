@@ -10,22 +10,22 @@ MTP 别名系统测试 (Section 2.3)
 对应设计文档: MemoryToolProtocol.md Section 2.3
 """
 
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
+
+from hivememory.core.models import (
+    MemoryAtom,
+    MemoryType,
+)
 from hivememory.engines.generation.engine import (
-    MemoryGenerationEngine,
     MEMORY_TYPE_ALIAS_PREFIX,
+    MemoryGenerationEngine,
 )
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationContext,
     MemoryProvenance,
-)
-from hivememory.core.models import (
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
 )
 from tests.helpers.memory import make_memory_identity_scope
 

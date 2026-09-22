@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models import TopicData, TopicSnapshot, IdentityScope
+from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes

@@ -8,11 +8,12 @@ HiveMemory - 生命力计算器单元测试
 - 边界值处理
 """
 
-import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
+import pytest
+
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.system.config import VitalityCalculatorConfig
 from tests.helpers.memory import make_memory_metadata

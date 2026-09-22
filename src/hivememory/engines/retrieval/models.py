@@ -7,22 +7,21 @@ HiveMemory - Retrieval 模块数据模型
 """
 
 from datetime import datetime
-from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.models import MemoryAtom, MemoryType, IdentityScope
+from hivememory.core.models import IdentityScope, MemoryAtom, MemoryType
 
 
 class QueryFilters(BaseModel):
     """不含授权语义的结构化业务过滤条件。"""
 
-    memory_type: Optional[MemoryType] = None
+    memory_type: MemoryType | None = None
     # 匹配 meta.contributing_agent_ids 贡献者集合（可检出"参与过但未收尾"
     # 的 Agent），并保留 meta.source_agent_id 分支兼容无贡献者集合的历史记录。
-    source_agent_id: Optional[str] = None
-    time_range: Optional[Tuple[datetime, datetime]] = None
-    tags: List[str] = Field(default_factory=list)
+    source_agent_id: str | None = None
+    time_range: tuple[datetime, datetime] | None = None
+    tags: list[str] = Field(default_factory=list)
     min_confidence: float = 0.0
 
     model_config = ConfigDict(extra="forbid")
@@ -48,7 +47,7 @@ class RetrievalQuery(BaseModel):
     """
 
     semantic_query: str  # 用于向量检索的语义查询
-    keywords: List[str] = Field(default_factory=list)  # 提取的关键词
+    keywords: list[str] = Field(default_factory=list)  # 提取的关键词
     filters: QueryFilters = Field(default_factory=QueryFilters)  # 过滤条件
     identity_scope: IdentityScope  # Workspace 硬边界
 
@@ -97,7 +96,7 @@ class SearchResults(BaseModel):
     - 检索元信息
     """
 
-    results: List[SearchResult] = Field(default_factory=list)
+    results: list[SearchResult] = Field(default_factory=list)
     total_candidates: int = 0  # 初始候选数量
     latency_ms: float = 0.0  # 检索耗时
 
@@ -107,7 +106,7 @@ class SearchResults(BaseModel):
     def __iter__(self):
         return iter(self.results)
 
-    def get_memories(self) -> List[MemoryAtom]:
+    def get_memories(self) -> list[MemoryAtom]:
         """获取所有记忆原子"""
         return [r.memory for r in self.results]
 
@@ -120,10 +119,10 @@ class RetrievalResult(BaseModel):
     RetrievalEngine 统一输出数据模型
     """
 
-    memories: List[MemoryAtom] = Field(default_factory=list)
+    memories: list[MemoryAtom] = Field(default_factory=list)
     latency_ms: float = 0.0
     memories_count: int = 0
-    search_results: Optional[SearchResults] = None
+    search_results: SearchResults | None = None
 
     def is_empty(self) -> bool:
         return len(self.memories) == 0

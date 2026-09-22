@@ -15,8 +15,8 @@ RouteBinding = tuple[str, Callable[..., Any]]
 
 
 def build_patchouli_route_bindings(
-    runtime: "PatchouliRuntime",
-    service: "PatchouliService",
+    runtime: PatchouliRuntime,
+    service: PatchouliService,
 ) -> tuple[RouteBinding, ...]:
     """从运行时组合根构建 Patchouli 局部路由绑定。"""
     return (

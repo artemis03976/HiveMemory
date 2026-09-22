@@ -15,13 +15,12 @@ MemoryLibrary — 三级存储协调层（书库）
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from hivememory.core.models import (
+    IdentityScope,
     MemoryEventLog,
     MemoryEventType,
-    IdentityScope,
     WorkspaceMemoryKey,
 )
 from hivememory.patchouli.memory_library.models import (
@@ -29,10 +28,10 @@ from hivememory.patchouli.memory_library.models import (
     StorageHealthReport,
 )
 from hivememory.patchouli.memory_library.stores import (
+    ArtifactStore,
     LongTermMemoryStore,
     MidTermMemoryStore,
     ShortTermMemoryStore,
-    ArtifactStore,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +52,7 @@ class MemoryLibrary:
         short_term: ShortTermMemoryStore,
         mid_term: MidTermMemoryStore,
         long_term: LongTermMemoryStore,
-        artifact_store: Optional[ArtifactStore] = None,
+        artifact_store: ArtifactStore | None = None,
     ) -> None:
         self.short_term = short_term
         self.mid_term = mid_term

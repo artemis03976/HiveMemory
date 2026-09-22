@@ -7,8 +7,8 @@ Usage:
     await system.start()
 """
 
-from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.config import HiveMemoryConfig, load_app_config
+from hivememory.system.contracts.subsystem import SubsystemProtocol
 from hivememory.system.system import HiveMemorySystem
 
 __all__ = [

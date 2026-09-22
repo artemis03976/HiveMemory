@@ -6,8 +6,8 @@ HiveMemory LLM 基础模块
 
 import logging
 import threading
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hivememory.system.config import LLMConfig
@@ -25,9 +25,9 @@ class BaseLLMService(ABC):
     @abstractmethod
     def complete(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> str:
         """
@@ -46,11 +46,11 @@ class BaseLLMService(ABC):
 
     def complete_with_tools(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> Any:
         """
@@ -76,11 +76,11 @@ class BaseLLMService(ABC):
 
     async def acomplete_with_tools(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> Any:
         """
@@ -95,9 +95,9 @@ class BaseLLMService(ABC):
 
     async def acomplete_json(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         **kwargs,
     ) -> str:
         """
@@ -109,8 +109,8 @@ class BaseLLMService(ABC):
         raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_json")
 
     def complete_with_retry(
-        self, messages: List[Dict[str, str]], max_retries: int = 2, **kwargs
-    ) -> Optional[str]:
+        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
+    ) -> str | None:
         """
         带重试机制的补全（默认实现，子类可覆盖）
 
@@ -122,12 +122,10 @@ class BaseLLMService(ABC):
         Returns:
             Optional[str]: LLM 响应内容，失败时返回 None
         """
-        last_error = None
         for attempt in range(max_retries):
             try:
                 return self.complete(messages, **kwargs)
             except Exception as e:
-                last_error = e
                 logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
                 if attempt == max_retries - 1:
                     logger.warning(f"LLM 调用失败，重试耗尽: {e}")
@@ -186,7 +184,7 @@ class SingletonLLMService(BaseLLMService):
         """检查服务是否已初始化"""
         return self._initialized
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """获取当前配置"""
         return {
             "model": self.model,

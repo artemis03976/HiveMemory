@@ -14,11 +14,12 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 版本: 0.2.0
 """
 
-import re
 import logging
+import re
 from datetime import datetime
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -30,25 +31,22 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     MemoryVersionSnapshot,
     normalize_contributing_agent_ids,
 )
+from hivememory.engines.generation.interfaces import (
+    BaseDeduplicator,
+    BaseMemoryExtractor,
+)
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
-    GenerationRequest,
     GenerationOutcome,
+    GenerationRequest,
     MemoryProvenance,
     MergeResult,
 )
-from hivememory.engines.generation.interfaces import (
-    BaseMemoryExtractor,
-    BaseDeduplicator,
-)
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -56,7 +54,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # MTP 别名系统: MemoryType -> 别名前缀映射 (Section 2.3.1)
-MEMORY_TYPE_ALIAS_PREFIX: Dict[str, str] = {
+MEMORY_TYPE_ALIAS_PREFIX: dict[str, str] = {
     "CODE_SNIPPET": "code",
     "FACT": "fact",
     "URL_RESOURCE": "url",
@@ -99,7 +97,7 @@ class MemoryGenerationEngine:
         request: GenerationRequest,
         *,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         处理对话片段，提取记忆原子 (三模式)
 
@@ -138,7 +136,7 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         Mode A: 被动结算模式 (默认)
 
@@ -146,7 +144,7 @@ class MemoryGenerationEngine:
         结算没有具体 Agent 作为操作来源主体，来源记录使用保留
         ``SYSTEM_AGENT_ID``，实际参与内容的 Agent 进入贡献者集合。
         """
-        logger.info(f"[Mode A] 开始处理...")
+        logger.info("[Mode A] 开始处理...")
 
         # Step 1: 渲染 transcript（Phase 3 优先路径）
         transcript = self._render_transcript(request)
@@ -170,7 +168,7 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
 
@@ -231,7 +229,7 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         Mode C: 合并更新模式 (UPDATE 指令触发)
 
@@ -315,8 +313,8 @@ class MemoryGenerationEngine:
         result: MergeResult,
         *,
         provenance: MemoryProvenance,
-        dedup_draft: Optional[ExtractedMemoryDraft] = None,
-    ) -> List[GenerationOutcome]:
+        dedup_draft: ExtractedMemoryDraft | None = None,
+    ) -> list[GenerationOutcome]:
         """
         执行版本历史追踪 + 内容更新。持久化由调用方负责。
 
@@ -373,7 +371,7 @@ class MemoryGenerationEngine:
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         查重 → 构建/演化决策 (Mode A/B 共用)
 
@@ -547,7 +545,7 @@ class MemoryGenerationEngine:
         memory_type: str,
         alias_suffix: str,
         title: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         构建完整的 MTP 别名 (Section 2.3.1)
 

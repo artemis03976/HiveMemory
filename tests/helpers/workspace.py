@@ -1,13 +1,13 @@
 """测试专用 IdentityScope、RuntimeScope 与 A1 访问组合构造器。"""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
-    RuntimeScope,
     IdentityScope,
+    RuntimeScope,
     WorkspaceIdentity,
     build_internal_identity_scope,
 )
@@ -19,9 +19,9 @@ from hivememory.system.access import (
 )
 from hivememory.workspace import (
     WorkspaceAccessContext,
+    WorkspaceAccessGuard,
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
-    WorkspaceAccessGuard,
     WorkspaceOperation,
 )
 

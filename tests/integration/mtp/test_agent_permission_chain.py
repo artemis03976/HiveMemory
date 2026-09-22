@@ -23,8 +23,8 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.prompts.mtp import MTPPromptBuilder
-from tests.helpers.workspace import make_runtime_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _make_profile_atom(

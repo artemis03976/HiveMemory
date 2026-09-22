@@ -19,12 +19,21 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 
 import logging
 
-from hivememory.engines.generation.engine import MemoryGenerationEngine
-from hivememory.engines.generation.interfaces import (
-    BaseMemoryExtractor,
-    BaseDeduplicator,
+from hivememory.engines.generation.deduplicator import (
+    MemoryDeduplicator,
+    NoOpDeduplicator,
+    create_deduplicator,
 )
-
+from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.extractor import (
+    LLMMemoryExtractor,
+    NoOpMemoryExtractor,
+    create_extractor,
+)
+from hivememory.engines.generation.interfaces import (
+    BaseDeduplicator,
+    BaseMemoryExtractor,
+)
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
@@ -32,18 +41,6 @@ from hivememory.engines.generation.models import (
     GenerationRequest,
     MemoryProvenance,
     MergeResult,
-)
-
-from hivememory.engines.generation.extractor import (
-    LLMMemoryExtractor,
-    NoOpMemoryExtractor,
-    create_extractor,
-)
-
-from hivememory.engines.generation.deduplicator import (
-    MemoryDeduplicator,
-    NoOpDeduplicator,
-    create_deduplicator,
 )
 
 logger = logging.getLogger(__name__)

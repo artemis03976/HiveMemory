@@ -10,16 +10,14 @@ MTP System Prompt 构建器单元测试
 对应设计文档: MemoryToolProtocol.md Chapter 5
 """
 
-import pytest
-
-from hivememory.prompts.mtp import (
-    MTPPromptBuilder,
-    get_mtp_prompt,
-    DEFAULT_RUNTIME_TOOLS,
-)
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
+)
+from hivememory.prompts.mtp import (
+    DEFAULT_RUNTIME_TOOLS,
+    MTPPromptBuilder,
+    get_mtp_prompt,
 )
 
 # ========== MTPPromptBuilder 单元测试 ==========

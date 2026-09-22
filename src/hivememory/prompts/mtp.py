@@ -19,7 +19,6 @@ MTP System Prompt 构建器
 """
 
 import logging
-from typing import List, Optional, Tuple
 
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # ========== MVP 默认运行时工具列表 (Chapter 8.6) ==========
 
-DEFAULT_RUNTIME_TOOLS: List[Tuple[str, str]] = [
+DEFAULT_RUNTIME_TOOLS: list[tuple[str, str]] = [
     ("sys_clock", "Get current date, time, and timezone."),
     ("sys_web_search", "Search the internet for latest information."),
     ("sys_read_file", "Read a file from the workspace."),
@@ -63,11 +62,11 @@ class MTPPromptBuilder:
     def __init__(
         self,
         language: str = "zh",
-        runtime_tools: Optional[List[Tuple[str, str]]] = None,
+        runtime_tools: list[tuple[str, str]] | None = None,
         include_demo: bool = True,
         include_error_handling: bool = True,
-        allowed_verbs: Optional[List[str]] = None,
-        allowed_runtime_tools: Optional[List[str]] = None,
+        allowed_verbs: list[str] | None = None,
+        allowed_runtime_tools: list[str] | None = None,
     ):
         """
         Args:
@@ -179,7 +178,7 @@ class MTPPromptBuilder:
 
 def get_mtp_prompt(
     language: str = "zh",
-    runtime_tools: Optional[List[Tuple[str, str]]] = None,
+    runtime_tools: list[tuple[str, str]] | None = None,
 ) -> str:
     """
     便捷函数: 获取 MTP System Prompt 片段

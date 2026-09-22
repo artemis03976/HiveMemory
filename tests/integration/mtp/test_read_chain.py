@@ -32,8 +32,8 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
 

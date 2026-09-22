@@ -13,7 +13,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Set
+from typing import Any
 
 from hivememory.infrastructure.rate_limiter import RateLimiter
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
@@ -65,7 +65,7 @@ class WebSocketLogHandler(logging.Handler):
     def __init__(
         self,
         ws_manager: WebSocketConnectionManager,
-        namespaces: List[str],
+        namespaces: list[str],
         level: int = logging.INFO,
         max_rate: int = 100,
     ):
@@ -141,7 +141,7 @@ class WebSocketLogHandler(logging.Handler):
 
         return False
 
-    def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
+    def _format_log_record(self, record: logging.LogRecord) -> dict[str, Any]:
         """
         将 LogRecord 转换为 JSON-serializable dict
 
@@ -198,7 +198,7 @@ class WebSocketLogHandler(logging.Handler):
 
         return log_data
 
-    def _truncate_if_needed(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _truncate_if_needed(self, log_data: dict[str, Any]) -> dict[str, Any]:
         """
         截断过大的字段，防止内存问题
 
@@ -220,7 +220,7 @@ class WebSocketLogHandler(logging.Handler):
 
         return log_data
 
-    def _schedule_broadcast(self, log_data: Dict[str, Any]) -> None:
+    def _schedule_broadcast(self, log_data: dict[str, Any]) -> None:
         """
         异步调度广播（非阻塞）
 

@@ -2,11 +2,10 @@
 Python REPL 类 syscall 与沙箱执行实现。
 """
 
-import builtins
 import json
 import subprocess
 import sys
-from typing import Any, Dict, Optional
+from typing import Any
 
 from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
 from hivememory.core.mtp.exceptions import (
@@ -153,7 +152,7 @@ else:
 def execute_sandboxed(
     code: str,
     *,
-    namespace_extras: Optional[Dict[str, Any]] = None,
+    namespace_extras: dict[str, Any] | None = None,
     timeout_seconds: int = 10,
 ) -> SyscallResult:
     """在受限子进程沙箱中执行 Python 代码。"""
@@ -189,7 +188,7 @@ def execute_sandboxed(
     return SyscallResult(content=get_syscall_info_text("syscall.repl.no_output"))
 
 
-def sys_python_repl(args: Dict[str, str], *, timeout_seconds: int = 10) -> SyscallResult:
+def sys_python_repl(args: dict[str, str], *, timeout_seconds: int = 10) -> SyscallResult:
     """受限 Python REPL syscall（Level 0 内核工具）。"""
     code = args.get("code", "")
     if not code:

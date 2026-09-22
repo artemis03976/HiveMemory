@@ -5,7 +5,6 @@ import pytest
 from hivememory.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
-    CommandParseResult,
     CommandParseStatus,
     CommandRouteTarget,
     CommandRouteTargetKind,

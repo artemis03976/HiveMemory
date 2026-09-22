@@ -8,8 +8,9 @@ AsyncSystemBus 单元测试
 - 内省: list_routes / list_events / __repr__
 """
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 

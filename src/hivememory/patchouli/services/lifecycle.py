@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Iterable, List, Tuple
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.core.models import (
-    MemoryAtom,
     IdentityScope,
+    MemoryAtom,
     require_identity_scope,
 )
 from hivememory.utils.uuid import normalize_uuid
@@ -30,8 +31,8 @@ class LifecycleFamiliar:
     def __init__(
         self,
         *,
-        lifecycle_engine: "MemoryLifecycleEngine",
-        memory_library: "MemoryLibrary",
+        lifecycle_engine: MemoryLifecycleEngine,
+        memory_library: MemoryLibrary,
     ) -> None:
         self.lifecycle_engine = lifecycle_engine
         self._memory_library = memory_library
@@ -61,7 +62,7 @@ class LifecycleFamiliar:
         self,
         memories: Iterable[MemoryAtom],
         persist: bool = False,
-    ) -> List[Tuple[UUID, float]]:
+    ) -> list[tuple[UUID, float]]:
         """批量刷新记忆生命力。"""
         return await self.lifecycle_engine.refresh_vitality_batch(memories, persist=persist)
 

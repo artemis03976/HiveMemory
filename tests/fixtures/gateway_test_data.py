@@ -13,7 +13,7 @@ HiveMemory Gateway E2E 测试数据 Fixtures
 版本: 1.0.0
 """
 
-from typing import List, Dict, Any
+from typing import Any
 
 # ========== 意图识别测试数据 ==========
 
@@ -299,7 +299,7 @@ FALLBACK_TEST_CASES = [
 # ========== 辅助函数 ==========
 
 
-def get_test_cases_by_priority(priority: str) -> List[Dict[str, Any]]:
+def get_test_cases_by_priority(priority: str) -> list[dict[str, Any]]:
     """
     按优先级获取测试用例
 
@@ -315,12 +315,12 @@ def get_test_cases_by_priority(priority: str) -> List[Dict[str, Any]]:
     return [case for case in all_cases if case.get("priority") == priority]
 
 
-def get_p0_test_cases() -> List[Dict[str, Any]]:
+def get_p0_test_cases() -> list[dict[str, Any]]:
     """获取所有 P0 优先级测试用例"""
     return get_test_cases_by_priority("P0")
 
 
-def get_p1_test_cases() -> List[Dict[str, Any]]:
+def get_p1_test_cases() -> list[dict[str, Any]]:
     """获取所有 P1 优先级测试用例"""
     return get_test_cases_by_priority("P1")
 

@@ -5,31 +5,30 @@
 1. DenseRetriever: 稠密向量检索
 2. SparseRetriever: 稀疏向量检索
 3. HybridRetriever: 混合检索 (Dense + Sparse + RRF)
-4. CachedRetriever: 带缓存的检索装饰器
 """
 
+import asyncio
 import logging
 import math
 import time
-import asyncio
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
-from hivememory.system.config import (
-    DenseRetrieverConfig,
-    SparseRetrieverConfig,
-    HybridRetrieverConfig,
-)
-from hivememory.engines.retrieval.interfaces import BaseMemoryRetriever, BaseFusion, BaseReranker
+from hivememory.engines.retrieval.fusion import create_fusion
+from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever, BaseReranker
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
     SearchResults,
 )
-from hivememory.engines.retrieval.fusion import create_fusion
 from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
 from hivememory.infrastructure.rerank.base import BaseRerankService
+from hivememory.system.config import (
+    DenseRetrieverConfig,
+    HybridRetrieverConfig,
+    SparseRetrieverConfig,
+)
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -59,8 +58,8 @@ class DenseRetriever(BaseMemoryRetriever):
     async def retrieve(
         self,
         query: RetrievalQuery,
-        top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行稠密向量检索
@@ -185,8 +184,8 @@ class SparseRetriever(BaseMemoryRetriever):
     async def retrieve(
         self,
         query: RetrievalQuery,
-        top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行稀疏向量检索
@@ -287,8 +286,8 @@ class HybridRetriever(BaseMemoryRetriever):
     async def retrieve(
         self,
         query: RetrievalQuery,
-        top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行混合检索
@@ -341,7 +340,7 @@ class HybridRetriever(BaseMemoryRetriever):
 
         return fused_results
 
-    async def _parallel_recall(self, query: RetrievalQuery) -> Tuple[SearchResults, SearchResults]:
+    async def _parallel_recall(self, query: RetrievalQuery) -> tuple[SearchResults, SearchResults]:
         """asyncio.gather 并行执行稠密和稀疏检索"""
         results = await asyncio.gather(
             self.dense_retriever.retrieve(query),
@@ -359,7 +358,7 @@ class HybridRetriever(BaseMemoryRetriever):
 
     async def _sequential_recall(
         self, query: RetrievalQuery
-    ) -> Tuple[SearchResults, SearchResults]:
+    ) -> tuple[SearchResults, SearchResults]:
         """顺序执行稠密和稀疏检索"""
         dense_results = await self.dense_retriever.retrieve(query)
         sparse_results = await self.sparse_retriever.retrieve(query)
@@ -368,7 +367,7 @@ class HybridRetriever(BaseMemoryRetriever):
 
 def create_retriever(
     mid_term: "MidTermMemoryStore",
-    config: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig],
+    config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
     reranker_service: BaseRerankService = None,
 ) -> BaseMemoryRetriever:
     """
@@ -432,6 +431,5 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
-    "CachedRetriever",
     "create_retriever",
 ]

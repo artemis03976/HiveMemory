@@ -9,17 +9,18 @@ RetrievalEngine 单元测试 (Phase B — renderer 解耦后)
 - 延迟测量
 """
 
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
+
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import (
-    RetrievalQuery,
     QueryFilters,
+    RetrievalQuery,
     SearchResult,
     SearchResults,
 )
-from hivememory.core.models import MemoryAtom, MetaData, IndexLayer, PayloadLayer, MemoryType
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

@@ -4,7 +4,7 @@ HiveMemory BGE-M3 Dense Embedding 服务 (FastEmbed ONNX 实现)
 
 import logging
 import threading
-from typing import List, Union, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from hivememory.system.config import load_app_config
 
@@ -32,7 +32,7 @@ class BGEM3EmbeddingService(SingletonModelService):
         """加载 FastEmbed BGE-M3 ONNX 模型"""
         try:
             from fastembed import TextEmbedding
-            from fastembed.common.model_description import PoolingType, ModelSource
+            from fastembed.common.model_description import ModelSource, PoolingType
         except ImportError:
             raise ImportError("fastembed 未安装。请运行: pip install fastembed")
 
@@ -61,10 +61,10 @@ class BGEM3EmbeddingService(SingletonModelService):
 
     def encode(
         self,
-        dense_texts: Union[str, List[str], None] = None,
-        sparse_texts: Union[str, List[str], None] = None,
+        dense_texts: str | list[str] | None = None,
+        sparse_texts: str | list[str] | None = None,
         **kwargs,
-    ) -> Union[List[float], str, Dict[str, Any]]:
+    ) -> list[float] | str | dict[str, Any]:
         """
         编码文本为稠密向量，或返回 sparse 原始文本供 Qdrant BM25 使用。
 

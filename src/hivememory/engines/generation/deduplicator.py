@@ -12,16 +12,15 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 作者: HiveMemory Team
 """
 
-import re
 import logging
-from typing import Optional, Tuple
+import re
 
-from hivememory.system.config import DeduplicatorConfig
 from hivememory.core.models import (
     MemoryAtom,
 )
-from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
 from hivememory.engines.generation.interfaces import BaseDeduplicator
+from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
+from hivememory.system.config import DeduplicatorConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,7 @@ class MemoryDeduplicator(BaseDeduplicator):
         self,
         draft: ExtractedMemoryDraft,
         candidates: list,
-    ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
+    ) -> tuple[DuplicateDecision, MemoryAtom | None]:
         """
         纯决策：在调用方传入的候选列表上执行查重逻辑，无 I/O。
 
@@ -185,7 +184,7 @@ class NoOpDeduplicator(BaseDeduplicator):
         self,
         draft: ExtractedMemoryDraft,
         candidates: list,
-    ) -> Tuple[DuplicateDecision, Optional[MemoryAtom]]:
+    ) -> tuple[DuplicateDecision, MemoryAtom | None]:
         return DuplicateDecision.CREATE, None
 
 

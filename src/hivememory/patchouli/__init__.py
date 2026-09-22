@@ -31,19 +31,18 @@ HiveMemory 的分布式智能架构 v3.0。
 """
 
 # 配置 (无循环依赖)
-from hivememory.system.config import (
-    load_app_config,
-    HiveMemoryConfig,
-    MemoryPerceptionConfig,
-    MemoryGenerationConfig,
-    MemoryRetrievalConfig,
-    MemoryLifecycleConfig,
-    LLMConfig,
-    EmbeddingConfig,
-    QdrantConfig,
-)
-
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.system.config import (
+    EmbeddingConfig,
+    HiveMemoryConfig,
+    LLMConfig,
+    MemoryGenerationConfig,
+    MemoryLifecycleConfig,
+    MemoryPerceptionConfig,
+    MemoryRetrievalConfig,
+    QdrantConfig,
+    load_app_config,
+)
 
 
 def __getattr__(name: str):

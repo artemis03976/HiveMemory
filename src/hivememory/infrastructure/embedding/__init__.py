@@ -4,14 +4,12 @@ HiveMemory Embedding 模块
 暴露 Embedding 服务接口和工厂函数。
 """
 
-from typing import Optional
-
 from hivememory.infrastructure.embedding.base import BaseEmbeddingService
 from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService, get_bge_m3_service
 from hivememory.system.config import EmbeddingConfig, load_app_config
 
 
-def get_embedding_service(config: Optional[EmbeddingConfig] = None) -> BaseEmbeddingService:
+def get_embedding_service(config: EmbeddingConfig | None = None) -> BaseEmbeddingService:
     """
     通用 Embedding 服务工厂函数
     """
@@ -21,7 +19,7 @@ def get_embedding_service(config: Optional[EmbeddingConfig] = None) -> BaseEmbed
     return BGEM3EmbeddingService(config=config)
 
 
-def get_default_embedding_service(config: Optional[EmbeddingConfig] = None) -> BaseEmbeddingService:
+def get_default_embedding_service(config: EmbeddingConfig | None = None) -> BaseEmbeddingService:
     """
     获取默认/存储层 Embedding 服务
     """
@@ -32,7 +30,7 @@ def get_default_embedding_service(config: Optional[EmbeddingConfig] = None) -> B
 
 
 def get_perception_embedding_service(
-    config: Optional[EmbeddingConfig] = None,
+    config: EmbeddingConfig | None = None,
 ) -> BaseEmbeddingService:
     """
     获取 perception Embedding 服务（已与 default 配置合并）

@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import AsyncIterator, Iterable
 from contextlib import suppress
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Iterable, Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
 from hivememory.infrastructure.trace_context import (
     current_span_name,
@@ -211,7 +212,7 @@ class RuntimeEventBus:
         self._sequence += 1
         update = {
             "sequence": self._sequence,
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
         }
         if not event.trace_id:
             update["trace_id"] = current_trace_id.get()

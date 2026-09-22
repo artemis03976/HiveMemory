@@ -14,8 +14,6 @@ HiveMemory Perception Module Test Data Fixtures
 版本: 2.0.0
 """
 
-from typing import List, Dict, Any
-
 from hivememory.utils.token_estimator import estimate_tokens
 
 # ========== 话题 1: 数据科学对话（基线话题） ==========
