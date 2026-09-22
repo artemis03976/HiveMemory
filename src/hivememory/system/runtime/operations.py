@@ -63,15 +63,9 @@ class RuntimeOperationObserver:
             )
             raise
 
-        status = (
-            completed_status(result)
-            if callable(completed_status)
-            else completed_status
-        )
+        status = completed_status(result) if callable(completed_status) else completed_status
         severity = (
-            completed_severity(result)
-            if callable(completed_severity)
-            else completed_severity
+            completed_severity(result) if callable(completed_severity) else completed_severity
         )
         self.emit_completed(
             status=status,

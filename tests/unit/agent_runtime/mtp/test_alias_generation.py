@@ -29,8 +29,8 @@ from hivememory.core.models import (
 )
 from tests.helpers.memory import make_memory_identity_scope
 
-
 # ========== _build_alias 单元测试 ==========
+
 
 class TestBuildAlias:
     """测试 MemoryGenerationEngine._build_alias() 别名构建"""
@@ -44,9 +44,7 @@ class TestBuildAlias:
 
     def test_fact_with_suffix(self):
         """FACT + LLM 后缀 → fact_project_env"""
-        result = MemoryGenerationEngine._build_alias(
-            "FACT", "project_env", "Project Environment"
-        )
+        result = MemoryGenerationEngine._build_alias("FACT", "project_env", "Project Environment")
         assert result == "fact_project_env"
 
     def test_url_resource_with_suffix(self):
@@ -79,9 +77,7 @@ class TestBuildAlias:
 
     def test_fallback_from_title(self):
         """alias_suffix 为空时从 title 派生"""
-        result = MemoryGenerationEngine._build_alias(
-            "FACT", "", "Project Environment"
-        )
+        result = MemoryGenerationEngine._build_alias("FACT", "", "Project Environment")
         assert result == "fact_project_environment"
 
     def test_fallback_from_title_with_special_chars(self):
@@ -102,9 +98,7 @@ class TestBuildAlias:
 
     def test_unknown_type_uses_mem_prefix(self):
         """未知类型使用 mem_ 前缀"""
-        result = MemoryGenerationEngine._build_alias(
-            "UNKNOWN_TYPE", "test_thing", "Test"
-        )
+        result = MemoryGenerationEngine._build_alias("UNKNOWN_TYPE", "test_thing", "Test")
         assert result == "mem_test_thing"
 
     def test_empty_everything_returns_none(self):
@@ -115,27 +109,24 @@ class TestBuildAlias:
     def test_suffix_truncation(self):
         """超长 suffix 截断至 40 字符"""
         long_suffix = "a" * 60
-        result = MemoryGenerationEngine._build_alias(
-            "FACT", long_suffix, "irrelevant"
-        )
+        result = MemoryGenerationEngine._build_alias("FACT", long_suffix, "irrelevant")
         assert result == "fact_" + "a" * 40  # 截断期望：40 个字符的 a
 
     def test_consecutive_underscores_collapsed(self):
         """连续下划线合并"""
-        result = MemoryGenerationEngine._build_alias(
-            "FACT", "hello___world", "irrelevant"
-        )
+        result = MemoryGenerationEngine._build_alias("FACT", "hello___world", "irrelevant")
         assert result == "fact_hello_world"
 
     def test_prefix_mapping_completeness(self):
         """验证所有 MemoryType 都有对应前缀"""
         for mem_type in MemoryType:
-            assert mem_type.value in MEMORY_TYPE_ALIAS_PREFIX, (
-                f"MemoryType {mem_type.value} missing from MEMORY_TYPE_ALIAS_PREFIX"
-            )
+            assert (
+                mem_type.value in MEMORY_TYPE_ALIAS_PREFIX
+            ), f"MemoryType {mem_type.value} missing from MEMORY_TYPE_ALIAS_PREFIX"
 
 
 # ========== _draft_to_memory 集成测试 ==========
+
 
 class TestDraftToMemoryAlias:
     """测试 _draft_to_memory 中别名的端到端生成"""
@@ -165,7 +156,9 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="quicksort_impl",
         )
-        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
+        memory = engine._draft_to_memory(
+            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+        )
         assert memory.index.alias == "code_quicksort_impl"
 
     def test_alias_fallback_from_title(self, engine, identity_scope):
@@ -180,7 +173,9 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="",
         )
-        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
+        memory = engine._draft_to_memory(
+            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+        )
         assert memory.index.alias == "fact_api_rate_limit"
 
     def test_alias_persists_to_qdrant_payload(self, engine, identity_scope):
@@ -195,7 +190,9 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="persistence_check",
         )
-        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
+        memory = engine._draft_to_memory(
+            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+        )
         payload = memory.to_qdrant_payload()
         assert payload["index"]["alias"] == "fact_persistence_check"
 
@@ -211,11 +208,14 @@ class TestDraftToMemoryAlias:
             has_value=True,
             alias_suffix="",
         )
-        memory = engine._draft_to_memory(draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext()))
+        memory = engine._draft_to_memory(
+            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+        )
         assert memory.index.alias is None
 
 
 # ========== Koakuma 别名偏好测试 ==========
+
 
 class TestKoakumaAliasPreference:
     """测试 MemoryAtom.get_alias() 的存储别名优先逻辑"""

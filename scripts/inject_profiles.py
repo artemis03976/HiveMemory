@@ -145,6 +145,7 @@ async def main():
 
     # 初始化存储
     from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
+
     storage = QdrantMemoryStore(config=config.storage)
 
     logger.info(f"Connected to Qdrant at {config.storage.qdrant_url}")

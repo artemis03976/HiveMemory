@@ -36,16 +36,12 @@ class TestSyscallViaMTP:
         assert "</mtp_response>" in result.formatted_response
 
     def test_clock_iso_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_clock | format="iso"'
-        )
+        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_clock | format="iso"')
         assert result.success is True
         assert "T" in result.response_content
 
     def test_clock_date_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_clock | format="date"'
-        )
+        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_clock | format="date"')
         assert result.success is True
         assert re.match(r"\d{4}-\d{2}-\d{2}$", result.response_content)
 
@@ -68,25 +64,19 @@ class TestSyscallViaMTP:
         assert "5050" in result.response_content
 
     def test_repl_security_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_python_repl | code="import os"'
-        )
+        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="import os"')
         assert result.success is False  # syscall 错误升级为 SyscallInternalError
         assert result.response_content == ""
         assert "import" in result.formatted_response.lower()
 
     def test_repl_runtime_error_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_python_repl | code="1/0"'
-        )
+        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="1/0"')
         assert result.success is False
         assert result.response_content == ""
         assert "runtime errors" in result.formatted_response.lower()
 
     def test_repl_no_output_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_python_repl | code="x = 42"'
-        )
+        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="x = 42"')
         assert result.success is True
         assert "no output" in result.response_content.lower() or "无输出" in result.response_content
 
@@ -102,7 +92,9 @@ class TestSyscallViaMTP:
         assert "{" not in result.response_content
         assert "}" not in result.response_content
 
+
 # ========== Test 8: File I/O 通过 MTP 集成 ==========
+
 
 class TestFileIOViaMTP:
     """sys_read_file / sys_write_file 通过 MTP 集成测试"""
@@ -119,6 +111,7 @@ class TestFileIOViaMTP:
     @pytest.fixture
     def file_koakuma(self, workspace):
         from .conftest import make_koakuma_runtime, make_mock_bus
+
         bus = make_mock_bus()
         return make_koakuma_runtime(
             bus,
@@ -149,7 +142,10 @@ class TestFileIOViaMTP:
             file_koakuma, '⟪ RUN | sys_read_file | path="../../etc/passwd"'
         )
         assert result.response_content == ""
-        assert "denied" in result.formatted_response.lower() or "escape" in result.formatted_response.lower()
+        assert (
+            "denied" in result.formatted_response.lower()
+            or "escape" in result.formatted_response.lower()
+        )
 
     def test_read_file_binary_rejected_via_mtp(self, file_koakuma, workspace):
         (workspace / "binary.dat").write_bytes(b"\x00\x01\x02\x03" * 128)
@@ -192,7 +188,10 @@ class TestFileIOViaMTP:
             '⟪ RUN | sys_write_file | path="../../evil.txt" content="pwned"',
         )
         assert result.response_content == ""
-        assert "denied" in result.formatted_response.lower() or "escape" in result.formatted_response.lower()
+        assert (
+            "denied" in result.formatted_response.lower()
+            or "escape" in result.formatted_response.lower()
+        )
 
     def test_write_file_auto_create_dirs_via_mtp(self, file_koakuma, workspace):
         result = simulate_kernel_loop_single(
@@ -205,6 +204,7 @@ class TestFileIOViaMTP:
 
 # ========== Test 9: 错误恢复 ==========
 
+
 class TestSyscallErrorRecovery:
     """错误恢复与多轮递归"""
 
@@ -216,9 +216,7 @@ class TestSyscallErrorRecovery:
         assert "SEARCH" in result.formatted_response
 
     def test_invalid_verb_error(self, koakuma):
-        result = asyncio.run(
-            koakuma.execute_mtp("⟪ DELETE | * | ⟫", context=_context())
-        )
+        result = asyncio.run(koakuma.execute_mtp("⟪ DELETE | * | ⟫", context=_context()))
         assert result.success is False
         assert result.command is None
         assert result.response_content == ""
@@ -231,22 +229,16 @@ class TestSyscallErrorRecovery:
         assert "code" in result.formatted_response.lower()
 
     def test_error_response_xml_format(self, koakuma):
-        result = asyncio.run(
-            koakuma.execute_mtp("⟪ RUN | fake_tool | ⟫", context=_context())
-        )
+        result = asyncio.run(koakuma.execute_mtp("⟪ RUN | fake_tool | ⟫", context=_context()))
         assert '<mtp_response status="error"' in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 
     def test_error_recovery_retry(self, koakuma):
         """Round 1: 错误工具 → Round 2: 纠正"""
-        r1 = asyncio.run(
-            koakuma.execute_mtp("⟪ RUN | sys_clok | ⟫", context=_context())
-        )
+        r1 = asyncio.run(koakuma.execute_mtp("⟪ RUN | sys_clok | ⟫", context=_context()))
         assert r1.success is False
 
-        r2 = asyncio.run(
-            koakuma.execute_mtp("⟪ RUN | sys_clock | ⟫", context=_context())
-        )
+        r2 = asyncio.run(koakuma.execute_mtp("⟪ RUN | sys_clock | ⟫", context=_context()))
         assert r2.success is True
         assert "UTC" in r2.response_content
 
@@ -259,7 +251,9 @@ class TestSyscallErrorRecovery:
         )
         assert result is None
 
+
 # ========== Test 10: 多轮递归 ==========
+
 
 class TestSyscallRecursiveLoop:
     """多轮递归循环验证"""
@@ -274,9 +268,7 @@ class TestSyscallRecursiveLoop:
         history_r1 = build_resumed_history("用户问了一个关于时间的问题。\n", r1)
         assert "<mtp_response" in history_r1
 
-        r2 = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_python_repl | code="print(42)"'
-        )
+        r2 = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="print(42)"')
         assert r2.success is True
         assert "42" in r2.response_content
 
@@ -286,9 +278,7 @@ class TestSyscallRecursiveLoop:
         assert r1.success is True
         assert "UTC" in r1.response_content
 
-        r2 = simulate_kernel_loop_single(
-            koakuma, '⟪ RUN | sys_python_repl | code="print(42)"'
-        )
+        r2 = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="print(42)"')
         assert r2.success is True
         assert "42" in r2.response_content
 

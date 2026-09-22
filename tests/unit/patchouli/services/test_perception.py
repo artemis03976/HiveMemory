@@ -368,7 +368,9 @@ class TestCompact:
             TransientInteractionSubmissionError("caller missed apply result"),
             "folded-summary",
         ]
-        familiar, store, _, _, journal = _make_familiar(engine_config=engine_config, relay=mock_relay)
+        familiar, store, _, _, journal = _make_familiar(
+            engine_config=engine_config, relay=mock_relay
+        )
         scope = _identity_scope()
         store.create(scope, topic_id="t1")
         payload = _payload("b")

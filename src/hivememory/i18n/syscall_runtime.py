@@ -7,10 +7,9 @@ from typing import Any
 from hivememory.i18n.resolver import resolve_language
 from hivememory.i18n.types import Language
 
-
 _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
     "syscall.file_read.missing_path": (
-        "[Invalid Argument] file_read 缺少 \"{arg}\" 参数。\n"
+        '[Invalid Argument] file_read 缺少 "{arg}" 参数。\n'
         "Suggestion: 请提供要读取的工作区相对路径。"
     ),
     "syscall.file_read.path_denied": (
@@ -22,24 +21,21 @@ _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请检查路径，或先搜索/列出可用文件。"
     ),
     "syscall.file_read.not_file": (
-        "[Invalid Argument] '{path}' 不是文件。\n"
-        "Suggestion: 请提供具体文件路径。"
+        "[Invalid Argument] '{path}' 不是文件。\n" "Suggestion: 请提供具体文件路径。"
     ),
     "syscall.file_read.binary_file": (
         "[Invalid Argument] '{path}' 看起来是二进制文件，无法作为文本读取。\n"
         "Suggestion: 请读取文本文件，或使用适合二进制内容的工具。"
     ),
     "syscall.file_read.read_failed": (
-        "[Tool Error] 无法读取文件 '{path}'：{detail}\n"
-        "Suggestion: 不要用相同输入重试该工具。"
+        "[Tool Error] 无法读取文件 '{path}'：{detail}\n" "Suggestion: 不要用相同输入重试该工具。"
     ),
     "syscall.file_write.missing_path": (
-        "[Invalid Argument] file_write 缺少 \"{arg}\" 参数。\n"
+        '[Invalid Argument] file_write 缺少 "{arg}" 参数。\n'
         "Suggestion: 请提供要写入的工作区相对路径。"
     ),
     "syscall.file_write.missing_content": (
-        "[Invalid Argument] file_write 缺少 \"{arg}\" 参数。\n"
-        "Suggestion: 请提供要写入的内容。"
+        '[Invalid Argument] file_write 缺少 "{arg}" 参数。\n' "Suggestion: 请提供要写入的内容。"
     ),
     "syscall.file_write.invalid_mode": (
         "[Invalid Argument] 写入模式 '{mode}' 无效，只支持 'overwrite' 或 'append'。\n"
@@ -54,36 +50,30 @@ _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请使用工作区内的相对路径。"
     ),
     "syscall.file_write.write_failed": (
-        "[Tool Error] 无法写入文件 '{path}'：{detail}\n"
-        "Suggestion: 不要用相同输入重试该工具。"
+        "[Tool Error] 无法写入文件 '{path}'：{detail}\n" "Suggestion: 不要用相同输入重试该工具。"
     ),
     "syscall.repl.missing_code": (
-        "[Invalid Argument] python_repl 缺少 \"{arg}\" 参数。\n"
+        '[Invalid Argument] python_repl 缺少 "{arg}" 参数。\n'
         "Suggestion: 请提供要执行的 Python 代码。"
     ),
     "syscall.repl.import_blocked": (
-        "[Permission Denied] 受限 REPL 不允许 import。\n"
-        "Suggestion: 只能使用沙箱允许的内置函数。"
+        "[Permission Denied] 受限 REPL 不允许 import。\n" "Suggestion: 只能使用沙箱允许的内置函数。"
     ),
     "syscall.repl.timeout": (
         "[Tool Error] Python 执行在 {timeout_seconds}s 后超时。\n"
         "Suggestion: 不要用相同输入重试该工具。"
     ),
     "syscall.repl.execution_failed": (
-        "[Tool Error] Python 执行失败：{detail}\n"
-        "Suggestion: 请检查代码中的运行时错误。"
+        "[Tool Error] Python 执行失败：{detail}\n" "Suggestion: 请检查代码中的运行时错误。"
     ),
     "syscall.web_search.missing_query": (
-        "[Invalid Argument] web_search 缺少 \"{arg}\" 参数。\n"
-        "Suggestion: 请提供搜索 query。"
+        '[Invalid Argument] web_search 缺少 "{arg}" 参数。\n' "Suggestion: 请提供搜索 query。"
     ),
     "syscall.web_search.unavailable": (
-        "[Service Unavailable] 当前系统不可用 Web 搜索。\n"
-        "Suggestion: 请改用其他方式完成任务。"
+        "[Service Unavailable] 当前系统不可用 Web 搜索。\n" "Suggestion: 请改用其他方式完成任务。"
     ),
     "syscall.web_search.failed": (
-        "[Tool Error] Web 搜索失败：{detail}\n"
-        "Suggestion: 不要用相同输入重试该工具。"
+        "[Tool Error] Web 搜索失败：{detail}\n" "Suggestion: 不要用相同输入重试该工具。"
     ),
 }
 
@@ -101,8 +91,7 @@ _SYSCALL_ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Check the path, or discover available files first."
     ),
     "syscall.file_read.not_file": (
-        "[Invalid Argument] '{path}' is not a file.\n"
-        "Suggestion: Provide a concrete file path."
+        "[Invalid Argument] '{path}' is not a file.\n" "Suggestion: Provide a concrete file path."
     ),
     "syscall.file_read.binary_file": (
         "[Invalid Argument] '{path}' appears to be a binary file and cannot be read as text.\n"

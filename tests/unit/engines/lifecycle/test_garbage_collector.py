@@ -95,9 +95,7 @@ class TestPeriodicGarbageCollector:
         archived = await self.gc.collect([self.low_vitality_memory])
 
         assert archived == 1
-        self.mock_library.archive.assert_awaited_once_with(
-            _key(self.low_vitality_memory)
-        )
+        self.mock_library.archive.assert_awaited_once_with(_key(self.low_vitality_memory))
 
     @pytest.mark.asyncio
     async def test_collect_skips_already_archived(self):

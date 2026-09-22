@@ -231,7 +231,12 @@ class TestCombinedPermissions:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-            allowed_runtime_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
+            allowed_runtime_tools=[
+                "sys_clock",
+                "sys_read_file",
+                "sys_write_file",
+                "sys_python_repl",
+            ],
         )
         output = builder.build()
 

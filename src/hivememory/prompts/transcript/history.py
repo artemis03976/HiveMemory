@@ -31,7 +31,6 @@ from hivememory.core.models import TurnEvent
 from hivememory.core.models import LogicalBlock
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
-
 _SYSTEM_PREFIX_KEYS: Dict[str, str] = {
     "system_tool_result": "mtp.loop.execution_result_title",
     "system_call_response": "mtp.call_response.title",
@@ -95,9 +94,7 @@ class HistoryTranscriptBuilder:
             assistant_content = block.assistant_final_text
             if not assistant_content:
                 return
-            content = self._apply_agent_prefix(
-                assistant_content, block, current_agent_id
-            )
+            content = self._apply_agent_prefix(assistant_content, block, current_agent_id)
             out.append({"role": "assistant", "content": content})
 
     def _render_event(
@@ -142,11 +139,7 @@ class HistoryTranscriptBuilder:
     ) -> str:
         """若 block 来自非当前 Agent，在内容前加 [From: {agent_id}]。"""
         agent_id = block.identity.agent_id
-        if (
-            agent_id
-            and agent_id not in _AGENT_ID_BYPASS
-            and agent_id != current_agent_id
-        ):
+        if agent_id and agent_id not in _AGENT_ID_BYPASS and agent_id != current_agent_id:
             return f"[From: {agent_id}]\n{content}"
         return content
 

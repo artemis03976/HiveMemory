@@ -57,9 +57,7 @@ def generate_trace_id(prefix: str = "") -> str:
 
 
 def set_trace_context(
-    trace_id: str,
-    span_name: str,
-    task_type: Literal["foreground", "background"]
+    trace_id: str, span_name: str, task_type: Literal["foreground", "background"]
 ) -> Tuple[contextvars.Token, contextvars.Token, contextvars.Token]:
     """
     设置追踪上下文
@@ -80,7 +78,7 @@ def set_trace_context(
 
 
 def reset_trace_context(
-    tokens: Tuple[contextvars.Token, contextvars.Token, contextvars.Token]
+    tokens: Tuple[contextvars.Token, contextvars.Token, contextvars.Token],
 ) -> None:
     """
     恢复追踪上下文到之前的状态

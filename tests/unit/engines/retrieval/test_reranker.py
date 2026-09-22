@@ -12,7 +12,14 @@ from hivememory.engines.retrieval.reranker import (
     create_reranker,
 )
 from hivememory.engines.retrieval.models import SearchResults, SearchResult, RetrievalQuery
-from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType, MemoryVisibility
+from hivememory.core.models import (
+    MemoryAtom,
+    IndexLayer,
+    MetaData,
+    PayloadLayer,
+    MemoryType,
+    MemoryVisibility,
+)
 from hivememory.system.config import RerankerConfig
 from hivememory.infrastructure.rerank.base import BaseRerankService
 from datetime import datetime
@@ -90,7 +97,7 @@ class TestCrossEncoderReranker:
 
         # 验证 match_reason 被更新
         assert "Rerank" in result.results[0].match_reason
-        
+
         mock_service.compute_score.assert_called_once()
 
     def test_rerank_empty(self, sample_query):
@@ -132,7 +139,7 @@ class TestCrossEncoderReranker:
         scores = [r.score for r in result.results]
         # 注意：这里期望的顺序是降序排列后的
         # 0.9 排第一，0.5 排第二，0.3 排第三
-        assert scores == [0.9, 0.5, 0.3]  
+        assert scores == [0.9, 0.5, 0.3]
 
     def test_rerank_error_fallback(self, sample_results, sample_query):
         """测试计算失败时的降级处理"""
@@ -178,7 +185,7 @@ class TestCreateReranker:
         """测试创建 CrossEncoderReranker"""
         mock_service = Mock(spec=BaseRerankService)
         config = RerankerConfig(enabled=True)
-        
+
         # 必须提供 service
         reranker = create_reranker(config, service=mock_service)
         assert isinstance(reranker, CrossEncoderReranker)

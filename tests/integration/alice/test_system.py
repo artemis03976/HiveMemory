@@ -58,8 +58,11 @@ async def test_stop_clears_runtime_derived_caches():
     await system.start()
     await system.stop()
 
-    assert system.runtime.atom_cache.get_atom_by_alias(
-        "fact_stop",
-        workspace_identity=make_workspace_identity(),
-    ) is None
+    assert (
+        system.runtime.atom_cache.get_atom_by_alias(
+            "fact_stop",
+            workspace_identity=make_workspace_identity(),
+        )
+        is None
+    )
     assert system.runtime.atom_cache.get_atom_by_uuid(str(atom.id)) is None

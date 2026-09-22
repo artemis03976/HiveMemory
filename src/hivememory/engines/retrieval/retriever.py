@@ -21,11 +21,7 @@ from hivememory.system.config import (
     SparseRetrieverConfig,
     HybridRetrieverConfig,
 )
-from hivememory.engines.retrieval.interfaces import (
-    BaseMemoryRetriever, 
-    BaseFusion, 
-    BaseReranker
-)
+from hivememory.engines.retrieval.interfaces import BaseMemoryRetriever, BaseFusion, BaseReranker
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
@@ -41,6 +37,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 class DenseRetriever(BaseMemoryRetriever):
     """
     稠密向量检索器
@@ -48,11 +45,7 @@ class DenseRetriever(BaseMemoryRetriever):
     使用 Qdrant 的稠密向量进行语义检索，捕获模糊语义匹配。
     """
 
-    def __init__(
-        self,
-        mid_term: "MidTermMemoryStore",
-        config: DenseRetrieverConfig
-    ):
+    def __init__(self, mid_term: "MidTermMemoryStore", config: DenseRetrieverConfig):
         """
         初始化稠密检索器
 
@@ -67,7 +60,7 @@ class DenseRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None
+        score_threshold: Optional[float] = None,
     ) -> SearchResults:
         """
         执行稠密向量检索
@@ -125,21 +118,21 @@ class DenseRetriever(BaseMemoryRetriever):
                 confidence_boost = memory.meta.confidence_score * 0.05
                 final_score += confidence_boost
 
-            search_results.append(SearchResult(
-                memory=memory,
-                score=final_score,
-                vector_score=vector_score,
-                boost_applied=boost,
-                match_reason=f"Dense: {vector_score:.3f}"
-            ))
+            search_results.append(
+                SearchResult(
+                    memory=memory,
+                    score=final_score,
+                    vector_score=vector_score,
+                    boost_applied=boost,
+                    match_reason=f"Dense: {vector_score:.3f}",
+                )
+            )
 
         latency = (time.time() - start_time) * 1000
         logger.info(f"Dense检索完成: 返回 {len(search_results)} 条结果, 耗时 {latency:.1f}ms")
 
         return SearchResults(
-            results=search_results,
-            total_candidates=len(raw_results),
-            latency_ms=latency
+            results=search_results, total_candidates=len(raw_results), latency_ms=latency
         )
 
     def _calculate_time_decay(self, updated_at: datetime) -> float:
@@ -178,11 +171,7 @@ class SparseRetriever(BaseMemoryRetriever):
     捕获精准实体匹配，如特定函数名、错误码、专有名词等。
     """
 
-    def __init__(
-        self,
-        mid_term: "MidTermMemoryStore",
-        config: SparseRetrieverConfig
-    ):
+    def __init__(self, mid_term: "MidTermMemoryStore", config: SparseRetrieverConfig):
         """
         初始化稀疏检索器
 
@@ -197,7 +186,7 @@ class SparseRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None
+        score_threshold: Optional[float] = None,
     ) -> SearchResults:
         """
         执行稀疏向量检索
@@ -241,19 +230,17 @@ class SparseRetriever(BaseMemoryRetriever):
             sparse_score = hit["score"]
 
             # 稀疏检索不应用时间衰减，直接使用原始分数
-            search_results.append(SearchResult(
-                memory=memory,
-                score=sparse_score,
-                match_reason=f"Sparse: {sparse_score:.3f}"
-            ))
+            search_results.append(
+                SearchResult(
+                    memory=memory, score=sparse_score, match_reason=f"Sparse: {sparse_score:.3f}"
+                )
+            )
 
         latency = (time.time() - start_time) * 1000
         logger.info(f"Sparse检索完成: 返回 {len(search_results)} 条结果, 耗时 {latency:.1f}ms")
 
         return SearchResults(
-            results=search_results,
-            total_candidates=len(raw_results),
-            latency_ms=latency
+            results=search_results, total_candidates=len(raw_results), latency_ms=latency
         )
 
 
@@ -293,7 +280,7 @@ class HybridRetriever(BaseMemoryRetriever):
 
         self.dense_retriever = dense_retriever
         self.sparse_retriever = sparse_retriever
-        
+
         self.fusion = fusion
         self.reranker = reranker
 
@@ -301,7 +288,7 @@ class HybridRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: Optional[int] = None,
-        score_threshold: Optional[float] = None
+        score_threshold: Optional[float] = None,
     ) -> SearchResults:
         """
         执行混合检索
@@ -339,11 +326,12 @@ class HybridRetriever(BaseMemoryRetriever):
         if score_threshold > 0:
             if isinstance(self.reranker, NoopReranker):
                 fused_results.results = [
-                    r for r in fused_results.results
-                    if r.score >= score_threshold
+                    r for r in fused_results.results if r.score >= score_threshold
                 ]
             else:
-                logger.debug(f"跳过阈值过滤 (threshold={score_threshold}): 当前使用的是 RRF 分数，不适用 Cosine 阈值")
+                logger.debug(
+                    f"跳过阈值过滤 (threshold={score_threshold}): 当前使用的是 RRF 分数，不适用 Cosine 阈值"
+                )
 
         # 截取 top_k
         fused_results.results = fused_results.results[:top_k]
@@ -353,10 +341,7 @@ class HybridRetriever(BaseMemoryRetriever):
 
         return fused_results
 
-    async def _parallel_recall(
-        self,
-        query: RetrievalQuery
-    ) -> Tuple[SearchResults, SearchResults]:
+    async def _parallel_recall(self, query: RetrievalQuery) -> Tuple[SearchResults, SearchResults]:
         """asyncio.gather 并行执行稠密和稀疏检索"""
         results = await asyncio.gather(
             self.dense_retriever.retrieve(query),
@@ -373,8 +358,7 @@ class HybridRetriever(BaseMemoryRetriever):
         return dense_results, sparse_results
 
     async def _sequential_recall(
-        self,
-        query: RetrievalQuery
+        self, query: RetrievalQuery
     ) -> Tuple[SearchResults, SearchResults]:
         """顺序执行稠密和稀疏检索"""
         dense_results = await self.dense_retriever.retrieve(query)
@@ -385,7 +369,7 @@ class HybridRetriever(BaseMemoryRetriever):
 def create_retriever(
     mid_term: "MidTermMemoryStore",
     config: Union[HybridRetrieverConfig, DenseRetrieverConfig, SparseRetrieverConfig],
-    reranker_service: BaseRerankService = None
+    reranker_service: BaseRerankService = None,
 ) -> BaseMemoryRetriever:
     """
     创建检索器工厂
@@ -409,34 +393,36 @@ def create_retriever(
 
     if isinstance(config, SparseRetrieverConfig):
         return SparseRetriever(mid_term, config)
-    
+
     if isinstance(config, HybridRetrieverConfig):
         # 1. 创建子检索器
         dense_retriever = None
         if config.dense.enabled:
             dense_retriever = DenseRetriever(mid_term, config.dense)
-            
+
         sparse_retriever = None
         if config.sparse.enabled:
             sparse_retriever = SparseRetriever(mid_term, config.sparse)
-            
+
         # 2. 创建 Fusion
         fusion = create_fusion(config.fusion)
-        
+
         # 3. 创建 Reranker
         reranker = None
         if config.reranker.enabled:
             if reranker_service is None:
-                logger.warning("HybridRetriever: Reranker enabled but no service provided. Disabling reranker.")
+                logger.warning(
+                    "HybridRetriever: Reranker enabled but no service provided. Disabling reranker."
+                )
             else:
                 reranker = create_reranker(config=config.reranker, service=reranker_service)
-        
+
         return HybridRetriever(
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
             fusion=fusion,
             reranker=reranker,
-            config=config
+            config=config,
         )
 
     raise ValueError(f"未知的 Retriever 类型: {type(config)}")

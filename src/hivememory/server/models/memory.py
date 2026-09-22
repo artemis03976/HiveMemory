@@ -7,15 +7,19 @@ from pydantic import BaseModel, Field, field_validator
 
 from hivememory.core.models import MemoryAtom
 
-
 _ALLOWED_MEMORY_TYPES = {
-    "CODE_SNIPPET", "FACT", "URL_RESOURCE",
-    "REFLECTION", "USER_PROFILE", "WORK_IN_PROGRESS",
+    "CODE_SNIPPET",
+    "FACT",
+    "URL_RESOURCE",
+    "REFLECTION",
+    "USER_PROFILE",
+    "WORK_IN_PROGRESS",
 }
 
 
 class MemoryResponse(BaseModel):
     """MemoryAtom 的可序列化子集"""
+
     id: str
     title: str
     summary: str
@@ -36,7 +40,11 @@ class MemoryResponse(BaseModel):
             id=str(atom.id),
             title=atom.index.title,
             summary=atom.index.summary,
-            memory_type=atom.index.memory_type.value if hasattr(atom.index.memory_type, 'value') else str(atom.index.memory_type),
+            memory_type=(
+                atom.index.memory_type.value
+                if hasattr(atom.index.memory_type, "value")
+                else str(atom.index.memory_type)
+            ),
             tags=atom.index.tags,
             alias=atom.index.alias,
             content=atom.payload.content,

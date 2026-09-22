@@ -34,6 +34,7 @@ from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.system.config import ReinforcementEngineConfig
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
@@ -165,8 +166,7 @@ class DynamicReinforcementEngine:
     def _handle_negative_feedback(self, memory: MemoryAtom) -> None:
         old_confidence = memory.meta.confidence_score
         memory.meta.confidence_score = max(
-            0.0,
-            memory.meta.confidence_score * self.config.negative_confidence_multiplier
+            0.0, memory.meta.confidence_score * self.config.negative_confidence_multiplier
         )
 
         logger.debug(
@@ -187,18 +187,14 @@ class DynamicReinforcementEngine:
 
         # 限制历史大小
         if len(self._event_history) > self.config.event_history_limit:
-            self._event_history = self._event_history[
-                -self.config.event_history_limit:
-            ]
+            self._event_history = self._event_history[-self.config.event_history_limit :]
 
     @staticmethod
     def _clamp_vitality(value: float) -> float:
         return max(0.0, min(100.0, value))
 
     def get_event_history(
-        self,
-        memory_id: Optional[UUID] = None,
-        limit: int = 100
+        self, memory_id: Optional[UUID] = None, limit: int = 100
     ) -> List[ReinforcementResult]:
         """
         获取事件历史

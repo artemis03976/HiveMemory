@@ -10,49 +10,47 @@ from uuid import uuid4, UUID
 
 from hivememory.core.models import MemoryAtom, IndexLayer, MetaData, PayloadLayer, MemoryType
 from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.system.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
+from hivememory.system.config import (
+    ReciprocalRankFusionConfig,
+    AdaptiveWeightedFusionConfig,
+    RetrievalModeConfig,
+)
 from hivememory.engines.retrieval.fusion import ReciprocalRankFusion, AdaptiveWeightedFusion
 from tests.helpers.memory import make_memory_metadata
 
+
 class TestReciprocalRankFusion:
-    
+
     @pytest.fixture
     def fusion(self):
         config = ReciprocalRankFusionConfig(
-            rrf_k=60,
-            dense_weight=1.0,
-            sparse_weight=1.0,
-            final_top_k=10
+            rrf_k=60, dense_weight=1.0, sparse_weight=1.0, final_top_k=10
         )
         return ReciprocalRankFusion(config)
 
     def create_result(self, memory_id: UUID, score: float, match_reason: str) -> SearchResult:
         memory = MemoryAtom(
             id=memory_id,
-            index=IndexLayer(title=f"Mem {memory_id}", summary="summary must be long enough for validation", memory_type=MemoryType.FACT),
+            index=IndexLayer(
+                title=f"Mem {memory_id}",
+                summary="summary must be long enough for validation",
+                memory_type=MemoryType.FACT,
+            ),
             meta=make_memory_metadata(source_agent_id="test", user_id="user"),
-            payload=PayloadLayer(content="content")
+            payload=PayloadLayer(content="content"),
         )
-        return SearchResult(
-            memory=memory,
-            score=score,
-            match_reason=match_reason
-        )
+        return SearchResult(memory=memory, score=score, match_reason=match_reason)
 
     def test_fuse_disjoint(self, fusion):
         """测试无重叠结果的融合"""
         id1 = uuid4()
         id2 = uuid4()
-        
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense_match")
-        ])
-        sparse_results = SearchResults(results=[
-            self.create_result(id2, 0.8, "sparse_match")
-        ])
-        
+
+        dense_results = SearchResults(results=[self.create_result(id1, 0.9, "dense_match")])
+        sparse_results = SearchResults(results=[self.create_result(id2, 0.8, "sparse_match")])
+
         fused = fusion.fuse(dense_results, sparse_results)
-        
+
         assert len(fused.results) == 2
         # 分数计算：
         # id1（dense 中排名 1）：1.0 / (60 + 1) = 0.01639
@@ -61,62 +59,60 @@ class TestReciprocalRankFusion:
         ids = [r.memory.id for r in fused.results]
         assert id1 in ids
         assert id2 in ids
-        
+
         assert fused.total_candidates == 2
 
     def test_fuse_overlap(self, fusion):
         """测试有重叠结果的融合 (分数叠加)"""
         common_id = uuid4()
         only_dense_id = uuid4()
-        
+
         # 公共 ID 在 dense 中排名 1，在 sparse 中排名 1
-        dense_results = SearchResults(results=[
-            self.create_result(common_id, 0.9, "dense"),
-            self.create_result(only_dense_id, 0.7, "dense_only")
-        ])
-        
-        sparse_results = SearchResults(results=[
-            self.create_result(common_id, 0.8, "sparse")
-        ])
-        
+        dense_results = SearchResults(
+            results=[
+                self.create_result(common_id, 0.9, "dense"),
+                self.create_result(only_dense_id, 0.7, "dense_only"),
+            ]
+        )
+
+        sparse_results = SearchResults(results=[self.create_result(common_id, 0.8, "sparse")])
+
         fused = fusion.fuse(dense_results, sparse_results)
-        
+
         assert len(fused.results) == 2
-        
+
         # 检查 common_id 的分数
         # Dense 排名 1：1/61
         # Sparse 排名 1：1/61
         # 总计：2/61 ≈ 0.03278
         common_res = next(r for r in fused.results if r.memory.id == common_id)
-        assert common_res.score == pytest.approx(2/61, rel=1e-4)
-        
+        assert common_res.score == pytest.approx(2 / 61, rel=1e-4)
+
         # 检查 match reason 的合并
         assert "dense" in common_res.match_reason
         assert "sparse" in common_res.match_reason
-        
+
         # 检查排序：common (0.032) > only_dense (1/62 ≈ 0.016)
         assert fused.results[0].memory.id == common_id
-        
+
     def test_fuse_weights(self):
         """测试不同权重的影响"""
         config = ReciprocalRankFusionConfig(
-            rrf_k=1, # 用较小的 k 放大权重影响
-            dense_weight=10.0,
-            sparse_weight=1.0
+            rrf_k=1, dense_weight=10.0, sparse_weight=1.0  # 用较小的 k 放大权重影响
         )
         fusion = ReciprocalRankFusion(config)
-        
-        id1 = uuid4() # Dense 排名 1
-        id2 = uuid4() # Sparse 排名 1
-        
+
+        id1 = uuid4()  # Dense 排名 1
+        id2 = uuid4()  # Sparse 排名 1
+
         dense_results = SearchResults(results=[self.create_result(id1, 0.9, "dense")])
         sparse_results = SearchResults(results=[self.create_result(id2, 0.9, "sparse")])
-        
+
         fused = fusion.fuse(dense_results, sparse_results)
-        
+
         # id1 分数：10 / (1+1) = 5.0
         # id2 分数：1 / (1+1) = 0.5
-        
+
         assert fused.results[0].memory.id == id1
         assert fused.results[0].score == pytest.approx(5.0)
         assert fused.results[1].memory.id == id2
@@ -126,7 +122,7 @@ class TestReciprocalRankFusion:
         """测试空结果处理"""
         empty = SearchResults()
         fused = fusion.fuse(empty, empty)
-        
+
         assert len(fused.results) == 0
         assert fused.is_empty()
 
@@ -135,35 +131,35 @@ class TestReciprocalRankFusion:
         id1 = uuid4()
         id2 = uuid4()
         id3 = uuid4()
-        
+
         r1 = SearchResults(results=[self.create_result(id1, 0.9, "r1")])
         r2 = SearchResults(results=[self.create_result(id2, 0.9, "r2")])
         r3 = SearchResults(results=[self.create_result(id3, 0.9, "r3")])
-        
+
         # 使用相等权重测试
         fused = fusion.fuse_multi([r1, r2, r3])
         assert len(fused.results) == 3
-        
+
         # 使用自定义权重测试
         weights = [10.0, 1.0, 0.1]
         fused_weighted = fusion.fuse_multi([r1, r2, r3], weights=weights)
-        
-        assert fused_weighted.results[0].memory.id == id1 # 权重 10
-        assert fused_weighted.results[1].memory.id == id2 # 权重 1
-        assert fused_weighted.results[2].memory.id == id3 # 权重 0.1
+
+        assert fused_weighted.results[0].memory.id == id1  # 权重 10
+        assert fused_weighted.results[1].memory.id == id2  # 权重 1
+        assert fused_weighted.results[2].memory.id == id3  # 权重 0.1
 
     def test_top_k_truncation(self):
         """测试结果截断"""
         config = ReciprocalRankFusionConfig(final_top_k=2)
         fusion = ReciprocalRankFusion(config)
-        
+
         # 创建 3 个不同的结果
         r1 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r1")])
         r2 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r2")])
         r3 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r3")])
-        
+
         fused = fusion.fuse_multi([r1, r2, r3])
-        
+
         assert len(fused.results) == 2
         assert fused.total_candidates == 3
 
@@ -190,7 +186,7 @@ class TestAdaptiveWeightedFusion:
         score: float,
         match_reason: str,
         confidence: float = 0.8,
-        vitality: float = 50.0
+        vitality: float = 50.0,
     ) -> SearchResult:
         """创建测试用的 SearchResult"""
         memory = MemoryAtom(
@@ -198,21 +194,17 @@ class TestAdaptiveWeightedFusion:
             index=IndexLayer(
                 title=f"Mem {memory_id}",
                 summary="summary must be long enough for validation",
-                memory_type=MemoryType.FACT
+                memory_type=MemoryType.FACT,
             ),
             meta=make_memory_metadata(
                 source_agent_id="test",
                 user_id="user",
                 confidence_score=confidence,
-                vitality_score=vitality
+                vitality_score=vitality,
             ),
-            payload=PayloadLayer(content="content")
+            payload=PayloadLayer(content="content"),
         )
-        return SearchResult(
-            memory=memory,
-            score=score,
-            match_reason=match_reason
-        )
+        return SearchResult(memory=memory, score=score, match_reason=match_reason)
 
     def test_fuse_with_quality_multiplier(self, fusion):
         """测试质量乘数正确应用"""
@@ -221,10 +213,12 @@ class TestAdaptiveWeightedFusion:
 
         # id1: 高分数，低置信度 -> 应被惩罚
         # id2: 低分数，高置信度 -> 不被惩罚
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense", confidence=0.4, vitality=50.0),
-            self.create_result(id2, 0.7, "dense", confidence=0.95, vitality=50.0),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id1, 0.9, "dense", confidence=0.4, vitality=50.0),
+                self.create_result(id2, 0.7, "dense", confidence=0.95, vitality=50.0),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # 使用 debug 模式 (强惩罚)
@@ -246,10 +240,12 @@ class TestAdaptiveWeightedFusion:
         id_low_conf = uuid4()
         id_high_conf = uuid4()
 
-        dense_results = SearchResults(results=[
-            self.create_result(id_low_conf, 0.95, "dense", confidence=0.3, vitality=50.0),
-            self.create_result(id_high_conf, 0.85, "dense", confidence=0.95, vitality=50.0),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id_low_conf, 0.95, "dense", confidence=0.3, vitality=50.0),
+                self.create_result(id_high_conf, 0.85, "dense", confidence=0.95, vitality=50.0),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # Debug 模式: 强惩罚低置信度
@@ -265,9 +261,11 @@ class TestAdaptiveWeightedFusion:
         id1 = uuid4()
 
         # 只有 dense 结果
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense", confidence=0.8, vitality=50.0),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id1, 0.9, "dense", confidence=0.8, vitality=50.0),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # Concept 模式: 高 dense 权重 (0.8)
@@ -287,10 +285,12 @@ class TestAdaptiveWeightedFusion:
         id_high_vit = uuid4()
         id_low_vit = uuid4()
 
-        dense_results = SearchResults(results=[
-            self.create_result(id_low_vit, 0.9, "dense", confidence=0.8, vitality=20.0),
-            self.create_result(id_high_vit, 0.85, "dense", confidence=0.8, vitality=90.0),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id_low_vit, 0.9, "dense", confidence=0.8, vitality=20.0),
+                self.create_result(id_high_vit, 0.85, "dense", confidence=0.8, vitality=90.0),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # Concept 模式: 启用生命力加成
@@ -305,9 +305,11 @@ class TestAdaptiveWeightedFusion:
         """测试模式切换正确"""
         id1 = uuid4()
 
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense", confidence=0.4, vitality=50.0),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id1, 0.9, "dense", confidence=0.4, vitality=50.0),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # Debug 模式: 低置信度被惩罚
@@ -323,9 +325,11 @@ class TestAdaptiveWeightedFusion:
         """测试未指定模式时使用默认模式"""
         id1 = uuid4()
 
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense"),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id1, 0.9, "dense"),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # 不指定模式，应使用默认模式 (concept)
@@ -348,9 +352,11 @@ class TestAdaptiveWeightedFusion:
         """测试基于意图的模式推断"""
         id1 = uuid4()
 
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense", confidence=0.4),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id1, 0.9, "dense", confidence=0.4),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # 使用 "fix error" 意图，应推断为 debug 模式
@@ -365,11 +371,13 @@ class TestAdaptiveWeightedFusion:
         fusion = AdaptiveWeightedFusion(config)
 
         # 创建 3 个结果
-        dense_results = SearchResults(results=[
-            self.create_result(uuid4(), 0.9, "r1"),
-            self.create_result(uuid4(), 0.8, "r2"),
-            self.create_result(uuid4(), 0.7, "r3"),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(uuid4(), 0.9, "r1"),
+                self.create_result(uuid4(), 0.8, "r2"),
+                self.create_result(uuid4(), 0.7, "r3"),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         fused = fusion.fuse(dense_results, sparse_results)
@@ -389,9 +397,11 @@ class TestAdaptiveWeightedFusion:
         """测试未知模式回退到默认模式"""
         id1 = uuid4()
 
-        dense_results = SearchResults(results=[
-            self.create_result(id1, 0.9, "dense"),
-        ])
+        dense_results = SearchResults(
+            results=[
+                self.create_result(id1, 0.9, "dense"),
+            ]
+        )
         sparse_results = SearchResults(results=[])
 
         # 使用未知模式

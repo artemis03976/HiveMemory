@@ -77,9 +77,7 @@ class SystemGatewayConfig(BaseModel):
         default_factory=GatewayContextPreparationConfig
     )
     topic_router: TopicRouterConfig = Field(default_factory=TopicRouterConfig)
-    user_query_analysis: UserQueryAnalysisConfig = Field(
-        default_factory=UserQueryAnalysisConfig
-    )
+    user_query_analysis: UserQueryAnalysisConfig = Field(default_factory=UserQueryAnalysisConfig)
 
     model_config = ConfigDict(extra="ignore")
 

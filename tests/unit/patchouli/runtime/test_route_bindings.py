@@ -8,10 +8,7 @@ def test_build_patchouli_route_bindings_covers_all_declared_local_routes():
     runtime = Mock()
     service = Mock()
 
-    route_names = [
-        route
-        for route, _handler in build_patchouli_route_bindings(runtime, service)
-    ]
+    route_names = [route for route, _handler in build_patchouli_route_bindings(runtime, service)]
 
     assert set(route_names) == set(PatchouliLocalRoutes.ALL)
     assert len(route_names) == len(PatchouliLocalRoutes.ALL)

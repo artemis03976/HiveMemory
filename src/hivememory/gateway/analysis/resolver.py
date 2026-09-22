@@ -81,8 +81,7 @@ class LLMUserQueryAnalysisResolver:
         self._engine = engine
         self._runtime_events = runtime_events or NullRuntimeEventSink()
         self._write_patterns = [
-            re.compile(pattern, re.IGNORECASE)
-            for pattern in self._WRITE_INTENT_PATTERNS
+            re.compile(pattern, re.IGNORECASE) for pattern in self._WRITE_INTENT_PATTERNS
         ]
 
     async def resolve(
@@ -138,9 +137,7 @@ class LLMUserQueryAnalysisResolver:
         recent = topic_data.recent_blocks(1)
         if not recent:
             return False
-        return self._normalize(recent[0].user_query) == self._normalize(
-            context.raw_message
-        )
+        return self._normalize(recent[0].user_query) == self._normalize(context.raw_message)
 
     @staticmethod
     def _normalize(text: str) -> str:

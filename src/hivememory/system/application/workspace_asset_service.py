@@ -67,9 +67,7 @@ class WorkspaceAssetApplicationService:
         if access is not None:
             # 行为检查先于接收与注册副作用：不允许未经许可的上传消耗
             # 解析与存储资源。
-            self._access_guard.authorize_operation(
-                access, WorkspaceOperation.MANAGEMENT_ASSET
-            )
+            self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_ASSET)
         key = (identity_scope.workspace_identity, client_operation_id)
         async with self._serial_gate.hold(key):
             metadata, content, content_hash = await receive_upload(

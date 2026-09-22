@@ -89,12 +89,10 @@ def _make_real_familiar(
     store = ShortTermMemoryStore()
     clock = _FakeClock()
     relay = Mock()
-    relay.generate_summary.side_effect = (
-        lambda blocks_to_fold, previous_summary=None: (
-            f"{previous_summary}|folded:{len(blocks_to_fold)}"
-            if previous_summary
-            else f"folded:{len(blocks_to_fold)}"
-        )
+    relay.generate_summary.side_effect = lambda blocks_to_fold, previous_summary=None: (
+        f"{previous_summary}|folded:{len(blocks_to_fold)}"
+        if previous_summary
+        else f"folded:{len(blocks_to_fold)}"
     )
     interaction_journal = InMemoryInteractionApplyJournal()
     engine = MemoryPerceptionEngine(
@@ -169,9 +167,7 @@ async def test_idle_flush_skips_empty_settlement_submission():
 @pytest.mark.asyncio
 async def test_idle_scan_skips_topic_that_becomes_busy_before_settlement():
     """维护快照之后被占用（lease）的 Topic 留给下一轮扫描。"""
-    familiar, store, working_set, clock, bus = _make_real_familiar(
-        idle_timeout_seconds=1
-    )
+    familiar, store, working_set, clock, bus = _make_real_familiar(idle_timeout_seconds=1)
     identity_scope = make_identity_scope(user_id="u-busy", agent_id="a-busy")
     topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
     assert working_set.acquire(identity_scope, topic_id) is not None
@@ -218,9 +214,7 @@ async def test_idle_flush_frees_slot():
 @pytest.mark.asyncio
 async def test_lru_reselects_another_topic_when_first_candidate_becomes_busy():
     """LRU 候选被占用时改选其他话题，不能导致超额创建或误报驱逐成功。"""
-    familiar, store, working_set, clock, bus = _make_real_familiar(
-        max_resident_topics=2
-    )
+    familiar, store, working_set, clock, bus = _make_real_familiar(max_resident_topics=2)
     identity_scope = make_identity_scope(user_id="u-lru", agent_id="a-lru")
     first_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
     clock.advance(10)
@@ -349,9 +343,7 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
     before_shutdown = store.get(identity_scope, topic_id)
     assert before_shutdown is not None
     assert before_shutdown.state_summary == "folded:1|folded:1"
-    assert [block.user_query for block in before_shutdown.blocks] == [
-        "question-2-" * 80
-    ]
+    assert [block.user_query for block in before_shutdown.blocks] == ["question-2-" * 80]
     assert bus.request.await_count == 0
     bus.request.side_effect = _accept_settlement_task
 
@@ -366,12 +358,11 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
     assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
     assert settlement.reason == TriggerReason.SHUTDOWN
     assert settlement.state_summary == "folded:1|folded:1"
-    assert [block.user_query for block in settlement.blocks] == [
-        "question-2-" * 80
-    ]
+    assert [block.user_query for block in settlement.blocks] == ["question-2-" * 80]
 
 
 # ========== summary-only 内容判空语义 ==========
+
 
 @pytest.mark.asyncio
 async def test_summary_only_topic_stays_in_non_empty_active_list():
@@ -415,6 +406,7 @@ async def test_discard_if_empty_evicts_truly_empty_topic():
 
 
 # ========== 真正空 Topic 仍正常结束生命周期 ==========
+
 
 @pytest.mark.asyncio
 async def test_shutdown_evicts_truly_empty_topic_and_marks_generation_skip():
@@ -514,6 +506,7 @@ async def test_manual_settle_evicts_truly_empty_topic():
 
 # ========== manual settle: admission -> evict 顺序 ==========
 
+
 @pytest.mark.asyncio
 async def test_manual_settle_admits_generation_task_before_evicting():
     familiar, store, _, _, bus = _make_real_familiar()
@@ -598,6 +591,7 @@ async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
 
 # ========== manual delete: 只驱逐，不写记忆 ==========
 
+
 @pytest.mark.asyncio
 async def test_manual_delete_evicts_without_generation_task():
     familiar, store, _, _, bus = _make_real_familiar()
@@ -638,6 +632,7 @@ async def test_manual_delete_reports_busy_topic_without_removing_it():
 
 
 # ========== token 溢出 compact：只压缩工作集 ==========
+
 
 @pytest.mark.asyncio
 async def test_token_overflow_compact_trims_prefix_and_keeps_topic():

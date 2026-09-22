@@ -40,4 +40,7 @@ def test_relay_user_prompt_template():
 
 def test_relay_previous_summary_empty():
     assert get_relay_prompt_text("previous_summary_empty") == "无。当前为新话题。"
-    assert get_relay_prompt_text("previous_summary_empty", language="en") == "None. This is a new topic."
+    assert (
+        get_relay_prompt_text("previous_summary_empty", language="en")
+        == "None. This is a new topic."
+    )

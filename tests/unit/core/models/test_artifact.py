@@ -104,8 +104,7 @@ def test_legacy_flat_json_without_actor_identity_fails_closed():
 
     with pytest.raises(ValidationError, match="actor_identity"):
         InteractionTurnSnapshot.model_validate(
-            {k: v for k, v in _snapshot_payload().items()
-             if k != "actor_identity"}
+            {k: v for k, v in _snapshot_payload().items() if k != "actor_identity"}
         )
 
 

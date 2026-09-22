@@ -187,9 +187,7 @@ class _AuthoritativeStore(InMemoryWorkStore):
         error: WorkErrorSnapshot,
     ) -> WorkRecord:
         record = await super().mark_failed(work_id, self.error)
-        return self.committed(
-            replace(record, attempt_count=37, finished_at=self.finished_at)
-        )
+        return self.committed(replace(record, attempt_count=37, finished_at=self.finished_at))
 
     async def mark_dead_lettered(
         self,
@@ -197,17 +195,13 @@ class _AuthoritativeStore(InMemoryWorkStore):
         error: WorkErrorSnapshot,
     ) -> WorkRecord:
         record = await super().mark_dead_lettered(work_id, self.error)
-        return self.committed(
-            replace(record, attempt_count=37, finished_at=self.finished_at)
-        )
+        return self.committed(replace(record, attempt_count=37, finished_at=self.finished_at))
 
     async def cancel(self, work_id: str) -> WorkRecord | None:
         record = await super().cancel(work_id)
         if record is None:
             return None
-        return self.committed(
-            replace(record, attempt_count=37, finished_at=self.finished_at)
-        )
+        return self.committed(replace(record, attempt_count=37, finished_at=self.finished_at))
 
 
 class _DecidingFailureHandler(_ImmediateHandler):

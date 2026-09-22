@@ -28,21 +28,11 @@ def _snapshot(
         pending_alias="pending-1",
         status=status,
         canonical_alias=(
-            "fact_memory_1"
-            if status == MemoryGenerationTaskStatus.COMPLETED
-            else None
+            "fact_memory_1" if status == MemoryGenerationTaskStatus.COMPLETED else None
         ),
-        error=(
-            "generation failed"
-            if status == MemoryGenerationTaskStatus.FAILED
-            else None
-        ),
+        error=("generation failed" if status == MemoryGenerationTaskStatus.FAILED else None),
         created_at=created_at,
-        started_at=(
-            created_at
-            if status != MemoryGenerationTaskStatus.PENDING
-            else None
-        ),
+        started_at=(created_at if status != MemoryGenerationTaskStatus.PENDING else None),
         finished_at=(
             created_at
             if status

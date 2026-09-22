@@ -80,7 +80,9 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         return _prepared(identity_scope)
 
     async def alice(*, agent_run_context, **_kwargs):
-        return AgentRunResult(final_text=agent_run_context.identity_scope.workspace_identity.workspace_id)
+        return AgentRunResult(
+            final_text=agent_run_context.identity_scope.workspace_identity.workspace_id
+        )
 
     async def finalize(*, prepared_run, **_kwargs):
         finalized_contexts.append(prepared_run.identity_scope)
@@ -115,14 +117,20 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     )
 
     await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
-    assert service.generation_status_scoped(
-        "generation-main",
-        identity_scope=isolation_context,
-    ) is None
-    assert service.generation_status_scoped(
-        "generation-isolation",
-        identity_scope=main_context,
-    ) is None
+    assert (
+        service.generation_status_scoped(
+            "generation-main",
+            identity_scope=isolation_context,
+        )
+        is None
+    )
+    assert (
+        service.generation_status_scoped(
+            "generation-isolation",
+            identity_scope=main_context,
+        )
+        is None
+    )
 
     release_gateway.set()
     main_result, isolation_result = await asyncio.wait_for(
@@ -251,10 +259,13 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
             identity_scope=isolated,
         )
         assert isolated_status.status == "running"
-        assert service.generation_status_scoped(
-            "run-isolated",
-            identity_scope=main,
-        ) is None
+        assert (
+            service.generation_status_scoped(
+                "run-isolated",
+                identity_scope=main,
+            )
+            is None
+        )
     finally:
         release_gateway.set()
         await asyncio.wait_for(asyncio.gather(main_task, isolated_task), timeout=1)

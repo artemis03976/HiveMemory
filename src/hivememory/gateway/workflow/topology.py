@@ -169,9 +169,7 @@ def build_gateway_workflow(
                 invoke=invoke_candidate_topics,
                 project=lambda output: {"candidate_topics": output},
                 timeout_ms=context_config.candidate_topics_timeout_ms,
-                fallback=lambda _selected, _error: {
-                    "candidate_topics": CandidateTopics()
-                },
+                fallback=lambda _selected, _error: {"candidate_topics": CandidateTopics()},
             ),
             GatewayWorkflowStep(
                 step_id="topic_routing",

@@ -225,7 +225,9 @@ def test_document_becomes_ready_only_with_required_representation_atomically() -
     )
 
     required = next(
-        item for item in ready.representations if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
+        item
+        for item in ready.representations
+        if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
     )
     assert (ready.state, required.state, required.content_hash) == (
         WorkspaceAssetState.READY,

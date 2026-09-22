@@ -94,15 +94,9 @@ async def test_runtime_operation_observer_accepts_dynamic_completion_metadata():
         run,
         summarize=lambda value: {"timed_out": value["timed_out"]},
         completed_status=lambda value: (
-            "completed_with_timeout"
-            if value["timed_out"] > 0
-            else "completed"
+            "completed_with_timeout" if value["timed_out"] > 0 else "completed"
         ),
-        completed_severity=lambda value: (
-            "warning"
-            if value["timed_out"] > 0
-            else "info"
-        ),
+        completed_severity=lambda value: ("warning" if value["timed_out"] > 0 else "info"),
     )
 
     completed = recorder.events[-1]

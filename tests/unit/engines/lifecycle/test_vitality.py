@@ -29,10 +29,7 @@ class TestVitalityCalculator:
     def test_calculate_new_memory(self):
         """测试新创建的记忆分数 (三段式: V_0·D(0) + A(0) + B(0) = 100)"""
         memory = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.CODE_SNIPPET,
-            access_count=0,
-            days_ago=0
+            confidence=0.9, memory_type=MemoryType.CODE_SNIPPET, access_count=0, days_ago=0
         )
 
         score = self.calculator.calculate(memory)
@@ -45,17 +42,11 @@ class TestVitalityCalculator:
         """测试时间衰减"""
         # 新记忆
         memory_new = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.FACT,
-            access_count=0,
-            days_ago=0
+            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=0
         )
         # 100天前的记忆
         memory_old = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.FACT,
-            access_count=0,
-            days_ago=100
+            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=100
         )
 
         score_new = self.calculator.calculate(memory_new)
@@ -70,16 +61,10 @@ class TestVitalityCalculator:
         """测试访问加成 (对数曲线 A = coef·log(1 + n))"""
         # 选 days_ago=30 让 base 足够小，加 A 项后不触发 100 clamp
         memory_no_access = self._create_memory(
-            confidence=0.8,
-            memory_type=MemoryType.FACT,
-            access_count=0,
-            days_ago=30
+            confidence=0.8, memory_type=MemoryType.FACT, access_count=0, days_ago=30
         )
         memory_with_access = self._create_memory(
-            confidence=0.8,
-            memory_type=MemoryType.FACT,
-            access_count=5,
-            days_ago=30
+            confidence=0.8, memory_type=MemoryType.FACT, access_count=5, days_ago=30
         )
 
         score_no_access = self.calculator.calculate(memory_no_access)
@@ -95,7 +80,7 @@ class TestVitalityCalculator:
             confidence=0.8,
             memory_type=MemoryType.FACT,
             access_count=100,  # 高 access_count
-            days_ago=200
+            days_ago=200,
         )
 
         score = self.calculator.calculate(memory_heavy_access)
@@ -107,18 +92,12 @@ class TestVitalityCalculator:
         """测试分数限制在 [0, 100]"""
         # 极低分数记忆
         memory_low = self._create_memory(
-            confidence=0.1,
-            memory_type=MemoryType.WORK_IN_PROGRESS,
-            access_count=0,
-            days_ago=1000
+            confidence=0.1, memory_type=MemoryType.WORK_IN_PROGRESS, access_count=0, days_ago=1000
         )
 
         # 极高分数记忆
         memory_high = self._create_memory(
-            confidence=1.0,
-            memory_type=MemoryType.CODE_SNIPPET,
-            access_count=100,
-            days_ago=0
+            confidence=1.0, memory_type=MemoryType.CODE_SNIPPET, access_count=100, days_ago=0
         )
 
         score_low = self.calculator.calculate(memory_low)
@@ -132,16 +111,10 @@ class TestVitalityCalculator:
         """测试不同记忆类型的分数差异"""
         # 相同条件，不同类型
         memory_code = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.CODE_SNIPPET,
-            access_count=0,
-            days_ago=10
+            confidence=0.9, memory_type=MemoryType.CODE_SNIPPET, access_count=0, days_ago=10
         )
         memory_wip = self._create_memory(
-            confidence=0.9,
-            memory_type=MemoryType.WORK_IN_PROGRESS,
-            access_count=0,
-            days_ago=10
+            confidence=0.9, memory_type=MemoryType.WORK_IN_PROGRESS, access_count=0, days_ago=10
         )
 
         score_code = self.calculator.calculate(memory_code)
@@ -151,11 +124,7 @@ class TestVitalityCalculator:
         assert score_code > score_wip
 
     def _create_memory(
-        self,
-        confidence: float,
-        memory_type: MemoryType,
-        access_count: int,
-        days_ago: int
+        self, confidence: float, memory_type: MemoryType, access_count: int, days_ago: int
     ) -> MemoryAtom:
         """创建测试记忆"""
         created_at = datetime.now() - timedelta(days=days_ago)

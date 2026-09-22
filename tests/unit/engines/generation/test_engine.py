@@ -39,7 +39,6 @@ from hivememory.core.models import (
 )
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
-
 GenerationRequest = GenerationRequestModel
 
 
@@ -89,7 +88,9 @@ def _make_context_with_agents(agent_ids: list[str]) -> GenerationContext:
     )
 
 
-def _make_draft(has_value=True, title="测试记忆", alias_suffix="test_alias") -> ExtractedMemoryDraft:
+def _make_draft(
+    has_value=True, title="测试记忆", alias_suffix="test_alias"
+) -> ExtractedMemoryDraft:
     return ExtractedMemoryDraft(
         title=title,
         summary="这是一段足够长的测试摘要用于通过验证",
@@ -109,7 +110,12 @@ def _make_memory(title="已有记忆") -> MemoryAtom:
             user_id="u1",
             session_id="s1",
         ),
-        index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t"], memory_type=MemoryType.FACT),
+        index=IndexLayer(
+            title=title,
+            summary="这是一段足够长的测试摘要用于通过验证",
+            tags=["t"],
+            memory_type=MemoryType.FACT,
+        ),
         payload=PayloadLayer(content="旧内容"),
     )
 
@@ -248,9 +254,7 @@ class TestGenerationEngineModeA:
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
-        request = GenerationRequest(
-            context=_make_context_with_agents(["b2", "a1", "b2", "system"])
-        )
+        request = GenerationRequest(context=_make_context_with_agents(["b2", "a1", "b2", "system"]))
         result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
 
         assert result[0].atom.meta.contributing_agent_ids == ("b2", "a1")
@@ -701,7 +705,9 @@ class TestGenerationEngineHelpers:
 
     def setup_method(self):
         self.engine = MemoryGenerationEngine(
-            mid_term=Mock(), extractor=Mock(), deduplicator=Mock(),
+            mid_term=Mock(),
+            extractor=Mock(),
+            deduplicator=Mock(),
         )
 
     def test_render_transcript(self):
@@ -722,9 +728,7 @@ class TestGenerationEngineHelpers:
         """草稿按 provenance 裁定写入来源与贡献者字段"""
         draft = _make_draft(title="测试标题")
         identity_scope = make_memory_identity_scope()
-        provenance = MemoryProvenance.from_actor(
-            identity_scope, _make_context_with_agents(["a1"])
-        )
+        provenance = MemoryProvenance.from_actor(identity_scope, _make_context_with_agents(["a1"]))
 
         memory = self.engine._draft_to_memory(draft, identity_scope, provenance)
 

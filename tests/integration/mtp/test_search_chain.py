@@ -45,6 +45,7 @@ MAIN = make_workspace_identity()
 
 # ========== 辅助函数 ==========
 
+
 def _make_memory(
     title: str = "Test Memory",
     summary: str = "A test memory for unit testing",
@@ -56,8 +57,11 @@ def _make_memory(
         id=uuid4(),
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
-            title=title, summary=summary, tags=["test"],
-            memory_type=memory_type, alias=alias,
+            title=title,
+            summary=summary,
+            tags=["test"],
+            memory_type=memory_type,
+            alias=alias,
         ),
         payload=PayloadLayer(content=content),
     )
@@ -74,6 +78,7 @@ def _make_retrieval_response(memories=None) -> RetrievalResponse:
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
     from .conftest import make_koakuma_runtime, make_mock_bus
+
     mock_retrieval = MagicMock()
     mock_retrieval.retrieve.return_value = _make_retrieval_response()
     bus = make_mock_bus(mock_retrieval=mock_retrieval)
@@ -239,6 +244,7 @@ class TestParseFilter:
 
 # ========== Test 2：SEARCH → RetrievalRequest ==========
 
+
 class TestSearchRetrievalRequest:
     """验证 SEARCH → RetrievalFamiliar.retrieve() 调用参数"""
 
@@ -254,18 +260,13 @@ class TestSearchRetrievalRequest:
     def test_identity_scope_injected_for_search(self, koakuma):
         mem = _make_memory()
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(user_id="user_42")
-        )
+        context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="user_42"))
 
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫', context=context)
 
         request = koakuma._bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert request.identity_scope.actor_identity.user_id == "user_42"
-        assert (
-            request.identity_scope.workspace_identity.owner_user_id
-            == "user_42"
-        )
+        assert request.identity_scope.workspace_identity.owner_user_id == "user_42"
 
     def test_filter_passed_to_retrieval(self, koakuma):
         mem = _make_memory()
@@ -289,11 +290,14 @@ class TestSearchRetrievalRequest:
 
 # ========== Test 3：搜索结果渲染 ==========
 
+
 class TestSearchResultRendering:
     """SEARCH 通过 MemoryCompiler 编译 RetrievalResponse.memories。"""
 
     def test_single_result_compiled_context(self, koakuma):
-        mem = _make_memory(title="API Spec", summary="REST API specification", alias="fact_api_spec")
+        mem = _make_memory(
+            title="API Spec", summary="REST API specification", alias="fact_api_spec"
+        )
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
@@ -305,7 +309,9 @@ class TestSearchResultRendering:
     def test_multiple_results_compiled_context(self, koakuma):
         mems = [
             _make_memory(title="API Spec", summary="REST API spec", alias="fact_api_spec"),
-            _make_memory(title="DB Config", summary="Database configuration", alias="fact_db_config"),
+            _make_memory(
+                title="DB Config", summary="Database configuration", alias="fact_db_config"
+            ),
         ]
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(mems)
 
@@ -321,7 +327,9 @@ class TestSearchResultRendering:
             [mem],
         )
 
-        with patch.object(koakuma._compiler, "compile", wraps=koakuma._compiler.compile) as compile_mock:
+        with patch.object(
+            koakuma._compiler, "compile", wraps=koakuma._compiler.compile
+        ) as compile_mock:
             response = _handle_search(
                 koakuma,
                 {"query": "test", "filter": "unknown:value"},
@@ -340,6 +348,7 @@ class TestSearchResultRendering:
 
 
 # ========== Test 4：Alias 注册 ==========
+
 
 class TestSearchAliasRegistration:
     """SEARCH 后别名注册到 KoakumaAtomCache"""
@@ -377,12 +386,13 @@ class TestSearchAliasRegistration:
         _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
 
         # READ 使用注册的 alias
-        result = _execute_mtp(koakuma, '⟪ READ | fact_api | ⟫')
+        result = _execute_mtp(koakuma, "⟪ READ | fact_api | ⟫")
         assert result.success
         assert "API documentation content" in result.response_content
 
 
 # ========== Test 5：Koakuma SEARCH E2E ==========
+
 
 class TestKoakumaSearchE2E:
     """通过 execute_mtp 端到端测试 SEARCH"""
@@ -459,8 +469,6 @@ class TestKoakumaSearchE2E:
         assert response.warnings[0].message_key == "mtp.search.no_memories_found"
         assert response.warnings[0].params == {}
 
-
-
     def test_search_retrieval_exception(self, koakuma):
         koakuma._bus._mock_retrieval.retrieve.side_effect = Exception("Connection error")
 
@@ -500,11 +508,12 @@ class TestKoakumaSearchE2E:
 
 # ========== Test 6：Koakuma SEARCH 校验 ==========
 
+
 class TestKoakumaSearchValidation:
     """SEARCH 参数校验"""
 
     def test_missing_query(self, koakuma):
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | ⟫')
+        result = _execute_mtp(koakuma, "⟪ SEARCH | * | ⟫")
         assert not result.success
         assert result.response_content == ""
         assert "query" in result.formatted_response.lower()

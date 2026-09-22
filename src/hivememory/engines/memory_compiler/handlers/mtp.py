@@ -105,11 +105,15 @@ def _render_pending_revision_read(unit: MemoryUnitIR, language: str | None = Non
 
 
 def _render_pending_discarded_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    return _pending_text("pending_read_discarded", language).format(
-        pending_alias=unit.identity.alias,
-        message=format_optional_field(unit.status.message, language),
-        reason=format_optional_field(unit.status.reason, language),
-    ).rstrip()
+    return (
+        _pending_text("pending_read_discarded", language)
+        .format(
+            pending_alias=unit.identity.alias,
+            message=format_optional_field(unit.status.message, language),
+            reason=format_optional_field(unit.status.reason, language),
+        )
+        .rstrip()
+    )
 
 
 def _render_pending_failed_read(unit: MemoryUnitIR, language: str | None = None) -> str:

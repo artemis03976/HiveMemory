@@ -47,6 +47,7 @@ _VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
 
 # ========== Prompt 构建器 ==========
 
+
 class MTPPromptBuilder:
     """
     MTP 协议 System Prompt 构建器
@@ -92,9 +93,7 @@ class MTPPromptBuilder:
 
         # 权限过滤：MTP 动词白名单 (用于协议规格渲染)
         self.allowed_verbs = (
-            set(v.upper() for v in allowed_verbs)
-            if allowed_verbs is not None
-            else None
+            set(v.upper() for v in allowed_verbs) if allowed_verbs is not None else None
         )
 
     def build(self) -> str:
@@ -150,10 +149,7 @@ class MTPPromptBuilder:
         """构建行为准则模块"""
         text = get_mtp_prompt_text("behavioral_guidelines", self.language)
         if self.allowed_verbs is not None and "CALL" not in self.allowed_verbs:
-            return "\n".join(
-                line for line in text.splitlines()
-                if "CALL" not in line
-            )
+            return "\n".join(line for line in text.splitlines() if "CALL" not in line)
         return text
 
     def _build_runtime_tools(self) -> str:
@@ -179,6 +175,7 @@ class MTPPromptBuilder:
 
 
 # ========== 便捷函数 ==========
+
 
 def get_mtp_prompt(
     language: str = "zh",

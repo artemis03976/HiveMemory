@@ -19,6 +19,7 @@ class SystemEvent:
 
 class GlobalEvents:
     """GlobalSystemBus 的全局 pub/sub 事件名。"""
+
     PENDING_ATOM_SETTLED = "alice.events.pending_atom.settled"
     PENDING_ATOM_FAILED = "alice.events.pending_atom.failed"
     PENDING_ATOM_CANCELLED = "alice.events.pending_atom.cancelled"

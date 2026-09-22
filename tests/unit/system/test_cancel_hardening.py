@@ -32,6 +32,7 @@ from tests.helpers.workspace import make_identity_scope
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
+
 class TestChatGenerationRunRegistry:
     def setup_method(self):
         self.registry = ChatGenerationRunRegistry()
@@ -78,6 +79,7 @@ class TestChatGenerationRunRegistry:
 
 # ─── ChatApplicationService cancel 路径 ──────────────────────────────────────
 
+
 class TestChatServiceCancelPath:
     """集成风格测试：chat_stream 取消后不调用 finalize。"""
 
@@ -95,6 +97,7 @@ class TestChatServiceCancelPath:
 
         async def bus_request(route, **kwargs):
             from hivememory.system.contracts.routes import GlobalRoutes
+
             if route == GlobalRoutes.GATEWAY_PROCESS:
                 return GatewayDecisionOutcome(
                     decision=GatewayDecision(
@@ -133,6 +136,7 @@ class TestChatServiceCancelPath:
         bus.request = AsyncMock(side_effect=bus_request)
 
         from hivememory.system.application.chat_service import ChatApplicationService
+
         service = ChatApplicationService(global_bus=bus)
 
         events = []
@@ -151,4 +155,5 @@ class TestChatServiceCancelPath:
         # finalize 不应被调用
         for call in bus.request.call_args_list:
             from hivememory.system.contracts.routes import GlobalRoutes
+
             assert call.args[0] != GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN

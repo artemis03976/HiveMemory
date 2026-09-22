@@ -37,7 +37,8 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.engines.generation.models import (
     DuplicateDecision,
-    ExtractedMemoryDraft, GenerationRequest,
+    ExtractedMemoryDraft,
+    GenerationRequest,
     GenerationOutcome,
     MemoryProvenance,
     MergeResult,
@@ -48,6 +49,7 @@ from hivememory.engines.generation.interfaces import (
 )
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
@@ -151,10 +153,7 @@ class MemoryGenerationEngine:
         if not transcript:
             return []
 
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={}
-        )
+        draft = self.extractor.extract(transcript=transcript, metadata={})
 
         if not draft or not draft.has_value:
             logger.info("[Mode A] LLM 判断对话无价值，跳过存储")
@@ -192,7 +191,7 @@ class MemoryGenerationEngine:
                 "mode": "write",
                 "write_content": focus.content,
                 "write_reason": focus.reason or "(未提供)",
-            }
+            },
         )
 
         # Fallback: LLM 失败时直接从 WriteFocus 构建草稿 (保底入库)
@@ -274,7 +273,7 @@ class MemoryGenerationEngine:
                 "memory_title": existing.index.title,
                 "memory_alias": existing.index.alias or uf.base_alias,
                 "transcript": transcript,
-            }
+            },
         )
 
         # Fallback: LLM 合并失败时直接拼接
@@ -360,12 +359,14 @@ class MemoryGenerationEngine:
             f"v{memory.meta.version}, changelog='{result.changelog}'"
         )
 
-        return [GenerationOutcome(
-            atom=memory,
-            duplicate_decision=DuplicateDecision.UPDATE,
-            memory_before_snapshot=before_snapshot,
-            changelog=result.changelog,
-        )]
+        return [
+            GenerationOutcome(
+                atom=memory,
+                duplicate_decision=DuplicateDecision.UPDATE,
+                memory_before_snapshot=before_snapshot,
+                changelog=result.changelog,
+            )
+        ]
 
     async def _dedup_and_resolve(
         self,
@@ -399,10 +400,12 @@ class MemoryGenerationEngine:
             existing_memory.meta.access_count += 1
             existing_memory.meta.updated_at = datetime.now()
 
-            return [GenerationOutcome(
-                atom=existing_memory,
-                duplicate_decision=DuplicateDecision.TOUCH,
-            )]
+            return [
+                GenerationOutcome(
+                    atom=existing_memory,
+                    duplicate_decision=DuplicateDecision.TOUCH,
+                )
+            ]
 
         elif decision == DuplicateDecision.UPDATE:
             logger.info("记忆演化，覆盖当前版本内容")
@@ -426,18 +429,22 @@ class MemoryGenerationEngine:
 
             memory = self._draft_to_memory(draft, identity_scope, provenance)
 
-            return [GenerationOutcome(
-                atom=memory,
-                duplicate_decision=DuplicateDecision.CREATE,
-            )]
+            return [
+                GenerationOutcome(
+                    atom=memory,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                )
+            ]
 
         else:  # DISCARD
             logger.info("低质量重复，丢弃")
-            return [GenerationOutcome(
-                atom=None,
-                duplicate_decision=DuplicateDecision.DISCARD,
-                message="Low-quality duplicate, discarded.",
-            )]
+            return [
+                GenerationOutcome(
+                    atom=None,
+                    duplicate_decision=DuplicateDecision.DISCARD,
+                    message="Low-quality duplicate, discarded.",
+                )
+            ]
 
     def _merge_dedup_index(
         self,
@@ -564,19 +571,20 @@ class MemoryGenerationEngine:
         suffix = alias_suffix.strip() if alias_suffix else ""
         if not suffix:
             suffix = title.lower().strip()
-            suffix = re.sub(r'[^a-z0-9\s_]', '', suffix)
-            suffix = re.sub(r'\s+', '_', suffix)
-            suffix = re.sub(r'_+', '_', suffix).strip('_')
+            suffix = re.sub(r"[^a-z0-9\s_]", "", suffix)
+            suffix = re.sub(r"\s+", "_", suffix)
+            suffix = re.sub(r"_+", "_", suffix).strip("_")
 
         if not suffix:
             return None
 
         # 清洗 suffix: 确保 snake_case 合规
-        suffix = re.sub(r'[^a-z0-9_]', '', suffix.lower())
-        suffix = re.sub(r'_+', '_', suffix).strip('_')
+        suffix = re.sub(r"[^a-z0-9_]", "", suffix.lower())
+        suffix = re.sub(r"_+", "_", suffix).strip("_")
         suffix = suffix[:40]
 
         return f"{prefix}_{suffix}"
+
 
 __all__ = [
     "MemoryGenerationEngine",

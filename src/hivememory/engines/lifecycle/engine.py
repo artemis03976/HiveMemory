@@ -113,16 +113,8 @@ class MemoryLifecycleEngine:
         positive: bool,
         source: str = "user",
     ) -> ReinforcementResult:
-        event_type = (
-            EventType.FEEDBACK_POSITIVE
-            if positive
-            else EventType.FEEDBACK_NEGATIVE
-        )
-        event = MemoryEvent(
-            event_type=event_type,
-            memory_id=memory_id,
-            source=source
-        )
+        event_type = EventType.FEEDBACK_POSITIVE if positive else EventType.FEEDBACK_NEGATIVE
+        event = MemoryEvent(event_type=event_type, memory_id=memory_id, source=source)
         return await self.record_event(identity_scope, event)
 
     async def run_garbage_collection(self, force: bool = False) -> int:
@@ -131,9 +123,7 @@ class MemoryLifecycleEngine:
         return await self.garbage_collector.collect(all_memories, force=force)
 
     async def get_low_vitality_memories(
-        self,
-        threshold: float = 20.0,
-        limit: int = 100
+        self, threshold: float = 20.0, limit: int = 100
     ) -> List[Tuple[UUID, float]]:
         """
         获取低于阈值的记忆列表
@@ -148,17 +138,13 @@ class MemoryLifecycleEngine:
         all_memories = await self._mid_term.list_all_for_maintenance(limit=10000)
         refreshed = await self.refresh_vitality_batch(all_memories, persist=False)
         results = [
-            (memory_id, vitality)
-            for memory_id, vitality in refreshed
-            if vitality <= threshold
+            (memory_id, vitality) for memory_id, vitality in refreshed if vitality <= threshold
         ]
         results.sort(key=lambda item: item[1])
         return results[:limit]
 
     def get_event_history(
-        self,
-        memory_id: Optional[UUID] = None,
-        limit: int = 100
+        self, memory_id: Optional[UUID] = None, limit: int = 100
     ) -> List[ReinforcementResult]:
         """
         获取事件历史

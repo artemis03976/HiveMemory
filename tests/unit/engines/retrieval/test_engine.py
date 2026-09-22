@@ -27,7 +27,12 @@ from tests.helpers.workspace import make_identity_scope
 def _make_memory(title="测试记忆") -> MemoryAtom:
     return MemoryAtom(
         meta=make_memory_metadata(source_agent_id="a1", user_id="u1", session_id="s1"),
-        index=IndexLayer(title=title, summary="这是一段足够长的测试摘要用于通过验证", tags=["t1"], memory_type=MemoryType.FACT),
+        index=IndexLayer(
+            title=title,
+            summary="这是一段足够长的测试摘要用于通过验证",
+            tags=["t1"],
+            memory_type=MemoryType.FACT,
+        ),
         payload=PayloadLayer(content="内容"),
     )
 
@@ -50,7 +55,9 @@ class TestRetrievalEngine:
     @pytest.mark.asyncio
     async def test_retrieve_with_results(self):
         mem = _make_memory()
-        self.mock_retriever.retrieve.return_value = SearchResults(results=[SearchResult(memory=mem, score=0.9)])
+        self.mock_retriever.retrieve.return_value = SearchResults(
+            results=[SearchResult(memory=mem, score=0.9)]
+        )
 
         result = await self.engine.retrieve(_make_query())
 

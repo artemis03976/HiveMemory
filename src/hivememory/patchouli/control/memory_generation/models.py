@@ -263,10 +263,7 @@ class MemoryGenerationTask:
     def cancelled(self) -> bool:
         """判断任务是否已收到取消请求或已经进入取消终态。"""
 
-        return (
-            self.cancel_requested
-            or self.status == MemoryGenerationTaskStatus.CANCELLED
-        )
+        return self.cancel_requested or self.status == MemoryGenerationTaskStatus.CANCELLED
 
 
 def memory_task_to_payload(
@@ -288,14 +285,10 @@ def memory_task_to_payload(
         "error": memory_task.error,
         "created_at": memory_task.created_at.isoformat(),
         "started_at": (
-            memory_task.started_at.isoformat()
-            if memory_task.started_at is not None
-            else None
+            memory_task.started_at.isoformat() if memory_task.started_at is not None else None
         ),
         "finished_at": (
-            memory_task.finished_at.isoformat()
-            if memory_task.finished_at is not None
-            else None
+            memory_task.finished_at.isoformat() if memory_task.finished_at is not None else None
         ),
         "cancel_requested": memory_task.cancel_requested,
         "cancelled": cancelled,

@@ -148,10 +148,12 @@ class TestPermissionDeniedError:
 class TestCombinedPermissions:
     def test_restricted_verbs_and_tools(self):
         koakuma = _create_koakuma()
-        context = _context(_make_profile(
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_tools=["sys_clock"],
-        ))
+        context = _context(
+            _make_profile(
+                allowed_verbs=["READ", "SEARCH"],
+                allowed_tools=["sys_clock"],
+            )
+        )
 
         assert koakuma._check_verb_permission("READ", context=context) is None
         assert koakuma._check_verb_permission("SEARCH", context=context) is None
@@ -166,10 +168,12 @@ class TestCombinedPermissions:
 
     def test_coder_profile_scenario(self):
         koakuma = _create_koakuma()
-        context = _context(_make_profile(
-            allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-            allowed_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
-        ))
+        context = _context(
+            _make_profile(
+                allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
+                allowed_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
+            )
+        )
 
         assert koakuma._check_verb_permission("READ", context=context) is None
         assert koakuma._check_verb_permission("WRITE", context=context) is None

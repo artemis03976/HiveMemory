@@ -55,9 +55,7 @@ class TestCommandRegistry:
     def test_duplicate_alias_within_definition_rejected(self):
         registry = CommandRegistry()
         with pytest.raises(ValueError, match="Duplicate alias in command definition"):
-            registry.register(
-                _definition(command_id="cmd.a", primary_name="/a", aliases=("/a",))
-            )
+            registry.register(_definition(command_id="cmd.a", primary_name="/a", aliases=("/a",)))
 
     def test_duplicate_alias_across_definitions_rejected(self):
         registry = CommandRegistry()
@@ -84,13 +82,11 @@ class TestCommandRegistry:
 class TestCommandMatch:
     def _registry(self) -> CommandRegistry:
         registry = CommandRegistry()
-        registry.register(_definition(command_id="cmd.help", primary_name="/help", aliases=("/start",)))
         registry.register(
-            _definition(command_id="cmd.sys", primary_name="/sys", priority=20)
+            _definition(command_id="cmd.help", primary_name="/help", aliases=("/start",))
         )
-        registry.register(
-            _definition(command_id="cmd.mult", primary_name="/multi word")
-        )
+        registry.register(_definition(command_id="cmd.sys", primary_name="/sys", priority=20))
+        registry.register(_definition(command_id="cmd.mult", primary_name="/multi word"))
         registry.register(_definition(command_id="cmd.off", primary_name="/off", enabled=False))
         return registry
 
@@ -153,8 +149,6 @@ class TestBuiltinCommands:
         assert registry.match("/reset").command_id == "system.clear"
 
     def test_override_disables_command(self):
-        registry = create_builtin_command_registry(
-            builtin_overrides={"system.help": False}
-        )
+        registry = create_builtin_command_registry(builtin_overrides={"system.help": False})
         ids = {definition.command_id for definition in registry.list()}
         assert "system.help" not in ids

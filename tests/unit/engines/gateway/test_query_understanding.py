@@ -49,9 +49,7 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
         '"sub_intents":[],'
         '"reason":"技术问答"}'
     )
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(), llm_service=llm
-    )
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
 
     result = await engine.analyze("那个报错怎么修？", topic_data=_build_topic_data())
 
@@ -76,9 +74,7 @@ async def test_analyze_without_topic_data_uses_empty_context() -> None:
         '"search_keywords":["少盐"],"memory_write_signal":"WRITE",'
         '"sub_intents":[],"reason":"偏好陈述"}'
     )
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(), llm_service=llm
-    )
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
 
     result = await engine.analyze("以后做菜少放盐", topic_data=None)
 
@@ -95,9 +91,7 @@ async def test_analyze_applies_lenient_defaults_for_optional_fields() -> None:
         '"search_keywords":"not-a-list","memory_write_signal":"BAD",'
         '"sub_intents":null}'
     )
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(), llm_service=llm
-    )
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
 
     result = await engine.analyze("查询", topic_data=None)
 
@@ -161,9 +155,7 @@ async def test_analyze_respects_configurable_context_limits() -> None:
 
 @pytest.mark.asyncio
 async def test_analyze_raises_without_llm_service() -> None:
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(), llm_service=None
-    )
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=None)
 
     with pytest.raises(QueryUnderstandingError):
         await engine.analyze("查询", topic_data=None)
@@ -173,9 +165,7 @@ async def test_analyze_raises_without_llm_service() -> None:
 async def test_analyze_raises_on_missing_rewritten_query() -> None:
     llm = AsyncMock()
     llm.acomplete_json.return_value = '{"intent_type":"RAG","rewritten_query":"  "}'
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(), llm_service=llm
-    )
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
 
     with pytest.raises(QueryUnderstandingError):
         await engine.analyze("查询", topic_data=None)
@@ -185,9 +175,7 @@ async def test_analyze_raises_on_missing_rewritten_query() -> None:
 async def test_analyze_wraps_llm_failure() -> None:
     llm = AsyncMock()
     llm.acomplete_json.side_effect = RuntimeError("boom")
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(), llm_service=llm
-    )
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
 
     with pytest.raises(QueryUnderstandingError, match="boom"):
         await engine.analyze("查询", topic_data=None)

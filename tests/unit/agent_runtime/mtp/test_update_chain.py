@@ -21,19 +21,28 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from hivememory.core.models import (
-    ActorIdentity, StreamMessage, StreamMessageType,
-    MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
+    ActorIdentity,
+    StreamMessage,
+    StreamMessageType,
+    MemoryAtom,
+    IndexLayer,
+    PayloadLayer,
+    MemoryType,
     UpdateFocus,
 )
 from hivememory.engines.generation.models import (
-    MergeResult, GenerationRequest, GenerationContext, GenerationTurn, MemoryProvenance,
+    MergeResult,
+    GenerationRequest,
+    GenerationContext,
+    GenerationTurn,
+    MemoryProvenance,
 )
 from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
-
 # ========== Fixtures ==========
+
 
 @pytest.fixture
 def identity() -> ActorIdentity:
@@ -45,11 +54,20 @@ def identity_scope():
     """生成请求必须显式携带创建 Workspace，而不能从对话 ActorIdentity 猜测。"""
     return make_memory_identity_scope(user_id="test_user", agent_id="test_agent")
 
+
 @pytest.fixture
 def sample_messages(identity) -> list:
     return [
-        StreamMessage(message_type=StreamMessageType.USER, content="帮我把 API 端口改成 9090", identity=identity),
-        StreamMessage(message_type=StreamMessageType.ASSISTANT, content="好的，已修改端口配置", identity=identity),
+        StreamMessage(
+            message_type=StreamMessageType.USER,
+            content="帮我把 API 端口改成 9090",
+            identity=identity,
+        ),
+        StreamMessage(
+            message_type=StreamMessageType.ASSISTANT,
+            content="好的，已修改端口配置",
+            identity=identity,
+        ),
     ]
 
 
@@ -107,19 +125,25 @@ def _mock_mid_term():
 
 # ========== Test 4：Mode C 合并提示词 ==========
 
+
 class TestModeCMergePrompt:
     """验证 Generation Engine Mode C 路径调用 extractor.merge()"""
 
     @pytest.mark.asyncio
-    async def test_mode_c_calls_merge_not_extract(self, sample_context, existing_memory, identity_scope):
+    async def test_mode_c_calls_merge_not_extract(
+        self, sample_context, existing_memory, identity_scope
+    ):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
-            new_content="端口改为 9090", changelog="更新端口",
+            new_content="端口改为 9090",
+            changelog="更新端口",
         )
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=MagicMock(),
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=MagicMock(),
         )
 
         old_content = existing_memory.payload.content  # 保存旧内容 (apply_update 会原地修改)
@@ -151,16 +175,20 @@ class TestModeCMergePrompt:
     async def test_mode_c_returns_updated_memory(self, existing_memory, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.merge.return_value = MergeResult(
-            new_content="新内容", changelog="测试更新",
+            new_content="新内容",
+            changelog="测试更新",
         )
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=MagicMock(),
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=MagicMock(),
         )
 
         uf = UpdateFocus(
-            instruction="更新", base_uuid=str(existing_memory.id),
+            instruction="更新",
+            base_uuid=str(existing_memory.id),
             base_alias="fact_api_port",
         )
         request = GenerationRequest(
@@ -177,6 +205,7 @@ class TestModeCMergePrompt:
 
 # ========== Test 5：Mode C 回退 ==========
 
+
 class TestModeCFallback:
     """验证 LLM 合并失败时的 fallback 拼接"""
 
@@ -187,7 +216,9 @@ class TestModeCFallback:
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=MagicMock(),
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=MagicMock(),
         )
 
         uf = UpdateFocus(
@@ -210,7 +241,9 @@ class TestModeCFallback:
 
     def test_fallback_content_append(self, existing_memory):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
         uf = UpdateFocus(
             instruction="追加内容",
@@ -227,7 +260,9 @@ class TestModeCFallback:
 
     def test_fallback_instruction_only(self, existing_memory):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
         uf = UpdateFocus(
             instruction="删除过时信息",
@@ -249,7 +284,9 @@ class TestModeCFallback:
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=MagicMock(),
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=MagicMock(),
         )
 
         uf = UpdateFocus(
@@ -268,33 +305,52 @@ class TestModeCFallback:
 
 # ========== Test 6：_apply_update 版本追踪 ==========
 
+
 class TestApplyUpdate:
     """验证版本追踪 (history_summary, version++, changelog)"""
 
     def test_version_incremented(self, existing_memory, merge_result):
         mock_storage = _mock_mid_term()
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=mock_storage,
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
 
-        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
+        result = engine._apply_update(
+            existing_memory,
+            merge_result,
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+        )
 
         assert len(result) == 1
         assert result[0].atom.meta.version == 2  # fixture 起点 version=1
 
     def test_content_updated(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
-        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
+        result = engine._apply_update(
+            existing_memory,
+            merge_result,
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+        )
 
         assert result[0].atom.payload.content == merge_result.new_content
 
     def test_history_summary_appended(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
-        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
+        result = engine._apply_update(
+            existing_memory,
+            merge_result,
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+        )
 
         summary = result[0].atom.payload.history_summary
         assert len(summary) == 1
@@ -304,30 +360,43 @@ class TestApplyUpdate:
     def test_confidence_reset_to_1(self, existing_memory, merge_result):
         existing_memory.meta.confidence_score = 0.5
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
-        result = engine._apply_update(existing_memory, merge_result, provenance=MemoryProvenance.system_settlement(GenerationContext()))
+        result = engine._apply_update(
+            existing_memory,
+            merge_result,
+            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+        )
 
         assert result[0].atom.meta.confidence_score == 1.0
 
     def test_multiple_updates_accumulate_history(self, existing_memory):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
 
         # 第一次更新
         r1 = MergeResult(new_content="v2 content", changelog="first update")
-        engine._apply_update(existing_memory, r1, provenance=MemoryProvenance.system_settlement(GenerationContext()))
+        engine._apply_update(
+            existing_memory, r1, provenance=MemoryProvenance.system_settlement(GenerationContext())
+        )
 
         # 第二次更新
         r2 = MergeResult(new_content="v3 content", changelog="second update")
-        engine._apply_update(existing_memory, r2, provenance=MemoryProvenance.system_settlement(GenerationContext()))
+        engine._apply_update(
+            existing_memory, r2, provenance=MemoryProvenance.system_settlement(GenerationContext())
+        )
 
         assert existing_memory.meta.version == 3
         assert len(existing_memory.payload.history_summary) == 2
 
 
 # ========== Test 11：Active Flush 原因已移除 ==========
+
 
 class TestTriggerReasonActiveGenerationRemoved:
     """主动更新生成已脱离感知层，不再保留 MTP flush reason"""

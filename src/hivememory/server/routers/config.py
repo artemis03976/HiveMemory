@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["config"])
 
 
-def _build_config_without_path_override(config_data: Dict[str, Any] | None = None) -> HiveMemoryConfig:
+def _build_config_without_path_override(
+    config_data: Dict[str, Any] | None = None,
+) -> HiveMemoryConfig:
     original_path = os.environ.pop("HIVEMEMORY_CONFIG_PATH", None)
     try:
         if config_data is None:
@@ -74,7 +76,7 @@ async def get_config(
     """
     try:
         config = system.config
-        config_dict = config.model_dump(mode='json')
+        config_dict = config.model_dump(mode="json")
         return ConfigResponse(**config_dict)
     except Exception as e:
         logger.error(f"获取配置失败: {e}", exc_info=True)
@@ -104,8 +106,7 @@ async def update_config(
         except ValidationError as e:
             logger.warning(f"配置验证失败: {e}")
             raise HTTPException(
-                status_code=400,
-                detail=f"Configuration validation failed: {e.errors()}"
+                status_code=400, detail=f"Configuration validation failed: {e.errors()}"
             )
 
         _persist_config_atomically(validated_config)
@@ -113,7 +114,7 @@ async def update_config(
 
         logger.info("配置已更新")
 
-        config_dict = validated_config.model_dump(mode='json')
+        config_dict = validated_config.model_dump(mode="json")
         return ConfigResponse(**config_dict)
 
     except HTTPException:
@@ -133,8 +134,10 @@ async def get_default_config():
     """
     try:
         default_config = _build_config_without_path_override()
-        config_dict = default_config.model_dump(mode='json')
+        config_dict = default_config.model_dump(mode="json")
         return ConfigResponse(**config_dict)
     except Exception as e:
         logger.error(f"获取默认配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get default configuration: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get default configuration: {str(e)}"
+        )

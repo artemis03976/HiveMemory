@@ -146,10 +146,7 @@ def test_same_alias_resolves_per_workspace(sample_atom):
     cache.ingest_atom(replacement, workspace_identity=ISOLATED)
 
     assert cache.get_atom_by_alias("fact_test_memory", workspace_identity=MAIN) is sample_atom
-    assert (
-        cache.get_atom_by_alias("fact_test_memory", workspace_identity=ISOLATED)
-        is replacement
-    )
+    assert cache.get_atom_by_alias("fact_test_memory", workspace_identity=ISOLATED) is replacement
     # UUID 索引保持全局：两个 atom 都能按 UUID 命中。
     assert cache.get_atom_by_uuid(str(sample_atom.id)) is sample_atom
     assert cache.get_atom_by_uuid(str(replacement.id)) is replacement
@@ -183,10 +180,7 @@ def test_invalidate_keeps_shared_uuid_entry_for_other_workspace(sample_atom):
     # main 分区条目已失效；UUID 条目仍被 isolation 分区引用，必须保留。
     assert cache.has_alias("fact_test_memory", workspace_identity=MAIN) is False
     assert cache.get_atom_by_uuid(str(sample_atom.id)) is sample_atom
-    assert (
-        cache.get_atom_by_alias("fact_test_memory", workspace_identity=ISOLATED)
-        is sample_atom
-    )
+    assert cache.get_atom_by_alias("fact_test_memory", workspace_identity=ISOLATED) is sample_atom
 
 
 def test_clear():

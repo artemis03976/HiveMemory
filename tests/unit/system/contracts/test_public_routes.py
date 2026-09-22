@@ -372,17 +372,26 @@ class TestPatchouliPublicRoutes:
     @pytest.mark.asyncio
     async def test_public_route_constants_are_consistent(self):
         assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
-        assert PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES == "patchouli.public.memory.retrieve_by_aliases"
+        assert (
+            PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES
+            == "patchouli.public.memory.retrieve_by_aliases"
+        )
         assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
         assert PatchouliRoutes.MEMORY_TASK_GET == "patchouli.public.memory_task.get"
         assert PatchouliRoutes.MEMORY_TASK_CANCEL == "patchouli.public.memory_task.cancel"
-        assert PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT == "patchouli.public.get_agent_profile_snapshot"
+        assert (
+            PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT
+            == "patchouli.public.get_agent_profile_snapshot"
+        )
         assert PatchouliRoutes.MEMORY_READ == "patchouli.public.memory.read"
         assert PatchouliRoutes.INTERACTION_SUBMIT == "patchouli.public.interaction.submit"
         assert PatchouliRoutes.MEMORY_INTENT_SUBMIT == "patchouli.public.memory_intent.submit"
         assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
         assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
-        assert PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN == "patchouli.public.cleanup_prepared_agent_run"
+        assert (
+            PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN
+            == "patchouli.public.cleanup_prepared_agent_run"
+        )
         assert PatchouliRoutes.TOPIC_GET_DATA == "patchouli.public.topic.get_data"
         assert PatchouliRoutes.EVICT_TOPIC == "patchouli.public.evict_topic"
         assert PatchouliRoutes.RECORD_MEMORY_CITATION == "patchouli.public.record_memory_citation"

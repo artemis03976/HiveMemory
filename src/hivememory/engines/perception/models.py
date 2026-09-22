@@ -29,6 +29,7 @@ from hivememory.core.models import (
 
 # ============ 枚举定义 ============
 
+
 class TriggerReason(str, Enum):
     """统一触发原因枚举。
 
@@ -37,6 +38,7 @@ class TriggerReason(str, Enum):
     的 provenance 标签，不驱动分支。历史命名 ``FlushReason`` 已删除；
     枚举字符串值保持不变，既有任务与事件载荷不受影响。
     """
+
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
@@ -48,6 +50,7 @@ class TriggerReason(str, Enum):
 
 # ============ 触发事件 ============
 
+
 class FlushEvent(BaseModel):
     """
     话题触发事件载体。
@@ -55,12 +58,14 @@ class FlushEvent(BaseModel):
     事件只携带触发目标与原因；``reason`` 仅作为 provenance 标签传递，
     settle / compact / evict 由 PerceptionFamiliar 的具名用例编排。
     """
+
     identity_scope: IdentityScope
     topic_id: str
     reason: TriggerReason
 
 
 # ============ 话题结算载荷 (Perception -> Generation) ============
+
 
 class TopicMaterializeTask(BaseModel):
     """
@@ -69,6 +74,7 @@ class TopicMaterializeTask(BaseModel):
     Topic 结算时将冻结的 buffer 内容打包为此结构发送给 Generation 模块
     进行记忆生成。字段转换统一由 :meth:`from_topic_data` 完成。
     """
+
     topic_id: str = Field(..., description="话题 ID")
     identity_scope: IdentityScope
     topic_title: str = Field(default="", description="话题标题")
@@ -87,7 +93,9 @@ class TopicMaterializeTask(BaseModel):
         description="settle 前冻结的 Topic 真实使用资产关系",
     )
 
-    reason: TriggerReason = Field(default=TriggerReason.IDLE_TIMEOUT, description="话题结算触发原因")
+    reason: TriggerReason = Field(
+        default=TriggerReason.IDLE_TIMEOUT, description="话题结算触发原因"
+    )
 
     # task 会跨越 journal 与 queue admission 边界；禁止字段重新赋值，并使用
     # tuple 承载 blocks，避免冻结模型内部仍可被原地 append。
@@ -109,9 +117,7 @@ class TopicMaterializeTask(BaseModel):
         """
         identity_scope = require_identity_scope(identity_scope)
         # 结算任务只携带值得保存的 block。
-        blocks = tuple(
-            block for block in topic_data.blocks if block.worth_saving is not False
-        )
+        blocks = tuple(block for block in topic_data.blocks if block.worth_saving is not False)
         if not blocks:
             return None
 

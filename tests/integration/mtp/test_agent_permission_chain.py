@@ -59,14 +59,18 @@ def _make_profile_atom(
 
 def _create_runtime_with_koakuma():
     """创建带 Koakuma 的 PatchouliRuntime"""
-    with patch.object(PatchouliRuntime, "_init_infrastructure"), \
-         patch.object(PatchouliRuntime, "_build_engines", return_value={}), \
-         patch.object(PatchouliRuntime, "_register_services"):
+    with (
+        patch.object(PatchouliRuntime, "_init_infrastructure"),
+        patch.object(PatchouliRuntime, "_build_engines", return_value={}),
+        patch.object(PatchouliRuntime, "_register_services"),
+    ):
 
         mock_patchouli_config = Mock()
         mock_shared_config = Mock()
 
-        runtime = PatchouliRuntime(patchouli_config=mock_patchouli_config, shared_config=mock_shared_config)
+        runtime = PatchouliRuntime(
+            patchouli_config=mock_patchouli_config, shared_config=mock_shared_config
+        )
         runtime.storage = Mock()
 
         def _get_agent_profile(agent_alias: str):

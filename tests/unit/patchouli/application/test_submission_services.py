@@ -276,4 +276,3 @@ def test_submit_memory_intent_rejects_unpermitted_operation():
                 intent=MemoryIntent(kind="write", topic_id="topic_1", content="x"),
             )
         )
-

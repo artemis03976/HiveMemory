@@ -143,14 +143,15 @@ class AsyncMaintenanceScheduler:
                     pass
 
         running_tasks = [
-            s.current_task for s in self._tasks.values()
+            s.current_task
+            for s in self._tasks.values()
             if s.current_task and not s.current_task.done()
         ]
         if running_tasks:
-            logger.info(f"Waiting for {len(running_tasks)} running maintenance task(s) to finish...")
-            done, pending = await asyncio.wait(
-                running_tasks, timeout=self._shutdown_wait_seconds
+            logger.info(
+                f"Waiting for {len(running_tasks)} running maintenance task(s) to finish..."
             )
+            done, pending = await asyncio.wait(running_tasks, timeout=self._shutdown_wait_seconds)
             for t in pending:
                 t.cancel()
                 try:
@@ -265,7 +266,9 @@ class AsyncMaintenanceScheduler:
                 source=spec.task_key,
                 subsystem=self._subsystem_for_owner(spec.owner),
                 component="maintenance_scheduler",
-                severity="error" if event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED else "info",
+                severity=(
+                    "error" if event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED else "info"
+                ),
                 status=status,
                 reason=error,
                 data=data,
@@ -304,7 +307,4 @@ class AsyncMaintenanceScheduler:
         return self._started
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}(running={self._started}, "
-            f"tasks={len(self._tasks)})"
-        )
+        return f"{self.__class__.__name__}(running={self._started}, " f"tasks={len(self._tasks)})"

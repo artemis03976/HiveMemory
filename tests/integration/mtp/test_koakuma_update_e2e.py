@@ -74,9 +74,7 @@ class TestKoakumaUpdateE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(user_id="test_user")
-        )
+        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
 
         # 注册 alias 到缓存
         koakuma.atom_cache.ingest_atom(existing_memory, workspace_identity=MAIN)
@@ -85,7 +83,9 @@ class TestKoakumaUpdateE2E:
     @pytest.mark.asyncio
     async def test_update_basic(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="把端口改成 9090"'
-        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
+        result = await _intercept_and_execute(
+            update_koakuma, agent_text, context=update_koakuma.context
+        )
 
         assert result is not None
         assert result.success
@@ -100,7 +100,9 @@ class TestKoakumaUpdateE2E:
     @pytest.mark.asyncio
     async def test_update_with_content(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="替换端口" content="port = 9090"'
-        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
+        result = await _intercept_and_execute(
+            update_koakuma, agent_text, context=update_koakuma.context
+        )
 
         assert result is not None
         assert result.success
@@ -114,7 +116,9 @@ class TestKoakumaUpdateE2E:
     @pytest.mark.asyncio
     async def test_update_response_contains_ack(self, update_koakuma):
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test update"'
-        result = await _intercept_and_execute(update_koakuma, agent_text, context=update_koakuma.context)
+        result = await _intercept_and_execute(
+            update_koakuma, agent_text, context=update_koakuma.context
+        )
 
         assert result is not None
         assert result.pending_alias is not None
@@ -131,9 +135,7 @@ class TestKoakumaUpdateValidation:
     def validation_koakuma(self) -> KoakumaRuntime:
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(user_id="test_user")
-        )
+        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
         return koakuma
 
     @pytest.mark.asyncio
@@ -154,19 +156,29 @@ class TestKoakumaUpdateValidation:
             workspace_identity=MAIN,
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(
+            validation_koakuma, agent_text, context=validation_koakuma.context
+        )
 
         assert result is not None
-        assert "instruction" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
+        assert (
+            "instruction" in result.formatted_response.lower()
+            or "error" in result.formatted_response.lower()
+        )
         assert result.pending_alias is None
 
     @pytest.mark.asyncio
     async def test_alias_not_found(self, validation_koakuma):
         agent_text = '⟪ UPDATE | nonexistent_alias | instruction="test"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(
+            validation_koakuma, agent_text, context=validation_koakuma.context
+        )
 
         assert result is not None
-        assert "not found" in result.formatted_response.lower() or "error" in result.formatted_response.lower()
+        assert (
+            "not found" in result.formatted_response.lower()
+            or "error" in result.formatted_response.lower()
+        )
         assert result.pending_alias is None
 
     @pytest.mark.asyncio
@@ -180,7 +192,9 @@ class TestKoakumaUpdateValidation:
         )
 
         agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(
+            validation_koakuma, agent_text, context=validation_koakuma.context
+        )
 
         assert result is not None
         assert not result.success
@@ -194,7 +208,9 @@ class TestKoakumaUpdateValidation:
             "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
-        result = await _intercept_and_execute(validation_koakuma, agent_text, context=validation_koakuma.context)
+        result = await _intercept_and_execute(
+            validation_koakuma, agent_text, context=validation_koakuma.context
+        )
 
         assert result is not None
         assert not result.success

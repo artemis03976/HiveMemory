@@ -14,7 +14,10 @@ class TestMemoryResponse:
     def test_from_atom(self):
         """测试 MemoryAtom → MemoryResponse 转换"""
         from hivememory.core.models import (
-            MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
+            MemoryAtom,
+            IndexLayer,
+            PayloadLayer,
+            MemoryType,
         )
         from uuid import uuid4
         from tests.helpers.memory import make_memory_metadata

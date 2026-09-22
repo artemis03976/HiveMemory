@@ -27,10 +27,8 @@ class TestMemoryDeduplicator:
     def setup_method(self):
         """每个测试方法前执行"""
         self.config = DeduplicatorConfig()
-        self.deduplicator = MemoryDeduplicator(
-            config=self.config
-        )
-        
+        self.deduplicator = MemoryDeduplicator(config=self.config)
+
         # 构造基础数据
         self.draft = ExtractedMemoryDraft(
             title="Python Quicksort",
@@ -39,16 +37,16 @@ class TestMemoryDeduplicator:
             memory_type="CODE_SNIPPET",
             content="def quicksort(): pass",
             confidence_score=0.9,
-            has_value=True
+            has_value=True,
         )
-        
+
         self.existing_memory = MemoryAtom(
             id=str(uuid4()),
             meta=make_memory_metadata(
                 source_agent_id="agent1",
                 user_id="user1",
                 session_id="session1",
-                confidence_score=0.8
+                confidence_score=0.8,
             ),
             index=IndexLayer(
                 title="Python Quicksort",
@@ -56,26 +54,24 @@ class TestMemoryDeduplicator:
                 tags=["python", "sort"],
                 memory_type=MemoryType.CODE_SNIPPET,
             ),
-            payload=PayloadLayer(
-                content="def quicksort(): pass"
-            )
+            payload=PayloadLayer(content="def quicksort(): pass"),
         )
 
     def test_calculate_text_similarity(self):
         """测试文本相似度计算"""
         # 完全相同
         assert self.deduplicator._calculate_text_similarity("abc", "abc") == 1.0
-        
+
         # 完全不同
         assert self.deduplicator._calculate_text_similarity("abc", "def") == 0.0
-        
+
         # 部分相同 (Jaccard)
         # "apple" -> {a,p,l,e}, "pear" -> {p,e,a,r}
         # intersection={p,e,a} (3), union={a,p,l,e,r} (5) -> 3/5 = 0.6
         # 但是代码中使用了 re.findall(r'\w+', text.lower())，这会把 "apple" 当作一个词 "apple"
         # 而不是字符集合。
         # 如果要测试字符级相似度，输入应该是空格分隔的词，或者修改测试用例
-        
+
         # 测试用例修正：基于词的 Jaccard 相似度
         text1 = "apple banana orange"
         text2 = "apple banana pear"
@@ -84,7 +80,7 @@ class TestMemoryDeduplicator:
         # intersection = {apple, banana} (2)
         # union = {apple, banana, orange, pear} (4)
         # similarity = 2/4 = 0.5
-        
+
         assert self.deduplicator._calculate_text_similarity(text1, text2) == 0.5
 
     def test_check_duplicate_create(self):
@@ -99,10 +95,7 @@ class TestMemoryDeduplicator:
     def test_check_duplicate_touch(self):
         """测试判定为 TOUCH (高相似度 + 内容一致)"""
         # 模拟找到高相似度记忆
-        candidates = [{
-            "score": 0.98,
-            "memory": self.existing_memory
-        }]
+        candidates = [{"score": 0.98, "memory": self.existing_memory}]
 
         # 内容一致 (draft 和 existing 内容相同)
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
@@ -112,10 +105,7 @@ class TestMemoryDeduplicator:
 
     def test_check_duplicate_update_high_score_diff_content(self):
         """测试判定为 UPDATE (高相似度 + 内容不同)"""
-        candidates = [{
-            "score": 0.98,
-            "memory": self.existing_memory
-        }]
+        candidates = [{"score": 0.98, "memory": self.existing_memory}]
 
         # 修改 draft 内容
         self.draft.content = "def quicksort_v2(): pass"
@@ -127,10 +117,7 @@ class TestMemoryDeduplicator:
 
     def test_check_duplicate_update_medium_score(self):
         """测试判定为 UPDATE (中等相似度)"""
-        candidates = [{
-            "score": 0.85,  # 0.75 < 0.85 < 0.95
-            "memory": self.existing_memory
-        }]
+        candidates = [{"score": 0.85, "memory": self.existing_memory}]  # 0.75 < 0.85 < 0.95
 
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 
@@ -138,10 +125,7 @@ class TestMemoryDeduplicator:
 
     def test_check_duplicate_create_low_score(self):
         """测试判定为 CREATE (低相似度)"""
-        candidates = [{
-            "score": 0.5,  # < 0.75
-            "memory": self.existing_memory
-        }]
+        candidates = [{"score": 0.5, "memory": self.existing_memory}]  # < 0.75
 
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 

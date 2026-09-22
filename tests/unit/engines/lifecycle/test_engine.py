@@ -109,9 +109,7 @@ class TestLifecycleEngineEvents:
             self.mock_reinforcement,
             self.mock_gc,
         ) = _make_engine()
-        self.mock_reinforcement.reinforce.return_value = AsyncMock(
-            spec=ReinforcementResult
-        )
+        self.mock_reinforcement.reinforce.return_value = AsyncMock(spec=ReinforcementResult)
 
     @pytest.mark.asyncio
     async def test_record_hit(self):

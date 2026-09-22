@@ -15,7 +15,6 @@ HiveMemory Generation Module Test Data Fixtures
 from typing import List, Dict, Any
 from datetime import datetime
 
-
 # ========== Group 1: 记忆提取测试数据 ==========
 
 EXTRACTION_TEST_CASES = [
@@ -29,7 +28,7 @@ EXTRACTION_TEST_CASES = [
                 "role": "user",
                 "content": """我的项目使用的API Key是 sk-proj-abc123xyz，
 请帮我记住这个配置信息。这是用于访问OpenAI服务的密钥，
-部署在生产环境的服务器上。"""
+部署在生产环境的服务器上。""",
             },
             {
                 "role": "assistant",
@@ -38,8 +37,8 @@ EXTRACTION_TEST_CASES = [
 - 用途: OpenAI服务访问
 - 环境: 生产环境
 
-请注意妥善保管此密钥，避免泄露。如需更换密钥，请及时通知我更新记录。"""
-            }
+请注意妥善保管此密钥，避免泄露。如需更换密钥，请及时通知我更新记录。""",
+            },
         ],
         "expected_has_value": True,
         "expected_title_contains": ["API", "Key"],
@@ -51,14 +50,8 @@ EXTRACTION_TEST_CASES = [
         "description": "无营养的闲聊对话，应判定为无价值",
         "priority": "P0",
         "messages": [
-            {
-                "role": "user",
-                "content": "好的，谢谢你的帮助"
-            },
-            {
-                "role": "assistant",
-                "content": "不客气，有问题随时问我"
-            }
+            {"role": "user", "content": "好的，谢谢你的帮助"},
+            {"role": "assistant", "content": "不客气，有问题随时问我"},
         ],
         "expected_has_value": False,
         "expected_draft_is_none": True,
@@ -69,10 +62,7 @@ EXTRACTION_TEST_CASES = [
         "description": "包含代码的对话，应完整提取代码内容",
         "priority": "P1",
         "messages": [
-            {
-                "role": "user",
-                "content": "Python的冒泡排序怎么写？请给我一个完整的实现"
-            },
+            {"role": "user", "content": "Python的冒泡排序怎么写？请给我一个完整的实现"},
             {
                 "role": "assistant",
                 "content": """这是Python冒泡排序的完整实现：
@@ -107,8 +97,8 @@ sorted_numbers = bubble_sort(numbers)
 print(sorted_numbers)  # [11, 12, 22, 25, 34, 64, 90]
 ```
 
-时间复杂度: O(n²)，空间复杂度: O(1)"""
-            }
+时间复杂度: O(n²)，空间复杂度: O(1)""",
+            },
         ],
         "expected_has_value": True,
         "expected_title_contains": ["冒泡", "排序"],
@@ -126,7 +116,7 @@ print(sorted_numbers)  # [11, 12, 22, 25, 34, 64, 90]
                 "role": "user",
                 "content": """我习惯使用VSCode作为主要开发工具，
 配合Vim插件进行编辑。我喜欢深色主题，
-字体大小设置为14px，使用JetBrains Mono字体。"""
+字体大小设置为14px，使用JetBrains Mono字体。""",
             },
             {
                 "role": "assistant",
@@ -135,8 +125,8 @@ print(sorted_numbers)  # [11, 12, 22, 25, 34, 64, 90]
 - 主题: 深色主题
 - 字体: JetBrains Mono, 14px
 
-这些设置非常适合长时间编码，深色主题可以减少眼睛疲劳。"""
-            }
+这些设置非常适合长时间编码，深色主题可以减少眼睛疲劳。""",
+            },
         ],
         "expected_has_value": True,
         "expected_memory_type": "USER_PROFILE",
@@ -347,12 +337,12 @@ SCHEMA_VALIDATION_CASES = [
         "messages": [
             {
                 "role": "user",
-                "content": "我的数据库连接字符串是 postgresql://user:pass@localhost:5432/mydb"
+                "content": "我的数据库连接字符串是 postgresql://user:pass@localhost:5432/mydb",
             },
             {
                 "role": "assistant",
-                "content": "已记录您的数据库连接信息。请注意保护好密码，建议使用环境变量存储敏感信息。"
-            }
+                "content": "已记录您的数据库连接信息。请注意保护好密码，建议使用环境变量存储敏感信息。",
+            },
         ],
         "required_fields": [
             "id",
@@ -380,6 +370,7 @@ SCHEMA_VALIDATION_CASES = [
 
 
 # ========== 辅助函数 ==========
+
 
 def get_extraction_test_by_id(test_id: str) -> Dict[str, Any]:
     """根据 ID 获取提取测试用例"""

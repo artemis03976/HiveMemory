@@ -104,9 +104,7 @@ class MemoryContextProvider:
             degraded=attempt.degraded,
             failed_stage=attempt.failed_stage,
             error_class=attempt.error_class,
-            topic_id=(
-                attempt.decision.target_topic_id if attempt.decision else None
-            ),
+            topic_id=(attempt.decision.target_topic_id if attempt.decision else None),
             workspace_id=identity_scope.workspace_identity.workspace_id,
         )
         return attempt
@@ -167,9 +165,7 @@ class MemoryContextProvider:
             request_timeout_ms=self._gateway_request_timeout_ms,
         )
         if gateway_result.kind != "decision":
-            raise PassiveIngressContractError(
-                "PASSIVE_MEMORY 不得返回 command outcome"
-            )
+            raise PassiveIngressContractError("PASSIVE_MEMORY 不得返回 command outcome")
         return gateway_result.decision
 
     async def _retrieve_for_decision(
@@ -177,10 +173,7 @@ class MemoryContextProvider:
         decision: GatewayDecision,
         identity_scope: IdentityScope,
     ) -> RetrievalResponse:
-        if (
-            decision.retrieval_plan.mode == RetrievalMode.SKIP
-            or decision.retrieval_plan.top_k == 0
-        ):
+        if decision.retrieval_plan.mode == RetrievalMode.SKIP or decision.retrieval_plan.top_k == 0:
             return RetrievalResponse()
 
         return await self._bus.request(

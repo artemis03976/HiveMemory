@@ -90,9 +90,7 @@ def _legacy_interaction_artifact(artifact_id: str, *, bad_turn: bool = False) ->
     }
 
 
-def _legacy_memory_version_artifact(
-    artifact_id: str, memory_id: str, interaction_id: str
-) -> dict:
+def _legacy_memory_version_artifact(artifact_id: str, memory_id: str, interaction_id: str) -> dict:
     return {
         "artifact_id": artifact_id,
         "artifact_type": "memory_version",
@@ -241,8 +239,7 @@ def _default_user_scope() -> IdentityScope:
 
 def _new_id_by_old(report: Any) -> dict[str, str]:
     return {
-        entry["old_artifact_id"]: entry["new_artifact_id"]
-        for entry in report.artifact_mappings
+        entry["old_artifact_id"]: entry["new_artifact_id"] for entry in report.artifact_mappings
     }
 
 
@@ -281,6 +278,7 @@ def _build_migrator(
 
 # ============ 主流程 ============
 
+
 @pytest.mark.asyncio
 async def test_apply_migrates_legacy_artifacts_and_v1_memory_with_ref_rewrite(
     artifact_store, artifact_root, tmp_path
@@ -288,9 +286,7 @@ async def test_apply_migrates_legacy_artifacts_and_v1_memory_with_ref_rewrite(
     """legacy 图谱（interaction/version/creation + V1 Memory）整体迁移到 canonical。"""
     interaction_id, version_id, creation_id = "art_old_i1", "art_old_v1", "art_old_c1"
     memory_id = str(uuid4())
-    _write_legacy_file(
-        artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id)
-    )
+    _write_legacy_file(artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id))
     _write_legacy_file(
         artifact_root,
         version_id,
@@ -372,22 +368,26 @@ async def test_apply_rerun_is_idempotent_via_checkpoint(
     """重跑按 checkpoint 与内容 hash 幂等跳过，不产生重复 replacement。"""
     interaction_id = "art_old_i1"
     memory_id = str(uuid4())
-    _write_legacy_file(
-        artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id)
-    )
+    _write_legacy_file(artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id))
     access = FakeMemoryAccess({"legacy-point": _v1_memory_payload(memory_id, "art_old_c1")})
     checkpoint_path = tmp_path / "checkpoint.json"
 
     first = await _build_migrator(
-        artifact_store, artifact_root, access,
-        dry_run=False, checkpoint_path=checkpoint_path,
+        artifact_store,
+        artifact_root,
+        access,
+        dry_run=False,
+        checkpoint_path=checkpoint_path,
     ).run()
     first_mapping = _new_id_by_old(first)
     assert _count(first, "artifact_replaced") == 1
 
     second = await _build_migrator(
-        artifact_store, artifact_root, access,
-        dry_run=False, checkpoint_path=checkpoint_path,
+        artifact_store,
+        artifact_root,
+        access,
+        dry_run=False,
+        checkpoint_path=checkpoint_path,
     ).run()
 
     assert _count(second, "artifact_replaced") == 0
@@ -399,21 +399,15 @@ async def test_apply_rerun_is_idempotent_via_checkpoint(
 
 
 @pytest.mark.asyncio
-async def test_dry_run_reports_plan_without_writing_anything(
-    artifact_store, artifact_root
-) -> None:
+async def test_dry_run_reports_plan_without_writing_anything(artifact_store, artifact_root) -> None:
     """dry-run 只扫描、转换与计数；不写 replacement、不改 Memory。"""
     interaction_id = "art_old_i1"
     memory_id = str(uuid4())
-    _write_legacy_file(
-        artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id)
-    )
+    _write_legacy_file(artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id))
     files_before = sorted(artifact_root.rglob("*.json"))
     access = FakeMemoryAccess({"legacy-point": _v1_memory_payload(memory_id, "art_old_c1")})
 
-    report = await _build_migrator(
-        artifact_store, artifact_root, access, dry_run=True
-    ).run()
+    report = await _build_migrator(artifact_store, artifact_root, access, dry_run=True).run()
 
     assert _count(report, "artifact_replacement_planned") == 1
     assert _count(report, "memory_v1_would_migrate") == 1
@@ -423,6 +417,7 @@ async def test_dry_run_reports_plan_without_writing_anything(
 
 
 # ============ fail-closed 与悬空引用 ============
+
 
 @pytest.mark.asyncio
 async def test_interaction_turn_without_user_fails_closed_and_blocks_consumers(
@@ -438,22 +433,19 @@ async def test_interaction_turn_without_user_fails_closed_and_blocks_consumers(
     )
     access = FakeMemoryAccess({"legacy-point": _v1_memory_payload(memory_id, interaction_id)})
 
-    report = await _build_migrator(
-        artifact_store, artifact_root, access, dry_run=False
-    ).run()
+    report = await _build_migrator(artifact_store, artifact_root, access, dry_run=False).run()
 
     assert _count(report, "artifact_replaced") == 0
     assert _count(report, "memory_failed") == 1
-    artifact_reasons = [d["reason"] for d in report.diagnostics
-                        if d["resource_type"] == "artifact"]
-    memory_reasons = [d["reason"] for d in report.diagnostics
-                      if d["resource_type"] == "memory"]
+    artifact_reasons = [d["reason"] for d in report.diagnostics if d["resource_type"] == "artifact"]
+    memory_reasons = [d["reason"] for d in report.diagnostics if d["resource_type"] == "memory"]
     assert any("user_id" in reason for reason in artifact_reasons)
     assert any("引用链无法完整重写" in reason for reason in memory_reasons)
     assert access.published == []
     # 失败记录没有写入任何 canonical replacement 文件。
     replacements = [
-        record for record in scan_artifact_records(artifact_root)
+        record
+        for record in scan_artifact_records(artifact_root)
         if record.artifact_id.startswith("art_mig2_")
     ]
     assert replacements == []
@@ -468,9 +460,7 @@ async def test_v1_memory_without_user_id_fails_closed_and_keeps_point(
     payload["meta"].pop("user_id")
     access = FakeMemoryAccess({"legacy-point": payload})
 
-    report = await _build_migrator(
-        artifact_store, artifact_root, access, dry_run=False
-    ).run()
+    report = await _build_migrator(artifact_store, artifact_root, access, dry_run=False).run()
 
     assert _count(report, "memory_failed") == 1
     assert _count(report, "memory_v1_migrated") == 0
@@ -481,17 +471,13 @@ async def test_v1_memory_without_user_id_fails_closed_and_keeps_point(
 
 
 @pytest.mark.asyncio
-async def test_dangling_ref_is_kept_and_reported(
-    artifact_store, artifact_root
-) -> None:
+async def test_dangling_ref_is_kept_and_reported(artifact_store, artifact_root) -> None:
     """指向不存在 Artifact 的悬空引用原样保留并计数，不阻断迁移。"""
     memory_id = str(uuid4())
     payload = _v1_memory_payload(memory_id, "art_nonexistent")
     access = FakeMemoryAccess({"legacy-point": payload})
 
-    report = await _build_migrator(
-        artifact_store, artifact_root, access, dry_run=False
-    ).run()
+    report = await _build_migrator(artifact_store, artifact_root, access, dry_run=False).run()
 
     assert _count(report, "memory_v1_migrated") == 1
     assert len(report.unresolved_refs) == 1
@@ -501,6 +487,7 @@ async def test_dangling_ref_is_kept_and_reported(
 
 # ============ V2 记录的引用重写 ============
 
+
 @pytest.mark.asyncio
 async def test_v2_memory_with_legacy_refs_is_republished_with_replacements(
     artifact_store, artifact_root
@@ -508,16 +495,12 @@ async def test_v2_memory_with_legacy_refs_is_republished_with_replacements(
     """迁移窗口期写入的 V2 Memory 若仍引用 legacy Artifact，需重写引用后重发布。"""
     interaction_id = "art_old_i1"
     memory_id = str(uuid4())
-    _write_legacy_file(
-        artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id)
-    )
+    _write_legacy_file(artifact_root, interaction_id, _legacy_interaction_artifact(interaction_id))
     access = FakeMemoryAccess(
         {"v2-point": _v2_memory_payload(memory_id, interaction_id, "interaction")}
     )
 
-    report = await _build_migrator(
-        artifact_store, artifact_root, access, dry_run=False
-    ).run()
+    report = await _build_migrator(artifact_store, artifact_root, access, dry_run=False).run()
 
     assert _count(report, "memory_v2_refs_rewritten") == 1
     interaction_new = _new_id_by_old(report)[interaction_id]
@@ -537,9 +520,7 @@ async def test_v2_memory_without_legacy_refs_is_left_untouched(
     payload = _v2_memory_payload(memory_id, "art_canonical_1", "document")
     access = FakeMemoryAccess({"v2-point": payload})
 
-    report = await _build_migrator(
-        artifact_store, artifact_root, access, dry_run=False
-    ).run()
+    report = await _build_migrator(artifact_store, artifact_root, access, dry_run=False).run()
 
     assert _count(report, "memory_v2_skipped_already_canonical") == 1
     assert access.published == []
@@ -548,6 +529,7 @@ async def test_v2_memory_without_legacy_refs_is_left_untouched(
 
 
 # ============ repair 模式：v0.5 早期死簇 ============
+
 
 def _bare_ref(artifact_id: str, artifact_type: str) -> dict[str, Any]:
     """v0.5 时代内部 ref：没有 workspace_identity 字段。"""
@@ -688,9 +670,7 @@ def _v05_memory_payload(
     }
 
 
-def _build_v05_dead_cluster(
-    artifact_root: Path, access: FakeMemoryAccess
-) -> dict[str, str]:
+def _build_v05_dead_cluster(artifact_root: Path, access: FakeMemoryAccess) -> dict[str, str]:
     """按真实 dry-run 死簇的闭合关系构建 6 Artifact + 2 Memory 夹具。"""
     m1, m2 = str(uuid4()), str(uuid4())
     interaction_id = "art_v05_i1"
@@ -699,17 +679,20 @@ def _build_v05_dead_cluster(
 
     _write_legacy_file(artifact_root, interaction_id, _v05_interaction_artifact(interaction_id))
     _write_legacy_file(
-        artifact_root, c1,
+        artifact_root,
+        c1,
         _v05_memory_creation_artifact(c1, m1, interaction_id=interaction_id, version_id=v1),
     )
     _write_legacy_file(artifact_root, v1, _v05_memory_version_artifact(v1, m1))
     _write_legacy_file(
-        artifact_root, c2,
+        artifact_root,
+        c2,
         _v05_memory_creation_artifact(c2, m2, version_id=v2a),
     )
     _write_legacy_file(artifact_root, v2a, _v05_memory_version_artifact(v2a, m2))
     _write_legacy_file(
-        artifact_root, v2b,
+        artifact_root,
+        v2b,
         _v05_memory_version_artifact(v2b, m2, update_source="MANUAL_EDIT"),
     )
 
@@ -778,13 +761,17 @@ async def test_repair_mode_migrates_v05_dead_cluster_end_to_end(
     published = {previous_id: atom for previous_id, atom in access.published}
     atom1 = published["v05-point-1"]
     assert [ref.artifact_id for ref in atom1.payload.artifacts.refs] == [
-        mapping["art_v05_v1"], mapping["art_v05_c1"], mapping[cluster["interaction_id"]],
+        mapping["art_v05_v1"],
+        mapping["art_v05_c1"],
+        mapping[cluster["interaction_id"]],
     ]
     assert atom1.payload.artifacts.events[0].artifact_refs[0].artifact_id == mapping["art_v05_v1"]
     assert atom1.workspace_identity.owner_user_id == "default"
     atom2 = published["v05-point-2"]
     assert [ref.artifact_id for ref in atom2.payload.artifacts.refs] == [
-        mapping["art_v05_v2a"], mapping["art_v05_c2"], mapping["art_v05_v2b"],
+        mapping["art_v05_v2a"],
+        mapping["art_v05_c2"],
+        mapping["art_v05_v2b"],
     ]
     for atom in (atom1, atom2):
         decoded = decode_memory_payload(atom.to_qdrant_payload())

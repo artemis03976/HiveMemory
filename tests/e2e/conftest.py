@@ -42,6 +42,7 @@ def _make_qdrant_store(system: HiveMemorySystem) -> QdrantMemoryStore:
 
 # ========== 会话级 HiveMemorySystem ==========
 
+
 @pytest.fixture(scope="session")
 def e2e_config():
     """加载真实配置 (session-scoped, 只加载一次)"""
@@ -71,6 +72,7 @@ def qdrant_store(e2e_system) -> QdrantMemoryStore:
 
 
 # ========== 干净用户工厂 ==========
+
 
 @pytest.fixture
 def clean_user(e2e_system):
@@ -121,6 +123,7 @@ def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
 
 # ========== 等待记忆持久化 ==========
 
+
 def wait_until(
     predicate,
     timeout: float = 15.0,
@@ -151,9 +154,7 @@ async def wait_until_async(
     description: str = "condition",
 ) -> bool:
     """异步版本：通过线程池执行同步 predicate，避免阻塞事件循环。"""
-    return await asyncio.to_thread(
-        wait_until, predicate, timeout, poll_interval, description
-    )
+    return await asyncio.to_thread(wait_until, predicate, timeout, poll_interval, description)
 
 
 def wait_for_memory_persistence(

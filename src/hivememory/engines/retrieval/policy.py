@@ -26,10 +26,7 @@ def memory_visible_to_actor(memory: MemoryAtom, actor_identity: ActorIdentity) -
     if policy.visibility == MemoryVisibility.PRIVATE:
         return policy.target_agent_id == actor_identity.agent_id
     if policy.visibility == MemoryVisibility.TEAM:
-        return bool(
-            actor_identity.team_id
-            and policy.target_team_id == actor_identity.team_id
-        )
+        return bool(actor_identity.team_id and policy.target_team_id == actor_identity.team_id)
     return False
 
 

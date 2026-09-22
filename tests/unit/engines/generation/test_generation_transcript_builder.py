@@ -26,6 +26,7 @@ from tests.helpers.memory import make_memory_identity_scope
 
 # ============ 辅助工厂 ============
 
+
 def _identity(agent_id: str = "a1") -> ActorIdentity:
     return ActorIdentity(user_id="u1", agent_id=agent_id)
 
@@ -57,6 +58,7 @@ builder = GenerationTranscriptBuilder()
 
 
 # ============ 1. build_context 基础行为 ============
+
 
 class TestBuildContextBasic:
     def test_empty_blocks_produces_empty_turns(self):
@@ -94,6 +96,7 @@ class TestBuildContextBasic:
 
 # ============ 2. assistant_final_text 优先级 ============
 
+
 class TestFinalTextPriority:
     def test_both_empty_produces_empty_final_text(self):
         block = _block(assistant_final_text="")
@@ -102,6 +105,7 @@ class TestFinalTextPriority:
 
 
 # ============ 3. trace_summaries 映射 ============
+
 
 class TestTraceSummaries:
     def test_search_trace(self):
@@ -125,11 +129,13 @@ class TestTraceSummaries:
         assert ctx.turns[0].trace_summaries == ["RUN: web_search (unknown)"]
 
     def test_multiple_traces_in_order(self):
-        block = _block(traces=[
-            _trace("SEARCH", query="query1"),
-            _trace("READ", target="alias_x"),
-            _trace("RUN", tool="tool_y", status="error"),
-        ])
+        block = _block(
+            traces=[
+                _trace("SEARCH", query="query1"),
+                _trace("READ", target="alias_x"),
+                _trace("RUN", tool="tool_y", status="error"),
+            ]
+        )
         ctx = builder.build_context([block])
         summaries = ctx.turns[0].trace_summaries
         assert len(summaries) == 3
@@ -151,6 +157,7 @@ class TestTraceSummaries:
 
 # ============ 4. build_transcript 格式渲染 ============
 
+
 class TestBuildTranscript:
     def test_empty_context_produces_empty_string(self):
         ctx = GenerationContext()
@@ -163,35 +170,46 @@ class TestBuildTranscript:
         assert "当前话题是 X" in result
 
     def test_no_state_summary_no_header(self):
-        ctx = GenerationContext(state_summary="", turns=[
-            GenerationTurn(user_query="hi", assistant_final_text="hello", identity=_identity())
-        ])
+        ctx = GenerationContext(
+            state_summary="",
+            turns=[
+                GenerationTurn(user_query="hi", assistant_final_text="hello", identity=_identity())
+            ],
+        )
         result = builder.build_transcript(ctx)
         assert "[Topic State]" not in result
 
     def test_turn_user_query_rendered(self):
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="我的问题", assistant_final_text="", identity=_identity())
-        ])
+        ctx = GenerationContext(
+            turns=[
+                GenerationTurn(user_query="我的问题", assistant_final_text="", identity=_identity())
+            ]
+        )
         result = builder.build_transcript(ctx)
         assert "[User]: 我的问题" in result
 
     def test_turn_assistant_rendered(self):
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="q", assistant_final_text="我的回答", identity=_identity())
-        ])
+        ctx = GenerationContext(
+            turns=[
+                GenerationTurn(
+                    user_query="q", assistant_final_text="我的回答", identity=_identity()
+                )
+            ]
+        )
         result = builder.build_transcript(ctx)
         assert "[Assistant]: 我的回答" in result
 
     def test_actions_section_rendered(self):
-        ctx = GenerationContext(turns=[
-            GenerationTurn(
-                user_query="q",
-                assistant_final_text="a",
-                trace_summaries=['SEARCH: "auth flow"', "READ: fact_x"],
-                identity=_identity(),
-            )
-        ])
+        ctx = GenerationContext(
+            turns=[
+                GenerationTurn(
+                    user_query="q",
+                    assistant_final_text="a",
+                    trace_summaries=['SEARCH: "auth flow"', "READ: fact_x"],
+                    identity=_identity(),
+                )
+            ]
+        )
         result = builder.build_transcript(ctx)
         assert "[Actions]:" in result
         assert '- SEARCH: "auth flow"' in result
@@ -212,7 +230,7 @@ class TestBuildTranscript:
                     assistant_final_text="答案2",
                     identity=_identity(),
                 ),
-            ]
+            ],
         )
         result = builder.build_transcript(ctx)
         assert "[Topic State]" in result
@@ -225,6 +243,7 @@ class TestBuildTranscript:
 
 # ============ 5. GenerationRequest.has_context ============
 
+
 class TestGenerationRequestHasContext:
     def test_has_context_false_when_no_context(self):
         req = _request()
@@ -235,9 +254,7 @@ class TestGenerationRequestHasContext:
         assert not req.has_context
 
     def test_has_context_true_when_context_has_turns(self):
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="q", identity=_identity())
-        ])
+        ctx = GenerationContext(turns=[GenerationTurn(user_query="q", identity=_identity())])
         req = _request(context=ctx)
         assert req.has_context
 
@@ -252,9 +269,11 @@ class TestGenerationRequestIdentity:
 
 # ============ 6. MemoryGenerationEngine 新路径集成测试 ============
 
+
 class TestEngineWithGenerationContext:
     def _make_engine(self, extractor_returns=None, deduplicator_returns=None):
         from hivememory.engines.generation.engine import MemoryGenerationEngine
+
         storage = MagicMock()
         storage.search = AsyncMock(return_value=[])
         storage.upsert = AsyncMock()
@@ -286,7 +305,7 @@ class TestEngineWithGenerationContext:
         engine, extractor, _ = self._make_engine()
         ctx = GenerationContext(
             state_summary="摘要",
-            turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
+            turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())],
         )
         req = _request(context=ctx)
         await engine.process(req, identity_scope=make_memory_identity_scope())
@@ -318,18 +337,25 @@ class TestEngineWithGenerationContext:
     async def test_process_mode_b_with_context(self):
         """Mode B (write_focus) + context 兼容"""
         from hivememory.engines.generation.models import DuplicateDecision
+
         engine, extractor, deduplicator = self._make_engine()
         from hivememory.engines.generation.models import ExtractedMemoryDraft
+
         draft = ExtractedMemoryDraft(
-            title="test_title", summary="a summary longer than ten chars", tags=["a"], memory_type="FACT",
-            content="test content here", confidence_score=0.9, has_value=True,
+            title="test_title",
+            summary="a summary longer than ten chars",
+            tags=["a"],
+            memory_type="FACT",
+            content="test content here",
+            confidence_score=0.9,
+            has_value=True,
         )
         extractor.extract.return_value = draft
         deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
-        ctx = GenerationContext(turns=[
-            GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())
-        ])
+        ctx = GenerationContext(
+            turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
+        )
         focus = WriteFocus(content="content to write")
         req = _request(context=ctx, write_focus=focus)
         await engine.process(req, identity_scope=make_memory_identity_scope())

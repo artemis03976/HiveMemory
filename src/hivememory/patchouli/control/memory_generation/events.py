@@ -55,9 +55,7 @@ class MemoryTaskEventEmitter:
 
         event_type = _TERMINAL_EVENT_TYPES.get(snapshot.status)
         if event_type is None:
-            raise ValueError(
-                f"Memory task status is not terminal: {snapshot.status.value}"
-            )
+            raise ValueError(f"Memory task status is not terminal: {snapshot.status.value}")
         self._emit(event_type, snapshot, reason=reason)
 
     def cancel_requested(
@@ -89,11 +87,7 @@ class MemoryTaskEventEmitter:
         ).emit(
             event_type,
             status=snapshot.status.value,
-            severity=(
-                "error"
-                if event_type == RuntimeEventType.MEMORY_TASK_FAILED
-                else "info"
-            ),
+            severity=("error" if event_type == RuntimeEventType.MEMORY_TASK_FAILED else "info"),
             reason=reason,
             message=message,
             data=memory_task_to_payload(snapshot, reason=reason),

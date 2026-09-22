@@ -60,6 +60,7 @@ async def test_resolve_loads_profile_from_bus_and_caches():
 @pytest.mark.asyncio
 async def test_same_actor_same_alias_caches_per_workspace():
     """同 Actor 同 alias 在不同 Workspace 各自缓存各自的 profile，互不串扰。"""
+
     class _ProfileBus:
         def __init__(self) -> None:
             self.load_count = 0
@@ -100,6 +101,7 @@ async def test_same_actor_same_alias_caches_per_workspace():
 @pytest.mark.asyncio
 async def test_same_workspace_different_team_caches_separately():
     """同 Workspace 同 alias，team 不同的执行者各自缓存，不互相复用。"""
+
     class _ProfileBus:
         def __init__(self) -> None:
             self.load_count = 0
@@ -137,6 +139,7 @@ async def test_same_workspace_different_team_caches_separately():
 @pytest.mark.asyncio
 async def test_session_id_does_not_fragment_cache():
     """session_id 是兼容字段，不参与 cache key，不造成按会话碎片化。"""
+
     class _ProfileBus:
         def __init__(self) -> None:
             self.load_count = 0
@@ -292,9 +295,7 @@ async def test_concurrent_resolves_keep_identity_scoped_cache_entries():
 
     async def load_profile(_route, alias, *, identity_scope):
         await asyncio.sleep(0)
-        return AgentProfile(
-            persona=f"{alias}:{identity_scope.actor_identity.user_id}"
-        )
+        return AgentProfile(persona=f"{alias}:{identity_scope.actor_identity.user_id}")
 
     bus.request = AsyncMock(side_effect=load_profile)
     resolver = _resolver(bus)

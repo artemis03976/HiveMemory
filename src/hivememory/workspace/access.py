@@ -163,9 +163,7 @@ class WorkspaceAccessGuard:
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
         if type(access) is not WorkspaceAccessContext:
-            raise ScopeRequiredError(
-                "公共入口需要经统一认证网关签发的 WorkspaceAccessContext"
-            )
+            raise ScopeRequiredError("公共入口需要经统一认证网关签发的 WorkspaceAccessContext")
         if self._closed:
             raise ScopeRequiredError(
                 "认证网关已关闭，access context 失效",
@@ -184,9 +182,7 @@ class WorkspaceAccessGuard:
             )
         # 每次动作按完整坐标查询权限，不把配置对象地址或白名单绑定进凭据。
         scope = access.identity_scope
-        record = self._registry.record_for(
-            scope.workspace_identity, scope.actor_identity
-        )
+        record = self._registry.record_for(scope.workspace_identity, scope.actor_identity)
         if record is None or not record.enabled:
             raise ScopeRequiredError(
                 "该 Actor 已无有效的 Workspace 访问登记",

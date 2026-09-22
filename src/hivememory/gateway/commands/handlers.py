@@ -72,7 +72,9 @@ def handle_status(
 ) -> CommandExecutionResult:
     """返回 system gateway 的最小运行摘要。"""
 
-    visible_count = len(_visible_definitions(registry, identity=identity, debug_enabled=debug_enabled))
+    visible_count = len(
+        _visible_definitions(registry, identity=identity, debug_enabled=debug_enabled)
+    )
     return CommandExecutionResult(
         command_id=command.command_id or "runtime.status",
         status=CommandExecutionStatus.COMPLETED,
@@ -107,7 +109,9 @@ def _is_visible(
     permission = definition.permission
     if permission.visibility == "debug" and not debug_enabled:
         return False
-    if permission.visibility == "admin" and not _in_allowlist(identity, permission.allowed_user_ids, permission.allowed_agent_ids):
+    if permission.visibility == "admin" and not _in_allowlist(
+        identity, permission.allowed_user_ids, permission.allowed_agent_ids
+    ):
         return False
     return True
 

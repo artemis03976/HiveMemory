@@ -24,6 +24,7 @@ from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from hivememory.infrastructure.storage import QdrantMemoryStore
 

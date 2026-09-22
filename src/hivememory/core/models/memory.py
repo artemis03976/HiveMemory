@@ -30,6 +30,7 @@ from hivememory.core.models.workspace import (
 
 class MemoryType(str, Enum):
     """记忆类型枚举 - 用于区分记忆的应用场景"""
+
     CODE_SNIPPET = "CODE_SNIPPET"  # 代码片段、函数实现
     FACT = "FACT"  # 事实、业务规则、参数定义
     URL_RESOURCE = "URL_RESOURCE"  # 外部文档快照
@@ -65,9 +66,7 @@ class MemoryAccessPolicy(BaseModel):
         if normalized == SYSTEM_AGENT_ID:
             # 保留 system 只表示"没有具体 Agent 作为操作来源主体"，
             # 不是可授权的执行主体，不得成为可见性 target。
-            raise ValueError(
-                "Memory read policy target 不得使用保留 system actor"
-            )
+            raise ValueError("Memory read policy target 不得使用保留 system actor")
         return normalized
 
     @model_validator(mode="after")
@@ -113,6 +112,7 @@ class WorkspaceMemoryKey(BaseModel):
 
 class VerificationStatus(str, Enum):
     """验证状态枚举"""
+
     VERIFIED = "VERIFIED"  # 已验证(如运行成功的代码)
     UNVERIFIED = "UNVERIFIED"  # 未验证(LLM推理)
     DEPRECATED = "DEPRECATED"  # 已过时
@@ -120,6 +120,7 @@ class VerificationStatus(str, Enum):
 
 
 # ============ Layer 1: Meta (元数据层) ============
+
 
 class MetaData(BaseModel):
     """
@@ -132,6 +133,7 @@ class MetaData(BaseModel):
       （表示"没有具体 Agent 作为操作来源主体"），不参与授权；
     - 读取策略：``access_policy``，可见性的唯一依据。
     """
+
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="最后更新时间")
     last_accessed_at: Optional[datetime] = Field(default=None, description="最后访问时间")
@@ -159,18 +161,14 @@ class MetaData(BaseModel):
     vitality_score: float = Field(default=100.0, ge=0.0, le=100.0, description="生命力分数 (0-100)")
     # 事件累积加成 (B 项)：HIT/CITATION/FEEDBACK 等事件的累计影响。
     # 与 vitality_score 解耦存储，由 VitalityCalculator 在重算时合并进最终分数。
-    event_vitality_boost: float = Field(default=0.0, ge=-100.0, le=100.0, description="事件累积加成 (B 项)")
+    event_vitality_boost: float = Field(
+        default=0.0, ge=-100.0, le=100.0, description="事件累积加成 (B 项)"
+    )
 
     # 置信度与验证
-    confidence_score: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description="置信度分数"
-    )
+    confidence_score: float = Field(default=0.6, ge=0.0, le=1.0, description="置信度分数")
     verification_status: VerificationStatus = Field(
-        default=VerificationStatus.UNVERIFIED,
-        description="验证状态"
+        default=VerificationStatus.UNVERIFIED, description="验证状态"
     )
 
     @field_validator("contributing_agent_ids")
@@ -191,26 +189,27 @@ class MetaData(BaseModel):
                 },
                 "access_policy": {"visibility": "PUBLIC"},
                 "confidence_score": 0.9,
-                "verification_status": "VERIFIED"
+                "verification_status": "VERIFIED",
             }
-        }
+        },
     )
 
 
 # ============ Layer 2: Index (索引层 - 用于向量化) ============
+
 
 class IndexLayer(BaseModel):
     """
     索引层 - 仅此层参与 Embedding 向量化
     高度浓缩的语义信息,优化检索准确性
     """
+
     title: str = Field(..., min_length=1, max_length=200, description="简洁的标题")
     summary: str = Field(..., min_length=10, max_length=500, description="一句话摘要")
     tags: List[str] = Field(default_factory=list, description="动态语义标签")
     memory_type: MemoryType = Field(..., description="记忆类型")
     alias: Optional[str] = Field(
-        default=None, max_length=60,
-        description="语义化别名 (snake_case, e.g. code_quicksort_impl)"
+        default=None, max_length=60, description="语义化别名 (snake_case, e.g. code_quicksort_impl)"
     )
 
     @field_validator("tags")
@@ -228,7 +227,7 @@ class IndexLayer(BaseModel):
                 "summary": "基于 datetime 库实现的日期解析工具，支持 ISO8601 及多种自定义格式。",
                 "tags": ["python", "datetime", "utils", "code-implementation"],
                 "memory_type": "CODE_SNIPPET",
-                "alias": "code_parse_date"
+                "alias": "code_parse_date",
             }
         }
     )
@@ -236,37 +235,32 @@ class IndexLayer(BaseModel):
 
 # ============ Layer 3: Payload (负载层 - 注入Context) ============
 
+
 class Artifacts(BaseModel):
     """
     Artifacts - 原始数据与溯源信息
     通常不加载到 Context, 仅按需查询
     """
+
     agent_config: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}"
+        description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}",
     )
 
     # ---- v0.5.0 正式溯源层 ----
     refs: List[ArtifactRef] = Field(
-        default_factory=list,
-        description="ArtifactRef 列表 - 指向本记忆关联的所有 Artifact"
+        default_factory=list, description="ArtifactRef 列表 - 指向本记忆关联的所有 Artifact"
     )
     events: List[MemoryEventLog] = Field(
-        default_factory=list,
-        description="MemoryEventLog 列表 - 记忆生命周期事件流水"
+        default_factory=list, description="MemoryEventLog 列表 - 记忆生命周期事件流水"
     )
     cold_archive_uri: Optional[str] = Field(
-        default=None,
-        description="归档物理存储地址（文件路径或对象存储 URI）"
+        default=None, description="归档物理存储地址（文件路径或对象存储 URI）"
     )
     cold_archive_hash: Optional[str] = Field(
-        default=None,
-        description="归档内容 sha256，用于完整性校验"
+        default=None, description="归档内容 sha256，用于完整性校验"
     )
-    revival_keys: List[str] = Field(
-        default_factory=list,
-        description="L3 复活密钥列表"
-    )
+    revival_keys: List[str] = Field(default_factory=list, description="L3 复活密钥列表")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -276,6 +270,7 @@ class PayloadLayer(BaseModel):
     负载层 - 实际注入 Context 的内容
     经过Librarian清洗重写的结构化内容
     """
+
     content: str = Field(..., description="Markdown格式的核心内容")
 
     # 兼容性字段：artifact 系统关闭时，它作为轻量历史 fallback 供检索/提示词参考。
@@ -283,22 +278,16 @@ class PayloadLayer(BaseModel):
     # history_summary 是继续作为 fallback 保留，还是完全迁移到 MemoryVersionArtifact。
     history_summary: List[str] = Field(
         default_factory=list,
-        description="简化的版本历史；artifact 禁用时作为 fallback，展示逻辑需进入历史信息编译"
+        description="简化的版本历史；artifact 禁用时作为 fallback，展示逻辑需进入历史信息编译",
     )
 
-    artifacts: Artifacts = Field(
-        default_factory=Artifacts,
-        description="原始数据存根"
-    )
+    artifacts: Artifacts = Field(default_factory=Artifacts, description="原始数据存根")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "content": "```python\ndef parse_date(date_str):\n    ...\n```\n\n**使用注意**：处理UTC时间时需确保...",
-                "history_summary": [
-                    "2025-01-01: 初始实现",
-                    "2025-01-10: 添加时区支持"
-                ]
+                "history_summary": ["2025-01-01: 初始实现", "2025-01-10: 添加时区支持"],
             }
         }
     )
@@ -306,16 +295,19 @@ class PayloadLayer(BaseModel):
 
 # ============ Layer 4: Relations (关系层 - 预留) ============
 
+
 class RelationLayer(BaseModel):
     """
     关系层 - 用于知识图谱关联 (未来实现)
     """
+
     relates_to: List[str] = Field(default_factory=list, description="相关记忆ID列表")
     supersedes: List[str] = Field(default_factory=list, description="被此记忆覆盖的旧记忆ID")
     depends_on: List[str] = Field(default_factory=list, description="依赖的记忆ID")
 
 
 # ============ 主模型: MemoryAtom ============
+
 
 class MemoryAtom(BaseModel):
     """
@@ -327,6 +319,7 @@ class MemoryAtom(BaseModel):
     - payload: 内容负载层 (Context注入)
     - relations: 关系图谱层 (预留)
     """
+
     schema_version: Literal[2] = Field(
         default=2,
         description="Memory 领域与持久化契约版本",
@@ -350,7 +343,7 @@ class MemoryAtom(BaseModel):
         优先使用 IndexLayer 中存储的正式别名 (由 Generation Engine 在记忆创建时生成)。
         如果不存在，则基于 memory_type 和 title 生成临时别名作为 fallback。
         """
-        if getattr(self.index, 'alias', None):
+        if getattr(self.index, "alias", None):
             return self.index.alias
 
         type_prefix = self.index.memory_type.value.lower().split("_")[0]
@@ -397,17 +390,15 @@ class MemoryAtom(BaseModel):
                         "workspace_id": "main_workspace",
                     },
                     "access_policy": {"visibility": "PUBLIC"},
-                    "confidence_score": 0.9
+                    "confidence_score": 0.9,
                 },
                 "index": {
                     "title": "Python date parsing utility",
                     "summary": "Robust date parser supporting multiple formats",
                     "tags": ["python", "utils", "datetime"],
-                    "memory_type": "CODE_SNIPPET"
+                    "memory_type": "CODE_SNIPPET",
                 },
-                "payload": {
-                    "content": "```python\ndef parse_date(s): ...\n```"
-                }
+                "payload": {"content": "```python\ndef parse_date(s): ...\n```"},
             }
         }
     )

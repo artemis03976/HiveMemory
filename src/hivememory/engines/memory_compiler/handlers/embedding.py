@@ -43,8 +43,4 @@ def _render_dense_embedding_from_ir(unit: MemoryUnitIR) -> str:
 def _render_sparse_embedding_from_ir(unit: MemoryUnitIR) -> str:
     tags_string = " ".join(unit.content.tags)
     title = unit.content.title or ""
-    return (
-        f"{title} {title} "
-        f"{tags_string} {tags_string} "
-        f"{unit.content.summary or ''}"
-    )
+    return f"{title} {title} " f"{tags_string} {tags_string} " f"{unit.content.summary or ''}"

@@ -95,7 +95,9 @@ class TestValidateCommandArgs:
         assert validate_command_args({"items": "x"}, schema) is not None
 
     def test_unknown_type_passes(self):
-        assert validate_command_args({"x": object()}, {"properties": {"x": {"type": "any"}}}) is None
+        assert (
+            validate_command_args({"x": object()}, {"properties": {"x": {"type": "any"}}}) is None
+        )
 
 
 class TestBuildParseResult:

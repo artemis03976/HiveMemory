@@ -15,6 +15,7 @@ from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.system.config import GarbageCollectorConfig
 
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.library import MemoryLibrary
 
@@ -74,9 +75,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
             List[UUID]: 低生命力记忆ID列表
         """
         threshold = (
-            vitality_threshold
-            if vitality_threshold is not None
-            else self.config.low_watermark
+            vitality_threshold if vitality_threshold is not None else self.config.low_watermark
         )
         logger.info(f"Scanning for memories with vitality <= {threshold}...")
 
@@ -89,8 +88,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
                 memory.meta.vitality_score,
             )
             for memory in memories
-            if memory.meta.vitality_score is not None
-            and memory.meta.vitality_score <= threshold
+            if memory.meta.vitality_score is not None and memory.meta.vitality_score <= threshold
         ]
         candidates.sort(key=lambda item: item[1])
 

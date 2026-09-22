@@ -36,9 +36,9 @@ async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
         enable_memory_retrieval=False,
         **kwargs,
     )
-    assert isinstance(result, NonStreamingChatAgentOutcome), (
-        f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
-    )
+    assert isinstance(
+        result, NonStreamingChatAgentOutcome
+    ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
     return result.agent_run_result
 
 
@@ -67,9 +67,9 @@ class TestAgentLoop:
             user_id,
             "请调用系统时钟工具查看当前时间，并告诉我现在是几点几分。",
         )
-        assert result.mtp_iterations >= 1, (
-            f"应发生至少 1 次 MTP 工具调用, 实际 {result.mtp_iterations}"
-        )
+        assert (
+            result.mtp_iterations >= 1
+        ), f"应发生至少 1 次 MTP 工具调用, 实际 {result.mtp_iterations}"
         assert result.final_text
         # 时间结果应包含数字（工具返回的时间字符串）
         assert any(ch.isdigit() for ch in result.final_text)
@@ -95,9 +95,9 @@ class TestAgentLoop:
             user_id,
             "请先调用系统时钟工具获取当前时间，然后用 Python 计算 32 乘以 32 的结果，最后把答案告诉我。",
         )
-        assert result.mtp_iterations >= 2, (
-            f"应发生至少 2 次 MTP 工具调用, 实际 {result.mtp_iterations}"
-        )
+        assert (
+            result.mtp_iterations >= 2
+        ), f"应发生至少 2 次 MTP 工具调用, 实际 {result.mtp_iterations}"
         assert "1024" in result.final_text
 
     @pytest.mark.asyncio

@@ -249,9 +249,7 @@ class TestSchedulerExecution:
 
         scheduler.start()
         try:
-            completed = await _wait_for_event(
-                recorder, RuntimeEventType.MAINTENANCE_TASK_COMPLETED
-            )
+            completed = await _wait_for_event(recorder, RuntimeEventType.MAINTENANCE_TASK_COMPLETED)
         finally:
             await scheduler.stop()
 
@@ -275,9 +273,7 @@ class TestSchedulerExecution:
 
         scheduler.start()
         try:
-            failed = await _wait_for_event(
-                recorder, RuntimeEventType.MAINTENANCE_TASK_FAILED
-            )
+            failed = await _wait_for_event(recorder, RuntimeEventType.MAINTENANCE_TASK_FAILED)
         finally:
             await scheduler.stop()
 
@@ -336,9 +332,7 @@ class TestSchedulerExecution:
         scheduler.start()
         try:
             # 等任务已派发（产生 STARTED 事件）后，任务运行中再次到期 → skip
-            await _wait_for_event(
-                recorder, RuntimeEventType.MAINTENANCE_TASK_STARTED
-            )
+            await _wait_for_event(recorder, RuntimeEventType.MAINTENANCE_TASK_STARTED)
             fake_clock.advance(0.5)
             await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow_events", 1)
             await scheduler.stop()

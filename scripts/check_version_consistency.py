@@ -20,7 +20,9 @@ def _read_canonical_version() -> str:
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
-        if any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets):
+        if any(
+            isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets
+        ):
             if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                 return node.value.value
     raise ValueError(f"{VERSION_FILE} must assign __version__ to a string literal")

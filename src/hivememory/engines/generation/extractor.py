@@ -26,6 +26,7 @@ from hivememory.utils.json_parser import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
+
 class LLMMemoryExtractor(BaseMemoryExtractor):
     """
     基于 LLM 的记忆提取器
@@ -64,43 +65,61 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         self.llm_service = llm_service
         self.language = resolve_language()
         self.normal_system_prompt = get_generation_prompt_text(
-            "passive", "system_prompt", self.language,
+            "passive",
+            "system_prompt",
+            self.language,
         )
         self.normal_user_prompt = get_generation_prompt_text(
-            "passive", "user_prompt", self.language,
+            "passive",
+            "user_prompt",
+            self.language,
         )
         self.write_system_prompt = get_generation_prompt_text(
-            "write", "system_prompt", self.language,
+            "write",
+            "system_prompt",
+            self.language,
         )
         self.write_user_prompt = get_generation_prompt_text(
-            "write", "user_prompt", self.language,
+            "write",
+            "user_prompt",
+            self.language,
         )
         self.write_reason_empty = get_generation_prompt_text(
-            "write", "reason_empty", self.language,
+            "write",
+            "reason_empty",
+            self.language,
         )
         self.update_system_prompt = get_generation_prompt_text(
-            "update", "system_prompt", self.language,
+            "update",
+            "system_prompt",
+            self.language,
         )
         self.update_user_prompt = get_generation_prompt_text(
-            "update", "user_prompt", self.language,
+            "update",
+            "user_prompt",
+            self.language,
         )
         self.update_new_content_empty = get_generation_prompt_text(
-            "update", "new_content_empty", self.language,
+            "update",
+            "new_content_empty",
+            self.language,
         )
         self.update_transcript_empty = get_generation_prompt_text(
-            "update", "transcript_empty", self.language,
+            "update",
+            "transcript_empty",
+            self.language,
         )
 
         self.format_instructions = self._build_format_instructions()
 
-        model_name = self.llm_service.config.model if self.llm_service and hasattr(self.llm_service, 'config') else "unknown"
+        model_name = (
+            self.llm_service.config.model
+            if self.llm_service and hasattr(self.llm_service, "config")
+            else "unknown"
+        )
         logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {model_name})")
 
-    def extract(
-        self,
-        transcript: str,
-        metadata: Dict[str, Any]
-    ) -> Optional[ExtractedMemoryDraft]:
+    def extract(self, transcript: str, metadata: Dict[str, Any]) -> Optional[ExtractedMemoryDraft]:
         """
         提取记忆草稿
 
@@ -183,11 +202,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 return None
 
             # Step 3: 解析 JSON
-            draft = parse_llm_json(
-                raw_output,
-                as_model=ExtractedMemoryDraft,
-                default=None
-            )
+            draft = parse_llm_json(raw_output, as_model=ExtractedMemoryDraft, default=None)
 
             if draft:
                 # Mode B 强制入库: has_value=True, confidence_score=1.0
@@ -288,11 +303,7 @@ class NoOpMemoryExtractor(BaseMemoryExtractor):
     用于在配置未启用提取器时作为默认实现。
     """
 
-    def extract(
-        self,
-        transcript: str,
-        metadata: Dict[str, Any]
-    ) -> Optional[ExtractedMemoryDraft]:
+    def extract(self, transcript: str, metadata: Dict[str, Any]) -> Optional[ExtractedMemoryDraft]:
         """
         提取记忆草稿 (No-Op)
 

@@ -95,9 +95,7 @@ def test_get_topic_data_reads_with_resource_read_and_hides_foreign_workspace():
     service = TopicManagementService(bus=bus, access_guard=guard)
 
     result = _run(
-        service.get_topic_data(
-            identity_scope=context.identity_scope, access=context, topic_id="t1"
-        )
+        service.get_topic_data(identity_scope=context.identity_scope, access=context, topic_id="t1")
     )
     assert result is None
 
@@ -123,9 +121,7 @@ def test_settle_and_evict_require_management_topic_operation():
     service = TopicManagementService(bus=bus, access_guard=guard)
 
     with pytest.raises(OperationDeniedError):
-        _run(
-            service.settle_topic(identity_scope=context.identity_scope, access=context)
-        )
+        _run(service.settle_topic(identity_scope=context.identity_scope, access=context))
     with pytest.raises(OperationDeniedError):
         _run(
             service.evict_topic(
@@ -148,14 +144,8 @@ def test_settle_and_evict_with_management_topic_operation_reach_local_routes():
     service = TopicManagementService(bus=bus, access_guard=guard)
     scope = context.identity_scope
 
-    settle = _run(
-        service.settle_topic(
-            identity_scope=scope, access=context, topic_id="t_settle"
-        )
-    )
-    evict = _run(
-        service.evict_topic(identity_scope=scope, access=context, topic_id="t_evict")
-    )
+    settle = _run(service.settle_topic(identity_scope=scope, access=context, topic_id="t_settle"))
+    evict = _run(service.evict_topic(identity_scope=scope, access=context, topic_id="t_evict"))
     assert settle == "settle-result"
     assert evict == "evict-result"
     assert bus.calls[0][:2] == (PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, (scope, "t_settle"))
@@ -168,9 +158,7 @@ def test_legacy_bare_scope_path_still_works_as_trusted_adapter():
     legacy_scope = make_identity_scope(user_id="u1", agent_id="a1")
     service = TopicManagementService(
         bus=bus,
-        access_guard=make_access_composition(
-            [make_actor_access_record(owner_user_id="u1")]
-        ).guard,
+        access_guard=make_access_composition([make_actor_access_record(owner_user_id="u1")]).guard,
     )
 
     result = _run(service.list_active_topics(identity_scope=legacy_scope))

@@ -89,7 +89,9 @@ async def test_guard_rejects_missing_and_bare_scope_context():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("rebuild", [copy, deepcopy, replace, lambda c: WorkspaceAccessContext(c.identity_scope)])
+@pytest.mark.parametrize(
+    "rebuild", [copy, deepcopy, replace, lambda c: WorkspaceAccessContext(c.identity_scope)]
+)
 async def test_guard_rejects_copied_or_reconstructed_context(rebuild):
     """复制或按相同坐标重建 context 不继承原对象的准入资格。"""
     composition = make_access_composition(
@@ -103,9 +105,10 @@ async def test_guard_rejects_copied_or_reconstructed_context(rebuild):
     with pytest.raises(ScopeRequiredError) as exc_info:
         composition.guard.authorize_operation(rebuilt, WorkspaceOperation.RESOURCE_READ)
     assert exc_info.value.details["reason"] == "context_not_issued"
-    assert composition.guard.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ
-    ) is context.identity_scope
+    assert (
+        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+        is context.identity_scope
+    )
 
 
 @pytest.mark.asyncio
@@ -136,7 +139,9 @@ def test_guard_does_not_trust_a_self_validating_object():
             return record
 
     with pytest.raises(ScopeRequiredError):
-        composition.guard.authorize_operation(SelfValidatingAccess(), WorkspaceOperation.RESOURCE_READ)
+        composition.guard.authorize_operation(
+            SelfValidatingAccess(), WorkspaceOperation.RESOURCE_READ
+        )
 
 
 @pytest.mark.asyncio
@@ -176,9 +181,10 @@ async def test_guard_rejects_expired_context_and_new_context_remains_issuable():
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     now += 59
-    assert composition.guard.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ
-    ) is context.identity_scope
+    assert (
+        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+        is context.identity_scope
+    )
     now += 1  # 到达有效期即拒绝（>=）
     with pytest.raises(ScopeRequiredError) as exc_info:
         composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
@@ -186,9 +192,10 @@ async def test_guard_rejects_expired_context_and_new_context_remains_issuable():
 
     # 到期不是网关关闭：重新认证可取得新的有效凭据
     renewed = await composition.authenticate(agent_id="a1", user_id="u1")
-    assert composition.guard.authorize_operation(
-        renewed, WorkspaceOperation.RESOURCE_READ
-    ) is renewed.identity_scope
+    assert (
+        composition.guard.authorize_operation(renewed, WorkspaceOperation.RESOURCE_READ)
+        is renewed.identity_scope
+    )
 
 
 @pytest.mark.asyncio

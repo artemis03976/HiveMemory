@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 # ============ ShortTermStoragePort ============
 
+
 class ShortTermStoragePort(ABC):
     """
     短期存储 Port。
@@ -76,6 +77,7 @@ class ShortTermStoragePort(ABC):
 
 
 # ============ MidTermStoragePort ============
+
 
 class MidTermStoragePort(ABC):
     """
@@ -180,6 +182,7 @@ class MidTermStoragePort(ABC):
 
 # ============ LongTermStoragePort ============
 
+
 class LongTermStoragePort(ABC):
     """
     长期存储 Port — 冷存储读写，不感知中期存储。
@@ -215,6 +218,7 @@ class LongTermStoragePort(ABC):
 
 
 # ============ ArtifactStoragePort ============
+
 
 class ArtifactStoragePort(ABC):
     """

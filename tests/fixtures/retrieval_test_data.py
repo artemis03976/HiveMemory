@@ -14,7 +14,6 @@ HiveMemory Retrieval 模块测试数据 Fixtures
 
 from typing import List, Dict, Any
 
-
 # ========== Golden Memories - 预注入 Qdrant 的标准记忆库 ==========
 
 GOLDEN_MEMORIES = [
@@ -90,7 +89,6 @@ GOLDEN_MEMORIES = [
    - 抗氧化作用""",
         "confidence_score": 0.85,
     },
-
     # ========== 关键词精确匹配组 ==========
     {
         "id": "550e8400-e29b-41d4-a716-446655440201",  # golden-config-001
@@ -133,7 +131,6 @@ CPU: Intel Xeon Silver 4214R
 状态: 运行中""",
         "confidence_score": 0.80,
     },
-
     # ========== 混合冲突组 - 苹果公司 vs 水果苹果 ==========
     {
         "id": "550e8400-e29b-41d4-a716-446655440301",  # golden-apple-stock-001
@@ -187,7 +184,6 @@ CPU: Intel Xeon Silver 4214R
    - 适合做沙拉""",
         "confidence_score": 0.87,
     },
-
     # ========== 无关数据 - 用于阈值过滤测试 ==========
     {
         "id": "550e8400-e29b-41d4-a716-446655440401",  # golden-earth-001
@@ -233,7 +229,6 @@ CPU: Intel Xeon Silver 4214R
 - 载人火星任务""",
         "confidence_score": 0.82,
     },
-
     # ========== 代码片段组 - 用于测试代码类型记忆 ==========
     {
         "id": "550e8400-e29b-41d4-a716-446655440501",  # golden-code-001
@@ -265,7 +260,6 @@ print(quicksort(numbers))  # [1, 1, 2, 3, 6, 8, 10]
 ```""",
         "confidence_score": 0.93,
     },
-
     # ========== 用户偏好组 ==========
     {
         "id": "550e8400-e29b-41d4-a716-446655440601",  # golden-pref-001
@@ -440,6 +434,7 @@ RENDERING_TEST_CASES = [
 
 
 # ========== 辅助函数 ==========
+
 
 def get_golden_memory_by_id(memory_id: str) -> Dict[str, Any]:
     """根据 ID 获取 Golden Memory"""

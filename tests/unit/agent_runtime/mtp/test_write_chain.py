@@ -34,8 +34,8 @@ from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from tests.helpers.memory import make_memory_identity_scope
 
-
 # ========== Fixtures ==========
+
 
 @pytest.fixture
 def identity() -> ActorIdentity:
@@ -51,8 +51,14 @@ def identity_scope():
 @pytest.fixture
 def sample_messages(identity) -> list:
     return [
-        StreamMessage(message_type=StreamMessageType.USER, content="帮我修复 CORS 问题", identity=identity),
-        StreamMessage(message_type=StreamMessageType.ASSISTANT, content="已修复，端口从 8080 改为 9090", identity=identity),
+        StreamMessage(
+            message_type=StreamMessageType.USER, content="帮我修复 CORS 问题", identity=identity
+        ),
+        StreamMessage(
+            message_type=StreamMessageType.ASSISTANT,
+            content="已修复，端口从 8080 改为 9090",
+            identity=identity,
+        ),
     ]
 
 
@@ -68,6 +74,7 @@ def sample_context(sample_messages, identity) -> GenerationContext:
         ]
     )
 
+
 def _mock_mid_term():
     mid_term = MagicMock()
     mid_term.search = AsyncMock(return_value=[])
@@ -77,6 +84,7 @@ def _mock_mid_term():
 
 # ========== Test 3：Engine Mode B 提取 ==========
 
+
 class TestModeBExtraction:
     """验证 Generation Engine Mode B 路径"""
 
@@ -84,16 +92,23 @@ class TestModeBExtraction:
     async def test_mode_b_calls_extractor_with_write_metadata(self, sample_context, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
-            title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"],
-            memory_type="FACT", content="端口改为 9090",
-            confidence_score=1.0, has_value=True, alias_suffix="fix_cors",
+            title="Fix CORS",
+            summary="修复 CORS 跨域问题，端口从 8080 改为 9090",
+            tags=["cors"],
+            memory_type="FACT",
+            content="端口改为 9090",
+            confidence_score=1.0,
+            has_value=True,
+            alias_suffix="fix_cors",
         )
         mock_dedup = MagicMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=mock_dedup,
         )
 
         focus = WriteFocus(content="端口改为 9090", reason="修复 CORS")
@@ -116,16 +131,23 @@ class TestModeBExtraction:
     async def test_mode_a_no_write_metadata(self, sample_context, identity_scope):
         mock_extractor = MagicMock()
         mock_extractor.extract.return_value = ExtractedMemoryDraft(
-            title="Test Memory", summary="这是一条测试记忆，用于验证 Mode A 路径", tags=["test"],
-            memory_type="FACT", content="test content for mode a",
-            confidence_score=0.8, has_value=True, alias_suffix="test",
+            title="Test Memory",
+            summary="这是一条测试记忆，用于验证 Mode A 路径",
+            tags=["test"],
+            memory_type="FACT",
+            content="test content for mode a",
+            confidence_score=0.8,
+            has_value=True,
+            alias_suffix="test",
         )
         mock_dedup = MagicMock()
         mock_dedup.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=mock_dedup,
         )
 
         request = GenerationRequest(
@@ -140,6 +162,7 @@ class TestModeBExtraction:
 
 # ========== Test 4：Mode B 回退 ==========
 
+
 class TestModeBFallback:
     """验证 LLM 提取失败时的 fallback 草稿构建"""
 
@@ -152,7 +175,9 @@ class TestModeBFallback:
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=mock_dedup,
         )
 
         focus = WriteFocus(
@@ -173,7 +198,9 @@ class TestModeBFallback:
 
     def test_fallback_draft_content(self):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
         focus = WriteFocus(
             content="端口从 8080 改为 9090",
@@ -191,7 +218,9 @@ class TestModeBFallback:
 
     def test_fallback_draft_no_title(self):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=MagicMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=MagicMock(),
         )
         focus = WriteFocus(content="A very long content that should be truncated for title")
         draft = engine._build_fallback_draft(focus)
@@ -201,6 +230,7 @@ class TestModeBFallback:
 
 # ========== Test 8：Active Flush 原因已移除 ==========
 
+
 class TestTriggerReasonActiveGenerationRemoved:
     """主动写生成已脱离感知层，不再保留 MTP flush reason"""
 
@@ -209,6 +239,7 @@ class TestTriggerReasonActiveGenerationRemoved:
 
 
 # ========== Test 9：Engine 统一 API ==========
+
 
 class TestEngineUnifiedAPI:
     """验证 process() 统一使用 GenerationRequest"""
@@ -221,7 +252,9 @@ class TestEngineUnifiedAPI:
         mock_storage = _mock_mid_term()
 
         engine = MemoryGenerationEngine(
-            mid_term=mock_storage, extractor=mock_extractor, deduplicator=mock_dedup,
+            mid_term=mock_storage,
+            extractor=mock_extractor,
+            deduplicator=mock_dedup,
         )
 
         request = GenerationRequest(
@@ -234,7 +267,11 @@ class TestEngineUnifiedAPI:
     @pytest.mark.asyncio
     async def test_empty_request_returns_empty(self):
         engine = MemoryGenerationEngine(
-            mid_term=_mock_mid_term(), extractor=MagicMock(), deduplicator=AsyncMock(),
+            mid_term=_mock_mid_term(),
+            extractor=MagicMock(),
+            deduplicator=AsyncMock(),
         )
-        result = await engine.process(GenerationRequest(), identity_scope=make_memory_identity_scope())
+        result = await engine.process(
+            GenerationRequest(), identity_scope=make_memory_identity_scope()
+        )
         assert result == []

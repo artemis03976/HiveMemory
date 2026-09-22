@@ -224,9 +224,7 @@ class MTPFilterParser:
 
             for token in filter_str.strip().split():
                 if ":" not in token:
-                    warnings.append(
-                        warning("mtp.filter.token_missing_separator", {"token": token})
-                    )
+                    warnings.append(warning("mtp.filter.token_missing_separator", {"token": token}))
                     continue
 
                 key, _, value = token.partition(":")
@@ -243,9 +241,7 @@ class MTPFilterParser:
                     if mapped is not None:
                         memory_type = mapped
                     else:
-                        warnings.append(
-                            warning("mtp.filter.unknown_type", {"value": value})
-                        )
+                        warnings.append(warning("mtp.filter.unknown_type", {"value": value}))
                 elif key == "tag":
                     tags.append(value)
                 elif key == "agent":

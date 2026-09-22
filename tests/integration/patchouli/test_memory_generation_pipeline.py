@@ -239,10 +239,7 @@ async def test_active_update_fetches_existing_memory_before_generation():
     assert spec.pending_alias == "draft_update"
     assert spec.request.is_update is True
     assert spec.request.existing_memory is not existing
-    assert (
-        spec.request.existing_memory.model_dump(mode="json")
-        == existing.model_dump(mode="json")
-    )
+    assert spec.request.existing_memory.model_dump(mode="json") == existing.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -333,9 +330,7 @@ class _InMemoryMidTermPort(MidTermStoragePort):
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         workspace = key.workspace_identity
-        return self.memories.get(
-            (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
-        )
+        return self.memories.get((workspace.owner_user_id, workspace.workspace_id, key.memory_id))
 
     async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
         memory = await self.get(identity_scope, memory_id)

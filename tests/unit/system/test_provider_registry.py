@@ -15,10 +15,10 @@ import yaml
 from hivememory.system.config.shared import ProviderCredentials
 from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
 
-
 # ---------------------------------------------------------------------------
 # 辅助
 # ---------------------------------------------------------------------------
+
 
 def _make_registry(
     tmp_path,
@@ -43,6 +43,7 @@ def _cred(api_key: str | None = None, api_base: str | None = None) -> ProviderCr
 # 加载测试
 # ---------------------------------------------------------------------------
 
+
 class TestLoad:
     def test_empty_when_file_missing(self, tmp_path):
         """文件不存在时 yaml 层为空，不抛异常。"""
@@ -53,7 +54,9 @@ class TestLoad:
         """从 yaml 文件正确加载 provider 凭证。"""
         registry = _make_registry(
             tmp_path,
-            yaml_providers={"deepseek": {"api_key": "sk-yaml", "api_base": "https://api.deepseek.com"}},
+            yaml_providers={
+                "deepseek": {"api_key": "sk-yaml", "api_base": "https://api.deepseek.com"}
+            },
         )
         assert len(registry) == 1
         cred = registry.get("deepseek")
@@ -93,6 +96,7 @@ class TestLoad:
 # ---------------------------------------------------------------------------
 # 查询接口
 # ---------------------------------------------------------------------------
+
 
 class TestQuery:
     def test_get_env_provider(self, tmp_path):
@@ -179,6 +183,7 @@ class TestQuery:
 # 写入接口
 # ---------------------------------------------------------------------------
 
+
 class TestWrite:
     def test_upsert_creates_new_provider(self, tmp_path):
         registry = _make_registry(tmp_path)
@@ -186,9 +191,7 @@ class TestWrite:
         assert registry.get("anthropic").api_key == "sk-ant"
 
     def test_upsert_updates_existing_provider(self, tmp_path):
-        registry = _make_registry(
-            tmp_path, yaml_providers={"deepseek": {"api_key": "old-key"}}
-        )
+        registry = _make_registry(tmp_path, yaml_providers={"deepseek": {"api_key": "old-key"}})
         registry.upsert("deepseek", _cred(api_key="new-key"))
         assert registry.get("deepseek").api_key == "new-key"
 
@@ -198,9 +201,7 @@ class TestWrite:
         assert registry.get("openai").api_key == "sk-upper"
 
     def test_delete_yaml_provider(self, tmp_path):
-        registry = _make_registry(
-            tmp_path, yaml_providers={"deepseek": {"api_key": "sk"}}
-        )
+        registry = _make_registry(tmp_path, yaml_providers={"deepseek": {"api_key": "sk"}})
         registry.delete("deepseek")
         assert registry.get("deepseek") is None
         assert len(registry) == 0
@@ -222,10 +223,13 @@ class TestWrite:
 # 持久化测试
 # ---------------------------------------------------------------------------
 
+
 class TestPersistence:
     def test_upsert_persisted_to_file(self, tmp_path):
         registry = _make_registry(tmp_path)
-        registry.upsert("deepseek", _cred(api_key="sk-persist", api_base="https://api.deepseek.com"))
+        registry.upsert(
+            "deepseek", _cred(api_key="sk-persist", api_base="https://api.deepseek.com")
+        )
 
         # 重新加载，数据应仍然存在
         reloaded = ProviderRegistry(secrets_path=tmp_path / "providers.secrets.yaml")
@@ -235,9 +239,7 @@ class TestPersistence:
         assert cred.api_base == "https://api.deepseek.com"
 
     def test_delete_persisted_to_file(self, tmp_path):
-        registry = _make_registry(
-            tmp_path, yaml_providers={"deepseek": {"api_key": "sk"}}
-        )
+        registry = _make_registry(tmp_path, yaml_providers={"deepseek": {"api_key": "sk"}})
         registry.delete("deepseek")
 
         reloaded = ProviderRegistry(secrets_path=tmp_path / "providers.secrets.yaml")

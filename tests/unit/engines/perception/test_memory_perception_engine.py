@@ -46,16 +46,18 @@ def _payload(user_msg="hello", assistant_msg="world", traces=None, turn_events=N
     return InteractionPayload(
         user_message=user_msg,
         assistant_final_text=assistant_msg,
-        turn_events=turn_events
-        if turn_events is not None
-        else [
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content=assistant_msg,
-            )
-        ],
+        turn_events=(
+            turn_events
+            if turn_events is not None
+            else [
+                TurnEvent(
+                    kind="assistant_message",
+                    sequence=0,
+                    role="assistant",
+                    content=assistant_msg,
+                )
+            ]
+        ),
         mtp_traces=traces or [],
     )
 
@@ -80,8 +82,7 @@ def _mock_relay():
 class TestBuildBlock:
     def test_persists_assistant_final_text_and_turn_events(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
         turn_event = _turn_event()
 
@@ -96,8 +97,7 @@ class TestBuildBlock:
 
     def test_reduces_turn_events_to_actions(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
         payload = InteractionPayload(
             user_message="hello",
@@ -138,8 +138,7 @@ class TestBuildBlock:
 
     def test_persists_payload_mtp_traces(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
         payload = _payload("hello", "clean", traces=[TraceItem(action="SEARCH", query="my query")])
 
@@ -149,8 +148,7 @@ class TestBuildBlock:
 
     def test_keeps_semantic_traces_empty_when_payload_empty(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
         block = engine.build_block(_payload("hello", "clean"), _scope())
@@ -159,8 +157,7 @@ class TestBuildBlock:
 
     def test_empty_final_text_stays_empty(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
         block = engine.build_block(_payload("hello", ""), _scope())
@@ -174,8 +171,7 @@ class TestBuildBlock:
 class TestTokenEstimation:
     def test_total_tokens_computed_from_query_and_answer(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
         block = engine.build_block(_payload("What is Python?", "Python is a language"), _scope())
@@ -184,8 +180,7 @@ class TestTokenEstimation:
 
     def test_traces_increase_total_tokens(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
         with_traces = engine.build_block(
@@ -211,7 +206,7 @@ class TestShouldCompact:
     def test_not_triggered_below_threshold(self):
         engine = MemoryPerceptionEngine(
             config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
-            relay_controller=_mock_relay()
+            relay_controller=_mock_relay(),
         )
 
         assert engine.should_compact(99) is False
@@ -219,7 +214,7 @@ class TestShouldCompact:
     def test_not_triggered_at_exact_threshold(self):
         engine = MemoryPerceptionEngine(
             config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
-            relay_controller=_mock_relay()
+            relay_controller=_mock_relay(),
         )
 
         # 与旧 is_idle/折叠语义一致：达到阈值不触发，严格大于才触发
@@ -228,7 +223,7 @@ class TestShouldCompact:
     def test_triggered_above_threshold(self):
         engine = MemoryPerceptionEngine(
             config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
-            relay_controller=_mock_relay()
+            relay_controller=_mock_relay(),
         )
 
         assert engine.should_compact(101) is True
@@ -240,8 +235,7 @@ class TestShouldCompact:
 class TestSelectBlocksToFold:
     def test_selects_oldest_prefix_and_retains_recent(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
         blocks = tuple(_block(total_tokens=i) for i in range(3))
 
@@ -251,8 +245,7 @@ class TestSelectBlocksToFold:
 
     def test_defers_folding_when_retain_covers_all_blocks(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
         blocks = tuple(_block() for _ in range(3))
 
@@ -260,8 +253,7 @@ class TestSelectBlocksToFold:
 
     def test_rejects_retain_below_one(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=_mock_relay()
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
         with pytest.raises(ValueError, match="retain_recent must be >= 1"):
@@ -276,8 +268,7 @@ class TestGenerateFoldSummary:
         mock_relay = _mock_relay()
         mock_relay.generate_summary.return_value = "summarized content"
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(),
-            relay_controller=mock_relay
+            config=SemanticFlowPerceptionConfig(), relay_controller=mock_relay
         )
         blocks = [_block(), _block()]
 

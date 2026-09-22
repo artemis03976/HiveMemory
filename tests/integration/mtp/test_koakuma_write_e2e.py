@@ -38,7 +38,12 @@ def sample_memory(identity) -> MemoryAtom:
             session_id=None,
             confidence_score=1.0,
         ),
-        index=IndexLayer(title="Fix CORS", summary="修复 CORS 跨域问题，端口从 8080 改为 9090", tags=["cors"], memory_type=MemoryType.FACT),
+        index=IndexLayer(
+            title="Fix CORS",
+            summary="修复 CORS 跨域问题，端口从 8080 改为 9090",
+            tags=["cors"],
+            memory_type=MemoryType.FACT,
+        ),
         payload=PayloadLayer(content="端口从 8080 改为 9090"),
     )
 
@@ -60,15 +65,15 @@ class TestKoakumaWriteE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(user_id="test_user")
-        )
+        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
         return koakuma
 
     @pytest.mark.asyncio
     async def test_write_basic(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="端口从 8080 改为 9090" reason="修复 CORS"'
-        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(
+            write_koakuma, agent_text, context=write_koakuma.context
+        )
 
         assert result is not None
         assert result.success
@@ -83,7 +88,9 @@ class TestKoakumaWriteE2E:
     @pytest.mark.asyncio
     async def test_write_with_title(self, write_koakuma):
         agent_text = '⟪ WRITE | * | title="Fix CORS" content="端口改为 9090" reason="修复"'
-        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(
+            write_koakuma, agent_text, context=write_koakuma.context
+        )
 
         assert result is not None
         pending = write_koakuma.pending_runtime.get(result.pending_alias)
@@ -94,7 +101,9 @@ class TestKoakumaWriteE2E:
     @pytest.mark.asyncio
     async def test_write_missing_content(self, write_koakuma):
         agent_text = '⟪ WRITE | * | reason="no content"'
-        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(
+            write_koakuma, agent_text, context=write_koakuma.context
+        )
 
         assert result is not None
         assert result.pending_alias is None
@@ -102,7 +111,9 @@ class TestKoakumaWriteE2E:
     @pytest.mark.asyncio
     async def test_write_response_contains_ack(self, write_koakuma):
         agent_text = '⟪ WRITE | * | content="test content"'
-        result = await _intercept_and_execute(write_koakuma, agent_text, context=write_koakuma.context)
+        result = await _intercept_and_execute(
+            write_koakuma, agent_text, context=write_koakuma.context
+        )
 
         assert result is not None
         assert result.pending_alias is not None

@@ -18,7 +18,6 @@ from typing import List, Dict, Any
 
 from hivememory.utils.token_estimator import estimate_tokens
 
-
 # ========== 话题 1: 数据科学对话（基线话题） ==========
 
 DATA_SCIENCE_CONVERSATION = [
@@ -484,25 +483,24 @@ AGENT_TOOL_CALL_SCENARIO = {
         {
             "role": "assistant",
             "content": "",
-            "tool_calls": [{
-                "id": "call_123",
-                "type": "function",
-                "function": {
-                    "name": "get_weather",
-                    "arguments": '{"location": "北京"}'
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": '{"location": "北京"}'},
                 }
-            }]
+            ],
         },
         {
             "role": "tool",
             "tool_call_id": "call_123",
-            "content": '{"temperature": 5, "condition": "晴", "humidity": 45}'
+            "content": '{"temperature": 5, "condition": "晴", "humidity": 45}',
         },
         {
             "role": "assistant",
             "content": """北京目前气温5度，天气晴朗，湿度45%。由于温度较低，建议您穿着保暖内衣、毛衣或厚卫衣，外加羽绒服或厚棉衣。下身建议穿保暖裤或加绒裤子，脚部穿保暖袜子和保暖鞋。外出时记得戴帽子和手套保护手脚。""",
-        }
-    ]
+        },
+    ],
 }
 
 AGENT_MULTI_TOOL_SCENARIO = {
@@ -520,19 +518,21 @@ AGENT_MULTI_TOOL_SCENARIO = {
         {
             "role": "assistant",
             "content": "",
-            "tool_calls": [{
-                "id": "call_1",
-                "type": "function",
-                "function": {
-                    "name": "analyze_complexity",
-                    "arguments": '{"code": "def find_duplicates(lst):\\n    result = []\\n    for i in range(len(lst)):\\n        for j in range(i+1, len(lst)):\\n            if lst[i] == lst[j]:\\n                result.append(lst[i])\\n    return result"}'
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "analyze_complexity",
+                        "arguments": '{"code": "def find_duplicates(lst):\\n    result = []\\n    for i in range(len(lst)):\\n        for j in range(i+1, len(lst)):\\n            if lst[i] == lst[j]:\\n                result.append(lst[i])\\n    return result"}',
+                    },
                 }
-            }]
+            ],
         },
         {
             "role": "tool",
             "tool_call_id": "call_1",
-            "content": '{"time_complexity": "O(n^2)", "space_complexity": "O(n)", "hotspots": ["nested_loop"]}'
+            "content": '{"time_complexity": "O(n^2)", "space_complexity": "O(n)", "hotspots": ["nested_loop"]}',
         },
         {
             "role": "assistant",
@@ -541,19 +541,21 @@ AGENT_MULTI_TOOL_SCENARIO = {
         {
             "role": "assistant",
             "content": "",
-            "tool_calls": [{
-                "id": "call_2",
-                "type": "function",
-                "function": {
-                    "name": "suggest_optimization",
-                    "arguments": '{"time_complexity": "O(n^2)", "pattern": "nested_search"}'
+            "tool_calls": [
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {
+                        "name": "suggest_optimization",
+                        "arguments": '{"time_complexity": "O(n^2)", "pattern": "nested_search"}',
+                    },
                 }
-            }]
+            ],
         },
         {
             "role": "tool",
             "tool_call_id": "call_2",
-            "content": '{"suggestion": "使用哈希表（集合）可以将查找复杂度从O(n)降低到O(1)", "optimized_code": "def find_duplicates(lst):\\n    seen = set()\\n    return [x for x in lst if x in seen or seen.add(x)]"}'
+            "content": '{"suggestion": "使用哈希表（集合）可以将查找复杂度从O(n)降低到O(1)", "optimized_code": "def find_duplicates(lst):\\n    seen = set()\\n    return [x for x in lst if x in seen or seen.add(x)]"}',
         },
         {
             "role": "assistant",
@@ -569,25 +571,46 @@ def find_duplicates(lst):
 ```
 
 这样只需要遍历列表一次，效率大幅提升。""",
-        }
-    ]
+        },
+    ],
 }
 
 # ========== 短文本样本（强吸附测试） ==========
 
 SHORT_TEXT_SAMPLES = [
     # 中文确认词
-    "好的", "好", "行", "可以", "继续", "然后呢", "明白了", "知道了",
+    "好的",
+    "好",
+    "行",
+    "可以",
+    "继续",
+    "然后呢",
+    "明白了",
+    "知道了",
     # 中文语气词
-    "嗯", "哦", "啊", "呃",
+    "嗯",
+    "哦",
+    "啊",
+    "呃",
     # 中文否定/纠正
-    "不对", "错了", "错误",
+    "不对",
+    "错了",
+    "错误",
     # 英文确认词
-    "ok", "okay", "yes", "yeah", "yep", "sure", "alright",
+    "ok",
+    "okay",
+    "yes",
+    "yeah",
+    "yep",
+    "sure",
+    "alright",
     # 英文继续词
-    "continue", "go on", "next",
+    "continue",
+    "go on",
+    "next",
     # 英文否定词
-    "no", "nope",
+    "no",
+    "nope",
 ]
 
 # ========== 精确相似度测试对 ==========
@@ -624,24 +647,26 @@ SIMILARITY_TEST_PAIRS = {
 # 生成更紧凑的溢出测试数据，每轮约 200 tokens
 COMPACT_OVERFLOW_CONVERSATION = []
 for i in range(25):
-    COMPACT_OVERFLOW_CONVERSATION.extend([
-        {
-            "role": "user",
-            "content": f"第{i+1}个问题：请详细解释Python中的{['装饰器', '生成器', '上下文管理器', '元类', '描述符'][i % 5]}的工作原理，"
-                       f"包括它的实现机制、使用场景和最佳实践。我需要深入理解这个概念以便在实际项目中正确使用。",
-            "rewritten_query": f"详细解释Python中{['装饰器', '生成器', '上下文管理器', '元类', '描述符'][i % 5]}的工作原理、实现机制、使用场景和最佳实践",
-        },
-        {
-            "role": "assistant",
-            "content": f"关于Python{['装饰器', '生成器', '上下文管理器', '元类', '描述符'][i % 5]}的详细解释：\n\n"
-                       f"1. 基本概念：这是Python中一个重要的高级特性，用于实现特定的编程模式。\n"
-                       f"2. 实现原理：通过特殊的语法和协议来实现其功能。\n"
-                       f"3. 使用场景：常用于代码复用、资源管理、元编程等场景。\n"
-                       f"4. 最佳实践：遵循Python的设计哲学，保持代码简洁明了。\n"
-                       f"5. 示例代码：def example(): pass  # 这里是示例实现\n"
-                       f"6. 注意事项：使用时需要注意性能和可维护性的平衡。",
-        },
-    ])
+    COMPACT_OVERFLOW_CONVERSATION.extend(
+        [
+            {
+                "role": "user",
+                "content": f"第{i+1}个问题：请详细解释Python中的{['装饰器', '生成器', '上下文管理器', '元类', '描述符'][i % 5]}的工作原理，"
+                f"包括它的实现机制、使用场景和最佳实践。我需要深入理解这个概念以便在实际项目中正确使用。",
+                "rewritten_query": f"详细解释Python中{['装饰器', '生成器', '上下文管理器', '元类', '描述符'][i % 5]}的工作原理、实现机制、使用场景和最佳实践",
+            },
+            {
+                "role": "assistant",
+                "content": f"关于Python{['装饰器', '生成器', '上下文管理器', '元类', '描述符'][i % 5]}的详细解释：\n\n"
+                f"1. 基本概念：这是Python中一个重要的高级特性，用于实现特定的编程模式。\n"
+                f"2. 实现原理：通过特殊的语法和协议来实现其功能。\n"
+                f"3. 使用场景：常用于代码复用、资源管理、元编程等场景。\n"
+                f"4. 最佳实践：遵循Python的设计哲学，保持代码简洁明了。\n"
+                f"5. 示例代码：def example(): pass  # 这里是示例实现\n"
+                f"6. 注意事项：使用时需要注意性能和可维护性的平衡。",
+            },
+        ]
+    )
 
 
 # ========== 导出 ==========

@@ -21,11 +21,12 @@ from typing import Any, Optional, TypeVar, Type, Union
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class JSONParseError(Exception):
     """JSON 解析失败异常"""
+
     def __init__(self, message: str, raw_output: str = ""):
         super().__init__(message)
         self.raw_output = raw_output
@@ -78,7 +79,7 @@ class LLMJSONParser:
     """
 
     # 正则表达式模式
-    MARKDOWN_CODE_BLOCK_PATTERN = r'```(?:json|JSON)?\s*(\{.*?\}|\[.*?\])\s*```'
+    MARKDOWN_CODE_BLOCK_PATTERN = r"```(?:json|JSON)?\s*(\{.*?\}|\[.*?\])\s*```"
 
     def __init__(
         self,
@@ -223,7 +224,7 @@ class LLMJSONParser:
         text = text.strip()
 
         # 移除 BOM 头
-        if self.strip_bom and text.startswith('\ufeff'):
+        if self.strip_bom and text.startswith("\ufeff"):
             text = text[1:]
 
         return text
@@ -264,11 +265,11 @@ class LLMJSONParser:
         """
         results = []
         # 提取对象 {...}
-        obj_result = self._extract_bracket_block(text, '{', '}')
+        obj_result = self._extract_bracket_block(text, "{", "}")
         if obj_result:
             results.append(obj_result)
         # 提取数组 [...]
-        arr_result = self._extract_bracket_block(text, '[', ']')
+        arr_result = self._extract_bracket_block(text, "[", "]")
         if arr_result:
             results.append(arr_result)
 
@@ -309,9 +310,9 @@ class LLMJSONParser:
                 elif char == close_char:
                     bracket_count -= 1
                     if bracket_count == 0:
-                        return text[start_idx:i + 1]
+                        return text[start_idx : i + 1]
 
-            if char == '\\':
+            if char == "\\":
                 escape = not escape
             else:
                 escape = False
@@ -338,12 +339,12 @@ class LLMJSONParser:
                 candidates.append(candidate)
 
         # 提取所有 JSON 对象
-        obj_result = self._extract_bracket_block(text, '{', '}')
+        obj_result = self._extract_bracket_block(text, "{", "}")
         if obj_result:
             candidates.append(obj_result)
 
         # 提取所有 JSON 数组
-        arr_result = self._extract_bracket_block(text, '[', ']')
+        arr_result = self._extract_bracket_block(text, "[", "]")
         if arr_result and arr_result != obj_result:
             candidates.append(arr_result)
 

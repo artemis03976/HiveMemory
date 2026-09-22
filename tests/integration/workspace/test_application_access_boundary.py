@@ -792,11 +792,14 @@ async def test_expired_context_rejected_and_reauthentication_restores_access(wir
     """超过认证有效区间后旧 context 拒绝；重新认证恢复（证据 7）。"""
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     public_atom = await _seed_public_fact(wired.store, alias="fact_ttl", content="ttl")
-    assert await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_MEMORY_READ,
-        str(public_atom.id),
-        access=context,
-    ) is not None
+    assert (
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_READ,
+            str(public_atom.id),
+            access=context,
+        )
+        is not None
+    )
 
     wired.clock.now += 61
 
@@ -809,8 +812,11 @@ async def test_expired_context_rejected_and_reauthentication_restores_access(wir
     assert exc_info.value.details["reason"] == "context_expired"
 
     renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    assert await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_MEMORY_READ,
-        str(public_atom.id),
-        access=renewed,
-    ) is not None
+    assert (
+        await wired.global_bus.request(
+            GlobalRoutes.PATCHOULI_MEMORY_READ,
+            str(public_atom.id),
+            access=renewed,
+        )
+        is not None
+    )

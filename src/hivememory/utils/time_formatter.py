@@ -86,7 +86,9 @@ class TimeFormatter:
         return get_time_formatter_text(key, self.language)
 
     @staticmethod
-    def _normalize_datetimes(dt: datetime, reference: Optional[datetime]) -> tuple[datetime, datetime]:
+    def _normalize_datetimes(
+        dt: datetime, reference: Optional[datetime]
+    ) -> tuple[datetime, datetime]:
         """
         归一化 datetime 的时区感知，避免 naive 与 aware 相减报错。
 

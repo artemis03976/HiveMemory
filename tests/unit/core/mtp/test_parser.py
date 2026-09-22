@@ -27,7 +27,6 @@ from hivememory.core.mtp import (
 )
 from hivememory.i18n.mtp_runtime import get_mtp_error_text
 
-
 # ========== Fixtures ==========
 
 

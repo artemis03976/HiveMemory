@@ -21,16 +21,13 @@ from hivememory.system.config.patchouli import ArtifactComponentConfig
 
 class MemoryCreationBundle(BaseModel):
     """build_for_create 的原子返回值 - 两个强关联 artifact 作为整体返回。"""
+
     creation_ref: Optional[ArtifactRef] = None
     initial_version_ref: Optional[ArtifactRef] = None  # MemoryVersionArtifact v1
 
     @property
     def refs(self) -> list[ArtifactRef]:
-        return [
-            ref
-            for ref in (self.initial_version_ref, self.creation_ref)
-            if ref is not None
-        ]
+        return [ref for ref in (self.initial_version_ref, self.creation_ref) if ref is not None]
 
 
 class MemoryArtifactBuilder:

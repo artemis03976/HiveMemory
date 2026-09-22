@@ -20,10 +20,29 @@ from hivememory.infrastructure.websocket_manager import WebSocketConnectionManag
 
 # LogRecord 的标准属性（用于过滤 extra 字段）
 STANDARD_RECORD_ATTRS = {
-    "name", "msg", "args", "created", "filename", "funcName", "levelname",
-    "levelno", "lineno", "module", "msecs", "message", "pathname", "process",
-    "processName", "relativeCreated", "thread", "threadName", "exc_info",
-    "exc_text", "stack_info", "getMessage", "asctime",
+    "name",
+    "msg",
+    "args",
+    "created",
+    "filename",
+    "funcName",
+    "levelname",
+    "levelno",
+    "lineno",
+    "module",
+    "msecs",
+    "message",
+    "pathname",
+    "process",
+    "processName",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "getMessage",
+    "asctime",
 }
 
 # 消息大小限制
@@ -155,7 +174,9 @@ class WebSocketLogHandler(logging.Handler):
             log_data["exception"] = {
                 "type": exc_type.__name__ if exc_type else "Unknown",
                 "message": str(exc_value) if exc_value else "",
-                "traceback": self.formatter.formatException(record.exc_info) if self.formatter else "",
+                "traceback": (
+                    self.formatter.formatException(record.exc_info) if self.formatter else ""
+                ),
             }
 
         # 自定义字段（extra）
@@ -189,17 +210,13 @@ class WebSocketLogHandler(logging.Handler):
         """
         # 截断消息
         if len(log_data["message"]) > MAX_MESSAGE_LENGTH:
-            log_data["message"] = (
-                log_data["message"][:MAX_MESSAGE_LENGTH] + "... [truncated]"
-            )
+            log_data["message"] = log_data["message"][:MAX_MESSAGE_LENGTH] + "... [truncated]"
 
         # 截断 traceback
         if "exception" in log_data:
             tb = log_data["exception"]["traceback"]
             if len(tb) > MAX_TRACEBACK_LENGTH:
-                log_data["exception"]["traceback"] = (
-                    tb[:MAX_TRACEBACK_LENGTH] + "\n... [truncated]"
-                )
+                log_data["exception"]["traceback"] = tb[:MAX_TRACEBACK_LENGTH] + "\n... [truncated]"
 
         return log_data
 

@@ -171,11 +171,14 @@ def resolve_request_identity_scope(
 
     应用服务不得再次解析身份；本函数是默认身份回退的唯一合法位置。
     """
-    user_id = _merge_identity_field(
-        header_value=selection.user_id,
-        explicit_value=explicit_user_id,
-        field_name="user_id",
-    ) or DEFAULT_USER_ID
+    user_id = (
+        _merge_identity_field(
+            header_value=selection.user_id,
+            explicit_value=explicit_user_id,
+            field_name="user_id",
+        )
+        or DEFAULT_USER_ID
+    )
     workspace_id = _merge_identity_field(
         header_value=selection.workspace_id,
         explicit_value=explicit_workspace_id,
@@ -185,8 +188,7 @@ def resolve_request_identity_scope(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Workspace '{workspace_id}' 不存在：公共入口当前只开放 "
-                f"'{MAIN_WORKSPACE_ID}'"
+                f"Workspace '{workspace_id}' 不存在：公共入口当前只开放 " f"'{MAIN_WORKSPACE_ID}'"
             ),
         )
 
@@ -226,7 +228,7 @@ def get_identity_scope(
 
 
 def init_websocket_log_broadcasting(
-    config: HiveMemoryConfig
+    config: HiveMemoryConfig,
 ) -> Optional[WebSocketConnectionManager]:
     """
     初始化 WebSocket 日志广播系统
@@ -251,9 +253,7 @@ def init_websocket_log_broadcasting(
         return None
 
     # 创建连接管理器
-    _ws_manager = WebSocketConnectionManager(
-        buffer_size=config.logging.websocket_buffer_size
-    )
+    _ws_manager = WebSocketConnectionManager(buffer_size=config.logging.websocket_buffer_size)
 
     # 创建日志处理器
     handler = WebSocketLogHandler(
@@ -269,6 +269,7 @@ def init_websocket_log_broadcasting(
 
     # 注册追踪上下文过滤器
     from hivememory.infrastructure.trace_context import TraceInjectFilter
+
     handler.addFilter(TraceInjectFilter())
 
     logger.info(
@@ -281,7 +282,7 @@ def init_websocket_log_broadcasting(
 
 
 async def shutdown_websocket_log_broadcasting(
-    manager: Optional[WebSocketConnectionManager]
+    manager: Optional[WebSocketConnectionManager],
 ) -> None:
     """
     关闭 WebSocket 日志广播系统

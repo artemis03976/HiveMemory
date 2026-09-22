@@ -256,9 +256,7 @@ async def test_run_executor_still_finalizes_when_call_record_cleanup_fails():
 
     frame = _frame_stub("frame-1")
     session = _session_with(frame)
-    session.cancel_unapplied_calls = MagicMock(
-        side_effect=RuntimeError("record cleanup failed")
-    )
+    session.cancel_unapplied_calls = MagicMock(side_effect=RuntimeError("record cleanup failed"))
     finalize_run = MagicMock()
     executor = RunExecutor(
         SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),

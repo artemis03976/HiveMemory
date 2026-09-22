@@ -92,7 +92,9 @@ def _render_full_from_ir(
     content = _truncate_content(unit.content.content or "", max_content_length, language)
     confidence_str = _format_confidence_from_ir(unit, language)
     alias = unit.identity.alias or ""
-    tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text("memory_tags_empty", language)
+    tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text(
+        "memory_tags_empty", language
+    )
     updated_at = unit.metadata.get("updated_at")
     time_str = (
         TimeFormatter(language=language, stale_days=stale_days).format(updated_at)
@@ -130,7 +132,9 @@ def _render_index_from_ir(
 ) -> str:
     alias = unit.identity.alias or ""
     confidence_str = _format_confidence_from_ir(unit, language)
-    tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text("memory_tags_empty", language)
+    tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text(
+        "memory_tags_empty", language
+    )
     updated_at = unit.metadata.get("updated_at")
     time_str = (
         TimeFormatter(language=language, stale_days=stale_days).format(updated_at)
@@ -184,7 +188,7 @@ def _truncate_content(content: str, max_length: int, language: str | None = None
     for sep in ["\n\n", "\n", "。", ".", "！", "!", "？", "?"]:
         last_sep = truncated.rfind(sep)
         if last_sep > max_length // 2:
-            truncated = truncated[:last_sep + len(sep)]
+            truncated = truncated[: last_sep + len(sep)]
             break
 
     return truncated + f"\n\n{_text('memory_truncation_notice', language)}"

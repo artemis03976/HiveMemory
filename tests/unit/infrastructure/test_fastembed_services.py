@@ -17,9 +17,11 @@ class TestBGEM3EmbeddingService:
         mock_pooling_type = MagicMock()
         mock_pooling_type.CLS = "CLS"
 
-        with patch("fastembed.TextEmbedding", mock_text_embedding_cls), \
-             patch("fastembed.common.model_description.ModelSource", mock_model_source), \
-             patch("fastembed.common.model_description.PoolingType", mock_pooling_type):
+        with (
+            patch("fastembed.TextEmbedding", mock_text_embedding_cls),
+            patch("fastembed.common.model_description.ModelSource", mock_model_source),
+            patch("fastembed.common.model_description.PoolingType", mock_pooling_type),
+        ):
             service._load_model()
 
         mock_text_embedding_cls.add_custom_model.assert_called_once()
@@ -44,9 +46,11 @@ class TestBGEM3EmbeddingService:
         mock_pooling_type = MagicMock()
         mock_pooling_type.CLS = "CLS"
 
-        with patch("fastembed.TextEmbedding", mock_text_embedding_cls), \
-             patch("fastembed.common.model_description.ModelSource", mock_model_source), \
-             patch("fastembed.common.model_description.PoolingType", mock_pooling_type):
+        with (
+            patch("fastembed.TextEmbedding", mock_text_embedding_cls),
+            patch("fastembed.common.model_description.ModelSource", mock_model_source),
+            patch("fastembed.common.model_description.PoolingType", mock_pooling_type),
+        ):
             service._load_model()
 
         mock_text_embedding_cls.assert_called_once_with(
@@ -79,12 +83,17 @@ class TestFastEmbedRerankerService:
         service = FastEmbedRerankerService(config=config)
 
         mock_model = MagicMock()
-        mock_model.rerank.return_value = [MagicMock(__float__=lambda _self: 0.6), MagicMock(__float__=lambda _self: -0.1)]
+        mock_model.rerank.return_value = [
+            MagicMock(__float__=lambda _self: 0.6),
+            MagicMock(__float__=lambda _self: -0.1),
+        ]
         service._model = mock_model
 
-        scores = service.compute_score([
-            ["query", "doc-a"],
-            ["query", "doc-b"],
-        ])
+        scores = service.compute_score(
+            [
+                ["query", "doc-a"],
+                ["query", "doc-b"],
+            ]
+        )
 
         assert scores == [0.6, -0.1]

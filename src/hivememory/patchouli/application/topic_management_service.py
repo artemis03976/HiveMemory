@@ -47,7 +47,9 @@ class TopicManagementService:
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]:
         scope = verified_scope(
-            access, WorkspaceOperation.RESOURCE_READ, identity_scope,
+            access,
+            WorkspaceOperation.RESOURCE_READ,
+            identity_scope,
             access_guard=self._access_guard,
         )
         kwargs = {"identity_scope": scope}
@@ -68,7 +70,9 @@ class TopicManagementService:
     ) -> TopicData | None:
         """无副作用读取调用方可见的完整话题数据。"""
         scope = verified_scope(
-            access, WorkspaceOperation.RESOURCE_READ, identity_scope,
+            access,
+            WorkspaceOperation.RESOURCE_READ,
+            identity_scope,
             access_guard=self._access_guard,
         )
         topic_data = await self._bus.request(
@@ -76,10 +80,7 @@ class TopicManagementService:
             topic_id,
             identity_scope=scope,
         )
-        if (
-            topic_data is not None
-            and topic_data.workspace_identity != scope.workspace_identity
-        ):
+        if topic_data is not None and topic_data.workspace_identity != scope.workspace_identity:
             # 控制面同样隐藏越域资源，不能把下游异常结果升级为可见性泄漏。
             return None
         return topic_data
@@ -93,7 +94,9 @@ class TopicManagementService:
     ) -> TopicSettleResult:
         """通过本地总线结算 Topic（management.topic），返回稳定业务结果。"""
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_TOPIC, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_TOPIC,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
@@ -111,7 +114,9 @@ class TopicManagementService:
     ) -> TopicEvictionResult:
         """通过本地总线驱逐 Topic（management.topic），不触发记忆结算。"""
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_TOPIC, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_TOPIC,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(

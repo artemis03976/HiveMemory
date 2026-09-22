@@ -79,9 +79,7 @@ class GatewayRuntime:
                     runtime_events=self._runtime_events,
                 )
             else:
-                analysis_resolver = FallbackUserQueryAnalysisResolver(
-                    config.user_query_analysis
-                )
+                analysis_resolver = FallbackUserQueryAnalysisResolver(config.user_query_analysis)
 
         registry = create_builtin_command_registry(config.commands.builtin)
         interceptor = create_interceptor(config.interceptor, registry)

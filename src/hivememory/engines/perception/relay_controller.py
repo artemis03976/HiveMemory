@@ -57,9 +57,7 @@ class SimpleRelayController(BaseRelayController):
     """
 
     def generate_summary(
-        self,
-        blocks_to_fold: List[LogicalBlock],
-        previous_summary: Optional[str] = None
+        self, blocks_to_fold: List[LogicalBlock], previous_summary: Optional[str] = None
     ) -> str:
         """
         生成简单摘要并合并之前的摘要
@@ -154,9 +152,7 @@ class LLMRelayController(BaseRelayController):
         self.summary_llm = summary_llm
 
     def generate_summary(
-        self,
-        blocks_to_fold: List[LogicalBlock],
-        previous_summary: Optional[str] = None
+        self, blocks_to_fold: List[LogicalBlock], previous_summary: Optional[str] = None
     ) -> str:
         """
         使用 LLM 生成智能摘要并合并之前的摘要
@@ -214,9 +210,7 @@ class LLMRelayController(BaseRelayController):
         return "\n".join(lines)
 
     def _generate_llm_summary(
-        self,
-        blocks: List[LogicalBlock],
-        previous_summary: Optional[str] = None
+        self, blocks: List[LogicalBlock], previous_summary: Optional[str] = None
     ) -> str:
         """
         使用 LLM 生成智能摘要
@@ -270,18 +264,16 @@ class NoOpRelayController(BaseRelayController):
     """RelayController 的禁用实现。"""
 
     def generate_summary(
-        self,
-        blocks_to_fold: List[LogicalBlock],
-        previous_summary: Optional[str] = None
+        self, blocks_to_fold: List[LogicalBlock], previous_summary: Optional[str] = None
     ) -> str:
         return previous_summary or ""
 
 
 # ========== 工厂函数 ==========
 
+
 def create_relay_controller(
-    config: "RelayControllerConfig",
-    llm_service: Optional[Any] = None
+    config: "RelayControllerConfig", llm_service: Optional[Any] = None
 ) -> BaseRelayController:
     """
     创建 RelayController 实例（工厂函数）

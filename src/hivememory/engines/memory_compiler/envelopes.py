@@ -62,6 +62,7 @@ def compile_envelope_from_ir(
 
 # ========== A2: 策略编译 ==========
 
+
 def _resolve_section_units(
     section: MemorySectionIR,
     options: MemoryCompileOptions,
@@ -118,10 +119,12 @@ def _compile_units_with_strategy(
 def _apply_full_strategy(units, cfg: FullContextStrategyConfig, opts, compile_unit_from_ir):
     artifacts: List[CompiledMemoryArtifact] = []
     total = 0
-    unit_opts = opts.model_copy(update={
-        "max_content_length": cfg.max_content_length,
-        "stale_days": cfg.stale_days,
-    })
+    unit_opts = opts.model_copy(
+        update={
+            "max_content_length": cfg.max_content_length,
+            "stale_days": cfg.stale_days,
+        }
+    )
     for unit in units:
         artifact = compile_unit_from_ir(unit, MemoryCompileTarget.PROMPT_FULL, unit_opts)
         if total + len(artifact.text) > cfg.max_tokens:
@@ -177,6 +180,7 @@ def _apply_compact_strategy(units, cfg: CompactContextStrategyConfig, opts, comp
 
 # ========== Envelope 渲染 ==========
 
+
 def _compile_retrieval_context(
     sections: list[MemorySectionIR],
     language: str | None,
@@ -201,9 +205,7 @@ def _render_retrieval_memories_section(
 ) -> str:
     title = get_memory_section_title("memories", language)
     if section.artifacts:
-        return f"\n### {title}\n" + "".join(
-            artifact.text for artifact in section.artifacts
-        )
+        return f"\n### {title}\n" + "".join(artifact.text for artifact in section.artifacts)
     if section.empty_text:
         return f"\n### {title}\n{section.empty_text}"
     return ""
@@ -215,9 +217,7 @@ def _render_retrieval_agent_profiles_section(
 ) -> str:
     title = get_memory_section_title("agent_profiles", language)
     if section.artifacts:
-        return f"\n### {title}\n" + "".join(
-            artifact.text for artifact in section.artifacts
-        )
+        return f"\n### {title}\n" + "".join(artifact.text for artifact in section.artifacts)
     if section.empty_text:
         return f"\n### {title}\n{section.empty_text}"
     return ""

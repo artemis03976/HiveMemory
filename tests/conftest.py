@@ -31,6 +31,7 @@ from hivememory.system.config import HiveMemoryConfig
 
 # ========== Pytest Fixtures ==========
 
+
 @pytest.fixture(autouse=True)
 def reset_i18n_default_language_between_tests():
     """防止进程级 i18n 状态在测试之间泄漏。"""
@@ -43,7 +44,7 @@ def reset_i18n_default_language_between_tests():
 def mock_env():
     """
     提供一个干净的环境变量上下文
-    
+
     使用 patch.dict 确保测试期间的环境变量更改不会影响其他测试或系统。
     """
     with patch.dict(os.environ):
@@ -54,7 +55,7 @@ def mock_env():
 def test_config(mock_env):
     """
     提供测试用的 HiveMemoryConfig 实例
-    
+
     强制忽略本地配置文件，使用默认值。
     """
     # 指向不存在的配置文件路径，确保只使用默认值和环境变量
@@ -76,11 +77,12 @@ def console() -> Console:
 
 # ========== 辅助函数 ==========
 
+
 def print_buffer_comparison(
     console: Console,
     before: dict[str, Any],
     after: dict[str, Any],
-    title: str = "Buffer State Change"
+    title: str = "Buffer State Change",
 ) -> None:
     """
     打印 buffer 状态对比表格
@@ -97,7 +99,7 @@ def print_buffer_comparison(
     table.add_column("After", justify="right", width=10)
     table.add_column("Delta", justify="right", width=10)
 
-    for key in ['block_count', 'total_tokens', 'message_count']:
+    for key in ["block_count", "total_tokens", "message_count"]:
         if key in before and key in after:
             delta = after[key] - before[key]
             if delta > 0:
@@ -106,12 +108,7 @@ def print_buffer_comparison(
                 delta_str = f"[red]{delta}[/red]"
             else:
                 delta_str = "[dim]0[/dim]"
-            table.add_row(
-                key,
-                str(before[key]),
-                str(after[key]),
-                delta_str
-            )
+            table.add_row(key, str(before[key]), str(after[key]), delta_str)
 
     console.print(table)
 
@@ -129,7 +126,9 @@ def print_test_header(console: Console, test_name: str) -> None:
     console.print(f"{'='*60}")
 
 
-def print_test_result(console: Console, test_name: str, success: bool, error: str | None = None) -> None:
+def print_test_result(
+    console: Console, test_name: str, success: bool, error: str | None = None
+) -> None:
     """
     打印测试结果
 
@@ -148,6 +147,7 @@ def print_test_result(console: Console, test_name: str, success: bool, error: st
 
 
 # ========== Mock 类 (用于冷链路测试) ==========
+
 
 class MockGenerationEngine:
     """
@@ -175,12 +175,14 @@ class MockGenerationEngine:
         Returns:
             空列表（不实际生成记忆）
         """
-        self.process_calls.append({
-            "message_count": len(messages),
-            "messages": messages,
-            "timestamp": datetime.now(),
-            "first_content": messages[0].content[:50] if messages else "",
-        })
+        self.process_calls.append(
+            {
+                "message_count": len(messages),
+                "messages": messages,
+                "timestamp": datetime.now(),
+                "first_content": messages[0].content[:50] if messages else "",
+            }
+        )
         return []  # 不实际生成记忆
 
     @property
@@ -234,11 +236,13 @@ class MockRetrievalFamiliar:
 
     def search(self, query: str, **kwargs) -> list:
         """记录搜索调用并返回空结果"""
-        self.search_calls.append({
-            "query": query,
-            "kwargs": kwargs,
-            "timestamp": datetime.now(),
-        })
+        self.search_calls.append(
+            {
+                "query": query,
+                "kwargs": kwargs,
+                "timestamp": datetime.now(),
+            }
+        )
         return []
 
     @property
@@ -303,6 +307,7 @@ class FlushEventRecorder:
 
 
 # ========== Pytest Fixtures (Mock 相关) ==========
+
 
 @pytest.fixture
 def mock_generation_engine() -> MockGenerationEngine:

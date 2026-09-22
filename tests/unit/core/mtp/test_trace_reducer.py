@@ -144,7 +144,12 @@ class TestMTPTraceReducerDictInput:
         assert traces[0].status == "error"
 
     def test_dict_assistant_message_filtered(self):
-        event_dict = {"kind": "assistant_message", "sequence": 0, "role": "assistant", "content": "hi"}
+        event_dict = {
+            "kind": "assistant_message",
+            "sequence": 0,
+            "role": "assistant",
+            "content": "hi",
+        }
         assert MTPTraceReducer.reduce([event_dict]) == []
 
     def test_dict_write_kept(self):
@@ -159,7 +164,9 @@ class TestMTPTraceReducerMixedList:
         events = [
             _event("assistant_message", sequence=0),
             _event("tool_call", tool_kind="READ", target="a1", sequence=1, action_id="read-1"),
-            _event("tool_result", tool_kind="READ", status="success", sequence=2, action_id="read-1"),
+            _event(
+                "tool_result", tool_kind="READ", status="success", sequence=2, action_id="read-1"
+            ),
             _event(
                 "tool_call",
                 tool_kind="SEARCH",
@@ -169,7 +176,14 @@ class TestMTPTraceReducerMixedList:
                 action_id="search-1",
             ),
             _event("tool_call", tool_kind="WRITE", sequence=4, action_id="write-1"),
-            _event("tool_call", tool_kind="RUN", target="tool_a", status="success", sequence=5, action_id="run-1"),
+            _event(
+                "tool_call",
+                tool_kind="RUN",
+                target="tool_a",
+                status="success",
+                sequence=5,
+                action_id="run-1",
+            ),
         ]
         traces = MTPTraceReducer.reduce(events)
         assert len(traces) == 4

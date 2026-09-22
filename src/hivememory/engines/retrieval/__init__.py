@@ -8,7 +8,7 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 - SparseRetriever: 稀疏向量检索器 (BGE-M3/BM25, 精准实体匹配)
 - HybridRetriever: 混合检索引擎 (稠密 + 稀疏 + RRF 融合)
 - ReciprocalRankFusion: RRF 结果融合
-- AdaptiveWeightedFusion: 自适应加权融合 
+- AdaptiveWeightedFusion: 自适应加权融合
 - RetrievalEngine: 统一入口门面 (接口)
 
 对应设计文档: PROJECT.md 第 5 章

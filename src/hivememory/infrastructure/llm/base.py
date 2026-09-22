@@ -28,7 +28,7 @@ class BaseLLMService(ABC):
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         生成聊天补全
@@ -51,7 +51,7 @@ class BaseLLMService(ABC):
         tool_choice: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """
         生成聊天补全（支持 Function Calling）
@@ -81,7 +81,7 @@ class BaseLLMService(ABC):
         tool_choice: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """
         异步生成聊天补全（支持 Function Calling）
@@ -89,14 +89,16 @@ class BaseLLMService(ABC):
         Raises:
             NotImplementedError: 子类未实现此方法时抛出
         """
-        raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_with_tools")
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support acomplete_with_tools"
+        )
 
     async def acomplete_json(
         self,
         messages: List[Dict[str, str]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         异步生成 JSON 内容。
@@ -107,10 +109,7 @@ class BaseLLMService(ABC):
         raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_json")
 
     def complete_with_retry(
-        self,
-        messages: List[Dict[str, str]],
-        max_retries: int = 2,
-        **kwargs
+        self, messages: List[Dict[str, str]], max_retries: int = 2, **kwargs
     ) -> Optional[str]:
         """
         带重试机制的补全（默认实现，子类可覆盖）
@@ -142,6 +141,7 @@ class SingletonLLMService(BaseLLMService):
     封装了通用的单例模式、线程安全和配置管理。
     注意: LLM 服务是无状态的，不需要像 Embedding 那样的延迟加载模型。
     """
+
     _instance = None
     _lock = threading.Lock()
     _initialized = False

@@ -20,9 +20,7 @@ class FastEmbedRerankerService(SingletonModelService):
         try:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
         except ImportError:
-            raise ImportError(
-                "fastembed 未安装。请运行: pip install fastembed"
-            )
+            raise ImportError("fastembed 未安装。请运行: pip install fastembed")
 
         logger.info(f"正在加载 Reranker 模型: {self.model_name}")
         try:
@@ -36,10 +34,7 @@ class FastEmbedRerankerService(SingletonModelService):
             raise
 
     def compute_score(
-        self,
-        pairs: List[List[str]],
-        batch_size: int = 256,
-        max_length: int = 512
+        self, pairs: List[List[str]], batch_size: int = 256, max_length: int = 512
     ) -> List[float]:
         """
         计算文本对的相似度分数
@@ -65,9 +60,7 @@ class FastEmbedRerankerService(SingletonModelService):
             raise
 
 
-def get_fast_embed_reranker_service(
-    config: "RerankerConfig"
-) -> FastEmbedRerankerService:
+def get_fast_embed_reranker_service(config: "RerankerConfig") -> FastEmbedRerankerService:
     """
     获取全局 FastEmbed Reranker 服务实例（单例）
     """

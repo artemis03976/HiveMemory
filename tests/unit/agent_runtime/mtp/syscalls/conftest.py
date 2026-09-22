@@ -18,7 +18,12 @@ from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
 class MockAsyncBus(AsyncSystemBus):
-    def __init__(self, mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None):
+    def __init__(
+        self,
+        mock_storage: Optional[MagicMock] = None,
+        mock_retrieval: Optional[MagicMock] = None,
+        mock_generation: Optional[MagicMock] = None,
+    ):
         super().__init__()
         self._mock_storage = mock_storage or MagicMock()
         self._mock_retrieval = mock_retrieval or MagicMock()
@@ -68,8 +73,14 @@ class MockAsyncBus(AsyncSystemBus):
         return None
 
 
-def make_mock_bus(mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None) -> MockAsyncBus:
-    return MockAsyncBus(mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation)
+def make_mock_bus(
+    mock_storage: Optional[MagicMock] = None,
+    mock_retrieval: Optional[MagicMock] = None,
+    mock_generation: Optional[MagicMock] = None,
+) -> MockAsyncBus:
+    return MockAsyncBus(
+        mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation
+    )
 
 
 def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
@@ -105,7 +116,9 @@ def mtp_prompt_zh() -> str:
 
 
 def simulate_kernel_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
-    result = asyncio.run(koakuma.intercept_and_execute(normalize_worker_agent_mtp_output(agent_text)))
+    result = asyncio.run(
+        koakuma.intercept_and_execute(normalize_worker_agent_mtp_output(agent_text))
+    )
     assert result is not None, f"Kernel Loop 未检测到 MTP 指令。Agent 文本: {agent_text!r}"
     return result
 

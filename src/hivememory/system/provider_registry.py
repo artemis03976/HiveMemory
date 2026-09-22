@@ -101,9 +101,7 @@ class ProviderRegistry:
                 except Exception as e:
                     logger.error(f"跳过无效提供商凭证 '{name}': {e}")
 
-            logger.info(
-                f"已加载 {len(self._yaml)} 个提供商凭证（yaml 层，来自 {self._path}）"
-            )
+            logger.info(f"已加载 {len(self._yaml)} 个提供商凭证（yaml 层，来自 {self._path}）")
         except Exception as e:
             logger.error(f"加载提供商凭证文件失败: {e}")
 
@@ -113,10 +111,7 @@ class ProviderRegistry:
         env 层不参与持久化（来自环境变量，由部署侧管理）。
         """
         payload = {
-            "providers": {
-                name: cred.model_dump(mode="json")
-                for name, cred in self._yaml.items()
-            }
+            "providers": {name: cred.model_dump(mode="json") for name, cred in self._yaml.items()}
         }
 
         tmp_fd, tmp_path = tempfile.mkstemp(

@@ -7,6 +7,7 @@ import threading
 from typing import List, Union, Dict, Any, Optional, TYPE_CHECKING
 
 from hivememory.system.config import load_app_config
+
 if TYPE_CHECKING:
     from hivememory.system.config import EmbeddingConfig
 from hivememory.infrastructure.embedding.base import SingletonModelService
@@ -33,9 +34,7 @@ class BGEM3EmbeddingService(SingletonModelService):
             from fastembed import TextEmbedding
             from fastembed.common.model_description import PoolingType, ModelSource
         except ImportError:
-            raise ImportError(
-                "fastembed 未安装。请运行: pip install fastembed"
-            )
+            raise ImportError("fastembed 未安装。请运行: pip install fastembed")
 
         logger.info(f"正在加载 FastEmbed BGE-M3 模型: {self.model_name}")
         try:
@@ -64,7 +63,7 @@ class BGEM3EmbeddingService(SingletonModelService):
         self,
         dense_texts: Union[str, List[str], None] = None,
         sparse_texts: Union[str, List[str], None] = None,
-        **kwargs
+        **kwargs,
     ) -> Union[List[float], str, Dict[str, Any]]:
         """
         编码文本为稠密向量，或返回 sparse 原始文本供 Qdrant BM25 使用。
@@ -86,7 +85,9 @@ class BGEM3EmbeddingService(SingletonModelService):
             input_list = [dense_texts] if single else dense_texts
             try:
                 embeddings = list(self.model.embed(input_list))
-                dense_result = embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
+                dense_result = (
+                    embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
+                )
             except Exception as e:
                 logger.warning(f"稠密向量编码失败: {e}")
                 dense_result = [] if single else [[] for _ in input_list]
@@ -110,9 +111,7 @@ _bge_m3_instance = None
 _bge_m3_lock = threading.Lock()
 
 
-def get_bge_m3_service(
-    config: Optional["EmbeddingConfig"] = None
-) -> BGEM3EmbeddingService:
+def get_bge_m3_service(config: Optional["EmbeddingConfig"] = None) -> BGEM3EmbeddingService:
     """获取全局 BGE-M3 服务实例（单例）"""
     global _bge_m3_instance
 

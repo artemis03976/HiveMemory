@@ -88,11 +88,14 @@ def test_read_policy_is_applied_within_owning_workspace(
     expected: bool,
 ) -> None:
     """捕获 PRIVATE/TEAM target 匹配方向错误或 PUBLIC 被错误拒绝的缺陷。"""
-    assert memory_is_readable(
-        _memory(policy),
-        workspace_identity=_workspace("main_workspace"),
-        actor_identity=actor,
-    ) is expected
+    assert (
+        memory_is_readable(
+            _memory(policy),
+            workspace_identity=_workspace("main_workspace"),
+            actor_identity=actor,
+        )
+        is expected
+    )
 
 
 def test_owner_management_read_skips_actor_visibility_within_workspace() -> None:
@@ -107,12 +110,15 @@ def test_owner_management_read_skips_actor_visibility_within_workspace() -> None
     )
 
     for policy in (private, team):
-        assert memory_is_readable(
-            _memory(policy),
-            workspace_identity=_workspace("main_workspace"),
-            actor_identity=ActorIdentity(user_id="u1", agent_id="any-agent"),
-            enforce_actor_visibility=False,
-        ) is True
+        assert (
+            memory_is_readable(
+                _memory(policy),
+                workspace_identity=_workspace("main_workspace"),
+                actor_identity=ActorIdentity(user_id="u1", agent_id="any-agent"),
+                enforce_actor_visibility=False,
+            )
+            is True
+        )
 
 
 def test_owner_management_read_still_enforces_workspace_boundary() -> None:

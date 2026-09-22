@@ -24,15 +24,9 @@ def safe_runtime_event_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, dict):
-        return {
-            str(key): safe_runtime_event_value(item)
-            for key, item in value.items()
-        }
+        return {str(key): safe_runtime_event_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [
-            safe_runtime_event_value(item)
-            for item in value
-        ]
+        return [safe_runtime_event_value(item) for item in value]
     return repr(value)
 
 

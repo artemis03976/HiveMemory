@@ -78,8 +78,7 @@ class MemoryDeduplicator(BaseDeduplicator):
         existing_memory = top_result["memory"]
 
         logger.info(
-            f"找到相似记忆: '{existing_memory.index.title}' "
-            f"(相似度: {similarity_score:.3f})"
+            f"找到相似记忆: '{existing_memory.index.title}' " f"(相似度: {similarity_score:.3f})"
         )
 
         decision = self._make_decision(
@@ -91,10 +90,7 @@ class MemoryDeduplicator(BaseDeduplicator):
         return decision, existing_memory
 
     def _make_decision(
-        self,
-        similarity_score: float,
-        draft: ExtractedMemoryDraft,
-        existing: MemoryAtom
+        self, similarity_score: float, draft: ExtractedMemoryDraft, existing: MemoryAtom
     ) -> DuplicateDecision:
         """
         根据相似度和内容一致性做出决策
@@ -127,11 +123,7 @@ class MemoryDeduplicator(BaseDeduplicator):
             logger.debug("低相似度 → CREATE (新记忆)")
             return DuplicateDecision.CREATE
 
-    def _is_content_identical(
-        self,
-        draft: ExtractedMemoryDraft,
-        existing: MemoryAtom
-    ) -> bool:
+    def _is_content_identical(self, draft: ExtractedMemoryDraft, existing: MemoryAtom) -> bool:
         """
         判断内容是否完全一致
 
@@ -170,15 +162,16 @@ class MemoryDeduplicator(BaseDeduplicator):
         Returns:
             float: 相似度 (0.0-1.0)
         """
-        words1 = set(re.findall(r'\w+', text1.lower()))
-        words2 = set(re.findall(r'\w+', text2.lower()))
-        
+        words1 = set(re.findall(r"\w+", text1.lower()))
+        words2 = set(re.findall(r"\w+", text2.lower()))
+
         if not words1 or not words2:
             return 0.0
-        
+
         intersection = len(words1 & words2)
         union = len(words1 | words2)
         return intersection / union if union > 0 else 0.0
+
 
 class NoOpDeduplicator(BaseDeduplicator):
     """

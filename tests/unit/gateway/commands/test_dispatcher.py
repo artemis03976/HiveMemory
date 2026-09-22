@@ -72,9 +72,7 @@ class TestDispatcherRejections:
 
     async def test_not_matched_rejected(self):
         dispatcher = SystemCommandDispatcher(CommandRegistry())
-        result = await dispatcher.execute(
-            _parse(status=CommandParseStatus.UNKNOWN)
-        )
+        result = await dispatcher.execute(_parse(status=CommandParseStatus.UNKNOWN))
         assert result.status == CommandExecutionStatus.REJECTED
         assert result.error_code == "command.parse.unknown"
 
@@ -175,9 +173,7 @@ class TestDispatcherPermissions:
 
     async def test_destructive_requires_confirmation(self):
         registry = CommandRegistry()
-        registry.register(
-            _definition(command_id="del.cmd", primary_name="/del", destructive=True)
-        )
+        registry.register(_definition(command_id="del.cmd", primary_name="/del", destructive=True))
         dispatcher = SystemCommandDispatcher(registry)
         result = await dispatcher.execute(_parse(command_id="del.cmd"))
         assert result.status == CommandExecutionStatus.REQUIRES_CONFIRMATION

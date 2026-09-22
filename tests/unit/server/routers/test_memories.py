@@ -10,7 +10,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.models import (
-    MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
+    MemoryAtom,
+    IndexLayer,
+    PayloadLayer,
+    MemoryType,
 )
 from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
@@ -26,6 +29,7 @@ def _create_test_app(storage, lifecycle_engine=None):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
+
     bus = GlobalSystemBus()
     management = _MemoryManagementStub(storage, lifecycle_engine)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_CREATE, management.create_memory)
@@ -76,7 +80,8 @@ class _MemoryManagementStub:
             self.lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
         # 对齐生产管理语义（D4）：ownership hard boundary 之内不过滤 actor 可见性
         return [
-            atom for atom in atoms
+            atom
+            for atom in atoms
             if (
                 atom.index.memory_type.value not in set(exclude_types or [])
                 and memory_belongs_to_workspace(
@@ -234,8 +239,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
         storage.get_all_memories.return_value = [atom]
         lifecycle = MagicMock()
-        lifecycle.refresh_vitality_batch.side_effect = (
-            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 33.0)
+        lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
+            atoms[0].meta, "vitality_score", 33.0
         )
         # lifecycle 注入应用服务
 
@@ -255,8 +260,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
         storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
         lifecycle = MagicMock()
-        lifecycle.refresh_vitality_batch.side_effect = (
-            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 44.0)
+        lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
+            atoms[0].meta, "vitality_score", 44.0
         )
         # lifecycle 注入应用服务
 
@@ -288,8 +293,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
         storage.get_memory.return_value = atom
         lifecycle = MagicMock()
-        lifecycle.refresh_vitality_batch.side_effect = (
-            lambda atoms, persist=False: setattr(atoms[0].meta, "vitality_score", 55.0)
+        lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
+            atoms[0].meta, "vitality_score", 55.0
         )
         # lifecycle 注入应用服务
 

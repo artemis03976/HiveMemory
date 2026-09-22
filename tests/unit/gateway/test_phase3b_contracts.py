@@ -103,9 +103,7 @@ def test_public_gateway_result_is_immutable_and_serializable() -> None:
     )
 
     assert outcome.model_dump(mode="json")["kind"] == "decision"
-    assert outcome.model_dump(mode="json")["decision"]["search_keywords"] == [
-        "gateway"
-    ]
+    assert outcome.model_dump(mode="json")["decision"]["search_keywords"] == ["gateway"]
     assert command.data["nested"]["items"] == (1, 2)
     with pytest.raises(ValidationError):
         decision.rewritten_query = "被修改"

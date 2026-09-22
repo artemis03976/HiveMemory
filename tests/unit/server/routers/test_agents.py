@@ -18,6 +18,7 @@ def _create_test_app(storage):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
+
     bus = GlobalSystemBus()
     management = _AgentProfileManagementStub(storage)
     bus.register(

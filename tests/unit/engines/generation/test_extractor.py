@@ -38,28 +38,29 @@ class TestLLMMemoryExtractor:
             api_key="test-key",
             api_base="https://api.test.com",
             temperature=0.0,
-            max_tokens=1000
+            max_tokens=1000,
         )
         self.mock_service = Mock()
         self.mock_service.config = self.mock_llm_config
-        
+
         self.extractor_config = ExtractorConfig()
         self.extractor = LLMMemoryExtractor(
-            config=self.extractor_config,
-            llm_service=self.mock_service
+            config=self.extractor_config, llm_service=self.mock_service
         )
 
     def test_extract_messages_are_litellm_format(self):
         """测试提取流程发送 LiteLLM 标准消息"""
-        json_output = json.dumps({
-            "title": "Extracted",
-            "summary": "Summary",
-            "tags": ["t1"],
-            "memory_type": "FACT",
-            "content": "Content",
-            "confidence_score": 0.95,
-            "has_value": True
-        })
+        json_output = json.dumps(
+            {
+                "title": "Extracted",
+                "summary": "Summary",
+                "tags": ["t1"],
+                "memory_type": "FACT",
+                "content": "Content",
+                "confidence_score": 0.95,
+                "has_value": True,
+            }
+        )
         self.mock_service.complete_with_retry.return_value = json_output
 
         transcript = "User: Hi\nAssistant: Hello"
@@ -79,15 +80,17 @@ class TestLLMMemoryExtractor:
             config=ExtractorConfig(),
             llm_service=self.mock_service,
         )
-        json_output = json.dumps({
-            "title": "Extracted",
-            "summary": "Summary",
-            "tags": ["t1"],
-            "memory_type": "FACT",
-            "content": "Content",
-            "confidence_score": 0.95,
-            "has_value": True
-        })
+        json_output = json.dumps(
+            {
+                "title": "Extracted",
+                "summary": "Summary",
+                "tags": ["t1"],
+                "memory_type": "FACT",
+                "content": "Content",
+                "confidence_score": 0.95,
+                "has_value": True,
+            }
+        )
         self.mock_service.complete_with_retry.return_value = json_output
 
         extractor.extract("User: Hi", {})
@@ -104,15 +107,17 @@ class TestLLMMemoryExtractor:
             config=ExtractorConfig(),
             llm_service=self.mock_service,
         )
-        json_output = json.dumps({
-            "title": "Extracted",
-            "summary": "Summary",
-            "tags": ["t1"],
-            "memory_type": "FACT",
-            "content": "Content",
-            "confidence_score": 0.95,
-            "has_value": True
-        })
+        json_output = json.dumps(
+            {
+                "title": "Extracted",
+                "summary": "Summary",
+                "tags": ["t1"],
+                "memory_type": "FACT",
+                "content": "Content",
+                "confidence_score": 0.95,
+                "has_value": True,
+            }
+        )
         self.mock_service.complete_with_retry.return_value = json_output
 
         extractor.extract(
@@ -136,10 +141,7 @@ class TestLLMMemoryExtractor:
             config=ExtractorConfig(),
             llm_service=self.mock_service,
         )
-        json_output = json.dumps({
-            "new_content": "New content",
-            "changelog": "Updated content"
-        })
+        json_output = json.dumps({"new_content": "New content", "changelog": "Updated content"})
         self.mock_service.complete_with_retry.return_value = json_output
 
         extractor.merge(
@@ -164,15 +166,17 @@ class TestLLMMemoryExtractor:
     def test_extract_success(self):
         """测试成功提取流程"""
         # 模拟 LLM 响应
-        json_output = json.dumps({
-            "title": "Extracted",
-            "summary": "Summary",
-            "tags": ["t1"],
-            "memory_type": "FACT",
-            "content": "Content",
-            "confidence_score": 0.95,
-            "has_value": True
-        })
+        json_output = json.dumps(
+            {
+                "title": "Extracted",
+                "summary": "Summary",
+                "tags": ["t1"],
+                "memory_type": "FACT",
+                "content": "Content",
+                "confidence_score": 0.95,
+                "has_value": True,
+            }
+        )
         self.mock_service.complete_with_retry.return_value = json_output
 
         transcript = "User: Hi\nAssistant: Hello"
@@ -190,13 +194,13 @@ class TestLLMMemoryExtractor:
         """测试 LLM 调用失败的情况"""
         # 模拟 complete_with_retry 抛出异常
         self.mock_service.complete_with_retry.side_effect = Exception("LLM Error")
-        
+
         transcript = "User: Hi"
         metadata = {}
-        
+
         # 应该返回 None，并记录错误
         draft = self.extractor.extract(transcript, metadata)
-        
+
         assert draft is None
         self.mock_service.complete_with_retry.assert_called_once()
 

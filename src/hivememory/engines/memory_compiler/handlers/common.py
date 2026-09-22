@@ -62,19 +62,27 @@ def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -
     alias = format_optional_field(unit.identity.alias or options.requested_alias, options.language)
 
     if status.is_discarded:
-        return _resolve_text("resolve_discarded", options.language).format(
-            requested_alias=alias,
-            message=format_optional_field(status.message, options.language),
-            reason=format_optional_field(status.reason, options.language),
-        ).rstrip()
+        return (
+            _resolve_text("resolve_discarded", options.language)
+            .format(
+                requested_alias=alias,
+                message=format_optional_field(status.message, options.language),
+                reason=format_optional_field(status.reason, options.language),
+            )
+            .rstrip()
+        )
 
     if status.error is not None:
-        return _resolve_text("resolve_failed", options.language).format(
-            requested_alias=alias,
-            error=format_optional_field(status.error, options.language),
-            message=format_optional_field(status.message, options.language),
-            reason=format_optional_field(status.reason, options.language),
-        ).rstrip()
+        return (
+            _resolve_text("resolve_failed", options.language)
+            .format(
+                requested_alias=alias,
+                error=format_optional_field(status.error, options.language),
+                message=format_optional_field(status.message, options.language),
+                reason=format_optional_field(status.reason, options.language),
+            )
+            .rstrip()
+        )
 
     return _resolve_text("resolve_expired", options.language).format(requested_alias=alias)
 

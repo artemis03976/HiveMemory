@@ -203,9 +203,7 @@ class MemoryApplicationService:
             # 不得被通用 RuntimeError 分支包装成"服务不可用"。
             raise
         except RuntimeError as exc:
-            raise MemoryLifecycleUnavailableError(
-                "Memory lifecycle engine is unavailable"
-            ) from exc
+            raise MemoryLifecycleUnavailableError("Memory lifecycle engine is unavailable") from exc
         except ValueError as exc:
             raise MemoryNotFoundError(str(exc)) from exc
 

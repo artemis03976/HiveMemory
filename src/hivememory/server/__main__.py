@@ -21,6 +21,7 @@ def _install_thread_exception_hook() -> None:
             f"未捕获线程异常: thread={getattr(args.thread, 'name', 'unknown')}",
             exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
         )
+
     threading.excepthook = _handle_thread_exception
 
 

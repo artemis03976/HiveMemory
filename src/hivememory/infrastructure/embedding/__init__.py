@@ -31,7 +31,9 @@ def get_default_embedding_service(config: Optional[EmbeddingConfig] = None) -> B
     return get_embedding_service(config)
 
 
-def get_perception_embedding_service(config: Optional[EmbeddingConfig] = None) -> BaseEmbeddingService:
+def get_perception_embedding_service(
+    config: Optional[EmbeddingConfig] = None,
+) -> BaseEmbeddingService:
     """
     获取 perception Embedding 服务（已与 default 配置合并）
     """

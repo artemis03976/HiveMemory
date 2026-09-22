@@ -93,8 +93,10 @@ class RuleInterceptor(BaseInterceptor):
             )
 
         # 检查系统指令
-        if allow_system and query_stripped.startswith("/") and (
-            not self.enable_system or self.command_registry is None
+        if (
+            allow_system
+            and query_stripped.startswith("/")
+            and (not self.enable_system or self.command_registry is None)
         ):
             logger.debug("L1 filtered slash command without active registry: %s", query_stripped)
             command = self._disabled_command_result(query_stripped)

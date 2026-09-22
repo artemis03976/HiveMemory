@@ -59,9 +59,7 @@ class _Provider:
 
 class _Router:
     def __init__(self) -> None:
-        self.route = AsyncMock(
-            return_value=TopicRoutingResult(topic_id="topic-1", reason="匹配")
-        )
+        self.route = AsyncMock(return_value=TopicRoutingResult(topic_id="topic-1", reason="匹配"))
 
 
 class _Resolver:
@@ -225,12 +223,8 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
     assert result.decision.search_keywords == ()
     assert result.decision.memory_write_signal == MemoryWriteSignal.UNKNOWN
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
-    assert events.events[0].event_type == (
-        RuntimeEventType.GATEWAY_WORKFLOW_STARTED.value
-    )
-    assert events.events[-1].event_type == (
-        RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value
-    )
+    assert events.events[0].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_STARTED.value)
+    assert events.events[-1].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value)
     assert {event.workspace_id for event in events.events} == {"main_workspace"}
     completed = [
         event
@@ -365,6 +359,4 @@ async def test_invariant_failure_emits_workflow_failed_event() -> None:
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         )
 
-    assert events.events[-1].event_type == (
-        RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value
-    )
+    assert events.events[-1].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value)

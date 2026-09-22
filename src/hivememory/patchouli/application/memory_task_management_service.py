@@ -51,9 +51,7 @@ class MemoryTaskManagementService:
         scope = (
             None
             if access is None
-            else self._access_guard.authorize_operation(
-                access, WorkspaceOperation.TASK_OBSERVE
-            )
+            else self._access_guard.authorize_operation(access, WorkspaceOperation.TASK_OBSERVE)
         )
         tasks = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_LIST)
         if scope is None:
@@ -72,9 +70,7 @@ class MemoryTaskManagementService:
         access: WorkspaceAccessContext | None = None,
     ) -> MemoryGenerationTask | None:
         if access is not None:
-            scope = self._access_guard.authorize_operation(
-                access, WorkspaceOperation.TASK_OBSERVE
-            )
+            scope = self._access_guard.authorize_operation(access, WorkspaceOperation.TASK_OBSERVE)
         task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
         if access is not None:
             self._assert_scope_matches(scope, task, task_id)
@@ -106,9 +102,7 @@ class MemoryTaskManagementService:
     ) -> MemoryGenerationTask | None:
         if access is not None:
             # 公开等待与观察同一 operation；归属校验先于等待副作用。
-            scope = self._access_guard.authorize_operation(
-                access, WorkspaceOperation.TASK_OBSERVE
-            )
+            scope = self._access_guard.authorize_operation(access, WorkspaceOperation.TASK_OBSERVE)
             task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
             self._assert_scope_matches(scope, task, task_id)
         return await self._bus.request(

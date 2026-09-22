@@ -116,7 +116,11 @@ def test_read_memory_requires_access_and_enforces_visibility():
 
     # 兼容清单之外的新用例：无迁移路径
     with pytest.raises(ScopeRequiredError):
-        _run(service.read_memory(str(uuid4()), identity_scope=make_identity_scope(user_id="u1", agent_id="a1")))
+        _run(
+            service.read_memory(
+                str(uuid4()), identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+            )
+        )
 
 
 def test_management_operation_does_not_grant_actor_visible_read():

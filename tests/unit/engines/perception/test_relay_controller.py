@@ -80,11 +80,9 @@ class TestLLMRelayController:
             turn=TurnRecord(
                 user_query="创建认证模块",
                 assistant_final_text="已创建 auth.py",
-                semantic_traces=[
-                    TraceItem(action="RUN", tool="sys_write_file", status="success")
-                ],
+                semantic_traces=[TraceItem(action="RUN", tool="sys_write_file", status="success")],
             ),
-            total_tokens=50
+            total_tokens=50,
         )
 
         summary = controller.generate_summary([block])
@@ -106,8 +104,7 @@ class TestLLMRelayController:
         controller = LLMRelayController(summary_llm=None)
 
         block = LogicalBlock(
-            turn=TurnRecord(user_query="测试查询", assistant_final_text="测试响应"),
-            total_tokens=50
+            turn=TurnRecord(user_query="测试查询", assistant_final_text="测试响应"), total_tokens=50
         )
 
         summary = controller.generate_summary([block])
@@ -125,8 +122,7 @@ class TestLLMRelayController:
         controller = LLMRelayController(summary_llm=mock_llm)
 
         block = LogicalBlock(
-            turn=TurnRecord(user_query="测试", assistant_final_text="响应"),
-            total_tokens=50
+            turn=TurnRecord(user_query="测试", assistant_final_text="响应"), total_tokens=50
         )
 
         summary = controller.generate_summary([block])
@@ -148,16 +144,16 @@ class TestLLMRelayController:
                     semantic_traces=[
                         TraceItem(action="SEARCH", query="auth code"),
                         TraceItem(action="READ", target="mem_123"),
-                        TraceItem(action="RUN", tool="sys_write_file", status="success")
+                        TraceItem(action="RUN", tool="sys_write_file", status="success"),
                     ],
                 ),
-                total_tokens=30
+                total_tokens=30,
             )
         ]
 
         events = controller._build_recent_events(blocks)
 
-        assert "[Action]: SEARCH query=\"auth code\"" in events
+        assert '[Action]: SEARCH query="auth code"' in events
         assert "[Action]: READ target=mem_123" in events
         assert "[Action]: RUN tool=sys_write_file (Status: success)" in events
         assert "User: 搜索代码" in events

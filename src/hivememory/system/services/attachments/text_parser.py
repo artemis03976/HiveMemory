@@ -102,8 +102,10 @@ class TextAttachmentParser:
                 "文件超过大小上限，请缩小后重新上传",
                 params={"reason": "raw_input_limit"},
             )
-        budget = ParseBudget(config.parse_budget_seconds, clock) if clock else (
-            ParseBudget(config.parse_budget_seconds)
+        budget = (
+            ParseBudget(config.parse_budget_seconds, clock)
+            if clock
+            else (ParseBudget(config.parse_budget_seconds))
         )
 
         text = _decode_bytes(raw)

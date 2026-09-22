@@ -115,6 +115,7 @@ from hivememory.engines.generation import (
     NoOpDeduplicator,
     create_deduplicator,
 )
+
 # WriteFocus / UpdateFocus 是共享的核心 DTO；DuplicateDecision 属于 generation。
 from hivememory.core.models import (
     UpdateFocus,
@@ -195,36 +196,47 @@ def __getattr__(name: str):
     """懒加载以避免循环导入"""
     if name == "GatewaySystem":
         from hivememory.gateway import GatewaySystem
+
         return GatewaySystem
     if name == "GatewayRuntime":
         from hivememory.gateway import GatewayRuntime
+
         return GatewayRuntime
     if name == "GatewayService":
         from hivememory.gateway import GatewayService
+
         return GatewayService
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
+
         return PatchouliRuntime
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService
+
         return PatchouliService
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
+
         return PatchouliSystem
     if name == "RetrievalFamiliar":
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+
         return RetrievalFamiliar
     if name == "PerceptionFamiliar":
         from hivememory.patchouli.services.perception import PerceptionFamiliar
+
         return PerceptionFamiliar
     if name == "LifecycleFamiliar":
         from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
+
         return LifecycleFamiliar
     if name == "MemoryGenerationFamiliar":
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+
         return MemoryGenerationFamiliar
     if name == "MemoryGenerationCoordinator":
         from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
+
         return MemoryGenerationCoordinator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

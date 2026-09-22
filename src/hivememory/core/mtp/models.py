@@ -10,10 +10,9 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-
 # MTP 定界符 (Section 2.1)
-MTP_LEFT_DELIMITER = "\u27EA"  # ⟪
-MTP_RIGHT_DELIMITER = "\u27EB"  # ⟫
+MTP_LEFT_DELIMITER = "\u27ea"  # ⟪
+MTP_RIGHT_DELIMITER = "\u27eb"  # ⟫
 MTP_SEPARATOR = "|"
 
 # Stop Sequence: 在调用 LLM API 时设置 stop=["⟫"] (Section 3.1.1)
@@ -113,17 +112,23 @@ class MTPCallRequest(BaseModel):
 
 class MTPErrorSeverity(str, Enum):
     """MTP 错误严重度，决定重试语义。"""
-    AGENT_FAULT = "agent_fault"    # Agent 侧可修复，允许重试
+
+    AGENT_FAULT = "agent_fault"  # Agent 侧可修复，允许重试
     SYSTEM_FAULT = "system_fault"  # 系统故障，不可重试
 
 
 class MTPErrorInfo(BaseModel):
     """结构化错误信息，随 MTPResponse.error 携带。"""
+
     code: str = Field(..., description="dotted-path 错误码，同时作为 i18n join key")
     message_key: str = Field(default="", description="具体 i18n 文本 key")
     severity: MTPErrorSeverity = Field(..., description="严重度，retryable 由消费方从此派生")
-    params: Dict[str, Any] = Field(default_factory=dict, description="参数化 i18n 模板所需的占位符值")
-    cause: Optional[str] = Field(default=None, exclude=True, description="原始异常信息，仅供开发调试，不回填给 Agent")
+    params: Dict[str, Any] = Field(
+        default_factory=dict, description="参数化 i18n 模板所需的占位符值"
+    )
+    cause: Optional[str] = Field(
+        default=None, exclude=True, description="原始异常信息，仅供开发调试，不回填给 Agent"
+    )
 
 
 class MTPCallResponse(BaseModel):
@@ -133,13 +138,18 @@ class MTPCallResponse(BaseModel):
     agent_alias: str = Field(..., description="子代理 alias")
     reply: str = Field(default="", description="子代理最终回复")
     artifact_aliases: List[str] = Field(default_factory=list, description="子代理产物 alias")
-    error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
+    error: Optional[MTPErrorInfo] = Field(
+        default=None, description="结构化错误信息，status=error 时非空"
+    )
 
 
 class MTPWarningInfo(BaseModel):
     """结构化 nonfatal warning，随 MTPResponse.warnings 携带。"""
+
     message_key: str = Field(..., description="具体 i18n 文本 key")
-    params: Dict[str, Any] = Field(default_factory=dict, description="参数化 i18n 模板所需的占位符值")
+    params: Dict[str, Any] = Field(
+        default_factory=dict, description="参数化 i18n 模板所需的占位符值"
+    )
 
 
 class MTPResponse(BaseModel):
@@ -158,8 +168,12 @@ class MTPResponse(BaseModel):
     execution_time_ms: float = Field(default=0.0, description="执行耗时 (毫秒)")
     pending_alias: Optional[str] = Field(default=None, exclude=True)
     call_request: Optional[MTPCallRequest] = Field(default=None, exclude=True)
-    error: Optional[MTPErrorInfo] = Field(default=None, description="结构化错误信息，status=error 时非空")
-    warnings: List[MTPWarningInfo] = Field(default_factory=list, description="nonfatal 提示，不影响 status")
+    error: Optional[MTPErrorInfo] = Field(
+        default=None, description="结构化错误信息，status=error 时非空"
+    )
+    warnings: List[MTPWarningInfo] = Field(
+        default_factory=list, description="nonfatal 提示，不影响 status"
+    )
 
 
 __all__ = [

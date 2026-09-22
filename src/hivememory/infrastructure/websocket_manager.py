@@ -67,7 +67,9 @@ class WebSocketConnectionManager:
         async with self._lock:
             if client_id in self._connections:
                 del self._connections[client_id]
-                logger.info(f"Client {client_id} disconnected (remaining: {len(self._connections)})")
+                logger.info(
+                    f"Client {client_id} disconnected (remaining: {len(self._connections)})"
+                )
 
     async def broadcast(self, message: Dict[str, Any]) -> None:
         """

@@ -29,11 +29,7 @@ class StorageHealthReport:
 
     @property
     def healthy(self) -> bool:
-        return all(
-            component.healthy
-            for component in self.components
-            if component.required
-        )
+        return all(component.healthy for component in self.components if component.required)
 
 
 __all__ = [

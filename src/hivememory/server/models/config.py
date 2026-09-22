@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 class ConfigResponse(BaseModel):
     """配置响应模型"""
+
     system: Dict[str, Any]
     logging: Dict[str, Any]
     scheduler: Dict[str, Any]

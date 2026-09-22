@@ -17,7 +17,6 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.i18n.syscall_runtime import get_syscall_info_text
 
-
 # 安全 builtins 白名单。禁止 import/open/exec/eval/compile 等能力。
 _SAFE_BUILTINS = frozenset(
     {

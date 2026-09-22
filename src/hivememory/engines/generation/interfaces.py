@@ -21,8 +21,8 @@ from hivememory.engines.generation.models import (
     MergeResult,
 )
 
-
 # ========== 接口定义 ==========
+
 
 class BaseMemoryExtractor(ABC):
     """
@@ -39,9 +39,7 @@ class BaseMemoryExtractor(ABC):
 
     @abstractmethod
     def extract(
-        self,
-        transcript: str,
-        metadata: Dict[str, Any]
+        self, transcript: str, metadata: Dict[str, Any]
     ) -> Optional["ExtractedMemoryDraft"]:
         """
         提取记忆草稿
@@ -124,6 +122,7 @@ class BaseDeduplicator(ABC):
             (DuplicateDecision, Optional[MemoryAtom])
         """
         pass
+
 
 # ========== 导出列表 ==========
 

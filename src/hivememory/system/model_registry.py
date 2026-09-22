@@ -71,7 +71,8 @@ class ModelRegistry:
         # 兜底使用静态字典（兼容旧调用路径和单元测试）
         self._provider_registry: Optional["ProviderRegistry"] = provider_registry
         self._provider_credentials: Dict[str, ProviderCredentials] = (
-            {} if provider_registry is not None
+            {}
+            if provider_registry is not None
             else {name.lower(): cred for name, cred in (provider_credentials or {}).items()}
         )
         # 按插入顺序保存，以 id 为键
@@ -121,12 +122,7 @@ class ModelRegistry:
         将内存中的模型列表原子性地写入 YAML 文件。
         先写临时文件，再用 os.replace() 原子替换，避免写入过程中文件损坏。
         """
-        payload = {
-            "models": [
-                model.model_dump(mode="json")
-                for model in self._models.values()
-            ]
-        }
+        payload = {"models": [model.model_dump(mode="json") for model in self._models.values()]}
 
         # 写入同目录的临时文件，再原子替换
         tmp_fd, tmp_path = tempfile.mkstemp(
@@ -256,9 +252,7 @@ class ModelRegistry:
     # LLM 配置解析
     # ------------------------------------------------------------------
 
-    def _resolve_credentials(
-        self, model: ModelDefinition
-    ) -> Tuple[Optional[str], Optional[str]]:
+    def _resolve_credentials(self, model: ModelDefinition) -> Tuple[Optional[str], Optional[str]]:
         """解析模型的 (api_key, api_base)。
 
         优先级：模型自身显式设置（高级覆盖）> provider 凭证 > None（litellm 环境变量兜底）。
@@ -279,7 +273,9 @@ class ModelRegistry:
                 cred = self._provider_credentials.get(model.provider.lower())
 
         api_key = model.api_key if model.api_key is not None else (cred.api_key if cred else None)
-        api_base = model.api_base if model.api_base is not None else (cred.api_base if cred else None)
+        api_base = (
+            model.api_base if model.api_base is not None else (cred.api_base if cred else None)
+        )
         return api_key, api_base
 
     def to_llm_config(self, model_id: str) -> LLMConfig:
@@ -339,9 +335,7 @@ class ModelRegistry:
         else:
             model = self._models.get(llm_config.model_id)
             if model is None:
-                raise ModelNotFoundError(
-                    f"模型 '{llm_config.model_id}' 不存在于注册表中"
-                )
+                raise ModelNotFoundError(f"模型 '{llm_config.model_id}' 不存在于注册表中")
 
         api_key, api_base = self._resolve_credentials(model)
         return LLMConfig(
@@ -394,7 +388,9 @@ class ModelRegistry:
             model=model.litellm_model,
             api_key=api_key,
             api_base=api_base,
-            temperature=temperature_override if temperature_override is not None else model.temperature,
+            temperature=(
+                temperature_override if temperature_override is not None else model.temperature
+            ),
             max_tokens=max_tokens_override if max_tokens_override is not None else model.max_tokens,
             top_p=top_p_override if top_p_override is not None else model.top_p,
         )

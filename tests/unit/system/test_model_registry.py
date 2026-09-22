@@ -21,10 +21,10 @@ from hivememory.system.model_registry import (
     ModelRegistry,
 )
 
-
 # ---------------------------------------------------------------------------
 # 测试 fixtures / 辅助函数
 # ---------------------------------------------------------------------------
+
 
 def _make_model(
     model_id: str = "test-model",
@@ -75,6 +75,7 @@ def _make_registry(
 # 加载测试
 # ---------------------------------------------------------------------------
 
+
 class TestLoad:
     def test_empty_registry_when_file_missing(self, tmp_path):
         """文件不存在时以空注册表启动，不抛异常。"""
@@ -119,6 +120,7 @@ class TestLoad:
 # ---------------------------------------------------------------------------
 # 查询接口
 # ---------------------------------------------------------------------------
+
 
 class TestQuery:
     def test_get_model_found(self, tmp_path):
@@ -165,6 +167,7 @@ class TestQuery:
 # ---------------------------------------------------------------------------
 # 写入接口（CRUD）
 # ---------------------------------------------------------------------------
+
 
 class TestCRUD:
     def test_add_model_new(self, tmp_path):
@@ -231,6 +234,7 @@ class TestCRUD:
 # 持久化测试
 # ---------------------------------------------------------------------------
 
+
 class TestPersistence:
     def test_changes_persisted_to_yaml(self, tmp_path):
         """add_model 后重新加载注册表，新模型应仍然存在。"""
@@ -261,6 +265,7 @@ class TestPersistence:
 # 凭证解析
 # ---------------------------------------------------------------------------
 
+
 class TestCredentialResolution:
     def test_model_explicit_api_key_takes_priority(self, tmp_path):
         """模型自身的 api_key 优先于 provider 凭证。"""
@@ -278,7 +283,11 @@ class TestCredentialResolution:
     def test_provider_credentials_used_when_model_key_is_none(self, tmp_path):
         """model.api_key=None 时从 provider 凭证中补齐。"""
         model = _make_model("m1", litellm_model="openai/gpt-4o", api_key=None)
-        creds = {"openai": ProviderCredentials(api_key="provider-openai-key", api_base="https://api.openai.com")}
+        creds = {
+            "openai": ProviderCredentials(
+                api_key="provider-openai-key", api_base="https://api.openai.com"
+            )
+        }
         registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
 
         llm_config = registry.to_llm_config("m1")
@@ -315,6 +324,7 @@ class TestCredentialResolution:
 # ---------------------------------------------------------------------------
 # resolve() / resolve_for_llm_config()
 # ---------------------------------------------------------------------------
+
 
 class TestResolve:
     def test_resolve_by_id(self, tmp_path):
@@ -363,7 +373,9 @@ class TestResolve:
     def test_resolve_for_llm_config_with_model_id(self, tmp_path):
         """model_id 存在时补齐 model/api_key/api_base，保留组件的 temperature/max_tokens。"""
         model = _make_model("m1", litellm_model="deepseek/deepseek-chat")
-        creds = {"deepseek": ProviderCredentials(api_key="sk-test", api_base="https://api.deepseek.com")}
+        creds = {
+            "deepseek": ProviderCredentials(api_key="sk-test", api_base="https://api.deepseek.com")
+        }
         registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
 
         llm_in = LLMConfig(model_id="m1", temperature=0.1, max_tokens=512)

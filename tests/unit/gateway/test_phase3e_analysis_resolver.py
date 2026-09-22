@@ -51,16 +51,18 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
         workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
         topic_title="三餐推荐",
         blocks=(
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=ActorIdentity(user_id="u1"),
-                    user_query=last_user_query,
-                    assistant_final_text="好的",
-                )
-            ),
-        )
-        if last_user_query
-        else (),
+            (
+                LogicalBlock(
+                    turn=TurnRecord(
+                        identity=ActorIdentity(user_id="u1"),
+                        user_query=last_user_query,
+                        assistant_final_text="好的",
+                    )
+                ),
+            )
+            if last_user_query
+            else ()
+        ),
         last_update=now,
     )
 
@@ -84,9 +86,7 @@ def _build_engine_mock(
 
 @pytest.mark.asyncio
 async def test_fallback_resolver_returns_fixed_conservative_result() -> None:
-    resolver = FallbackUserQueryAnalysisResolver(
-        UserQueryAnalysisConfig(default_top_k=11)
-    )
+    resolver = FallbackUserQueryAnalysisResolver(UserQueryAnalysisConfig(default_top_k=11))
     context = _build_context("不要改写这个问题")
 
     result = await resolver.resolve(context)
@@ -110,9 +110,7 @@ async def test_llm_resolver_maps_engine_result() -> None:
             memory_write_signal=MemoryWriteSignal.WRITE,
         )
     )
-    resolver = LLMUserQueryAnalysisResolver(
-        config=UserQueryAnalysisConfig(), engine=engine
-    )
+    resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
 
     result = await resolver.resolve(_build_context("那个报错怎么修"))
 
@@ -126,9 +124,7 @@ async def test_llm_resolver_maps_engine_result() -> None:
 @pytest.mark.asyncio
 async def test_llm_resolver_rule_overrides_explicit_write_intent() -> None:
     engine = _build_engine_mock()
-    resolver = LLMUserQueryAnalysisResolver(
-        config=UserQueryAnalysisConfig(), engine=engine
-    )
+    resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
 
     result = await resolver.resolve(_build_context("记住我不吃香菜"))
 
@@ -141,9 +137,7 @@ async def test_llm_resolver_rule_overrides_explicit_write_intent() -> None:
 @pytest.mark.asyncio
 async def test_llm_resolver_rule_marks_repeated_input_skip() -> None:
     engine = _build_engine_mock()
-    resolver = LLMUserQueryAnalysisResolver(
-        config=UserQueryAnalysisConfig(), engine=engine
-    )
+    resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
     context = _build_context(
         "晚饭吃什么",
         topic_id="topic-1",
@@ -192,8 +186,7 @@ async def test_llm_resolver_converts_engine_error_to_recoverable() -> None:
     capability_events = [
         event
         for event in events.events
-        if event.event_type
-        == RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED.value
+        if event.event_type == RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED.value
     ]
     assert len(capability_events) == 1
     assert capability_events[0].data["error"] == "解析失败"
@@ -219,9 +212,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_active_topics)
     runtime = GatewayRuntime(
-        config=SystemGatewayConfig(
-            user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)
-        ),
+        config=SystemGatewayConfig(user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)),
         global_bus=bus,
         runtime_events=events,
         llm_service=llm_service,
@@ -250,8 +241,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     capability_events = [
         event
         for event in events.events
-        if event.event_type
-        == RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED.value
+        if event.event_type == RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED.value
     ]
     assert len(capability_events) == 1
     assert capability_events[0].data["error"] is None
@@ -272,9 +262,7 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_active_topics)
     runtime = GatewayRuntime(
-        config=SystemGatewayConfig(
-            user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)
-        ),
+        config=SystemGatewayConfig(user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)),
         global_bus=bus,
         llm_service=llm_service,
     )

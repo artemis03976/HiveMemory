@@ -26,28 +26,24 @@ class AgentProfile(BaseModel):
 
     内置 Omni-Doll 不使用 None，而是固定为当前已审查能力的显式白名单。
     """
+
     persona: str = Field(default="", description="Agent 人设提示词")
     model_name: str = Field(default="default", description="基底模型名称")
     temperature: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=2.0,
-        description="推理温度覆盖。None 表示沿用注册表模型定义的温度"
+        default=None, ge=0.0, le=2.0, description="推理温度覆盖。None 表示沿用注册表模型定义的温度"
     )
     top_p: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="核采样阈值覆盖。None 表示沿用注册表模型定义的 top_p"
+        description="核采样阈值覆盖。None 表示沿用注册表模型定义的 top_p",
     )
 
     allowed_mtp_verbs: Optional[List[str]] = Field(
-        default=None,
-        description="允许的 MTP 指令动词白名单，None=全部允许，[]=禁止所有"
+        default=None, description="允许的 MTP 指令动词白名单，None=全部允许，[]=禁止所有"
     )
     allowed_sys_tools: Optional[List[str]] = Field(
-        default=None,
-        description="允许的系统工具白名单，None=全部允许，[]=禁止所有"
+        default=None, description="允许的系统工具白名单，None=全部允许，[]=禁止所有"
     )
 
     language: str = Field(default="zh", description="提示词语言 (zh/en)")
@@ -64,10 +60,7 @@ class AgentProfile(BaseModel):
 
         try:
             # 从 artifacts.agent_config 解析配置，从 payload.content 获取 persona
-            config = cls(
-                persona=atom.payload.content,
-                **raw
-            )
+            config = cls(persona=atom.payload.content, **raw)
             return config
         except Exception:
             return None
@@ -75,7 +68,9 @@ class AgentProfile(BaseModel):
     def get_verb_set(self) -> Set[str]:
         """获取 MTP 动词白名单的 set 版本（惰性构建）"""
         if self._verb_set is None:
-            self._verb_set = set(v.upper() for v in self.allowed_mtp_verbs) if self.allowed_mtp_verbs else set()
+            self._verb_set = (
+                set(v.upper() for v in self.allowed_mtp_verbs) if self.allowed_mtp_verbs else set()
+            )
         return self._verb_set
 
     def get_tool_set(self) -> Set[str]:

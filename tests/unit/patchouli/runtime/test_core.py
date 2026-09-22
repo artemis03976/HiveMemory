@@ -278,4 +278,3 @@ class TestRuntimeStorageHealth:
 
         assert await runtime.check_storage_health() is False
         runtime.memory_library.check_storage_health.assert_awaited_once()
-

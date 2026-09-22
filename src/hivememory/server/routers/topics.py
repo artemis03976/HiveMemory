@@ -23,7 +23,9 @@ router = APIRouter(tags=["topics"])
 # 兼容说明：Topic 旧入口经 query 传递 user_id；现统一收敛到
 # resolve_request_identity_scope 的同一解析规则（query 与 header 冲突显式拒绝）。
 TopicUserIdQuery = Query(default=None, description="用户 ID（兼容入口，与 header 冲突时拒绝）")
-TopicWorkspaceIdQuery = Query(default=None, description="Workspace ID（缺省回退公共默认 Workspace）")
+TopicWorkspaceIdQuery = Query(
+    default=None, description="Workspace ID（缺省回退公共默认 Workspace）"
+)
 
 
 @router.get("/topics", response_model=ActiveTopicListResponse)

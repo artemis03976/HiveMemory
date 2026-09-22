@@ -167,9 +167,16 @@ async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_rea
     )
     assert main_result.topic_id == main_topic.topic_id
     assert isolated_result.topic_id == isolated_topic.topic_id
-    assert await service.get_topic_data(identity_scope=isolated, topic_id=main_topic.topic_id) is None
-    assert await service.get_topic_data(identity_scope=main, topic_id=isolated_topic.topic_id) is None
-    assert await service.get_topic_data(identity_scope=other_user, topic_id=main_topic.topic_id) is None
+    assert (
+        await service.get_topic_data(identity_scope=isolated, topic_id=main_topic.topic_id) is None
+    )
+    assert (
+        await service.get_topic_data(identity_scope=main, topic_id=isolated_topic.topic_id) is None
+    )
+    assert (
+        await service.get_topic_data(identity_scope=other_user, topic_id=main_topic.topic_id)
+        is None
+    )
 
     main_ids = {
         snapshot.topic_id
@@ -254,11 +261,14 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
 
     assert store.get(main, main_topic.topic_id) is not None
     assert store.list_by_workspace(isolated, include_empty=True) == before_isolated
-    assert await familiar.apply_interaction(
-        _payload("valid", "valid"),
-        identity_scope=main,
-        target_topic_id=main_topic.topic_id,
-    ) == main_topic.topic_id
+    assert (
+        await familiar.apply_interaction(
+            _payload("valid", "valid"),
+            identity_scope=main,
+            target_topic_id=main_topic.topic_id,
+        )
+        == main_topic.topic_id
+    )
     assert store.list_by_workspace(isolated, include_empty=True) == before_isolated
 
 
@@ -291,6 +301,6 @@ async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rej
     # 拒绝必须发生在 LRU 处理之前；本域原有 Topic 保持可读且未被替换。
     assert store.get(main, main_topic.topic_id) is not None
     assert store.get(isolated, isolated_topic_id) is not None
-    assert [
-        topic.topic_id for topic in store.list_by_workspace(isolated, include_empty=True)
-    ] == [isolated_topic_id]
+    assert [topic.topic_id for topic in store.list_by_workspace(isolated, include_empty=True)] == [
+        isolated_topic_id
+    ]

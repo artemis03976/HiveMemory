@@ -36,8 +36,7 @@ class ModelResponse(BaseModel):
     litellm_model: str
     provider: str
     api_key_masked: Optional[str] = Field(
-        default=None,
-        description="脱敏后的 API 密钥，如 'sk-...abcd'；未设置则为 null"
+        default=None, description="脱敏后的 API 密钥，如 'sk-...abcd'；未设置则为 null"
     )
     api_base: Optional[str] = None
     temperature: float
@@ -68,7 +67,9 @@ class ModelCreateRequest(BaseModel):
     display_name: str = Field(description="前端展示名称，如 'GPT-4o'")
     litellm_model: str = Field(description="litellm 模型标识符，如 'gpt-4o'")
     provider: str = Field(default="", description="提供商标识，留空自动从 litellm_model 前缀推导")
-    api_key: Optional[str] = Field(default=None, description="API 密钥，留空则由 provider 凭证或环境变量提供")
+    api_key: Optional[str] = Field(
+        default=None, description="API 密钥，留空则由 provider 凭证或环境变量提供"
+    )
     api_base: Optional[str] = Field(default=None, description="自定义 API 地址，留空使用默认")
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0)

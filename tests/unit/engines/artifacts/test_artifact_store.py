@@ -85,9 +85,7 @@ async def test_same_artifact_id_is_independent_between_workspaces(store):
     main = _identity_scope(workspace_id="main_workspace")
     isolated = _identity_scope(workspace_id="isolation_workspace")
     await store.put(_make_artifact(main.workspace_identity, topic_id="main-topic"))
-    await store.put(
-        _make_artifact(isolated.workspace_identity, topic_id="isolated-topic")
-    )
+    await store.put(_make_artifact(isolated.workspace_identity, topic_id="isolated-topic"))
 
     main_data = await store.get(main, "test-id")
     isolated_data = await store.get(isolated, "test-id")
@@ -124,9 +122,7 @@ async def test_ref_uri_never_selects_a_different_physical_file(store, tmp_path):
     main = _identity_scope()
     isolated = _identity_scope(workspace_id="isolation_workspace")
     main_ref = await store.put(_make_artifact(main.workspace_identity, topic_id="main"))
-    isolated_ref = await store.put(
-        _make_artifact(isolated.workspace_identity, topic_id="isolated")
-    )
+    isolated_ref = await store.put(_make_artifact(isolated.workspace_identity, topic_id="isolated"))
     forged = main_ref.model_copy(update={"uri": isolated_ref.uri})
 
     data = await store.get(main, forged)

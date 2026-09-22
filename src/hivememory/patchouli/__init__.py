@@ -50,12 +50,15 @@ def __getattr__(name: str):
     """懒加载 Patchouli Runtime / System 组件以避免循环导入"""
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
+
         return PatchouliRuntime
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService
+
         return PatchouliService
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
+
         return PatchouliSystem
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -78,4 +81,3 @@ __all__ = [
     "EmbeddingConfig",
     "QdrantConfig",
 ]
-

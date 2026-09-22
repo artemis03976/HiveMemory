@@ -26,18 +26,16 @@ from tests.helpers.memory import make_memory_metadata
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
 
 # ========== 日志配置 ==========
 
 import logging
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", force=True
 )
 
 _log_levels_to_disable = {
@@ -67,7 +65,11 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import (
-    ActorIdentity, MemoryAtom, IndexLayer, PayloadLayer, MemoryType,
+    ActorIdentity,
+    MemoryAtom,
+    IndexLayer,
+    PayloadLayer,
+    MemoryType,
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
@@ -91,8 +93,11 @@ from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageA
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 from tests.fixtures.retrieval_test_data import (
-    GOLDEN_MEMORIES, HYBRID_SEARCH_TEST_CASES, RERANKING_TEST_CASES,
-    RENDERING_TEST_CASES, get_golden_memory_by_id,
+    GOLDEN_MEMORIES,
+    HYBRID_SEARCH_TEST_CASES,
+    RERANKING_TEST_CASES,
+    RENDERING_TEST_CASES,
+    get_golden_memory_by_id,
 )
 from tests.conftest import print_test_result
 
@@ -110,6 +115,7 @@ _golden_memories_injected: bool = False
 
 
 # ========== 测试环境初始化 ==========
+
 
 def setup_test_env() -> RetrievalEngine:
     """
@@ -265,6 +271,7 @@ def create_memory_from_data(data: Dict[str, Any], identity: ActorIdentity) -> Me
 
 # ========== Group 1: 混合检索测试 (Hybrid Search) ==========
 
+
 class TestHybridSearch:
     """
     Group 1: 混合检索测试
@@ -315,7 +322,9 @@ class TestHybridSearch:
         print_test_result(console, "RET-HYB-001: 纯语义召回", success)
         console.print(f"    [dim]查询: {test_case['query']}[/dim]")
         console.print(f"    [dim]召回数: {len(results)} 条[/dim]")
-        console.print(f"    [dim]预期召回: {recall_count}/{len(expected_ids)} (最少 {min_recall})[/dim]")
+        console.print(
+            f"    [dim]预期召回: {recall_count}/{len(expected_ids)} (最少 {min_recall})[/dim]"
+        )
 
         if results.results:
             console.print(f"    [dim]Top-1: {results.results[0].memory.index.title}[/dim]")
@@ -410,12 +419,15 @@ class TestHybridSearch:
 
         if results.results:
             for i, r in enumerate(results.results[:3]):
-                console.print(f"    [dim]#{i+1}: {r.memory.index.title} (score: {r.score:.4f})[/dim]")
+                console.print(
+                    f"    [dim]#{i+1}: {r.memory.index.title} (score: {r.score:.4f})[/dim]"
+                )
 
         assert success, "混合冲突处理不符合预期"
 
 
 # ========== Group 2: 重排序测试 (Reranking) ==========
+
 
 class TestReranking:
     """
@@ -461,7 +473,9 @@ class TestReranking:
             # 如果不是精确匹配，检查标题是否包含关键词
             if not top1_ok:
                 top1_title = results.results[0].memory.index.title.lower()
-                top1_ok = "python" in top1_title or "排序" in top1_title or "quicksort" in top1_title
+                top1_ok = (
+                    "python" in top1_title or "排序" in top1_title or "quicksort" in top1_title
+                )
 
         success = top1_ok
 
@@ -516,12 +530,11 @@ class TestReranking:
             console.print(f"    [dim]最高分: {max_score:.4f}[/dim]")
 
         # 注意：阈值过滤应生效
-        assert success, (
-            f"阈值过滤应生效, 查询={test_case['query']}, 阈值={score_threshold}"
-        )
+        assert success, f"阈值过滤应生效, 查询={test_case['query']}, 阈值={score_threshold}"
 
 
 # ========== Group 3: 上下文编译测试 (MemoryCompiler) ==========
+
 
 class TestRendering:
     """
@@ -561,14 +574,18 @@ class TestRendering:
                 console.print(f"    [yellow]警告: 未找到记忆 {mid}[/yellow]")
 
         # 执行编译
-        rendered = MemoryCompiler().compile(
-            memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(
-                language="zh",
-                retrieval_strategy_config=FullContextStrategyConfig(max_tokens=4000),
-            ),
-        ).text
+        rendered = (
+            MemoryCompiler()
+            .compile(
+                memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(
+                    language="zh",
+                    retrieval_strategy_config=FullContextStrategyConfig(max_tokens=4000),
+                ),
+            )
+            .text
+        )
 
         contains_ok = "<memory_context>" in rendered and "</memory_context>" in rendered
         has_memory_section = "相关记忆" in rendered
@@ -612,14 +629,18 @@ class TestRendering:
                 console.print(f"    [yellow]警告: 未找到记忆 {mid}[/yellow]")
 
         # 执行编译
-        rendered = MemoryCompiler().compile(
-            memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(
-                language="zh",
-                retrieval_strategy_config=CompactContextStrategyConfig(max_memory_tokens=4000),
-            ),
-        ).text
+        rendered = (
+            MemoryCompiler()
+            .compile(
+                memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(
+                    language="zh",
+                    retrieval_strategy_config=CompactContextStrategyConfig(max_memory_tokens=4000),
+                ),
+            )
+            .text
+        )
 
         has_summary = "摘要" in rendered and "快速排序算法" in rendered
         omits_full_content = "def quicksort" not in rendered
@@ -660,11 +681,15 @@ class TestRendering:
                 console.print(f"    [yellow]警告: 未找到记忆 {mid}[/yellow]")
 
         # 执行编译
-        rendered = MemoryCompiler().compile(
-            memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(language="zh", retrieval_strategy_config=strategy_config),
-        ).text
+        rendered = (
+            MemoryCompiler()
+            .compile(
+                memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(language="zh", retrieval_strategy_config=strategy_config),
+            )
+            .text
+        )
 
         # 验证结果
         success = len(rendered) > 0
@@ -676,7 +701,9 @@ class TestRendering:
         print_test_result(console, "RET-RND-003: Cascade 策略上下文编译", success)
         console.print(f"    [dim]上下文长度: {len(rendered)} 字符[/dim]")
         console.print(f"    [dim]记忆数量: {len(memories)}[/dim]")
-        console.print(f"    [dim]full_payload_count: {test_case.get('full_payload_count', 1)}[/dim]")
+        console.print(
+            f"    [dim]full_payload_count: {test_case.get('full_payload_count', 1)}[/dim]"
+        )
         console.print(f"    [dim]包含 Full 视图: {has_full_view}[/dim]")
         console.print(f"    [dim]包含 Index 视图: {has_index_view}[/dim]")
 
@@ -684,6 +711,7 @@ class TestRendering:
 
 
 # ========== Group 4: 端到端流程测试 ==========
+
 
 class TestEndToEndFlow:
     """
@@ -712,19 +740,27 @@ class TestEndToEndFlow:
         query = RetrievalQuery(semantic_query="水果的营养价值")
 
         # 执行完整检索流程
-        result = asyncio.run(self.engine.retrieve(
-            query=query,
-            top_k=5,
-            score_threshold=0.0,
-        ))
+        result = asyncio.run(
+            self.engine.retrieve(
+                query=query,
+                top_k=5,
+                score_threshold=0.0,
+            )
+        )
 
         # 验证结果
         has_memories = len(result.memories) > 0
-        memory_context = MemoryCompiler().compile(
-            result.memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(language="zh"),
-        ).text if result.memories else ""
+        memory_context = (
+            MemoryCompiler()
+            .compile(
+                result.memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(language="zh"),
+            )
+            .text
+            if result.memories
+            else ""
+        )
         has_context = len(memory_context) > 0
         has_latency = result.latency_ms > 0
 
@@ -753,16 +789,18 @@ class TestEndToEndFlow:
         query = RetrievalQuery(semantic_query="xyzzy12345_不存在的查询_abcde67890")
 
         # 执行检索
-        result = asyncio.run(self.engine.retrieve(
-            query=query,
-            top_k=5,
-            score_threshold=0.9,  # 高阈值
-        ))
+        result = asyncio.run(
+            self.engine.retrieve(
+                query=query,
+                top_k=5,
+                score_threshold=0.9,  # 高阈值
+            )
+        )
 
         # 验证结果：无匹配时应返回空列表
-        assert len(result.memories) == 0, (
-            f"无匹配结果应返回空列表, 实际召回 {len(result.memories)} 条"
-        )
+        assert (
+            len(result.memories) == 0
+        ), f"无匹配结果应返回空列表, 实际召回 {len(result.memories)} 条"
 
         print_test_result(console, "E2E-002: 空结果处理", True)
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
@@ -779,19 +817,27 @@ class TestEndToEndFlow:
         query = RetrievalQuery(semantic_query="Python 代码实现")
 
         # 执行检索
-        result = asyncio.run(self.engine.retrieve(
-            query=query,
-            top_k=3,
-            score_threshold=0.0,
-        ))
+        result = asyncio.run(
+            self.engine.retrieve(
+                query=query,
+                top_k=3,
+                score_threshold=0.0,
+            )
+        )
 
         # 验证结果
         has_memories = len(result.memories) > 0
-        memory_context = MemoryCompiler().compile(
-            result.memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(language="zh"),
-        ).text if result.memories else ""
+        memory_context = (
+            MemoryCompiler()
+            .compile(
+                result.memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(language="zh"),
+            )
+            .text
+            if result.memories
+            else ""
+        )
         has_memory_context = "<memory_context>" in memory_context
         has_memory_section = "相关记忆" in memory_context
 
@@ -815,7 +861,14 @@ class TestEndToEndFlow:
         """
         # 使用多个测试查询计算指标
         test_queries = [
-            ("水果", ["550e8400-e29b-41d4-a716-446655440101", "550e8400-e29b-41d4-a716-446655440102", "550e8400-e29b-41d4-a716-446655440103"]),
+            (
+                "水果",
+                [
+                    "550e8400-e29b-41d4-a716-446655440101",
+                    "550e8400-e29b-41d4-a716-446655440102",
+                    "550e8400-e29b-41d4-a716-446655440103",
+                ],
+            ),
             ("X-1024 配置", ["550e8400-e29b-41d4-a716-446655440201"]),
             ("苹果公司股票", ["550e8400-e29b-41d4-a716-446655440301"]),
         ]
@@ -858,9 +911,7 @@ class TestEndToEndFlow:
         console.print(f"    [dim]平均 MRR: {avg_mrr:.3f}[/dim]")
         console.print(f"    [dim]测试查询数: {query_count}[/dim]")
 
-        assert success, (
-            f"检索指标应达到预期, Recall@5={avg_recall:.2%}, MRR={avg_mrr:.3f}"
-        )
+        assert success, f"检索指标应达到预期, Recall@5={avg_recall:.2%}, MRR={avg_mrr:.3f}"
 
 
 def run_all_tests():

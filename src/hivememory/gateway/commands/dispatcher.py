@@ -204,9 +204,15 @@ class SystemCommandDispatcher:
     ) -> CommandExecutionResult | None:
         permission = definition.permission
 
-        if permission.allowed_user_ids is not None and identity.user_id not in permission.allowed_user_ids:
+        if (
+            permission.allowed_user_ids is not None
+            and identity.user_id not in permission.allowed_user_ids
+        ):
             return self._permission_rejected(definition, "当前用户无权执行该系统指令。")
-        if permission.allowed_agent_ids is not None and identity.agent_id not in permission.allowed_agent_ids:
+        if (
+            permission.allowed_agent_ids is not None
+            and identity.agent_id not in permission.allowed_agent_ids
+        ):
             return self._permission_rejected(definition, "当前 Agent 无权执行该系统指令。")
         if permission.visibility == "debug" and not self.debug_enabled:
             return self._permission_rejected(definition, "Debug 指令未启用。")

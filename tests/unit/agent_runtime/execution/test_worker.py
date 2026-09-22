@@ -44,7 +44,8 @@ class TestWorkerAgentGenerateAsync:
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "hi"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.text == "普通回复"
@@ -61,7 +62,8 @@ class TestWorkerAgentGenerateAsync:
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.was_mtp_interrupted is True
@@ -77,7 +79,8 @@ class TestWorkerAgentGenerateAsync:
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.was_mtp_interrupted is False
@@ -91,7 +94,8 @@ class TestWorkerAgentGenerateAsync:
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.text == ""
@@ -100,12 +104,13 @@ class TestWorkerAgentGenerateAsync:
     @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
     async def test_mtp_delimiter_at_start(self, mock_completion):
         """⟪ 在位置 0，prefix_text 为空"""
-        text = f"{MTP_LEFT_DELIMITER}SEARCH|query=\"test\""
+        text = f'{MTP_LEFT_DELIMITER}SEARCH|query="test"'
         mock_completion.return_value = _make_response(text, "stop")
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.was_mtp_interrupted is True
@@ -121,7 +126,8 @@ class TestWorkerAgentGenerateAsync:
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.was_mtp_interrupted is True
@@ -136,7 +142,8 @@ class TestWorkerAgentGenerateAsync:
 
         result = await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
         )
 
         assert result.was_mtp_interrupted is True
@@ -152,7 +159,8 @@ class TestWorkerAgentGenerateAsync:
         with pytest.raises(RuntimeError, match="API error"):
             await self.service.generate_async(
                 [{"role": "user", "content": "test"}],
-                model="test-model", api_key="test-key",
+                model="test-model",
+                api_key="test-key",
             )
 
     @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
@@ -160,7 +168,9 @@ class TestWorkerAgentGenerateAsync:
         """验证 stop=[MTP_STOP_SEQUENCE] 被传入"""
         mock_completion.return_value = _make_response("ok", "stop")
 
-        await self.service.generate_async([{"role": "user", "content": "test"}], model="test-model", api_key="test-key")
+        await self.service.generate_async(
+            [{"role": "user", "content": "test"}], model="test-model", api_key="test-key"
+        )
 
         call_kwargs = mock_completion.call_args
         assert call_kwargs[1]["stop"] == [MTP_STOP_SEQUENCE]
@@ -172,7 +182,8 @@ class TestWorkerAgentGenerateAsync:
 
         await self.service.generate_async(
             [{"role": "user", "content": "test"}],
-            model="test-model", api_key="test-key",
+            model="test-model",
+            api_key="test-key",
             top_p=0.9,
             presence_penalty=0.5,
         )
@@ -198,7 +209,8 @@ class TestWorkerAgentGenerateAsync:
         task = asyncio.create_task(
             self.service.generate_async(
                 [{"role": "user", "content": "test"}],
-                model="test-model", api_key="test-key",
+                model="test-model",
+                api_key="test-key",
             )
         )
 
@@ -288,7 +300,9 @@ class TestWorkerAgentGenerateStream:
         mock_completion.return_value = _MockStreamResponse(chunks)
 
         stream_chunks = []
-        async for chunk in self.service.generate_stream([{"role": "user", "content": "hi"}], model="test-model", api_key="test-key"):
+        async for chunk in self.service.generate_stream(
+            [{"role": "user", "content": "hi"}], model="test-model", api_key="test-key"
+        ):
             stream_chunks.append(chunk)
 
         non_final_text = "".join(
@@ -308,7 +322,9 @@ class TestWorkerAgentGenerateStream:
         mock_completion.return_value = _MockStreamResponse(chunks)
 
         stream_chunks = []
-        async for chunk in self.service.generate_stream([{"role": "user", "content": "hi"}], model="test-model", api_key="test-key"):
+        async for chunk in self.service.generate_stream(
+            [{"role": "user", "content": "hi"}], model="test-model", api_key="test-key"
+        ):
             stream_chunks.append(chunk)
 
         non_final_text = "".join(

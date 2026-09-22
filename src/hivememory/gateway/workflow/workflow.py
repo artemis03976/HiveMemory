@@ -64,9 +64,7 @@ class GatewayWorkflow:
         completed_steps = 0
         loop = asyncio.get_running_loop()
         deadline = (
-            loop.time() + request_timeout_ms / 1000
-            if request_timeout_ms is not None
-            else None
+            loop.time() + request_timeout_ms / 1000 if request_timeout_ms is not None else None
         )
         self._emit(
             RuntimeEventType.GATEWAY_WORKFLOW_STARTED,
@@ -88,9 +86,7 @@ class GatewayWorkflow:
 
             if state.flow_end_reason is not None:
                 if state.flow_end_reason != "system_command":
-                    raise RuntimeError(
-                        f"不支持的 Gateway terminal branch: {state.flow_end_reason}"
-                    )
+                    raise RuntimeError(f"不支持的 Gateway terminal branch: {state.flow_end_reason}")
                 current_step_id = self._command_dispatch_step.step_id
                 deadline_reached = await self._run_step(
                     state,
@@ -124,8 +120,7 @@ class GatewayWorkflow:
 
             analysis_step = (
                 self._simple_chat_defaults_step
-                if state.l1_result is not None
-                and state.l1_result.intent == GatewayIntent.CHAT
+                if state.l1_result is not None and state.l1_result.intent == GatewayIntent.CHAT
                 else self._user_query_analysis_step
             )
             current_step_id = analysis_step.step_id
@@ -207,19 +202,13 @@ class GatewayWorkflow:
             )
             return True
 
-        step_timeout_seconds = (
-            step.timeout_ms / 1000 if step.timeout_ms is not None else None
-        )
+        step_timeout_seconds = step.timeout_ms / 1000 if step.timeout_ms is not None else None
         effective_timeout = _minimum_timeout(
             step_timeout_seconds,
             remaining_seconds,
         )
-        deadline_limited = (
-            remaining_seconds is not None
-            and (
-                step_timeout_seconds is None
-                or remaining_seconds <= step_timeout_seconds
-            )
+        deadline_limited = remaining_seconds is not None and (
+            step_timeout_seconds is None or remaining_seconds <= step_timeout_seconds
         )
 
         try:
@@ -247,9 +236,7 @@ class GatewayWorkflow:
         else:
             updates = step.project(output)
             flow_end_reason = (
-                step.resolve_flow_end(output)
-                if step.resolve_flow_end is not None
-                else None
+                step.resolve_flow_end(output) if step.resolve_flow_end is not None else None
             )
 
         state._apply_step_result(

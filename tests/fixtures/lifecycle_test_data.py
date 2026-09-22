@@ -29,7 +29,6 @@ from hivememory.core.models import (
 from hivememory.engines.lifecycle.models import EventType
 from tests.helpers.memory import make_memory_metadata
 
-
 # ========== 评分测试用例 ==========
 
 SCORING_TEST_CASES = [
@@ -139,7 +138,7 @@ REINFORCEMENT_TEST_CASES = [
             "三段式 V=V_0·D(t)+A+B 已将 V_0 与 confidence 解耦，事件加成进 B 项。"
         ),
         "event_type": EventType.HIT,
-        "expected_vitality_change": 0.0,    # 新记忆 decay=1, A=log(2)*coef≈6.93, B=5 → clamp 100
+        "expected_vitality_change": 0.0,  # 新记忆 decay=1, A=log(2)*coef≈6.93, B=5 → clamp 100
         "expected_event_vitality_boost": 5.0,
         "expected_updated_at_unchanged_on_hit": True,  # HIT 不重置 updated_at
         "assertion": "新记忆 HIT 后 vitality 保持 100, B 项=5, updated_at 未重置",
@@ -247,6 +246,7 @@ def quicksort(arr):
 
 # ========== 辅助函数 ==========
 
+
 def create_test_memory(
     template_name: str = "fact",
     memory_id: Optional[UUID] = None,
@@ -254,7 +254,7 @@ def create_test_memory(
     access_count: int = 0,
     vitality_score: Optional[float] = None,
     confidence_score: Optional[float] = None,
-    **overrides
+    **overrides,
 ) -> MemoryAtom:
     """
     创建测试用的 MemoryAtom 实例
@@ -276,8 +276,12 @@ def create_test_memory(
     now = datetime.now()
     _updated_at = updated_at or now
     _memory_id = memory_id or uuid4()
-    _confidence = confidence_score if confidence_score is not None else template.get("confidence", 0.8)
-    _vitality = vitality_score if vitality_score is not None else template.get("vitality_score", 50.0)
+    _confidence = (
+        confidence_score if confidence_score is not None else template.get("confidence", 0.8)
+    )
+    _vitality = (
+        vitality_score if vitality_score is not None else template.get("vitality_score", 50.0)
+    )
 
     meta = make_memory_metadata(
         created_at=now,
@@ -318,11 +322,7 @@ def create_test_memory(
     )
 
 
-def create_memory_with_age(
-    days_old: int,
-    template_name: str = "fact",
-    **kwargs
-) -> MemoryAtom:
+def create_memory_with_age(days_old: int, template_name: str = "fact", **kwargs) -> MemoryAtom:
     """
     创建指定"年龄"的记忆
 
@@ -335,11 +335,7 @@ def create_memory_with_age(
         MemoryAtom: 具有指定年龄的记忆实例
     """
     old_date = datetime.now() - timedelta(days=days_old)
-    return create_test_memory(
-        template_name=template_name,
-        updated_at=old_date,
-        **kwargs
-    )
+    return create_test_memory(template_name=template_name, updated_at=old_date, **kwargs)
 
 
 def get_test_cases_by_priority(priority: str) -> List[Dict[str, Any]]:

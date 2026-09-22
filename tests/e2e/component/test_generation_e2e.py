@@ -30,9 +30,9 @@ from tests.helpers.memory import make_memory_metadata
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
 
 # ========== 日志配置（必须在导入其他模块之前） ==========
 
@@ -40,9 +40,7 @@ import logging
 
 # 配置根日志级别
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", force=True
 )
 
 # 关闭第三方库的 INFO/DEBUG 日志
@@ -251,8 +249,7 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
 
 
 def create_stream_messages(
-    messages: List[Dict[str, str]],
-    identity: ActorIdentity
+    messages: List[Dict[str, str]], identity: ActorIdentity
 ) -> List[StreamMessage]:
     """将测试数据转换为 StreamMessage 列表"""
     role_mapping = {
@@ -260,7 +257,7 @@ def create_stream_messages(
         "assistant": StreamMessageType.ASSISTANT,
         "system": StreamMessageType.SYSTEM,
     }
-    
+
     return [
         StreamMessage(
             message_type=role_mapping.get(msg["role"], StreamMessageType.USER),
@@ -342,6 +339,7 @@ def create_draft_from_data(data: Dict[str, Any]) -> ExtractedMemoryDraft:
 
 # ========== Group 1: 记忆提取测试 (Extraction) ==========
 
+
 class TestMemoryExtraction:
     """
     Group 1: 记忆提取测试
@@ -378,7 +376,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果
@@ -432,7 +430,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果：应该返回 None 或 has_value=False
@@ -470,7 +468,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果
@@ -493,10 +491,7 @@ class TestMemoryExtraction:
 
             # 检查标签
             expected_tags = test_case.get("expected_tags_any", [])
-            tag_match = any(
-                tag.lower() in [t.lower() for t in draft.tags]
-                for tag in expected_tags
-            )
+            tag_match = any(tag.lower() in [t.lower() for t in draft.tags] for tag in expected_tags)
             if expected_tags and not tag_match:
                 success = False
                 error_msg = f"标签 {draft.tags} 不包含预期标签 {expected_tags}"
@@ -533,7 +528,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果
@@ -555,13 +550,14 @@ class TestMemoryExtraction:
             role_display = {
                 "user": "👤 User",
                 "assistant": "🤖 Assistant",
-                "system": "⚙️ System"
+                "system": "⚙️ System",
             }.get(msg["role"], msg["role"])
             lines.append(f"{role_display}: {msg['content']}")
         return "\n".join(lines)
 
 
 # ========== Group 2: 去重决策测试 (Deduplication Logic) ==========
+
 
 class TestDeduplicationLogic:
     """
@@ -606,7 +602,9 @@ class TestDeduplicationLogic:
         success = decision.value == expected_decision.lower()
 
         print_test_result(console, "GEN-DED-001: 决策 CREATE", success)
-        console.print(f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]")
+        console.print(
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]"
+        )
         console.print(f"    [dim]新草稿标题: {draft.title}[/dim]")
         console.print(f"    [dim]现有记忆标题: {existing_memory.index.title}[/dim]")
 
@@ -640,7 +638,9 @@ class TestDeduplicationLogic:
         success = decision.value in [expected_decision.lower(), "update"]
 
         print_test_result(console, "GEN-DED-002: 决策 TOUCH/UPDATE", success)
-        console.print(f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()} 或 update)[/dim]")
+        console.print(
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()} 或 update)[/dim]"
+        )
         if found_memory:
             console.print(f"    [dim]匹配记忆: {found_memory.index.title}[/dim]")
 
@@ -673,7 +673,9 @@ class TestDeduplicationLogic:
         success = decision.value == expected_decision.lower()
 
         print_test_result(console, "GEN-DED-003: 决策 UPDATE", success)
-        console.print(f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]")
+        console.print(
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]"
+        )
         console.print(f"    [dim]新草稿: {draft.title}[/dim]")
         if found_memory:
             console.print(f"    [dim]匹配记忆: {found_memory.index.title}[/dim]")
@@ -682,6 +684,7 @@ class TestDeduplicationLogic:
 
 
 # ========== Group 3: 记忆合并测试 (Merger) ==========
+
 
 class TestMemoryMerger:
     """
@@ -743,7 +746,10 @@ class TestMemoryMerger:
         )
         merged = result[0].atom
 
-        success = merged.payload.content == new_draft.content and old_content not in merged.payload.content
+        success = (
+            merged.payload.content == new_draft.content
+            and old_content not in merged.payload.content
+        )
         print_test_result(console, "GEN-MRG-001: dedup UPDATE 覆盖当前内容", success)
         console.print(f"    [dim]更新后内容长度: {len(merged.payload.content)} 字符[/dim]")
 
@@ -871,6 +877,7 @@ class TestMemoryMerger:
 
 # ========== Group 4: Schema 验证测试 ==========
 
+
 class TestSchemaValidation:
     """
     Group 4: Schema 验证测试
@@ -907,7 +914,7 @@ class TestSchemaValidation:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证 draft 不为空
@@ -1013,7 +1020,7 @@ class TestSchemaValidation:
             role_display = {
                 "user": "👤 User",
                 "assistant": "🤖 Assistant",
-                "system": "⚙️ System"
+                "system": "⚙️ System",
             }.get(msg["role"], msg["role"])
             lines.append(f"{role_display}: {msg['content']}")
         return "\n".join(lines)
@@ -1069,6 +1076,7 @@ class TestSchemaValidation:
 
 
 # ========== 端到端流程测试 ==========
+
 
 class TestEndToEndFlow:
     """
@@ -1140,6 +1148,7 @@ class TestEndToEndFlow:
 
 
 # ========== 主函数 ==========
+
 
 def run_all_tests():
     """运行所有测试（用于直接执行）"""

@@ -67,10 +67,13 @@ class WorkspaceArtifactKey(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+
 # ============ 轻量引用 ============
+
 
 class ArtifactRef(BaseModel):
     """Artifact 轻量引用指针 - 存储在 MemoryAtom.payload.artifacts.refs 中"""
+
     artifact_id: str = Field(min_length=1)
     artifact_type: ArtifactType
 
@@ -88,12 +91,14 @@ class ArtifactRef(BaseModel):
 
 # ============ 基础模型 ============
 
+
 class BaseArtifact(BaseModel):
     """所有 Artifact 共有元数据。写入后不再修改（append-only）。
 
     资产归属由 ``workspace_identity`` 单一表达：Artifact 是 Workspace 资产，
     不存在 Agent owner 语义；来源 provenance 按具体 Artifact 类型定义字段。
     """
+
     artifact_id: str = Field(default_factory=lambda: f"art_{uuid4().hex}", min_length=1)
     artifact_type: ArtifactType
 
@@ -111,6 +116,7 @@ class BaseArtifact(BaseModel):
 
 # ============ InteractionArtifact (Phase 2) ============
 
+
 class InteractionTurnSnapshot(BaseModel):
     """单轮交互快照 - 原始 LogicalBlock.turn 的 JSON 冻结视图。
 
@@ -122,6 +128,7 @@ class InteractionTurnSnapshot(BaseModel):
     legacy 数据迁移完成而删除，缺少 ``actor_identity`` 的旧记录 fail closed，
     由迁移工具的 canonical replacement 处理。
     """
+
     block_id: str
     turn_id: str
     created_at: Optional[float] = None
@@ -142,6 +149,7 @@ class InteractionTurnSnapshot(BaseModel):
 
 class InteractionArtifact(BaseArtifact):
     """话题原始交互 Artifact - 不内嵌归属 memory 信息。"""
+
     artifact_type: Literal[ArtifactType.INTERACTION] = ArtifactType.INTERACTION
 
     topic_id: str
@@ -154,8 +162,10 @@ class InteractionArtifact(BaseArtifact):
 
 # ============ DocumentArtifact ============
 
+
 class DocumentLocator(BaseModel):
     """文档定位符 - 精确指向文档内的位置"""
+
     page: Optional[int] = None
     heading_path: List[str] = Field(default_factory=list)
     section: Optional[str] = None
@@ -170,6 +180,7 @@ class DocumentLocator(BaseModel):
 
 class DocumentArtifact(BaseArtifact):
     """外部文档引用快照（point-in-time citation）- 写入后不可变。"""
+
     artifact_type: Literal[ArtifactType.DOCUMENT] = ArtifactType.DOCUMENT
 
     source_type: Literal["url", "file", "pdf", "markdown", "html", "repo", "unknown"] = "unknown"
@@ -181,15 +192,17 @@ class DocumentArtifact(BaseArtifact):
     last_modified: Optional[str] = None
 
     locators: List[DocumentLocator] = Field(default_factory=list)
-    snapshot_uri: Optional[str] = None        # 原始内容快照的物理存储地址
-    snapshot_hash: Optional[str] = None       # 快照内容 sha256
+    snapshot_uri: Optional[str] = None  # 原始内容快照的物理存储地址
+    snapshot_hash: Optional[str] = None  # 快照内容 sha256
     extracted_text_uri: Optional[str] = None  # 提取后纯文本的物理存储地址
 
 
 # ============ MemoryCreationArtifact / MemoryVersionArtifact ============
 
+
 class MemoryInputRef(BaseModel):
     """记忆输入引用 - 记录生成时引用了哪些已有记忆"""
+
     memory_id: str
     alias: Optional[str] = None
     title: Optional[str] = None
@@ -201,6 +214,7 @@ class MemoryInputRef(BaseModel):
 
 class MemoryVersionSnapshot(BaseModel):
     """记忆原子某一版本下所有可变字段的完整快照。"""
+
     content: str
     alias: Optional[str] = None
     title: Optional[str] = None
@@ -234,6 +248,7 @@ class MemoryCreationArtifact(BaseArtifact):
     （SETTLE 等没有具体 Agent 的操作使用保留 ``SYSTEM_AGENT_ID``），
     ``contributing_agent_ids`` 记录实际贡献内容的 Agent 集合。
     """
+
     artifact_type: Literal[ArtifactType.MEMORY_CREATION] = ArtifactType.MEMORY_CREATION
 
     memory_id: str = ""
@@ -262,6 +277,7 @@ class MemoryVersionArtifact(BaseArtifact):
     来源 provenance 与 MemoryAtom 语义一致（见 MemoryCreationArtifact）；
     版本更新保留已有来源字段，不引入 Agent owner 语义。
     """
+
     artifact_type: Literal[ArtifactType.MEMORY_VERSION] = ArtifactType.MEMORY_VERSION
 
     memory_id: str = ""
@@ -286,6 +302,7 @@ class MemoryVersionArtifact(BaseArtifact):
 
 
 # ============ MemoryEventLog ============
+
 
 class MemoryEventType(str, Enum):
     CREATED = "created"

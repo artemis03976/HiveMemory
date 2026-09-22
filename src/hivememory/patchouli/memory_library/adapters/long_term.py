@@ -161,18 +161,9 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         workspace_identity: WorkspaceIdentity,
         memory_id: UUID,
     ) -> Path:
-        owner_dir = hashlib.sha256(
-            workspace_identity.owner_user_id.encode("utf-8")
-        ).hexdigest()
-        workspace_dir = hashlib.sha256(
-            workspace_identity.workspace_id.encode("utf-8")
-        ).hexdigest()
-        date_dir = (
-            self._archive_dir
-            / owner_dir
-            / workspace_dir
-            / datetime.now().strftime("%Y-%m")
-        )
+        owner_dir = hashlib.sha256(workspace_identity.owner_user_id.encode("utf-8")).hexdigest()
+        workspace_dir = hashlib.sha256(workspace_identity.workspace_id.encode("utf-8")).hexdigest()
+        date_dir = self._archive_dir / owner_dir / workspace_dir / datetime.now().strftime("%Y-%m")
         date_dir.mkdir(parents=True, exist_ok=True)
         return date_dir / f"{memory_id}.json"
 

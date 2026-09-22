@@ -107,9 +107,7 @@ class QdrantMemoryStore:
     async def create_collection(self, recreate: bool = False) -> None:
         try:
             collections = (await self.client.get_collections()).collections
-            collection_exists = any(
-                col.name == self.collection_name for col in collections
-            )
+            collection_exists = any(col.name == self.collection_name for col in collections)
 
             if collection_exists:
                 if recreate:
@@ -127,9 +125,7 @@ class QdrantMemoryStore:
                         distance=getattr(Distance, self.qdrant_config.distance_metric.upper()),
                     ),
                 },
-                sparse_vectors_config={
-                    "sparse_text": SparseVectorParams(modifier=Modifier.IDF)
-                },
+                sparse_vectors_config={"sparse_text": SparseVectorParams(modifier=Modifier.IDF)},
                 on_disk_payload=self.qdrant_config.on_disk_payload,
             )
 
@@ -140,10 +136,7 @@ class QdrantMemoryStore:
             raise
 
     async def upsert_memory(
-        self,
-        memory: MemoryAtom,
-        use_sparse: bool = True,
-        force_regenerate: bool = False
+        self, memory: MemoryAtom, use_sparse: bool = True, force_regenerate: bool = False
     ) -> None:
         """
         插入或更新记忆原子
@@ -160,10 +153,11 @@ class QdrantMemoryStore:
             if use_sparse:
                 # 生成混合向量 (稠密 + 稀疏)，使用不同的输入文本
                 dense_text = _compiler.compile(memory, MemoryCompileTarget.DENSE_EMBEDDING).text
-                sparse_context = _compiler.compile(memory, MemoryCompileTarget.SPARSE_EMBEDDING).text
+                sparse_context = _compiler.compile(
+                    memory, MemoryCompileTarget.SPARSE_EMBEDDING
+                ).text
                 vectors = self.embedding_service.encode(
-                    dense_texts=dense_text,
-                    sparse_texts=sparse_context
+                    dense_texts=dense_text, sparse_texts=sparse_context
                 )
 
                 # 构建 Qdrant Point - dense 向量 + BM25 文本
@@ -309,7 +303,10 @@ class QdrantMemoryStore:
             logger.error(f"Storage error during get_memory_by_alias (alias={alias}): {e}")
             raise StorageReadError(cause=e) from e
         except Exception as e:
-            logger.error(f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}", exc_info=True)
+            logger.error(
+                f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}",
+                exc_info=True,
+            )
             raise StorageReadError(cause=e) from e
 
     async def get_agent_profile(
@@ -424,21 +421,25 @@ class QdrantMemoryStore:
                         hit.id,
                     )
                     continue
-                results.append({
-                    "memory": memory,
-                    "score": hit.score,
-                    "id": hit.id,
-                })
+                results.append(
+                    {
+                        "memory": memory,
+                        "score": hit.score,
+                        "id": hit.id,
+                    }
+                )
 
             return results
 
         except (ConnectionError, TimeoutError, OSError) as e:
             logger.error(f"Storage offline during search_memories: {e}")
             from hivememory.core.mtp.exceptions import StorageOfflineError
+
             raise StorageOfflineError(cause=e) from e
         except Exception as e:
             logger.error(f"Storage error during search_memories: {e}", exc_info=True)
             from hivememory.core.mtp.exceptions import StorageReadError
+
             raise StorageReadError(cause=e) from e
 
     async def delete_memory(self, key: WorkspaceMemoryKey) -> bool:
@@ -462,8 +463,10 @@ class QdrantMemoryStore:
         filters: Optional[Union[Dict[str, Any], Filter]] = None,
     ) -> int:
         try:
-            filter_obj = filters if isinstance(filters, Filter) else (
-                self._build_filter(filters) if filters else None
+            filter_obj = (
+                filters
+                if isinstance(filters, Filter)
+                else (self._build_filter(filters) if filters else None)
             )
             result = await self.client.count(
                 collection_name=self.collection_name,
@@ -561,10 +564,7 @@ class QdrantMemoryStore:
             return []
 
     async def get_memories_by_vitality_range(
-        self,
-        min_vitality: float = 0.0,
-        max_vitality: float = 100.0,
-        limit: int = 100
+        self, min_vitality: float = 0.0, max_vitality: float = 100.0, limit: int = 100
     ) -> List[MemoryAtom]:
         """
         获取指定生命力范围的记忆
@@ -581,9 +581,7 @@ class QdrantMemoryStore:
         """
         try:
             # 构建生命力范围过滤条件
-            filters = {
-                "meta.vitality_score": {"gte": min_vitality, "lte": max_vitality}
-            }
+            filters = {"meta.vitality_score": {"gte": min_vitality, "lte": max_vitality}}
 
             filter_obj = self._build_filter(filters)
 
@@ -601,7 +599,9 @@ class QdrantMemoryStore:
                 memory = self._payload_to_memory(point.payload)
                 memories.append(memory)
 
-            logger.debug(f"✓ 获取到 {len(memories)} 条记忆 (vitality: {min_vitality}-{max_vitality})")
+            logger.debug(
+                f"✓ 获取到 {len(memories)} 条记忆 (vitality: {min_vitality}-{max_vitality})"
+            )
             return memories
 
         except Exception as e:

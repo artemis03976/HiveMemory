@@ -53,9 +53,7 @@ class AsyncSystemBus:
 
     def unsubscribe(self, event: str, callback: Callable[..., Awaitable[None]]) -> None:
         if event in self._subscribers:
-            self._subscribers[event] = [
-                cb for cb in self._subscribers[event] if cb != callback
-            ]
+            self._subscribers[event] = [cb for cb in self._subscribers[event] if cb != callback]
             if not self._subscribers[event]:
                 self._subscribers.pop(event, None)
 

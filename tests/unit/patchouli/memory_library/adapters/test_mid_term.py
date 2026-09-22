@@ -68,9 +68,7 @@ async def test_management_read_returns_private_memory_within_owning_workspace() 
     hits = await adapter.search(
         reader_access, query="private", top_k=1, enforce_actor_visibility=False
     )
-    fetched = await adapter.get(
-        reader_access, private_memory.id, enforce_actor_visibility=False
-    )
+    fetched = await adapter.get(reader_access, private_memory.id, enforce_actor_visibility=False)
 
     assert memories == [private_memory]
     assert [hit["memory"] for hit in hits] == [private_memory]
@@ -85,14 +83,15 @@ async def test_management_read_still_rejects_cross_workspace_memory() -> None:
     )
     adapter = QdrantStorageAdapter(_SingleMemoryStore(_private_memory()))
 
-    assert await adapter.scroll(
-        other_workspace_access, enforce_actor_visibility=False
-    ) == []
-    assert await adapter.get(
-        other_workspace_access,
-        _private_memory().id,
-        enforce_actor_visibility=False,
-    ) is None
+    assert await adapter.scroll(other_workspace_access, enforce_actor_visibility=False) == []
+    assert (
+        await adapter.get(
+            other_workspace_access,
+            _private_memory().id,
+            enforce_actor_visibility=False,
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

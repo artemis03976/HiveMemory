@@ -104,9 +104,7 @@ class InMemoryMidTermPort:
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         workspace = key.workspace_identity
-        return self.memories.get(
-            (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
-        )
+        return self.memories.get((workspace.owner_user_id, workspace.workspace_id, key.memory_id))
 
     async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
         memory = await self.get(identity_scope, memory_id)
@@ -240,9 +238,7 @@ async def test_garbage_collection_archives_low_vitality_memory(lifecycle_stack):
     high = _make_memory("high", vitality_score=90.0)
     await memory_library.mid_term.upsert(low)
     await memory_library.mid_term.upsert(high)
-    engine.vitality_calculator.calculate = lambda memory: (
-        5.0 if memory.id == low.id else 90.0
-    )
+    engine.vitality_calculator.calculate = lambda memory: (5.0 if memory.id == low.id else 90.0)
 
     archived = await engine.run_garbage_collection(force=True)
 
@@ -259,7 +255,7 @@ async def test_event_history_is_exposed(lifecycle_stack):
 
     await engine.record_event(
         _identity_scope(),
-        MemoryEvent(event_type=EventType.CITATION, memory_id=memory.id, source="integration")
+        MemoryEvent(event_type=EventType.CITATION, memory_id=memory.id, source="integration"),
     )
 
     history = engine.get_event_history(memory.id)

@@ -206,10 +206,7 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
         if has_flat_workspace:
             if not isinstance(owner, str) or not owner:
                 raise ValueError("Artifact Workspace 投影不完整")
-            if not all(
-                isinstance(data.get(key), str) and data.get(key)
-                for key in flat_keys
-            ):
+            if not all(isinstance(data.get(key), str) and data.get(key) for key in flat_keys):
                 raise ValueError("Artifact Workspace 投影不完整")
             return WorkspaceIdentity(
                 owner_user_id=owner,
@@ -375,9 +372,7 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                 artifact_id: str
                 if isinstance(ref_or_id, ArtifactRef):
                     if ref_or_id.workspace_identity != identity_scope.workspace_identity:
-                        raise FileNotFoundError(
-                            f"artifact not found: {ref_or_id.artifact_id}"
-                        )
+                        raise FileNotFoundError(f"artifact not found: {ref_or_id.artifact_id}")
                     artifact_id = ref_or_id.artifact_id
                     expected_hash = ref_or_id.sha256 or None
                 else:

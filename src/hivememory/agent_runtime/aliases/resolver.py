@@ -158,9 +158,7 @@ class RuntimeAliasResolver:
                     settlement=settlement,
                 )
 
-            if settlement is not None and (
-                settlement.canonical_alias or settlement.canonical_uuid
-            ):
+            if settlement is not None and (settlement.canonical_alias or settlement.canonical_uuid):
                 atom = self._resolve_cached_canonical(settlement, context)
                 if atom is None and settlement.canonical_alias:
                     atom = await self._cold_lookup(settlement.canonical_alias, context)
@@ -252,9 +250,7 @@ class RuntimeAliasResolver:
                 memory,
                 workspace_identity=context.identity_scope.workspace_identity,
             )
-            logger.debug(
-                f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, cached"
-            )
+            logger.debug(f"L2 cold-lookup hit: alias='{alias}' -> {uuid_str}, cached")
             return memory
         except KeyError as e:
             logger.error("L2 cold-lookup route unavailable: alias='%s', error=%s", alias, e)
@@ -262,9 +258,7 @@ class RuntimeAliasResolver:
         except (StorageOfflineError, StorageReadError):
             raise
         except Exception as e:
-            logger.error(
-                f"L2 cold-lookup infrastructure failure: alias='{alias}', error={e}"
-            )
+            logger.error(f"L2 cold-lookup infrastructure failure: alias='{alias}', error={e}")
             raise StorageReadError(cause=e) from e
 
     @property

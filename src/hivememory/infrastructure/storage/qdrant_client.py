@@ -55,9 +55,7 @@ async def wait_for_qdrant_ready(
                 break
             await asyncio.sleep(interval_seconds)
 
-    raise TimeoutError(
-        f"Qdrant did not become ready within {timeout_seconds}s"
-    ) from last_error
+    raise TimeoutError(f"Qdrant did not become ready within {timeout_seconds}s") from last_error
 
 
 __all__ = [

@@ -48,7 +48,9 @@ def sample_atom():
             memory_type=MemoryType.CODE_SNIPPET,
             tags=["python", "datetime", "utils"],
         ),
-        payload=PayloadLayer(content="def parse_date(s):\n    return datetime.strptime(s, '%Y-%m-%d')"),
+        payload=PayloadLayer(
+            content="def parse_date(s):\n    return datetime.strptime(s, '%Y-%m-%d')"
+        ),
         meta=make_memory_metadata(
             source_agent_id="test",
             user_id="u1",
@@ -398,6 +400,7 @@ class TestPendingAtomCompilation:
             PendingAtomStatus,
             WriteFocus,
         )
+
         atom = PendingAtom(
             pending_alias="draft_settled",
             intent_id="intent_s",
@@ -424,6 +427,7 @@ class TestPendingAtomCompilation:
             PendingAtomStatus,
             WriteFocus,
         )
+
         atom = PendingAtom(
             pending_alias="draft_failed",
             intent_id="intent_f",
@@ -443,6 +447,7 @@ class TestPendingAtomCompilation:
     @pytest.fixture
     def cancelled_pending(self):
         from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
+
         return PendingAtom(
             pending_alias="draft_cancelled",
             intent_id="intent_c",
@@ -455,6 +460,7 @@ class TestPendingAtomCompilation:
     @pytest.fixture
     def expired_pending(self):
         from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
+
         return PendingAtom(
             pending_alias="draft_expired",
             intent_id="intent_e",
@@ -724,7 +730,9 @@ class TestEnvelopeCompilation:
             purpose=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
             sections=[
                 MemorySectionIR(kind="memories", empty_text="No memories"),
-                MemorySectionIR(kind="agent_profiles", units=[build_memory_atom_ir(agent_profile_atom)]),
+                MemorySectionIR(
+                    kind="agent_profiles", units=[build_memory_atom_ir(agent_profile_atom)]
+                ),
             ],
         )
         envelope = compile_envelope_from_ir(
@@ -736,7 +744,9 @@ class TestEnvelopeCompilation:
         assert "No memories" in envelope.text
         assert "可用子代理" in envelope.text
 
-    def test_retrieval_context_compile_uses_english_default_language(self, sample_atom, agent_profile_atom):
+    def test_retrieval_context_compile_uses_english_default_language(
+        self, sample_atom, agent_profile_atom
+    ):
         set_default_language("en")
         compiler = MemoryCompiler()
 
