@@ -33,6 +33,31 @@ jobs:
         run: |
           pytest tests/unit tests/integration -v --tb=short -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-report=term-missing --cov-fail-under=85
 
+  # ========== 静态检查（ruff + black，工具版本由 pyproject 的 == pin 锁定） ==========
+  lint:
+    name: Lint (ruff + black)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Black
+        run: black --check .
+
   # ========== E2E（手动触发，真实 LLM + Qdrant） ==========
   # 依赖真实外部服务，仅在 workflow_dispatch 手动运行时执行。
   # 需要仓库 Secrets：
