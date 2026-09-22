@@ -150,6 +150,8 @@ class MidTermStoragePort(ABC):
         filters: QueryFilters | None = None,
         mode: str = "dense",
         score_threshold: float = 0.0,
+        *,
+        enforce_actor_visibility: bool = True,
     ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
@@ -158,6 +160,8 @@ class MidTermStoragePort(ABC):
         identity_scope: IdentityScope,
         filters: QueryFilters | None = None,
         limit: int = 100,
+        *,
+        enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]: ...
 
     @abstractmethod

@@ -4,7 +4,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from hivememory.core.models import (
-    ActorIdentity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
@@ -362,6 +361,8 @@ class _InMemoryMidTermPort(MidTermStoragePort):
         filters=None,
         mode: str = "dense",
         score_threshold: float = 0.0,
+        *,
+        enforce_actor_visibility: bool = True,
     ):
         return [
             {"memory": memory, "score": 1.0}
@@ -369,7 +370,14 @@ class _InMemoryMidTermPort(MidTermStoragePort):
             if memory.workspace_identity == scope.workspace_identity
         ]
 
-    async def scroll(self, scope, filters=None, limit: int = 100) -> list[MemoryAtom]:
+    async def scroll(
+        self,
+        scope,
+        filters=None,
+        limit: int = 100,
+        *,
+        enforce_actor_visibility: bool = True,
+    ) -> list[MemoryAtom]:
         return [
             memory
             for memory in self.memories.values()

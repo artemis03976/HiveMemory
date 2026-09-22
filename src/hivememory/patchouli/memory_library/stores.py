@@ -206,6 +206,8 @@ class MidTermMemoryStore:
         filters=None,
         mode: str = "dense",
         score_threshold: float = 0.0,
+        *,
+        enforce_actor_visibility: bool = True,
     ):
         return await self._primary.search(
             require_identity_scope(scope),
@@ -214,6 +216,7 @@ class MidTermMemoryStore:
             filters=filters,
             mode=mode,
             score_threshold=score_threshold,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def scroll(
@@ -221,8 +224,15 @@ class MidTermMemoryStore:
         scope: IdentityScope,
         filters=None,
         limit: int = 100,
+        *,
+        enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]:
-        return await self._primary.scroll(require_identity_scope(scope), filters, limit)
+        return await self._primary.scroll(
+            require_identity_scope(scope),
+            filters,
+            limit,
+            enforce_actor_visibility=enforce_actor_visibility,
+        )
 
     async def count(self, scope: IdentityScope, filters=None) -> int:
         return await self._primary.count(require_identity_scope(scope), filters)
