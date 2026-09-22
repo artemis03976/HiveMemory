@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
-from hivememory.agent_runtime.output import NullFrameOutputSink, TokenDelta
+from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_session import RunSession
@@ -23,7 +23,7 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     DispatchCallee,
     ResumeCaller,
 )
-from hivememory.alice.runtime.streaming import AgentRunStream, QueueAgentRunOutput
+from hivememory.alice.runtime.streaming import AgentRunStream
 from hivememory.core.mtp import MTPCallRequest
 
 

@@ -2,7 +2,6 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
 
@@ -11,6 +10,7 @@ from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
+from hivememory.system import HiveMemorySystem
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.memory_service import MemoryApplicationService
@@ -21,17 +21,16 @@ from hivememory.system.application.workspace_asset_service import (
     WorkspaceAssetApplicationService,
 )
 from hivememory.system.config import HiveMemoryConfig
-from hivememory.system import HiveMemorySystem
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
-_system: Optional[HiveMemorySystem] = None
-_ws_manager: Optional[WebSocketConnectionManager] = None
+_system: HiveMemorySystem | None = None
+_ws_manager: WebSocketConnectionManager | None = None
 
 
-def init_system(config: Optional[HiveMemoryConfig] = None) -> HiveMemorySystem:
+def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
     """lifespan startup 时调用，组装并返回 HiveMemorySystem"""
     global _system
     _system = HiveMemorySystem.build(config=config)
@@ -171,11 +170,14 @@ def resolve_request_identity_scope(
 
     应用服务不得再次解析身份；本函数是默认身份回退的唯一合法位置。
     """
-    user_id = _merge_identity_field(
-        header_value=selection.user_id,
-        explicit_value=explicit_user_id,
-        field_name="user_id",
-    ) or DEFAULT_USER_ID
+    user_id = (
+        _merge_identity_field(
+            header_value=selection.user_id,
+            explicit_value=explicit_user_id,
+            field_name="user_id",
+        )
+        or DEFAULT_USER_ID
+    )
     workspace_id = _merge_identity_field(
         header_value=selection.workspace_id,
         explicit_value=explicit_workspace_id,
@@ -185,8 +187,7 @@ def resolve_request_identity_scope(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Workspace '{workspace_id}' 不存在：公共入口当前只开放 "
-                f"'{MAIN_WORKSPACE_ID}'"
+                f"Workspace '{workspace_id}' 不存在：公共入口当前只开放 " f"'{MAIN_WORKSPACE_ID}'"
             ),
         )
 
@@ -226,8 +227,8 @@ def get_identity_scope(
 
 
 def init_websocket_log_broadcasting(
-    config: HiveMemoryConfig
-) -> Optional[WebSocketConnectionManager]:
+    config: HiveMemoryConfig,
+) -> WebSocketConnectionManager | None:
     """
     初始化 WebSocket 日志广播系统
 
@@ -251,9 +252,7 @@ def init_websocket_log_broadcasting(
         return None
 
     # 创建连接管理器
-    _ws_manager = WebSocketConnectionManager(
-        buffer_size=config.logging.websocket_buffer_size
-    )
+    _ws_manager = WebSocketConnectionManager(buffer_size=config.logging.websocket_buffer_size)
 
     # 创建日志处理器
     handler = WebSocketLogHandler(
@@ -269,6 +268,7 @@ def init_websocket_log_broadcasting(
 
     # 注册追踪上下文过滤器
     from hivememory.infrastructure.trace_context import TraceInjectFilter
+
     handler.addFilter(TraceInjectFilter())
 
     logger.info(
@@ -281,7 +281,7 @@ def init_websocket_log_broadcasting(
 
 
 async def shutdown_websocket_log_broadcasting(
-    manager: Optional[WebSocketConnectionManager]
+    manager: WebSocketConnectionManager | None,
 ) -> None:
     """
     关闭 WebSocket 日志广播系统

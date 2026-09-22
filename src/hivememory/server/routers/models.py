@@ -1,7 +1,5 @@
 """模型注册表路由 — 管理可用的 LLM 模型"""
 
-from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.core.models.model_definition import ModelDefinition
@@ -25,7 +23,7 @@ router = APIRouter(tags=["models"])
 # ------------------------------------------------------------------
 
 
-@router.get("/models", response_model=List[ModelResponse])
+@router.get("/models", response_model=list[ModelResponse])
 def list_models(
     registry: ModelRegistry = Depends(get_model_registry),
 ):

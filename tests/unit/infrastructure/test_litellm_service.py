@@ -156,9 +156,7 @@ class TestCompleteWithTools:
             fake_completion,
         )
 
-        result = _service().complete_with_tools(
-            [{"role": "user", "content": "hi"}]
-        )
+        result = _service().complete_with_tools([{"role": "user", "content": "hi"}])
 
         assert result.choices[0].message.content == "plain"
         assert "tools" not in calls[0]
@@ -190,6 +188,7 @@ class TestCompleteWithTools:
 
     def test_usage_branches(self, monkeypatch):
         for usage in (SimpleNamespace(total_tokens=7), None):
+
             def fake_completion(*args, _usage=usage, **kwargs):
                 return _response("r", usage=_usage)
 
@@ -197,9 +196,7 @@ class TestCompleteWithTools:
                 "hivememory.infrastructure.llm.litellm_service.litellm.completion",
                 fake_completion,
             )
-            result = _service().complete_with_tools(
-                [{"role": "user", "content": "hi"}]
-            )
+            result = _service().complete_with_tools([{"role": "user", "content": "hi"}])
             assert result.choices[0].message.content == "r"
 
 
@@ -238,9 +235,7 @@ class TestACompleteWithTools:
             acompletion,
         )
 
-        result = await _service().acomplete_with_tools(
-            [{"role": "user", "content": "hi"}]
-        )
+        result = await _service().acomplete_with_tools([{"role": "user", "content": "hi"}])
 
         assert result.choices[0].message.content == "async ok"
 
@@ -259,9 +254,7 @@ class TestACompleteJson:
             fake_acompletion,
         )
 
-        result = await _service().acomplete_json(
-            [{"role": "user", "content": "json"}]
-        )
+        result = await _service().acomplete_json([{"role": "user", "content": "json"}])
 
         assert result == '{"ok": true}'
         assert calls[0]["response_format"] == {"type": "json_object"}
@@ -279,9 +272,7 @@ class TestACompleteJson:
             acompletion,
         )
 
-        result = await _service().acomplete_json(
-            [{"role": "user", "content": "json"}]
-        )
+        result = await _service().acomplete_json([{"role": "user", "content": "json"}])
 
         assert result == '{"ok": true}'
         assert acompletion.await_count == 2
@@ -298,9 +289,7 @@ class TestACompleteJson:
             fake_acompletion,
         )
 
-        result = await _service().acomplete_json(
-            [{"role": "user", "content": "json"}]
-        )
+        result = await _service().acomplete_json([{"role": "user", "content": "json"}])
 
         assert result == '{"ok": true}'
 
@@ -416,6 +405,7 @@ class TestAComplete:
     @pytest.mark.asyncio
     async def test_usage_and_no_usage_branches(self, monkeypatch):
         for usage in (SimpleNamespace(total_tokens=5), None):
+
             async def fake_acompletion(*args, _usage=usage, **kwargs):
                 return _response("async hi", usage=_usage)
 
@@ -423,9 +413,7 @@ class TestAComplete:
                 "hivememory.infrastructure.llm.litellm_service.litellm.acompletion",
                 fake_acompletion,
             )
-            result = await _service().acomplete(
-                [{"role": "user", "content": "hi"}]
-            )
+            result = await _service().acomplete([{"role": "user", "content": "hi"}])
             assert result == "async hi"
 
 
@@ -440,9 +428,7 @@ class TestACompleteWithRetry:
 
         monkeypatch.setattr(LiteLLMService, "acomplete", fake_acomplete)
 
-        result = await _service().acomplete_with_retry(
-            [{"role": "user", "content": "hi"}]
-        )
+        result = await _service().acomplete_with_retry([{"role": "user", "content": "hi"}])
 
         assert result == "ok"
         assert len(calls) == 1
@@ -505,9 +491,7 @@ class TestFactories:
 
         def fake_load():
             calls.append(1)
-            return SimpleNamespace(
-                get_librarian_llm_config=lambda: _config()
-            )
+            return SimpleNamespace(get_librarian_llm_config=lambda: _config())
 
         monkeypatch.setattr(
             "hivememory.system.config.load_app_config",

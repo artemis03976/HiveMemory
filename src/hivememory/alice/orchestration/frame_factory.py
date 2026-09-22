@@ -8,9 +8,9 @@ from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
     AgentProfile,
+    IdentityScope,
     RuntimeScope,
     TurnEvent,
-    IdentityScope,
 )
 
 

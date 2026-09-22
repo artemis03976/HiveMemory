@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends
 
-from hivememory.core.models import IdentityScope
 from hivememory.server.deps import (
     RequestIdentitySelection,
     get_identity_selection,
@@ -15,8 +14,8 @@ from hivememory.server.models.ingest import (
     PassiveIngressRequest,
     PassiveIngressResponse,
 )
-from hivememory.system.services.passive import PassiveIngressEvent
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.services.passive import PassiveIngressEvent
 
 router = APIRouter(tags=["ingest"])
 

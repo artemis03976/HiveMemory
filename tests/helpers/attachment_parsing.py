@@ -32,9 +32,7 @@ def make_upload_service(
         store=store,
         parser_config=parser_config,
         parse_service=AttachmentParseService(store, parser_config, parser_factory),
-        access_guard=make_access_composition(
-            [make_actor_access_record()]
-        ).guard,
+        access_guard=make_access_composition([make_actor_access_record()]).guard,
     )
 
 

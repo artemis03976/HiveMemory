@@ -9,14 +9,15 @@ HiveMemory - 强化引擎单元测试
 - 事件历史跟踪
 """
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
-from hivememory.core.models import MemoryAtom, IndexLayer, PayloadLayer, MemoryType
+import pytest
+
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.engines.lifecycle.models import EventType, MemoryEvent
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
-from hivememory.engines.lifecycle.models import MemoryEvent, EventType
 from hivememory.system.config import ReinforcementEngineConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -69,11 +70,7 @@ class TestDynamicReinforcementEngine:
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 50.0  # 重算结果 (含 B 项)
 
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=self.test_memory.id,
-            source="test"
-        )
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
         result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
@@ -88,6 +85,7 @@ class TestDynamicReinforcementEngine:
         """测试 CITATION 事件重置衰减"""
         # 将 updated_at 设置为过去时间，确保更新后的时间肯定更大
         from datetime import timedelta
+
         self.test_memory.meta.updated_at -= timedelta(seconds=1)
         original_updated_at = self.test_memory.meta.updated_at
 
@@ -95,9 +93,7 @@ class TestDynamicReinforcementEngine:
         self.mock_vitality_calc.calculate.return_value = 70.0  # 提升效果
 
         event = MemoryEvent(
-            event_type=EventType.CITATION,
-            memory_id=self.test_memory.id,
-            source="test"
+            event_type=EventType.CITATION, memory_id=self.test_memory.id, source="test"
         )
 
         result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
@@ -115,9 +111,7 @@ class TestDynamicReinforcementEngine:
         self.mock_vitality_calc.calculate.return_value = 25.0  # 降低后
 
         event = MemoryEvent(
-            event_type=EventType.FEEDBACK_NEGATIVE,
-            memory_id=self.test_memory.id,
-            source="user"
+            event_type=EventType.FEEDBACK_NEGATIVE, memory_id=self.test_memory.id, source="user"
         )
 
         result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
@@ -134,9 +128,7 @@ class TestDynamicReinforcementEngine:
         self.mock_vitality_calc.calculate.return_value = 100.0  # 大幅提升
 
         event = MemoryEvent(
-            event_type=EventType.FEEDBACK_POSITIVE,
-            memory_id=self.test_memory.id,
-            source="user"
+            event_type=EventType.FEEDBACK_POSITIVE, memory_id=self.test_memory.id, source="user"
         )
 
         result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
@@ -187,11 +179,7 @@ class TestDynamicReinforcementEngine:
         """测试记忆不存在时抛出异常"""
         self.mock_mid_term.get_for_mutation.return_value = None
 
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=uuid4(),
-            source="test"
-        )
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=uuid4(), source="test")
 
         with pytest.raises(ValueError):
             await self.engine.reinforce(_identity_scope(), uuid4(), event)
@@ -204,11 +192,7 @@ class TestDynamicReinforcementEngine:
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=self.test_memory.id,
-            source="test"
-        )
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
         await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
@@ -222,11 +206,7 @@ class TestDynamicReinforcementEngine:
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=self.test_memory.id,
-            source="test"
-        )
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
         await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
@@ -240,11 +220,7 @@ class TestDynamicReinforcementEngine:
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=self.test_memory.id,
-            source="test"
-        )
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
         await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
 
@@ -314,11 +290,7 @@ class TestDynamicReinforcementEngine:
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
-        event = MemoryEvent(
-            event_type=EventType.HIT,
-            memory_id=self.test_memory.id,
-            source="test"
-        )
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
         await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
         assert len(self.engine.get_event_history()) == 1
@@ -335,9 +307,7 @@ class TestDynamicReinforcementEngine:
         # 记录多个事件
         for i in range(3):
             event = MemoryEvent(
-                event_type=EventType.HIT,
-                memory_id=self.test_memory.id,
-                source=f"test{i}"
+                event_type=EventType.HIT, memory_id=self.test_memory.id, source=f"test{i}"
             )
             await self.engine.reinforce(
                 _identity_scope(),
@@ -348,4 +318,3 @@ class TestDynamicReinforcementEngine:
         stats = self.engine.get_stats()
         assert stats["total_events"] == 3
         assert "event_counts" in stats
-

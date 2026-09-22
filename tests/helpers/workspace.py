@@ -1,13 +1,13 @@
 """测试专用 IdentityScope、RuntimeScope 与 A1 访问组合构造器。"""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
-    RuntimeScope,
     IdentityScope,
+    RuntimeScope,
     WorkspaceIdentity,
     build_internal_identity_scope,
 )
@@ -19,9 +19,9 @@ from hivememory.system.access import (
 )
 from hivememory.workspace import (
     WorkspaceAccessContext,
+    WorkspaceAccessGuard,
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
-    WorkspaceAccessGuard,
     WorkspaceOperation,
 )
 
@@ -156,9 +156,7 @@ class AccessTestComposition:
         principal_id: str | None = None,
     ) -> WorkspaceAccessContext:
         """按组合内的默认坐标完成两项认证并返回访问上下文。"""
-        target_user = user_id or (
-            self.default_workspace.owner_user_id
-        )
+        target_user = user_id or (self.default_workspace.owner_user_id)
         return await self.gateway.authenticate(
             adapter=adapter,
             principal=CallerPrincipal(principal_id or self.principal.principal_id),

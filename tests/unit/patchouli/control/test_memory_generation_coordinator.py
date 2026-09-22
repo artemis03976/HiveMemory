@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import (
-    ActorIdentity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,

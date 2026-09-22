@@ -94,9 +94,7 @@ def _require_exact_keys(
     if actual != expected:
         missing = sorted(expected - actual)
         extra = sorted(str(key) for key in actual - expected)
-        raise ValueError(
-            f"{field_name} schema mismatch: missing={missing}, extra={extra}"
-        )
+        raise ValueError(f"{field_name} schema mismatch: missing={missing}, extra={extra}")
 
 
 class _MemoryGenerationWorkAdapter:
@@ -140,9 +138,7 @@ class _MemoryGenerationWorkAdapter:
                 "label": spec.label,
                 "source": spec.source.value,
                 "request": spec.request.model_dump(mode="json"),
-                "interaction_input": self._encode_interaction_input(
-                    spec.interaction_input
-                ),
+                "interaction_input": self._encode_interaction_input(spec.interaction_input),
                 "intent_id": spec.intent_id,
                 "pending_alias": spec.pending_alias,
             },
@@ -202,9 +198,7 @@ class _MemoryGenerationWorkAdapter:
                 label=_require_text(raw_spec.get("label"), field_name="label"),
                 source=MemoryGenerationSource(raw_spec["source"]),
                 request=GenerationRequest.model_validate(request_data),
-                interaction_input=self._decode_interaction_input(
-                    raw_spec.get("interaction_input")
-                ),
+                interaction_input=self._decode_interaction_input(raw_spec.get("interaction_input")),
                 intent_id=_require_optional_text(
                     raw_spec.get("intent_id"),
                     field_name="intent_id",
@@ -233,8 +227,7 @@ class _MemoryGenerationWorkAdapter:
             "topic_summary": interaction_input.topic_summary,
             "blocks": [block.model_dump(mode="json") for block in interaction_input.blocks],
             "asset_bindings": [
-                binding.model_dump(mode="json")
-                for binding in interaction_input.asset_bindings
+                binding.model_dump(mode="json") for binding in interaction_input.asset_bindings
             ],
         }
 
@@ -321,9 +314,7 @@ class MemoryGenerationHandler(WorkHandlerPort[_MemoryGenerationWork, str]):
         if not isinstance(results, list) or not all(
             isinstance(result, MemoryGenerationResult) for result in results
         ):
-            raise TypeError(
-                "memory generation handler must return MemoryGenerationResult list"
-            )
+            raise TypeError("memory generation handler must return MemoryGenerationResult list")
         typed_results = tuple(results)
         handle._record_execution_result(typed_results)
         return context.work_id

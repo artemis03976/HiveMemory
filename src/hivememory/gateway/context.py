@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models import TopicData, TopicSnapshot, IdentityScope
+from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -63,9 +63,7 @@ class GlobalBusGatewayContextProvider:
                 include_empty=self._include_empty_topics,
             )
         except Exception as exc:
-            raise RecoverableGatewayError(
-                f"Patchouli candidate topics 不可用: {exc}"
-            ) from exc
+            raise RecoverableGatewayError(f"Patchouli candidate topics 不可用: {exc}") from exc
 
         if not isinstance(snapshots, tuple) or not all(
             isinstance(snapshot, TopicSnapshot) for snapshot in snapshots
@@ -91,9 +89,7 @@ class GlobalBusGatewayContextProvider:
                 topic_id=topic_id,
             )
         except Exception as exc:
-            raise RecoverableGatewayError(
-                f"Patchouli routed topic 不可用: {exc}"
-            ) from exc
+            raise RecoverableGatewayError(f"Patchouli routed topic 不可用: {exc}") from exc
 
         if topic_data is not None and not isinstance(topic_data, TopicData):
             raise TypeError("Patchouli TOPIC_GET_DATA 违反 TopicData 契约")

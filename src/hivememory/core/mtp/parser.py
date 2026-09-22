@@ -10,20 +10,19 @@ MTP 协议与过滤器解析器。
 import json
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
 
 from hivememory.core.models import MemoryType
-from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.core.mtp.exceptions import MTPParseError
 from hivememory.core.mtp.models import (
-    MTPCommand,
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
     MTP_SEPARATOR,
-    MTPWarningInfo,
+    MTPCommand,
     MTPTarget,
     MTPVerb,
+    MTPWarningInfo,
 )
+from hivememory.engines.retrieval.models import QueryFilters
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +96,7 @@ class MTPParser:
         """快速检测文本中是否存在 MTP 指令前缀。"""
         return MTP_LEFT_DELIMITER in text
 
-    def _split_segments(self, inner: str) -> Tuple[str, str, str]:
+    def _split_segments(self, inner: str) -> tuple[str, str, str]:
         """
         按前两个 `|` 进行分段。
 
@@ -134,7 +133,7 @@ class MTPParser:
             return MTPTarget(aliases=[target_str])
         return MTPTarget()
 
-    def _parse_args(self, args_str: str) -> Dict[str, str]:
+    def _parse_args(self, args_str: str) -> dict[str, str]:
         """
         解析 ARGS 字段。
 
@@ -146,7 +145,7 @@ class MTPParser:
         if not args_str:
             return {}
 
-        args: Dict[str, str] = {}
+        args: dict[str, str] = {}
 
         for match in self._LIST_ARG_PATTERN.finditer(args_str):
             key, list_content = match.group(1), match.group(2)
@@ -172,7 +171,7 @@ class MTPParser:
         return args
 
 
-_FILTER_TYPE_MAP: Dict[str, MemoryType] = {
+_FILTER_TYPE_MAP: dict[str, MemoryType] = {
     "code": MemoryType.CODE_SNIPPET,
     "code_snippet": MemoryType.CODE_SNIPPET,
     "fact": MemoryType.FACT,
@@ -199,7 +198,7 @@ class MTPFilterParser:
     def parse(
         self,
         filter_str: str,
-    ) -> Tuple[Optional[QueryFilters], List[MTPWarningInfo]]:
+    ) -> tuple[QueryFilters | None, list[MTPWarningInfo]]:
         """
         宽容解析 filter 字符串并返回 QueryFilters 与警告列表。
 
@@ -208,7 +207,7 @@ class MTPFilterParser:
         if not filter_str or not filter_str.strip():
             return None, []
 
-        warnings: List[MTPWarningInfo] = []
+        warnings: list[MTPWarningInfo] = []
 
         def warning(
             key: str,
@@ -218,15 +217,13 @@ class MTPFilterParser:
 
         try:
             memory_type = None
-            tags: List[str] = []
+            tags: list[str] = []
             source_agent_id = None
             min_confidence = 0.0
 
             for token in filter_str.strip().split():
                 if ":" not in token:
-                    warnings.append(
-                        warning("mtp.filter.token_missing_separator", {"token": token})
-                    )
+                    warnings.append(warning("mtp.filter.token_missing_separator", {"token": token}))
                     continue
 
                 key, _, value = token.partition(":")
@@ -243,9 +240,7 @@ class MTPFilterParser:
                     if mapped is not None:
                         memory_type = mapped
                     else:
-                        warnings.append(
-                            warning("mtp.filter.unknown_type", {"value": value})
-                        )
+                        warnings.append(warning("mtp.filter.unknown_type", {"value": value}))
                 elif key == "tag":
                     tags.append(value)
                 elif key == "agent":

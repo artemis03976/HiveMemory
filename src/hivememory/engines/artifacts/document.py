@@ -1,7 +1,6 @@
 """DocumentArtifactBuilder - 从外源文档元数据构建 DocumentArtifact。"""
 
 from datetime import datetime
-from typing import List, Optional
 
 from hivememory.core.models import WorkspaceIdentity
 from hivememory.core.models.artifact import ArtifactRef, DocumentArtifact, DocumentLocator
@@ -19,11 +18,11 @@ class DocumentArtifactBuilder:
         self,
         *,
         source_type: str,
-        source_uri: Optional[str],
-        content_hash: Optional[str],
+        source_uri: str | None,
+        content_hash: str | None,
         retrieved_at: datetime,
         workspace_identity: WorkspaceIdentity,
-        locators: Optional[List[DocumentLocator]] = None,
+        locators: list[DocumentLocator] | None = None,
         **kwargs,
     ) -> ArtifactRef | None:
         artifact = DocumentArtifact(
@@ -43,11 +42,11 @@ class NoOpDocumentArtifactBuilder:
         self,
         *,
         source_type: str,
-        source_uri: Optional[str],
-        content_hash: Optional[str],
+        source_uri: str | None,
+        content_hash: str | None,
         retrieved_at: datetime,
         workspace_identity: WorkspaceIdentity,
-        locators: Optional[List[DocumentLocator]] = None,
+        locators: list[DocumentLocator] | None = None,
         **kwargs,
     ) -> ArtifactRef | None:
         return None

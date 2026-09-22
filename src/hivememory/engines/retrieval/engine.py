@@ -9,7 +9,6 @@ Retrieval Engine - 纯计算执行层
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 from hivememory.engines.retrieval.interfaces import BaseMemoryRetriever
 from hivememory.engines.retrieval.models import RetrievalQuery, RetrievalResult

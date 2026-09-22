@@ -17,8 +17,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from time import monotonic
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
 
 from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.runtime.events import (
@@ -47,9 +48,9 @@ class AsyncMaintenanceScheduler:
         self._tick_seconds = tick_seconds
         self._shutdown_wait_seconds = shutdown_wait_seconds
         self._runtime_events = runtime_events or NullRuntimeEventSink()
-        self._tasks: Dict[str, TaskRuntimeState] = {}
-        self._shutdown: Optional[asyncio.Event] = None
-        self._loop_task: Optional[asyncio.Task] = None
+        self._tasks: dict[str, TaskRuntimeState] = {}
+        self._shutdown: asyncio.Event | None = None
+        self._loop_task: asyncio.Task | None = None
         self._started = False
 
     # ========== 任务注册 ==========
@@ -102,7 +103,7 @@ class AsyncMaintenanceScheduler:
         logger.info(f"Maintenance task '{task_key}' enabled={enabled}")
         return True
 
-    def list_tasks(self) -> List[MaintenanceTaskSpec]:
+    def list_tasks(self) -> list[MaintenanceTaskSpec]:
         return [state.spec for state in self._tasks.values()]
 
     # ========== 生命周期 ==========
@@ -134,7 +135,7 @@ class AsyncMaintenanceScheduler:
         if self._loop_task:
             try:
                 await asyncio.wait_for(self._loop_task, timeout=self._shutdown_wait_seconds)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Scheduler loop did not exit within timeout, force cancelling")
                 self._loop_task.cancel()
                 try:
@@ -143,14 +144,15 @@ class AsyncMaintenanceScheduler:
                     pass
 
         running_tasks = [
-            s.current_task for s in self._tasks.values()
+            s.current_task
+            for s in self._tasks.values()
             if s.current_task and not s.current_task.done()
         ]
         if running_tasks:
-            logger.info(f"Waiting for {len(running_tasks)} running maintenance task(s) to finish...")
-            done, pending = await asyncio.wait(
-                running_tasks, timeout=self._shutdown_wait_seconds
+            logger.info(
+                f"Waiting for {len(running_tasks)} running maintenance task(s) to finish..."
             )
+            done, pending = await asyncio.wait(running_tasks, timeout=self._shutdown_wait_seconds)
             for t in pending:
                 t.cancel()
                 try:
@@ -179,7 +181,7 @@ class AsyncMaintenanceScheduler:
                     timeout=self._tick_seconds,
                 )
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     def _dispatch_task(self, state: TaskRuntimeState, now: float) -> None:
@@ -265,7 +267,9 @@ class AsyncMaintenanceScheduler:
                 source=spec.task_key,
                 subsystem=self._subsystem_for_owner(spec.owner),
                 component="maintenance_scheduler",
-                severity="error" if event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED else "info",
+                severity=(
+                    "error" if event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED else "info"
+                ),
                 status=status,
                 reason=error,
                 data=data,
@@ -282,8 +286,8 @@ class AsyncMaintenanceScheduler:
 
     # ========== 自省 ==========
 
-    def get_status(self) -> Dict[str, Any]:
-        result: Dict[str, Any] = {}
+    def get_status(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
         for key, state in self._tasks.items():
             running = state.current_task is not None and not state.current_task.done()
             result[key] = {
@@ -304,7 +308,4 @@ class AsyncMaintenanceScheduler:
         return self._started
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}(running={self._started}, "
-            f"tasks={len(self._tasks)})"
-        )
+        return f"{self.__class__.__name__}(running={self._started}, " f"tasks={len(self._tasks)})"

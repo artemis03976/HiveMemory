@@ -16,11 +16,11 @@ from typing import Any
 
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
-    AgentProfile,
     ActorIdentity,
+    AgentProfile,
+    IdentityScope,
     RuntimeScope,
     TurnEvent,
-    IdentityScope,
 )
 from hivememory.core.mtp.models import MTPCallRequest
 

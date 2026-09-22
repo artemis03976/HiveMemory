@@ -10,20 +10,18 @@ MTP System Prompt 构建器单元测试
 对应设计文档: MemoryToolProtocol.md Chapter 5
 """
 
-import pytest
-
-from hivememory.prompts.mtp import (
-    MTPPromptBuilder,
-    get_mtp_prompt,
-    DEFAULT_RUNTIME_TOOLS,
-)
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
 )
-
+from hivememory.prompts.mtp import (
+    DEFAULT_RUNTIME_TOOLS,
+    MTPPromptBuilder,
+    get_mtp_prompt,
+)
 
 # ========== MTPPromptBuilder 单元测试 ==========
+
 
 class TestMTPPromptBuilder:
     """测试 MTPPromptBuilder 各模块组装"""
@@ -109,8 +107,8 @@ class TestMTPPromptBuilder:
     def test_delimiters_are_actual_unicode(self):
         """定界符是实际的 Unicode 字符"""
         output = MTPPromptBuilder(language="en").build()
-        assert "\u27EA" in output  # ⟪
-        assert "\u27EB" in output  # ⟫
+        assert "\u27ea" in output  # ⟪
+        assert "\u27eb" in output  # ⟫
 
     def test_demo_shows_search_read_run_flow(self):
         """演示展示完整的 SEARCH → READ → RUN 流程"""
@@ -160,6 +158,7 @@ class TestMTPPromptBuilder:
 
 
 # ========== get_mtp_prompt 便捷函数测试 ==========
+
 
 class TestGetMTPPrompt:
     """测试 get_mtp_prompt 便捷函数"""

@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ========== 存储 ==========
 
+
 class QdrantConfig(BaseModel):
     host: str = Field(default="127.0.0.1")
     port: int = Field(default=6333)
@@ -24,6 +25,7 @@ class QdrantConfig(BaseModel):
 
 
 # ========== 感知 ==========
+
 
 class SimpleRelayConfig(BaseModel):
     type: Literal["simple"] = Field(default="simple")
@@ -67,6 +69,7 @@ class MemoryPerceptionConfig(BaseModel):
 
 # ========== 生成 ==========
 
+
 class ExtractorConfig(BaseModel):
     enabled: bool = Field(default=True)
 
@@ -94,6 +97,7 @@ class MemoryGenerationConfig(BaseModel):
 
 
 # ========== 检索 ==========
+
 
 class ReciprocalRankFusionConfig(BaseModel):
     type: Literal["rrf"] = "rrf"
@@ -124,10 +128,30 @@ class AdaptiveWeightedFusionConfig(BaseModel):
     type: Literal["adaptive"] = "adaptive"
     final_top_k: int = Field(default=5)
     default_mode: str = Field(default="concept")
-    debug_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.3, sparse_weight=0.9))
-    concept_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.8, sparse_weight=0.2, confidence_penalty_threshold=0.5, confidence_penalty_factor=0.7))
-    timeline_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.4, sparse_weight=0.3, confidence_penalty_factor=0.6))
-    brainstorm_mode: RetrievalModeConfig = Field(default_factory=lambda: RetrievalModeConfig(dense_weight=0.6, sparse_weight=0.1, confidence_penalty_enabled=False, vitality_boost_enabled=False))
+    debug_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(dense_weight=0.3, sparse_weight=0.9)
+    )
+    concept_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.8,
+            sparse_weight=0.2,
+            confidence_penalty_threshold=0.5,
+            confidence_penalty_factor=0.7,
+        )
+    )
+    timeline_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.4, sparse_weight=0.3, confidence_penalty_factor=0.6
+        )
+    )
+    brainstorm_mode: RetrievalModeConfig = Field(
+        default_factory=lambda: RetrievalModeConfig(
+            dense_weight=0.6,
+            sparse_weight=0.1,
+            confidence_penalty_enabled=False,
+            vitality_boost_enabled=False,
+        )
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -192,6 +216,7 @@ class MemoryRetrievalConfig(BaseModel):
 
 
 # ========== 生命周期 ==========
+
 
 class VitalityCalculatorConfig(BaseModel):
     # 固有价值权重 (I)：作为抗衰减调制因子，λ_eff = λ * (2 - I)
@@ -258,6 +283,7 @@ class MemoryLifecycleConfig(BaseModel):
 
 # ========== Artifacts ==========
 
+
 class ArtifactComponentConfig(BaseModel):
     enabled: bool = Field(default=True)
 
@@ -278,6 +304,7 @@ class ArtifactConfig(BaseModel):
 
 # ========== 关停 ==========
 
+
 class PatchouliShutdownConfig(BaseModel):
     generation_wait_timeout_seconds: float = Field(default=30.0, ge=0)
 
@@ -285,6 +312,7 @@ class PatchouliShutdownConfig(BaseModel):
 
 
 # ========== PatchouliConfig ==========
+
 
 class PatchouliConfig(BaseModel):
     storage: QdrantConfig = Field(default_factory=QdrantConfig)

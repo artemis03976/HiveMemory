@@ -1,5 +1,7 @@
 """ArtifactEngine - 极薄的组合根，不包含业务逻辑。"""
 
+from typing import TYPE_CHECKING
+
 from hivememory.engines.artifacts.document import (
     DocumentArtifactBuilder,
     NoOpDocumentArtifactBuilder,
@@ -17,7 +19,6 @@ from hivememory.engines.artifacts.memory import (
 )
 from hivememory.system.config.patchouli import ArtifactConfig
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import ArtifactStore
 

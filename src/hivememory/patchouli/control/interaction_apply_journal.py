@@ -41,9 +41,7 @@ def compute_apply_digest(
         "worth_saving": block.worth_saving,
         "gateway_intent": block.gateway_intent,
         "model_used": model_used or "",
-        "asset_refs": sorted(
-            (asset_ref.asset_id, asset_ref.token) for asset_ref in asset_refs
-        ),
+        "asset_refs": sorted((asset_ref.asset_id, asset_ref.token) for asset_ref in asset_refs),
     }
     payload = json.dumps(canonical, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

@@ -46,7 +46,9 @@ class AgentProfileManagementService:
         if atom is None:
             raise ValueError("create_agent_profile 需要 atom 载荷")
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         if atom.workspace_identity != scope.workspace_identity:
@@ -67,7 +69,9 @@ class AgentProfileManagementService:
         limit: int = 100,
     ) -> list[MemoryAtom]:
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
@@ -100,7 +104,9 @@ class AgentProfileManagementService:
     ) -> ProfileSnapshot:
         """读取 Profile 快照（profile.read）：唯一解析规则 + source 归属投影。"""
         scope = verified_scope(
-            access, WorkspaceOperation.PROFILE_READ, identity_scope,
+            access,
+            WorkspaceOperation.PROFILE_READ,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(

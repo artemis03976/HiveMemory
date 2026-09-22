@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -14,50 +14,50 @@ from hivememory.engines.memory_compiler.models import (
 
 class MemoryIdentityIR(BaseModel):
     source_kind: Literal["atom", "pending", "resolve_result"]
-    alias: Optional[str] = None
-    redirected_from: Optional[str] = None
-    memory_id: Optional[str] = None
+    alias: str | None = None
+    redirected_from: str | None = None
+    memory_id: str | None = None
 
 
 class MemoryContentIR(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    content: Optional[str] = None
-    instruction: Optional[str] = None
-    tags: List[str] = []
-    memory_type: Optional[str] = None
+    title: str | None = None
+    summary: str | None = None
+    content: str | None = None
+    instruction: str | None = None
+    tags: list[str] = []
+    memory_type: str | None = None
 
 
 class MemoryStatusIR(BaseModel):
-    source_state: Optional[str] = None
-    source_verb: Optional[Literal["WRITE", "UPDATE"]] = None
+    source_state: str | None = None
+    source_verb: Literal["WRITE", "UPDATE"] | None = None
     is_terminal: bool = False
     is_redirect: bool = False
     is_discarded: bool = False
-    message: Optional[str] = None
-    reason: Optional[str] = None
-    error: Optional[str] = None
+    message: str | None = None
+    reason: str | None = None
+    error: str | None = None
 
 
 class MemoryUnitIR(BaseModel):
     identity: MemoryIdentityIR
     content: MemoryContentIR
     status: MemoryStatusIR
-    metadata: Dict[str, Any] = {}
+    metadata: dict[str, Any] = {}
 
 
 class MemorySectionIR(BaseModel):
     kind: str
     # Phase A: 结构化单元，由 envelope 层按策略编译。
     # retrieval 场景下，MemoryUnitIR.metadata 应注入检索元数据（score/rank）。
-    units: List[MemoryUnitIR] = Field(default_factory=list)
+    units: list[MemoryUnitIR] = Field(default_factory=list)
     # 向后兼容：已编译的 artifact 列表；优先使用 units。
-    artifacts: List[CompiledMemoryArtifact] = Field(default_factory=list)
-    empty_text: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[CompiledMemoryArtifact] = Field(default_factory=list)
+    empty_text: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MemoryBundleIR(BaseModel):
     purpose: MemoryEnvelopeTarget
-    sections: List[MemorySectionIR] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    sections: list[MemorySectionIR] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)

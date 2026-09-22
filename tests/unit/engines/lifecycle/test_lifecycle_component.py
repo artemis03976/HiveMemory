@@ -14,53 +14,44 @@ HiveMemory Lifecycle 组件单元测试。
     - 验证评分公式、强化机制、归档流程
 """
 
-import sys
 import os
-import math
-import tempfile
-import shutil
+import sys
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List
-from datetime import datetime, timedelta
-from uuid import UUID, uuid4
-from unittest.mock import patch, MagicMock
+from uuid import UUID
 
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
 
 # ========== 日志配置 ==========
 
 import logging
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", force=True
 )
 
 # ========== 其他导入 ==========
 
 import pytest
-
 from rich.console import Console
 from rich.panel import Panel
 
 # 核心模型
-from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceMemoryKey
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
+from hivememory.engines.lifecycle.models import (
+    ArchiveRecord,
+    EventType,
+    MemoryEvent,
+)
+from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 
 # Lifecycle 组件
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
-from hivememory.engines.lifecycle.models import (
-    EventType,
-    MemoryEvent,
-    ReinforcementResult,
-    ArchiveRecord,
-)
 from hivememory.patchouli.memory_library import (
     LongTermMemoryStore,
     MemoryLibrary,
@@ -71,21 +62,18 @@ from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStor
 
 # 配置
 from hivememory.system.config import (
-    VitalityCalculatorConfig,
-    ReinforcementEngineConfig,
     ArchiverConfig,
+    ReinforcementEngineConfig,
+    VitalityCalculatorConfig,
 )
 
 # 导入测试数据
 from tests.fixtures.lifecycle_test_data import (
-    SCORING_TEST_CASES,
-    REINFORCEMENT_TEST_CASES,
-    ARCHIVING_TEST_CASES,
-    create_test_memory,
     create_memory_with_age,
-    get_scoring_test_by_id,
-    get_reinforcement_test_by_id,
+    create_test_memory,
     get_archiving_test_by_id,
+    get_reinforcement_test_by_id,
+    get_scoring_test_by_id,
 )
 from tests.helpers.workspace import make_identity_scope
 
@@ -99,19 +87,19 @@ class _MockMidTermAdapter:
     async def upsert(self, memory: MemoryAtom) -> None:
         await self._storage.upsert_memory(memory)
 
-    async def get(self, scope, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get(self, scope, memory_id: UUID) -> MemoryAtom | None:
         return await self._storage.get_memory(memory_id)
 
-    async def get_by_alias(self, scope, alias: str) -> Optional[MemoryAtom]:
+    async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
         return None
 
-    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
         memory = await self._storage.get_memory(memory_id)
         if memory is None or memory.workspace_identity != identity_scope.workspace_identity:
             return None
         return memory
 
-    async def get_by_key(self, key: WorkspaceMemoryKey) -> Optional[MemoryAtom]:
+    async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         memory = await self._storage.get_memory(key.memory_id)
         if memory is None or memory.workspace_identity != key.workspace_identity:
             return None
@@ -126,17 +114,25 @@ class _MockMidTermAdapter:
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         return await self._storage.delete_memory(key.memory_id)
 
-    async def batch_delete(self, identity_scope, ids: List[UUID]) -> int:
+    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
         count = 0
         for memory_id in ids:
             if await self.delete(identity_scope, memory_id):
                 count += 1
         return count
 
-    async def search(self, scope, query: str, top_k: int, filters=None, mode: str = "dense", score_threshold: float = 0.0):
+    async def search(
+        self,
+        scope,
+        query: str,
+        top_k: int,
+        filters=None,
+        mode: str = "dense",
+        score_threshold: float = 0.0,
+    ):
         return []
 
-    async def scroll(self, scope, filters=None, limit: int = 100) -> List[MemoryAtom]:
+    async def scroll(self, scope, filters=None, limit: int = 100) -> list[MemoryAtom]:
         return [
             memory
             for memory in self._storage.list_all_memories(limit=limit)
@@ -146,7 +142,7 @@ class _MockMidTermAdapter:
     async def count(self, scope, filters=None) -> int:
         return len(await self.scroll(scope, filters=filters))
 
-    async def list_all_for_maintenance(self, limit: int = 10000) -> List[MemoryAtom]:
+    async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return self._storage.list_all_memories(limit=limit)
 
 
@@ -177,12 +173,13 @@ class _LegacyArchiverFixture:
     def _memory_key(cls, memory_id: UUID) -> WorkspaceMemoryKey:
         return WorkspaceMemoryKey.from_identity_scope(cls._identity_scope(), memory_id)
 
-    async def get_archive_record(self, memory_id: UUID) -> Optional[ArchiveRecord]:
+    async def get_archive_record(self, memory_id: UUID) -> ArchiveRecord | None:
         records = await self._library.long_term.query(limit=100)
         return next((record for record in records if record.memory_id == memory_id), None)
 
 
 # ========== Mock 存储 ==========
+
 
 class MockQdrantMemoryStore:
     """
@@ -192,10 +189,10 @@ class MockQdrantMemoryStore:
     """
 
     def __init__(self):
-        self.memories: Dict[UUID, MemoryAtom] = {}
-        self._call_log: List[Dict] = []
+        self.memories: dict[UUID, MemoryAtom] = {}
+        self._call_log: list[dict] = []
 
-    async def get_memory(self, memory_id: UUID) -> Optional[MemoryAtom]:
+    async def get_memory(self, memory_id: UUID) -> MemoryAtom | None:
         """获取记忆"""
         self._call_log.append({"method": "get_memory", "memory_id": memory_id})
         return self.memories.get(memory_id)
@@ -213,7 +210,7 @@ class MockQdrantMemoryStore:
             return True
         return False
 
-    def list_all_memories(self, limit: int = 100) -> List[MemoryAtom]:
+    def list_all_memories(self, limit: int = 100) -> list[MemoryAtom]:
         """列出所有记忆"""
         self._call_log.append({"method": "list_all_memories", "limit": limit})
         return list(self.memories.values())[:limit]
@@ -231,12 +228,10 @@ class MockQdrantMemoryStore:
 
 # ========== 辅助函数 ==========
 
+
 def print_test_header(test_id: str, test_name: str) -> None:
     """打印测试标题"""
-    console.print(Panel(
-        f"[bold cyan]{test_id}[/bold cyan]: {test_name}",
-        style="blue"
-    ))
+    console.print(Panel(f"[bold cyan]{test_id}[/bold cyan]: {test_name}", style="blue"))
 
 
 def print_test_result(test_id: str, test_name: str, passed: bool, details: str = "") -> None:
@@ -248,6 +243,7 @@ def print_test_result(test_id: str, test_name: str, passed: bool, details: str =
 
 
 # ========== Fixtures ==========
+
 
 @pytest.fixture
 def mock_storage() -> MockQdrantMemoryStore:
@@ -294,9 +290,7 @@ def reinforcement_config() -> ReinforcementEngineConfig:
 
 @pytest.fixture
 def reinforcement_engine(
-    mock_storage,
-    reinforcement_config,
-    vitality_calculator
+    mock_storage, reinforcement_config, vitality_calculator
 ) -> DynamicReinforcementEngine:
     """提供强化引擎实例"""
     return DynamicReinforcementEngine(
@@ -332,6 +326,7 @@ def archiver(mock_storage, archiver_config) -> _LegacyArchiverFixture:
 
 
 # ========== 测试类: 评分逻辑 ==========
+
 
 class TestVitalityScoring:
     """
@@ -376,10 +371,7 @@ class TestVitalityScoring:
         )
 
         print_test_result(
-            case["id"],
-            case["name"],
-            True,
-            f"30d后 CODE={code_score:.2f}, WIP={wip_score:.2f}"
+            case["id"], case["name"], True, f"30d后 CODE={code_score:.2f}, WIP={wip_score:.2f}"
         )
 
     def test_lif_scr_002_time_decay(self, vitality_calculator):
@@ -426,14 +418,14 @@ class TestVitalityScoring:
         actual_ratio = old_score / fresh_score if fresh_score > 0 else 0
         assert abs(actual_ratio - expected_decay) < tolerance, (
             f"Decay ratio ({actual_ratio:.4f}) should be close to "
-            f"expected ({expected_decay:.4f}) under λ_eff={lambda_eff}"
+            f"expected ({expected_decay:.4f})"
         )
 
         print_test_result(
             case["id"],
             case["name"],
             True,
-            f"Fresh={fresh_score:.2f}, Old={old_score:.2f}, Ratio={actual_ratio:.4f}"
+            f"Fresh={fresh_score:.2f}, Old={old_score:.2f}, Ratio={actual_ratio:.4f}",
         )
 
     def test_lif_scr_003_access_boost_cap(self, vitality_calculator):
@@ -456,19 +448,15 @@ class TestVitalityScoring:
         high_score = vitality_calculator.calculate(high_access_memory)
 
         # 新记忆 base=100 已封顶，访问加成不改变结果
-        assert high_score == 100.0, (
-            f"High-access memory ({high_score:.2f}) should be clamped to 100"
-        )
+        assert (
+            high_score == 100.0
+        ), f"High-access memory ({high_score:.2f}) should be clamped to 100"
 
-        print_test_result(
-            case["id"],
-            case["name"],
-            True,
-            f"HighAccessScore={high_score:.2f}"
-        )
+        print_test_result(case["id"], case["name"], True, f"HighAccessScore={high_score:.2f}")
 
 
 # 测试类: 强化事件 ==========
+
 
 class TestReinforcement:
     """
@@ -502,8 +490,8 @@ class TestReinforcement:
         #       仿真 MemoryGenerationEngine._draft_to_memory 仅设 confidence 之外的默认路径。
         memory = create_test_memory(
             template_name="code_snippet",
-            vitality_score=100.0,     # MetaData 字段默认 100，与 V_0 自洽
-            confidence_score=0.6,     # MetaData 字段默认 0.6，旧公式下会被压低
+            vitality_score=100.0,  # MetaData 字段默认 100，与 V_0 自洽
+            confidence_score=0.6,  # MetaData 字段默认 0.6，旧公式下会被压低
             access_count=0,
         )
         # event_vitality_boost 重置为 0 (仿真刚写入、未被强化的初态)
@@ -530,9 +518,9 @@ class TestReinforcement:
         updated_memory = await mock_storage.get_memory(memory.id)
 
         # 验证 1: vitality 保持 100 (修复前会是 67)
-        assert result.previous_vitality == 100.0, (
-            f"新记忆 previous_vitality 应为 100，实际 {result.previous_vitality}"
-        )
+        assert (
+            result.previous_vitality == 100.0
+        ), f"新记忆 previous_vitality 应为 100，实际 {result.previous_vitality}"
         assert result.new_vitality == 100.0, (
             f"新记忆 HIT 后 new_vitality 应保持 100 (修复后)，实际 {result.new_vitality} "
             f"(修复前 bug 表现为 67)"
@@ -546,14 +534,14 @@ class TestReinforcement:
 
         # 验证 3: HIT 不重置 updated_at (衰减钟持续作用，艾宾浩斯语义)
         if case["expected_updated_at_unchanged_on_hit"]:
-            assert updated_memory.meta.updated_at == pre_updated_at, (
-                "HIT 不应重置 updated_at (仅 CITATION 重置) — 让遗忘曲线持续作用"
-            )
+            assert (
+                updated_memory.meta.updated_at == pre_updated_at
+            ), "HIT 不应重置 updated_at (仅 CITATION 重置) — 让遗忘曲线持续作用"
 
         # 验证 4: access_count += 1
-        assert updated_memory.meta.access_count == 1, (
-            f"access_count 应递增为 1，实际 {updated_memory.meta.access_count}"
-        )
+        assert (
+            updated_memory.meta.access_count == 1
+        ), f"access_count 应递增为 1，实际 {updated_memory.meta.access_count}"
 
         print_test_result(
             case["id"],
@@ -561,7 +549,7 @@ class TestReinforcement:
             True,
             f"Vitality: {result.previous_vitality:.1f} -> {result.new_vitality:.1f}, "
             f"B={updated_memory.meta.event_vitality_boost}, "
-            f"updated_at unchanged={updated_memory.meta.updated_at == pre_updated_at}"
+            f"updated_at unchanged={updated_memory.meta.updated_at == pre_updated_at}",
         )
 
     @pytest.mark.asyncio
@@ -583,7 +571,6 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_vitality = memory.meta.vitality_score
         initial_access_count = memory.meta.access_count
 
         # 触发 HIT 事件
@@ -602,19 +589,19 @@ class TestReinforcement:
         updated_memory = await mock_storage.get_memory(memory.id)
 
         # 验证
-        assert updated_memory.meta.access_count == initial_access_count + 1, (
-            f"Access count should increase by 1"
-        )
-        assert result.new_vitality >= result.previous_vitality, (
-            f"Vitality should increase or stay same after HIT"
-        )
+        assert (
+            updated_memory.meta.access_count == initial_access_count + 1
+        ), "Access count should increase by 1"
+        assert (
+            result.new_vitality >= result.previous_vitality
+        ), "Vitality should increase or stay same after HIT"
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}"
+            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}",
         )
 
     @pytest.mark.asyncio
@@ -654,21 +641,19 @@ class TestReinforcement:
         updated_memory = await mock_storage.get_memory(old_memory.id)
 
         # 验证 updated_at 被更新（时间衰减重置）
-        assert updated_memory.meta.updated_at > old_updated_at, (
-            "updated_at should be reset to now"
-        )
+        assert updated_memory.meta.updated_at > old_updated_at, "updated_at should be reset to now"
 
         # 验证生命力提升
-        assert result.new_vitality > result.previous_vitality, (
-            f"Vitality should increase after CITATION"
-        )
+        assert (
+            result.new_vitality > result.previous_vitality
+        ), "Vitality should increase after CITATION"
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"Decay Reset: True"
+            f"Decay Reset: True",
         )
 
     @pytest.mark.asyncio
@@ -709,16 +694,16 @@ class TestReinforcement:
 
         # 验证置信度降低 (乘以 0.5)
         expected_confidence = initial_confidence * case["expected_confidence_multiplier"]
-        assert abs(updated_memory.meta.confidence_score - expected_confidence) < 0.01, (
-            f"Confidence should be multiplied by {case['expected_confidence_multiplier']}"
-        )
+        assert (
+            abs(updated_memory.meta.confidence_score - expected_confidence) < 0.01
+        ), f"Confidence should be multiplied by {case['expected_confidence_multiplier']}"
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"Confidence: {result.previous_confidence:.2f} -> {result.new_confidence:.2f}"
+            f"Confidence: {result.previous_confidence:.2f} -> {result.new_confidence:.2f}",
         )
 
     @pytest.mark.asyncio
@@ -758,25 +743,26 @@ class TestReinforcement:
         updated_memory = await mock_storage.get_memory(memory.id)
 
         # 验证生命力提升
-        assert result.new_vitality > result.previous_vitality, (
-            "Vitality should increase after positive feedback"
-        )
+        assert (
+            result.new_vitality > result.previous_vitality
+        ), "Vitality should increase after positive feedback"
 
         # 验证访问计数增加
-        assert updated_memory.meta.access_count == initial_access_count + 1, (
-            "Access count should increase by 1"
-        )
+        assert (
+            updated_memory.meta.access_count == initial_access_count + 1
+        ), "Access count should increase by 1"
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}"
+            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}",
         )
 
 
 # ========== 测试类: 归档与唤醒 ==========
+
 
 class TestArchiving:
     """
@@ -804,35 +790,32 @@ class TestArchiving:
         memory_id = memory.id
 
         # 验证记忆在热存储中
-        assert await mock_storage.get_memory(memory_id) is not None, (
-            "Memory should exist in hot storage before archive"
-        )
+        assert (
+            await mock_storage.get_memory(memory_id) is not None
+        ), "Memory should exist in hot storage before archive"
 
         # 执行归档
         await archiver.archive(memory_id)
 
         # 验证记忆从热存储中删除
-        assert await mock_storage.get_memory(memory_id) is None, (
-            "Memory should be deleted from hot storage after archive"
-        )
+        assert (
+            await mock_storage.get_memory(memory_id) is None
+        ), "Memory should be deleted from hot storage after archive"
 
         # 验证记忆在冷存储中
-        assert await archiver.is_archived(memory_id), (
-            "Memory should be in cold storage after archive"
-        )
+        assert await archiver.is_archived(
+            memory_id
+        ), "Memory should be in cold storage after archive"
 
         # 验证归档文件存在
         record = await archiver.get_archive_record(memory_id)
         assert record is not None, "Archive record should exist"
-        assert Path(record.storage_path).exists(), (
-            f"Archive file should exist at {record.storage_path}"
-        )
+        assert Path(
+            record.storage_path
+        ).exists(), f"Archive file should exist at {record.storage_path}"
 
         print_test_result(
-            case["id"],
-            case["name"],
-            True,
-            f"Archived to {Path(record.storage_path).name}"
+            case["id"], case["name"], True, f"Archived to {Path(record.storage_path).name}"
         )
 
     @pytest.mark.asyncio
@@ -866,14 +849,14 @@ class TestArchiving:
         resurrected_memory = await archiver.resurrect(memory_id)
 
         # 验证记忆回到热存储
-        assert await mock_storage.get_memory(memory_id) is not None, (
-            "Memory should be back in hot storage"
-        )
+        assert (
+            await mock_storage.get_memory(memory_id) is not None
+        ), "Memory should be back in hot storage"
 
         # 验证不再在冷存储中
-        assert not await archiver.is_archived(memory_id), (
-            "Memory should not be in cold storage after resurrect"
-        )
+        assert not await archiver.is_archived(
+            memory_id
+        ), "Memory should not be in cold storage after resurrect"
 
         # 验证数据完整性
         assert resurrected_memory.id == memory_id, "ID should match"
@@ -886,7 +869,7 @@ class TestArchiving:
             case["id"],
             case["name"],
             True,
-            f"Data integrity verified: title, content, tags all match"
+            "Data integrity verified: title, content, tags all match",
         )
 
     @pytest.mark.asyncio
@@ -920,16 +903,9 @@ class TestArchiving:
 
         # 验证没有重复文件
         record_after = await archiver.get_archive_record(memory_id)
-        assert record_after.storage_path == first_path, (
-            "Archive path should remain the same"
-        )
+        assert record_after.storage_path == first_path, "Archive path should remain the same"
 
-        print_test_result(
-            case["id"],
-            case["name"],
-            True,
-            f"Idempotent: no error, no duplicate file"
-        )
+        print_test_result(case["id"], case["name"], True, "Idempotent: no error, no duplicate file")
 
 
 # ========== 主入口 ==========

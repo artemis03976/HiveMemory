@@ -21,7 +21,6 @@ from hivememory.server.deps import (
 from hivememory.server.routers.chat import router as chat_router
 from hivememory.server.routers.topics import router as topics_router
 
-
 # ─── 解析器单元行为 ──────────────────────────────────────────────────────────
 
 
@@ -115,7 +114,6 @@ def _create_topics_app() -> FastAPI:
 
     bus = MagicMock()
     handler = AsyncMock(return_value=[])
-    from hivememory.system.contracts.routes import GlobalRoutes
 
     bus.request = handler
     app.dependency_overrides[deps.get_topic_service] = lambda: _TopicServiceStub(bus)
@@ -127,9 +125,7 @@ class _TopicServiceStub:
         self._bus = bus
 
     async def list_active_topics(self, *, identity_scope):
-        return await self._bus.request(
-            "topic.list_active", identity_scope=identity_scope
-        )
+        return await self._bus.request("topic.list_active", identity_scope=identity_scope)
 
 
 class TestChatEntryIdentity:
@@ -159,9 +155,7 @@ class TestChatEntryIdentity:
         async def fake_stream(**kwargs):
             yield {"event": "done", "data": {"final_text": "ok"}}
 
-        mock_service.chat_stream_scoped = MagicMock(
-            side_effect=lambda **kw: fake_stream(**kw)
-        )
+        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
         client = TestClient(_create_chat_app(mock_service))
 
         response = client.post(

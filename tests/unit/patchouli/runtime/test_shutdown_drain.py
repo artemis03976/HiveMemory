@@ -51,9 +51,7 @@ def test_summarize_shutdown_drain_result_uses_counts_only():
     assert summary["generation"]["running"] == 1
     assert summary["generation"]["timed_out"] == 1
     assert summary["generation_cancelled_after_timeout"] == 1
-    assert shutdown_drain_completed_status({"generation": generation}) == (
-        "completed_with_timeout"
-    )
+    assert shutdown_drain_completed_status({"generation": generation}) == ("completed_with_timeout")
     assert shutdown_drain_completed_severity({"generation": generation}) == "warning"
 
 

@@ -53,6 +53,7 @@ def _main_workspace(user_id: str = "u1") -> WorkspaceIdentity:
 
 # ============ 基本字段映射 ============
 
+
 def test_public_v1_converts_to_v2_with_main_workspace_identity() -> None:
     """缺失 workspace_identity 的 V1 记录映射到 user 的 main_workspace。"""
     result = convert_v1_memory_payload(_v1_payload(), missing_visibility_policy="public")
@@ -87,6 +88,7 @@ def test_contributors_are_never_guessed_during_v1_conversion() -> None:
 
 
 # ============ visibility → access_policy 映射 ============
+
 
 def test_private_v1_maps_policy_target_from_source_agent() -> None:
     """legacy PRIVATE 的可见性 target 是来源 Agent（codec 一致语义）。"""
@@ -167,6 +169,7 @@ def test_private_policy_target_system_is_rejected() -> None:
 
 # ============ Workspace 归属 fail-closed ============
 
+
 def test_missing_user_id_without_projection_fails_closed() -> None:
     """无 user_id 且无投影时无法确定归属。"""
     result = convert_v1_memory_payload(
@@ -231,11 +234,10 @@ def test_missing_source_agent_id_fails_closed() -> None:
 
 # ============ legacy Artifact 判定与迁移命名空间 ============
 
+
 def test_legacy_artifact_detected_by_owner_agent_id_key() -> None:
     """owner_agent_id 键（当前模型已删除）是 legacy 形状标记。"""
-    assert _is_legacy_artifact(
-        {"artifact_type": "document", "owner_agent_id": "omni_doll"}
-    ) is True
+    assert _is_legacy_artifact({"artifact_type": "document", "owner_agent_id": "omni_doll"}) is True
     assert _is_legacy_artifact({"artifact_type": "document"}) is False
 
 
@@ -244,12 +246,8 @@ def test_legacy_interaction_detected_by_flat_turn_fields() -> None:
     legacy_turn = {"user_id": "u1", "agent_id": "a1"}
     canonical_turn = {"actor_identity": {"user_id": "u1", "agent_id": "a1"}}
 
-    assert _is_legacy_artifact(
-        {"artifact_type": "interaction", "turns": [legacy_turn]}
-    ) is True
-    assert _is_legacy_artifact(
-        {"artifact_type": "interaction", "turns": [canonical_turn]}
-    ) is False
+    assert _is_legacy_artifact({"artifact_type": "interaction", "turns": [legacy_turn]}) is True
+    assert _is_legacy_artifact({"artifact_type": "interaction", "turns": [canonical_turn]}) is False
 
 
 def test_replacement_artifact_id_is_deterministic_and_namespaced() -> None:
@@ -270,6 +268,7 @@ def test_replacement_artifact_id_is_deterministic_and_namespaced() -> None:
 
 # ============ repair 模式：ref workspace 回填 ============
 
+
 def _payload_with_bare_refs() -> dict:
     """refs 缺失 workspace_identity 的最早代 V1 payload（死簇形状）。"""
     payload = _v1_payload()
@@ -279,9 +278,12 @@ def _payload_with_bare_refs() -> dict:
             {"artifact_id": "art_old_2", "artifact_type": "interaction"},
         ],
         "events": [
-            {"event_type": "created", "artifact_refs": [
-                {"artifact_id": "art_old_1", "artifact_type": "memory_creation"},
-            ]},
+            {
+                "event_type": "created",
+                "artifact_refs": [
+                    {"artifact_id": "art_old_1", "artifact_type": "memory_creation"},
+                ],
+            },
         ],
     }
     return payload
@@ -342,6 +344,7 @@ def test_ref_with_workspace_identity_is_not_overwritten_by_repair() -> None:
 
 # ============ repair 模式：meta 归属解析（Artifact 采纳依据） ============
 
+
 def test_resolve_workspace_from_v1_meta_uses_user_id() -> None:
     """V1 meta 的 user_id 解析为 main_workspace 归属。"""
     payload = _v1_payload(user_id="u9")
@@ -355,7 +358,11 @@ def test_resolve_workspace_from_v2_meta_prefers_projection() -> None:
     payload["meta"].update(
         {
             "schema_version": 2,
-            "workspace_identity": {"owner_user_id": "u9", "workspace_key": "ws9", "workspace_id": "ws9"},
+            "workspace_identity": {
+                "owner_user_id": "u9",
+                "workspace_key": "ws9",
+                "workspace_id": "ws9",
+            },
             "owner_user_id": "u9",
             "workspace_key": "ws9",
             "workspace_id": "ws9",

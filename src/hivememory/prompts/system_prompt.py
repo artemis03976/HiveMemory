@@ -16,7 +16,6 @@ System Prompt 总构建器
 """
 
 import logging
-from typing import Optional
 
 from hivememory.i18n import get_system_prompt_text
 
@@ -91,7 +90,7 @@ class SystemPromptBuilder:
 
     # === 构建 ===
 
-    def build(self) -> Optional[str]:
+    def build(self) -> str | None:
         """
         拼装完整的 System Prompt
 

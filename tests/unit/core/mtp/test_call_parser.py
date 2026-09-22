@@ -38,8 +38,6 @@ class TestMTPCallParsing:
     def test_parse_list_args_single_item(self):
         """列表参数 — 单个元素"""
         parser = MTPParser()
-        cmd = parser.parse(
-            '⟪ CALL | coder | task="test" context_refs=["mem_spec"] ⟫'
-        )
+        cmd = parser.parse('⟪ CALL | coder | task="test" context_refs=["mem_spec"] ⟫')
         refs = json.loads(cmd.args["context_refs"])
         assert refs == ["mem_spec"]

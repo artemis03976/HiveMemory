@@ -6,8 +6,11 @@ Rerank 服务基础模块
 
 import logging
 import threading
-from typing import List, Union, Optional
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from hivememory.system.config import RerankerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -15,25 +18,22 @@ logger = logging.getLogger(__name__)
 class BaseRerankService(ABC):
     """
     Rerank 服务抽象接口
-    
+
     定义所有 Rerank 服务必须实现的方法。
     """
 
     @abstractmethod
     def compute_score(
-        self,
-        pairs: List[List[str]],
-        batch_size: int = 256,
-        max_length: int = 512
-    ) -> List[float]:
+        self, pairs: list[list[str]], batch_size: int = 256, max_length: int = 512
+    ) -> list[float]:
         """
         计算文本对的相似度分数
-        
+
         Args:
             pairs: 文本对列表 [[query, passage], ...]
             batch_size: 批处理大小
             max_length: 最大长度
-            
+
         Returns:
             分数列表
         """
@@ -55,9 +55,10 @@ class BaseRerankService(ABC):
 class SingletonModelService(BaseRerankService):
     """
     单例模型服务基类
-    
+
     封装了通用的单例模式、线程安全和延迟加载逻辑。
     """
+
     _instance = None
     _lock = threading.Lock()
     _initialized = False
@@ -71,13 +72,10 @@ class SingletonModelService(BaseRerankService):
                     cls._instance._initialized = False
         return cls._instance
 
-    def __init__(
-        self,
-        config: "RerankerConfig"
-    ):
+    def __init__(self, config: "RerankerConfig"):
         """
         初始化服务配置
-        
+
         Args:
             config: Reranker 配置对象
         """
@@ -91,12 +89,11 @@ class SingletonModelService(BaseRerankService):
         self.use_fp16 = config.use_fp16
         self._model = None
         self._lazy_load_lock = threading.Lock()
-        
+
         self._initialized = True
-        
+
         logger.info(
-            f"{self.__class__.__name__} 配置: "
-            f"model={self.model_name}, device={self.device}"
+            f"{self.__class__.__name__} 配置: " f"model={self.model_name}, device={self.device}"
         )
 
     @property

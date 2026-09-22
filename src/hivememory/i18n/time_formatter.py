@@ -5,7 +5,6 @@ from __future__ import annotations
 from hivememory.i18n.resolver import resolve_language
 from hivememory.i18n.types import Language
 
-
 _TIME_FORMATTER_TEXT_ZH = {
     "months_ago": "{months} 个月前",
     "days_ago": "{days} 天前",

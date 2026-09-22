@@ -1,27 +1,31 @@
 """Memory 相关的 Response 模型"""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from hivememory.core.models import MemoryAtom
 
-
 _ALLOWED_MEMORY_TYPES = {
-    "CODE_SNIPPET", "FACT", "URL_RESOURCE",
-    "REFLECTION", "USER_PROFILE", "WORK_IN_PROGRESS",
+    "CODE_SNIPPET",
+    "FACT",
+    "URL_RESOURCE",
+    "REFLECTION",
+    "USER_PROFILE",
+    "WORK_IN_PROGRESS",
 }
 
 
 class MemoryResponse(BaseModel):
     """MemoryAtom 的可序列化子集"""
+
     id: str
     title: str
     summary: str
     memory_type: str
-    tags: List[str]
-    alias: Optional[str] = None
+    tags: list[str]
+    alias: str | None = None
     content: str
     created_at: datetime
     updated_at: datetime
@@ -36,7 +40,11 @@ class MemoryResponse(BaseModel):
             id=str(atom.id),
             title=atom.index.title,
             summary=atom.index.summary,
-            memory_type=atom.index.memory_type.value if hasattr(atom.index.memory_type, 'value') else str(atom.index.memory_type),
+            memory_type=(
+                atom.index.memory_type.value
+                if hasattr(atom.index.memory_type, "value")
+                else str(atom.index.memory_type)
+            ),
             tags=atom.index.tags,
             alias=atom.index.alias,
             content=atom.payload.content,
@@ -50,12 +58,12 @@ class MemoryResponse(BaseModel):
 
 
 class MemoryUpdateRequest(BaseModel):
-    title: Optional[str] = None
-    summary: Optional[str] = None
-    content: Optional[str] = None
-    alias: Optional[str] = None
-    tags: Optional[List[str]] = None
-    agent_config: Optional[Dict[str, Any]] = None
+    title: str | None = None
+    summary: str | None = None
+    content: str | None = None
+    alias: str | None = None
+    tags: list[str] | None = None
+    agent_config: dict[str, Any] | None = None
 
 
 class MemoryFeedbackRequest(BaseModel):
@@ -75,7 +83,7 @@ class MemoryFeedbackResponse(BaseModel):
 
 
 class MemoryListResponse(BaseModel):
-    memories: List[MemoryResponse]
+    memories: list[MemoryResponse]
     total: int
 
 
@@ -84,8 +92,8 @@ class MemoryCreateRequest(BaseModel):
     summary: str = Field(..., min_length=10, max_length=500)
     content: str = Field(..., min_length=1)
     memory_type: str
-    tags: List[str] = []
-    alias: Optional[str] = Field(default=None, max_length=60)
+    tags: list[str] = []
+    alias: str | None = Field(default=None, max_length=60)
 
     @field_validator("memory_type")
     @classmethod

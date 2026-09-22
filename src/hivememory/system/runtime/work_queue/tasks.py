@@ -47,7 +47,7 @@ class QueueTaskAdapter(Protocol[TaskT]):
     def decode(self, payload: object) -> TaskT: ...
 
 
-def adapt_queue_task(
+def adapt_queue_task[TaskT](
     task: TaskT,
     *,
     lane: str,
@@ -124,10 +124,7 @@ class TaskHandle[ResultT]:
 
     @property
     def cancel_requested(self) -> bool:
-        return (
-            self._pending_cancel_reason is not None
-            or self._accepted_cancel_reason is not None
-        )
+        return self._pending_cancel_reason is not None or self._accepted_cancel_reason is not None
 
     @property
     def cancel_reason(self) -> str | None:
@@ -141,9 +138,7 @@ class TaskHandle[ResultT]:
     async def wait(self, timeout: float | None = None) -> TaskOutcome[ResultT] | None:
         """等待工作进入终态，并返回当时的类型化结果视图。"""
 
-        return self._to_outcome(
-            await self._queue.wait(self._work_id, timeout=timeout)
-        )
+        return self._to_outcome(await self._queue.wait(self._work_id, timeout=timeout))
 
     async def wait_started(self) -> None:
         """无需轮询 ``WorkRecord``，等待处理器开始首次执行。"""

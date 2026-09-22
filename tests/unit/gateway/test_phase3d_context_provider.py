@@ -91,9 +91,7 @@ async def test_provider_converts_bus_unavailable_to_recoverable_error() -> None:
     provider = GlobalBusGatewayContextProvider(global_bus=GlobalSystemBus())
 
     with pytest.raises(RecoverableGatewayError, match="candidate topics"):
-        await provider.prepare_candidate_topics(
-            identity_scope=make_identity_scope(user_id="u1")
-        )
+        await provider.prepare_candidate_topics(identity_scope=make_identity_scope(user_id="u1"))
 
 
 @pytest.mark.asyncio
@@ -165,9 +163,7 @@ async def test_candidate_preparation_has_independent_timeout_fallback() -> None:
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, slow_list)
     router = AsyncMock()
-    router.route = AsyncMock(
-        return_value=TopicRoutingResult(topic_id="NEW_TOPIC")
-    )
+    router.route = AsyncMock(return_value=TopicRoutingResult(topic_id="NEW_TOPIC"))
     resolver = _resolver()
     events = RecordingRuntimeEventSink()
     workflow = _build_provider_workflow(
@@ -218,9 +214,7 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_topics)
     bus.register(PatchouliRoutes.TOPIC_GET_DATA, slow_get)
     router = AsyncMock()
-    router.route = AsyncMock(
-        return_value=TopicRoutingResult(topic_id="topic-1")
-    )
+    router.route = AsyncMock(return_value=TopicRoutingResult(topic_id="topic-1"))
     resolver = _resolver()
     events = RecordingRuntimeEventSink()
     workflow = _build_provider_workflow(

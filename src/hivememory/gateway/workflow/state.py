@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from hivememory.core.models import TopicData, IdentityScope
+from hivememory.core.models import IdentityScope, TopicData
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     GatewayCommandOutcome,

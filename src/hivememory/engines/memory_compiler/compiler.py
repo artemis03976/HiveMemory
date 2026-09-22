@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Tuple, Union
-
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.memory_compiler.builders import (
     build_memory_atom_ir,
@@ -30,7 +28,7 @@ class MemoryCompiler:
     def compile(
         self,
         source,
-        target: Union[MemoryCompileTarget, MemoryEnvelopeTarget],
+        target: MemoryCompileTarget | MemoryEnvelopeTarget,
         options: MemoryCompileOptions | None = None,
     ) -> CompiledMemory | list[CompiledMemory]:
         """
@@ -44,7 +42,7 @@ class MemoryCompiler:
         # 为编译选项添加兜底
         opts = self._prepare_options(options, target)
 
-        # 统一将所有记忆数据转换为 MemoryUnitIR 
+        # 统一将所有记忆数据转换为 MemoryUnitIR
         unit_irs, effective_options = self._build_unit_irs(source, opts)
 
         if isinstance(target, MemoryCompileTarget):
@@ -88,7 +86,7 @@ class MemoryCompiler:
 
         if opts.language is None:
             opts = opts.model_copy(update={"language": get_default_language().value})
-        
+
         if (
             target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT
             and opts.retrieval_strategy_config is None
@@ -128,7 +126,9 @@ class MemoryCompiler:
         bundle_ir = self._build_bundle_ir(section_irs, target, options)
         return compile_envelope_from_ir(bundle_ir, options=options)
 
-    def _build_unit_ir(self, source, options: MemoryCompileOptions) -> Tuple[MemoryUnitIR, MemoryCompileOptions]:
+    def _build_unit_ir(
+        self, source, options: MemoryCompileOptions
+    ) -> tuple[MemoryUnitIR, MemoryCompileOptions]:
         """
         从可编译单元 source 构建 MemoryUnitIR。
         """
@@ -156,9 +156,7 @@ class MemoryCompiler:
 
         if isinstance(source, PendingAtomSettlement):
             kind = (
-                "discarded"
-                if source.resolution == PendingAtomResolution.DISCARDED
-                else "redirect"
+                "discarded" if source.resolution == PendingAtomResolution.DISCARDED else "redirect"
             )
             resolve = ResolveResult(
                 kind=kind,
@@ -180,7 +178,9 @@ class MemoryCompiler:
             "Expected MemoryAtom, PendingAtom, ResolveResult, or PendingAtomSettlement."
         )
 
-    def _build_unit_irs(self, source, options: MemoryCompileOptions) -> tuple[list[MemoryUnitIR], MemoryCompileOptions]:
+    def _build_unit_irs(
+        self, source, options: MemoryCompileOptions
+    ) -> tuple[list[MemoryUnitIR], MemoryCompileOptions]:
         if isinstance(source, list):
             units: list[MemoryUnitIR] = []
             effective_options = options

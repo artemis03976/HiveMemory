@@ -20,6 +20,18 @@ from hivememory.server.deps import (
     shutdown_websocket_log_broadcasting,
 )
 from hivememory.server.models.common import HealthResponse, ReadinessResponse
+from hivememory.server.routers.agents import router as agents_router
+from hivememory.server.routers.chat import router as chat_router
+from hivememory.server.routers.config import router as config_router
+from hivememory.server.routers.ingest import router as ingest_router
+from hivememory.server.routers.logs import router as logs_router
+from hivememory.server.routers.memories import router as memories_router
+from hivememory.server.routers.memory_tasks import router as memory_tasks_router
+from hivememory.server.routers.models import router as models_router
+from hivememory.server.routers.providers import router as providers_router
+from hivememory.server.routers.runtime_events import router as runtime_events_router
+from hivememory.server.routers.topics import router as topics_router
+from hivememory.server.routers.workspace_assets import router as workspace_assets_router
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +81,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:6918",      # 自定义前端端口
-        "http://127.0.0.1:6918",      # 自定义前端端口
-        "http://localhost:3000",      # 旧版端口
-        "http://127.0.0.1:3000",      # 旧版端口
-        "http://localhost:5173",      # Vite 默认端口（可能被 Windows 保留）
-        "http://127.0.0.1:5173",      # Vite 默认端口（可能被 Windows 保留）
+        "http://localhost:6918",  # 自定义前端端口
+        "http://127.0.0.1:6918",  # 自定义前端端口
+        "http://localhost:3000",  # 旧版端口
+        "http://127.0.0.1:3000",  # 旧版端口
+        "http://localhost:5173",  # Vite 默认端口（可能被 Windows 保留）
+        "http://127.0.0.1:5173",  # Vite 默认端口（可能被 Windows 保留）
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -88,7 +100,9 @@ async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     elapsed_ms = (time.time() - start) * 1000
-    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({elapsed_ms:.0f}ms)")
+    logger.info(
+        f"{request.method} {request.url.path} → {response.status_code} ({elapsed_ms:.0f}ms)"
+    )
     return response
 
 
@@ -122,19 +136,6 @@ async def readiness():
 
 
 # 注册路由
-from hivememory.server.routers.agents import router as agents_router
-from hivememory.server.routers.chat import router as chat_router
-from hivememory.server.routers.config import router as config_router
-from hivememory.server.routers.ingest import router as ingest_router
-from hivememory.server.routers.logs import router as logs_router
-from hivememory.server.routers.memories import router as memories_router
-from hivememory.server.routers.memory_tasks import router as memory_tasks_router
-from hivememory.server.routers.models import router as models_router
-from hivememory.server.routers.providers import router as providers_router
-from hivememory.server.routers.runtime_events import router as runtime_events_router
-from hivememory.server.routers.topics import router as topics_router
-from hivememory.server.routers.workspace_assets import router as workspace_assets_router
-
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
@@ -167,22 +168,22 @@ FRONTEND_DIST_DIR = os.path.abspath(
 if SERVE_FRONTEND:
     if os.path.isdir(FRONTEND_DIST_DIR):
         logger.info(f"启用前端静态资源代理: {FRONTEND_DIST_DIR}")
-        
+
         # 挂载前端静态资源文件夹（Vite 构建通常在 assets 下）
         assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
         if os.path.exists(assets_dir):
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-            
+
         # 挂载其他可能存在的静态目录或文件（根据需要可进一步细化）
-        # app.mount(...) 
-        
+        # app.mount(...)
+
         # SPA (单页应用) 兜底路由
         # 将所有未匹配的非 API 请求转发给 index.html，由前端 React Router 接管
         @app.get("/{catchall:path}")
         async def serve_spa(catchall: str):
             if catchall == "api" or catchall.startswith("api/"):
                 return JSONResponse(status_code=404, content={"error": "Not Found"})
-                
+
             dist_root = os.path.realpath(FRONTEND_DIST_DIR)
             requested_path = os.path.realpath(os.path.join(dist_root, catchall))
             try:
@@ -193,12 +194,15 @@ if SERVE_FRONTEND:
 
             if os.path.isfile(requested_path):
                 return FileResponse(requested_path)
-                
+
             index_path = os.path.join(dist_root, "index.html")
             if os.path.exists(index_path):
                 return FileResponse(index_path)
             else:
-                return JSONResponse(status_code=404, content={"error": "Frontend index.html not found"})
+                return JSONResponse(
+                    status_code=404, content={"error": "Frontend index.html not found"}
+                )
+
     else:
         logger.warning(
             f"未找到前端构建目录 {FRONTEND_DIST_DIR}。请先在 frontend 目录下执行 'npm run build'。"

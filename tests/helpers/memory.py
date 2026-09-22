@@ -4,8 +4,8 @@ from typing import Any
 
 from hivememory.core.models import (
     ActorIdentity,
-    MemoryAccessPolicy,
     IdentityScope,
+    MemoryAccessPolicy,
     MemoryVisibility,
     MetaData,
     WorkspaceIdentity,

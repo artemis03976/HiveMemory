@@ -7,11 +7,11 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from qdrant_client.models import (
-    Filter,
     FieldCondition,
+    Filter,
     MatchValue,
 )
 
@@ -77,13 +77,15 @@ class QdrantFilterConverter(FilterConverter):
             qdrant_client.models.Filter 实例
         """
         identity_scope = require_identity_scope(identity_scope)
-        must_conditions: List[Any] = [self._ownership_filter(identity_scope)]
+        must_conditions: list[Any] = [self._ownership_filter(identity_scope)]
         must_conditions.append(self._read_policy_filter(identity_scope))
 
         # ---- 业务过滤维度 ----
         if filters.memory_type is not None:
             must_conditions.append(
-                FieldCondition(key="index.memory_type", match=MatchValue(value=filters.memory_type.value))
+                FieldCondition(
+                    key="index.memory_type", match=MatchValue(value=filters.memory_type.value)
+                )
             )
 
         if filters.source_agent_id is not None:

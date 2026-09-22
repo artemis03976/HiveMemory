@@ -196,10 +196,7 @@ class InMemoryWorkspaceAssetStore:
             idempotency_key = (scope.workspace_identity, operation_id)
             existing = self._upload_idempotency_index.get(idempotency_key)
             if existing is not None:
-                if (
-                    existing.metadata != metadata
-                    or existing.raw_content_hash != normalized_hash
-                ):
+                if existing.metadata != metadata or existing.raw_content_hash != normalized_hash:
                     raise AssetOperationConflictError(
                         "同一上传操作使用了不一致的元数据或文件内容",
                         details={"client_operation_id": operation_id},
@@ -467,8 +464,7 @@ class InMemoryWorkspaceAssetStore:
                     candidate
                     for kind in kinds
                     for candidate in entry.representations.values()
-                    if candidate.kind == kind
-                    and candidate.state == AssetRepresentationState.READY
+                    if candidate.kind == kind and candidate.state == AssetRepresentationState.READY
                 ),
                 None,
             )
@@ -548,8 +544,7 @@ class InMemoryWorkspaceAssetStore:
                     for representation in representations
                 ),
                 removed_records_cleared=sum(
-                    entry.state == WorkspaceAssetState.REMOVED
-                    for entry in self._assets.values()
+                    entry.state == WorkspaceAssetState.REMOVED for entry in self._assets.values()
                 ),
                 leases_cleared=len(self._leases),
             )
@@ -743,8 +738,7 @@ class InMemoryWorkspaceAssetStore:
         # freeze_value 会把所有 Mapping 转成 FrozenDict；这里只检查其嵌套值。
         if isinstance(value, FrozenDict):
             return all(
-                InMemoryWorkspaceAssetStore._is_frozen_content(item)
-                for item in value.values()
+                InMemoryWorkspaceAssetStore._is_frozen_content(item) for item in value.values()
             )
         return False
 

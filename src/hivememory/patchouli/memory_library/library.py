@@ -15,13 +15,12 @@ MemoryLibrary — 三级存储协调层（书库）
 from __future__ import annotations
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from hivememory.core.models import (
+    IdentityScope,
     MemoryEventLog,
     MemoryEventType,
-    IdentityScope,
     WorkspaceMemoryKey,
 )
 from hivememory.patchouli.memory_library.models import (
@@ -29,10 +28,10 @@ from hivememory.patchouli.memory_library.models import (
     StorageHealthReport,
 )
 from hivememory.patchouli.memory_library.stores import (
+    ArtifactStore,
     LongTermMemoryStore,
     MidTermMemoryStore,
     ShortTermMemoryStore,
-    ArtifactStore,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,7 +52,7 @@ class MemoryLibrary:
         short_term: ShortTermMemoryStore,
         mid_term: MidTermMemoryStore,
         long_term: LongTermMemoryStore,
-        artifact_store: Optional[ArtifactStore] = None,
+        artifact_store: ArtifactStore | None = None,
     ) -> None:
         self.short_term = short_term
         self.mid_term = mid_term
@@ -72,9 +71,7 @@ class MemoryLibrary:
         memory = await self.mid_term.get_by_key(key)
         if memory is None:
             raise ValueError(f"Memory {key.memory_id} not found in mid-term storage")
-        memory.payload.artifacts.events.append(
-            MemoryEventLog(event_type=MemoryEventType.ARCHIVED)
-        )
+        memory.payload.artifacts.events.append(MemoryEventLog(event_type=MemoryEventType.ARCHIVED))
         await self.long_term.persist(memory)
         await self.mid_term.delete_by_key(key)
         logger.info(f"记忆已归档至冷存储: {key.memory_id}")
@@ -93,13 +90,10 @@ class MemoryLibrary:
         """
         key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
         memory = await self.long_term.load(key)
-        memory.payload.artifacts.events.append(
-            MemoryEventLog(event_type=MemoryEventType.REVIVED)
-        )
+        memory.payload.artifacts.events.append(MemoryEventLog(event_type=MemoryEventType.REVIVED))
         await self.mid_term.upsert(memory)
         await self.long_term.remove(key)
         logger.info(f"记忆已从冷存储复活至向量库: {memory_id}")
-
 
     async def check_storage_health(self) -> StorageHealthReport:
         """返回完整记忆存储系统的健康报告。"""

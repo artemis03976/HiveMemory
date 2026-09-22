@@ -22,9 +22,7 @@ def test_record_lookup_requires_full_coordinate_key():
     """键包含 owner_user_id：两 owner 使用相同 workspace_id 时记录不串扰（证据 2）。"""
     registry = WorkspaceActorAccessRegistry(
         [
-            make_actor_access_record(
-                owner_user_id="u1", workspace_id="shared_ws", agent_id="a1"
-            ),
+            make_actor_access_record(owner_user_id="u1", workspace_id="shared_ws", agent_id="a1"),
         ]
     )
 
@@ -51,14 +49,8 @@ def test_missing_actor_record_returns_none():
     )
     workspace = make_workspace_identity(owner_user_id="u1")
 
-    assert (
-        registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="ghost"))
-        is None
-    )
-    assert (
-        registry.record_for(workspace, ActorIdentity(user_id="u9", agent_id="a1"))
-        is None
-    )
+    assert registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="ghost")) is None
+    assert registry.record_for(workspace, ActorIdentity(user_id="u9", agent_id="a1")) is None
 
 
 def test_duplicate_record_key_rejected_at_load():
@@ -76,11 +68,7 @@ def test_cross_owner_record_rejected_at_load():
     """W0 兼容基线：跨 owner 成员记录在成员模型落地前不可表达。"""
     with pytest.raises(ValueError):
         WorkspaceActorAccessRegistry(
-            [
-                make_actor_access_record(
-                    owner_user_id="u1", user_id="u2", agent_id="a1"
-                )
-            ]
+            [make_actor_access_record(owner_user_id="u1", user_id="u2", agent_id="a1")]
         )
 
 

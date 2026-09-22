@@ -8,7 +8,7 @@ HiveMemory - Lifecycle 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import Iterable, List
+from collections.abc import Iterable
 from uuid import UUID
 
 from hivememory.core.models import MemoryAtom
@@ -28,7 +28,7 @@ class BaseGarbageCollector(ABC):
         self,
         memories: Iterable[MemoryAtom],
         vitality_threshold: float,
-    ) -> List[UUID]:
+    ) -> list[UUID]:
         """
         扫描低于生命力阈值的记忆
 

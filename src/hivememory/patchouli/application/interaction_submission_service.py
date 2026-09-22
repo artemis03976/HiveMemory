@@ -68,7 +68,9 @@ class InteractionSubmissionService:
         时取得或确认有效 access，不能把早先事件的授权当作无限期权限。
         """
         scope = required_scope(
-            access, WorkspaceOperation.INTERACTION_SUBMIT, identity_scope,
+            access,
+            WorkspaceOperation.INTERACTION_SUBMIT,
+            identity_scope,
             access_guard=self._access_guard,
         )
         if payload is None:

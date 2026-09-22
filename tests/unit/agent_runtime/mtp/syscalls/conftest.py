@@ -1,24 +1,28 @@
 """syscalls 测试共享 fixture 与 helper。"""
 
 import asyncio
-from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.system.config import KoakumaConfig
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.system.config import KoakumaConfig
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
 class MockAsyncBus(AsyncSystemBus):
-    def __init__(self, mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None):
+    def __init__(
+        self,
+        mock_storage: MagicMock | None = None,
+        mock_retrieval: MagicMock | None = None,
+        mock_generation: MagicMock | None = None,
+    ):
         super().__init__()
         self._mock_storage = mock_storage or MagicMock()
         self._mock_retrieval = mock_retrieval or MagicMock()
@@ -68,8 +72,14 @@ class MockAsyncBus(AsyncSystemBus):
         return None
 
 
-def make_mock_bus(mock_storage: Optional[MagicMock] = None, mock_retrieval: Optional[MagicMock] = None, mock_generation: Optional[MagicMock] = None) -> MockAsyncBus:
-    return MockAsyncBus(mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation)
+def make_mock_bus(
+    mock_storage: MagicMock | None = None,
+    mock_retrieval: MagicMock | None = None,
+    mock_generation: MagicMock | None = None,
+) -> MockAsyncBus:
+    return MockAsyncBus(
+        mock_storage=mock_storage, mock_retrieval=mock_retrieval, mock_generation=mock_generation
+    )
 
 
 def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
@@ -105,7 +115,9 @@ def mtp_prompt_zh() -> str:
 
 
 def simulate_kernel_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
-    result = asyncio.run(koakuma.intercept_and_execute(normalize_worker_agent_mtp_output(agent_text)))
+    result = asyncio.run(
+        koakuma.intercept_and_execute(normalize_worker_agent_mtp_output(agent_text))
+    )
     assert result is not None, f"Kernel Loop 未检测到 MTP 指令。Agent 文本: {agent_text!r}"
     return result
 

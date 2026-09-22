@@ -15,10 +15,10 @@ from hivememory.core.errors import AdmissionDeniedError
 from hivememory.core.models import ActorIdentity
 from hivememory.system.access import (
     ActorAuthenticationGateway,
+    CallerPrincipal,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
 )
-from hivememory.system.access import CallerPrincipal
 from hivememory.workspace import (
     WorkspaceAccessGuard,
     WorkspaceActorAccessRegistry,

@@ -11,7 +11,7 @@ Features:
 """
 
 from enum import Enum
-from typing import List, Dict, Any, Optional, Union
+from typing import Any
 
 
 class EstimationStrategy(str, Enum):
@@ -66,7 +66,7 @@ class TokenEstimator:
     ]
 
     @staticmethod
-    def estimate(text: Optional[str]) -> int:
+    def estimate(text: str | None) -> int:
         """
         快速估算文本的 Token 数量
 
@@ -125,7 +125,7 @@ class TokenEstimator:
 
     @staticmethod
     def estimate_with_ratio(
-        text: Optional[str],
+        text: str | None,
         chinese_ratio: float = DEFAULT_CHINESE_RATIO,
         other_ratio: float = DEFAULT_ENGLISH_RATIO,
     ) -> int:
@@ -157,7 +157,7 @@ class TokenEstimator:
 
     @staticmethod
     def estimate_messages(
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         content_key: str = "content",
     ) -> int:
         """
@@ -190,8 +190,8 @@ class TokenEstimator:
 
     @staticmethod
     def estimate_dict(
-        data: Dict[str, Any],
-        keys: Optional[List[str]] = None,
+        data: dict[str, Any],
+        keys: list[str] | None = None,
     ) -> int:
         """
         估算字典中指定字段的 Token 数量
@@ -225,7 +225,7 @@ class TokenEstimator:
 # ========== 便捷函数（保持向后兼容） ==========
 
 
-def estimate_tokens(text: Optional[str]) -> int:
+def estimate_tokens(text: str | None) -> int:
     """
     估算文本的 Token 数量
 

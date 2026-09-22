@@ -97,12 +97,16 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
             context=GenerationContext(),
             write_focus=WriteFocus(content="remember this"),
         ),
-        interaction_input=InteractionArtifactInput(
-            topic_id=topic_id,
-            topic_title="Test Topic",
-            topic_summary="Test Summary",
-            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
-        ) if include_interaction_input else None,
+        interaction_input=(
+            InteractionArtifactInput(
+                topic_id=topic_id,
+                topic_title="Test Topic",
+                topic_summary="Test Summary",
+                blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
+            )
+            if include_interaction_input
+            else None
+        ),
         intent_id="intent_1",
         pending_alias="test",
     )
@@ -182,13 +186,13 @@ class TestMemoryGenerationFamiliarExecute:
         spec = _make_spec()
 
         gen_engine = Mock()
-        gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(atom=_make_memory_atom())]
-        )
+        gen_engine.process = AsyncMock(return_value=[_make_outcome(atom=_make_memory_atom())])
 
         artifact_engine = Mock()
         artifact_engine.interaction = Mock()
-        artifact_engine.interaction.build_and_store = AsyncMock(side_effect=RuntimeError("build failed"))
+        artifact_engine.interaction.build_and_store = AsyncMock(
+            side_effect=RuntimeError("build failed")
+        )
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -478,7 +482,9 @@ class TestMemoryGenerationFamiliarArtifacts:
     async def test_capture_interaction_artifact_returns_none_on_build_failure(self):
         artifact_engine = Mock()
         artifact_engine.interaction = Mock()
-        artifact_engine.interaction.build_and_store = AsyncMock(side_effect=RuntimeError("build failed"))
+        artifact_engine.interaction.build_and_store = AsyncMock(
+            side_effect=RuntimeError("build failed")
+        )
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
@@ -580,7 +586,9 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
-        artifact_engine.memory.build_for_create = AsyncMock(side_effect=RuntimeError("build failed"))
+        artifact_engine.memory.build_for_create = AsyncMock(
+            side_effect=RuntimeError("build failed")
+        )
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 
@@ -609,7 +617,9 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         artifact_engine = Mock()
         artifact_engine.memory = Mock()
-        artifact_engine.memory.build_for_update = AsyncMock(side_effect=RuntimeError("build failed"))
+        artifact_engine.memory.build_for_update = AsyncMock(
+            side_effect=RuntimeError("build failed")
+        )
 
         familiar = self._make_familiar(artifact_engine=artifact_engine)
 

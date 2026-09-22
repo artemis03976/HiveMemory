@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from dataclasses import dataclass
 
 
@@ -11,8 +9,8 @@ from dataclasses import dataclass
 class ArtifactIntegrityResult:
     artifact_id: str
     ok: bool
-    stored_hash: Optional[str] = None
-    actual_hash: Optional[str] = None
+    stored_hash: str | None = None
+    actual_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -20,7 +18,7 @@ class StorageHealthComponent:
     name: str
     healthy: bool
     required: bool = True
-    detail: Optional[str] = None
+    detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,11 +27,7 @@ class StorageHealthReport:
 
     @property
     def healthy(self) -> bool:
-        return all(
-            component.healthy
-            for component in self.components
-            if component.required
-        )
+        return all(component.healthy for component in self.components if component.required)
 
 
 __all__ = [

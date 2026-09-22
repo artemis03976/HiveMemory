@@ -5,8 +5,6 @@ ModelDefinition 是注册表中单条模型记录的数据结构。
 AgentProfile.model_name 通过 id 字段引用对应的模型定义。
 """
 
-from typing import Optional
-
 from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.constants import (
@@ -36,9 +34,7 @@ class ModelDefinition(BaseModel):
     id: str = Field(
         description="全局唯一标识符，如 'deepseek-chat'。AgentProfile.model_name 通过此 ID 引用模型"
     )
-    display_name: str = Field(
-        description="前端展示名称，如 'DeepSeek Chat'"
-    )
+    display_name: str = Field(description="前端展示名称，如 'DeepSeek Chat'")
     litellm_model: str = Field(
         description=(
             "传递给 litellm.completion() 的完整模型标识符，"
@@ -50,39 +46,34 @@ class ModelDefinition(BaseModel):
         description=(
             "提供商标识，用于查 SharedConfig.providers 解析凭证，如 'deepseek'、'openai'。"
             "留空时自动从 litellm_model 的前缀推导（'deepseek/xxx' → 'deepseek'）"
-        )
+        ),
     )
-    api_key: Optional[str] = Field(
-        default=None,
-        description="API 密钥。None 表示回落到 provider 凭证或 litellm 环境变量"
+    api_key: str | None = Field(
+        default=None, description="API 密钥。None 表示回落到 provider 凭证或 litellm 环境变量"
     )
-    api_base: Optional[str] = Field(
+    api_base: str | None = Field(
         default=None,
-        description="自定义 API 基础 URL。None 表示回落到 provider 凭证或提供商默认地址"
+        description="自定义 API 基础 URL。None 表示回落到 provider 凭证或提供商默认地址",
     )
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE,
         ge=0.0,
         le=2.0,
-        description="默认推理温度，Agent Profile 或会话请求可以覆盖此值"
+        description="默认推理温度，Agent Profile 或会话请求可以覆盖此值",
     )
-    max_tokens: int = Field(
-        default=DEFAULT_MAX_TOKENS,
-        gt=0,
-        description="默认最大生成 token 数"
-    )
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, description="默认最大生成 token 数")
     top_p: float = Field(
         default=DEFAULT_TOP_P,
         ge=0.0,
         le=1.0,
-        description="默认核采样阈值，Agent Profile 或会话请求可以覆盖此值"
+        description="默认核采样阈值，Agent Profile 或会话请求可以覆盖此值",
     )
     is_default: bool = Field(
         default=False,
         description=(
             "是否为系统默认模型。当 AgentProfile.model_name='default' 时，"
             "注册表将使用此模型。注册表中有且仅有一条记录的 is_default 应为 True"
-        )
+        ),
     )
 
     @model_validator(mode="after")

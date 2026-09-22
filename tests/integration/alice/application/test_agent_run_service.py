@@ -212,6 +212,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
+
     async def _run_frame(_frame, *, output_sink, **_kwargs):
         await output_sink.send(TokenDelta(content="hi"))
         await asyncio.Event().wait()
@@ -279,9 +280,7 @@ async def test_executor_stream_close_error_does_not_replace_task_cancellation():
 
     assert executor_stream.close_calls == 1
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_CANCELLED
-    assert RuntimeEventType.AGENT_RUN_FAILED not in {
-        event.event_type for event in recorder.events
-    }
+    assert RuntimeEventType.AGENT_RUN_FAILED not in {event.event_type for event in recorder.events}
 
 
 @pytest.mark.asyncio

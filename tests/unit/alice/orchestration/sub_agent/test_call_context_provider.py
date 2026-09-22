@@ -15,8 +15,8 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.mtp import MTPCallRequest
-from tests.helpers.workspace import make_runtime_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE) -> ExecutionFrame:

@@ -19,7 +19,6 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import yaml
 
@@ -49,8 +48,8 @@ class ProviderRegistry:
 
     def __init__(
         self,
-        secrets_path: Optional[Path] = None,
-        env_providers: Optional[Dict[str, ProviderCredentials]] = None,
+        secrets_path: Path | None = None,
+        env_providers: dict[str, ProviderCredentials] | None = None,
     ):
         """
         Args:
@@ -60,11 +59,11 @@ class ProviderRegistry:
         """
         self._path = secrets_path or self._default_path()
         # env 层：只读，优先级最高
-        self._env: Dict[str, ProviderCredentials] = {
+        self._env: dict[str, ProviderCredentials] = {
             name.lower(): cred for name, cred in (env_providers or {}).items()
         }
         # yaml 层：用户通过 UI 管理，可读写
-        self._yaml: Dict[str, ProviderCredentials] = {}
+        self._yaml: dict[str, ProviderCredentials] = {}
         self._load()
 
     # ------------------------------------------------------------------
@@ -89,10 +88,10 @@ class ProviderRegistry:
             return
 
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(self._path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
 
-            raw_providers: Dict[str, dict] = data.get("providers") or {}
+            raw_providers: dict[str, dict] = data.get("providers") or {}
             for name, raw in raw_providers.items():
                 if not isinstance(raw, dict):
                     continue
@@ -101,9 +100,7 @@ class ProviderRegistry:
                 except Exception as e:
                     logger.error(f"跳过无效提供商凭证 '{name}': {e}")
 
-            logger.info(
-                f"已加载 {len(self._yaml)} 个提供商凭证（yaml 层，来自 {self._path}）"
-            )
+            logger.info(f"已加载 {len(self._yaml)} 个提供商凭证（yaml 层，来自 {self._path}）")
         except Exception as e:
             logger.error(f"加载提供商凭证文件失败: {e}")
 
@@ -113,10 +110,7 @@ class ProviderRegistry:
         env 层不参与持久化（来自环境变量，由部署侧管理）。
         """
         payload = {
-            "providers": {
-                name: cred.model_dump(mode="json")
-                for name, cred in self._yaml.items()
-            }
+            "providers": {name: cred.model_dump(mode="json") for name, cred in self._yaml.items()}
         }
 
         tmp_fd, tmp_path = tempfile.mkstemp(
@@ -151,7 +145,7 @@ class ProviderRegistry:
     # 查询接口
     # ------------------------------------------------------------------
 
-    def get(self, name: str) -> Optional[ProviderCredentials]:
+    def get(self, name: str) -> ProviderCredentials | None:
         """
         获取提供商凭证。优先返回 env 层（不可覆盖），其次 yaml 层。
 
@@ -164,7 +158,7 @@ class ProviderRegistry:
         lower = name.lower()
         return self._env.get(lower) or self._yaml.get(lower)
 
-    def list_all(self) -> List[Tuple[str, ProviderCredentials, bool]]:
+    def list_all(self) -> list[tuple[str, ProviderCredentials, bool]]:
         """
         返回所有已知提供商的凭证列表。
 
@@ -172,7 +166,7 @@ class ProviderRegistry:
         返回值：List of (name, credentials, is_from_env)
           - is_from_env=True 表示此提供商来自环境变量（只读）
         """
-        merged: Dict[str, Tuple[ProviderCredentials, bool]] = {}
+        merged: dict[str, tuple[ProviderCredentials, bool]] = {}
         # 先填 yaml 层（低优先）
         for name, cred in self._yaml.items():
             merged[name] = (cred, False)

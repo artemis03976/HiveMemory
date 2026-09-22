@@ -6,13 +6,13 @@ from uuid import UUID
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
     Artifacts,
+    IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
-    IdentityScope,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -51,14 +51,14 @@ class MemoryApplicationService:
 
     def __init__(
         self,
-        global_bus: "GlobalSystemBus",
-        config: "HiveMemoryConfig",
+        global_bus: GlobalSystemBus,
+        config: HiveMemoryConfig,
     ) -> None:
         self._global_bus = global_bus
         self._config = config
 
     @property
-    def config(self) -> "HiveMemoryConfig":
+    def config(self) -> HiveMemoryConfig:
         return self._config
 
     async def create_memory(
@@ -71,7 +71,7 @@ class MemoryApplicationService:
         memory_type: str,
         tags: list[str],
         alias: str | None = None,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> MemoryAtom:
         """管理创建入口：在显式 Workspace scope 中创建 Memory。
 
@@ -111,7 +111,7 @@ class MemoryApplicationService:
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> list[MemoryAtom]:
         """管理读取入口：在显式 Workspace scope 中列出 Memory。
 
@@ -135,7 +135,7 @@ class MemoryApplicationService:
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> MemoryAtom:
         """管理读取入口：在显式 Workspace scope 中读取 Memory。"""
         atom = await self._global_bus.request(
@@ -160,7 +160,7 @@ class MemoryApplicationService:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> MemoryAtom:
         """管理更新入口：显式授权 mutation，且不改变原 ownership/provenance。"""
         atom = await self._global_bus.request(
@@ -186,7 +186,7 @@ class MemoryApplicationService:
         identity_scope: IdentityScope,
         positive: bool,
         source: str,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ):
         """管理反馈入口：在显式 Workspace scope 中记录反馈。"""
         try:
@@ -203,9 +203,7 @@ class MemoryApplicationService:
             # 不得被通用 RuntimeError 分支包装成"服务不可用"。
             raise
         except RuntimeError as exc:
-            raise MemoryLifecycleUnavailableError(
-                "Memory lifecycle engine is unavailable"
-            ) from exc
+            raise MemoryLifecycleUnavailableError("Memory lifecycle engine is unavailable") from exc
         except ValueError as exc:
             raise MemoryNotFoundError(str(exc)) from exc
 
@@ -214,7 +212,7 @@ class MemoryApplicationService:
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> bool:
         """管理删除入口：在显式 Workspace scope 中删除 Memory。"""
         return await self._global_bus.request(

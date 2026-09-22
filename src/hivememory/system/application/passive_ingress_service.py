@@ -52,9 +52,7 @@ class PassiveIngressService:
         self._ingressor = PassiveMessageIngressor(
             bus=bus,
             interaction_queue=interaction_queue,
-            gateway_request_timeout_ms=(
-                config.gateway.workflow.default_request_timeout_ms
-            ),
+            gateway_request_timeout_ms=(config.gateway.workflow.default_request_timeout_ms),
             config=config.passive_ingress,
             runtime_events=runtime_events,
         )
@@ -165,13 +163,15 @@ class PassiveIngressService:
     def _compile_memory_context(self, retrieval_result) -> str | None:
         if retrieval_result is None or not retrieval_result.memories:
             return None
-        return MemoryCompiler().compile(
-            retrieval_result.memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(
-                retrieval_strategy_config=FullContextStrategyConfig()
-            ),
-        ).text
+        return (
+            MemoryCompiler()
+            .compile(
+                retrieval_result.memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(retrieval_strategy_config=FullContextStrategyConfig()),
+            )
+            .text
+        )
 
     async def flush_conversation(
         self,

@@ -10,14 +10,13 @@
 对应设计文档: PROJECT.md 5.1 节
 """
 
-from typing import Optional, List
 import logging
 
-from hivememory.engines.retrieval.interfaces import BaseReranker
-from hivememory.engines.retrieval.models import SearchResults, RetrievalQuery
-from hivememory.system.config import RerankerConfig
-from hivememory.infrastructure.rerank.base import BaseRerankService
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
+from hivememory.engines.retrieval.interfaces import BaseReranker
+from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults
+from hivememory.infrastructure.rerank.base import BaseRerankService
+from hivememory.system.config import RerankerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +40,7 @@ class NoopReranker(BaseReranker):
         """
         self.config = config
 
-    def rerank(
-        self,
-        results: SearchResults,
-        query: RetrievalQuery
-    ) -> SearchResults:
+    def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
         """
         透传结果，不做重排序
 
@@ -81,7 +76,7 @@ class CrossEncoderReranker(BaseReranker):
         """
         self.service = service
         self.config = config
-        
+
         logger.info("CrossEncoderReranker 初始化完成")
 
     def _normalize_score(self, score: float) -> float:
@@ -98,13 +93,10 @@ class CrossEncoderReranker(BaseReranker):
             标准化后的分数 (0-1)
         """
         import math
+
         return 1 / (1 + math.exp(-score))
 
-    def rerank(
-        self,
-        results: SearchResults,
-        query: RetrievalQuery
-    ) -> SearchResults:
+    def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
         """
         使用 Cross-Encoder 模型重排序结果
 
@@ -130,7 +122,7 @@ class CrossEncoderReranker(BaseReranker):
             return results
 
         # 1. 限制到 top_k 候选 (性能优化)
-        candidates = results.results[:self.config.top_k]
+        candidates = results.results[: self.config.top_k]
         logger.debug(
             f"CrossEncoderReranker: 对 {len(candidates)} 条结果进行重排序 "
             f"(top_k={self.config.top_k})"
@@ -155,13 +147,10 @@ class CrossEncoderReranker(BaseReranker):
         for result, raw_score in zip(candidates, raw_scores):
             new_result = copy.copy(result)
             new_result.score = (
-                self._normalize_score(raw_score)
-                if self.config.normalize_scores
-                else raw_score
+                self._normalize_score(raw_score) if self.config.normalize_scores else raw_score
             )
             new_result.match_reason = (
-                f"Rerank (score: {new_result.score:.3f}, "
-                f"original: {result.score:.3f})"
+                f"Rerank (score: {new_result.score:.3f}, " f"original: {result.score:.3f})"
             )
             reranked_results.append(new_result)
 
@@ -176,10 +165,7 @@ class CrossEncoderReranker(BaseReranker):
         )
 
 
-def create_reranker(
-    config: RerankerConfig,
-    service: BaseRerankService
-) -> BaseReranker:
+def create_reranker(config: RerankerConfig, service: BaseRerankService) -> BaseReranker:
     """
     创建 Reranker 实例的工厂函数
 

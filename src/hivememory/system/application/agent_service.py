@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import (
     Artifacts,
+    IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
     MetaData,
     PayloadLayer,
-    IdentityScope,
 )
 from hivememory.system.contracts.routes import GlobalRoutes
 
@@ -33,14 +33,14 @@ class AgentApplicationService:
 
     def __init__(
         self,
-        global_bus: "GlobalSystemBus",
-        config: "HiveMemoryConfig",
+        global_bus: GlobalSystemBus,
+        config: HiveMemoryConfig,
     ) -> None:
         self._global_bus = global_bus
         self._config = config
 
     @property
-    def config(self) -> "HiveMemoryConfig":
+    def config(self) -> HiveMemoryConfig:
         return self._config
 
     async def create_agent_profile(
@@ -53,7 +53,7 @@ class AgentApplicationService:
         content: str = "",
         tags: list[str],
         agent_config: dict[str, Any] | None = None,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> MemoryAtom:
         """在显式 Workspace scope 中创建 Agent Profile（管理用例）。"""
         atom = MemoryAtom(
@@ -87,7 +87,7 @@ class AgentApplicationService:
         *,
         identity_scope: IdentityScope,
         limit: int = 100,
-        access: "WorkspaceAccessContext | None" = None,
+        access: WorkspaceAccessContext | None = None,
     ) -> list[MemoryAtom]:
         """在显式 Workspace scope 中列出 Agent Profile（管理用例）。"""
         return await self._global_bus.request(

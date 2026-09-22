@@ -11,8 +11,8 @@ from abc import ABC, abstractmethod
 
 from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults
 
-
 # ========== 接口定义 ==========
+
 
 class BaseMemoryRetriever(ABC):
     """
@@ -27,10 +27,7 @@ class BaseMemoryRetriever(ABC):
 
     @abstractmethod
     async def retrieve(
-        self,
-        query: RetrievalQuery,
-        top_k: int = 5,
-        score_threshold: float = 0.75
+        self, query: RetrievalQuery, top_k: int = 5, score_threshold: float = 0.75
     ) -> SearchResults:
         """
         检索记忆
@@ -51,27 +48,24 @@ class BaseMemoryRetriever(ABC):
         """
         pass
 
+
 class BaseFusion(ABC):
     """
     融合算法接口
-    
+
     职责:
         合并多路检索结果。
     """
-    
+
     @abstractmethod
-    def fuse(
-        self,
-        dense_results: SearchResults,
-        sparse_results: SearchResults
-    ) -> SearchResults:
+    def fuse(self, dense_results: SearchResults, sparse_results: SearchResults) -> SearchResults:
         """
         融合检索结果
-        
+
         Args:
             dense_results: 稠密检索结果
             sparse_results: 稀疏检索结果
-            
+
         Returns:
             融合后的结果
         """
@@ -86,11 +80,7 @@ class BaseReranker(ABC):
     """
 
     @abstractmethod
-    def rerank(
-        self,
-        results: SearchResults,
-        query: RetrievalQuery
-    ) -> SearchResults:
+    def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
         """
         对检索结果进行重排序
 

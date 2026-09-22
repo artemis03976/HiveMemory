@@ -5,16 +5,15 @@ HiveMemory - 垃圾回收器
 
 """
 
-from datetime import datetime
 import logging
-from typing import Any, Dict, Iterable, List, Optional
-from uuid import UUID
+from collections.abc import Iterable
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.system.config import GarbageCollectorConfig
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.library import MemoryLibrary
 
@@ -46,7 +45,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
     ):
         self.memory_library = memory_library
         self.config = config
-        self._stats: Dict[str, Any] = {
+        self._stats: dict[str, Any] = {
             "last_run": None,
             "total_scanned": 0,
             "total_archived": 0,
@@ -61,8 +60,8 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
     def scan_candidates(
         self,
         memories: Iterable[MemoryAtom],
-        vitality_threshold: Optional[float] = None,
-    ) -> List[WorkspaceMemoryKey]:
+        vitality_threshold: float | None = None,
+    ) -> list[WorkspaceMemoryKey]:
         """
         扫描低生命力记忆
 
@@ -74,9 +73,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
             List[UUID]: 低生命力记忆ID列表
         """
         threshold = (
-            vitality_threshold
-            if vitality_threshold is not None
-            else self.config.low_watermark
+            vitality_threshold if vitality_threshold is not None else self.config.low_watermark
         )
         logger.info(f"Scanning for memories with vitality <= {threshold}...")
 
@@ -89,8 +86,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
                 memory.meta.vitality_score,
             )
             for memory in memories
-            if memory.meta.vitality_score is not None
-            and memory.meta.vitality_score <= threshold
+            if memory.meta.vitality_score is not None and memory.meta.vitality_score <= threshold
         ]
         candidates.sort(key=lambda item: item[1])
 
@@ -101,8 +97,8 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         self,
         memories: Iterable[MemoryAtom],
         force: bool = False,
-        batch_size: Optional[int] = None,
-        vitality_threshold: Optional[float] = None,
+        batch_size: int | None = None,
+        vitality_threshold: float | None = None,
     ) -> int:
         """
         运行垃圾回收
@@ -153,7 +149,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         )
         return archived_count
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         获取统计信息
 

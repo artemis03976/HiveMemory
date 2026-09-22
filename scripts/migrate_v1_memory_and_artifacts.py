@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
         choices=("public", "fail"),
         default="public",
         help="V1 Memory 缺失 meta.visibility 的策略：public=按 PUBLIC 迁移并计数"
-             "（与 codec 兼容默认一致）；fail=进入诊断清单（默认 public）",
+        "（与 codec 兼容默认一致）；fail=进入诊断清单（默认 public）",
     )
     parser.add_argument(
         "--artifacts-root",
@@ -95,8 +95,8 @@ def parse_args() -> argparse.Namespace:
         "--repair-legacy-ownership",
         action="store_true",
         help="启用 v0.5 早期死簇修复：Artifact 从关联 Memory 采纳归属、"
-             "source 缺证时默认 omni_doll、refs 缺 workspace_identity 回填"
-             "（全部逐条计入报告 repairs；默认关闭，维持 fail closed）",
+        "source 缺证时默认 omni_doll、refs 缺 workspace_identity 回填"
+        "（全部逐条计入报告 repairs；默认关闭，维持 fail closed）",
     )
     parser.add_argument(
         "--batch-size",
@@ -128,9 +128,7 @@ async def run_migration(args: argparse.Namespace) -> int:
         await qdrant_store.ensure_ready()
         memory_access = QdrantMemoryMigrationAccess(qdrant_store)
 
-    artifacts_root = Path(
-        args.artifacts_root or config.patchouli.artifacts.root_dir
-    ).resolve()
+    artifacts_root = Path(args.artifacts_root or config.patchouli.artifacts.root_dir).resolve()
     artifact_store = ArtifactStore(
         FilesystemArtifactStorageAdapter(
             root_dir=str(artifacts_root),

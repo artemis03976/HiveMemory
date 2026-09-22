@@ -78,9 +78,7 @@ def _ensure_coder_doll_profile(qdrant_store) -> bool:
     if atom is not None and atom.index.memory_type != MemoryType.AGENT_PROFILE:
         # 不删除他人记忆：共享存储上 alias 被其他类型占用时跳过，
         # 避免 e2e 测试破坏真实用户数据。
-        pytest.skip(
-            "alias='coder_doll' 被非 AGENT_PROFILE 记忆占用，跳过以避免破坏共享存储"
-        )
+        pytest.skip("alias='coder_doll' 被非 AGENT_PROFILE 记忆占用，跳过以避免破坏共享存储")
 
     profile_atom = MemoryAtom(
         meta=make_memory_metadata(source_agent_id="e2e_test", user_id="default"),
@@ -168,17 +166,19 @@ async def test_live_sub_agent_call_stream_contract(e2e_system, coder_doll_profil
 
     done = next((e for e in last_events if e.get("event") == "done"), None)
     assert done is not None, f"未收到 done 事件。events={_event_summary(last_events)}"
-    assert done["data"].get("final_text"), f"done.final_text 为空。events={_event_summary(last_events)}"
+    assert done["data"].get(
+        "final_text"
+    ), f"done.final_text 为空。events={_event_summary(last_events)}"
     assert "CALL" in _done_commands(done), f"未触发 CALL。events={_event_summary(last_events)}"
 
     sub_start = next((e for e in last_events if e["event"] == "sub_agent_start"), None)
     assert sub_start is not None, f"缺少 sub_agent_start。events={_event_summary(last_events)}"
-    assert sub_start.get("data", {}).get("agent_id") == "coder_doll", (
-        f"CALL 目标不是 coder_doll。events={_event_summary(last_events)}"
-    )
-    assert any(e["event"] == "sub_agent_end" for e in last_events), (
-        f"缺少 sub_agent_end。events={_event_summary(last_events)}"
-    )
+    assert (
+        sub_start.get("data", {}).get("agent_id") == "coder_doll"
+    ), f"CALL 目标不是 coder_doll。events={_event_summary(last_events)}"
+    assert any(
+        e["event"] == "sub_agent_end" for e in last_events
+    ), f"缺少 sub_agent_end。events={_event_summary(last_events)}"
     assert any(
         e["event"] in {"token", "mtp_start", "mtp_result"}
         and e.get("data", {}).get("scope") == "sub"
@@ -201,9 +201,12 @@ async def test_live_sub_agent_disallow_nested_call(e2e_system, coder_doll_profil
 
     # 子作用域下若出现 mtp_start，动词不应为 CALL（depth>=1 禁止 CALL）
     sub_call_events = [
-        e for e in events
+        e
+        for e in events
         if e.get("event") == "mtp_start"
         and e.get("data", {}).get("scope") == "sub"
         and str(e.get("data", {}).get("verb", "")).upper() == "CALL"
     ]
-    assert not sub_call_events, f"检测到子代理 CALL 事件，违反星型拓扑。events={_event_summary(events)}"
+    assert (
+        not sub_call_events
+    ), f"检测到子代理 CALL 事件，违反星型拓扑。events={_event_summary(events)}"

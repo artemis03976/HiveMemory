@@ -4,22 +4,25 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
 import yaml
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
-from hivememory.system.config import HiveMemoryConfig, get_config_file_path
-from hivememory.system import HiveMemorySystem
 from hivememory.server.deps import get_system
 from hivememory.server.models.config import ConfigResponse
+from hivememory.system import HiveMemorySystem
+from hivememory.system.config import HiveMemoryConfig, get_config_file_path
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["config"])
 
 
-def _build_config_without_path_override(config_data: Dict[str, Any] | None = None) -> HiveMemoryConfig:
+def _build_config_without_path_override(
+    config_data: dict[str, Any] | None = None,
+) -> HiveMemoryConfig:
     original_path = os.environ.pop("HIVEMEMORY_CONFIG_PATH", None)
     try:
         if config_data is None:
@@ -52,7 +55,7 @@ def _persist_config_atomically(config: HiveMemoryConfig) -> Path:
 
         os.replace(temp_file_path, config_path)
 
-        with open(config_path, "r", encoding="utf-8") as persisted_file:
+        with open(config_path, encoding="utf-8") as persisted_file:
             persisted_data = yaml.safe_load(persisted_file) or {}
         _build_config_without_path_override(persisted_data)
     except Exception as e:
@@ -74,7 +77,7 @@ async def get_config(
     """
     try:
         config = system.config
-        config_dict = config.model_dump(mode='json')
+        config_dict = config.model_dump(mode="json")
         return ConfigResponse(**config_dict)
     except Exception as e:
         logger.error(f"获取配置失败: {e}", exc_info=True)
@@ -83,7 +86,7 @@ async def get_config(
 
 @router.post("/config")
 async def update_config(
-    new_config: Dict[str, Any],
+    new_config: dict[str, Any],
     system: HiveMemorySystem = Depends(get_system),
 ):
     """
@@ -104,8 +107,7 @@ async def update_config(
         except ValidationError as e:
             logger.warning(f"配置验证失败: {e}")
             raise HTTPException(
-                status_code=400,
-                detail=f"Configuration validation failed: {e.errors()}"
+                status_code=400, detail=f"Configuration validation failed: {e.errors()}"
             )
 
         _persist_config_atomically(validated_config)
@@ -113,7 +115,7 @@ async def update_config(
 
         logger.info("配置已更新")
 
-        config_dict = validated_config.model_dump(mode='json')
+        config_dict = validated_config.model_dump(mode="json")
         return ConfigResponse(**config_dict)
 
     except HTTPException:
@@ -133,8 +135,10 @@ async def get_default_config():
     """
     try:
         default_config = _build_config_without_path_override()
-        config_dict = default_config.model_dump(mode='json')
+        config_dict = default_config.model_dump(mode="json")
         return ConfigResponse(**config_dict)
     except Exception as e:
         logger.error(f"获取默认配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get default configuration: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get default configuration: {str(e)}"
+        )

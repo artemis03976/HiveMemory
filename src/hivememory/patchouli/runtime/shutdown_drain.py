@@ -34,25 +34,15 @@ def build_shutdown_generation_summary(
     """
 
     found = [task for task in tasks if task is not None]
-    pending = sum(
-        task.status == MemoryGenerationTaskStatus.PENDING for task in found
-    )
-    running = sum(
-        task.status == MemoryGenerationTaskStatus.RUNNING for task in found
-    )
+    pending = sum(task.status == MemoryGenerationTaskStatus.PENDING for task in found)
+    running = sum(task.status == MemoryGenerationTaskStatus.RUNNING for task in found)
     return {
         "requested": len(tasks),
         "found": len(found),
         "missing": len(tasks) - len(found),
-        "completed": sum(
-            task.status == MemoryGenerationTaskStatus.COMPLETED for task in found
-        ),
-        "failed": sum(
-            task.status == MemoryGenerationTaskStatus.FAILED for task in found
-        ),
-        "cancelled": sum(
-            task.status == MemoryGenerationTaskStatus.CANCELLED for task in found
-        ),
+        "completed": sum(task.status == MemoryGenerationTaskStatus.COMPLETED for task in found),
+        "failed": sum(task.status == MemoryGenerationTaskStatus.FAILED for task in found),
+        "cancelled": sum(task.status == MemoryGenerationTaskStatus.CANCELLED for task in found),
         "pending": pending,
         "running": running,
         "timed_out": pending + running,
@@ -99,25 +89,17 @@ def summarize_shutdown_drain_failure(exc: BaseException) -> dict[str, Any]:
 def summarize_shutdown_drain_perception(perception_result: Any) -> dict[str, Any]:
     if isinstance(perception_result, dict):
         settled_topics = perception_result.get("settled_topic_ids") or []
-        generation_skipped_topics = (
-            perception_result.get("generation_skipped_topic_ids") or []
-        )
+        generation_skipped_topics = perception_result.get("generation_skipped_topic_ids") or []
         return {
             "settled_topic_count": len(settled_topics),
             "generation_skipped_topic_count": len(generation_skipped_topics),
             "resident_block_count": perception_result.get("resident_block_count"),
         }
-    generation_skipped_topics = (
-        getattr(perception_result, "generation_skipped_topic_ids", []) or []
-    )
+    generation_skipped_topics = getattr(perception_result, "generation_skipped_topic_ids", []) or []
     return {
-        "settled_topic_count": len(
-            getattr(perception_result, "settled_topic_ids", []) or []
-        ),
+        "settled_topic_count": len(getattr(perception_result, "settled_topic_ids", []) or []),
         "generation_skipped_topic_count": len(generation_skipped_topics),
-        "resident_block_count": getattr(
-            perception_result, "resident_block_count", None
-        ),
+        "resident_block_count": getattr(perception_result, "resident_block_count", None),
     }
 
 

@@ -12,6 +12,7 @@ from hivememory.gateway.commands.models import (
 
 class CommandParseError(ValueError):
     """轻量命令行解析错误。"""
+
     pass
 
 

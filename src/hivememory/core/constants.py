@@ -58,6 +58,7 @@ DEFAULT_TOP_P = 1.0
 
 # ============ 身份验证辅助函数 ============
 
+
 def normalize_user_id(user_id: str | None) -> str:
     """
     规范化 user_id，确保永远不会是 None 或空字符串

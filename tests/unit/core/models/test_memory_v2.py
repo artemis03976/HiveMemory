@@ -8,10 +8,10 @@ from pydantic import ValidationError
 from hivememory.core.errors import OwnerMismatchError, ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
+    IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
-    IdentityScope,
     MemoryType,
     MemoryVisibility,
     MetaData,

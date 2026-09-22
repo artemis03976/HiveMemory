@@ -5,12 +5,12 @@ HiveMemory LiteLLM 服务实现
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 import litellm
 
-from hivememory.system.config import LLMConfig
 from hivememory.infrastructure.llm.base import SingletonLLMService
+from hivememory.system.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,10 @@ class LiteLLMService(SingletonLLMService):
 
     def complete(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
     ) -> str:
         """
         生成聊天补全
@@ -59,16 +59,15 @@ class LiteLLMService(SingletonLLMService):
             api_base=self.api_base,
             temperature=temperature if temperature is not None else self.temperature,
             max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
-            **kwargs
+            **kwargs,
         )
 
         content = response.choices[0].message.content
 
         # 记录 token 使用情况
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             logger.info(
-                f"LLM 调用成功 (model={self.model}, "
-                f"tokens={response.usage.total_tokens})"
+                f"LLM 调用成功 (model={self.model}, " f"tokens={response.usage.total_tokens})"
             )
         else:
             logger.info(f"LLM 调用成功 (model={self.model})")
@@ -79,12 +78,12 @@ class LiteLLMService(SingletonLLMService):
 
     def complete_with_tools(
         self,
-        messages: List[Dict[str, str]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: dict[str, Any] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
     ) -> Any:
         """
         生成聊天补全（支持 Function Calling）
@@ -143,7 +142,7 @@ class LiteLLMService(SingletonLLMService):
         response = litellm.completion(**llm_params)
 
         # 记录 token 使用情况
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             logger.info(
                 f"LLM 调用成功 (model={self.model}, "
                 f"tokens={response.usage.total_tokens}, "
@@ -155,13 +154,7 @@ class LiteLLMService(SingletonLLMService):
         return response
 
     async def acomplete_with_tools(
-        self,
-        messages,
-        tools=None,
-        tool_choice=None,
-        temperature=None,
-        max_tokens=None,
-        **kwargs
+        self, messages, tools=None, tool_choice=None, temperature=None, max_tokens=None, **kwargs
     ):
         llm_params = {
             "model": self.model,
@@ -179,7 +172,7 @@ class LiteLLMService(SingletonLLMService):
 
         response = await litellm.acompletion(**llm_params)
 
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             logger.info(
                 f"LLM 调用成功 (model={self.model}, "
                 f"tokens={response.usage.total_tokens}, "
@@ -192,10 +185,10 @@ class LiteLLMService(SingletonLLMService):
 
     async def acomplete_json(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
     ) -> str:
         llm_params = {
             "model": self.model,
@@ -222,10 +215,9 @@ class LiteLLMService(SingletonLLMService):
 
         content = response.choices[0].message.content
 
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             logger.info(
-                f"LLM JSON 调用成功 (model={self.model}, "
-                f"tokens={response.usage.total_tokens})"
+                f"LLM JSON 调用成功 (model={self.model}, " f"tokens={response.usage.total_tokens})"
             )
         else:
             logger.info(f"LLM JSON 调用成功 (model={self.model})")
@@ -233,11 +225,8 @@ class LiteLLMService(SingletonLLMService):
         return content
 
     def complete_with_retry(
-        self,
-        messages: List[Dict[str, str]],
-        max_retries: int = 2,
-        **kwargs
-    ) -> Optional[str]:
+        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
+    ) -> str | None:
         """
         带重试机制的补全（覆盖基类实现，添加更详细的日志）
 
@@ -249,8 +238,6 @@ class LiteLLMService(SingletonLLMService):
         Returns:
             Optional[str]: LLM 响应内容，失败时返回 None
         """
-        last_error = None
-
         for attempt in range(max_retries):
             try:
                 logger.debug(f"调用 LLM (尝试 {attempt + 1}/{max_retries})...")
@@ -258,7 +245,6 @@ class LiteLLMService(SingletonLLMService):
                 return result
 
             except Exception as e:
-                last_error = e
                 logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
 
                 # 最后一次尝试失败时才记录警告
@@ -269,10 +255,10 @@ class LiteLLMService(SingletonLLMService):
 
     async def acomplete(
         self,
-        messages: List[Dict[str, str]],
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
     ) -> str:
         """
         异步生成聊天补全
@@ -301,15 +287,14 @@ class LiteLLMService(SingletonLLMService):
             api_base=self.api_base,
             temperature=temperature if temperature is not None else self.temperature,
             max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
-            **kwargs
+            **kwargs,
         )
         content = response.choices[0].message.content
 
         # 记录 token 使用情况
-        if hasattr(response, 'usage') and response.usage:
+        if hasattr(response, "usage") and response.usage:
             logger.info(
-                f"LLM 调用成功 (model={self.model}, "
-                f"tokens={response.usage.total_tokens})"
+                f"LLM 调用成功 (model={self.model}, " f"tokens={response.usage.total_tokens})"
             )
         else:
             logger.info(f"LLM 调用成功 (model={self.model})")
@@ -319,11 +304,8 @@ class LiteLLMService(SingletonLLMService):
         return content
 
     async def acomplete_with_retry(
-        self,
-        messages: List[Dict[str, str]],
-        max_retries: int = 2,
-        **kwargs
-    ) -> Optional[str]:
+        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
+    ) -> str | None:
         """
         带重试机制的异步补全
 
@@ -345,6 +327,7 @@ class LiteLLMService(SingletonLLMService):
 
 
 # ========== 工厂函数 ==========
+
 
 def get_gateway_llm_service(
     config: LLMConfig,

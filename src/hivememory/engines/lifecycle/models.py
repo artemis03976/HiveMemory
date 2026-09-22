@@ -13,10 +13,10 @@ HiveMemory - Lifecycle 模块数据模型定义
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventType(str, Enum):
@@ -29,6 +29,7 @@ class EventType(str, Enum):
     - FEEDBACK_POSITIVE: 用户正面反馈，+50 生命力
     - FEEDBACK_NEGATIVE: 用户负面反馈，-50 生命力，-50% 置信度
     """
+
     HIT = "hit"
     CITATION = "citation"
     FEEDBACK_POSITIVE = "feedback_positive"
@@ -50,6 +51,7 @@ class ReinforcementResult(BaseModel):
         event_type: 触发的事件类型
         timestamp: 事件时间戳
     """
+
     memory_id: UUID
     previous_vitality: float
     new_vitality: float
@@ -90,11 +92,12 @@ class MemoryEvent(BaseModel):
         source: 事件来源 (agent_id 或 "system")
         metadata: 事件相关的额外信息
     """
+
     event_type: EventType
     memory_id: UUID
     timestamp: datetime = Field(default_factory=datetime.now)
     source: str = Field(..., description="触发来源，如 agent_id 或 'system'")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="事件额外信息")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="事件额外信息")
 
 
 class ArchiveStatus(str, Enum):
@@ -106,6 +109,7 @@ class ArchiveStatus(str, Enum):
     - PENDING_ARCHIVE: 标记待归档
     - PENDING_RESURRECT: 标记待唤醒
     """
+
     ACTIVE = "active"
     ARCHIVED = "archived"
     PENDING_ARCHIVE = "pending_archive"
@@ -125,11 +129,12 @@ class ArchiveRecord(BaseModel):
         storage_path: 存储路径 (文件路径或S3 key)
         compressed_size_bytes: 压缩后的大小 (字节)
     """
+
     memory_id: UUID
     original_vitality: float
     archived_at: datetime
     storage_path: str
-    compressed_size_bytes: Optional[int] = None
+    compressed_size_bytes: int | None = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -138,7 +143,7 @@ class ArchiveRecord(BaseModel):
                 "original_vitality": 15.0,
                 "archived_at": "2025-01-15T10:30:00",
                 "storage_path": "data/archived/2025-01/123e4567-e89b-12d3-a456-426614174000.json.gz",
-                "compressed_size_bytes": 1024
+                "compressed_size_bytes": 1024,
             }
         }
     )

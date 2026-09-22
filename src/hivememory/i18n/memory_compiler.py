@@ -5,7 +5,6 @@ from __future__ import annotations
 from hivememory.i18n.resolver import resolve_language
 from hivememory.i18n.types import Language
 
-
 _RETRIEVAL_TEXT_ZH = {
     "retrieval_header": """<memory_context>
 [System Guidance]: 帕秋莉（记忆库的管理者）为你取回了以下相关的历史记忆与可用子代理。
@@ -22,9 +21,7 @@ _RETRIEVAL_TEXT_ZH = {
         "[System Guidance]: 帕秋莉在本次预检索中未发现强相关的历史记忆或子代理。\n"
         "(提示: 如果你需要了解历史记忆或寻找特定助手，请随时使用 ⟪ SEARCH ⟫ 协议指令进行全局模糊搜索。)"
     ),
-    "retrieval_memory_empty_hint": (
-        "当前检索结果为空。若需查阅历史记忆，请使用 ⟪ SEARCH ⟫。"
-    ),
+    "retrieval_memory_empty_hint": ("当前检索结果为空。若需查阅历史记忆，请使用 ⟪ SEARCH ⟫。"),
     "retrieval_agent_empty_hint": (
         '当前未发现相关的专业子代理。若需其他代理协助，请使用 ⟪ SEARCH | * | filter="type:AGENT_PROFILE" ⟫。'
     ),
@@ -78,8 +75,7 @@ _SHARED_CONTEXT_TEXT_ZH = {
     "shared_context_title": "[Shared Context from Parent Agent]",
     "shared_context_empty": "没有共享的记忆材料。",
     "shared_context_intro": (
-        "父代理共享了以下运行时记忆材料。"
-        "如果需要再次检查它们，请使用 READ。"
+        "父代理共享了以下运行时记忆材料。" "如果需要再次检查它们，请使用 READ。"
     ),
 }
 
@@ -119,9 +115,7 @@ _FULL_CONTEXT_TEXT_ZH = {
     "memory_full_change_log_label": "变更记录",
     "memory_tags_empty": "(无标签)",
     "memory_time_unknown": "(时间未知)",
-    "memory_truncation_notice": (
-        "[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"
-    ),
+    "memory_truncation_notice": ("[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"),
     "memory_field_empty": "无",
     "memory_confidence_high": "高",
     "memory_confidence_medium": "中",
@@ -235,9 +229,7 @@ _PENDING_ATOM_TEXT_ZH = {
         "注意: 这是一个待定修订。原始记忆尚未被修改。"
     ),
     "pending_read_failed": (
-        "[{pending_alias}] (失败):"
-        "错误: {error}\n"
-        "提示: 重新发出 WRITE/UPDATE 指令以重试。"
+        "[{pending_alias}] (失败):" "错误: {error}\n" "提示: 重新发出 WRITE/UPDATE 指令以重试。"
     ),
     "pending_read_settled": (
         "[{pending_alias}] (已落库):"
@@ -252,8 +244,7 @@ _PENDING_ATOM_TEXT_ZH = {
         "原因：{reason}"
     ),
     "pending_read_cancelled": (
-        "[{pending_alias}] (已取消):"
-        "此待定原子已被取消，且不会被实例化。"
+        "[{pending_alias}] (已取消):" "此待定原子已被取消，且不会被实例化。"
     ),
     "pending_read_expired": (
         "[{pending_alias}] (已过期):"
@@ -342,7 +333,7 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "消息：{message}\n"
         "原因：{reason}\n"
         "\n"
-        "提示: 重新发出 WRITE/UPDATE 指令以重试。"  
+        "提示: 重新发出 WRITE/UPDATE 指令以重试。"
     ),
     "resolve_expired": (
         "[{requested_alias}]\n"
@@ -432,7 +423,9 @@ def get_pending_atom_text(key: str, language: str | Language | None = None) -> s
 
 def get_resolve_result_text(key: str, language: str | Language | None = None) -> str:
     """返回 ResolveResult 编译文案片段。"""
-    texts = _RESOLVE_RESULT_TEXT_EN if _language(language) == Language.EN else _RESOLVE_RESULT_TEXT_ZH
+    texts = (
+        _RESOLVE_RESULT_TEXT_EN if _language(language) == Language.EN else _RESOLVE_RESULT_TEXT_ZH
+    )
     try:
         return texts[key]
     except KeyError as exc:

@@ -42,8 +42,23 @@ def test_reduce_empty_events():
 
 def test_reduce_single_tool_call_and_result():
     events = [
-        _ev("tool_call", 1, content="⟪ READ | alias_x ⟫", action_id="a1", tool_kind="READ", tool_name="alias_x"),
-        _ev("tool_result", 2, content="result", action_id="a1", tool_kind="READ", tool_name="alias_x", status="success"),
+        _ev(
+            "tool_call",
+            1,
+            content="⟪ READ | alias_x ⟫",
+            action_id="a1",
+            tool_kind="READ",
+            tool_name="alias_x",
+        ),
+        _ev(
+            "tool_result",
+            2,
+            content="result",
+            action_id="a1",
+            tool_kind="READ",
+            tool_name="alias_x",
+            status="success",
+        ),
     ]
 
     actions = ActionReducer.reduce(events)

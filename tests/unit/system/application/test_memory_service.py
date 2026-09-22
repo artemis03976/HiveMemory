@@ -163,7 +163,7 @@ class TestMemoryApplicationService:
         mock_global_bus.request.return_value = created
 
         identity_scope = make_management_identity_scope(user_id="u1")
-        atom = await service.create_memory(
+        await service.create_memory(
             identity_scope=identity_scope,
             title="Created memory",
             summary="A sufficiently long memory summary",

@@ -13,17 +13,36 @@ import asyncio
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Set
+from typing import Any
 
 from hivememory.infrastructure.rate_limiter import RateLimiter
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 
 # LogRecord 的标准属性（用于过滤 extra 字段）
 STANDARD_RECORD_ATTRS = {
-    "name", "msg", "args", "created", "filename", "funcName", "levelname",
-    "levelno", "lineno", "module", "msecs", "message", "pathname", "process",
-    "processName", "relativeCreated", "thread", "threadName", "exc_info",
-    "exc_text", "stack_info", "getMessage", "asctime",
+    "name",
+    "msg",
+    "args",
+    "created",
+    "filename",
+    "funcName",
+    "levelname",
+    "levelno",
+    "lineno",
+    "module",
+    "msecs",
+    "message",
+    "pathname",
+    "process",
+    "processName",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "getMessage",
+    "asctime",
 }
 
 # 消息大小限制
@@ -46,7 +65,7 @@ class WebSocketLogHandler(logging.Handler):
     def __init__(
         self,
         ws_manager: WebSocketConnectionManager,
-        namespaces: List[str],
+        namespaces: list[str],
         level: int = logging.INFO,
         max_rate: int = 100,
     ):
@@ -122,7 +141,7 @@ class WebSocketLogHandler(logging.Handler):
 
         return False
 
-    def _format_log_record(self, record: logging.LogRecord) -> Dict[str, Any]:
+    def _format_log_record(self, record: logging.LogRecord) -> dict[str, Any]:
         """
         将 LogRecord 转换为 JSON-serializable dict
 
@@ -155,7 +174,9 @@ class WebSocketLogHandler(logging.Handler):
             log_data["exception"] = {
                 "type": exc_type.__name__ if exc_type else "Unknown",
                 "message": str(exc_value) if exc_value else "",
-                "traceback": self.formatter.formatException(record.exc_info) if self.formatter else "",
+                "traceback": (
+                    self.formatter.formatException(record.exc_info) if self.formatter else ""
+                ),
             }
 
         # 自定义字段（extra）
@@ -177,7 +198,7 @@ class WebSocketLogHandler(logging.Handler):
 
         return log_data
 
-    def _truncate_if_needed(self, log_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _truncate_if_needed(self, log_data: dict[str, Any]) -> dict[str, Any]:
         """
         截断过大的字段，防止内存问题
 
@@ -189,21 +210,17 @@ class WebSocketLogHandler(logging.Handler):
         """
         # 截断消息
         if len(log_data["message"]) > MAX_MESSAGE_LENGTH:
-            log_data["message"] = (
-                log_data["message"][:MAX_MESSAGE_LENGTH] + "... [truncated]"
-            )
+            log_data["message"] = log_data["message"][:MAX_MESSAGE_LENGTH] + "... [truncated]"
 
         # 截断 traceback
         if "exception" in log_data:
             tb = log_data["exception"]["traceback"]
             if len(tb) > MAX_TRACEBACK_LENGTH:
-                log_data["exception"]["traceback"] = (
-                    tb[:MAX_TRACEBACK_LENGTH] + "\n... [truncated]"
-                )
+                log_data["exception"]["traceback"] = tb[:MAX_TRACEBACK_LENGTH] + "\n... [truncated]"
 
         return log_data
 
-    def _schedule_broadcast(self, log_data: Dict[str, Any]) -> None:
+    def _schedule_broadcast(self, log_data: dict[str, Any]) -> None:
         """
         异步调度广播（非阻塞）
 

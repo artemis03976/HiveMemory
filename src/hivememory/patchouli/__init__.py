@@ -31,31 +31,33 @@ HiveMemory 的分布式智能架构 v3.0。
 """
 
 # 配置 (无循环依赖)
-from hivememory.system.config import (
-    load_app_config,
-    HiveMemoryConfig,
-    MemoryPerceptionConfig,
-    MemoryGenerationConfig,
-    MemoryRetrievalConfig,
-    MemoryLifecycleConfig,
-    LLMConfig,
-    EmbeddingConfig,
-    QdrantConfig,
-)
-
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.system.config import (
+    EmbeddingConfig,
+    HiveMemoryConfig,
+    LLMConfig,
+    MemoryGenerationConfig,
+    MemoryLifecycleConfig,
+    MemoryPerceptionConfig,
+    MemoryRetrievalConfig,
+    QdrantConfig,
+    load_app_config,
+)
 
 
 def __getattr__(name: str):
     """懒加载 Patchouli Runtime / System 组件以避免循环导入"""
     if name == "PatchouliRuntime":
         from hivememory.patchouli.runtime import PatchouliRuntime
+
         return PatchouliRuntime
     if name == "PatchouliService":
         from hivememory.patchouli.service import PatchouliService
+
         return PatchouliService
     if name == "PatchouliSystem":
         from hivememory.patchouli.system import PatchouliSystem
+
         return PatchouliSystem
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -78,4 +80,3 @@ __all__ = [
     "EmbeddingConfig",
     "QdrantConfig",
 ]
-

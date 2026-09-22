@@ -1,8 +1,9 @@
 """生命周期垃圾回收器的单元测试。"""
 
-import pytest
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
+
+import pytest
 
 from hivememory.core.models import (
     IndexLayer,
@@ -95,9 +96,7 @@ class TestPeriodicGarbageCollector:
         archived = await self.gc.collect([self.low_vitality_memory])
 
         assert archived == 1
-        self.mock_library.archive.assert_awaited_once_with(
-            _key(self.low_vitality_memory)
-        )
+        self.mock_library.archive.assert_awaited_once_with(_key(self.low_vitality_memory))
 
     @pytest.mark.asyncio
     async def test_collect_skips_already_archived(self):

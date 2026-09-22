@@ -25,9 +25,7 @@ ISOLATED = make_workspace_identity(workspace_id="isolation_workspace")
 
 
 def _context(*, workspace_id: str = "main_workspace") -> MTPExecutionContext:
-    return MTPExecutionContext(
-        runtime_scope=make_runtime_scope(workspace_id=workspace_id)
-    )
+    return MTPExecutionContext(runtime_scope=make_runtime_scope(workspace_id=workspace_id))
 
 
 def _scoped_context(*, agent_id: str, workspace_id: str = "main_workspace") -> MTPExecutionContext:
@@ -222,10 +220,7 @@ async def test_same_alias_partitions_per_workspace_with_scoped_l2_backfill(resol
     # 隔离 Workspace 的缓存条目不会泄露给 main 调用方；L1 未命中走 L2 授权副本。
     assert result.atom is authorized
     assert atom_cache.get_atom_by_alias("fact_shared", workspace_identity=MAIN) is authorized
-    assert (
-        atom_cache.get_atom_by_alias("fact_shared", workspace_identity=ISOLATED)
-        is isolated_atom
-    )
+    assert atom_cache.get_atom_by_alias("fact_shared", workspace_identity=ISOLATED) is isolated_atom
     # 回填不污染其他分区，也从未为隔离分区触发过 L2 写入。
     third = make_workspace_identity(workspace_id="third_workspace")
     assert atom_cache.has_alias("fact_shared", workspace_identity=third) is False
@@ -384,7 +379,9 @@ async def test_resolve_rejects_pending_from_other_actor_in_same_workspace(resolv
 
 
 @pytest.mark.asyncio
-async def test_resolve_rejects_settled_redirect_from_other_workspace_without_canonical_read(resolver_parts):
+async def test_resolve_rejects_settled_redirect_from_other_workspace_without_canonical_read(
+    resolver_parts,
+):
     """跨 Workspace 命中已结算 redirect 时不得泄露 canonical 指向或触发 canonical 查询。"""
     resolver, pending_runtime, atom_cache, bus = resolver_parts
     pending = pending_runtime.register_write(

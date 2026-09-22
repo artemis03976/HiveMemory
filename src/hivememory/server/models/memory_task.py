@@ -50,14 +50,10 @@ class MemoryTaskResponse(BaseModel):
             error=memory_task.error,
             created_at=memory_task.created_at.isoformat(),
             started_at=(
-                memory_task.started_at.isoformat()
-                if memory_task.started_at is not None
-                else None
+                memory_task.started_at.isoformat() if memory_task.started_at is not None else None
             ),
             finished_at=(
-                memory_task.finished_at.isoformat()
-                if memory_task.finished_at is not None
-                else None
+                memory_task.finished_at.isoformat() if memory_task.finished_at is not None else None
             ),
             cancel_requested=cancel_requested,
             cancelled=cancelled,

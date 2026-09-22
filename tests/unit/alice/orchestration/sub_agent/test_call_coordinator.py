@@ -440,9 +440,7 @@ async def test_child_frame_inherits_caller_workspace_hard_boundary() -> None:
     coordinator = CallCoordinator(
         runtime,
         SimpleNamespace(
-            provide=AsyncMock(
-                return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE)
-            )
+            provide=AsyncMock(return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=FrameFactory(),
         prompt_assembler=SimpleNamespace(

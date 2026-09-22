@@ -2,6 +2,7 @@
 
 import pytest
 
+from hivememory.core.mtp.exceptions import SyscallInternalError, SystemFault
 from hivememory.i18n.mtp_runtime import (
     get_mtp_error_text,
     get_mtp_info_text,
@@ -11,7 +12,6 @@ from hivememory.i18n.syscall_runtime import (
     get_syscall_error_text,
     get_syscall_info_text,
 )
-from hivememory.core.mtp.exceptions import SyscallInternalError, SystemFault
 
 
 def test_get_mtp_warning_text_en():
@@ -76,13 +76,9 @@ def test_get_mtp_warning_text_read_partial_alias_not_found():
 def test_get_mtp_info_text_call_response_en():
     """CALL response 英文 info 文本应覆盖标题、reply 与 artifact 标签。"""
     assert (
-        get_mtp_info_text("mtp.call_response.title", language="en")
-        == "[System MTP Call Response]"
+        get_mtp_info_text("mtp.call_response.title", language="en") == "[System MTP Call Response]"
     )
-    assert (
-        get_mtp_info_text("mtp.call_response.reply_label", language="en")
-        == "[Sub-Agent Reply]:"
-    )
+    assert get_mtp_info_text("mtp.call_response.reply_label", language="en") == "[Sub-Agent Reply]:"
     assert (
         get_mtp_info_text("mtp.call_response.artifacts_label", language="en")
         == "[Artifacts Generated / Updated]:"
@@ -96,8 +92,7 @@ def test_get_mtp_info_text_call_response_en():
 def test_get_mtp_info_text_call_response_zh():
     """CALL response 中文 info 文本应覆盖标题和 pending 状态说明。"""
     assert (
-        get_mtp_info_text("mtp.call_response.title", language="zh")
-        == "[System MTP Call Response]"
+        get_mtp_info_text("mtp.call_response.title", language="zh") == "[System MTP Call Response]"
     )
     assert (
         get_mtp_info_text("mtp.call_response.artifact_state", language="zh")

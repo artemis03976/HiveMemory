@@ -25,6 +25,7 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
+
     bus = GlobalSystemBus()
     management = _TopicManagementStub(librarian_core)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, management.list_active_topics)
@@ -46,9 +47,7 @@ class _TopicManagementStub:
         self.librarian_core = librarian_core
 
     async def list_active_topics(self, *, identity_scope, access=None):
-        return self.librarian_core.get_active_topics_snapshots(
-            identity_scope.actor_identity
-        )
+        return self.librarian_core.get_active_topics_snapshots(identity_scope.actor_identity)
 
 
 def _make_snapshot(topic_id="t1", title="Test Topic"):
@@ -155,9 +154,7 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/t1/settle")
 
         assert response.status_code == 503
-        assert response.json() == {
-            "detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试"
-        }
+        assert response.json() == {"detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试"}
 
     def test_settle_topic_missing_returns_not_found(self):
         """不存在的 Topic 应在 HTTP 边界映射为 404。"""

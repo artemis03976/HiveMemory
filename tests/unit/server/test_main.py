@@ -39,8 +39,7 @@ def test_thread_exception_hook_logs_error(caplog):
         threading.excepthook(args)
 
     assert any(
-        "未捕获线程异常" in record.message
-        and "worker-1" in record.message
+        "未捕获线程异常" in record.message and "worker-1" in record.message
         for record in caplog.records
     )
 
@@ -63,12 +62,8 @@ def test_main_runs_uvicorn_with_expected_args(monkeypatch):
         calls.append((args, kwargs))
 
     monkeypatch.setattr("hivememory.server.__main__.uvicorn.run", fake_run)
-    monkeypatch.setattr(
-        "hivememory.server.__main__._configure_logging", lambda: None
-    )
-    monkeypatch.setattr(
-        "hivememory.server.__main__._install_thread_exception_hook", lambda: None
-    )
+    monkeypatch.setattr("hivememory.server.__main__._configure_logging", lambda: None)
+    monkeypatch.setattr("hivememory.server.__main__._install_thread_exception_hook", lambda: None)
 
     server_main.main()
 

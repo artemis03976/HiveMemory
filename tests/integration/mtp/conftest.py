@@ -7,7 +7,6 @@ KoakumaRuntime 已重构为 bus-based 架构 (bus, config, alias_resolver)。
 """
 
 import asyncio
-from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,9 +38,9 @@ class MockAsyncBus(AsyncSystemBus):
 
     def __init__(
         self,
-        mock_storage: Optional[MagicMock] = None,
-        mock_retrieval: Optional[MagicMock] = None,
-        mock_generation: Optional[MagicMock] = None,
+        mock_storage: MagicMock | None = None,
+        mock_retrieval: MagicMock | None = None,
+        mock_generation: MagicMock | None = None,
     ):
         super().__init__()
         self._mock_storage = mock_storage or MagicMock()
@@ -107,9 +106,9 @@ class MockAsyncBus(AsyncSystemBus):
 
 
 def make_mock_bus(
-    mock_storage: Optional[MagicMock] = None,
-    mock_retrieval: Optional[MagicMock] = None,
-    mock_generation: Optional[MagicMock] = None,
+    mock_storage: MagicMock | None = None,
+    mock_retrieval: MagicMock | None = None,
+    mock_generation: MagicMock | None = None,
 ) -> MockAsyncBus:
     """工厂函数: 创建配置好的异步 mock bus。"""
     return MockAsyncBus(

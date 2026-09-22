@@ -120,7 +120,9 @@ class MemoryIntentSubmissionService:
         提交记忆意图；结果由 Patchouli 生成链决定并经任务观察 API 查询。
         """
         scope = required_scope(
-            access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, identity_scope,
+            access,
+            WorkspaceOperation.MEMORY_INTENT_SUBMIT,
+            identity_scope,
             access_guard=self._access_guard,
         )
 

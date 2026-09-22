@@ -29,22 +29,21 @@ from hivememory.core.mtp.exceptions import (
     SystemFault,
 )
 from hivememory.core.mtp.formatter import MTPFormatter
-from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 from hivememory.core.mtp.models import (
-    MTPCommand,
-    MTPCallRequest,
-    MTPCallResponse,
-    MTPErrorInfo,
-    MTPErrorSeverity,
     MTP_LEFT_DELIMITER,
-    MTPResponse,
-    MTPResponseStatus,
     MTP_RIGHT_DELIMITER,
     MTP_SEPARATOR,
     MTP_STOP_SEQUENCE,
-    MTPWarningInfo,
+    MTPCallRequest,
+    MTPCallResponse,
+    MTPCommand,
+    MTPErrorInfo,
+    MTPErrorSeverity,
+    MTPResponse,
+    MTPResponseStatus,
     MTPTarget,
     MTPVerb,
+    MTPWarningInfo,
 )
 from hivememory.core.mtp.parser import (
     MTPFilterParser,
@@ -52,6 +51,7 @@ from hivememory.core.mtp.parser import (
     create_filter_parser,
     create_parser,
 )
+from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 
 
 def create_formatter() -> MTPFormatter:

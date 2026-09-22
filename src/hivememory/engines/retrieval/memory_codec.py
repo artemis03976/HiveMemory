@@ -16,7 +16,6 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 
-
 _WORKSPACE_PROJECTION_FIELDS = (
     "owner_user_id",
     "workspace_key",

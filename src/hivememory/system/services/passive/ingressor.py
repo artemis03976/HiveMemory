@@ -61,9 +61,7 @@ class PassiveMessageIngressor:
         self._config = config or PassiveIngressConfig()
         self._events = PassiveIngressEventEmitter(runtime_events)
         self._buffers = MessageTurnBufferManager(
-            max_buffered_events_per_turn=(
-                self._config.max_buffered_events_per_turn
-            ),
+            max_buffered_events_per_turn=(self._config.max_buffered_events_per_turn),
         )
         self._memory_context = MemoryContextProvider(
             bus,
@@ -183,10 +181,7 @@ class PassiveMessageIngressor:
                 raise RuntimeError(
                     f"pending passive turn is missing identity: conversation={key.label}"
                 )
-            if (
-                buffered_scope.workspace_identity
-                != identity_scope.workspace_identity
-            ):
+            if buffered_scope.workspace_identity != identity_scope.workspace_identity:
                 # conversation key 维持既有领域命名域；scope 只作为 turn payload
                 # 保存。相同 key 的在途 payload 若发生 Workspace 漂移必须拒绝，
                 # 不能通过重新分桶掩盖冲突，也不能把事件混入原 turn。
@@ -194,12 +189,8 @@ class PassiveMessageIngressor:
                     "passive turn 已绑定另一 Workspace，拒绝追加事件",
                     details={
                         "conversation": key.label,
-                        "expected_workspace_id": (
-                            buffered_scope.workspace_identity.workspace_id
-                        ),
-                        "actual_workspace_id": (
-                            identity_scope.workspace_identity.workspace_id
-                        ),
+                        "expected_workspace_id": (buffered_scope.workspace_identity.workspace_id),
+                        "actual_workspace_id": (identity_scope.workspace_identity.workspace_id),
                     },
                 )
         if (
@@ -213,9 +204,7 @@ class PassiveMessageIngressor:
                 key,
                 seal_reason="explicit_final",
             )
-            return PassiveIngressOutcome(
-                kind="user" if event.role == "user" else "buffered"
-            )
+            return PassiveIngressOutcome(kind="user" if event.role == "user" else "buffered")
 
         if not self._dedup.register(event.dedup_key):
             logger.info(

@@ -10,8 +10,6 @@ PendingAtom 内部存储层。
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 from hivememory.core.models.pending import (
     PendingAtom,
 )
@@ -26,9 +24,9 @@ class _PendingAtomStore:
     """
 
     def __init__(self) -> None:
-        self._atoms: Dict[str, PendingAtom] = {}
-        self._intent_index: Dict[str, str] = {}
-        self._canonical_index: Dict[str, List[str]] = {}
+        self._atoms: dict[str, PendingAtom] = {}
+        self._intent_index: dict[str, str] = {}
+        self._canonical_index: dict[str, list[str]] = {}
 
     # ---- 原子存取 ----
 
@@ -36,7 +34,7 @@ class _PendingAtomStore:
         """写入 PendingAtom。"""
         self._atoms[atom.pending_alias] = atom
 
-    def get(self, alias: str) -> Optional[PendingAtom]:
+    def get(self, alias: str) -> PendingAtom | None:
         """通过 pending alias 查询。"""
         return self._atoms.get(alias)
 
@@ -44,7 +42,7 @@ class _PendingAtomStore:
         """检查 alias 是否为已注册的 pending atom。"""
         return alias in self._atoms
 
-    def get_by_intent(self, intent_id: str) -> Optional[PendingAtom]:
+    def get_by_intent(self, intent_id: str) -> PendingAtom | None:
         """通过 intent_id 查询 pending atom。"""
         alias = self._intent_index.get(intent_id)
         if alias:
@@ -63,7 +61,7 @@ class _PendingAtomStore:
         if alias not in aliases:
             aliases.append(alias)
 
-    def aliases_by_canonical(self, canonical_uuid: str) -> List[str]:
+    def aliases_by_canonical(self, canonical_uuid: str) -> list[str]:
         """返回指向同一 canonical UUID 的 pending alias 列表。"""
         return list(self._canonical_index.get(canonical_uuid, []))
 
@@ -84,11 +82,11 @@ class _PendingAtomStore:
 
     # ---- 集合视图 ----
 
-    def all_aliases(self) -> List[str]:
+    def all_aliases(self) -> list[str]:
         """返回所有已注册的 pending alias。"""
         return list(self._atoms.keys())
 
-    def all_atoms(self) -> List[PendingAtom]:
+    def all_atoms(self) -> list[PendingAtom]:
         """返回所有已注册的 PendingAtom。"""
         return list(self._atoms.values())
 

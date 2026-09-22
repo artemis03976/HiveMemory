@@ -6,7 +6,6 @@ HiveMemory 感知层上下文转换门面
     - `snapshots_to_context_text()` 将 topic snapshots 渲染为 Gateway 菜单文本
 """
 
-from typing import List, Dict
 from hivememory.core.models import LogicalBlock, TopicSnapshot
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
@@ -18,9 +17,9 @@ class PerceptionContextConverter:
 
     @staticmethod
     def blocks_to_messages(
-        blocks: List[LogicalBlock],
+        blocks: list[LogicalBlock],
         current_agent_id: str = "default",
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         将 LogicalBlock 列表转换为 OpenAI messages 格式。
 
@@ -40,7 +39,7 @@ class PerceptionContextConverter:
 
     @staticmethod
     def snapshots_to_context_text(
-        snapshots: List[TopicSnapshot],
+        snapshots: list[TopicSnapshot],
     ) -> str:
         """
         将话题快照列表转换为文本格式，供 Gateway 使用

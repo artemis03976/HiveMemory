@@ -18,6 +18,7 @@ def _create_test_app(mock_service):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
+
     app.dependency_overrides[deps.get_ingress_service] = lambda: mock_service
 
     return app
@@ -25,11 +26,13 @@ def _create_test_app(mock_service):
 
 def _mock_service(status: str = "buffered", memory=None):
     mock_service = MagicMock()
-    mock_service.ingest_event = AsyncMock(return_value={
-        "status": status,
-        "external_event_id": "evt-1",
-        "memory": memory,
-    })
+    mock_service.ingest_event = AsyncMock(
+        return_value={
+            "status": status,
+            "external_event_id": "evt-1",
+            "memory": memory,
+        }
+    )
     return mock_service
 
 

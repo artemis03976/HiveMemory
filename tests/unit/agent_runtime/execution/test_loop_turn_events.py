@@ -429,9 +429,9 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         if ev.kind == "tool_result" and ev.tool_kind == "CALL"
     ]
     assert executor_result.status == FrameExecutionStatus.COMPLETED
-    assert len(call_events) == 1, (
-        f"应有 1 个 CALL tool_result 事件，实际: {frame.progress.turn_events}"
-    )
+    assert (
+        len(call_events) == 1
+    ), f"应有 1 个 CALL tool_result 事件，实际: {frame.progress.turn_events}"
     call_ev = call_events[0]
     assert call_ev.role == "user"
     assert call_ev.status == "success"

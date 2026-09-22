@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.constants import (
@@ -31,6 +30,7 @@ class ProviderCredentials(BaseModel):
     由环境变量 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 注入。
     ModelRegistry 在解析模型时，按模型的 provider 字段查此表补齐凭证。
     """
+
     api_key: str | None = Field(default=None)
     api_base: str | None = Field(default=None)
 

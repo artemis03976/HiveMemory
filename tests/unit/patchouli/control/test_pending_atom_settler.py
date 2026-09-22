@@ -73,9 +73,7 @@ async def test_first_terminal_event_wins_across_concurrent_callers() -> None:
 @pytest.mark.asyncio
 async def test_settlement_publish_failure_falls_back_to_failed() -> None:
     bus = AsyncMock()
-    bus.publish = AsyncMock(
-        side_effect=[ConnectionError("settlement unavailable"), None]
-    )
+    bus.publish = AsyncMock(side_effect=[ConnectionError("settlement unavailable"), None])
     settler = PendingAtomSettler(bus)
     settlement = _settlement()
 

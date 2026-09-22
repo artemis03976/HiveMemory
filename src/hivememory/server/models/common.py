@@ -1,7 +1,5 @@
 """通用 Response 模型"""
 
-from typing import Optional
-
 from pydantic import BaseModel
 
 from hivememory._version import __version__
@@ -9,7 +7,7 @@ from hivememory._version import __version__
 
 class ErrorResponse(BaseModel):
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
 
 class HealthResponse(BaseModel):

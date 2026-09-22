@@ -27,6 +27,7 @@ def _create_test_app(mock_service):
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
+
     app.dependency_overrides[deps.get_chat_service] = lambda: mock_service
 
     return app
@@ -44,9 +45,9 @@ def _parse_sse_events(response_text: str):
                 current_event = {}
             continue
         if line.startswith("event:"):
-            current_event["event"] = line[len("event:"):].strip()
+            current_event["event"] = line[len("event:") :].strip()
         elif line.startswith("data:"):
-            current_event["data"] = json.loads(line[len("data:"):].strip())
+            current_event["data"] = json.loads(line[len("data:") :].strip())
     if current_event:
         events.append(current_event)
     return events
@@ -82,7 +83,10 @@ class TestChatRouter:
         mock_service = MagicMock()
 
         async def fake_stream(**kwargs):
-            yield {"event": "done", "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1}}
+            yield {
+                "event": "done",
+                "data": {"final_text": "ok", "mtp_iterations": 0, "total_iterations": 1},
+            }
 
         mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
 
@@ -154,7 +158,10 @@ class TestChatRouter:
             yield {"event": "topic_info", "data": {"topic_id": "t1", "is_new": False}}
             yield {"event": "token", "data": {"content": "Let me search. "}}
             yield {"event": "mtp_start", "data": {"verb": "SEARCH", "iteration": 1}}
-            yield {"event": "mtp_result", "data": {"verb": "SEARCH", "status": "success", "iteration": 1}}
+            yield {
+                "event": "mtp_result",
+                "data": {"verb": "SEARCH", "status": "success", "iteration": 1},
+            }
             yield {"event": "token", "data": {"content": "Found it!"}}
             yield {
                 "event": "done",

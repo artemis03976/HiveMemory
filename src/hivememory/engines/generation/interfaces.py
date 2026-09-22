@@ -12,17 +12,17 @@ HiveMemory - Generation 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Any, Optional
 
-from hivememory.core.models import MemoryAtom, StreamMessage
+from hivememory.core.models import MemoryAtom
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
     MergeResult,
 )
 
-
 # ========== 接口定义 ==========
+
 
 class BaseMemoryExtractor(ABC):
     """
@@ -39,9 +39,7 @@ class BaseMemoryExtractor(ABC):
 
     @abstractmethod
     def extract(
-        self,
-        transcript: str,
-        metadata: Dict[str, Any]
+        self, transcript: str, metadata: dict[str, Any]
     ) -> Optional["ExtractedMemoryDraft"]:
         """
         提取记忆草稿
@@ -71,7 +69,7 @@ class BaseMemoryExtractor(ABC):
     def merge(
         self,
         old_content: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
     ) -> Optional["MergeResult"]:
         """
         执行记忆合并 (Mode C: UPDATE)
@@ -112,7 +110,7 @@ class BaseDeduplicator(ABC):
         self,
         draft: "ExtractedMemoryDraft",
         candidates: list,
-    ) -> "Tuple[DuplicateDecision, Optional[MemoryAtom]]":
+    ) -> "tuple[DuplicateDecision, MemoryAtom | None]":
         """
         检查记忆草稿是否重复（纯决策，无 I/O）
 
@@ -124,6 +122,7 @@ class BaseDeduplicator(ABC):
             (DuplicateDecision, Optional[MemoryAtom])
         """
         pass
+
 
 # ========== 导出列表 ==========
 

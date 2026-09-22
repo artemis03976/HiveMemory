@@ -6,9 +6,10 @@ LifecycleFamiliar 单元测试
 - record_hit: 字符串 ID 归一化为 UUID
 """
 
-import pytest
 from unittest.mock import AsyncMock, Mock
-from uuid import uuid4, UUID
+from uuid import UUID, uuid4
+
+import pytest
 
 from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
 from tests.helpers.workspace import make_identity_scope

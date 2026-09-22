@@ -7,9 +7,7 @@ MTP Prompt 权限过滤单元测试
 - 动态渲染 VERBS 列表的正确性
 """
 
-import pytest
-
-from hivememory.prompts.mtp import MTPPromptBuilder, DEFAULT_RUNTIME_TOOLS
+from hivememory.prompts.mtp import DEFAULT_RUNTIME_TOOLS, MTPPromptBuilder
 
 
 class TestAllowedVerbsFiltering:
@@ -231,7 +229,12 @@ class TestCombinedPermissions:
         builder = MTPPromptBuilder(
             language="en",
             allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-            allowed_runtime_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
+            allowed_runtime_tools=[
+                "sys_clock",
+                "sys_read_file",
+                "sys_write_file",
+                "sys_python_repl",
+            ],
         )
         output = builder.build()
 

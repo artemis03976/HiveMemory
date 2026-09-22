@@ -63,7 +63,9 @@ class MemoryManagementService:
         if atom is None:
             raise ValueError("create_memory 需要 atom 载荷")
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         if atom.workspace_identity != scope.workspace_identity:
@@ -86,7 +88,9 @@ class MemoryManagementService:
         refresh_vitality: bool = True,
     ) -> list[MemoryAtom]:
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         excluded = set(exclude_types or [])
@@ -119,7 +123,9 @@ class MemoryManagementService:
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         atom = await self._bus.request(
@@ -147,7 +153,9 @@ class MemoryManagementService:
         agent_config: dict | None = None,
     ) -> MemoryAtom | None:
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
@@ -170,7 +178,9 @@ class MemoryManagementService:
         access: WorkspaceAccessContext | None = None,
     ) -> bool:
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
@@ -189,7 +199,9 @@ class MemoryManagementService:
         source: str,
     ):
         scope = verified_scope(
-            access, WorkspaceOperation.MANAGEMENT_MEMORY, identity_scope,
+            access,
+            WorkspaceOperation.MANAGEMENT_MEMORY,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
@@ -217,7 +229,9 @@ class MemoryManagementService:
         兼容清单内——缺少 access 一律拒绝。
         """
         scope = required_scope(
-            access, WorkspaceOperation.RESOURCE_READ, identity_scope,
+            access,
+            WorkspaceOperation.RESOURCE_READ,
+            identity_scope,
             access_guard=self._access_guard,
         )
         atom = await self._bus.request(
@@ -239,7 +253,9 @@ class MemoryManagementService:
         # 语义检索按 resource.search 授权；检索请求中的 scope 不得偏离
         # access 上下文（迁移期无 access 的调用走受信适配）。
         verified_scope(
-            access, WorkspaceOperation.RESOURCE_SEARCH, request.identity_scope,
+            access,
+            WorkspaceOperation.RESOURCE_SEARCH,
+            request.identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
@@ -255,7 +271,9 @@ class MemoryManagementService:
         access: WorkspaceAccessContext | None = None,
     ) -> RetrievalResponse:
         scope = verified_scope(
-            access, WorkspaceOperation.RESOURCE_READ, identity_scope,
+            access,
+            WorkspaceOperation.RESOURCE_READ,
+            identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(

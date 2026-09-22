@@ -62,7 +62,9 @@ def test_default_user_id_usage_stays_within_sanctioned_boundary():
         and "DEFAULT_USER_ID" in path.read_text(encoding="utf-8")
     ]
 
-    assert violations == [], (
+    assert (
+        violations == []
+    ), (
         "DEFAULT_USER_ID 出现在合法边界之外（应用服务不得解析默认身份），"
         "涉及文件：\n" + "\n".join(violations)
     )

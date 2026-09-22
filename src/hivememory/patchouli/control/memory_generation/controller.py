@@ -155,9 +155,7 @@ class MemoryGenerationTaskController:
         )
 
         if not self._queue.started:
-            raise RuntimeError(
-                "memory generation queue must be started before submitting work"
-            )
+            raise RuntimeError("memory generation queue must be started before submitting work")
 
         # 只有队列确认接纳后才建立 entry 和发布 created，避免把 admission
         # rejection 混入任务状态机。
@@ -184,10 +182,14 @@ class MemoryGenerationTaskController:
     def _task_id_for_spec(spec: MemoryGenerationTaskSpec) -> str:
         """为任务生成稳定身份；Active intent 使用业务 intent_id。"""
 
-        if spec.source in {
-            MemoryGenerationSource.WRITE,
-            MemoryGenerationSource.UPDATE,
-        } and spec.intent_id:
+        if (
+            spec.source
+            in {
+                MemoryGenerationSource.WRITE,
+                MemoryGenerationSource.UPDATE,
+            }
+            and spec.intent_id
+        ):
             return f"active:{spec.intent_id}"
         return str(uuid.uuid4())
 
@@ -493,18 +495,13 @@ class MemoryGenerationTaskController:
     ) -> int:
         """逐项请求取消并返回运行时接纳的数量。"""
 
-        return sum([
-            await self.cancel_task(task_id, reason=reason)
-            for task_id in task_ids
-        ])
+        return sum([await self.cancel_task(task_id, reason=reason) for task_id in task_ids])
 
     def _retain_terminal_entries(self) -> None:
         """按队列保留策略淘汰最早的领域终态及进程内结果。"""
 
         terminal_ids = [
-            task_id
-            for task_id, entry in self._entries.items()
-            if entry.final_snapshot is not None
+            task_id for task_id, entry in self._entries.items() if entry.final_snapshot is not None
         ]
         excess = len(terminal_ids) - self._queue.terminal_retention
         for task_id in terminal_ids[: max(0, excess)]:
@@ -559,5 +556,6 @@ class MemoryGenerationTaskController:
             if result.settlement is None:
                 continue
             await self._pending_atom_settler.settled(result.settlement)
+
 
 __all__ = ["MemoryGenerationTaskController"]

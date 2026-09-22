@@ -14,11 +14,12 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 版本: 0.2.0
 """
 
-import re
 import logging
+import re
 from datetime import datetime
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
+from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -30,31 +31,30 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     MemoryVersionSnapshot,
     normalize_contributing_agent_ids,
 )
+from hivememory.engines.generation.interfaces import (
+    BaseDeduplicator,
+    BaseMemoryExtractor,
+)
 from hivememory.engines.generation.models import (
     DuplicateDecision,
-    ExtractedMemoryDraft, GenerationRequest,
+    ExtractedMemoryDraft,
     GenerationOutcome,
+    GenerationRequest,
     MemoryProvenance,
     MergeResult,
 )
-from hivememory.engines.generation.interfaces import (
-    BaseMemoryExtractor,
-    BaseDeduplicator,
-)
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 
 # MTP 别名系统: MemoryType -> 别名前缀映射 (Section 2.3.1)
-MEMORY_TYPE_ALIAS_PREFIX: Dict[str, str] = {
+MEMORY_TYPE_ALIAS_PREFIX: dict[str, str] = {
     "CODE_SNIPPET": "code",
     "FACT": "fact",
     "URL_RESOURCE": "url",
@@ -97,7 +97,7 @@ class MemoryGenerationEngine:
         request: GenerationRequest,
         *,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         处理对话片段，提取记忆原子 (三模式)
 
@@ -136,7 +136,7 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         Mode A: 被动结算模式 (默认)
 
@@ -144,17 +144,14 @@ class MemoryGenerationEngine:
         结算没有具体 Agent 作为操作来源主体，来源记录使用保留
         ``SYSTEM_AGENT_ID``，实际参与内容的 Agent 进入贡献者集合。
         """
-        logger.info(f"[Mode A] 开始处理...")
+        logger.info("[Mode A] 开始处理...")
 
         # Step 1: 渲染 transcript（Phase 3 优先路径）
         transcript = self._render_transcript(request)
         if not transcript:
             return []
 
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={}
-        )
+        draft = self.extractor.extract(transcript=transcript, metadata={})
 
         if not draft or not draft.has_value:
             logger.info("[Mode A] LLM 判断对话无价值，跳过存储")
@@ -171,7 +168,7 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
 
@@ -192,7 +189,7 @@ class MemoryGenerationEngine:
                 "mode": "write",
                 "write_content": focus.content,
                 "write_reason": focus.reason or "(未提供)",
-            }
+            },
         )
 
         # Fallback: LLM 失败时直接从 WriteFocus 构建草稿 (保底入库)
@@ -232,7 +229,7 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         Mode C: 合并更新模式 (UPDATE 指令触发)
 
@@ -274,7 +271,7 @@ class MemoryGenerationEngine:
                 "memory_title": existing.index.title,
                 "memory_alias": existing.index.alias or uf.base_alias,
                 "transcript": transcript,
-            }
+            },
         )
 
         # Fallback: LLM 合并失败时直接拼接
@@ -316,8 +313,8 @@ class MemoryGenerationEngine:
         result: MergeResult,
         *,
         provenance: MemoryProvenance,
-        dedup_draft: Optional[ExtractedMemoryDraft] = None,
-    ) -> List[GenerationOutcome]:
+        dedup_draft: ExtractedMemoryDraft | None = None,
+    ) -> list[GenerationOutcome]:
         """
         执行版本历史追踪 + 内容更新。持久化由调用方负责。
 
@@ -360,19 +357,21 @@ class MemoryGenerationEngine:
             f"v{memory.meta.version}, changelog='{result.changelog}'"
         )
 
-        return [GenerationOutcome(
-            atom=memory,
-            duplicate_decision=DuplicateDecision.UPDATE,
-            memory_before_snapshot=before_snapshot,
-            changelog=result.changelog,
-        )]
+        return [
+            GenerationOutcome(
+                atom=memory,
+                duplicate_decision=DuplicateDecision.UPDATE,
+                memory_before_snapshot=before_snapshot,
+                changelog=result.changelog,
+            )
+        ]
 
     async def _dedup_and_resolve(
         self,
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
-    ) -> List[GenerationOutcome]:
+    ) -> list[GenerationOutcome]:
         """
         查重 → 构建/演化决策 (Mode A/B 共用)
 
@@ -399,10 +398,12 @@ class MemoryGenerationEngine:
             existing_memory.meta.access_count += 1
             existing_memory.meta.updated_at = datetime.now()
 
-            return [GenerationOutcome(
-                atom=existing_memory,
-                duplicate_decision=DuplicateDecision.TOUCH,
-            )]
+            return [
+                GenerationOutcome(
+                    atom=existing_memory,
+                    duplicate_decision=DuplicateDecision.TOUCH,
+                )
+            ]
 
         elif decision == DuplicateDecision.UPDATE:
             logger.info("记忆演化，覆盖当前版本内容")
@@ -426,18 +427,22 @@ class MemoryGenerationEngine:
 
             memory = self._draft_to_memory(draft, identity_scope, provenance)
 
-            return [GenerationOutcome(
-                atom=memory,
-                duplicate_decision=DuplicateDecision.CREATE,
-            )]
+            return [
+                GenerationOutcome(
+                    atom=memory,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                )
+            ]
 
         else:  # DISCARD
             logger.info("低质量重复，丢弃")
-            return [GenerationOutcome(
-                atom=None,
-                duplicate_decision=DuplicateDecision.DISCARD,
-                message="Low-quality duplicate, discarded.",
-            )]
+            return [
+                GenerationOutcome(
+                    atom=None,
+                    duplicate_decision=DuplicateDecision.DISCARD,
+                    message="Low-quality duplicate, discarded.",
+                )
+            ]
 
     def _merge_dedup_index(
         self,
@@ -540,7 +545,7 @@ class MemoryGenerationEngine:
         memory_type: str,
         alias_suffix: str,
         title: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         构建完整的 MTP 别名 (Section 2.3.1)
 
@@ -564,19 +569,20 @@ class MemoryGenerationEngine:
         suffix = alias_suffix.strip() if alias_suffix else ""
         if not suffix:
             suffix = title.lower().strip()
-            suffix = re.sub(r'[^a-z0-9\s_]', '', suffix)
-            suffix = re.sub(r'\s+', '_', suffix)
-            suffix = re.sub(r'_+', '_', suffix).strip('_')
+            suffix = re.sub(r"[^a-z0-9\s_]", "", suffix)
+            suffix = re.sub(r"\s+", "_", suffix)
+            suffix = re.sub(r"_+", "_", suffix).strip("_")
 
         if not suffix:
             return None
 
         # 清洗 suffix: 确保 snake_case 合规
-        suffix = re.sub(r'[^a-z0-9_]', '', suffix.lower())
-        suffix = re.sub(r'_+', '_', suffix).strip('_')
+        suffix = re.sub(r"[^a-z0-9_]", "", suffix.lower())
+        suffix = re.sub(r"_+", "_", suffix).strip("_")
         suffix = suffix[:40]
 
         return f"{prefix}_{suffix}"
+
 
 __all__ = [
     "MemoryGenerationEngine",

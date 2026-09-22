@@ -11,9 +11,10 @@ AsyncSystemBus — 纯异步系统总线基类
     - publish() 对无订阅者的事件静默 no-op
 """
 
-import logging
 import inspect
-from typing import Any, Awaitable, Callable
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,7 @@ class AsyncSystemBus:
 
     def unsubscribe(self, event: str, callback: Callable[..., Awaitable[None]]) -> None:
         if event in self._subscribers:
-            self._subscribers[event] = [
-                cb for cb in self._subscribers[event] if cb != callback
-            ]
+            self._subscribers[event] = [cb for cb in self._subscribers[event] if cb != callback]
             if not self._subscribers[event]:
                 self._subscribers.pop(event, None)
 

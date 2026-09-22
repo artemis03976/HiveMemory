@@ -5,7 +5,6 @@ HiveMemory 时间格式化工具。
 """
 
 from datetime import datetime
-from typing import Optional
 
 from hivememory.i18n import Language, get_time_formatter_text, resolve_language
 
@@ -52,7 +51,7 @@ class TimeFormatter:
         self.language = resolve_language(explicit=language)
         self.stale_days = stale_days
 
-    def format(self, dt: datetime, reference: Optional[datetime] = None) -> str:
+    def format(self, dt: datetime, reference: datetime | None = None) -> str:
         """
         把 datetime 格式化为相对时间字符串。
 
@@ -86,7 +85,7 @@ class TimeFormatter:
         return get_time_formatter_text(key, self.language)
 
     @staticmethod
-    def _normalize_datetimes(dt: datetime, reference: Optional[datetime]) -> tuple[datetime, datetime]:
+    def _normalize_datetimes(dt: datetime, reference: datetime | None) -> tuple[datetime, datetime]:
         """
         归一化 datetime 的时区感知，避免 naive 与 aware 相减报错。
 
@@ -113,7 +112,7 @@ def format_time_ago(
     dt: datetime,
     language: str | Language | None = None,
     stale_days: int = TimeFormatter.DEFAULT_STALE_DAYS,
-    reference: Optional[datetime] = None,
+    reference: datetime | None = None,
 ) -> str:
     """
     把 datetime 格式化为相对时间的快捷函数。

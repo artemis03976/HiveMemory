@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import AsyncIterator, Iterable
 from contextlib import suppress
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Iterable, Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
 from hivememory.infrastructure.trace_context import (
     current_span_name,
@@ -24,15 +25,9 @@ def safe_runtime_event_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, dict):
-        return {
-            str(key): safe_runtime_event_value(item)
-            for key, item in value.items()
-        }
+        return {str(key): safe_runtime_event_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [
-            safe_runtime_event_value(item)
-            for item in value
-        ]
+        return [safe_runtime_event_value(item) for item in value]
     return repr(value)
 
 
@@ -217,7 +212,7 @@ class RuntimeEventBus:
         self._sequence += 1
         update = {
             "sequence": self._sequence,
-            "timestamp": datetime.now(timezone.utc),
+            "timestamp": datetime.now(UTC),
         }
         if not event.trace_id:
             update["trace_id"] = current_trace_id.get()

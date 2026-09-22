@@ -118,9 +118,7 @@ async def test_public_memory_is_not_visible_from_another_workspace(memory_store)
     main = _identity_scope("main_workspace")
     isolation = _identity_scope("isolation_workspace")
     memory_id = uuid4()
-    await store.upsert(
-        _memory(main, memory_id=memory_id, content="main only", alias="fact_public")
-    )
+    await store.upsert(_memory(main, memory_id=memory_id, content="main only", alias="fact_public"))
 
     assert await store.get(isolation, memory_id) is None
     assert await store.get_by_alias(isolation, "fact_public") is None

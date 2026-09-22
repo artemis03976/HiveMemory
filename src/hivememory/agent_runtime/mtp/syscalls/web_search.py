@@ -2,8 +2,6 @@
 网络搜索 syscall。
 """
 
-from typing import Dict
-
 from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
 from hivememory.core.mtp.exceptions import (
     SyscallExecutionError,
@@ -13,7 +11,7 @@ from hivememory.core.mtp.exceptions import (
 from hivememory.i18n.syscall_runtime import get_syscall_info_text
 
 
-def sys_web_search(args: Dict[str, str], *, timeout_seconds: int = 15) -> SyscallResult:
+def sys_web_search(args: dict[str, str], *, timeout_seconds: int = 15) -> SyscallResult:
     """
     网络搜索 (Chapter 8.2)。
 

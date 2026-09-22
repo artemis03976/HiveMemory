@@ -100,9 +100,7 @@ class _LeaseHoldingSubsystem:
         # 持有期间 Store 必须仍可读取。
         self.asset_id_seen_on_stop = self._lease.representation.asset_id
         # 消费者完成使用后显式 release；返回 True 证明 lease 未被 close 提前清除。
-        self.released_active_lease = self._store.release_representation_lease(
-            self._lease.lease_id
-        )
+        self.released_active_lease = self._store.release_representation_lease(self._lease.lease_id)
 
     async def health(self) -> dict[str, str]:
         return {"status": "ok"}
@@ -244,9 +242,7 @@ def _build_system(
 
 def test_assembler_constructs_store_implementing_both_narrow_ports() -> None:
     """捕获 runtime 遗漏 Store、重复容器或只提供宽泛 service locator。"""
-    runtime = SystemAssembler(
-        HiveMemoryConfig(runtime_events={"enabled": False})
-    )._build_runtime()
+    runtime = SystemAssembler(HiveMemoryConfig(runtime_events={"enabled": False}))._build_runtime()
 
     store = runtime.workspace_asset_store
     assert isinstance(store, InMemoryWorkspaceAssetStore)
@@ -256,9 +252,7 @@ def test_assembler_constructs_store_implementing_both_narrow_ports() -> None:
 
 def test_assemble_wires_single_store_across_consumers() -> None:
     """组合根对象图：Store 是全图唯一共享实例。"""
-    system = SystemAssembler(
-        HiveMemoryConfig(runtime_events={"enabled": False})
-    ).assemble()
+    system = SystemAssembler(HiveMemoryConfig(runtime_events={"enabled": False})).assemble()
 
     store = system._workspace_asset_store
     # Patchouli 读取端、上传服务命令端与附件解析服务拿到的都是组合根持有的
@@ -296,9 +290,9 @@ def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
     assert [handle.asset.asset_id for handle in store.list_workspace_assets(main)] == [
         main_handle.asset.asset_id
     ]
-    assert [
-        handle.asset.asset_id for handle in store.list_workspace_assets(isolated)
-    ] == [isolated_handle.asset.asset_id]
+    assert [handle.asset.asset_id for handle in store.list_workspace_assets(isolated)] == [
+        isolated_handle.asset.asset_id
+    ]
 
     with pytest.raises(AssetNotFoundError):
         store.resolve_asset(isolated, main_handle.asset_ref)
@@ -311,9 +305,9 @@ def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
     removed = store.remove_asset(main, main_handle.asset_ref)
     assert removed.state.value == "removed"
     assert store.list_workspace_assets(main) == []
-    assert [
-        handle.asset.asset_id for handle in store.list_workspace_assets(isolated)
-    ] == [isolated_handle.asset.asset_id]
+    assert [handle.asset.asset_id for handle in store.list_workspace_assets(isolated)] == [
+        isolated_handle.asset.asset_id
+    ]
     with pytest.raises(AssetRemovedError):
         store.acquire_ready_representation(main, main_handle.asset_ref)
     assert store.resolve_asset(isolated, isolated_handle.asset_ref).asset_id == (
@@ -339,9 +333,7 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
     await system.stop()
 
     assert calls == ["scheduler", "ingress", "alice", "patchouli", "gateway"]
-    assert {
-        name: subsystem.asset_id_seen_on_stop for name, subsystem in subsystems.items()
-    } == {
+    assert {name: subsystem.asset_id_seen_on_stop for name, subsystem in subsystems.items()} == {
         "gateway": handle.asset.asset_id,
         "patchouli": handle.asset.asset_id,
         "alice": handle.asset.asset_id,
@@ -351,9 +343,7 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
         RuntimeEventType.SYSTEM_SHUTTING_DOWN,
         RuntimeEventType.SYSTEM_STOPPED,
     ]
-    assert sink.events[-1].data["completed_steps"][-1] == (
-        "workspace_asset_store.close_and_clear"
-    )
+    assert sink.events[-1].data["completed_steps"][-1] == ("workspace_asset_store.close_and_clear")
 
 
 @pytest.mark.asyncio

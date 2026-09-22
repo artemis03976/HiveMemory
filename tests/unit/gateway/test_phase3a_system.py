@@ -61,9 +61,7 @@ async def test_gateway_service_rejects_missing_workspace_scope() -> None:
     """防止 Gateway 中层在缺 scope 时从默认用户隐式补出 Workspace。"""
     workflow = SimpleNamespace(run=AsyncMock())
     runtime = SimpleNamespace(
-        config=SimpleNamespace(
-            workflow=SimpleNamespace(default_request_timeout_ms=1000)
-        ),
+        config=SimpleNamespace(workflow=SimpleNamespace(default_request_timeout_ms=1000)),
         workflow=workflow,
     )
 

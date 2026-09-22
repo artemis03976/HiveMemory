@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
-from hivememory.agent_runtime.output import NullFrameOutputSink, TokenDelta
+from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_session import RunSession
@@ -256,9 +256,7 @@ async def test_run_executor_still_finalizes_when_call_record_cleanup_fails():
 
     frame = _frame_stub("frame-1")
     session = _session_with(frame)
-    session.cancel_unapplied_calls = MagicMock(
-        side_effect=RuntimeError("record cleanup failed")
-    )
+    session.cancel_unapplied_calls = MagicMock(side_effect=RuntimeError("record cleanup failed"))
     finalize_run = MagicMock()
     executor = RunExecutor(
         SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),

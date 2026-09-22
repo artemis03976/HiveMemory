@@ -44,6 +44,7 @@ class TestSyscallPromptTeaching:
     def test_prompt_demo_parseable(self, mtp_prompt_en):
         """Prompt 演示中的 MTP 指令可被解析器正确解析"""
         from hivememory.core.mtp.parser import MTPParser
+
         parser = MTPParser()
 
         demo_marker = "ONE-SHOT DEMONSTRATION"
@@ -55,9 +56,12 @@ class TestSyscallPromptTeaching:
         right = demo_text.find(MTP_RIGHT_DELIMITER, left)
         assert left != -1 and right != -1
 
-        demo_cmd = demo_text[left:right + 1]
+        demo_cmd = demo_text[left : right + 1]
         cmd = parser.parse(demo_cmd)
         assert cmd.verb in (
-            MTPVerb.SEARCH, MTPVerb.READ,
-            MTPVerb.RUN, MTPVerb.WRITE, MTPVerb.UPDATE,
+            MTPVerb.SEARCH,
+            MTPVerb.READ,
+            MTPVerb.RUN,
+            MTPVerb.WRITE,
+            MTPVerb.UPDATE,
         )

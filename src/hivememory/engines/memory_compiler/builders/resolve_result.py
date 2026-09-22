@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 _TERMINAL_KINDS = {"discarded", "failed", "expired"}
 
 
-def build_resolve_result_ir(resolve_result: "ResolveResult") -> MemoryUnitIR:
+def build_resolve_result_ir(resolve_result: ResolveResult) -> MemoryUnitIR:
     """只为 redirect 或终态的 ResolveResult kind 构建 IR。"""
     kind = resolve_result.kind
     settlement = resolve_result.settlement

@@ -73,7 +73,8 @@ def _spec(
         topic_id=topic_id,
         label=label,
         source=MemoryGenerationSource.WRITE,
-        request=request or GenerationRequest(
+        request=request
+        or GenerationRequest(
             context=GenerationContext(),
         ),
         intent_id=intent_id,
@@ -101,9 +102,7 @@ def _controller(
 
 def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() -> None:
     atom = _memory_atom()
-    block = LogicalBlock(
-        turn=TurnRecord(user_query="question", assistant_final_text="answer")
-    )
+    block = LogicalBlock(turn=TurnRecord(user_query="question", assistant_final_text="answer"))
     spec = MemoryGenerationTaskSpec(
         identity_scope=make_memory_identity_scope(),
         topic_id="topic-codec",
@@ -170,9 +169,7 @@ def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
         spec,
         interaction_input=InteractionArtifactInput(
             topic_id="topic-bind",
-            blocks=(
-                LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),
-            ),
+            blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
             asset_bindings=(binding,),
         ),
     )
@@ -194,9 +191,7 @@ async def test_queue_identity_does_not_partition_by_payload_scope() -> None:
     main_spec = _spec(intent_id="intent-shared", pending_alias="draft-shared")
     isolated_spec = replace(
         main_spec,
-        identity_scope=make_memory_identity_scope(
-            workspace_id="isolation_workspace"
-        ),
+        identity_scope=make_memory_identity_scope(workspace_id="isolation_workspace"),
     )
 
     try:
@@ -212,9 +207,7 @@ async def test_queue_identity_does_not_partition_by_payload_scope() -> None:
 def test_memory_generation_codec_rejects_flattened_owner_projection() -> None:
     """捕获 codec 接受 TaskSpec 内第二份 owner_user_id 身份事实的缺陷。"""
     adapter = _MemoryGenerationWorkAdapter()
-    encoded = adapter.encode(
-        _MemoryGenerationWork(task_id="tampered-task", spec=_spec())
-    )
+    encoded = adapter.encode(_MemoryGenerationWork(task_id="tampered-task", spec=_spec()))
     encoded["spec"]["owner_user_id"] = "attacker"
     codecs = WorkPayloadCodecRegistry()
     codecs.register(adapter)
@@ -233,9 +226,7 @@ def test_memory_generation_codec_rejects_nested_noncanonical_request(
 ) -> None:
     """捕获 GenerationRequest 嵌套字段被静默忽略或补默认值的缺陷。"""
     adapter = _MemoryGenerationWorkAdapter()
-    encoded = adapter.encode(
-        _MemoryGenerationWork(task_id="nested-tamper", spec=_spec())
-    )
+    encoded = adapter.encode(_MemoryGenerationWork(task_id="nested-tamper", spec=_spec()))
     if mutation == "extra":
         encoded["spec"]["request"]["workspace_id"] = "isolation_workspace"
     else:
@@ -272,9 +263,7 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
         second = await controller.submit_generation(_spec(label="second"))
         await asyncio.sleep(0.03)
 
-        second_work = await controller.queue.get(
-            controller.queue.work_id_for(second.task_id)
-        )
+        second_work = await controller.queue.get(controller.queue.work_id_for(second.task_id))
         assert second_work is not None
         assert second_work.state == WorkState.QUEUED
         assert second.status == MemoryGenerationTaskStatus.PENDING
@@ -283,12 +272,13 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
         release.set()
         completed = await controller.wait_all(timeout=2)
         assert len(completed) == 2
-        assert all(
-            task.status == MemoryGenerationTaskStatus.COMPLETED
-            for task in completed
-        )
-        assert (await controller.get_task(first.task_id)).status == MemoryGenerationTaskStatus.COMPLETED
-        assert (await controller.get_task(second.task_id)).status == MemoryGenerationTaskStatus.COMPLETED
+        assert all(task.status == MemoryGenerationTaskStatus.COMPLETED for task in completed)
+        assert (
+            await controller.get_task(first.task_id)
+        ).status == MemoryGenerationTaskStatus.COMPLETED
+        assert (
+            await controller.get_task(second.task_id)
+        ).status == MemoryGenerationTaskStatus.COMPLETED
     finally:
         release.set()
         await controller.stop()
@@ -374,9 +364,7 @@ def test_memory_generation_rejects_multiple_attempt_policy() -> None:
 
 @pytest.mark.asyncio
 async def test_memory_generation_submit_requires_explicit_start() -> None:
-    controller = MemoryGenerationTaskController(
-        bus=Mock(request=AsyncMock(), publish=AsyncMock())
-    )
+    controller = MemoryGenerationTaskController(bus=Mock(request=AsyncMock(), publish=AsyncMock()))
 
     with pytest.raises(RuntimeError, match="must be started"):
         await controller.submit_generation(_spec())
@@ -386,9 +374,7 @@ async def test_memory_generation_submit_requires_explicit_start() -> None:
 async def test_default_policy_does_not_retry_generation_side_effects() -> None:
     bus = Mock(
         request=AsyncMock(
-            side_effect=ConnectionError(
-                "generation may already have written partial results"
-            )
+            side_effect=ConnectionError("generation may already have written partial results")
         ),
         publish=AsyncMock(),
     )
@@ -403,7 +389,9 @@ async def test_default_policy_does_not_retry_generation_side_effects() -> None:
 
     assert result.status == MemoryGenerationTaskStatus.FAILED
     assert bus.request.await_count == 1
-    assert (await controller.get_task(memory_task.task_id)).status == MemoryGenerationTaskStatus.FAILED
+    assert (
+        await controller.get_task(memory_task.task_id)
+    ).status == MemoryGenerationTaskStatus.FAILED
 
 
 @pytest.mark.asyncio
@@ -444,9 +432,7 @@ async def test_timeout_fails_without_retry() -> None:
     try:
         memory_task = await controller.submit_generation(_spec())
         result = await controller.wait_task(memory_task.task_id, timeout=1)
-        record = await controller.queue.get(
-            controller.queue.work_id_for(memory_task.task_id)
-        )
+        record = await controller.queue.get(controller.queue.work_id_for(memory_task.task_id))
     finally:
         await controller.stop()
 

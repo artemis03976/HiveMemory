@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from hivememory.i18n.types import DEFAULT_LANGUAGE, Language, normalize_language
 
-
 _default_language: Language | None = None
 
 

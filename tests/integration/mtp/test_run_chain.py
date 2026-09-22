@@ -34,12 +34,13 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.system.config import KoakumaConfig
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
 
 # ========== 辅助函数 ==========
+
 
 def _make_code_memory(
     code: str = "print('hello')",
@@ -79,9 +80,11 @@ def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
 
 # ========== Fixtures ==========
 
+
 @pytest.fixture
 def koakuma() -> KoakumaRuntime:
     from .conftest import make_koakuma_runtime, make_mock_bus
+
     bus = make_mock_bus()
     return make_koakuma_runtime(bus, KoakumaConfig())
 
@@ -106,32 +109,34 @@ def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context
 
 # ========== Test 1：Target 校验 ==========
 
+
 class TestRunTargetValidation:
     """RUN 指令 target 校验"""
 
     def test_wildcard_rejected(self, koakuma):
-        result = _execute_mtp(koakuma, '⟪ RUN | * | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | * | ⟫")
         assert not result.success
         assert result.response_content == ""
         assert "Invalid Argument" in result.formatted_response
 
     def test_list_target_rejected(self, koakuma):
         """列表 target 不支持 (single_alias 返回 None)"""
-        result = _execute_mtp(koakuma, '⟪ RUN | [tool_a, tool_b] | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | [tool_a, tool_b] | ⟫")
         assert not result.success
 
     def test_empty_target(self, koakuma):
-        result = _execute_mtp(koakuma, '⟪ RUN | | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | | ⟫")
         assert not result.success
 
 
 # ========== Test 2：内核快速路径 ==========
 
+
 class TestRunKernelFastPath:
     """Level 0 内核工具快速路径"""
 
     def test_sys_clock_default(self, koakuma):
-        result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | sys_clock | ⟫")
         assert result.success
         assert "UTC" in result.response_content
         assert koakuma._bus._memory_citations == []
@@ -161,12 +166,15 @@ class TestRunKernelFastPath:
 
     def test_sys_python_repl_multiline(self, koakuma):
         # 使用反引号语法支持多行代码 (Section 2.1)
-        result = _execute_mtp(koakuma, '⟪ RUN | sys_python_repl | code=`x = 10\ny = 20\nprint(x + y)` ⟫')
+        result = _execute_mtp(
+            koakuma, "⟪ RUN | sys_python_repl | code=`x = 10\ny = 20\nprint(x + y)` ⟫"
+        )
         assert result.success
         assert "30" in result.response_content
 
 
 # ========== Test 3：用户工具路径（Level 1） ==========
+
 
 class TestRunUserToolPath:
     """Level 1 用户态工具慢速路径"""
@@ -174,14 +182,16 @@ class TestRunUserToolPath:
     def test_unknown_tool_not_found(self, koakuma):
         """L1+L2 均未命中，返回 not found"""
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
-        result = _execute_mtp(koakuma, '⟪ RUN | nonexistent_tool | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | nonexistent_tool | ⟫")
         assert not result.success
         assert result.response_content == ""
-        assert "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
+        assert (
+            "Alias Not Found" in result.formatted_response or "未找到" in result.formatted_response
+        )
 
     def test_unknown_tool_suggests_search(self, koakuma):
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
-        result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | my_custom_tool | ⟫")
         assert not result.success
         assert result.response_content == ""
         assert "SEARCH" in result.formatted_response
@@ -191,7 +201,7 @@ class TestRunUserToolPath:
             "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
 
-        result = _execute_mtp(koakuma, '⟪ RUN | my_custom_tool | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | my_custom_tool | ⟫")
 
         assert not result.success
         assert result.response_content == ""
@@ -203,26 +213,22 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_greet | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_greet | ⟫")
 
         assert result.success
         assert "tool output" in result.response_content
-        assert koakuma._bus._memory_citations == [
-            {"memory_id": mem.id, "source": "mtp.run"}
-        ]
+        assert koakuma._bus._memory_citations == [{"memory_id": mem.id, "source": "mtp.run"}]
 
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
         mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
         koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_l1 | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_l1 | ⟫")
 
         assert result.success
         assert "from l1" in result.response_content
-        assert koakuma._bus._memory_citations == [
-            {"memory_id": mem.id, "source": "mtp.run"}
-        ]
+        assert koakuma._bus._memory_citations == [{"memory_id": mem.id, "source": "mtp.run"}]
 
     def test_cache_hit_skips_qdrant(self, koakuma):
         """第二次调用走 LRU 缓存，不查 Qdrant"""
@@ -231,7 +237,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
         # 第一次调用: L2 命中 → 加载 → 缓存
-        result1 = _execute_mtp(koakuma, '⟪ RUN | tool_cached | ⟫')
+        result1 = _execute_mtp(koakuma, "⟪ RUN | tool_cached | ⟫")
         assert result1.success
 
         # 重置 mock 调用计数
@@ -239,7 +245,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.reset_mock()
 
         # 第二次调用: 应走 LRU 缓存
-        result2 = _execute_mtp(koakuma, '⟪ RUN | tool_cached | ⟫')
+        result2 = _execute_mtp(koakuma, "⟪ RUN | tool_cached | ⟫")
         assert result2.success
         assert "cached" in result2.response_content
 
@@ -252,7 +258,7 @@ class TestRunUserToolPath:
         fact_mem = _make_fact_memory()
         koakuma.atom_cache.ingest_atom(fact_mem, workspace_identity=MAIN)
 
-        result = _execute_mtp(koakuma, '⟪ RUN | fact_not_tool | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | fact_not_tool | ⟫")
 
         assert not result.success
         assert result.response_content == ""
@@ -270,7 +276,7 @@ class TestRunUserToolPath:
         # 使用极短超时加速测试
         koakuma._config.python_repl_timeout_seconds = 1
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_infinite | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_infinite | ⟫")
 
         assert not result.success
         assert result.response_content == ""
@@ -289,7 +295,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_bad_import | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_bad_import | ⟫")
 
         assert not result.success
         assert result.response_content == ""
@@ -298,7 +304,7 @@ class TestRunUserToolPath:
     def test_params_injection(self, koakuma):
         """验证 params 字典正确传入用户态工具"""
         mem = _make_code_memory(
-            code='print(f"x={params[\'x\']}, y={params[\'y\']}")',
+            code="print(f\"x={params['x']}, y={params['y']}\")",
             alias="tool_params",
         )
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
@@ -315,7 +321,7 @@ class TestRunUserToolPath:
         mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
         koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_cached_ingest | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_cached_ingest | ⟫")
 
         assert result.success
         assert "cached" in result.response_content
@@ -348,7 +354,7 @@ class TestRunUserToolPath:
             )
         )
 
-        result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
+        result = _execute_mtp(koakuma, f"⟪ RUN | {pending.pending_alias} | ⟫")
 
         assert result.success
         assert "redirected tool output" in result.response_content
@@ -357,9 +363,7 @@ class TestRunUserToolPath:
         assert f"请求的别名: {pending.pending_alias}" in result.formatted_response
         assert "规范别名: tool_canonical" in result.formatted_response
         assert "<warnings>" in result.formatted_response
-        assert koakuma._bus._memory_citations == [
-            {"memory_id": canonical.id, "source": "mtp.run"}
-        ]
+        assert koakuma._bus._memory_citations == [{"memory_id": canonical.id, "source": "mtp.run"}]
 
     def test_expired_pending_alias_returns_reclaimed_error(self, koakuma):
         pending = koakuma.pending_runtime.register_write(
@@ -392,7 +396,7 @@ class TestRunUserToolPath:
             runtime_scope=make_runtime_scope(),
         )
 
-        result = _execute_mtp(koakuma, f'⟪ RUN | {pending.pending_alias} | ⟫')
+        result = _execute_mtp(koakuma, f"⟪ RUN | {pending.pending_alias} | ⟫")
 
         assert not result.success
         assert result.response_content == ""
@@ -414,7 +418,7 @@ class TestRunUserToolPath:
 
         result = _execute_mtp(
             koakuma,
-            f'⟪ RUN | {pending.pending_alias} | ⟫',
+            f"⟪ RUN | {pending.pending_alias} | ⟫",
             context=MTPExecutionContext(
                 runtime_scope=make_runtime_scope(workspace_id="main_workspace")
             ),
@@ -457,7 +461,7 @@ class TestRunUserToolPath:
 
         result = _execute_mtp(
             koakuma,
-            f'⟪ RUN | {pending.pending_alias} | ⟫',
+            f"⟪ RUN | {pending.pending_alias} | ⟫",
             context=MTPExecutionContext(
                 runtime_scope=make_runtime_scope(workspace_id="main_workspace")
             ),
@@ -475,7 +479,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_trace | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_trace | ⟫")
 
         assert result.success
         assert "traced" in result.response_content
@@ -486,7 +490,7 @@ class TestRunUserToolPath:
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
         koakuma._bus._mock_storage.get_memory.return_value = mem
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_err | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_err | ⟫")
 
         assert not result.success
         assert result.response_content == ""
@@ -498,7 +502,7 @@ class TestRunUserToolPath:
         koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_cite_fail | ⟫')
+        result = _execute_mtp(koakuma, "⟪ RUN | tool_cite_fail | ⟫")
 
         assert result.success
         assert "still ok" in result.response_content

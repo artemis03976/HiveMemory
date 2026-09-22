@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,21 +36,21 @@ class CompiledMemory(BaseModel):
 
     target: MemoryCompileTarget | MemoryEnvelopeTarget
     text: str
-    sections: List["MemoryEnvelopeSection"] = Field(default_factory=list)
+    sections: list[MemoryEnvelopeSection] = Field(default_factory=list)
     source_kind: str = ""
-    alias: Optional[str] = None
-    memory_id: Optional[str] = None
-    status: Optional[str] = None
-    citations: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    alias: str | None = None
+    memory_id: str | None = None
+    status: str | None = None
+    citations: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MemoryEnvelopeSection(BaseModel):
     """编译后记忆 Envelope 中的命名小节。"""
 
     kind: str
-    artifacts: List[CompiledMemory] = Field(default_factory=list)
-    empty_text: Optional[str] = None
+    artifacts: list[CompiledMemory] = Field(default_factory=list)
+    empty_text: str | None = None
 
 
 # 兼容类型别名，指向统一的运行时模型。
@@ -65,8 +65,8 @@ class MemoryCompileOptions(BaseModel):
     max_summary_length: int = 100
     stale_days: int = 90
     include_header_footer: bool = False
-    requested_alias: Optional[str] = None
-    canonical_alias: Optional[str] = None
-    format: Optional[Literal["xml", "markdown", "plain"]] = None
-    language: Optional[str] = None
-    retrieval_strategy_config: Optional[RetrievalContextStrategyConfig] = None
+    requested_alias: str | None = None
+    canonical_alias: str | None = None
+    format: Literal["xml", "markdown", "plain"] | None = None
+    language: str | None = None
+    retrieval_strategy_config: RetrievalContextStrategyConfig | None = None

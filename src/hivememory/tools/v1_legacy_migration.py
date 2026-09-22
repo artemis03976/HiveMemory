@@ -52,8 +52,10 @@ from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from hivememory.core.constants import DEFAULT_AGENT_ID, SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -118,11 +120,12 @@ _ARTIFACT_PUBLISH_ROUNDS: tuple[tuple[str, ...], ...] = (
 _CHECKPOINT_SAVE_INTERVAL = 25
 
 
-class MigrationRejected(Exception):
+class MigrationRejectedError(Exception):
     """单条记录无法安全迁移（fail closed），原因进入诊断清单。"""
 
 
 # ============ 运行选项 / 报告 / checkpoint ============
+
 
 @dataclass
 class MigrationOptions:
@@ -269,7 +272,7 @@ class MigrationCheckpoint:
     def artifact_key(workspace: WorkspaceIdentity, artifact_id: str) -> str:
         return f"{workspace.owner_user_id}|{workspace.workspace_id}|{artifact_id}"
 
-    def artifact_done(self, key: str, old_content_hash: str) -> Optional[dict[str, Any]]:
+    def artifact_done(self, key: str, old_content_hash: str) -> dict[str, Any] | None:
         """返回已完成的 replacement 记录；旧内容 hash 不一致时视为异常返回 None。"""
         entry = self._artifacts.get(key)
         if entry is None:
@@ -299,7 +302,7 @@ class MigrationCheckpoint:
 
     # ---- Memory ----
 
-    def memory_done(self, point_id: str) -> Optional[dict[str, Any]]:
+    def memory_done(self, point_id: str) -> dict[str, Any] | None:
         return self._memories.get(point_id)
 
     def mark_memory(self, point_id: str, *, status: str) -> None:
@@ -339,10 +342,11 @@ class MigrationCheckpoint:
 
 # ============ Artifact 扫描与 legacy 判定 ============
 
+
 def replacement_artifact_id(workspace: WorkspaceIdentity, old_artifact_id: str) -> str:
     """确定性迁移命名空间 ID：同一条旧记录永远映射到同一个 replacement。"""
     digest = hashlib.sha256(
-        f"{workspace.owner_user_id}|{workspace.workspace_id}|{old_artifact_id}".encode("utf-8")
+        f"{workspace.owner_user_id}|{workspace.workspace_id}|{old_artifact_id}".encode()
     ).hexdigest()
     return f"{REPLACEMENT_ID_PREFIX}{digest[:32]}"
 
@@ -360,10 +364,7 @@ def _is_legacy_artifact(raw: dict[str, Any]) -> bool:
             return True
         turns = raw.get("turns")
         if isinstance(turns, list):
-            return any(
-                isinstance(turn, dict) and "actor_identity" not in turn
-                for turn in turns
-            )
+            return any(isinstance(turn, dict) and "actor_identity" not in turn for turn in turns)
         return False
     if artifact_type in ("memory_creation", "memory_version", "document"):
         return "owner_agent_id" in raw
@@ -378,9 +379,9 @@ class ArtifactScanRecord:
     raw: dict[str, Any] = field(default_factory=dict)
     artifact_id: str = ""
     artifact_type: str = ""
-    workspace: Optional[WorkspaceIdentity] = None
+    workspace: WorkspaceIdentity | None = None
     is_legacy: bool = False
-    parse_error: Optional[str] = None
+    parse_error: str | None = None
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -388,7 +389,7 @@ class ArtifactScanRecord:
         return (self.workspace.owner_user_id, self.workspace.workspace_id, self.artifact_id)
 
 
-def _normalize_artifact_workspace(raw: dict[str, Any]) -> Optional[WorkspaceIdentity]:
+def _normalize_artifact_workspace(raw: dict[str, Any]) -> WorkspaceIdentity | None:
     """把 Artifact 记录的归属归一为 WorkspaceIdentity；无法归一化返回 None。
 
     复用运行时读取器（FilesystemArtifactStorageAdapter）的静态归一化逻辑，
@@ -479,7 +480,7 @@ class _RefResolver:
         workspace_id: str,
         artifact_id: str,
         allow_planned: bool = False,
-    ) -> tuple[str, Optional[ArtifactRef]]:
+    ) -> tuple[str, ArtifactRef | None]:
         key = (owner_user_id, workspace_id, artifact_id)
         ref = self._replacement_refs.get(key)
         if ref is not None:
@@ -514,7 +515,7 @@ def _ref_coordinates(ref: Any, default_workspace: WorkspaceIdentity) -> tuple[st
     return (workspace.owner_user_id, workspace.workspace_id, artifact_id)
 
 
-def _upgrade_legacy_turn_actor(turn: dict[str, Any]) -> Optional[dict[str, Any]]:
+def _upgrade_legacy_turn_actor(turn: dict[str, Any]) -> dict[str, Any] | None:
     """读取 turn 的执行者身份（用于贡献者证据聚合，不做 fail-closed 判定）。"""
     actor = turn.get("actor_identity")
     if isinstance(actor, dict):
@@ -530,6 +531,7 @@ def _upgrade_legacy_turn_actor(turn: dict[str, Any]) -> Optional[dict[str, Any]]
 
 
 # ============ Artifact replacement 构造 ============
+
 
 def _resolve_memory_artifact_source(raw: dict[str, Any], *, kind: str) -> str:
     """确定 legacy MemoryCreation/VersionArtifact 的 ``source_agent_id``。
@@ -550,7 +552,7 @@ def _resolve_memory_artifact_source(raw: dict[str, Any], *, kind: str) -> str:
         return owner.strip()
     if kind == "memory_version" and raw.get("update_source") == "SYSTEM_REWRITE":
         return SYSTEM_AGENT_ID
-    raise MigrationRejected(
+    raise MigrationRejectedError(
         f"{kind} 的 source_agent_id 无法确定：缺少 source_agent_id / owner_agent_id "
         "证据，且无显式 SYSTEM 语义（fail closed，不做猜测）"
     )
@@ -576,7 +578,7 @@ def _upgraded_interaction_turns(raw: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         user_id = (turn.get("user_id") or "").strip()
         if not user_id:
-            raise MigrationRejected(
+            raise MigrationRejectedError(
                 "旧版 InteractionTurnSnapshot 缺少用户归属（user_id 为空），"
                 "无法安全推断 actor_identity（fail closed）"
             )
@@ -639,7 +641,7 @@ class _ReplacementPlan:
     record: ArtifactScanRecord
     new_artifact_id: str
     replacement: Any
-    ref: Optional[ArtifactRef] = None
+    ref: ArtifactRef | None = None
 
 
 def _management_identity_scope(workspace: WorkspaceIdentity) -> IdentityScope:
@@ -662,7 +664,7 @@ class ArtifactLegacyMigrator:
         checkpoint: MigrationCheckpoint,
         dry_run: bool,
         repair_legacy_ownership: bool = False,
-        memory_workspace_index: Optional[dict[str, Optional[WorkspaceIdentity]]] = None,
+        memory_workspace_index: dict[str, WorkspaceIdentity | None] | None = None,
     ) -> None:
         self._store = store
         self._root = root
@@ -737,7 +739,7 @@ class ArtifactLegacyMigrator:
 
     # ---- repair：归属采纳 ----
 
-    def _adopt_workspace(self, record: ArtifactScanRecord) -> Optional[WorkspaceIdentity]:
+    def _adopt_workspace(self, record: ArtifactScanRecord) -> WorkspaceIdentity | None:
         """repair 模式下为无归属 Artifact 采纳 Workspace；无证据返回 None。
 
         - memory 类 Artifact：``memory_id`` 关联到的 Memory 有可解析归属时
@@ -758,7 +760,7 @@ class ArtifactLegacyMigrator:
                 resource_id=record.artifact_id,
                 rule="artifact_workspace_from_memory",
                 detail=f"owner_user_id 为空，从关联 memory_id={memory_id} 采纳归属 "
-                       f"{workspace.owner_user_id}/{workspace.workspace_id}",
+                f"{workspace.owner_user_id}/{workspace.workspace_id}",
             )
             return workspace
         if record.artifact_type == "interaction":
@@ -781,7 +783,7 @@ class ArtifactLegacyMigrator:
         return None
 
     @staticmethod
-    def _consistent_interaction_user_id(raw: dict[str, Any]) -> Optional[str]:
+    def _consistent_interaction_user_id(raw: dict[str, Any]) -> str | None:
         """所有 turn 的执行者 user_id 一致且非空时返回它，否则 None。"""
         turns = raw.get("turns")
         if not isinstance(turns, list) or not turns:
@@ -804,7 +806,7 @@ class ArtifactLegacyMigrator:
 
     # ---- 转换 ----
 
-    def _prepare(self, record: ArtifactScanRecord) -> Optional[_ReplacementPlan]:
+    def _prepare(self, record: ArtifactScanRecord) -> _ReplacementPlan | None:
         """转换一条 legacy Artifact；失败进入诊断清单并返回 None。"""
         self._report.inc("artifact_legacy_found")
         workspace = record.workspace
@@ -820,33 +822,31 @@ class ArtifactLegacyMigrator:
                 resource_id=record.artifact_id,
                 location=str(record.path),
                 reason="checkpoint 记录的旧内容 hash 与当前文件不一致，"
-                       "旧记录疑似在迁移后被改动，拒绝重复 replacement",
+                "旧记录疑似在迁移后被改动，拒绝重复 replacement",
             )
             return None
 
-        done = (
-            None
-            if self._dry_run
-            else self._checkpoint.artifact_done(key, old_content_hash)
-        )
+        done = None if self._dry_run else self._checkpoint.artifact_done(key, old_content_hash)
         if done is not None:
             ref = ArtifactRef.model_validate(done["ref"])
             self._resolver.record_replacement(record.key, ref)
-            self._report.artifact_mappings.append({
-                "owner_user_id": workspace.owner_user_id,
-                "workspace_id": workspace.workspace_id,
-                "artifact_type": record.artifact_type,
-                "old_artifact_id": record.artifact_id,
-                "new_artifact_id": done["new_artifact_id"],
-                "status": "resumed_from_checkpoint",
-            })
+            self._report.artifact_mappings.append(
+                {
+                    "owner_user_id": workspace.owner_user_id,
+                    "workspace_id": workspace.workspace_id,
+                    "artifact_type": record.artifact_type,
+                    "old_artifact_id": record.artifact_id,
+                    "new_artifact_id": done["new_artifact_id"],
+                    "status": "resumed_from_checkpoint",
+                }
+            )
             self._report.inc("artifact_replacement_resumed")
             return None
 
         new_artifact_id = replacement_artifact_id(workspace, record.artifact_id)
         try:
             replacement = self._convert(record, workspace, new_artifact_id)
-        except MigrationRejected as exc:
+        except MigrationRejectedError as exc:
             self._report.add_diagnostic(
                 resource_type="artifact",
                 resource_id=record.artifact_id,
@@ -866,14 +866,16 @@ class ArtifactLegacyMigrator:
         self._report.inc("artifact_replacement_planned")
         if self._dry_run:
             self._resolver.record_planned(record.key)
-            self._report.artifact_mappings.append({
-                "owner_user_id": workspace.owner_user_id,
-                "workspace_id": workspace.workspace_id,
-                "artifact_type": record.artifact_type,
-                "old_artifact_id": record.artifact_id,
-                "new_artifact_id": new_artifact_id,
-                "status": "planned",
-            })
+            self._report.artifact_mappings.append(
+                {
+                    "owner_user_id": workspace.owner_user_id,
+                    "workspace_id": workspace.workspace_id,
+                    "artifact_type": record.artifact_type,
+                    "old_artifact_id": record.artifact_id,
+                    "new_artifact_id": new_artifact_id,
+                    "status": "planned",
+                }
+            )
             return None
         return _ReplacementPlan(record, new_artifact_id, replacement)
 
@@ -906,7 +908,7 @@ class ArtifactLegacyMigrator:
             override["source_agent_id"] = _resolve_memory_artifact_source(
                 record.raw, kind=artifact_type
             )
-        except MigrationRejected:
+        except MigrationRejectedError:
             if not self._repair:
                 raise
             # 用户批准的修复规则：来源缺证时按默认人偶归属（仅 provenance，
@@ -918,7 +920,7 @@ class ArtifactLegacyMigrator:
                 resource_id=record.artifact_id,
                 rule="artifact_source_defaulted",
                 detail="source_agent_id 无法确定（owner_agent_id 为空且无 SYSTEM 语义），"
-                       f"按默认归属填入 {DEFAULT_AGENT_ID}",
+                f"按默认归属填入 {DEFAULT_AGENT_ID}",
             )
         if artifact_type == "memory_creation":
             override.setdefault(
@@ -934,7 +936,7 @@ class ArtifactLegacyMigrator:
             workspace=workspace,
         )
         if blocked:
-            raise MigrationRejected(
+            raise MigrationRejectedError(
                 "引用链无法完整重写，目标 Artifact 存在但无法给出 canonical "
                 f"replacement: {', '.join(sorted(blocked))}（fail closed）"
             )
@@ -966,7 +968,7 @@ class ArtifactLegacyMigrator:
         dangling: list[str] = []
         blocked: list[str] = []
 
-        def _resolve(ref: dict[str, Any]) -> tuple[str, Optional[ArtifactRef]]:
+        def _resolve(ref: dict[str, Any]) -> tuple[str, ArtifactRef | None]:
             owner, workspace_id, artifact_id = _ref_coordinates(ref, workspace)
             return self._resolver.resolve(
                 owner_user_id=owner,
@@ -1049,14 +1051,16 @@ class ArtifactLegacyMigrator:
                 new_artifact_id=plan.new_artifact_id,
                 ref=json.loads(plan.ref.model_dump_json()),
             )
-            self._report.artifact_mappings.append({
-                "owner_user_id": workspace.owner_user_id,
-                "workspace_id": workspace.workspace_id,
-                "artifact_type": plan.record.artifact_type,
-                "old_artifact_id": plan.record.artifact_id,
-                "new_artifact_id": plan.new_artifact_id,
-                "status": "superseded",
-            })
+            self._report.artifact_mappings.append(
+                {
+                    "owner_user_id": workspace.owner_user_id,
+                    "workspace_id": workspace.workspace_id,
+                    "artifact_type": plan.record.artifact_type,
+                    "old_artifact_id": plan.record.artifact_id,
+                    "new_artifact_id": plan.new_artifact_id,
+                    "status": "superseded",
+                }
+            )
             self._report.inc("artifact_replaced")
         self._checkpoint.maybe_save(force=True)
 
@@ -1077,7 +1081,7 @@ class ArtifactLegacyMigrator:
                 resource_id=plan.record.artifact_id,
                 location=str(plan.record.path),
                 reason=f"replacement 已写入但校验失败（存在部分 replacement）"
-                       f" new_artifact_id={plan.new_artifact_id}: {exc}",
+                f" new_artifact_id={plan.new_artifact_id}: {exc}",
                 partial_replacement=True,
             )
             return
@@ -1086,17 +1090,18 @@ class ArtifactLegacyMigrator:
 
 # ============ Memory V1 → V2 转换 ============
 
+
 @dataclass
 class V1ConversionResult:
     """单条 V1 Memory 的转换结果。"""
 
-    atom: Optional[MemoryAtom] = None
-    reason: Optional[str] = None
+    atom: MemoryAtom | None = None
+    reason: str | None = None
     defaulted_public: bool = False
     backfilled_refs: int = 0
 
 
-def resolve_memory_workspace_from_meta(payload: dict[str, Any]) -> Optional[WorkspaceIdentity]:
+def resolve_memory_workspace_from_meta(payload: dict[str, Any]) -> WorkspaceIdentity | None:
     """仅从 Memory payload 的 meta 解析归属，供 repair 模式的归属采纳使用。
 
     解析规则与 V1 转换一致：完整投影优先，其次 ``user_id`` → main_workspace；
@@ -1109,7 +1114,7 @@ def resolve_memory_workspace_from_meta(payload: dict[str, Any]) -> Optional[Work
     try:
         projected = _extract_complete_projection(meta)
         user_id = _optional_non_empty(meta.get("user_id"), "user_id")
-    except MigrationRejected:
+    except MigrationRejectedError:
         return None
     if projected is not None:
         if user_id is not None and user_id != projected.owner_user_id:
@@ -1164,12 +1169,12 @@ def _backfill_ref_workspaces(payload: Any, workspace: WorkspaceIdentity) -> tupl
     return {**payload, "artifacts": patched}, filled
 
 
-def _optional_non_empty(value: Any, field_name: str) -> Optional[str]:
+def _optional_non_empty(value: Any, field_name: str) -> str | None:
     """与 memory_codec 相同的规范化：缺失返回 None，空白/非字符串 fail closed。"""
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip():
-        raise MigrationRejected(f"Memory meta.{field_name} 必须是非空字符串")
+        raise MigrationRejectedError(f"Memory meta.{field_name} 必须是非空字符串")
     return value.strip()
 
 
@@ -1195,12 +1200,10 @@ def convert_v1_memory_payload(
             missing_visibility_policy=missing_visibility_policy,
             repair_missing_ref_workspace=repair_missing_ref_workspace,
         )
-    except MigrationRejected as exc:
+    except MigrationRejectedError as exc:
         return V1ConversionResult(reason=str(exc))
     except Exception as exc:
-        return V1ConversionResult(
-            reason=f"V1 Memory 转换失败：{type(exc).__name__}: {exc}"
-        )
+        return V1ConversionResult(reason=f"V1 Memory 转换失败：{type(exc).__name__}: {exc}")
 
 
 def _convert_v1_inner(
@@ -1211,14 +1214,14 @@ def _convert_v1_inner(
 ) -> V1ConversionResult:
     meta = raw.get("meta")
     if not isinstance(meta, dict):
-        raise MigrationRejected("Memory meta 必须是对象")
+        raise MigrationRejectedError("Memory meta 必须是对象")
 
     # 1. Workspace 归属：完整投影优先；user_id 是唯一合法的 legacy 归属来源。
     projected = _extract_complete_projection(meta)
     legacy_user_id = _optional_non_empty(meta.get("user_id"), "user_id")
     if projected is not None:
         if legacy_user_id is not None and legacy_user_id != projected.owner_user_id:
-            raise MigrationRejected(
+            raise MigrationRejectedError(
                 f"legacy user_id ({legacy_user_id!r}) 与 Workspace owner "
                 f"({projected.owner_user_id!r}) 冲突（fail closed）"
             )
@@ -1230,14 +1233,14 @@ def _convert_v1_inner(
             workspace_id=MAIN_WORKSPACE_ID,
         )
     else:
-        raise MigrationRejected(
+        raise MigrationRejectedError(
             "meta.user_id 缺失或为空，且无 Workspace 投影，无法确定资源归属（fail closed）"
         )
 
     # 2. 来源 provenance：source_agent_id 必填；team_id 可选。
     source_agent_id = _optional_non_empty(meta.get("source_agent_id"), "source_agent_id")
     if source_agent_id is None:
-        raise MigrationRejected(
+        raise MigrationRejectedError(
             "meta.source_agent_id 缺失，无法迁移来源 provenance（fail closed）"
         )
     source_team_id = _optional_non_empty(meta.get("team_id"), "team_id")
@@ -1245,7 +1248,7 @@ def _convert_v1_inner(
     # 3. 可见性 → access_policy：缺失 visibility 走显式脚本策略，不静默放宽。
     had_visibility = "visibility" in meta
     if not had_visibility and missing_visibility_policy == "fail":
-        raise MigrationRejected(
+        raise MigrationRejectedError(
             "meta.visibility 缺失且迁移策略为 fail-closed，拒绝默认 PUBLIC（进入诊断清单）"
         )
     visibility_value = meta.get("visibility", "PUBLIC")
@@ -1283,10 +1286,10 @@ def _convert_v1_inner(
             payload=payload_value,
             relations=raw.get("relations", {}),
         )
-    except MigrationRejected:
+    except MigrationRejectedError:
         raise
     except Exception as exc:
-        raise MigrationRejected(
+        raise MigrationRejectedError(
             f"canonical v2 模型校验失败（含 PRIVATE/TEAM target 合法性）：{exc}"
         ) from exc
     return V1ConversionResult(
@@ -1296,13 +1299,13 @@ def _convert_v1_inner(
     )
 
 
-def _extract_complete_projection(meta: dict[str, Any]) -> Optional[WorkspaceIdentity]:
+def _extract_complete_projection(meta: dict[str, Any]) -> WorkspaceIdentity | None:
     """与 codec 一致：完整投影才可用，部分投影拒绝猜测补齐。"""
     present = [name for name in _WORKSPACE_PROJECTION_FIELDS if meta.get(name) is not None]
     if not present:
         return None
     if len(present) != len(_WORKSPACE_PROJECTION_FIELDS):
-        raise MigrationRejected("Memory 包含部分 Workspace 投影，拒绝猜测补齐（fail closed）")
+        raise MigrationRejectedError("Memory 包含部分 Workspace 投影，拒绝猜测补齐（fail closed）")
     try:
         return WorkspaceIdentity(
             owner_user_id=meta["owner_user_id"],
@@ -1310,14 +1313,14 @@ def _extract_complete_projection(meta: dict[str, Any]) -> Optional[WorkspaceIden
             workspace_id=meta["workspace_id"],
         )
     except Exception as exc:
-        raise MigrationRejected(f"无效的 Workspace 索引投影：{exc}") from exc
+        raise MigrationRejectedError(f"无效的 Workspace 索引投影：{exc}") from exc
 
 
 def _adapt_v1_policy(
     *,
     visibility: str,
     source_agent_id: str,
-    source_team_id: Optional[str],
+    source_team_id: str | None,
 ) -> MemoryAccessPolicy:
     """legacy visibility → V2 读取策略（与 codec 一致；PRIVATE target=来源 Agent）。"""
     try:
@@ -1330,17 +1333,17 @@ def _adapt_v1_policy(
             )
         if visibility == "WORKSPACE":
             if source_team_id is None:
-                raise MigrationRejected("legacy WORKSPACE Memory 缺少 team_id（fail closed）")
+                raise MigrationRejectedError("legacy WORKSPACE Memory 缺少 team_id（fail closed）")
             return MemoryAccessPolicy(
                 visibility=MemoryVisibility.TEAM,
                 target_team_id=source_team_id,
             )
-    except MigrationRejected:
+    except MigrationRejectedError:
         raise
     except Exception as exc:
         # 典型场景：PRIVATE target 落在保留 system 上，被 V2 模型校验拒绝。
-        raise MigrationRejected(f"legacy visibility 无法映射为 V2 策略：{exc}") from exc
-    raise MigrationRejected(f"未知的 legacy Memory visibility: {visibility!r}（fail closed）")
+        raise MigrationRejectedError(f"legacy visibility 无法映射为 V2 策略：{exc}") from exc
+    raise MigrationRejectedError(f"未知的 legacy Memory visibility: {visibility!r}（fail closed）")
 
 
 def _verify_roundtrip(atom: MemoryAtom) -> None:
@@ -1349,21 +1352,20 @@ def _verify_roundtrip(atom: MemoryAtom) -> None:
     try:
         decoded = decode_memory_payload(payload)
     except MemoryDecodeError as exc:
-        raise MigrationRejected(f"canonical payload 无法被运行时 codec 解码：{exc}") from exc
+        raise MigrationRejectedError(f"canonical payload 无法被运行时 codec 解码：{exc}") from exc
     if decoded.workspace_identity != atom.workspace_identity:
-        raise MigrationRejected("回读 Workspace 归属与迁移结果不一致")
+        raise MigrationRejectedError("回读 Workspace 归属与迁移结果不一致")
     if decoded.meta.access_policy != atom.meta.access_policy:
-        raise MigrationRejected("回读读取策略与迁移结果不一致")
+        raise MigrationRejectedError("回读读取策略与迁移结果不一致")
 
 
 # ============ Memory 阶段 ============
 
+
 class MemoryMigrationAccess(Protocol):
     """Memory 阶段对存储的访问端口（生产实现包装 QdrantMemoryStore）。"""
 
-    def iter_raw_points(
-        self, batch_size: int
-    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    def iter_raw_points(self, batch_size: int) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         """按批次遍历全部原始 point（payload 不做任何解释）。"""
         ...
 
@@ -1402,7 +1404,7 @@ class QdrantScrollOnlyMemoryAccess:
     ``QdrantMemoryStore`` 构造即加载）；``replace_point`` 被误用时显式失败。
     """
 
-    def __init__(self, qdrant_config: "QdrantConfig") -> None:
+    def __init__(self, qdrant_config: QdrantConfig) -> None:
         from hivememory.infrastructure.storage.qdrant_client import (
             create_async_qdrant_client,
         )
@@ -1410,14 +1412,10 @@ class QdrantScrollOnlyMemoryAccess:
         self._client = create_async_qdrant_client(qdrant_config)
         self._collection_name = qdrant_config.collection_name
 
-    def iter_raw_points(
-        self, batch_size: int
-    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    def iter_raw_points(self, batch_size: int) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         return _iter_qdrant_points(self._client, self._collection_name, batch_size)
 
-    async def replace_point(
-        self, memory: MemoryAtom, *, previous_point_id: str
-    ) -> None:
+    async def replace_point(self, memory: MemoryAtom, *, previous_point_id: str) -> None:
         raise RuntimeError("dry-run 模式不应发布 Memory（内部错误）")
 
 
@@ -1428,19 +1426,13 @@ class QdrantMemoryMigrationAccess:
     向量，并自动清理 ``str(memory.id)`` 旧点），另外防御性清理其他残留旧点。
     """
 
-    def __init__(self, store: "QdrantMemoryStore") -> None:
+    def __init__(self, store: QdrantMemoryStore) -> None:
         self._store = store
 
-    def iter_raw_points(
-        self, batch_size: int
-    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
-        return _iter_qdrant_points(
-            self._store.client, self._store.collection_name, batch_size
-        )
+    def iter_raw_points(self, batch_size: int) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        return _iter_qdrant_points(self._store.client, self._store.collection_name, batch_size)
 
-    async def replace_point(
-        self, memory: MemoryAtom, *, previous_point_id: str
-    ) -> None:
+    async def replace_point(self, memory: MemoryAtom, *, previous_point_id: str) -> None:
         await self._store.upsert_memory(memory)
         composite_id = self._store._point_id(
             WorkspaceMemoryKey(
@@ -1530,7 +1522,7 @@ class MemoryPhaseMigrator:
                 resource_id=memory_id,
                 rule="memory_ref_workspace_backfilled",
                 detail=f"refs 缺失 workspace_identity，按本记录归属回填 "
-                       f"{result.backfilled_refs} 个 ref",
+                f"{result.backfilled_refs} 个 ref",
             )
 
         changed, ok = self._rewrite_atom_refs(atom, record_id=memory_id)
@@ -1539,17 +1531,19 @@ class MemoryPhaseMigrator:
             return
         if self._options.dry_run:
             self._report.inc("memory_v1_would_migrate")
-            self._report.memory_mappings.append({
-                "old_point_id": point_id,
-                "memory_id": memory_id,
-                "owner_user_id": atom.workspace_identity.owner_user_id,
-                "workspace_id": atom.workspace_identity.workspace_id,
-                "action": "would_migrate_v1_to_v2",
-            })
+            self._report.memory_mappings.append(
+                {
+                    "old_point_id": point_id,
+                    "memory_id": memory_id,
+                    "owner_user_id": atom.workspace_identity.owner_user_id,
+                    "workspace_id": atom.workspace_identity.workspace_id,
+                    "action": "would_migrate_v1_to_v2",
+                }
+            )
             return
         try:
             _verify_roundtrip(atom)
-        except MigrationRejected as exc:
+        except MigrationRejectedError as exc:
             self._report.inc("memory_failed")
             self._report.add_diagnostic(
                 resource_type="memory",
@@ -1571,13 +1565,15 @@ class MemoryPhaseMigrator:
             return
         self._checkpoint.mark_memory(point_id, status="migrated_v1_to_v2")
         self._report.inc("memory_v1_migrated")
-        self._report.memory_mappings.append({
-            "old_point_id": point_id,
-            "memory_id": memory_id,
-            "owner_user_id": atom.workspace_identity.owner_user_id,
-            "workspace_id": atom.workspace_identity.workspace_id,
-            "action": "migrated_v1_to_v2",
-        })
+        self._report.memory_mappings.append(
+            {
+                "old_point_id": point_id,
+                "memory_id": memory_id,
+                "owner_user_id": atom.workspace_identity.owner_user_id,
+                "workspace_id": atom.workspace_identity.workspace_id,
+                "action": "migrated_v1_to_v2",
+            }
+        )
 
     async def _rewrite_v2_refs(self, point_id: str, payload: dict[str, Any]) -> None:
         """V2 记录仅在其引用链仍指向 legacy Artifact 时重写并重新发布。"""
@@ -1603,13 +1599,15 @@ class MemoryPhaseMigrator:
         self._report.inc("memory_v2_refs_rewritten")
         if self._options.dry_run:
             self._report.inc("memory_v2_would_rewrite_refs")
-            self._report.memory_mappings.append({
-                "old_point_id": point_id,
-                "memory_id": memory_id,
-                "owner_user_id": atom.workspace_identity.owner_user_id,
-                "workspace_id": atom.workspace_identity.workspace_id,
-                "action": "would_rewrite_artifact_refs",
-            })
+            self._report.memory_mappings.append(
+                {
+                    "old_point_id": point_id,
+                    "memory_id": memory_id,
+                    "owner_user_id": atom.workspace_identity.owner_user_id,
+                    "workspace_id": atom.workspace_identity.workspace_id,
+                    "action": "would_rewrite_artifact_refs",
+                }
+            )
             return
         try:
             await self._access.replace_point(atom, previous_point_id=point_id)
@@ -1623,13 +1621,15 @@ class MemoryPhaseMigrator:
             )
             return
         self._checkpoint.mark_memory(point_id, status="refs_rewritten")
-        self._report.memory_mappings.append({
-            "old_point_id": point_id,
-            "memory_id": memory_id,
-            "owner_user_id": atom.workspace_identity.owner_user_id,
-            "workspace_id": atom.workspace_identity.workspace_id,
-            "action": "rewrote_artifact_refs",
-        })
+        self._report.memory_mappings.append(
+            {
+                "old_point_id": point_id,
+                "memory_id": memory_id,
+                "owner_user_id": atom.workspace_identity.owner_user_id,
+                "workspace_id": atom.workspace_identity.workspace_id,
+                "action": "rewrote_artifact_refs",
+            }
+        )
 
     def _rewrite_atom_refs(
         self,
@@ -1655,7 +1655,7 @@ class MemoryPhaseMigrator:
                     resource_id=record_id,
                     location="memory.payload.artifacts.refs",
                     reason=f"引用链无法完整重写，目标 Artifact 存在但迁移失败: "
-                           f"{ref.artifact_id}（fail closed）",
+                    f"{ref.artifact_id}（fail closed）",
                 )
                 return changed, False
             if status == _REF_STATUS_REWRITTEN:
@@ -1684,7 +1684,7 @@ class MemoryPhaseMigrator:
                         resource_id=record_id,
                         location="memory.payload.artifacts.events",
                         reason=f"事件引用链无法完整重写，目标 Artifact 迁移失败: "
-                               f"{ref.artifact_id}（fail closed）",
+                        f"{ref.artifact_id}（fail closed）",
                     )
                     return changed, False
                 if status == _REF_STATUS_REWRITTEN:
@@ -1704,7 +1704,7 @@ class MemoryPhaseMigrator:
                 changed = True
         return changed, True
 
-    def _resolve_atom_ref(self, ref: ArtifactRef) -> tuple[str, Optional[ArtifactRef]]:
+    def _resolve_atom_ref(self, ref: ArtifactRef) -> tuple[str, ArtifactRef | None]:
         workspace = ref.workspace_identity
         return self._resolver.resolve(
             owner_user_id=workspace.owner_user_id,
@@ -1716,6 +1716,7 @@ class MemoryPhaseMigrator:
 
 # ============ 组合入口 ============
 
+
 class V1LegacyMigrator:
     """迁移引擎组合入口：先 Artifact replacement，后 Memory canonical 发布。"""
 
@@ -1725,14 +1726,12 @@ class V1LegacyMigrator:
         artifact_store: ArtifactStore,
         artifacts_root: Path,
         memory_access: MemoryMigrationAccess,
-        options: Optional[MigrationOptions] = None,
-        checkpoint_path: Optional[Path] = None,
+        options: MigrationOptions | None = None,
+        checkpoint_path: Path | None = None,
     ) -> None:
         self.options = options or MigrationOptions()
         self.report = MigrationReport(options=self.options.to_dict())
-        self.checkpoint = MigrationCheckpoint(
-            None if self.options.dry_run else checkpoint_path
-        )
+        self.checkpoint = MigrationCheckpoint(None if self.options.dry_run else checkpoint_path)
         self._artifact_store = artifact_store
         self._artifacts_root = artifacts_root
         self._memory_access = memory_access
@@ -1747,7 +1746,7 @@ class V1LegacyMigrator:
         )
 
         # repair 预扫描：memory_id → 归属，供 Artifact 归属采纳使用。
-        memory_workspace_index: dict[str, Optional[WorkspaceIdentity]] = {}
+        memory_workspace_index: dict[str, WorkspaceIdentity | None] = {}
         if self.options.repair_legacy_ownership:
             memory_workspace_index = await self._build_memory_workspace_index()
 
@@ -1779,15 +1778,13 @@ class V1LegacyMigrator:
 
     async def _build_memory_workspace_index(
         self,
-    ) -> dict[str, Optional[WorkspaceIdentity]]:
+    ) -> dict[str, WorkspaceIdentity | None]:
         """遍历 Memory payload 的 meta 构建 memory_id → 归属索引。
 
         同一 memory_id 解析出不同归属（异常数据）时标记为 None，不可采纳。
         """
-        index: dict[str, Optional[WorkspaceIdentity]] = {}
-        async for point_id, payload in self._memory_access.iter_raw_points(
-            self.options.batch_size
-        ):
+        index: dict[str, WorkspaceIdentity | None] = {}
+        async for point_id, payload in self._memory_access.iter_raw_points(self.options.batch_size):
             memory_id = str(payload.get("id") or point_id)
             workspace = resolve_memory_workspace_from_meta(payload)
             if memory_id in index and index[memory_id] != workspace:

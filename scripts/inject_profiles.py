@@ -25,13 +25,13 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 from hivememory.core.models import (
+    Artifacts,
+    IndexLayer,
     MemoryAtom,
     MemoryType,
     MemoryVisibility,
     MetaData,
-    IndexLayer,
     PayloadLayer,
-    Artifacts,
 )
 from hivememory.system.config import load_app_config
 
@@ -145,6 +145,7 @@ async def main():
 
     # 初始化存储
     from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
+
     storage = QdrantMemoryStore(config=config.storage)
 
     logger.info(f"Connected to Qdrant at {config.storage.qdrant_url}")

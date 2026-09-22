@@ -130,9 +130,7 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
 
 
 @pytest.mark.asyncio
-async def test_build_for_create_allows_reserved_system_source_for_settlement(
-    store, identity_scope
-):
+async def test_build_for_create_allows_reserved_system_source_for_settlement(store, identity_scope):
     """SETTLE 没有具体 Agent 作为操作来源主体：artifact 允许记录保留 system 来源。"""
     atom = _make_atom(
         identity_scope,

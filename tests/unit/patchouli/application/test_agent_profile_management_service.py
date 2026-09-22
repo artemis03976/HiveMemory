@@ -13,7 +13,11 @@ from hivememory.core.models import (
 from hivememory.patchouli.application import AgentProfileManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_composition, make_actor_access_record, make_identity_scope
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_identity_scope,
+)
 
 
 def _make_memory_atom(title: str = "Worker", user_id: str = "u1") -> MemoryAtom:

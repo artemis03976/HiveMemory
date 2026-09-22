@@ -90,8 +90,7 @@ class TestChatRun:
         user_id = clean_user()
         result = await e2e_system.chat_service.chat_scoped(
             user_message=(
-                "我叫小林，我在一家物流公司工作，每天通勤两小时。"
-                "请记住这些关于我的信息。"
+                "我叫小林，我在一家物流公司工作，每天通勤两小时。" "请记住这些关于我的信息。"
             ),
             identity_scope=build_internal_identity_scope(
                 ActorIdentity(user_id=user_id, agent_id="omni_doll"),
@@ -100,15 +99,18 @@ class TestChatRun:
             interaction_id=f"interaction_{uuid4().hex}",
             enable_memory_retrieval=True,
         )
-        assert isinstance(result, NonStreamingChatAgentOutcome), (
-            f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
-        )
+        assert isinstance(
+            result, NonStreamingChatAgentOutcome
+        ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
         assert result.agent_run_result.final_text
         assert result.agent_run_result.status == "completed"
 
         # finalize 链路应把对话内容物化为真实记忆
         memories = await wait_for_memory_persistence_async(
-            e2e_system, user_id, min_count=1, timeout=30.0,
+            e2e_system,
+            user_id,
+            min_count=1,
+            timeout=30.0,
         )
         assert memories, "chat finalize 后 Qdrant 应有记忆落库"
 
@@ -117,25 +119,23 @@ class TestChatRun:
         """chat_stream() 完整事件序列：序言 → 运行期 → 终态"""
         user_id = clean_user()
         events = await _collect_stream_events(
-            e2e_system, "你好，请用一句话介绍你自己。", user_id,
+            e2e_system,
+            "你好，请用一句话介绍你自己。",
+            user_id,
         )
         event_names = [e.get("event") for e in events]
 
         # 序言：generation_id / topic_info
-        assert "generation_id" in event_names, (
-            f"缺少 generation_id 事件。events={_event_summary(events)}"
-        )
-        assert "topic_info" in event_names, (
-            f"缺少 topic_info 事件。events={_event_summary(events)}"
-        )
+        assert (
+            "generation_id" in event_names
+        ), f"缺少 generation_id 事件。events={_event_summary(events)}"
+        assert "topic_info" in event_names, f"缺少 topic_info 事件。events={_event_summary(events)}"
         # 运行期：至少 token 或 mtp 或子代理事件之一
-        assert any(n in event_names for n in ("token", "mtp_start", "sub_agent_start")), (
-            f"缺少运行期事件。events={_event_summary(events)}"
-        )
+        assert any(
+            n in event_names for n in ("token", "mtp_start", "sub_agent_start")
+        ), f"缺少运行期事件。events={_event_summary(events)}"
         # 终态：run_status(finalizing) → done
-        assert "run_status" in event_names, (
-            f"缺少 run_status 事件。events={_event_summary(events)}"
-        )
+        assert "run_status" in event_names, f"缺少 run_status 事件。events={_event_summary(events)}"
         done = next((e for e in events if e.get("event") == "done"), None)
         assert done is not None, f"缺少 done 事件。events={_event_summary(events)}"
         assert done.get("data", {}).get("final_text"), "done.final_text 应为空字符串之外的文本"
@@ -164,7 +164,9 @@ class TestChatRun:
 
     @pytest.mark.asyncio
     async def test_chat_mtp_write_persists_deterministic_content(
-        self, e2e_system, clean_user,
+        self,
+        e2e_system,
+        clean_user,
     ):
         """
         MTP WRITE 主动生成路径（确定性验证）：
@@ -188,20 +190,19 @@ class TestChatRun:
             enable_memory_retrieval=False,
         )
         run_result = result.agent_run_result
-        assert run_result.status == "completed", (
-            f"chat 未正常完成: status={run_result.status}"
-        )
-        assert run_result.materialize_tasks, (
-            "agent run 应产生 MTP WRITE 物化任务, 说明走了 WRITE 主动生成路径"
-        )
+        assert run_result.status == "completed", f"chat 未正常完成: status={run_result.status}"
+        assert (
+            run_result.materialize_tasks
+        ), "agent run 应产生 MTP WRITE 物化任务, 说明走了 WRITE 主动生成路径"
 
         # WRITE 走 Mode B（WriteFocus 直接落库），内容应确定性地包含显式给定文本
         memories = await wait_for_memory_persistence_async(
-            e2e_system, user_id, min_count=1, timeout=30.0,
+            e2e_system,
+            user_id,
+            min_count=1,
+            timeout=30.0,
         )
-        all_content = " ".join(
-            m.payload.content for m in memories if m.payload.content
-        )
-        assert "张伟" in all_content and "打篮球" in all_content, (
-            f"WRITE 生成的记忆应包含显式内容, 实际: {all_content[:300]}"
-        )
+        all_content = " ".join(m.payload.content for m in memories if m.payload.content)
+        assert (
+            "张伟" in all_content and "打篮球" in all_content
+        ), f"WRITE 生成的记忆应包含显式内容, 实际: {all_content[:300]}"

@@ -1,7 +1,7 @@
 """syscall 公共类型定义。"""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 
 @dataclass

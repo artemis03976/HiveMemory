@@ -13,8 +13,7 @@ HiveMemory Gateway E2E 测试数据 Fixtures
 版本: 1.0.0
 """
 
-from typing import List, Dict, Any
-
+from typing import Any
 
 # ========== 意图识别测试数据 ==========
 
@@ -97,7 +96,10 @@ COREFERENCE_TEST_CASES = [
         "priority": "P0",
         "context": [
             {"role": "user", "content": "介绍下 Docker"},
-            {"role": "assistant", "content": "Docker 是一个开源的容器化平台，可以让开发者打包应用及其依赖到一个可移植的容器中..."},
+            {
+                "role": "assistant",
+                "content": "Docker 是一个开源的容器化平台，可以让开发者打包应用及其依赖到一个可移植的容器中...",
+            },
         ],
         "query": "它怎么安装？",
         "expected_rewritten_contains": ["Docker", "安装"],
@@ -138,7 +140,10 @@ COREFERENCE_TEST_CASES = [
         "priority": "P1",
         "context": [
             {"role": "user", "content": "Python 的装饰器是什么？"},
-            {"role": "assistant", "content": "装饰器是一种设计模式，可以在不修改原函数的情况下添加功能..."},
+            {
+                "role": "assistant",
+                "content": "装饰器是一种设计模式，可以在不修改原函数的情况下添加功能...",
+            },
         ],
         "query": "能给个例子吗？",
         "expected_rewritten_contains": ["装饰器", "例"],
@@ -293,7 +298,8 @@ FALLBACK_TEST_CASES = [
 
 # ========== 辅助函数 ==========
 
-def get_test_cases_by_priority(priority: str) -> List[Dict[str, Any]]:
+
+def get_test_cases_by_priority(priority: str) -> list[dict[str, Any]]:
     """
     按优先级获取测试用例
 
@@ -304,20 +310,17 @@ def get_test_cases_by_priority(priority: str) -> List[Dict[str, Any]]:
         匹配优先级的测试用例列表
     """
     all_cases = (
-        INTENT_TEST_CASES +
-        COREFERENCE_TEST_CASES +
-        KEYWORD_TEST_CASES +
-        INTERCEPTOR_TEST_CASES
+        INTENT_TEST_CASES + COREFERENCE_TEST_CASES + KEYWORD_TEST_CASES + INTERCEPTOR_TEST_CASES
     )
     return [case for case in all_cases if case.get("priority") == priority]
 
 
-def get_p0_test_cases() -> List[Dict[str, Any]]:
+def get_p0_test_cases() -> list[dict[str, Any]]:
     """获取所有 P0 优先级测试用例"""
     return get_test_cases_by_priority("P0")
 
 
-def get_p1_test_cases() -> List[Dict[str, Any]]:
+def get_p1_test_cases() -> list[dict[str, Any]]:
     """获取所有 P1 优先级测试用例"""
     return get_test_cases_by_priority("P1")
 

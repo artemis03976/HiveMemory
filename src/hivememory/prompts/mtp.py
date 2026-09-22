@@ -19,7 +19,6 @@ MTP System Prompt 构建器
 """
 
 import logging
-from typing import List, Optional, Tuple
 
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # ========== MVP 默认运行时工具列表 (Chapter 8.6) ==========
 
-DEFAULT_RUNTIME_TOOLS: List[Tuple[str, str]] = [
+DEFAULT_RUNTIME_TOOLS: list[tuple[str, str]] = [
     ("sys_clock", "Get current date, time, and timezone."),
     ("sys_web_search", "Search the internet for latest information."),
     ("sys_read_file", "Read a file from the workspace."),
@@ -46,6 +45,7 @@ _VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
 
 
 # ========== Prompt 构建器 ==========
+
 
 class MTPPromptBuilder:
     """
@@ -62,11 +62,11 @@ class MTPPromptBuilder:
     def __init__(
         self,
         language: str = "zh",
-        runtime_tools: Optional[List[Tuple[str, str]]] = None,
+        runtime_tools: list[tuple[str, str]] | None = None,
         include_demo: bool = True,
         include_error_handling: bool = True,
-        allowed_verbs: Optional[List[str]] = None,
-        allowed_runtime_tools: Optional[List[str]] = None,
+        allowed_verbs: list[str] | None = None,
+        allowed_runtime_tools: list[str] | None = None,
     ):
         """
         Args:
@@ -92,9 +92,7 @@ class MTPPromptBuilder:
 
         # 权限过滤：MTP 动词白名单 (用于协议规格渲染)
         self.allowed_verbs = (
-            set(v.upper() for v in allowed_verbs)
-            if allowed_verbs is not None
-            else None
+            set(v.upper() for v in allowed_verbs) if allowed_verbs is not None else None
         )
 
     def build(self) -> str:
@@ -150,10 +148,7 @@ class MTPPromptBuilder:
         """构建行为准则模块"""
         text = get_mtp_prompt_text("behavioral_guidelines", self.language)
         if self.allowed_verbs is not None and "CALL" not in self.allowed_verbs:
-            return "\n".join(
-                line for line in text.splitlines()
-                if "CALL" not in line
-            )
+            return "\n".join(line for line in text.splitlines() if "CALL" not in line)
         return text
 
     def _build_runtime_tools(self) -> str:
@@ -180,9 +175,10 @@ class MTPPromptBuilder:
 
 # ========== 便捷函数 ==========
 
+
 def get_mtp_prompt(
     language: str = "zh",
-    runtime_tools: Optional[List[Tuple[str, str]]] = None,
+    runtime_tools: list[tuple[str, str]] | None = None,
 ) -> str:
     """
     便捷函数: 获取 MTP System Prompt 片段

@@ -12,6 +12,7 @@ from hivememory.gateway.errors import RecoverableGatewayError
 if TYPE_CHECKING:
     from hivememory.gateway.workflow.state import GatewayStateSnapshot
 
+
 @dataclass(frozen=True)
 class GatewayStepResult:
     """Step 投影出的单次只读提交。"""

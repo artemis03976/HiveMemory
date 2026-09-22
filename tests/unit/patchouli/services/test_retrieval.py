@@ -15,8 +15,8 @@ from pydantic import ValidationError
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    Artifacts,
     ActorIdentity,
+    Artifacts,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
@@ -36,8 +36,8 @@ from hivememory.engines.retrieval.models import QueryFilters, SearchResult, Sear
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:

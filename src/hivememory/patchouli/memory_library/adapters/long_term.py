@@ -16,7 +16,6 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 from uuid import UUID
 
 from hivememory.core.models import (
@@ -47,7 +46,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         self._compress = compress
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._archive_dir / "archive_index.json"
-        self._index: Dict[str, ArchiveRecord] = self._load_index()
+        self._index: dict[str, ArchiveRecord] = self._load_index()
         logger.info(
             f"FileBasedStorageAdapter 初始化: dir={self._archive_dir}, "
             f"compress={compress}, indexed={len(self._index)}"
@@ -102,7 +101,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             with gzip.open(file_path, "rt", encoding="utf-8") as f:
                 data = json.load(f)
         else:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
 
         memory = decode_memory_payload(data)
@@ -132,8 +131,8 @@ class FileBasedStorageAdapter(LongTermStoragePort):
     async def query(
         self,
         limit: int = 100,
-        vitality_threshold: Optional[float] = None,
-    ) -> List[ArchiveRecord]:
+        vitality_threshold: float | None = None,
+    ) -> list[ArchiveRecord]:
         records = list(self._index.values())
         if vitality_threshold is not None:
             records = [r for r in records if r.original_vitality <= vitality_threshold]
@@ -161,18 +160,9 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         workspace_identity: WorkspaceIdentity,
         memory_id: UUID,
     ) -> Path:
-        owner_dir = hashlib.sha256(
-            workspace_identity.owner_user_id.encode("utf-8")
-        ).hexdigest()
-        workspace_dir = hashlib.sha256(
-            workspace_identity.workspace_id.encode("utf-8")
-        ).hexdigest()
-        date_dir = (
-            self._archive_dir
-            / owner_dir
-            / workspace_dir
-            / datetime.now().strftime("%Y-%m")
-        )
+        owner_dir = hashlib.sha256(workspace_identity.owner_user_id.encode("utf-8")).hexdigest()
+        workspace_dir = hashlib.sha256(workspace_identity.workspace_id.encode("utf-8")).hexdigest()
+        date_dir = self._archive_dir / owner_dir / workspace_dir / datetime.now().strftime("%Y-%m")
         date_dir.mkdir(parents=True, exist_ok=True)
         return date_dir / f"{memory_id}.json"
 
@@ -186,11 +176,11 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    def _load_index(self) -> Dict[str, ArchiveRecord]:
+    def _load_index(self) -> dict[str, ArchiveRecord]:
         if not self._index_path.exists():
             return {}
         try:
-            with open(self._index_path, "r", encoding="utf-8") as f:
+            with open(self._index_path, encoding="utf-8") as f:
                 data = json.load(f)
             return {k: ArchiveRecord(**v) for k, v in data.items()}
         except Exception as e:

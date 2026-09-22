@@ -129,9 +129,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(
-        payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()
-    ):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
         calls.append("apply_started")
         apply_started.set()
         await release_apply.wait()
@@ -351,9 +349,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(
-        payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()
-    ):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
         apply_started.set()
         await release_apply.wait()
         return target_topic_id
@@ -405,9 +401,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(
-        payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()
-    ):
+    async def apply(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
         apply_started.set()
         await release_apply.wait()
         raise ConnectionError("interaction store unavailable")

@@ -10,20 +10,20 @@ Models 路由单元测试
 - api_key 脱敏规则验证
 """
 
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.server import deps
 from hivememory.server.routers.models import router
 from hivememory.system.model_registry import DuplicateModelIdError, ModelNotFoundError
-from hivememory.server import deps
-
 
 # ---------------------------------------------------------------------------
 # 测试 App 工厂
 # ---------------------------------------------------------------------------
+
 
 def _create_app(registry: MagicMock) -> TestClient:
     app = FastAPI()
@@ -53,6 +53,7 @@ def _make_model(
 # ---------------------------------------------------------------------------
 # GET /models
 # ---------------------------------------------------------------------------
+
 
 class TestListModels:
     def test_returns_empty_list(self):
@@ -106,6 +107,7 @@ class TestListModels:
 # ---------------------------------------------------------------------------
 # POST /models
 # ---------------------------------------------------------------------------
+
 
 class TestCreateModel:
     def test_create_success(self):
@@ -161,6 +163,7 @@ class TestCreateModel:
 # GET /models/{model_id}
 # ---------------------------------------------------------------------------
 
+
 class TestGetModel:
     def test_get_existing_model(self):
         registry = MagicMock()
@@ -183,6 +186,7 @@ class TestGetModel:
 # ---------------------------------------------------------------------------
 # PUT /models/{model_id}
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateModel:
     def test_update_success(self):
@@ -231,6 +235,7 @@ class TestUpdateModel:
 # ---------------------------------------------------------------------------
 # DELETE /models/{model_id}
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteModel:
     def test_delete_success(self):

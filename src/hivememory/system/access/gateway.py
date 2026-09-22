@@ -122,10 +122,7 @@ class ActorAuthenticationGateway:
                     "reason": "adapter_mismatch",
                 },
             )
-        if (
-            entry.allowed_user_ids is not None
-            and actor.user_id not in entry.allowed_user_ids
-        ):
+        if entry.allowed_user_ids is not None and actor.user_id not in entry.allowed_user_ids:
             raise AdmissionDeniedError(
                 message="接入登记的身份解析规则不允许该 Actor 用户",
                 details={

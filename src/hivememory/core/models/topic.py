@@ -52,9 +52,7 @@ class LogicalBlock(BaseModel):
     @property
     def is_complete(self) -> bool:
         return bool(self.turn.user_query) and bool(
-            self.turn.assistant_final_text
-            or self.turn.turn_events
-            or self.turn.actions
+            self.turn.assistant_final_text or self.turn.turn_events or self.turn.actions
         )
 
     @property

@@ -9,17 +9,16 @@ Providers 路由单元测试
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
 
+from hivememory.server import deps
 from hivememory.server.routers.providers import router
 from hivememory.system.config.shared import ProviderCredentials
-from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
-from hivememory.server import deps
-
+from hivememory.system.provider_registry import ProviderRegistry
 
 # ---------------------------------------------------------------------------
 # 测试 App 工厂
 # ---------------------------------------------------------------------------
+
 
 def _create_app(registry: ProviderRegistry) -> TestClient:
     app = FastAPI()
@@ -36,9 +35,11 @@ def _cred(api_key: str | None = None, api_base: str | None = None) -> ProviderCr
 # GET /providers
 # ---------------------------------------------------------------------------
 
+
 class TestListProviders:
     def test_returns_empty_list(self, tmp_path):
         from hivememory.system.provider_registry import ProviderRegistry
+
         registry = ProviderRegistry(secrets_path=tmp_path / "p.yaml")
         client = _create_app(registry)
 
@@ -48,6 +49,7 @@ class TestListProviders:
 
     def test_returns_all_providers(self, tmp_path):
         import yaml
+
         secrets = tmp_path / "p.yaml"
         secrets.write_text(
             yaml.safe_dump({"providers": {"deepseek": {"api_key": "sk-abc123456789"}}}),
@@ -68,6 +70,7 @@ class TestListProviders:
     def test_api_key_masked_in_list(self, tmp_path):
         """列表中 api_key 已脱敏，不暴露明文。"""
         import yaml
+
         secrets = tmp_path / "p.yaml"
         secrets.write_text(
             yaml.safe_dump({"providers": {"deepseek": {"api_key": "sk-abcdef1234567890"}}}),
@@ -101,6 +104,7 @@ class TestListProviders:
 # ---------------------------------------------------------------------------
 # PUT /providers/{name}
 # ---------------------------------------------------------------------------
+
 
 class TestUpsertProvider:
     def test_create_new_provider(self, tmp_path):
@@ -173,6 +177,7 @@ class TestUpsertProvider:
 # ---------------------------------------------------------------------------
 # DELETE /providers/{name}
 # ---------------------------------------------------------------------------
+
 
 class TestDeleteProvider:
     def test_delete_yaml_provider_success(self, tmp_path):

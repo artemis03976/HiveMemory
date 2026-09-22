@@ -354,6 +354,7 @@ async def test_shutdown_waits_for_accepted_submission_work() -> None:
     )
     await queue.start()
     try:
+
         async def gateway(**kwargs):
             return GatewayDecisionOutcome(
                 decision=GatewayDecision(

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from hivememory.core.models import ActorIdentity, WorkspaceIdentity
+
     # 注解引用保持 workspace 包内单向依赖：registry 不在运行期导入 access。
     from hivememory.workspace.access import WorkspaceOperation
 
@@ -76,9 +77,7 @@ class WorkspaceActorAccessRegistry:
                 raise TypeError("访问记录必须是 WorkspaceActorAccessRecord")
             if not record.enabled and record.allowed_operations:
                 # 禁用记录上的白名单没有意义，属于配置矛盾，装载期拒绝。
-                raise ValueError(
-                    f"Workspace Actor 访问记录已禁用却配置了行为白名单: {record.key}"
-                )
+                raise ValueError(f"Workspace Actor 访问记录已禁用却配置了行为白名单: {record.key}")
             if record.user_id != record.owner_user_id:
                 # W0 兼容基线：准入要求 actor user 等于 workspace owner；
                 # 跨 owner 成员记录在成员模型落地前不可表达。

@@ -25,14 +25,10 @@ render_as 前缀策略:
 版本: 1.0 (Phase 2)
 """
 
-from typing import Dict, List
-
-from hivememory.core.models import TurnEvent
-from hivememory.core.models import LogicalBlock
+from hivememory.core.models import LogicalBlock, TurnEvent
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
-
-_SYSTEM_PREFIX_KEYS: Dict[str, str] = {
+_SYSTEM_PREFIX_KEYS: dict[str, str] = {
     "system_tool_result": "mtp.loop.execution_result_title",
     "system_call_response": "mtp.call_response.title",
 }
@@ -51,9 +47,9 @@ class HistoryTranscriptBuilder:
 
     def build_messages(
         self,
-        blocks: List[LogicalBlock],
+        blocks: list[LogicalBlock],
         current_agent_id: str = "default",
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         构建历史消息列表。
 
@@ -64,7 +60,7 @@ class HistoryTranscriptBuilder:
         Returns:
             OpenAI-style messages: List[{"role": str, "content": str}]
         """
-        messages: List[Dict[str, str]] = []
+        messages: list[dict[str, str]] = []
 
         for block in blocks:
             self._render_block(block, current_agent_id, messages)
@@ -77,7 +73,7 @@ class HistoryTranscriptBuilder:
         self,
         block: LogicalBlock,
         current_agent_id: str,
-        out: List[Dict[str, str]],
+        out: list[dict[str, str]],
     ) -> None:
         """渲染单个 LogicalBlock，追加到 out。"""
         if block.turn_events:
@@ -95,9 +91,7 @@ class HistoryTranscriptBuilder:
             assistant_content = block.assistant_final_text
             if not assistant_content:
                 return
-            content = self._apply_agent_prefix(
-                assistant_content, block, current_agent_id
-            )
+            content = self._apply_agent_prefix(assistant_content, block, current_agent_id)
             out.append({"role": "assistant", "content": content})
 
     def _render_event(
@@ -105,7 +99,7 @@ class HistoryTranscriptBuilder:
         event: TurnEvent,
         block: LogicalBlock,
         current_agent_id: str,
-    ) -> "Dict[str, str] | None":
+    ) -> "dict[str, str] | None":
         """
         将单个 TurnEvent 转换为 OpenAI message dict。
 
@@ -119,7 +113,7 @@ class HistoryTranscriptBuilder:
 
         return {"role": event.role, "content": content}
 
-    def _has_user_message_event(self, events: List[TurnEvent]) -> bool:
+    def _has_user_message_event(self, events: list[TurnEvent]) -> bool:
         """检查结构化事件流是否已经承载用户消息，避免重放时重复补 user_query。"""
         return any(event.kind == "user_message" for event in events)
 
@@ -142,11 +136,7 @@ class HistoryTranscriptBuilder:
     ) -> str:
         """若 block 来自非当前 Agent，在内容前加 [From: {agent_id}]。"""
         agent_id = block.identity.agent_id
-        if (
-            agent_id
-            and agent_id not in _AGENT_ID_BYPASS
-            and agent_id != current_agent_id
-        ):
+        if agent_id and agent_id not in _AGENT_ID_BYPASS and agent_id != current_agent_id:
             return f"[From: {agent_id}]\n{content}"
         return content
 

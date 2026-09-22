@@ -25,6 +25,7 @@ SOURCE = "unit_service"
 CONVERSATION = "conv-service"
 GATEWAY_SECRET = "gateway internal fallback detail"
 
+
 # connector 侧身份选择在 server 边界冻结为 scope；测试用同一构造方式
 def _u1_scope():
     return make_identity_scope(user_id="u1", agent_id="a1")

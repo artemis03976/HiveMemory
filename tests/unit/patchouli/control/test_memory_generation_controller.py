@@ -159,10 +159,7 @@ class TestMemoryGenerationTaskController:
             )
             completed = await controller.wait_all(timeout=1)
             assert len(completed) == 2
-            assert all(
-                task.status == MemoryGenerationTaskStatus.COMPLETED
-                for task in completed
-            )
+            assert all(task.status == MemoryGenerationTaskStatus.COMPLETED for task in completed)
         finally:
             await controller.stop()
 
@@ -548,10 +545,7 @@ class TestMemoryGenerationTaskController:
         blocker.set()
         completed = await waiter
 
-        assert all(
-            task.status == MemoryGenerationTaskStatus.COMPLETED
-            for task in completed
-        )
+        assert all(task.status == MemoryGenerationTaskStatus.COMPLETED for task in completed)
         assert {task.task_id for task in completed} == {
             first.task_id,
             second.task_id,

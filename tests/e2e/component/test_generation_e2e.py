@@ -21,8 +21,9 @@ HiveMemory Generation Module E2E Tests
 版本: 1.0.0
 """
 
-import sys
+import asyncio
 import os
+import sys
 from pathlib import Path
 
 from tests.helpers.memory import make_memory_metadata
@@ -30,9 +31,9 @@ from tests.helpers.memory import make_memory_metadata
 # UTF-8 编码配置 (Windows 兼容性)
 if sys.platform == "win32":
     os.environ["PYTHONIOENCODING"] = "utf-8"
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
 
 # ========== 日志配置（必须在导入其他模块之前） ==========
 
@@ -40,9 +41,7 @@ import logging
 
 # 配置根日志级别
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", force=True
 )
 
 # 关闭第三方库的 INFO/DEBUG 日志
@@ -60,9 +59,9 @@ for logger_name, level in _log_levels_to_disable.items():
 
 # ========== 其他导入 ==========
 
-from typing import List, Dict, Any, Optional
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Any
 
 import pytest
 
@@ -77,20 +76,19 @@ sys.path.insert(0, str(project_root / "src"))
 # 核心模型
 from hivememory.core.models import (
     ActorIdentity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
     StreamMessage,
     StreamMessageType,
-    MemoryAtom,
-    IndexLayer,
-    PayloadLayer,
-    MemoryType,
 )
+from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 
 # Generation 模块组件
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
-from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.models import (
-    DuplicateDecision,
     ExtractedMemoryDraft,
     GenerationContext,
     GenerationRequest,
@@ -99,36 +97,35 @@ from hivememory.engines.generation.models import (
     MergeResult,
 )
 
-# 配置
-from hivememory.system.config import (
-    load_app_config,
-    DeduplicatorConfig,
-)
-
 # 基础设施
 from hivememory.infrastructure.llm.litellm_service import get_librarian_llm_service
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 
-# 导入测试数据
-from tests.fixtures.generation_test_data import (
-    EXTRACTION_TEST_CASES,
-    DEDUPLICATION_TEST_CASES,
-    MERGE_TEST_CASES,
-    SCHEMA_VALIDATION_CASES,
-    EXISTING_MEMORY_DATA,
+# 配置
+from hivememory.system.config import (
+    load_app_config,
 )
 
 # 导入 conftest 中的辅助函数
 from tests.conftest import print_test_result
 
+# 导入测试数据
+from tests.fixtures.generation_test_data import (
+    DEDUPLICATION_TEST_CASES,
+    EXISTING_MEMORY_DATA,
+    EXTRACTION_TEST_CASES,
+    MERGE_TEST_CASES,
+    SCHEMA_VALIDATION_CASES,
+)
+
 console = Console(force_terminal=True, legacy_windows=False)
 
 # ========== 全局测试状态 ==========
 
-_shared_storage: Optional[QdrantMemoryStore] = None
-_shared_extractor: Optional[LLMMemoryExtractor] = None
-_shared_deduplicator: Optional[MemoryDeduplicator] = None
-_shared_engine: Optional[MemoryGenerationEngine] = None
+_shared_storage: QdrantMemoryStore | None = None
+_shared_extractor: LLMMemoryExtractor | None = None
+_shared_deduplicator: MemoryDeduplicator | None = None
+_shared_engine: MemoryGenerationEngine | None = None
 _test_collection_name: str = "hivememory_generation_test"
 
 
@@ -251,16 +248,15 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
 
 
 def create_stream_messages(
-    messages: List[Dict[str, str]],
-    identity: ActorIdentity
-) -> List[StreamMessage]:
+    messages: list[dict[str, str]], identity: ActorIdentity
+) -> list[StreamMessage]:
     """将测试数据转换为 StreamMessage 列表"""
     role_mapping = {
         "user": StreamMessageType.USER,
         "assistant": StreamMessageType.ASSISTANT,
         "system": StreamMessageType.SYSTEM,
     }
-    
+
     return [
         StreamMessage(
             message_type=role_mapping.get(msg["role"], StreamMessageType.USER),
@@ -272,11 +268,11 @@ def create_stream_messages(
 
 
 def create_generation_context(
-    messages: List[Dict[str, str]],
+    messages: list[dict[str, str]],
     identity: ActorIdentity,
 ) -> GenerationContext:
     """将测试消息转换为 generation 主路径使用的 GenerationContext。"""
-    turns: List[GenerationTurn] = []
+    turns: list[GenerationTurn] = []
     for i in range(0, len(messages), 2):
         user_msg = messages[i] if i < len(messages) else None
         assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
@@ -290,7 +286,7 @@ def create_generation_context(
     return GenerationContext(turns=turns)
 
 
-def create_memory_from_data(data: Dict[str, Any], identity: ActorIdentity) -> MemoryAtom:
+def create_memory_from_data(data: dict[str, Any], identity: ActorIdentity) -> MemoryAtom:
     """从测试数据创建 MemoryAtom"""
     try:
         mem_type = MemoryType(data["memory_type"])
@@ -327,7 +323,7 @@ def create_memory_from_data(data: Dict[str, Any], identity: ActorIdentity) -> Me
     )
 
 
-def create_draft_from_data(data: Dict[str, Any]) -> ExtractedMemoryDraft:
+def create_draft_from_data(data: dict[str, Any]) -> ExtractedMemoryDraft:
     """从测试数据创建 ExtractedMemoryDraft"""
     return ExtractedMemoryDraft(
         title=data["title"],
@@ -341,6 +337,7 @@ def create_draft_from_data(data: Dict[str, Any]) -> ExtractedMemoryDraft:
 
 
 # ========== Group 1: 记忆提取测试 (Extraction) ==========
+
 
 class TestMemoryExtraction:
     """
@@ -378,7 +375,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果
@@ -432,7 +429,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果：应该返回 None 或 has_value=False
@@ -443,7 +440,7 @@ class TestMemoryExtraction:
         if draft:
             console.print(f"    [dim]has_value: {draft.has_value} (预期: False)[/dim]")
         else:
-            console.print(f"    [dim]返回 None (符合预期)[/dim]")
+            console.print("    [dim]返回 None (符合预期)[/dim]")
 
         assert success, f"噪音对话应返回 None 或 has_value=False，实际: {draft}"
 
@@ -470,7 +467,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果
@@ -493,10 +490,7 @@ class TestMemoryExtraction:
 
             # 检查标签
             expected_tags = test_case.get("expected_tags_any", [])
-            tag_match = any(
-                tag.lower() in [t.lower() for t in draft.tags]
-                for tag in expected_tags
-            )
+            tag_match = any(tag.lower() in [t.lower() for t in draft.tags] for tag in expected_tags)
             if expected_tags and not tag_match:
                 success = False
                 error_msg = f"标签 {draft.tags} 不包含预期标签 {expected_tags}"
@@ -533,7 +527,7 @@ class TestMemoryExtraction:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证结果
@@ -548,20 +542,21 @@ class TestMemoryExtraction:
 
         assert success, "用户偏好对话应成功提取"
 
-    def _format_transcript(self, messages: List[Dict[str, str]]) -> str:
+    def _format_transcript(self, messages: list[dict[str, str]]) -> str:
         """格式化对话为文本"""
         lines = []
         for msg in messages:
             role_display = {
                 "user": "👤 User",
                 "assistant": "🤖 Assistant",
-                "system": "⚙️ System"
+                "system": "⚙️ System",
             }.get(msg["role"], msg["role"])
             lines.append(f"{role_display}: {msg['content']}")
         return "\n".join(lines)
 
 
 # ========== Group 2: 去重决策测试 (Deduplication Logic) ==========
+
 
 class TestDeduplicationLogic:
     """
@@ -606,7 +601,9 @@ class TestDeduplicationLogic:
         success = decision.value == expected_decision.lower()
 
         print_test_result(console, "GEN-DED-001: 决策 CREATE", success)
-        console.print(f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]")
+        console.print(
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]"
+        )
         console.print(f"    [dim]新草稿标题: {draft.title}[/dim]")
         console.print(f"    [dim]现有记忆标题: {existing_memory.index.title}[/dim]")
 
@@ -640,7 +637,9 @@ class TestDeduplicationLogic:
         success = decision.value in [expected_decision.lower(), "update"]
 
         print_test_result(console, "GEN-DED-002: 决策 TOUCH/UPDATE", success)
-        console.print(f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()} 或 update)[/dim]")
+        console.print(
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()} 或 update)[/dim]"
+        )
         if found_memory:
             console.print(f"    [dim]匹配记忆: {found_memory.index.title}[/dim]")
 
@@ -673,7 +672,9 @@ class TestDeduplicationLogic:
         success = decision.value == expected_decision.lower()
 
         print_test_result(console, "GEN-DED-003: 决策 UPDATE", success)
-        console.print(f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]")
+        console.print(
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]"
+        )
         console.print(f"    [dim]新草稿: {draft.title}[/dim]")
         if found_memory:
             console.print(f"    [dim]匹配记忆: {found_memory.index.title}[/dim]")
@@ -682,6 +683,7 @@ class TestDeduplicationLogic:
 
 
 # ========== Group 3: 记忆合并测试 (Merger) ==========
+
 
 class TestMemoryMerger:
     """
@@ -743,7 +745,10 @@ class TestMemoryMerger:
         )
         merged = result[0].atom
 
-        success = merged.payload.content == new_draft.content and old_content not in merged.payload.content
+        success = (
+            merged.payload.content == new_draft.content
+            and old_content not in merged.payload.content
+        )
         print_test_result(console, "GEN-MRG-001: dedup UPDATE 覆盖当前内容", success)
         console.print(f"    [dim]更新后内容长度: {len(merged.payload.content)} 字符[/dim]")
 
@@ -813,7 +818,7 @@ class TestMemoryMerger:
         console.print(f"    [dim]更新后: {merged.index.tags}[/dim]")
         console.print(f"    [dim]标签数量: {len(merged.index.tags)} (最大: {max_tags})[/dim]")
 
-        assert success, f"标签合并不符合预期"
+        assert success, "标签合并不符合预期"
 
     def test_dedup_update_replaces_summary(self):
         """
@@ -871,6 +876,7 @@ class TestMemoryMerger:
 
 # ========== Group 4: Schema 验证测试 ==========
 
+
 class TestSchemaValidation:
     """
     Group 4: Schema 验证测试
@@ -907,7 +913,7 @@ class TestSchemaValidation:
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
                 "timestamp": datetime.now().isoformat(),
-            }
+            },
         )
 
         # 验证 draft 不为空
@@ -931,7 +937,7 @@ class TestSchemaValidation:
         if missing_fields:
             console.print(f"    [red]缺失字段: {missing_fields}[/red]")
         else:
-            console.print(f"    [dim]所有必需字段均存在[/dim]")
+            console.print("    [dim]所有必需字段均存在[/dim]")
 
         # 打印 MemoryAtom 结构
         console.print(f"    [dim]ID: {memory.id}[/dim]")
@@ -1001,19 +1007,19 @@ class TestSchemaValidation:
         print_test_result(console, "GEN-SCH-002: 更新置信度重置", success)
         console.print(f"    [dim]原置信度: {old_confidence}[/dim]")
         console.print(f"    [dim]新置信度: {new_confidence}[/dim]")
-        console.print(f"    [dim]预期结果: 1.0[/dim]")
+        console.print("    [dim]预期结果: 1.0[/dim]")
         console.print(f"    [dim]实际结果: {actual_confidence:.4f}[/dim]")
 
         assert success, f"更新置信度不符合预期: 预期 1.0，实际 {actual_confidence}"
 
-    def _format_transcript(self, messages: List[Dict[str, str]]) -> str:
+    def _format_transcript(self, messages: list[dict[str, str]]) -> str:
         """格式化对话为文本"""
         lines = []
         for msg in messages:
             role_display = {
                 "user": "👤 User",
                 "assistant": "🤖 Assistant",
-                "system": "⚙️ System"
+                "system": "⚙️ System",
             }.get(msg["role"], msg["role"])
             lines.append(f"{role_display}: {msg['content']}")
         return "\n".join(lines)
@@ -1069,6 +1075,7 @@ class TestSchemaValidation:
 
 
 # ========== 端到端流程测试 ==========
+
 
 class TestEndToEndFlow:
     """
@@ -1140,6 +1147,7 @@ class TestEndToEndFlow:
 
 
 # ========== 主函数 ==========
+
 
 def run_all_tests():
     """运行所有测试（用于直接执行）"""

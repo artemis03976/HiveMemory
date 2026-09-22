@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any
 
 import yaml
 from dotenv import dotenv_values
@@ -178,7 +178,7 @@ def provider_credentials_settings_source() -> dict[str, Any]:
         if not upper.startswith(prefix):
             continue
         # 剩余部分形如 "DEEPSEEK__API_KEY"
-        remainder = upper[len(prefix):]
+        remainder = upper[len(prefix) :]
         parts = remainder.split("__")
         if len(parts) != 2:
             continue
@@ -209,6 +209,7 @@ def yaml_config_settings_source() -> dict[str, Any]:
 
 
 # ========== 顶层基础设施配置 ==========
+
 
 class SystemConfig(BaseModel):
     name: str = Field(default="HiveMemory")
@@ -270,6 +271,7 @@ class I18nConfig(BaseModel):
 
 # ========== 根配置 ==========
 
+
 class HiveMemoryConfig(BaseSettings):
     system: SystemConfig = Field(default_factory=SystemConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
@@ -279,18 +281,12 @@ class HiveMemoryConfig(BaseSettings):
 
     shared: SharedConfig = Field(default_factory=SharedConfig)
     gateway: SystemGatewayConfig = Field(default_factory=SystemGatewayConfig)
-    passive_ingress: PassiveIngressConfig = Field(
-        default_factory=PassiveIngressConfig
-    )
+    passive_ingress: PassiveIngressConfig = Field(default_factory=PassiveIngressConfig)
     memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
-    attachment_parser: AttachmentParserConfig = Field(
-        default_factory=AttachmentParserConfig
-    )
-    attachment_compiler: AttachmentCompilerConfig = Field(
-        default_factory=AttachmentCompilerConfig
-    )
+    attachment_parser: AttachmentParserConfig = Field(default_factory=AttachmentParserConfig)
+    attachment_compiler: AttachmentCompilerConfig = Field(default_factory=AttachmentCompilerConfig)
     access: AccessControlConfig = Field(default_factory=AccessControlConfig)
 
     model_config = SettingsConfigDict(
@@ -305,6 +301,7 @@ class HiveMemoryConfig(BaseSettings):
     @model_validator(mode="after")
     def sync_i18n_default_language(self) -> "HiveMemoryConfig":
         from hivememory.i18n.resolver import set_default_language
+
         set_default_language(self.i18n.default_language)
         return self
 
@@ -354,25 +351,45 @@ __all__ = [
     "SystemPrincipalAccessEntry",
     "WorkspaceActorAccessEntry",
     # 共享配置
-    "LLMConfig", "LLMGlobalConfig",
-    "EmbeddingConfig", "EmbeddingGlobalConfig",
+    "LLMConfig",
+    "LLMGlobalConfig",
+    "EmbeddingConfig",
+    "EmbeddingGlobalConfig",
     "ProviderCredentials",
     "SharedConfig",
     # gateway
-    "GatewayContextPreparationConfig", "GatewayWorkflowConfig",
-    "RuleInterceptorConfig", "SystemCommandConfig", "SystemGatewayConfig",
-    "TopicRouterConfig", "UserQueryAnalysisConfig",
+    "GatewayContextPreparationConfig",
+    "GatewayWorkflowConfig",
+    "RuleInterceptorConfig",
+    "SystemCommandConfig",
+    "SystemGatewayConfig",
+    "TopicRouterConfig",
+    "UserQueryAnalysisConfig",
     # patchouli
     "QdrantConfig",
-    "SimpleRelayConfig", "LLMRelayConfig", "RelayControllerConfig",
-    "SemanticFlowPerceptionConfig", "MemoryPerceptionConfig",
-    "ExtractorConfig", "DeduplicatorConfig", "MemoryGenerationConfig",
-    "ReciprocalRankFusionConfig", "RetrievalModeConfig", "AdaptiveWeightedFusionConfig",
-    "RerankerConfig", "DenseRetrieverConfig", "SparseRetrieverConfig", "HybridRetrieverConfig",
+    "SimpleRelayConfig",
+    "LLMRelayConfig",
+    "RelayControllerConfig",
+    "SemanticFlowPerceptionConfig",
+    "MemoryPerceptionConfig",
+    "ExtractorConfig",
+    "DeduplicatorConfig",
+    "MemoryGenerationConfig",
+    "ReciprocalRankFusionConfig",
+    "RetrievalModeConfig",
+    "AdaptiveWeightedFusionConfig",
+    "RerankerConfig",
+    "DenseRetrieverConfig",
+    "SparseRetrieverConfig",
+    "HybridRetrieverConfig",
     "MemoryRetrievalConfig",
-    "VitalityCalculatorConfig", "ReinforcementEngineConfig", "ArchiverConfig",
-    "GarbageCollectorConfig", "MemoryLifecycleConfig",
-    "ArtifactComponentConfig", "ArtifactConfig",
+    "VitalityCalculatorConfig",
+    "ReinforcementEngineConfig",
+    "ArchiverConfig",
+    "GarbageCollectorConfig",
+    "MemoryLifecycleConfig",
+    "ArtifactComponentConfig",
+    "ArtifactConfig",
     "PatchouliShutdownConfig",
     "PatchouliConfig",
     # 记忆编译
@@ -383,20 +400,29 @@ __all__ = [
     "RetrievalContextCompileConfig",
     "MemoryCompilerConfig",
     # alice
-    "MTPPromptConfig", "KoakumaConfig", "AgentRuntimeConfig",
+    "MTPPromptConfig",
+    "KoakumaConfig",
+    "AgentRuntimeConfig",
     "AliceConfig",
     # 被动接入
     "PassiveIngressConfig",
     # 顶层
-    "SystemConfig", "LoggingConfig",
-    "MaintenanceTasksConfig", "SchedulerConfig",
-    "RuntimeEventsConfig", "I18nConfig",
+    "SystemConfig",
+    "LoggingConfig",
+    "MaintenanceTasksConfig",
+    "SchedulerConfig",
+    "RuntimeEventsConfig",
+    "I18nConfig",
     "HiveMemoryConfig",
     # 工厂函数
-    "load_app_config", "get_librarian_llm_config", "get_gateway_llm_config",
+    "load_app_config",
+    "get_librarian_llm_config",
+    "get_gateway_llm_config",
     "HIVEMEMORY_ENV_PREFIX",
     "LEGACY_ENV_ALIASES",
-    "get_config_file_path", "get_default_config_file_path",
-    "yaml_config_settings_source", "legacy_env_alias_settings_source",
+    "get_config_file_path",
+    "get_default_config_file_path",
+    "yaml_config_settings_source",
+    "legacy_env_alias_settings_source",
     "provider_credentials_settings_source",
 ]

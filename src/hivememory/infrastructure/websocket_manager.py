@@ -13,7 +13,7 @@ import asyncio
 import logging
 import uuid
 from collections import deque
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import WebSocket
 
@@ -39,7 +39,7 @@ class WebSocketConnectionManager:
         Args:
             buffer_size: 缓冲区大小（无客户端时保留的日志数）
         """
-        self._connections: Dict[str, WebSocket] = {}
+        self._connections: dict[str, WebSocket] = {}
         self._buffer: deque = deque(maxlen=buffer_size)
         self._lock = asyncio.Lock()
         logger.info(f"WebSocketConnectionManager initialized with buffer_size={buffer_size}")
@@ -67,9 +67,11 @@ class WebSocketConnectionManager:
         async with self._lock:
             if client_id in self._connections:
                 del self._connections[client_id]
-                logger.info(f"Client {client_id} disconnected (remaining: {len(self._connections)})")
+                logger.info(
+                    f"Client {client_id} disconnected (remaining: {len(self._connections)})"
+                )
 
-    async def broadcast(self, message: Dict[str, Any]) -> None:
+    async def broadcast(self, message: dict[str, Any]) -> None:
         """
         广播消息到所有连接的客户端
 

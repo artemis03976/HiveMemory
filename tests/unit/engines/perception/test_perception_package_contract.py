@@ -20,14 +20,14 @@ def test_engines_perception_does_not_import_patchouli():
         tree = ast.parse(py_file.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
-                assert not (node.module or "").startswith("hivememory.patchouli"), (
-                    f"{py_file.name} imports {node.module}"
-                )
+                assert not (node.module or "").startswith(
+                    "hivememory.patchouli"
+                ), f"{py_file.name} imports {node.module}"
             elif isinstance(node, ast.Import):
                 for alias in node.names:
-                    assert not alias.name.startswith("hivememory.patchouli"), (
-                        f"{py_file.name} imports {alias.name}"
-                    )
+                    assert not alias.name.startswith(
+                        "hivememory.patchouli"
+                    ), f"{py_file.name} imports {alias.name}"
 
 
 def test_engines_perception_package_exports_algorithm_surface():

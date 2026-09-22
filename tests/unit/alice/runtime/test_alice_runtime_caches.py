@@ -45,10 +45,7 @@ def test_clear_derived_caches_clears_atom_cache_and_is_idempotent() -> None:
     runtime.atom_cache.ingest_atom(_atom("fact_clear"), workspace_identity=MAIN)
 
     assert runtime.clear_derived_caches() == (1, 0)
-    assert (
-        runtime.atom_cache.get_atom_by_alias("fact_clear", workspace_identity=MAIN)
-        is None
-    )
+    assert runtime.atom_cache.get_atom_by_alias("fact_clear", workspace_identity=MAIN) is None
     assert runtime.clear_derived_caches() == (0, 0)
 
 

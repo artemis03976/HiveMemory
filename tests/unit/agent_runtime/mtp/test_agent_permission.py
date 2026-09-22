@@ -29,8 +29,8 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
-from tests.helpers.workspace import make_identity_scope
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_profile_atom(
@@ -64,9 +64,7 @@ def _make_profile_atom(
 
 
 def _profile(agent_id: str, allowed_verbs: list, allowed_tools: list) -> AgentProfile:
-    profile = AgentProfile.from_atom(
-        _make_profile_atom(agent_id, allowed_verbs, allowed_tools)
-    )
+    profile = AgentProfile.from_atom(_make_profile_atom(agent_id, allowed_verbs, allowed_tools))
     assert profile is not None
     return profile
 
@@ -213,7 +211,9 @@ class TestProfileLoadingErrors:
         get_by_alias.return_value = MemoryAtom(
             meta=make_memory_metadata(user_id="u1", source_agent_id="system"),
             index=IndexLayer(
-                alias="custom", title="custom title", summary="not a profile",
+                alias="custom",
+                title="custom title",
+                summary="not a profile",
                 memory_type=MemoryType.FACT,
             ),
             payload=PayloadLayer(content="c"),
@@ -234,8 +234,11 @@ class TestProfileLoadingErrors:
             id=uuid4(),
             meta=make_memory_metadata(user_id="u1", source_agent_id="system"),
             index=IndexLayer(
-                alias="broken", title="Broken", summary="Broken profile",
-                tags=["agent"], memory_type=MemoryType.AGENT_PROFILE,
+                alias="broken",
+                title="Broken",
+                summary="Broken profile",
+                tags=["agent"],
+                memory_type=MemoryType.AGENT_PROFILE,
             ),
             payload=PayloadLayer(content="c", artifacts={}),
         )
@@ -251,9 +254,7 @@ class TestProfileLoadingErrors:
     async def test_valid_custom_alias_returns_parsed_profile(self):
         """合法自定义 alias 返回真实解析的 AgentProfile。"""
         service, get_by_alias = _make_retrieval_familiar()
-        get_by_alias.return_value = _make_profile_atom(
-            "coder_doll", ["READ", "RUN"], ["sys_clock"]
-        )
+        get_by_alias.return_value = _make_profile_atom("coder_doll", ["READ", "RUN"], ["sys_clock"])
 
         profile = await service.get_agent_profile(
             "coder_doll",

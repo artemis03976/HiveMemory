@@ -17,10 +17,10 @@ from hivememory.core.mtp.exceptions import (
     MemoryTypeMismatchError,
     StorageReadError,
 )
-from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.system.config import EmbeddingConfig, QdrantConfig
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
 from hivememory.engines.retrieval.models import QueryFilters
+from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.system.config import EmbeddingConfig, QdrantConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -61,12 +61,12 @@ class TestQdrantMemoryStore:
                     "agent_config": {
                         "model_name": "gpt-4",
                         "temperature": 0.7,
-                        "allowed_mtp_verbs": ["READ", "SEARCH"]
-                        if allowed_verbs is None
-                        else allowed_verbs,
-                        "allowed_sys_tools": ["sys_clock"]
-                        if allowed_tools is None
-                        else allowed_tools,
+                        "allowed_mtp_verbs": (
+                            ["READ", "SEARCH"] if allowed_verbs is None else allowed_verbs
+                        ),
+                        "allowed_sys_tools": (
+                            ["sys_clock"] if allowed_tools is None else allowed_tools
+                        ),
                     }
                 },
             ),
@@ -74,12 +74,12 @@ class TestQdrantMemoryStore:
 
     @pytest.fixture
     def mock_qdrant_client(self):
-        with patch('hivememory.infrastructure.storage.qdrant_client.AsyncQdrantClient') as mock:
+        with patch("hivememory.infrastructure.storage.qdrant_client.AsyncQdrantClient") as mock:
             yield mock
 
     @pytest.fixture
     def mock_embedding_service(self):
-        with patch('hivememory.infrastructure.storage.vector_store.get_bge_m3_service') as mock:
+        with patch("hivememory.infrastructure.storage.vector_store.get_bge_m3_service") as mock:
             yield mock
 
     @pytest.fixture
@@ -91,10 +91,7 @@ class TestQdrantMemoryStore:
         # Mock embedding service 的 encode 方法行为
         def side_effect(dense_texts=None, sparse_texts=None):
             if sparse_texts:
-                return {
-                    "dense": [0.1] * 1024,
-                    "sparse_text": sparse_texts
-                }
+                return {"dense": [0.1] * 1024, "sparse_text": sparse_texts}
             else:
                 # 仅 Dense
                 return [0.1] * 1024
@@ -103,7 +100,9 @@ class TestQdrantMemoryStore:
 
         return store
 
-    def test_qdrant_client_uses_configured_transport(self, mock_qdrant_client, mock_embedding_service):
+    def test_qdrant_client_uses_configured_transport(
+        self, mock_qdrant_client, mock_embedding_service
+    ):
         q_config = QdrantConfig(
             host="127.0.0.1",
             port=6333,
@@ -141,8 +140,13 @@ class TestQdrantMemoryStore:
     async def test_upsert_memory_dense_only(self, storage):
         memory = MemoryAtom(
             meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
-            index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
-            payload=PayloadLayer(content="Content")
+            index=IndexLayer(
+                title="Test",
+                summary="Summary must be longer than 10 chars",
+                tags=["tag"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="Content"),
         )
 
         storage.client.upsert = AsyncMock()
@@ -155,7 +159,7 @@ class TestQdrantMemoryStore:
         # 验证是否调用了 upsert
         storage.client.upsert.assert_called_once()
         call_args = storage.client.upsert.call_args
-        points = call_args.kwargs['points']
+        points = call_args.kwargs["points"]
         assert len(points) == 1
 
         # 验证 point.vector 中包含 dense_text
@@ -168,8 +172,13 @@ class TestQdrantMemoryStore:
     async def test_upsert_memory_hybrid(self, storage):
         memory = MemoryAtom(
             meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
-            index=IndexLayer(title="Test", summary="Summary must be longer than 10 chars", tags=["tag"], memory_type=MemoryType.FACT),
-            payload=PayloadLayer(content="Content")
+            index=IndexLayer(
+                title="Test",
+                summary="Summary must be longer than 10 chars",
+                tags=["tag"],
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="Content"),
         )
 
         storage.client.upsert = AsyncMock()
@@ -177,7 +186,7 @@ class TestQdrantMemoryStore:
         await storage.upsert_memory(memory, use_sparse=True)
 
         storage.client.upsert.assert_called_once()
-        points = storage.client.upsert.call_args.kwargs['points']
+        points = storage.client.upsert.call_args.kwargs["points"]
 
         vector = points[0].vector
         assert "dense_text" in vector

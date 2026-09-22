@@ -1,12 +1,13 @@
+from unittest.mock import MagicMock
+
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
 
 import hivememory.server.routers.config as config_router_module
-from hivememory.system.config import HiveMemoryConfig
 from hivememory.server import deps
 from hivememory.server.routers.config import router
+from hivememory.system.config import HiveMemoryConfig
 
 
 def _create_test_app(mock_system):
@@ -34,7 +35,7 @@ def test_update_config_persists_to_local_file(tmp_path, monkeypatch):
 
     assert mock_system.config.system.debug == payload["system"]["debug"]
     assert config_path.exists()
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         persisted = yaml.safe_load(f)
     assert persisted["system"]["debug"] == payload["system"]["debug"]
 
@@ -54,10 +55,12 @@ def test_update_config_validation_error_does_not_persist(tmp_path, monkeypatch):
     app = _create_test_app(mock_system)
     client = TestClient(app)
 
-    response = client.post("/api/v1/config", json={"patchouli": {"storage": {"port": "invalid-port"}}})
+    response = client.post(
+        "/api/v1/config", json={"patchouli": {"storage": {"port": "invalid-port"}}}
+    )
     assert response.status_code == 400
     assert mock_system.config is old_config
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         persisted = yaml.safe_load(f)
     assert persisted == existing_data
 

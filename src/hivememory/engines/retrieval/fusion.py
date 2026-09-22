@@ -6,13 +6,16 @@
 对应设计文档: PROJECT.md 5.1.5 节
 """
 
-from typing import Optional, Dict, List, Union
-from collections import defaultdict
 import logging
+from collections import defaultdict
 
-from hivememory.system.config import ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig, RetrievalModeConfig
-from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from hivememory.engines.retrieval.interfaces import BaseFusion
+from hivememory.engines.retrieval.models import SearchResult, SearchResults
+from hivememory.system.config import (
+    AdaptiveWeightedFusionConfig,
+    ReciprocalRankFusionConfig,
+    RetrievalModeConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,7 @@ class ReciprocalRankFusion(BaseFusion):
 
     用于合并稠密和稀疏两路检索结果。
     RRF 对分数分布不敏感，能很好地融合不同检索方式的结果。
-    
+
     RRF 公式:
         score(d) = sum(w_i / (k + rank_i(d)))
 
@@ -46,11 +49,7 @@ class ReciprocalRankFusion(BaseFusion):
         """
         self.config = config
 
-    def fuse(
-        self,
-        dense_results: SearchResults,
-        sparse_results: SearchResults
-    ) -> SearchResults:
+    def fuse(self, dense_results: SearchResults, sparse_results: SearchResults) -> SearchResults:
         """
         使用 RRF 融合稠密和稀疏检索结果
 
@@ -62,8 +61,8 @@ class ReciprocalRankFusion(BaseFusion):
             融合后的结果集合
         """
         # 分数累加器
-        scores: Dict[str, float] = defaultdict(float)
-        result_map: Dict[str, SearchResult] = {}
+        scores: dict[str, float] = defaultdict(float)
+        result_map: dict[str, SearchResult] = {}
 
         # 处理稠密检索结果
         for rank, result in enumerate(dense_results.results, start=1):
@@ -91,7 +90,7 @@ class ReciprocalRankFusion(BaseFusion):
 
         # 构建最终结果
         fused_results = []
-        for memory_id in sorted_ids[:self.config.final_top_k]:
+        for memory_id in sorted_ids[: self.config.final_top_k]:
             result = result_map[memory_id]
             result.score = scores[memory_id]  # 更新为 RRF 分数
             fused_results.append(result)
@@ -104,15 +103,11 @@ class ReciprocalRankFusion(BaseFusion):
         total_latency = dense_results.latency_ms + sparse_results.latency_ms
 
         return SearchResults(
-            results=fused_results,
-            total_candidates=len(result_map),
-            latency_ms=total_latency
+            results=fused_results, total_candidates=len(result_map), latency_ms=total_latency
         )
 
     def fuse_multi(
-        self,
-        result_lists: List[SearchResults],
-        weights: Optional[List[float]] = None
+        self, result_lists: list[SearchResults], weights: list[float] | None = None
     ) -> SearchResults:
         """
         融合多路检索结果 (通用接口)
@@ -131,8 +126,8 @@ class ReciprocalRankFusion(BaseFusion):
             raise ValueError("结果列表数量与权重数量不匹配")
 
         # 分数累加器
-        scores: Dict[str, float] = defaultdict(float)
-        result_map: Dict[str, SearchResult] = {}
+        scores: dict[str, float] = defaultdict(float)
+        result_map: dict[str, SearchResult] = {}
 
         # 处理每一路结果
         for results, weight in zip(result_lists, weights):
@@ -149,7 +144,7 @@ class ReciprocalRankFusion(BaseFusion):
 
         # 构建最终结果
         fused_results = []
-        for memory_id in sorted_ids[:self.config.final_top_k]:
+        for memory_id in sorted_ids[: self.config.final_top_k]:
             result = result_map[memory_id]
             result.score = scores[memory_id]
             fused_results.append(result)
@@ -157,9 +152,7 @@ class ReciprocalRankFusion(BaseFusion):
         total_latency = sum(r.latency_ms for r in result_lists)
 
         return SearchResults(
-            results=fused_results,
-            total_candidates=len(result_map),
-            latency_ms=total_latency
+            results=fused_results, total_candidates=len(result_map), latency_ms=total_latency
         )
 
 
@@ -182,10 +175,7 @@ class AdaptiveWeightedFusion(BaseFusion):
         - brainstorm: 高 dense 权重，无惩罚 (发散思维场景)
     """
 
-    def __init__(
-        self,
-        config: Optional[AdaptiveWeightedFusionConfig] = None
-    ):
+    def __init__(self, config: AdaptiveWeightedFusionConfig | None = None):
         """
         初始化自适应加权融合器
 
@@ -198,7 +188,7 @@ class AdaptiveWeightedFusion(BaseFusion):
         self,
         dense_results: SearchResults,
         sparse_results: SearchResults,
-        mode: Optional[str] = None
+        mode: str | None = None,
     ) -> SearchResults:
         """
         使用自适应加权算法融合检索结果
@@ -216,8 +206,8 @@ class AdaptiveWeightedFusion(BaseFusion):
         mode_config = self._get_mode_config(mode)
 
         # 分数累加器
-        scores: Dict[str, float] = defaultdict(float)
-        result_map: Dict[str, SearchResult] = {}
+        scores: dict[str, float] = defaultdict(float)
+        result_map: dict[str, SearchResult] = {}
 
         # 计算权重归一化因子
         total_weight = mode_config.dense_weight + mode_config.sparse_weight
@@ -266,7 +256,7 @@ class AdaptiveWeightedFusion(BaseFusion):
 
         # 构建最终结果
         fused_results = []
-        for memory_id in sorted_ids[:self.config.final_top_k]:
+        for memory_id in sorted_ids[: self.config.final_top_k]:
             result = result_map[memory_id]
             # 创建新的 SearchResult 以避免修改原始对象
             new_result = result.model_copy()
@@ -281,16 +271,11 @@ class AdaptiveWeightedFusion(BaseFusion):
         total_latency = dense_results.latency_ms + sparse_results.latency_ms
 
         return SearchResults(
-            results=fused_results,
-            total_candidates=len(result_map),
-            latency_ms=total_latency
+            results=fused_results, total_candidates=len(result_map), latency_ms=total_latency
         )
 
     def fuse_with_intent(
-        self,
-        dense_results: SearchResults,
-        sparse_results: SearchResults,
-        query_intent: str
+        self, dense_results: SearchResults, sparse_results: SearchResults, query_intent: str
     ) -> SearchResults:
         """
         基于意图自动选择模式进行融合 (预留接口)
@@ -364,10 +349,7 @@ class AdaptiveWeightedFusion(BaseFusion):
         return mode_map.get(mode, self.config.concept_mode)
 
     def _calculate_quality_multiplier(
-        self,
-        confidence: float,
-        vitality: float,
-        mode_config: RetrievalModeConfig
+        self, confidence: float, vitality: float, mode_config: RetrievalModeConfig
     ) -> float:
         """
         计算质量乘数 M(C, V) = Factor_conf × Factor_vit
@@ -397,7 +379,9 @@ class AdaptiveWeightedFusion(BaseFusion):
         return conf_factor * vit_factor
 
 
-def create_fusion(config: Union[ReciprocalRankFusionConfig, AdaptiveWeightedFusionConfig]) -> BaseFusion:
+def create_fusion(
+    config: ReciprocalRankFusionConfig | AdaptiveWeightedFusionConfig,
+) -> BaseFusion:
     """
     创建融合器工厂
 
@@ -413,7 +397,7 @@ def create_fusion(config: Union[ReciprocalRankFusionConfig, AdaptiveWeightedFusi
     """
     if isinstance(config, ReciprocalRankFusionConfig):
         return ReciprocalRankFusion(config)
-    
+
     if isinstance(config, AdaptiveWeightedFusionConfig):
         return AdaptiveWeightedFusion(config)
 

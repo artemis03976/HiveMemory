@@ -45,9 +45,11 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.5.0",
-    "black>=24.0.0",
-    "ruff>=0.2.0",
-    "mypy>=1.8.0",
+    # Lint/format 工具锁精确版本：ruff/black 的规则与输出样式随版本漂移，
+    # 松散 specifier 会让不同机器与 CI 得到不一致的检查结果。
+    "black==26.5.1",
+    "ruff==0.16.8",
+    "mypy==2.3.1",
     "ipython>=8.20.0",
 ]
 ui = [
@@ -88,7 +90,19 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    # UP042（str, Enum → StrEnum）会改变 str()/f-string 输出（"X.A" → "a"），
+    # 属语义变化而非纯风格；迁移需单独评审依赖 str(enum) 的日志与提示词路径。
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 以下文件在 sys.path 引导、UTF-8/日志配置之后才导入项目模块，导入顺序有意为之
+"scripts/**/*.py" = ["E402"]
+"tests/conftest.py" = ["E402"]
+"tests/e2e/**/*.py" = ["E402"]
+"tests/unit/engines/lifecycle/test_lifecycle_component.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.12"

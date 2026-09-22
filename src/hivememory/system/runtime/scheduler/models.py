@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
 
 @dataclass
@@ -29,10 +30,10 @@ class TaskRuntimeState:
     spec: MaintenanceTaskSpec
     callback: Callable[[], Awaitable[Any]]
     next_run_at: float = 0.0
-    last_started_at: Optional[float] = None
-    last_finished_at: Optional[float] = None
-    last_error: Optional[str] = None
+    last_started_at: float | None = None
+    last_finished_at: float | None = None
+    last_error: str | None = None
     run_count: int = 0
     failure_count: int = 0
     skip_count: int = 0
-    current_task: Optional[asyncio.Task] = field(default=None, repr=False)
+    current_task: asyncio.Task | None = field(default=None, repr=False)

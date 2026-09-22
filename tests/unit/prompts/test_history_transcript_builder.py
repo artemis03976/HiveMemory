@@ -20,11 +20,14 @@ from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 # ============ 辅助工厂 ============
 
+
 def _identity(agent_id: str = "default") -> ActorIdentity:
     return ActorIdentity(user_id="u1", agent_id=agent_id)
 
 
-def _block_fallback(user_query: str, assistant_final_text: str, agent_id: str = "default") -> LogicalBlock:
+def _block_fallback(
+    user_query: str, assistant_final_text: str, agent_id: str = "default"
+) -> LogicalBlock:
     """无 turn_events 的 fallback block（Phase 4C 使用 assistant_final_text）"""
     return LogicalBlock(
         turn=TurnRecord(
@@ -46,8 +49,9 @@ def _block_structured(user_query: str, events: list, agent_id: str = "default") 
     )
 
 
-def _ev(kind: str, seq: int, role: str, content: str,
-        tool_kind: str = None, render_as: str = "plain") -> TurnEvent:
+def _ev(
+    kind: str, seq: int, role: str, content: str, tool_kind: str = None, render_as: str = "plain"
+) -> TurnEvent:
     return TurnEvent(
         kind=kind,
         sequence=seq,
@@ -62,6 +66,7 @@ builder = HistoryTranscriptBuilder()
 
 
 # ============ 1. fallback / legacy 路径 ============
+
 
 class TestFallbackPaths:
     def test_no_turn_events_uses_assistant_final_text(self):
@@ -99,6 +104,7 @@ class TestFallbackPaths:
 
 # ============ 2. 结构化事件重放 ============
 
+
 class TestStructuredReplay:
     def test_user_message_event_not_replayed_twice(self):
         """turn_events 已包含 user_message 时，不再额外从 block.user_query 补一条 user。"""
@@ -133,8 +139,14 @@ class TestStructuredReplay:
         events = [
             _ev("assistant_message", 0, "assistant", "正在查找"),
             _ev("tool_call", 1, "assistant", "⟪ READ | alias_x ⟫", tool_kind="READ"),
-            _ev("tool_result", 2, "user", "<xml>result</xml>",
-                tool_kind="READ", render_as="system_tool_result"),
+            _ev(
+                "tool_result",
+                2,
+                "user",
+                "<xml>result</xml>",
+                tool_kind="READ",
+                render_as="system_tool_result",
+            ),
             _ev("assistant_message", 3, "assistant", "找到了！"),
         ]
         block = _block_structured("帮我找一下", events)
@@ -175,6 +187,7 @@ class TestStructuredReplay:
 
 # ============ 3. render_as 前缀渲染 ============
 
+
 class TestRenderAsPrefix:
     def test_plain_no_prefix(self):
         event = _ev("assistant_message", 0, "assistant", "原样内容", render_as="plain")
@@ -183,8 +196,7 @@ class TestRenderAsPrefix:
         assert msgs[1]["content"] == "原样内容"
 
     def test_system_tool_result_prefix(self):
-        event = _ev("tool_result", 0, "user", "<xml>result</xml>",
-                    render_as="system_tool_result")
+        event = _ev("tool_result", 0, "user", "<xml>result</xml>", render_as="system_tool_result")
         block = _block_structured("q", [event])
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == "[System MTP Execution Result]\n<xml>result</xml>"
@@ -192,23 +204,26 @@ class TestRenderAsPrefix:
 
     def test_system_tool_result_prefix_not_duplicated(self):
         content = "[System MTP Execution Result]\n<mtp_response>ok</mtp_response>"
-        event = _ev("tool_result", 0, "user", content,
-                    render_as="system_tool_result")
+        event = _ev("tool_result", 0, "user", content, render_as="system_tool_result")
         block = _block_structured("q", [event])
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == content
 
     def test_system_call_response_prefix(self):
-        event = _ev("tool_result", 0, "user", "<mtp_response>...</mtp_response>",
-                    render_as="system_call_response")
+        event = _ev(
+            "tool_result",
+            0,
+            "user",
+            "<mtp_response>...</mtp_response>",
+            render_as="system_call_response",
+        )
         block = _block_structured("q", [event])
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == "[System MTP Call Response]\n<mtp_response>...</mtp_response>"
 
     def test_system_call_response_prefix_not_duplicated(self):
         content = "[System MTP Call Response]\n<mtp_response>...</mtp_response>"
-        event = _ev("tool_result", 0, "user", content,
-                    render_as="system_call_response")
+        event = _ev("tool_result", 0, "user", content, render_as="system_call_response")
         block = _block_structured("q", [event])
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == content
@@ -223,53 +238,60 @@ class TestRenderAsPrefix:
 
 # ============ 4. 多智能体身份前缀 ============
 
+
 class TestAgentPrefix:
     def test_same_agent_no_prefix(self):
         """当前 agent 的发言不加前缀"""
-        block = _block_structured("q", [
-            _ev("assistant_message", 0, "assistant", "我的回复")
-        ], agent_id="coder_doll")
+        block = _block_structured(
+            "q", [_ev("assistant_message", 0, "assistant", "我的回复")], agent_id="coder_doll"
+        )
         msgs = builder.build_messages([block], current_agent_id="coder_doll")
         assert msgs[1]["content"] == "我的回复"
 
     def test_different_agent_adds_prefix(self):
         """非当前 agent 的 assistant 发言加 [From: ...]"""
-        block = _block_structured("q", [
-            _ev("assistant_message", 0, "assistant", "我来自另一个 agent")
-        ], agent_id="coder_doll")
+        block = _block_structured(
+            "q",
+            [_ev("assistant_message", 0, "assistant", "我来自另一个 agent")],
+            agent_id="coder_doll",
+        )
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n我来自另一个 agent"
 
     def test_tool_result_no_agent_prefix(self):
         """tool_result 是系统消息，不加身份前缀"""
-        block = _block_structured("q", [
-            _ev("tool_result", 0, "user", "result", render_as="system_tool_result")
-        ], agent_id="coder_doll")
+        block = _block_structured(
+            "q",
+            [_ev("tool_result", 0, "user", "result", render_as="system_tool_result")],
+            agent_id="coder_doll",
+        )
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         # role=user 的消息不走 agent prefix 逻辑
         assert "[From:" not in msgs[1]["content"]
 
     def test_tool_call_from_different_agent_has_prefix(self):
         """非当前 agent 发出的 tool call 也应加前缀"""
-        block = _block_structured("q", [
-            _ev("tool_call", 0, "assistant", "⟪ READ | x ⟫", tool_kind="READ")
-        ], agent_id="coder_doll")
+        block = _block_structured(
+            "q",
+            [_ev("tool_call", 0, "assistant", "⟪ READ | x ⟫", tool_kind="READ")],
+            agent_id="coder_doll",
+        )
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"].startswith("[From: coder_doll]")
 
     def test_default_agent_id_no_prefix(self):
         """agent_id 为 default 的 block 不加前缀"""
-        block = _block_structured("q", [
-            _ev("assistant_message", 0, "assistant", "默认 agent 回复")
-        ], agent_id="default")
+        block = _block_structured(
+            "q", [_ev("assistant_message", 0, "assistant", "默认 agent 回复")], agent_id="default"
+        )
         msgs = builder.build_messages([block], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "默认 agent 回复"
 
     def test_omni_doll_agent_id_no_prefix(self):
         """agent_id 为 omni_doll 的 block 不加前缀（bypass 列表）"""
-        block = _block_structured("q", [
-            _ev("assistant_message", 0, "assistant", "omni_doll 回复")
-        ], agent_id="omni_doll")
+        block = _block_structured(
+            "q", [_ev("assistant_message", 0, "assistant", "omni_doll 回复")], agent_id="omni_doll"
+        )
         msgs = builder.build_messages([block], current_agent_id="coder_doll")
         assert msgs[1]["content"] == "omni_doll 回复"
 
@@ -281,6 +303,7 @@ class TestAgentPrefix:
 
 
 # ============ 5. 混合兼容场景 ============
+
 
 class TestMixedBlocks:
     def test_old_block_then_new_block(self):
@@ -323,10 +346,22 @@ class TestMixedBlocks:
     def test_call_response_and_mtp_result_both_in_one_block(self):
         """单个 block 同时含有 system_call_response 和 system_tool_result"""
         events = [
-            _ev("tool_result", 0, "user", "sub response",
-                tool_kind="CALL", render_as="system_call_response"),
-            _ev("tool_result", 1, "user", "read result",
-                tool_kind="READ", render_as="system_tool_result"),
+            _ev(
+                "tool_result",
+                0,
+                "user",
+                "sub response",
+                tool_kind="CALL",
+                render_as="system_call_response",
+            ),
+            _ev(
+                "tool_result",
+                1,
+                "user",
+                "read result",
+                tool_kind="READ",
+                render_as="system_tool_result",
+            ),
         ]
         block = _block_structured("复杂场景", events)
         msgs = builder.build_messages([block])
@@ -336,11 +371,13 @@ class TestMixedBlocks:
 
 # ============ PerceptionContextConverter 委托验证 ============
 
+
 class TestContextConverterDelegation:
     """验证 PerceptionContextConverter.blocks_to_messages 正确委托给 builder"""
 
     def test_delegation_produces_same_result(self):
         from hivememory.engines.perception.context_converter import PerceptionContextConverter
+
         blocks = [_block_fallback("hi", "hello")]
         direct = builder.build_messages(blocks)
         via_converter = PerceptionContextConverter.blocks_to_messages(blocks)
@@ -348,9 +385,10 @@ class TestContextConverterDelegation:
 
     def test_delegation_passes_current_agent_id(self):
         from hivememory.engines.perception.context_converter import PerceptionContextConverter
-        block = _block_structured("q", [
-            _ev("assistant_message", 0, "assistant", "content")
-        ], agent_id="coder_doll")
+
+        block = _block_structured(
+            "q", [_ev("assistant_message", 0, "assistant", "content")], agent_id="coder_doll"
+        )
         result = PerceptionContextConverter.blocks_to_messages(
             [block], current_agent_id="omni_doll"
         )

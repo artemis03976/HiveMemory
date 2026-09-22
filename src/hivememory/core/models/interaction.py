@@ -19,12 +19,13 @@ from hivememory.utils.token_estimator import estimate_tokens
 
 class StreamMessageType(str, Enum):
     """流式消息类型枚举"""
-    USER = "user"             # 用户查询
-    SYSTEM = "system"         # 系统消息
-    ASSISTANT = "assistant"   # 助手消息
-    TOOL = "tool"             # 工具输出
-    THOUGHT = "thought"       # 思考过程 (Internal)
-    TOOL_CALL = "tool_call"   # 工具调用 (Internal)
+
+    USER = "user"  # 用户查询
+    SYSTEM = "system"  # 系统消息
+    ASSISTANT = "assistant"  # 助手消息
+    TOOL = "tool"  # 工具输出
+    THOUGHT = "thought"  # 思考过程 (Internal)
+    TOOL_CALL = "tool_call"  # 工具调用 (Internal)
 
 
 class StreamMessage(BaseModel):
@@ -33,6 +34,7 @@ class StreamMessage(BaseModel):
 
     职责：抹平不同 Agent 框架的消息格式差异，统一系统内的消息流转
     """
+
     message_type: StreamMessageType
     content: str
     timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
@@ -65,10 +67,7 @@ class StreamMessage(BaseModel):
 
     def to_langchain_message(self) -> dict[str, str]:
         """转换为 LangChain 消息格式"""
-        return {
-            "role": self.role,
-            "content": self.content
-        }
+        return {"role": self.role, "content": self.content}
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -302,7 +301,9 @@ class ActionReducer:
             cls._normalize_event(event)
             for event in sorted(
                 turn_events,
-                key=lambda e: e.get("sequence", 0) if isinstance(e, dict) else getattr(e, "sequence", 0),
+                key=lambda e: (
+                    e.get("sequence", 0) if isinstance(e, dict) else getattr(e, "sequence", 0)
+                ),
             )
         ]
 
