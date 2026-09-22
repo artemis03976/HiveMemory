@@ -967,7 +967,7 @@ ui = [
 
 [package.metadata]
 requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = "==26.5.1" },
     { name = "defusedxml", specifier = ">=0.7.1,<0.8" },
     { name = "duckduckgo-search", marker = "extra == 'search'", specifier = ">=7.0.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
@@ -975,7 +975,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.20.0" },
     { name = "litellm", specifier = ">=1.30.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = "==2.3.1" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pandas", marker = "extra == 'ui'", specifier = ">=2.2.0" },
     { name = "plotly", marker = "extra == 'ui'", specifier = ">=5.18.0" },
@@ -990,7 +990,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "qdrant-client", specifier = ">=1.7.0" },
     { name = "rich", specifier = ">=13.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.2.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.8" },
     { name = "sse-starlette", specifier = ">=1.6.0" },
     { name = "streamlit", marker = "extra == 'ui'", specifier = ">=1.31.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },

@@ -45,9 +45,11 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.5.0",
-    "black>=24.0.0",
-    "ruff>=0.2.0",
-    "mypy>=1.8.0",
+    # Lint/format 工具锁精确版本：ruff/black 的规则与输出样式随版本漂移，
+    # 松散 specifier 会让不同机器与 CI 得到不一致的检查结果。
+    "black==26.5.1",
+    "ruff==0.16.8",
+    "mypy==2.3.1",
     "ipython>=8.20.0",
 ]
 ui = [
