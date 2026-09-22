@@ -16,6 +16,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 |:---|:---:|:---|
 | [v0.7.0 计划 A：Workspace 资源平面重构协调计划](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 维护 A1–A6 及 A2-P 的共同边界、依赖和发布出口；不再重复维护子计划的完整实施细节 |
 | [A2-P 记忆内容版本与 Lifecycle 状态重构](./v0.7.0-a2-pre-memory-version-and-lifecycle.md) | Planned / A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
+| [全项目时间语义与可控时钟统一](./v0.7.0-time-semantics-and-controllable-clock.md) | Planned / 跨子系统 | 在 utils 提供 UTC 与 monotonic 时间工具，统一持久化时间、运行时计时、测试注入和旧数据迁移；Core 不承载时钟实现 |
 | [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 等待 A2-P 前置交付 | 公共读取返回完整 MemoryAtom/列表和 AgentProfile，旧 envelope 留在 adapter；交付 Workspace 共享缓存与同步更新/失效，命中逐次资源授权且不回源 |
 | [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 新增 Session，演进 InteractionPayload/TurnEvent；交付 Topic 生命周期、交互/资料公共路由与授权结果查询 |
 | [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |
@@ -25,6 +26,8 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | [话题折叠、Actor 上下文与原始证据统一改造](./topic-folding-context-and-raw-evidence.md) | Planned / 占位 | 独立里程碑，统筹话题折叠算法重构、原始证据和长 turn 上下文两份 Idea；详细设计与发布版本待补齐 |
 
 默认按 A1 → A2-P → A2 → A3 → A4 → A5 → A6 推进；A2-P 与 A3 可在 A1 后并行，A2 等待 A2-P 完成，其余完整依赖见[协调入口第 3 节](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md#3-依赖图与执行顺序)。A2-P 交付数据/持久化行为，A2–A5 交付领域公共能力，A5 不再是前置 API 发布平台。A2/A5 的 Active 承接既有工作，不代表新增范围已经完成；A2-P 不重编号后续计划，旧编号迁移表见协调入口第 1 节。
+
+全项目时间语义计划是可在 A1 后独立推进的跨子系统治理工作；A2-P 只依赖其中的 utils 时间工具和 UTC 字段契约，完整运行时迁移不改变 A 系列的业务依赖顺序。
 
 2026-09-19 状态更新：A1 已完成实施、验收、代码审查与文档收口并归档为 [v0.7.0 A1 Workspace 访问边界与授权（归档）](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。当前事实入口：[Workspace 架构](../architecture/workspace.md)第 4 节（统一认证网关、两类登记、guard 签发生命周期与逐次行为授权）、[错误模型](../contracts/error-model.md)第 4.4 节、[子系统公共契约](../contracts/subsystem-contracts.md)第 3.5 节与 [ADR-0005](../architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。真实生产入口切换、shutdown 关闭时机和兼容分支退出仍由 [A6](./v0.7.0-a6-actor-adapters-and-integration.md) 完成；附件上传的 scope 一致性缺陷单独追踪于 [Todo](../todo/workspace-asset-upload-access-scope-mismatch.md)。
 
