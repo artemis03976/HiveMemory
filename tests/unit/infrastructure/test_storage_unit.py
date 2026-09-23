@@ -57,17 +57,15 @@ class TestQdrantMemoryStore:
             ),
             payload=PayloadLayer(
                 content=persona,
-                artifacts={
-                    "agent_config": {
-                        "model_name": "gpt-4",
-                        "temperature": 0.7,
-                        "allowed_mtp_verbs": (
-                            ["READ", "SEARCH"] if allowed_verbs is None else allowed_verbs
-                        ),
-                        "allowed_sys_tools": (
-                            ["sys_clock"] if allowed_tools is None else allowed_tools
-                        ),
-                    }
+                agent_config={
+                    "model_name": "gpt-4",
+                    "temperature": 0.7,
+                    "allowed_mtp_verbs": (
+                        ["READ", "SEARCH"] if allowed_verbs is None else allowed_verbs
+                    ),
+                    "allowed_sys_tools": (
+                        ["sys_clock"] if allowed_tools is None else allowed_tools
+                    ),
                 },
             ),
         )

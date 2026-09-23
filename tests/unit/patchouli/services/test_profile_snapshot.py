@@ -18,6 +18,7 @@ import pytest
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     IndexLayer,
+    MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
@@ -33,11 +34,11 @@ from tests.helpers.workspace import make_identity_scope
 PROFILE_ALIAS = "agent_config"
 
 
-def _profile_atom(*, agent_id="a1", alias=PROFILE_ALIAS, artifacts=None):
+def _profile_atom(*, agent_id="a1", alias=PROFILE_ALIAS, agent_config=...):
     memory_id = uuid4()
     return (
         memory_id,
-        __import__("hivememory.core.models", fromlist=["MemoryAtom"]).MemoryAtom(
+        MemoryAtom(
             id=memory_id,
             meta=make_memory_metadata(
                 source_agent_id=agent_id,
@@ -53,8 +54,12 @@ def _profile_atom(*, agent_id="a1", alias=PROFILE_ALIAS, artifacts=None):
             ),
             payload=PayloadLayer(
                 content="persona",
-                artifacts=artifacts
-                or {"agent_config": {"model_name": "gpt-test", "temperature": 0.1}},
+                # schema 2.1: 可版本化 Profile 内容在 payload.agent_config
+                agent_config=(
+                    {"model_name": "gpt-test", "temperature": 0.1}
+                    if agent_config is ...
+                    else agent_config
+                ),
             ),
         ),
     )
@@ -136,7 +141,7 @@ def test_snapshot_failure_semantics_match_existing_contract():
     with pytest.raises(MemoryTypeMismatchError):
         _run(wrong_type.get_agent_profile_snapshot(PROFILE_ALIAS, identity_scope=scope))
 
-    broken = _profile_atom(artifacts={"agent_config": None})[1]
+    broken = _profile_atom(agent_config=None)[1]
     invalid = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(broken))
     with pytest.raises(InvalidArgumentError):
         _run(invalid.get_agent_profile_snapshot(PROFILE_ALIAS, identity_scope=scope))

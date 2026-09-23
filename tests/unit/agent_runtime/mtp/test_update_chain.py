@@ -36,8 +36,8 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
-    MemoryProvenance,
     MergeResult,
+    system_settlement_provenance,
 )
 from hivememory.engines.perception.models import TriggerReason
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
@@ -306,7 +306,7 @@ class TestModeCFallback:
 
 
 class TestApplyUpdate:
-    """验证版本追踪 (history_summary, version++, changelog)"""
+    """验证版本追踪 (before snapshot, version++, changelog)"""
 
     def test_version_incremented(self, existing_memory, merge_result):
         mock_storage = _mock_mid_term()
@@ -319,7 +319,7 @@ class TestApplyUpdate:
         result = engine._apply_update(
             existing_memory,
             merge_result,
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
         )
 
         assert len(result) == 1
@@ -334,12 +334,12 @@ class TestApplyUpdate:
         result = engine._apply_update(
             existing_memory,
             merge_result,
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
         )
 
         assert result[0].atom.payload.content == merge_result.new_content
 
-    def test_history_summary_appended(self, existing_memory, merge_result):
+    def test_outcome_records_changelog_and_before_snapshot(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(),
             extractor=MagicMock(),
@@ -348,16 +348,18 @@ class TestApplyUpdate:
         result = engine._apply_update(
             existing_memory,
             merge_result,
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
         )
 
-        summary = result[0].atom.payload.history_summary
-        assert len(summary) == 1
-        assert merge_result.changelog in summary[0]
+        # 修改前完整原子以深拷贝形式随 outcome 返回，changelog 记录在 outcome 上
+        snapshot = result[0].memory_before_snapshot
+        assert snapshot is not existing_memory
+        assert snapshot.payload.content == "API 服务运行在端口 8080，使用 HTTP 协议。"
+        assert snapshot.meta.version == 1
         assert result[0].changelog == merge_result.changelog
 
     def test_confidence_reset_to_1(self, existing_memory, merge_result):
-        existing_memory.meta.confidence_score = 0.5
+        existing_memory.meta.lifecycle.confidence_score = 0.5
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(),
             extractor=MagicMock(),
@@ -366,10 +368,10 @@ class TestApplyUpdate:
         result = engine._apply_update(
             existing_memory,
             merge_result,
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
         )
 
-        assert result[0].atom.meta.confidence_score == 1.0
+        assert result[0].atom.meta.lifecycle.confidence_score == 1.0
 
     def test_multiple_updates_accumulate_history(self, existing_memory):
         engine = MemoryGenerationEngine(
@@ -381,17 +383,19 @@ class TestApplyUpdate:
         # 第一次更新
         r1 = MergeResult(new_content="v2 content", changelog="first update")
         engine._apply_update(
-            existing_memory, r1, provenance=MemoryProvenance.system_settlement(GenerationContext())
+            existing_memory, r1, provenance=system_settlement_provenance(GenerationContext())
         )
 
         # 第二次更新
         r2 = MergeResult(new_content="v3 content", changelog="second update")
-        engine._apply_update(
-            existing_memory, r2, provenance=MemoryProvenance.system_settlement(GenerationContext())
+        r2_outcome = engine._apply_update(
+            existing_memory, r2, provenance=system_settlement_provenance(GenerationContext())
         )
 
         assert existing_memory.meta.version == 3
-        assert len(existing_memory.payload.history_summary) == 2
+        # 每次更新的 before snapshot 捕获当次修改前的完整原子（v2 更新的基准是 v1）
+        assert r2_outcome[0].memory_before_snapshot.meta.version == 2
+        assert r2_outcome[0].memory_before_snapshot.payload.content == "v2 content"
 
 
 # ========== Test 11：Active Flush 原因已移除 ==========

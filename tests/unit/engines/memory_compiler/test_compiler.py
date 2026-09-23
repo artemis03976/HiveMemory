@@ -1,6 +1,6 @@
 """MemoryCompiler 单元测试。"""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -54,7 +54,7 @@ def sample_atom():
         meta=make_memory_metadata(
             source_agent_id="test",
             user_id="u1",
-            updated_at=datetime.now() - timedelta(hours=2),
+            updated_at=datetime.now(UTC) - timedelta(hours=2),
             confidence_score=0.95,
             verification_status=VerificationStatus.VERIFIED,
         ),
@@ -74,7 +74,7 @@ def agent_profile_atom():
         meta=make_memory_metadata(
             source_agent_id="system",
             user_id="u1",
-            updated_at=datetime.now(),
+            updated_at=datetime.now(UTC),
             confidence_score=1.0,
         ),
     )

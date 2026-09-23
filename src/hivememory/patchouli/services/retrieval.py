@@ -422,12 +422,12 @@ class RetrievalFamiliar:
         """只接纳业务维度，拒绝调用方用裸字典覆盖 Workspace hard boundary。"""
         if not filters:
             return QueryFilters()
-        allowed = {"index.memory_type", "meta.confidence_score"}
+        allowed = {"index.memory_type", "meta.lifecycle.confidence_score"}
         unsupported = set(filters) - allowed
         if unsupported:
             raise ValueError(f"不支持的 Memory 过滤字段: {sorted(unsupported)}")
         memory_type = filters.get("index.memory_type")
-        confidence = filters.get("meta.confidence_score", 0.0)
+        confidence = filters.get("meta.lifecycle.confidence_score", 0.0)
         if isinstance(confidence, dict):
             confidence = confidence.get("gte", 0.0)
         return QueryFilters(

@@ -9,6 +9,8 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
+    MemoryProvenance,
     MemoryType,
     MemoryVisibility,
     MetaData,
@@ -16,6 +18,7 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 from hivememory.engines.retrieval.policy import memory_is_readable
+from hivememory.utils.time import utc_now
 
 
 def _workspace(workspace_id: str) -> WorkspaceIdentity:
@@ -27,13 +30,19 @@ def _workspace(workspace_id: str) -> WorkspaceIdentity:
 
 
 def _memory(policy: MemoryAccessPolicy) -> MemoryAtom:
+    created_at = utc_now()
     return MemoryAtom(
         id=uuid4(),
         meta=MetaData(
             workspace_identity=_workspace("main_workspace"),
-            source_agent_id="source-agent",
-            source_team_id="source-team",
+            provenance=MemoryProvenance(
+                source_agent_id="source-agent",
+                source_team_id="source-team",
+            ),
             access_policy=policy,
+            created_at=created_at,
+            updated_at=created_at,
+            lifecycle=MemoryLifecycleState(decay_anchor_at=created_at),
         ),
         index=IndexLayer(
             title="Scoped policy",
@@ -158,9 +167,9 @@ def test_changing_provenance_does_not_change_v2_visibility() -> None:
         actor_identity=ActorIdentity(user_id="u1", agent_id="other"),
     )
 
-    atom.meta.source_agent_id = "system"
-    atom.meta.source_team_id = None
-    atom.meta.contributing_agent_ids = ("target-agent",)
+    atom.meta.provenance.source_agent_id = "system"
+    atom.meta.provenance.source_team_id = None
+    atom.meta.provenance.contributing_agent_ids = ("target-agent",)
 
     readable_after = memory_is_readable(
         atom,

@@ -25,7 +25,7 @@ from hivememory.engines.generation.engine import (
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationContext,
-    MemoryProvenance,
+    provenance_from_actor,
 )
 from tests.helpers.memory import make_memory_identity_scope
 
@@ -157,7 +157,7 @@ class TestDraftToMemoryAlias:
             alias_suffix="quicksort_impl",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft, identity_scope, provenance_from_actor(identity_scope, GenerationContext())
         )
         assert memory.index.alias == "code_quicksort_impl"
 
@@ -174,7 +174,7 @@ class TestDraftToMemoryAlias:
             alias_suffix="",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft, identity_scope, provenance_from_actor(identity_scope, GenerationContext())
         )
         assert memory.index.alias == "fact_api_rate_limit"
 
@@ -191,7 +191,7 @@ class TestDraftToMemoryAlias:
             alias_suffix="persistence_check",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft, identity_scope, provenance_from_actor(identity_scope, GenerationContext())
         )
         payload = memory.to_qdrant_payload()
         assert payload["index"]["alias"] == "fact_persistence_check"
@@ -209,7 +209,7 @@ class TestDraftToMemoryAlias:
             alias_suffix="",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft, identity_scope, provenance_from_actor(identity_scope, GenerationContext())
         )
         assert memory.index.alias is None
 

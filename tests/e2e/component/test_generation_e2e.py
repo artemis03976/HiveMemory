@@ -60,7 +60,7 @@ for logger_name, level in _log_levels_to_disable.items():
 # ========== 其他导入 ==========
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -374,7 +374,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -428,7 +428,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -466,7 +466,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -526,7 +526,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -912,7 +912,7 @@ class TestSchemaValidation:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 

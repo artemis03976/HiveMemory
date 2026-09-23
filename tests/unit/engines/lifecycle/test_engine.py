@@ -73,7 +73,7 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality(mem, persist=False)
 
-        assert mem.meta.vitality_score == pytest.approx(72.0)
+        assert mem.meta.lifecycle.vitality_score == pytest.approx(72.0)
         self.mock_mid_term.upsert.assert_not_called()
 
     @pytest.mark.asyncio
@@ -83,7 +83,7 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality(mem, persist=True)
 
-        assert mem.meta.vitality_score == pytest.approx(72.0)
+        assert mem.meta.lifecycle.vitality_score == pytest.approx(72.0)
         self.mock_mid_term.upsert.assert_awaited_once_with(mem)
 
     @pytest.mark.asyncio
@@ -94,8 +94,8 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality_batch([m1, m2], persist=True)
 
-        assert m1.meta.vitality_score == pytest.approx(30.0)
-        assert m2.meta.vitality_score == pytest.approx(80.0)
+        assert m1.meta.lifecycle.vitality_score == pytest.approx(30.0)
+        assert m2.meta.lifecycle.vitality_score == pytest.approx(80.0)
         upserted = [call.args[0] for call in self.mock_mid_term.upsert.await_args_list]
         assert upserted == [m1, m2]
 
@@ -184,8 +184,8 @@ class TestLifecycleEngineDelegation:
 
         self.mock_mid_term.list_all_for_maintenance.assert_awaited_once_with(limit=10000)
         assert self.mock_mid_term.upsert.await_count == 2
-        assert m1.meta.vitality_score == pytest.approx(12.0)
-        assert m2.meta.vitality_score == pytest.approx(88.0)
+        assert m1.meta.lifecycle.vitality_score == pytest.approx(12.0)
+        assert m2.meta.lifecycle.vitality_score == pytest.approx(88.0)
         self.mock_gc.collect.assert_awaited_once_with([m1, m2], force=True)
 
 

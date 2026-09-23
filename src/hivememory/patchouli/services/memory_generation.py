@@ -20,7 +20,7 @@ from hivememory.core.models.artifact import (
     ArtifactRef,
     MemoryEventLog,
     MemoryEventType,
-    MemoryVersionSnapshot,
+    snapshot_memory_atom,
 )
 from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
@@ -126,7 +126,8 @@ class MemoryGenerationFamiliar:
         if atom is None:
             return None
 
-        before_snapshot = MemoryVersionSnapshot.from_memory_atom(atom)
+        # 修改前完整原子 canonical JSON；版本记录 snapshot_before 直接嵌入。
+        before_snapshot = snapshot_memory_atom(atom)
         changed_fields = self._apply_external_update(
             atom,
             title=title,
@@ -180,7 +181,7 @@ class MemoryGenerationFamiliar:
             atom.index.tags = tags
             changed_fields.append("tags")
         if agent_config is not None:
-            atom.payload.artifacts.agent_config = agent_config
+            atom.payload.agent_config = agent_config
             changed_fields.append("agent_config")
         return changed_fields
 
@@ -428,7 +429,7 @@ class MemoryGenerationFamiliar:
         *,
         atom: MemoryAtom,
         decision: DuplicateDecision,
-        memory_before_snapshot: MemoryVersionSnapshot | None,
+        memory_before_snapshot: MemoryAtom | dict | None,
         changelog: str | None,
         gen_context: GenerationContext,
         interaction_ref: ArtifactRef | None,
@@ -503,15 +504,20 @@ class MemoryGenerationFamiliar:
         self,
         *,
         atom: MemoryAtom,
-        memory_before_snapshot: MemoryVersionSnapshot | None,
+        memory_before_snapshot: MemoryAtom | dict | None,
         changelog: str | None,
         source_artifact_refs: list[ArtifactRef],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
     ) -> ArtifactRef | None:
+        snapshot_before: dict | None = None
+        if isinstance(memory_before_snapshot, MemoryAtom):
+            snapshot_before = snapshot_memory_atom(memory_before_snapshot)
+        elif isinstance(memory_before_snapshot, dict):
+            snapshot_before = memory_before_snapshot
         try:
             version_ref = await self._artifact_engine.memory.build_for_update(
                 memory_after=atom,
-                snapshot_before=memory_before_snapshot,
+                snapshot_before=snapshot_before,
                 update_source=update_source,
                 changelog=changelog,
                 source_artifact_refs=source_artifact_refs,

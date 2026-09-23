@@ -293,7 +293,10 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
         if isinstance(created_at, str):
             created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
         if not isinstance(created_at, datetime):
-            created_at = datetime.now()
+            raise ValueError(f"artifact 缺少可解析的 created_at: {data.get('artifact_id')}")
+        if created_at.tzinfo is None:
+            # 旧记录的 naive 时间按写入时服务器本地时区解释（只读兼容，不回写）。
+            created_at = created_at.astimezone()
         return ArtifactRef(
             artifact_id=data["artifact_id"],
             artifact_type=artifact_type,

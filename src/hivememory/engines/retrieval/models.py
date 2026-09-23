@@ -17,8 +17,9 @@ class QueryFilters(BaseModel):
     """不含授权语义的结构化业务过滤条件。"""
 
     memory_type: MemoryType | None = None
-    # 匹配 meta.contributing_agent_ids 贡献者集合（可检出"参与过但未收尾"
-    # 的 Agent），并保留 meta.source_agent_id 分支兼容无贡献者集合的历史记录。
+    # 匹配 meta.provenance.contributing_agent_ids 贡献者集合（可检出"参与
+    # 过但未收尾"的 Agent），并保留 meta.provenance.source_agent_id 分支兼容
+    # 无贡献者集合的记录。
     source_agent_id: str | None = None
     time_range: tuple[datetime, datetime] | None = None
     tags: list[str] = Field(default_factory=list)

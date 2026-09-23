@@ -83,7 +83,7 @@ class TestPeriodicGarbageCollector:
     def test_scan_candidates_skips_missing_vitality(self):
         missing = Mock()
         missing.id = uuid4()
-        missing.meta.vitality_score = None
+        missing.meta.lifecycle.vitality_score = None
 
         candidates = self.gc.scan_candidates([missing])
 

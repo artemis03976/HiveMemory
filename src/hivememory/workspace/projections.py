@@ -1,7 +1,7 @@
 """Workspace 基础设施 DTO。
 
 本模块只保留 Workspace 基础设施自有的 DTO（canonical 失效描述等）。
-跨边界的业务/结果 DTO 由对应领域契约承载；``MemorySnapshot``/
+跨边界的业务/结果 DTO 由对应领域契约承载；``完整 MemoryAtom``/
 ``ProfileSnapshot`` 是 Patchouli application 产出、未来 Workspace cache
 消费的共享投影，按"DTO 放在依赖中立共享契约"的规则定义在
 ``hivememory.core.models.projections``（父计划 4.1/5.7.1 节）。

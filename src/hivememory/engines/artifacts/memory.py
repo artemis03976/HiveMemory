@@ -1,6 +1,10 @@
-"""MemoryArtifactBuilder - 处理 MemoryAtom 创建与更新时的 artifact 写入。"""
+"""MemoryArtifactBuilder - 处理 MemoryAtom 创建与更新时的 artifact 写入。
 
-from datetime import datetime
+schema "2" 起，版本记录的 snapshot_before/after 直接嵌入捕获时点完整
+MemoryAtom 的 canonical JSON（见 :func:`snapshot_memory_atom`）；捕获时点
+与内容提交时点的统一由 Familiar 完整写入路径负责（MVL-2/MVL-3 收敛）。
+"""
+
 from typing import Literal
 
 from pydantic import BaseModel
@@ -11,12 +15,13 @@ from hivememory.core.models.artifact import (
     MemoryCreationArtifact,
     MemoryInputRef,
     MemoryVersionArtifact,
-    MemoryVersionSnapshot,
+    snapshot_memory_atom,
 )
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.patchouli.memory_library import ArtifactStore
 from hivememory.system.config.patchouli import ArtifactComponentConfig
+from hivememory.utils.time import utc_now
 
 
 class MemoryCreationBundle(BaseModel):
@@ -47,17 +52,16 @@ class MemoryArtifactBuilder:
         memory_id = str(memory.id)
         _require_source_refs_in_workspace(memory, source_artifact_refs)
 
-        # 1. v1 快照 — 初始可变字段全量状态
+        # 1. v1 版本记录 — 捕获时点完整原子；v1 无 snapshot_before
         v1 = MemoryVersionArtifact(
             memory_id=memory_id,
             workspace_identity=memory.workspace_identity,
-            source_agent_id=memory.meta.source_agent_id,
-            contributing_agent_ids=memory.meta.contributing_agent_ids,
+            provenance=memory.meta.provenance,
             version_number=1,
             update_source="CREATE",
             snapshot_before=None,
-            snapshot_after=MemoryVersionSnapshot.from_memory_atom(memory),
-            changed_at=datetime.now(),
+            snapshot_after=snapshot_memory_atom(memory),
+            changed_at=utc_now(),
             source_artifacts=source_artifact_refs,
             source_memory_refs=source_memory_refs or [],
         )
@@ -67,8 +71,7 @@ class MemoryArtifactBuilder:
         creation = MemoryCreationArtifact(
             memory_id=memory_id,
             workspace_identity=memory.workspace_identity,
-            source_agent_id=memory.meta.source_agent_id,
-            contributing_agent_ids=memory.meta.contributing_agent_ids,
+            provenance=memory.meta.provenance,
             source_intent=source_intent,
             generation_view=context.model_dump(),
             source_artifacts=source_artifact_refs,
@@ -83,25 +86,27 @@ class MemoryArtifactBuilder:
         self,
         *,
         memory_after: MemoryAtom,
-        snapshot_before: MemoryVersionSnapshot | None = None,
+        snapshot_before: dict | None = None,
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
         changelog: str | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,
         source_memory_refs: list[MemoryInputRef] | None = None,
     ) -> ArtifactRef | None:
-        """写入 MemoryVersionArtifact(v2+)，返回 version ref。"""
+        """写入 MemoryVersionArtifact(v2+)，返回 version ref。
+
+        ``snapshot_before`` 是提交边界捕获的修改前完整原子 canonical JSON。
+        """
         _require_source_refs_in_workspace(memory_after, source_artifact_refs or [])
         version = MemoryVersionArtifact(
             memory_id=str(memory_after.id),
             workspace_identity=memory_after.workspace_identity,
-            source_agent_id=memory_after.meta.source_agent_id,
-            contributing_agent_ids=memory_after.meta.contributing_agent_ids,
+            provenance=memory_after.meta.provenance,
             version_number=memory_after.meta.version,
             update_source=update_source,
             snapshot_before=snapshot_before,
-            snapshot_after=MemoryVersionSnapshot.from_memory_atom(memory_after),
+            snapshot_after=snapshot_memory_atom(memory_after),
             changelog=changelog,
-            changed_at=datetime.now(),
+            changed_at=utc_now(),
             source_artifacts=source_artifact_refs or [],
             source_memory_refs=source_memory_refs or [],
         )
@@ -124,7 +129,7 @@ class NoOpMemoryArtifactBuilder:
         self,
         *,
         memory_after: MemoryAtom,
-        snapshot_before: MemoryVersionSnapshot | None = None,
+        snapshot_before: dict | None = None,
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
         changelog: str | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,

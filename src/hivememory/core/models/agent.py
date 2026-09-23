@@ -17,7 +17,7 @@ class AgentProfile(BaseModel):
     人偶图纸配置 - Agent 运行时的完整配置信息
 
     灵魂 (Persona): 由 persona 字段承载，来自 MemoryAtom.payload.content
-    骨架 (Skeleton): 模型参数 + 权限控制表，来自 MemoryAtom.payload.artifacts.agent_config
+    骨架 (Skeleton): 模型参数 + 权限控制表，来自 MemoryAtom.payload.agent_config
 
     权限语义：
     - None = 全部允许（供显式 Profile 使用的三态语义）
@@ -54,12 +54,12 @@ class AgentProfile(BaseModel):
     @classmethod
     def from_atom(cls, atom: "MemoryAtom") -> Optional["AgentProfile"]:
         """从 MemoryAtom 解析 AgentProfile（包含 persona 和 config）。"""
-        raw = atom.payload.artifacts.agent_config
+        raw = atom.payload.agent_config
         if raw is None:
             return None
 
         try:
-            # 从 artifacts.agent_config 解析配置，从 payload.content 获取 persona
+            # 从 payload.agent_config 解析配置，从 payload.content 获取 persona
             config = cls(persona=atom.payload.content, **raw)
             return config
         except Exception:

@@ -8,7 +8,7 @@ HiveMemory - 生命力分数计算器
 - D(t)  = exp(-λ_eff · days_since_update)        # 时间衰减 (艾宾浩斯遗忘曲线)
          λ_eff = λ · (2 - I),  I 为记忆类型固有价值
 - A     = access_boost_coef · log(1 + access_count)  # 访问加成 (对数曲线，自然饱和)
-- B     = memory.meta.event_vitality_boost       # 事件累积加成 (HIT/CITATION/FEEDBACK 累积)
+- B     = memory.meta.lifecycle.event_vitality_boost  # 事件累积加成 (HIT/CITATION/FEEDBACK 累积)
 
 设计原则:
     - 记忆最初总是高值 (V_0): 新记忆 vitality = V_0 + 0 + 0 = base_vitality
@@ -25,6 +25,7 @@ from datetime import datetime
 
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.system.config import VitalityCalculatorConfig
+from hivememory.utils.time import utc_now
 
 
 class VitalityCalculator:
@@ -38,7 +39,7 @@ class VitalityCalculator:
         2. 取固有价值 I (按记忆类型)，计算 λ_eff = λ · (2 - I)
         3. 计算 D(t) = exp(-λ_eff · days_since_update)
         4. 计算访问加成 A = access_boost_coef · log(1 + access_count)
-        5. 取事件累积加成 B = memory.meta.event_vitality_boost
+        5. 取事件累积加成 B = memory.meta.lifecycle.event_vitality_boost
         6. V = V_0 · D(t) + A + B，并 clamp 到 [0, 100]
 
     Examples:
@@ -88,10 +89,10 @@ class VitalityCalculator:
         decay_factor = self._calculate_decay(days_since_update, intrinsic_value)
 
         # 组件 A: 访问加成 (对数曲线，自然饱和)
-        access_boost = self._calculate_access_boost(memory.meta.access_count)
+        access_boost = self._calculate_access_boost(memory.meta.lifecycle.access_count)
 
         # 组件 B: 事件累积加成 (单独存储，由强化引擎维护)
-        event_boost = memory.meta.event_vitality_boost
+        event_boost = memory.meta.lifecycle.event_vitality_boost
 
         # 最终公式: V = V_0 · D(t) + A + B
         vitality = (v0 * decay_factor) + access_boost + event_boost
@@ -109,7 +110,7 @@ class VitalityCalculator:
         Returns:
             float: 距今天数 (可以是小数，非负)
         """
-        delta = datetime.now() - date
+        delta = utc_now() - date
         return max(0.0, delta.total_seconds() / 86400.0)
 
     def _calculate_decay(self, days: float, intrinsic_value: float) -> float:

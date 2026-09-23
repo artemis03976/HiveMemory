@@ -660,10 +660,10 @@ def _memory_ref_from_atom(memory: MemoryAtom) -> dict[str, Any]:
         "content": memory.payload.content,
         "created_at": memory.meta.created_at,
         "updated_at": memory.meta.updated_at,
-        "confidence_score": memory.meta.confidence_score,
-        "vitality_score": memory.meta.vitality_score,
+        "confidence_score": memory.meta.lifecycle.confidence_score,
+        "vitality_score": memory.meta.lifecycle.vitality_score,
         "user_id": memory.workspace_identity.owner_user_id,
-        "access_count": memory.meta.access_count,
+        "access_count": memory.meta.lifecycle.access_count,
     }
 
 

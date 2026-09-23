@@ -5,8 +5,10 @@
 
 迁移目标（Plan §2.1）：
 
-1. 把 Qdrant 中全部 V1 Memory payload 迁移为 canonical schema v2（补齐
-   ``workspace_identity`` / ``access_policy``，移除平铺 ``meta.user_id`` 权威语义）；
+1. 把 Qdrant 中全部 V1 Memory payload 迁移为 canonical schema "2.1" 聚合
+   （补齐 ``workspace_identity`` / ``access_policy``，移除平铺 ``meta.user_id``
+   权威语义；最终形状复用 ``memory_codec`` 旧 schema 只读兼容解码生成，
+   平铺 provenance/动态字段聚合为 ``meta.provenance`` / ``meta.lifecycle``）；
 2. 把 ArtifactStore 中 legacy Artifact 转换为当前模型形状的 canonical replacement
    （append-only：写入新记录并保留旧记录，不改写、不删除旧文件）；
 3. fail closed：无法安全推断归属、策略或 provenance 的记录不写入，进入诊断清单；
@@ -17,8 +19,14 @@
 - **迁移命名空间**：canonical replacement 使用确定性新 ID
   ``art_mig2_<sha256(owner|workspace_id|old_artifact_id)[:32]>``；同一条旧记录
   永远映射到同一个新 ID，是 checkpoint/resume 幂等性的基础；
-- **canonical Artifact schema_version**：使用当前 Artifact 模型默认值 ``"1"``，
-  与 Memory ``schema_version=2`` 是相互独立的版本轴，不得混用；
+- **canonical Artifact schema_version**：使用当前 Artifact 模型默认值——
+  interaction/document 为 ``"1"``（``ARTIFACT_SCHEMA_VERSION``），memory
+  creation/version 为 ``"2"``（``_MEMORY_ARTIFACT_SCHEMA_VERSION``，模型层
+  Literal 约束）；这是 Artifact 自身的版本轴，与 Memory
+  ``schema_version="2.1"`` 相互独立，不得混用；
+- **版本快照形状**：memory_version replacement 的 ``snapshot_after`` /
+  ``snapshot_before`` 按当前模型要求升级为结构完整的 "2.1" MemoryAtom JSON；
+  legacy 裁剪型快照只有 content/tags 内容事实，按证据映射，不虚构 meta 归属；
 - **旧记录审计标记**：旧 Artifact 文件保持原样（append-only），superseded 状态
   只记录在迁移报告与 checkpoint 的映射中，不回写旧记录；
 - **缺失 visibility 的默认策略**：作为显式脚本选项（``public`` / ``fail``），
@@ -65,7 +73,6 @@ from hivememory.core.models import (
     MemoryAccessPolicy,
     MemoryAtom,
     MemoryVisibility,
-    MetaData,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
@@ -97,10 +104,16 @@ REPLACEMENT_ID_PREFIX = "art_mig2_"
 """迁移命名空间前缀；与确定性摘要一起构成 canonical replacement 的 artifact_id。"""
 
 ARTIFACT_SCHEMA_VERSION = "1"
-"""canonical replacement 使用的 Artifact schema_version（当前模型默认值）。
+"""interaction / document canonical replacement 使用的 Artifact schema_version
+（``BaseArtifact`` 模型默认值）。
 
-注意：这是 Artifact 自身的版本轴，与 Memory ``schema_version=2`` 无关。
+注意：这是 Artifact 自身的版本轴，与 Memory ``schema_version="2.1"`` 无关；
+memory 类 Artifact 使用当前模型的 ``"2"`` 默认值（见下）。
 """
+
+_MEMORY_ARTIFACT_SCHEMA_VERSION = "2"
+"""memory_creation / memory_version canonical replacement 的 Artifact
+schema_version（当前模型的 Literal 约束默认值，同一独立版本轴）。"""
 
 CHECKPOINT_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
@@ -634,6 +647,27 @@ def _aggregate_interaction_contributors(
     return contributors
 
 
+def _upgraded_memory_version_snapshot(snapshot: Any, *, memory_id: str) -> Any:
+    """把 legacy 裁剪型版本快照升级为结构完整的 "2.1" MemoryAtom JSON。
+
+    Artifact schema "2" 起，版本快照必须嵌入捕获时完整 MemoryAtom 的
+    canonical JSON（模型只做结构校验）；legacy 裁剪快照仅承载内容事实——
+    ``content`` 进入 ``payload.content``、``tags`` 进入 ``index.tags``，其余
+    结构位以空对象占位，不虚构 meta 归属证据。非 dict 的快照原样返回，
+    交给模型校验 fail closed。
+    """
+    if not isinstance(snapshot, dict):
+        return snapshot
+    return {
+        "schema_version": "2.1",
+        "id": memory_id,
+        "meta": {},
+        "index": {"tags": list(snapshot.get("tags") or ())},
+        "payload": {"content": str(snapshot.get("content") or "")},
+        "relations": {},
+    }
+
+
 @dataclass
 class _ReplacementPlan:
     """一条 legacy Artifact 的转换与发布计划。"""
@@ -903,9 +937,12 @@ class ArtifactLegacyMigrator:
             # owner_agent_id 等旧键由 extra="ignore" 丢弃。
             return DocumentArtifact.model_validate({**record.raw, **override})
 
-        # memory_creation / memory_version：确定 source，聚合贡献者，重写引用链。
+        # memory_creation / memory_version：schema 升级为当前模型默认 "2"，
+        # 平铺 source/contributors 聚合为结构化 provenance，重写引用链。
+        override["schema_version"] = _MEMORY_ARTIFACT_SCHEMA_VERSION
+        provenance: dict[str, Any] = {"source_team_id": None, "contributing_agent_ids": ()}
         try:
-            override["source_agent_id"] = _resolve_memory_artifact_source(
+            provenance["source_agent_id"] = _resolve_memory_artifact_source(
                 record.raw, kind=artifact_type
             )
         except MigrationRejectedError:
@@ -913,7 +950,7 @@ class ArtifactLegacyMigrator:
                 raise
             # 用户批准的修复规则：来源缺证时按默认人偶归属（仅 provenance，
             # 不参与授权）；显式 SYSTEM 语义仍优先于默认值。
-            override["source_agent_id"] = DEFAULT_AGENT_ID
+            provenance["source_agent_id"] = DEFAULT_AGENT_ID
             self._report.inc("artifact_source_defaulted_omni_doll")
             self._report.add_repair(
                 resource_type="artifact",
@@ -923,12 +960,10 @@ class ArtifactLegacyMigrator:
                 f"按默认归属填入 {DEFAULT_AGENT_ID}",
             )
         if artifact_type == "memory_creation":
-            override.setdefault(
-                "contributing_agent_ids",
-                _aggregate_interaction_contributors(record.raw, self._records, workspace),
+            provenance["contributing_agent_ids"] = _aggregate_interaction_contributors(
+                record.raw, self._records, workspace
             )
-        else:
-            override.setdefault("contributing_agent_ids", ())
+        override["provenance"] = provenance
 
         dangling, blocked = self._rewrite_raw_refs(
             record.raw,
@@ -950,6 +985,15 @@ class ArtifactLegacyMigrator:
 
         if artifact_type == "memory_creation":
             return MemoryCreationArtifact.model_validate({**record.raw, **override})
+        # memory_version：legacy 裁剪型快照升级为结构完整的 "2.1" 原子 JSON。
+        memory_id = str(record.raw.get("memory_id") or "")
+        override["snapshot_after"] = _upgraded_memory_version_snapshot(
+            record.raw.get("snapshot_after"), memory_id=memory_id
+        )
+        if record.raw.get("snapshot_before") is not None:
+            override["snapshot_before"] = _upgraded_memory_version_snapshot(
+                record.raw.get("snapshot_before"), memory_id=memory_id
+            )
         return MemoryVersionArtifact.model_validate({**record.raw, **override})
 
     def _rewrite_raw_refs(
@@ -1184,10 +1228,20 @@ def convert_v1_memory_payload(
     missing_visibility_policy: Literal["public", "fail"],
     repair_missing_ref_workspace: bool = False,
 ) -> V1ConversionResult:
-    """把 V1 Memory payload 转换为 canonical v2 MemoryAtom（Plan §4.1 字段映射）。
+    """把 V1 Memory payload 转换为 canonical schema "2.1" MemoryAtom。
 
-    与 ``memory_codec._decode_v1`` 的兼容语义一致，但把"缺失 visibility 默认
-    PUBLIC"提升为显式策略选项，并把每个 fail-closed 分支的原因透出给报告。
+    工具只负责 V1 → 旧 schema 2 raw 的自有 fail-closed 装配（归属、来源、
+    可见性策略与 ref workspace 回填，原因逐条透出给报告）；最终形状复用
+    ``memory_codec.decode_memory_payload`` 的旧 schema 只读兼容解码生成，
+    平铺 provenance/动态字段聚合为 ``meta.provenance`` / ``meta.lifecycle``、
+    ``payload.artifacts.agent_config`` 归位、``session_id`` /
+    ``history_summary`` 丢弃，保证迁移产物与运行时解码唯一一致。
+
+    缺失 visibility 默认 PUBLIC 仍是显式策略选项（不静默放宽）。V1 meta
+    没有 ``updated_at``：从未修订的记录以 ``created_at`` 作为唯一内容时间
+    证据（``updated_at == created_at``），并成为 ``decay_anchor_at`` 的初始
+    化基准；``created_at`` 也缺失时按 codec 规则 fail closed（拒绝用当前
+    时间补值）。
 
     ``repair_missing_ref_workspace`` 仅在 repair 模式启用：payload refs 缺失
     ``workspace_identity`` 时用本记录解析出的 Workspace 回填（"引用始终与
@@ -1278,19 +1332,27 @@ def _convert_v1_inner(
     if repair_missing_ref_workspace:
         payload_value, backfilled_refs = _backfill_ref_workspaces(payload_value, workspace)
 
+    # 6. V1 meta 没有 updated_at：从未修订的记录以 created_at 作为唯一内容
+    #    时间证据，时区解释与 decay_anchor_at 初始化统一交给 codec。
+    if domain_meta.get("updated_at") is None:
+        domain_meta["updated_at"] = domain_meta.get("created_at")
+
+    # 7. 把装配好的 raw（schema_version=2）交给运行时 codec 只读兼容解码，
+    #    得到 schema "2.1" 领域原子；平铺字段聚合、agent_config 归位与
+    #    session_id/history_summary 丢弃均由 codec 统一实现。
+    legacy_v2 = {
+        "schema_version": 2,
+        "id": raw["id"],
+        "meta": domain_meta,
+        "index": raw["index"],
+        "payload": payload_value,
+        "relations": raw.get("relations", {}),
+    }
     try:
-        atom = MemoryAtom(
-            id=raw["id"],
-            meta=MetaData.model_validate(domain_meta),
-            index=raw["index"],
-            payload=payload_value,
-            relations=raw.get("relations", {}),
-        )
-    except MigrationRejectedError:
-        raise
-    except Exception as exc:
+        atom = decode_memory_payload(legacy_v2)
+    except MemoryDecodeError as exc:
         raise MigrationRejectedError(
-            f"canonical v2 模型校验失败（含 PRIVATE/TEAM target 合法性）：{exc}"
+            f"canonical 2.1 模型校验失败（含 PRIVATE/TEAM target 合法性）：{exc}"
         ) from exc
     return V1ConversionResult(
         atom=atom,
@@ -1452,7 +1514,7 @@ class QdrantMemoryMigrationAccess:
 
 
 class MemoryPhaseMigrator:
-    """Memory 阶段：V1 → V2 转换、V2 ref 重写与 canonical 发布。"""
+    """Memory 阶段：V1 → "2.1" 转换、canonical（2 / "2.1"）ref 重写与发布。"""
 
     def __init__(
         self,
@@ -1485,7 +1547,9 @@ class MemoryPhaseMigrator:
         if schema_version is None:
             await self._migrate_v1(point_id, payload)
             return
-        if schema_version == 2:
+        if schema_version in (2, "2.1"):
+            # 整数 2 是旧平铺 canonical，"2.1" 是本工具迁移后的新产物；
+            # 两者都只需在引用链仍指向 legacy Artifact 时重写并重发布。
             await self._rewrite_v2_refs(point_id, payload)
             return
         self._report.add_diagnostic(
@@ -1576,7 +1640,8 @@ class MemoryPhaseMigrator:
         )
 
     async def _rewrite_v2_refs(self, point_id: str, payload: dict[str, Any]) -> None:
-        """V2 记录仅在其引用链仍指向 legacy Artifact 时重写并重新发布。"""
+        """canonical（旧平铺 2 / 新 "2.1"）记录仅在引用链仍指向 legacy
+        Artifact 时重写并重新发布；重发布会把旧平铺记录升级为 "2.1" 形状。"""
         try:
             atom = decode_memory_payload(payload)
         except MemoryDecodeError as exc:

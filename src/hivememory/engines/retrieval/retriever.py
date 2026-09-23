@@ -114,7 +114,7 @@ class DenseRetriever(BaseMemoryRetriever):
 
             # 置信度加权
             if self.config.enable_confidence_boost:
-                confidence_boost = memory.meta.confidence_score * 0.05
+                confidence_boost = memory.meta.lifecycle.confidence_score * 0.05
                 final_score += confidence_boost
 
             search_results.append(
@@ -147,11 +147,8 @@ class DenseRetriever(BaseMemoryRetriever):
         Returns:
             衰减系数 (0-1)，越新越接近 1
         """
-        # 对齐时区感知状态，避免 naive/aware datetime 相减报错
-        if updated_at.tzinfo is not None:
-            now = datetime.now(updated_at.tzinfo)
-        else:
-            now = datetime.now()
+        # updated_at 在模型层已强制 aware；取当前 UTC 对齐相减
+        now = datetime.now(updated_at.tzinfo)
         delta = now - updated_at
         days_elapsed = delta.total_seconds() / (24 * 3600)
 

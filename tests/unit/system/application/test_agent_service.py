@@ -178,7 +178,7 @@ class TestAgentApplicationService:
         assert payload.index.summary == "Worker agent profile"
         assert payload.index.alias == "worker"
         assert payload.payload.content == "persona"
-        assert payload.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
+        assert payload.payload.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
 
     @pytest.mark.asyncio
     async def test_list_agent_profiles_uses_public_route(self, service, mock_global_bus):

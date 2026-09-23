@@ -4,7 +4,7 @@
 测试 BGE-Reranker-v2-m3 重排序器的功能。
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -39,8 +39,8 @@ def mock_memory():
     meta = make_memory_metadata(
         source_agent_id="test_agent",
         user_id="test_user",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     payload = PayloadLayer(content="Test content for memory")
     return MemoryAtom(id=uuid4(), index=index, meta=meta, payload=payload)

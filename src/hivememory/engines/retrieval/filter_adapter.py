@@ -93,7 +93,9 @@ class QdrantFilterConverter(FilterConverter):
 
         if filters.min_confidence > 0:
             must_conditions.append(
-                FieldCondition(key="meta.confidence_score", range={"gte": filters.min_confidence})
+                FieldCondition(
+                    key="meta.lifecycle.confidence_score", range={"gte": filters.min_confidence}
+                )
             )
 
         # 组装最终 Filter
@@ -103,19 +105,19 @@ class QdrantFilterConverter(FilterConverter):
     def _source_agent_filter(agent_id: str) -> Filter:
         """按贡献者集合匹配来源 Agent 过滤条件（OR 语义）。
 
-        v2 记录的操作来源可能是保留 ``system``（settle），实际参与内容的
-        Agent 记录在 ``meta.contributing_agent_ids``，据此可检出"参与过但未
-        收尾"的 Agent；``meta.source_agent_id`` 分支覆盖没有贡献者集合的
-        记录。该过滤是业务条件，与授权无关。
+        记录的操作来源可能是保留 ``system``（settle），实际参与内容的
+        Agent 记录在 ``meta.provenance.contributing_agent_ids``，据此可检出
+        "参与过但未收尾"的 Agent；``meta.provenance.source_agent_id`` 分支
+        覆盖没有贡献者集合的记录。该过滤是业务条件，与授权无关。
         """
         return Filter(
             should=[
                 FieldCondition(
-                    key="meta.contributing_agent_ids",
+                    key="meta.provenance.contributing_agent_ids",
                     match=MatchValue(value=agent_id),
                 ),
                 FieldCondition(
-                    key="meta.source_agent_id",
+                    key="meta.provenance.source_agent_id",
                     match=MatchValue(value=agent_id),
                 ),
             ]

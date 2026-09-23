@@ -10,10 +10,8 @@ from qdrant_client.models import Distance, PointStruct, VectorParams
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
-    MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
-    MetaData,
     PayloadLayer,
     build_internal_identity_scope,
 )
@@ -21,6 +19,7 @@ from hivememory.core.mtp.exceptions import StorageReadError
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
+from tests.helpers.memory import make_memory_metadata
 
 
 class _DeterministicEmbedding:
@@ -65,11 +64,11 @@ def _identity_scope(
 def _memory(identity_scope, *, memory_id: UUID, content: str, alias: str) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id,
-        meta=MetaData(
-            workspace_identity=identity_scope.workspace_identity,
+        meta=make_memory_metadata(
+            user_id=identity_scope.actor_identity.user_id,
             source_agent_id=identity_scope.actor_identity.agent_id,
-            source_team_id=identity_scope.actor_identity.team_id,
-            access_policy=MemoryAccessPolicy.public(),
+            team_id=identity_scope.actor_identity.team_id,
+            workspace_id=identity_scope.workspace_identity.workspace_id,
         ),
         index=IndexLayer(
             title="Collision memory",

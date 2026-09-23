@@ -9,7 +9,6 @@ HiveMemory - 强化引擎单元测试
 - 事件历史跟踪
 """
 
-from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
@@ -19,6 +18,7 @@ from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLa
 from hivememory.engines.lifecycle.models import EventType, MemoryEvent
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 from hivememory.system.config import ReinforcementEngineConfig
+from hivememory.utils.time import utc_now
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -66,7 +66,10 @@ class TestDynamicReinforcementEngine:
 
     @pytest.mark.asyncio
     async def test_hit_event(self):
-        """测试 HIT 事件累加进 event_vitality_boost (B 项)"""
+        """测试 HIT 事件累加进 event_vitality_boost (B 项)，不推进衰减基准"""
+        original_decay_anchor_at = self.test_memory.meta.lifecycle.decay_anchor_at
+        original_updated_at = self.test_memory.meta.updated_at
+
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 50.0  # 重算结果 (含 B 项)
 
@@ -76,18 +79,18 @@ class TestDynamicReinforcementEngine:
 
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
-        # 事件加成累加进 B 项 (event_vitality_boost)
+        # 事件加成累加进 B 项 (meta.lifecycle.event_vitality_boost)
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
-        assert updated_memory.meta.event_vitality_boost == self.config.hit_boost
+        assert updated_memory.meta.lifecycle.event_vitality_boost == self.config.hit_boost
+        # HIT 不推进 decay_anchor_at，也不改写内容时间 updated_at
+        assert updated_memory.meta.lifecycle.decay_anchor_at == original_decay_anchor_at
+        assert updated_memory.meta.updated_at == original_updated_at
 
     @pytest.mark.asyncio
     async def test_citation_resets_decay(self):
-        """测试 CITATION 事件重置衰减"""
-        # 将 updated_at 设置为过去时间，确保更新后的时间肯定更大
-        from datetime import timedelta
-
-        self.test_memory.meta.updated_at -= timedelta(seconds=1)
+        """测试 CITATION 事件推进衰减基准，且不改写内容时间 updated_at"""
         original_updated_at = self.test_memory.meta.updated_at
+        original_decay_anchor_at = self.test_memory.meta.lifecycle.decay_anchor_at
 
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 70.0  # 提升效果
@@ -100,9 +103,10 @@ class TestDynamicReinforcementEngine:
 
         assert result.event_type == EventType.CITATION
 
-        # CITATION 应该更新记忆的 updated_at
+        # A2-P 契约: CITATION 推进 meta.lifecycle.decay_anchor_at，不再更新 updated_at
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
-        assert updated_memory.meta.updated_at > original_updated_at
+        assert updated_memory.meta.lifecycle.decay_anchor_at > original_decay_anchor_at
+        assert updated_memory.meta.updated_at == original_updated_at
 
     @pytest.mark.asyncio
     async def test_negative_feedback_reduces_confidence(self):
@@ -153,9 +157,11 @@ class TestDynamicReinforcementEngine:
         # 新契约: 最终分数即 calculator 重算结果，不再 +adjustment
         assert result.new_vitality == 80.0
         assert result.new_confidence == pytest.approx(0.4)
-        # 事件惩罚累加进 B 项 (event_vitality_boost)
+        # 事件惩罚累加进 B 项 (meta.lifecycle.event_vitality_boost)
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
-        assert updated_memory.meta.event_vitality_boost == self.config.negative_feedback_penalty
+        assert updated_memory.meta.lifecycle.event_vitality_boost == (
+            self.config.negative_feedback_penalty
+        )
 
     @pytest.mark.asyncio
     async def test_reinforcement_clamps_vitality_to_valid_range(self):
@@ -187,7 +193,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_access_count_increments(self):
         """测试访问计数增加"""
-        original_count = self.test_memory.meta.access_count
+        original_count = self.test_memory.meta.lifecycle.access_count
 
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
@@ -198,11 +204,13 @@ class TestDynamicReinforcementEngine:
 
         # 获取更新的记忆
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
-        assert updated_memory.meta.access_count == original_count + 1
+        assert updated_memory.meta.lifecycle.access_count == original_count + 1
 
     @pytest.mark.asyncio
     async def test_last_accessed_at_updated(self):
         """测试最后访问时间更新"""
+        before = utc_now()
+
         self.mock_mid_term.get_for_mutation.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
@@ -212,7 +220,7 @@ class TestDynamicReinforcementEngine:
 
         # 获取更新的记忆
         updated_memory = self.mock_mid_term.upsert.call_args[0][0]
-        assert isinstance(updated_memory.meta.last_accessed_at, datetime)
+        assert updated_memory.meta.lifecycle.last_accessed_at >= before
 
     @pytest.mark.asyncio
     async def test_event_history_tracked(self):

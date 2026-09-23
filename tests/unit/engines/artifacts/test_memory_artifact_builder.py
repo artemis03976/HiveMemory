@@ -1,6 +1,6 @@
-"""Memory Artifact Builder 的 Workspace 归属与 provenance 行为测试。"""
+"""Memory Artifact Builder 的 Workspace 归属、provenance 与完整快照行为测试。"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -16,7 +16,7 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import (
     ArtifactType,
     InteractionArtifact,
-    MemoryVersionSnapshot,
+    snapshot_memory_atom,
 )
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
 from hivememory.engines.generation.models import GenerationContext
@@ -88,19 +88,25 @@ async def test_build_for_create_persists_scoped_artifacts_and_links_initial_vers
     creation = await store.get(identity_scope, bundle.creation_ref)
     assert version["artifact_type"] == ArtifactType.MEMORY_VERSION.value
     assert creation["artifact_type"] == ArtifactType.MEMORY_CREATION.value
+    assert version["schema_version"] == "2"
+    assert creation["schema_version"] == "2"
     assert version["workspace_identity"] == identity_scope.workspace_identity.model_dump()
     assert creation["initial_version_ref"]["artifact_id"] == bundle.initial_version_ref.artifact_id
-    assert version["source_agent_id"] == "source-agent"
-    assert creation["source_agent_id"] == "source-agent"
-    assert version["contributing_agent_ids"] == ["contrib-agent"]
-    assert creation["contributing_agent_ids"] == ["contrib-agent"]
+    assert version["provenance"]["source_agent_id"] == "source-agent"
+    assert creation["provenance"]["source_agent_id"] == "source-agent"
+    assert version["provenance"]["contributing_agent_ids"] == ["contrib-agent"]
+    assert creation["provenance"]["contributing_agent_ids"] == ["contrib-agent"]
     assert "owner_agent_id" not in version
     assert "owner_agent_id" not in creation
-    assert version["snapshot_after"]["content"] == "Initial content"
-    assert version["snapshot_after"]["alias"] == "my-alias"
-    assert version["snapshot_after"]["title"] == "Test Title"
-    assert set(version["snapshot_after"]["tags"]) == {"tag1", "tag2"}
-    assert version["snapshot_after"]["memory_type"] == "FACT"
+    # 快照是完整原子 canonical JSON，不再使用裁剪字段。
+    assert version["snapshot_before"] is None
+    assert version["snapshot_after"]["schema_version"] == "2.1"
+    assert version["snapshot_after"]["payload"]["content"] == "Initial content"
+    assert version["snapshot_after"]["index"]["alias"] == "my-alias"
+    assert version["snapshot_after"]["index"]["title"] == "Test Title"
+    assert set(version["snapshot_after"]["index"]["tags"]) == {"tag1", "tag2"}
+    assert version["snapshot_after"]["index"]["memory_type"] == "FACT"
+    assert version["version_number"] == 1
     assert creation["title"] == ""
     assert "alias" not in creation
     assert "tags" not in creation
@@ -114,7 +120,7 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
 
     ref = await builder.build_for_update(
         memory_after=atom,
-        snapshot_before=MemoryVersionSnapshot(content="old", title="Old"),
+        snapshot_before=snapshot_memory_atom(atom),
         update_source="MERGE",
         changelog="Updated reason",
     )
@@ -124,8 +130,12 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
     assert data["version_number"] == 3
     assert data["update_source"] == "MERGE"
     assert data["workspace_identity"] == identity_scope.workspace_identity.model_dump()
-    assert data["source_agent_id"] == atom.meta.source_agent_id
-    assert data["contributing_agent_ids"] == list(atom.meta.contributing_agent_ids)
+    assert data["provenance"]["source_agent_id"] == atom.meta.provenance.source_agent_id
+    assert data["provenance"]["contributing_agent_ids"] == list(
+        atom.meta.provenance.contributing_agent_ids
+    )
+    assert data["snapshot_before"]["payload"]["content"] == "Initial content"
+    assert data["snapshot_after"]["payload"]["content"] == "Initial content"
     assert "owner_agent_id" not in data
 
 
@@ -148,10 +158,10 @@ async def test_build_for_create_allows_reserved_system_source_for_settlement(sto
 
     version = await store.get(identity_scope, bundle.initial_version_ref)
     creation = await store.get(identity_scope, bundle.creation_ref)
-    assert version["source_agent_id"] == SYSTEM_AGENT_ID
-    assert creation["source_agent_id"] == SYSTEM_AGENT_ID
-    assert version["contributing_agent_ids"] == []
-    assert creation["contributing_agent_ids"] == []
+    assert version["provenance"]["source_agent_id"] == SYSTEM_AGENT_ID
+    assert creation["provenance"]["source_agent_id"] == SYSTEM_AGENT_ID
+    assert version["provenance"]["contributing_agent_ids"] == []
+    assert creation["provenance"]["contributing_agent_ids"] == []
 
 
 @pytest.mark.asyncio
@@ -166,7 +176,7 @@ async def test_builder_rejects_source_ref_from_another_workspace(store, identity
             artifact_id="source-artifact",
             workspace_identity=other.workspace_identity,
             topic_id="other-topic",
-            created_at=datetime(2026, 1, 1),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
     )
     atom = _make_atom(identity_scope)

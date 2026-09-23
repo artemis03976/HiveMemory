@@ -83,7 +83,7 @@ def test_v2_actor_policy_targets_are_distinct_from_provenance() -> None:
     assert values["meta.access_policy.target_agent_id"] == {"agent-a"}
     assert values["meta.access_policy.target_team_id"] == {"team-a"}
     # legacy PRIVATE 分支已删除：来源 provenance 字段不再进入授权过滤。
-    assert "meta.source_agent_id" not in values
+    assert "meta.provenance.source_agent_id" not in values
     assert "meta.visibility" not in values
     assert values["meta.access_policy.visibility"] == {"PUBLIC", "PRIVATE", "TEAM"}
 
@@ -101,7 +101,7 @@ def test_business_filters_are_added_without_replacing_hard_boundary() -> None:
     confidence = next(
         item
         for item in result.must or []
-        if isinstance(item, FieldCondition) and item.key == "meta.confidence_score"
+        if isinstance(item, FieldCondition) and item.key == "meta.lifecycle.confidence_score"
     )
     assert confidence.range.gte == pytest.approx(0.7)
 
@@ -119,8 +119,8 @@ def test_source_agent_filter_matches_contributors_and_source_branches() -> None:
     )
 
     values = _field_values(result)
-    assert values["meta.contributing_agent_ids"] == {"agent-a"}
-    assert values["meta.source_agent_id"] == {"agent-a"}
+    assert values["meta.provenance.contributing_agent_ids"] == {"agent-a"}
+    assert values["meta.provenance.source_agent_id"] == {"agent-a"}
     assert values["meta.workspace_id"] == {"isolation_workspace"}
 
 

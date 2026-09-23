@@ -3,16 +3,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import (
-    Artifacts,
     IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
     MemoryType,
     MetaData,
     PayloadLayer,
 )
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
@@ -56,12 +58,20 @@ class AgentApplicationService:
         access: WorkspaceAccessContext | None = None,
     ) -> MemoryAtom:
         """在显式 Workspace scope 中创建 Agent Profile（管理用例）。"""
+        # A2-P：创建时点在提交边界取一次 now，created/updated/decay anchor 同值；
+        # MVL-2 收敛后统一由 Patchouli 完整写入路径赋值。
+        now = utc_now()
         atom = MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,
-                source_agent_id=identity_scope.actor_identity.agent_id,
-                source_team_id=identity_scope.actor_identity.team_id,
+                provenance=MemoryProvenance(
+                    source_agent_id=identity_scope.actor_identity.agent_id,
+                    source_team_id=identity_scope.actor_identity.team_id,
+                ),
                 access_policy=MemoryAccessPolicy.public(),
+                created_at=now,
+                updated_at=now,
+                lifecycle=MemoryLifecycleState(decay_anchor_at=now),
             ),
             index=IndexLayer(
                 title=title,
@@ -72,7 +82,7 @@ class AgentApplicationService:
             ),
             payload=PayloadLayer(
                 content=content,
-                artifacts=Artifacts(agent_config=agent_config),
+                agent_config=agent_config,
             ),
         )
         return await self._global_bus.request(

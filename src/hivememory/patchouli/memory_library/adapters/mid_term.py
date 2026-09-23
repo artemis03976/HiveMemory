@@ -8,7 +8,6 @@ QdrantStorageAdapter — MidTermStoragePort 的 Qdrant 实现
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -22,6 +21,7 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.engines.retrieval.policy import memory_is_readable
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
+from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -95,9 +95,9 @@ class QdrantStorageAdapter(MidTermStoragePort):
         identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> MemoryAtom | None:
-        return await self.get_by_key(
-            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
-        )
+        """mutation 入口只接受当前 schema：兼容窗口内旧记录只读，拒绝读出后回写。"""
+        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        return await self._store.get_memory(key, require_current_schema=True)
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return await self._store.get_memory(key)
@@ -110,8 +110,8 @@ class QdrantStorageAdapter(MidTermStoragePort):
         atom = await self.get(identity_scope, memory_id)
         if atom is None:
             return
-        atom.meta.access_count += 1
-        atom.meta.last_accessed_at = datetime.now()
+        atom.meta.lifecycle.access_count += 1
+        atom.meta.lifecycle.last_accessed_at = utc_now()
         await self.upsert(atom)
 
     async def delete(

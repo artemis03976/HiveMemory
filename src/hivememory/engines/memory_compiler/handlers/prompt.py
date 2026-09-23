@@ -15,6 +15,7 @@ from hivememory.engines.memory_compiler.models import (
     MemoryCompileTarget,
 )
 from hivememory.i18n import get_memory_atom_text
+from hivememory.utils.time import utc_now
 from hivememory.utils.time_formatter import TimeFormatter
 
 
@@ -97,19 +98,16 @@ def _render_full_from_ir(
     )
     updated_at = unit.metadata.get("updated_at")
     time_str = (
-        TimeFormatter(language=language, stale_days=stale_days).format(updated_at)
+        TimeFormatter(language=language, stale_days=stale_days).format(
+            updated_at, reference=utc_now()
+        )
         if updated_at is not None
         else _text("memory_time_unknown", language)
     )
 
+    # A2-P 移除 history_summary 后历史占位恒为空；正式历史展示由
+    # MemoryVersionArtifact 历史编译链路承担（v0.7.3 MTP READ）。
     history = ""
-    history_summary = unit.metadata.get("history_summary", [])
-    if history_summary:
-        # 当前只渲染 artifact 关闭时的轻量历史 fallback。
-        # TODO(history-compiler): 后续改为消费统一历史信息编译结果，而不是直接展示该字段。
-        history_lines = [f"\n**{_text('memory_full_change_log_label', language)}:**"]
-        history_lines.extend(f"- {item}" for item in history_summary)
-        history = "\n".join(history_lines)
 
     return _text("memory_full_item_template", language).format(
         alias=alias,
@@ -137,7 +135,9 @@ def _render_index_from_ir(
     )
     updated_at = unit.metadata.get("updated_at")
     time_str = (
-        TimeFormatter(language=language, stale_days=stale_days).format(updated_at)
+        TimeFormatter(language=language, stale_days=stale_days).format(
+            updated_at, reference=utc_now()
+        )
         if updated_at is not None
         else _text("memory_time_unknown", language)
     )

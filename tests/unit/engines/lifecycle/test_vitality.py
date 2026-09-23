@@ -8,7 +8,7 @@ HiveMemory - 生命力计算器单元测试
 - 边界值处理
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -128,7 +128,7 @@ class TestVitalityCalculator:
         self, confidence: float, memory_type: MemoryType, access_count: int, days_ago: int
     ) -> MemoryAtom:
         """创建测试记忆"""
-        created_at = datetime.now() - timedelta(days=days_ago)
+        created_at = datetime.now(UTC) - timedelta(days=days_ago)
 
         return MemoryAtom(
             id=uuid4(),

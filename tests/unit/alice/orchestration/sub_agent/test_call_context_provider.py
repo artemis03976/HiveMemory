@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,7 +40,7 @@ def _atom(title: str, content: str) -> MemoryAtom:
         meta=make_memory_metadata(
             source_agent_id="caller",
             user_id="user-1",
-            updated_at=datetime.now(),
+            updated_at=datetime.now(UTC),
             confidence_score=0.9,
         ),
     )

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -33,11 +33,11 @@ def memory_atom() -> MemoryAtom:
             tags=["api", "backend"],
             alias="fact_api",
         ),
-        payload=PayloadLayer(content="Use /api/v1/memories", history_summary=["created"]),
+        payload=PayloadLayer(content="Use /api/v1/memories"),
         meta=make_memory_metadata(
             source_agent_id="agent",
             user_id="u1",
-            updated_at=datetime(2026, 1, 1),
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
             confidence_score=0.8,
             verification_status=VerificationStatus.VERIFIED,
         ),
@@ -57,7 +57,7 @@ def test_build_memory_atom_ir_maps_identity_content_and_metadata(memory_atom):
     assert unit.content.memory_type == MemoryType.FACT.value
     assert unit.metadata["confidence_score"] == 0.8
     assert unit.metadata["verification_status"] == VerificationStatus.VERIFIED
-    assert unit.metadata["history_summary"] == ["created"]
+    assert unit.metadata["updated_at"] == datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def test_build_pending_atom_ir_for_write_focus():

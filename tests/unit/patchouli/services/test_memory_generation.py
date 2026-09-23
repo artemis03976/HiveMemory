@@ -719,13 +719,14 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert atom.payload.content == "Updated content"
         assert atom.index.alias == "updated-alias"
         assert atom.index.tags == ["updated"]
-        assert atom.payload.artifacts.agent_config == {"mode": "test"}
+        assert atom.payload.agent_config == {"mode": "test"}
         assert atom.meta.version == original_version + 1
         artifact_engine.memory.build_for_update.assert_awaited_once()
         call = artifact_engine.memory.build_for_update.await_args.kwargs
         assert call["memory_after"] is atom
-        assert call["snapshot_before"].title == "test_memory"
-        assert call["snapshot_before"].content == "content"
+        # snapshot_before 是修改前完整原子的 canonical JSON 快照
+        assert call["snapshot_before"]["index"]["title"] == "test_memory"
+        assert call["snapshot_before"]["payload"]["content"] == "content"
         assert call["update_source"] == "MANUAL_EDIT"
         assert call["source_artifact_refs"] == []
         assert "Manual edit:" in call["changelog"]

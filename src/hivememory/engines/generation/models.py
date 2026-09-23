@@ -14,7 +14,7 @@ HiveMemory Generation 模块数据模型
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -23,7 +23,10 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.core.models.artifact import normalize_contributing_agent_ids
+from hivememory.core.models.provenance import (
+    MemoryProvenance,
+    normalize_contributing_agent_ids,
+)
 
 
 class DuplicateDecision(str, Enum):
@@ -121,63 +124,40 @@ class GenerationContext(BaseModel):
     turns: list[GenerationTurn] = Field(default_factory=list)
 
 
-class MemoryProvenance(BaseModel):
+def provenance_from_actor(
+    identity_scope: IdentityScope,
+    context: GenerationContext,
+) -> MemoryProvenance:
+    """主动模式（WRITE/UPDATE）的来源裁定：以执行 actor 为操作来源。
+
+    内容贡献者先记录发起 Agent 本身——无上下文时主动写入的内容仍由
+    发起 Agent 产出——再合并上下文轮次的贡献者。上下文相关的构造逻辑
+    留在 generation 层；``MemoryProvenance`` 数据定义已上移 core.models。
     """
-    一次记忆生成的来源裁定
+    actor = identity_scope.actor_identity
+    return MemoryProvenance(
+        source_agent_id=actor.agent_id,
+        source_team_id=actor.team_id,
+        contributing_agent_ids=normalize_contributing_agent_ids(
+            [actor.agent_id, *_turn_agent_ids(context)]
+        ),
+    )
 
-    区分两个正交语义，字段含义与 ``MemoryAtom.meta`` 保持一致：
-    - 操作来源主体：``source_agent_id`` / ``source_team_id``，回答"谁触发了
-      这次写入"；被动结算等没有具体 Agent 的操作使用保留 ``SYSTEM_AGENT_ID``；
-    - 内容贡献者：``contributing_agent_ids``，回答"哪些具体 Agent 的工作
-      产出了内容"，从生成上下文的轮次身份聚合。
 
-    两个字段都只记录 provenance 事实，不参与读取授权。
+def system_settlement_provenance(context: GenerationContext) -> MemoryProvenance:
+    """被动结算（SETTLE）的来源裁定：没有具体 Agent 作为操作来源主体。
+
+    来源记录为保留 system；实际参与内容的 Agent 仍进入贡献者集合，
+    不把 system 当作内容贡献者。
     """
-
-    source_agent_id: str = Field(..., min_length=1)
-    source_team_id: str | None = None
-    contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
-
-    @field_validator("contributing_agent_ids")
-    @classmethod
-    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        """去重并保持首次出现顺序；system 不是内容贡献者。"""
-        return normalize_contributing_agent_ids(value)
-
-    @classmethod
-    def from_actor(
-        cls,
-        identity_scope: IdentityScope,
-        context: "GenerationContext",
-    ) -> "MemoryProvenance":
-        """主动模式（WRITE/UPDATE）：以执行 actor 为操作来源。
-
-        内容贡献者先记录发起 Agent 本身——无上下文时主动写入的内容仍由
-        发起 Agent 产出——再合并上下文轮次的贡献者。
-        """
-        actor = identity_scope.actor_identity
-        return cls(
-            source_agent_id=actor.agent_id,
-            source_team_id=actor.team_id,
-            contributing_agent_ids=normalize_contributing_agent_ids(
-                [actor.agent_id, *_turn_agent_ids(context)]
-            ),
-        )
-
-    @classmethod
-    def system_settlement(cls, context: "GenerationContext") -> "MemoryProvenance":
-        """被动结算（SETTLE）：没有具体 Agent 作为操作来源主体，来源记录为保留 system。
-
-        实际参与内容的 Agent 仍进入贡献者集合，不把 system 当作内容贡献者。
-        """
-        return cls(
-            source_agent_id=SYSTEM_AGENT_ID,
-            source_team_id=None,
-            contributing_agent_ids=_turn_agent_ids(context),
-        )
+    return MemoryProvenance(
+        source_agent_id=SYSTEM_AGENT_ID,
+        source_team_id=None,
+        contributing_agent_ids=_turn_agent_ids(context),
+    )
 
 
-def _turn_agent_ids(context: "GenerationContext") -> list[str]:
+def _turn_agent_ids(context: GenerationContext) -> list[str]:
     """收集上下文轮次的 Agent 身份（未去重，交给共享归一化处理）。"""
     return [turn.identity.agent_id for turn in context.turns]
 
@@ -240,4 +220,6 @@ __all__ = [
     "GenerationTurn",
     "GenerationContext",
     "GenerationOutcome",
+    "provenance_from_actor",
+    "system_settlement_provenance",
 ]

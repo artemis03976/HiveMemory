@@ -39,14 +39,14 @@ _WS_DICT = {
 
 
 def _artifact_ref_dict(artifact_id: str, artifact_type: str) -> dict[str, Any]:
-    """旧 ArtifactRef 的 JSON 形状（与历史 store.put 返回一致）。"""
+    """旧 ArtifactRef 的 JSON 形状（与历史 store.put 返回一致；时间 aware）。"""
     return {
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "workspace_identity": dict(_WS_DICT),
         "uri": f"legacy://{artifact_id}",
         "sha256": "legacy-hash",
-        "created_at": "2026-06-14T12:00:00",
+        "created_at": "2026-06-14T12:00:00+00:00",
         "summary": "",
     }
 
@@ -77,7 +77,7 @@ def _legacy_interaction_artifact(artifact_id: str, *, bad_turn: bool = False) ->
         "artifact_id": artifact_id,
         "artifact_type": "interaction",
         "schema_version": "1",
-        "created_at": "2026-06-14T12:00:00",
+        "created_at": "2026-06-14T12:00:00+00:00",
         "owner_agent_id": "omni_doll",
         "workspace_identity": dict(_WS_DICT),
         "title": "",
@@ -86,7 +86,7 @@ def _legacy_interaction_artifact(artifact_id: str, *, bad_turn: bool = False) ->
         "topic_title": "历史话题",
         "topic_summary": "",
         "turns": turns,
-        "captured_at": "2026-06-14T12:00:00",
+        "captured_at": "2026-06-14T12:00:00+00:00",
     }
 
 
@@ -95,7 +95,7 @@ def _legacy_memory_version_artifact(artifact_id: str, memory_id: str, interactio
         "artifact_id": artifact_id,
         "artifact_type": "memory_version",
         "schema_version": "1",
-        "created_at": "2026-06-14T12:00:00",
+        "created_at": "2026-06-14T12:00:00+00:00",
         "owner_agent_id": "agent-a",
         "workspace_identity": dict(_WS_DICT),
         "title": "",
@@ -105,7 +105,7 @@ def _legacy_memory_version_artifact(artifact_id: str, memory_id: str, interactio
         "update_source": "CREATE",
         "snapshot_before": None,
         "snapshot_after": {"content": "legacy content", "tags": []},
-        "changed_at": "2026-06-14T12:00:00",
+        "changed_at": "2026-06-14T12:00:00+00:00",
         "source_artifacts": [_artifact_ref_dict(interaction_id, "interaction")],
         "source_memory_refs": [],
     }
@@ -121,7 +121,7 @@ def _legacy_memory_creation_artifact(
         "artifact_id": artifact_id,
         "artifact_type": "memory_creation",
         "schema_version": "1",
-        "created_at": "2026-06-14T12:00:00",
+        "created_at": "2026-06-14T12:00:00+00:00",
         "owner_agent_id": "agent-a",
         "workspace_identity": dict(_WS_DICT),
         "title": "",
@@ -143,6 +143,7 @@ def _v1_memory_payload(memory_id: str, creation_id: str) -> dict:
             "user_id": "u1",
             "team_id": None,
             "visibility": "PUBLIC",
+            # V1 历史形状：naive 内容时间，由 codec 按写入时本地时区解释。
             "created_at": "2026-06-14T12:00:00",
             "version": 1,
         },
@@ -164,16 +165,25 @@ def _v1_memory_payload(memory_id: str, creation_id: str) -> dict:
 
 
 def _v2_memory_payload(memory_id: str, ref_id: str, ref_type: str) -> dict:
-    """schema v2 payload（含投影字段，同 to_qdrant_payload 形状）。"""
+    """旧整数 schema 2 payload（含投影字段，同历届 to_qdrant_payload 形状）。"""
     return {
         "schema_version": 2,
         "id": memory_id,
         "meta": {
             "workspace_identity": dict(_WS_DICT),
             "source_agent_id": "agent-a",
+            "source_team_id": None,
             "contributing_agent_ids": [],
+            "session_id": None,
             "access_policy": {"visibility": "PUBLIC"},
-            "created_at": "2026-06-14T12:00:00",
+            "created_at": "2026-06-14T12:00:00+00:00",
+            "updated_at": "2026-06-14T12:00:00+00:00",
+            "last_accessed_at": None,
+            "access_count": 0,
+            "vitality_score": 100.0,
+            "event_vitality_boost": 0.0,
+            "confidence_score": 0.6,
+            "verification_status": "UNVERIFIED",
             "version": 1,
             "owner_user_id": "u1",
             "workspace_key": "main_workspace",
@@ -338,25 +348,32 @@ async def test_apply_migrates_legacy_artifacts_and_v1_memory_with_ref_rewrite(
     version_data = await artifact_store.get(scope, version_new)
     assert "owner_agent_id" not in version_data
     # owner_agent_id 是旧 builder 从 memory.meta.source_agent_id 原样复制的
-    # source 载体，可迁移为 source_agent_id；贡献者不可证明时保持空。
-    assert version_data["source_agent_id"] == "agent-a"
-    assert version_data["contributing_agent_ids"] == []
+    # source 载体，可迁移为 provenance.source_agent_id；贡献者不可证明时保持空。
+    assert version_data["schema_version"] == "2"
+    assert version_data["provenance"]["source_agent_id"] == "agent-a"
+    assert version_data["provenance"]["contributing_agent_ids"] == []
+    # legacy 裁剪型快照升级为结构完整的 "2.1" 原子 JSON（内容事实按证据映射）。
+    assert version_data["snapshot_after"]["schema_version"] == "2.1"
+    assert version_data["snapshot_after"]["payload"]["content"] == "legacy content"
+    assert version_data["snapshot_after"]["id"] == memory_id
     assert version_data["source_artifacts"][0]["artifact_id"] == interaction_new
 
     creation_data = await artifact_store.get(scope, creation_new)
     assert "owner_agent_id" not in creation_data
-    assert creation_data["source_agent_id"] == "agent-a"
+    assert creation_data["schema_version"] == "2"
+    assert creation_data["provenance"]["source_agent_id"] == "agent-a"
     # 贡献者从关联 InteractionArtifact 的 turn 聚合（system 不算贡献者）。
-    assert creation_data["contributing_agent_ids"] == ["agent-a"]
+    assert creation_data["provenance"]["contributing_agent_ids"] == ["agent-a"]
     assert creation_data["initial_version_ref"]["artifact_id"] == version_new
     assert creation_data["source_artifacts"][0]["artifact_id"] == interaction_new
 
-    # V1 Memory → V2：归属、策略收敛，引用链重写到 replacement。
+    # V1 Memory → "2.1"：归属、策略收敛，引用链重写到 replacement。
     assert len(access.published) == 1
     atom = access.published[0][1]
-    assert atom.schema_version == 2
+    assert atom.schema_version == "2.1"
     assert atom.workspace_identity == WORKSPACE
     assert atom.meta.access_policy.visibility.value == "PUBLIC"
+    assert atom.meta.provenance.source_agent_id == "agent-a"
     assert "user_id" not in atom.meta.model_dump()
     assert atom.payload.artifacts.refs[0].artifact_id == creation_new
 
@@ -506,8 +523,13 @@ async def test_v2_memory_with_legacy_refs_is_republished_with_replacements(
     interaction_new = _new_id_by_old(report)[interaction_id]
     atom = access.published[0][1]
     assert atom.payload.artifacts.refs[0].artifact_id == interaction_new
+    # 重发布把旧平铺 schema 2 记录升级为 "2.1" 领域形状。
+    assert atom.schema_version == "2.1"
+    assert atom.meta.provenance.source_agent_id == "agent-a"
+    assert atom.meta.lifecycle.decay_anchor_at.tzinfo is not None
     # 重发布 payload 仍能被运行时 codec 解码（canonical 契约）。
     republished = access.points[f"canonical::{memory_id}"]
+    assert republished["schema_version"] == "2.1"
     assert decode_memory_payload(republished).id == atom.id
 
 
@@ -538,7 +560,7 @@ def _bare_ref(artifact_id: str, artifact_type: str) -> dict[str, Any]:
         "artifact_type": artifact_type,
         "uri": f"legacy://{artifact_id}",
         "sha256": "legacy-hash",
-        "created_at": "2026-07-19T10:00:00",
+        "created_at": "2026-07-19T10:00:00+00:00",
         "summary": "",
     }
 
@@ -550,7 +572,7 @@ def _v05_interaction_artifact(
         "artifact_id": artifact_id,
         "artifact_type": "interaction",
         "schema_version": "1",
-        "created_at": "2026-07-21T10:00:00",
+        "created_at": "2026-07-21T10:00:00+00:00",
         "owner_agent_id": "",
         "owner_user_id": "",
         "content_hash": "legacy-hash",
@@ -571,7 +593,7 @@ def _v05_interaction_artifact(
             }
             for index, user_id in enumerate(turn_user_ids)
         ],
-        "captured_at": "2026-07-21T10:00:00",
+        "captured_at": "2026-07-21T10:00:00+00:00",
     }
 
 
@@ -586,7 +608,7 @@ def _v05_memory_creation_artifact(
         "artifact_id": artifact_id,
         "artifact_type": "memory_creation",
         "schema_version": "1",
-        "created_at": "2026-07-19T10:00:00",
+        "created_at": "2026-07-19T10:00:00+00:00",
         "owner_agent_id": "",
         "owner_user_id": "",
         "content_hash": "legacy-hash",
@@ -612,7 +634,7 @@ def _v05_memory_version_artifact(
         "artifact_id": artifact_id,
         "artifact_type": "memory_version",
         "schema_version": "1",
-        "created_at": "2026-07-19T10:00:00",
+        "created_at": "2026-07-19T10:00:00+00:00",
         "owner_agent_id": "",
         "owner_user_id": "",
         "content_hash": "legacy-hash",
@@ -623,7 +645,7 @@ def _v05_memory_version_artifact(
         "update_source": update_source,
         "snapshot_before": None,
         "snapshot_after": {"content": "v0.5 content", "tags": []},
-        "changed_at": "2026-07-19T10:00:00",
+        "changed_at": "2026-07-19T10:00:00+00:00",
         "source_artifacts": [_bare_ref(interaction_id, "interaction")] if interaction_id else [],
         "source_memory_refs": [],
     }
@@ -644,6 +666,7 @@ def _v05_memory_payload(
             "user_id": "default",
             "team_id": None,
             "visibility": "PUBLIC",
+            # V1 历史形状：naive 内容时间，由 codec 按写入时本地时区解释。
             "created_at": "2026-07-19T10:00:00",
             "version": 1,
         },
@@ -660,7 +683,7 @@ def _v05_memory_payload(
                 "events": [
                     {
                         "event_type": "created",
-                        "at": "2026-07-19T10:00:00",
+                        "at": "2026-07-19T10:00:00+00:00",
                         "artifact_refs": [_bare_ref(a, t) for a, t in event_ref_ids],
                     }
                 ],
@@ -744,15 +767,15 @@ async def test_repair_mode_migrates_v05_dead_cluster_end_to_end(
     scope = _default_user_scope()
     creation_data = await artifact_store.get(scope, mapping[cluster["c1"]])
     # 来源缺证按用户批准的默认归属填入 omni_doll。
-    assert creation_data["source_agent_id"] == "omni_doll"
+    assert creation_data["provenance"]["source_agent_id"] == "omni_doll"
     # 贡献者仍只从关联 interaction 的 turn 聚合（meal_assistant）。
-    assert creation_data["contributing_agent_ids"] == ["meal_assistant"]
+    assert creation_data["provenance"]["contributing_agent_ids"] == ["meal_assistant"]
     assert "owner_agent_id" not in creation_data
     assert creation_data["workspace_identity"]["owner_user_id"] == "default"
 
     other_creation = await artifact_store.get(scope, mapping[cluster["c2"]])
-    assert other_creation["source_agent_id"] == "omni_doll"
-    assert other_creation["contributing_agent_ids"] == []
+    assert other_creation["provenance"]["source_agent_id"] == "omni_doll"
+    assert other_creation["provenance"]["contributing_agent_ids"] == []
 
     interaction_data = await artifact_store.get(scope, mapping[cluster["interaction_id"]])
     assert interaction_data["turns"][0]["actor_identity"]["agent_id"] == "meal_assistant"

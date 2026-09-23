@@ -240,10 +240,10 @@ class AdaptiveWeightedFusion(BaseFusion):
         # 应用质量乘数
         for memory_id in scores:
             result = result_map[memory_id]
-            confidence = result.memory.meta.confidence_score
+            confidence = result.memory.meta.lifecycle.confidence_score
 
             # 获取生命力分数 (已统一为 0-100)
-            vitality = result.memory.meta.vitality_score
+            vitality = result.memory.meta.lifecycle.vitality_score
 
             # 如果提供了计算器，实时刷新生命力
             quality_multiplier = self._calculate_quality_multiplier(

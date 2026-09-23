@@ -16,7 +16,7 @@ HiveMemory Lifecycle 组件单元测试。
 
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -495,10 +495,10 @@ class TestReinforcement:
             access_count=0,
         )
         # event_vitality_boost 重置为 0 (仿真刚写入、未被强化的初态)
-        memory.meta.event_vitality_boost = 0.0
+        memory.meta.lifecycle.event_vitality_boost = 0.0
         # 强制更新时间戳贴近"刚刚写入"，避免 days_since(update) 含小数 >0 导致 D<1
-        memory.meta.created_at = datetime.now()
-        memory.meta.updated_at = datetime.now()
+        memory.meta.created_at = datetime.now(UTC)
+        memory.meta.updated_at = datetime.now(UTC)
         pre_updated_at = memory.meta.updated_at
 
         await mock_storage.upsert_memory(memory)
@@ -526,29 +526,32 @@ class TestReinforcement:
             f"(修复前 bug 表现为 67)"
         )
 
-        # 验证 2: 事件加成累加进 B 项 (event_vitality_boost)
-        assert updated_memory.meta.event_vitality_boost == case["expected_event_vitality_boost"], (
+        # 验证 2: 事件加成累加进 B 项 (meta.lifecycle.event_vitality_boost)
+        assert (
+            updated_memory.meta.lifecycle.event_vitality_boost
+            == case["expected_event_vitality_boost"]
+        ), (
             f"event_vitality_boost 应累加 hit_boost=5，实际 "
-            f"{updated_memory.meta.event_vitality_boost}"
+            f"{updated_memory.meta.lifecycle.event_vitality_boost}"
         )
 
         # 验证 3: HIT 不重置 updated_at (衰减钟持续作用，艾宾浩斯语义)
         if case["expected_updated_at_unchanged_on_hit"]:
             assert (
                 updated_memory.meta.updated_at == pre_updated_at
-            ), "HIT 不应重置 updated_at (仅 CITATION 重置) — 让遗忘曲线持续作用"
+            ), "HIT 不应重置 updated_at (仅 CITATION 推进 decay_anchor_at) — 让遗忘曲线持续作用"
 
         # 验证 4: access_count += 1
         assert (
-            updated_memory.meta.access_count == 1
-        ), f"access_count 应递增为 1，实际 {updated_memory.meta.access_count}"
+            updated_memory.meta.lifecycle.access_count == 1
+        ), f"access_count 应递增为 1，实际 {updated_memory.meta.lifecycle.access_count}"
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.1f} -> {result.new_vitality:.1f}, "
-            f"B={updated_memory.meta.event_vitality_boost}, "
+            f"B={updated_memory.meta.lifecycle.event_vitality_boost}, "
             f"updated_at unchanged={updated_memory.meta.updated_at == pre_updated_at}",
         )
 
@@ -571,7 +574,7 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_access_count = memory.meta.access_count
+        initial_access_count = memory.meta.lifecycle.access_count
 
         # 触发 HIT 事件
         event = MemoryEvent(
@@ -590,7 +593,7 @@ class TestReinforcement:
 
         # 验证
         assert (
-            updated_memory.meta.access_count == initial_access_count + 1
+            updated_memory.meta.lifecycle.access_count == initial_access_count + 1
         ), "Access count should increase by 1"
         assert (
             result.new_vitality >= result.previous_vitality
@@ -601,7 +604,8 @@ class TestReinforcement:
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}",
+            f"AccessCount: {initial_access_count} -> "
+            f"{updated_memory.meta.lifecycle.access_count}",
         )
 
     @pytest.mark.asyncio
@@ -623,6 +627,7 @@ class TestReinforcement:
             access_count=5,
         )
         old_updated_at = old_memory.meta.updated_at
+        old_decay_anchor_at = old_memory.meta.lifecycle.decay_anchor_at
         await mock_storage.upsert_memory(old_memory)
 
         # 触发 CITATION 事件
@@ -640,8 +645,14 @@ class TestReinforcement:
         # 获取更新后的记忆
         updated_memory = await mock_storage.get_memory(old_memory.id)
 
-        # 验证 updated_at 被更新（时间衰减重置）
-        assert updated_memory.meta.updated_at > old_updated_at, "updated_at should be reset to now"
+        # A2-P 契约: CITATION 推进 meta.lifecycle.decay_anchor_at（主动复习重置遗忘曲线），
+        # 不再更新内容时间 updated_at
+        assert (
+            updated_memory.meta.lifecycle.decay_anchor_at > old_decay_anchor_at
+        ), "decay_anchor_at should be advanced to now"
+        assert (
+            updated_memory.meta.updated_at == old_updated_at
+        ), "updated_at must not be rewritten by CITATION"
 
         # 验证生命力提升
         assert (
@@ -675,7 +686,7 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_confidence = memory.meta.confidence_score
+        initial_confidence = memory.meta.lifecycle.confidence_score
 
         # 触发负面反馈事件
         event = MemoryEvent(
@@ -695,7 +706,7 @@ class TestReinforcement:
         # 验证置信度降低 (乘以 0.5)
         expected_confidence = initial_confidence * case["expected_confidence_multiplier"]
         assert (
-            abs(updated_memory.meta.confidence_score - expected_confidence) < 0.01
+            abs(updated_memory.meta.lifecycle.confidence_score - expected_confidence) < 0.01
         ), f"Confidence should be multiplied by {case['expected_confidence_multiplier']}"
 
         print_test_result(
@@ -725,7 +736,7 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_access_count = memory.meta.access_count
+        initial_access_count = memory.meta.lifecycle.access_count
 
         # 触发正面反馈事件
         event = MemoryEvent(
@@ -749,7 +760,7 @@ class TestReinforcement:
 
         # 验证访问计数增加
         assert (
-            updated_memory.meta.access_count == initial_access_count + 1
+            updated_memory.meta.lifecycle.access_count == initial_access_count + 1
         ), "Access count should increase by 1"
 
         print_test_result(
@@ -757,7 +768,8 @@ class TestReinforcement:
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}",
+            f"AccessCount: {initial_access_count} -> "
+            f"{updated_memory.meta.lifecycle.access_count}",
         )
 
 

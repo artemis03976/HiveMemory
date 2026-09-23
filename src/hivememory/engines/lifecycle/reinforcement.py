@@ -3,24 +3,24 @@ HiveMemory - 动态强化引擎
 
 处理记忆生命周期事件，动态调整生命力分数和置信度。
 
-事件效果 (改造成三段式语义后的新契约):
-- HIT:              event_vitality_boost += 5,  access_count += 1,  不重置衰减
-- CITATION:         event_vitality_boost += 20, access_count += 1,  重置时间衰减 (updated_at = now)
-- FEEDBACK_POSITIVE: event_vitality_boost += 50, access_count += 1, 不重置衰减
-- FEEDBACK_NEGATIVE: event_vitality_boost += -50, confidence ×0.5,  不重置衰减
+事件效果 (A2-P 冻结契约):
+- HIT:              lifecycle.event_vitality_boost += 5,  access_count += 1,  不推进衰减基准
+- CITATION:         lifecycle.event_vitality_boost += 20, access_count += 1,  推进衰减基准 (decay_anchor_at = now)
+- FEEDBACK_POSITIVE: lifecycle.event_vitality_boost += 50, access_count += 1, 不推进衰减基准
+- FEEDBACK_NEGATIVE: lifecycle.event_vitality_boost += -50, confidence ×0.5,  不推进衰减基准
 
 事件加成不再直接加减最终 vitality_score，而是累加进 event_vitality_boost (B 项)。
 最终 vitality_score 由 VitalityCalculator 重算时统一合并: V = V_0·D(t) + A + B。
 
-HIT 不重置 updated_at —— 让时间衰减在遗忘曲线上持续作用，符合艾宾浩斯语义；
-只有 CITATION (主动复习) 才重置 updated_at，对应"主动回忆重置遗忘曲线"。
+HIT 不推进 decay_anchor_at —— 让时间衰减在遗忘曲线上持续作用，符合艾宾浩斯语义；
+只有 CITATION (主动复习) 才推进 decay_anchor_at，对应"主动回忆重置遗忘曲线"。
+内容时间 (updated_at) 属于内容事实，任何强化事件都不得改写。
 
 作者: HiveMemory Team
 版本: 0.2.0
 """
 
 import logging
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -32,6 +32,7 @@ from hivememory.engines.lifecycle.models import (
 )
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.system.config import ReinforcementEngineConfig
+from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -102,10 +103,10 @@ class DynamicReinforcementEngine:
             raise ValueError(f"Memory {memory_id} not found")
 
         # 记录当前状态
-        previous_vitality = memory.meta.vitality_score
-        previous_confidence = memory.meta.confidence_score
+        previous_vitality = memory.meta.lifecycle.vitality_score
+        previous_confidence = memory.meta.lifecycle.confidence_score
 
-        # 应用事件特定的调整 (CITATION 重置 updated_at，FEEDBACK_NEGATIVE 调整 confidence)
+        # 应用事件特定的调整 (CITATION 推进 decay_anchor_at，FEEDBACK_NEGATIVE 调整 confidence)
         if event.event_type == EventType.CITATION:
             self._handle_citation(memory)
         elif event.event_type == EventType.FEEDBACK_NEGATIVE:
@@ -114,20 +115,20 @@ class DynamicReinforcementEngine:
         # 事件加成累加进 B 项 (event_vitality_boost)，不直接改 vitality_score
         # 最终 vitality_score 由 VitalityCalculator 在重算时统一合并: V = V_0·D(t) + A + B
         adjustment = self.vitality_adjustments.get(event.event_type, 0.0)
-        memory.meta.event_vitality_boost = max(
+        memory.meta.lifecycle.event_vitality_boost = max(
             -100.0,
-            min(100.0, memory.meta.event_vitality_boost + adjustment),
+            min(100.0, memory.meta.lifecycle.event_vitality_boost + adjustment),
         )
 
-        # 更新访问元信息
-        # 注意: 只更新 last_accessed_at；updated_at 仅在 CITATION 主动复习时重置
-        # (上面 _handle_citation 已处理)。HIT 不重置 updated_at，让遗忘曲线持续作用。
-        memory.meta.access_count += 1
-        memory.meta.last_accessed_at = datetime.now()
+        # 更新访问元信息（A2-P：业务时间统一 UTC；MVL-2 起持久化改走受限 patch）
+        # 注意: 只更新 last_accessed_at；衰减基准仅在 CITATION 主动复习时推进
+        # (上面 _handle_citation 已处理)。HIT 不推进 decay_anchor_at，让遗忘曲线持续作用。
+        memory.meta.lifecycle.access_count += 1
+        memory.meta.lifecycle.last_accessed_at = utc_now()
 
         # 由 VitalityCalculator 统一重算 (包含 V_0/D(t)/A/B 三段)
         new_vitality = self._clamp_vitality(self.vitality_calculator.calculate(memory))
-        memory.meta.vitality_score = new_vitality
+        memory.meta.lifecycle.vitality_score = new_vitality
 
         # 持久化到存储
         await self._mid_term.upsert(memory)
@@ -138,7 +139,7 @@ class DynamicReinforcementEngine:
             previous_vitality=previous_vitality,
             new_vitality=new_vitality,
             previous_confidence=previous_confidence,
-            new_confidence=memory.meta.confidence_score,
+            new_confidence=memory.meta.lifecycle.confidence_score,
             event_type=event.event_type,
             timestamp=event.timestamp,
         )
@@ -151,27 +152,28 @@ class DynamicReinforcementEngine:
             f"Reinforcement applied: {memory_id} | "
             f"{event.event_type.value} | "
             f"Vitality: {previous_vitality:.1f} -> {new_vitality:.1f} | "
-            f"Confidence: {previous_confidence:.2f} -> {memory.meta.confidence_score:.2f}"
+            f"Confidence: {previous_confidence:.2f} -> {memory.meta.lifecycle.confidence_score:.2f}"
         )
 
         return result
 
     def _handle_citation(self, memory: MemoryAtom) -> None:
-        # 重置衰减后再重新计算活力。
-        memory.meta.updated_at = datetime.now()
-        logger.debug("Citation handled for %s: decay reset", memory.id)
+        # 主动复习推进衰减基准（不触碰内容时间 updated_at），再重新计算活力。
+        memory.meta.lifecycle.decay_anchor_at = utc_now()
+        logger.debug("Citation handled for %s: decay anchor advanced", memory.id)
 
     def _handle_negative_feedback(self, memory: MemoryAtom) -> None:
-        old_confidence = memory.meta.confidence_score
-        memory.meta.confidence_score = max(
-            0.0, memory.meta.confidence_score * self.config.negative_confidence_multiplier
+        old_confidence = memory.meta.lifecycle.confidence_score
+        memory.meta.lifecycle.confidence_score = max(
+            0.0,
+            memory.meta.lifecycle.confidence_score * self.config.negative_confidence_multiplier,
         )
 
         logger.debug(
             "Negative feedback for %s: confidence %.2f -> %.2f",
             memory.id,
             old_confidence,
-            memory.meta.confidence_score,
+            memory.meta.lifecycle.confidence_score,
         )
 
     def _add_to_history(self, result: ReinforcementResult) -> None:

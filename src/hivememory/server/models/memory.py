@@ -50,10 +50,10 @@ class MemoryResponse(BaseModel):
             content=atom.payload.content,
             created_at=atom.meta.created_at,
             updated_at=atom.meta.updated_at,
-            confidence_score=atom.meta.confidence_score,
-            vitality_score=atom.meta.vitality_score,
+            confidence_score=atom.meta.lifecycle.confidence_score,
+            vitality_score=atom.meta.lifecycle.vitality_score,
             user_id=atom.workspace_identity.owner_user_id,
-            access_count=atom.meta.access_count,
+            access_count=atom.meta.lifecycle.access_count,
         )
 
 

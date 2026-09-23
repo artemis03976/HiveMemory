@@ -7,7 +7,11 @@
 from uuid import uuid4
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.models import MemoryVisibility, WorkspaceIdentity
+from hivememory.core.models import (
+    MemoryVisibility,
+    VerificationStatus,
+    WorkspaceIdentity,
+)
 from hivememory.tools.v1_legacy_migration import (
     REPLACEMENT_ID_PREFIX,
     _is_legacy_artifact,
@@ -54,16 +58,16 @@ def _main_workspace(user_id: str = "u1") -> WorkspaceIdentity:
 # ============ 基本字段映射 ============
 
 
-def test_public_v1_converts_to_v2_with_main_workspace_identity() -> None:
+def test_public_v1_converts_to_schema_2_1_with_main_workspace_identity() -> None:
     """缺失 workspace_identity 的 V1 记录映射到 user 的 main_workspace。"""
     result = convert_v1_memory_payload(_v1_payload(), missing_visibility_policy="public")
 
     assert result.atom is not None
-    assert result.atom.schema_version == 2
+    assert result.atom.schema_version == "2.1"
     assert result.atom.workspace_identity == _main_workspace("u1")
     assert result.atom.meta.workspace_identity == _main_workspace("u1")
     assert result.atom.meta.access_policy.visibility == MemoryVisibility.PUBLIC
-    assert result.atom.meta.source_agent_id == "agent-a"
+    assert result.atom.meta.provenance.source_agent_id == "agent-a"
 
 
 def test_v1_flat_legacy_meta_fields_are_dropped_from_canonical_meta() -> None:
@@ -76,7 +80,10 @@ def test_v1_flat_legacy_meta_fields_are_dropped_from_canonical_meta() -> None:
     dumped = result.atom.meta.model_dump()
     assert "user_id" not in dumped
     assert "visibility" not in dumped
-    assert result.atom.meta.source_team_id == "team-a"
+    # 平铺来源字段聚合进 provenance，不再是 meta 的直接键。
+    assert "source_agent_id" not in dumped
+    assert "source_team_id" not in dumped
+    assert result.atom.meta.provenance.source_team_id == "team-a"
 
 
 def test_contributors_are_never_guessed_during_v1_conversion() -> None:
@@ -84,7 +91,57 @@ def test_contributors_are_never_guessed_during_v1_conversion() -> None:
     result = convert_v1_memory_payload(_v1_payload(), missing_visibility_policy="public")
 
     assert result.atom is not None
-    assert result.atom.meta.contributing_agent_ids == ()
+    assert result.atom.meta.provenance.contributing_agent_ids == ()
+
+
+def test_v1_dynamic_fields_aggregate_into_lifecycle_with_time_evidence() -> None:
+    """平铺动态字段聚合为 meta.lifecycle；decay_anchor_at 以内容时间为基准。"""
+    result = convert_v1_memory_payload(_v1_payload(), missing_visibility_policy="public")
+
+    assert result.atom is not None
+    atom = result.atom
+    dumped_meta = atom.meta.model_dump()
+    for legacy_flat in (
+        "access_count",
+        "last_accessed_at",
+        "vitality_score",
+        "confidence_score",
+        "event_vitality_boost",
+        "verification_status",
+        "session_id",
+    ):
+        assert legacy_flat not in dumped_meta
+    lifecycle = atom.meta.lifecycle
+    # 从未修订的 V1 记录：decay_anchor_at 以 created_at（== updated_at）初始化。
+    assert lifecycle.decay_anchor_at == atom.meta.updated_at
+    assert lifecycle.decay_anchor_at.tzinfo is not None
+    assert atom.meta.created_at.tzinfo is not None
+    assert lifecycle.access_count == 0
+    assert lifecycle.last_accessed_at is None
+    assert lifecycle.verification_status == VerificationStatus.UNVERIFIED
+
+
+def test_v1_payload_session_and_history_summary_are_dropped_and_agent_config_moves() -> None:
+    """session_id 与 payload.history_summary 在产物中不存在；agent_config 归位。"""
+    payload = _v1_payload()
+    payload["meta"]["session_id"] = "sess-legacy"
+    payload["payload"]["history_summary"] = "legacy summary"
+    payload["payload"]["artifacts"] = {
+        "agent_config": {"model_name": "legacy-model"},
+        "refs": [],
+        "events": [],
+    }
+
+    result = convert_v1_memory_payload(payload, missing_visibility_policy="public")
+
+    assert result.atom is not None
+    dumped_payload = result.atom.payload.model_dump()
+    assert "history_summary" not in dumped_payload
+    # payload.artifacts.agent_config 移到顶层 payload.agent_config。
+    assert dumped_payload["agent_config"] == {"model_name": "legacy-model"}
+    assert "agent_config" not in dumped_payload["artifacts"]
+    # session_id 丢弃不影响来源 provenance 聚合。
+    assert result.atom.meta.provenance.source_agent_id == "agent-a"
 
 
 # ============ visibility → access_policy 映射 ============

@@ -52,7 +52,7 @@ class MemoryLifecycleEngine:
     ) -> float:
         """就地刷新单个 MemoryAtom 的活力评分。"""
         vitality = self.vitality_calculator.calculate(memory)
-        memory.meta.vitality_score = vitality
+        memory.meta.lifecycle.vitality_score = vitality
         if persist:
             await self._mid_term.upsert(memory)
         return vitality

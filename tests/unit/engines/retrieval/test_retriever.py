@@ -8,7 +8,7 @@ MemoryRetriever 单元测试
 - 时间衰减逻辑
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
@@ -52,7 +52,7 @@ class TestDenseRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC),
                 confidence_score=0.9,
             ),
         )
@@ -64,7 +64,7 @@ class TestDenseRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now() - timedelta(days=60),
+                updated_at=datetime.now(UTC) - timedelta(days=60),
                 confidence_score=0.8,
             ),
         )
@@ -113,7 +113,7 @@ class TestDenseRetriever:
         # M2: 旧(180天前), 原始分 0.85
 
         # 更新 M2 时间为 180 天前
-        self.memory2.meta.updated_at = datetime.now() - timedelta(days=180)
+        self.memory2.meta.updated_at = datetime.now(UTC) - timedelta(days=180)
 
         self.mock_storage.search = AsyncMock(
             return_value=[
@@ -194,7 +194,7 @@ class TestHybridRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC),
             ),
         )
         self.memory2 = MemoryAtom(
@@ -207,7 +207,7 @@ class TestHybridRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC),
             ),
         )
 

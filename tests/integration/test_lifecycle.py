@@ -109,7 +109,7 @@ class InMemoryMidTermPort:
     async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
         memory = await self.get(identity_scope, memory_id)
         if memory is not None:
-            memory.meta.access_count += 1
+            memory.meta.lifecycle.access_count += 1
 
     async def delete(self, identity_scope, memory_id: UUID) -> bool:
         return self.memories.pop(self._scope_key(identity_scope, memory_id), None) is not None
@@ -210,8 +210,8 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
     updated = await memory_library.mid_term.get(_identity_scope(), memory.id)
 
     assert result.event_type == EventType.HIT
-    assert updated.meta.access_count == 1
-    assert updated.meta.vitality_score >= result.previous_vitality
+    assert updated.meta.lifecycle.access_count == 1
+    assert updated.meta.lifecycle.vitality_score >= result.previous_vitality
 
 
 @pytest.mark.asyncio

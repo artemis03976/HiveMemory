@@ -34,5 +34,5 @@ class AgentProfileResponse(BaseModel):
             summary=atom.index.summary,
             tags=atom.index.tags,
             content=atom.payload.content,
-            agent_config=atom.payload.artifacts.agent_config,
+            agent_config=atom.payload.agent_config,
         )

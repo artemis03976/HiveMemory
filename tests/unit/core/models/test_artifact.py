@@ -1,21 +1,51 @@
+"""Memory/Interaction Artifact 模型契约：schema 2、完整快照约束与 UTC 时间。"""
+
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAccessPolicy,
+    MemoryAtom,
+    MemoryLifecycleState,
+    MemoryProvenance,
+    MemoryType,
+    MetaData,
+    PayloadLayer,
+    WorkspaceIdentity,
+)
 from hivememory.core.models.artifact import (
     InteractionArtifact,
     InteractionTurnSnapshot,
-    MemoryVersionSnapshot,
+    MemoryCreationArtifact,
+    MemoryVersionArtifact,
+    snapshot_memory_atom,
+    validate_memory_atom_snapshot,
 )
-from tests.helpers.memory import make_memory_metadata
+
+NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
 
 
-def test_memory_version_snapshot_from_memory_atom_captures_mutable_fields():
-    atom = MemoryAtom(
+def _workspace() -> WorkspaceIdentity:
+    return WorkspaceIdentity(
+        owner_user_id="u1",
+        workspace_key="main_workspace",
+        workspace_id="main_workspace",
+    )
+
+
+def _atom() -> MemoryAtom:
+    return MemoryAtom(
         id=uuid4(),
-        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
+        meta=MetaData(
+            workspace_identity=_workspace(),
+            provenance=MemoryProvenance(source_agent_id="a1"),
+            access_policy=MemoryAccessPolicy.public(),
+            lifecycle=MemoryLifecycleState(decay_anchor_at=NOW),
+        ),
         index=IndexLayer(
             title="Test Title",
             summary="A test memory summary",
@@ -26,23 +56,113 @@ def test_memory_version_snapshot_from_memory_atom_captures_mutable_fields():
         payload=PayloadLayer(content="content"),
     )
 
-    snapshot = MemoryVersionSnapshot.from_memory_atom(atom)
 
-    assert snapshot.content == "content"
-    assert snapshot.alias == "fact_test"
-    assert snapshot.title == "Test Title"
-    assert snapshot.summary == "A test memory summary"
-    assert set(snapshot.tags) == {"tag1", "tag2"}
-    assert snapshot.memory_type == "FACT"
+# ─── 完整原子 JSON 快照（替代裁剪型 MemoryVersionSnapshot）──────────────────
+
+
+def test_snapshot_memory_atom_roundtrips_full_structure():
+    """快照 = 捕获时点完整原子的 canonical JSON，嵌套字段不丢失。"""
+    atom = _atom()
+    atom.payload.agent_config = {"model_name": "default", "temperature": 0.2}
+
+    snapshot = snapshot_memory_atom(atom)
+
+    assert snapshot["schema_version"] == "2.1"
+    assert snapshot["id"] == str(atom.id)
+    assert snapshot["payload"]["content"] == "content"
+    assert snapshot["payload"]["agent_config"]["model_name"] == "default"
+    assert snapshot["meta"]["lifecycle"]["decay_anchor_at"].startswith("2026-09-22")
+    assert snapshot["meta"]["provenance"]["source_agent_id"] == "a1"
+
+    # 深拷贝语义：修改原原子不影响已生成的快照。
+    atom.payload.content = "mutated"
+    assert snapshot["payload"]["content"] == "content"
+
+
+def test_snapshot_validation_rejects_missing_keys():
+    """快照缺必需顶层键时 fail closed。"""
+    incomplete = {"schema_version": "2.1", "id": "x"}
+    with pytest.raises(ValueError, match="缺少必需顶层键"):
+        validate_memory_atom_snapshot(incomplete)
+
+
+def test_snapshot_validation_rejects_wrong_embedded_schema():
+    """快照内嵌 schema 必须是 2.1，裁剪/未知版本拒绝。"""
+    snapshot = snapshot_memory_atom(_atom())
+    snapshot["schema_version"] = 2
+    with pytest.raises(ValueError, match="2.1"):
+        validate_memory_atom_snapshot(snapshot)
+
+
+# ─── MemoryVersionArtifact / MemoryCreationArtifact schema "2" ──────────────
+
+
+def _version_artifact(**overrides) -> MemoryVersionArtifact:
+    kwargs = {
+        "memory_id": str(uuid4()),
+        "workspace_identity": _workspace(),
+        "provenance": MemoryProvenance(source_agent_id="a1"),
+        "version_number": 2,
+        "update_source": "UPDATE",
+        "snapshot_after": snapshot_memory_atom(_atom()),
+        "changed_at": NOW,
+    }
+    kwargs.update(overrides)
+    return MemoryVersionArtifact(**kwargs)
+
+
+def test_version_artifact_schema_2_with_structured_provenance():
+    """schema 2 版本记录使用结构化 provenance，且独立于 Memory schema 轴。"""
+    artifact = _version_artifact()
+
+    assert artifact.schema_version == "2"
+    assert artifact.provenance.source_agent_id == "a1"
+    assert artifact.snapshot_after["schema_version"] == "2.1"
+
+
+def test_version_artifact_rejects_flat_legacy_provenance_fields():
+    """旧平铺来源字段不再是模型字段，防止旧写入路径复活。"""
+    assert "source_agent_id" not in MemoryVersionArtifact.model_fields
+    assert "contributing_agent_ids" not in MemoryVersionArtifact.model_fields
+    assert "source_agent_id" not in MemoryCreationArtifact.model_fields
+
+
+def test_create_v1_rejects_snapshot_before():
+    """CREATE v1 不允许携带 snapshot_before（无修改前状态）。"""
+    with pytest.raises(ValidationError, match="snapshot_before"):
+        _version_artifact(
+            version_number=1,
+            update_source="CREATE",
+            snapshot_before=snapshot_memory_atom(_atom()),
+        )
+
+
+def test_version_artifact_naive_changed_at_rejected():
+    """changed_at 是持久化业务时间，naive 值在模型边界拒绝。"""
+    with pytest.raises(ValidationError):
+        _version_artifact(changed_at=datetime(2026, 9, 22, 12, 0, 0))
+
+
+def test_creation_artifact_schema_2():
+    """创建 Artifact 升级为 schema 2 并复用结构化 provenance。"""
+    creation = MemoryCreationArtifact(
+        memory_id=str(uuid4()),
+        workspace_identity=_workspace(),
+        provenance=MemoryProvenance(source_agent_id="a1"),
+        source_intent="MANUAL",
+    )
+
+    assert creation.schema_version == "2"
+    assert creation.created_at.tzinfo is not None
+
+
+# ─── InteractionArtifact / InteractionTurnSnapshot（布局保持不变）──────────
 
 
 def test_artifact_requires_canonical_workspace_ownership():
     """新 Artifact 缺少 Workspace 归属时必须在领域边界拒绝。"""
     with pytest.raises(ValidationError, match="workspace_identity"):
         InteractionArtifact(topic_id="topic-1")
-
-
-# ─── InteractionTurnSnapshot actor 单字段收敛（读取升级分支已删除）──────────
 
 
 def _snapshot_payload(**overrides) -> dict:

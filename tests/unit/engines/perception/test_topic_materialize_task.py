@@ -134,13 +134,13 @@ class TestFromTopicData:
         )
 
     def test_bindings_are_frozen_as_snapshot(self):
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         scope = _identity_scope()
         binding = TopicAssetBinding(
             asset_ref=WorkspaceAssetRef(token="token-1", asset_id="asset-1"),
             first_bound_interaction_id="i1",
-            bound_at=datetime.now(),
+            bound_at=datetime.now(UTC),
         )
         topic = _topic_data(scope, blocks=(_block("q"),), bindings=(binding,))
 

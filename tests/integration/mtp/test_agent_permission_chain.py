@@ -45,13 +45,11 @@ def _make_profile_atom(
         ),
         payload=PayloadLayer(
             content=f"You are {agent_id}.",
-            artifacts={
-                "agent_config": {
-                    "model_name": "gpt-4",
-                    "temperature": 0.7,
-                    "allowed_mtp_verbs": allowed_verbs,
-                    "allowed_sys_tools": allowed_tools,
-                }
+            agent_config={
+                "model_name": "gpt-4",
+                "temperature": 0.7,
+                "allowed_mtp_verbs": allowed_verbs,
+                "allowed_sys_tools": allowed_tools,
             },
         ),
     )

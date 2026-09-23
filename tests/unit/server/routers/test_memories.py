@@ -119,7 +119,7 @@ class _MemoryManagementStub:
             elif key == "tags":
                 atom.index.tags = value
             elif key == "agent_config":
-                atom.payload.artifacts.agent_config = value
+                atom.payload.agent_config = value
         self.storage.upsert_memory(atom)
         return atom
 
@@ -183,7 +183,7 @@ class TestMemoriesRouter:
         atom = storage.upsert_memory.call_args.args[0]
         assert isinstance(atom, MemoryAtom)
         # 管理 actor 为保留 system（无具体 Agent 作为操作来源主体）
-        assert atom.meta.source_agent_id == "system"
+        assert atom.meta.provenance.source_agent_id == "system"
         assert atom.workspace_identity.owner_user_id == "default"
         assert atom.index.title == "Created memory"
         assert atom.index.summary == "A sufficiently long memory summary"
@@ -239,7 +239,7 @@ class TestMemoriesRouter:
         storage.get_all_memories.return_value = [atom]
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
-            atoms[0].meta, "vitality_score", 33.0
+            atoms[0].meta.lifecycle, "vitality_score", 33.0
         )
         # lifecycle 注入应用服务
 
@@ -260,7 +260,7 @@ class TestMemoriesRouter:
         storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
-            atoms[0].meta, "vitality_score", 44.0
+            atoms[0].meta.lifecycle, "vitality_score", 44.0
         )
         # lifecycle 注入应用服务
 
@@ -293,7 +293,7 @@ class TestMemoriesRouter:
         storage.get_memory.return_value = atom
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
-            atoms[0].meta, "vitality_score", 55.0
+            atoms[0].meta.lifecycle, "vitality_score", 55.0
         )
         # lifecycle 注入应用服务
 

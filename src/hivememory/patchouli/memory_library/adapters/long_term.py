@@ -29,6 +29,7 @@ from hivememory.engines.retrieval.memory_codec import decode_memory_payload
 from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import LongTermStoragePort
+from hivememory.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,8 @@ class FileBasedStorageAdapter(LongTermStoragePort):
 
         self._index[index_key] = ArchiveRecord(
             memory_id=memory.id,
-            original_vitality=memory.meta.vitality_score,
-            archived_at=datetime.now(),
+            original_vitality=memory.meta.lifecycle.vitality_score,
+            archived_at=utc_now(),
             storage_path=str(file_path),
             compressed_size_bytes=file_path.stat().st_size if file_path.exists() else None,
         )

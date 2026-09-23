@@ -11,7 +11,7 @@ import os
 
 # 添加项目根目录到路径
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +179,7 @@ class MockGenerationEngine:
             {
                 "message_count": len(messages),
                 "messages": messages,
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(UTC),
                 "first_content": messages[0].content[:50] if messages else "",
             }
         )
@@ -211,7 +211,7 @@ class MockLifecycleEngine:
         pass
 
     def refresh_vitality(self, memory, *, persist: bool = False) -> float:
-        memory.meta.vitality_score = 100.0
+        memory.meta.lifecycle.vitality_score = 100.0
         return 100.0
 
     def refresh_vitality_batch(self, memories, *, persist: bool = False):
@@ -240,7 +240,7 @@ class MockRetrievalFamiliar:
             {
                 "query": query,
                 "kwargs": kwargs,
-                "timestamp": datetime.now(),
+                "timestamp": datetime.now(UTC),
             }
         )
         return []

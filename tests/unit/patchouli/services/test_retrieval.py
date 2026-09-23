@@ -16,7 +16,6 @@ from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
-    Artifacts,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
@@ -78,7 +77,8 @@ def _make_profile_memory(
         ),
         payload=PayloadLayer(
             content="You are a coding specialist.",
-            artifacts=Artifacts(agent_config=agent_config or {"model_name": "default"}),
+            # schema 2.1: 可版本化 Profile 内容在 payload.agent_config
+            agent_config=agent_config or {"model_name": "default"},
         ),
     )
 
@@ -313,7 +313,7 @@ class TestRetrievalFamiliarRetrieve:
         bus = PatchouliBus()
 
         async def _refresh(memories, persist=False):
-            memories[0].meta.vitality_score = 42.0
+            memories[0].meta.lifecycle.vitality_score = 42.0
             return [(memories[0].id, 42.0)]
 
         bus.register(PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY, AsyncMock(side_effect=_refresh))
@@ -325,7 +325,7 @@ class TestRetrievalFamiliarRetrieve:
 
         response = await familiar.retrieve_async(_make_request())
 
-        assert response.memories[0].meta.vitality_score == 42.0
+        assert response.memories[0].meta.lifecycle.vitality_score == 42.0
 
     @pytest.mark.asyncio
     async def test_retrieve_async_vitality_refresh_failure_keeps_response(self):

@@ -16,7 +16,6 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 
 import logging
 import re
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceMismatchError
@@ -25,14 +24,15 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
     MemoryType,
     MetaData,
     PayloadLayer,
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.core.models.artifact import (
-    MemoryVersionSnapshot,
+from hivememory.core.models.provenance import (
+    MemoryProvenance,
     normalize_contributing_agent_ids,
 )
 from hivememory.engines.generation.interfaces import (
@@ -44,9 +44,11 @@ from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationOutcome,
     GenerationRequest,
-    MemoryProvenance,
     MergeResult,
+    provenance_from_actor,
+    system_settlement_provenance,
 )
+from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -161,7 +163,7 @@ class MemoryGenerationEngine:
         return await self._dedup_and_resolve(
             draft,
             identity_scope,
-            MemoryProvenance.system_settlement(request.context),
+            system_settlement_provenance(request.context),
         )
 
     async def _process_mode_b(
@@ -201,7 +203,7 @@ class MemoryGenerationEngine:
         return await self._dedup_and_resolve(
             draft,
             identity_scope,
-            MemoryProvenance.from_actor(identity_scope, request.context),
+            provenance_from_actor(identity_scope, request.context),
         )
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
@@ -284,7 +286,7 @@ class MemoryGenerationEngine:
         return self._apply_update(
             existing,
             merge_result,
-            provenance=MemoryProvenance.from_actor(identity_scope, request.context),
+            provenance=provenance_from_actor(identity_scope, request.context),
         )
 
     def _build_update_fallback(self, uf: UpdateFocus, existing: MemoryAtom) -> MergeResult:
@@ -297,7 +299,7 @@ class MemoryGenerationEngine:
         if uf.content:
             new_content = (
                 f"{existing.payload.content}\n\n"
-                f"## 更新 ({datetime.now().strftime('%Y-%m-%d')})\n"
+                f"## 更新 ({utc_now().strftime('%Y-%m-%d')})\n"
                 f"{uf.content}"
             )
             changelog = f"Fallback 追加: {uf.instruction[:80]}"
@@ -316,26 +318,24 @@ class MemoryGenerationEngine:
         dedup_draft: ExtractedMemoryDraft | None = None,
     ) -> list[GenerationOutcome]:
         """
-        执行版本历史追踪 + 内容更新。持久化由调用方负责。
+        执行内容修订。持久化与版本 Artifact 由 Familiar 负责。
 
-        1. 捕获变更前快照
+        1. 捕获变更前完整原子（深拷贝，供版本记录与 embedding 输入对比）
         2. 按需刷新 dedup index
-        3. 更新 history_summary
-        4. 覆盖 payload.content
-        5. 并入本次生成的贡献者集合
-        6. 更新 meta (updated_at, confidence, version)
-        """
-        now = datetime.now()
+        3. 覆盖 payload.content
+        4. 并入本次生成的贡献者集合
+        5. 更新 meta (updated_at, confidence, version)
 
-        before_snapshot = MemoryVersionSnapshot.from_memory_atom(memory)
+        `updated_at`/`version` 的最终提交时点由 Familiar 的完整写入路径决定；
+        引擎此处先行赋值仅为保持 outcome 自洽，MVL-2 收敛后由提交边界统一取时。
+        """
+        now = utc_now()
+
+        # 深拷贝保留修改前的完整原子；嵌套对象不与候选共享引用。
+        before_snapshot = memory.model_copy(deep=True)
 
         if dedup_draft is not None:
             self._merge_dedup_index(memory, dedup_draft)
-
-        # 更新轻量历史 fallback。正式历史展示应由 MemoryVersionArtifact 进入历史信息编译链路。
-        # TODO(history-compiler): 实现 MTP RUN 历史信息编译后，评估是否删除该写入路径。
-        summary_line = f"{now.strftime('%Y-%m-%d')}: {result.changelog}"
-        memory.payload.history_summary.append(summary_line)
 
         # Update Head: 覆盖 payload.content
         memory.payload.content = result.new_content
@@ -343,13 +343,13 @@ class MemoryGenerationEngine:
         # 版本演化引入新的内容贡献者：把本次来源裁定中的贡献者并入已有集合
         # （去重并保持首次出现顺序）。settle 贡献者因此能进入已有 Memory 及其
         # 后续 Version Artifact；source_agent_id/source_team_id 按约定保留不改写。
-        memory.meta.contributing_agent_ids = normalize_contributing_agent_ids(
-            [*memory.meta.contributing_agent_ids, *provenance.contributing_agent_ids]
+        memory.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
+            [*memory.meta.provenance.contributing_agent_ids, *provenance.contributing_agent_ids]
         )
 
         # 更新 meta
         memory.meta.updated_at = now
-        memory.meta.confidence_score = 1.0
+        memory.meta.lifecycle.confidence_score = 1.0
         memory.meta.version += 1
 
         logger.info(
@@ -393,10 +393,11 @@ class MemoryGenerationEngine:
 
         # 根据决策执行操作
         if decision == DuplicateDecision.TOUCH:
-            logger.info("记忆重复，更新访问时间")
+            # 内容相同的重复访问：只推进访问计数（MVL-0 冻结），不改内容时间、
+            # 不推进衰减基准、不升版本；持久化方式由 Familiar 的 patch 路径决定。
+            logger.info("记忆重复，仅累计访问状态")
 
-            existing_memory.meta.access_count += 1
-            existing_memory.meta.updated_at = datetime.now()
+            existing_memory.meta.lifecycle.access_count += 1
 
             return [
                 GenerationOutcome(
@@ -518,15 +519,20 @@ class MemoryGenerationEngine:
             title=draft.title,
         )
 
+        # 创建时点由提交边界统一取时：created_at = updated_at = decay_anchor_at。
+        now = utc_now()
+
         return MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,
-                source_agent_id=provenance.source_agent_id,
-                source_team_id=provenance.source_team_id,
-                contributing_agent_ids=provenance.contributing_agent_ids,
+                provenance=provenance,
                 access_policy=MemoryAccessPolicy.public(),
-                session_id=None,  # session_id 仅为兼容字段，不参与当前身份作用域传播
-                confidence_score=draft.confidence_score,
+                created_at=now,
+                updated_at=now,
+                lifecycle=MemoryLifecycleState(
+                    confidence_score=draft.confidence_score,
+                    decay_anchor_at=now,
+                ),
             ),
             index=IndexLayer(
                 title=draft.title,

@@ -7,12 +7,12 @@ HiveMemory - 垃圾回收器
 
 import logging
 from collections.abc import Iterable
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.system.config import GarbageCollectorConfig
+from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.library import MemoryLibrary
@@ -83,10 +83,13 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
                     workspace_identity=memory.workspace_identity,
                     memory_id=memory.id,
                 ),
-                memory.meta.vitality_score,
+                memory.meta.lifecycle.vitality_score,
             )
             for memory in memories
-            if memory.meta.vitality_score is not None and memory.meta.vitality_score <= threshold
+            if (
+                memory.meta.lifecycle.vitality_score is not None
+                and memory.meta.lifecycle.vitality_score <= threshold
+            )
         ]
         candidates.sort(key=lambda item: item[1])
 
@@ -174,7 +177,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         archived: int,
         skipped: int = 0,
     ) -> None:
-        self._stats["last_run"] = datetime.now().isoformat()
+        self._stats["last_run"] = utc_now().isoformat()
         self._stats["total_scanned"] += scanned
         self._stats["total_archived"] += archived
         self._stats["total_skipped"] += skipped

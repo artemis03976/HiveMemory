@@ -3,23 +3,31 @@ Artifact 数据模型 - v0.5.0 数据持久化与溯源层
 
 当前设计见 docs/patchouli/artifacts.md；历史实施稿见
 docs/archive/plans/implementation/v0.5.0-data-durability-and-async-cold-path.md。
+
+Memory 相关 Artifact（memory_creation / memory_version）自 schema "2" 起使用
+结构化 ``MemoryProvenance`` 与完整原子 JSON 快照；旧 schema "1" 记录只读保留，
+不由新写入产生。Interaction/Document Artifact 布局保持不变。
 """
 
-from collections.abc import Iterable
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models.identity import ActorIdentity
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.models.workspace import (
     IdentityScope,
     WorkspaceIdentity,
     require_identity_scope,
 )
+from hivememory.utils.time import require_utc, utc_now
+
+if TYPE_CHECKING:
+    from hivememory.core.models.memory import MemoryAtom
 
 
 class ArtifactType(str, Enum):
@@ -29,21 +37,36 @@ class ArtifactType(str, Enum):
     MEMORY_VERSION = "memory_version"
 
 
-def normalize_contributing_agent_ids(value: Iterable[str]) -> tuple[str, ...]:
-    """归一化内容贡献者集合：去重并保持首次出现顺序。
+# 完整 MemoryAtom canonical JSON 快照必须携带的顶层键（A2-P §5.1）。
+_MEMORY_SNAPSHOT_REQUIRED_KEYS = ("schema_version", "id", "meta", "index", "payload", "relations")
 
-    贡献者表达"哪些具体 Agent 的工作产出了内容"，不表达资产归属或授权
-    目标。保留 ``SYSTEM_AGENT_ID`` 表示"没有具体 Agent 作为操作来源主体"，
-    不是内容贡献者，与空白标识一并丢弃。
+
+def validate_memory_atom_snapshot(snapshot: Mapping[str, Any]) -> None:
+    """校验完整 MemoryAtom canonical JSON 快照的结构约束。
+
+    快照必须是携带 schema "2.1" 的完整原子 JSON 对象；缺失必需顶层键、未知
+    schema 或不是对象都直接拒绝，不允许裁剪原子或精简投影伪装成完整快照。
     """
-    normalized: list[str] = []
-    for agent_id in value:
-        stripped = agent_id.strip() if isinstance(agent_id, str) else ""
-        if not stripped or stripped == SYSTEM_AGENT_ID:
-            continue
-        if stripped not in normalized:
-            normalized.append(stripped)
-    return tuple(normalized)
+    if not isinstance(snapshot, Mapping):
+        raise ValueError("Memory 快照必须是完整 MemoryAtom 的 JSON 对象")
+    missing = [key for key in _MEMORY_SNAPSHOT_REQUIRED_KEYS if snapshot.get(key) is None]
+    if missing:
+        raise ValueError(f"Memory 快照缺少必需顶层键: {missing}")
+    if snapshot["schema_version"] != "2.1":
+        raise ValueError(
+            f"Memory 快照内嵌 schema 必须是 '2.1'，收到: {snapshot['schema_version']!r}"
+        )
+
+
+def snapshot_memory_atom(memory: "MemoryAtom") -> dict[str, Any]:
+    """生成完整 MemoryAtom 的 canonical JSON 快照。
+
+    快照即捕获时点的完整原子序列化结果（A2-P §5.1）；生成后立即按结构约束
+    校验，写入历史后不可变，后续状态变化不回写快照。
+    """
+    snapshot = memory.model_dump(mode="json")
+    validate_memory_atom_snapshot(snapshot)
+    return snapshot
 
 
 class WorkspaceArtifactKey(BaseModel):
@@ -82,9 +105,15 @@ class ArtifactRef(BaseModel):
     uri: str = Field(default="", description="文件系统路径或远程 URI")
     sha256: str = ""
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
 
     summary: str = ""
+
+    @field_validator("created_at")
+    @classmethod
+    def _require_utc(cls, value: datetime) -> datetime:
+        """引用时间是持久化业务时间，必须 timezone-aware 并规范化为 UTC。"""
+        return require_utc(value)
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
@@ -103,13 +132,19 @@ class BaseArtifact(BaseModel):
     artifact_type: ArtifactType
 
     schema_version: str = "1"
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
     content_hash: str | None = None  # 由 ArtifactStore 在写入时填充
 
     workspace_identity: WorkspaceIdentity
 
     title: str = ""
     summary: str = ""
+
+    @field_validator("created_at")
+    @classmethod
+    def _require_utc(cls, value: datetime) -> datetime:
+        """Artifact 创建时间是持久化业务时间，必须 timezone-aware 并规范化为 UTC。"""
+        return require_utc(value)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -157,7 +192,13 @@ class InteractionArtifact(BaseArtifact):
     topic_summary: str = ""
 
     turns: list[InteractionTurnSnapshot] = Field(default_factory=list)
-    captured_at: datetime = Field(default_factory=datetime.now)
+    captured_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("captured_at")
+    @classmethod
+    def _require_utc(cls, value: datetime) -> datetime:
+        """交互捕获时间是持久化业务时间，必须 timezone-aware 并规范化为 UTC。"""
+        return require_utc(value)
 
 
 # ============ DocumentArtifact ============
@@ -196,6 +237,14 @@ class DocumentArtifact(BaseArtifact):
     snapshot_hash: str | None = None  # 快照内容 sha256
     extracted_text_uri: str | None = None  # 提取后纯文本的物理存储地址
 
+    @field_validator("retrieved_at")
+    @classmethod
+    def _require_utc_optional(cls, value: datetime | None) -> datetime | None:
+        """取回时间是持久化业务时间；缺失保持 None，存在时必须为 UTC-aware。"""
+        if value is None:
+            return None
+        return require_utc(value)
+
 
 # ============ MemoryCreationArtifact / MemoryVersionArtifact ============
 
@@ -212,93 +261,80 @@ class MemoryInputRef(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class MemoryVersionSnapshot(BaseModel):
-    """记忆原子某一版本下所有可变字段的完整快照。"""
-
-    content: str
-    alias: str | None = None
-    title: str | None = None
-    summary: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    memory_type: str | None = None
-
-    model_config = ConfigDict(extra="ignore")
-
-    @classmethod
-    def from_memory_atom(cls, memory: Any) -> "MemoryVersionSnapshot":
-        """构建 MemoryAtom 的规范可变字段快照。"""
-        memory_type = memory.index.memory_type
-        return cls(
-            content=memory.payload.content,
-            alias=memory.index.alias,
-            title=memory.index.title,
-            summary=memory.index.summary,
-            tags=list(memory.index.tags),
-            memory_type=memory_type.value if hasattr(memory_type, "value") else memory_type,
-        )
-
-
 class MemoryCreationArtifact(BaseArtifact):
     """记忆创建 Artifact - genesis record，一旦写入不再更新。
 
     不保存 alias / title / tags 等可变字段，这些由 initial_version_ref 所指向的
     MemoryVersionArtifact(v1).snapshot_after 持有。
 
-    来源 provenance 与 MemoryAtom 语义一致：``source_agent_id`` 记录操作来源
-    （SETTLE 等没有具体 Agent 的操作使用保留 ``SYSTEM_AGENT_ID``），
-    ``contributing_agent_ids`` 记录实际贡献内容的 Agent 集合。
+    schema "2" 起来源 provenance 复用 core 的 ``MemoryProvenance`` 结构化值：
+    ``source_agent_id`` 记录操作来源（SETTLE 等没有具体 Agent 的操作使用保留
+    ``SYSTEM_AGENT_ID``），``contributing_agent_ids`` 记录实际贡献内容的集合。
     """
 
     artifact_type: Literal[ArtifactType.MEMORY_CREATION] = ArtifactType.MEMORY_CREATION
 
+    schema_version: Literal["2"] = "2"
+
     memory_id: str = ""
     source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"] = "WRITE"
-    source_agent_id: str = Field(..., min_length=1)
-    contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
+    provenance: MemoryProvenance
 
     generation_view: dict[str, Any] = Field(default_factory=dict)  # GenerationContext.model_dump()
     source_artifacts: list[ArtifactRef] = Field(default_factory=list)
     source_memory_refs: list[MemoryInputRef] = Field(default_factory=list)
     initial_version_ref: ArtifactRef | None = None  # 指向 MemoryVersionArtifact(v1)
 
-    @field_validator("contributing_agent_ids")
-    @classmethod
-    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        """去重并保持首次出现顺序；system 不是内容贡献者。"""
-        return normalize_contributing_agent_ids(value)
-
 
 class MemoryVersionArtifact(BaseArtifact):
     """记忆版本快照 - 完整状态快照链（类似 git commit）。
 
     v1 对应初始创建状态（update_source="CREATE"，snapshot_before=None）。
-    后续版本 snapshot_before/after 均包含全量可变字段，支持任意版本独立重建。
+    schema "2" 起 snapshot_before/after 直接嵌入捕获时完整 MemoryAtom 的
+    canonical JSON 对象（经 :func:`validate_memory_atom_snapshot` 约束），
+    不再使用裁剪型快照模型；内嵌 Memory 的 schema ("2.1") 与本 Artifact 的
+    schema ("2") 独立演进。
 
-    来源 provenance 与 MemoryAtom 语义一致（见 MemoryCreationArtifact）；
-    版本更新保留已有来源字段，不引入 Agent owner 语义。
+    来源 provenance 复用 core 的 ``MemoryProvenance``；版本更新保留已有来源
+    事实，不引入 Agent owner 语义。
     """
 
     artifact_type: Literal[ArtifactType.MEMORY_VERSION] = ArtifactType.MEMORY_VERSION
 
-    memory_id: str = ""
-    version_number: int = 1
-    update_source: Literal["CREATE", "UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "CREATE"
-    source_agent_id: str = Field(..., min_length=1)
-    contributing_agent_ids: tuple[str, ...] = Field(default_factory=tuple)
+    schema_version: Literal["2"] = "2"
 
-    snapshot_before: MemoryVersionSnapshot | None = None  # v1 时为 None
-    snapshot_after: MemoryVersionSnapshot
+    memory_id: str = ""
+    version_number: int = Field(default=1, ge=1)
+    update_source: Literal["CREATE", "UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "CREATE"
+    provenance: MemoryProvenance
+
+    snapshot_before: dict[str, Any] | None = None  # v1 时为 None
+    snapshot_after: dict[str, Any]
 
     changelog: str | None = None
     source_artifacts: list[ArtifactRef] = Field(default_factory=list)
     source_memory_refs: list[MemoryInputRef] = Field(default_factory=list)
-    changed_at: datetime = Field(default_factory=datetime.now)
+    changed_at: datetime = Field(default_factory=utc_now)
 
-    @field_validator("contributing_agent_ids")
+    @field_validator("changed_at")
     @classmethod
-    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        """去重并保持首次出现顺序；system 不是内容贡献者。"""
-        return normalize_contributing_agent_ids(value)
+    def _require_utc(cls, value: datetime) -> datetime:
+        """版本捕获时间是持久化业务时间，必须 timezone-aware 并规范化为 UTC。"""
+        return require_utc(value)
+
+    @model_validator(mode="after")
+    def _validate_snapshots(self) -> "MemoryVersionArtifact":
+        """快照字段必须是受约束的完整原子 JSON；v1 不允许携带 before。"""
+        validate_memory_atom_snapshot(self.snapshot_after)
+        if self.snapshot_before is not None:
+            validate_memory_atom_snapshot(self.snapshot_before)
+        if (
+            self.version_number == 1
+            and self.update_source == "CREATE"
+            and self.snapshot_before is not None
+        ):
+            raise ValueError("CREATE v1 版本记录不允许携带 snapshot_before")
+        return self
 
 
 # ============ MemoryEventLog ============
@@ -315,8 +351,14 @@ class MemoryEventLog(BaseModel):
     """挂在单个 MemoryAtom 上的生命周期事件日志条目。"""
 
     event_type: MemoryEventType
-    at: datetime = Field(default_factory=datetime.now)
+    at: datetime = Field(default_factory=utc_now)
     artifact_refs: list[ArtifactRef] = Field(default_factory=list)
     note: str | None = None
+
+    @field_validator("at")
+    @classmethod
+    def _require_utc(cls, value: datetime) -> datetime:
+        """事件时间是持久化业务时间，必须 timezone-aware 并规范化为 UTC。"""
+        return require_utc(value)
 
     model_config = ConfigDict(extra="ignore")
