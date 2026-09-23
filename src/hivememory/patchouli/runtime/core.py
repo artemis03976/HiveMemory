@@ -454,6 +454,7 @@ class PatchouliRuntime:
         """[私有构建器] 组装 ArtifactEngine — store 由 MemoryLibrary 统一持有"""
         from hivememory.engines.artifacts import (
             ArtifactEngine,
+            NoOpMemoryArtifactBuilder,
             create_document_builder,
             create_interaction_builder,
             create_memory_builder,
@@ -464,11 +465,24 @@ class PatchouliRuntime:
         if not config.enabled:
             store = None
 
+        memory_builder = create_memory_builder(config.memory, store)
+        if isinstance(memory_builder, NoOpMemoryArtifactBuilder):
+            # A2-P §5.3：版本记录是内容提交成功的前置条件。此处只做启动
+            # 诊断——内容 create/update 会在 Familiar 明确失败。
+            logger.warning(
+                "Memory 版本存储未启用（patchouli.artifacts.enabled=%s, "
+                "patchouli.artifacts.memory.enabled=%s, ArtifactStore=%s）：内容 "
+                "create/update 将失败；既有资源读取与 lifecycle 更新不受影响。",
+                config.enabled,
+                config.memory.enabled,
+                "已装配" if store is not None else "未装配",
+            )
+
         return ArtifactEngine(
             config=config,
             interaction=create_interaction_builder(config.interaction, store),
             document=create_document_builder(config.document, store),
-            memory=create_memory_builder(config.memory, store),
+            memory=memory_builder,
         )
 
     def _build_lifecycle_engine(self):
