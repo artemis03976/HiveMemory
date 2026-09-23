@@ -139,7 +139,7 @@ class QdrantMemoryStore:
             raise
 
     async def upsert_memory(
-        self, memory: MemoryAtom, use_sparse: bool = True, force_regenerate: bool = False
+        self, memory: MemoryAtom, use_sparse: bool = True, recompute_vectors: bool = True
     ) -> None:
         """
         插入或更新记忆原子
@@ -147,11 +147,35 @@ class QdrantMemoryStore:
         Args:
             memory: 记忆原子对象
             use_sparse: 是否同时存储稀疏向量
-            force_regenerate: 是否强制重新生成向量
+            recompute_vectors: 是否重算 embedding；``False`` 用于 embedding
+                输入未变化的完整内容提交（如仅修改 ``payload.agent_config``），
+                通过整份 payload 局部更新保留既有向量
 
         Raises:
             Exception: 操作失败时抛出
         """
+        if not recompute_vectors:
+            # embedding 输入未变化：set_payload 只替换 payload 顶层键，
+            # 向量原样保留；不触发 legacy 点清理（点 ID 未变）。
+            try:
+                await self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload=memory.to_qdrant_payload(),
+                    points=[
+                        self._point_id(
+                            WorkspaceMemoryKey(
+                                workspace_identity=memory.workspace_identity,
+                                memory_id=memory.id,
+                            )
+                        )
+                    ],
+                )
+                logger.debug(f"✓ 已保留向量并替换 payload: {memory.id}")
+                return
+            except Exception as e:
+                logger.error(f"保留向量更新 payload 失败: {e}")
+                raise
+
         try:
             if use_sparse:
                 # 生成混合向量 (稠密 + 稀疏)，使用不同的输入文本
@@ -211,6 +235,39 @@ class QdrantMemoryStore:
 
         except Exception as e:
             logger.error(f"存储记忆失败: {e}")
+            raise
+
+    async def patch_memory_payload(
+        self,
+        key: WorkspaceMemoryKey,
+        *,
+        lifecycle: dict[str, Any] | None = None,
+        access_policy: dict[str, Any] | None = None,
+    ) -> None:
+        """对单个点做受限局部 payload 更新，向量与未提交字段不动。
+
+        仅允许两个嵌套键：``meta.lifecycle``（整块替换）与
+        ``meta.access_policy``（整体替换）；由 adapter 的字段白名单保证调用
+        方无法触达其他路径。
+        """
+        try:
+            point_id = self._point_id(key)
+            if lifecycle is not None:
+                await self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload=lifecycle,
+                    points=[point_id],
+                    key="meta.lifecycle",
+                )
+            if access_policy is not None:
+                await self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload=access_policy,
+                    points=[point_id],
+                    key="meta.access_policy",
+                )
+        except Exception as e:
+            logger.error(f"局部更新 Memory payload 失败: {e}")
             raise
 
     async def get_memory(

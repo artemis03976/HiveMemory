@@ -12,17 +12,23 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
+from hivememory.core.models import WorkspaceMemoryKey
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.utils.time import utc_now
 from tests.helpers.workspace import make_identity_scope
 
 
 class _RecordingPort(MidTermStoragePort):
-    """记录 get/get_by_alias/search/scroll 收到的关键字参数；其余方法不应被触达。"""
+    """记录 get/get_by_alias/search/scroll/patch_payload 收到的参数；其余方法不应被触达。"""
 
-    def __init__(self):
+    def __init__(self, *, name: str = "port", call_order: list[str] | None = None):
         self.enforce_seen: list[bool] = []
+        self.name = name
+        self.call_order = call_order if call_order is not None else []
+        self.patch_calls: list[tuple[WorkspaceMemoryKey, dict]] = []
+        self.patch_result: object | None = None
 
     async def get(self, identity_scope, memory_id, *, enforce_actor_visibility=True):
         self.enforce_seen.append(enforce_actor_visibility)
@@ -38,10 +44,12 @@ class _RecordingPort(MidTermStoragePort):
     async def get_by_key(self, key):  # pragma: no cover
         raise AssertionError("not expected")
 
-    async def update_access_info(self, identity_scope, memory_id):  # pragma: no cover
-        raise AssertionError("not expected")
+    async def patch_payload(self, key, patch):
+        self.patch_calls.append((key, dict(patch)))
+        self.call_order.append(f"{self.name}:patch_payload")
+        return self.patch_result
 
-    async def upsert(self, memory):  # pragma: no cover
+    async def upsert(self, memory, *, recompute_vectors=True):  # pragma: no cover
         raise AssertionError("not expected")
 
     async def delete(self, identity_scope, memory_id):  # pragma: no cover
@@ -107,6 +115,28 @@ def test_store_forwards_enforce_flag_for_search_and_scroll():
     asyncio.run(store.scroll(scope, limit=10, enforce_actor_visibility=False))
 
     assert port.enforce_seen == [False, False]
+
+
+def test_store_forwards_patch_payload_to_primary_and_secondary():
+    """MVL-2: patch_payload 必须把同一 patch 沿顺序转发 primary 与全部 secondary。"""
+    call_order: list[str] = []
+    primary = _RecordingPort(name="primary", call_order=call_order)
+    secondary = _RecordingPort(name="secondary", call_order=call_order)
+    store = MidTermMemoryStore(primary, secondary=[secondary])
+    scope = make_identity_scope()
+    memory_id = uuid4()
+    key = WorkspaceMemoryKey.from_identity_scope(scope, memory_id)
+    patch = {
+        "meta.lifecycle.access_count": 4,
+        "meta.lifecycle.last_accessed_at": utc_now(),
+    }
+
+    result = asyncio.run(store.patch_payload(key, patch))
+
+    assert primary.patch_calls == [(key, patch)]
+    assert secondary.patch_calls == [(key, patch)]
+    assert call_order == ["primary:patch_payload", "secondary:patch_payload"]
+    assert result is primary.patch_result, "门面应返回 primary 的 patch_payload 结果"
 
 
 def test_retrieval_familiar_get_memory_does_not_raise_type_error():

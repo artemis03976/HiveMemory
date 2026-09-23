@@ -5,6 +5,7 @@ MemoryAtom 的 canonical JSON（见 :func:`snapshot_memory_atom`）；捕获时�
 与内容提交时点的统一由 Familiar 完整写入路径负责（MVL-2/MVL-3 收敛）。
 """
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -21,7 +22,7 @@ from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.patchouli.memory_library import ArtifactStore
 from hivememory.system.config.patchouli import ArtifactComponentConfig
-from hivememory.utils.time import utc_now
+from hivememory.utils.time import require_utc, utc_now
 
 
 class MemoryCreationBundle(BaseModel):
@@ -47,8 +48,13 @@ class MemoryArtifactBuilder:
         source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         source_artifact_refs: list[ArtifactRef],
         source_memory_refs: list[MemoryInputRef] | None = None,
+        now: datetime | None = None,
     ) -> MemoryCreationBundle:
-        """原子写入 MemoryVersionArtifact(v1) 与 MemoryCreationArtifact。v1 先写。"""
+        """原子写入 MemoryVersionArtifact(v1) 与 MemoryCreationArtifact。v1 先写。
+
+        ``now`` 为 Familiar 提交边界时点；缺省取当前 UTC（仅测试/独立调用）。
+        """
+        commit_now = require_utc(now) if now is not None else utc_now()
         memory_id = str(memory.id)
         _require_source_refs_in_workspace(memory, source_artifact_refs)
 
@@ -61,7 +67,7 @@ class MemoryArtifactBuilder:
             update_source="CREATE",
             snapshot_before=None,
             snapshot_after=snapshot_memory_atom(memory),
-            changed_at=utc_now(),
+            changed_at=commit_now,
             source_artifacts=source_artifact_refs,
             source_memory_refs=source_memory_refs or [],
         )
@@ -91,11 +97,14 @@ class MemoryArtifactBuilder:
         changelog: str | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,
         source_memory_refs: list[MemoryInputRef] | None = None,
+        now: datetime | None = None,
     ) -> ArtifactRef | None:
         """写入 MemoryVersionArtifact(v2+)，返回 version ref。
 
-        ``snapshot_before`` 是提交边界捕获的修改前完整原子 canonical JSON。
+        ``snapshot_before`` 是提交边界捕获的修改前完整原子 canonical JSON；
+        ``changed_at`` 使用 Familiar 传入的提交时点，builder 不再隐式取时。
         """
+        commit_now = require_utc(now) if now is not None else utc_now()
         _require_source_refs_in_workspace(memory_after, source_artifact_refs or [])
         version = MemoryVersionArtifact(
             memory_id=str(memory_after.id),
@@ -106,7 +115,7 @@ class MemoryArtifactBuilder:
             snapshot_before=snapshot_before,
             snapshot_after=snapshot_memory_atom(memory_after),
             changelog=changelog,
-            changed_at=utc_now(),
+            changed_at=commit_now,
             source_artifacts=source_artifact_refs or [],
             source_memory_refs=source_memory_refs or [],
         )
@@ -122,6 +131,7 @@ class NoOpMemoryArtifactBuilder:
         source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         source_artifact_refs: list[ArtifactRef],
         source_memory_refs: list[MemoryInputRef] | None = None,
+        now: datetime | None = None,
     ) -> MemoryCreationBundle:
         return MemoryCreationBundle()
 
@@ -134,6 +144,7 @@ class NoOpMemoryArtifactBuilder:
         changelog: str | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,
         source_memory_refs: list[MemoryInputRef] | None = None,
+        now: datetime | None = None,
     ) -> ArtifactRef | None:
         return None
 

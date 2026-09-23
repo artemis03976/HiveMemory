@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from hivememory.core.models import (
@@ -131,10 +133,11 @@ class MidTermMemoryStore:
         self._primary = primary
         self._secondary: list[MidTermStoragePort] = secondary or []
 
-    async def upsert(self, memory: MemoryAtom) -> None:
-        await self._primary.upsert(memory)
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
+        """提交完整 canonical Memory；primary 写入后沿顺序同步 secondary。"""
+        await self._primary.upsert(memory, recompute_vectors=recompute_vectors)
         for secondary in self._secondary:
-            await secondary.upsert(memory)
+            await secondary.upsert(memory, recompute_vectors=recompute_vectors)
 
     async def get(
         self,
@@ -175,8 +178,19 @@ class MidTermMemoryStore:
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return await self._primary.get_by_key(key)
 
-    async def update_access_info(self, identity_scope: IdentityScope, memory_id: UUID) -> None:
-        await self._primary.update_access_info(require_identity_scope(identity_scope), memory_id)
+    async def patch_payload(
+        self,
+        key: WorkspaceMemoryKey,
+        patch: Mapping[str, Any],
+    ) -> MemoryAtom | None:
+        """受限局部更新：primary 提交并返回结果，同一 patch 沿顺序同步 secondary。
+
+        任一存储失败按顺序直接传播，不回滚已成功的写入（首版串行假设）。
+        """
+        result = await self._primary.patch_payload(key, patch)
+        for secondary in self._secondary:
+            await secondary.patch_payload(key, patch)
+        return result
 
     async def delete(self, identity_scope: IdentityScope, memory_id: UUID) -> bool:
         identity_scope = require_identity_scope(identity_scope)

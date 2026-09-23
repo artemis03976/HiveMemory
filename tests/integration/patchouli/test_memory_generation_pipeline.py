@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -15,6 +18,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
+from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.models import DuplicateDecision, GenerationOutcome
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
@@ -30,16 +34,21 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskStatus,
 )
+from hivememory.patchouli.memory_library.adapters.artifact import (
+    FilesystemArtifactStorageAdapter,
+)
 from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 from hivememory.patchouli.memory_library.stores import (
+    ArtifactStore,
     LongTermMemoryStore,
     MidTermMemoryStore,
     ShortTermMemoryStore,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+from hivememory.system.config.patchouli import ArtifactConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -298,8 +307,29 @@ class _InMemoryMidTermPort(MidTermStoragePort):
         workspace = scope.workspace_identity
         return workspace.owner_user_id, workspace.workspace_id, memory_id
 
-    async def upsert(self, memory: MemoryAtom) -> None:
+    @staticmethod
+    def _key_of(key: WorkspaceMemoryKey) -> tuple[str, str, UUID]:
+        workspace = key.workspace_identity
+        return workspace.owner_user_id, workspace.workspace_id, key.memory_id
+
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
         self.memories[self._key(memory)] = memory
+
+    async def patch_payload(
+        self,
+        key: WorkspaceMemoryKey,
+        patch: Mapping[str, Any],
+    ) -> MemoryAtom | None:
+        memory = self.memories.get(self._key_of(key))
+        if memory is None:
+            return None
+        for dotted_path, value in patch.items():
+            parts = dotted_path.split(".")
+            target: Any = memory
+            for part in parts[:-1]:
+                target = getattr(target, part)
+            setattr(target, parts[-1], value)
+        return memory
 
     async def get(
         self,
@@ -329,21 +359,13 @@ class _InMemoryMidTermPort(MidTermStoragePort):
         return await self.get(identity_scope, memory_id)
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
-        workspace = key.workspace_identity
-        return self.memories.get((workspace.owner_user_id, workspace.workspace_id, key.memory_id))
-
-    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
-        memory = await self.get(identity_scope, memory_id)
-        if memory is not None:
-            memory.meta.access_count += 1
+        return self.memories.get(self._key_of(key))
 
     async def delete(self, identity_scope, memory_id: UUID) -> bool:
         return self.memories.pop(self._scope_key(identity_scope, memory_id), None) is not None
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
-        workspace = key.workspace_identity
-        storage_key = (workspace.owner_user_id, workspace.workspace_id, key.memory_id)
-        return self.memories.pop(storage_key, None) is not None
+        return self.memories.pop(self._key_of(key), None) is not None
 
     async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
         return sum(1 for mid in ids if await self.delete(identity_scope, mid))
@@ -387,15 +409,30 @@ class _InMemoryMidTermPort(MidTermStoragePort):
 
 
 class _StubGenerationEngine:
-    """真实接口的 stub：process 返回预设 GenerationOutcome，不触达 LLM。"""
+    """真实接口的 stub：process 返回预设 GenerationOutcome，不触达 LLM。
+
+    MVL-2 引擎纯化后 Familiar 会把提交边界时点作为 ``now`` 传入；stub 与真实
+    引擎保持同签名，时间戳断言由落库结果承载。
+    """
 
     def __init__(self, outcomes: list) -> None:
         self._outcomes = outcomes
         self.requests: list = []
 
-    async def process(self, request, *, identity_scope=None):
+    async def process(self, request, *, identity_scope=None, now: datetime | None = None):
         self.requests.append(request)
         return self._outcomes
+
+
+@pytest.fixture
+def artifact_engine(tmp_path) -> ArtifactEngine:
+    """真实 ArtifactEngine：版本记录写入 tmp_path 下的文件系统 Artifact 仓库。
+
+    MVL-2 起版本记录是内容提交成功的前置条件（NoOp memory builder 会被
+    Familiar 以 RuntimeError 拒绝），数据面用例必须装配会真实写版本的 builder。
+    """
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
+    return ArtifactEngine.from_store(store, ArtifactConfig(enabled=True))
 
 
 @pytest.fixture
@@ -420,17 +457,19 @@ def _wire_generation_familiar(
     bus: PatchouliBus,
     memory_library: MemoryLibrary,
     stub_engine: _StubGenerationEngine,
+    artifact_engine: ArtifactEngine,
 ) -> MemoryGenerationFamiliar:
     familiar = MemoryGenerationFamiliar(
         generation_engine=stub_engine,  # type: ignore[arg-type]
         memory_library=memory_library,
+        artifact_engine=artifact_engine,
     )
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, familiar.execute)
     return familiar
 
 
 @pytest.mark.asyncio
-async def test_passive_settlement_lands_in_real_mid_term(memory_library):
+async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifact_engine):
     """被动 SETTLEMENT：真实 Familiar 把生成结果写入真实 mid_term。"""
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
@@ -440,7 +479,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library):
     stub = _StubGenerationEngine(
         [GenerationOutcome(atom=atom, duplicate_decision=DuplicateDecision.CREATE)]
     )
-    _wire_generation_familiar(bus, memory_library, stub)
+    _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
 
     memory_task = await coordinator.submit_settlement(
         TopicMaterializeTask(
@@ -472,7 +511,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library):
 
 
 @pytest.mark.asyncio
-async def test_active_write_lands_in_real_mid_term(memory_library):
+async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engine):
     """主动 WRITE：真实 Familiar 执行后落库 mid_term 并发布 settlement。"""
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus)
@@ -483,7 +522,7 @@ async def test_active_write_lands_in_real_mid_term(memory_library):
     stub = _StubGenerationEngine(
         [GenerationOutcome(atom=atom, duplicate_decision=DuplicateDecision.CREATE)]
     )
-    _wire_generation_familiar(bus, memory_library, stub)
+    _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.subscribe(
         PatchouliLocalEvents.PENDING_ATOM_SETTLED,

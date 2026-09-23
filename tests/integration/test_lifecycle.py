@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -65,8 +67,23 @@ def _make_memory(title: str = "Test", vitality_score: float = 50.0) -> MemoryAto
 
 
 class InMemoryMidTermPort:
+    # 与 QdrantStorageAdapter 相同的 patch_payload dotted 字段白名单（MVL-2）。
+    _PATCH_ALLOWED_PATHS = frozenset(
+        {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+            "meta.lifecycle.confidence_score",
+            "meta.lifecycle.verification_status",
+            "meta.lifecycle.decay_anchor_at",
+            "meta.access_policy",
+        }
+    )
+
     def __init__(self) -> None:
         self.memories: dict[tuple[str, str, UUID], MemoryAtom] = {}
+        self.patch_calls: list[tuple[WorkspaceMemoryKey, dict[str, Any]]] = []
 
     @staticmethod
     def _memory_key(memory: MemoryAtom) -> tuple[str, str, UUID]:
@@ -78,7 +95,7 @@ class InMemoryMidTermPort:
         workspace = scope.workspace_identity
         return workspace.owner_user_id, workspace.workspace_id, memory_id
 
-    async def upsert(self, memory: MemoryAtom) -> None:
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
         self.memories[self._memory_key(memory)] = memory
 
     async def get(
@@ -106,10 +123,28 @@ class InMemoryMidTermPort:
         workspace = key.workspace_identity
         return self.memories.get((workspace.owner_user_id, workspace.workspace_id, key.memory_id))
 
-    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
-        memory = await self.get(identity_scope, memory_id)
-        if memory is not None:
-            memory.meta.lifecycle.access_count += 1
+    async def patch_payload(
+        self,
+        key: WorkspaceMemoryKey,
+        patch: Mapping[str, Any],
+    ) -> MemoryAtom | None:
+        """受限局部更新 fake：镜像白名单校验，把 dotted 路径写回存储原子并记录参数。"""
+        if not patch:
+            raise ValueError("patch_payload 不允许空 patch")
+        unknown = set(patch) - self._PATCH_ALLOWED_PATHS
+        if unknown:
+            raise ValueError(f"patch_payload 不允许的字段路径: {sorted(unknown)}")
+        memory = await self.get_by_key(key)
+        if memory is None:
+            return None
+        self.patch_calls.append((key, dict(patch)))
+        for path, value in patch.items():
+            if path == "meta.access_policy":
+                memory.meta.access_policy = value
+            else:
+                field = path.rsplit(".", 1)[-1]
+                setattr(memory.meta.lifecycle, field, value)
+        return memory
 
     async def delete(self, identity_scope, memory_id: UUID) -> bool:
         return self.memories.pop(self._scope_key(identity_scope, memory_id), None) is not None
@@ -202,7 +237,7 @@ def lifecycle_stack(tmp_path):
 
 @pytest.mark.asyncio
 async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
-    engine, memory_library, _ = lifecycle_stack
+    engine, memory_library, mid_port = lifecycle_stack
     memory = _make_memory()
     await memory_library.mid_term.upsert(memory)
 
@@ -212,6 +247,17 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
     assert result.event_type == EventType.HIT
     assert updated.meta.lifecycle.access_count == 1
     assert updated.meta.lifecycle.vitality_score >= result.previous_vitality
+    # MVL-2: HIT 经受限 patch 持久化，只提交 4 个授权 lifecycle 字段
+    assert len(mid_port.patch_calls) == 1
+    key, patch = mid_port.patch_calls[0]
+    assert key == _key(memory)
+    assert set(patch) == {
+        "meta.lifecycle.access_count",
+        "meta.lifecycle.last_accessed_at",
+        "meta.lifecycle.event_vitality_boost",
+        "meta.lifecycle.vitality_score",
+    }
+    assert patch["meta.lifecycle.access_count"] == 1
 
 
 @pytest.mark.asyncio

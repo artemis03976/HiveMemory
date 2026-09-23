@@ -14,6 +14,7 @@ import gzip
 import hashlib
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -42,9 +43,16 @@ class FileBasedStorageAdapter(LongTermStoragePort):
     索引结构与 FileBasedArchiver 保持兼容以便平滑迁移。
     """
 
-    def __init__(self, archive_dir: str, compress: bool = True) -> None:
+    def __init__(
+        self,
+        archive_dir: str,
+        compress: bool = True,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
         self._archive_dir = Path(archive_dir)
         self._compress = compress
+        # 归档时间戳的局部注入（A2-P 时间边界）；默认当前 UTC。
+        self._now = now or utc_now
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._archive_dir / "archive_index.json"
         self._index: dict[str, ArchiveRecord] = self._load_index()
@@ -79,7 +87,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         self._index[index_key] = ArchiveRecord(
             memory_id=memory.id,
             original_vitality=memory.meta.lifecycle.vitality_score,
-            archived_at=utc_now(),
+            archived_at=self._now(),
             storage_path=str(file_path),
             compressed_size_bytes=file_path.stat().st_size if file_path.exists() else None,
         )
@@ -163,7 +171,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
     ) -> Path:
         owner_dir = hashlib.sha256(workspace_identity.owner_user_id.encode("utf-8")).hexdigest()
         workspace_dir = hashlib.sha256(workspace_identity.workspace_id.encode("utf-8")).hexdigest()
-        date_dir = self._archive_dir / owner_dir / workspace_dir / datetime.now().strftime("%Y-%m")
+        date_dir = self._archive_dir / owner_dir / workspace_dir / self._now().strftime("%Y-%m")
         date_dir.mkdir(parents=True, exist_ok=True)
         return date_dir / f"{memory_id}.json"
 

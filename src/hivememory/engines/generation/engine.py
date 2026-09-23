@@ -16,6 +16,7 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 
 import logging
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceMismatchError
@@ -48,7 +49,7 @@ from hivememory.engines.generation.models import (
     provenance_from_actor,
     system_settlement_provenance,
 )
-from hivememory.utils.time import utc_now
+from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -99,6 +100,7 @@ class MemoryGenerationEngine:
         request: GenerationRequest,
         *,
         identity_scope: IdentityScope,
+        now: datetime | None = None,
     ) -> list[GenerationOutcome]:
         """
         处理对话片段，提取记忆原子 (三模式)
@@ -126,18 +128,23 @@ class MemoryGenerationEngine:
             logger.debug("空生成上下文且无 write_focus/update_focus，跳过处理")
             return []
 
+        # 提交边界时点：由 Familiar 传入的同一 UTC now；缺省取当前 UTC。
+        commit_now = require_utc(now) if now is not None else utc_now()
+
         # 路由到对应模式
         if request.is_update:
-            return await self._process_mode_c(request, identity_scope)
+            return await self._process_mode_c(request, identity_scope, now=commit_now)
         elif request.is_write:
-            return await self._process_mode_b(request, identity_scope)
+            return await self._process_mode_b(request, identity_scope, now=commit_now)
         else:
-            return await self._process_mode_a(request, identity_scope)
+            return await self._process_mode_a(request, identity_scope, now=commit_now)
 
     async def _process_mode_a(
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         Mode A: 被动结算模式 (默认)
@@ -164,12 +171,15 @@ class MemoryGenerationEngine:
             draft,
             identity_scope,
             system_settlement_provenance(request.context),
+            now=now,
         )
 
     async def _process_mode_b(
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
@@ -204,6 +214,7 @@ class MemoryGenerationEngine:
             draft,
             identity_scope,
             provenance_from_actor(identity_scope, request.context),
+            now=now,
         )
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
@@ -231,6 +242,8 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         Mode C: 合并更新模式 (UPDATE 指令触发)
@@ -279,7 +292,7 @@ class MemoryGenerationEngine:
         # Fallback: LLM 合并失败时直接拼接
         if merge_result is None:
             logger.warning("[Mode C] LLM 合并失败，启用 fallback")
-            merge_result = self._build_update_fallback(uf, existing)
+            merge_result = self._build_update_fallback(uf, existing, now=now)
 
         # Step 2: 版本历史 + 更新，持久化由 Familiar 负责；
         # 主动 UPDATE 以发起 Agent 及上下文贡献者演化已有记忆的贡献者集合。
@@ -289,7 +302,9 @@ class MemoryGenerationEngine:
             provenance=provenance_from_actor(identity_scope, request.context),
         )
 
-    def _build_update_fallback(self, uf: UpdateFocus, existing: MemoryAtom) -> MergeResult:
+    def _build_update_fallback(
+        self, uf: UpdateFocus, existing: MemoryAtom, *, now: datetime
+    ) -> MergeResult:
         """
         UPDATE fallback: LLM 合并失败时的保底策略
 
@@ -299,7 +314,7 @@ class MemoryGenerationEngine:
         if uf.content:
             new_content = (
                 f"{existing.payload.content}\n\n"
-                f"## 更新 ({utc_now().strftime('%Y-%m-%d')})\n"
+                f"## 更新 ({now.strftime('%Y-%m-%d')})\n"
                 f"{uf.content}"
             )
             changelog = f"Fallback 追加: {uf.instruction[:80]}"
@@ -318,19 +333,17 @@ class MemoryGenerationEngine:
         dedup_draft: ExtractedMemoryDraft | None = None,
     ) -> list[GenerationOutcome]:
         """
-        执行内容修订。持久化与版本 Artifact 由 Familiar 负责。
+        执行内容修订（纯计算）。持久化、版本分配与内容时间由 Familiar 在
+        提交边界统一决定；本方法只做：
 
         1. 捕获变更前完整原子（深拷贝，供版本记录与 embedding 输入对比）
         2. 按需刷新 dedup index
         3. 覆盖 payload.content
         4. 并入本次生成的贡献者集合
-        5. 更新 meta (updated_at, confidence, version)
 
-        `updated_at`/`version` 的最终提交时点由 Familiar 的完整写入路径决定；
-        引擎此处先行赋值仅为保持 outcome 自洽，MVL-2 收敛后由提交边界统一取时。
+        ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
+        的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
         """
-        now = utc_now()
-
         # 深拷贝保留修改前的完整原子；嵌套对象不与候选共享引用。
         before_snapshot = memory.model_copy(deep=True)
 
@@ -342,19 +355,14 @@ class MemoryGenerationEngine:
 
         # 版本演化引入新的内容贡献者：把本次来源裁定中的贡献者并入已有集合
         # （去重并保持首次出现顺序）。settle 贡献者因此能进入已有 Memory 及其
-        # 后续 Version Artifact；source_agent_id/source_team_id 按约定保留不改写。
+        # 后续 Version Artifact；来源主体字段按约定保留不改写。
         memory.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
             [*memory.meta.provenance.contributing_agent_ids, *provenance.contributing_agent_ids]
         )
 
-        # 更新 meta
-        memory.meta.updated_at = now
-        memory.meta.lifecycle.confidence_score = 1.0
-        memory.meta.version += 1
-
         logger.info(
-            f"[Mode C] UPDATE 内容已准备: '{memory.index.title}' "
-            f"v{memory.meta.version}, changelog='{result.changelog}'"
+            f"[Mode C] UPDATE 内容已合并（待提交边界分配版本与内容时间）: "
+            f"'{memory.index.title}', changelog='{result.changelog}'"
         )
 
         return [
@@ -371,6 +379,8 @@ class MemoryGenerationEngine:
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         查重 → 构建/演化决策 (Mode A/B 共用)
@@ -393,11 +403,9 @@ class MemoryGenerationEngine:
 
         # 根据决策执行操作
         if decision == DuplicateDecision.TOUCH:
-            # 内容相同的重复访问：只推进访问计数（MVL-0 冻结），不改内容时间、
-            # 不推进衰减基准、不升版本；持久化方式由 Familiar 的 patch 路径决定。
-            logger.info("记忆重复，仅累计访问状态")
-
-            existing_memory.meta.lifecycle.access_count += 1
+            # 内容相同的重复访问：引擎保持纯决策，不改任何字段（MVL-0 冻结）。
+            # 访问计数的推进与持久化由 Familiar 经受限 patch_payload 完成。
+            logger.info("记忆重复，访问状态由 Familiar 经受限 patch 更新")
 
             return [
                 GenerationOutcome(
@@ -426,7 +434,7 @@ class MemoryGenerationEngine:
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
-            memory = self._draft_to_memory(draft, identity_scope, provenance)
+            memory = self._draft_to_memory(draft, identity_scope, provenance, now=now)
 
             return [
                 GenerationOutcome(
@@ -487,6 +495,8 @@ class MemoryGenerationEngine:
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
+        *,
+        now: datetime,
     ) -> MemoryAtom:
         """
         将草稿转换为完整的 MemoryAtom
@@ -519,9 +529,7 @@ class MemoryGenerationEngine:
             title=draft.title,
         )
 
-        # 创建时点由提交边界统一取时：created_at = updated_at = decay_anchor_at。
-        now = utc_now()
-
+        # 创建时点 = 提交边界 now（Familiar 传入）：created/updated/decay 同值。
         return MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,

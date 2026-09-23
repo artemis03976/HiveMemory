@@ -10,6 +10,7 @@ MemoryLibrary 三层存储 Port 接口定义
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -89,7 +90,8 @@ class MidTermStoragePort(ABC):
     """
 
     @abstractmethod
-    async def upsert(self, memory: MemoryAtom) -> None: ...
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
+        """提交完整 canonical Memory；``recompute_vectors=False`` 时保留既有向量。"""
 
     @abstractmethod
     async def get(
@@ -120,11 +122,18 @@ class MidTermStoragePort(ABC):
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None: ...
 
     @abstractmethod
-    async def update_access_info(
+    async def patch_payload(
         self,
-        identity_scope: IdentityScope,
-        memory_id: UUID,
-    ) -> None: ...
+        key: WorkspaceMemoryKey,
+        patch: Mapping[str, Any],
+    ) -> MemoryAtom | None:
+        """原子地更新允许的持久化字段并返回更新后的 Memory。
+
+        ``patch`` 是 canonical dotted field path 到完整替换值的 mapping；
+        只允许 ``meta.lifecycle.*`` 白名单字段与 ``meta.access_policy`` 整体
+        替换。资源不存在返回 ``None``；未知路径、类型错误或 Workspace 不
+        匹配直接拒绝。
+        """
 
     @abstractmethod
     async def delete(

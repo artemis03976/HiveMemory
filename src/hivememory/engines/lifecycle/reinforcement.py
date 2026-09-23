@@ -21,10 +21,12 @@ HIT 不推进 decay_anchor_at —— 让时间衰减在遗忘曲线上持续作�
 """
 
 import logging
+from collections.abc import Callable
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from hivememory.core.models import IdentityScope, MemoryAtom
+from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.models import (
     EventType,
     MemoryEvent,
@@ -65,9 +67,13 @@ class DynamicReinforcementEngine:
         mid_term: "MidTermMemoryStore",
         config: ReinforcementEngineConfig,
         vitality_calculator: VitalityCalculator,
+        *,
+        now: Callable[[], datetime] | None = None,
     ):
         self._mid_term = mid_term
         self.config = config
+        # A2-P 时间边界：一次强化事件的提交时点来源（局部注入）。
+        self._now = now or utc_now
         self._event_history: list[ReinforcementResult] = []
         self.vitality_calculator = vitality_calculator
         self.vitality_adjustments = {
@@ -102,13 +108,16 @@ class DynamicReinforcementEngine:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
             raise ValueError(f"Memory {memory_id} not found")
 
+        # 一次事件只取一个提交时点（时间边界 §2.3），全部字段共享。
+        current = self._now()
+
         # 记录当前状态
         previous_vitality = memory.meta.lifecycle.vitality_score
         previous_confidence = memory.meta.lifecycle.confidence_score
 
         # 应用事件特定的调整 (CITATION 推进 decay_anchor_at，FEEDBACK_NEGATIVE 调整 confidence)
         if event.event_type == EventType.CITATION:
-            self._handle_citation(memory)
+            self._handle_citation(memory, now=current)
         elif event.event_type == EventType.FEEDBACK_NEGATIVE:
             self._handle_negative_feedback(memory)
 
@@ -124,14 +133,26 @@ class DynamicReinforcementEngine:
         # 注意: 只更新 last_accessed_at；衰减基准仅在 CITATION 主动复习时推进
         # (上面 _handle_citation 已处理)。HIT 不推进 decay_anchor_at，让遗忘曲线持续作用。
         memory.meta.lifecycle.access_count += 1
-        memory.meta.lifecycle.last_accessed_at = utc_now()
+        memory.meta.lifecycle.last_accessed_at = current
 
         # 由 VitalityCalculator 统一重算 (包含 V_0/D(t)/A/B 三段)
         new_vitality = self._clamp_vitality(self.vitality_calculator.calculate(memory))
         memory.meta.lifecycle.vitality_score = new_vitality
 
-        # 持久化到存储
-        await self._mid_term.upsert(memory)
+        # 受限局部更新：只提交本事件授权的 lifecycle 字段（A2-P §4.1）。
+        # access_count 为调用方基于当前原子计算后的完整替换值。
+        patch: dict[str, Any] = {
+            "meta.lifecycle.access_count": memory.meta.lifecycle.access_count,
+            "meta.lifecycle.last_accessed_at": memory.meta.lifecycle.last_accessed_at,
+            "meta.lifecycle.event_vitality_boost": memory.meta.lifecycle.event_vitality_boost,
+            "meta.lifecycle.vitality_score": new_vitality,
+        }
+        if event.event_type == EventType.CITATION:
+            patch["meta.lifecycle.decay_anchor_at"] = memory.meta.lifecycle.decay_anchor_at
+        if event.event_type == EventType.FEEDBACK_NEGATIVE:
+            patch["meta.lifecycle.confidence_score"] = memory.meta.lifecycle.confidence_score
+        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        await self._mid_term.patch_payload(key, patch)
 
         # 创建结果
         result = ReinforcementResult(
@@ -157,9 +178,9 @@ class DynamicReinforcementEngine:
 
         return result
 
-    def _handle_citation(self, memory: MemoryAtom) -> None:
+    def _handle_citation(self, memory: MemoryAtom, *, now: datetime) -> None:
         # 主动复习推进衰减基准（不触碰内容时间 updated_at），再重新计算活力。
-        memory.meta.lifecycle.decay_anchor_at = utc_now()
+        memory.meta.lifecycle.decay_anchor_at = now
         logger.debug("Citation handled for %s: decay anchor advanced", memory.id)
 
     def _handle_negative_feedback(self, memory: MemoryAtom) -> None:

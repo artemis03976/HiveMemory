@@ -8,6 +8,7 @@ QdrantStorageAdapter — MidTermStoragePort 的 Qdrant 实现
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -21,7 +22,6 @@ from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.engines.retrieval.policy import memory_is_readable
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
-from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.storage import QdrantMemoryStore
@@ -40,8 +40,75 @@ class QdrantStorageAdapter(MidTermStoragePort):
         self._use_sparse = use_sparse
         self._filter_converter = QdrantFilterConverter()
 
-    async def upsert(self, memory: MemoryAtom) -> None:
-        await self._store.upsert_memory(memory, use_sparse=self._use_sparse)
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
+        """提交完整 canonical Memory；``recompute_vectors=False`` 保留既有向量。"""
+        await self._store.upsert_memory(
+            memory, use_sparse=self._use_sparse, recompute_vectors=recompute_vectors
+        )
+
+    # patch_payload 允许的 canonical dotted 字段白名单（A2-P §4.1 / MVL-0 M0.1）。
+    _PATCH_ALLOWED_PATHS = frozenset(
+        {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+            "meta.lifecycle.confidence_score",
+            "meta.lifecycle.verification_status",
+            "meta.lifecycle.decay_anchor_at",
+            "meta.access_policy",
+        }
+    )
+
+    async def patch_payload(
+        self,
+        key: WorkspaceMemoryKey,
+        patch: Mapping[str, Any],
+    ) -> MemoryAtom | None:
+        """受限局部更新：只改白名单字段，保留向量与全部非目标字段。
+
+        读取使用严格 schema（旧记录只读拒绝）；patch 值经领域模型整体校验
+        后，按 ``meta.lifecycle`` / ``meta.access_policy`` 两个嵌套键提交
+        Qdrant 局部 payload 更新，不重算向量、不写版本 Artifact。
+        """
+        if not patch:
+            raise ValueError("patch_payload 不允许空 patch")
+        unknown = set(patch) - self._PATCH_ALLOWED_PATHS
+        if unknown:
+            raise ValueError(f"patch_payload 不允许的字段路径: {sorted(unknown)}")
+
+        atom = await self._store.get_memory(key, require_current_schema=True)
+        if atom is None:
+            return None
+
+        updated = atom.model_copy(deep=True)
+        lifecycle_values = {}
+        access_policy_value = None
+        for path, value in patch.items():
+            if path == "meta.access_policy":
+                access_policy_value = value
+                continue
+            field = path.rsplit(".", 1)[-1]
+            setattr(updated.meta.lifecycle, field, value)
+            lifecycle_values[field] = value
+
+        try:
+            validated = updated.model_validate(updated.model_dump())
+        except Exception as exc:
+            raise ValueError(f"patch_payload 值未通过领域校验: {exc}") from exc
+
+        await self._store.patch_memory_payload(
+            key,
+            lifecycle=(
+                validated.meta.lifecycle.model_dump(mode="json") if lifecycle_values else None
+            ),
+            access_policy=(
+                validated.meta.access_policy.model_dump(mode="json")
+                if access_policy_value is not None
+                else None
+            ),
+        )
+        return validated
 
     async def get(
         self,
@@ -101,18 +168,6 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return await self._store.get_memory(key)
-
-    async def update_access_info(
-        self,
-        identity_scope: IdentityScope,
-        memory_id: UUID,
-    ) -> None:
-        atom = await self.get(identity_scope, memory_id)
-        if atom is None:
-            return
-        atom.meta.lifecycle.access_count += 1
-        atom.meta.lifecycle.last_accessed_at = utc_now()
-        await self.upsert(atom)
 
     async def delete(
         self,

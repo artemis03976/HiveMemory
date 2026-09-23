@@ -66,8 +66,8 @@ class TestMidTermMemoryStore:
 
         await self.store.upsert(memory)
 
-        self.mock_primary.upsert.assert_awaited_once_with(memory)
-        self.mock_secondary.upsert.assert_awaited_once_with(memory)
+        self.mock_primary.upsert.assert_awaited_once_with(memory, recompute_vectors=True)
+        self.mock_secondary.upsert.assert_awaited_once_with(memory, recompute_vectors=True)
 
 
 class TestMemoryLibraryArchiveRevive:
@@ -124,9 +124,32 @@ class TestMemoryLibraryArchiveRevive:
         await self.library.revive(identity_scope, memory.id)
 
         self.mock_long_term.load.assert_awaited_once_with(key)
-        self.mock_mid_term.upsert.assert_awaited_once_with(memory)
+        # MVL-2: 复活重建必要索引，完整原子提交且重算向量
+        self.mock_mid_term.upsert.assert_awaited_once_with(memory, recompute_vectors=True)
         self.mock_long_term.remove.assert_awaited_once_with(key)
         assert memory.payload.artifacts.events[-1].event_type == MemoryEventType.REVIVED
+
+    @pytest.mark.asyncio
+    async def test_delete_removes_memory(self):
+        self.mock_mid_term.delete = AsyncMock(return_value=True)
+        identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
+        memory_id = uuid4()
+
+        deleted = await self.library.delete(identity_scope, memory_id)
+
+        assert deleted is True
+        self.mock_mid_term.delete.assert_awaited_once_with(identity_scope, memory_id)
+
+    @pytest.mark.asyncio
+    async def test_delete_missing_memory_returns_false(self):
+        self.mock_mid_term.delete = AsyncMock(return_value=False)
+        identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
+        memory_id = uuid4()
+
+        deleted = await self.library.delete(identity_scope, memory_id)
+
+        assert deleted is False
+        self.mock_mid_term.delete.assert_awaited_once_with(identity_scope, memory_id)
 
 
 class TestMemoryLibraryStorageHealth:

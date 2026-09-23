@@ -24,6 +24,7 @@ from hivememory.core.models import (
     ProfileSnapshot,
     TopicData,
     TopicSnapshot,
+    WorkspaceMemoryKey,
     require_identity_scope,
 )
 from hivememory.core.mtp.exceptions import (
@@ -38,6 +39,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -372,11 +374,19 @@ class RetrievalFamiliar:
         当记忆被成功使用时调用，增加访问计数
         """
         identity_scope = require_identity_scope(identity_scope)
+        now = utc_now()
         for memory in memories:
             try:
-                await self._memory_library.mid_term.update_access_info(
-                    identity_scope,
-                    memory.id,
+                # 受限局部更新：只推进访问计数与最近访问时间（A2-P §4.1）。
+                await self._memory_library.mid_term.patch_payload(
+                    WorkspaceMemoryKey(
+                        workspace_identity=identity_scope.workspace_identity,
+                        memory_id=memory.id,
+                    ),
+                    {
+                        "meta.lifecycle.access_count": memory.meta.lifecycle.access_count + 1,
+                        "meta.lifecycle.last_accessed_at": now,
+                    },
                 )
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")

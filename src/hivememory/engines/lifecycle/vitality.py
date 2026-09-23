@@ -21,6 +21,7 @@ HiveMemory - 生命力分数计算器
 """
 
 import math
+from collections.abc import Callable
 from datetime import datetime
 
 from hivememory.core.models import MemoryAtom, MemoryType
@@ -48,14 +49,21 @@ class VitalityCalculator:
         >>> score = calculator.calculate(memory)
     """
 
-    def __init__(self, config: VitalityCalculatorConfig):
+    def __init__(
+        self,
+        config: VitalityCalculatorConfig,
+        *,
+        now: Callable[[], datetime] | None = None,
+    ):
         """
         初始化计算器
 
         Args:
             config: 生命力计算器配置对象
+            now: 评分决策时刻的局部注入（A2-P 时间边界）；默认当前 UTC
         """
         self.config = config
+        self._now = now or utc_now
 
         # 构建固有价值权重字典 (I 作为抗衰减调制因子)
         self._intrinsic_weights = {
@@ -85,8 +93,10 @@ class VitalityCalculator:
             memory.index.memory_type,
             self.config.default_weight,
         )
-        days_since_update = self._days_since(memory.meta.updated_at)
-        decay_factor = self._calculate_decay(days_since_update, intrinsic_value)
+        # 衰减唯一时间基准是 decay_anchor_at（A2-P §3.1）：创建时等于
+        # created_at，CITATION 与内容修订推进；HIT/访问不改写。
+        days_since_anchor = self._days_since(memory.meta.lifecycle.decay_anchor_at)
+        decay_factor = self._calculate_decay(days_since_anchor, intrinsic_value)
 
         # 组件 A: 访问加成 (对数曲线，自然饱和)
         access_boost = self._calculate_access_boost(memory.meta.lifecycle.access_count)
@@ -110,7 +120,7 @@ class VitalityCalculator:
         Returns:
             float: 距今天数 (可以是小数，非负)
         """
-        delta = utc_now() - date
+        delta = self._now() - date
         return max(0.0, delta.total_seconds() / 86400.0)
 
     def _calculate_decay(self, days: float, intrinsic_value: float) -> float:

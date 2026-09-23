@@ -8,7 +8,7 @@ UPDATE 指令执行链路测试
     2. GenerationRequest is_update 属性
     3. Mode C Merge Prompt 选择 (extractor)
     4. Mode C fallback 拼接
-    5. _apply_update 版本历史追踪
+    5. _apply_update 纯计算边界（内容合并 + before 快照；版本/时间归 Familiar）
     6. 双重处理防护 (MTP_UPDATE flush 不触发 Mode A)
     7. Koakuma._handle_update E2E
     8. Koakuma UPDATE 校验 (alias/instruction 缺失)
@@ -17,6 +17,7 @@ UPDATE 指令执行链路测试
 版本: 1.0
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -43,6 +44,9 @@ from hivememory.engines.perception.models import TriggerReason
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 # ========== Fixtures ==========
+
+# 提交边界固定时点：引擎层验证传入 now 的纯计算行为。
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -250,11 +254,13 @@ class TestModeCFallback:
             base_uuid="uuid-123",
             base_alias="alias",
         )
-        result = engine._build_update_fallback(uf, existing_memory)
+        result = engine._build_update_fallback(uf, existing_memory, now=FIXED_NOW)
 
         assert isinstance(result, MergeResult)
         assert "新段落文本" in result.new_content
         assert existing_memory.payload.content in result.new_content
+        # fallback 追加段落使用传入 now 的日期
+        assert "## 更新 (2026-09-01)" in result.new_content
         assert "Fallback" in result.changelog
 
     def test_fallback_instruction_only(self, existing_memory):
@@ -269,7 +275,7 @@ class TestModeCFallback:
             base_uuid="uuid-123",
             base_alias="alias",
         )
-        result = engine._build_update_fallback(uf, existing_memory)
+        result = engine._build_update_fallback(uf, existing_memory, now=FIXED_NOW)
 
         # 无 content 时保留旧内容不变
         assert result.new_content == existing_memory.payload.content
@@ -302,19 +308,26 @@ class TestModeCFallback:
         mock_extractor.merge.assert_not_called()
 
 
-# ========== Test 6：_apply_update 版本追踪 ==========
+# ========== Test 6：_apply_update 纯计算边界 ==========
 
 
 class TestApplyUpdate:
-    """验证版本追踪 (before snapshot, version++, changelog)"""
+    """验证引擎纯计算边界（内容合并 + before 快照）。
 
-    def test_version_incremented(self, existing_memory, merge_result):
+    MVL-2 起 ``meta.version``/``updated_at``/``decay_anchor_at``/
+    ``confidence_score`` 由 Familiar 在提交边界分配，引擎层测试改为断言
+    引擎"不写"这些字段。
+    """
+
+    def test_version_not_touched_by_engine(self, existing_memory, merge_result):
         mock_storage = _mock_mid_term()
         engine = MemoryGenerationEngine(
             mid_term=mock_storage,
             extractor=MagicMock(),
             deduplicator=MagicMock(),
         )
+        updated_at_before = existing_memory.meta.updated_at
+        decay_anchor_before = existing_memory.meta.lifecycle.decay_anchor_at
 
         result = engine._apply_update(
             existing_memory,
@@ -323,7 +336,10 @@ class TestApplyUpdate:
         )
 
         assert len(result) == 1
-        assert result[0].atom.meta.version == 2  # fixture 起点 version=1
+        # 引擎不推进版本与内容时间（version += 1 / updated_at 由 Familiar 提交边界负责）
+        assert result[0].atom.meta.version == 1  # fixture 起点 version=1
+        assert result[0].atom.meta.updated_at == updated_at_before
+        assert result[0].atom.meta.lifecycle.decay_anchor_at == decay_anchor_before
 
     def test_content_updated(self, existing_memory, merge_result):
         engine = MemoryGenerationEngine(
@@ -358,7 +374,8 @@ class TestApplyUpdate:
         assert snapshot.meta.version == 1
         assert result[0].changelog == merge_result.changelog
 
-    def test_confidence_reset_to_1(self, existing_memory, merge_result):
+    def test_confidence_untouched_by_engine(self, existing_memory, merge_result):
+        """置信度重置 1.0 移到 Familiar 提交边界；引擎保持原值"""
         existing_memory.meta.lifecycle.confidence_score = 0.5
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(),
@@ -371,9 +388,10 @@ class TestApplyUpdate:
             provenance=system_settlement_provenance(GenerationContext()),
         )
 
-        assert result[0].atom.meta.lifecycle.confidence_score == 1.0
+        assert result[0].atom.meta.lifecycle.confidence_score == 0.5
 
-    def test_multiple_updates_accumulate_history(self, existing_memory):
+    def test_multiple_updates_snapshot_each_round(self, existing_memory):
+        """多轮修订：每轮 before 快照捕获当次修改前的完整原子，版本仍归 Familiar"""
         engine = MemoryGenerationEngine(
             mid_term=_mock_mid_term(),
             extractor=MagicMock(),
@@ -382,20 +400,30 @@ class TestApplyUpdate:
 
         # 第一次更新
         r1 = MergeResult(new_content="v2 content", changelog="first update")
-        engine._apply_update(
-            existing_memory, r1, provenance=system_settlement_provenance(GenerationContext())
+        r1_outcome = engine._apply_update(
+            existing_memory,
+            r1,
+            provenance=system_settlement_provenance(GenerationContext()),
         )
 
         # 第二次更新
         r2 = MergeResult(new_content="v3 content", changelog="second update")
         r2_outcome = engine._apply_update(
-            existing_memory, r2, provenance=system_settlement_provenance(GenerationContext())
+            existing_memory,
+            r2,
+            provenance=system_settlement_provenance(GenerationContext()),
         )
 
-        assert existing_memory.meta.version == 3
-        # 每次更新的 before snapshot 捕获当次修改前的完整原子（v2 更新的基准是 v1）
-        assert r2_outcome[0].memory_before_snapshot.meta.version == 2
+        assert existing_memory.payload.content == "v3 content"
+        # 引擎不推进版本：多轮修订后 version 仍由提交边界分配
+        assert existing_memory.meta.version == 1
+        # 每轮 before 快照捕获当次修改前的完整原子（v2 基准是 v1，v3 基准是 v2 内容）
+        assert r1_outcome[0].memory_before_snapshot.payload.content == (
+            "API 服务运行在端口 8080，使用 HTTP 协议。"
+        )
+        assert r1_outcome[0].memory_before_snapshot.meta.version == 1
         assert r2_outcome[0].memory_before_snapshot.payload.content == "v2 content"
+        assert r2_outcome[0].memory_before_snapshot.meta.version == 1
 
 
 # ========== Test 11：Active Flush 原因已移除 ==========

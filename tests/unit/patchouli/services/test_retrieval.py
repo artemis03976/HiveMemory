@@ -110,7 +110,7 @@ def _make_memory_library():
     library.mid_term = Mock()
     library.long_term = Mock()
     library.mid_term.get_by_alias = AsyncMock()
-    library.mid_term.update_access_info = AsyncMock()
+    library.mid_term.patch_payload = AsyncMock()
     library.long_term.query = AsyncMock()
     library.long_term.is_archived = AsyncMock()
     return library
@@ -455,14 +455,24 @@ class TestRetrievalFamiliarAccessStats:
     @pytest.mark.asyncio
     async def test_update_access_stats_per_item_failure(self):
         m1, m2 = _make_memory("m1"), _make_memory("m2")
-        self.mock_library.mid_term.update_access_info.side_effect = [RuntimeError("fail"), None]
+        self.mock_library.mid_term.patch_payload.side_effect = [RuntimeError("fail"), None]
         await self.familiar.update_access_stats(make_identity_scope(user_id="u1"), [m1, m2])
-        assert self.mock_library.mid_term.update_access_info.call_count == 2
+        # MVL-2: 逐条 patch_payload，单条失败 warning 吞掉，不中断后续条目
+        assert self.mock_library.mid_term.patch_payload.call_count == 2
+        first_call = self.mock_library.mid_term.patch_payload.call_args_list[0]
+        key, patch = first_call.args
+        assert key.memory_id == m1.id
+        assert key.workspace_identity == make_identity_scope(user_id="u1").workspace_identity
+        assert set(patch) == {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+        }
+        assert patch["meta.lifecycle.access_count"] == m1.meta.lifecycle.access_count + 1
 
     @pytest.mark.asyncio
     async def test_update_access_stats_empty_list(self):
         await self.familiar.update_access_stats(make_identity_scope(user_id="u1"), [])
-        self.mock_library.mid_term.update_access_info.assert_not_called()
+        self.mock_library.mid_term.patch_payload.assert_not_called()
 
 
 class TestRetrievalFamiliarShortTermTopics:

@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.core.models import IdentityScope, MemoryAtom
+from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -50,11 +50,17 @@ class MemoryLifecycleEngine:
         *,
         persist: bool = False,
     ) -> float:
-        """就地刷新单个 MemoryAtom 的活力评分。"""
+        """就地刷新单个 MemoryAtom 的活力评分；persist 经受限 patch 提交。"""
         vitality = self.vitality_calculator.calculate(memory)
         memory.meta.lifecycle.vitality_score = vitality
         if persist:
-            await self._mid_term.upsert(memory)
+            await self._mid_term.patch_payload(
+                WorkspaceMemoryKey(
+                    workspace_identity=memory.workspace_identity,
+                    memory_id=memory.id,
+                ),
+                {"meta.lifecycle.vitality_score": vitality},
+            )
         return vitality
 
     async def refresh_vitality_batch(
