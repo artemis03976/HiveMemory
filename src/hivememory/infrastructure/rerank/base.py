@@ -47,10 +47,6 @@ class BaseRerankService(ABC):
         """预热模型（默认无操作，子类可覆盖）"""
         pass
 
-    def unload(self) -> None:
-        """卸载模型以释放内存"""
-        pass
-
 
 class SingletonModelService(BaseRerankService):
     """
@@ -125,11 +121,3 @@ class SingletonModelService(BaseRerankService):
             logger.info(f"{self.__class__.__name__} 开始预热模型: {self.model_name}")
             _ = self.model  # 触发 property 中的延迟加载
             logger.info(f"{self.__class__.__name__} 模型预热完成")
-
-    def unload(self) -> None:
-        """卸载模型以释放内存"""
-        with self._lazy_load_lock:
-            if self._model is not None:
-                del self._model
-                self._model = None
-                logger.info(f"{self.__class__.__name__} 模型已卸载")

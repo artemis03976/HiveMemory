@@ -8,7 +8,7 @@ HiveMemory - Retrieval 模块数据模型
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import IdentityScope, MemoryAtom, MemoryType
 
@@ -79,13 +79,6 @@ class SearchResult(BaseModel):
     # 可选的额外信息
     vector_score: float = 0.0  # 原始向量相似度
     boost_applied: float = 0.0  # 应用的加权
-
-    @model_validator(mode="after")
-    def set_default_match_reason(self) -> "SearchResult":
-        """初始化后处理"""
-        if not self.match_reason:
-            self.match_reason = f"语义匹配 (score: {self.score:.2f})"
-        return self
 
 
 class SearchResults(BaseModel):

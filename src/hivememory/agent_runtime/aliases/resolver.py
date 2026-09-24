@@ -71,10 +71,6 @@ class RuntimeAliasResolver:
         self._atom_cache = atom_cache
         self._bus = bus
 
-    def is_pending(self, alias: str) -> bool:
-        """快速检查 alias 是否在 L0 pending cache 中。"""
-        return self._pending_runtime.has(alias)
-
     async def resolve(
         self,
         alias: str,

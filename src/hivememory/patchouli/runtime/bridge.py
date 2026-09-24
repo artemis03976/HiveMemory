@@ -66,10 +66,6 @@ class PatchouliBridge:
     def public_routes_registered(self) -> bool:
         return self._public_routes_registered
 
-    @property
-    def local_events_registered(self) -> bool:
-        return self._local_events_registered
-
     def mount(self) -> None:
         if not self._local_events_registered:
             self._register_local_event_bridges()

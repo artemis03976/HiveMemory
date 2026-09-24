@@ -20,10 +20,6 @@ from hivememory.system.services.passive import (
     PassiveIngressEvent,
     PassiveMessageIngressor,
 )
-from hivememory.system.services.passive.models import (
-    DEFAULT_EXTERNAL_CONVERSATION_ID,
-    DEFAULT_PASSIVE_SOURCE,
-)
 
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
@@ -194,19 +190,3 @@ class PassiveIngressService:
         )
         submitted = await self._ingressor.flush_conversation(key)
         return submitted > 0
-
-    async def flush_ingressor(
-        self,
-        identity_scope: IdentityScope,
-        session_id: str | None = None,
-        source: str = DEFAULT_PASSIVE_SOURCE,
-    ) -> bool:
-        """过渡期兼容入口：按 session_id 显式 flush。
-
-        新调用方应改用 `flush_conversation(source, external_conversation_id, ...)`。
-        """
-        return await self.flush_conversation(
-            source=source,
-            external_conversation_id=session_id or DEFAULT_EXTERNAL_CONVERSATION_ID,
-            identity_scope=identity_scope,
-        )

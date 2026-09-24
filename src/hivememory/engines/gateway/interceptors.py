@@ -130,10 +130,6 @@ class RuleInterceptor(BaseInterceptor):
 
         return None
 
-    def add_chat_pattern(self, pattern: str) -> None:
-        self._chat_regex.append(re.compile(pattern, re.IGNORECASE))
-        logger.debug("Added chat pattern: %s", pattern)
-
     def add_system_command(self, name: str, command_id: str | None = None) -> None:
         """
         动态注册系统指令；用于运行期扩展 command registry。

@@ -353,17 +353,6 @@ class PendingAtomRuntime:
             canonical_uuid=None,
         )
 
-    def tasks_by_run(self, run_id: str) -> list[PendingAtomMaterializeTask]:
-        """返回本 run 产生的全部 PendingAtom 的不可变物化请求投影。
-
-        父帧与子帧共用同一 run_id（RuntimeScope.run_id），因此无需额外合并。
-        """
-        return [
-            PendingAtomMaterializeTask.from_pending_atom(atom)
-            for atom in self._store.all_atoms()
-            if atom.runtime_scope.run_id == run_id
-        ]
-
     def evict_by_run(self, current_run_id: str) -> None:
         """双步清理：删除既有 EXPIRED，再将上轮已完成 atom → EXPIRED。
 

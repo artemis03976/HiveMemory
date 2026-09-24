@@ -34,10 +34,8 @@ DEFAULT_TEAM_ID = None
 
 # ============ 测试专用身份标识 ============
 
-TEST_USER_ID = "test_user"
 """测试用户 ID - 仅用于单元测试和集成测试"""
 
-TEST_AGENT_ID = "test_agent"
 """测试 Agent ID - 仅用于单元测试"""
 
 
@@ -73,16 +71,3 @@ def normalize_user_id(user_id: str | None) -> str:
         规范化后的 user_id，如果为空则返回 DEFAULT_USER_ID
     """
     return user_id.strip() if user_id and user_id.strip() else DEFAULT_USER_ID
-
-
-def normalize_agent_id(agent_id: str | None) -> str:
-    """
-    规范化 agent_id，确保永远不会是 None 或空字符串
-
-    Args:
-        agent_id: 原始 agent_id
-
-    Returns:
-        规范化后的 agent_id，如果为空则返回 DEFAULT_AGENT_ID
-    """
-    return agent_id.strip() if agent_id and agent_id.strip() else DEFAULT_AGENT_ID

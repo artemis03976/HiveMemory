@@ -59,7 +59,6 @@ def system(mock_patchouli):
     ingress_service.start = AsyncMock()
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
     ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
-    ingress_service.flush_ingressor = AsyncMock(return_value=True)
     memory_service = MagicMock()
     memory_task_service = MagicMock()
     agent_service = MagicMock()

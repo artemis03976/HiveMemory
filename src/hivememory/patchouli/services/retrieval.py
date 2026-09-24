@@ -393,20 +393,6 @@ class RetrievalFamiliar:
 
     # ========== 长期记忆查询 ==========
 
-    async def query_archive(
-        self,
-        *,
-        limit: int = 100,
-        vitality_threshold: float | None = None,
-    ):
-        """
-        查询长期冷存储归档记录。
-        """
-        return await self._memory_library.long_term.query(
-            limit=limit,
-            vitality_threshold=vitality_threshold,
-        )
-
     async def is_archived(self, memory_id) -> bool:
         """
         检查记忆是否已进入长期冷存储。

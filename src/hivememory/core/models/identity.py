@@ -51,11 +51,6 @@ class ActorIdentity(BaseModel):
     )
     session_id: str | None = Field(default=None, description="会话 ID（兼容字段）")
 
-    @property
-    def is_valid(self) -> bool:
-        """检查身份标识是否有效"""
-        return bool(self.user_id and self.agent_id)
-
     model_config = ConfigDict(
         frozen=True,
         json_schema_extra={

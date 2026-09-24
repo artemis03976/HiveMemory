@@ -98,22 +98,6 @@ class MTPResultEvent(StreamNamespace):
     iteration: int
 
 
-class SubAgentStartEvent(StreamNamespace):
-    """sub_agent_start 事件: 子 Agent 生命周期开始。"""
-
-    agent_id: str
-    task: str
-    iteration: int
-
-
-class SubAgentEndEvent(StreamNamespace):
-    """sub_agent_end 事件: 子 Agent 生命周期结束。"""
-
-    status: str
-    final_text: str | None = None
-    iteration: int
-
-
 class TopicInfoEvent(BaseModel):
     """topic_info 事件: 话题路由结果"""
 

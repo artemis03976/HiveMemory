@@ -60,24 +60,6 @@ class ReinforcementResult(BaseModel):
     event_type: EventType
     timestamp: datetime = Field(default_factory=datetime.now)
 
-    def get_delta(self) -> float:
-        """
-        获取生命力变化量
-
-        Returns:
-            float: new_vitality - previous_vitality
-        """
-        return self.new_vitality - self.previous_vitality
-
-    def get_confidence_delta(self) -> float:
-        """
-        获取置信度变化量
-
-        Returns:
-            float: new_confidence - previous_confidence
-        """
-        return self.new_confidence - self.previous_confidence
-
 
 class MemoryEvent(BaseModel):
     """
