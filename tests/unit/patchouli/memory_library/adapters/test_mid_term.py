@@ -14,7 +14,6 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
-from hivememory.engines.retrieval.memory_codec import MemorySchemaReadOnlyError
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -61,18 +60,15 @@ class _SingleMemoryStore(_LeakySearchStore):
 
 
 class _PatchableStore:
-    """记录 patch_memory_payload 参数；get_memory 按严格 schema 要求拒绝或返回。"""
+    """返回固定原子并记录读取键与 patch_memory_payload 参数。"""
 
-    def __init__(self, memory: MemoryAtom | None = None, *, legacy_read_only: bool = False):
+    def __init__(self, memory: MemoryAtom):
         self._memory = memory
-        self._legacy_read_only = legacy_read_only
-        self.get_calls: list[tuple[WorkspaceMemoryKey, bool]] = []
+        self.get_calls: list[WorkspaceMemoryKey] = []
         self.patch_calls: list[dict] = []
 
-    async def get_memory(self, key, *, require_current_schema=False):
-        self.get_calls.append((key, require_current_schema))
-        if require_current_schema and self._legacy_read_only:
-            raise MemorySchemaReadOnlyError("legacy schema memory is read-only")
+    async def get_memory(self, key):
+        self.get_calls.append(key)
         return self._memory
 
     async def patch_memory_payload(self, key, *, lifecycle=None, access_policy=None):
@@ -164,8 +160,6 @@ async def test_patch_payload_applies_whitelisted_lifecycle_values() -> None:
     assert result is not None
     assert result.meta.lifecycle.access_count == 3
     assert result.meta.lifecycle.last_accessed_at == accessed_at
-    # mutation 读取必须走严格 schema（拒绝旧记录回写）。
-    assert store.get_calls == [(key, True)]
     assert len(store.patch_calls) == 1
     call = store.patch_calls[0]
     assert call["key"] == key
@@ -210,19 +204,6 @@ async def test_patch_payload_rejects_empty_patch() -> None:
         await adapter.patch_payload(_key_of(atom), {})
 
     assert store.get_calls == []
-    assert store.patch_calls == []
-
-
-@pytest.mark.asyncio
-async def test_patch_payload_rejects_legacy_schema_memory() -> None:
-    """严格 schema 读取抛出的只读异常沿 adapter 传播，不做任何写入。"""
-    store = _PatchableStore(legacy_read_only=True)
-    adapter = QdrantStorageAdapter(store)
-    atom = _private_memory()
-
-    with pytest.raises(MemorySchemaReadOnlyError):
-        await adapter.patch_payload(_key_of(atom), {"meta.lifecycle.access_count": 1})
-
     assert store.patch_calls == []
 
 

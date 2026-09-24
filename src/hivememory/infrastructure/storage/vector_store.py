@@ -40,11 +40,7 @@ from hivememory.core.mtp.exceptions import (
     MemoryTypeMismatchError,
 )
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
-from hivememory.engines.retrieval.memory_codec import (
-    MemoryDecodeError,
-    MemorySchemaReadOnlyError,
-    decode_memory_payload,
-)
+from hivememory.engines.retrieval.memory_codec import MemoryDecodeError, decode_memory_payload
 from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.infrastructure.storage.qdrant_client import (
@@ -270,14 +266,7 @@ class QdrantMemoryStore:
             logger.error(f"局部更新 Memory payload 失败: {e}")
             raise
 
-    async def get_memory(
-        self,
-        key: WorkspaceMemoryKey,
-        *,
-        require_current_schema: bool = False,
-    ) -> MemoryAtom | None:
-        """读取 Memory；``require_current_schema=True`` 时拒绝旧 schema 记录
-        （兼容窗口内只读，供 mutation 入口调用，防止兼容推断被回写固化）。"""
+    async def get_memory(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
         from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
@@ -301,16 +290,11 @@ class QdrantMemoryStore:
                 if not points:
                     return None
 
-            memory = self._payload_to_memory(
-                points[0].payload,
-                allow_legacy=not require_current_schema,
-            )
+            memory = self._payload_to_memory(points[0].payload)
             if not memory_belongs_to_workspace(memory, key.workspace_identity):
                 return None
             return memory
 
-        except MemorySchemaReadOnlyError:
-            raise
         except (ConnectionError, TimeoutError, OSError) as e:
             logger.error(f"Storage offline during get_memory: {e}")
             raise StorageOfflineError(cause=e) from e
@@ -739,12 +723,7 @@ class QdrantMemoryStore:
 
         return Filter(must=must_conditions) if must_conditions else None
 
-    def _payload_to_memory(
-        self,
-        payload: dict[str, Any],
-        *,
-        allow_legacy: bool = True,
-    ) -> MemoryAtom:
+    def _payload_to_memory(self, payload: dict[str, Any]) -> MemoryAtom:
         """
         将 Qdrant Payload 转换回 MemoryAtom 对象
 
@@ -754,7 +733,7 @@ class QdrantMemoryStore:
         Returns:
             MemoryAtom 对象
         """
-        return decode_memory_payload(payload, allow_legacy=allow_legacy)
+        return decode_memory_payload(payload)
 
     async def _remove_legacy_point_after_upsert(self, memory: MemoryAtom) -> None:
         """仅回收同一 Workspace 的旧 UUID 点，避免跨域 ID 碰撞误删。"""

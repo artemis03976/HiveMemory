@@ -69,10 +69,9 @@ class QdrantStorageAdapter(MidTermStoragePort):
     ) -> MemoryAtom | None:
         """受限局部更新：只改白名单字段，保留向量与全部非目标字段。
 
-        读取使用严格 schema（旧记录只读拒绝）；patch 值按字段赋值到领域对象，
-        由模型的赋值校验拒绝非法值，再按 ``meta.lifecycle`` /
-        ``meta.access_policy`` 两个嵌套键提交 Qdrant 局部 payload 更新，不重算
-        向量、不写版本 Artifact。
+        patch 值按字段赋值到读取出的领域对象，由模型的赋值校验拒绝非法值，再按
+        ``meta.lifecycle`` / ``meta.access_policy`` 两个嵌套键提交 Qdrant 局部
+        payload 更新，不重算向量、不写版本 Artifact。
         """
         if not patch:
             raise ValueError("patch_payload 不允许空 patch")
@@ -80,7 +79,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
         if unknown:
             raise ValueError(f"patch_payload 不允许的字段路径: {sorted(unknown)}")
 
-        atom = await self._store.get_memory(key, require_current_schema=True)
+        atom = await self._store.get_memory(key)
         if atom is None:
             return None
 
@@ -160,9 +159,9 @@ class QdrantStorageAdapter(MidTermStoragePort):
         identity_scope: IdentityScope,
         memory_id: UUID,
     ) -> MemoryAtom | None:
-        """mutation 入口只接受当前 schema：兼容窗口内旧记录只读，拒绝读出后回写。"""
-        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
-        return await self._store.get_memory(key, require_current_schema=True)
+        return await self.get_by_key(
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        )
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return await self._store.get_memory(key)

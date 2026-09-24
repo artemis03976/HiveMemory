@@ -8,8 +8,7 @@
 - ``patch_payload``：Qdrant 局部 payload 更新只改 ``meta.lifecycle`` /
   ``meta.access_policy``，向量与其余字段原样保留，不改内容版本；
 - ``upsert(recompute_vectors=False)``：embedding 不重算，向量逐位一致，
-  payload 整体替换（含 ``payload.agent_config``）；
-- 旧整数 schema ``2`` 记录在 mutation 入口被拒绝（兼容窗口只读）。
+  payload 整体替换（含 ``payload.agent_config``）。
 """
 
 import os
@@ -29,7 +28,6 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
-from hivememory.engines.retrieval.memory_codec import MemorySchemaReadOnlyError
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -175,61 +173,3 @@ async def test_upsert_without_recompute_preserves_vectors_on_real_qdrant(store):
     assert payload_after["payload"]["agent_config"] == {"model_name": "v2"}
     # payload 其余键同步替换（同一提交的完整 payload）。
     assert payload_after["payload"]["content"] == "agent config carrier"
-
-
-@pytest.mark.asyncio
-async def test_legacy_schema_memory_rejected_at_mutation_entry_on_real_qdrant(store):
-    """旧整数 schema 记录在 mutation 入口被拒（兼容窗口只读，fail closed）。"""
-    mid_term, qdrant = store
-    atom = _memory("legacy carrier")
-    await mid_term.upsert(atom)
-
-    # 直接写入一条旧整数 schema 2 的原始 payload（平铺字段布局）。
-    legacy_id = uuid4()
-    legacy_payload = {
-        "schema_version": 2,
-        "id": str(legacy_id),
-        "meta": {
-            "source_agent_id": "legacy-agent",
-            "workspace_identity": {
-                "owner_user_id": "u1",
-                "workspace_key": "main_workspace",
-                "workspace_id": "main_workspace",
-            },
-            "owner_user_id": "u1",
-            "workspace_key": "main_workspace",
-            "workspace_id": "main_workspace",
-            "access_policy": {"visibility": "PUBLIC"},
-            "created_at": "2026-09-06T00:00:00+00:00",
-            "updated_at": "2026-09-06T00:00:00+00:00",
-            "version": 1,
-        },
-        "index": {
-            "title": "Legacy",
-            "summary": "Legacy v2 record for real infra gate verification.",
-            "memory_type": "FACT",
-            "tags": [],
-        },
-        "payload": {"content": "legacy"},
-        "relations": {},
-    }
-    key = WorkspaceMemoryKey(workspace_identity=atom.workspace_identity, memory_id=legacy_id)
-    from qdrant_client.models import PointStruct
-
-    await qdrant.client.upsert(
-        collection_name=qdrant.collection_name,
-        points=[
-            PointStruct(
-                id=qdrant._point_id(key), vector={"dense_text": [0.1, 0.9]}, payload=legacy_payload
-            ),
-        ],
-    )
-
-    identity_scope = _identity_scope()
-    with pytest.raises(MemorySchemaReadOnlyError):
-        await mid_term.get_for_mutation(identity_scope, legacy_id)
-    with pytest.raises(MemorySchemaReadOnlyError):
-        await mid_term.patch_payload(
-            key,
-            {"meta.lifecycle.access_count": 1},
-        )
