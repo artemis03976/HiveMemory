@@ -30,6 +30,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -579,6 +580,39 @@ class TestGenerationEngineModeC:
         assert snapshot.payload.content == "旧内容"
         assert snapshot.meta.version == version_before
         assert result[0].changelog == "v2 更新"
+
+    def test_apply_update_degrades_to_touch_when_content_unchanged(self):
+        """§3.2：合并结果与现有内容一致时不创建新版本——降级为 TOUCH 纯决策。"""
+        existing = _make_memory()
+        existing.payload.content = "旧内容"
+        existing.meta.lifecycle.access_count = 3
+        version_before = existing.meta.version
+        updated_at_before = existing.meta.updated_at
+        contributors_before = existing.meta.provenance.contributing_agent_ids
+        # 裁定中携带新的贡献者：无内容变化时不得并入（贡献者只随受控内容提交合并）。
+        provenance = MemoryProvenance(
+            source_agent_id="a1",
+            contributing_agent_ids=("new-contributor",),
+        )
+        merge_result = MergeResult(new_content="旧内容", changelog="Fallback (无变更)")
+
+        result = self.engine._apply_update(
+            existing,
+            merge_result,
+            provenance=provenance,
+        )
+
+        assert len(result) == 1
+        outcome = result[0]
+        assert outcome.duplicate_decision == DuplicateDecision.TOUCH
+        # 零变更：内容、版本、内容时间、贡献者集合全部原样。
+        assert outcome.atom is existing
+        assert outcome.atom.payload.content == "旧内容"
+        assert outcome.atom.meta.version == version_before
+        assert outcome.atom.meta.updated_at == updated_at_before
+        assert outcome.atom.meta.provenance.contributing_agent_ids == contributors_before
+        assert outcome.memory_before_snapshot is None
+        assert outcome.changelog is None
 
 
 class TestGenerationEngineDedup:

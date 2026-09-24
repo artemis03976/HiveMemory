@@ -342,6 +342,21 @@ class MemoryGenerationEngine:
         ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
         的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
         """
+        # §3.2：实际内容相同的重复更新不创建新版本。合并结果与现有内容一致
+        # 时降级为 TOUCH 纯决策——不合并贡献者、不刷新 dedup index、不改任何
+        # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
+        if result.new_content == memory.payload.content:
+            logger.info(
+                "[Mode C] UPDATE 合并结果与现有内容一致，降级为 TOUCH: '%s'",
+                memory.index.title,
+            )
+            return [
+                GenerationOutcome(
+                    atom=memory,
+                    duplicate_decision=DuplicateDecision.TOUCH,
+                )
+            ]
+
         # 深拷贝保留修改前的完整原子；嵌套对象不与候选共享引用。
         before_snapshot = memory.model_copy(deep=True)
 

@@ -80,6 +80,10 @@ class MemoryAccessPolicy(BaseModel):
                 raise ValueError("TEAM policy 必须且只能携带 target_team_id")
         return self
 
+    # 与 meta 内其他领域模型同口径：就地属性赋值同样执行字段与 target 不变量，
+    # 防止构造后的策略对象被绕过校验改写（如把 target 改成保留 system）。
+    model_config = ConfigDict(validate_assignment=True)
+
     @classmethod
     def public(cls) -> "MemoryAccessPolicy":
         """显式构造 Workspace-local PUBLIC 策略。"""

@@ -145,6 +145,26 @@ def test_memory_key_construction_rejects_missing_scope() -> None:
     assert caught.value.code == "workspace.scope_required"
 
 
+def test_access_policy_assignment_revalidates_invariants() -> None:
+    """就地属性赋值同样执行 target 不变量（与构造路径同口径）。"""
+    public_policy = MemoryAccessPolicy.public()
+    with pytest.raises(ValidationError, match="PUBLIC policy"):
+        public_policy.target_agent_id = "agent-a"
+
+    private_policy = MemoryAccessPolicy(
+        visibility=MemoryVisibility.PRIVATE,
+        target_agent_id="a1",
+    )
+    with pytest.raises(ValidationError, match="PRIVATE policy"):
+        private_policy.target_agent_id = None
+    with pytest.raises(ValidationError, match="system"):
+        private_policy.target_agent_id = "system"
+
+    # 合法赋值不受影响。
+    private_policy.target_agent_id = "a2"
+    assert private_policy.target_agent_id == "a2"
+
+
 def test_provenance_contributors_normalized_and_system_excluded() -> None:
     """贡献者集合按首次出现顺序去重，system 与空白标识不是内容贡献者。"""
     provenance = MemoryProvenance(
