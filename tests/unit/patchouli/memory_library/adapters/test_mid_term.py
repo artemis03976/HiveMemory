@@ -114,6 +114,36 @@ async def test_management_read_still_rejects_cross_workspace_memory() -> None:
     )
 
 
+class _RecordingDeleteStore(_SingleMemoryStore):
+    """按键读取总返回同一原子，并记录删除请求。"""
+
+    def __init__(self, memory: MemoryAtom) -> None:
+        super().__init__(memory)
+        self.deleted: list[WorkspaceMemoryKey] = []
+
+    async def delete_memory(self, key):
+        self.deleted.append(key)
+        return True
+
+
+@pytest.mark.asyncio
+async def test_internal_key_read_and_delete_reject_foreign_workspace_memory() -> None:
+    """内部可信路径（编辑/强化/归档/删除）按复合键访问时，adapter 是唯一 ownership 重验点。
+
+    捕获存储返回其他 Workspace 的原子时被当作本 Workspace 资源读取或删除的缺陷。
+    """
+    memory = _private_memory()
+    store = _RecordingDeleteStore(memory)
+    adapter = QdrantStorageAdapter(store)
+    foreign = make_identity_scope(user_id="u1", agent_id="owner-agent", workspace_id="other")
+
+    assert (
+        await adapter.get_by_key(WorkspaceMemoryKey.from_identity_scope(foreign, memory.id)) is None
+    )
+    assert await adapter.delete(foreign, memory.id) is False
+    assert store.deleted == []
+
+
 @pytest.mark.asyncio
 async def test_search_discards_private_hit_not_authorized_for_actor() -> None:
     """捕获 Qdrant 预过滤失效后 PRIVATE Memory 直接泄漏给错误 Agent 的缺陷。"""

@@ -355,9 +355,6 @@ class _InMemoryMidTermPort(MidTermStoragePort):
                 return memory
         return None
 
-    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
-        return await self.get(identity_scope, memory_id)
-
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return self.memories.get(self._key_of(key))
 
@@ -366,9 +363,6 @@ class _InMemoryMidTermPort(MidTermStoragePort):
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         return self.memories.pop(self._key_of(key), None) is not None
-
-    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
-        return sum(1 for mid in ids if await self.delete(identity_scope, mid))
 
     async def search(
         self,
@@ -400,9 +394,6 @@ class _InMemoryMidTermPort(MidTermStoragePort):
             for memory in self.memories.values()
             if memory.workspace_identity == scope.workspace_identity
         ][:limit]
-
-    async def count(self, scope, filters=None) -> int:
-        return len(await self.scroll(scope, filters=filters))
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return list(self.memories.values())[:limit]

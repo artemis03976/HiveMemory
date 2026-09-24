@@ -17,7 +17,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.system import HiveMemorySystem
 from hivememory.system.config import load_app_config
@@ -111,10 +111,16 @@ def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
                 limit=1000,
             )
         )
+        for memory in memories:
+            asyncio.run(
+                store.delete_memory(
+                    WorkspaceMemoryKey(
+                        workspace_identity=memory.workspace_identity, memory_id=memory.id
+                    )
+                )
+            )
         if memories:
-            memory_ids = [m.id for m in memories]
-            asyncio.run(store.batch_delete_memories(memory_ids))
-            logger.info(f"清理用户 {user_id} 的 {len(memory_ids)} 条记忆")
+            logger.info(f"清理用户 {user_id} 的 {len(memories)} 条记忆")
     except Exception as e:
         logger.warning(f"清理用户 {user_id} 记忆时出错: {e}")
 

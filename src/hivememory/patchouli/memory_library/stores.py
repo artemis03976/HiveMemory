@@ -165,16 +165,6 @@ class MidTermMemoryStore:
             enforce_actor_visibility=enforce_actor_visibility,
         )
 
-    async def get_for_mutation(
-        self,
-        identity_scope: IdentityScope,
-        memory_id: UUID,
-    ) -> MemoryAtom | None:
-        return await self._primary.get_for_mutation(
-            require_identity_scope(identity_scope),
-            memory_id,
-        )
-
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return await self._primary.get_by_key(key)
 
@@ -204,13 +194,6 @@ class MidTermMemoryStore:
         for secondary in self._secondary:
             await secondary.delete_by_key(key)
         return result
-
-    async def batch_delete(self, identity_scope: IdentityScope, ids: list[UUID]) -> int:
-        identity_scope = require_identity_scope(identity_scope)
-        count = await self._primary.batch_delete(identity_scope, ids)
-        for secondary in self._secondary:
-            await secondary.batch_delete(identity_scope, ids)
-        return count
 
     async def search(
         self,
@@ -247,9 +230,6 @@ class MidTermMemoryStore:
             limit,
             enforce_actor_visibility=enforce_actor_visibility,
         )
-
-    async def count(self, scope: IdentityScope, filters=None) -> int:
-        return await self._primary.count(require_identity_scope(scope), filters)
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return await self._primary.list_all_for_maintenance(limit)

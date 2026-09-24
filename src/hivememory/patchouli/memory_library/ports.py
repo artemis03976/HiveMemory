@@ -84,6 +84,15 @@ class MidTermStoragePort(ABC):
     """
     中期存储 Port — 以 MemoryAtom 为边界的向量库操作。
 
+    授权重验在 Port 实现内完成，存储预过滤不是授权事实：
+        - 带 ``IdentityScope`` 的读取（get/get_by_alias/search/scroll）校验
+          Workspace ownership 与 actor 读取策略；``enforce_actor_visibility=False``
+          仅供管理读取跳过 actor 策略，ownership 仍然生效；
+        - 按 ``WorkspaceMemoryKey`` 的读取与删除是内部可信路径（编辑、强化、
+          归档），只校验 ownership；
+        - 存储失败以 ``StorageOfflineError`` / ``StorageReadError`` /
+          ``StorageWriteError`` 传播，不以空结果或 ``False`` 掩盖。
+
     实现：
         QdrantStorageAdapter（Phase 1）
         GraphStorageAdapter（future）
@@ -109,13 +118,6 @@ class MidTermStoragePort(ABC):
         alias: str,
         *,
         enforce_actor_visibility: bool = True,
-    ) -> MemoryAtom | None: ...
-
-    @abstractmethod
-    async def get_for_mutation(
-        self,
-        identity_scope: IdentityScope,
-        memory_id: UUID,
     ) -> MemoryAtom | None: ...
 
     @abstractmethod
@@ -146,13 +148,6 @@ class MidTermStoragePort(ABC):
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool: ...
 
     @abstractmethod
-    async def batch_delete(
-        self,
-        identity_scope: IdentityScope,
-        ids: list[UUID],
-    ) -> int: ...
-
-    @abstractmethod
     async def search(
         self,
         identity_scope: IdentityScope,
@@ -174,13 +169,6 @@ class MidTermStoragePort(ABC):
         *,
         enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]: ...
-
-    @abstractmethod
-    async def count(
-        self,
-        identity_scope: IdentityScope,
-        filters: QueryFilters | None = None,
-    ) -> int: ...
 
     @abstractmethod
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]: ...

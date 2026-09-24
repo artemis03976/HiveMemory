@@ -151,6 +151,10 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Storage Error] 记忆存储读取时发生内部错误。\n"
         "Suggestion: 请勿重试相同指令。请在没有记忆访问的情况下继续对话。"
     ),
+    "mtp.system.storage_write_error": (
+        "[Storage Error] 记忆存储写入时发生内部错误，本次修改未确认生效。\n"
+        "Suggestion: 请勿重试相同指令。请在没有记忆访问的情况下继续对话。"
+    ),
     "mtp.system.service_unavailable": (
         "[Service Unavailable] 必需的内部服务当前不可用。\n"
         "Suggestion: 请勿重试相同指令，并继续正常对话。"
@@ -313,6 +317,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
     ),
     "mtp.system.storage_error": (
         "[Storage Error] Memory storage encountered an internal read error.\n"
+        "Suggestion: Do NOT retry this command. Continue without memory access."
+    ),
+    "mtp.system.storage_write_error": (
+        "[Storage Error] Memory storage encountered an internal write error; "
+        "the change was not confirmed.\n"
         "Suggestion: Do NOT retry this command. Continue without memory access."
     ),
     "mtp.system.service_unavailable": (

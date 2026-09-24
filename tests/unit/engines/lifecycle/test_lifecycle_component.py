@@ -97,12 +97,6 @@ class _MockMidTermAdapter:
     async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
         return None
 
-    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
-        memory = await self._storage.get_memory(memory_id)
-        if memory is None or memory.workspace_identity != identity_scope.workspace_identity:
-            return None
-        return memory
-
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         memory = await self._storage.get_memory(key.memory_id)
         if memory is None or memory.workspace_identity != key.workspace_identity:
@@ -117,13 +111,6 @@ class _MockMidTermAdapter:
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         return await self._storage.delete_memory(key.memory_id)
-
-    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
-        count = 0
-        for memory_id in ids:
-            if await self.delete(identity_scope, memory_id):
-                count += 1
-        return count
 
     async def search(
         self,
@@ -142,9 +129,6 @@ class _MockMidTermAdapter:
             for memory in self._storage.list_all_memories(limit=limit)
             if memory.workspace_identity == scope.workspace_identity
         ]
-
-    async def count(self, scope, filters=None) -> int:
-        return len(await self.scroll(scope, filters=filters))
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return self._storage.list_all_memories(limit=limit)

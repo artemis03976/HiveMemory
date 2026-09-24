@@ -998,7 +998,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         artifact_engine.memory = Mock()
         artifact_engine.memory.build_for_update = AsyncMock(return_value=version_ref)
         mid_term = Mock()
-        mid_term.get_for_mutation = AsyncMock(return_value=atom)
+        mid_term.get_by_key = AsyncMock(return_value=atom)
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(
             mid_term=mid_term,
@@ -1052,7 +1052,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         artifact_engine = _memory_artifact_engine()
         mid_term = Mock()
-        mid_term.get_for_mutation = AsyncMock(return_value=atom)
+        mid_term.get_by_key = AsyncMock(return_value=atom)
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(
             mid_term=mid_term,
@@ -1070,7 +1070,7 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_update_external_memory_returns_none_when_missing(self):
         mid_term = Mock()
-        mid_term.get_for_mutation = AsyncMock(return_value=None)
+        mid_term.get_by_key = AsyncMock(return_value=None)
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(mid_term=mid_term)
 

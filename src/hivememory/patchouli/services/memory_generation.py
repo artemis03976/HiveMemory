@@ -181,7 +181,9 @@ class MemoryGenerationFamiliar:
         对外部手动的记忆编辑进行持久化处理。
         """
         identity_scope = require_identity_scope(identity_scope)
-        atom = await self._mid_term.get_for_mutation(identity_scope, memory_id)
+        atom = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        )
         if atom is None:
             return None
 

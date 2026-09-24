@@ -47,9 +47,6 @@ class _RecordingPort(MidTermStoragePort):
         self.enforce_seen.append(enforce_actor_visibility)
         return None
 
-    async def get_for_mutation(self, identity_scope, memory_id):  # pragma: no cover
-        raise AssertionError("not expected")
-
     async def get_by_key(self, key):  # pragma: no cover
         raise AssertionError("not expected")
 
@@ -91,12 +88,6 @@ class _RecordingPort(MidTermStoragePort):
     ):
         self.enforce_seen.append(enforce_actor_visibility)
         return []
-
-    async def batch_delete(self, identity_scope, memory_ids):  # pragma: no cover
-        raise AssertionError("not expected")
-
-    async def count(self, identity_scope):  # pragma: no cover
-        raise AssertionError("not expected")
 
     async def list_all_for_maintenance(self):  # pragma: no cover
         raise AssertionError("not expected")

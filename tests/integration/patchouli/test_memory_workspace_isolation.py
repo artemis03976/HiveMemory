@@ -1,11 +1,11 @@
-"""真实 Qdrant 内存模式下验证 Memory 的 Workspace 复合寻址与兼容读取。"""
+"""真实 Qdrant 内存模式下验证 Memory 的 Workspace 复合寻址与读取隔离。"""
 
 from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, VectorParams
 
 from hivememory.core.models import (
     ActorIdentity,
@@ -15,7 +15,6 @@ from hivememory.core.models import (
     PayloadLayer,
     build_internal_identity_scope,
 )
-from hivememory.core.mtp.exceptions import StorageReadError
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -121,117 +120,3 @@ async def test_public_memory_is_not_visible_from_another_workspace(memory_store)
 
     assert await store.get(isolation, memory_id) is None
     assert await store.get_by_alias(isolation, "fact_public") is None
-
-
-@pytest.mark.asyncio
-async def test_legacy_record_without_schema_version_is_no_longer_readable(memory_store) -> None:
-    """legacy v1 解释分支已删除：缺 schema_version 的记录 fail closed 而非被解释。
-
-    存量 legacy 数据已由 v0.6.2 一次性迁移工具（现已退役）转换为 canonical
-    v2；未迁移记录不再被任何
-    Workspace 解释读取，也不得被第二 Workspace 的 compatibility-read 召回。
-    """
-    store, qdrant = memory_store
-    main = _identity_scope("main_workspace")
-    isolation = _identity_scope("isolation_workspace")
-    memory_id = uuid4()
-    legacy_payload = {
-        "id": str(memory_id),
-        "meta": {
-            "source_agent_id": "agent-a",
-            "user_id": "u1",
-            "visibility": "PUBLIC",
-        },
-        "index": {
-            "title": "Legacy main memory",
-            "summary": "Legacy record has no Workspace projection and stays main-only.",
-            "tags": [],
-            "memory_type": "FACT",
-            "alias": "fact_legacy",
-        },
-        "payload": {"content": "legacy main"},
-        "relations": {},
-    }
-    await qdrant.client.upsert(
-        collection_name=qdrant.collection_name,
-        points=[
-            PointStruct(
-                id=str(memory_id),
-                vector={"dense_text": [0.25, 0.75]},
-                payload=legacy_payload,
-            )
-        ],
-    )
-
-    with pytest.raises(StorageReadError):
-        await store.get(main, memory_id)
-    with pytest.raises(StorageReadError):
-        await store.get(isolation, memory_id)
-
-
-@pytest.mark.asyncio
-async def test_legacy_uuid_cleanup_preserves_same_id_in_foreign_workspace(memory_store) -> None:
-    """捕获 v2 写入无条件回收异域同名 UUID 点的越权缺陷。
-
-    归属核验无法解码时按"宁可不清理"处理：异域旧点不被删除，保留等待
-    迁移工具处理，而不是被当前 Workspace 的写入顺手回收。
-    """
-    store, qdrant = memory_store
-    current = _identity_scope("isolation_workspace", user_id="u1")
-    foreign_user_id = "u2"
-    memory_id = uuid4()
-    legacy_payload = {
-        "id": str(memory_id),
-        "meta": {
-            "source_agent_id": "foreign-agent",
-            "user_id": foreign_user_id,
-            "visibility": "PUBLIC",
-        },
-        "index": {
-            "title": "Foreign legacy memory",
-            "summary": "A colliding legacy UUID remains owned by another user.",
-            "tags": [],
-            "memory_type": "FACT",
-        },
-        "payload": {"content": "foreign legacy content"},
-        "relations": {},
-    }
-    await qdrant.client.upsert(
-        collection_name=qdrant.collection_name,
-        points=[
-            PointStruct(
-                id=str(memory_id),
-                vector={"dense_text": [0.25, 0.75]},
-                payload=legacy_payload,
-            )
-        ],
-    )
-
-    await store.upsert(
-        _memory(
-            current,
-            memory_id=memory_id,
-            content="current workspace content",
-            alias="fact_current",
-        )
-    )
-
-    remaining = await qdrant.client.retrieve(
-        collection_name=qdrant.collection_name,
-        ids=[str(memory_id)],
-        with_payload=True,
-        with_vectors=False,
-    )
-    assert len(remaining) == 1
-    assert remaining[0].payload["meta"]["user_id"] == foreign_user_id
-
-    # 删除当前 Workspace 记录后，异域旧点同样不被顺手回收。
-    assert await store.delete(current, memory_id) is True
-    remaining_after_delete = await qdrant.client.retrieve(
-        collection_name=qdrant.collection_name,
-        ids=[str(memory_id)],
-        with_payload=True,
-        with_vectors=False,
-    )
-    assert len(remaining_after_delete) == 1
-    assert remaining_after_delete[0].payload["meta"]["user_id"] == foreign_user_id

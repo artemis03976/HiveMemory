@@ -1,38 +1,33 @@
 """
 人偶图纸初始化脚本 (Agent Profile Injection)
 
-向 Qdrant 注入 Phase 1 基础人偶图纸：
-1. omni_doll   - 全能助手（全权限兜底）
-2. coder_doll  - Python 开发者（代码生成 + 文件读写）
-3. reviewer_doll - 代码审查员（只读 + 检索）
+向指定用户的默认 Workspace 注入基础人偶图纸：
+1. coder_doll    - Python 开发者（代码生成 + 文件读写）
+2. reviewer_doll - 代码审查员（只读 + 检索）
+
+omni_doll 是代码内置的 fallback Profile（``OMNI_DOLL_PROFILE``），按 alias 解析时
+先于存储记录生效，因此不注入存储。
+
+写入走与 ``POST /api/v1/agents`` 相同的管理用例（AgentApplicationService →
+Patchouli 完整写入路径）：执行字段校验并生成版本记录。已存在的 alias 跳过，
+可重复执行。
 
 使用方式:
-    python scripts/inject_profiles.py
+    python scripts/inject_profiles.py [--user-id USER]
 
 前置条件:
-    - Qdrant 服务已启动
-    - HiveMemory collection 已创建
+    - Qdrant 服务已启动（使用与后端相同的配置）
+    - 脚本会启动一个完整的 HiveMemorySystem（含后台调度），建议在后端未运行时执行
 """
 
+import argparse
 import asyncio
 import logging
-import sys
-from pathlib import Path
-from uuid import uuid4
 
-# 添加项目根目录到 sys.path
-project_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(project_root / "src"))
-
-from hivememory.core.models import (
-    Artifacts,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    MemoryVisibility,
-    MetaData,
-    PayloadLayer,
-)
+from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
+from hivememory.core.models import ActorIdentity, IdentityScope
+from hivememory.core.models.workspace import resolve_default_workspace_identity
+from hivememory.system import HiveMemorySystem
 from hivememory.system.config import load_app_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -42,23 +37,6 @@ logger = logging.getLogger(__name__)
 # ============ 人偶图纸定义 ============
 
 PROFILES = [
-    {
-        "alias": "omni_doll",
-        "title": "全能助手 (Omni-Doll)",
-        "summary": "默认的全能 AI 助手，拥有完整的 MTP 权限和所有系统工具访问权。适用于通用对话和任务处理。",
-        "tags": ["agent", "default", "omni"],
-        "persona": (
-            "你是一个全能的 AI 助手，能够处理各种任务。"
-            "你拥有完整的记忆系统访问权限，可以自由使用所有工具。"
-        ),
-        "agent_config": {
-            "model_name": "default",
-            "temperature": 0.7,
-            "allowed_mtp_verbs": [],
-            "allowed_sys_tools": [],
-            "language": "zh",
-        },
-    },
     {
         "alias": "coder_doll",
         "title": "Python 开发者 (Coder-Doll)",
@@ -112,59 +90,48 @@ PROFILES = [
 ]
 
 
-def build_profile_atom(profile_def: dict) -> MemoryAtom:
-    """从定义字典构建 AGENT_PROFILE 类型的 MemoryAtom"""
-    return MemoryAtom(
-        id=uuid4(),
-        meta=MetaData(
-            source_agent_id="system",
-            user_id="system",
-            visibility=MemoryVisibility.PUBLIC,
-            version=1,
-            confidence_score=1.0,
-        ),
-        index=IndexLayer(
-            title=profile_def["title"],
-            summary=profile_def["summary"],
-            tags=profile_def["tags"],
-            memory_type=MemoryType.AGENT_PROFILE,
-            alias=profile_def["alias"],
-        ),
-        payload=PayloadLayer(
-            content=profile_def["persona"],
-            artifacts=Artifacts(
-                agent_config=profile_def["agent_config"],
-            ),
-        ),
+def management_scope(user_id: str) -> IdentityScope:
+    """与 server 管理入口相同的身份：保留 system actor + 用户默认 Workspace。"""
+    return IdentityScope(
+        actor_identity=ActorIdentity(user_id=user_id, agent_id=SYSTEM_AGENT_ID),
+        workspace_identity=resolve_default_workspace_identity(user_id),
     )
 
 
-async def main():
-    """注入所有人偶图纸到 Qdrant"""
-    config = load_app_config()
+async def main(user_id: str) -> None:
+    """注入尚不存在的人偶图纸；已存在的 alias 跳过。"""
+    identity_scope = management_scope(user_id)
+    system = HiveMemorySystem.build(config=load_app_config())
+    await system.start()
+    try:
+        existing = {
+            atom.index.alias
+            for atom in await system.agent_service.list_agent_profiles(
+                identity_scope=identity_scope, limit=1000
+            )
+        }
+        for profile in PROFILES:
+            alias = profile["alias"]
+            if alias in existing:
+                logger.info(f"Profile '{alias}' already exists, skipping.")
+                continue
+            atom = await system.agent_service.create_agent_profile(
+                identity_scope=identity_scope,
+                title=profile["title"],
+                alias=alias,
+                summary=profile["summary"],
+                content=profile["persona"],
+                tags=profile["tags"],
+                agent_config=profile["agent_config"],
+            )
+            logger.info(f"Injected profile: {alias} (id={atom.id})")
+    finally:
+        await system.stop()
 
-    # 初始化存储
-    from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-
-    storage = QdrantMemoryStore(config=config.storage)
-
-    logger.info(f"Connected to Qdrant at {config.storage.qdrant_url}")
-
-    for profile_def in PROFILES:
-        alias = profile_def["alias"]
-
-        # 检查是否已存在
-        existing = storage.get_memory_by_alias(alias)
-        if existing is not None:
-            logger.info(f"Profile '{alias}' already exists (id={existing.id}), skipping.")
-            continue
-
-        atom = build_profile_atom(profile_def)
-        storage.upsert_memory(atom)
-        logger.info(f"Injected profile: {alias} (id={atom.id})")
-
-    logger.info("All agent profiles injected successfully.")
+    logger.info("Agent profile injection finished.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="注入基础人偶图纸（AGENT_PROFILE 记忆）")
+    parser.add_argument("--user-id", default=DEFAULT_USER_ID, help="目标用户（默认 Workspace）")
+    asyncio.run(main(parser.parse_args().user_id))

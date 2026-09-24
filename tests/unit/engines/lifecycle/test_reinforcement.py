@@ -88,7 +88,7 @@ class TestDynamicReinforcementEngine:
         original_decay_anchor_at = self.test_memory.meta.lifecycle.decay_anchor_at
         original_updated_at = self.test_memory.meta.updated_at
 
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 50.0  # 重算结果 (含 B 项)
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
@@ -117,7 +117,7 @@ class TestDynamicReinforcementEngine:
         original_updated_at = self.test_memory.meta.updated_at
         original_decay_anchor_at = self.test_memory.meta.lifecycle.decay_anchor_at
 
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 70.0  # 提升效果
 
         event = MemoryEvent(
@@ -137,7 +137,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_negative_feedback_reduces_confidence(self):
         """测试负面反馈降低置信度"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 25.0  # 降低后
 
         event = MemoryEvent(
@@ -154,7 +154,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_positive_feedback_increases_vitality(self):
         """测试正面反馈增加生命力"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 100.0  # 大幅提升
 
         event = MemoryEvent(
@@ -169,7 +169,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
         """负面反馈: -50 累加进 B 项，confidence ×0.5"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 80.0  # 重算结果 (含 B 项)
 
         event = MemoryEvent(
@@ -194,7 +194,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_reinforcement_clamps_vitality_to_valid_range(self):
         """测试 reinforce 内的 _clamp_vitality 将 >100 的重算结果限制到 100"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 150.0  # 重算超出范围
 
         event = MemoryEvent(
@@ -211,7 +211,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_memory_not_found(self):
         """测试记忆不存在时抛出异常"""
-        self.mock_mid_term.get_for_mutation.return_value = None
+        self.mock_mid_term.get_by_key.return_value = None
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=uuid4(), source="test")
 
@@ -223,7 +223,7 @@ class TestDynamicReinforcementEngine:
         """测试访问计数增加"""
         original_count = self.test_memory.meta.lifecycle.access_count
 
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
@@ -239,7 +239,7 @@ class TestDynamicReinforcementEngine:
         """测试最后访问时间更新"""
         before = utc_now()
 
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
@@ -253,7 +253,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_event_history_tracked(self):
         """测试事件历史跟踪"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
@@ -305,7 +305,7 @@ class TestDynamicReinforcementEngine:
             payload=PayloadLayer(content="Content"),
         )
 
-        self.mock_mid_term.get_for_mutation.side_effect = [memory1, memory2]
+        self.mock_mid_term.get_by_key.side_effect = [memory1, memory2]
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         # 记录两个事件
@@ -323,7 +323,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_clear_history(self):
         """测试清空历史"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
@@ -337,7 +337,7 @@ class TestDynamicReinforcementEngine:
     @pytest.mark.asyncio
     async def test_get_stats(self):
         """测试获取统计信息"""
-        self.mock_mid_term.get_for_mutation.return_value = self.test_memory
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
         # 记录多个事件

@@ -103,7 +103,9 @@ class DynamicReinforcementEngine:
             ValueError: 记忆不存在
         """
         # 从存储获取当前记忆
-        memory = await self._mid_term.get_for_mutation(identity_scope, memory_id)
+        memory = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        )
         if memory is None:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
             raise ValueError(f"Memory {memory_id} not found")
