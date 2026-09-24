@@ -154,12 +154,12 @@ last_reviewed: 2026-09-20
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 统筹 A1–A6 及 A2-P：统一认证/授权、完整记忆版本与 lifecycle 更新、资源读取/cache、Session/Topic、共享 Pending、API 收敛和 Actor 集成；A1 已完成并归档，事实入口见 [Workspace 架构](./architecture/workspace.md)第 4 节，不新增平行业务 port/provider 层 | v0.6.2 与 WRX-0/1 基础；[协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)；[A2-P](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)为 A2 的 Planned 前置 |
+| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 统筹 A1–A6 及 A2-P：统一认证/授权、完整记忆版本与 lifecycle 更新、资源读取/cache、Session/Topic、共享 Pending、API 收敛和 Actor 集成；A1 已完成并归档，事实入口见 [Workspace 架构](./architecture/workspace.md)第 4 节，不新增平行业务 port/provider 层 | v0.6.2 与 WRX-0/1 基础；[协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)；[A2-P](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)已完成并于 2026-09-24 归档（交付 schema 2.1、完整历史与受控 mutation），作为 A2 的前置 |
 | `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的访问边界与公开 application 契约；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
 | `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | A 的资源边界、B 的身份/来源/提交契约、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
-| `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
+| `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
 | 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.0 期间启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.10 节 Todo；正式 Plan 待建立 |
@@ -170,9 +170,9 @@ last_reviewed: 2026-09-20
 本版本由计划 A 的 A1–A6、新增 A2-P 前置计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
 
 - [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)按交付依赖组织计划：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2-P 先交付内容版本、完整历史、lifecycle 聚合与受控更新；A2 再交付 canonical/Profile 读取、WorkspaceRuntime/cache 与同步更新/失效，按 Workspace 共享条目、命中执行资源授权且不回源；A3 交付 ConversationSession、InteractionPayload/TurnEvent、Topic 生命周期及交互/资料 API；A4 交付共享 Pending、主动提交及完整引用解析；A5 收敛整体 API、补检索/使用报告差额并明确旧服务职责；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一领域链，不增加 Workspace 业务 port/provider 层。
-- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2-P 内容版本与 Lifecycle](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2-P 与 A3 可在 A1 后并行，A2 等待 A2-P 完成交付，A4 再消费 A2/A3。靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
+- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2-P 内容版本与 Lifecycle](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2-P 与 A3 可在 A1 后并行，A2 等待 A2-P 完成交付，A4 再消费 A2/A3。靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
 
-2026-09-20 新增 A2-P（Planned）：动态字段聚合到 `meta.lifecycle`，维护不得推进内容 version、整颗重写原子或重新计算向量；新内容提交必须关联完整版本记录，并显式迁移旧 schema/披露历史缺口。A2 保留 Active 以承接已有工作，但缓存实现以该前置完成为门槛。历史记录从 v0.7.0 开始完整保存，v0.7.3 负责读取编译，不延后保存责任。
+2026-09-20 新增 A2-P（已于 2026-09-23 实施完成并归档）：动态字段聚合到 `meta.lifecycle`，维护不得推进内容 version、整颗重写原子或重新计算向量；新内容提交必须关联完整版本记录，并显式迁移旧 schema/披露历史缺口。A2 保留 Active 以承接已有工作，但缓存实现以该前置完成为门槛。历史记录从 v0.7.0 开始完整保存，v0.7.3 负责读取编译，不延后保存责任。
 
 同日修订 [A2 公共读取结果](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md#13-canonical-读取结果与公开路由)：canonical 点读返回完整 MemoryAtom/None，alias 与检索返回原子列表，Profile 返回已有 AgentProfile。MemorySnapshot/ProfileSnapshot 退出目标设计，RetrievalResponse 仅用于 adapter 或本地运行上下文过渡；A4 的 Pending 状态结果保留完整 canonical 原子，A6/B 承担消费者和协议映射。该修订仍是计划目标。
 
@@ -222,7 +222,7 @@ A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与�
 
 ### 4.7 v0.7.3：MTP READ 专项编译与来源表达
 
-状态：Candidate。基于 [v0.7.0 A2-P](./plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)的完整记忆历史，以及 v0.7.2 的来源、文档表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。完整历史存储、内容版本与 lifecycle 更新边界由 A2-P 提前交付，本阶段不再反向定义记忆写入格式。
+状态：Candidate。基于 [v0.7.0 A2-P](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)的完整记忆历史，以及 v0.7.2 的来源、文档表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。完整历史存储、内容版本与 lifecycle 更新边界由 A2-P 提前交付，本阶段不再反向定义记忆写入格式。
 
 结果应说明读到哪个资源和版本、选择了哪个片段、引用如何回到原始证据，以及截断、缺失来源、旧裁剪历史和无权限如何表达。历史记录中的 lifecycle 是捕获时状态，额外展示当前评估时必须区分时点，不能用当前原子补造历史。不能仅在现有文本末尾追加一个链接，也不能建立第二套 provenance 或检索状态。其编译能力可由外部 adapter 复用，MTP 负责自己的协议呈现。
 

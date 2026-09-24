@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/system/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-09-24
 ---
 
 # 记忆生命周期
@@ -32,8 +32,8 @@ LifecycleFamiliar
 
 - Familiar 暴露业务入口与 scheduler callback；
 - LifecycleEngine 协调评分、事件和 GC；
-- Calculator 是纯分数计算；
-- ReinforcementEngine 读取、修改并持久化单条记忆；
+- Calculator 是纯分数计算（注入决策时刻，读取 `decay_anchor_at`）；
+- ReinforcementEngine 读取当前原子、纯计算本事件授权字段，经受限 `patch_payload` 提交；
 - GarbageCollector 筛选候选，跨层搬运只调用 MemoryLibrary。
 
 全局调度器只决定 gardening 何时运行，不拥有生命力公式或 archive 规则。
@@ -45,13 +45,14 @@ LifecycleFamiliar
 ```text
 V(t) = clamp(V0 * D(t) + A(access) + B(events), 0, 100)
 
-D(t) = exp(-lambda_eff * days_since_update)
+D(t) = exp(-lambda_eff * days_since_decay_anchor)
 lambda_eff = decay_lambda * (2 - intrinsic_value)
 A(access) = access_boost_coef * log(1 + access_count)
 B(events) = event_vitality_boost
 ```
 
 - `V0` 默认 100，使新记忆从高生命力开始；
+- 衰减基准是 `meta.lifecycle.decay_anchor_at`（创建时等于 created_at，CITATION 与内容修订推进；HIT、普通访问、反馈与评分刷新不推进）——`updated_at` 是内容事实，不参与衰减；决策时刻经注入的 `now` 提供，可在测试中固定；
 - intrinsic value 按 memory type 调节衰减速度，code/fact 默认比 work-in-progress 衰减慢；
 - access boost 使用对数曲线，访问越多仍增长，但边际增益下降；
 - event boost 单独累积，避免每次重算时丢失强化历史；
@@ -63,16 +64,18 @@ B(events) = event_vitality_boost
 
 当前四种事件为：
 
-| 事件 | 默认 event boost | access count | updated_at | confidence |
-|:---|---:|:---:|:---:|:---:|
-| `HIT` | +5 | +1 | 不重置 | 不变 |
-| `CITATION` | +20 | +1 | 重置 | 不变 |
-| `FEEDBACK_POSITIVE` | +50 | +1 | 不重置 | 不变 |
-| `FEEDBACK_NEGATIVE` | -50 | +1 | 不重置 | ×0.5 |
+| 事件 | 默认 event boost | access count | last_accessed_at | decay_anchor_at | confidence |
+|:---|---:|:---:|:---:|:---:|:---:|
+| `HIT` | +5 | +1 | 推进 | 不推进 | 不变 |
+| `CITATION` | +20 | +1 | 推进 | 推进 | 不变 |
+| `FEEDBACK_POSITIVE` | +50 | +1 | 推进 | 不推进 | 不变 |
+| `FEEDBACK_NEGATIVE` | -50 | +1 | 推进 | 不推进 | ×0.5 |
 
-HIT 表示一次被动检索命中，不应不断把更新时间刷新到“现在”，否则经常被召回的旧事实永不衰减。CITATION 表示 Agent 或用户显式使用，当前把它视作主动复习并重置时间衰减。所有事件随后统一重算 vitality 并 upsert MemoryAtom。
+HIT 表示一次被动检索命中，不应推进衰减基准，否则经常被召回的旧事实永不衰减。CITATION 表示 Agent 或用户显式使用，当前把它视作主动复习并推进 `decay_anchor_at`，对应“主动回忆重置遗忘曲线”。内容事实（`meta.updated_at`、`meta.version`）与版本 Artifact 不被任何强化事件触碰。
 
-事件 history 默认只在 ReinforcementEngine 内存中保留，最大 10000 条，用于当前进程的调试与统计；它不是持久化审计日志。MemoryAtom 中的 event boost、access count、confidence 和 updated time 才随 atom 持久化。
+所有事件读取当前原子、统一重算 vitality 后，把本事件授权的 lifecycle 字段经 `patch_payload` 受限提交：只提交 access_count、last_accessed_at、event_vitality_boost、vitality_score（及 CITATION 的 decay_anchor_at / 负反馈的 confidence_score），不做整原子 upsert、不重算向量。
+
+事件 history 默认只在 ReinforcementEngine 内存中保留，最大 10000 条，用于当前进程的调试与统计；它不是持久化审计日志。动态状态随 `meta.lifecycle` 聚合持久化。
 
 ## 4. Gardening 与垃圾回收
 
@@ -87,7 +90,7 @@ HIT 表示一次被动检索命中，不应不断把更新时间刷新到“现�
 
 默认 low watermark 为 20，batch size 为 10。`force` 参数当前会沿调用链传递，但 collector 没有额外调度限制可绕过，因此不会改变实际筛选逻辑。
 
-生命力刷新由调用用例决定是否持久化：普通读取可用 `persist=False` 得到临时新分数，gardening 则由 LifecycleEngine 先以 `persist=True` 刷新全部候选，再把已经更新的 atoms 交给 GarbageCollector。Collector 不持有 VitalityCalculator，也不自行读取存储；这一安排避免计算器、收集器与存储形成循环依赖，并保持 Engine 是生命周期算法的唯一编排者。
+生命力刷新由调用用例决定是否持久化：普通读取可用 `persist=False` 得到临时新分数；`persist=True` 经 `patch_payload` 只提交 `vitality_score`，不重算向量、不写版本 Artifact（gardening 先刷新全部候选，再把已更新 atoms 交给 GarbageCollector）。Collector 不持有 VitalityCalculator，也不自行读取存储；这一安排避免计算器、收集器与存储形成循环依赖，并保持 Engine 是生命周期算法的唯一编排者。
 
 ## 5. Archive 与 Revive
 

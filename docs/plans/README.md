@@ -15,8 +15,8 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | 当前计划 | 状态 | 目标结果 |
 |:---|:---:|:---|
 | [v0.7.0 计划 A：Workspace 资源平面重构协调计划](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 维护 A1–A6 及 A2-P 的共同边界、依赖和发布出口；不再重复维护子计划的完整实施细节 |
-| [A2-P 记忆内容版本与 Lifecycle 状态重构](./v0.7.0-a2-pre-memory-version-and-lifecycle.md) | Planned / A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
-| [全项目时间语义与可控时钟统一](./v0.7.0-time-semantics-and-controllable-clock.md) | Planned / 跨子系统 | 在 utils 提供 UTC 与 monotonic 时间工具，统一持久化时间、运行时计时、测试注入和旧数据迁移；Core 不承载时钟实现 |
+| [A2-P 记忆内容版本与 Lifecycle 状态重构](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) | 已完成（2026-09-24 归档）/ A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 2.1 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
+| [全项目时间语义与可控时钟统一](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) | 已完成（2026-09-24 归档，嵌入 A2-P 实施）/ 跨子系统 | Memory 域 UTC 业务时间、四时间字段职责、局部 now 注入与 TimeFormatter 契约；全项目收口转为 idea（见 ideas 索引） |
 | [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 等待 A2-P 前置交付 | 公共读取返回完整 MemoryAtom/列表和 AgentProfile，旧 envelope 留在 adapter；交付 Workspace 共享缓存与同步更新/失效，命中逐次资源授权且不回源 |
 | [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 新增 Session，演进 InteractionPayload/TurnEvent；交付 Topic 生命周期、交互/资料公共路由与授权结果查询 |
 | [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |

@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-09-06
+last_reviewed: 2026-09-24
 ---
 
 # 数据模型与可变性边界
@@ -38,9 +38,9 @@ HiveMemory 不把固定 token 切片或整段 session 直接当作长期记忆�
 这个粒度不是“只保存最终答案”的机械清洗规则。原始过程里可能包含决定结论可信度的证据、失败尝试和约束；系统应把适合工作上下文的精炼内容与可追溯的原始材料分开，而不是为了降低 token 成本删除证据。由此形成了延续至当前模型的冰山结构：
 
 - `index` 是水面上的检索视图，保存 title、summary、tags、type 和向量等用于发现记忆的信息；
-- `payload` 是 Agent 真正消费的主体内容，保存结构化正文及内容格式；
-- `artifacts` 保存或引用原始输入、生成产物与 provenance，使精炼结论仍能回到证据；
-- `meta` 保存身份、可见性、版本、生命力、验证状态和时间等治理信息；
+- `payload` 是 Agent 真正消费的主体内容，保存结构化正文、可版本化的 `agent_config`（Agent Profile 内容）与 append-only 的 artifacts 聚合（引用、生命周期事件、冷存储定位）；
+- `artifacts`（payload 内）通过 `ArtifactRef` 引用原始输入与版本历史，使精炼结论仍能回到证据；
+- `meta` 保存归属与读取策略（`workspace_identity`/`access_policy`）、结构化来源（`provenance`）、内容修订序号（`version`）与生命周期动态状态（`lifecycle`）四类互不替代的治理信息；
 - `relations` 为版本与知识关系提供结构位置，但当前并非所有关系字段都已有完整业务行为。
 
 Index 与 Payload 分离，解决的是“适合检索的摘要”和“适合阅读的内容”并不相同。Artifacts 再与 Payload 分离，则是为了避免上下文默认携带所有原始材料，同时保留检查、审计与未来重新解释的可能。这个结构只说明数据职责，不保证当前检索只嵌入 index，也不意味着所有 artifact、relation、版本回档或来源反查能力都已完整实现；这些事实以 Patchouli 当前文档为准。
@@ -129,13 +129,25 @@ v0.6.2 身份收敛后，领域模型中的 actor / owner 语义遵循统一约�
 - 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 因无消费者而删除；剩余的 `.identity` 只读派生 property（`ExecutionFrame`、`MTPExecutionContext`）统一标注"只读派生，新代码走 `identity_scope`"。
 - `PassiveConversationKey` 等 shared infra 命名键保留从 `IdentityScope.actor_identity` 平铺的三元组，仅作 buffer/gate/ordering 的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
 
+### 4.7 Memory schema 2.1 与受控写入（v0.7.0 A2-P）
+
+Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fail closed；旧整数 `2` 存量已于 2026-09-23 全量迁移，兼容入口已移除）：
+
+- `meta.provenance`（`MemoryProvenance`）与 `meta.lifecycle`（`MemoryLifecycleState`：access_count、last_accessed_at、event_vitality_boost、vitality_score、confidence_score、verification_status、decay_anchor_at）取代旧平铺字段；`session_id` 与 `payload.history_summary` 已从 schema 删除；可版本化的 Agent Profile 内容位于 `payload.agent_config`。
+- 四个时间字段职责互不替代：`created_at` 仅创建时设置；`updated_at` 仅由实际内容修订推进；`lifecycle.last_accessed_at` 记录最近访问/引用；`lifecycle.decay_anchor_at` 是遗忘衰减唯一基准（创建时等于 created_at，CITATION 与内容修订推进）。全部持久化时间为 UTC-aware，naive 值在模型校验与 codec 边界 fail closed；领域模型开启 `validate_assignment`，就地赋值同样执行约束。
+- 写入口只有两类：完整内容提交（`MemoryGenerationFamiliar` 构造完整原子，`upsert(recompute_vectors=...)` 提交，版本记录是成功前置条件）与受限局部更新（`MidTermStoragePort.patch_payload()`，仅允许 `meta.lifecycle.*` 白名单字段与 `meta.access_policy` 整体替换，向量与版本不动）。访问、反馈、评分、策略修改不得走整原子回写。
+- 版本历史由 schema `"2"` 的 `MemoryVersionArtifact` 承载，`snapshot_before/after` 直接嵌入捕获时完整原子的 canonical JSON；旧裁剪快照模型已删除。
+
+事实细节与失败语义见 [MemoryLibrary](../patchouli/memory-library.md)、[Memory 生命周期](../patchouli/lifecycle.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)与[记忆生成](../patchouli/generation.md)。
+
+
 ## 5. 当前仍然可变或仅浅层冻结的区域
 
 以下对象尚不能宣称具有统一的递归不可变保证：
 
 | 区域 | 代表对象 | 当前风险/理由 |
 |:---|:---|:---|
-| 记忆领域 | `MemoryAtom` 及 meta/index/payload/artifacts/relations | 多层 list/dict 与模型可被直接修改；聚合写入口尚未统一 |
+| 记忆领域 | `MemoryAtom` 及 meta/index/payload/artifacts/relations | 多层 list/dict 与模型仍可直接修改；写入口已收敛（完整提交经 Familiar、动态状态经 patch 白名单），但读取方拿到的仍是可变对象，依赖调用方不改写 |
 | 通用协议 | `RetrievalResponse`、`AgentRunContext`、`AgentRunResult`、`InteractionPayload` | 公共 DTO 与运行结果仍共享可变 list/model |
 | Alice Runtime | frame、progress、generation result | 请求级累积状态有意可变，但所有权标记不统一 |
 | 应用服务结果 | `StreamPrelude`、`PreparedAgentRun`、`PassiveIngressOutcome` 等 | frozen 外壳包裹可变模型、list 或 dict |

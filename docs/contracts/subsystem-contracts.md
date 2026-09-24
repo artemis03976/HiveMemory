@@ -158,7 +158,7 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题。已有话题
 | 能力组 | 当前公开行为 |
 |:---|:---|
 | Interaction | 提交 `InteractionPayload` 到指定或新话题；进入 submission lane 时由 `InteractionSubmission.identity_scope` 携带作用域 |
-| Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases |
+| Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases；create/update 在提交边界生成完整版本记录（无历史不成功），无变化的编辑不创建版本 |
 | Memory Task | list/get/cancel |
 | Agent Profile | 携带 `IdentityScope` 的 create/list/get |
 | Topic | 携带 `IdentityScope` 的 list active、topic data、manual settle、evict；Patchouli owner 拒绝越域 topic |
