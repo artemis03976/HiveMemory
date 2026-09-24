@@ -244,3 +244,78 @@ def test_payload_history_summary_removed_and_agent_config_moved() -> None:
     assert "history_summary" not in PayloadLayer.model_fields
     assert "agent_config" in PayloadLayer.model_fields
     assert "agent_config" not in Artifacts.model_fields
+
+
+# ─── Index 字段取值口径：必填、合法空值与规范化 ────────────────────────────
+
+
+@pytest.mark.parametrize("blank_title", ["", "   "])
+def test_index_rejects_blank_title(blank_title: str) -> None:
+    """标题去除首尾空白后必填：空串与纯空白都不是合法标题。"""
+    with pytest.raises(ValidationError, match="title"):
+        IndexLayer(title=blank_title, memory_type=MemoryType.FACT)
+
+
+def test_index_accepts_empty_summary() -> None:
+    """空摘要是合法值（如未填写描述的 Agent Profile），缺省即为空串。"""
+    index = IndexLayer(title="Untitled summary memory", memory_type=MemoryType.FACT)
+
+    assert index.summary == ""
+    assert IndexLayer(title="t", summary="  ", memory_type=MemoryType.FACT).summary == ""
+
+
+def test_index_normalizes_text_alias_and_tags() -> None:
+    """首尾空白去除、空白 alias 视为未设置、tags 转小写并保序去重。"""
+    index = IndexLayer(
+        title="  Title  ",
+        summary=" Short ",
+        memory_type=MemoryType.FACT,
+        alias="   ",
+        tags=["Python", "utc", " ", "python ", "Date"],
+    )
+
+    assert index.title == "Title"
+    assert index.summary == "Short"
+    assert index.alias is None
+    assert index.tags == ["python", "utc", "date"]
+
+
+# ─── 赋值同样执行字段约束（validate_assignment）────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("layer", "field", "value"),
+    [
+        ("index", "title", "   "),
+        ("index", "summary", "x" * 501),
+        ("index", "alias", "a" * 61),
+        ("meta", "version", 0),
+        ("meta", "updated_at", datetime(2026, 9, 22, 12, 0, 0)),
+        ("lifecycle", "confidence_score", 1.5),
+        ("lifecycle", "decay_anchor_at", datetime(2026, 9, 22, 12, 0, 0)),
+    ],
+)
+def test_assignment_rejects_invalid_value_and_keeps_previous(layer, field, value) -> None:
+    """写入路径靠属性赋值维护原子：非法赋值必须当场拒绝，原值保持不变。
+
+    捕获"构造时校验、赋值时绕过"导致非法值写入存储后无法再读回的缺陷。
+    """
+    atom = _atom()
+    target = {"index": atom.index, "meta": atom.meta, "lifecycle": atom.meta.lifecycle}[layer]
+    previous = getattr(target, field)
+
+    with pytest.raises(ValidationError):
+        setattr(target, field, value)
+
+    assert getattr(target, field) == previous
+
+
+def test_assignment_applies_normalization() -> None:
+    """赋值与构造走同一规范化：tags/alias 编辑后即为 canonical 值。"""
+    atom = _atom()
+
+    atom.index.tags = ["B", "a", "b "]
+    atom.index.alias = "  "
+
+    assert atom.index.tags == ["b", "a"]
+    assert atom.index.alias is None

@@ -224,3 +224,49 @@ async def test_patch_payload_rejects_legacy_schema_memory() -> None:
         await adapter.patch_payload(_key_of(atom), {"meta.lifecycle.access_count": 1})
 
     assert store.patch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_patch_payload_replaces_access_policy() -> None:
+    """meta.access_policy 整体替换真正提交到存储，并反映在返回原子上。
+
+    捕获新策略被静默丢弃、旧策略原样写回的缺陷。
+    """
+    atom = _private_memory()
+    store = _PatchableStore(atom)
+    adapter = QdrantStorageAdapter(store)
+
+    result = await adapter.patch_payload(
+        _key_of(atom), {"meta.access_policy": MemoryAccessPolicy.public()}
+    )
+
+    assert result is not None
+    assert result.meta.access_policy == MemoryAccessPolicy.public()
+    call = store.patch_calls[0]
+    assert call["access_policy"] == {
+        "visibility": "PUBLIC",
+        "target_agent_id": None,
+        "target_team_id": None,
+    }
+    assert call["lifecycle"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"meta.access_policy": "garbage"},
+        {"meta.access_policy": {"visibility": "PRIVATE"}},
+        {"meta.lifecycle.confidence_score": 1.5},
+    ],
+)
+async def test_patch_payload_rejects_invalid_values_without_write(patch) -> None:
+    """非法策略（含 PRIVATE 缺 target）或越界 lifecycle 值在写入前拒绝。"""
+    atom = _private_memory()
+    store = _PatchableStore(atom)
+    adapter = QdrantStorageAdapter(store)
+
+    with pytest.raises(ValueError, match="领域校验"):
+        await adapter.patch_payload(_key_of(atom), patch)
+
+    assert store.patch_calls == []

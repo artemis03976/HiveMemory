@@ -54,4 +54,4 @@ class MemoryProvenance(BaseModel):
         """去重并保持首次出现顺序；system 不是内容贡献者。"""
         return normalize_contributing_agent_ids(value)
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)

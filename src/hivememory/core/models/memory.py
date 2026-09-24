@@ -154,6 +154,9 @@ class MemoryLifecycleState(BaseModel):
             return None
         return require_utc(value)
 
+    # 写入路径通过属性赋值维护状态；赋值同样执行字段约束，非法值不能进入对象。
+    model_config = ConfigDict(validate_assignment=True)
+
 
 # ============ Layer 1: Meta (元数据层) ============
 
@@ -197,6 +200,7 @@ class MetaData(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
+        validate_assignment=True,
         json_schema_extra={
             "example": {
                 "workspace_identity": {
@@ -222,6 +226,10 @@ class MetaData(BaseModel):
 
 # ============ Layer 2: Index (索引层 - 用于向量化) ============
 
+# Index 文本字段的长度上限；LLM 草稿入口按同一上限截断（engines.generation）。
+MEMORY_TITLE_MAX_LENGTH = 200
+MEMORY_SUMMARY_MAX_LENGTH = 500
+
 
 class IndexLayer(BaseModel):
     """
@@ -229,23 +237,43 @@ class IndexLayer(BaseModel):
     高度浓缩的语义信息,优化检索准确性
     """
 
-    title: str = Field(..., min_length=1, max_length=200, description="简洁的标题")
-    summary: str = Field(..., min_length=10, max_length=500, description="一句话摘要")
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=MEMORY_TITLE_MAX_LENGTH,
+        description="简洁的标题（去除首尾空白后必填）",
+    )
+    summary: str = Field(
+        default="", max_length=MEMORY_SUMMARY_MAX_LENGTH, description="一句话摘要（允许为空）"
+    )
     tags: list[str] = Field(default_factory=list, description="动态语义标签")
     memory_type: MemoryType = Field(..., description="记忆类型")
     alias: str | None = Field(
         default=None, max_length=60, description="语义化别名 (snake_case, e.g. code_quicksort_impl)"
     )
 
+    @field_validator("title", "summary", mode="before")
+    @classmethod
+    def _strip_text(cls, value: Any) -> Any:
+        """首尾空白不构成内容：先规范化再做长度约束，纯空白标题因此被拒绝。"""
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("alias", mode="before")
+    @classmethod
+    def _normalize_alias(cls, value: Any) -> Any:
+        """空白 alias 等同未设置，规范化为 None。"""
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
-        """验证标签格式并去重"""
-        # 去重并转小写
-        unique_tags = list(set(tag.lower().strip() for tag in v if tag.strip()))
-        return unique_tags
+        """标签转小写、去首尾空白并丢弃空白标签，保序去重（结果确定，便于变化比较）。"""
+        return list(dict.fromkeys(tag.lower().strip() for tag in v if tag.strip()))
 
     model_config = ConfigDict(
+        validate_assignment=True,
         json_schema_extra={
             "example": {
                 "title": "Python utils: parse_date 函数实现",
@@ -254,7 +282,7 @@ class IndexLayer(BaseModel):
                 "memory_type": "CODE_SNIPPET",
                 "alias": "code_parse_date",
             }
-        }
+        },
     )
 
 
@@ -285,7 +313,7 @@ class Artifacts(BaseModel):
     )
     revival_keys: list[str] = Field(default_factory=list, description="L3 复活密钥列表")
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
 
 class PayloadLayer(BaseModel):
@@ -306,11 +334,12 @@ class PayloadLayer(BaseModel):
     artifacts: Artifacts = Field(default_factory=Artifacts, description="原始数据存根")
 
     model_config = ConfigDict(
+        validate_assignment=True,
         json_schema_extra={
             "example": {
                 "content": "```python\ndef parse_date(s): ...\n```\n\n**使用注意**：处理UTC时间时需确保...",
             }
-        }
+        },
     )
 
 
@@ -325,6 +354,8 @@ class RelationLayer(BaseModel):
     relates_to: list[str] = Field(default_factory=list, description="相关记忆ID列表")
     supersedes: list[str] = Field(default_factory=list, description="被此记忆覆盖的旧记忆ID")
     depends_on: list[str] = Field(default_factory=list, description="依赖的记忆ID列表")
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 # ============ 主模型: MemoryAtom ============
@@ -402,6 +433,7 @@ class MemoryAtom(BaseModel):
         }
 
     model_config = ConfigDict(
+        validate_assignment=True,
         json_schema_extra={
             "example": {
                 "meta": {
@@ -422,5 +454,5 @@ class MemoryAtom(BaseModel):
                 },
                 "payload": {"content": "```python\ndef parse_date(s): ...\n```"},
             }
-        }
+        },
     )

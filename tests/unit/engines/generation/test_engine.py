@@ -29,6 +29,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
+from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -415,6 +416,8 @@ class TestGenerationEngineModeB:
         draft = self.engine._build_fallback_draft(focus)
 
         assert draft.title == "标题"
+        # 摘要直接取 reason，不再为凑足长度拼接正文片段。
+        assert draft.summary == "原因"
         assert draft.content == "内容"
         assert draft.has_value is True
         assert draft.confidence_score == 1.0
@@ -684,6 +687,24 @@ class TestGenerationEngineDedup:
         assert atom.meta.created_at == FIXED_NOW
         assert atom.meta.updated_at == FIXED_NOW
         assert atom.meta.lifecycle.decay_anchor_at == FIXED_NOW
+
+    @pytest.mark.asyncio
+    async def test_dedup_update_with_overlong_llm_summary_merges_truncated_index(self):
+        """LLM 摘要越界时 dedup 合并写入截断值，而不是让生成失败或写入越界原子。"""
+        existing = _make_memory()
+        draft = _make_draft().model_dump()
+        draft["summary"] = "摘" * 600
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
+
+        result = await self.engine._dedup_and_resolve(
+            ExtractedMemoryDraft(**draft),
+            make_memory_identity_scope(),
+            system_settlement_provenance(GenerationContext()),
+            now=FIXED_NOW,
+        )
+
+        assert result[0].duplicate_decision == DuplicateDecision.UPDATE
+        assert result[0].atom.index.summary == "摘" * MEMORY_SUMMARY_MAX_LENGTH
 
     @pytest.mark.asyncio
     async def test_dedup_discard(self):

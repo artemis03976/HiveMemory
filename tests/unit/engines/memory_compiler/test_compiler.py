@@ -220,7 +220,9 @@ class TestMemoryAtomCompilation:
         assert "**角色**:" not in artifact.text
 
     def test_agent_profile_untitled_i18n(self, agent_profile_atom):
-        agent_profile_atom.index.title = ""
+        # IndexLayer 要求 title 非空，空标题只可能来自绕过校验的数据；这里显式
+        # 构造该状态（model_copy(update=) 不校验），验证编译器的防御性兜底文案。
+        agent_profile_atom.index = agent_profile_atom.index.model_copy(update={"title": ""})
 
         set_default_language("zh")
         zh_artifact = MemoryCompiler().compile(

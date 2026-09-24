@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
+from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -58,6 +61,18 @@ class AgentApplicationService:
         access: WorkspaceAccessContext | None = None,
     ) -> MemoryAtom:
         """在显式 Workspace scope 中创建 Agent Profile（管理用例）。"""
+        # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
+        try:
+            index = IndexLayer(
+                title=title,
+                summary=summary,
+                tags=tags,
+                memory_type=MemoryType.AGENT_PROFILE,
+                alias=alias,
+            )
+            payload = PayloadLayer(content=content, agent_config=agent_config)
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
         # A2-P：创建时点在提交边界取一次 now，created/updated/decay anchor 同值；
         # MVL-2 收敛后统一由 Patchouli 完整写入路径赋值。
         now = utc_now()
@@ -73,17 +88,8 @@ class AgentApplicationService:
                 updated_at=now,
                 lifecycle=MemoryLifecycleState(decay_anchor_at=now),
             ),
-            index=IndexLayer(
-                title=title,
-                summary=summary or self._default_summary(title),
-                tags=tags,
-                memory_type=MemoryType.AGENT_PROFILE,
-                alias=alias,
-            ),
-            payload=PayloadLayer(
-                content=content,
-                agent_config=agent_config,
-            ),
+            index=index,
+            payload=payload,
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
@@ -106,10 +112,3 @@ class AgentApplicationService:
             limit=limit,
             access=access,
         )
-
-    @staticmethod
-    def _default_summary(title: str) -> str:
-        summary = title.strip() or "Agent Profile"
-        if len(summary) >= 10:
-            return summary
-        return f"{summary} agent profile"

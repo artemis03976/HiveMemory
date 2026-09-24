@@ -110,12 +110,12 @@ def _require_snapshot_identity(
 def snapshot_memory_atom(memory: "MemoryAtom") -> dict[str, Any]:
     """生成完整 MemoryAtom 的 canonical JSON 快照。
 
-    快照即捕获时点的完整原子序列化结果（A2-P §5.1）；生成后立即按结构约束
-    校验，写入历史后不可变，后续状态变化不回写快照。
+    快照即捕获时点的完整原子序列化结果（A2-P §5.1），写入历史后不可变，
+    后续状态变化不回写快照。原子字段在构造与赋值时已由模型校验；快照 dict
+    进入持久化历史时，再由 ``MemoryVersionArtifact`` 统一按
+    :func:`validate_memory_atom_snapshot` 校验，此处不重复执行。
     """
-    snapshot = memory.model_dump(mode="json")
-    validate_memory_atom_snapshot(snapshot)
-    return snapshot
+    return memory.model_dump(mode="json")
 
 
 class WorkspaceArtifactKey(BaseModel):

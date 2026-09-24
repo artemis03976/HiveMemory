@@ -89,7 +89,7 @@ class MemoryListResponse(BaseModel):
 
 class MemoryCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
-    summary: str = Field(..., min_length=10, max_length=500)
+    summary: str = Field(default="", max_length=500)
     content: str = Field(..., min_length=1)
     memory_type: str
     tags: list[str] = []

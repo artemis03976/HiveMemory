@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
@@ -67,9 +69,10 @@ class QdrantStorageAdapter(MidTermStoragePort):
     ) -> MemoryAtom | None:
         """受限局部更新：只改白名单字段，保留向量与全部非目标字段。
 
-        读取使用严格 schema（旧记录只读拒绝）；patch 值经领域模型整体校验
-        后，按 ``meta.lifecycle`` / ``meta.access_policy`` 两个嵌套键提交
-        Qdrant 局部 payload 更新，不重算向量、不写版本 Artifact。
+        读取使用严格 schema（旧记录只读拒绝）；patch 值按字段赋值到领域对象，
+        由模型的赋值校验拒绝非法值，再按 ``meta.lifecycle`` /
+        ``meta.access_policy`` 两个嵌套键提交 Qdrant 局部 payload 更新，不重算
+        向量、不写版本 Artifact。
         """
         if not patch:
             raise ValueError("patch_payload 不允许空 patch")
@@ -82,33 +85,28 @@ class QdrantStorageAdapter(MidTermStoragePort):
             return None
 
         updated = atom.model_copy(deep=True)
-        lifecycle_values = {}
-        access_policy_value = None
-        for path, value in patch.items():
-            if path == "meta.access_policy":
-                access_policy_value = value
-                continue
-            field = path.rsplit(".", 1)[-1]
-            setattr(updated.meta.lifecycle, field, value)
-            lifecycle_values[field] = value
-
         try:
-            validated = updated.model_validate(updated.model_dump())
-        except Exception as exc:
+            for path, value in patch.items():
+                if path == "meta.access_policy":
+                    updated.meta.access_policy = value
+                else:
+                    setattr(updated.meta.lifecycle, path.rsplit(".", 1)[-1], value)
+        except ValidationError as exc:
             raise ValueError(f"patch_payload 值未通过领域校验: {exc}") from exc
 
+        patches_lifecycle = any(path != "meta.access_policy" for path in patch)
         await self._store.patch_memory_payload(
             key,
             lifecycle=(
-                validated.meta.lifecycle.model_dump(mode="json") if lifecycle_values else None
+                updated.meta.lifecycle.model_dump(mode="json") if patches_lifecycle else None
             ),
             access_policy=(
-                validated.meta.access_policy.model_dump(mode="json")
-                if access_policy_value is not None
+                updated.meta.access_policy.model_dump(mode="json")
+                if "meta.access_policy" in patch
                 else None
             ),
         )
-        return validated
+        return updated
 
     async def get(
         self,

@@ -14,7 +14,7 @@ HiveMemory Generation 模块数据模型
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -23,6 +23,7 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
+from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH, MEMORY_TITLE_MAX_LENGTH
 from hivememory.core.models.provenance import (
     MemoryProvenance,
     normalize_contributing_agent_ids,
@@ -69,6 +70,34 @@ class ExtractedMemoryDraft(BaseModel):
         default="",
         description="别名后缀 (action/subject, snake_case, 不含类型前缀). 例如: 'quicksort_impl', 'project_env'",
     )
+
+    @model_validator(mode="after")
+    def _fit_index_limits(self) -> "ExtractedMemoryDraft":
+        """LLM 输出越界时截断到 IndexLayer 的长度上限；标题为空时从正文派生。
+
+        LLM 不保证遵守提示中的长度要求。越界值在草稿入口收敛，避免一次越界
+        输出让整个生成任务失败，或经 dedup 合并写入原子。
+        """
+        self.summary = self.summary.strip()[:MEMORY_SUMMARY_MAX_LENGTH].rstrip()
+        title = self.title.strip() or _title_from_content(self.content)
+        self.title = title[:MEMORY_TITLE_MAX_LENGTH].rstrip()
+        return self
+
+
+# 派生标题的截取长度，与 fallback 草稿从正文截取标题的长度一致。
+_DERIVED_TITLE_LENGTH = 50
+
+
+def _title_from_content(content: str) -> str:
+    """取正文首个非空、非代码围栏的行作为标题，去掉 Markdown 行首标记。"""
+    for line in content.splitlines():
+        text = line.strip()
+        if not text or text.startswith("```"):
+            continue
+        text = text.lstrip("#>*- ").strip()
+        if text:
+            return text[:_DERIVED_TITLE_LENGTH]
+    return ""
 
 
 class MergeResult(BaseModel):

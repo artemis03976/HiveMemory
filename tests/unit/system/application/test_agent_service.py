@@ -175,7 +175,8 @@ class TestAgentApplicationService:
         assert bus_scope is identity_scope
         assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.index.memory_type == MemoryType.AGENT_PROFILE
-        assert payload.index.summary == "Worker agent profile"
+        # 空摘要是合法值：原样保留，不再由标题拼凑默认摘要。
+        assert payload.index.summary == ""
         assert payload.index.alias == "worker"
         assert payload.payload.content == "persona"
         assert payload.payload.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}

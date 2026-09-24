@@ -64,3 +64,18 @@ def test_list_agents_returns_200_and_passes_limit():
     assert response.status_code == 200
     # limit=100 由 router/service 层透传；stub 内部的 filter 属于 stub 自身行为，不在此处断言
     assert storage.get_all_memories.call_args.kwargs["limit"] == 100
+
+
+def test_create_agent_rejects_blank_title_with_422():
+    """Agent 名称去除空白后必填：返回 422 与字段原因，而不是 500，且不写入。"""
+    storage = MagicMock()
+    client = TestClient(_create_test_app(storage))
+
+    response = client.post(
+        "/api/v1/agents",
+        json={"title": "  ", "alias": "reviewer_doll"},
+    )
+
+    assert response.status_code == 422
+    assert "title" in response.json()["detail"]
+    storage.upsert_memory.assert_not_called()

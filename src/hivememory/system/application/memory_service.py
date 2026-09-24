@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.core.errors import WorkspaceDomainError
+from pydantic import ValidationError
+
+from hivememory.core.errors import InvalidMemoryFieldError, WorkspaceDomainError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -80,6 +82,18 @@ class MemoryApplicationService:
         ``provenance.source_agent_id`` 记录来源 actor（管理入口为保留
         ``system``），只作 provenance 展示，不参与可见性授权。
         """
+        # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
+        try:
+            index = IndexLayer(
+                title=title,
+                summary=summary,
+                tags=tags,
+                memory_type=MemoryType(memory_type),
+                alias=alias,
+            )
+            payload = PayloadLayer(content=content)
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
         # A2-P：创建时点在提交边界取一次 now，created/updated/decay anchor 同值；
         # MVL-2 收敛后统一由 Patchouli 完整写入路径赋值。
         now = utc_now()
@@ -95,16 +109,8 @@ class MemoryApplicationService:
                 updated_at=now,
                 lifecycle=MemoryLifecycleState(decay_anchor_at=now),
             ),
-            index=IndexLayer(
-                title=title,
-                summary=summary,
-                tags=tags,
-                memory_type=MemoryType(memory_type),
-                alias=alias,
-            ),
-            payload=PayloadLayer(
-                content=content,
-            ),
+            index=index,
+            payload=payload,
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_CREATE,

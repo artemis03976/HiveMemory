@@ -225,8 +225,6 @@ class MemoryGenerationEngine:
         """
         title = focus.title or focus.content[:50]
         summary = focus.reason or title
-        if len(summary) < 10:
-            summary = summary + " — " + focus.content[:50]
         return ExtractedMemoryDraft(
             title=title,
             summary=summary,

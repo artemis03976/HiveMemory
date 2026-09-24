@@ -8,10 +8,17 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
-from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
+from pydantic import ValidationError
+
+from hivememory.core.errors import (
+    InvalidMemoryFieldError,
+    WorkspaceDomainError,
+    WorkspaceMismatchError,
+)
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
+    MemoryType,
     PendingAtomResolution,
     PendingAtomSettlement,
     WorkspaceMemoryKey,
@@ -226,27 +233,31 @@ class MemoryGenerationFamiliar:
         tags: list[str] | None,
         agent_config: dict | None,
     ) -> list[str]:
+        """按字段应用外部编辑，返回实际发生变化的字段。
+
+        赋值经模型校验与规范化（去首尾空白、空白 alias 转 None、tags 规范
+        化），变化判断比较规范化后的值——§3.2：实际内容相同的重复更新不创建
+        新版本。非法取值以 ``InvalidMemoryFieldError`` 拒绝。
+        """
+        edits = (
+            (atom.index, "title", title),
+            (atom.index, "summary", summary),
+            (atom.payload, "content", content),
+            (atom.index, "alias", alias),
+            (atom.index, "tags", tags),
+            (atom.payload, "agent_config", agent_config),
+        )
         changed_fields: list[str] = []
-        # §3.2：实际内容相同的重复更新不创建新版本——传入值与当前值相等
-        # 视为无变化，不计入 changed_fields。
-        if title is not None and title != atom.index.title:
-            atom.index.title = title
-            changed_fields.append("title")
-        if summary is not None and summary != atom.index.summary:
-            atom.index.summary = summary
-            changed_fields.append("summary")
-        if content is not None and content != atom.payload.content:
-            atom.payload.content = content
-            changed_fields.append("content")
-        if alias is not None and (alias or None) != atom.index.alias:
-            atom.index.alias = alias or None
-            changed_fields.append("alias")
-        if tags is not None and tags != atom.index.tags:
-            atom.index.tags = tags
-            changed_fields.append("tags")
-        if agent_config is not None and agent_config != atom.payload.agent_config:
-            atom.payload.agent_config = agent_config
-            changed_fields.append("agent_config")
+        for layer, field, value in edits:
+            if value is None:
+                continue
+            before = getattr(layer, field)
+            try:
+                setattr(layer, field, value)
+            except ValidationError as exc:
+                raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+            if getattr(layer, field) != before:
+                changed_fields.append(field)
         return changed_fields
 
     async def _run_generation(
@@ -546,8 +557,10 @@ class MemoryGenerationFamiliar:
         """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。
 
         ``now`` 为提交边界时点：版本记录 ``changed_at`` 与事件 ``at`` 使用
-        同一时点（A2-P 时间边界 §2.3）。
+        同一时点（A2-P 时间边界 §2.3）。全部内容提交（外部创建/编辑与生成
+        CREATE/UPDATE）都经过这里，类型相关的内容约束在写 Artifact 之前检查。
         """
+        _require_content_invariants(atom)
         commit_now = require_utc(now) if now is not None else require_utc(self._now())
 
         src_refs = [interaction_ref] if interaction_ref else []
@@ -667,6 +680,16 @@ class MemoryGenerationFamiliar:
 
 
 __all__ = ["MemoryGenerationFamiliar"]
+
+
+def _require_content_invariants(atom: MemoryAtom) -> None:
+    """内容提交的类型相关约束：AGENT_PROFILE 必须带 alias（按 alias 寻址与 CALL）。
+
+    约束放在提交边界而不是模型：模型约束同样作用于读取解码，收紧会让既有
+    不合规记录无法读取；提交边界只拒绝新的写入。
+    """
+    if atom.index.memory_type == MemoryType.AGENT_PROFILE and not atom.index.alias:
+        raise InvalidMemoryFieldError("AGENT_PROFILE 必须设置 alias")
 
 
 def _manual_changelog(changed_fields: list[str]) -> str:
