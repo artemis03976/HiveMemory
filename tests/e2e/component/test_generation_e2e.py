@@ -80,8 +80,6 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    StreamMessage,
-    StreamMessageType,
 )
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 
@@ -245,26 +243,6 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
         agent_id=f"{prefix}_agent",
         session_id=f"{prefix}_session_{uuid.uuid4().hex[:8]}",
     )
-
-
-def create_stream_messages(
-    messages: list[dict[str, str]], identity: ActorIdentity
-) -> list[StreamMessage]:
-    """将测试数据转换为 StreamMessage 列表"""
-    role_mapping = {
-        "user": StreamMessageType.USER,
-        "assistant": StreamMessageType.ASSISTANT,
-        "system": StreamMessageType.SYSTEM,
-    }
-
-    return [
-        StreamMessage(
-            message_type=role_mapping.get(msg["role"], StreamMessageType.USER),
-            content=msg["content"],
-            identity=identity,
-        )
-        for msg in messages
-    ]
 
 
 def create_generation_context(

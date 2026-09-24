@@ -151,16 +151,6 @@ def wait_until(
     raise TimeoutError(f"等待超时 ({timeout}s): {description}")
 
 
-async def wait_until_async(
-    predicate,
-    timeout: float = 15.0,
-    poll_interval: float = 1.0,
-    description: str = "condition",
-) -> bool:
-    """异步版本：通过线程池执行同步 predicate，避免阻塞事件循环。"""
-    return await asyncio.to_thread(wait_until, predicate, timeout, poll_interval, description)
-
-
 def wait_for_memory_persistence(
     system: HiveMemorySystem,
     user_id: str,
