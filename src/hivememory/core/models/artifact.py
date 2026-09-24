@@ -15,7 +15,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.provenance import MemoryProvenance
@@ -41,11 +41,12 @@ class ArtifactType(str, Enum):
 _MEMORY_SNAPSHOT_REQUIRED_KEYS = ("schema_version", "id", "meta", "index", "payload", "relations")
 
 
-def validate_memory_atom_snapshot(snapshot: Mapping[str, Any]) -> None:
-    """校验完整 MemoryAtom canonical JSON 快照的结构约束。
+def validate_memory_atom_snapshot(snapshot: Mapping[str, Any]) -> "MemoryAtom":
+    """校验完整 MemoryAtom canonical JSON 快照，返回解码后的原子。
 
-    快照必须是携带 schema "2.1" 的完整原子 JSON 对象；缺失必需顶层键、未知
-    schema 或不是对象都直接拒绝，不允许裁剪原子或精简投影伪装成完整快照。
+    快照必须是携带 schema "2.1"、能按 MemoryAtom 完整校验的 JSON 对象；缺失
+    必需键、任一层级的未知字段、未知 schema 或不是对象都直接拒绝，不允许
+    裁剪原子、占位结构或旧布局伪装成完整快照。
     """
     if not isinstance(snapshot, Mapping):
         raise ValueError("Memory 快照必须是完整 MemoryAtom 的 JSON 对象")
@@ -56,6 +57,54 @@ def validate_memory_atom_snapshot(snapshot: Mapping[str, Any]) -> None:
         raise ValueError(
             f"Memory 快照内嵌 schema 必须是 '2.1'，收到: {snapshot['schema_version']!r}"
         )
+
+    # 延迟导入：memory 模块在导入期依赖本模块（ArtifactRef/MemoryEventLog）。
+    from hivememory.core.models.memory import MemoryAtom
+
+    try:
+        atom = MemoryAtom.model_validate(snapshot)
+    except ValidationError as exc:
+        raise ValueError(f"Memory 快照不是有效的完整 MemoryAtom: {exc}") from exc
+    unknown = _find_unknown_key(snapshot, atom.model_dump(mode="json"), path="")
+    if unknown is not None:
+        raise ValueError(f"Memory 快照包含 MemoryAtom 之外的未知字段: {unknown}")
+    return atom
+
+
+def _find_unknown_key(raw: Any, canonical: Any, *, path: str) -> str | None:
+    """返回 ``raw`` 中 canonical 序列化结果不存在的第一个字段路径。
+
+    只比较键集合，不比较值；嵌套模型的 ``extra="ignore"`` 因此不能静默吞掉
+    旧布局字段（如 ``payload.artifacts.agent_config``）。
+    """
+    if isinstance(raw, Mapping) and isinstance(canonical, Mapping):
+        for key, value in raw.items():
+            child = f"{path}.{key}" if path else str(key)
+            if key not in canonical:
+                return child
+            found = _find_unknown_key(value, canonical[key], path=child)
+            if found is not None:
+                return found
+    elif isinstance(raw, list) and isinstance(canonical, list) and len(raw) == len(canonical):
+        for index, (item, canonical_item) in enumerate(zip(raw, canonical, strict=True)):
+            found = _find_unknown_key(item, canonical_item, path=f"{path}[{index}]")
+            if found is not None:
+                return found
+    return None
+
+
+def _require_snapshot_identity(
+    atom: "MemoryAtom",
+    *,
+    memory_id: str,
+    workspace_identity: WorkspaceIdentity,
+    field: str,
+) -> None:
+    """版本记录与内嵌原子必须同属一个 memory ID 与 Workspace（A2-P §5.3）。"""
+    if str(atom.id) != memory_id:
+        raise ValueError(f"{field}.id={atom.id} 与版本记录 memory_id={memory_id!r} 不一致")
+    if atom.workspace_identity != workspace_identity:
+        raise ValueError(f"{field} 的 Workspace 归属与版本记录不一致")
 
 
 def snapshot_memory_atom(memory: "MemoryAtom") -> dict[str, Any]:
@@ -324,16 +373,39 @@ class MemoryVersionArtifact(BaseArtifact):
 
     @model_validator(mode="after")
     def _validate_snapshots(self) -> "MemoryVersionArtifact":
-        """快照字段必须是受约束的完整原子 JSON；v1 不允许携带 before。"""
-        validate_memory_atom_snapshot(self.snapshot_after)
-        if self.snapshot_before is not None:
-            validate_memory_atom_snapshot(self.snapshot_before)
-        if (
-            self.version_number == 1
-            and self.update_source == "CREATE"
-            and self.snapshot_before is not None
-        ):
+        """快照必须是完整原子 JSON 且与记录一致；v1 不允许携带 before。
+
+        ``version_number`` 等于 ``snapshot_after.meta.version``（A2-P §3.4），
+        前后快照与记录同属一个 memory ID 与 Workspace，before 早于本版本。
+        """
+        after = validate_memory_atom_snapshot(self.snapshot_after)
+        _require_snapshot_identity(
+            after,
+            memory_id=self.memory_id,
+            workspace_identity=self.workspace_identity,
+            field="snapshot_after",
+        )
+        if after.meta.version != self.version_number:
+            raise ValueError(
+                f"version_number={self.version_number} 与 snapshot_after.meta.version="
+                f"{after.meta.version} 不一致"
+            )
+        if self.snapshot_before is None:
+            return self
+        if self.version_number == 1 and self.update_source == "CREATE":
             raise ValueError("CREATE v1 版本记录不允许携带 snapshot_before")
+        before = validate_memory_atom_snapshot(self.snapshot_before)
+        _require_snapshot_identity(
+            before,
+            memory_id=self.memory_id,
+            workspace_identity=self.workspace_identity,
+            field="snapshot_before",
+        )
+        if before.meta.version >= self.version_number:
+            raise ValueError(
+                f"snapshot_before.meta.version={before.meta.version} 必须早于 "
+                f"version_number={self.version_number}"
+            )
         return self
 
 

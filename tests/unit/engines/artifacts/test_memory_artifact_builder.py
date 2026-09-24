@@ -115,12 +115,15 @@ async def test_build_for_create_persists_scoped_artifacts_and_links_initial_vers
 @pytest.mark.asyncio
 async def test_build_for_update_keeps_memory_provenance_and_scope(store, identity_scope):
     atom = _make_atom(identity_scope)
+    atom.meta.version = 2
+    snapshot_before = snapshot_memory_atom(atom)
     atom.meta.version = 3
+    atom.payload.content = "Updated content"
     builder = MemoryArtifactBuilder(store)
 
     ref = await builder.build_for_update(
         memory_after=atom,
-        snapshot_before=snapshot_memory_atom(atom),
+        snapshot_before=snapshot_before,
         update_source="MERGE",
         changelog="Updated reason",
     )
@@ -135,7 +138,7 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
         atom.meta.provenance.contributing_agent_ids
     )
     assert data["snapshot_before"]["payload"]["content"] == "Initial content"
-    assert data["snapshot_after"]["payload"]["content"] == "Initial content"
+    assert data["snapshot_after"]["payload"]["content"] == "Updated content"
     assert "owner_agent_id" not in data
 
 

@@ -1,5 +1,6 @@
-"""QdrantStorageAdapter 对检索命中的 Workspace 内 read-policy 重验。"""
+"""QdrantStorageAdapter 的 read-policy 重验与受限 patch_payload 行为。"""
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -11,7 +12,9 @@ from hivememory.core.models import (
     MemoryType,
     MemoryVisibility,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
+from hivememory.engines.retrieval.memory_codec import MemorySchemaReadOnlyError
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -55,6 +58,27 @@ class _SingleMemoryStore(_LeakySearchStore):
 
     async def get_memory(self, *_args, **_kwargs):
         return self._memory
+
+
+class _PatchableStore:
+    """记录 patch_memory_payload 参数；get_memory 按严格 schema 要求拒绝或返回。"""
+
+    def __init__(self, memory: MemoryAtom | None = None, *, legacy_read_only: bool = False):
+        self._memory = memory
+        self._legacy_read_only = legacy_read_only
+        self.get_calls: list[tuple[WorkspaceMemoryKey, bool]] = []
+        self.patch_calls: list[dict] = []
+
+    async def get_memory(self, key, *, require_current_schema=False):
+        self.get_calls.append((key, require_current_schema))
+        if require_current_schema and self._legacy_read_only:
+            raise MemorySchemaReadOnlyError("legacy schema memory is read-only")
+        return self._memory
+
+    async def patch_memory_payload(self, key, *, lifecycle=None, access_policy=None):
+        self.patch_calls.append(
+            {"key": key, "lifecycle": lifecycle, "access_policy": access_policy}
+        )
 
 
 @pytest.mark.asyncio
@@ -114,3 +138,89 @@ async def test_scroll_discards_private_memory_not_authorized_for_actor() -> None
     memories = await adapter.scroll(reader_access)
 
     assert memories == []
+
+
+def _key_of(atom: MemoryAtom) -> WorkspaceMemoryKey:
+    return WorkspaceMemoryKey(workspace_identity=atom.workspace_identity, memory_id=atom.id)
+
+
+@pytest.mark.asyncio
+async def test_patch_payload_applies_whitelisted_lifecycle_values() -> None:
+    """白名单 lifecycle 字段经领域校验后整块提交 store，返回更新后的原子。"""
+    atom = _private_memory()
+    store = _PatchableStore(atom)
+    adapter = QdrantStorageAdapter(store)
+    key = _key_of(atom)
+    accessed_at = datetime(2026, 9, 23, 12, 0, 0, tzinfo=UTC)
+
+    result = await adapter.patch_payload(
+        key,
+        {
+            "meta.lifecycle.access_count": 3,
+            "meta.lifecycle.last_accessed_at": accessed_at,
+        },
+    )
+
+    assert result is not None
+    assert result.meta.lifecycle.access_count == 3
+    assert result.meta.lifecycle.last_accessed_at == accessed_at
+    # mutation 读取必须走严格 schema（拒绝旧记录回写）。
+    assert store.get_calls == [(key, True)]
+    assert len(store.patch_calls) == 1
+    call = store.patch_calls[0]
+    assert call["key"] == key
+    assert call["access_policy"] is None
+    # adapter 把整个 lifecycle 的 JSON 投影交给 store，而非仅提交被 patch 的字段。
+    lifecycle_payload = call["lifecycle"]
+    assert set(lifecycle_payload) == {
+        "access_count",
+        "last_accessed_at",
+        "event_vitality_boost",
+        "vitality_score",
+        "confidence_score",
+        "verification_status",
+        "decay_anchor_at",
+    }
+    assert lifecycle_payload["access_count"] == 3
+    assert datetime.fromisoformat(lifecycle_payload["last_accessed_at"]) == accessed_at
+
+
+@pytest.mark.asyncio
+async def test_patch_payload_rejects_unknown_path() -> None:
+    """白名单之外的 dotted 路径被拒绝，且不触发读取与写入。"""
+    atom = _private_memory()
+    store = _PatchableStore(atom)
+    adapter = QdrantStorageAdapter(store)
+
+    with pytest.raises(ValueError, match="不允许"):
+        await adapter.patch_payload(_key_of(atom), {"meta.version": 2})
+
+    assert store.get_calls == []
+    assert store.patch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_patch_payload_rejects_empty_patch() -> None:
+    """空 patch 在入口即被拒绝。"""
+    atom = _private_memory()
+    store = _PatchableStore(atom)
+    adapter = QdrantStorageAdapter(store)
+
+    with pytest.raises(ValueError, match="空 patch"):
+        await adapter.patch_payload(_key_of(atom), {})
+
+    assert store.get_calls == []
+    assert store.patch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_patch_payload_rejects_legacy_schema_memory() -> None:
+    """严格 schema 读取抛出的只读异常沿 adapter 传播，不做任何写入。"""
+    store = _PatchableStore(legacy_read_only=True)
+    adapter = QdrantStorageAdapter(store)
+    atom = _private_memory()
+
+    with pytest.raises(MemorySchemaReadOnlyError):
+        await adapter.patch_payload(_key_of(atom), {"meta.lifecycle.access_count": 1})
+
+    assert store.patch_calls == []

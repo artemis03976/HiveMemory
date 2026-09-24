@@ -98,7 +98,7 @@ class _InMemoryMidTermPort:
     async def get_for_mutation(
         self, identity_scope: IdentityScope, memory_id: UUID
     ) -> MemoryAtom | None:
-        return self.get(identity_scope, memory_id)
+        return await self.get(identity_scope, memory_id)
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return self._atoms.get(key)
@@ -174,10 +174,15 @@ class _FailingPutStore(ArtifactStore):
         raise RuntimeError("版本存储写入失败（测试注入）")
 
 
-def _atom(content: str, *, version: int = 1) -> MemoryAtom:
+def _atom(content: str, *, version: int = 1, workspace_id: str = "main_workspace") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
-        meta=make_memory_metadata(source_agent_id="a1", user_id="u1", version=version),
+        meta=make_memory_metadata(
+            source_agent_id="a1",
+            user_id="u1",
+            version=version,
+            workspace_id=workspace_id,
+        ),
         index=IndexLayer(
             title="History memory",
             summary="A memory used to verify history commit consistency.",
@@ -402,3 +407,126 @@ async def test_noop_version_store_fails_content_creation(tmp_path):
         await familiar.execute(_spec(identity_scope))
 
     assert mid_term.upsert_calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_external_without_changes_does_not_bump_version(tmp_path):
+    """无变化更新不增版本、不产生版本记录（A2-P §3.2/§9）。"""
+    identity_scope = make_memory_identity_scope()
+    before = _atom("stable content")
+    mid_term = _InMemoryMidTermPort()
+    await mid_term.upsert(before)
+    mid_term.upsert_calls.clear()
+
+    familiar, mid_term = _familiar([], _artifact_engine(tmp_path), mid_term)
+    result = await familiar.update_external_memory(
+        before.id,
+        identity_scope=identity_scope,
+        title=None,
+        summary=None,
+        content=None,
+        alias=None,
+        tags=None,
+        agent_config=None,
+    )
+    # 传入与当前值完全相同的值同样视为无变化（§3.2 值相等语义）。
+    result = await familiar.update_external_memory(
+        before.id,
+        identity_scope=identity_scope,
+        title="History memory",
+        content="stable content",
+        tags=["t1"],
+    )
+
+    assert result is not None
+    assert result.meta.version == 1
+    assert mid_term.upsert_calls == []
+    assert not any(
+        e.event_type == MemoryEventType.VERSIONED for e in result.payload.artifacts.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_two_workspace_commits_do_not_cross_talk(tmp_path):
+    """同 ID 资源在两个 Workspace 各自提交，版本与历史互不串扰。"""
+    main_scope = make_memory_identity_scope(user_id="u1", workspace_id="main_workspace")
+    iso_scope = make_memory_identity_scope(user_id="u1", workspace_id="isolation_workspace")
+    shared_id = uuid4()
+
+    main_atom = _atom("main content", workspace_id="main_workspace")
+    main_atom.id = shared_id
+    iso_atom = _atom("isolated content", workspace_id="isolation_workspace")
+    iso_atom.id = shared_id
+
+    mid_term = _InMemoryMidTermPort()
+    await mid_term.upsert(main_atom)
+    await mid_term.upsert(iso_atom)
+
+    outcome = _update_outcome(main_atom, "main updated")
+    familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
+    await familiar.execute(
+        MemoryGenerationTaskSpec(
+            identity_scope=main_scope,
+            topic_id="t1",
+            label="history-test",
+            source=MemoryGenerationSource.WRITE,
+            request=GenerationRequest(context=GenerationContext()),
+            interaction_input=None,
+        )
+    )
+
+    updated = await mid_term.get(main_scope, shared_id)
+    untouched = await mid_term.get(iso_scope, shared_id)
+
+    # main 的修订只落在 main：版本推进、内容更新；isolation 原样保留。
+    assert updated.meta.version == 2
+    assert updated.payload.content == "main updated"
+    assert untouched.meta.version == 1
+    assert untouched.payload.content == "isolated content"
+
+
+@pytest.mark.asyncio
+async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
+    """历史快照中的旧 policy 是历史事实：读取授权只看 canonical 当前策略。"""
+    from hivememory.core.models import MemoryAccessPolicy, MemoryVisibility
+    from hivememory.engines.retrieval.policy import memory_is_readable
+
+    owner_scope = make_memory_identity_scope(user_id="u1", agent_id="a1")
+    other_scope = make_memory_identity_scope(user_id="u1", agent_id="other-agent")
+    before = _atom("v1 content")
+
+    # 提交时点策略为 PUBLIC（进入版本快照的历史事实）。
+    outcome = _update_outcome(before, "v2 content")
+    familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path))
+    await familiar.execute(_spec(owner_scope))
+
+    canonical = await mid_term.get(owner_scope, outcome.atom.id)
+    # 提交后策略收紧为 PRIVATE：仅 a1 可读。
+    canonical.meta.access_policy = MemoryAccessPolicy(
+        visibility=MemoryVisibility.PRIVATE,
+        target_agent_id="a1",
+    )
+
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
+    versioned = [
+        e for e in canonical.payload.artifacts.events if e.event_type == MemoryEventType.VERSIONED
+    ][0]
+    version_data = await store.get(owner_scope, versioned.artifact_refs[0])
+    assert (
+        version_data["snapshot_after"]["meta"]["access_policy"]["visibility"] == "PUBLIC"
+    ), "历史快照应保留提交时点的策略事实"
+
+    # 授权只依据 canonical 当前策略：其他 agent 被拒，owner 通过——
+    # 历史 PUBLIC 快照不改变这一判定。
+    assert not memory_is_readable(
+        canonical,
+        workspace_identity=canonical.workspace_identity,
+        actor_identity=other_scope.actor_identity,
+        enforce_actor_visibility=True,
+    )
+    assert memory_is_readable(
+        canonical,
+        workspace_identity=canonical.workspace_identity,
+        actor_identity=owner_scope.actor_identity,
+        enforce_actor_visibility=True,
+    )

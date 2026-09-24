@@ -1,7 +1,7 @@
 """Memory/Interaction Artifact 模型契约：schema 2、完整快照约束与 UTC 时间。"""
 
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -37,13 +37,14 @@ def _workspace() -> WorkspaceIdentity:
     )
 
 
-def _atom() -> MemoryAtom:
+def _atom(*, memory_id: UUID | None = None, version: int = 1) -> MemoryAtom:
     return MemoryAtom(
-        id=uuid4(),
+        id=memory_id or uuid4(),
         meta=MetaData(
             workspace_identity=_workspace(),
             provenance=MemoryProvenance(source_agent_id="a1"),
             access_policy=MemoryAccessPolicy.public(),
+            version=version,
             lifecycle=MemoryLifecycleState(decay_anchor_at=NOW),
         ),
         index=IndexLayer(
@@ -94,17 +95,56 @@ def test_snapshot_validation_rejects_wrong_embedded_schema():
         validate_memory_atom_snapshot(snapshot)
 
 
+def test_snapshot_validation_rejects_placeholder_structure():
+    """顶层键齐全但 meta 为空占位的"伪完整原子"不能冒充完整快照。
+
+    旧裁剪快照只有 content/tags，补空结构后标记 2.1 属于 §7.2 禁止的伪装。
+    """
+    placeholder = {
+        "schema_version": "2.1",
+        "id": str(uuid4()),
+        "meta": {},
+        "index": {"tags": ["t1"]},
+        "payload": {"content": "legacy trimmed content"},
+        "relations": {},
+    }
+    with pytest.raises(ValueError, match="不是有效的完整 MemoryAtom"):
+        validate_memory_atom_snapshot(placeholder)
+
+
+@pytest.mark.parametrize(
+    ("location", "unknown_path"),
+    [
+        ("top", "legacy_note"),
+        ("artifacts", "payload.artifacts.agent_config"),
+    ],
+)
+def test_snapshot_validation_rejects_unknown_fields(location, unknown_path):
+    """任一层级的未知字段都拒绝，嵌套 extra="ignore" 不能静默吞掉旧布局。"""
+    snapshot = snapshot_memory_atom(_atom())
+    if location == "top":
+        snapshot["legacy_note"] = "x"
+    else:
+        snapshot["payload"]["artifacts"]["agent_config"] = {"model_name": "old"}
+
+    with pytest.raises(ValueError, match=unknown_path.replace(".", r"\.")):
+        validate_memory_atom_snapshot(snapshot)
+
+
 # ─── MemoryVersionArtifact / MemoryCreationArtifact schema "2" ──────────────
 
 
 def _version_artifact(**overrides) -> MemoryVersionArtifact:
+    """默认构造与内嵌原子一致的 v2 版本记录（同 ID、同 Workspace、同版本号）。"""
+    memory_id = uuid4()
     kwargs = {
-        "memory_id": str(uuid4()),
+        "memory_id": str(memory_id),
         "workspace_identity": _workspace(),
         "provenance": MemoryProvenance(source_agent_id="a1"),
         "version_number": 2,
         "update_source": "UPDATE",
-        "snapshot_after": snapshot_memory_atom(_atom()),
+        "snapshot_before": snapshot_memory_atom(_atom(memory_id=memory_id, version=1)),
+        "snapshot_after": snapshot_memory_atom(_atom(memory_id=memory_id, version=2)),
         "changed_at": NOW,
     }
     kwargs.update(overrides)
@@ -129,12 +169,47 @@ def test_version_artifact_rejects_flat_legacy_provenance_fields():
 
 def test_create_v1_rejects_snapshot_before():
     """CREATE v1 不允许携带 snapshot_before（无修改前状态）。"""
-    with pytest.raises(ValidationError, match="snapshot_before"):
+    memory_id = uuid4()
+    v1 = snapshot_memory_atom(_atom(memory_id=memory_id, version=1))
+    with pytest.raises(ValidationError, match="CREATE v1 版本记录不允许携带 snapshot_before"):
         _version_artifact(
+            memory_id=str(memory_id),
             version_number=1,
             update_source="CREATE",
-            snapshot_before=snapshot_memory_atom(_atom()),
+            snapshot_before=v1,
+            snapshot_after=v1,
         )
+
+
+def test_version_number_must_match_embedded_atom_version():
+    """version_number 与 snapshot_after.meta.version 必须一致（§3.4）。"""
+    with pytest.raises(ValidationError, match="version_number=3"):
+        _version_artifact(version_number=3)
+
+
+def test_version_record_rejects_snapshot_of_other_memory():
+    """快照原子 ID 与记录 memory_id 不一致时拒绝，防止历史挂到错误资源。"""
+    with pytest.raises(ValidationError, match="snapshot_after.id"):
+        _version_artifact(memory_id=str(uuid4()), snapshot_before=None)
+
+
+def test_version_record_rejects_snapshot_from_other_workspace():
+    """快照 Workspace 与记录归属不一致时拒绝（§5.3 同属一个 Workspace）。"""
+    other = WorkspaceIdentity(
+        owner_user_id="u1",
+        workspace_key="isolation_workspace",
+        workspace_id="isolation_workspace",
+    )
+    with pytest.raises(ValidationError, match="snapshot_after 的 Workspace"):
+        _version_artifact(workspace_identity=other)
+
+
+def test_snapshot_before_must_precede_recorded_version():
+    """snapshot_before 必须是本版本之前的原子，不能与 after 同版本。"""
+    memory_id = uuid4()
+    same = snapshot_memory_atom(_atom(memory_id=memory_id, version=2))
+    with pytest.raises(ValidationError, match="必须早于"):
+        _version_artifact(memory_id=str(memory_id), snapshot_before=same, snapshot_after=same)
 
 
 def test_version_artifact_naive_changed_at_rejected():

@@ -12,11 +12,20 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
-from hivememory.core.models import WorkspaceMemoryKey
+import pytest
+
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+    WorkspaceMemoryKey,
+)
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.utils.time import utc_now
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -93,6 +102,40 @@ class _RecordingPort(MidTermStoragePort):
         raise AssertionError("not expected")
 
 
+class _MutatingPort(_RecordingPort):
+    """在记录端口之上支持成功的 upsert，或按 fail_with 注入可变操作失败。"""
+
+    def __init__(self, *, fail_with: Exception | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.fail_with = fail_with
+        self.upsert_calls: list[MemoryAtom] = []
+
+    async def upsert(self, memory, *, recompute_vectors=True):
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.upsert_calls.append(memory)
+        self.call_order.append(f"{self.name}:upsert")
+
+    async def patch_payload(self, key, patch):
+        if self.fail_with is not None:
+            raise self.fail_with
+        return await super().patch_payload(key, patch)
+
+
+def _memory_atom() -> MemoryAtom:
+    return MemoryAtom(
+        id=uuid4(),
+        meta=make_memory_metadata(source_agent_id="agent1", user_id="user1"),
+        index=IndexLayer(
+            title="Secondary failure probe",
+            summary="Memory used to assert secondary failure propagation",
+            tags=["test"],
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content="content"),
+    )
+
+
 def test_store_forwards_enforce_flag_for_point_read():
     """门面必须把 enforce_actor_visibility 透传给底层 port。"""
     port = _RecordingPort()
@@ -137,6 +180,30 @@ def test_store_forwards_patch_payload_to_primary_and_secondary():
     assert secondary.patch_calls == [(key, patch)]
     assert call_order == ["primary:patch_payload", "secondary:patch_payload"]
     assert result is primary.patch_result, "门面应返回 primary 的 patch_payload 结果"
+
+
+def test_store_propagates_secondary_failure_for_upsert_and_patch():
+    """MVL-4：primary 成功后 secondary 失败时，门面必须让错误按序直接传播（不吞）。"""
+    primary = _MutatingPort(name="primary")
+    secondary = _MutatingPort(name="secondary", fail_with=RuntimeError("secondary down"))
+    store = MidTermMemoryStore(primary, secondary=[secondary])
+    memory = _memory_atom()
+    scope = make_identity_scope()
+    key = WorkspaceMemoryKey.from_identity_scope(scope, memory.id)
+    patch = {"meta.lifecycle.access_count": 1}
+
+    with pytest.raises(RuntimeError, match="secondary down"):
+        asyncio.run(store.upsert(memory))
+    # primary 已成功写入，secondary 失败不被吞掉、也不回滚 primary。
+    assert primary.upsert_calls == [memory]
+    assert secondary.upsert_calls == []
+
+    with pytest.raises(RuntimeError, match="secondary down"):
+        asyncio.run(store.patch_payload(key, patch))
+    assert primary.patch_calls == [(key, patch)]
+    assert secondary.patch_calls == []
+    # 两次调用都是 primary 先执行、错误由 secondary 抛出。
+    assert primary.call_order == ["primary:upsert", "primary:patch_payload"]
 
 
 def test_retrieval_familiar_get_memory_does_not_raise_type_error():

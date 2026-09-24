@@ -127,8 +127,8 @@ async def test_public_memory_is_not_visible_from_another_workspace(memory_store)
 async def test_legacy_record_without_schema_version_is_no_longer_readable(memory_store) -> None:
     """legacy v1 解释分支已删除：缺 schema_version 的记录 fail closed 而非被解释。
 
-    存量 legacy 数据由迁移工具转换为 canonical v2
-    （scripts/migrate_v1_memory_and_artifacts.py）；未迁移记录不再被任何
+    存量 legacy 数据已由 v0.6.2 一次性迁移工具（现已退役）转换为 canonical
+    v2；未迁移记录不再被任何
     Workspace 解释读取，也不得被第二 Workspace 的 compatibility-read 召回。
     """
     store, qdrant = memory_store

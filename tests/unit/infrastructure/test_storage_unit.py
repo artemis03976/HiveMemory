@@ -10,6 +10,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
@@ -193,6 +194,57 @@ class TestQdrantMemoryStore:
         assert isinstance(vector["sparse_text"], Document)
         assert vector["sparse_text"].text
         assert vector["sparse_text"].model == "qdrant/bm25"
+
+    @pytest.mark.asyncio
+    async def test_upsert_memory_without_recompute_replaces_payload_via_set_payload(self, storage):
+        """recompute_vectors=False 时经 set_payload 整份替换 payload 并保留既有向量。"""
+        memory = self._make_memory()
+
+        storage.client.set_payload = AsyncMock()
+        storage.client.upsert = AsyncMock()
+
+        await storage.upsert_memory(memory, recompute_vectors=False)
+
+        expected_point_id = QdrantMemoryStore._point_id(
+            WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
+        )
+        storage.client.set_payload.assert_awaited_once_with(
+            collection_name="test",
+            payload=memory.to_qdrant_payload(),
+            points=[expected_point_id],
+        )
+        # 向量保留机制：不重写点（upsert），也不触发 embedding 重算
+        storage.client.upsert.assert_not_called()
+        storage.embedding_service.encode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_patch_memory_payload_sets_nested_lifecycle_key(self, storage):
+        """patch_memory_payload 将受限字段映射为 Qdrant 嵌套 key 的局部 set_payload。"""
+        scope = _identity_scope()
+        key = WorkspaceMemoryKey(
+            workspace_identity=scope.workspace_identity,
+            memory_id=uuid4(),
+        )
+        storage.client.set_payload = AsyncMock()
+
+        await storage.patch_memory_payload(key, lifecycle={"access_count": 3})
+
+        storage.client.set_payload.assert_awaited_once_with(
+            collection_name="test",
+            payload={"access_count": 3},
+            points=[QdrantMemoryStore._point_id(key)],
+            key="meta.lifecycle",
+        )
+
+        storage.client.set_payload.reset_mock()
+        await storage.patch_memory_payload(key, access_policy={"visibility": "PUBLIC"})
+
+        storage.client.set_payload.assert_awaited_once_with(
+            collection_name="test",
+            payload={"visibility": "PUBLIC"},
+            points=[QdrantMemoryStore._point_id(key)],
+            key="meta.access_policy",
+        )
 
     @pytest.mark.asyncio
     async def test_search_memories_sparse_uses_bm25_document_query(self, storage):

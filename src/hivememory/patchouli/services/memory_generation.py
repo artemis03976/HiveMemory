@@ -190,6 +190,10 @@ class MemoryGenerationFamiliar:
             tags=tags,
             agent_config=agent_config,
         )
+        if not changed_fields:
+            # A2-P §3.2：实际内容相同的重复更新不创建新版本。
+            logger.info("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
+            return atom
         # 提交边界分配内容时间/版本/衰减基准/置信度（M0.1/M0.2：UPDATE 重置 1.0）。
         atom.meta.version += 1
         atom.meta.updated_at = commit_now
@@ -223,22 +227,24 @@ class MemoryGenerationFamiliar:
         agent_config: dict | None,
     ) -> list[str]:
         changed_fields: list[str] = []
-        if title is not None:
+        # §3.2：实际内容相同的重复更新不创建新版本——传入值与当前值相等
+        # 视为无变化，不计入 changed_fields。
+        if title is not None and title != atom.index.title:
             atom.index.title = title
             changed_fields.append("title")
-        if summary is not None:
+        if summary is not None and summary != atom.index.summary:
             atom.index.summary = summary
             changed_fields.append("summary")
-        if content is not None:
+        if content is not None and content != atom.payload.content:
             atom.payload.content = content
             changed_fields.append("content")
-        if alias is not None:
+        if alias is not None and (alias or None) != atom.index.alias:
             atom.index.alias = alias or None
             changed_fields.append("alias")
-        if tags is not None:
+        if tags is not None and tags != atom.index.tags:
             atom.index.tags = tags
             changed_fields.append("tags")
-        if agent_config is not None:
+        if agent_config is not None and agent_config != atom.payload.agent_config:
             atom.payload.agent_config = agent_config
             changed_fields.append("agent_config")
         return changed_fields
