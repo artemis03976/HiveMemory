@@ -32,7 +32,7 @@ last_reviewed: 2026-09-25
 - **能力描述与 MTP 解耦**：将 `allowed_mtp_verbs` / `allowed_sys_tools` 泛化为 harness 中性的能力/限制描述，由各 adapter 映射到自身体系；
 - **外部 actor 应用语义**：为"已应用/部分支持/拒绝"定义可承载的字段或伴随契约。
 
-与缓存/读取契约的关系：[A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) 的 profile cache 对解析结果不透明，key 与失效锚在 `(Workspace, agent_alias)` 与事件 alias 集上——剩余演进不破坏缓存契约；反之 A2 不因本债阻塞，两者可独立推进。
+与缓存/读取契约的关系：[A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) 的 profile cache 对解析结果不透明，key 与失效锚在 `(Workspace, agent_alias)` 与事件 alias 集上——剩余演进不破坏缓存契约；反之 A2 不因本债阻塞，两者可独立推进。**前置依赖**：agent_id 的唯一性即 alias 唯一性（C2 裁定的 `(Workspace, agent_alias)` key 以此为前提），见 [Memory Alias 重名缺陷](./memory-alias-uniqueness.md)——其第二层 store 校验是 agent_id 唯一性的保证点。
 
 ## 完成条件
 

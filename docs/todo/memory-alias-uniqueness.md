@@ -7,7 +7,8 @@ related_docs:
   - docs/plans/v0.7.0-plan-a-boundary-charter.md
   - docs/plans/v0.7.0-a2-workspace-resource-reads-and-caches.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-09-23
+  - docs/todo/agent-profile-model-evolution.md
+last_reviewed: 2026-09-25
 ---
 
 # Memory Alias 重名缺陷
@@ -21,17 +22,38 @@ alias 精确查询走 `QdrantMemoryStore.get_memory_by_alias`（scroll + `index.
 影响：
 
 1. 存储层 alias → 记忆的解析已是多义，精确读取结果不确定；
-2. [计划 A 边界宪章](../plans/v0.7.0-plan-a-boundary-charter.md) §5 与 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) §2 的 Atom cache 以 `(WorkspaceIdentity, normalized_alias)` 为资源 key，重名使该 key 无法定义唯一条目，缓存与存储可能各自解析到不同原子；
-3. A2 §2.2 的 alias 替换/删除簿记（"同一资源多个 alias 的替换/删除不留下可返回的旧值"）以 alias 归属可追踪为前提，重名下不成立。
+2. [计划 A 边界宪章](../plans/v0.7.0-plan-a-boundary-charter.md) §5 与 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) 的 Atom cache 与 Profile cache 均以 `(WorkspaceIdentity, alias)` 系资源 key 寻址（Profile 的 agent_id 即 alias），重名使 key 无法定义唯一条目，缓存与存储可能各自解析到不同原子；
+3. A2 的 alias 替换/删除簿记（"不留可返回的旧值"）以 alias 归属可追踪为前提。
 
-## 修复方向（待归属计划细化）
+## 已裁定的分层修复设计（2026-09-25）
 
-- **域规则落点**：同一 Workspace 内 canonical alias 唯一。候选做法二选一，须在修复计划中裁定：受控提交路径上做存在性检查、冲突显式拒绝（返回结构化错误）；或生成侧保证唯一（冲突时附加消歧后缀）+ 存储侧校验兜底。
-- **存量数据**：已存在的重名 alias 需要一次盘点与消解（复用 A2-P 的受控 mutation 语义），不能只对新写入生效。
-- **衔接时机**：修复应先于或伴随 A2-1 的 alias 索引交付，否则缓存键前提不成立；归属 A2-0 还是独立修复计划由 A2-0 裁定。
+唯一性由两层共同保证，缺一不可：
+
+**第一层（生成侧体验）：engine 层 `AliasGenerator` 独立组件**
+
+- 替换 `GenerationEngine._build_alias`：按 memory type 前缀 + suffix 产出候选，查中期库验证唯一，冲突时消歧后缀重试；
+- 注入式组件（依赖 MidTermMemoryStore 的查询口），保证抽取草稿的正常路径零摩擦、不触碰冲突错误；
+- 注入式使其可被 Profile 管理等路径复用。
+
+**第二层（不变量兜底）：`MidTermMemoryStore.upsert` 写前校验**
+
+- 写入前检查同 Workspace 内 alias 是否被他者占用（排除自身 memory_id），冲突抛结构化错误；
+- 这是**唯一能覆盖全部路径的检查点**——已核实的绕过路径（仅靠生成侧时全部失守）：
+  1. Familiar 手工/外部 create+update：caller 直接传 `alias` 参数（`memory_generation.py:176→248` 写入 `index.alias`），不经生成器；
+  2. Profile 管理创建：caller 传 `agent_alias`（`agent_profile_management_service.py`）；
+  3. revive：归档期间 alias 已被新原子占用，revive 重新 upsert 时撞名；
+  4. 未来任何新增 mutation。
+- 触发时机 = 主后端写入前；校验失败不产生任何写入。
+
+**语义裁定**：唯一性不变量 = "同一 Workspace 的中期库内唯一"。归档即释放 alias；revive 撞名显式失败（revive 本就是显式操作，报错可解释），不做归档期 alias 保留。`patch_payload` 白名单不含 `index.alias`（已核实），该路径无绕行；UPDATE 保留现有 alias、无 alias 原子经 update focus 获得 alias 的边角由第二层覆盖。
+
+**与 AgentProfile 的关系**：C2 裁定 agent_id 即 alias、profile cache 按 `(Workspace, agent_alias)` 作 key（见 [AgentProfile 模型演进](./agent-profile-model-evolution.md)）——本 todo 的唯一性是 agent_id 唯一性的直接前提。
+
+**衔接时机**：第一、二层均先于或伴随 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) A2-1 的 alias 索引交付；归属计划由 A2-0 裁定。
 
 ## 完成条件
 
-- 同一 Workspace 内重复 alias 被结构化拒绝或生成侧不可产生，行为有测试覆盖；
-- 存量重名数据有盘点与消解记录；
-- alias 精确查询在任意存储顺序下解析结果唯一且稳定。
+- [ ] `AliasGenerator` 组件落地并替换 `_build_alias`，生成路径冲突时消歧重试有测试；
+- [ ] `MidTermMemoryStore.upsert` 写前唯一性校验落地，冲突抛结构化错误，覆盖 revive/手工/Profile 管理路径有测试；
+- [ ] 存量重名数据有盘点与消解记录；
+- [ ] alias 精确查询在任意存储顺序下解析结果唯一且稳定。
