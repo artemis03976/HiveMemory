@@ -15,6 +15,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | 当前计划 | 状态 | 目标结果 |
 |:---|:---:|:---|
 | [v0.7.0 计划 A：Workspace 资源平面重构协调计划](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md) | Active | 维护 A1–A6 及 A2-P 的共同边界、依赖和发布出口；不再重复维护子计划的完整实施细节 |
+| [v0.7.0 计划 A 边界宪章：Workspace 与记忆库的归属与独立工作契约](./v0.7.0-plan-a-boundary-charter.md) | Active | 冻结 Workspace 与 Patchouli 的归属判据、独立工作契约、状态归属表与证伪条件；已于 2026-09-23 采纳并完成 §10 联动修订，生效为计划 A 家族边界裁决唯一理由源 |
 | [A2-P 记忆内容版本与 Lifecycle 状态重构](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) | 已完成（2026-09-24 归档）/ A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 2.1 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
 | [全项目时间语义与可控时钟统一](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) | 已完成（2026-09-24 归档，嵌入 A2-P 实施）/ 跨子系统 | Memory 域 UTC 业务时间、四时间字段职责、局部 now 注入与 TimeFormatter 契约；全项目收口转为 idea（见 ideas 索引） |
 | [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 等待 A2-P 前置交付 | 公共读取返回完整 MemoryAtom/列表和 AgentProfile，旧 envelope 留在 adapter；交付 Workspace 共享缓存与同步更新/失效，命中逐次资源授权且不回源 |
@@ -29,13 +30,15 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 
 全项目时间语义计划是可在 A1 后独立推进的跨子系统治理工作；A2-P 只依赖其中的 utils 时间工具和 UTC 字段契约，完整运行时迁移不改变 A 系列的业务依赖顺序。
 
+2026-09-23 边界冻结：新增[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)，以管护权/反转/用途三判据与"独立工作"契约重裁 Workspace 与 Patchouli 边界，cache/pending registry/resolver 归 workspace runtime，Patchouli 不增不减。同日完成宪章采纳与 §10 联动修订（协调入口、A2/A3/A4/A5/A6、AE2 措辞），宪章生效为计划 A 家族边界裁决唯一理由源；A1 返工项（operation 授权从 Patchouli application 层迁至 workspace 能力边界）的实施归属由 A2-0 裁定。canonical 变更事件契约在 A2-1 交付时登记入 routes-and-events。
+
 2026-09-19 状态更新：A1 已完成实施、验收、代码审查与文档收口并归档为 [v0.7.0 A1 Workspace 访问边界与授权（归档）](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。当前事实入口：[Workspace 架构](../architecture/workspace.md)第 4 节（统一认证网关、两类登记、guard 签发生命周期与逐次行为授权）、[错误模型](../contracts/error-model.md)第 4.4 节、[子系统公共契约](../contracts/subsystem-contracts.md)第 3.5 节与 [ADR-0005](../architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。真实生产入口切换、shutdown 关闭时机和兼容分支退出仍由 [A6](./v0.7.0-a6-actor-adapters-and-integration.md) 完成；附件上传的 scope 一致性缺陷单独追踪于 [Todo](../todo/workspace-asset-upload-access-scope-mismatch.md)。
 
 A1–A5 可独立组合验收，A6 负责真实消费者与生产收口，A 系列不等待 B 外部客户端。三方调用示例集中在 [A5](./v0.7.0-a5-patchouli-unified-api.md)；Topic 生命周期只在 [A3 第 4 节](./v0.7.0-a3-conversation-session-and-topic-projection.md#4-topic-路由指令与交接)定义，完整折叠算法仍归[专项占位计划](./topic-folding-context-and-raw-evidence.md)。B 按 A1–A5 实际交付能力映射外部协议；A/B 共同构成 v0.7.0 发布范围。具体 harness connector、执行基座与完整历史导入仍按 ROADMAP 后续排期推进。
 
 已完成计划与实施历史：
 
-v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系以 [A2 第 1.1 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md)裁定为准；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 1.4 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#14-profile-定义读取与执行配置应用)，正式 ADR 替代须在 A6 联合验收收尾后进行。
+v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系现以 [A2 第 1.1 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md)裁定为准，整体边界归属的重裁见[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)（生效联动见其第 10 节）；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 1.4 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#14-profile-定义读取与执行配置应用)，正式 ADR 替代须在 A6 联合验收收尾后进行。
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|

@@ -208,7 +208,7 @@ WorkspaceIdentity 或子网。当前文件工具也使用 Alice 配置中的单�
 不能解释成每个 Workspace 都有独立执行环境。当前事实见[Workspace 架构](../architecture/workspace.md)，
 相关缺口和风险见[检索身份过滤](../patchouli/retrieval.md)与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)。
 
-此外，AE2 的过滤首先是物流边界，不是面向恶意调用者的安全授权。HiveMemory 必须由真正的资源所有者在读取、修改、执行、缓存命中、重试和后台恢复时重新校验 Identity，不能仅复制查询过滤器。
+此外，AE2 的过滤首先是物流边界，不是面向恶意调用者的安全授权。HiveMemory 必须在读取、修改、执行、缓存命中、重试和后台恢复的**行为边界**上重新校验 Identity——策略真相归资源所有者，校验动作绑定交付边界（见[计划 A 边界宪章](../plans/v0.7.0-plan-a-boundary-charter.md)）——不能仅复制查询过滤器。
 
 ## 5. 从 Workspace 子网到软件子网与 AIOS
 

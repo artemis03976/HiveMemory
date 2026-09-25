@@ -12,6 +12,7 @@ last_reviewed: 2026-09-19
 
 当前事项：
 
+- [Memory Alias 重名缺陷](./memory-alias-uniqueness.md)（已知 bug，破坏 A2 缓存键前提，待归属计划）；
 - [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
