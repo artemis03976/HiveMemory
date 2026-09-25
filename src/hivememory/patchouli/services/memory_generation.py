@@ -3,24 +3,32 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
-from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
+from pydantic import ValidationError
+
+from hivememory.core.errors import (
+    InvalidMemoryFieldError,
+    WorkspaceDomainError,
+    WorkspaceMismatchError,
+)
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
+    MemoryType,
     PendingAtomResolution,
     PendingAtomSettlement,
+    WorkspaceMemoryKey,
     require_identity_scope,
 )
 from hivememory.core.models.artifact import (
     ArtifactRef,
     MemoryEventLog,
     MemoryEventType,
-    MemoryVersionSnapshot,
+    snapshot_memory_atom,
 )
 from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
@@ -36,6 +44,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskSpec,
 )
 from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
+from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
@@ -55,6 +64,7 @@ class MemoryGenerationFamiliar:
         memory_library: MemoryLibrary,
         artifact_engine: ArtifactEngine | None = None,
         asset_reader: WorkspaceAssetReaderPort | None = None,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         from hivememory.engines.artifacts.engine import ArtifactEngine
 
@@ -64,8 +74,51 @@ class MemoryGenerationFamiliar:
         # W1-F：附件 promotion 的只读 reader（assembler 经 PatchouliRuntime
         # 注入进程级唯一 Store）；ref 失效或 Store 关闭时 best-effort 降级。
         self._asset_reader = asset_reader
+        # A2-P 时间边界：完整内容写入路径的提交时点来源（局部注入，非全局时钟）。
+        self._now = now or utc_now
 
         logger.info("MemoryGenerationFamiliar 初始化完成")
+
+    @staticmethod
+    def _embedding_inputs_changed(
+        before: MemoryAtom | dict | None,
+        after: MemoryAtom,
+    ) -> bool:
+        """判断一次完整提交是否改变了 embedding 输入。
+
+        embedding 只编译 ``index.title/memory_type/tags/summary``；仅
+        ``payload.agent_config``、关系或 lifecycle 变化时无需重算向量。
+        ``before`` 可为完整原子或其 canonical JSON dict。
+        """
+        if before is None:
+            return True
+        if isinstance(before, MemoryAtom):
+            before_index = before.index
+            old: tuple[str, str, list[str], str] = (
+                before_index.title,
+                before_index.memory_type.value,
+                sorted(before_index.tags or []),
+                before_index.summary,
+            )
+        elif isinstance(before, dict):
+            raw_index: dict[str, Any] = before.get("index") or {}
+            raw_type = raw_index.get("memory_type")
+            memory_type = str(getattr(raw_type, "value", raw_type))
+            old = (
+                str(raw_index.get("title")),
+                memory_type,
+                sorted(str(tag) for tag in (raw_index.get("tags") or [])),
+                str(raw_index.get("summary")),
+            )
+        else:
+            return True
+        new = (
+            after.index.title,
+            after.index.memory_type.value,
+            sorted(after.index.tags or []),
+            after.index.summary,
+        )
+        return old != new
 
     async def execute(
         self,
@@ -94,6 +147,11 @@ class MemoryGenerationFamiliar:
         identity_scope = require_identity_scope(identity_scope)
         if atom.workspace_identity != identity_scope.workspace_identity:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
+        commit_now = require_utc(self._now())
+        # 提交边界决定创建时点：created/updated/decay 同值（M0.1）。
+        atom.meta.created_at = commit_now
+        atom.meta.updated_at = commit_now
+        atom.meta.lifecycle.decay_anchor_at = commit_now
         await self._attach_memory_artifact(
             atom=atom,
             decision=DuplicateDecision.CREATE,
@@ -102,8 +160,9 @@ class MemoryGenerationFamiliar:
             gen_context=GenerationContext(),
             interaction_ref=None,
             creation_source="MANUAL",
+            now=commit_now,
         )
-        await self._mid_term.upsert(atom)
+        await self._mid_term.upsert(atom, recompute_vectors=True)
         return atom
 
     async def update_external_memory(
@@ -122,11 +181,15 @@ class MemoryGenerationFamiliar:
         对外部手动的记忆编辑进行持久化处理。
         """
         identity_scope = require_identity_scope(identity_scope)
-        atom = await self._mid_term.get_for_mutation(identity_scope, memory_id)
+        atom = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        )
         if atom is None:
             return None
 
-        before_snapshot = MemoryVersionSnapshot.from_memory_atom(atom)
+        commit_now = require_utc(self._now())
+        # 修改前完整原子 canonical JSON；版本记录 snapshot_before 直接嵌入。
+        before_snapshot = snapshot_memory_atom(atom)
         changed_fields = self._apply_external_update(
             atom,
             title=title,
@@ -136,8 +199,15 @@ class MemoryGenerationFamiliar:
             tags=tags,
             agent_config=agent_config,
         )
-        atom.meta.updated_at = datetime.now(UTC)
+        if not changed_fields:
+            # A2-P §3.2：实际内容相同的重复更新不创建新版本。
+            logger.info("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
+            return atom
+        # 提交边界分配内容时间/版本/衰减基准/置信度（M0.1/M0.2：UPDATE 重置 1.0）。
         atom.meta.version += 1
+        atom.meta.updated_at = commit_now
+        atom.meta.lifecycle.decay_anchor_at = commit_now
+        atom.meta.lifecycle.confidence_score = 1.0
 
         await self._attach_memory_artifact(
             atom=atom,
@@ -148,8 +218,10 @@ class MemoryGenerationFamiliar:
             interaction_ref=None,
             creation_source="MANUAL",
             update_source="MANUAL_EDIT",
+            now=commit_now,
         )
-        await self._mid_term.upsert(atom)
+        recompute = self._embedding_inputs_changed(before_snapshot, atom)
+        await self._mid_term.upsert(atom, recompute_vectors=recompute)
         return atom
 
     @staticmethod
@@ -163,25 +235,31 @@ class MemoryGenerationFamiliar:
         tags: list[str] | None,
         agent_config: dict | None,
     ) -> list[str]:
+        """按字段应用外部编辑，返回实际发生变化的字段。
+
+        赋值经模型校验与规范化（去首尾空白、空白 alias 转 None、tags 规范
+        化），变化判断比较规范化后的值——§3.2：实际内容相同的重复更新不创建
+        新版本。非法取值以 ``InvalidMemoryFieldError`` 拒绝。
+        """
+        edits = (
+            (atom.index, "title", title),
+            (atom.index, "summary", summary),
+            (atom.payload, "content", content),
+            (atom.index, "alias", alias),
+            (atom.index, "tags", tags),
+            (atom.payload, "agent_config", agent_config),
+        )
         changed_fields: list[str] = []
-        if title is not None:
-            atom.index.title = title
-            changed_fields.append("title")
-        if summary is not None:
-            atom.index.summary = summary
-            changed_fields.append("summary")
-        if content is not None:
-            atom.payload.content = content
-            changed_fields.append("content")
-        if alias is not None:
-            atom.index.alias = alias or None
-            changed_fields.append("alias")
-        if tags is not None:
-            atom.index.tags = tags
-            changed_fields.append("tags")
-        if agent_config is not None:
-            atom.payload.artifacts.agent_config = agent_config
-            changed_fields.append("agent_config")
+        for layer, field, value in edits:
+            if value is None:
+                continue
+            before = getattr(layer, field)
+            try:
+                setattr(layer, field, value)
+            except ValidationError as exc:
+                raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+            if getattr(layer, field) != before:
+                changed_fields.append(field)
         return changed_fields
 
     async def _run_generation(
@@ -190,37 +268,37 @@ class MemoryGenerationFamiliar:
         interaction_ref: ArtifactRef | None = None,
     ) -> list[MemoryGenerationResult]:
         """
-        执行 compute -> artifacts -> persist 三步流水线。
+        执行 compute -> commit -> artifacts -> persist 流水线。
+
+        提交边界在本方法入口取一次 UTC now，随后传给引擎（内容日期）与
+        全部字段/Artifact 赋值；TOUCH 走受限 patch，CREATE/UPDATE 走完整
+        ``upsert``。版本记录是内容提交成功的前置条件（M0.3）。
         """
-        # Step 1：纯计算，GenerationEngine 不负责持久化。
+        commit_now = require_utc(self._now())
+
+        # Step 1：纯计算，GenerationEngine 不负责持久化与版本分配。
         outcomes = await self._generation_engine.process(
             spec.request,
             identity_scope=spec.identity_scope,
+            now=commit_now,
         )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
         logger.info(f"Extracted {len(memories)} memories" if memories else "No memories extracted")
 
-        # Step 2：构建 artifact，并在第一次写库前挂载到 MemoryAtom。
-        await self._attach_memory_artifacts(
-            outcomes,
-            spec.request.context,
-            interaction_ref,
-            creation_source=spec.source.creation_artifact_intent,
-            update_source=spec.source.version_update_source,
-        )
-
-        # Step 3：写入 CREATE/UPDATE 结果。
+        # Step 2/3：按 outcome 依次完成提交字段分配、artifact 挂载与持久化。
         for outcome in outcomes:
-            if outcome.duplicate_decision != DuplicateDecision.DISCARD and outcome.atom is not None:
-                try:
-                    await self._mid_term.upsert(outcome.atom)
-                    logger.info(
-                        f"记忆已存储 '{outcome.atom.index.title}' " f"(ID: {outcome.atom.id})"
-                    )
-                except Exception as exc:
-                    logger.error(f"存储记忆失败: {exc}", exc_info=True)
-                    raise
+            if outcome.duplicate_decision == DuplicateDecision.DISCARD or outcome.atom is None:
+                continue
+            await self._commit_outcome(
+                outcome,
+                identity_scope=spec.identity_scope,
+                now=commit_now,
+                interaction_ref=interaction_ref,
+                gen_context=spec.request.context,
+                creation_source=spec.source.creation_artifact_intent,
+                update_source=spec.source.version_update_source,
+            )
 
         # Step 4（W1-F）：只有确实产生 Memory CREATE/UPDATE 时才对 topic
         # bindings 做附件 Artifact promotion；TOUCH/DISCARD 与纯上传/选择
@@ -396,46 +474,96 @@ class MemoryGenerationFamiliar:
             logger.warning("Failed to build interaction artifact", exc_info=True)
             return None
 
-    async def _attach_memory_artifacts(
+    async def _commit_outcome(
         self,
-        outcomes: list[GenerationOutcome],
-        gen_context: GenerationContext,
-        interaction_ref: ArtifactRef | None,
+        outcome: GenerationOutcome,
         *,
+        identity_scope: IdentityScope,
+        now: datetime,
+        interaction_ref: ArtifactRef | None,
+        gen_context: GenerationContext,
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
-        update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
+        update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
     ) -> None:
+        """单个 outcome 的提交流水线：字段分配 → artifact 挂载 → 持久化。
+
+        - TOUCH：不改内容字段与版本，经受限 ``patch_payload`` 只推进访问
+          计数与 ``last_accessed_at``（MVL-0 M0.5 决定 ②）。
+        - CREATE/UPDATE：版本与内容时间在此提交边界分配；版本记录写入是
+          内容提交成功的前置条件（builder 失败直接传播，不静默降级）。
         """
-        构建 artifact 并挂载 refs/events，不负责发布事件。
-        """
-        for outcome in outcomes:
-            atom = outcome.atom
-            if atom is None:
-                continue
-            await self._attach_memory_artifact(
-                atom=atom,
-                decision=outcome.duplicate_decision,
-                memory_before_snapshot=outcome.memory_before_snapshot,
-                changelog=outcome.changelog,
-                gen_context=gen_context,
-                interaction_ref=interaction_ref,
-                creation_source=creation_source,
-                update_source=update_source,
+        atom = outcome.atom
+        if atom is None:  # 调用方已跳过 DISCARD/空 atom；此处守卫保证类型收窄。
+            return
+        decision = outcome.duplicate_decision
+
+        if decision == DuplicateDecision.TOUCH:
+            key = WorkspaceMemoryKey(
+                workspace_identity=identity_scope.workspace_identity,
+                memory_id=atom.id,
             )
+            patched = await self._mid_term.patch_payload(
+                key,
+                {
+                    "meta.lifecycle.access_count": atom.meta.lifecycle.access_count + 1,
+                    "meta.lifecycle.last_accessed_at": now,
+                },
+            )
+            if patched is None:
+                logger.warning("TOUCH 目标记忆已不存在，跳过访问统计: %s", atom.id)
+                return
+            return
+
+        if decision == DuplicateDecision.UPDATE:
+            # 引擎是纯计算，outcome.atom 携带的即提交前版本；内容修订在此
+            # 提交边界推进一次版本与内容时间，衰减基准随之推进（M0.1/M0.2）。
+            atom.meta.version += 1
+            atom.meta.updated_at = now
+            atom.meta.lifecycle.decay_anchor_at = now
+            atom.meta.lifecycle.confidence_score = 1.0
+
+        await self._attach_memory_artifact(
+            atom=atom,
+            decision=decision,
+            memory_before_snapshot=outcome.memory_before_snapshot,
+            changelog=outcome.changelog,
+            gen_context=gen_context,
+            interaction_ref=interaction_ref,
+            creation_source=creation_source,
+            update_source=update_source,
+            now=now,
+        )
+
+        recompute = decision == DuplicateDecision.CREATE or self._embedding_inputs_changed(
+            outcome.memory_before_snapshot, atom
+        )
+        await self._mid_term.upsert(atom, recompute_vectors=recompute)
+        logger.info(
+            f"记忆已存储 '{atom.index.title}' (ID: {atom.id}, "
+            f"decision={decision.value}, recompute_vectors={recompute})"
+        )
 
     async def _attach_memory_artifact(
         self,
         *,
         atom: MemoryAtom,
         decision: DuplicateDecision,
-        memory_before_snapshot: MemoryVersionSnapshot | None,
+        memory_before_snapshot: MemoryAtom | dict | None,
         changelog: str | None,
         gen_context: GenerationContext,
         interaction_ref: ArtifactRef | None,
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
+        now: datetime | None = None,
     ) -> None:
-        """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。"""
+        """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。
+
+        ``now`` 为提交边界时点：版本记录 ``changed_at`` 与事件 ``at`` 使用
+        同一时点（A2-P 时间边界 §2.3）。全部内容提交（外部创建/编辑与生成
+        CREATE/UPDATE）都经过这里，类型相关的内容约束在写 Artifact 之前检查。
+        """
+        _require_content_invariants(atom)
+        commit_now = require_utc(now) if now is not None else require_utc(self._now())
 
         src_refs = [interaction_ref] if interaction_ref else []
         if decision == DuplicateDecision.CREATE:
@@ -444,11 +572,13 @@ class MemoryGenerationFamiliar:
                 gen_context=gen_context,
                 source_artifact_refs=src_refs,
                 creation_source=creation_source,
+                now=commit_now,
             )
 
             atom.payload.artifacts.events.append(
                 MemoryEventLog(
                     event_type=MemoryEventType.CREATED,
+                    at=commit_now,
                     artifact_refs=bundle.refs,
                 )
             )
@@ -460,11 +590,13 @@ class MemoryGenerationFamiliar:
                 changelog=changelog,
                 source_artifact_refs=src_refs,
                 update_source=update_source,
+                now=commit_now,
             )
 
             atom.payload.artifacts.events.append(
                 MemoryEventLog(
                     event_type=MemoryEventType.VERSIONED,
+                    at=commit_now,
                     artifact_refs=[version_ref] if version_ref else [],
                     note=changelog,
                 )
@@ -479,20 +611,21 @@ class MemoryGenerationFamiliar:
         gen_context: GenerationContext,
         source_artifact_refs: list[ArtifactRef],
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
+        now: datetime,
     ) -> MemoryCreationBundle:
-        try:
-            bundle = await self._artifact_engine.memory.build_for_create(
-                memory=atom,
-                context=gen_context,
-                source_intent=creation_source,
-                source_artifact_refs=source_artifact_refs,
+        """构建 v1 版本记录与创建 Artifact；失败直接传播（M0.3：无历史不提交）。"""
+        bundle = await self._artifact_engine.memory.build_for_create(
+            memory=atom,
+            context=gen_context,
+            source_intent=creation_source,
+            source_artifact_refs=source_artifact_refs,
+            now=now,
+        )
+        if bundle.initial_version_ref is None:
+            raise RuntimeError(
+                f"版本存储未产生 v1 版本记录，拒绝提交无历史内容: {atom.id}；"
+                "请检查 patchouli.artifacts 配置（memory 组件必须启用）"
             )
-        except Exception:
-            logger.warning(
-                f"Failed to build creation artifacts for {getattr(atom, 'id', '?')}",
-                exc_info=True,
-            )
-            return MemoryCreationBundle()
 
         for ref in bundle.refs:
             self._append_artifact_ref_once(atom, ref)
@@ -503,25 +636,31 @@ class MemoryGenerationFamiliar:
         self,
         *,
         atom: MemoryAtom,
-        memory_before_snapshot: MemoryVersionSnapshot | None,
+        memory_before_snapshot: MemoryAtom | dict | None,
         changelog: str | None,
         source_artifact_refs: list[ArtifactRef],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
-    ) -> ArtifactRef | None:
-        try:
-            version_ref = await self._artifact_engine.memory.build_for_update(
-                memory_after=atom,
-                snapshot_before=memory_before_snapshot,
-                update_source=update_source,
-                changelog=changelog,
-                source_artifact_refs=source_artifact_refs,
+        now: datetime,
+    ) -> ArtifactRef:
+        """构建版本记录；失败直接传播（M0.3：版本记录是提交成功的前置条件）。"""
+        snapshot_before: dict | None = None
+        if isinstance(memory_before_snapshot, MemoryAtom):
+            snapshot_before = snapshot_memory_atom(memory_before_snapshot)
+        elif isinstance(memory_before_snapshot, dict):
+            snapshot_before = memory_before_snapshot
+        version_ref = await self._artifact_engine.memory.build_for_update(
+            memory_after=atom,
+            snapshot_before=snapshot_before,
+            update_source=update_source,
+            changelog=changelog,
+            source_artifact_refs=source_artifact_refs,
+            now=now,
+        )
+        if version_ref is None:
+            raise RuntimeError(
+                f"版本存储未产生版本记录，拒绝提交无历史内容: {atom.id}；"
+                "请检查 patchouli.artifacts 配置（memory 组件必须启用）"
             )
-        except Exception:
-            logger.warning(
-                f"Failed to build version artifact for {getattr(atom, 'id', '?')}",
-                exc_info=True,
-            )
-            return None
 
         self._append_artifact_ref_once(atom, version_ref)
 
@@ -543,6 +682,16 @@ class MemoryGenerationFamiliar:
 
 
 __all__ = ["MemoryGenerationFamiliar"]
+
+
+def _require_content_invariants(atom: MemoryAtom) -> None:
+    """内容提交的类型相关约束：AGENT_PROFILE 必须带 alias（按 alias 寻址与 CALL）。
+
+    约束放在提交边界而不是模型：模型约束同样作用于读取解码，收紧会让既有
+    不合规记录无法读取；提交边界只拒绝新的写入。
+    """
+    if atom.index.memory_type == MemoryType.AGENT_PROFILE and not atom.index.alias:
+        raise InvalidMemoryFieldError("AGENT_PROFILE 必须设置 alias")
 
 
 def _manual_changelog(changed_fields: list[str]) -> str:

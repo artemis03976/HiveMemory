@@ -132,6 +132,13 @@ class StorageReadError(SystemFault):
     default_message_key = "mtp.system.storage_error"
 
 
+class StorageWriteError(SystemFault):
+    """存储层写操作异常（写入、局部更新、删除未确认成功）。"""
+
+    code = "mtp.system.storage_write_error"
+    default_message_key = "mtp.system.storage_write_error"
+
+
 class BusRouteUnavailableError(SystemFault):
     """内部总线路由缺失。"""
 

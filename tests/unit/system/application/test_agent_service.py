@@ -175,10 +175,11 @@ class TestAgentApplicationService:
         assert bus_scope is identity_scope
         assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.index.memory_type == MemoryType.AGENT_PROFILE
-        assert payload.index.summary == "Worker agent profile"
+        # 空摘要是合法值：原样保留，不再由标题拼凑默认摘要。
+        assert payload.index.summary == ""
         assert payload.index.alias == "worker"
         assert payload.payload.content == "persona"
-        assert payload.payload.artifacts.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
+        assert payload.payload.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
 
     @pytest.mark.asyncio
     async def test_list_agent_profiles_uses_public_route(self, service, mock_global_bus):

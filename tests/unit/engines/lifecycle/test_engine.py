@@ -8,6 +8,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
 from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
 from hivememory.engines.lifecycle.models import (
@@ -73,8 +74,9 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality(mem, persist=False)
 
-        assert mem.meta.vitality_score == pytest.approx(72.0)
+        assert mem.meta.lifecycle.vitality_score == pytest.approx(72.0)
         self.mock_mid_term.upsert.assert_not_called()
+        self.mock_mid_term.patch_payload.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refresh_vitality_persist(self):
@@ -83,8 +85,16 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality(mem, persist=True)
 
-        assert mem.meta.vitality_score == pytest.approx(72.0)
-        self.mock_mid_term.upsert.assert_awaited_once_with(mem)
+        assert mem.meta.lifecycle.vitality_score == pytest.approx(72.0)
+        # MVL-2: persist 经受限 patch 提交，只含 vitality_score 一个授权字段
+        expected_key = WorkspaceMemoryKey(
+            workspace_identity=mem.workspace_identity, memory_id=mem.id
+        )
+        self.mock_mid_term.patch_payload.assert_awaited_once_with(
+            expected_key,
+            {"meta.lifecycle.vitality_score": 72.0},
+        )
+        self.mock_mid_term.upsert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_refresh_vitality_batch(self):
@@ -94,10 +104,19 @@ class TestLifecycleEngineVitality:
 
         await self.engine.refresh_vitality_batch([m1, m2], persist=True)
 
-        assert m1.meta.vitality_score == pytest.approx(30.0)
-        assert m2.meta.vitality_score == pytest.approx(80.0)
-        upserted = [call.args[0] for call in self.mock_mid_term.upsert.await_args_list]
-        assert upserted == [m1, m2]
+        assert m1.meta.lifecycle.vitality_score == pytest.approx(30.0)
+        assert m2.meta.lifecycle.vitality_score == pytest.approx(80.0)
+        # MVL-2: batch persist 逐条 patch，按顺序提交到各自 key
+        patch_calls = [
+            (call.args[0], call.args[1])
+            for call in self.mock_mid_term.patch_payload.await_args_list
+        ]
+        assert [key.memory_id for key, _ in patch_calls] == [m1.id, m2.id]
+        assert all(set(patch) == {"meta.lifecycle.vitality_score"} for _, patch in patch_calls)
+        assert [patch["meta.lifecycle.vitality_score"] for _, patch in patch_calls] == [
+            pytest.approx(30.0),
+            pytest.approx(80.0),
+        ]
 
 
 class TestLifecycleEngineEvents:
@@ -183,9 +202,16 @@ class TestLifecycleEngineDelegation:
         await self.engine.run_garbage_collection(force=True)
 
         self.mock_mid_term.list_all_for_maintenance.assert_awaited_once_with(limit=10000)
-        assert self.mock_mid_term.upsert.await_count == 2
-        assert m1.meta.vitality_score == pytest.approx(12.0)
-        assert m2.meta.vitality_score == pytest.approx(88.0)
+        # MVL-2: GC 前的活力刷新经逐条受限 patch 持久化，不整原子 upsert
+        assert self.mock_mid_term.patch_payload.await_count == 2
+        assert self.mock_mid_term.upsert.await_count == 0
+        patched = {
+            call.args[0].memory_id: call.args[1]["meta.lifecycle.vitality_score"]
+            for call in self.mock_mid_term.patch_payload.await_args_list
+        }
+        assert patched == {m1.id: pytest.approx(12.0), m2.id: pytest.approx(88.0)}
+        assert m1.meta.lifecycle.vitality_score == pytest.approx(12.0)
+        assert m2.meta.lifecycle.vitality_score == pytest.approx(88.0)
         self.mock_gc.collect.assert_awaited_once_with([m1, m2], force=True)
 
 

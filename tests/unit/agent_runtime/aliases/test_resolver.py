@@ -28,12 +28,6 @@ def _context(*, workspace_id: str = "main_workspace") -> MTPExecutionContext:
     return MTPExecutionContext(runtime_scope=make_runtime_scope(workspace_id=workspace_id))
 
 
-def _scoped_context(*, agent_id: str, workspace_id: str = "main_workspace") -> MTPExecutionContext:
-    return MTPExecutionContext(
-        runtime_scope=make_runtime_scope(agent_id=agent_id, workspace_id=workspace_id)
-    )
-
-
 def _make_memory(
     alias: str,
     content: str = "content",

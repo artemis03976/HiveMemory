@@ -8,10 +8,10 @@ from typing import Any
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp.models import MTPVerb
 from hivememory.core.protocol.models import AgentRunContext
-from hivememory.engines.perception.context_converter import PerceptionContextConverter
 from hivememory.i18n import resolve_language
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.prompts.system_prompt import SystemPromptBuilder
+from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 
 class AgentPromptAssembler:
@@ -55,7 +55,7 @@ class AgentPromptAssembler:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        history_messages = PerceptionContextConverter.blocks_to_messages(
+        history_messages = HistoryTranscriptBuilder().build_messages(
             blocks=recent_blocks,
             current_agent_id=context.identity_scope.actor_identity.agent_id,
         )

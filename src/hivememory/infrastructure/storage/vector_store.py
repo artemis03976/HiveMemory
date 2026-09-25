@@ -5,10 +5,10 @@ Qdrant 向量存储层封装
 - 集合管理(创建、删除)
 - 记忆原子的 CRUD 操作
 - 混合检索(向量 + 元数据过滤)
-- 批量操作
 """
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
@@ -20,28 +20,19 @@ from qdrant_client.models import (
     MatchValue,
     Modifier,
     PointStruct,
-    Range,
     SparseVectorParams,
     VectorParams,
 )
 
-from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
-    AgentProfile,
-    IdentityScope,
-    MemoryAtom,
-    MemoryType,
-    WorkspaceIdentity,
-    WorkspaceMemoryKey,
-)
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    InvalidArgumentError,
-    MemoryTypeMismatchError,
+    StorageOfflineError,
+    StorageReadError,
+    StorageWriteError,
+    SystemFault,
 )
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 from hivememory.engines.retrieval.memory_codec import MemoryDecodeError, decode_memory_payload
-from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.infrastructure.storage.qdrant_client import (
     create_async_qdrant_client,
@@ -52,6 +43,27 @@ from hivememory.system.config import EmbeddingConfig, QdrantConfig
 logger = logging.getLogger(__name__)
 
 _compiler = MemoryCompiler()
+
+# 连接类异常表示存储不可达，与读写本身的失败分开归类。
+_OFFLINE_ERRORS = (ConnectionError, TimeoutError, OSError)
+
+
+def _storage_error(exc: Exception, *, operation: str, write: bool) -> SystemFault:
+    """把存储异常归类为结构化错误：连接类为离线，其余按读/写区分。
+
+    失败必须传播给调用方：读取失败不能伪装成"没有记忆"，写入/删除失败不能
+    伪装成已生效（A2-P M0.3）。
+    """
+    logger.error("Memory 存储操作失败: %s: %s", operation, exc, exc_info=True)
+    if isinstance(exc, _OFFLINE_ERRORS):
+        return StorageOfflineError(cause=exc)
+    if write:
+        return StorageWriteError(cause=exc)
+    return StorageReadError(cause=exc)
+
+
+def _key_of(memory: MemoryAtom) -> WorkspaceMemoryKey:
+    return WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
 
 
 class QdrantMemoryStore:
@@ -135,7 +147,7 @@ class QdrantMemoryStore:
             raise
 
     async def upsert_memory(
-        self, memory: MemoryAtom, use_sparse: bool = True, force_regenerate: bool = False
+        self, memory: MemoryAtom, use_sparse: bool = True, recompute_vectors: bool = True
     ) -> None:
         """
         插入或更新记忆原子
@@ -143,77 +155,85 @@ class QdrantMemoryStore:
         Args:
             memory: 记忆原子对象
             use_sparse: 是否同时存储稀疏向量
-            force_regenerate: 是否强制重新生成向量
+            recompute_vectors: 是否重算 embedding；``False`` 用于 embedding
+                输入未变化的完整内容提交（如仅修改 ``payload.agent_config``），
+                通过整份 payload 局部更新保留既有向量
 
         Raises:
-            Exception: 操作失败时抛出
+            StorageOfflineError / StorageWriteError: 写入失败
+        """
+        point_id = self._point_id(_key_of(memory))
+        try:
+            if not recompute_vectors:
+                # embedding 输入未变化：set_payload 只替换 payload 顶层键，向量原样保留。
+                await self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload=memory.to_qdrant_payload(),
+                    points=[point_id],
+                )
+                logger.debug(f"✓ 已保留向量并替换 payload: {memory.id}")
+                return
+
+            await self.client.upsert(
+                collection_name=self.collection_name,
+                points=[
+                    PointStruct(
+                        id=point_id,
+                        vector=self._encode_vectors(memory, use_sparse=use_sparse),
+                        payload=memory.to_qdrant_payload(),
+                    )
+                ],
+            )
+            logger.debug(f"✓ 成功存储记忆: {memory.id} - {memory.index.title}")
+        except Exception as e:
+            raise _storage_error(e, operation="upsert_memory", write=True) from e
+
+    def _encode_vectors(self, memory: MemoryAtom, *, use_sparse: bool) -> dict[str, Any]:
+        """编译 embedding 输入并生成命名向量：dense 必有，sparse 为 BM25 文本。"""
+        dense_text = _compiler.compile(memory, MemoryCompileTarget.DENSE_EMBEDDING).text
+        if not use_sparse:
+            return {"dense_text": self.embedding_service.encode(dense_texts=dense_text)}
+        sparse_text = _compiler.compile(memory, MemoryCompileTarget.SPARSE_EMBEDDING).text
+        vectors = self.embedding_service.encode(dense_texts=dense_text, sparse_texts=sparse_text)
+        return {
+            "dense_text": vectors["dense"],
+            "sparse_text": Document(text=vectors["sparse_text"], model="qdrant/bm25"),
+        }
+
+    async def patch_memory_payload(
+        self,
+        key: WorkspaceMemoryKey,
+        *,
+        lifecycle: dict[str, Any] | None = None,
+        access_policy: dict[str, Any] | None = None,
+    ) -> None:
+        """对单个点做受限局部 payload 更新，向量与未提交字段不动。
+
+        仅允许两个嵌套键：``meta.lifecycle``（整块替换）与
+        ``meta.access_policy``（整体替换）；由 adapter 的字段白名单保证调用
+        方无法触达其他路径。
         """
         try:
-            if use_sparse:
-                # 生成混合向量 (稠密 + 稀疏)，使用不同的输入文本
-                dense_text = _compiler.compile(memory, MemoryCompileTarget.DENSE_EMBEDDING).text
-                sparse_context = _compiler.compile(
-                    memory, MemoryCompileTarget.SPARSE_EMBEDDING
-                ).text
-                vectors = self.embedding_service.encode(
-                    dense_texts=dense_text, sparse_texts=sparse_context
-                )
-
-                # 构建 Qdrant Point - dense 向量 + BM25 文本
-                sparse_text = vectors["sparse_text"]
-                point = PointStruct(
-                    id=self._point_id(
-                        WorkspaceMemoryKey(
-                            workspace_identity=memory.workspace_identity,
-                            memory_id=memory.id,
-                        )
-                    ),
-                    vector={
-                        "dense_text": vectors["dense"],
-                        "sparse_text": Document(text=sparse_text, model="qdrant/bm25"),
-                    },
-                    payload=memory.to_qdrant_payload(),
-                )
-                await self.client.upsert(
+            point_id = self._point_id(key)
+            if lifecycle is not None:
+                await self.client.set_payload(
                     collection_name=self.collection_name,
-                    points=[point],
+                    payload=lifecycle,
+                    points=[point_id],
+                    key="meta.lifecycle",
                 )
-                await self._remove_legacy_point_after_upsert(memory)
-                logger.debug(f"✓ 成功存储记忆 (Dense+Sparse): {memory.id} - {memory.index.title}")
-            else:
-                # 仅使用稠密向量
-                embedding_text = _compiler.compile(memory, MemoryCompileTarget.DENSE_EMBEDDING).text
-                embedding = self.embedding_service.encode(dense_texts=embedding_text)
-
-                # 构建 Qdrant Point - 使用命名向量格式以保持一致性
-                point = PointStruct(
-                    id=self._point_id(
-                        WorkspaceMemoryKey(
-                            workspace_identity=memory.workspace_identity,
-                            memory_id=memory.id,
-                        )
-                    ),
-                    vector={
-                        "dense_text": embedding,
-                    },
-                    payload=memory.to_qdrant_payload(),
-                )
-                await self.client.upsert(
+            if access_policy is not None:
+                await self.client.set_payload(
                     collection_name=self.collection_name,
-                    points=[point],
+                    payload=access_policy,
+                    points=[point_id],
+                    key="meta.access_policy",
                 )
-                await self._remove_legacy_point_after_upsert(memory)
-                logger.debug(f"✓ 成功存储记忆 (Dense): {memory.id} - {memory.index.title}")
-
         except Exception as e:
-            logger.error(f"存储记忆失败: {e}")
-            raise
+            raise _storage_error(e, operation="patch_memory_payload", write=True) from e
 
     async def get_memory(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
-        from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
-
-        from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
-
+        """按复合键读取单条 Memory；记录无法安全解码时整体失败。"""
         try:
             points = await self.client.retrieve(
                 collection_name=self.collection_name,
@@ -221,39 +241,17 @@ class QdrantMemoryStore:
                 with_payload=True,
                 with_vectors=False,
             )
-
             if not points:
-                # 仅 compatibility-read 检查旧版全局 UUID 点；归属仍须重验。
-                points = await self.client.retrieve(
-                    collection_name=self.collection_name,
-                    ids=[str(key.memory_id)],
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                if not points:
-                    return None
-
-            memory = self._payload_to_memory(points[0].payload)
-            if not memory_belongs_to_workspace(memory, key.workspace_identity):
                 return None
-            return memory
-
-        except (ConnectionError, TimeoutError, OSError) as e:
-            logger.error(f"Storage offline during get_memory: {e}")
-            raise StorageOfflineError(cause=e) from e
-        except (UnexpectedResponse, ResponseHandlingException) as e:
-            logger.error(f"Storage error during get_memory: {e}")
-            raise StorageReadError(cause=e) from e
+            return decode_memory_payload(points[0].payload or {})
         except Exception as e:
-            logger.error(f"Unexpected storage error in get_memory: {e}", exc_info=True)
-            raise StorageReadError(cause=e) from e
+            raise _storage_error(e, operation="get_memory", write=False) from e
 
     async def get_memory_by_alias(
         self,
         alias: str,
         *,
         query_filter: Filter,
-        workspace_identity: WorkspaceIdentity,
     ) -> MemoryAtom | None:
         """
         根据别名精确匹配检索记忆 (L2 Cold Lookup, MTP Section 2.3.2)
@@ -262,97 +260,33 @@ class QdrantMemoryStore:
 
         Args:
             alias: 语义化别名 (e.g. "code_quicksort_impl")
-            workspace_identity: 已验证的 Workspace ownership 边界
+            query_filter: 已构造的过滤条件，必须包含 Workspace ownership 边界
 
         Returns:
             MemoryAtom 对象，未找到返回 None
         """
-        from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
-
-        from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
-
+        alias_filter = FieldCondition(key="index.alias", match=MatchValue(value=alias))
         try:
-            alias_filter = FieldCondition(
-                key="index.alias",
-                match=MatchValue(value=alias),
-            )
-            filter_obj = Filter(must=[query_filter, alias_filter])
-
-            scroll_result = await self.client.scroll(
+            points, _ = await self.client.scroll(
                 collection_name=self.collection_name,
-                scroll_filter=filter_obj,
+                scroll_filter=Filter(must=[query_filter, alias_filter]),
                 limit=1,
                 with_payload=True,
                 with_vectors=False,
             )
-
-            points = scroll_result[0]
             if not points:
                 return None
-
-            memory = self._payload_to_memory(points[0].payload)
-            if not memory_belongs_to_workspace(memory, workspace_identity):
-                return None
-            return memory
-
-        except (ConnectionError, TimeoutError, OSError) as e:
-            logger.error(f"Storage offline during get_memory_by_alias (alias={alias}): {e}")
-            raise StorageOfflineError(cause=e) from e
-        except (UnexpectedResponse, ResponseHandlingException) as e:
-            logger.error(f"Storage error during get_memory_by_alias (alias={alias}): {e}")
-            raise StorageReadError(cause=e) from e
+            return decode_memory_payload(points[0].payload or {})
         except Exception as e:
-            logger.error(
-                f"Unexpected storage error in get_memory_by_alias (alias={alias}): {e}",
-                exc_info=True,
-            )
-            raise StorageReadError(cause=e) from e
-
-    async def get_agent_profile(
-        self,
-        scope: IdentityScope,
-        agent_alias: str | None,
-    ) -> AgentProfile:
-        """在显式 Memory scope 内读取 Agent profile。"""
-        normalized_alias = agent_alias.strip() if agent_alias else ""
-        if not normalized_alias or normalized_alias in ("default", "omni_doll"):
-            return OMNI_DOLL_PROFILE
-
-        from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-        from hivememory.engines.retrieval.models import QueryFilters
-
-        atom = await self.get_memory_by_alias(
-            normalized_alias,
-            query_filter=QdrantFilterConverter().convert(QueryFilters(), scope),
-            workspace_identity=scope.workspace_identity,
-        )
-        if atom is None:
-            raise AliasNotFoundError(
-                message_key="mtp.call.profile_not_found",
-                params={"agent_alias": normalized_alias},
-            )
-        if atom.index.memory_type != MemoryType.AGENT_PROFILE:
-            raise MemoryTypeMismatchError(
-                message_key="mtp.call.profile_type_mismatch",
-                params={"agent_alias": normalized_alias},
-            )
-        profile = AgentProfile.from_atom(atom)
-        if profile is None:
-            raise InvalidArgumentError(
-                message_key="mtp.call.profile_invalid",
-                params={"agent_alias": normalized_alias},
-            )
-        return profile
+            raise _storage_error(e, operation=f"get_memory_by_alias({alias})", write=False) from e
 
     async def search_memories(
         self,
         query_text: str,
         top_k: int = 5,
         score_threshold: float = 0.0,
-        filters: dict[str, Any] | Filter | None = None,
+        filters: Filter | None = None,
         mode: str = "dense",
-        *,
-        workspace_identity: WorkspaceIdentity,
     ) -> list[dict[str, Any]]:
         """
         语义检索记忆 (支持稠密和稀疏向量检索)
@@ -360,371 +294,114 @@ class QdrantMemoryStore:
         Args:
             query_text: 查询文本
             top_k: 返回Top K结果
-            score_threshold: 最低相似度阈值
+            score_threshold: 最低相似度阈值（仅稠密检索使用）
             filters: 已构造的元数据过滤条件，必须包含 Workspace ownership 边界
             mode: 检索模式，"dense" 使用稠密向量，"sparse" 使用稀疏向量
 
         Returns:
-            检索结果列表: [{"memory": MemoryAtom, "score": float}, ...]
+            检索结果列表: [{"memory": MemoryAtom, "score": float, "id": point_id}, ...]
         """
         try:
-            # 构建过滤条件 (支持 Dict 或 qdrant Filter 对象)
-            if isinstance(filters, Filter):
-                filter_obj = filters
-            else:
-                filter_obj = self._build_filter(filters) if filters else None
-
             if mode == "sparse":
-                search_result = await self.client.query_points(
-                    collection_name=self.collection_name,
-                    query=Document(text=query_text, model="qdrant/bm25"),
-                    using="sparse_text",
-                    query_filter=filter_obj,
-                    limit=top_k,
-                    with_payload=True,
-                )
-                search_result = search_result.points
-                logger.debug(f"✓ BM25 检索到 {len(search_result)} 条记忆")
+                query: Any = Document(text=query_text, model="qdrant/bm25")
+                using, threshold = "sparse_text", None
             else:
-                # 稠密向量检索 - 使用 query_points API
-                query_vector = self.embedding_service.encode(dense_texts=query_text)
-                search_result = await self.client.query_points(
-                    collection_name=self.collection_name,
-                    query=query_vector,
-                    using="dense_text",  # 指定使用稠密向量配置
-                    query_filter=filter_obj,
-                    limit=top_k,
-                    score_threshold=score_threshold,
-                    with_payload=True,
-                )
-                search_result = search_result.points  # 提取 points 列表
-                logger.debug(f"✓ 稠密检索到 {len(search_result)} 条记忆")
-                if len(search_result) == 0:
-                    logger.warning("稠密检索返回 0 条结果。")
-
-            # 解析结果
-            results = []
-            for hit in search_result:
-                try:
-                    memory = self._payload_to_memory(hit.payload)
-                except MemoryDecodeError as exc:
-                    logger.warning(
-                        "拒绝无法安全解码的 Memory 搜索结果: point_id=%s, error=%s",
-                        hit.id,
-                        exc,
-                    )
-                    continue
-                if not memory_belongs_to_workspace(memory, workspace_identity):
-                    logger.warning(
-                        "拒绝 Workspace 归属不一致的 Memory 搜索结果: point_id=%s",
-                        hit.id,
-                    )
-                    continue
-                results.append(
-                    {
-                        "memory": memory,
-                        "score": hit.score,
-                        "id": hit.id,
-                    }
-                )
-
-            return results
-
-        except (ConnectionError, TimeoutError, OSError) as e:
-            logger.error(f"Storage offline during search_memories: {e}")
-            from hivememory.core.mtp.exceptions import StorageOfflineError
-
-            raise StorageOfflineError(cause=e) from e
+                query = self.embedding_service.encode(dense_texts=query_text)
+                using, threshold = "dense_text", score_threshold
+            response = await self.client.query_points(
+                collection_name=self.collection_name,
+                query=query,
+                using=using,
+                query_filter=filters,
+                limit=top_k,
+                score_threshold=threshold,
+                with_payload=True,
+            )
         except Exception as e:
-            logger.error(f"Storage error during search_memories: {e}", exc_info=True)
-            from hivememory.core.mtp.exceptions import StorageReadError
+            raise _storage_error(e, operation="search_memories", write=False) from e
+        logger.debug("✓ %s 检索到 %d 条记忆", using, len(response.points))
 
-            raise StorageReadError(cause=e) from e
+        return [
+            {"memory": memory, "score": hit.score, "id": hit.id}
+            for hit, memory in self._decode_points(response.points, operation="search_memories")
+        ]
 
     async def delete_memory(self, key: WorkspaceMemoryKey) -> bool:
+        """删除复合键对应的点；失败以结构化错误传播，不返回 False 掩盖。"""
         try:
-            point_ids = [self._point_id(key)]
-            if await self._legacy_point_belongs_to(key):
-                point_ids.append(str(key.memory_id))
             await self.client.delete(
                 collection_name=self.collection_name,
-                points_selector=point_ids,
+                points_selector=[self._point_id(key)],
             )
-            logger.debug(f"✓ 成功删除记忆: {key.memory_id}")
-            return True
-
         except Exception as e:
-            logger.error(f"删除记忆失败: {e}")
-            return False
-
-    async def count_memories(
-        self,
-        filters: dict[str, Any] | Filter | None = None,
-    ) -> int:
-        try:
-            filter_obj = (
-                filters
-                if isinstance(filters, Filter)
-                else (self._build_filter(filters) if filters else None)
-            )
-            result = await self.client.count(
-                collection_name=self.collection_name,
-                count_filter=filter_obj,
-            )
-            return result.count
-
-        except Exception as e:
-            logger.error(f"统计记忆数量失败: {e}")
-            return 0
+            raise _storage_error(e, operation="delete_memory", write=True) from e
+        logger.debug(f"✓ 成功删除记忆: {key.memory_id}")
+        return True
 
     async def get_all_memories(
         self,
         *,
-        filters: dict[str, Any] | Filter,
-        workspace_identity: WorkspaceIdentity,
+        filters: Filter,
         limit: int = 100,
     ) -> list[MemoryAtom]:
         """
-        获取所有记忆（不分相似度排序）
-
-        使用 Qdrant scroll API 获取所有满足条件的记忆，不进行向量检索。
+        按过滤条件 scroll 记忆（不做相似度排序）。
 
         Args:
-            filters: 过滤条件，如 {"meta.workspace_identity.workspace_id": "main_workspace"}
+            filters: 已构造的过滤条件，必须包含 Workspace ownership 边界
             limit: 最多返回多少条（默认100）
 
         Returns:
             MemoryAtom 列表
         """
-        try:
-            filter_obj = filters if isinstance(filters, Filter) else self._build_filter(filters)
-
-            scroll_result = await self.client.scroll(
-                collection_name=self.collection_name,
-                scroll_filter=filter_obj,
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
-            )
-
-            # 解析结果
-            memories = []
-            for point in scroll_result[0]:
-                try:
-                    memory = self._payload_to_memory(point.payload)
-                except MemoryDecodeError as exc:
-                    logger.warning(
-                        "拒绝无法安全解码的 Memory scroll 结果: point_id=%s, error=%s",
-                        point.id,
-                        exc,
-                    )
-                    continue
-                if not memory_belongs_to_workspace(memory, workspace_identity):
-                    logger.warning(
-                        "拒绝 Workspace 归属不一致的 Memory scroll 结果: point_id=%s",
-                        point.id,
-                    )
-                    continue
-                memories.append(memory)
-
-            logger.debug(f"✓ 获取到 {len(memories)} 条记忆")
-            return memories
-
-        except Exception as e:
-            logger.error(f"获取所有记忆失败: {e}")
-            return []
+        points = await self._scroll(filters, limit=limit, operation="get_all_memories")
+        return [memory for _, memory in self._decode_points(points, operation="get_all_memories")]
 
     async def get_all_memories_for_maintenance(
         self,
         *,
         limit: int = 10000,
     ) -> list[MemoryAtom]:
-        """进程级维护遍历；legacy owner 仅由版本解码器归一化。"""
-        try:
-            scroll_result = await self.client.scroll(
-                collection_name=self.collection_name,
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
+        """进程级维护遍历（不限 Workspace）；无法解码的记录跳过并告警。"""
+        points = await self._scroll(None, limit=limit, operation="get_all_memories_for_maintenance")
+        return [
+            memory
+            for _, memory in self._decode_points(
+                points, operation="get_all_memories_for_maintenance"
             )
-            memories: list[MemoryAtom] = []
-            for point in scroll_result[0]:
-                try:
-                    memories.append(self._payload_to_memory(point.payload))
-                except MemoryDecodeError as exc:
-                    logger.warning(
-                        "维护遍历拒绝歧义 Memory: point_id=%s, error=%s",
-                        point.id,
-                        exc,
-                    )
-            return memories
-        except Exception as exc:
-            logger.error("维护遍历 Memory 失败: %s", exc, exc_info=True)
-            return []
-
-    async def get_memories_by_vitality_range(
-        self, min_vitality: float = 0.0, max_vitality: float = 100.0, limit: int = 100
-    ) -> list[MemoryAtom]:
-        """
-        获取指定生命力范围的记忆
-
-        用于垃圾回收器扫描低生命力记忆。
-
-        Args:
-            min_vitality: 最小生命力 (0-100)
-            max_vitality: 最大生命力 (0-100)
-            limit: 最大返回数量
-
-        Returns:
-            MemoryAtom 列表
-        """
-        try:
-            # 构建生命力范围过滤条件
-            filters = {"meta.vitality_score": {"gte": min_vitality, "lte": max_vitality}}
-
-            filter_obj = self._build_filter(filters)
-
-            scroll_result = await self.client.scroll(
-                collection_name=self.collection_name,
-                scroll_filter=filter_obj,
-                limit=limit,
-                with_payload=True,
-                with_vectors=False,
-            )
-
-            # 解析结果
-            memories = []
-            for point in scroll_result[0]:
-                memory = self._payload_to_memory(point.payload)
-                memories.append(memory)
-
-            logger.debug(
-                f"✓ 获取到 {len(memories)} 条记忆 (vitality: {min_vitality}-{max_vitality})"
-            )
-            return memories
-
-        except Exception as e:
-            logger.error(f"按生命力范围获取记忆失败: {e}")
-            return []
-
-    async def batch_delete_memories(self, keys: list[WorkspaceMemoryKey]) -> int:
-        if not keys:
-            return 0
-
-        try:
-            point_ids = [self._point_id(key) for key in keys]
-            for key in keys:
-                if await self._legacy_point_belongs_to(key):
-                    point_ids.append(str(key.memory_id))
-
-            await self.client.delete(
-                collection_name=self.collection_name,
-                points_selector=point_ids,
-            )
-
-            logger.info(f"✓ 批量删除 {len(keys)} 条记忆")
-            return len(keys)
-
-        except Exception as e:
-            logger.error(f"批量删除记忆失败: {e}")
-            return 0
+        ]
 
     # ========== 内部辅助方法 ==========
 
-    def _build_filter(self, filters: dict[str, Any]) -> Filter:
-        """
-        构建 Qdrant 过滤条件
-
-        Args:
-            filters: 字典格式的过滤条件，如 {"meta.workspace_identity.workspace_id": "main_workspace"}
-
-        Returns:
-            Qdrant Filter 对象
-        """
-        must_conditions = []
-
-        for key, value in filters.items():
-            # Qdrant payload 字段直接使用 key，不需要 "payload." 前缀
-            # 例如: "meta.workspace_identity.workspace_id" 直接对应嵌套 payload 字段
-            field_path = key
-
-            if isinstance(value, (str, int, bool)):
-                must_conditions.append(
-                    FieldCondition(key=field_path, match=MatchValue(value=value))
-                )
-            elif isinstance(value, dict) and ("gte" in value or "lte" in value):
-                # 范围查询 (如 confidence_score >= 0.8)
-                must_conditions.append(
-                    FieldCondition(
-                        key=field_path,
-                        range=Range(
-                            gte=value.get("gte"),
-                            lte=value.get("lte"),
-                        ),
-                    )
-                )
-
-        return Filter(must=must_conditions) if must_conditions else None
-
-    def _payload_to_memory(self, payload: dict[str, Any]) -> MemoryAtom:
-        """
-        将 Qdrant Payload 转换回 MemoryAtom 对象
-
-        Args:
-            payload: Qdrant 存储的 payload
-
-        Returns:
-            MemoryAtom 对象
-        """
-        return decode_memory_payload(payload)
-
-    async def _remove_legacy_point_after_upsert(self, memory: MemoryAtom) -> None:
-        """仅回收同一 Workspace 的旧 UUID 点，避免跨域 ID 碰撞误删。"""
-        key = WorkspaceMemoryKey(
-            workspace_identity=memory.workspace_identity,
-            memory_id=memory.id,
-        )
-        if not await self._legacy_point_belongs_to(key):
-            return
+    async def _scroll(self, filters: Filter | None, *, limit: int, operation: str) -> list[Any]:
+        """读取一页 payload（不含向量）；失败以结构化读取错误传播。"""
         try:
-            await self.client.delete(
+            points, _ = await self.client.scroll(
                 collection_name=self.collection_name,
-                points_selector=[str(memory.id)],
-            )
-        except Exception as exc:
-            logger.warning(
-                "Memory v2 已写入，但旧版 UUID 点清理失败: memory_id=%s, error=%s",
-                memory.id,
-                exc,
-            )
-
-    async def _legacy_point_belongs_to(self, key: WorkspaceMemoryKey) -> bool:
-        """确认旧全局 UUID 点归属当前复合键，未确认时宁可保留。"""
-        try:
-            points = await self.client.retrieve(
-                collection_name=self.collection_name,
-                ids=[str(key.memory_id)],
+                scroll_filter=filters,
+                limit=limit,
                 with_payload=True,
                 with_vectors=False,
             )
-            if not points:
-                return False
-            memory = self._payload_to_memory(points[0].payload)
-        except MemoryDecodeError as exc:
-            logger.warning(
-                "拒绝清理无法安全解码的 legacy Memory 点: memory_id=%s, error=%s",
-                key.memory_id,
-                exc,
-            )
-            return False
-        except Exception as exc:
-            logger.warning(
-                "legacy Memory 点归属核验失败，保留原点: memory_id=%s, error=%s",
-                key.memory_id,
-                exc,
-            )
-            return False
-        return memory_belongs_to_workspace(memory, key.workspace_identity)
+        except Exception as e:
+            raise _storage_error(e, operation=operation, write=False) from e
+        return points
+
+    @staticmethod
+    def _decode_points(points: Iterable[Any], *, operation: str) -> list[tuple[Any, MemoryAtom]]:
+        """逐点解码；无法安全解码的记录 fail closed 跳过并告警，不中断整批。"""
+        decoded = []
+        for point in points:
+            try:
+                decoded.append((point, decode_memory_payload(point.payload or {})))
+            except MemoryDecodeError as exc:
+                logger.warning(
+                    "%s 跳过无法安全解码的 Memory: point_id=%s, error=%s",
+                    operation,
+                    point.id,
+                    exc,
+                )
+        return decoded
 
     @staticmethod
     def _point_id(key: WorkspaceMemoryKey) -> str:

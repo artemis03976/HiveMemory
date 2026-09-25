@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-05
+last_reviewed: 2026-09-24
 ---
 
 # MemoryLibrary 与存储层
@@ -48,11 +48,13 @@ MemoryLibrary
 
 ### 1.2 中期：当前可检索书库
 
-中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供 upsert、UUID/alias 读取、删除、scroll、count、访问统计更新以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
+中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
 
-持久化 payload 的读取统一经 `decode_memory_payload` 规范化，只接受 Memory schema v2（缺 `schema_version` 的 legacy 记录 fail closed，v1 兼容解释分支已随存量数据迁移完成删除；迁移入口见 `scripts/migrate_v1_memory_and_artifacts.py`）。
+持久化 payload 的读取统一经 `decode_memory_payload` 规范化，只接受 Memory schema `"2.1"`（其他版本 fail closed；整数 `2` 的兼容解码分支已随 2026-09-23 全量迁移完成而删除，迁移执行记录见[归档 Plan](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)附录 B.5）。
 
-`MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。写入会依次同步到各后端，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
+`upsert(recompute_vectors=False)` 用于 embedding 输入未变化的完整提交（如仅修改 `payload.agent_config`）：以 `set_payload` 替换整份 payload 并原样保留向量。`patch_payload` 是动态状态与资源策略的唯一持久化路径：只接受 `meta.lifecycle.*` 七个白名单字段与 `meta.access_policy` 整体替换，按嵌套键做 Qdrant 局部更新，不重算向量、不写版本 Artifact、不改内容时间与版本；未知路径、空 patch 或未通过领域校验的值直接拒绝。
+
+`MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。`upsert` 与 `patch_payload` 都会按顺序把同一变更同步到各 secondary 并传播存储错误，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
 
 ### 1.3 长期：冷藏库
 
@@ -62,7 +64,7 @@ MemoryLibrary
 
 ### 1.4 Artifact：不可变证据旁路
 
-ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文档、记忆创建记录和版本快照，以 `ArtifactRef` 挂到 `MemoryAtom` 上。Artifact 默认启用但在健康报告中是非必需组件；它失败时当前主记忆链仍可继续。
+ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文档、记忆创建记录和版本快照，以 `ArtifactRef` 挂到 `MemoryAtom` 上。其中 memory 版本记录是内容提交成功的**前置条件**：版本存储未启用或写入失败时，内容 create/update 明确失败，不会发布无历史的新 canonical（既有读取与 lifecycle patch 不受影响）；interaction/document 仍是可选旁路。
 
 详细模型与一致性边界见[Artifacts 与来源追踪](./artifacts.md)。
 
@@ -70,15 +72,15 @@ ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文
 
 ### 2.1 短期到中期
 
-短期 blocks 不由 MemoryLibrary 直接“升级”。Perception 形成 `TopicMaterializeTask`，Generation 从中提取、去重或更新记忆，MemoryGenerationFamiliar 挂载 artifacts 后再写入 MidTermMemoryStore。
+短期 blocks 不由 MemoryLibrary 直接“升级”。Perception 形成 `TopicMaterializeTask`，Generation 从中提取、去重或更新记忆，MemoryGenerationFamiliar 在提交边界（一次取时）分配版本与内容时间、挂载版本 artifacts 后再写入 MidTermMemoryStore；内容相同的重复更新不创建新版本，只经 `patch_payload` 推进访问统计。
 
 ```text
 TopicData 快照
   -> TopicMaterializeTask
   -> GenerationRequest
-  -> GenerationOutcome
+  -> GenerationOutcome（TOUCH 降级：内容一致的重复更新）
   -> artifact side effects, including promoted external sources when present
-  -> MidTermMemoryStore.upsert(MemoryAtom)
+  -> MidTermMemoryStore.upsert(MemoryAtom) / patch_payload（TOUCH）
 ```
 
 这种设计保留了一个重要区分：话题结算只是提供候选材料，不等于每组 blocks 必然产生正式记忆。
@@ -99,7 +101,7 @@ Lifecycle 的 garbage collector 只筛选候选并调用 `MemoryLibrary.archive(
 ```text
 long_term.load(memory_id)
   -> append REVIVED event
-  -> mid_term.upsert(memory)
+  -> mid_term.upsert(memory, recompute_vectors=True)
   -> long_term.remove(memory_id)
 ```
 
@@ -122,7 +124,7 @@ Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。Qdrant 不可用�
 - `storage`：Qdrant 地址、collection、向量维度、部署与启动参数；
 - `perception.engine.max_resident_topics`：短期活跃话题上限；
 - `lifecycle.archiver`：冷存储目录与压缩；
-- `artifacts`：artifact 根目录、摘要内联长度和各 builder 开关。
+- `artifacts`：artifact 根目录、摘要内联长度和各 builder 开关；**memory 版本记录组件关闭时内容 create/update 会失败**（Runtime 装配处输出启动诊断，既有读取与 lifecycle 更新不受影响）。
 
 Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重新读取配置并创建另一套 store，否则会破坏“同一进程只有一个 MemoryLibrary 状态图”的前提。
 

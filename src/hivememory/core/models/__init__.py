@@ -21,8 +21,8 @@ from .artifact import (
     MemoryEventType,
     MemoryInputRef,
     MemoryVersionArtifact,
-    MemoryVersionSnapshot,
     WorkspaceArtifactKey,
+    validate_memory_atom_snapshot,
 )
 from .immutable import FrozenDict, freeze_mapping, freeze_value
 from .interaction import (
@@ -41,6 +41,7 @@ from .memory import (
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
     MemoryType,
     MemoryVisibility,
     MetaData,
@@ -64,8 +65,11 @@ from .pending import (
     is_legal_transition,
 )
 from .projections import (
-    MemorySnapshot,
     ProfileSnapshot,
+)
+from .provenance import (
+    MemoryProvenance,
+    normalize_contributing_agent_ids,
 )
 from .topic import (
     LogicalBlock,
@@ -114,15 +118,18 @@ __all__ = [
     "DocumentLocator",
     "DocumentArtifact",
     "MemoryInputRef",
-    "MemoryVersionSnapshot",
     "MemoryCreationArtifact",
     "MemoryVersionArtifact",
+    "validate_memory_atom_snapshot",
     "MemoryEventType",
     "MemoryEventLog",
     "MemoryType",
     "MemoryVisibility",
     "MemoryAccessPolicy",
     "VerificationStatus",
+    "MemoryLifecycleState",
+    "MemoryProvenance",
+    "normalize_contributing_agent_ids",
     "MetaData",
     "IndexLayer",
     "Artifacts",
@@ -130,7 +137,6 @@ __all__ = [
     "RelationLayer",
     "MemoryAtom",
     "WorkspaceMemoryKey",
-    "MemorySnapshot",
     "ProfileSnapshot",
     "ActionReducer",
     "TraceReducer",

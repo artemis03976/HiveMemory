@@ -10,6 +10,7 @@ MTP 别名系统测试 (Section 2.3)
 对应设计文档: MemoryToolProtocol.md Section 2.3
 """
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,9 +26,12 @@ from hivememory.engines.generation.engine import (
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationContext,
-    MemoryProvenance,
+    provenance_from_actor,
 )
 from tests.helpers.memory import make_memory_identity_scope
+
+# 提交边界固定时点：CREATE 时戳断言用固定值（可失败的强断言）。
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 
 # ========== _build_alias 单元测试 ==========
 
@@ -157,7 +161,10 @@ class TestDraftToMemoryAlias:
             alias_suffix="quicksort_impl",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft,
+            identity_scope,
+            provenance_from_actor(identity_scope, GenerationContext()),
+            now=FIXED_NOW,
         )
         assert memory.index.alias == "code_quicksort_impl"
 
@@ -174,7 +181,10 @@ class TestDraftToMemoryAlias:
             alias_suffix="",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft,
+            identity_scope,
+            provenance_from_actor(identity_scope, GenerationContext()),
+            now=FIXED_NOW,
         )
         assert memory.index.alias == "fact_api_rate_limit"
 
@@ -191,7 +201,10 @@ class TestDraftToMemoryAlias:
             alias_suffix="persistence_check",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft,
+            identity_scope,
+            provenance_from_actor(identity_scope, GenerationContext()),
+            now=FIXED_NOW,
         )
         payload = memory.to_qdrant_payload()
         assert payload["index"]["alias"] == "fact_persistence_check"
@@ -209,7 +222,10 @@ class TestDraftToMemoryAlias:
             alias_suffix="",
         )
         memory = engine._draft_to_memory(
-            draft, identity_scope, MemoryProvenance.from_actor(identity_scope, GenerationContext())
+            draft,
+            identity_scope,
+            provenance_from_actor(identity_scope, GenerationContext()),
+            now=FIXED_NOW,
         )
         assert memory.index.alias is None
 

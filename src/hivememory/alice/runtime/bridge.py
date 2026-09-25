@@ -66,14 +66,6 @@ class AliceBridge:
     def public_routes_registered(self) -> bool:
         return self._public_routes_registered
 
-    @property
-    def route_proxies_registered(self) -> bool:
-        return self._route_proxies_registered
-
-    @property
-    def global_events_registered(self) -> bool:
-        return self._global_events_registered
-
     def mount(self) -> None:
         if self._global_bus is None:
             return

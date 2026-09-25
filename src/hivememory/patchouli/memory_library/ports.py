@@ -10,6 +10,7 @@ MemoryLibrary 三层存储 Port 接口定义
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -83,13 +84,23 @@ class MidTermStoragePort(ABC):
     """
     中期存储 Port — 以 MemoryAtom 为边界的向量库操作。
 
+    授权重验在 Port 实现内完成，存储预过滤不是授权事实：
+        - 带 ``IdentityScope`` 的读取（get/get_by_alias/search/scroll）校验
+          Workspace ownership 与 actor 读取策略；``enforce_actor_visibility=False``
+          仅供管理读取跳过 actor 策略，ownership 仍然生效；
+        - 按 ``WorkspaceMemoryKey`` 的读取与删除是内部可信路径（编辑、强化、
+          归档），只校验 ownership；
+        - 存储失败以 ``StorageOfflineError`` / ``StorageReadError`` /
+          ``StorageWriteError`` 传播，不以空结果或 ``False`` 掩盖。
+
     实现：
         QdrantStorageAdapter（Phase 1）
         GraphStorageAdapter（future）
     """
 
     @abstractmethod
-    async def upsert(self, memory: MemoryAtom) -> None: ...
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
+        """提交完整 canonical Memory；``recompute_vectors=False`` 时保留既有向量。"""
 
     @abstractmethod
     async def get(
@@ -110,21 +121,21 @@ class MidTermStoragePort(ABC):
     ) -> MemoryAtom | None: ...
 
     @abstractmethod
-    async def get_for_mutation(
-        self,
-        identity_scope: IdentityScope,
-        memory_id: UUID,
-    ) -> MemoryAtom | None: ...
-
-    @abstractmethod
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None: ...
 
     @abstractmethod
-    async def update_access_info(
+    async def patch_payload(
         self,
-        identity_scope: IdentityScope,
-        memory_id: UUID,
-    ) -> None: ...
+        key: WorkspaceMemoryKey,
+        patch: Mapping[str, Any],
+    ) -> MemoryAtom | None:
+        """原子地更新允许的持久化字段并返回更新后的 Memory。
+
+        ``patch`` 是 canonical dotted field path 到完整替换值的 mapping；
+        只允许 ``meta.lifecycle.*`` 白名单字段与 ``meta.access_policy`` 整体
+        替换。资源不存在返回 ``None``；未知路径、类型错误或 Workspace 不
+        匹配直接拒绝。
+        """
 
     @abstractmethod
     async def delete(
@@ -135,13 +146,6 @@ class MidTermStoragePort(ABC):
 
     @abstractmethod
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool: ...
-
-    @abstractmethod
-    async def batch_delete(
-        self,
-        identity_scope: IdentityScope,
-        ids: list[UUID],
-    ) -> int: ...
 
     @abstractmethod
     async def search(
@@ -165,13 +169,6 @@ class MidTermStoragePort(ABC):
         *,
         enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]: ...
-
-    @abstractmethod
-    async def count(
-        self,
-        identity_scope: IdentityScope,
-        filters: QueryFilters | None = None,
-    ) -> int: ...
 
     @abstractmethod
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]: ...

@@ -16,16 +16,14 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.models.artifact import (
-    ArtifactRef,
-    MemoryEventLog,
-    normalize_contributing_agent_ids,
-)
+from hivememory.core.models.artifact import ArtifactRef, MemoryEventLog
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.models.workspace import (
     IdentityScope,
     WorkspaceIdentity,
     require_identity_scope,
 )
+from hivememory.utils.time import require_utc, utc_now
 
 
 class MemoryType(str, Enum):
@@ -82,6 +80,10 @@ class MemoryAccessPolicy(BaseModel):
                 raise ValueError("TEAM policy 必须且只能携带 target_team_id")
         return self
 
+    # 与 meta 内其他领域模型同口径：就地属性赋值同样执行字段与 target 不变量，
+    # 防止构造后的策略对象被绕过校验改写（如把 target 改成保留 system）。
+    model_config = ConfigDict(validate_assignment=True)
+
     @classmethod
     def public(cls) -> "MemoryAccessPolicy":
         """显式构造 Workspace-local PUBLIC 策略。"""
@@ -119,83 +121,118 @@ class VerificationStatus(str, Enum):
     HALLUCINATION = "HALLUCINATION"  # 确认为幻觉
 
 
+class MemoryLifecycleState(BaseModel):
+    """Memory 生命周期动态状态（schema 2.1 的 ``meta.lifecycle`` 聚合）。
+
+    只收纳可在资源存续期间独立变化的动态字段；内容事实（``meta.version``、
+    ``created_at``、``updated_at``）与归属/策略不在其中。全部字段仅允许经
+    受限 ``patch_payload()`` 白名单路径更新，任何一次 patch 按字段提交完整
+    替换值。
+
+    ``decay_anchor_at`` 是遗忘衰减的唯一时间基准：创建时等于 ``created_at``，
+    仅 CITATION 与内容修订推进；HIT、普通反馈和评分刷新不推进，也不得用
+    ``last_accessed_at`` 替代（两者语义不可互换）。
+    """
+
+    access_count: int = Field(default=0, ge=0, description="被引用次数")
+    last_accessed_at: datetime | None = Field(
+        default=None, description="最近一次成功访问/引用事件时间"
+    )
+    event_vitality_boost: float = Field(
+        default=0.0, ge=-100.0, le=100.0, description="事件累积加成 (B 项)"
+    )
+    vitality_score: float = Field(
+        default=100.0, ge=0.0, le=100.0, description="最近一次计算并保存的生命力分数"
+    )
+    confidence_score: float = Field(default=0.6, ge=0.0, le=1.0, description="置信度分数")
+    verification_status: VerificationStatus = Field(
+        default=VerificationStatus.UNVERIFIED, description="验证状态"
+    )
+    decay_anchor_at: datetime = Field(description="遗忘衰减的计算基准（创建时等于创建时间）")
+
+    @field_validator("last_accessed_at", "decay_anchor_at")
+    @classmethod
+    def _require_utc(cls, value: datetime | None) -> datetime | None:
+        """生命周期时间必须是 timezone-aware 并规范化为 UTC；可空字段跳过。"""
+        if value is None:
+            return None
+        return require_utc(value)
+
+    # 写入路径通过属性赋值维护状态；赋值同样执行字段约束，非法值不能进入对象。
+    model_config = ConfigDict(validate_assignment=True)
+
+
 # ============ Layer 1: Meta (元数据层) ============
 
 
 class MetaData(BaseModel):
     """
-    元数据 - Memory v2 的唯一归属、来源、读取策略与生命周期信息。
+    元数据 - Memory schema 2.1 的唯一归属、来源、读取策略与生命周期信息。
 
-    三个概念的承载字段相互独立，不得互相替代：
+    四个概念各自独立承载，不得互相替代：
     - 资产归属：``workspace_identity``，单一权威；
-    - 来源记录：``source_agent_id`` / ``source_team_id`` / ``contributing_agent_ids``，
-      只记录 provenance 事实。``source_agent_id`` 允许保留 ``system``
-      （表示"没有具体 Agent 作为操作来源主体"），不参与授权；
-    - 读取策略：``access_policy``，可见性的唯一依据。
+    - 来源记录：``provenance``（MemoryProvenance），只记录 provenance 事实，
+      不参与授权；
+    - 读取策略：``access_policy``，可见性的唯一依据；
+    - 生命周期动态状态：``lifecycle``（MemoryLifecycleState），由受限状态
+      更新路径维护。
+
+    ``created_at`` / ``updated_at`` 是内容事实：前者仅在创建时设置，后者仅
+    由实际内容修订推进；访问、反馈、策略修改、评分和迁移都不更新它们。
     """
 
-    created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    updated_at: datetime = Field(default_factory=datetime.now, description="最后更新时间")
-    last_accessed_at: datetime | None = Field(default=None, description="最后访问时间")
+    created_at: datetime = Field(default_factory=utc_now, description="创建时间")
+    updated_at: datetime = Field(default_factory=utc_now, description="最后更新时间")
 
     workspace_identity: WorkspaceIdentity = Field(description="Memory 的唯一持久化归属")
-    source_agent_id: str = Field(
-        ...,
-        min_length=1,
-        description="操作来源 Agent ID；没有具体 Agent 的操作使用保留 system",
-    )
-    source_team_id: str | None = Field(default=None, description="创建来源 Team ID")
-    contributing_agent_ids: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description="实际贡献内容的 Agent 集合（去重、保持首次出现顺序、不含 system）",
-    )
 
-    # TODO: 会话ID应由artifact保存
-    session_id: str | None = Field(default=None, description="原始会话ID")
+    provenance: MemoryProvenance = Field(description="操作来源与内容贡献者记录（非授权字段）")
 
     access_policy: MemoryAccessPolicy = Field(description="所属 Workspace 内的执行者读取策略")
-    version: int = Field(default=1, description="版本号,用于乐观锁")
 
-    # 生命周期管理
-    access_count: int = Field(default=0, description="被引用次数")
-    vitality_score: float = Field(default=100.0, ge=0.0, le=100.0, description="生命力分数 (0-100)")
-    # 事件累积加成 (B 项)：HIT/CITATION/FEEDBACK 等事件的累计影响。
-    # 与 vitality_score 解耦存储，由 VitalityCalculator 在重算时合并进最终分数。
-    event_vitality_boost: float = Field(
-        default=0.0, ge=-100.0, le=100.0, description="事件累积加成 (B 项)"
+    version: int = Field(
+        default=1, ge=1, description="内容修订序号，同一资源每次实际内容提交推进一次"
     )
 
-    # 置信度与验证
-    confidence_score: float = Field(default=0.6, ge=0.0, le=1.0, description="置信度分数")
-    verification_status: VerificationStatus = Field(
-        default=VerificationStatus.UNVERIFIED, description="验证状态"
-    )
+    lifecycle: MemoryLifecycleState = Field(description="生命周期动态状态（受限 patch 维护）")
 
-    @field_validator("contributing_agent_ids")
+    @field_validator("created_at", "updated_at")
     @classmethod
-    def _normalize_contributors(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        """去重并保持首次出现顺序；system 表示无具体 Agent，不是内容贡献者。"""
-        return normalize_contributing_agent_ids(value)
+    def _require_utc(cls, value: datetime) -> datetime:
+        """内容时间是持久化业务时间，必须 timezone-aware 并规范化为 UTC。"""
+        return require_utc(value)
 
     model_config = ConfigDict(
         extra="forbid",
+        validate_assignment=True,
         json_schema_extra={
             "example": {
-                "source_agent_id": "coder_agent_01",
                 "workspace_identity": {
                     "owner_user_id": "user_123",
                     "workspace_key": "main_workspace",
                     "workspace_id": "main_workspace",
                 },
+                "provenance": {
+                    "source_agent_id": "coder_agent_01",
+                    "source_team_id": "team_core",
+                    "contributing_agent_ids": ["coder_agent_01"],
+                },
                 "access_policy": {"visibility": "PUBLIC"},
-                "confidence_score": 0.9,
-                "verification_status": "VERIFIED",
+                "lifecycle": {
+                    "confidence_score": 0.9,
+                    "verification_status": "UNVERIFIED",
+                    "decay_anchor_at": "2026-09-22T12:00:00Z",
+                },
             }
         },
     )
 
 
 # ============ Layer 2: Index (索引层 - 用于向量化) ============
+
+# Index 文本字段的长度上限；LLM 草稿入口按同一上限截断（engines.generation）。
+MEMORY_TITLE_MAX_LENGTH = 200
+MEMORY_SUMMARY_MAX_LENGTH = 500
 
 
 class IndexLayer(BaseModel):
@@ -204,32 +241,52 @@ class IndexLayer(BaseModel):
     高度浓缩的语义信息,优化检索准确性
     """
 
-    title: str = Field(..., min_length=1, max_length=200, description="简洁的标题")
-    summary: str = Field(..., min_length=10, max_length=500, description="一句话摘要")
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=MEMORY_TITLE_MAX_LENGTH,
+        description="简洁的标题（去除首尾空白后必填）",
+    )
+    summary: str = Field(
+        default="", max_length=MEMORY_SUMMARY_MAX_LENGTH, description="一句话摘要（允许为空）"
+    )
     tags: list[str] = Field(default_factory=list, description="动态语义标签")
     memory_type: MemoryType = Field(..., description="记忆类型")
     alias: str | None = Field(
         default=None, max_length=60, description="语义化别名 (snake_case, e.g. code_quicksort_impl)"
     )
 
+    @field_validator("title", "summary", mode="before")
+    @classmethod
+    def _strip_text(cls, value: Any) -> Any:
+        """首尾空白不构成内容：先规范化再做长度约束，纯空白标题因此被拒绝。"""
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("alias", mode="before")
+    @classmethod
+    def _normalize_alias(cls, value: Any) -> Any:
+        """空白 alias 等同未设置，规范化为 None。"""
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
-        """验证标签格式并去重"""
-        # 去重并转小写
-        unique_tags = list(set(tag.lower().strip() for tag in v if tag.strip()))
-        return unique_tags
+        """标签转小写、去首尾空白并丢弃空白标签，保序去重（结果确定，便于变化比较）。"""
+        return list(dict.fromkeys(tag.lower().strip() for tag in v if tag.strip()))
 
     model_config = ConfigDict(
+        validate_assignment=True,
         json_schema_extra={
             "example": {
                 "title": "Python utils: parse_date 函数实现",
-                "summary": "基于 datetime 库实现的日期解析工具，支持 ISO8601 及多种自定义格式。",
+                "summary": "基于 datetime 库实现的日期解析工具，支持 ISO8601 与多种自定义格式。",
                 "tags": ["python", "datetime", "utils", "code-implementation"],
                 "memory_type": "CODE_SNIPPET",
                 "alias": "code_parse_date",
             }
-        }
+        },
     )
 
 
@@ -240,12 +297,10 @@ class Artifacts(BaseModel):
     """
     Artifacts - 原始数据与溯源信息
     通常不加载到 Context, 仅按需查询
-    """
 
-    agent_config: dict[str, Any] | None = Field(
-        default=None,
-        description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}",
-    )
+    只保留 append-only 的 Artifact 引用、生命周期事件与冷存储/复活定位；
+    可版本化的 Agent Profile 内容在 ``PayloadLayer.agent_config``。
+    """
 
     # ---- v0.5.0 正式溯源层 ----
     refs: list[ArtifactRef] = Field(
@@ -262,7 +317,7 @@ class Artifacts(BaseModel):
     )
     revival_keys: list[str] = Field(default_factory=list, description="L3 复活密钥列表")
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
 
 class PayloadLayer(BaseModel):
@@ -273,23 +328,22 @@ class PayloadLayer(BaseModel):
 
     content: str = Field(..., description="Markdown格式的核心内容")
 
-    # 兼容性字段：artifact 系统关闭时，它作为轻量历史 fallback 供检索/提示词参考。
-    # TODO(history-compiler): 后续 MTP RUN 历史信息编译实现后，统一决定
-    # history_summary 是继续作为 fallback 保留，还是完全迁移到 MemoryVersionArtifact。
-    history_summary: list[str] = Field(
-        default_factory=list,
-        description="简化的版本历史；artifact 禁用时作为 fallback，展示逻辑需进入历史信息编译",
+    # 可版本化的 Agent Profile 内容（人偶图纸配置）。
+    # 变化按内容版本处理但不触发向量重算。
+    agent_config: dict[str, Any] | None = Field(
+        default=None,
+        description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}",
     )
 
     artifacts: Artifacts = Field(default_factory=Artifacts, description="原始数据存根")
 
     model_config = ConfigDict(
+        validate_assignment=True,
         json_schema_extra={
             "example": {
-                "content": "```python\ndef parse_date(date_str):\n    ...\n```\n\n**使用注意**：处理UTC时间时需确保...",
-                "history_summary": ["2025-01-01: 初始实现", "2025-01-10: 添加时区支持"],
+                "content": "```python\ndef parse_date(s): ...\n```\n\n**使用注意**：处理UTC时间时需确保...",
             }
-        }
+        },
     )
 
 
@@ -303,7 +357,9 @@ class RelationLayer(BaseModel):
 
     relates_to: list[str] = Field(default_factory=list, description="相关记忆ID列表")
     supersedes: list[str] = Field(default_factory=list, description="被此记忆覆盖的旧记忆ID")
-    depends_on: list[str] = Field(default_factory=list, description="依赖的记忆ID")
+    depends_on: list[str] = Field(default_factory=list, description="依赖的记忆ID列表")
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 # ============ 主模型: MemoryAtom ============
@@ -317,12 +373,12 @@ class MemoryAtom(BaseModel):
     - meta: 管理信息
     - index: 检索优化层 (向量化)
     - payload: 内容负载层 (Context注入)
-    - relations: 关系图谱层 (预留)
+    - relations: 关系图谱 (预留)
     """
 
-    schema_version: Literal[2] = Field(
-        default=2,
-        description="Memory 领域与持久化契约版本",
+    schema_version: Literal["2.1"] = Field(
+        default="2.1",
+        description="Memory 领域与持久化契约版本（schema 2.1）",
     )
     id: UUID = Field(default_factory=uuid4, description="Workspace 内的记忆标识符")
 
@@ -343,8 +399,9 @@ class MemoryAtom(BaseModel):
         优先使用 IndexLayer 中存储的正式别名 (由 Generation Engine 在记忆创建时生成)。
         如果不存在，则基于 memory_type 和 title 生成临时别名作为 fallback。
         """
-        if getattr(self.index, "alias", None):
-            return self.index.alias
+        alias = self.index.alias
+        if alias:
+            return alias
 
         type_prefix = self.index.memory_type.value.lower().split("_")[0]
         title = self.index.title or "untitled"
@@ -380,17 +437,18 @@ class MemoryAtom(BaseModel):
         }
 
     model_config = ConfigDict(
+        validate_assignment=True,
         json_schema_extra={
             "example": {
                 "meta": {
-                    "source_agent_id": "coder_01",
                     "workspace_identity": {
                         "owner_user_id": "user_123",
                         "workspace_key": "main_workspace",
                         "workspace_id": "main_workspace",
                     },
+                    "provenance": {"source_agent_id": "coder_01"},
                     "access_policy": {"visibility": "PUBLIC"},
-                    "confidence_score": 0.9,
+                    "lifecycle": {"decay_anchor_at": "2026-09-22T12:00:00Z"},
                 },
                 "index": {
                     "title": "Python date parsing utility",
@@ -400,5 +458,5 @@ class MemoryAtom(BaseModel):
                 },
                 "payload": {"content": "```python\ndef parse_date(s): ...\n```"},
             }
-        }
+        },
     )

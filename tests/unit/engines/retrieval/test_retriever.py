@@ -8,7 +8,7 @@ MemoryRetriever 单元测试
 - 时间衰减逻辑
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
@@ -35,13 +35,20 @@ def _make_identity_scope():
     return make_identity_scope(user_id="u1", agent_id="a1")
 
 
+# 检索评分决策时刻（A2-P 时间边界）：注入 DenseRetriever 的固定时钟，
+# 衰减天数由 meta.lifecycle.decay_anchor_at 相对该时刻控制。
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+
+
 class TestDenseRetriever:
     """测试稠密检索器"""
 
     def setup_method(self):
         self.mock_storage = AsyncMock()
         self.config = DenseRetrieverConfig()
-        self.retriever = DenseRetriever(mid_term=self.mock_storage, config=self.config)
+        self.retriever = DenseRetriever(
+            mid_term=self.mock_storage, config=self.config, now=lambda: FIXED_NOW
+        )
 
         # 准备一些测试记忆
         self.memory1 = MemoryAtom(
@@ -52,7 +59,7 @@ class TestDenseRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC),
                 confidence_score=0.9,
             ),
         )
@@ -64,7 +71,7 @@ class TestDenseRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now() - timedelta(days=60),
+                updated_at=datetime.now(UTC) - timedelta(days=60),
                 confidence_score=0.8,
             ),
         )
@@ -108,12 +115,13 @@ class TestDenseRetriever:
 
     @pytest.mark.asyncio
     async def test_time_decay(self):
-        """测试时间衰减"""
-        # M1: 新, 原始分 0.84
-        # M2: 旧(180天前), 原始分 0.85
+        """测试时间衰减（衰减基准 decay_anchor_at，决策时刻用注入的 now）"""
+        # M1: 新（衰减基准 = 决策时刻，无时间惩罚）, 原始分 0.84
+        # M2: 旧(衰减基准 180 天前), 原始分 0.85
 
-        # 更新 M2 时间为 180 天前
-        self.memory2.meta.updated_at = datetime.now() - timedelta(days=180)
+        # 衰减基准相对注入的 now 控制：M1 无衰减，M2 为 180 天前
+        self.memory1.meta.lifecycle.decay_anchor_at = FIXED_NOW
+        self.memory2.meta.lifecycle.decay_anchor_at = FIXED_NOW - timedelta(days=180)
 
         self.mock_storage.search = AsyncMock(
             return_value=[
@@ -135,6 +143,9 @@ class TestDenseRetriever:
         # M1: 0天，decay=1，boost=0，score=0.84
         # 所以 M1 > M2
 
+        # 衰减确实作用在 M2 上（boost > 0），且 M1 无时间惩罚
+        assert results.results[1].boost_applied > 0
+        assert results.results[0].boost_applied == 0
         assert results.results[0].memory.index.title == "M1"
 
     @pytest.mark.asyncio
@@ -154,14 +165,16 @@ class TestDenseRetriever:
 
     @pytest.mark.asyncio
     async def test_time_decay_with_aware_datetime(self):
-        """测试 aware datetime 时间衰减不抛异常"""
-        self.memory1.meta.updated_at = datetime.now(ZoneInfo("UTC")) - timedelta(days=1)
+        """测试 aware datetime 衰减基准不抛异常"""
+        # 相对固定决策时刻 1 天前，保留非 datetime.UTC 的 aware tzinfo
+        anchor = (FIXED_NOW - timedelta(days=1)).astimezone(ZoneInfo("UTC"))
+        self.memory1.meta.lifecycle.decay_anchor_at = anchor
         self.mock_storage.search = AsyncMock(return_value=[{"memory": self.memory1, "score": 0.9}])
 
         query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
         results = await self.retriever.retrieve(query)
 
-        # 1 天前的新记忆几乎无衰减，分数接近原始值
+        # 1 天前的记忆几乎无衰减，分数接近原始值
         assert len(results.results) == 1
         assert results.results[0].score == pytest.approx(0.9, abs=0.05)
 
@@ -194,7 +207,7 @@ class TestHybridRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC),
             ),
         )
         self.memory2 = MemoryAtom(
@@ -207,7 +220,7 @@ class TestHybridRetriever:
             meta=make_memory_metadata(
                 source_agent_id="a1",
                 user_id="u1",
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC),
             ),
         )
 

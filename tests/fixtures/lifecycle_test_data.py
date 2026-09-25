@@ -12,12 +12,11 @@ HiveMemory Lifecycle E2E 测试数据 Fixtures
 版本: 1.0.0
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
 from hivememory.core.models import (
-    Artifacts,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -273,7 +272,7 @@ def create_test_memory(
     """
     template = MEMORY_TEMPLATES.get(template_name, MEMORY_TEMPLATES["fact"])
 
-    now = datetime.now()
+    now = datetime.now(UTC)
     _updated_at = updated_at or now
     _memory_id = memory_id or uuid4()
     _confidence = (
@@ -286,10 +285,8 @@ def create_test_memory(
     meta = make_memory_metadata(
         created_at=now,
         updated_at=_updated_at,
-        last_accessed_at=None,
         source_agent_id="test_agent",
         user_id="test_user",
-        session_id="test_session",
         visibility=MemoryVisibility.PRIVATE,
         version=1,
         access_count=access_count,
@@ -307,8 +304,6 @@ def create_test_memory(
 
     payload = PayloadLayer(
         content=overrides.get("content", template["content"]),
-        history_summary=[],
-        artifacts=Artifacts(),
     )
 
     relations = RelationLayer()
@@ -334,7 +329,7 @@ def create_memory_with_age(days_old: int, template_name: str = "fact", **kwargs)
     Returns:
         MemoryAtom: 具有指定年龄的记忆实例
     """
-    old_date = datetime.now() - timedelta(days=days_old)
+    old_date = datetime.now(UTC) - timedelta(days=days_old)
     return create_test_memory(template_name=template_name, updated_at=old_date, **kwargs)
 
 

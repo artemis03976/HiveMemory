@@ -60,7 +60,7 @@ for logger_name, level in _log_levels_to_disable.items():
 # ========== 其他导入 ==========
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -80,8 +80,6 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    StreamMessage,
-    StreamMessageType,
 )
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 
@@ -247,26 +245,6 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
     )
 
 
-def create_stream_messages(
-    messages: list[dict[str, str]], identity: ActorIdentity
-) -> list[StreamMessage]:
-    """将测试数据转换为 StreamMessage 列表"""
-    role_mapping = {
-        "user": StreamMessageType.USER,
-        "assistant": StreamMessageType.ASSISTANT,
-        "system": StreamMessageType.SYSTEM,
-    }
-
-    return [
-        StreamMessage(
-            message_type=role_mapping.get(msg["role"], StreamMessageType.USER),
-            content=msg["content"],
-            identity=identity,
-        )
-        for msg in messages
-    ]
-
-
 def create_generation_context(
     messages: list[dict[str, str]],
     identity: ActorIdentity,
@@ -374,7 +352,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -428,7 +406,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -466,7 +444,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -526,7 +504,7 @@ class TestMemoryExtraction:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 
@@ -912,7 +890,7 @@ class TestSchemaValidation:
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
                 "session_id": self.identity.session_id,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
         )
 

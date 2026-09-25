@@ -1,7 +1,25 @@
-"""Workspace 作用域与进程内资产的稳定领域错误。"""
+"""Workspace 作用域、进程内资产与 Memory 输入的稳定领域错误。"""
 
 from collections.abc import Mapping
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from pydantic import ValidationError
+
+
+class InvalidMemoryFieldError(ValueError):
+    """调用方提交的 Memory 字段取值不满足领域模型约束。
+
+    只用于把"输入不合法"与程序错误区分开：由接收外部输入的构造/编辑点
+    包装模型校验错误后抛出，HTTP 入口据此返回 422，而不是 500。
+    """
+
+    @classmethod
+    def from_validation_error(cls, exc: "ValidationError") -> "InvalidMemoryFieldError":
+        """取第一个校验错误的字段路径与原因，生成面向调用方的消息。"""
+        first = exc.errors()[0]
+        field = ".".join(str(part) for part in first["loc"]) or exc.title
+        return cls(f"字段 {field} 取值不合法: {first['msg']}")
 
 
 class WorkspaceDomainError(RuntimeError):

@@ -17,7 +17,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.system import HiveMemorySystem
 from hivememory.system.config import load_app_config
@@ -111,10 +111,16 @@ def _cleanup_user_memories(system: HiveMemorySystem, user_id: str) -> None:
                 limit=1000,
             )
         )
+        for memory in memories:
+            asyncio.run(
+                store.delete_memory(
+                    WorkspaceMemoryKey(
+                        workspace_identity=memory.workspace_identity, memory_id=memory.id
+                    )
+                )
+            )
         if memories:
-            memory_ids = [m.id for m in memories]
-            asyncio.run(store.batch_delete_memories(memory_ids))
-            logger.info(f"清理用户 {user_id} 的 {len(memory_ids)} 条记忆")
+            logger.info(f"清理用户 {user_id} 的 {len(memories)} 条记忆")
     except Exception as e:
         logger.warning(f"清理用户 {user_id} 记忆时出错: {e}")
 
@@ -143,16 +149,6 @@ def wait_until(
             logger.warning(f"wait_until 检查异常: {e}")
         time.sleep(poll_interval)
     raise TimeoutError(f"等待超时 ({timeout}s): {description}")
-
-
-async def wait_until_async(
-    predicate,
-    timeout: float = 15.0,
-    poll_interval: float = 1.0,
-    description: str = "condition",
-) -> bool:
-    """异步版本：通过线程池执行同步 predicate，避免阻塞事件循环。"""
-    return await asyncio.to_thread(wait_until, predicate, timeout, poll_interval, description)
 
 
 def wait_for_memory_persistence(

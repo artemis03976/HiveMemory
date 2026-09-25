@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-06
+last_reviewed: 2026-09-24
 ---
 
 # 记忆生成
@@ -79,7 +79,7 @@ GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生�
 
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内。它仍作为 Patchouli 后台 memory task 执行。
 
-四种 settle 入口（manual / idle / LRU / shutdown）共享同一来源裁定：结算没有具体 Agent 作为操作来源主体，新建 Memory 的 `source_agent_id` 写入保留 `SYSTEM_AGENT_ID`（creation intent 为 `SYSTEM`），实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。版本更新（dedup 合并、Mode C）保留已有 metadata 的来源字段，并把本次生成的贡献者并入已有集合，合并结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
+四种 settle 入口（manual / idle / LRU / shutdown）共享同一来源裁定：结算没有具体 Agent 作为操作来源主体，新建 Memory 的 `source_agent_id` 写入保留 `SYSTEM_AGENT_ID`（creation intent 为 `SYSTEM`），实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。版本更新（dedup 合并、Mode C）保留已有 `meta.provenance` 的来源主体字段，并把本次生成的贡献者并入已有集合，合并结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
 
 ### 3.2 Mode B：主动 WRITE
 
@@ -96,7 +96,7 @@ Engine 用 extractor merge 生成新正文与 changelog；merge 失败时：
 - focus 携带 content：把内容作为带日期的更新段追加到旧正文；
 - 只有 instruction：保留旧正文，记录无内容变更的 fallback changelog。
 
-更新前后快照交给 Artifact 层生成 MemoryVersionArtifact，MemoryAtom version 递增并写回中期库。
+内容合并结果与现有正文一致时不创建新版本——outcome 降级为 TOUCH，只经受限 patch 推进访问统计。真实内容变化时，Familiar 在提交边界（一次取 `now`）推进 `meta.version` 与 `updated_at`/`decay_anchor_at`、重置置信度，前后完整快照交给 Artifact 层生成 MemoryVersionArtifact 后写回中期库。
 
 ## 4. 去重与演化
 
@@ -105,8 +105,8 @@ Mode A/B 使用 `title + summary` 对中期库执行 dense top-1 搜索，Dedupl
 | 决策 | 当前行为 |
 |:---|:---|
 | `CREATE` | 从 draft 构造新 MemoryAtom 与 canonical alias |
-| `UPDATE` | 用 draft 内容覆盖现有 head，合并索引 tags，递增 version |
-| `TOUCH` | 增加 access count、刷新 updated time，并重新 upsert |
+| `UPDATE` | 用 draft 内容覆盖现有 head；提交边界递增 version 并写版本 Artifact；合并结果与现有内容一致时降级为 `TOUCH`（§3.2：无变化不增版本） |
+| `TOUCH` | 经受限 `patch_payload` 推进 access count 与 last_accessed_at；不改内容时间、不升版本、不重算向量 |
 | `DISCARD` | 不写 MemoryAtom，返回低质量重复消息 |
 
 去重 UPDATE 当前使用轻量覆盖，不调用强合并 prompt；这是刻意保守的当前实现，但也意味着 draft 质量直接决定新 head。历史由 MemoryVersionArtifact 保存，不能通过向正文不断追加旧版本来模拟版本控制。
@@ -118,14 +118,14 @@ Alias 由 memory type 前缀和 extractor 给出的 suffix 构造，例如 `code
 MemoryGenerationFamiliar 执行：
 
 1. 尝试捕获 InteractionArtifact；
-2. 调用 GenerationEngine 得到 outcomes；
-3. 为 CREATE/UPDATE 尝试构建 creation/version artifacts，并把 refs/events 挂到 atom；
-4. 对非 DISCARD 且 atom 非空的结果执行 MidTerm upsert；
-5. 把 outcome 投影为 `MemoryGenerationResult` 与可选 PendingAtomSettlement。
+2. 在提交边界取一次 `now`，调用 GenerationEngine（传入同一时点用于内容日期）得到 outcomes；
+3. 对每个非 DISCARD 的 outcome 依次完成：提交字段分配（UPDATE 递增 version、推进内容时间与衰减基准、重置置信度）→ 构建 creation/version artifacts（强制，`now` 贯通 `changed_at` 与事件时间）→ 挂载 refs/events；
+4. 执行 MidTerm `upsert(atom, recompute_vectors=<embedding 输入是否变化>)`；TOUCH 走受限 `patch_payload`；
+5. 把 outcome 投影为 `MemoryGenerationResult` 与可选 PendingAtomSettlement，并通知变更。
 
 `InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。当前 Generation/Artifact 链只把结构化交互和记忆版本写入各自 Artifact，尚未在这条链路中读取或持久化 WorkspaceAsset 内容。
 
-Artifact 写入是 best effort，Qdrant upsert 失败则任务失败。详见[Artifacts 与来源追踪](./artifacts.md)。
+**版本记录是提交成功的前置条件**：版本存储关闭（NoOp builder）或构建失败时任务直接失败，不发布无历史的新 canonical；canonical upsert 失败同样使任务失败，已写入的版本记录保留为孤立 Artifact。`recompute_vectors` 由提交前后 embedding 输入（index 的 title/memory_type/tags/summary）对比决定，仅 `payload.agent_config` 等非 embedding 变化不重算向量。详见[Artifacts 与来源追踪](./artifacts.md)。
 
 ### 5.1 重试边界
 
@@ -140,7 +140,7 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 `intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
 spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
 
-手工 memory create/update 同样通过 Familiar：创建生成 MANUAL provenance，编辑捕获 before snapshot、递增 version 并生成 MANUAL_EDIT version artifact。
+手工 memory create/update 同样通过 Familiar：创建在提交边界生成 MANUAL provenance 与完整时间戳；编辑捕获 before snapshot，仅当传入值与当前值不同（值相等判定）才递增 version 并生成 MANUAL_EDIT version artifact，无变化调用原样返回。
 
 ## 6. 后台任务与终态
 
@@ -204,6 +204,6 @@ continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不�
 - Mode A/B 去重仍只取 dense top-1；检索调用链携带 `IdentityScope`，由 Memory store 的 Workspace ownership hard filter 约束候选范围，其他去重策略限制仍待收敛；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
-- Artifact 失败不阻断主记忆，provenance 与 MemoryAtom 不是原子提交。
+- memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。
 
 未来若引入 durable queue，首先要保持私有工作信封 codec、`WorkRecord` 单一状态源和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。

@@ -5,17 +5,16 @@ import pytest
 from qdrant_client.models import Document
 
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    WorkspaceMemoryKey,
 )
 from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    InvalidArgumentError,
-    MemoryTypeMismatchError,
+    StorageOfflineError,
     StorageReadError,
+    StorageWriteError,
 )
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
 from hivememory.engines.retrieval.models import QueryFilters
@@ -34,44 +33,6 @@ def _alias_filter(identity_scope):
 
 
 class TestQdrantMemoryStore:
-    @staticmethod
-    def _make_profile_atom(
-        agent_id: str = "test_agent",
-        persona: str = "You are a test agent.",
-        allowed_verbs: list | None = None,
-        allowed_tools: list | None = None,
-    ) -> MemoryAtom:
-        return MemoryAtom(
-            id=uuid4(),
-            meta=make_memory_metadata(
-                user_id="system",
-                source_agent_id="system",
-                visibility="PUBLIC",
-            ),
-            index=IndexLayer(
-                alias=agent_id,
-                title=f"Agent {agent_id}",
-                summary=f"Profile for {agent_id}",
-                tags=["agent", "profile"],
-                memory_type=MemoryType.AGENT_PROFILE,
-            ),
-            payload=PayloadLayer(
-                content=persona,
-                artifacts={
-                    "agent_config": {
-                        "model_name": "gpt-4",
-                        "temperature": 0.7,
-                        "allowed_mtp_verbs": (
-                            ["READ", "SEARCH"] if allowed_verbs is None else allowed_verbs
-                        ),
-                        "allowed_sys_tools": (
-                            ["sys_clock"] if allowed_tools is None else allowed_tools
-                        ),
-                    }
-                },
-            ),
-        )
-
     @pytest.fixture
     def mock_qdrant_client(self):
         with patch("hivememory.infrastructure.storage.qdrant_client.AsyncQdrantClient") as mock:
@@ -197,6 +158,57 @@ class TestQdrantMemoryStore:
         assert vector["sparse_text"].model == "qdrant/bm25"
 
     @pytest.mark.asyncio
+    async def test_upsert_memory_without_recompute_replaces_payload_via_set_payload(self, storage):
+        """recompute_vectors=False 时经 set_payload 整份替换 payload 并保留既有向量。"""
+        memory = self._make_memory()
+
+        storage.client.set_payload = AsyncMock()
+        storage.client.upsert = AsyncMock()
+
+        await storage.upsert_memory(memory, recompute_vectors=False)
+
+        expected_point_id = QdrantMemoryStore._point_id(
+            WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
+        )
+        storage.client.set_payload.assert_awaited_once_with(
+            collection_name="test",
+            payload=memory.to_qdrant_payload(),
+            points=[expected_point_id],
+        )
+        # 向量保留机制：不重写点（upsert），也不触发 embedding 重算
+        storage.client.upsert.assert_not_called()
+        storage.embedding_service.encode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_patch_memory_payload_sets_nested_lifecycle_key(self, storage):
+        """patch_memory_payload 将受限字段映射为 Qdrant 嵌套 key 的局部 set_payload。"""
+        scope = _identity_scope()
+        key = WorkspaceMemoryKey(
+            workspace_identity=scope.workspace_identity,
+            memory_id=uuid4(),
+        )
+        storage.client.set_payload = AsyncMock()
+
+        await storage.patch_memory_payload(key, lifecycle={"access_count": 3})
+
+        storage.client.set_payload.assert_awaited_once_with(
+            collection_name="test",
+            payload={"access_count": 3},
+            points=[QdrantMemoryStore._point_id(key)],
+            key="meta.lifecycle",
+        )
+
+        storage.client.set_payload.reset_mock()
+        await storage.patch_memory_payload(key, access_policy={"visibility": "PUBLIC"})
+
+        storage.client.set_payload.assert_awaited_once_with(
+            collection_name="test",
+            payload={"visibility": "PUBLIC"},
+            points=[QdrantMemoryStore._point_id(key)],
+            key="meta.access_policy",
+        )
+
+    @pytest.mark.asyncio
     async def test_search_memories_sparse_uses_bm25_document_query(self, storage):
         mock_point = MagicMock()
         mock_point.payload = self._make_memory().to_qdrant_payload()
@@ -212,7 +224,6 @@ class TestQdrantMemoryStore:
             top_k=3,
             filters={"meta.user_id": "user1"},
             mode="sparse",
-            workspace_identity=_identity_scope().workspace_identity,
         )
 
         assert len(results) == 1
@@ -240,7 +251,6 @@ class TestQdrantMemoryStore:
             query_text="dense query",
             top_k=2,
             mode="dense",
-            workspace_identity=_identity_scope().workspace_identity,
         )
 
         assert len(results) == 1
@@ -289,7 +299,6 @@ class TestQdrantMemoryStore:
         result = await storage.get_memory_by_alias(
             "code_my_tool",
             query_filter=_alias_filter(identity_scope),
-            workspace_identity=identity_scope.workspace_identity,
         )
 
         assert result is not None
@@ -306,7 +315,6 @@ class TestQdrantMemoryStore:
         result = await storage.get_memory_by_alias(
             "nonexistent_alias",
             query_filter=_alias_filter(identity_scope),
-            workspace_identity=identity_scope.workspace_identity,
         )
 
         assert result is None
@@ -320,7 +328,6 @@ class TestQdrantMemoryStore:
         await storage.get_memory_by_alias(
             "some_alias",
             query_filter=_alias_filter(identity_scope),
-            workspace_identity=identity_scope.workspace_identity,
         )
 
         call_args = storage.client.scroll.call_args
@@ -346,81 +353,74 @@ class TestQdrantMemoryStore:
             await storage.get_memory_by_alias(
                 "broken_alias",
                 query_filter=_alias_filter(identity_scope),
-                workspace_identity=identity_scope.workspace_identity,
             )
 
-    # ========== get_agent_profile ==========
+    # ========== 存储失败传播 ==========
 
-    @pytest.mark.asyncio
-    async def test_get_agent_profile_found(self, storage):
-        profile_atom = self._make_profile_atom(agent_id="coder_doll")
-        storage.get_memory_by_alias = AsyncMock(return_value=profile_atom)
-
-        result = await storage.get_agent_profile(_identity_scope("system", "system"), "coder_doll")
-
-        assert result.persona == "You are a test agent."
-
-    @pytest.mark.asyncio
-    async def test_get_agent_profile_not_found_fails_explicitly(self, storage):
-        storage.get_memory_by_alias = AsyncMock(return_value=None)
-
-        with pytest.raises(AliasNotFoundError) as exc_info:
-            await storage.get_agent_profile(_identity_scope(), "nonexistent_agent")
-
-        assert exc_info.value.message_key == "mtp.call.profile_not_found"
-        storage.get_memory_by_alias.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_get_agent_profile_wrong_type_fails_explicitly(self, storage):
-        wrong_atom = MemoryAtom(
-            id=uuid4(),
-            meta=make_memory_metadata(source_agent_id="test", user_id="test"),
-            index=IndexLayer(
-                alias="not_a_profile",
-                title="Regular Memory",
-                summary="Not a profile",
-                tags=["fact"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content="Some content"),
+    @staticmethod
+    def _key() -> WorkspaceMemoryKey:
+        return WorkspaceMemoryKey(
+            workspace_identity=_identity_scope().workspace_identity, memory_id=uuid4()
         )
-        storage.get_memory_by_alias = AsyncMock(return_value=wrong_atom)
-
-        with pytest.raises(MemoryTypeMismatchError) as exc_info:
-            await storage.get_agent_profile(_identity_scope("test", "test"), "not_a_profile")
-
-        assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
 
     @pytest.mark.asyncio
-    async def test_get_agent_profile_broken_atom_fails_explicitly(self, storage):
-        broken_atom = MemoryAtom(
-            id=uuid4(),
-            meta=make_memory_metadata(source_agent_id="system", user_id="system"),
-            index=IndexLayer(
-                alias="broken_agent",
-                title="Broken Profile",
-                summary="Missing config",
-                tags=["agent"],
-                memory_type=MemoryType.AGENT_PROFILE,
-            ),
-            payload=PayloadLayer(
-                content="Some persona",
-                artifacts={},
-            ),
-        )
-        storage.get_memory_by_alias = AsyncMock(return_value=broken_atom)
+    async def test_delete_failure_raises_storage_write_error(self, storage):
+        """删除失败必须传播，不能返回 False 让归档等调用方误判为已处理。"""
+        storage.client.retrieve = AsyncMock(return_value=[])
+        storage.client.delete = AsyncMock(side_effect=RuntimeError("delete rejected"))
 
-        with pytest.raises(InvalidArgumentError) as exc_info:
-            await storage.get_agent_profile(_identity_scope("system", "system"), "broken_agent")
+        with pytest.raises(StorageWriteError):
+            await storage.delete_memory(self._key())
 
-        assert exc_info.value.message_key == "mtp.call.profile_invalid"
-
-    @pytest.mark.parametrize("alias", ["", "default", "omni_doll"])
     @pytest.mark.asyncio
-    async def test_get_agent_profile_builtin_alias_returns_omni(self, storage, alias):
-        storage.get_memory_by_alias = AsyncMock()
+    async def test_delete_connection_failure_raises_storage_offline(self, storage):
+        """连接类异常归类为离线，与写入本身失败区分。"""
+        storage.client.retrieve = AsyncMock(return_value=[])
+        storage.client.delete = AsyncMock(side_effect=ConnectionError("refused"))
 
-        result = await storage.get_agent_profile(_identity_scope(), alias)
+        with pytest.raises(StorageOfflineError):
+            await storage.delete_memory(self._key())
 
-        assert result is OMNI_DOLL_PROFILE
-        storage.get_memory_by_alias.assert_not_called()
+    @pytest.mark.parametrize(
+        "write_call",
+        [
+            lambda store, memory: store.upsert_memory(memory),
+            lambda store, memory: store.upsert_memory(memory, recompute_vectors=False),
+            lambda store, memory: store.patch_memory_payload(
+                WorkspaceMemoryKey(
+                    workspace_identity=memory.workspace_identity, memory_id=memory.id
+                ),
+                lifecycle={"access_count": 1},
+            ),
+        ],
+        ids=["upsert", "upsert_keep_vectors", "patch_payload"],
+    )
+    @pytest.mark.asyncio
+    async def test_write_failure_raises_storage_write_error(self, storage, write_call):
+        """写入与局部更新失败以结构化写入错误传播，不泄漏 Qdrant 客户端异常类型。"""
+        failure = AsyncMock(side_effect=RuntimeError("write rejected"))
+        storage.client.upsert = failure
+        storage.client.set_payload = failure
+
+        with pytest.raises(StorageWriteError):
+            await write_call(storage, self._make_memory())
+
+    @pytest.mark.parametrize(
+        "list_call",
+        [
+            lambda store: store.get_all_memories(
+                filters=_alias_filter(_identity_scope()),
+            ),
+            lambda store: store.get_all_memories_for_maintenance(),
+        ],
+        ids=["get_all_memories", "get_all_memories_for_maintenance"],
+    )
+    @pytest.mark.asyncio
+    async def test_list_failure_raises_storage_read_error_instead_of_empty(
+        self, storage, list_call
+    ):
+        """列表读取失败不能伪装成"没有记忆"的空列表。"""
+        storage.client.scroll = AsyncMock(side_effect=RuntimeError("scroll failed"))
+
+        with pytest.raises(StorageReadError):
+            await list_call(storage)

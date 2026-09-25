@@ -179,6 +179,16 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
+### 4.5 Memory 输入校验与存储写入错误（v0.7.0 A2-P）
+
+| 异常 | 产生位置 | HTTP 呈现 | 语义 |
+|:---|:---|:---|:---|
+| `InvalidMemoryFieldError` | 接收外部输入的 Memory 构造/编辑点（管理创建、外部编辑），包装 Pydantic `ValidationError` | 422 | 调用方提交的字段取值不满足领域约束；`from_validation_error()` 取第一个错误的字段路径生成面向调用方的消息，与程序错误区分 |
+| `StorageWriteError` | Qdrant 写入路径（`upsert_memory` / `patch_memory_payload` 等） | 5xx | 存储写入失败的结构化表达，与 `StorageOfflineError`/`StorageReadError` 同族；失败沿调用链传播，不能被吞成成功或空结果 |
+| `MemoryDecodeError` | Memory codec 读取边界 | 5xx | payload 无法安全归一化为 schema `"2.1"`（缺 `schema_version`、未知版本、投影不一致等），fail closed |
+
+Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同一套约束；外部编辑入口把值相等判定为无变化时不产生版本（§3.2 语义见 Patchouli 生成文档）。
+
 ## 5. 观测失败与业务失败
 
 RuntimeEventSink 是 best-effort：

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import IdentityScope
 from hivememory.server.deps import get_identity_scope, get_memory_service
 from hivememory.server.models.memory import (
@@ -40,6 +41,8 @@ async def create_memory(
             tags=body.tags,
             alias=body.alias,
         )
+    except InvalidMemoryFieldError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return MemoryResponse.from_atom(atom)
@@ -109,6 +112,8 @@ async def update_memory(
         )
     except MemoryNotFoundError:
         raise HTTPException(status_code=404, detail="记忆不存在")
+    except InvalidMemoryFieldError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     return MemoryResponse.from_atom(atom)
 
 

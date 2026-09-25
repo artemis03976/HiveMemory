@@ -14,10 +14,16 @@ import pytest
 from hivememory.core.models import (
     AssetRepresentationKind,
     IdentityScope,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
     TopicAssetBinding,
     WorkspaceAssetMetadata,
 )
+from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.workspace_asset import WorkspaceAssetRef
+from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import DuplicateDecision
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionHandler,
@@ -25,6 +31,7 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationSource
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -114,25 +121,88 @@ class _RecordingDocumentBuilder:
 
 
 class _StubMidTerm:
-    async def upsert(self, atom):
+    """记录完整 upsert 与 TOUCH 受限 patch 的替身。"""
+
+    def __init__(self) -> None:
+        self.upsert_calls: list[tuple] = []
+        self.patch_calls: list[tuple] = []
+
+    async def upsert(self, atom, *, recompute_vectors: bool = True):
+        self.upsert_calls.append((atom, recompute_vectors))
         return atom
+
+    async def patch_payload(self, key, patch):
+        self.patch_calls.append((key, patch))
+        return None
 
 
 class _StubGenerationEngine:
-    """按预设 decision 返回 outcome 的生成引擎替身。"""
+    """按预设 decision 返回 outcome 的生成引擎替身。
+
+    除 DISCARD 外都携带真实 atom：CREATE/UPDATE 走完整 upsert，TOUCH 走
+    ``patch_payload``，提交边界需要可用的 memory id 与 Workspace 归属。
+    """
 
     def __init__(self, decisions: list[DuplicateDecision]) -> None:
         self._decisions = decisions
 
-    async def process(self, _request, *, identity_scope):
+    async def process(self, _request, *, identity_scope, now=None):
         from hivememory.engines.generation.models import GenerationOutcome
 
-        return [GenerationOutcome(duplicate_decision=decision) for decision in self._decisions]
+        outcomes = []
+        for decision in self._decisions:
+            atom = None
+            if decision != DuplicateDecision.DISCARD:
+                atom = MemoryAtom(
+                    meta=make_memory_metadata(
+                        source_agent_id=identity_scope.actor_identity.agent_id,
+                        user_id=identity_scope.workspace_identity.owner_user_id,
+                    ),
+                    index=IndexLayer(
+                        title="generation target",
+                        summary="Stub memory used for gating tests.",
+                        tags=["t"],
+                        memory_type=MemoryType.FACT,
+                        alias="fact_generation_target",
+                    ),
+                    payload=PayloadLayer(content="content"),
+                )
+            outcomes.append(GenerationOutcome(atom=atom, duplicate_decision=decision))
+        return outcomes
 
 
 class _StubArtifactEngine:
     def __init__(self, document) -> None:
         self.document = document
+        self.memory = _StubMemoryBuilder()
+
+
+def _stub_ref(workspace_identity, artifact_id: str, artifact_type) -> ArtifactRef:
+    """与目标 Memory 同 Workspace 的版本记录引用。"""
+    return ArtifactRef(
+        artifact_id=artifact_id,
+        artifact_type=artifact_type,
+        workspace_identity=workspace_identity,
+    )
+
+
+class _StubMemoryBuilder:
+    """始终产出版本记录 ref 的替身（版本记录是提交前置条件）。"""
+
+    async def build_for_create(self, *, memory, **_kwargs):
+        return MemoryCreationBundle(
+            initial_version_ref=_stub_ref(
+                memory.workspace_identity, "stub-version-1", ArtifactType.MEMORY_VERSION
+            ),
+            creation_ref=_stub_ref(
+                memory.workspace_identity, "stub-creation-1", ArtifactType.MEMORY_CREATION
+            ),
+        )
+
+    async def build_for_update(self, *, memory_after, **_kwargs):
+        return _stub_ref(
+            memory_after.workspace_identity, "stub-version-2", ArtifactType.MEMORY_VERSION
+        )
 
 
 def _familiar(
@@ -250,13 +320,25 @@ async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None
     )
 
     # 门控位于 _run_generation 内部：TOUCH/DISCARD 不触发 promotion。
+    # TOUCH 走受限 patch_payload 而非完整 upsert。
     await familiar._run_generation(spec, interaction_ref=None)
     assert builder.calls == []
+    assert familiar._mid_term.upsert_calls == []
+    assert len(familiar._mid_term.patch_calls) == 1
+    patch_key, patch_fields = familiar._mid_term.patch_calls[0]
+    assert patch_key.workspace_identity == spec.identity_scope.workspace_identity
+    assert set(patch_fields) == {
+        "meta.lifecycle.access_count",
+        "meta.lifecycle.last_accessed_at",
+    }
+    assert patch_fields["meta.lifecycle.access_count"] == 1
 
     # 同一 spec、同一 binding：CREATE 决策才提升。
     familiar._generation_engine._decisions = [DuplicateDecision.CREATE]
     await familiar._run_generation(spec, interaction_ref=None)
     assert len(builder.calls) == 1
+    # CREATE 走完整 upsert 且必重算向量
+    assert [recompute for _, recompute in familiar._mid_term.upsert_calls] == [True]
 
 
 @pytest.mark.asyncio

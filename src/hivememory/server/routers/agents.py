@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import IdentityScope
 from hivememory.server.deps import get_agent_service, get_identity_scope
 from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
@@ -27,6 +28,8 @@ async def create_agent(
             tags=body.tags,
             agent_config=body.agent_config,
         )
+    except InvalidMemoryFieldError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return AgentProfileResponse.from_atom(atom)

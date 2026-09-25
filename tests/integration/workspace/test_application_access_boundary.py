@@ -42,7 +42,6 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     MemoryVisibility,
-    MetaData,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
@@ -79,6 +78,7 @@ from hivememory.system.application.memory_task_service import MemoryTaskApplicat
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.workspace import WorkspaceOperation
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -385,10 +385,10 @@ def _settlement_results(pending_alias: str):
 
 async def _seed_public_fact(store, *, alias, content, workspace=MAIN, agent_id="a1"):
     atom = MemoryAtom(
-        meta=MetaData(
-            workspace_identity=workspace,
+        meta=make_memory_metadata(
+            user_id=workspace.owner_user_id,
             source_agent_id=agent_id,
-            access_policy=MemoryAccessPolicy.public(),
+            workspace_id=workspace.workspace_id,
         ),
         index=IndexLayer(
             title=f"title-{alias}",
@@ -496,9 +496,10 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
     只对目标 Agent；跨 Workspace 不可见；管理语义独立验证。"""
     public_atom = await _seed_public_fact(wired.store, alias="fact_public", content="visible")
     private_atom = MemoryAtom(
-        meta=MetaData(
-            workspace_identity=MAIN,
+        meta=make_memory_metadata(
+            user_id=MAIN.owner_user_id,
             source_agent_id="a1",
+            workspace_id=MAIN.workspace_id,
             access_policy=MemoryAccessPolicy(
                 visibility=MemoryVisibility.PRIVATE,
                 target_agent_id="a2",

@@ -367,29 +367,3 @@ class TestMixedBlocks:
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == "[System MTP Call Response]\nsub response"
         assert msgs[2]["content"] == "[System MTP Execution Result]\nread result"
-
-
-# ============ PerceptionContextConverter 委托验证 ============
-
-
-class TestContextConverterDelegation:
-    """验证 PerceptionContextConverter.blocks_to_messages 正确委托给 builder"""
-
-    def test_delegation_produces_same_result(self):
-        from hivememory.engines.perception.context_converter import PerceptionContextConverter
-
-        blocks = [_block_fallback("hi", "hello")]
-        direct = builder.build_messages(blocks)
-        via_converter = PerceptionContextConverter.blocks_to_messages(blocks)
-        assert direct == via_converter
-
-    def test_delegation_passes_current_agent_id(self):
-        from hivememory.engines.perception.context_converter import PerceptionContextConverter
-
-        block = _block_structured(
-            "q", [_ev("assistant_message", 0, "assistant", "content")], agent_id="coder_doll"
-        )
-        result = PerceptionContextConverter.blocks_to_messages(
-            [block], current_agent_id="omni_doll"
-        )
-        assert result[1]["content"].startswith("[From: coder_doll]")

@@ -1,7 +1,6 @@
 """InteractionArtifactBuilder - 从 LogicalBlock[] 构建 raw interaction artifact。"""
 
 from collections.abc import Sequence
-from datetime import datetime
 
 from hivememory.core.models import IdentityScope, LogicalBlock
 from hivememory.core.models.artifact import (
@@ -11,6 +10,7 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.patchouli.memory_library import ArtifactStore
 from hivememory.system.config.patchouli import ArtifactComponentConfig
+from hivememory.utils.time import utc_now
 
 
 class InteractionArtifactBuilder:
@@ -40,7 +40,7 @@ class InteractionArtifactBuilder:
             topic_title=topic_title,
             topic_summary=topic_summary,
             turns=[_snapshot(b) for b in blocks],
-            captured_at=datetime.now(),
+            captured_at=utc_now(),
         )
         return await self._store.put(artifact)
 

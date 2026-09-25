@@ -24,6 +24,7 @@ from hivememory.core.models import (
     ProfileSnapshot,
     TopicData,
     TopicSnapshot,
+    WorkspaceMemoryKey,
     require_identity_scope,
 )
 from hivememory.core.mtp.exceptions import (
@@ -38,6 +39,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -372,30 +374,24 @@ class RetrievalFamiliar:
         当记忆被成功使用时调用，增加访问计数
         """
         identity_scope = require_identity_scope(identity_scope)
+        now = utc_now()
         for memory in memories:
             try:
-                await self._memory_library.mid_term.update_access_info(
-                    identity_scope,
-                    memory.id,
+                # 受限局部更新：只推进访问计数与最近访问时间（A2-P §4.1）。
+                await self._memory_library.mid_term.patch_payload(
+                    WorkspaceMemoryKey(
+                        workspace_identity=identity_scope.workspace_identity,
+                        memory_id=memory.id,
+                    ),
+                    {
+                        "meta.lifecycle.access_count": memory.meta.lifecycle.access_count + 1,
+                        "meta.lifecycle.last_accessed_at": now,
+                    },
                 )
             except Exception as e:
                 logger.warning(f"更新访问统计失败: {memory.id} - {e}")
 
     # ========== 长期记忆查询 ==========
-
-    async def query_archive(
-        self,
-        *,
-        limit: int = 100,
-        vitality_threshold: float | None = None,
-    ):
-        """
-        查询长期冷存储归档记录。
-        """
-        return await self._memory_library.long_term.query(
-            limit=limit,
-            vitality_threshold=vitality_threshold,
-        )
 
     async def is_archived(self, memory_id) -> bool:
         """
@@ -422,12 +418,12 @@ class RetrievalFamiliar:
         """只接纳业务维度，拒绝调用方用裸字典覆盖 Workspace hard boundary。"""
         if not filters:
             return QueryFilters()
-        allowed = {"index.memory_type", "meta.confidence_score"}
+        allowed = {"index.memory_type", "meta.lifecycle.confidence_score"}
         unsupported = set(filters) - allowed
         if unsupported:
             raise ValueError(f"不支持的 Memory 过滤字段: {sorted(unsupported)}")
         memory_type = filters.get("index.memory_type")
-        confidence = filters.get("meta.confidence_score", 0.0)
+        confidence = filters.get("meta.lifecycle.confidence_score", 0.0)
         if isinstance(confidence, dict):
             confidence = confidence.get("gte", 0.0)
         return QueryFilters(

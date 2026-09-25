@@ -25,14 +25,15 @@ from hivememory.core.models import (
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
     MemoryType,
     MetaData,
     PayloadLayer,
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.core.models.artifact import (
-    MemoryVersionSnapshot,
+from hivememory.core.models.provenance import (
+    MemoryProvenance,
     normalize_contributing_agent_ids,
 )
 from hivememory.engines.generation.interfaces import (
@@ -44,9 +45,11 @@ from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationOutcome,
     GenerationRequest,
-    MemoryProvenance,
     MergeResult,
+    provenance_from_actor,
+    system_settlement_provenance,
 )
+from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -97,6 +100,7 @@ class MemoryGenerationEngine:
         request: GenerationRequest,
         *,
         identity_scope: IdentityScope,
+        now: datetime | None = None,
     ) -> list[GenerationOutcome]:
         """
         处理对话片段，提取记忆原子 (三模式)
@@ -124,18 +128,23 @@ class MemoryGenerationEngine:
             logger.debug("空生成上下文且无 write_focus/update_focus，跳过处理")
             return []
 
+        # 提交边界时点：由 Familiar 传入的同一 UTC now；缺省取当前 UTC。
+        commit_now = require_utc(now) if now is not None else utc_now()
+
         # 路由到对应模式
         if request.is_update:
-            return await self._process_mode_c(request, identity_scope)
+            return await self._process_mode_c(request, identity_scope, now=commit_now)
         elif request.is_write:
-            return await self._process_mode_b(request, identity_scope)
+            return await self._process_mode_b(request, identity_scope, now=commit_now)
         else:
-            return await self._process_mode_a(request, identity_scope)
+            return await self._process_mode_a(request, identity_scope, now=commit_now)
 
     async def _process_mode_a(
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         Mode A: 被动结算模式 (默认)
@@ -161,13 +170,16 @@ class MemoryGenerationEngine:
         return await self._dedup_and_resolve(
             draft,
             identity_scope,
-            MemoryProvenance.system_settlement(request.context),
+            system_settlement_provenance(request.context),
+            now=now,
         )
 
     async def _process_mode_b(
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
@@ -201,7 +213,8 @@ class MemoryGenerationEngine:
         return await self._dedup_and_resolve(
             draft,
             identity_scope,
-            MemoryProvenance.from_actor(identity_scope, request.context),
+            provenance_from_actor(identity_scope, request.context),
+            now=now,
         )
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
@@ -212,8 +225,6 @@ class MemoryGenerationEngine:
         """
         title = focus.title or focus.content[:50]
         summary = focus.reason or title
-        if len(summary) < 10:
-            summary = summary + " — " + focus.content[:50]
         return ExtractedMemoryDraft(
             title=title,
             summary=summary,
@@ -229,6 +240,8 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         identity_scope: IdentityScope,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         Mode C: 合并更新模式 (UPDATE 指令触发)
@@ -277,17 +290,19 @@ class MemoryGenerationEngine:
         # Fallback: LLM 合并失败时直接拼接
         if merge_result is None:
             logger.warning("[Mode C] LLM 合并失败，启用 fallback")
-            merge_result = self._build_update_fallback(uf, existing)
+            merge_result = self._build_update_fallback(uf, existing, now=now)
 
         # Step 2: 版本历史 + 更新，持久化由 Familiar 负责；
         # 主动 UPDATE 以发起 Agent 及上下文贡献者演化已有记忆的贡献者集合。
         return self._apply_update(
             existing,
             merge_result,
-            provenance=MemoryProvenance.from_actor(identity_scope, request.context),
+            provenance=provenance_from_actor(identity_scope, request.context),
         )
 
-    def _build_update_fallback(self, uf: UpdateFocus, existing: MemoryAtom) -> MergeResult:
+    def _build_update_fallback(
+        self, uf: UpdateFocus, existing: MemoryAtom, *, now: datetime
+    ) -> MergeResult:
         """
         UPDATE fallback: LLM 合并失败时的保底策略
 
@@ -297,7 +312,7 @@ class MemoryGenerationEngine:
         if uf.content:
             new_content = (
                 f"{existing.payload.content}\n\n"
-                f"## 更新 ({datetime.now().strftime('%Y-%m-%d')})\n"
+                f"## 更新 ({now.strftime('%Y-%m-%d')})\n"
                 f"{uf.content}"
             )
             changelog = f"Fallback 追加: {uf.instruction[:80]}"
@@ -316,45 +331,51 @@ class MemoryGenerationEngine:
         dedup_draft: ExtractedMemoryDraft | None = None,
     ) -> list[GenerationOutcome]:
         """
-        执行版本历史追踪 + 内容更新。持久化由调用方负责。
+        执行内容修订（纯计算）。持久化、版本分配与内容时间由 Familiar 在
+        提交边界统一决定；本方法只做：
 
-        1. 捕获变更前快照
+        1. 捕获变更前完整原子（深拷贝，供版本记录与 embedding 输入对比）
         2. 按需刷新 dedup index
-        3. 更新 history_summary
-        4. 覆盖 payload.content
-        5. 并入本次生成的贡献者集合
-        6. 更新 meta (updated_at, confidence, version)
-        """
-        now = datetime.now()
+        3. 覆盖 payload.content
+        4. 并入本次生成的贡献者集合
 
-        before_snapshot = MemoryVersionSnapshot.from_memory_atom(memory)
+        ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
+        的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
+        """
+        # §3.2：实际内容相同的重复更新不创建新版本。合并结果与现有内容一致
+        # 时降级为 TOUCH 纯决策——不合并贡献者、不刷新 dedup index、不改任何
+        # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
+        if result.new_content == memory.payload.content:
+            logger.info(
+                "[Mode C] UPDATE 合并结果与现有内容一致，降级为 TOUCH: '%s'",
+                memory.index.title,
+            )
+            return [
+                GenerationOutcome(
+                    atom=memory,
+                    duplicate_decision=DuplicateDecision.TOUCH,
+                )
+            ]
+
+        # 深拷贝保留修改前的完整原子；嵌套对象不与候选共享引用。
+        before_snapshot = memory.model_copy(deep=True)
 
         if dedup_draft is not None:
             self._merge_dedup_index(memory, dedup_draft)
-
-        # 更新轻量历史 fallback。正式历史展示应由 MemoryVersionArtifact 进入历史信息编译链路。
-        # TODO(history-compiler): 实现 MTP RUN 历史信息编译后，评估是否删除该写入路径。
-        summary_line = f"{now.strftime('%Y-%m-%d')}: {result.changelog}"
-        memory.payload.history_summary.append(summary_line)
 
         # Update Head: 覆盖 payload.content
         memory.payload.content = result.new_content
 
         # 版本演化引入新的内容贡献者：把本次来源裁定中的贡献者并入已有集合
         # （去重并保持首次出现顺序）。settle 贡献者因此能进入已有 Memory 及其
-        # 后续 Version Artifact；source_agent_id/source_team_id 按约定保留不改写。
-        memory.meta.contributing_agent_ids = normalize_contributing_agent_ids(
-            [*memory.meta.contributing_agent_ids, *provenance.contributing_agent_ids]
+        # 后续 Version Artifact；来源主体字段按约定保留不改写。
+        memory.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
+            [*memory.meta.provenance.contributing_agent_ids, *provenance.contributing_agent_ids]
         )
 
-        # 更新 meta
-        memory.meta.updated_at = now
-        memory.meta.confidence_score = 1.0
-        memory.meta.version += 1
-
         logger.info(
-            f"[Mode C] UPDATE 内容已准备: '{memory.index.title}' "
-            f"v{memory.meta.version}, changelog='{result.changelog}'"
+            f"[Mode C] UPDATE 内容已合并（待提交边界分配版本与内容时间）: "
+            f"'{memory.index.title}', changelog='{result.changelog}'"
         )
 
         return [
@@ -371,6 +392,8 @@ class MemoryGenerationEngine:
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
+        *,
+        now: datetime,
     ) -> list[GenerationOutcome]:
         """
         查重 → 构建/演化决策 (Mode A/B 共用)
@@ -393,10 +416,9 @@ class MemoryGenerationEngine:
 
         # 根据决策执行操作
         if decision == DuplicateDecision.TOUCH:
-            logger.info("记忆重复，更新访问时间")
-
-            existing_memory.meta.access_count += 1
-            existing_memory.meta.updated_at = datetime.now()
+            # 内容相同的重复访问：引擎保持纯决策，不改任何字段（MVL-0 冻结）。
+            # 访问计数的推进与持久化由 Familiar 经受限 patch_payload 完成。
+            logger.info("记忆重复，访问状态由 Familiar 经受限 patch 更新")
 
             return [
                 GenerationOutcome(
@@ -425,7 +447,7 @@ class MemoryGenerationEngine:
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
-            memory = self._draft_to_memory(draft, identity_scope, provenance)
+            memory = self._draft_to_memory(draft, identity_scope, provenance, now=now)
 
             return [
                 GenerationOutcome(
@@ -486,6 +508,8 @@ class MemoryGenerationEngine:
         draft: ExtractedMemoryDraft,
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
+        *,
+        now: datetime,
     ) -> MemoryAtom:
         """
         将草稿转换为完整的 MemoryAtom
@@ -518,15 +542,18 @@ class MemoryGenerationEngine:
             title=draft.title,
         )
 
+        # 创建时点 = 提交边界 now（Familiar 传入）：created/updated/decay 同值。
         return MemoryAtom(
             meta=MetaData(
                 workspace_identity=identity_scope.workspace_identity,
-                source_agent_id=provenance.source_agent_id,
-                source_team_id=provenance.source_team_id,
-                contributing_agent_ids=provenance.contributing_agent_ids,
+                provenance=provenance,
                 access_policy=MemoryAccessPolicy.public(),
-                session_id=None,  # session_id 仅为兼容字段，不参与当前身份作用域传播
-                confidence_score=draft.confidence_score,
+                created_at=now,
+                updated_at=now,
+                lifecycle=MemoryLifecycleState(
+                    confidence_score=draft.confidence_score,
+                    decay_anchor_at=now,
+                ),
             ),
             index=IndexLayer(
                 title=draft.title,

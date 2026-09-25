@@ -16,7 +16,7 @@ HiveMemory Lifecycle 组件单元测试。
 
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -79,12 +79,16 @@ from tests.helpers.workspace import make_identity_scope
 
 console = Console(force_terminal=True, legacy_windows=False)
 
+# 评分决策时刻（A2-P 时间边界）：注入 VitalityCalculator 的固定时钟，
+# 衰减天数由 meta.lifecycle.decay_anchor_at 相对该时刻控制。
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+
 
 class _MockMidTermAdapter:
     def __init__(self, storage):
         self._storage = storage
 
-    async def upsert(self, memory: MemoryAtom) -> None:
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
         await self._storage.upsert_memory(memory)
 
     async def get(self, scope, memory_id: UUID) -> MemoryAtom | None:
@@ -93,33 +97,20 @@ class _MockMidTermAdapter:
     async def get_by_alias(self, scope, alias: str) -> MemoryAtom | None:
         return None
 
-    async def get_for_mutation(self, identity_scope, memory_id: UUID) -> MemoryAtom | None:
-        memory = await self._storage.get_memory(memory_id)
-        if memory is None or memory.workspace_identity != identity_scope.workspace_identity:
-            return None
-        return memory
-
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         memory = await self._storage.get_memory(key.memory_id)
         if memory is None or memory.workspace_identity != key.workspace_identity:
             return None
         return memory
 
-    async def update_access_info(self, identity_scope, memory_id: UUID) -> None:
-        return None
+    async def patch_payload(self, key: WorkspaceMemoryKey, patch) -> MemoryAtom | None:
+        return await self._storage.patch_memory(key, patch)
 
     async def delete(self, identity_scope, memory_id: UUID) -> bool:
         return await self._storage.delete_memory(memory_id)
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
         return await self._storage.delete_memory(key.memory_id)
-
-    async def batch_delete(self, identity_scope, ids: list[UUID]) -> int:
-        count = 0
-        for memory_id in ids:
-            if await self.delete(identity_scope, memory_id):
-                count += 1
-        return count
 
     async def search(
         self,
@@ -138,9 +129,6 @@ class _MockMidTermAdapter:
             for memory in self._storage.list_all_memories(limit=limit)
             if memory.workspace_identity == scope.workspace_identity
         ]
-
-    async def count(self, scope, filters=None) -> int:
-        return len(await self.scroll(scope, filters=filters))
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return self._storage.list_all_memories(limit=limit)
@@ -201,6 +189,24 @@ class MockQdrantMemoryStore:
         """插入或更新记忆"""
         self._call_log.append({"method": "upsert_memory", "memory_id": memory.id})
         self.memories[memory.id] = memory
+
+    async def patch_memory(self, key: WorkspaceMemoryKey, patch: dict) -> MemoryAtom | None:
+        """受限局部更新：按 dotted 路径改写白名单字段，并记录 patch 参数"""
+        self._call_log.append({"method": "patch_payload", "key": key, "patch": dict(patch)})
+        memory = self.memories.get(key.memory_id)
+        if memory is None or memory.workspace_identity != key.workspace_identity:
+            return None
+        for path, value in patch.items():
+            if path == "meta.access_policy":
+                memory.meta.access_policy = value
+            else:
+                field = path.rsplit(".", 1)[-1]
+                setattr(memory.meta.lifecycle, field, value)
+        return memory
+
+    def get_patch_calls(self) -> list[dict]:
+        """返回 patch_payload 的全部调用记录（key + patch 参数）"""
+        return [entry for entry in self._call_log if entry["method"] == "patch_payload"]
 
     async def delete_memory(self, memory_id: UUID) -> bool:
         """删除记忆"""
@@ -270,8 +276,15 @@ def vitality_config() -> VitalityCalculatorConfig:
 
 @pytest.fixture
 def vitality_calculator(vitality_config) -> VitalityCalculator:
-    """提供生命力计算器实例"""
-    return VitalityCalculator(config=vitality_config)
+    """提供生命力计算器实例（固定时钟，衰减基准为 decay_anchor_at）"""
+    return VitalityCalculator(config=vitality_config, now=lambda: FIXED_NOW)
+
+
+def _memory_aged_by_decay_anchor(days_old: int, **kwargs) -> MemoryAtom:
+    """创建衰减天数由 decay_anchor_at 控制的记忆（不再依赖 updated_at）"""
+    memory = create_memory_with_age(days_old=days_old, **kwargs)
+    memory.meta.lifecycle.decay_anchor_at = FIXED_NOW - timedelta(days=days_old)
+    return memory
 
 
 @pytest.fixture
@@ -349,13 +362,13 @@ class TestVitalityScoring:
 
         # 创建两种 30 天前的记忆 (相同 confidence, access_count=0)
         # 验证类型通过 λ_eff 调制衰减率造成的差异
-        code_memory = create_memory_with_age(
+        code_memory = _memory_aged_by_decay_anchor(
             days_old=30,
             template_name="code_snippet",
             confidence_score=0.9,
             access_count=0,
         )
-        wip_memory = create_memory_with_age(
+        wip_memory = _memory_aged_by_decay_anchor(
             days_old=30,
             template_name="work_in_progress",
             confidence_score=0.9,
@@ -384,15 +397,16 @@ class TestVitalityScoring:
         case = get_scoring_test_by_id("LIF-SCR-002")
         print_test_header(case["id"], case["name"])
 
-        # 创建新鲜记忆（刚刚更新）
+        # 创建新鲜记忆（衰减基准 = 评分时刻，D(t)=1）
         fresh_memory = create_test_memory(
             template_name="fact",
             confidence_score=0.9,
             access_count=0,
         )
+        fresh_memory.meta.lifecycle.decay_anchor_at = FIXED_NOW
 
         # 创建 30 天前的记忆
-        old_memory = create_memory_with_age(
+        old_memory = _memory_aged_by_decay_anchor(
             days_old=30,
             template_name="fact",
             confidence_score=0.9,
@@ -495,10 +509,10 @@ class TestReinforcement:
             access_count=0,
         )
         # event_vitality_boost 重置为 0 (仿真刚写入、未被强化的初态)
-        memory.meta.event_vitality_boost = 0.0
+        memory.meta.lifecycle.event_vitality_boost = 0.0
         # 强制更新时间戳贴近"刚刚写入"，避免 days_since(update) 含小数 >0 导致 D<1
-        memory.meta.created_at = datetime.now()
-        memory.meta.updated_at = datetime.now()
+        memory.meta.created_at = datetime.now(UTC)
+        memory.meta.updated_at = datetime.now(UTC)
         pre_updated_at = memory.meta.updated_at
 
         await mock_storage.upsert_memory(memory)
@@ -526,29 +540,44 @@ class TestReinforcement:
             f"(修复前 bug 表现为 67)"
         )
 
-        # 验证 2: 事件加成累加进 B 项 (event_vitality_boost)
-        assert updated_memory.meta.event_vitality_boost == case["expected_event_vitality_boost"], (
+        # 验证 2: 事件加成累加进 B 项 (meta.lifecycle.event_vitality_boost)
+        assert (
+            updated_memory.meta.lifecycle.event_vitality_boost
+            == case["expected_event_vitality_boost"]
+        ), (
             f"event_vitality_boost 应累加 hit_boost=5，实际 "
-            f"{updated_memory.meta.event_vitality_boost}"
+            f"{updated_memory.meta.lifecycle.event_vitality_boost}"
         )
 
         # 验证 3: HIT 不重置 updated_at (衰减钟持续作用，艾宾浩斯语义)
         if case["expected_updated_at_unchanged_on_hit"]:
             assert (
                 updated_memory.meta.updated_at == pre_updated_at
-            ), "HIT 不应重置 updated_at (仅 CITATION 重置) — 让遗忘曲线持续作用"
+            ), "HIT 不应重置 updated_at (仅 CITATION 推进 decay_anchor_at) — 让遗忘曲线持续作用"
 
         # 验证 4: access_count += 1
         assert (
-            updated_memory.meta.access_count == 1
-        ), f"access_count 应递增为 1，实际 {updated_memory.meta.access_count}"
+            updated_memory.meta.lifecycle.access_count == 1
+        ), f"access_count 应递增为 1，实际 {updated_memory.meta.lifecycle.access_count}"
+
+        # 验证 5: MVL-2 受限 patch 契约 —— HIT 只提交 4 个授权 lifecycle 字段，
+        # 不触碰 updated_at/version，不整原子 upsert
+        patch_calls = mock_storage.get_patch_calls()
+        assert len(patch_calls) == 1, "HIT 应恰好提交一次 patch_payload"
+        submitted = set(patch_calls[0]["patch"])
+        assert submitted == {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+        }, f"HIT patch 应只含 4 个授权字段，实际 {sorted(submitted)}"
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.1f} -> {result.new_vitality:.1f}, "
-            f"B={updated_memory.meta.event_vitality_boost}, "
+            f"B={updated_memory.meta.lifecycle.event_vitality_boost}, "
             f"updated_at unchanged={updated_memory.meta.updated_at == pre_updated_at}",
         )
 
@@ -571,7 +600,7 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_access_count = memory.meta.access_count
+        initial_access_count = memory.meta.lifecycle.access_count
 
         # 触发 HIT 事件
         event = MemoryEvent(
@@ -590,18 +619,31 @@ class TestReinforcement:
 
         # 验证
         assert (
-            updated_memory.meta.access_count == initial_access_count + 1
+            updated_memory.meta.lifecycle.access_count == initial_access_count + 1
         ), "Access count should increase by 1"
         assert (
             result.new_vitality >= result.previous_vitality
         ), "Vitality should increase or stay same after HIT"
+
+        # MVL-2: HIT patch 只含 4 个授权字段，access_count 为 +1 后的完整值
+        patch_calls = mock_storage.get_patch_calls()
+        assert len(patch_calls) == 1, "HIT 应恰好提交一次 patch_payload"
+        patch = patch_calls[0]["patch"]
+        assert set(patch) == {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+        }
+        assert patch["meta.lifecycle.access_count"] == initial_access_count + 1
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}",
+            f"AccessCount: {initial_access_count} -> "
+            f"{updated_memory.meta.lifecycle.access_count}",
         )
 
     @pytest.mark.asyncio
@@ -623,6 +665,7 @@ class TestReinforcement:
             access_count=5,
         )
         old_updated_at = old_memory.meta.updated_at
+        old_decay_anchor_at = old_memory.meta.lifecycle.decay_anchor_at
         await mock_storage.upsert_memory(old_memory)
 
         # 触发 CITATION 事件
@@ -640,13 +683,34 @@ class TestReinforcement:
         # 获取更新后的记忆
         updated_memory = await mock_storage.get_memory(old_memory.id)
 
-        # 验证 updated_at 被更新（时间衰减重置）
-        assert updated_memory.meta.updated_at > old_updated_at, "updated_at should be reset to now"
+        # A2-P 契约: CITATION 推进 meta.lifecycle.decay_anchor_at（主动复习重置遗忘曲线），
+        # 不再更新内容时间 updated_at
+        assert (
+            updated_memory.meta.lifecycle.decay_anchor_at > old_decay_anchor_at
+        ), "decay_anchor_at should be advanced to now"
+        assert (
+            updated_memory.meta.updated_at == old_updated_at
+        ), "updated_at must not be rewritten by CITATION"
 
         # 验证生命力提升
         assert (
             result.new_vitality > result.previous_vitality
         ), "Vitality should increase after CITATION"
+
+        # MVL-2: CITATION 额外提交 decay_anchor_at；任何事件 patch 都不含 updated_at/version
+        patch_calls = mock_storage.get_patch_calls()
+        assert len(patch_calls) == 1, "CITATION 应恰好提交一次 patch_payload"
+        patch = patch_calls[0]["patch"]
+        assert set(patch) == {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+            "meta.lifecycle.decay_anchor_at",
+        }
+        assert all(
+            not path.startswith(("meta.updated_at", "meta.version")) for path in patch
+        ), "patch 不得包含 updated_at/version 字段"
 
         print_test_result(
             case["id"],
@@ -675,7 +739,7 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_confidence = memory.meta.confidence_score
+        initial_confidence = memory.meta.lifecycle.confidence_score
 
         # 触发负面反馈事件
         event = MemoryEvent(
@@ -695,8 +759,23 @@ class TestReinforcement:
         # 验证置信度降低 (乘以 0.5)
         expected_confidence = initial_confidence * case["expected_confidence_multiplier"]
         assert (
-            abs(updated_memory.meta.confidence_score - expected_confidence) < 0.01
+            abs(updated_memory.meta.lifecycle.confidence_score - expected_confidence) < 0.01
         ), f"Confidence should be multiplied by {case['expected_confidence_multiplier']}"
+
+        # MVL-2: FEEDBACK_NEGATIVE 额外提交 confidence_score（已 ×0.5 的完整值）
+        patch_calls = mock_storage.get_patch_calls()
+        assert len(patch_calls) == 1, "FEEDBACK_NEGATIVE 应恰好提交一次 patch_payload"
+        patch = patch_calls[0]["patch"]
+        assert set(patch) == {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+            "meta.lifecycle.confidence_score",
+        }
+        assert patch["meta.lifecycle.confidence_score"] == pytest.approx(
+            expected_confidence, abs=0.01
+        )
 
         print_test_result(
             case["id"],
@@ -725,7 +804,7 @@ class TestReinforcement:
         )
         await mock_storage.upsert_memory(memory)
 
-        initial_access_count = memory.meta.access_count
+        initial_access_count = memory.meta.lifecycle.access_count
 
         # 触发正面反馈事件
         event = MemoryEvent(
@@ -749,15 +828,26 @@ class TestReinforcement:
 
         # 验证访问计数增加
         assert (
-            updated_memory.meta.access_count == initial_access_count + 1
+            updated_memory.meta.lifecycle.access_count == initial_access_count + 1
         ), "Access count should increase by 1"
+
+        # MVL-2: FEEDBACK_POSITIVE 只提交 4 个基础授权字段（无 decay_anchor_at/confidence_score）
+        patch_calls = mock_storage.get_patch_calls()
+        assert len(patch_calls) == 1, "FEEDBACK_POSITIVE 应恰好提交一次 patch_payload"
+        assert set(patch_calls[0]["patch"]) == {
+            "meta.lifecycle.access_count",
+            "meta.lifecycle.last_accessed_at",
+            "meta.lifecycle.event_vitality_boost",
+            "meta.lifecycle.vitality_score",
+        }
 
         print_test_result(
             case["id"],
             case["name"],
             True,
             f"Vitality: {result.previous_vitality:.2f} -> {result.new_vitality:.2f}, "
-            f"AccessCount: {initial_access_count} -> {updated_memory.meta.access_count}",
+            f"AccessCount: {initial_access_count} -> "
+            f"{updated_memory.meta.lifecycle.access_count}",
         )
 
 

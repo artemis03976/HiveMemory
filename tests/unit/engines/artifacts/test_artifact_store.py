@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -17,6 +17,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import ArtifactRef, InteractionArtifact
 from hivememory.core.models.memory import Artifacts
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.engines.artifacts.document import (
     DocumentArtifactBuilder,
     NoOpDocumentArtifactBuilder,
@@ -46,10 +47,10 @@ def _make_artifact(
 ) -> InteractionArtifact:
     return InteractionArtifact(
         artifact_id=artifact_id,
-        created_at=datetime(2026, 6, 14, 12, 0, 0),
+        created_at=datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC),
         workspace_identity=workspace,
         topic_id=topic_id,
-        captured_at=datetime(2026, 6, 14, 12, 0, 0),
+        captured_at=datetime(2026, 6, 14, 12, 0, 0, tzinfo=UTC),
     )
 
 
@@ -164,7 +165,9 @@ async def test_list_by_memory_is_workspace_scoped(store):
                 workspace_identity=identity_scope.workspace_identity,
                 memory_id="memory-1",
                 source_intent="WRITE",
-                source_agent_id=identity_scope.actor_identity.agent_id,
+                provenance=MemoryProvenance(
+                    source_agent_id=identity_scope.actor_identity.agent_id,
+                ),
             )
         )
 
@@ -278,7 +281,7 @@ async def test_artifact_builder_and_engine_preserve_workspace(tmp_path):
         source_type="markdown",
         source_uri="memory://source",
         content_hash=None,
-        retrieved_at=datetime(2026, 1, 1),
+        retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
         workspace_identity=identity_scope.workspace_identity,
     )
 

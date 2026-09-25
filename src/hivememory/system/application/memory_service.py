@@ -3,18 +3,22 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.core.errors import WorkspaceDomainError
+from pydantic import ValidationError
+
+from hivememory.core.errors import InvalidMemoryFieldError, WorkspaceDomainError
 from hivememory.core.models import (
-    Artifacts,
     IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
     MemoryType,
     MetaData,
     PayloadLayer,
 )
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
     from hivememory.system.config import HiveMemoryConfig
@@ -75,27 +79,38 @@ class MemoryApplicationService:
     ) -> MemoryAtom:
         """管理创建入口：在显式 Workspace scope 中创建 Memory。
 
-        ``source_agent_id`` 记录来源 actor（管理入口为保留 ``system``），
-        只作 provenance 展示，不参与可见性授权。
+        ``provenance.source_agent_id`` 记录来源 actor（管理入口为保留
+        ``system``），只作 provenance 展示，不参与可见性授权。
         """
-        atom = MemoryAtom(
-            meta=MetaData(
-                workspace_identity=identity_scope.workspace_identity,
-                source_agent_id=identity_scope.actor_identity.agent_id,
-                source_team_id=identity_scope.actor_identity.team_id,
-                access_policy=MemoryAccessPolicy.public(),
-            ),
-            index=IndexLayer(
+        # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
+        try:
+            index = IndexLayer(
                 title=title,
                 summary=summary,
                 tags=tags,
                 memory_type=MemoryType(memory_type),
                 alias=alias,
+            )
+            payload = PayloadLayer(content=content)
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+        # A2-P：创建时点在提交边界取一次 now，created/updated/decay anchor 同值；
+        # MVL-2 收敛后统一由 Patchouli 完整写入路径赋值。
+        now = utc_now()
+        atom = MemoryAtom(
+            meta=MetaData(
+                workspace_identity=identity_scope.workspace_identity,
+                provenance=MemoryProvenance(
+                    source_agent_id=identity_scope.actor_identity.agent_id,
+                    source_team_id=identity_scope.actor_identity.team_id,
+                ),
+                access_policy=MemoryAccessPolicy.public(),
+                created_at=now,
+                updated_at=now,
+                lifecycle=MemoryLifecycleState(decay_anchor_at=now),
             ),
-            payload=PayloadLayer(
-                content=content,
-                artifacts=Artifacts(),
-            ),
+            index=index,
+            payload=payload,
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_CREATE,

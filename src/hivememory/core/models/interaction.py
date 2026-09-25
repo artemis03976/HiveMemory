@@ -60,15 +60,6 @@ class StreamMessage(BaseModel):
         }
         return mapping.get(self.message_type, "assistant")
 
-    @property
-    def token_count(self) -> int:
-        """估算消息的 Token 数量"""
-        return estimate_tokens(self.content)
-
-    def to_langchain_message(self) -> dict[str, str]:
-        """转换为 LangChain 消息格式"""
-        return {"role": self.role, "content": self.content}
-
     model_config = ConfigDict(use_enum_values=True)
 
 
@@ -158,11 +149,6 @@ class AgentAction(BaseModel):
     def is_complete(self) -> bool:
         """是否已拿到至少一个结果事件。"""
         return bool(self.tool_name or self.tool_kind) and bool(self.results)
-
-    @property
-    def has_pending_result(self) -> bool:
-        """是否已发起动作但尚未收到结果。"""
-        return bool(self.tool_name or self.tool_kind) and not self.results
 
     @property
     def total_tokens(self) -> int:
@@ -258,11 +244,6 @@ class TurnRecord(BaseModel):
     def anchor_text(self) -> str:
         """获取单轮语义锚点。"""
         return self.rewritten_query or self.user_query or ""
-
-    @property
-    def has_structured_content(self) -> bool:
-        """是否包含结构化事件/动作/摘要信息。"""
-        return bool(self.turn_events or self.actions or self.semantic_traces)
 
     @property
     def is_empty(self) -> bool:

@@ -12,6 +12,7 @@ from hivememory.utils.json_parser import (
     parse_llm_json_many,
     safe_parse_llm_json,
 )
+from hivememory.utils.time import require_utc, utc_now
 from hivememory.utils.time_formatter import (
     TimeFormatter,
     format_time_ago,
@@ -27,6 +28,8 @@ __all__ = [
     "TimeFormatter",
     "Language",
     "format_time_ago",
+    "utc_now",
+    "require_utc",
     "LLMJSONParser",
     "JSONParseError",
     "parse_llm_json",

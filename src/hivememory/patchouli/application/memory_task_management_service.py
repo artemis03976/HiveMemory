@@ -28,9 +28,6 @@ class MemoryTaskManagementService:
       A1 第 6 节兼容清单内的迁移期受信适配，保持既有行为；A6 完成消费
       者切换后收紧。
 
-    ``wait_memory_tasks``/``wait_all_memory_tasks`` 是内部等待用例（未
-    挂载公开路由），不进入 Actor 观察授权面；公开 ``wait`` 如需暴露，
-    须先按 A1 第 3.4 节冻结等待上限、超时与 shutdown 结束语义。
     """
 
     def __init__(
@@ -92,44 +89,6 @@ class MemoryTaskManagementService:
             task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
             self._assert_scope_matches(scope, task, task_id)
         return await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_CANCEL, task_id)
-
-    async def wait_memory_task(
-        self,
-        task_id: str,
-        timeout: float | None = None,
-        *,
-        access: WorkspaceAccessContext | None = None,
-    ) -> MemoryGenerationTask | None:
-        if access is not None:
-            # 公开等待与观察同一 operation；归属校验先于等待副作用。
-            scope = self._access_guard.authorize_operation(access, WorkspaceOperation.TASK_OBSERVE)
-            task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
-            self._assert_scope_matches(scope, task, task_id)
-        return await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_TASK_WAIT,
-            task_id,
-            timeout,
-        )
-
-    async def wait_memory_tasks(
-        self,
-        task_ids: list[str],
-        timeout: float | None = None,
-    ) -> list[MemoryGenerationTask | None]:
-        return await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_TASK_WAIT_MANY,
-            task_ids,
-            timeout,
-        )
-
-    async def wait_all_memory_tasks(
-        self,
-        timeout: float | None = None,
-    ) -> list[MemoryGenerationTask]:
-        return await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_TASK_WAIT_ALL,
-            timeout,
-        )
 
     # ---- 内部辅助 ----
 

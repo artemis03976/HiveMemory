@@ -70,7 +70,7 @@ def build_patchouli_route_bindings(
             PatchouliLocalRoutes.MEMORY_UPDATE,
             runtime.memory_generation_familiar.update_external_memory,
         ),
-        (PatchouliLocalRoutes.MEMORY_DELETE, runtime.memory_library.mid_term.delete),
+        (PatchouliLocalRoutes.MEMORY_DELETE, runtime.memory_library.delete),
         (
             PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
             runtime.lifecycle_familiar.refresh_memory_vitality,

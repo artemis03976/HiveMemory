@@ -345,10 +345,8 @@ SCHEMA_VALIDATION_CASES = [
         ],
         "required_fields": [
             "id",
-            "meta.user_id",
-            "meta.source_agent_id",
-            "meta.session_id",
-            "meta.confidence_score",
+            "meta.provenance.source_agent_id",
+            "meta.lifecycle.confidence_score",
             "index.title",
             "index.summary",
             "index.tags",

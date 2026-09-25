@@ -1,8 +1,8 @@
-"""Memory schema v2 的受控读取与规范化。
+"""Memory 持久化 payload 的受控读取与规范化。
 
-legacy v1 兼容解释分支已随存量数据全量迁移完成而删除（迁移工具与报告见
-``scripts/migrate_v1_memory_and_artifacts.py``）：缺少 ``schema_version`` 的
-记录不再按 v1 解释，直接 fail closed。
+只接受 schema ``"2.1"``（字符串）的 canonical 格式。整数 schema ``2`` 的旧
+布局已由 A2-P 一次性迁移转换完毕，兼容解码随之移除；缺少
+``schema_version``、未知版本、部分 Workspace 投影和冲突 owner 均 fail closed。
 """
 
 from __future__ import annotations
@@ -11,10 +11,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
-from hivememory.core.models import (
-    MemoryAtom,
-    WorkspaceIdentity,
-)
+from hivememory.core.models import MemoryAtom, WorkspaceIdentity
 
 _WORKSPACE_PROJECTION_FIELDS = (
     "owner_user_id",
@@ -24,23 +21,20 @@ _WORKSPACE_PROJECTION_FIELDS = (
 
 
 class MemoryDecodeError(ValueError):
-    """持久化 Memory 无法安全归一化为 schema v2。"""
+    """持久化 Memory 无法安全归一化为 Memory 领域对象。"""
 
 
 def decode_memory_payload(payload: Mapping[str, Any]) -> MemoryAtom:
-    """解码持久化 payload，返回唯一 canonical v2 领域对象。
+    """解码持久化 payload，返回唯一 canonical Memory 领域对象。
 
-    缺少 ``schema_version``、未知版本、部分 Workspace 投影和冲突 owner 均
-    fail closed。
+    去除仅服务存储预过滤的 Workspace 平铺投影后按 ``MemoryAtom`` 校验；投影
+    存在时必须完整且与嵌套 ownership 一致。
     """
     raw = deepcopy(dict(payload))
     schema_version = raw.get("schema_version")
-    if schema_version != 2:
+    if schema_version != "2.1":
         raise MemoryDecodeError(f"不支持的 Memory schema_version: {schema_version!r}")
-    return _decode_v2(raw)
 
-
-def _decode_v2(raw: dict[str, Any]) -> MemoryAtom:
     meta = _require_mapping(raw.get("meta"), "meta")
     projected = _extract_complete_projection(meta)
     domain_meta = dict(meta)
@@ -51,10 +45,10 @@ def _decode_v2(raw: dict[str, Any]) -> MemoryAtom:
     try:
         atom = MemoryAtom.model_validate(raw)
     except Exception as exc:
-        raise MemoryDecodeError(f"无效的 Memory schema v2: {exc}") from exc
+        raise MemoryDecodeError(f"无效的 Memory schema 2.1: {exc}") from exc
 
     if projected is not None and projected != atom.workspace_identity:
-        raise MemoryDecodeError("Memory v2 嵌套 ownership 与存储索引投影不一致")
+        raise MemoryDecodeError("Memory 嵌套 ownership 与存储索引投影不一致")
     return atom
 
 

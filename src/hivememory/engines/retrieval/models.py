@@ -8,7 +8,7 @@ HiveMemory - Retrieval 模块数据模型
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import IdentityScope, MemoryAtom, MemoryType
 
@@ -17,8 +17,9 @@ class QueryFilters(BaseModel):
     """不含授权语义的结构化业务过滤条件。"""
 
     memory_type: MemoryType | None = None
-    # 匹配 meta.contributing_agent_ids 贡献者集合（可检出"参与过但未收尾"
-    # 的 Agent），并保留 meta.source_agent_id 分支兼容无贡献者集合的历史记录。
+    # 匹配 meta.provenance.contributing_agent_ids 贡献者集合（可检出"参与
+    # 过但未收尾"的 Agent），并保留 meta.provenance.source_agent_id 分支兼容
+    # 无贡献者集合的记录。
     source_agent_id: str | None = None
     time_range: tuple[datetime, datetime] | None = None
     tags: list[str] = Field(default_factory=list)
@@ -78,13 +79,6 @@ class SearchResult(BaseModel):
     # 可选的额外信息
     vector_score: float = 0.0  # 原始向量相似度
     boost_applied: float = 0.0  # 应用的加权
-
-    @model_validator(mode="after")
-    def set_default_match_reason(self) -> "SearchResult":
-        """初始化后处理"""
-        if not self.match_reason:
-            self.match_reason = f"语义匹配 (score: {self.score:.2f})"
-        return self
 
 
 class SearchResults(BaseModel):

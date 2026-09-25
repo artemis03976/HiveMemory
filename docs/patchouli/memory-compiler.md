@@ -111,7 +111,11 @@ Handler 和 envelope 的标签、空值、pending/redirect/error 文本通过 i1
 
 `MemoryCompileOptions.format` 可以进入 envelope metadata，但当前主要终态仍由各 handler 的文本模板决定，并非所有 target 都已经支持 xml/markdown/plain 三种完全不同的 renderer。格式字段不能被当作完整多格式能力承诺。
 
-## 8. 当前限制与设计张力
+## 8. 时间相对化契约（v0.7.0 A2-P）
+
+prompt 渲染中的“N 天前”相对时间由 `utils.time_formatter.TimeFormatter` 承担，它只是展示组件：`dt` 与显式 `reference` 必须是 UTC-aware datetime（naive 值抛错，不做时区猜测），未来时间与不足一小时统一显示为“最近”。需要确定性输出的调用方（MemoryCompiler、测试）应显式传入同一 `reference`；渲染使用的字段由调用方给出（当前为 `meta.updated_at` 内容时间），formatter 不自行在 lifecycle 时间字段中选择。
+
+## 9. 当前限制与设计张力
 
 - `RUNNABLE_TOOL` 仍是 reserved target，没有可执行工具编译；
 - Full strategy 的 `max_tokens` 当前用 `len(text)` 比较字符数，而 Cascade/Compact 使用 token estimator，预算口径不一致；

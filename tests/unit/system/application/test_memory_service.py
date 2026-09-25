@@ -177,7 +177,7 @@ class TestMemoryApplicationService:
         route, bus_scope, payload = mock_global_bus.request.await_args.args
         assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
         # 管理 actor（保留 system）作为 provenance 来源透传，不参与授权
-        assert payload.meta.source_agent_id == "system"
+        assert payload.meta.provenance.source_agent_id == "system"
         assert bus_scope is identity_scope
         assert payload.workspace_identity == identity_scope.workspace_identity
         assert payload.workspace_identity.owner_user_id == "u1"

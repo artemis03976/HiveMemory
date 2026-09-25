@@ -22,6 +22,7 @@ from hivememory.core.models import (
     MemoryEventLog,
     MemoryEventType,
     WorkspaceMemoryKey,
+    require_identity_scope,
 )
 from hivememory.patchouli.memory_library.models import (
     StorageHealthComponent,
@@ -91,9 +92,20 @@ class MemoryLibrary:
         key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
         memory = await self.long_term.load(key)
         memory.payload.artifacts.events.append(MemoryEventLog(event_type=MemoryEventType.REVIVED))
-        await self.mid_term.upsert(memory)
+        # 复活重建必要索引：完整原子提交且重算向量，不视为内容修订。
+        await self.mid_term.upsert(memory, recompute_vectors=True)
         await self.long_term.remove(key)
         logger.info(f"记忆已从冷存储复活至向量库: {memory_id}")
+
+    async def delete(
+        self,
+        identity_scope: IdentityScope,
+        memory_id: UUID,
+    ) -> bool:
+        """删除中期记忆（供公共路由绑定）。"""
+        identity_scope = require_identity_scope(identity_scope)
+        deleted = await self.mid_term.delete(identity_scope, memory_id)
+        return deleted
 
     async def check_storage_health(self) -> StorageHealthReport:
         """返回完整记忆存储系统的健康报告。"""

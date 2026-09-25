@@ -11,7 +11,8 @@ import asyncio
 import logging
 import math
 import time
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
@@ -44,15 +45,23 @@ class DenseRetriever(BaseMemoryRetriever):
     使用 Qdrant 的稠密向量进行语义检索，捕获模糊语义匹配。
     """
 
-    def __init__(self, mid_term: "MidTermMemoryStore", config: DenseRetrieverConfig):
+    def __init__(
+        self,
+        mid_term: "MidTermMemoryStore",
+        config: DenseRetrieverConfig,
+        *,
+        now: Callable[[], datetime] | None = None,
+    ):
         """
         初始化稠密检索器
 
         Args:
             mid_term: 中期记忆存储
             config: 检索器配置
+            now: 评分决策时刻的局部注入（A2-P 时间边界）；默认当前 UTC
         """
         self.mid_term = mid_term
+        self._now = now or (lambda: datetime.now(UTC))
         self.config = config
 
     async def retrieve(
@@ -108,13 +117,14 @@ class DenseRetriever(BaseMemoryRetriever):
 
             # 时间衰减
             if self.config.enable_time_decay:
-                decay = self._calculate_time_decay(memory.meta.updated_at)
+                # 时间衰减基准与生命力评分一致：decay_anchor_at（A2-P §3.1）。
+                decay = self._calculate_time_decay(memory.meta.lifecycle.decay_anchor_at)
                 boost = (1 - decay) * 0.1  # 最多 10% 的时间惩罚
                 final_score = vector_score * (1 - boost)
 
             # 置信度加权
             if self.config.enable_confidence_boost:
-                confidence_boost = memory.meta.confidence_score * 0.05
+                confidence_boost = memory.meta.lifecycle.confidence_score * 0.05
                 final_score += confidence_boost
 
             search_results.append(
@@ -134,7 +144,7 @@ class DenseRetriever(BaseMemoryRetriever):
             results=search_results, total_candidates=len(raw_results), latency_ms=latency
         )
 
-    def _calculate_time_decay(self, updated_at: datetime) -> float:
+    def _calculate_time_decay(self, anchor_at: datetime) -> float:
         """
         计算时间衰减系数
 
@@ -142,17 +152,13 @@ class DenseRetriever(BaseMemoryRetriever):
         其中 λ = ln(2) / half_life_days
 
         Args:
-            updated_at: 更新时间
+            anchor_at: 衰减基准时间（``meta.lifecycle.decay_anchor_at``）
 
         Returns:
             衰减系数 (0-1)，越新越接近 1
         """
-        # 对齐时区感知状态，避免 naive/aware datetime 相减报错
-        if updated_at.tzinfo is not None:
-            now = datetime.now(updated_at.tzinfo)
-        else:
-            now = datetime.now()
-        delta = now - updated_at
+        # 决策时刻用注入的 now（aware UTC），不读墙钟
+        delta = self._now() - anchor_at
         days_elapsed = delta.total_seconds() / (24 * 3600)
 
         # 指数衰减

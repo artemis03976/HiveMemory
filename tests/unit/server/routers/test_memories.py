@@ -7,7 +7,9 @@ from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
+from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -105,21 +107,25 @@ class _MemoryManagementStub:
         atom = self.storage.get_memory(memory_id)
         if atom is None or atom.workspace_identity != identity_scope.workspace_identity:
             return None
-        for key, value in updates.items():
-            if value is None:
-                continue
-            if key == "title":
-                atom.index.title = value
-            elif key == "summary":
-                atom.index.summary = value
-            elif key == "content":
-                atom.payload.content = value
-            elif key == "alias":
-                atom.index.alias = value or None
-            elif key == "tags":
-                atom.index.tags = value
-            elif key == "agent_config":
-                atom.payload.artifacts.agent_config = value
+        # 与 Familiar 相同的契约：非法输入以 InvalidMemoryFieldError 拒绝。
+        try:
+            for key, value in updates.items():
+                if value is None:
+                    continue
+                if key == "title":
+                    atom.index.title = value
+                elif key == "summary":
+                    atom.index.summary = value
+                elif key == "content":
+                    atom.payload.content = value
+                elif key == "alias":
+                    atom.index.alias = value
+                elif key == "tags":
+                    atom.index.tags = value
+                elif key == "agent_config":
+                    atom.payload.agent_config = value
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
         self.storage.upsert_memory(atom)
         return atom
 
@@ -183,7 +189,7 @@ class TestMemoriesRouter:
         atom = storage.upsert_memory.call_args.args[0]
         assert isinstance(atom, MemoryAtom)
         # 管理 actor 为保留 system（无具体 Agent 作为操作来源主体）
-        assert atom.meta.source_agent_id == "system"
+        assert atom.meta.provenance.source_agent_id == "system"
         assert atom.workspace_identity.owner_user_id == "default"
         assert atom.index.title == "Created memory"
         assert atom.index.summary == "A sufficiently long memory summary"
@@ -210,6 +216,59 @@ class TestMemoriesRouter:
         )
 
         assert response.status_code == 422
+        storage.upsert_memory.assert_not_called()
+
+    def test_create_memory_rejects_blank_title_with_422(self):
+        """纯空白标题通过了请求模型，但不满足领域约束：返回 422 而非 500，且不写入。"""
+        storage = MagicMock()
+        client = TestClient(_create_test_app(storage))
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "   ",
+                "summary": "",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+            },
+        )
+
+        assert response.status_code == 422
+        assert "title" in response.json()["detail"]
+        storage.upsert_memory.assert_not_called()
+
+    def test_create_memory_accepts_empty_summary(self):
+        """空摘要是合法值：创建成功并原样保存为空串。"""
+        storage = MagicMock()
+        client = TestClient(_create_test_app(storage))
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["summary"] == ""
+        assert storage.upsert_memory.call_args.args[0].index.summary == ""
+
+    def test_update_memory_rejects_invalid_field_with_422(self):
+        """编辑提交非法值时返回 422 与字段原因，且不写入。"""
+        storage = MagicMock()
+        storage.get_memory.return_value = _make_atom(title="Existing")
+        client = TestClient(_create_test_app(storage))
+
+        response = client.patch(
+            f"/api/v1/memories/{uuid4()}",
+            json={"summary": "x" * 501},
+        )
+
+        assert response.status_code == 422
+        assert "summary" in response.json()["detail"]
         storage.upsert_memory.assert_not_called()
 
     def test_create_memory_storage_failure(self):
@@ -239,7 +298,7 @@ class TestMemoriesRouter:
         storage.get_all_memories.return_value = [atom]
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
-            atoms[0].meta, "vitality_score", 33.0
+            atoms[0].meta.lifecycle, "vitality_score", 33.0
         )
         # lifecycle 注入应用服务
 
@@ -260,7 +319,7 @@ class TestMemoriesRouter:
         storage.search_memories.return_value = [{"memory": atom, "score": 0.9}]
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
-            atoms[0].meta, "vitality_score", 44.0
+            atoms[0].meta.lifecycle, "vitality_score", 44.0
         )
         # lifecycle 注入应用服务
 
@@ -293,7 +352,7 @@ class TestMemoriesRouter:
         storage.get_memory.return_value = atom
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
-            atoms[0].meta, "vitality_score", 55.0
+            atoms[0].meta.lifecycle, "vitality_score", 55.0
         )
         # lifecycle 注入应用服务
 

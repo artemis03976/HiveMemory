@@ -102,10 +102,6 @@ class BGEM3EmbeddingService(SingletonModelService):
             return dense_result
         return sparse_result
 
-    def get_dimension(self) -> int:
-        """获取稠密向量维度"""
-        return _CUSTOM_BGE_M3_DIM
-
 
 _bge_m3_instance = None
 _bge_m3_lock = threading.Lock()

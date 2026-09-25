@@ -117,10 +117,6 @@ class MessageTurnBuffer:
         return self._state == MessageBufferState.IDLE
 
     @property
-    def is_accumulating(self) -> bool:
-        return self._state == MessageBufferState.ACCUMULATING
-
-    @property
     def has_pending_round(self) -> bool:
         return self._state != MessageBufferState.IDLE
 
