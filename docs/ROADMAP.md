@@ -169,12 +169,12 @@ last_reviewed: 2026-09-20
 
 本版本由计划 A 的 A1–A6、新增 A2-P 前置计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
 
-- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)按交付依赖组织计划：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2-P 先交付内容版本、完整历史、lifecycle 聚合与受控更新；A2 再交付 canonical/Profile 读取、WorkspaceRuntime/cache 与同步更新/失效，按 Workspace 共享条目、命中执行资源授权且不回源；A3 交付 ConversationSession、InteractionPayload/TurnEvent、Topic 生命周期及交互/资料 API；A4 交付共享 Pending、主动提交及完整引用解析；A5 收敛整体 API、补检索/使用报告差额并明确旧服务职责；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一领域链，不增加 Workspace 业务 port/provider 层。
-- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2-P 内容版本与 Lifecycle](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) → [A2 资源读取与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)。A2-P 与 A3 可在 A1 后并行，A2 等待 A2-P 完成交付，A4 再消费 A2/A3。靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
+- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)按交付依赖组织计划：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2-P 先交付内容版本、完整历史、lifecycle 聚合与受控更新；A2 再交付 workspace 运行时、读取能力面（alias/profile resolver、双 cache、失效事件协作）、能力层骨架与读取方法；A3 交付 ConversationSession、InteractionPayload/TurnEvent、Topic 生命周期、交互/资料 API 及能力层切片；A4 交付共享 Pending registry、主动提交、L0 接入及完整引用解析；A5 收敛能力面/backing 两层目录、补检索/使用报告差额并完成旧服务职责退出；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一领域链，不增加 Workspace 业务 port/provider 层。
+- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2-P 内容版本与 Lifecycle](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) → [A2 读取能力面与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 能力面 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)，严格线性（2026-09-25 重排：能力层骨架由 A2 交付，A3/A4 的能力切片依赖该骨架，取消 A3 并行资格）；A4 消费 A2/A3。靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
 
 2026-09-20 新增 A2-P（已于 2026-09-23 实施完成并归档）：动态字段聚合到 `meta.lifecycle`，维护不得推进内容 version、整颗重写原子或重新计算向量；新内容提交必须关联完整版本记录，并显式迁移旧 schema/披露历史缺口。A2 保留 Active 以承接已有工作，但缓存实现以该前置完成为门槛。历史记录从 v0.7.0 开始完整保存，v0.7.3 负责读取编译，不延后保存责任。
 
-同日修订 [A2 公共读取结果](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md#13-canonical-读取结果与公开路由)：canonical 点读返回完整 MemoryAtom/None，alias 与检索返回原子列表，Profile 返回已有 AgentProfile。MemorySnapshot/ProfileSnapshot 退出目标设计，RetrievalResponse 仅用于 adapter 或本地运行上下文过渡；A4 的 Pending 状态结果保留完整 canonical 原子，A6/B 承担消费者和协议映射。该修订仍是计划目标。
+同日修订 [A2 公共读取结果](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md#21-固定返回类型与-backing-路由)：canonical 点读返回完整 MemoryAtom/None，alias 与检索返回原子列表，Profile 返回已有 AgentProfile。MemorySnapshot/ProfileSnapshot 退出目标设计，RetrievalResponse 仅用于 adapter 或本地运行上下文过渡；A4 的 Pending 状态结果保留完整 canonical 原子，A6/B 承担消费者和协议映射。该修订仍是计划目标。
 
 - [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
 
@@ -186,7 +186,7 @@ A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与�
 
 统一 API 以 System、Alice、外部 Actor 的共同操作为依据，详细映射见[A5](./plans/v0.7.0-a5-patchouli-unified-api.md)；三方 adapter 对相同操作调用相同总线路由，Patchouli application 继续按处理领域实现。A3 解决外部确定性 Session 与内部 Topic 的数据边界，A4 解决主动写入的 Pending 一致性；B 区分主动工具调用和自动交接，完整交互由 adapter 自动提交，不依赖模型选择保存工具，也不因外部接入新增另一套资源 API。
 
-2026-09-17 规划裁定：按 [A2 第 1.1 节](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md)明确 ADR-0004 的继承/替换范围，通用缓存从 Alice 客户端加速转为 Patchouli 读取链内部使用的基础设施，由单一 WorkspaceRuntime 聚合。A2 交付 canonical 读取，A4 扩展统一 Pending/canonical 引用解析，A6 删除 Alice 独立 resolver 路径；Profile 定义读取留在资源侧，执行配置和 system prompt 应用留在各 Actor。外部 harness 无需支持动态 Profile 即可使用记忆服务。ADR-0004 仍记录 v0.6.2 已落地基线，正式后继 ADR 在 A6 联合验收收尾后建立；该安排不改变后续版本排期。
+2026-09-17 规划裁定：按 [A2 第 1.1 节](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md)明确 ADR-0004 的继承/替换范围，通用缓存从 Alice 客户端加速转为 Patchouli 读取链内部使用的基础设施，由单一 WorkspaceRuntime 聚合。A2 交付 canonical 读取，A4 扩展统一 Pending/canonical 引用解析，A6 删除 Alice 独立 resolver 路径；Profile 定义读取留在资源侧，执行配置和 system prompt 应用留在各 Actor。外部 harness 无需支持动态 Profile 即可使用记忆服务。ADR-0004 仍记录 v0.6.2 已落地基线，正式后继 ADR 在 A6 联合验收收尾后建立；该安排不改变后续版本排期。（2026-09-23 起本段的读取链归属由[边界宪章](./plans/v0.7.0-plan-a-boundary-charter.md)取代：缓存归 workspace runtime，Patchouli 只发布失效事件，见宪章 §4.4/§5.3。）
 
 ### 4.5 v0.7.1：执行基座与真实外部 Actor 两个独立切片
 

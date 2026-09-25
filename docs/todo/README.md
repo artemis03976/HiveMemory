@@ -12,6 +12,7 @@ last_reviewed: 2026-09-19
 
 当前事项：
 
+- [AgentProfile 模型演进](./agent-profile-model-evolution.md)（模型债：身份缺失/MTP 中心/外部 actor 语义；不阻塞 A2 缓存交付）；
 - [Memory Alias 重名缺陷](./memory-alias-uniqueness.md)（已知 bug，破坏 A2 缓存键前提，待归属计划）；
 - [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；

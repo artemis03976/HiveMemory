@@ -18,15 +18,15 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | [v0.7.0 计划 A 边界宪章：Workspace 与记忆库的归属与独立工作契约](./v0.7.0-plan-a-boundary-charter.md) | Active | 冻结 Workspace 与 Patchouli 的归属判据、独立工作契约、状态归属表与证伪条件；已于 2026-09-23 采纳并完成 §10 联动修订，生效为计划 A 家族边界裁决唯一理由源 |
 | [A2-P 记忆内容版本与 Lifecycle 状态重构](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) | 已完成（2026-09-24 归档）/ A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 2.1 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
 | [全项目时间语义与可控时钟统一](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) | 已完成（2026-09-24 归档，嵌入 A2-P 实施）/ 跨子系统 | Memory 域 UTC 业务时间、四时间字段职责、局部 now 注入与 TimeFormatter 契约；全项目收口转为 idea（见 ideas 索引） |
-| [A2 Workspace 资源读取、Runtime 与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 等待 A2-P 前置交付 | 公共读取返回完整 MemoryAtom/列表和 AgentProfile，旧 envelope 留在 adapter；交付 Workspace 共享缓存与同步更新/失效，命中逐次资源授权且不回源 |
+| [A2 Workspace 读取能力面与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 2026-09-25 整份重写 | 能力面读取方法（resolver 原地授权）、双 cache、失效事件协作（D1–D3）、operation 授权迁移与 L2 backing 契约；A2-0 冻结遗留开放点 |
 | [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 新增 Session，演进 InteractionPayload/TurnEvent；交付 Topic 生命周期、交互/资料公共路由与授权结果查询 |
 | [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |
-| [A5 Patchouli 共同 API 与业务职责收敛](./v0.7.0-a5-patchouli-unified-api.md) | Active | 消费 A1–A4 成果核对全局 API，补检索/使用报告差额，形成旧服务职责退出清单 |
+| [A5 能力面 API 收敛与库职责退出](./v0.7.0-a5-patchouli-unified-api.md) | Active | 消费 A1–A4 成果收敛能力面/backing 两层目录，补检索/使用报告差额，operation 检查全量退役核对，形成旧服务职责退出清单 |
 | [A6 Actor 适配与集成收口](./v0.7.0-a6-actor-adapters-and-integration.md) | Planned | 切换 Alice、Passive、管理和 MTP 消费者，完成稳定装配、旧旁路退出与 shutdown 验收 |
 | [v0.7.0 计划 B：外部记忆服务与 Actor 交互契约](./v0.7.0-external-memory-service-and-actor-interaction.md) | Planned | 建立被动对话与主动资源交互的外部协议，明确身份、来源、领域提交与结果查询；以无 Alice 的参考客户端验收，并用历史样例验证后续导入的契约边界 |
 | [话题折叠、Actor 上下文与原始证据统一改造](./topic-folding-context-and-raw-evidence.md) | Planned / 占位 | 独立里程碑，统筹话题折叠算法重构、原始证据和长 turn 上下文两份 Idea；详细设计与发布版本待补齐 |
 
-默认按 A1 → A2-P → A2 → A3 → A4 → A5 → A6 推进；A2-P 与 A3 可在 A1 后并行，A2 等待 A2-P 完成，其余完整依赖见[协调入口第 3 节](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md#3-依赖图与执行顺序)。A2-P 交付数据/持久化行为，A2–A5 交付领域公共能力，A5 不再是前置 API 发布平台。A2/A5 的 Active 承接既有工作，不代表新增范围已经完成；A2-P 不重编号后续计划，旧编号迁移表见协调入口第 1 节。
+默认按 A1 → A2-P → A2 → A3 → A4 → A5 → A6 **严格线性**推进（2026-09-25 重排：能力层骨架由 A2 交付，A3/A4 的能力切片依赖该骨架，取消 A3 并行资格），完整依赖见[协调入口第 3 节](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md#3-依赖图与执行顺序)。A2-P 交付数据/持久化行为，A2 交付运行时与读取能力面，A3/A4 交付各自能力切片，A5 收敛两层目录与职责退出。A2/A5 的 Active 承接既有工作，不代表新增范围已经完成；A2-P 不重编号后续计划，旧编号迁移表见协调入口第 1 节。
 
 全项目时间语义计划是可在 A1 后独立推进的跨子系统治理工作；A2-P 只依赖其中的 utils 时间工具和 UTC 字段契约，完整运行时迁移不改变 A 系列的业务依赖顺序。
 
@@ -38,7 +38,7 @@ A1–A5 可独立组合验收，A6 负责真实消费者与生产收口，A 系�
 
 已完成计划与实施历史：
 
-v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系现以 [A2 第 1.1 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md)裁定为准，整体边界归属的重裁见[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)（生效联动见其第 10 节）；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 1.4 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#14-profile-定义读取与执行配置应用)，正式 ADR 替代须在 A6 联合验收收尾后进行。
+v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系现以[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)裁定为准；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 2.3 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#23-profile-读取)，正式 ADR 替代须在 A6 联合验收收尾后进行。
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
