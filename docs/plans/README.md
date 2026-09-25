@@ -38,7 +38,7 @@ A1–A5 可独立组合验收，A6 负责真实消费者与生产收口，A 系�
 
 已完成计划与实施历史：
 
-v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系现以[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)裁定为准；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 2.3 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#23-profile-读取)，正式 ADR 替代须在 A6 联合验收收尾后进行。
+v0.7.0 的缓存所有权与 ADR-0004 的版本适用关系现以[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)裁定为准；以下归档记录仍描述 v0.6.2 基线。完整引用解析见 [A4 第 4.1 节](./v0.7.0-a4-pending-memory-intents.md#41-共同引用读取与-alias-resolver-归属)，Profile 定义/执行分离见 [A2 第 2.3 节](./v0.7.0-a2-workspace-resource-reads-and-caches.md#23-profile-读取时序)，正式 ADR 替代须在 A6 联合验收收尾后进行。
 
 | Plan | 状态 | 目标结果 |
 |:---|:---:|:---|
