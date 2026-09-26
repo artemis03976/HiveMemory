@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from hivememory.core.errors import InvalidMemoryFieldError
+from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -270,6 +270,43 @@ class TestMemoriesRouter:
         assert response.status_code == 422
         assert "summary" in response.json()["detail"]
         storage.upsert_memory.assert_not_called()
+
+    def test_create_memory_alias_conflict_returns_409(self):
+        """alias 被同 Workspace 其他记忆占用时返回 409，而不是 500。"""
+        storage = MagicMock()
+        storage.upsert_memory.side_effect = MemoryAliasConflictError(
+            "alias 已被同一 Workspace 内的其他记忆占用",
+            details={"alias": "fact_taken", "reason": "alias_occupied"},
+        )
+        client = TestClient(_create_test_app(storage))
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+                "alias": "fact_taken",
+            },
+        )
+
+        assert response.status_code == 409
+        assert "alias" in response.json()["detail"]
+
+    def test_update_memory_alias_conflict_returns_409(self):
+        """编辑改绑到已占用 alias 时返回 409。"""
+        storage = MagicMock()
+        storage.get_memory.return_value = _make_atom(title="Existing")
+        storage.upsert_memory.side_effect = MemoryAliasConflictError(
+            "alias 已被同一 Workspace 内的其他记忆占用",
+            details={"alias": "fact_taken", "reason": "alias_occupied"},
+        )
+        client = TestClient(_create_test_app(storage))
+
+        response = client.patch(f"/api/v1/memories/{uuid4()}", json={"alias": "fact_taken"})
+
+        assert response.status_code == 409
 
     def test_create_memory_storage_failure(self):
         storage = MagicMock()

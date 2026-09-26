@@ -15,7 +15,6 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 """
 
 import logging
-import re
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -36,6 +35,10 @@ from hivememory.core.models.provenance import (
     MemoryProvenance,
     normalize_contributing_agent_ids,
 )
+from hivememory.engines.generation.alias import (
+    MEMORY_TYPE_ALIAS_PREFIX,
+    AliasGenerator,
+)
 from hivememory.engines.generation.interfaces import (
     BaseDeduplicator,
     BaseMemoryExtractor,
@@ -55,17 +58,6 @@ if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
-
-# MTP 别名系统: MemoryType -> 别名前缀映射 (Section 2.3.1)
-MEMORY_TYPE_ALIAS_PREFIX: dict[str, str] = {
-    "CODE_SNIPPET": "code",
-    "FACT": "fact",
-    "URL_RESOURCE": "url",
-    "REFLECTION": "ref",
-    "USER_PROFILE": "user",
-    "WORK_IN_PROGRESS": "wip",
-    "AGENT_PROFILE": "agent",
-}
 
 
 class MemoryGenerationEngine:
@@ -89,10 +81,20 @@ class MemoryGenerationEngine:
         mid_term: "MidTermMemoryStore",
         extractor: BaseMemoryExtractor,
         deduplicator: BaseDeduplicator,
+        alias_generator: AliasGenerator | None = None,
     ):
+        """
+        Args:
+            mid_term: 中期记忆存储（查重检索与 alias 唯一性查询）
+            extractor: LLM 提取器
+            deduplicator: 查重器
+            alias_generator: Workspace 内唯一的别名生成器；缺省以 ``mid_term``
+                作为占用查询端口构造
+        """
         self._mid_term = mid_term
         self.extractor = extractor
         self.deduplicator = deduplicator
+        self._alias_generator = alias_generator or AliasGenerator(mid_term)
         logger.info("MemoryGenerationEngine 初始化完成")
 
     async def process(
@@ -447,7 +449,14 @@ class MemoryGenerationEngine:
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
-            memory = self._draft_to_memory(draft, identity_scope, provenance, now=now)
+            # 构建 Workspace 内唯一的 MTP 别名 (Section 2.3；A2 §8 D-4 第一层)
+            alias = await self._alias_generator.generate(
+                workspace_identity=identity_scope.workspace_identity,
+                memory_type=draft.memory_type,
+                alias_suffix=draft.alias_suffix,
+                title=draft.title,
+            )
+            memory = self._draft_to_memory(draft, identity_scope, provenance, alias=alias, now=now)
 
             return [
                 GenerationOutcome(
@@ -509,6 +518,7 @@ class MemoryGenerationEngine:
         identity_scope: IdentityScope,
         provenance: MemoryProvenance,
         *,
+        alias: str | None,
         now: datetime,
     ) -> MemoryAtom:
         """
@@ -519,12 +529,15 @@ class MemoryGenerationEngine:
             identity_scope: 已验证的 Workspace ownership 来源
             provenance: 本次生成的来源裁定；来源字段只记录 provenance，
                 不参与读取授权
+            alias: 已由 ``AliasGenerator`` 确认 Workspace 内空闲的别名
 
         Returns:
             MemoryAtom: 记忆原子对象
 
         Examples:
-            >>> memory = orchestrator._draft_to_memory(draft, identity_scope, provenance)
+            >>> memory = engine._draft_to_memory(
+            ...     draft, identity_scope, provenance, alias="code_quicksort", now=now
+            ... )
             >>> memory.index.title
             "Python 快排算法"
         """
@@ -534,13 +547,6 @@ class MemoryGenerationEngine:
         except ValueError:
             logger.warning(f"未知的记忆类型: {draft.memory_type}, 使用 FACT")
             mem_type = MemoryType.FACT
-
-        # 构建 MTP 别名 (Section 2.3)
-        alias = self._build_alias(
-            memory_type=draft.memory_type,
-            alias_suffix=draft.alias_suffix,
-            title=draft.title,
-        )
 
         # 创建时点 = 提交边界 now（Familiar 传入）：created/updated/decay 同值。
         return MemoryAtom(
@@ -567,50 +573,8 @@ class MemoryGenerationEngine:
             ),
         )
 
-    @staticmethod
-    def _build_alias(
-        memory_type: str,
-        alias_suffix: str,
-        title: str,
-    ) -> str | None:
-        """
-        构建完整的 MTP 别名 (Section 2.3.1)
-
-        策略:
-            1. 从 MEMORY_TYPE_ALIAS_PREFIX 取前缀
-            2. 优先使用 LLM 生成的 alias_suffix
-            3. alias_suffix 为空时从 title 派生 fallback suffix
-            4. 清洗并验证最终别名格式
-
-        Args:
-            memory_type: 记忆类型字符串 (e.g. "CODE_SNIPPET")
-            alias_suffix: LLM 生成的别名后缀 (可能为空)
-            title: 记忆标题 (用于 fallback)
-
-        Returns:
-            完整别名 (e.g. "code_quicksort_impl"), 或 None
-        """
-        prefix = MEMORY_TYPE_ALIAS_PREFIX.get(memory_type, "mem")
-
-        # 确定 suffix: 优先使用 LLM 生成的，否则从 title 派生
-        suffix = alias_suffix.strip() if alias_suffix else ""
-        if not suffix:
-            suffix = title.lower().strip()
-            suffix = re.sub(r"[^a-z0-9\s_]", "", suffix)
-            suffix = re.sub(r"\s+", "_", suffix)
-            suffix = re.sub(r"_+", "_", suffix).strip("_")
-
-        if not suffix:
-            return None
-
-        # 清洗 suffix: 确保 snake_case 合规
-        suffix = re.sub(r"[^a-z0-9_]", "", suffix.lower())
-        suffix = re.sub(r"_+", "_", suffix).strip("_")
-        suffix = suffix[:40]
-
-        return f"{prefix}_{suffix}"
-
 
 __all__ = [
+    "MEMORY_TYPE_ALIAS_PREFIX",
     "MemoryGenerationEngine",
 ]

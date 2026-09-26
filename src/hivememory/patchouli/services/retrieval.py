@@ -15,6 +15,7 @@ import time
 from typing import Any
 from uuid import UUID
 
+from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -343,7 +344,8 @@ class RetrievalFamiliar:
             response.memories_count = len(memories)
             response.latency_ms = (time.time() - start_time) * 1000
 
-        except (StorageOfflineError, StorageReadError):
+        except (StorageOfflineError, StorageReadError, MemoryAliasConflictError):
+            # alias 多义是 fail closed 的结构化错误，不能被下方兜底伪装为空结果。
             raise
         except Exception as e:
             logger.error(f"Alias retrieval failed: {e}", exc_info=True)

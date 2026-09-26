@@ -150,6 +150,7 @@ class TestMemoryGenerationFamiliarExecute:
         mid_term = mid_term or Mock()
         mid_term.upsert = AsyncMock()
         mid_term.patch_payload = AsyncMock()
+        mid_term.ensure_alias_available = AsyncMock(return_value=None)
 
         memory_lib = Mock()
         memory_lib.mid_term = mid_term
@@ -224,6 +225,7 @@ class TestMemoryGenerationFamiliarExecute:
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
+        mid_term.ensure_alias_available = AsyncMock(return_value=None)
 
         memory_lib = Mock()
         memory_lib.mid_term = mid_term
@@ -258,6 +260,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
             mid_term.upsert = AsyncMock()
         if not isinstance(mid_term.patch_payload, AsyncMock):
             mid_term.patch_payload = AsyncMock()
+        if not isinstance(mid_term.ensure_alias_available, AsyncMock):
+            mid_term.ensure_alias_available = AsyncMock(return_value=None)
         # 默认提供能成功产出版本记录的 memory builder；显式传入时尊重原样。
         artifact_engine = (
             artifact_engine if artifact_engine is not None else _memory_artifact_engine()
@@ -726,6 +730,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         mid_term = mid_term or Mock()
         mid_term.upsert = AsyncMock()
         mid_term.patch_payload = AsyncMock()
+        mid_term.ensure_alias_available = AsyncMock(return_value=None)
         memory_lib = Mock()
         memory_lib.mid_term = mid_term
         return MemoryGenerationFamiliar(

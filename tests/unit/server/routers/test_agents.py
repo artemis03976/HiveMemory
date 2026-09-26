@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.server.routers.agents import router
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
@@ -79,3 +80,20 @@ def test_create_agent_rejects_blank_title_with_422():
     assert response.status_code == 422
     assert "title" in response.json()["detail"]
     storage.upsert_memory.assert_not_called()
+
+
+def test_create_agent_alias_conflict_returns_409():
+    """Agent alias（即 agent_id）已被占用时返回 409，而不是 500。"""
+    storage = MagicMock()
+    storage.upsert_memory.side_effect = MemoryAliasConflictError(
+        "alias 已被同一 Workspace 内的其他记忆占用",
+        details={"alias": "reviewer_doll", "reason": "alias_occupied"},
+    )
+    client = TestClient(_create_test_app(storage))
+
+    response = client.post(
+        "/api/v1/agents",
+        json={"title": "Reviewer", "alias": "reviewer_doll"},
+    )
+
+    assert response.status_code == 409

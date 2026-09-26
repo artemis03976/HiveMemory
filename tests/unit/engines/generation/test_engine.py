@@ -7,7 +7,6 @@ MemoryGenerationEngine 单元测试
 - Mode B: 正常 WRITE / LLM 失败 fallback
 - Mode C: 正常 UPDATE / existing_memory=None / LLM 合并失败 fallback
 - 查重分支: TOUCH / UPDATE / CREATE / DISCARD
-- 别名构建: 有 suffix / 从 title 派生 / 未知类型
 - 纯计算边界: 引擎不改 version/updated_at/confidence，CREATE 用传入 now 打戳
 """
 
@@ -136,6 +135,7 @@ class TestGenerationEngineRouting:
     def setup_method(self):
         self.mock_storage = Mock()
         self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
@@ -216,6 +216,7 @@ class TestGenerationEngineModeA:
     def setup_method(self):
         self.mock_storage = Mock()
         self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
@@ -337,6 +338,7 @@ class TestGenerationEngineModeB:
     def setup_method(self):
         self.mock_storage = Mock()
         self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
@@ -438,6 +440,7 @@ class TestGenerationEngineModeC:
     def setup_method(self):
         self.mock_storage = Mock()
         self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
@@ -621,6 +624,7 @@ class TestGenerationEngineDedup:
     def setup_method(self):
         self.mock_storage = Mock()
         self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
         self.mock_extractor = Mock()
         self.mock_deduplicator = Mock()
@@ -759,42 +763,6 @@ class TestGenerationEngineDedup:
         self.mock_storage.upsert.assert_not_called()
 
 
-class TestGenerationEngineAlias:
-    """别名构建测试"""
-
-    def test_build_alias_with_suffix(self):
-        """有 alias_suffix 时使用 LLM 生成的后缀"""
-        alias = MemoryGenerationEngine._build_alias("CODE_SNIPPET", "quicksort_impl", "快排实现")
-        assert alias == "code_quicksort_impl"
-
-    def test_build_alias_fallback_to_title(self):
-        """无 suffix 时从 title 派生"""
-        alias = MemoryGenerationEngine._build_alias("FACT", "", "Python Tips")
-        assert alias == "fact_python_tips"
-
-    def test_build_alias_unknown_type(self):
-        """未知类型用 'mem' 前缀"""
-        alias = MemoryGenerationEngine._build_alias("UNKNOWN_TYPE", "test", "标题")
-        assert alias.startswith("mem_")
-
-    def test_build_alias_empty_suffix_and_title(self):
-        """suffix 和 title 都为空时返回 None"""
-        alias = MemoryGenerationEngine._build_alias("FACT", "", "")
-        assert alias is None
-
-    def test_build_alias_cleans_special_chars(self):
-        """清洗特殊字符"""
-        alias = MemoryGenerationEngine._build_alias("FACT", "hello@world!!", "标题")
-        assert alias == "fact_helloworld"
-
-    def test_build_alias_truncates_long_suffix(self):
-        """长 suffix 截断到 40 字符"""
-        long_suffix = "a" * 100
-        alias = MemoryGenerationEngine._build_alias("FACT", long_suffix, "标题")
-        # 前缀 "fact_" + 40 字符
-        assert len(alias) == 45
-
-
 class TestGenerationEngineHelpers:
     """辅助方法测试"""
 
@@ -825,7 +793,9 @@ class TestGenerationEngineHelpers:
         identity_scope = make_memory_identity_scope()
         provenance = provenance_from_actor(identity_scope, _make_context_with_agents(["a1"]))
 
-        memory = self.engine._draft_to_memory(draft, identity_scope, provenance, now=FIXED_NOW)
+        memory = self.engine._draft_to_memory(
+            draft, identity_scope, provenance, alias="fact_test_alias", now=FIXED_NOW
+        )
 
         assert memory.index.title == "测试标题"
         assert memory.workspace_identity.owner_user_id == "u1"
@@ -847,6 +817,7 @@ class TestGenerationEngineHelpers:
             draft,
             identity_scope,
             system_settlement_provenance(GenerationContext()),
+            alias=None,
             now=FIXED_NOW,
         )
 

@@ -340,6 +340,20 @@ class _InMemoryMidTermPort(MidTermStoragePort):
     ) -> MemoryAtom | None:
         return self.memories.get(self._scope_key(scope, memory_id))
 
+    async def list_alias_holders(
+        self,
+        workspace_identity,
+        alias: str,
+        *,
+        limit: int,
+    ) -> list[UUID]:
+        holders = [
+            memory.id
+            for memory in self.memories.values()
+            if memory.workspace_identity == workspace_identity and memory.index.alias == alias
+        ]
+        return holders[:limit]
+
     async def get_by_alias(
         self,
         scope,

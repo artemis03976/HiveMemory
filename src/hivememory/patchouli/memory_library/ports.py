@@ -124,6 +124,21 @@ class MidTermStoragePort(ABC):
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None: ...
 
     @abstractmethod
+    async def list_alias_holders(
+        self,
+        workspace_identity: WorkspaceIdentity,
+        alias: str,
+        *,
+        limit: int,
+    ) -> list[UUID]:
+        """返回在该 Workspace 中期库内占用 ``alias`` 的 memory_id，最多 ``limit`` 条。
+
+        内部可信路径：只校验 Workspace ownership，不叠加 actor 读取策略——
+        alias 唯一性不变量作用于 Workspace 全体 Memory，而不是某个 Actor
+        可见的子集。存储失败以结构化错误传播，不以空列表掩盖。
+        """
+
+    @abstractmethod
     async def patch_payload(
         self,
         key: WorkspaceMemoryKey,

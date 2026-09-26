@@ -61,6 +61,7 @@ class TestMidTermMemoryStore:
     @pytest.mark.asyncio
     async def test_upsert_writes_to_primary_and_secondary(self):
         memory = _make_memory()
+        self.mock_primary.list_alias_holders = AsyncMock(return_value=[])
         self.mock_primary.upsert = AsyncMock()
         self.mock_secondary.upsert = AsyncMock()
 

@@ -19,6 +19,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -97,6 +98,19 @@ class _InMemoryMidTermPort:
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         return self._atoms.get(key)
+
+    async def ensure_alias_available(self, memory: MemoryAtom) -> None:
+        """与 ``MidTermMemoryStore`` 同语义：alias 被同 Workspace 其他记忆占用即拒绝。"""
+        alias = memory.index.alias
+        if not alias:
+            return
+        for key, stored in self._atoms.items():
+            if (
+                key.workspace_identity == memory.workspace_identity
+                and stored.index.alias == alias
+                and stored.id != memory.id
+            ):
+                raise MemoryAliasConflictError(details={"alias": alias})
 
     async def patch_payload(self, key: WorkspaceMemoryKey, patch) -> MemoryAtom | None:
         atom = self._atoms.get(key)

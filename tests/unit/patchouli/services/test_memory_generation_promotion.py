@@ -131,6 +131,10 @@ class _StubMidTerm:
         self.upsert_calls.append((atom, recompute_vectors))
         return atom
 
+    async def ensure_alias_available(self, atom) -> None:
+        """alias 唯一性不在本文件的被测边界内：替身视全部 alias 为空闲。"""
+        return None
+
     async def patch_payload(self, key, patch):
         self.patch_calls.append((key, patch))
         return None

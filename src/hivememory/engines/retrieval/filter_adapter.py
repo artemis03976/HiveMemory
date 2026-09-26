@@ -17,6 +17,7 @@ from qdrant_client.models import (
 
 from hivememory.core.models import (
     IdentityScope,
+    WorkspaceIdentity,
     require_identity_scope,
 )
 
@@ -123,10 +124,19 @@ class QdrantFilterConverter(FilterConverter):
             ]
         )
 
-    @staticmethod
-    def _ownership_filter(identity_scope: IdentityScope) -> Filter:
+    @classmethod
+    def _ownership_filter(cls, identity_scope: IdentityScope) -> Filter:
         """Workspace 所有权 hard boundary；归属只由 canonical 投影字段表达。"""
-        workspace = identity_scope.workspace_identity
+        return cls.workspace_filter(identity_scope.workspace_identity)
+
+    @staticmethod
+    def workspace_filter(workspace: WorkspaceIdentity) -> Filter:
+        """只含 Workspace 所有权 hard boundary、不叠加 actor 读取策略的过滤条件。
+
+        仅供内部可信路径使用（如 alias 唯一性校验需要看到 Workspace 内全部
+        Memory，而不是某个 Actor 可见的子集）；任何 Actor 读取都必须经
+        :meth:`convert` 同时落实读取策略。
+        """
         return Filter(
             must=[
                 FieldCondition(

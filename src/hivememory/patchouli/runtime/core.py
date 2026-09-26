@@ -428,6 +428,7 @@ class PatchouliRuntime:
     def _build_generation_engine(self):
         """[私有构建器] 组装 Generation 引擎"""
         from hivememory.engines.generation import (
+            AliasGenerator,
             BaseDeduplicator,
             BaseMemoryExtractor,
             MemoryGenerationEngine,
@@ -448,6 +449,8 @@ class PatchouliRuntime:
             mid_term=self.memory_library.mid_term,
             extractor=extractor,
             deduplicator=deduplicator,
+            # alias 唯一性第一层：生成侧以中期库为占用查询端口（A2 §8 D-4）。
+            alias_generator=AliasGenerator(self.memory_library.mid_term),
         )
 
     def _build_artifact_engine(self):

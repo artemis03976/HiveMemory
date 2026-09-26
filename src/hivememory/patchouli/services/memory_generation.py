@@ -147,6 +147,8 @@ class MemoryGenerationFamiliar:
         identity_scope = require_identity_scope(identity_scope)
         if atom.workspace_identity != identity_scope.workspace_identity:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
+        # alias 唯一性先于版本记录校验：冲突时不留下孤立 Artifact（A2 §8 D-4）。
+        await self._mid_term.ensure_alias_available(atom)
         commit_now = require_utc(self._now())
         # 提交边界决定创建时点：created/updated/decay 同值（M0.1）。
         atom.meta.created_at = commit_now
@@ -203,6 +205,9 @@ class MemoryGenerationFamiliar:
             # A2-P §3.2：实际内容相同的重复更新不创建新版本。
             logger.info("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
             return atom
+        # alias 唯一性先于版本记录校验（含未改 alias 的编辑：upsert 总会重验），
+        # 冲突时不留下孤立 Artifact（A2 §8 D-4）。
+        await self._mid_term.ensure_alias_available(atom)
         # 提交边界分配内容时间/版本/衰减基准/置信度（M0.1/M0.2：UPDATE 重置 1.0）。
         atom.meta.version += 1
         atom.meta.updated_at = commit_now
@@ -513,6 +518,9 @@ class MemoryGenerationFamiliar:
                 logger.warning("TOUCH 目标记忆已不存在，跳过访问统计: %s", atom.id)
                 return
             return
+
+        # alias 唯一性先于版本记录校验：冲突时不留下孤立 Artifact（A2 §8 D-4）。
+        await self._mid_term.ensure_alias_available(atom)
 
         if decision == DuplicateDecision.UPDATE:
             # 引擎是纯计算，outcome.atom 携带的即提交前版本；内容修订在此

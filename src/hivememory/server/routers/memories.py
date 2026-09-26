@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hivememory.core.errors import InvalidMemoryFieldError
+from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.models import IdentityScope
 from hivememory.server.deps import get_identity_scope, get_memory_service
 from hivememory.server.models.memory import (
@@ -43,6 +43,9 @@ async def create_memory(
         )
     except InvalidMemoryFieldError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except MemoryAliasConflictError as exc:
+        # alias 在同一 Workspace 内已被占用：资源状态冲突，不是输入格式错误。
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return MemoryResponse.from_atom(atom)
@@ -114,6 +117,8 @@ async def update_memory(
         raise HTTPException(status_code=404, detail="记忆不存在")
     except InvalidMemoryFieldError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except MemoryAliasConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return MemoryResponse.from_atom(atom)
 
 
