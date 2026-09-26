@@ -68,8 +68,6 @@ class MockAsyncBus(AsyncSystemBus):
         return self._mock_storage.get_memory(*args, **kwargs)
 
     async def _handle_retrieve_by_aliases(self, *args, **kwargs):
-        from hivememory.core.protocol.models import RetrievalResponse
-
         aliases = kwargs.get("aliases")
         if aliases is None and args:
             aliases = args[0]
@@ -84,7 +82,8 @@ class MockAsyncBus(AsyncSystemBus):
             )
             if atom is not None:
                 memories.append(atom)
-        return RetrievalResponse(memories=memories, memories_count=len(memories))
+        # alias 批量读取路由返回实际可读的完整原子列表（A2 §2.1）。
+        return memories
 
     async def _handle_retrieve(self, *args, **kwargs):
         return self._mock_retrieval.retrieve(**kwargs)

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
+from hivememory.core.memory_access import memory_belongs_to_workspace
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -17,7 +18,6 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
-from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.server.routers.memories import router
 from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes

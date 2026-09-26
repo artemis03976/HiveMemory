@@ -491,8 +491,8 @@ async def test_two_workspace_commits_do_not_cross_talk(tmp_path):
 @pytest.mark.asyncio
 async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
     """历史快照中的旧 policy 是历史事实：读取授权只看 canonical 当前策略。"""
+    from hivememory.core.memory_access import memory_is_readable
     from hivememory.core.models import MemoryAccessPolicy, MemoryVisibility
-    from hivememory.engines.retrieval.policy import memory_is_readable
 
     owner_scope = make_memory_identity_scope(user_id="u1", agent_id="a1")
     other_scope = make_memory_identity_scope(user_id="u1", agent_id="other-agent")

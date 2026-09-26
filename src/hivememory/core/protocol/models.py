@@ -134,9 +134,11 @@ class RetrievalRequest(ProtocolMessage):
 
 class RetrievalResponse(ProtocolMessage):
     """
-    检索结果协议消息
+    检索结果协议消息（旧协议 envelope）
 
-    从 RetrievalFamiliar 返回的检索结果，供外部 Worker Agent 使用
+    A2 §2.4：正式读取链返回 ``list[MemoryAtom]``，本模型只作为调用侧 adapter
+    为旧协议/本地运行上下文（``AgentRunContext.retrieval_result``、Passive
+    上下文、MTP 输出）构造的包装，不再是 Patchouli 公共路由的返回类型。
     """
 
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
@@ -145,8 +147,26 @@ class RetrievalResponse(ProtocolMessage):
     memories: list[MemoryAtom] = Field(default_factory=list)
 
     # 元信息
-    latency_ms: float = 0.0  # 总耗时
-    memories_count: int = 0  # 检索到的数量
+    latency_ms: float = 0.0  # adapter 测量的调用耗时
+    memories_count: int = 0  # 检索到的数量（adapter 对列表计数）
+
+    @classmethod
+    def from_memories(
+        cls,
+        memories: list[MemoryAtom],
+        *,
+        latency_ms: float = 0.0,
+    ) -> RetrievalResponse:
+        """由正式读取链返回的原子列表构造旧协议 envelope。
+
+        ``memories_count`` 取列表长度；``latency_ms`` 由调用侧 adapter 测量
+        并传入。不重新实现检索、授权或缓存。
+        """
+        return cls(
+            memories=list(memories),
+            memories_count=len(memories),
+            latency_ms=latency_ms,
+        )
 
     def is_empty(self) -> bool:
         """检查是否没有检索到任何记忆"""

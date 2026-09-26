@@ -10,6 +10,8 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    memory_task_from_outcome,
+    memory_task_from_spec,
     memory_task_to_payload,
 )
 from hivememory.system.runtime.work_queue import (
@@ -109,13 +111,13 @@ def test_memory_generation_task_maps_work_state_to_domain_status(
     work_state: WorkState,
     task_status: MemoryGenerationTaskStatus,
 ):
-    created = MemoryGenerationTask.from_spec(
+    created = memory_task_from_spec(
         "j1",
         _spec(),
         created_at=datetime.now(UTC),
     )
 
-    snapshot = MemoryGenerationTask.from_outcome(
+    snapshot = memory_task_from_outcome(
         created,
         _outcome(work_state),
         expose_terminal=True,
@@ -125,13 +127,13 @@ def test_memory_generation_task_maps_work_state_to_domain_status(
 
 
 def test_memory_generation_task_hides_queue_terminal_before_finalize():
-    created = MemoryGenerationTask.from_spec(
+    created = memory_task_from_spec(
         "j1",
         _spec(),
         created_at=datetime.now(UTC),
     )
 
-    snapshot = MemoryGenerationTask.from_outcome(
+    snapshot = memory_task_from_outcome(
         created,
         _outcome(WorkState.SUCCEEDED),
         expose_terminal=False,
@@ -152,7 +154,7 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
         ),
         pending_alias="draft-target",
     )
-    created = MemoryGenerationTask.from_spec(
+    created = memory_task_from_spec(
         "j1",
         spec,
         created_at=datetime.now(UTC),
@@ -161,12 +163,12 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
         canonical_alias="fact-target",
     )
 
-    completed = MemoryGenerationTask.from_outcome(
+    completed = memory_task_from_outcome(
         created,
         _outcome(WorkState.SUCCEEDED, result=(result,)),
         expose_terminal=True,
     )
-    cancelled = MemoryGenerationTask.from_outcome(
+    cancelled = memory_task_from_outcome(
         created,
         _outcome(WorkState.CANCELLED, cancel_reason="user_requested"),
         expose_terminal=True,
@@ -178,13 +180,13 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
 
 
 def test_memory_generation_task_uses_failed_outcome_error_fallback():
-    created = MemoryGenerationTask.from_spec(
+    created = memory_task_from_spec(
         "j1",
         _spec(),
         created_at=datetime.now(UTC),
     )
 
-    snapshot = MemoryGenerationTask.from_outcome(
+    snapshot = memory_task_from_outcome(
         created,
         _outcome(WorkState.FAILED),
         expose_terminal=True,

@@ -3,7 +3,8 @@
 被测对象：workspace.access（A1 计划第 3.2/3.4 节）。保护的契约：同一
 有效凭据可先后执行不同获准操作；白名单外的 operation 拒绝且不触达
 资源后端；缺失/裸 scope/复制或重建的凭据、其他实例签发的凭据均被拒绝。
-准入结果的不可变性、有效期与关闭由同一 guard 保证。
+准入结果的不可变性、有效期与关闭由同一 guard 保证；``verify_context``
+只校验凭据有效性、不查行为白名单（A2 §8 D-3 backing 读取入口）。
 """
 
 from __future__ import annotations
@@ -213,6 +214,55 @@ async def test_guard_rejects_context_after_gateway_close():
     with pytest.raises(ScopeRequiredError) as exc_info:
         composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
     assert exc_info.value.details["reason"] == "authentication_gateway_closed"
+
+
+@pytest.mark.asyncio
+async def test_verify_context_returns_scope_without_consulting_whitelist():
+    """verify_context 只确认凭据有效：空白名单 Actor 也取得可信 scope（A2 §8 D-3）。
+
+    backing 读取入口据此取得坐标，operation 已在能力层检查；捕获把行为
+    白名单重新带回 backing、形成双重检查的缺陷。
+    """
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1", agent_id="a1", allowed_operations=frozenset()
+            )
+        ],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    assert composition.guard.verify_context(context) is context.identity_scope
+    with pytest.raises(OperationDeniedError):
+        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+
+
+@pytest.mark.asyncio
+async def test_verify_context_still_rejects_expired_and_unissued_contexts():
+    """verify_context 不跳过签发与有效期校验：到期与伪造凭据都拒绝。"""
+    now = 1000.0
+
+    def clock():
+        return now
+
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+        context_ttl_seconds=60,
+        clock=clock,
+    )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+    forged = WorkspaceAccessContext(identity_scope=context.identity_scope)
+
+    with pytest.raises(ScopeRequiredError) as forged_info:
+        composition.guard.verify_context(forged)
+    now += 60
+    with pytest.raises(ScopeRequiredError) as expired_info:
+        composition.guard.verify_context(context)
+
+    assert forged_info.value.details["reason"] == "context_not_issued"
+    assert expired_info.value.details["reason"] == "context_expired"
 
 
 @pytest.mark.asyncio

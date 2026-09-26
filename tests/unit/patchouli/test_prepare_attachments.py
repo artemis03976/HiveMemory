@@ -25,7 +25,7 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
@@ -65,14 +65,15 @@ def _prepare_bus() -> PatchouliBus:
     bus.register(PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH, _constant(True))
 
     async def retrieve(_request, **_kwargs):
-        return RetrievalResponse()
+        # 检索 backing 返回完整原子列表（A2 §2.1）。
+        return []
 
     bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieve)
 
     async def get_profile(_agent_id, *, identity_scope=None):
-        from hivememory.core.models import OMNI_DOLL_PROFILE
+        from hivememory.core.models import OMNI_DOLL_PROFILE, ResolvedAgentProfile
 
-        return OMNI_DOLL_PROFILE
+        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
     bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, get_profile)
     return bus

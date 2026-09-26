@@ -1,11 +1,15 @@
-"""Patchouli 记忆生成领域模型与对外只读快照。"""
+"""Patchouli 记忆生成控制面模型与任务快照投影。
+
+对外只读快照 ``MemoryGenerationTask`` 及其状态/来源枚举定义在公共契约
+``patchouli.contracts.memory_tasks``（A2 §8.2），此处转发导出以兼容既有
+引用；本模块保留控制面与数据面共享的输入/结果模型，以及由通用 work queue
+结果投影任务快照的工厂函数。
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
-from enum import Enum
-from typing import Literal
+from dataclasses import dataclass, replace
+from datetime import datetime
 
 from hivememory.core.models import (
     IdentityScope,
@@ -14,18 +18,12 @@ from hivememory.core.models import (
     TopicAssetBinding,
 )
 from hivememory.engines.generation.models import GenerationRequest
+from hivememory.patchouli.contracts.memory_tasks import (
+    MemoryGenerationSource,
+    MemoryGenerationTask,
+    MemoryGenerationTaskStatus,
+)
 from hivememory.system.runtime.work_queue import TaskOutcome, WorkState
-
-
-class MemoryGenerationTaskStatus(str, Enum):
-    """对外记忆生成任务的生命周期状态。"""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-
 
 _WORK_STATE_TO_TASK_STATUS = {
     WorkState.QUEUED: MemoryGenerationTaskStatus.PENDING,
@@ -36,34 +34,6 @@ _WORK_STATE_TO_TASK_STATUS = {
     WorkState.FAILED: MemoryGenerationTaskStatus.FAILED,
     WorkState.DEAD_LETTER: MemoryGenerationTaskStatus.FAILED,
 }
-
-
-class MemoryGenerationSource(str, Enum):
-    """触发记忆生成的领域操作来源。"""
-
-    WRITE = "WRITE"
-    UPDATE = "UPDATE"
-    SETTLE = "SETTLE"
-
-    @property
-    def creation_artifact_intent(
-        self,
-    ) -> Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"]:
-        """映射新建记忆制品使用的来源意图。"""
-
-        if self == MemoryGenerationSource.SETTLE:
-            return "SYSTEM"
-        if self == MemoryGenerationSource.WRITE:
-            return "WRITE"
-        return "SYSTEM"
-
-    @property
-    def version_update_source(
-        self,
-    ) -> Literal["UPDATE"]:
-        """映射记忆版本更新使用的来源类型。"""
-
-        return "UPDATE"
 
 
 @dataclass(frozen=True)
@@ -111,159 +81,100 @@ class MemoryGenerationResult:
     settlement: PendingAtomSettlement | None = None
 
 
-@dataclass(frozen=True)
-class MemoryGenerationTask:
-    """单个记忆生成任务的对外只读快照。
+def memory_task_from_spec(
+    task_id: str,
+    spec: MemoryGenerationTaskSpec,
+    *,
+    created_at: datetime,
+) -> MemoryGenerationTask:
+    """从已接纳的任务规范创建对外初始快照。"""
 
-    快照创建后不会原地更新。调用方需要通过控制器重新查询以获取新状态，不能
-    把曾经取得的实例视为可观察的运行时句柄。
+    return MemoryGenerationTask(
+        task_id=task_id,
+        topic_id=spec.topic_id,
+        label=spec.label,
+        source=spec.source,
+        pending_alias=spec.pending_alias,
+        identity_scope=spec.identity_scope,
+        created_at=created_at,
+    )
+
+
+def memory_task_from_outcome(
+    created: MemoryGenerationTask,
+    outcome: TaskOutcome[tuple[MemoryGenerationResult, ...]],
+    *,
+    expose_terminal: bool,
+) -> MemoryGenerationTask:
+    """将通用任务结果投影为最新的只读领域快照。
+
+    ``expose_terminal`` 为假时，即使队列已经快速结束，也只暴露最后一个可见
+    的非终态；领域终态由 finalize 完成关联副作用后再对外发布。
     """
 
-    task_id: str
-    topic_id: str
-    label: str
-    source: MemoryGenerationSource
-    pending_alias: str | None = None
-    status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
-    canonical_alias: str | None = None
-    error: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
-    cancel_requested: bool = False
-    cancel_reason: str | None = None
-    # 任务归属投影（父计划 5.6.4）：查询侧据此拒绝跨 scope/无归属的
-    # 观察请求；legacy 快照允许为 None，查询侧必须 fail closed。
-    identity_scope: IdentityScope | None = None
-
-    @classmethod
-    def from_spec(
-        cls,
-        task_id: str,
-        spec: MemoryGenerationTaskSpec,
-        *,
-        created_at: datetime,
-    ) -> MemoryGenerationTask:
-        """从已接纳的任务规范创建对外初始快照。"""
-
-        return cls(
-            task_id=task_id,
-            topic_id=spec.topic_id,
-            label=spec.label,
-            source=spec.source,
-            pending_alias=spec.pending_alias,
-            identity_scope=spec.identity_scope,
-            created_at=created_at,
+    record = outcome.record
+    status = _WORK_STATE_TO_TASK_STATUS[record.state]
+    if not expose_terminal and status in {
+        MemoryGenerationTaskStatus.COMPLETED,
+        MemoryGenerationTaskStatus.CANCELLED,
+        MemoryGenerationTaskStatus.FAILED,
+    }:
+        status = (
+            MemoryGenerationTaskStatus.RUNNING
+            if record.started_at is not None
+            else MemoryGenerationTaskStatus.PENDING
         )
 
-    @classmethod
-    def from_outcome(
-        cls,
-        created: MemoryGenerationTask,
-        outcome: TaskOutcome[tuple[MemoryGenerationResult, ...]],
-        *,
-        expose_terminal: bool,
-    ) -> MemoryGenerationTask:
-        """将通用任务结果投影为最新的只读领域快照。
+    cancelled = expose_terminal and record.state == WorkState.CANCELLED
+    failed = expose_terminal and record.state in {
+        WorkState.FAILED,
+        WorkState.DEAD_LETTER,
+    }
+    cancel_reason = outcome.cancel_reason
+    if cancelled and cancel_reason is None:
+        cancel_reason = "runtime_cancelled"
 
-        ``expose_terminal`` 为假时，即使队列已经快速结束，也只暴露最后一个可见
-        的非终态；领域终态由 finalize 完成关联副作用后再对外发布。
-        """
-
-        record = outcome.record
-        status = _WORK_STATE_TO_TASK_STATUS[record.state]
-        if not expose_terminal and status in {
-            MemoryGenerationTaskStatus.COMPLETED,
-            MemoryGenerationTaskStatus.CANCELLED,
-            MemoryGenerationTaskStatus.FAILED,
-        }:
-            status = (
-                MemoryGenerationTaskStatus.RUNNING
-                if record.started_at is not None
-                else MemoryGenerationTaskStatus.PENDING
+    return replace(
+        created,
+        status=status,
+        canonical_alias=(
+            _select_canonical_alias(
+                outcome.result or (),
+                pending_alias=created.pending_alias,
             )
+            if expose_terminal and record.state == WorkState.SUCCEEDED
+            else None
+        ),
+        error=(outcome.error or "memory generation work failed") if failed else None,
+        started_at=record.started_at,
+        finished_at=record.finished_at if expose_terminal else None,
+        cancel_requested=cancel_reason is not None,
+        cancel_reason=cancel_reason,
+    )
 
-        cancelled = expose_terminal and record.state == WorkState.CANCELLED
-        failed = expose_terminal and record.state in {
-            WorkState.FAILED,
-            WorkState.DEAD_LETTER,
-        }
-        cancel_reason = outcome.cancel_reason
-        if cancelled and cancel_reason is None:
-            cancel_reason = "runtime_cancelled"
 
-        return replace(
-            created,
-            status=status,
-            canonical_alias=(
-                cls._select_canonical_alias(
-                    outcome.result or (),
-                    pending_alias=created.pending_alias,
-                )
-                if expose_terminal and record.state == WorkState.SUCCEEDED
-                else None
-            ),
-            error=(outcome.error or "memory generation work failed") if failed else None,
-            started_at=record.started_at,
-            finished_at=record.finished_at if expose_terminal else None,
-            cancel_requested=cancel_reason is not None,
-            cancel_reason=cancel_reason,
+def _select_canonical_alias(
+    results: tuple[MemoryGenerationResult, ...],
+    *,
+    pending_alias: str | None,
+) -> str | None:
+    """优先选择与 pending alias 对应的 canonical alias。"""
+
+    candidates = results
+    if pending_alias:
+        matched = tuple(
+            result
+            for result in results
+            if result.settlement is not None and result.settlement.pending_alias == pending_alias
         )
-
-    def as_failed(
-        self,
-        error: str,
-        *,
-        finished_at: datetime | None = None,
-    ) -> MemoryGenerationTask:
-        """从当前快照派生失败快照。"""
-
-        return replace(
-            self,
-            status=MemoryGenerationTaskStatus.FAILED,
-            error=error,
-            finished_at=finished_at,
-        )
-
-    def with_cancel_request(self, reason: str) -> MemoryGenerationTask:
-        """从当前快照派生已收到取消请求的快照。"""
-
-        return replace(
-            self,
-            cancel_requested=True,
-            cancel_reason=reason,
-        )
-
-    @staticmethod
-    def _select_canonical_alias(
-        results: tuple[MemoryGenerationResult, ...],
-        *,
-        pending_alias: str | None,
-    ) -> str | None:
-        """优先选择与 pending alias 对应的 canonical alias。"""
-
-        candidates = results
-        if pending_alias:
-            matched = tuple(
-                result
-                for result in results
-                if result.settlement is not None
-                and result.settlement.pending_alias == pending_alias
-            )
-            if matched:
-                candidates = matched
-        for result in candidates:
-            if result.settlement is not None and result.settlement.canonical_alias:
-                return result.settlement.canonical_alias
-            if result.canonical_alias:
-                return result.canonical_alias
-        return None
-
-    @property
-    def cancelled(self) -> bool:
-        """判断任务是否已收到取消请求或已经进入取消终态。"""
-
-        return self.cancel_requested or self.status == MemoryGenerationTaskStatus.CANCELLED
+        if matched:
+            candidates = matched
+    for result in candidates:
+        if result.settlement is not None and result.settlement.canonical_alias:
+            return result.settlement.canonical_alias
+        if result.canonical_alias:
+            return result.canonical_alias
+    return None
 
 
 def memory_task_to_payload(
@@ -303,5 +214,7 @@ __all__ = [
     "MemoryGenerationTask",
     "MemoryGenerationTaskSpec",
     "MemoryGenerationTaskStatus",
+    "memory_task_from_outcome",
+    "memory_task_from_spec",
     "memory_task_to_payload",
 ]

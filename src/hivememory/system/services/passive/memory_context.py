@@ -176,7 +176,10 @@ class MemoryContextProvider:
         if decision.retrieval_plan.mode == RetrievalMode.SKIP or decision.retrieval_plan.top_k == 0:
             return RetrievalResponse()
 
-        return await self._bus.request(
+        # 检索路由返回完整原子列表（A2 §2.1）；Passive 上下文仍消费旧协议
+        # envelope，由本 adapter 构造并测量调用耗时（A2 §2.4，A6 切换）。
+        started_at = time.perf_counter()
+        memories = await self._bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=decision.rewritten_query,
@@ -184,6 +187,10 @@ class MemoryContextProvider:
                 identity_scope=identity_scope,
                 top_k=decision.retrieval_plan.top_k,
             ),
+        )
+        return RetrievalResponse.from_memories(
+            memories,
+            latency_ms=(time.perf_counter() - started_at) * 1000,
         )
 
 

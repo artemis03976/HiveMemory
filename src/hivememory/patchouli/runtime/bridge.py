@@ -151,10 +151,6 @@ class PatchouliBridge:
                 self._public_api.agent_profiles.get_agent_profile,
             ),
             (
-                PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT,
-                self._public_api.agent_profiles.get_agent_profile_snapshot,
-            ),
-            (
                 PatchouliRoutes.MEMORY_READ,
                 self._public_api.memory.read_memory,
             ),

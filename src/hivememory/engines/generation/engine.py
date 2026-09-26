@@ -35,10 +35,7 @@ from hivememory.core.models.provenance import (
     MemoryProvenance,
     normalize_contributing_agent_ids,
 )
-from hivememory.engines.generation.alias import (
-    MEMORY_TYPE_ALIAS_PREFIX,
-    AliasGenerator,
-)
+from hivememory.engines.generation.alias import AliasGenerator
 from hivememory.engines.generation.interfaces import (
     BaseDeduplicator,
     BaseMemoryExtractor,
@@ -575,6 +572,5 @@ class MemoryGenerationEngine:
 
 
 __all__ = [
-    "MEMORY_TYPE_ALIAS_PREFIX",
     "MemoryGenerationEngine",
 ]

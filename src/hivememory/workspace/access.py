@@ -21,7 +21,10 @@ from hivememory.core.errors import (
     ScopeRequiredError,
 )
 from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
+from hivememory.workspace.registry import (
+    WorkspaceActorAccessRecord,
+    WorkspaceActorAccessRegistry,
+)
 
 
 class WorkspaceOperation(str, Enum):
@@ -150,6 +153,15 @@ class WorkspaceAccessGuard:
         )
         return context
 
+    def verify_context(self, access: WorkspaceAccessContext | None) -> IdentityScope:
+        """确认上下文由本实例签发、仍在有效期且 Actor 仍有准入，返回可信 scope。
+
+        不检查行为白名单：供 operation 授权已在能力层完成的 L2 backing 读取
+        入口取得可信坐标（A2 §8 D-3，读取路径 operation 检查迁出 Patchouli
+        application）。资源归属与资源 policy 仍由资源 owner 独立校验。
+        """
+        return self._verified_record(access)[0]
+
     def authorize_operation(
         self,
         access: WorkspaceAccessContext | None,
@@ -162,6 +174,22 @@ class WorkspaceAccessGuard:
         """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
+        scope, record = self._verified_record(access)
+        # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
+        if operation not in record.allowed_operations:
+            raise OperationDeniedError(
+                details={
+                    "operation": operation.value,
+                    "reason": "operation_not_allowed",
+                }
+            )
+        return scope
+
+    def _verified_record(
+        self,
+        access: WorkspaceAccessContext | None,
+    ) -> tuple[IdentityScope, WorkspaceActorAccessRecord]:
+        """校验签发、关闭、有效期与准入记录，返回可信 scope 与当前访问记录。"""
         if type(access) is not WorkspaceAccessContext:
             raise ScopeRequiredError("公共入口需要经统一认证网关签发的 WorkspaceAccessContext")
         if self._closed:
@@ -188,15 +216,7 @@ class WorkspaceAccessGuard:
                 "该 Actor 已无有效的 Workspace 访问登记",
                 details={"reason": "actor_not_admitted"},
             )
-        # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
-        if operation not in record.allowed_operations:
-            raise OperationDeniedError(
-                details={
-                    "operation": operation.value,
-                    "reason": "operation_not_allowed",
-                }
-            )
-        return scope
+        return scope, record
 
 
 __all__ = [

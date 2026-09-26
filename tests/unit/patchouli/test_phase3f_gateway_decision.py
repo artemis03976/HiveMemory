@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity
+from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -16,7 +16,7 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import AgentRunResult, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunResult
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
@@ -43,11 +43,12 @@ def _decision(
 
 def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
     bus = PatchouliBus()
-    retrieve = AsyncMock(return_value=RetrievalResponse())
+    # 检索与 Profile backing 的正式返回形状：原子列表 / ResolvedAgentProfile（A2 §2.1）。
+    retrieve = AsyncMock(return_value=[])
     submit = AsyncMock(return_value="topic-1")
     bus.register(
         PatchouliLocalRoutes.GET_AGENT_PROFILE,
-        AsyncMock(return_value=OMNI_DOLL_PROFILE),
+        AsyncMock(return_value=ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)),
     )
     bus.register(
         PatchouliLocalRoutes.TOPIC_PREPARE,

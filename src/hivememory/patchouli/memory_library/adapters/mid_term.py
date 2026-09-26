@@ -14,6 +14,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
@@ -22,7 +23,6 @@ from hivememory.core.models import (
 )
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
 from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.engines.retrieval.policy import memory_belongs_to_workspace, memory_is_readable
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 

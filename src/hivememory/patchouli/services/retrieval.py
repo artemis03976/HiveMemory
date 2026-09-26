@@ -11,18 +11,16 @@
 """
 
 import logging
-import time
 from typing import Any
 from uuid import UUID
 
-from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
     IdentityScope,
     MemoryAtom,
     MemoryType,
-    ProfileSnapshot,
+    ResolvedAgentProfile,
     TopicData,
     TopicSnapshot,
     WorkspaceMemoryKey,
@@ -32,10 +30,8 @@ from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
     MemoryTypeMismatchError,
-    StorageOfflineError,
-    StorageReadError,
 )
-from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -188,38 +184,21 @@ class RetrievalFamiliar:
         agent_alias: str | None,
         *,
         identity_scope: IdentityScope,
-    ) -> AgentProfile:
+    ) -> ResolvedAgentProfile:
         """
-        根据 Agent 别名读取配置，并由 Profile 所有者 Patchouli 执行可见性校验。
+        Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析
+        只维护在本方法，返回 ``ResolvedAgentProfile``（A2 §8 D-3）。
 
         只有未指定 alias 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
-        Omni-Doll。任何自定义 alias 的缺失、越权、类型错误或配置损坏都会显式失败。
-        """
-        snapshot = await self.get_agent_profile_snapshot(
-            agent_alias,
-            identity_scope=identity_scope,
-        )
-        return snapshot.profile
-
-    async def get_agent_profile_snapshot(
-        self,
-        agent_alias: str | None,
-        *,
-        identity_scope: IdentityScope,
-    ) -> ProfileSnapshot:
-        """
-        Profile 解析的唯一实现（父计划 5.2 节）：builtin/alias 查找/类型校验/
-        profile 解析只维护在本方法，返回携带 source atom UUID/revision 的
-        不可变快照；``get_agent_profile`` 是其裸 Profile 兼容投影。
+        Omni-Doll（无源原子）。任何自定义 alias 的缺失、越权、类型错误或配置
+        损坏都会显式失败，不降级为默认配置。源原子的读取策略与 UUID/版本随
+        结果返回，供 workspace Profile 解析缓存做命中授权与失效对账；可见性
+        校验在此处独立成立（纵深防御）。
         """
         identity_scope = require_identity_scope(identity_scope)
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
-            return ProfileSnapshot(
-                agent_alias=None,
-                profile=OMNI_DOLL_PROFILE.model_copy(deep=True),
-                source_kind="builtin",
-            )
+            return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
 
         atom = await self._memory_library.mid_term.get_by_alias(
             identity_scope,
@@ -242,128 +221,102 @@ class RetrievalFamiliar:
                 message_key="mtp.call.profile_invalid",
                 params={"agent_alias": normalized_alias},
             )
-        return ProfileSnapshot(
-            agent_alias=normalized_alias,
+        return ResolvedAgentProfile(
             profile=profile.model_copy(deep=True),
-            source_kind="atom",
-            source_atom_uuid=str(atom.id),
-            source_revision=atom.meta.version,
+            access_policy=atom.meta.access_policy.model_copy(deep=True),
+            source_memory_id=atom.id,
+            source_version=atom.meta.version,
         )
 
-    async def retrieve(self, request: RetrievalRequest) -> RetrievalResponse:
+    async def retrieve(self, request: RetrievalRequest) -> list[MemoryAtom]:
         """
-        检索相关记忆，返回原子与元信息
+        语义检索相关记忆，按领域排序返回完整原子列表（A2 §2.1）。
+
+        检索失败（存储不可用、引擎异常）按原错误传播，不伪装为空列表；
+        耗时等诊断信息只进入日志，由调用侧 adapter 自行测量。
         """
-        start_time = time.time()
+        query_filters = QueryFilters()
 
-        response = RetrievalResponse()
+        # 合并 MTP filter (如果有)
+        if request.filters is not None:
+            if request.filters.memory_type is not None:
+                query_filters.memory_type = request.filters.memory_type
+            if request.filters.tags:
+                query_filters.tags = request.filters.tags
+            if request.filters.min_confidence > 0:
+                query_filters.min_confidence = request.filters.min_confidence
 
-        try:
-            query_filters = QueryFilters()
+        query = RetrievalQuery(
+            semantic_query=request.semantic_query,
+            keywords=request.keywords or [],
+            filters=query_filters,
+            identity_scope=request.identity_scope,
+        )
 
-            # Step 2: 合并 MTP filter (如果有)
-            if request.filters is not None:
-                if request.filters.memory_type is not None:
-                    query_filters.memory_type = request.filters.memory_type
-                if request.filters.tags:
-                    query_filters.tags = request.filters.tags
-                if request.filters.min_confidence > 0:
-                    query_filters.min_confidence = request.filters.min_confidence
+        engine_result = await self.engine.retrieve(
+            query=query,
+            top_k=request.top_k,
+        )
 
-            # Step 3: 构建 RetrievalQuery
-            query = RetrievalQuery(
-                semantic_query=request.semantic_query,
-                keywords=request.keywords or [],
-                filters=query_filters,
-                identity_scope=request.identity_scope,
-            )
+        logger.info(
+            f"检索完成: query='{request.semantic_query[:20]}...', "
+            f"filters={query_filters}, "
+            f"使魔取回了 {engine_result.memories_count} 条记忆, "
+            f"latency={engine_result.latency_ms:.1f}ms"
+        )
+        return list(engine_result.memories)
 
-            engine_result = await self.engine.retrieve(
-                query=query,
-                top_k=request.top_k,
-            )
-
-            response.memories = engine_result.memories
-            response.memories_count = engine_result.memories_count
-            response.latency_ms = engine_result.latency_ms
-
-            logger.info(
-                f"检索完成: query='{request.semantic_query[:20]}...', "
-                f"filters={query_filters}, "
-                f"使魔取回了 {response.memories_count} 条记忆, "
-                f"latency={response.latency_ms:.1f}ms"
-            )
-
-        except (StorageOfflineError, StorageReadError):
-            raise
-        except Exception as e:
-            logger.error(f"检索失败: {e}", exc_info=True)
-            response.latency_ms = (time.time() - start_time) * 1000
-
-        return response
-
-    async def retrieve_async(self, request: RetrievalRequest) -> RetrievalResponse:
+    async def retrieve_async(self, request: RetrievalRequest) -> list[MemoryAtom]:
         """
         异步总线入口：只执行检索与活跃度刷新。
         """
-        response = await self.retrieve(request)
-        await self._refresh_vitality_for_memories(response.memories)
-        return response
+        memories = await self.retrieve(request)
+        await self._refresh_vitality_for_memories(memories)
+        return memories
 
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
         identity_scope: IdentityScope,
-    ) -> RetrievalResponse:
+    ) -> list[MemoryAtom]:
         """
-        精确按 alias 取回记忆。
+        精确按 alias 取回实际可读的完整原子（A2 §2.1）。
+
+        alias 先去首尾空白并按首次出现去重，结果保持请求顺序；缺失或对当前
+        Actor 不可见的 alias 不出现在结果中（不以下标表达逐项状态）。存储
+        不可用与 alias 多义（``MemoryAliasConflictError``）按原错误传播，
+        不伪装为空列表。
         """
-        start_time = time.time()
-        response = RetrievalResponse()
         identity_scope = require_identity_scope(identity_scope)
+        memories: list[MemoryAtom] = []
+        seen_aliases: set[str] = set()
+        for alias in aliases:
+            normalized = alias.strip() if alias else ""
+            if not normalized or normalized in seen_aliases:
+                continue
+            seen_aliases.add(normalized)
 
-        try:
-            memories: list[MemoryAtom] = []
-            seen_aliases: set[str] = set()
-            for alias in aliases:
-                normalized = alias.strip() if alias else ""
-                if not normalized or normalized in seen_aliases:
-                    continue
-                seen_aliases.add(normalized)
-
-                atom = await self._memory_library.mid_term.get_by_alias(
-                    identity_scope,
-                    normalized,
-                )
-                if atom is None:
-                    logger.warning(f"Alias not found during alias retrieval: {normalized}")
-                    continue
-                memories.append(atom)
-
-            response.memories = memories
-            response.memories_count = len(memories)
-            response.latency_ms = (time.time() - start_time) * 1000
-
-        except (StorageOfflineError, StorageReadError, MemoryAliasConflictError):
-            # alias 多义是 fail closed 的结构化错误，不能被下方兜底伪装为空结果。
-            raise
-        except Exception as e:
-            logger.error(f"Alias retrieval failed: {e}", exc_info=True)
-            response.latency_ms = (time.time() - start_time) * 1000
-
-        return response
+            atom = await self._memory_library.mid_term.get_by_alias(
+                identity_scope,
+                normalized,
+            )
+            if atom is None:
+                logger.debug(f"Alias not found during alias retrieval: {normalized}")
+                continue
+            memories.append(atom)
+        return memories
 
     async def retrieve_by_aliases_async(
         self,
         aliases: list[str],
         identity_scope: IdentityScope,
-    ) -> RetrievalResponse:
+    ) -> list[MemoryAtom]:
         """
         精确别名检索的异步总线入口。
         """
-        response = await self.retrieve_by_aliases(aliases, identity_scope)
-        await self._refresh_vitality_for_memories(response.memories)
-        return response
+        memories = await self.retrieve_by_aliases(aliases, identity_scope)
+        await self._refresh_vitality_for_memories(memories)
+        return memories
 
     async def update_access_stats(
         self,

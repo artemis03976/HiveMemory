@@ -161,7 +161,8 @@ class AliceRuntime:
         )
 
         try:
-            retrieval_response = await self._local_bus.request(
+            # alias 批量读取路由返回实际可读的完整原子列表（A2 §2.1）。
+            memories = await self._local_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[canonical_alias],
                 identity_scope=identity_scope,
@@ -174,7 +175,6 @@ class AliceRuntime:
             )
             return
 
-        memories = getattr(retrieval_response, "memories", []) or []
         memory = memories[0] if memories else None
         if memory is None:
             logger.debug(

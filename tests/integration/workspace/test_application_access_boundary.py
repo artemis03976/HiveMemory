@@ -220,8 +220,8 @@ async def wired():
         familiar.retrieve_async,
     )
     local_bus.register(
-        PatchouliLocalRoutes.GET_AGENT_PROFILE_SNAPSHOT,
-        familiar.get_agent_profile_snapshot,
+        PatchouliLocalRoutes.GET_AGENT_PROFILE,
+        familiar.get_agent_profile,
     )
     local_bus.register(
         PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
@@ -434,13 +434,17 @@ async def test_same_owner_actors_have_different_admission_across_workspaces(wire
 
 @pytest.mark.asyncio
 async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wired):
-    """空白名单 Actor 可进入，但资源动作全部拒绝（证据 3）。"""
+    """空白名单 Actor 可进入，但资源动作全部拒绝（证据 3）。
+
+    读取路径的 operation 检查自 A2 起在 workspace 能力层执行（A2 §8 D-3），
+    Patchouli backing 不再重复；此处以仍由 application 检查的写入动作验证。
+    """
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError):
         await wired.global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_READ,
-            str(uuid4()),
+            GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+            intent=MemoryIntent(kind="write", topic_id="t", content="x"),
             access=context,
         )
 
@@ -583,7 +587,8 @@ async def test_single_context_reused_across_different_permitted_operations(wired
         ),
         access=context,
     )
-    assert retrieval is not None
+    # 检索 backing 返回完整原子列表（A2 §2.1）；替身引擎无命中。
+    assert retrieval == []
 
     # 换操作不重建身份，但方法所需的 operation 不在白名单内时仍拒绝
     with pytest.raises(OperationDeniedError):
@@ -821,3 +826,12 @@ async def test_expired_context_rejected_and_reauthentication_restores_access(wir
         )
         is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_profile_snapshot_route_is_not_mounted_on_global_bus(wired):
+    """A2 §2.4：删除 snapshot 路由后，bridge 不再挂载任何 Profile 快照公共入口。"""
+    routes = wired.global_bus.list_routes()
+
+    assert "patchouli.public.get_agent_profile_snapshot" not in routes
+    assert GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE in routes

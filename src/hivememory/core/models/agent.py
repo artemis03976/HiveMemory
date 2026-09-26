@@ -16,8 +16,13 @@ class AgentProfile(BaseModel):
     """
     人偶图纸配置 - Agent 运行时的完整配置信息
 
+    身份 (Identity): 由 agent_id 字段承载，来自源原子的 index.alias（A2 §2.3：
+        alias 即 AgentProfile 的 actor 面向身份，由模型自持；builtin 为 None）
     灵魂 (Persona): 由 persona 字段承载，来自 MemoryAtom.payload.content
     骨架 (Skeleton): 模型参数 + 权限控制表，来自 MemoryAtom.payload.agent_config
+
+    可见性不进模型：源原子的 ``MemoryAccessPolicy`` 只随 Profile 读取 backing
+    结果（``ResolvedAgentProfile``）流动，不属于能力描述。
 
     权限语义：
     - None = 全部允许（供显式 Profile 使用的三态语义）
@@ -27,6 +32,9 @@ class AgentProfile(BaseModel):
     内置 Omni-Doll 不使用 None，而是固定为当前已审查能力的显式白名单。
     """
 
+    agent_id: str | None = Field(
+        default=None, description="Agent 身份（源原子 alias）；builtin Profile 为 None"
+    )
     persona: str = Field(default="", description="Agent 人设提示词")
     model_name: str = Field(default="default", description="基底模型名称")
     temperature: float | None = Field(
@@ -53,14 +61,18 @@ class AgentProfile(BaseModel):
 
     @classmethod
     def from_atom(cls, atom: "MemoryAtom") -> Optional["AgentProfile"]:
-        """从 MemoryAtom 解析 AgentProfile（包含 persona 和 config）。"""
+        """从 MemoryAtom 解析 AgentProfile（包含身份、persona 和 config）。
+
+        ``agent_id`` 始终取自 ``index.alias``，覆盖 agent_config 中的同名键：
+        身份由资源寻址事实决定，不由可编辑配置自报。
+        """
         raw = atom.payload.agent_config
         if raw is None:
             return None
 
         try:
             # 从 payload.agent_config 解析配置，从 payload.content 获取 persona
-            config = cls(persona=atom.payload.content, **raw)
+            config = cls(**{**raw, "persona": atom.payload.content, "agent_id": atom.index.alias})
             return config
         except Exception:
             return None

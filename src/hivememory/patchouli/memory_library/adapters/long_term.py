@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
+from hivememory.core.memory_access import memory_belongs_to_workspace
 from hivememory.core.models import (
     MAIN_WORKSPACE_ID,
     MemoryAtom,
@@ -27,7 +28,6 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.engines.retrieval.memory_codec import decode_memory_payload
-from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import LongTermStoragePort
 from hivememory.utils.time import utc_now

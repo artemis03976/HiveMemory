@@ -414,7 +414,7 @@ class KoakumaRuntime:
             command: SEARCH 指令 (target=*, args: query="...", filter="...")
 
         Returns:
-            MTPResponse: RetrievalResponse 渲染后的上下文
+            MTPResponse: 检索到的完整原子经 MemoryCompiler 编译后的上下文
         """
         query = command.args.get("query", "")
         if not query:
@@ -428,8 +428,9 @@ class KoakumaRuntime:
             self._filter_parser.parse(filter_str) if filter_str else (None, [])
         )
 
-        # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理
-        result = await self._bus.request(
+        # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理；
+        # 检索路由返回完整原子列表（A2 §2.1），MTP 输出在此编译呈现。
+        memories = await self._bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=query,
@@ -438,7 +439,7 @@ class KoakumaRuntime:
             ),
         )
 
-        if result.is_empty():
+        if not memories:
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
                 content="",
@@ -449,7 +450,7 @@ class KoakumaRuntime:
             )
 
         content = self._compiler.compile(
-            result.memories,
+            memories,
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
             MemoryCompileOptions(
                 retrieval_strategy_config=(
@@ -463,7 +464,7 @@ class KoakumaRuntime:
 
         # 将检索到的记忆原子缓存到调用方 Workspace 分区（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(
-            result.memories,
+            memories,
             workspace_identity=context.identity_scope.workspace_identity,
         )
 

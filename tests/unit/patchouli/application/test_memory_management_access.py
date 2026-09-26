@@ -1,13 +1,12 @@
 """MemoryManagementService access 消费的单元测试。
 
-被测对象：application 层各用例的 operation 绑定与共享行为检查（A1 计划
-第 4.1 节绑定基线）：
+被测对象：application 层各用例的 access 消费：
 - 管理 CRUD/GET/LIST 绑定 ``management.memory``，Agent 级 operation 调用
-  同一管理入口在 application 入口失败；
-- Actor-visible 点读 ``read_memory`` 绑定 ``resource.read`` 且强制可见性，
-  不在兼容清单内；
-- ``retrieve`` 绑定 ``resource.search``，``retrieve_by_aliases`` 绑定
-  ``resource.read``；
+  同一管理入口在 application 入口失败（A1 计划第 4.1 节绑定基线）；
+- Actor-visible 读取（``read_memory`` / ``retrieve`` / ``retrieve_by_aliases``）
+  自 A2 起是 L2 backing：operation 检查在 workspace 能力层执行，此处只校验
+  context 有效性、不重复行为检查（A2 §8 D-3）；点读强制可见性且不接受裸
+  scope；
 - scope 不一致被拒绝；无 access 的兼容清单方法按受信适配放行。
 local bus 为记录型假总线（边界外协作者）。
 """
@@ -27,7 +26,7 @@ from hivememory.core.errors import (
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.workspace import WorkspaceOperation
+from hivememory.workspace import WorkspaceAccessContext, WorkspaceOperation
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -123,19 +122,38 @@ def test_read_memory_requires_access_and_enforces_visibility():
         )
 
 
-def test_management_operation_does_not_grant_actor_visible_read():
-    """management.memory 不授予 resource.read：操作互不隐含（A1 第 4.1 节）。"""
+def test_backing_read_does_not_repeat_operation_check():
+    """点读 backing 不重复行为检查：operation 授权已迁至能力层（A2 §8 D-3）。
+
+    捕获 Patchouli 侧 operation 检查未退役、与能力层形成双重检查，导致只持
+    ``profile.read`` 等其他许可的能力层调用在 backing 被误拒的缺陷。资源
+    可见性仍强制执行。
+    """
     bus = RecordingBus(response=None)
     context, guard = _run(_context(WorkspaceOperation.MANAGEMENT_MEMORY))
     service = _service(bus, guard)
 
-    with pytest.raises(OperationDeniedError):
-        _run(service.read_memory(str(uuid4()), access=context))
+    _run(service.read_memory(str(uuid4()), access=context))
+
+    route, call = bus.calls[0]
+    assert route == PatchouliLocalRoutes.MEMORY_GET
+    assert call["kwargs"]["enforce_actor_visibility"] is True
+
+
+def test_backing_read_rejects_context_not_issued_by_guard():
+    """backing 仍校验 context 有效性：未经网关签发的同值 context 拒绝且不触达后端。"""
+    bus = RecordingBus(response=None)
+    _, guard = _run(_context(WorkspaceOperation.RESOURCE_READ))
+    service = _service(bus, guard)
+    forged = WorkspaceAccessContext(identity_scope=make_identity_scope(user_id="u1", agent_id="a1"))
+
+    with pytest.raises(ScopeRequiredError):
+        _run(service.read_memory(str(uuid4()), access=forged))
     assert bus.calls == []
 
 
-def test_retrieve_binds_resource_search_and_rejects_scope_mismatch():
-    """检索绑定 resource.search；请求 scope 偏离 access 上下文即拒绝。"""
+def test_retrieve_rejects_request_scope_mismatching_access():
+    """检索请求 scope 偏离 access 上下文即拒绝，不能据请求体重新选择 Workspace。"""
     bus = RecordingBus(response=None)
     context, guard = _run(_context(WorkspaceOperation.RESOURCE_SEARCH))
     service = _service(bus, guard)
@@ -159,8 +177,8 @@ def test_retrieve_binds_resource_search_and_rejects_scope_mismatch():
     assert bus.calls[0][0] == PatchouliLocalRoutes.MEMORY_RETRIEVE
 
 
-def test_retrieve_by_aliases_binds_resource_read():
-    """正式 alias 读取绑定 resource.read（与管理 GET 的操作不同）。"""
+def test_retrieve_by_aliases_uses_trusted_access_scope():
+    """alias 批量读取以 access 的可信 scope 请求局部路由。"""
     bus = RecordingBus(response=None)
     context, guard = _run(_context(WorkspaceOperation.RESOURCE_READ))
     service = _service(bus, guard)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from hivememory.patchouli.control.memory_generation.models import (
+from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )

@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.memory_access import memory_is_readable
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -17,7 +18,6 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceIdentity,
 )
-from hivememory.engines.retrieval.policy import memory_is_readable
 from hivememory.utils.time import utc_now
 
 

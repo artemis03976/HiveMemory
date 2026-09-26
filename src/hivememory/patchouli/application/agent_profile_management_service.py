@@ -4,13 +4,12 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    AgentProfile,
     IdentityScope,
     MemoryAtom,
     MemoryType,
-    ProfileSnapshot,
+    ResolvedAgentProfile,
 )
-from hivememory.patchouli.application.access_consumption import verified_scope
+from hivememory.patchouli.application.access_consumption import backing_scope, verified_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.workspace.access import WorkspaceOperation
 
@@ -22,14 +21,15 @@ if TYPE_CHECKING:
 class AgentProfileManagementService:
     """Patchouli 面向公开 agent profile 管理/读取 API 的应用服务。
 
-    Profile 读取用例绑定 ``profile.read`` operation，经局部
-    ``GET_AGENT_PROFILE_SNAPSHOT`` 返回携带 source atom UUID/revision 的
-    不可变快照；Profile 管理写入/列表沿用 AGENT_PROFILE atom 的既有绑定
-    例外，绑定 ``management.memory``，与读取分别授权、互不推导（A1
-    计划第 4.1 节）。管理/读取入口均在资源读取前经共享行为检查。
+    Profile 管理写入/列表沿用 AGENT_PROFILE atom 的既有绑定例外，绑定
+    ``management.memory``，在资源读取前经共享行为检查（A1 计划第 4.1 节）。
 
-    ``get_agent_profile`` 保留为既有裸 Profile 契约的兼容投影（Alice
-    resolver 消费，A1 第 6 节兼容清单），A6 完成消费者切换后收紧。
+    ``get_agent_profile`` 是 Profile 读取的 L2 backing（A2 §2.3/§8 D-3）：
+    ``profile.read`` 的行为授权由 workspace 能力层在 backing 调用前执行，
+    此处只校验 access 有效性；返回 ``ResolvedAgentProfile``（AgentProfile +
+    源原子 policy 依据与关联），可见性校验在库内独立成立。无 access 的
+    既有调用方（Alice profile resolver、Patchouli prepare）走 A1 第 6 节
+    兼容清单，A6 完成消费者切换后收紧。
     """
 
     def __init__(self, *, bus: Any, access_guard: WorkspaceAccessGuard) -> None:
@@ -87,30 +87,15 @@ class AgentProfileManagementService:
         *,
         identity_scope: IdentityScope | None = None,
         access: WorkspaceAccessContext | None = None,
-    ) -> AgentProfile:
-        snapshot = await self.get_agent_profile_snapshot(
-            agent_alias,
-            identity_scope=identity_scope,
-            access=access,
-        )
-        return snapshot.profile
-
-    async def get_agent_profile_snapshot(
-        self,
-        agent_alias: str | None,
-        *,
-        identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext | None = None,
-    ) -> ProfileSnapshot:
-        """读取 Profile 快照（profile.read）：唯一解析规则 + source 归属投影。"""
-        scope = verified_scope(
+    ) -> ResolvedAgentProfile:
+        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。"""
+        scope = backing_scope(
             access,
-            WorkspaceOperation.PROFILE_READ,
             identity_scope,
             access_guard=self._access_guard,
         )
         return await self._bus.request(
-            PatchouliLocalRoutes.GET_AGENT_PROFILE_SNAPSHOT,
+            PatchouliLocalRoutes.GET_AGENT_PROFILE,
             agent_alias,
             identity_scope=scope,
         )

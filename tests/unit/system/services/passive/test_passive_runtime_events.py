@@ -26,7 +26,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.contracts.runtime_events import RuntimeEventType
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
@@ -101,7 +100,8 @@ class _Recorder:
         return _decision()
 
     async def retrieve(self, **kwargs):
-        return RetrievalResponse(memories=list(self.memories))
+        # 检索路由返回完整原子列表（A2 §2.1）。
+        return list(self.memories)
 
     async def submit(self, submission):
         if self.fail_submit:
