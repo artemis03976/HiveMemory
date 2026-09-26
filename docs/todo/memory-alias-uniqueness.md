@@ -49,11 +49,11 @@ alias 精确查询走 `QdrantMemoryStore.get_memory_by_alias`（scroll + `index.
 
 **与 AgentProfile 的关系**：C2 裁定 agent_id 即 alias、profile cache 按 `(Workspace, agent_alias)` 作 key（见 [AgentProfile 模型演进](./agent-profile-model-evolution.md)）——本 todo 的唯一性是 agent_id 唯一性的直接前提。
 
-**衔接时机**：第一、二层均先于或伴随 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) A2-1 的 alias 索引交付；归属计划由 A2-0 裁定。
+**衔接时机**：A2-0 裁定（2026-09-25）——第一、二层归 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) 前置阶段 A2-U，先于 A2-1 启动并验收（A2 §8 D-4）。
 
 ## 完成条件
 
 - [ ] `AliasGenerator` 组件落地并替换 `_build_alias`，生成路径冲突时消歧重试有测试；
 - [ ] `MidTermMemoryStore.upsert` 写前唯一性校验落地，冲突抛结构化错误，覆盖 revive/手工/Profile 管理路径有测试；
-- [ ] 存量重名数据有盘点与消解记录；
+- [x] 存量重名数据有盘点与消解记录：owner 于 2026-09-25 确认本地 Qdrant 无重名（Agent Profile 数据量少），无需消解；
 - [ ] alias 精确查询在任意存储顺序下解析结果唯一且稳定。

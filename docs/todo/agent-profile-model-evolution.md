@@ -25,7 +25,7 @@ last_reviewed: 2026-09-25
 ## 已裁定（2026-09-25，随 A2-1 落地）
 
 - **身份：模型自持 agent_id。** `AgentProfile` 补 agent_id 字段（唯一 alias），解析时从源原子的 `index.alias` 填入；profile cache 以 `(Workspace, agent_alias)` 作 key（[A2 §2.3](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md#23-profile-读取时序)）。
-- **可见性：不进模型。** 可见性真相留在源原子的 `MemoryAccessPolicy`；授权依据由 profile resolver 回填时从源原子取得、随缓存项内部保存，不进公共返回、不经 wire。不做"内嵌 policy"的变体——授权内部数据不进入能力描述对象、不上外部 wire、不在 run 固定副本中残留。
+- **可见性：不进模型。** 可见性真相留在源原子的 `MemoryAccessPolicy`；授权依据由 `GET_AGENT_PROFILE` backing 结果（`ResolvedAgentProfile`，A2 §8 D-3）附带、随缓存项内部保存，不进 AgentProfile、不出能力面、不经外部 wire。不做"内嵌 policy"的变体——授权内部数据不进入能力描述对象、不上外部 wire、不在 run 固定副本中残留。
 
 ## 仍开放（待归属模型演进计划）
 
