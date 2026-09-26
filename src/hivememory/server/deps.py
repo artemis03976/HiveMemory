@@ -11,18 +11,16 @@ from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.system import HiveMemorySystem
-from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.application.memory_service import MemoryApplicationService
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.application.topic_service import TopicApplicationService
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.config import HiveMemoryConfig
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.topic import TopicApplicationService
 
 logger = logging.getLogger(__name__)
 

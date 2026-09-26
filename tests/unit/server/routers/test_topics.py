@@ -14,9 +14,9 @@ from hivememory.patchouli.contracts.topic_management import (
 )
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
-from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.capability.topic import TopicApplicationService
 from tests.helpers.workspace import make_identity_scope
 
 

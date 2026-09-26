@@ -20,6 +20,7 @@ from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.system import HiveMemorySystem
+from tests.helpers.workspace import make_workspace_runtime
 
 
 def _build_runtime_with_local_bus():
@@ -128,6 +129,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             global_bus=global_bus,
             scheduler=scheduler,
             workspace_asset_store=InMemoryWorkspaceAssetStore(),
+            workspace_runtime=make_workspace_runtime(),
             event_bus=None,
             event_sink=runtime_event_sink,
             event_publisher=RuntimeEventPublisher(runtime_event_sink),

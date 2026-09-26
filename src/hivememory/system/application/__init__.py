@@ -1,3 +1,10 @@
+"""System 应用服务入口。
+
+``chat`` / ``passive_ingress`` / ``readiness`` 留在 System；资源能力部分已迁至
+``hivememory.workspace.capability``（A2 §1.2），此处经迁移期 shim 继续导出，
+A6 完成消费者切换后删除。
+"""
+
 from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import (
     ChatApplicationService,

@@ -23,14 +23,14 @@ from hivememory.server.deps import (
     resolve_request_identity_scope,
 )
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.services.attachments import UnsupportedAttachmentFormatError
 from hivememory.system.services.attachments.errors import (
     AttachmentTooLargeError,
     EmptyAttachmentError,
     InvalidAttachmentNameError,
+)
+from hivememory.workspace.capability.assets import (
+    WorkspaceAssetApplicationService,
 )
 
 router = APIRouter(tags=["workspace-assets"])

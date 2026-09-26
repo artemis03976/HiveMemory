@@ -1,6 +1,6 @@
 """真实上传应用服务、附件服务与 Store 的集成测试。
 
-被测对象：``system/application/workspace_asset_service.py`` 的校验、受限
+被测对象：``workspace/capability/assets.py``（自 ``system/application`` 迁入） 的校验、受限
 读取、哈希计算、上传专用 Store 命令交接与请求内解析接纳；协作者使用
 真实的 ``InMemoryWorkspaceAssetStore`` 轻量实现，竞态与取消场景使用可控
 解析协议替身与事件屏障。
@@ -13,9 +13,6 @@ from hivememory.core.models import (
     AssetRepresentationState,
     WorkspaceAssetState,
 )
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import (
@@ -27,6 +24,9 @@ from hivememory.system.services.attachments.errors import (
     InvalidAttachmentNameError,
 )
 from hivememory.system.services.attachments.upload import UPLOAD_PRODUCER, UPLOAD_PRODUCER_VERSION
+from hivememory.workspace.capability.assets import (
+    WorkspaceAssetApplicationService,
+)
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.workspace import make_identity_scope
 

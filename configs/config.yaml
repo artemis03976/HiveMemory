@@ -197,6 +197,14 @@ patchouli:
     root_dir: ".hivememory/artifacts"
     max_inline_summary_chars: 500
 
+# ========== Workspace 运行时配置 ==========
+workspace:
+  # 读取能力派生缓存的全局 LRU 容量（不承诺 Workspace 独立配额）；
+  # 当前性由失效事件协作保证，容量只影响命中率与内存占用。
+  cache:
+    atom_capacity: 4096
+    profile_capacity: 256
+
 # ========== Alice 子系统配置 ==========
 alice:
   koakuma:

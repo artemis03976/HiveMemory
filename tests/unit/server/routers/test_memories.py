@@ -19,10 +19,13 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.server.routers.memories import router
-from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_workspace_runtime
 
 
 def _create_test_app(storage, lifecycle_engine=None):
@@ -39,9 +42,12 @@ def _create_test_app(storage, lifecycle_engine=None):
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
+    # 管理路由不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
     service = MemoryApplicationService(
         global_bus=bus,
         config=MagicMock(),
+        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        memory_reader=make_workspace_runtime(bus).aliases,
     )
     app.dependency_overrides[deps.get_memory_service] = lambda: service
 

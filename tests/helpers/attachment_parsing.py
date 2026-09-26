@@ -10,11 +10,11 @@ from __future__ import annotations
 import asyncio
 import threading
 
-from hivememory.system.application.workspace_asset_service import WorkspaceAssetApplicationService
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.ports import WorkspaceAssetCommandPort
 from hivememory.system.services.attachments import AttachmentContentBuilder
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
+from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 

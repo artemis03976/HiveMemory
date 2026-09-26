@@ -35,6 +35,7 @@ from hivememory.system.runtime.workspace import (
     WorkspaceAssetReaderPort,
 )
 from hivememory.system.system import HiveMemorySystem
+from tests.helpers.workspace import make_workspace_runtime
 
 
 class _Scheduler:
@@ -209,6 +210,7 @@ def _build_system(
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
+        workspace_runtime=make_workspace_runtime(),
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
@@ -391,6 +393,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
+        workspace_runtime=make_workspace_runtime(),
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),

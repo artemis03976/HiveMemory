@@ -16,9 +16,6 @@ from hivememory.core.models import (
     AssetRepresentationState,
     WorkspaceAssetState,
 )
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.config import AttachmentParserConfig
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments import (
@@ -26,6 +23,9 @@ from hivememory.system.services.attachments import (
     AttachmentParseError,
 )
 from hivememory.system.services.attachments.parse_service import ASSET_FAILED_CODE
+from hivememory.workspace.capability.assets import (
+    WorkspaceAssetApplicationService,
+)
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
     ScriptedAttachmentParser,

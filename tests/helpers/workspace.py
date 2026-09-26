@@ -206,3 +206,16 @@ def make_access_composition(
             owner_user_id=records[0].owner_user_id if records else "test_user",
         ),
     )
+
+
+def make_workspace_runtime(global_bus=None, *, atom_capacity: int = 16, profile_capacity: int = 16):
+    """构造经全局总线访问 Patchouli backing 的 WorkspaceRuntime（测试装配）。"""
+    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+    from hivememory.workspace.capability.backing import BusCanonicalReadBackend
+    from hivememory.workspace.runtime import WorkspaceRuntime
+
+    return WorkspaceRuntime(
+        backing=BusCanonicalReadBackend(global_bus or GlobalSystemBus()),
+        atom_capacity=atom_capacity,
+        profile_capacity=profile_capacity,
+    )

@@ -15,7 +15,7 @@ from hivememory.server.models.topic import (
     TopicDeleteResponse,
     TopicSettleResponse,
 )
-from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.workspace.capability.topic import TopicApplicationService
 
 router = APIRouter(tags=["topics"])
 

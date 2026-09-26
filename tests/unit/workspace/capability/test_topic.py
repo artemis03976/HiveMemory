@@ -1,12 +1,12 @@
-"""TopicApplicationService 委托测试。"""
+"""Topic 能力（``workspace.capability.topic``）委托测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.capability.topic import TopicApplicationService
 from tests.helpers.workspace import make_management_identity_scope
 
 

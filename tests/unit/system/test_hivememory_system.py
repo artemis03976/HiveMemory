@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.assembler import (
     _RegistriesBundle,
     _RuntimeBundle,
@@ -19,6 +18,8 @@ from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.capability.topic import TopicApplicationService
+from tests.helpers.workspace import make_workspace_runtime
 
 
 @pytest.fixture
@@ -73,6 +74,7 @@ def system(mock_patchouli):
         global_bus=global_bus,
         scheduler=scheduler,
         workspace_asset_store=InMemoryWorkspaceAssetStore(),
+        workspace_runtime=make_workspace_runtime(),
         event_bus=None,
         event_sink=runtime_events,
         event_publisher=RuntimeEventPublisher(runtime_events),
@@ -208,8 +210,10 @@ class TestHiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
+            "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
         ]
+        assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         assert isinstance(stopped.data["duration_ms"], float)
@@ -230,8 +234,10 @@ class TestHiveMemorySystem:
         assert stopped.data["completed_steps"] == [
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
         ]
+        assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is False
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         system._alice.stop.assert_not_called()

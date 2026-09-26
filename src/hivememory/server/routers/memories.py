@@ -15,7 +15,7 @@ from hivememory.server.models.memory import (
     MemoryResponse,
     MemoryUpdateRequest,
 )
-from hivememory.system.application.memory_service import (
+from hivememory.workspace.capability.memory import (
     MemoryApplicationService,
     MemoryLifecycleUnavailableError,
     MemoryNotFoundError,

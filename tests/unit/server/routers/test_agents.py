@@ -9,9 +9,12 @@ from fastapi.testclient import TestClient
 
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.server.routers.agents import router
-from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
+from tests.helpers.workspace import make_workspace_runtime
 
 
 def _create_test_app(storage):
@@ -30,9 +33,12 @@ def _create_test_app(storage):
         GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
+    # 管理路由不经 Profile 读取 resolver 与 operation 守卫：注入真实但空白的依赖。
     service = AgentApplicationService(
         global_bus=bus,
         config=MagicMock(),
+        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        profile_reader=make_workspace_runtime(bus).profiles,
     )
     app.dependency_overrides[deps.get_agent_service] = lambda: service
 

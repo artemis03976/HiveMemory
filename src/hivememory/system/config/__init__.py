@@ -77,6 +77,7 @@ from hivememory.system.config.shared import (
     ProviderCredentials,
     SharedConfig,
 )
+from hivememory.system.config.workspace import WorkspaceCacheConfig, WorkspaceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +289,7 @@ class HiveMemoryConfig(BaseSettings):
     attachment_parser: AttachmentParserConfig = Field(default_factory=AttachmentParserConfig)
     attachment_compiler: AttachmentCompilerConfig = Field(default_factory=AttachmentCompilerConfig)
     access: AccessControlConfig = Field(default_factory=AccessControlConfig)
+    workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "configs/.env", "configs\\.env"),
@@ -350,6 +352,9 @@ __all__ = [
     "AccessControlConfig",
     "SystemPrincipalAccessEntry",
     "WorkspaceActorAccessEntry",
+    # Workspace 运行时（A2 读取能力派生缓存）
+    "WorkspaceCacheConfig",
+    "WorkspaceConfig",
     # 共享配置
     "LLMConfig",
     "LLMGlobalConfig",

@@ -6,7 +6,7 @@ from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictE
 from hivememory.core.models import IdentityScope
 from hivememory.server.deps import get_agent_service, get_identity_scope
 from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
-from hivememory.system.application.agent_service import AgentApplicationService
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 
 router = APIRouter(tags=["agents"])
 

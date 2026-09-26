@@ -1,4 +1,4 @@
-"""AgentApplicationService 委托测试。"""
+"""Agent Profile 能力（``workspace.capability.agent_profiles``）管理用例委托测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -28,11 +28,17 @@ from hivememory.patchouli.models import (
     PreparedAgentRun,
     StreamPrelude,
 )
-from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
+from tests.helpers.workspace import (
+    make_identity_scope,
+    make_management_identity_scope,
+    make_workspace_runtime,
+)
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
@@ -147,9 +153,12 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 class TestAgentApplicationService:
     @pytest.fixture
     def service(self, mock_global_bus, passive_config):
+        # 管理用例不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
         return AgentApplicationService(
             global_bus=mock_global_bus,
             config=passive_config,
+            access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+            profile_reader=make_workspace_runtime().profiles,
         )
 
     @pytest.mark.asyncio

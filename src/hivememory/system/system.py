@@ -23,16 +23,15 @@ from hivememory.system.runtime.events import (
 
 if TYPE_CHECKING:
     from hivememory.gateway import GatewaySystem
-    from hivememory.system.application.agent_service import AgentApplicationService
     from hivememory.system.application.chat_service import ChatApplicationService
-    from hivememory.system.application.memory_service import MemoryApplicationService
-    from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
     from hivememory.system.application.passive_ingress_service import PassiveIngressService
     from hivememory.system.application.readiness_service import SystemReadinessService
-    from hivememory.system.application.topic_service import TopicApplicationService
-    from hivememory.system.application.workspace_asset_service import (
-        WorkspaceAssetApplicationService,
-    )
+    from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+    from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
+    from hivememory.workspace.capability.memory import MemoryApplicationService
+    from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+    from hivememory.workspace.capability.topic import TopicApplicationService
+    from hivememory.workspace.runtime import WorkspaceRuntime
 
 
 class HiveMemorySystem:
@@ -58,6 +57,7 @@ class HiveMemorySystem:
         self._global_bus = runtime.global_bus
         self._scheduler = runtime.scheduler
         self._workspace_asset_store = runtime.workspace_asset_store
+        self._workspace_runtime = runtime.workspace_runtime
         self._runtime_events = runtime.event_bus
         self._runtime_event_sink = runtime.event_sink
 
@@ -197,6 +197,7 @@ class HiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
+            "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
         ]
         self._emit_lifecycle_event(
@@ -218,6 +219,8 @@ class HiveMemorySystem:
             passive_shutdown_drain = await self._ingress_service.shutdown_drain()
             completed_steps.append("passive_ingress.shutdown_drain")
             if not was_started:
+                self._workspace_runtime.close()
+                completed_steps.append("workspace_runtime.close")
                 self._workspace_asset_store.close_and_clear()
                 completed_steps.append("workspace_asset_store.close_and_clear")
                 self._emit_lifecycle_event(
@@ -241,7 +244,10 @@ class HiveMemorySystem:
             await self._gateway.stop()
             completed_steps.append("gateway.stop")
             # 最终清理必须晚于 Patchouli Topic settlement/generation drain 与剩余消费者；
-            # Alice 派生 cache 已在其自身 stop 中清空，这里只收尾 AssetStore。
+            # Alice 派生 cache 已在其自身 stop 中清空。workspace 读取运行时停止新读
+            # 并清理派生缓存（不触碰 canonical），随后收尾 AssetStore。
+            self._workspace_runtime.close()
+            completed_steps.append("workspace_runtime.close")
             self._workspace_asset_store.close_and_clear()
             completed_steps.append("workspace_asset_store.close_and_clear")
             self._started = False
@@ -372,6 +378,11 @@ class HiveMemorySystem:
     @property
     def workspace_asset_service(self) -> WorkspaceAssetApplicationService:
         return self._workspace_asset_service
+
+    @property
+    def workspace_runtime(self) -> WorkspaceRuntime:
+        """workspace 读取能力与派生缓存的运行时聚合（A2）。"""
+        return self._workspace_runtime
 
     @property
     def gateway(self) -> GatewaySystem:

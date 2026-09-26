@@ -73,17 +73,18 @@ from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublic
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.system.access import CallerPrincipal
-from hivememory.system.application.memory_service import MemoryApplicationService
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.workspace import WorkspaceOperation
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
+    make_workspace_runtime,
 )
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
@@ -296,7 +297,12 @@ async def wired():
     bridge.mount()
 
     # System 管理门面：与外部 adapter 同一全局总线，验证 context 传播
-    system_memory = MemoryApplicationService(global_bus=global_bus, config=MagicMock())
+    system_memory = MemoryApplicationService(
+        global_bus=global_bus,
+        config=MagicMock(),
+        access_guard=access.guard,
+        memory_reader=make_workspace_runtime(global_bus).aliases,
+    )
     system_tasks = MemoryTaskApplicationService(global_bus=global_bus)
 
     try:
@@ -436,11 +442,13 @@ async def test_same_owner_actors_have_different_admission_across_workspaces(wire
 async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wired):
     """空白名单 Actor 可进入，但资源动作全部拒绝（证据 3）。
 
-    读取路径的 operation 检查自 A2 起在 workspace 能力层执行（A2 §8 D-3），
-    Patchouli backing 不再重复；此处以仍由 application 检查的写入动作验证。
+    读取路径的 operation 检查自 A2 起在 workspace 能力层、backing 调用前执行
+    （A2 §8 D-3）；写入路径仍由 Patchouli application 检查。
     """
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
+    with pytest.raises(OperationDeniedError):
+        await wired.system_memory.read(str(uuid4()), access=context)
     with pytest.raises(OperationDeniedError):
         await wired.global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,

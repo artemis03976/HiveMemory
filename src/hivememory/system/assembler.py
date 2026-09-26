@@ -2,10 +2,10 @@
 HiveMemory 系统装配器
 
 将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：
-  - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set
+  - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set / workspace 读取运行时
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
   - _build_subsystems  : Gateway + Patchouli + Alice
-  - _build_services    : 全部应用服务
+  - _build_services    : 全部应用服务与 workspace 能力层
 
 每个方法的入参明确声明它所依赖的上游产物，依赖关系无需读实现即可理解。
 """
@@ -22,16 +22,9 @@ from hivememory.system.access import (
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
 )
-from hivememory.system.application.agent_service import AgentApplicationService
 from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.application.memory_service import MemoryApplicationService
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
-from hivememory.system.application.workspace_asset_service import (
-    WorkspaceAssetApplicationService,
-)
 from hivememory.system.config import (
     AccessControlConfig,
     HiveMemoryConfig,
@@ -51,10 +44,17 @@ from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenan
 from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.services.attachments.parse_service import AttachmentParseService
 from hivememory.workspace.access import WorkspaceAccessGuard, WorkspaceOperation
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
+from hivememory.workspace.capability.backing import BusCanonicalReadBackend
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.topic import TopicApplicationService
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
 )
+from hivememory.workspace.runtime import WorkspaceRuntime
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -66,6 +66,7 @@ class _RuntimeBundle:
     global_bus: GlobalSystemBus
     scheduler: GlobalMaintenanceScheduler
     workspace_asset_store: InMemoryWorkspaceAssetStore
+    workspace_runtime: WorkspaceRuntime
     event_bus: RuntimeEventBus | None
     event_sink: RuntimeEventSink
     event_publisher: RuntimeEventPublisher
@@ -152,6 +153,14 @@ class SystemAssembler:
         global_bus = GlobalSystemBus()
         # WorkspaceAsset 是 System-owned working set；整个进程只装配一个 Store。
         workspace_asset_store = InMemoryWorkspaceAssetStore()
+        # workspace 读取能力与派生缓存（A2）：由组合根持有，L2 冷读经全局
+        # 总线调用 Patchouli backing 路由（宪章 §4.4），不持有 Patchouli 对象。
+        cache_config = self._config.workspace.cache
+        workspace_runtime = WorkspaceRuntime(
+            backing=BusCanonicalReadBackend(global_bus),
+            atom_capacity=cache_config.atom_capacity,
+            profile_capacity=cache_config.profile_capacity,
+        )
 
         runtime_events_config = getattr(self._config, "runtime_events", None)
         if not isinstance(runtime_events_config, RuntimeEventsConfig):
@@ -181,6 +190,7 @@ class SystemAssembler:
             global_bus=global_bus,
             scheduler=scheduler,
             workspace_asset_store=workspace_asset_store,
+            workspace_runtime=workspace_runtime,
             event_bus=event_bus,
             event_sink=event_sink,
             event_publisher=event_publisher,
@@ -325,7 +335,7 @@ class SystemAssembler:
         return _SubsystemBundle(gateway=gateway, patchouli=patchouli, alice=alice)
 
     # ------------------------------------------------------------------
-    # 层四：应用服务（只依赖全局总线）
+    # 层四：应用服务与 workspace 能力层（经全局总线访问子系统公开能力）
     # ------------------------------------------------------------------
 
     def _build_services(
@@ -352,9 +362,13 @@ class SystemAssembler:
                 component="passive_ingress_service",
             ),
         )
+        # 能力层（A2）：读取方法在 backing 调用前执行 operation 授权，随后经
+        # workspace resolver 解析；管理用例保持对库管理路由的薄委托。
         memory = MemoryApplicationService(
             global_bus=runtime.global_bus,
             config=self._config,
+            access_guard=access_control.access_guard,
+            memory_reader=runtime.workspace_runtime.aliases,
         )
         memory_task = MemoryTaskApplicationService(
             global_bus=runtime.global_bus,
@@ -362,6 +376,8 @@ class SystemAssembler:
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,
             config=self._config,
+            access_guard=access_control.access_guard,
+            profile_reader=runtime.workspace_runtime.profiles,
         )
         topic = TopicApplicationService(
             global_bus=runtime.global_bus,
