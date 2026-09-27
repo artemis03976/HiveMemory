@@ -32,7 +32,6 @@ related_docs:
   - docs/architecture/overview.md
   - docs/architecture/boundaries.md
   - docs/architecture/data-model.md
-  - docs/architecture/decisions/0004-execution-path-derived-caches.md
   - docs/system/composition.md
   - docs/components/runtime-and-bus.md
   - docs/patchouli/memory-library.md
@@ -48,7 +47,7 @@ last_reviewed: 2026-09-26
 
 本文是 Workspace 在当前系统架构中的事实入口，说明身份坐标、资源归属、运行时生命周期以及与 System、Patchouli、Gateway、Alice 和共享基础设施的边界。具体路由、事件字段和错误类型以[跨子系统契约](../contracts/subsystem-contracts.md)、[公开路由与事件](../contracts/routes-and-events.md)和[错误模型](../contracts/error-model.md)为准。
 
-Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspace 复制的 Runtime。代码上 `workspace` 是与 Gateway、Patchouli、Alice 同层的包，承载认证入口、访问检查、actor 能力层、读取视图与 WorkspaceAsset 设施；它没有独立的生命周期宿主，由 System 组合根装配。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。派生自 Workspace-owned 资源的视图缓存（Alice 的 L1 atom cache 与 profile cache）按派生源的 Workspace 坐标键控，键控规则见 [ADR-0004](./decisions/0004-execution-path-derived-caches.md)。
+Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspace 复制的 Runtime。代码上 `workspace` 是与 Gateway、Patchouli、Alice 同层的包，承载认证入口、访问检查、actor 能力层、读取视图与 WorkspaceAsset 设施；它没有独立的生命周期宿主，由 System 组合根装配。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。派生自 Workspace-owned 资源的视图缓存（Alice 的 L1 atom cache 与 profile cache）按派生源的 Workspace 坐标键控。
 
 ## 1. 为什么建立 Workspace：初步的“ME 网络”边界
 
@@ -218,7 +217,7 @@ Memory 在 `MetaData.workspace_identity` 中保存唯一持久化归属；读取
 
 work queue、ordering/idempotency key、task/run registry、scheduler、runtime container 和 EventBus 维持进程级共享语义。领域 TaskSpec 可以携带唯一的 `IdentityScope`，但通用 WorkItem、WorkRecord 和 RuntimeEvent infrastructure 不把它解释为资源分区字段。`RuntimeEvent.workspace_id` 只是可选观测标签，不参与路由、订阅、sequence、授权或缓存分组。
 
-缓存按所有权适用两条键控规则（[ADR-0004](./decisions/0004-execution-path-derived-caches.md)）：
+缓存按所有权适用两条键控规则：
 
 1. **事实源按 ownership 寻址与校验**：跨子系统的 WorkspaceAssetStore 等事实源以 `WorkspaceIdentity` 参与资源复合键，在最终边界校验归属；
 2. **派生视图按派生源坐标键控**：Alice 执行路径的 L1 atom cache 与 profile cache 派生自 Workspace-owned 资源，alias 索引按 `(WorkspaceIdentity, alias)`、profile key 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区。分区解决"错误命中、无效覆盖和不必要的冷查询"，不替代授权——L1 atom cache 命中后仍由 resolver 重验 Workspace ownership 与 actor policy，profile cache 只复用同授权坐标内已通过 Patchouli 校验的结果。
@@ -316,10 +315,10 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - 统一认证网关与 Workspace 行为授权已落地，但首版只有进程内本地登记配置：无远程凭据协议、通用 IAM 或管理 API，外部 connector 协议由计划 B 提供；生产 HTTP/Alice/Passive 消费者尚未切换为经网关认证（A6），当前生产请求以 `IdentityScope` 兼容分支运行，迁移期兼容清单见第 4.3 节；
 - 附件上传入口存在已知缺陷：带 access 上传时行为权限与传入 scope 缺少一致性校验（跨 Workspace 写入风险），已单独记录为 [Todo：WorkspaceAsset 上传的认证上下文与 scope 不一致](../todo/workspace-asset-upload-access-scope-mismatch.md)，修复前该项不视为已通过验收；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
-- Alice 的 L1 atom cache 与 profile cache 是执行路径的派生视图（见 [ADR-0004](./decisions/0004-execution-path-derived-caches.md)）：不跨重启恢复，`AliceSystem.stop()` 时清空；profile cache 没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能 stale；
+- Alice 的 L1 atom cache 与 profile cache 是执行路径的派生视图：不跨重启恢复，`AliceSystem.stop()` 时清空；profile cache 没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能 stale；
 - workspace 读取视图（`WorkspaceRuntime`：完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver）已装配，能力层的 actor 可见读取方法经它读取并在交付前逐次授权；但目前没有生产入口调用这些读取方法（HTTP 路由使用管理方法），也尚未订阅 canonical 变更事件。在接入失效协作之前，它不作为生产读取路径使用；
 - atom cache 返回原始 `MemoryAtom` 引用，可变性语义遵循[数据模型 ADR-0001](./decisions/0001-data-model-mutability-and-boundary-projection.md)，未做深冻结；
-- WorkspaceIdentity 的传播不意味着所有组件都参与隔离。任何新增资源都必须先明确其所有者，再决定是否使用 Workspace 复合键；新增派生缓存时按派生源坐标键控（[ADR-0004](./decisions/0004-execution-path-derived-caches.md)），不能从 scope 的存在自动推导隔离。
+- WorkspaceIdentity 的传播不意味着所有组件都参与隔离。任何新增资源都必须先明确其所有者，再决定是否使用 Workspace 复合键；新增派生缓存时按派生源坐标键控，不能从 scope 的存在自动推导隔离。
 
 ## 11. 代码与测试入口
 
