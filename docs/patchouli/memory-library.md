@@ -54,6 +54,8 @@ MemoryLibrary
 
 `upsert(recompute_vectors=False)` 用于 embedding 输入未变化的完整提交（如仅修改 `payload.agent_config`）：以 `set_payload` 替换整份 payload 并原样保留向量。`patch_payload` 是动态状态与资源策略的唯一持久化路径：只接受 `meta.lifecycle.*` 七个白名单字段与 `meta.access_policy` 整体替换，按嵌套键做 Qdrant 局部更新，不重算向量、不写版本 Artifact、不改内容时间与版本；未知路径、空 patch 或未通过领域校验的值直接拒绝。
 
+alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入（生成、手工编辑、Profile 管理创建、revive）的汇聚点，在主后端写入前检查 alias 是否已被同一 Workspace 的其他 Memory 占用，冲突时抛 `MemoryAliasConflictError`（`reason=alias_occupied`）且不产生任何写入；没有 alias 的原子不参与该约束，原子自身已持有该 alias 视为可用。归档即释放 alias，revive 时撞名显式失败；`patch_payload` 白名单不含 `index.alias`，不需要校验。精确 alias 查询命中多条时 fail closed（`reason=ambiguous_alias`），不按存储顺序任取其一。并发写入者之间“检查→写入”的竞态不在保证范围内。
+
 `MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。`upsert` 与 `patch_payload` 都会按顺序把同一变更同步到各 secondary 并传播存储错误，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
 
 ### 1.3 长期：冷藏库

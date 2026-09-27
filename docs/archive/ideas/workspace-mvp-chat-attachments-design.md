@@ -1,22 +1,25 @@
 ---
 title: Chat Attachments 初步设计备忘
-status: idea
+status: archived
+archived_at: 2026-09-27
+implemented_in: v0.6.2
+implemented_by: "PR #97 (86ffe4a1)"
+superseded_by: docs/system/attachments.md
 owner: system-patchouli-alice
 scope: chat-attachment-runtime-content-and-context-assembly
-related_current:
-  - ../ROADMAP.md
-  - ../architecture/workspace.md
-  - ../architecture/boundaries.md
-  - ../patchouli/artifacts.md
-  - ../patchouli/memory-library.md
-related_plans:
-  - ../archive/plans/v0.6.2-workspace-mvp.md
-last_reviewed: 2026-09-01
+related_docs:
+  - docs/archive/plans/v0.6.2-w1-chat-attachments.md
+  - docs/archive/plans/v0.6.2-workspace-mvp.md
+  - docs/architecture/workspace.md
+  - docs/patchouli/artifacts.md
+last_reviewed: 2026-09-27
 ---
 
 # Chat Attachments 初步设计备忘
 
-本文只记录尚未形成正式实施计划的 Chat Attachment 设计。附件功能依赖已经完成并稳定的 Workspace MVP 公共契约，但本文不重新定义 Workspace、身份作用域或资源管理模型；Workspace 当前事实以 [Workspace 架构](../architecture/workspace.md) 为准，W0 的实施历史以[归档 Plan](../archive/plans/v0.6.2-workspace-mvp.md)为准。
+> **归档说明（2026-09-27）**：W1 Chat Attachments 已按[归档的 W1 Plan](../plans/v0.6.2-w1-chat-attachments.md)实现，随 PR #97 合并并在 v0.6.2 发布；当前行为以 [Chat 附件链路](../../system/attachments.md)与 [Workspace 架构](../../architecture/workspace.md)为准。本文整体归档，只保存 W1 的初期设计推导；第 9 节列出的设计问题是编写时的上下文，部分已由 W1 实现回答、部分已经过时，不再作为待决问题跟踪。
+
+本文只记录尚未形成正式实施计划的 Chat Attachment 设计。附件功能依赖已经完成并稳定的 Workspace MVP 公共契约，但本文不重新定义 Workspace、身份作用域或资源管理模型；Workspace 当前事实以 [Workspace 架构](../../architecture/workspace.md) 为准，W0 的实施历史以[归档 Plan](../plans/v0.6.2-workspace-mvp.md)为准。
 
 ## 1. 背景与目标
 

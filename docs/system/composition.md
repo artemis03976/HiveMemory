@@ -65,7 +65,7 @@ HiveMemorySystem.build(config)
 - `InMemoryWorkspaceAssetStore`：workspace 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例，由组合根创建并在关闭时最后清理；
 - `WorkspaceRuntime`：workspace 读取视图（完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；目前只被能力层的 actor 可见读取方法使用，尚无生产入口调用。
 
-Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 PendingAtomRuntime 一样属于 Alice 的运行时状态，由 AliceRuntime 在进程启动时创建（[ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）；System 组合根不感知其内部缓存实例。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
+Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 PendingAtomRuntime 一样属于 Alice 的运行时状态，由 AliceRuntime 在进程启动时创建；System 组合根不感知其内部缓存实例。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 

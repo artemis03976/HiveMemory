@@ -111,7 +111,7 @@ Mode A/B 使用 `title + summary` 对中期库执行 dense top-1 搜索，Dedupl
 
 去重 UPDATE 当前使用轻量覆盖，不调用强合并 prompt；这是刻意保守的当前实现，但也意味着 draft 质量直接决定新 head。历史由 MemoryVersionArtifact 保存，不能通过向正文不断追加旧版本来模拟版本控制。
 
-Alias 由 memory type 前缀和 extractor 给出的 suffix 构造，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
+Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空则该记忆没有 alias。候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
 
 ## 5. Artifact 与持久化顺序
 

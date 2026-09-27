@@ -1,6 +1,7 @@
 ---
 title: TDA for Agent Trajectories and Multi-Agent Orchestration
 status: idea
+horizon: long-term
 owner: research
 scope: agent-trajectory-topology-exploration
 related_current:

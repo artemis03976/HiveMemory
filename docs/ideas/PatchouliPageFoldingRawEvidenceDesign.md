@@ -1,6 +1,7 @@
 ---
 title: Patchouli Page Folding Raw Evidence
 status: idea
+horizon: candidate
 owner: patchouli
 scope: page-folding-raw-evidence-exploration
 related_current:

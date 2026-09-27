@@ -1,16 +1,19 @@
 ---
 title: ADR-0005 Unified Actor Authentication Gateway and Workspace-Owned Authorization
-status: accepted
+status: deprecated
 owner: project
 scope: actor-authentication-workspace-admission-and-operation-authorization
 decided_at: 2026-09-19
+deprecated_at: 2026-09-27
 applies_to: v0.7.0-access-boundary-baseline
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-27
 ---
 
 # ADR-0005：统一 Actor 认证网关与 Workspace 持有的授权
 
-> 本文记录 v0.7.0 A1 落地的访问边界决策及理由。设计的完整当前事实见 [Workspace 架构](../workspace.md)第 4 节、[错误模型](../../contracts/error-model.md)第 4.4 节与 [System 应用服务](../../system/application-services.md)；实施历史见[归档的 A1 计划](../../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。
+> **已失效（2026-09-27）**：owner 判定本 ADR 失效且没有替代 ADR，不再作为任何设计依据。正文保留 2026-09-19 的决定与理由，仅供追溯。
+>
+> 本文记录 v0.7.0 A1 落地的访问边界决策及理由。访问边界的当前事实见 [Workspace 架构](../workspace.md)第 4 节、[错误模型](../../contracts/error-model.md)第 4.4 节与 [System 应用服务](../../system/application-services.md)；实施历史见[归档的 A1 计划](../../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。
 
 ## Context
 
@@ -48,7 +51,9 @@ v0.7.0 A1 之前，Workspace 访问由 `LocalTrustedAdmissionService` 承担：`
 
 Accepted（v0.7.0 A1 基线）。
 
-2026-09-26 实现位置修订：网关实现迁至 `workspace/authentication.py`，Principal authentication 由 System 的 `SystemPrincipalAuthenticator`（`system/access/`）经 `core.access.PrincipalAuthenticator` 端口实现并注入；`WorkspaceOperation`、`WorkspaceAccessContext`、`CallerPrincipal` 位于 `core.access`。“一个对外认证入口、两段所有权”的决定不变，接入登记仍归 System，准入与行为白名单仍归 Workspace。生产消费者切换、shutdown 关闭时机与兼容分支退出由 [A6 计划](../../plans/v0.7.0-a6-actor-adapters-and-integration.md)收口；外部凭据协议由计划 B 承接。
+2026-09-26 实现位置修订：网关实现迁至 `workspace/authentication.py`，Principal authentication 由 System 的 `SystemPrincipalAuthenticator`（`system/access/`）经 `core.access.PrincipalAuthenticator` 端口实现并注入；`WorkspaceOperation`、`WorkspaceAccessContext`、`CallerPrincipal` 位于 `core.access`。“一个对外认证入口、两段所有权”的决定不变，接入登记仍归 System，准入与行为白名单仍归 Workspace。
+
+Deprecated（2026-09-27）：本决定失效且没有替代 ADR，见文首说明。
 
 ## Related documents
 

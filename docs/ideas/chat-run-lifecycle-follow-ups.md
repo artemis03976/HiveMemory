@@ -1,6 +1,7 @@
 ---
 title: Chat Run 取消与生命周期后续设计
 status: idea
+horizon: candidate
 owner: system
 scope: chat-run-cancellation-future
 code_paths:

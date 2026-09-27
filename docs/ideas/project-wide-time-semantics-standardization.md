@@ -1,6 +1,7 @@
 ---
 title: Project-Wide Time Semantics Standardization
 status: idea
+horizon: candidate
 owner: project
 scope: whole-project-time-domain-unification-monotonic-and-utc
 related_docs:

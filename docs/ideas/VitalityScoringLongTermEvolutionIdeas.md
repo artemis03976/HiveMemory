@@ -1,6 +1,7 @@
 ---
 title: Vitality Scoring Long-Term Evolution
 status: idea
+horizon: long-term
 owner: patchouli
 scope: vitality-and-lifecycle-evolution-exploration
 related_current:

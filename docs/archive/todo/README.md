@@ -3,7 +3,7 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-09-14
+last_reviewed: 2026-09-27
 ---
 
 # Archived Todo
@@ -14,3 +14,5 @@ last_reviewed: 2026-09-14
 - [ShortTermMemoryStore 边界收敛](./short-term-memory-store-boundary-cleanup.md)。
 - [记忆来源与作者语义](./memory-provenance-vs-authorship.md)。
 - [Topic 关闭时的失败隔离](./topic-shutdown-per-topic-failure-isolation.md)。
+- [Memory Alias 重名缺陷](./memory-alias-uniqueness.md)：同 Workspace alias 唯一性的两层修复（PR #103）；当前事实见 [MemoryLibrary](../../patchouli/memory-library.md)第 1.2 节，后续事项见 [Todo](../../todo/memory-alias-follow-ups.md)。
+- [AgentProfile 模型演进](./agent-profile-model-evolution.md)：模型自持 `agent_id`（PR #103）；当前事实见 [Alice](../../alice/README.md)，开放项转为 [Idea](../../ideas/workspace-network-task-process-architecture.md) P-10。

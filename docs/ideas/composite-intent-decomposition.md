@@ -1,6 +1,7 @@
 ---
 title: 复合意图分解
 status: idea
+horizon: candidate
 owner: gateway
 scope: composite-intent-contract-and-execution
 code_paths:
