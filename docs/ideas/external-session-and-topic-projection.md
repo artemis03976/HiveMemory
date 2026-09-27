@@ -1,6 +1,8 @@
 ---
 title: 外部会话消息的接收与 Topic 投影
 status: idea
+horizon: current
+serves_version: v0.7.0
 owner: project
 scope: conversation-session-interaction-event-topic-projection
 related_docs:

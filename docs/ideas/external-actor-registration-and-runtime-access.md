@@ -1,6 +1,8 @@
 ---
 title: 外部 Actor 的接入登记与运行时访问
 status: idea
+horizon: current
+serves_version: v0.7.0
 owner: project
 scope: external-actor-registration-runtime-access-and-adapter-interface
 code_paths:

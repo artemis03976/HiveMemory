@@ -1,6 +1,7 @@
 ---
 title: TDA for Memory-Centric Agents
 status: idea
+horizon: long-term
 owner: research
 scope: memory-topology-exploration
 related_current:

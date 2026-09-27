@@ -1,6 +1,7 @@
 ---
 title: AE2 与 HiveMemory 的架构同构性
 status: idea
+horizon: long-term
 owner: project
 scope: ae2-inspired-architecture-and-aios-research
 code_paths:

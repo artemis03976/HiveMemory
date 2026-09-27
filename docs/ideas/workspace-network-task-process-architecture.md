@@ -1,6 +1,8 @@
 ---
 title: Workspace 网络与任务进程架构（第一部分：网络拓扑与被动输入；第二部分：system 包的边界；第三部分：认证与授权流程）
 status: idea
+horizon: current
+serves_version: v0.7.0
 owner: project
 scope: workspace-network-task-process-passive-import-system-package-boundary-and-access-flow
 code_paths:

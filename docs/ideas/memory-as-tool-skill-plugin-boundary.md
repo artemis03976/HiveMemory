@@ -1,6 +1,7 @@
 ---
 title: MaaT 与 Skill/Plugin 边界的资产消费模型
 status: idea
+horizon: long-term
 owner: alice-patchouli
 scope: memory-as-a-tool-asset-consumption-and-executable-compilation
 related_contracts:
@@ -8,7 +9,7 @@ related_contracts:
   - docs/patchouli/memory-compiler.md
 related_docs:
   - docs/patchouli/artifacts.md
-  - docs/ideas/workspace-mvp-chat-attachments-design.md
+  - docs/archive/ideas/workspace-mvp-chat-attachments-design.md
   - docs/architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md
 last_reviewed: 2026-09-07
 ---
@@ -184,7 +185,7 @@ run 记录（原子、revision/hash、参数、IdentityScope、结果、耗时�
 
 本 Idea 进入 `docs/plans/` 前至少需要：
 
-1. 有真实场景证明可执行记忆资产的 trust/reproducibility/provenance/reuse 需求存在；W1 Chat Attachments 与 `v0.7.0` Document Ingestion 是最现成的候选证据来源：默认解析器走 sys 侧、Agent 主导的选择性解析走能力包，RAW representation 是锚点、解析产物是同一资产的额外 representation，见 [Chat Attachments Idea](./workspace-mvp-chat-attachments-design.md)；
+1. 有真实场景证明可执行记忆资产的 trust/reproducibility/provenance/reuse 需求存在；W1 Chat Attachments 与 `v0.7.0` Document Ingestion 是最现成的候选证据来源：默认解析器走 sys 侧、Agent 主导的选择性解析走能力包，RAW representation 是锚点、解析产物是同一资产的额外 representation，见 [Chat Attachments Idea](../archive/ideas/workspace-mvp-chat-attachments-design.md)；
 2. 明确目标、非目标、受影响的所有权（Alice 执行层 / Patchouli 资产层 / MemoryCompiler）；
 3. 明确三层语义模型与当前 `MemoryAtom`、WorkspaceAsset、Artifact 之间的映射边界；
 4. 冻结 `RUNNABLE_TOOL` 的执行依据以及 Compiler 与 MTP Runtime 的字段分工；

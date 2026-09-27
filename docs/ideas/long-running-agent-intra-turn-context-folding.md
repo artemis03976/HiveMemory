@@ -1,6 +1,7 @@
 ---
 title: Long-Running Agent Intra-Turn Context Folding
 status: idea
+horizon: candidate
 owner: patchouli-alice-system
 scope: long-running-agent-intra-turn-context-management
 related_current:

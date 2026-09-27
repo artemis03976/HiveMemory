@@ -1,6 +1,8 @@
 ---
 title: 任务进程表与任务请求唯一注册入口
 status: idea
+horizon: current
+serves_version: v0.7.0
 owner: project
 scope: task-process-table-unique-registration-entry-and-process-lifecycle
 code_paths:

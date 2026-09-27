@@ -1,6 +1,8 @@
 ---
 title: 写入意图（PendingAtom）体系的迁移
 status: idea
+horizon: current
+serves_version: v0.7.0
 owner: project
 scope: pending-intent-registry-read-consistency-and-materialization
 related_docs:

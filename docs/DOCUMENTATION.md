@@ -291,6 +291,8 @@ docs/
 ├── todo/
 └── archive/
     ├── plans/
+    ├── todo/
+    ├── ideas/
     ├── legacy-architecture/
     └── legacy-docs/
 ```
@@ -346,6 +348,8 @@ last_reviewed: YYYY-MM-DD
 - `code_paths`：用于验证文档的主要代码入口，不要求枚举全部文件；
 - `related_contracts`：相关稳定契约；
 - `last_reviewed`：最近一次根据代码核对内容的日期。
+
+Idea 文档还应包含 `horizon`，取值与含义见第 8.4 节；`horizon: current` 的 Idea 同时用 `serves_version` 写明服务的版本。
 
 计划文档还应包含目标版本或阶段：
 
@@ -471,6 +475,16 @@ Idea 用于开放探索，可以包含：
 - 升级为 Plan 所需满足的条件。
 
 Idea 不代表路线图承诺，不使用确定语气宣称功能一定会实现。
+
+Idea 以 frontmatter 的 `horizon` 字段分为三类，`ideas/README.md` 按此分区索引：
+
+| `horizon` | 含义 | 额外要求 |
+|:---|:---|:---|
+| `current` | 当前版本方向的设计讨论，直接为下一份 Plan 供料 | 以 `serves_version` 写明服务的版本，并在 `plans/README.md` 对应版本下有入口；可以记录 owner 已作出的决定，须注明日期，未决定的问题只列选项及其影响；版本收尾时要么已形成 Plan，要么改为 `candidate` 或 `long-term` |
+| `candidate` | 问题具体、尚未排期的功能或技术方向 | 进入某个版本的方向后改为 `current` |
+| `long-term` | 长期方向、研究假设或概念性指导 | 不绑定版本 |
+
+类别变化只修改该字段与索引，不移动文件。已经实现、被替代或不再跟踪的 Idea 整体移入 `archive/ideas/`，按第 10 节的归档要求处理。
 
 尚未开始实施的计划，如果方向仍然成立但前提已经改变，退回 Idea：移入 `ideas/`，删除计划安排内容（阶段划分、交付与验收、跨计划依赖、文档更新清单），保留设计，并把原计划中的“决定”“冻结”改写为候选设计或开放问题；入链随之更新。作废且不再讨论的计划按第 10 节直接删除。
 
