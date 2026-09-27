@@ -4,8 +4,7 @@
 adapter 归一化后调用能力方法；能力层在 backing 调用前执行 operation 授权，
 并作为 client 调用 Patchouli backing 路由（第二层 client-server）。
 chat 编排（chat 任务类型的执行步骤）位于 Alice，被动摄入与就绪检查属于
-System 级能力，均不在本子包；原 ``system/application`` 路径保留迁移期
-re-export shim，A6 删除。
+System 级能力，均不在本子包。
 """
 
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService

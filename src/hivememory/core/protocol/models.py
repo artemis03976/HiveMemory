@@ -29,8 +29,6 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
 
-# QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
-
 if TYPE_CHECKING:
     from hivememory.core.models import TopicData
 else:
