@@ -34,12 +34,10 @@ last_reviewed: 2026-09-27
 
 当前版本事实如下：
 
-- 本次发布标签：`v0.6.2`（合并后创建）；
-- 最近已发布基线：`v0.6.1`；
-- 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 下一计划版本：`v0.7.0`，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划；当前唯一的有效计划方向是任务进程表与任务请求唯一注册入口（Plan 尚未建立），计划状态见 [Plans 导航](./plans/README.md)。
+- 最近已发布基线：`v0.6.2`（Git tag，2026-09-14）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
+- 当前开发版本：`v0.7.0`，状态为 Partially Landed，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划；当前唯一的有效计划方向是任务进程表与任务请求唯一注册入口（Plan 尚未建立），计划状态见 [Plans 导航](./plans/README.md)。
 
-当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.6.2`，待合并后创建，最近已发布基线为 `v0.6.1`。
+当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近已发布标签 `v0.6.2` 对应；v0.7.0 开发期间已合入的内容尚未升版。
 
 ## 2. 发布历史
 
@@ -52,65 +50,35 @@ last_reviewed: 2026-09-27
 | `v0.5.0` | Released | artifact/provenance、MemoryLibrary、async-native、模型注册 | Git tag；[System 当前设计](./system/README.md)；[Patchouli 当前设计](./patchouli/README.md) |
 | `v0.6.0` | Released | System Gateway、全局命令、主动/被动入口契约、Passive Ingress 串行与 outbox | Git tag；[Gateway 当前设计](./gateway/README.md)；[Passive Ingress 当前设计](./system/passive-ingress.md) |
 | `v0.6.1` | Released | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | Git tag；[System Runtime 当前设计](components/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md) |
+| `v0.6.2` | Released | Workspace MVP（WorkspaceIdentity、端到端 scope、双 Workspace 隔离、进程级 WorkspaceAssetStore）、Identity 投影收敛、V1 Memory 迁移、Chat Attachments、MTP scope 修复与 Topic/短期存储边界整理 | Git tag；[Workspace 架构](./architecture/workspace.md)；[附件链路](./system/attachments.md)；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md) |
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
-## 3. 最近已发布基线：v0.6.1
+## 3. 最近已发布基线：v0.6.2
 
-主题：**Reliable Local Work Runtime**。
+主题：**Workspace 身份隔离与 Chat 附件**。Git tag `v0.6.2` 创建于 2026-09-14。
 
 ### 3.1 发布内容
 
-- Local Work Queue 已建立不可变 `WorkItem`、权威 `WorkRecord`、状态机、lane、versioned codec 与 handler registry；
-- `InMemoryWorkStore`、Runtime 与 Supervisor 统一提供 enqueue、claim、retry wait、timeout、cancel、backpressure 和 shutdown drain；
-- Passive Interaction Submission 已迁移到通用 submission lane，admission 成功后才 commit/reset accumulator；
-- Active finalize 已复用同一 submission queue，并以同步 applied gate 作为继续后续副作用与返回成功的边界；
-- Active/Passive 使用稳定 `interaction_id`、canonical payload 与 topic/conversation ordering key；
-- Memory Generation 已接入独立业务 lane，保留 list/get/wait/cancel 与领域事件，通过 typed handle 投影 WorkRecord；
-- Interaction Submission 与 Memory Generation 保持独立 payload、成功条件、retry classifier、capacity 与取消策略；
-- RuntimeEvent 只投影状态转换，sink 失败不改变业务结果；
-- Durability D0、Idempotency I0、Identity S0 和数据模型 Phase I 四项前置基线已经建立；
-- 相关单元、集成、模糊失败、capacity、取消与 shutdown 行为均有测试证据。
-
-当前事实入口：
-
-- [系统架构概览](./architecture/overview.md)
-- [系统边界与所有权](./architecture/boundaries.md)
-- [子系统公共契约](./contracts/subsystem-contracts.md)
-- [公开路由与事件](./contracts/routes-and-events.md)
-- [System 当前设计](./system/README.md)
-- [System Runtime 与 Work Queue](components/runtime-and-bus.md#3-local-work-queue-runtime)
-- [Passive Ingress 当前设计](./system/passive-ingress.md)
-- [Patchouli 记忆生成](./patchouli/generation.md)
-- [Gateway 当前设计](./gateway/README.md)
-- [Patchouli 当前设计](./patchouli/README.md)
-- [Alice 当前设计](./alice/README.md)
-- [Frontend 当前设计](./frontend/README.md)
-- [Help](./help/README.md)
-- [Applications](./applications/README.md)
-- [v0.6.1 归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)
+| 切片 | 已形成的基础 | 事实与历史入口 |
+|:---|:---|:---|
+| W0 Workspace MVP | WorkspaceIdentity、默认 main_workspace、端到端 scope、双 Workspace 隔离、进程级 WorkspaceAssetStore、两级状态机与 TopicAssetBinding | [Workspace 架构](./architecture/workspace.md)、[W0 归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md) |
+| Identity 投影收敛 | 服务入口统一 IdentityScope、身份解析入口收口、actor 值对象化、管理与检索可见性分离 | [System 应用服务](./system/application-services.md)、[Identity 归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
+| V1 Memory Legacy 迁移 | 已有 V1 记录迁入 canonical v2，移除 legacy 解释分支 | [数据模型](./architecture/data-model.md)、[迁移归档 Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md) |
+| W1 Chat Attachments | 上传、确定性解析、READY/FAILED、选择与 lease、AttachmentCompiler、Topic binding、按需 Artifact promotion | [附件链路](./system/attachments.md)、[W1 归档 Plan](./archive/plans/v0.6.2-w1-chat-attachments.md) |
+| MTP scope 修复 | L0 pending 与 L1/L2 atom 查找重验 scope，越权按不可见处理 | [MTP 契约](./contracts/mtp.md)、[归档修复记录](./archive/todo/mtp-cache-scope-revalidation.md) |
+| Topic 与短期存储边界 | TopicWorkingSet、lease 与短期 CRUD/快照责任收敛 | [Perception](./patchouli/perception.md)、[归档 Plan](./archive/plans/short-term-memory-store-boundary-cleanup.md) |
+| 旧缓存迁移及后续所有权调整 | Workspace-aware cache key 已形成；随后按 ADR-0004 由 AliceRuntime 持有，WorkspaceRuntime 聚合解体 | [旧迁移归档 Plan](./archive/plans/v0.6.2-workspace-runtime-cache-migration.md)、[ADR-0004](./architecture/decisions/0004-execution-path-derived-caches.md) |
 
 ### 3.2 发布范围边界
 
-- v0.6.1 的可靠性承诺限定为单进程、单 event loop 的进程内执行生命周期，不构成跨重启可靠交付；
-- SQLite WorkStore、claim ownership、lease recovery 和数据库级唯一 idempotency key 不属于本版本，已进入持久化治理；
-- Runtime 多 lane 抽象当前保留，但生产组件仍按业务 queue 分别装配 Runtime/Store；拓扑重构等待真实触发条件；
-- priority、用户任务 API、定时/hook workflow、DAG 和 outcome artifact 不属于本版本；
-- Memory Generation 含领域副作用的数据面固定单次 attempt，不因通用 Runtime 支持 retry 就自动重放；
-- queue FIFO、topic append order 与 Agent causal order 是不同保证，v0.6.1 不宣称已经解决因果排序；
-- v0.6.1 未回溯改写 v0.6.0 Passive Ingress 的公共契约。
+- W0/W1 不承担外源文档全文摄入、强沙箱或外部 harness 的完整接入；
+- 已完成的 V1 数据转换不同于未来的历史对话导入；
+- Workspace 资源体系与 Actor 执行边界的重构不属于本版本，归属 v0.7.0。
 
-### 3.3 v0.6.1 发布验收
+### 3.3 发布验收
 
-- Work Queue 公共协议与状态机不依赖 Patchouli、Alice 或 server 业务模型；
-- Interaction Submission 与 Memory Generation 使用独立 lane，不共享 payload、成功条件或 retry classifier；
-- capacity 满时明确拒绝，不静默丢弃已接纳 work；
-- Active finalize 只有在 interaction work `SUCCEEDED` 后才执行 materialization/HIT 等后续副作用；
-- Passive admission 失败保留 payload，重复提交与 retry 复用稳定 `interaction_id`；
-- Memory Generation 的 concurrency、queued/running cancel、timeout、wait/list/get 和 shutdown drain 保持一致投影；
-- at-least-once、业务幂等、模糊失败、RuntimeEvent isolation 和进程内 accepted 边界均有测试与文档；
-- 当前设计、README、Python 包、前端清单和 `v0.6.1` tag 口径一致；
-- Release workflow 同时校验并发布 backend wheel、sdist、frontend archive 和合并校验文件。
+收尾时已核对上述范围的测试、事实文档、归档和版本产物一致性，结果见[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。上一个发布版本 v0.6.1 的内容见第 2 节与[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md)。
 
 ## 4. 近期计划
 
@@ -124,7 +92,7 @@ last_reviewed: 2026-09-27
 
 | 原排期 | 新排期 | 调整原因 |
 |:---|:---|:---|
-| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0`，状态见第 4.4 节 | 独立于 W0/W1 收口；2026-09-27 起按 Workspace 网络与任务进程架构重新规划 |
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0`，状态见第 4.3 节 | 独立于 W0/W1 收口；2026-09-27 起按 Workspace 网络与任务进程架构重新规划 |
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
@@ -134,23 +102,7 @@ last_reviewed: 2026-09-27
 
 除 `v0.7.0` 外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
 
-### 4.2 v0.6.2：内容已收尾
-
-状态：Completed。W0、Identity 收敛、V1 Memory 迁移、W1、Topic 存储边界整理与 MTP scope 修复已完成内容核对；相关计划和修复记录均已归档，规范版本已调整至 0.6.2，本次发布标签为 v0.6.2（合并后创建）。资源体系重构归属 v0.7.0。
-
-| 切片 | 已形成的基础 | 事实与历史入口 |
-|:---|:---|:---|
-| W0 Workspace MVP | WorkspaceIdentity、默认 main_workspace、端到端 scope、双 Workspace 隔离、进程级 WorkspaceAssetStore、两级状态机与 TopicAssetBinding | [Workspace 架构](./architecture/workspace.md)、[W0 归档 Plan](./archive/plans/v0.6.2-workspace-mvp.md) |
-| Identity 投影收敛 | 服务入口统一 IdentityScope、身份解析入口收口、actor 值对象化、管理与检索可见性分离 | [System 应用服务](./system/application-services.md)、[Identity 归档 Plan](./archive/plans/v0.6.2-identity-projection-cleanup.md) |
-| V1 Memory Legacy 迁移 | 已有 V1 记录迁入 canonical v2，移除 legacy 解释分支 | [数据模型](./architecture/data-model.md)、[迁移归档 Plan](./archive/plans/v0.6.2-v1-memory-legacy-migration.md) |
-| W1 Chat Attachments | 上传、确定性解析、READY/FAILED、选择与 lease、AttachmentCompiler、Topic binding、按需 Artifact promotion | [附件链路](./system/attachments.md)、[W1 归档 Plan](./archive/plans/v0.6.2-w1-chat-attachments.md) |
-| MTP scope 修复 | L0 pending 与 L1/L2 atom 查找重验 scope，越权按不可见处理 | [MTP 契约](./contracts/mtp.md)、[归档修复记录](./archive/todo/mtp-cache-scope-revalidation.md) |
-| Topic 与短期存储边界 | TopicWorkingSet、lease 与短期 CRUD/快照责任收敛 | [Perception](./patchouli/perception.md)、[归档 Plan](./archive/plans/short-term-memory-store-boundary-cleanup.md) |
-| 旧缓存迁移及后续所有权调整 | Workspace-aware cache key 已形成；随后按 ADR-0004 由 AliceRuntime 持有，WorkspaceRuntime 聚合解体 | [旧迁移归档 Plan](./archive/plans/v0.6.2-workspace-runtime-cache-migration.md)、[ADR-0004](./architecture/decisions/0004-execution-path-derived-caches.md) |
-
-本次收尾已核对上述范围的测试、事实文档、归档和版本产物一致性，结果见 [收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。W0/W1 不因此重新承担外源文档全文摄入、强沙箱或外部 harness 完整接入。已完成的 V1 数据转换也不同于未来的历史对话导入。
-
-### 4.3 目标总览
+### 4.2 目标总览
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
@@ -161,10 +113,10 @@ last_reviewed: 2026-09-27
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
 | 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.0 期间启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
-| Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.10 节 Todo；正式 Plan 待建立 |
+| Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.9 节 Todo；正式 Plan 待建立 |
 | Electron 桌面客户端 | Candidate / `v0.8.x` 产品化窗口 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 前端传输与资源生命周期稳定；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md)；正式 Plan 待建立 |
 
-### 4.4 v0.7.0：Workspace 网络与任务进程
+### 4.3 v0.7.0：Workspace 网络与任务进程
 
 状态：Partially Landed。原计划 A（A1–A6、A2-P）与计划 B 的计划体系已于 2026-09-27 按新架构重整，版本内的计划状态与顺序只在 [Plans 导航](./plans/README.md)维护。
 
@@ -174,9 +126,9 @@ last_reviewed: 2026-09-27
 - **边界原则**：记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
 - v0.7.0 的整体范围尚未决定；架构层面的讨论与待决问题见 [Workspace 网络与任务进程架构 Idea](./ideas/workspace-network-task-process-architecture.md)。
 
-### 4.5 v0.7.1：执行基座与真实外部 Actor 两个独立切片
+### 4.4 v0.7.1：执行基座与真实外部 Actor 两个独立切片
 
-#### 4.5.1 执行基座与沙箱基线
+#### 4.4.1 执行基座与沙箱基线
 
 状态：Candidate。用户实测 MTP RUN 经常失败是启动调查的依据，正式 Plan 首先收集复现样例，区分协议解析、alias/权限、参数编译、环境、依赖、工具进程与取消链路的问题；不预设所有故障都由缺少沙箱引起。
 
@@ -184,7 +136,7 @@ last_reviewed: 2026-09-27
 
 验收覆盖正常结束、工具异常、启动失败、超时、取消、子进程清理和不同 Workspace 环境隔离。受信任执行、工具 API 限制和 OS 级强隔离必须明确区分：工作目录、prompt 或 Python 包装层不足以限制任意代码。若第一版无法实施相应隔离，不接纳要求该隔离等级的任务。完整不可信代码沙箱保留独立的实现与验证门槛。
 
-#### 4.5.2 首个真实外部 harness 接入
+#### 4.4.2 首个真实外部 harness 接入
 
 状态：Candidate，目标窗口为 v0.7.1。它消费外部 Actor 的接入与运行时访问契约（[Idea](./ideas/external-actor-registration-and-runtime-access.md)，版本归属待定），不强依赖 HiveMemory 本地沙箱；外部 harness 可继续使用自己的工具和执行环境。优先选一个用户实际使用且有可用接入方式的 harness，具体通过 API、MCP、skill、hook 或 connector 由样本与支持接口决定。
 
@@ -192,7 +144,7 @@ last_reviewed: 2026-09-27
 
 接入需把具体平台的身份、事件顺序、重发、turn 结束和来源映射到外部 Actor 接入契约，验证平台能力不足时的失败披露。外部 harness 默认保有自己的 prompt history；HiveMemory 不隐式接管上下文压缩。ingress、交互应用和记忆物化状态继续分开；connector 不重写领域状态机，也不扩大已有幂等与持久化承诺。
 
-### 4.6 v0.7.2：冷启动、历史导入与外源文档资产化
+### 4.5 v0.7.2：冷启动、历史导入与外源文档资产化
 
 状态：Candidate，建议拆成两个可独立验收的 Plan，共享资源归属、来源和物化策略；确定性解析可在 v0.7.1 执行基座建设期间并行验证。
 
@@ -204,15 +156,15 @@ last_reviewed: 2026-09-27
 
 本地已给定文档的解析不依赖 Alice 或通用代码执行；需要网页获取、本地目录浏览或复杂转换时使用相应 provider。语义提炼可以调用模型或 Actor，但不能让文档注册、证据保存和读取依赖 Alice 的 run。
 
-验收至少包含重复导入、部分失败、来源回查、跨 Workspace 隔离、旧信息与当前事实冲突，以及中断后的可解释处理。若承诺重启续跑，先交付导入 checkpoint 和所需任务持久化切片；现有进程内队列不足以承担该承诺。批量自动物化先完成第 4.9 节最小价值策略，避免一次导入大量低质量或相互冲突的记忆。
+验收至少包含重复导入、部分失败、来源回查、跨 Workspace 隔离、旧信息与当前事实冲突，以及中断后的可解释处理。若承诺重启续跑，先交付导入 checkpoint 和所需任务持久化切片；现有进程内队列不足以承担该承诺。批量自动物化先完成第 4.8 节最小价值策略，避免一次导入大量低质量或相互冲突的记忆。
 
-### 4.7 v0.7.3：MTP READ 专项编译与来源表达
+### 4.6 v0.7.3：MTP READ 专项编译与来源表达
 
 状态：Candidate。基于 [v0.7.0 A2-P](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)的完整记忆历史，以及 v0.7.2 的来源、文档表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。完整历史存储、内容版本与 lifecycle 更新边界由 A2-P 提前交付，本阶段不再反向定义记忆写入格式。
 
 结果应说明读到哪个资源和版本、选择了哪个片段、引用如何回到原始证据，以及截断、缺失来源、旧裁剪历史和无权限如何表达。历史记录中的 lifecycle 是捕获时状态，额外展示当前评估时必须区分时点，不能用当前原子补造历史。不能仅在现有文本末尾追加一个链接，也不能建立第二套 provenance 或检索状态。其编译能力可由外部 adapter 复用，MTP 负责自己的协议呈现。
 
-### 4.8 v0.7.4：Deep Research MVP
+### 4.7 v0.7.4：Deep Research MVP
 
 状态：Candidate。研究领域持有 request、source、evidence、finding 和 report；协调器负责推进、重试与进度；执行 adapter 提供搜索、抓取、文件读取或分析。资源和研究状态不依赖 Alice 的 frame，Actor 可替换也不表示各 harness 的工具与策略完全等价。
 
@@ -222,7 +174,7 @@ last_reviewed: 2026-09-27
 
 研究状态跨 Actor 存续与跨进程恢复是两个承诺。恢复范围必须在正式 Plan 中冻结：若要在应用重启后继续，先持久化来源、进度与 checkpoint，并定义重放和重复副作用；在此之前只承诺实际支持的进程内暂停/继续。
 
-### 4.9 记忆价值策略：跨版本重设计
+### 4.8 记忆价值策略：跨版本重设计
 
 状态：Candidate。v0.7.0 期间可启动分析与样本收集，v0.7.2 大规模自动物化前完成最小策略，后续根据真实使用反馈迭代。
 
@@ -235,7 +187,7 @@ last_reviewed: 2026-09-27
 
 权责与评估明确后再决定是否需要多维评分或新字段。新策略不追溯性批量删除旧记忆；任何存量重评或迁移另有预览、审计和回滚范围。正式 Plan 待建立。
 
-### 4.10 前端与 Todo 并行工作流
+### 4.9 前端与 Todo 并行工作流
 
 Frontend 已部分落地，后续优化按可用性和资源操作体验推进，详细事实见 [Frontend](./frontend/README.md)。本轨不阻塞后端基础重构，但与受影响 API 一起验收。
 
@@ -261,7 +213,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 
 上述排期摘要不代替 Todo 本体的完成条件。实现时先复核其是否已解决；跨系统范围扩大则建立 Plan，不通过“清理 Todo”引入未评审的新状态机。
 
-### 4.11 依赖与验收门槛
+### 4.10 依赖与验收门槛
 
 ```text
 v0.6.2 已实现基础 -> v0.7.0：Workspace 网络与任务进程（首个方向：任务进程表与唯一注册入口）
