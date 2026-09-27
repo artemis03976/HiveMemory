@@ -4,7 +4,7 @@ status: governance
 owner: system
 scope: cross-subsystem-state-durability-and-crash-recovery
 code_paths:
-  - src/hivememory/system/runtime/
+  - src/hivememory/components/
   - src/hivememory/patchouli/runtime/
   - src/hivememory/patchouli/control/
   - src/hivememory/agent_runtime/
@@ -36,7 +36,7 @@ last_reviewed: 2026-09-13
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
 | Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
-| WorkspaceAsset / opaque ref | System-owned 进程内 `WorkspaceAssetStore` | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
+| WorkspaceAsset / opaque ref | workspace 的进程内 `WorkspaceAssetStore`（组合根装配） | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
 | Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |

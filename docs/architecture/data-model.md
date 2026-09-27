@@ -6,7 +6,7 @@ scope: domain-models-snapshots-runtime-state-and-boundary-projection
 code_paths:
   - src/hivememory/core/models/
   - src/hivememory/core/protocol/
-  - src/hivememory/system/runtime/workspace/
+  - src/hivememory/workspace/assets/
   - src/hivememory/gateway/workflow/
   - src/hivememory/patchouli/memory_library/
   - src/hivememory/agent_runtime/pending_atom/

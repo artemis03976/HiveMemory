@@ -6,7 +6,7 @@ scope: external-conversation-memory-ingress
 code_paths:
   - src/hivememory/system/application/passive_ingress_service.py
   - src/hivememory/system/services/passive/
-  - src/hivememory/system/config/passive.py
+  - src/hivememory/config/passive.py
   - src/hivememory/patchouli/control/interaction_submission.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md

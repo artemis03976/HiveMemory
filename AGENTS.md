@@ -21,28 +21,43 @@
 
 ## 3. 当前架构与所有权
 
-当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`。HTTP 路由是适配层，应调用 System application service，不应重新实现业务流程。
+当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：资源能力由 `workspace.capability` 提供，chat 编排位于 `alice.application`（暂置），被动摄入与就绪检查位于 `system.application`。
+
+包按层组织，依赖只能指向同层或更低层（由 `tests/unit/architecture/test_package_layers.py` 守护）：
+
+| 层 | 包 | 职责 |
+| --- | --- | --- |
+| L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、契约常量、错误类型、访问值类型与端口协议；配置段模型 |
+| L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context |
+| L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
+| L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 子系统；彼此只能导入对方公开的 `contracts` 子包 |
+| L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
+| L5 | `server` | 入口（传输层 adapter） |
+
+根配置与加载（`config.app`）只供 `system` 与 `server` 使用；下层以端口协议声明对上层能力的需要（如 `core.access.PrincipalAuthenticator`、`agent_runtime.model_resolution.ModelResolver`），由组合根实现并注入。engines 对上层的少量既有导入登记为已知例外，不得新增。
 
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |
-| System | 组合、应用用例、生命周期、全局总线、运行控制、Passive Ingress、调度、注册表和接入认证 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行 |
+| System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Passive Ingress、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
+| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、actor 可见的能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接 | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令、话题/查询分析、检索计划和保守降级 | 记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环 |
-| Alice | Agent run、frame、MTP/工具、PendingAtom 运行时和 CALL 编排 | 长期记忆所有权、Gateway 分析、HTTP 生命周期 |
-| Core/Contracts | 依赖中立的模型、协议枚举、route/event 常量 | 业务编排、I/O、可变运行时状态 |
+| Alice | Agent run、frame、MTP/工具、PendingAtom 运行时和 CALL 编排；chat 任务编排与 chat run 控制状态（暂置） | 长期记忆所有权、Gateway 分析、HTTP 生命周期 |
+| Core/Contracts | 依赖中立的模型、协议枚举、route/event 常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
+| Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context） | 业务状态与业务判断 |
 
-必须保持以下方向：`server -> System application -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
+必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层 / Alice chat 编排 / System 被动摄入） -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
 关键所有权约束：
 
 - Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者。
 - Alice 只拥有本次 Agent run 的 frame、turn events、工具调用、alias/cache 和 PendingAtom 运行时视图。
-- System 拥有 chat/passive 控制状态、全局调度与 `WorkspaceAssetStore` 的进程内 working set。
+- System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat run 控制状态暂由 Alice 的 chat 编排持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
 - `IdentityScope`（Actor + Workspace）必须沿应用服务、公共 route、Interaction 和后台任务传播，并在资源 owner 处再次校验。
 - Cache、queue、registry、scheduler 和 EventBus 默认是进程级共享基础设施；`workspace_id` 观测标签不等于授权或分区。
-- `WorkspaceAsset` 是 System 的进程内资源；Topic、Memory、Artifact 的 Workspace 归属仍由 Patchouli 领域规则校验。
+- `WorkspaceAsset` 是 workspace 的进程内资源；Topic、Memory、Artifact 的 Workspace 归属仍由 Patchouli 领域规则校验。
 
 ## 4. 关键流程不变量
 
@@ -65,6 +80,7 @@
 - 时间敏感逻辑注入可控时钟或使用相对时间；测试中不得通过固定 `sleep` 等待状态落定。
 - 错误要保留结构化类型、阶段和可诊断上下文；不要用宽泛 `except Exception` 把程序错误改成成功或空结果。
 - 环境变量用于密钥、地址、端口和运行开关；业务参数使用 `configs/config.yaml`，模型清单使用 `configs/models.yaml`。绝不提交真实密钥、`.env`、Qdrant 数据或日志。
+- 配置模型位于 `src/hivememory/config/`（按子系统分段）；组件只接收并导入自己的配置段，不持有根配置 `HiveMemoryConfig`，也不自行调用 `load_app_config`，缺配置时显式失败。
 - 版本唯一来源是 `src/hivememory/_version.py`；涉及版本时运行 `python scripts/check_version_consistency.py`。
 - 改动公共模型、route 名称、事件名、配置键或错误语义时，先更新对应契约和所有消费者，再运行跨边界测试。
 
@@ -121,7 +137,7 @@ cd frontend && npm ci && npm run lint && npm run build
 ## 8. 完成任务前的自检
 
 - [ ] 改动范围只覆盖任务所需文件，未覆盖用户已有修改。
-- [ ] 所有跨边界调用遵循公共 route/model/event 和唯一状态所有者。
+- [ ] 所有跨边界调用遵循公共 route/model/event 和唯一状态所有者；新增导入符合包分层规则。
 - [ ] Workspace/IdentityScope、取消、超时、失败、幂等和资源清理语义已核对。
 - [ ] 新测试属于正确主类型，断言可在生产代码改坏时失败。
 - [ ] 已运行与改动匹配的定向测试、静态检查和必要的全量门槛。

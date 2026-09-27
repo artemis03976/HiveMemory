@@ -4,7 +4,7 @@ status: current
 owner: system
 scope: subsystem-public-contracts
 code_paths:
-  - src/hivememory/system/contracts/
+  - src/hivememory/core/contracts/
   - src/hivememory/gateway/contracts/
   - src/hivememory/patchouli/contracts/
   - src/hivememory/alice/contracts/
@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-26
 ---
 
 # 子系统公共契约
@@ -169,7 +169,7 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 ### 3.5 访问上下文与行为授权
 
-公共 application 方法约定接收 `access: WorkspaceAccessContext | None` 参数：context 由 System 统一认证网关签发、由 Workspace 访问基础设施逐次校验。提供 access 时，application 在资源读取或副作用之前按方法绑定的 operation 调用共享行为检查，取得可信 `IdentityScope` 后才进入领域链；请求 DTO 中携带的 scope 只能作一致性校验，不得覆盖可信坐标。`WorkspaceAccessContext` 只公开已准入的 `IdentityScope`，不携带调用来源、行为白名单或单次 operation；同一有效 context 可先后执行不同的获准操作。
+公共 application 方法约定接收 `access: WorkspaceAccessContext | None` 参数：context 由 workspace 认证入口（统一认证网关，`workspace.authentication`）签发、由 workspace 访问基础设施逐次校验，Patchouli 经 `core.access.WorkspaceAccessVerifier` 消费这一检查。提供 access 时，application 在资源读取或副作用之前按方法绑定的 operation 调用共享行为检查，取得可信 `IdentityScope` 后才进入领域链；读取类 backing 路由（`memory.read`、`memory.retrieve`、`memory.retrieve_by_aliases`、`get_agent_profile`）例外：operation 授权由 workspace 能力层在调用前执行，Patchouli 一侧只校验 context 的签发、有效期与准入，不重复检查 operation。请求 DTO 中携带的 scope 只能作一致性校验，不得覆盖可信坐标。`WorkspaceAccessContext` 只公开已准入的 `IdentityScope`，不携带调用来源、行为白名单或单次 operation；同一有效 context 可先后执行不同的获准操作。
 
 两类入口并存是显式契约而非疏漏：`read_memory`、`interaction.submit`、`memory_intent.submit` 等不在迁移兼容清单内，缺失 access 一律拒绝；管理 CRUD、检索、Profile、Topic 管理和附件上传等既有调用方在缺失 access 时按裸 scope 受信适配运行，清单（保留入口、已有调用方、A6 删除点）唯一维护在 `patchouli/application/access_consumption.py`，A6 完成生产消费者切换后删除兼容分支。Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义（接入认证、准入、行为授权、context 有效性）见[错误模型](./error-model.md)，完整访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
@@ -281,4 +281,4 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 - 改变 AgentRunResult 终态和 finalize 资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/test_service.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/application/test_agent_run_service.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。

@@ -6,6 +6,10 @@ scope: system-architecture
 code_paths:
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
+  - src/hivememory/components/
+  - src/hivememory/config/
+  - src/hivememory/workspace/
+  - src/hivememory/alice/application/chat_service.py
   - src/hivememory/gateway/system.py
   - src/hivememory/patchouli/system.py
   - src/hivememory/alice/system.py
@@ -17,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-09-26
 ---
 
 # HiveMemory 当前系统架构
@@ -42,13 +46,13 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 主动对话、被动摄入和系统指令都需要理解“这条输入要去哪里”，但入口判断本身不应取得记忆或执行的所有权。Gateway 因此独立为系统级守门人：它形成决策，却不执行检索、不生成回答，也不写入记忆。
 
-System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Alice 的执行能力编排为完整用例。这样既保持统一入口，又避免 Gateway 演变成新的 God Object。
+应用层用例再把 Gateway 的入口决策、Patchouli 的记忆事务和 Alice 的执行能力编排为完整用例（chat 编排目前位于 `alice.application`，被动摄入位于 System）。这样既保持统一入口，又避免 Gateway 演变成新的 God Object。
 
 ## 2. 当前基线
 
-- 最新已发布 Git 标签：`v0.6.1`；
-- 当前发布基线：`v0.6.1`；
-- 当前代码、构建与运行时版本：`0.6.1`，唯一声明位于 `src/hivememory/_version.py`；
+- 最新已发布 Git 标签：`v0.6.2`；
+- 当前发布基线：`v0.6.2`；
+- 当前代码、构建与运行时版本：`0.6.2`，唯一声明位于 `src/hivememory/_version.py`；
 - 当前发布基线已经包含独立 Gateway、全局命令、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
 
@@ -56,27 +60,44 @@ System 应用层再把 Gateway 的入口决策、Patchouli 的记忆事务和 Al
 
 ## 3. 顶层结构
 
-`SystemAssembler` 是组合根，负责构造共享运行时、三个同级子系统和顶层应用服务。`HiveMemorySystem` 持有最终组件图并管理生命周期。
+`SystemAssembler` 是组合根，负责构造共享运行时、三个同级子系统、workspace 设施和应用服务。`HiveMemorySystem` 持有最终组件图、作为入口使用的门面并管理生命周期。
+
+代码按层组织，依赖只能指向同层或更低层（`tests/unit/architecture/test_package_layers.py` 守护）：
+
+| 层 | 包 | 职责 |
+|:---|:---|:---|
+| L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、契约常量、错误类型、访问值类型与端口协议；配置段模型 |
+| L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context |
+| L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
+| L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 各子系统与 workspace 设施；彼此只导入对方公开的 `contracts` 子包 |
+| L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
+| L5 | `server` | 入口（传输层 adapter） |
+
+下层需要上层能力时以端口协议声明，由组合根实现并注入；根配置与加载（`config.app`）只供 `system` 与 `server` 使用，各组件只接收自己的配置段。
 
 Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdown 清理顺序见
 [Workspace 架构](./workspace.md)；本文只保留总体组件关系和跨子系统生命周期概览。
 
 ```mermaid
 flowchart TB
-    API["HTTP / SSE / WebSocket 适配层"] --> APP["System Application Services"]
-    APP --> BUS["GlobalSystemBus"]
+    API["HTTP / SSE / WebSocket 适配层"] --> FACADE["HiveMemorySystem 门面"]
+    FACADE --> CAP["Workspace 能力层"]
+    FACADE --> CHAT["Chat 编排（alice.application）"]
+    CAP --> BUS["GlobalSystemBus"]
+    CHAT --> BUS
 
     BUS --> GW["GatewaySystem"]
     BUS --> PA["PatchouliSystem"]
     BUS --> AL["AliceSystem"]
 
-    APP --> PI["Passive Ingress Runtime"]
+    FACADE --> PI["Passive Ingress（System）"]
     PI --> BUS
 
     PA --> STORE["MemoryLibrary / Storage / Artifacts"]
     AL --> AR["AgentRuntime / KoakumaRuntime"]
 
-    OBS["RuntimeEventBus"] -. "best-effort observability" .-> APP
+    OBS["RuntimeEventBus"] -. "best-effort observability" .-> CHAT
+    OBS -.-> PI
     OBS -.-> GW
     OBS -.-> PA
     OBS -.-> AL
@@ -87,13 +108,13 @@ flowchart TB
 
 System 层拥有：
 
-- 系统装配与生命周期；
-- `GlobalSystemBus`、可选 `RuntimeEventBus` 和全局维护调度器；
-- Provider / Model 注册表；
-- 主动对话、被动摄入和面向 HTTP 的应用服务；
-- 跨子系统调用顺序、取消与失败清理。
+- 系统装配、门面与生命周期（启停顺序与关闭收尾）；
+- 根配置加载（`config.app`），并把各配置段注入对应组件；
+- `GlobalSystemBus`、可选 `RuntimeEventBus` 和全局维护调度器等共享设施实例的装配与关闭（机制实现在 `components`）；
+- Provider / Model 注册表，以及调用来源接入登记与 Principal authentication；
+- 被动摄入与就绪检查。
 
-System 更像舞台管理者：它知道谁应先出场、失败后应通知谁收尾，也持有全局时钟和观测设施；但它不替任何角色完成领域工作。System 不实现 Gateway 分析、记忆域算法或 Agent 执行循环，否则顶层编排很快会重新变成无法测试和替换的总管对象。
+资源能力（能力层、认证入口与准入、读取视图、WorkspaceAsset）属于 workspace；chat 编排与 chat run 控制状态暂置于 `alice.application`。System 更像舞台管理者：它知道谁应先出场、关闭时谁先收尾，也持有全局时钟和观测设施；但它不替任何角色完成领域工作。System 不实现 Gateway 分析、记忆域算法或 Agent 执行循环，否则顶层编排很快会重新变成无法测试和替换的总管对象。
 
 ### 3.2 Gateway：真理之眼的工程边界
 
@@ -130,7 +151,7 @@ Alice 是 Agent 执行与控制平面，拥有：
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 
-因此 Alice 不拥有长期记忆存储，也不编排顶层 chat 的 prepare/finalize。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
+因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定 prepare/finalize。chat 编排（`alice.application.chat_service`）作为 chat 任务类型的执行步骤暂置于 Alice 包内，只经公开路由依次调用 Gateway、Patchouli 与 Alice，不持有其他子系统的对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
 
 ## 4. 共享运行时：连接而不混合
 
@@ -154,7 +175,7 @@ Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、�
 
 Local Work Queue Runtime 统一进程内 work 的 enqueue、状态迁移、并发、retry wait、timeout、cancel、
 backpressure 与 shutdown drain。Interaction Submission 与 Memory Generation 使用独立业务 lane、payload、
-成功条件和失败策略；System Runtime 只拥有机械生命周期，不解释 Patchouli 业务。
+成功条件和失败策略；work queue 机制（`components.work_queue`）只拥有机械生命周期，不解释 Patchouli 业务。
 
 当前 Store 是 in-memory，只承诺单进程生命周期内的 accepted 与状态查询，不承诺重启恢复或 durable
 accepted。当前契约见 [System 运行时与总线](../system/runtime-and-bus.md#3-local-work-queue-runtime)，
@@ -181,7 +202,7 @@ ChatApplicationService
 2. Patchouli prepare 解析 Agent Profile、话题、检索结果和已编译记忆上下文，返回 `PreparedAgentRun`；
 3. Alice 只消费 `AgentRunContext` 和单次生成覆盖参数；
 4. 只有正常完成的 Agent run 进入 finalize；
-5. prepare 成功但 finalize 未成功时，System 请求 Patchouli cleanup，清理可能预创建的空话题；
+5. prepare 成功但 finalize 未成功时，chat 编排请求 Patchouli cleanup，清理可能预创建的空话题；
 6. finalize 从结构化 `turn_events` 归约 MTP trace，并提交 interaction、物化任务和检索命中。
 
 ## 6. 被动摄入：让外部经历进入记忆，而不是伪造一次对话
@@ -218,16 +239,17 @@ Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 
 ```text
 Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
-  -> WorkspaceAssetStore.close_and_clear
+  -> WorkspaceRuntime.close -> WorkspaceAssetStore.close_and_clear
 ```
 
-启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力，最后清空进程级 WorkspaceAssetStore。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
+启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力，随后关闭 workspace 读取视图（停止新读并清理派生缓存，不触碰 canonical 数据），最后清空进程级 WorkspaceAssetStore。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
 
 ## 8. 当前不变量
 
 下面的不变量不是代码风格偏好，而是用来判断新设计是否开始自相矛盾的检查线：
 
-- Gateway、Patchouli、Alice 是由 System 装配的同级子系统；
+- Gateway、Patchouli、Alice 是由 System 装配的同级子系统，workspace 设施与它们同层；
+- 包依赖遵循分层规则：下层不导入上层，子系统之间只导入对方的 `contracts`，system 只被入口导入；
 - 跨子系统业务调用只依赖公开模型和 `GlobalSystemBus` 路由；
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
@@ -262,7 +284,8 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 ## 11. 验证入口
 
 - 组合与生命周期：`src/hivememory/system/assembler.py`、`src/hivememory/system/system.py`；
-- 主动链路：`src/hivememory/system/application/chat_service.py`；
+- 包分层：`tests/unit/architecture/test_package_layers.py`；
+- 主动链路：`src/hivememory/alice/application/chat_service.py`；
 - 被动链路：`src/hivememory/system/application/passive_ingress_service.py`、`src/hivememory/system/services/passive/`；
 - 子系统宿主：`src/hivememory/{gateway,patchouli,alice}/system.py`；
 - 主要测试：`tests/unit/system/`、`tests/unit/gateway/`、`tests/e2e/pipeline/`。

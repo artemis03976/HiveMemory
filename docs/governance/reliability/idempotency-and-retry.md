@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/patchouli/services/
   - src/hivememory/patchouli/memory_library/
   - src/hivememory/agent_runtime/pending_atom/
-  - src/hivememory/system/runtime/
+  - src/hivememory/components/
 related_docs:
   - docs/system/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md

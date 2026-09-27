@@ -7,34 +7,35 @@ code_paths:
   - src/hivememory/system/system.py
   - src/hivememory/system/assembler.py
   - src/hivememory/system/application/
-  - src/hivememory/system/runtime/
-  - src/hivememory/system/runtime/workspace/
+  - src/hivememory/system/access/
   - src/hivememory/system/services/passive/
+  - src/hivememory/config/
+  - src/hivememory/components/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-26
 ---
 
 # System
 
-本目录是 HiveMemory 顶层 System 当前设计的入口，负责说明系统装配、应用服务、全局运行时能力和被动摄入基础设施。
+本目录是 HiveMemory 顶层 System 当前设计的入口，负责说明系统装配、门面与应用服务、共享运行时设施、配置与注册表和被动摄入基础设施。
 
-System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实现一遍，而是回答一次顶层用例如何开始、如何跨边界交接、如何取消和如何收尾。它是组合根和应用编排层，也是全局总线、维护调度器、观测旁路和配置/注册表的所有者。
+System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实现一遍，而是装配所有组件、决定它们如何启动和收尾，并通过门面把服务交给入口。它是依赖图的顶点：除入口外不被任何包导入。System 拥有根配置的加载与分段注入、模型/Provider 注册表、调用来源接入登记与 Principal authentication，以及被动摄入这一系统级能力；总线、维护调度器、work queue 与观测旁路的机制实现位于 `components` 包，System 负责装配这些实例并管理其启停。资源能力（`workspace.capability`）与 chat 编排（`alice.application`，暂置）同样由 System 装配并经门面交给入口，但不属于 System。
 
-Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 System 复制出的独立运行时。System 负责在入口和后台交接中保留 `IdentityScope`，并持有进程级唯一的 `WorkspaceAssetStore` working set；Topic、Memory 和 Artifact 的领域语义仍由 Patchouli 所有。详见 [Workspace 架构](../architecture/workspace.md)。
+Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 System 复制出的独立运行时。System 负责在入口和后台交接中保留 `IdentityScope`，并装配、在关闭时最后清理进程级唯一的 `WorkspaceAssetStore`（属于 workspace）；Topic、Memory 和 Artifact 的领域语义仍由 Patchouli 所有。详见 [Workspace 架构](../architecture/workspace.md)。
 
 当前设计文档：
 
 - [组合根与生命周期](./composition.md)：`HiveMemorySystem`、`SystemAssembler`、子系统装配和启停顺序；
-- [应用服务](./application-services.md)：主动 chat、取消、API facade 和跨子系统编排；
+- [应用服务](./application-services.md)：门面提供的服务——chat 编排与取消（`alice.application`）、资源能力层（`workspace.capability`）、就绪检查与跨子系统编排；
 - [被动摄入](./passive-ingress.md)：外部对话事件、turn accumulator、submission queue 和降级语义；
-- [运行时与总线](./runtime-and-bus.md)：GlobalSystemBus、维护调度器和运行控制；
+- [运行时与总线](./runtime-and-bus.md)：`components` 包中的 GlobalSystemBus、维护调度器、work queue 与串行门，以及 System 对它们的装配与启停；
 - [Workspace 架构](../architecture/workspace.md)：身份坐标、资源归属、AssetStore 生命周期与共享底座边界；
-- [配置与注册表](./configuration.md)：配置来源、所有权、模型/Provider 注册和覆盖边界；
+- [配置与注册表](./configuration.md)：`config` 包的配置段与根配置加载、所有权、模型/Provider 注册和覆盖边界；
 - [可观测性](./observability.md)：RuntimeEvent、operation observer、健康状态和旁路原则；
 - [i18n](./i18n.md)：语言归一化、解析优先级和各文本领域的当前入口。
 

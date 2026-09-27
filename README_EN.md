@@ -65,11 +65,11 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 
 ## Architecture Overview
 
-The current implementation uses a **System / Service / Runtime** layout. The top-level System owns application orchestration and global routes, Gateway owns entry decisions, Patchouli owns memory-domain capabilities, and Alice owns agent execution plus MTP/tool execution.
+The current implementation is organized in dependency layers. The top-level System owns composition, the facade, and lifecycle; shared runtime mechanisms live in `components`, and authentication, the capability layer, and asset facilities live in `workspace`; Gateway owns entry decisions, Patchouli owns memory-domain capabilities, and Alice owns agent execution plus MTP/tool execution.
 
 ### Main Runtime Components
 
-- **HiveMemorySystem**: the top-level host that assembles global routes, application services, Gateway, Patchouli, and Alice
+- **HiveMemorySystem**: the composition root and facade that assembles shared runtime, workspace facilities, application services, Gateway, Patchouli, and Alice
 - **ChatApplicationService**: the active chat orchestrator that runs `prepare -> Alice run -> finalize`
 - **GatewaySystem / GatewayRuntime**: the entry-decision subsystem for commands, topic routing, query analysis, and stable decision projection
 - **PatchouliSystem / PatchouliRuntime**: the memory subsystem host and runtime for retrieval, perception, generation, lifecycle, and storage capabilities
@@ -285,12 +285,17 @@ HiveMemory/
 ├── frontend/                # React + Vite frontend development UI
 ├── scripts/                 # Startup and helper scripts
 ├── src/hivememory/
-│   ├── core/                # Core data models
-│   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / WebSocket
+│   ├── core/                # Core data models, contract constants, access value types, and ports
+│   ├── config/              # Config section models and root config loading
+│   ├── components/          # In-process runtime mechanisms: bus, scheduler, work queue, runtime events
+│   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle algorithms
+│   ├── infrastructure/      # Storage / LLM / Embedding / attachment parsing adapters
+│   ├── workspace/           # Authentication entry, capability layer, read view, WorkspaceAsset facilities
+│   ├── gateway/             # Gateway entry-decision subsystem
 │   ├── patchouli/           # Patchouli memory subsystem and runtime
-│   ├── alice/               # Alice agent runtime and Koakuma MTP/tool runtime
-│   ├── system/              # Top-level HiveMemory system, global bus, and application services
+│   ├── alice/               # Alice agent execution subsystem (hosts chat orchestration for now)
+│   ├── agent_runtime/       # Single-agent execution layer and Koakuma MTP/tool runtime
+│   ├── system/              # Composition root, facade, registries, and passive ingress
 │   ├── prompts/             # System prompts and prompt assembly
 │   └── server/              # FastAPI app entrypoint and routes
 └── tests/                   # Unit, integration, and end-to-end tests

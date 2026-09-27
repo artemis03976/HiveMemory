@@ -5,7 +5,7 @@ owner: patchouli
 scope: memory-ir-and-task-specific-compilation
 code_paths:
   - src/hivememory/engines/memory_compiler/
-  - src/hivememory/system/config/memory_compiler.py
+  - src/hivememory/config/memory_compiler.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md

@@ -4,10 +4,10 @@ status: current
 owner: system
 scope: runtime-events-operations-and-health
 code_paths:
-  - src/hivememory/system/runtime/events.py
-  - src/hivememory/system/runtime/publisher.py
-  - src/hivememory/system/runtime/operations.py
-  - src/hivememory/system/contracts/runtime_events.py
+  - src/hivememory/components/events/bus.py
+  - src/hivememory/components/events/publisher.py
+  - src/hivememory/components/events/operations.py
+  - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/system/system.py
 related_contracts:
   - docs/contracts/routes-and-events.md
@@ -108,4 +108,4 @@ RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段�
 - `tests/unit/alice/runtime/test_runtime_events.py`
 - `tests/unit/system/runtime/test_operations.py`
 - `tests/unit/system/test_lifecycle.py`
-- `src/hivememory/system/contracts/runtime_events.py`
+- `src/hivememory/core/contracts/runtime_events.py`

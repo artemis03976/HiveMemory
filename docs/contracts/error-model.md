@@ -10,7 +10,7 @@ code_paths:
   - src/hivememory/core/mtp/formatter.py
   - src/hivememory/core/protocol/gateway.py
   - src/hivememory/system/services/passive/exceptions.py
-  - src/hivememory/system/runtime/bus/async_bus.py
+  - src/hivememory/components/bus/async_bus.py
   - src/hivememory/system/access/
   - src/hivememory/workspace/access.py
 related_contracts:

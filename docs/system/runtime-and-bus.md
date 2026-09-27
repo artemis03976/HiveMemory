@@ -4,14 +4,14 @@ status: current
 owner: system
 scope: global-bus-maintenance-scheduler-and-runtime-control
 code_paths:
-  - src/hivememory/system/runtime/bus/
-  - src/hivememory/system/runtime/scheduler/
-  - src/hivememory/system/runtime/work_queue/
+  - src/hivememory/components/bus/
+  - src/hivememory/components/scheduler/
+  - src/hivememory/components/work_queue/
   - src/hivememory/infrastructure/work_queue/
-  - src/hivememory/system/runtime/control.py
-  - src/hivememory/system/runtime/operations.py
-  - src/hivememory/system/runtime/serial_gate.py
-  - src/hivememory/system/runtime/workspace/
+  - src/hivememory/alice/application/chat_control.py
+  - src/hivememory/components/events/operations.py
+  - src/hivememory/components/serial_gate.py
+  - src/hivememory/workspace/assets/
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
@@ -22,12 +22,12 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-26
 ---
 
 # System 运行时与总线
 
-System 的运行时基础设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Local Work Queue Runtime 负责已接纳进程内工作的机械生命周期，Runtime control 负责前台用例的阶段与停止控制，RuntimeEventSink 负责观测旁路。
+共享运行时设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。它们的机制实现位于 `components` 包（依赖层级在各子系统之下，只依赖 core），实例由 System 组合根创建并管理启停。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Local Work Queue Runtime 负责已接纳进程内工作的机械生命周期，RuntimeEventSink 负责观测旁路；chat 编排的 run 控制（第 4 节）负责前台 chat 用例的阶段与停止控制，位于 `alice.application`。
 
 这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。领域 payload 可以携带不可变的 `IdentityScope`，供真正的资源所有者在最终边界校验；GlobalSystemBus、scheduler、work queue、registry 和 EventBus 本身仍是进程级共享底座，不按 Workspace 建立命名域。
 
@@ -108,7 +108,7 @@ InteractionSubmissionQueue       MemoryGenerationTaskController
                    InMemoryWorkStore
 ```
 
-`system/runtime/work_queue` 拥有公共状态机、port、policy、codec registry、worker 生命周期和通用
+`components/work_queue` 拥有公共状态机、port、policy、codec registry、worker 生命周期和通用
 RuntimeEvent；`infrastructure/work_queue` 只提供存储与唤醒机制；Patchouli 业务组件拥有 payload、
 成功条件、失败分类、幂等语义和领域投影。通用运行时不得 import Patchouli、Alice 或 server 模型，
 也不得根据 payload 中的 Workspace 字段创建第二套分区状态。
@@ -183,7 +183,7 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 
 ### 3.6 Workspace 与共享运行时
 
-`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 System 装配的进程级唯一 working set。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过自己的 scope 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。Alice 执行路径的派生缓存（L1 atom cache、profile cache）由 AliceRuntime 持有，并在 `AliceSystem.stop()` 自行清空，不属于 System 运行时基础设施。
+`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过自己的 scope 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。Alice 执行路径的派生缓存（L1 atom cache、profile cache）由 AliceRuntime 持有，并在 `AliceSystem.stop()` 自行清空，不属于 System 运行时基础设施。
 
 同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
 
@@ -192,7 +192,7 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 
 ## 4. Runtime control
 
-`ChatGenerationRunRegistry` 是 System 应用层的前台控制表，保存 generation ID、当前阶段、状态、取消原因和当前阶段的 task 引用。它只服务进程内 chat run：
+`ChatGenerationRunRegistry`（`alice/application/chat_control.py`）是 chat 编排的前台控制表，保存 generation ID、当前阶段、状态、取消原因和当前阶段的 task 引用。它只服务进程内 chat run：
 
 ```text
 client cancel
@@ -211,7 +211,7 @@ Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的�
 
 ## 5. KeyedSerialGate
 
-[`KeyedSerialGate`](../../src/hivememory/system/runtime/serial_gate.py) 是按可哈希 key 串行化异步操作的公共机制。`hold(key)` 负责互斥、取消/异常退出时释放和最后一人离开后的条目回收；`active_keys()` 返回当前持有者或等待者涉及的 key 快照，供调用方执行自己的收尾流程。它不保存幂等结果或业务状态。
+[`KeyedSerialGate`](../../src/hivememory/components/serial_gate.py) 是按可哈希 key 串行化异步操作的公共机制。`hold(key)` 负责互斥、取消/异常退出时释放和最后一人离开后的条目回收；`active_keys()` 返回当前持有者或等待者涉及的 key 快照，供调用方执行自己的收尾流程。它不保存幂等结果或业务状态。
 
 实例由需要协调的服务在初始化时创建并复用，key 的构造和持锁范围由业务所有者决定。附件上传应用服务使用 `(WorkspaceIdentity, client_operation_id)`，被动摄入使用 `PassiveConversationKey`；两者持有独立实例，同一 key 在不同实例之间也不会互斥。公共实现只在同一 event loop 内使用，不支持同 key 重入或跨线程协调；登记、回收与快照读取不含 `await`，不另加线程锁。
 
@@ -226,7 +226,7 @@ Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的�
 ## 7. 调度、队列与总线的边界
 
 ```text
-System application service -> GlobalSystemBus RPC -> subsystem owner
+应用服务（chat 编排 / 被动摄入 / 能力层） -> GlobalSystemBus RPC -> subsystem owner
 Subsystem maintenance task -> GlobalMaintenanceScheduler callback
 Accepted local work -> WorkQueueRuntime -> business handler
 Any operation -> RuntimeEventSink (best-effort observation)

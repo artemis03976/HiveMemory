@@ -5,17 +5,17 @@ owner: system
 scope: global-routes-and-events
 code_paths:
   - src/hivememory/server/deps.py
-  - src/hivememory/system/contracts/route_names.py
-  - src/hivememory/system/contracts/events.py
-  - src/hivememory/system/contracts/runtime_events.py
-  - src/hivememory/system/runtime/bus/
-  - src/hivememory/system/runtime/events.py
+  - src/hivememory/core/contracts/route_names.py
+  - src/hivememory/core/contracts/events.py
+  - src/hivememory/core/contracts/runtime_events.py
+  - src/hivememory/components/bus/
+  - src/hivememory/components/events/bus.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-09-26
 ---
 
 # 公开路由与事件
@@ -56,7 +56,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 ## 2. 规范路由名
 
-`src/hivememory/system/contracts/route_names.py::RouteNames` 是 route 字符串的代码级唯一来源。`GlobalRoutes` 和各子系统 Routes 类只重导出这些常量。
+`src/hivememory/core/contracts/route_names.py::RouteNames` 是 route 字符串的代码级唯一来源。`GlobalRoutes` 和各子系统 Routes 类只重导出这些常量。
 
 一个公开调用的契约由三部分共同构成：route 字符串确定能力身份，handler 参数名和调用形式确定交接方式，公共模型确定输入输出语义。只同步其中一项仍可能让注册方与调用方在运行时分叉，因此参数重命名、模型字段变化和 route 重命名都属于契约变更。
 
@@ -70,14 +70,22 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `RetrievalResponse` |
-| `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `RetrievalResponse` |
+| `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`）、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（按领域排序） |
+| `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope`、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（只含实际可读的原子） |
+| `patchouli.public.memory.read` | `read_memory` | memory id、`WorkspaceAccessContext` 或兼容 `IdentityScope` | `MemoryAtom \| None`（未知或不可见均为 `None`） |
 | `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、`IdentityScope`、`interaction_id`、`GatewayDecision`、检索/生成选项 | `PreparedAgentRun` |
 | `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、`AgentRunResult` | memory task 列表 |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun` | 是否清理空话题 |
 | `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
 
-Interaction Submission 不是 GlobalSystemBus 的公开路由。主动与被动生产路径都直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.identity_scope` 是唯一作用域来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
+交互与主动意图提交：
+
+| Route | Handler | 输入摘要 | 输出 |
+|:---|:---|:---|:---|
+| `patchouli.public.interaction.submit` | `submit_interaction` | `WorkspaceAccessContext`（必需）、`InteractionPayload`、可选 requested topic / interaction id | `InteractionSubmitResult`（接纳结果） |
+| `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `WorkspaceAccessContext`（必需）、`MemoryIntent` | `MemoryIntentSubmissionResult`（结果经任务观察查询） |
+
+上表两条路由要求有效访问上下文，供持有 context 的调用方提交交互与主动记忆意图。现有主动（chat finalize）与被动生产路径不经这两条路由，而是直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.identity_scope` 是唯一作用域来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
 
 ### 2.3 Patchouli Memory
 
@@ -99,7 +107,7 @@ Interaction Submission 不是 GlobalSystemBus 的公开路由。主动与被动�
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id | `bool` |
 | `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`MemoryAtom` | `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、`IdentityScope`（自定义 alias 必需） | `AgentProfile`；显式缺失/越权/无效时抛结构化 MTP error |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、`IdentityScope`（自定义 alias 必需）、可选 `WorkspaceAccessContext` | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
 | `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、可选 topic id | `TopicSettleResult` |

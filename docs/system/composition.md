@@ -6,57 +6,64 @@ scope: composition-root-and-lifecycle
 code_paths:
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
-  - src/hivememory/system/contracts/subsystem.py
-  - src/hivememory/system/runtime/workspace/
+  - src/hivememory/core/contracts/subsystem.py
+  - src/hivememory/config/app.py
+  - src/hivememory/components/
+  - src/hivememory/workspace/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-26
 ---
 
 # System 组合根与生命周期
 
-`HiveMemorySystem` 是进程内顶层宿主。它把 Gateway、Patchouli、Alice、应用服务和全局运行时放到同一条可推理的生命周期里，但不替任何子系统执行领域工作。
+`HiveMemorySystem` 是进程内顶层宿主与入口使用的门面。它把 Gateway、Patchouli、Alice、workspace 设施、应用服务和共享运行时放到同一条可推理的生命周期里，但不替任何子系统执行领域工作。
 
-这个边界是项目从旧对象图中抽离出来的关键结果。若 HTTP router 或某个子系统自己装配依赖，就会出现多套总线、不同的取消状态和不一致的启停顺序；若 System 进一步拥有记忆算法、Gateway workflow 或 Agent loop，又会重新成为一个无法替换的全能总管。因此 System 只拥有组合关系、进程级状态和跨子系统用例。
+这个边界是项目从旧对象图中抽离出来的关键结果。若 HTTP router 或某个子系统自己装配依赖，就会出现多套总线、不同的取消状态和不一致的启停顺序；若 System 进一步拥有记忆算法、Gateway workflow 或 Agent loop，又会重新成为一个无法替换的全能总管。因此 System 只拥有组合关系、进程级状态与系统级能力，并位于依赖图顶点：它可以导入任何下层包完成装配，而除入口外没有包导入它。组件需要的配置由 System 从根配置（`config.app`）中取出对应配置段注入，组件不持有根配置。
 
 ## 1. 组合结构
 
-`SystemAssembler.assemble()` 按四层生成中间产物，最后交给 `HiveMemorySystem`：
+`SystemAssembler.assemble()` 按五步生成中间产物，最后交给 `HiveMemorySystem`：
 
 ```text
 HiveMemorySystem.build(config)
   -> SystemAssembler
        -> runtime bundle
-             GlobalSystemBus
-             GlobalMaintenanceScheduler
-             InMemoryWorkspaceAssetStore（进程级唯一）
-             RuntimeEventBus / NullRuntimeEventSink
+             GlobalSystemBus / GlobalMaintenanceScheduler（components）
+             RuntimeEventBus / NullRuntimeEventSink（components）
+             InMemoryWorkspaceAssetStore（workspace.assets；进程级唯一）
+             WorkspaceRuntime（workspace 读取视图）
        -> registries bundle
             ProviderRegistry
             ModelRegistry
+       -> access-control bundle
+            SystemActorAccessRegistry / WorkspaceActorAccessRegistry
+            WorkspaceAccessGuard
+            ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator）
        -> subsystem bundle
-            GatewaySystem
-            PatchouliSystem
-            AliceSystem
-       -> application-service bundle
-            Chat / PassiveIngress / Memory / MemoryTask
-            Agent / Topic / Readiness services
-            WorkspaceAssetApplicationService（持有 AssetStore 命令端口）
+            GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
+       -> service bundle
+            ChatApplicationService（alice.application）
+            PassiveIngressService / SystemReadinessService（system.application）
+            Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability）
 ```
 
-四个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，子系统共享全局基础设施，应用服务最后只拿到公共总线和必要配置。
+五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关，子系统共享全局基础设施，服务最后只拿到公共总线、访问检查与必要配置。
 
 ### 1.1 Runtime bundle
+
+机制实现均位于 `components` 包，System 只创建实例并管理启停：
 
 - `GlobalSystemBus`：跨子系统 public route 的 RPC/Pub/Sub 交接面；
 - `GlobalMaintenanceScheduler`：在当前主 `asyncio` loop 调度维护任务；
 - `RuntimeEventBus`：启用时保存有界观测事件和订阅队列；
 - `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
-- `InMemoryWorkspaceAssetStore`：System-owned 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例。
+- `InMemoryWorkspaceAssetStore`：workspace 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例，由组合根创建并在关闭时最后清理；
+- `WorkspaceRuntime`：workspace 读取视图（完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；目前只被能力层的 actor 可见读取方法使用，尚无生产入口调用。
 
 Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 PendingAtomRuntime 一样属于 Alice 的运行时状态，由 AliceRuntime 在进程启动时创建（[ADR-0004](../architecture/decisions/0004-execution-path-derived-caches.md)）；System 组合根不感知其内部缓存实例。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
@@ -74,11 +81,11 @@ Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 Pe
 
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
-| Gateway | 注入配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入配置、全局总线、维护调度器、观测 sink 和 AssetStore 只读 reader | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
-| Alice | 注入配置、全局总线、模型注册表和观测 sink | Agent run、frame、MTP、工具、PendingAtom 运行时与执行路径派生 cache |
+| Gateway | 注入 `gateway` 配置段、已解析的 Gateway LLM 配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
+| Patchouli | 注入 `patchouli` / `shared` / `memory_compiler` / `attachment_compiler` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader 与访问检查（`WorkspaceAccessVerifier`） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Alice | 注入 `alice` / `memory_compiler` 配置段、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）和观测 sink | Agent run、frame、MTP、工具、PendingAtom 运行时与执行路径派生 cache |
 
-System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由应用服务通过 `GlobalSystemBus` 发起。
+System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、被动摄入、能力层）通过 `GlobalSystemBus` 发起。
 
 ## 2. 启动顺序
 
@@ -109,15 +116,16 @@ GlobalMaintenanceScheduler.stop
   -> Alice.stop
   -> Patchouli.stop
   -> Gateway.stop
+  -> WorkspaceRuntime.close
   -> WorkspaceAssetStore.close_and_clear
   -> SYSTEM_STOPPED
 ```
 
-先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时在 bridge 卸载后自行清空其执行路径的派生 cache；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时在 bridge 卸载后自行清空其执行路径的派生 cache；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
 
-对于从未成功启动的 System，`stop()` 在完成必要的 Passive drain 后即可清空 AssetStore 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
+对于从未成功启动的 System，`stop()` 在完成必要的 Passive drain 后即可关闭读取视图、清空 AssetStore 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
 
 ## 4. 健康状态与公共入口
 
@@ -129,12 +137,13 @@ GlobalMaintenanceScheduler.stop
 
 健康状态是观测和管理入口，不替代业务契约。模型尚未 ready 不等于所有 route 都不存在；反过来，健康返回 `ok` 也不保证一次具体检索或生成调用一定成功。
 
-System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `chat_service`、`ingress_service`、`memory_service`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用应用服务，不应从属性继续下钻到子系统 Runtime。
+System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `chat_service`（Alice chat 编排）、`ingress_service`（被动摄入）、`memory_service` 等能力服务、`access_gateway`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
 
 ## 5. 生命周期不变量与矛盾检查
 
 - 所有 public route 的挂载和撤销必须由对应子系统宿主完成；
-- 应用服务不直接持有 Gateway/Patchouli/Alice 实例；
+- 服务（chat 编排、被动摄入、能力层）不直接持有 Gateway/Patchouli/Alice 实例；
+- 除入口外没有包导入 `system`；组件只接收自己的配置段，不持有根配置；
 - 维护任务必须在 scheduler 注册，不能由业务组件偷偷创建第二个 interval loop；
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
 - `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
@@ -150,6 +159,7 @@ System 对外暴露的是应用服务属性和 registry/sink 查询，例如 `ch
 - `src/hivememory/system/system.py`
 - `tests/unit/system/test_hivememory_system.py`
 - `tests/unit/system/test_lifecycle.py`
-- `tests/unit/system/runtime/workspace/test_runtime.py`
+- `tests/unit/architecture/test_package_layers.py`
+- `tests/unit/system/runtime/workspace/test_store.py`
 - `tests/integration/system/test_workspace_asset_runtime.py`（对象图与停止顺序）
 - `tests/unit/system/contracts/test_contracts.py`

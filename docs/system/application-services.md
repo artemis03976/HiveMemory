@@ -5,7 +5,9 @@ owner: system
 scope: application-use-cases-and-cross-subsystem-orchestration
 code_paths:
   - src/hivememory/system/application/
-  - src/hivememory/system/runtime/control.py
+  - src/hivememory/alice/application/chat_service.py
+  - src/hivememory/alice/application/chat_control.py
+  - src/hivememory/workspace/capability/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
@@ -14,12 +16,18 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-26
 ---
 
-# System 应用服务
+# 应用服务
 
-System 应用服务是 transport 与子系统之间的用例层。它们回答“这次请求应该按什么顺序跨边界运行”，而不回答“记忆如何检索”“Agent 如何生成”或“Gateway 如何分析”。
+应用服务是 transport 与子系统之间的用例层。它们由 System 组合根装配、经 `HiveMemorySystem` 门面交给入口，但按归属分布在三处：
+
+- chat 编排：`alice.application`（`ChatApplicationService` 与 chat run 控制表，暂置于 Alice，待任务进程注册入口确定最终归属）；
+- 资源能力层：`workspace.capability`（Memory、MemoryTask、Agent Profile、Topic、WorkspaceAsset 服务）；
+- 系统级服务：`system.application`（被动摄入与就绪检查）。
+
+本文统一描述它们共同遵守的用例层规则。它们回答“这次请求应该按什么顺序跨边界运行”，而不回答“记忆如何检索”“Agent 如何生成”或“Gateway 如何分析”。
 
 这一层存在，是因为 HTTP、SSE、CLI 和未来外部 adapter 都需要共享同一条主动 chat、取消、被动摄入和管理 API 链路。若每个 router 自己拼装 Gateway、Patchouli 和 Alice，就会再次出现多套 prepare/finalize、错误处理和取消语义。
 
@@ -35,9 +43,9 @@ System 应用服务是 transport 与子系统之间的用例层。它们回答�
 
 应用服务公共方法只接受 `identity_scope: IdentityScope` 唯一入口，不接受裸 `user_id`（由签名守卫测试约束）。用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）由 `server/deps.py resolve_request_identity_scope` 在 server 边界一次性校验并冻结为不可变 `IdentityScope`，随后沿 route 和领域 payload 传递；应用服务不再解析身份，也不得再次执行默认解析。非 Agent action 的 scope 由 server 注入保留 `system` actor，只标记"没有具体 Agent 作为操作来源主体"。后台 task、retry 和 finalize 不重新读取进程当前 Workspace；它们使用自身 DTO 中保存的 scope，在最终访问 Workspace-owned 资源时由领域所有者校验。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
-应用服务可以保存一次用例的短期控制状态，例如 chat generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
+应用服务可以保存一次用例的短期控制状态，例如 chat 编排的 generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
-Memory、Agent、Topic、Task 管理服务和附件上传服务还接收统一认证网关签发的 `WorkspaceAccessContext`（`access` 参数）并**原样透传**给 Patchouli/Asset 公共路由：本层不解释、不裁剪 access，也不以 DTO scope 覆盖可信坐标，最终行为授权在 application 层落实（见[Workspace 架构](../architecture/workspace.md)第 4 节）。`access` 缺省时依赖下游冻结的迁移期兼容分支（裸 `IdentityScope` 受信适配），兼容窗口由 A6 完成生产消费者切换后关闭。
+Memory、Agent、Topic、Task 能力服务和附件上传服务还接收统一认证网关签发的 `WorkspaceAccessContext`（`access` 参数）。管理方法（Memory CRUD/feedback、Profile 管理、Topic 管理、Task 观察/取消）将 access **原样透传**给 Patchouli 公共路由：本层不解释、不裁剪 access，也不以 DTO scope 覆盖可信坐标，行为授权在 Patchouli application 落实；能力层的 actor 可见读取方法（Memory 点读、alias 读取、语义检索、Profile 读取）则在本层按 operation 授权后经 workspace 读取视图读取，Patchouli backing 只校验 context 有效性（见[Workspace 架构](../architecture/workspace.md)第 4 节）。目前没有生产入口调用这些 actor 可见读取方法，HTTP 路由使用管理方法。`access` 缺省时依赖下游冻结的迁移期兼容分支（裸 `IdentityScope` 受信适配），兼容窗口由 A6 完成生产消费者切换后关闭。
 
 ### 1.1 Transport / Router 边界
 
@@ -49,16 +57,16 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 ## 2. 服务分工
 
-| 服务 | 当前职责 | 主要依赖 |
+| 服务（位置） | 当前职责 | 主要依赖 |
 |:---|:---|:---|
-| `ChatApplicationService` | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 编排 | Gateway、Patchouli、Alice public routes；RuntimeEventSink |
-| `PassiveIngressService` | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
-| `MemoryApplicationService` | Memory CRUD、feedback 和查询参数转换；接收并透传访问上下文 | Patchouli memory routes |
-| `MemoryTaskApplicationService` | 查询/取消 Patchouli 拥有的 memory generation task；透传观察/取消访问上下文 | Patchouli task routes |
-| `AgentApplicationService` | 构造 Agent Profile atom 并调用 Patchouli profile routes | Patchouli profile routes |
-| `TopicApplicationService` | 活跃话题查询、手动 settle、evict；透传读取/Topic 管理访问上下文 | Patchouli topic routes |
-| `SystemReadinessService` | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
-| `WorkspaceAssetApplicationService` | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；携带 access 时先经共享行为检查（`management.asset`） | System-owned WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、Workspace 行为检查；链路事实见[Chat 附件链路](./attachments.md) |
+| `ChatApplicationService`（`alice.application`） | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 编排 | Gateway、Patchouli、Alice public routes；RuntimeEventSink |
+| `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
+| `MemoryApplicationService`（`workspace.capability`） | Memory CRUD、feedback 和查询参数转换，透传访问上下文；actor 可见读取经读取视图 | Patchouli memory routes；workspace 读取视图 |
+| `MemoryTaskApplicationService`（`workspace.capability`） | 查询/取消 Patchouli 拥有的 memory generation task；透传观察/取消访问上下文 | Patchouli task routes |
+| `AgentApplicationService`（`workspace.capability`） | 构造 Agent Profile atom 并调用 Patchouli profile routes；Profile 读取经读取视图 | Patchouli profile routes；workspace 读取视图 |
+| `TopicApplicationService`（`workspace.capability`） | 活跃话题查询、手动 settle、evict；透传读取/Topic 管理访问上下文 | Patchouli topic routes |
+| `SystemReadinessService`（`system.application`） | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
+| `WorkspaceAssetApplicationService`（`workspace.capability`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；携带 access 时先经共享行为检查（`management.asset`） | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、Workspace 行为检查；链路事实见[Chat 附件链路](./attachments.md) |
 
 这些服务的“拥有”只指顶层用例入口，不改变表中后端子系统的状态所有权。例如 `MemoryTaskApplicationService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。
 
@@ -106,7 +114,7 @@ generation_id
 
 ## 4. ChatGenerationRun 与取消
 
-`ChatGenerationRunRegistry` 是 System 应用层拥有的进程内控制表。每条 run 有：
+`ChatGenerationRunRegistry`（`alice/application/chat_control.py`）是 chat 编排拥有的进程内控制表。每条 run 有：
 
 - `generation_id`；
 - `phase`：`created/gateway/prepare/alice/finalize/terminal`；
@@ -163,9 +171,6 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 - `tests/unit/server/routers/test_chat.py`
 - `tests/unit/system/application/test_api_services.py`
 - `tests/unit/system/application/test_identity_entry_guards.py`（服务签名/身份入口守卫）
-- `tests/unit/system/application/test_memory_service.py`
-- `tests/unit/system/application/test_memory_task_service.py`
-- `tests/unit/system/application/test_agent_service.py`
-- `tests/unit/system/application/test_topic_service.py`
+- `tests/unit/workspace/capability/`（Memory、MemoryTask、Agent Profile、Topic 能力服务）
 - `tests/unit/system/application/test_readiness_service.py`
-- `tests/integration/system/application/test_workspace_asset_service.py`、`test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
+- `tests/integration/workspace/capability/test_assets.py`、`tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）

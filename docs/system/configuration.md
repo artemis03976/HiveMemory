@@ -4,7 +4,7 @@ status: current
 owner: system
 scope: configuration-loading-and-global-registries
 code_paths:
-  - src/hivememory/system/config/
+  - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
   - configs/config.yaml
@@ -13,30 +13,37 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-26
 ---
 
 # System 配置与注册表
 
-配置是 System 的装配输入，不是另一套运行时控制 API。它需要同时满足两个现实：开发者希望通过 YAML 和环境变量管理整套服务，子系统又必须拥有自己那部分语义和默认值。当前做法是由 `HiveMemoryConfig` 统一加载和校验，再把子模型注入对应宿主；System 不在请求路径里重新解释 Gateway、Patchouli 或 Alice 的内部配置。
+配置是 System 的装配输入，不是另一套运行时控制 API。它需要同时满足两个现实：开发者希望通过 YAML 和环境变量管理整套服务，子系统又必须拥有自己那部分语义和默认值。当前做法是由 `HiveMemoryConfig` 统一加载和校验，再把各配置段注入对应宿主；System 不在请求路径里重新解释 Gateway、Patchouli 或 Alice 的内部配置。
+
+配置模型集中在顶层 `config` 包（依赖层级最低，只依赖 pydantic、core 常量与 i18n），按子系统和高聚合组件分段：`config.shared`、`config.patchouli`、`config.gateway`、`config.alice`、`config.memory_compiler`、`config.attachments`、`config.workspace`、`config.runtime`、`config.passive`、`config.access`；根配置 `HiveMemoryConfig` 与加载函数位于 `config.app`。使用规则：
+
+- `config.app` 只供组合根（`system`）与入口（`server`、脚本）使用，由分层测试守护；
+- 组件只导入并接收自己的配置段，不持有根配置，也不自行调用 `load_app_config()`；子系统宿主的构造参数是对应配置段（例如 `PatchouliSystem(config=PatchouliConfig, shared_config=..., ...)`），由组合根从根配置中取出注入；
+- 基础设施工厂函数（LLM、Embedding 等）要求调用方显式传入配置，缺失时抛 `ValueError`，不回退读取全局配置。
 
 ## 1. 配置树
 
 `HiveMemoryConfig` 当前包含：
 
-| 区域 | 主要内容 | 责任边界 |
-|:---|:---|:---|
-| `system` / `logging` | 名称、调试标志、日志输出 | System/基础设施 |
-| `scheduler` | tick、关闭等待、observer/perception/GC 任务开关与间隔 | System runtime |
-| `runtime_events` | 是否启用、ring buffer 和订阅队列大小 | System observability |
-| `i18n` | 默认语言、fallback 字段、支持语言列表 | 全局文本解析 |
-| `shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
-| `gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
-| `passive_ingress` | dedup、turn accumulator 上限 | System passive ingress |
-| `memory_compiler` | 编译策略 | MemoryCompiler 所有者 |
-| `patchouli` / `alice` | 各自运行时和存储配置 | 对应子系统 |
+| 区域 | 模块 | 主要内容 | 责任边界 |
+|:---|:---|:---|:---|
+| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、日志输出；默认语言、fallback 字段、支持语言列表 | System / 全局文本解析 |
+| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、observer/perception/GC 任务开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
+| `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
+| `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
+| `passive_ingress` | `config.passive` | dedup、turn accumulator 上限 | System passive ingress |
+| `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者 |
+| `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler |
+| `access` | `config.access` | 调用来源接入登记、Workspace Actor 访问登记、context TTL | System 接入登记 / workspace 准入 |
+| `workspace` | `config.workspace` | 读取视图缓存容量 | workspace |
+| `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置 | 对应子系统 |
 
-System 只直接拥有顶层基础设施和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
+System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
 
 ## 2. 来源与优先级
 
@@ -107,4 +114,5 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - `tests/unit/system/test_config_agent_runtime.py`
 - `tests/unit/system/test_model_registry.py`
 - `tests/unit/system/test_provider_registry.py`
-- `src/hivememory/system/config/__init__.py`
+- `src/hivememory/config/`（`app.py` 为根配置与加载）
+- `tests/unit/architecture/test_package_layers.py`（`config.app` 的使用约束）
