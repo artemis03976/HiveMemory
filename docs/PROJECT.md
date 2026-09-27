@@ -197,7 +197,7 @@ HiveMemorySystem（组合根与门面）
   └─ AliceSystem     Agent 执行与控制平面
 ```
 
-代码按层组织（core/config → components → engines/infrastructure → workspace/gateway/patchouli/alice → system → server），依赖只能指向同层或更低层。详细组件图、分层规则、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、运行时、配置、可观测性与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入。
+代码按层组织（core/config → components → engines/infrastructure → workspace/gateway/patchouli/alice → system → server），依赖只能指向同层或更低层。详细组件图、分层规则、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、配置与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入；总线、调度器、work queue 与运行时事件等机制从 [Components 当前文档](./components/README.md)进入。
 
 ## 7. 三个子系统
 
@@ -290,7 +290,8 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当前文档重建：
 
-- [System](./system/README.md)：组合根、应用服务、Passive Ingress、runtime/bus、配置、可观测性与 i18n；
+- [System](./system/README.md)：组合根、应用服务、Passive Ingress、配置与 i18n；
+- [Components](./components/README.md)：总线、维护调度器、Local Work Queue、串行门与运行时事件等进程内机制；
 - [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
 - [Patchouli](./patchouli/README.md)：MemoryLibrary、Artifacts、Perception、Generation、Retrieval、Lifecycle 与 MemoryCompiler；
 - [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、PendingAtom 与 MTP Runtime。

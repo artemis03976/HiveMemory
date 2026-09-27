@@ -11,20 +11,20 @@ code_paths:
   - src/hivememory/alice/runtime/
   - src/hivememory/patchouli/memory_library/
 related_docs:
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/architecture/workspace.md
   - docs/patchouli/artifacts.md
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
-  - docs/system/observability.md
+  - docs/components/observability.md
 last_reviewed: 2026-09-13
 ---
 
 # 运行时状态持久化与故障恢复治理
 
-本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [System 运行时与总线](../../system/runtime-and-bus.md#3-local-work-queue-runtime) 对队列机械生命周期的当前设计。v0.6.1 已完成进程内 Local Work Queue；SQLite WorkStore 与其他具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
+本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [运行时机制：总线、调度器与 Work Queue](../../components/runtime-and-bus.md#3-local-work-queue-runtime) 对队列机械生命周期的当前设计。v0.6.1 已完成进程内 Local Work Queue；SQLite WorkStore 与其他具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
 
 项目的核心命题是把易逝 Context 转化为可寻址、可验证、可演化的 Memory 资产。如果 Agent frame、PendingAtom、Generation task 和来源写入在进程退出后全部消失，这条命题只能在单次进程生命周期内成立。因此本治理主题首先建立“状态的耐久性等级”，再按所有权逐步补齐持久化和恢复，不把 RuntimeEvent 或日志误当成业务状态数据库。
 
@@ -271,6 +271,6 @@ v0.6.1 对这一方向的历史讨论保留于
 
 ## 7. 依赖与风险
 
-本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../system/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个 `IdentityScope` 可见，以及 Workspace ownership 在哪个最终边界校验。
+本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../components/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个 `IdentityScope` 可见，以及 Workspace ownership 在哪个最终边界校验。
 
 主要风险是过早把所有内存对象写入持久化层，导致 schema、隐私和迁移成本快速膨胀；因此首期应优先保护已经对外承诺的工作项和写入意图，保留短期 topic、cache 与 RuntimeEvent 的明确 ephemeral 语义。

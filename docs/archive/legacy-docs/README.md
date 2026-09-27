@@ -16,7 +16,7 @@ last_reviewed: 2026-07-30
 
 - [环境搭建指南](./SETUP.md)：由 [Help](../../help/README.md)取代；
 - [顶层 TODO](./TODO.md)：已拆分到 [Todo](../../todo/README.md)；
-- [可观测性与日志流设计](./ObservabilityDesign.md)：由 [System 可观测性](../../system/observability.md)与[事件契约](../../contracts/routes-and-events.md)取代。
+- [可观测性与日志流设计](./ObservabilityDesign.md)：由 [System 可观测性](../../components/observability.md)与[事件契约](../../contracts/routes-and-events.md)取代。
 
 ### 已完成 Todo
 
@@ -30,7 +30,7 @@ last_reviewed: 2026-07-30
 
 - [旧 Protocols 索引](./protocols/README.md)：由 [Contracts](../../contracts/README.md)取代；
 - [旧 MTP 规范](./protocols/MemoryToolProtocol.md)与[错误结构设计](./protocols/MTPErrorStructureDesign.md)：由当前 MTP / Error Contracts 取代；
-- [统一维护调度设计](./protocols/PatchouliUnifiedMaintenanceSchedulerDesign.md)：由 [System runtime](../../system/runtime-and-bus.md)及 Patchouli Perception/Lifecycle 取代；
+- [统一维护调度设计](./protocols/PatchouliUnifiedMaintenanceSchedulerDesign.md)：由 [System runtime](../../components/runtime-and-bus.md)及 Patchouli Perception/Lifecycle 取代；
 - [旧 i18n 索引](./protocols/i18n/README.md)：由[全局 i18n](../../system/i18n.md)取代。`MemoryCompilerI18nMigrationPlan.md` 保留原始损坏字节，替代入口和处置结论以索引及审计记录为准。
 
 ### Patchouli 与 Engines

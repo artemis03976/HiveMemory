@@ -160,6 +160,6 @@ System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `ch
 - `tests/unit/system/test_hivememory_system.py`
 - `tests/unit/system/test_lifecycle.py`
 - `tests/unit/architecture/test_package_layers.py`
-- `tests/unit/system/runtime/workspace/test_store.py`
+- `tests/unit/workspace/assets/test_store.py`
 - `tests/integration/system/test_workspace_asset_runtime.py`（对象图与停止顺序）
 - `tests/unit/system/contracts/test_contracts.py`

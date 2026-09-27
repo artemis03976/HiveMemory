@@ -32,7 +32,7 @@ last_reviewed: 2026-08-05
 断流处理、Worker stream 关闭和路由可读性整理。
 
 当前事实以 [System 应用服务](../../system/application-services.md)、
-[System 运行时与总线](../../system/runtime-and-bus.md)、[Gateway 固定工作流](../../gateway/workflow.md)、
+[System 运行时与总线](../../components/runtime-and-bus.md)、[Gateway 固定工作流](../../gateway/workflow.md)、
 [Alice 多 Agent 编排](../../alice/orchestration.md)、[Agent Runtime](../../alice/agent-runtime.md)和
 [公开路由与事件](../../contracts/routes-and-events.md)为准。本文归档后只保留实施边界、设计依据与验收记录；
 未实施的生命周期候选继续由[后续 Idea](../../ideas/chat-run-lifecycle-follow-ups.md)维护。

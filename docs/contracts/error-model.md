@@ -245,4 +245,4 @@ RuntimeEventSink 是 best-effort：
 5. 为重试/取消/降级边界增加测试；
 6. 同步更新[MTP 契约](./mtp.md)和调用方文档。
 
-验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/gateway/test_phase3c_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/system/runtime/test_runtime_events.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/gateway/test_phase3c_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。

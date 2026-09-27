@@ -136,7 +136,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 **分类与动作（后续更新）：** 当时曾迁移为 RuntimeEvent 生产端重构 Plan；随着 Publisher/Alice/Memory emitter 部分落地，当前规范已由 System/Contracts 承接，剩余工作缩减为 [Todo](../../todo/runtime-event-producer-migration.md)，原完整设计现已[归档](./runtime-event-publishing-refactor.md)。
 
-**当前承接与缺口：** [System 可观测性](../../system/observability.md)已经承接 RuntimeEvent 是 best-effort 旁路、单一顶层扁平流、scope、payload 摘要和 observer 不驱动业务等稳定不变量；但 `RuntimeEventPublisher`、不可变 bind context、全域领域 emitter 与关键 payload 类型化并不存在。代码仍保留 `ChatApplicationService._emit_chat_event()`、`GatewayWorkflow._emit()`、`AliceRuntime._emit_agent_event()`、`MemoryGenerationTaskController._emit_memory_task_event()`、Scheduler/System lifecycle 私有发布方法。
+**当前承接与缺口：** [System 可观测性](../../components/observability.md)已经承接 RuntimeEvent 是 best-effort 旁路、单一顶层扁平流、scope、payload 摘要和 observer 不驱动业务等稳定不变量；但 `RuntimeEventPublisher`、不可变 bind context、全域领域 emitter 与关键 payload 类型化并不存在。代码仍保留 `ChatApplicationService._emit_chat_event()`、`GatewayWorkflow._emit()`、`AliceRuntime._emit_agent_event()`、`MemoryGenerationTaskController._emit_memory_task_event()`、Scheduler/System lifecycle 私有发布方法。
 
 **保留理念：** 生产端应分为领域 emitter、基础 publisher 与 sink/bus；Emitter 按稳定事件族而非 Python 类机械拆分；复杂取消/fallback/stream 终态保持显式发布，线性 started/completed/failed 才适合 operation observer。
 
@@ -146,7 +146,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 **分类与动作：** 已发布版本实施稿，归档至 [`v0.4.0-runtime-control-and-observability.md`](./implementation/v0.4.0-runtime-control-and-observability.md)。
 
-**当前承接：** [System 应用服务](../../system/application-services.md)承接 chat run、取消请求—确认和 finalize/cleanup；[System Runtime](../../system/runtime-and-bus.md)承接进程内控制表和 Scheduler；System 可观测性承接 RuntimeEventBus/replay/gap；Generation 承接可查询、等待和取消的 memory task。
+**当前承接：** [System 应用服务](../../system/application-services.md)承接 chat run、取消请求—确认和 finalize/cleanup；[System Runtime](../../components/runtime-and-bus.md)承接进程内控制表和 Scheduler；System 可观测性承接 RuntimeEventBus/replay/gap；Generation 承接可查询、等待和取消的 memory task。
 
 **保留理念：** chat run 与 background memory task 是两个生命周期；取消请求不等于取消终态；Agent 完成后 chat 仍可能 finalizing；事件与日志职责分离；观测流独立于功能总线并保持扁平，慢消费者不能阻断业务。
 

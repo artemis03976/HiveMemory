@@ -221,4 +221,4 @@ HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成
 - 删除或重命名 route/event 前必须更新所有注册方、调用方、测试和本文；
 - local route 不记录在本规范中，也不得被外部模块直接引用。
 
-主要验证入口：`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/system/runtime/test_runtime_events.py`、`tests/unit/system/runtime/bus/test_async_bus.py`。
+主要验证入口：`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`。

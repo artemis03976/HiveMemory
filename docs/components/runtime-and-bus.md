@@ -1,22 +1,22 @@
 ---
-title: System Runtime and Bus
+title: Runtime Mechanisms — Bus, Scheduler and Work Queue
 status: current
-owner: system
-scope: global-bus-maintenance-scheduler-and-runtime-control
+owner: components
+scope: global-bus-maintenance-scheduler-work-queue-and-serial-gate
 code_paths:
   - src/hivememory/components/bus/
   - src/hivememory/components/scheduler/
   - src/hivememory/components/work_queue/
   - src/hivememory/infrastructure/work_queue/
-  - src/hivememory/alice/application/chat_control.py
   - src/hivememory/components/events/operations.py
   - src/hivememory/components/serial_gate.py
-  - src/hivememory/workspace/assets/
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
   - docs/architecture/boundaries.md
 related_docs:
+  - docs/components/README.md
+  - docs/system/composition.md
   - docs/system/passive-ingress.md
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
@@ -25,9 +25,9 @@ related_docs:
 last_reviewed: 2026-09-26
 ---
 
-# System 运行时与总线
+# 运行时机制：总线、调度器与 Work Queue
 
-共享运行时设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。它们的机制实现位于 `components` 包（依赖层级在各子系统之下，只依赖 core），实例由 System 组合根创建并管理启停。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Local Work Queue Runtime 负责已接纳进程内工作的机械生命周期，RuntimeEventSink 负责观测旁路；chat 编排的 run 控制（第 4 节）负责前台 chat 用例的阶段与停止控制，位于 `alice.application`。
+共享运行时设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。它们的机制实现位于 `components` 包（依赖层级在各子系统之下，只依赖 core），实例由 System 组合根创建并管理启停。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Local Work Queue Runtime 负责已接纳进程内工作的机械生命周期，RuntimeEventSink 负责观测旁路（语义见[运行时事件与可观测性](./observability.md)）。前台 chat 用例的阶段与停止控制不属于本包，见第 4 节。
 
 这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。领域 payload 可以携带不可变的 `IdentityScope`，供真正的资源所有者在最终边界校验；GlobalSystemBus、scheduler、work queue、registry 和 EventBus 本身仍是进程级共享底座，不按 Workspace 建立命名域。
 
@@ -190,24 +190,9 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 历史实施步骤、迁移取舍和已完成验收见
 [v0.6.1 Local Work Queue Runtime 归档计划](../archive/plans/v0.6.1-local-work-queue-runtime.md)。
 
-## 4. Runtime control
+## 4. 前台运行控制不属于本包
 
-`ChatGenerationRunRegistry`（`alice/application/chat_control.py`）是 chat 编排的前台控制表，保存 generation ID、当前阶段、状态、取消原因和当前阶段的 task 引用。它只服务进程内 chat run：
-
-```text
-client cancel
-  -> registry.cancel(generation_id)
-  -> ChatGenerationRun.request_stop()
-  -> 取消 Gateway/Alice 阶段 child task
-  -> ChatApplicationService 决定取消 done 与 prepared cleanup
-```
-
-Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的阶段 task；`request_stop()`
-同步记录首次 stop reason，并且只调用一次 `Task.cancel()`。Prepare 没有可取消 task，停止只记账，
-返回后由 application 检查；Finalize 已经开始后拒绝 stop。跨子系统的取消传播使用原生
-`asyncio.CancelledError`，用户 stop 只在 Chat application 边界翻译为取消结果。
-
-该 registry 不提供持久化恢复、跨进程广播或历史查询。不要把它误认为用户可见长期任务状态；此类能力当前没有版本承诺，需在真实负载出现后独立设计。
+chat run 的阶段、停止原因与可中断阶段 task 由 chat 编排的 `ChatGenerationRunRegistry`（`alice/application/chat_control.py`）持有，它是用例级控制状态，不是通用运行时机制。其结构、取消传播与不承诺的范围统一维护在[应用服务](../system/application-services.md)第 4 节。本包只提供它所依赖的通用机制：总线 RPC、原生 `asyncio.CancelledError` 传播路径上的 work queue 取消语义，以及观测旁路。
 
 ## 5. KeyedSerialGate
 
@@ -230,7 +215,7 @@ Gateway、Alice request 和 stream pull 是 Chat application 创建并等待的�
 Subsystem maintenance task -> GlobalMaintenanceScheduler callback
 Accepted local work -> WorkQueueRuntime -> business handler
 Any operation -> RuntimeEventSink (best-effort observation)
-Chat cancel -> ChatGenerationRunRegistry -> current phase task
+Chat cancel -> ChatGenerationRunRegistry（chat 编排，不属于本包） -> current phase task
 ```
 
 禁止：
@@ -256,13 +241,13 @@ Chat cancel -> ChatGenerationRunRegistry -> current phase task
 
 ## 9. 验证入口
 
-- `tests/unit/system/runtime/bus/test_async_bus.py`
-- `tests/unit/system/runtime/scheduler/test_async_scheduler.py`
-- `tests/unit/system/runtime/work_queue/`
+- `tests/unit/components/bus/test_async_bus.py`
+- `tests/unit/components/scheduler/test_async_scheduler.py`
+- `tests/unit/components/work_queue/`
 - `tests/unit/infrastructure/work_queue/`
 - `tests/unit/patchouli/control/test_interaction_submission.py`
 - `tests/unit/patchouli/control/test_memory_generation_*.py`
 - `tests/integration/patchouli/test_active_interaction_submission.py`
-- `tests/unit/system/runtime/test_operations.py`
-- `tests/unit/system/runtime/test_serial_gate.py`
+- `tests/unit/components/events/test_operations.py`
+- `tests/unit/components/test_serial_gate.py`
 - `tests/unit/system/test_cancel_hardening.py`

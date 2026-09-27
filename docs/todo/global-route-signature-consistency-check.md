@@ -7,7 +7,7 @@ related_docs:
   - docs/contracts/routes-and-events.md
   - docs/contracts/subsystem-contracts.md
   - docs/system/attachments.md
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
 last_reviewed: 2026-09-12
 ---
 

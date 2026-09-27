@@ -34,7 +34,7 @@ related_docs:
   - docs/architecture/data-model.md
   - docs/architecture/decisions/0004-execution-path-derived-caches.md
   - docs/system/composition.md
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/perception.md
   - docs/patchouli/retrieval.md
@@ -271,7 +271,7 @@ Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic �
 
 ### 8.2 后台任务和重试
 
-`InteractionSubmission`、`MemoryGenerationTaskSpec` 等领域 DTO 各自保存一份完整 `IdentityScope`，并携带所需的 interaction、intent、topic 或 task ID。codec 负责 scope 的完整 round-trip；Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 恢复原 scope 和领域 ID，再到真正的 Workspace-owned resource 边界执行授权；它不重跑默认 resolver、不读取进程当前 Workspace，也不改变身份坐标。队列的状态机和重试策略见[System 运行时与总线](../system/runtime-and-bus.md)。
+`InteractionSubmission`、`MemoryGenerationTaskSpec` 等领域 DTO 各自保存一份完整 `IdentityScope`，并携带所需的 interaction、intent、topic 或 task ID。codec 负责 scope 的完整 round-trip；Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 恢复原 scope 和领域 ID，再到真正的 Workspace-owned resource 边界执行授权；它不重跑默认 resolver、不读取进程当前 Workspace，也不改变身份坐标。队列的状态机和重试策略见[运行时机制：总线、调度器与 Work Queue](../components/runtime-and-bus.md)。
 
 ## 9. System 生命周期与 shutdown
 
@@ -341,7 +341,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 
 - 访问边界：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/workspace/test_import_boundaries.py`](../../tests/unit/workspace/test_import_boundaries.py)、[`tests/unit/architecture/test_package_layers.py`](../../tests/unit/architecture/test_package_layers.py)、[`tests/integration/workspace/test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)；
 - [`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)；
-- [`tests/unit/system/runtime/workspace/test_store.py`](../../tests/unit/system/runtime/workspace/test_store.py)；
+- [`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)；
 - Alice 派生缓存：[`tests/unit/agent_runtime/aliases/test_cache.py`](../../tests/unit/agent_runtime/aliases/test_cache.py)、[`tests/unit/alice/runtime/test_profile_cache.py`](../../tests/unit/alice/runtime/test_profile_cache.py)、[`test_alice_runtime_caches.py`](../../tests/unit/alice/runtime/test_alice_runtime_caches.py)；
 - [`tests/integration/patchouli/test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)；
 - [`tests/integration/system/test_workspace_asset_runtime.py`](../../tests/integration/system/test_workspace_asset_runtime.py)、[`test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)；

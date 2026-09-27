@@ -51,7 +51,7 @@ last_reviewed: 2026-09-20
 | `v0.4.0` | Released | chat run / memory task 取消控制与 RuntimeEvent | Git tag；[路由与事件](./contracts/routes-and-events.md) |
 | `v0.5.0` | Released | artifact/provenance、MemoryLibrary、async-native、模型注册 | Git tag；[System 当前设计](./system/README.md)；[Patchouli 当前设计](./patchouli/README.md) |
 | `v0.6.0` | Released | System Gateway、全局命令、主动/被动入口契约、Passive Ingress 串行与 outbox | Git tag；[Gateway 当前设计](./gateway/README.md)；[Passive Ingress 当前设计](./system/passive-ingress.md) |
-| `v0.6.1` | Released | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | Git tag；[System Runtime 当前设计](./system/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md) |
+| `v0.6.1` | Released | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | Git tag；[System Runtime 当前设计](components/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md) |
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
@@ -79,7 +79,7 @@ last_reviewed: 2026-09-20
 - [子系统公共契约](./contracts/subsystem-contracts.md)
 - [公开路由与事件](./contracts/routes-and-events.md)
 - [System 当前设计](./system/README.md)
-- [System Runtime 与 Work Queue](./system/runtime-and-bus.md#3-local-work-queue-runtime)
+- [System Runtime 与 Work Queue](components/runtime-and-bus.md#3-local-work-queue-runtime)
 - [Passive Ingress 当前设计](./system/passive-ingress.md)
 - [Patchouli 记忆生成](./patchouli/generation.md)
 - [Gateway 当前设计](./gateway/README.md)

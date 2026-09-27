@@ -249,4 +249,4 @@ Subsystem -> RuntimeEventSink (观测旁路)
 - Workspace-owned 资源的所有权或复合寻址变化；
 - 共享基础设施开始按 Workspace 复制或分区。
 
-主要验证入口：`tests/unit/architecture/test_package_layers.py`、`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/system/runtime/workspace/`、`tests/unit/gateway/`、`tests/unit/patchouli/`、`tests/unit/alice/`、`tests/unit/workspace/`、`tests/unit/system/access/`，以及 `tests/integration/system/test_workspace_access_propagation.py`、`tests/integration/patchouli/test_memory_workspace_isolation.py`、`tests/integration/workspace/test_application_access_boundary.py`。
+主要验证入口：`tests/unit/architecture/test_package_layers.py`、`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/`、`tests/unit/patchouli/`、`tests/unit/alice/`、`tests/unit/workspace/`、`tests/unit/system/access/`，以及 `tests/integration/system/test_workspace_access_propagation.py`、`tests/integration/patchouli/test_memory_workspace_isolation.py`、`tests/integration/workspace/test_application_access_boundary.py`。

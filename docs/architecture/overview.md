@@ -178,7 +178,7 @@ backpressure 与 shutdown drain。Interaction Submission 与 Memory Generation �
 成功条件和失败策略；work queue 机制（`components.work_queue`）只拥有机械生命周期，不解释 Patchouli 业务。
 
 当前 Store 是 in-memory，只承诺单进程生命周期内的 accepted 与状态查询，不承诺重启恢复或 durable
-accepted。当前契约见 [System 运行时与总线](../system/runtime-and-bus.md#3-local-work-queue-runtime)，
+accepted。当前契约见 [运行时机制：总线、调度器与 Work Queue](../components/runtime-and-bus.md#3-local-work-queue-runtime)，
 SQLite 后续见[持久化治理](../governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)。
 
 ## 5. 主动对话：一次跨平面的受控交接

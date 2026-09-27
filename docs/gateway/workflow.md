@@ -151,7 +151,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 
 Workflow 发布 started、step completed、completed 和 failed RuntimeEvent。Step 事件会记录 `step_id`、序号、耗时、是否 fallback 和原因；终态事件记录 outcome kind 与总耗时。原生 task cancellation 直接离开 Gateway，不发布 `gateway.workflow.cancelled`，也不伪装成 failed 观测。
 
-RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入公共 outcome。关于 RuntimeEvent 的统一边界见 [System 可观测性](../system/observability.md)。
+RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入公共 outcome。关于 RuntimeEvent 的统一边界见 [运行时事件与可观测性](../components/observability.md)。
 
 ## 8. 当前限制
 

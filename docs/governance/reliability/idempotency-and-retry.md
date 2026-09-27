@@ -11,7 +11,7 @@ code_paths:
   - src/hivememory/agent_runtime/pending_atom/
   - src/hivememory/components/
 related_docs:
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/architecture/workspace.md
@@ -164,4 +164,4 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 
 ## 7. 依赖与不采用方案
 
-被明确列为可恢复的工作依赖[运行时状态持久化与故障恢复](./durability-and-recovery.md)提供耐久记录，也可以复用 [System 当前 Local Work Queue Runtime](../../system/runtime-and-bus.md#3-local-work-queue-runtime) 的队列机械能力。本文不要求所有 finalize 步骤进入队列，不引入全局万能 DedupService，不承诺 exactly-once，不用 RuntimeEvent 作为去重数据库，也不为 Retrieval HIT 等 best-effort 信号建立专用控制组件或持久化 marker。
+被明确列为可恢复的工作依赖[运行时状态持久化与故障恢复](./durability-and-recovery.md)提供耐久记录，也可以复用 [System 当前 Local Work Queue Runtime](../../components/runtime-and-bus.md#3-local-work-queue-runtime) 的队列机械能力。本文不要求所有 finalize 步骤进入队列，不引入全局万能 DedupService，不承诺 exactly-once，不用 RuntimeEvent 作为去重数据库，也不为 Retrieval HIT 等 best-effort 信号建立专用控制组件或持久化 marker。

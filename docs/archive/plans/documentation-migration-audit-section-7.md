@@ -118,7 +118,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 - **分类与动作**：平行真相源，合并后归档。
 - **已承接内容**：LogicalBlock 保持一次 Query、工具过程和最终响应的结构边界；Page Folding 负责工作集接力；idle/LRU/shutdown 由上层维护用例触发结算。这些理念和当前限制已经进入 Perception 与 System runtime 文档。
 - **明确不继承**：Embedding“语义吸附”、`StreamParser`、私有 `IdleTimeoutMonitor`、`on_flush_callback`、`MTP_WRITE/MTP_UPDATE` URGENT flush、`assistant_message` fallback 与 `hivememory.perception` 旧导入路径均不再是当前实现。
-- **替代入口**：[感知与短期话题](../../patchouli/perception.md)、[System runtime](../../system/runtime-and-bus.md)。
+- **替代入口**：[感知与短期话题](../../patchouli/perception.md)、[System runtime](../../components/runtime-and-bus.md)。
 
 ### 3.2 `src/hivememory/engines/generation/README.md`
 

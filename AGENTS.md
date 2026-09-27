@@ -127,7 +127,7 @@ cd frontend && npm ci && npm run lint && npm run build
 
 ## 7. 文档与设计变更
 
-- 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
+- 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/components/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
 - `docs/ideas/` 是探索，`docs/plans/` 是绑定版本/里程碑且可验收的实施计划，`docs/todo/` 是小范围缺陷/技术债，`docs/ROADMAP.md` 是明确标注状态的规划摘要，`docs/archive/` 只保存历史。
 - 开发分支尚未最终收尾时，不把候选模型、未稳定命名、目标接口、迁移步骤或“未来将支持”的设计写入当前事实文档。实现、测试、迁移、验收和代码审查完成后，才按最终代码晋升事实并归档 Plan。
 - 当前设计文档既要写可执行事实，也要保留仍然有效的问题背景、所有权理由、关键取舍、不变量和失败语义；不要把代码目录逐文件翻译成文档。

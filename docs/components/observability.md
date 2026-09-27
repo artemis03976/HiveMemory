@@ -1,7 +1,7 @@
 ---
-title: System Observability
+title: Runtime Events and Observability
 status: current
-owner: system
+owner: components
 scope: runtime-events-operations-and-health
 code_paths:
   - src/hivememory/components/events/bus.py
@@ -14,11 +14,13 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-  - docs/system/runtime-and-bus.md
-last_reviewed: 2026-09-01
+  - docs/components/runtime-and-bus.md
+last_reviewed: 2026-09-26
 ---
 
-# System 可观测性
+# 运行时事件与可观测性
+
+本文描述 `components.events` 中的运行时事件机制（RuntimeEventBus、sink、Publisher 与操作观测器）及其使用约束。事件信封模型 `RuntimeEvent` / `RuntimeEventType` 是依赖中立的契约，位于 `core.contracts.runtime_events`；`HiveMemorySystem.health()` 的健康汇总属于 System，只在第 5 节说明它与事件的关系。
 
 HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么”，不是“如何让观测系统替业务作决定”。因此 RuntimeEventBus 是独立的 best-effort 旁路，业务返回值、异常和权威状态才是业务正确性的来源。
 
@@ -77,7 +79,7 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 
 ## 5. 健康与日志的关系
 
-`HiveMemorySystem.health()` 汇总子系统健康和模型 ready；它是当前状态快照，不是历史审计。日志适合记录异常和调试上下文，RuntimeEvent 适合跨组件关联和 UI/运维流式消费，两者都不应成为第三份业务事实。
+`HiveMemorySystem.health()`（System）汇总子系统健康和模型 ready；它是当前状态快照，不是历史审计。日志适合记录异常和调试上下文，RuntimeEvent 适合跨组件关联和 UI/运维流式消费，两者都不应成为第三份业务事实。
 
 事件 `data` 必须摘要化：不把完整 Passive 消息、tool args、memory context、traceback、密钥或绝对路径放入公共观测信封。需要调试原始 cause 时应使用受保护的日志或专用诊断入口。
 
@@ -103,9 +105,10 @@ RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段�
 
 ## 8. 验证入口
 
-- `tests/unit/system/runtime/test_runtime_events.py`
-- `tests/unit/system/runtime/test_publisher.py`
+- `tests/unit/components/events/test_bus.py`
+- `tests/unit/components/events/test_publisher.py`
 - `tests/unit/alice/runtime/test_runtime_events.py`
-- `tests/unit/system/runtime/test_operations.py`
+- `tests/unit/components/events/test_operations.py`
+- `tests/unit/components/test_trace_context.py`
 - `tests/unit/system/test_lifecycle.py`
 - `src/hivememory/core/contracts/runtime_events.py`

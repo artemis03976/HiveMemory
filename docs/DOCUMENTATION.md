@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-08-22
+last_reviewed: 2026-09-26
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -129,7 +129,7 @@ HiveMemory 的文档库应当帮助读者可靠地回答以下问题：
 | Vision | 项目为什么存在、相信什么、如何取舍 | `VISION.md` |
 | Project Overview | 项目当前提供什么、如何理解整体系统 | `PROJECT.md` |
 | Architecture | 当前系统如何划分、核心边界和数据关系是什么 | `architecture/` |
-| System Design | 顶层系统和各子系统当前如何工作 | `system/`、`patchouli/`、`alice/`、`gateway/` |
+| System Design | 顶层系统、共享运行时机制和各子系统当前如何工作 | `system/`、`components/`、`patchouli/`、`alice/`、`gateway/` |
 | Protocol & Contract | 子系统如何稳定交互 | `contracts/` |
 | Product & Evidence | 为谁解决什么问题、怎样验证价值 | `applications/` 及评估文档 |
 | Help | 如何安装、配置、使用和排障 | `help/` |
@@ -195,7 +195,7 @@ Roadmap 可以保留理解阶段关系所必需的模型边界和设计摘要；
 
 ### 4.5 子系统 README
 
-`system/`、`patchouli/`、`alice/` 和 `gateway/` 下的 `README.md` 是各自的局部索引，负责说明：
+`system/`、`components/`、`patchouli/`、`alice/` 和 `gateway/` 下的 `README.md` 是各自的局部索引，负责说明：
 
 - 子系统职责与非职责；
 - 对外提供的主要能力；
@@ -228,10 +228,13 @@ docs/
 │   ├── composition.md
 │   ├── application-services.md
 │   ├── passive-ingress.md
-│   ├── runtime-and-bus.md
 │   ├── configuration.md
-│   ├── observability.md
 │   └── i18n.md
+│
+├── components/
+│   ├── README.md
+│   ├── runtime-and-bus.md
+│   └── observability.md
 │
 ├── patchouli/
 │   ├── README.md

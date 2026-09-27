@@ -110,7 +110,7 @@ DOCX 使用标准库 `zipfile` 与 `defusedxml` 流式解析：包校验（成�
 
 解析服务在 Store 锁外经标准线程转交执行 parser。成功结果经来源核对（RAW revision/hash 与 producer/version 匹配）后以原 parse token 调用 `complete_representation`；预期失败调用 `fail_representation` 并附 `AssetSafeError(code="workspace.asset.failed")`。required representation 与资产聚合状态在同一临界区原子进入 READY/FAILED，上传响应因此只会是终态快照或稳定错误。RAW 注册成功后的解析失败仍以 201/200 返回 `state=failed` 与安全摘要，不改写为上传失败；失败保留 RAW，但普通 reader 拒绝 FAILED 资产。应用层用最终快照重建回执并保留 Store 原始 `created` 标记，解析服务不参与 HTTP 201/200 判定。
 
-同一 `(workspace_identity, client_operation_id)` 的并发上传由应用服务持有的独立 `KeyedSerialGate` 实例在单 event loop 内串行化，持门范围覆盖接收、注册与解析收尾全过程。等待方在持有方到达终态或错误收尾后继续，随后命中既有重放或冲突路径。公共门的取消与回收机制见[System 运行时](./runtime-and-bus.md#5-keyedserialgate)；上传服务不保存另一份幂等结果或资产状态。重复请求不重复解析；解析失败后的重新上传使用新的 operation，形成新资产。
+同一 `(workspace_identity, client_operation_id)` 的并发上传由应用服务持有的独立 `KeyedSerialGate` 实例在单 event loop 内串行化，持门范围覆盖接收、注册与解析收尾全过程。等待方在持有方到达终态或错误收尾后继续，随后命中既有重放或冲突路径。公共门的取消与回收机制见[System 运行时](../components/runtime-and-bus.md#5-keyedserialgate)；上传服务不保存另一份幂等结果或资产状态。重复请求不重复解析；解析失败后的重新上传使用新的 operation，形成新资产。
 
 complete/fail 被 Store 以 stale、removed 或 closed 拒绝时直接传播既有错误，HTTP 分别映射 409、410、503；不查询列表后回退到旧上传快照。请求取消时，解析服务以原 token 尽力提交安全失败，Store 拒绝只记录日志，继续传播 `CancelledError`。这些行为保证晚到结果不能覆盖已有终态，也不会因收尾回退而返回 PROCESSING。
 
@@ -173,7 +173,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 代表性行为测试：
 
-- Store 原子注册与幂等：[`tests/unit/system/runtime/workspace/test_store.py`](../../tests/unit/system/runtime/workspace/test_store.py)；
+- Store 原子注册与幂等：[`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)；
 - 上传服务与请求内解析：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`test_workspace_asset_parsing.py`](../../tests/integration/system/application/test_workspace_asset_parsing.py)；
 - 公开入口：[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)、[`test_workspace_asset_parse_acceptance.py`](../../tests/integration/system/test_workspace_asset_parse_acceptance.py)；
 - 解析器与编译器：[`tests/unit/system/services/attachments/`](../../tests/unit/system/services/attachments/)、[`tests/integration/system/services/attachments/`](../../tests/integration/system/services/attachments/)、[`tests/unit/engines/attachment_compiler/`](../../tests/unit/engines/attachment_compiler/)；
