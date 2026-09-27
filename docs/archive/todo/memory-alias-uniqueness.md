@@ -7,7 +7,7 @@ superseded_by: docs/patchouli/memory-library.md
 owner: patchouli
 scope: memory-alias-uniqueness-and-cache-key-precondition
 related_docs:
-  - docs/plans/v0.7.0-plan-a-boundary-charter.md
+  - docs/ideas/workspace-network-task-process-architecture.md
   - docs/patchouli/generation.md
   - docs/contracts/error-model.md
   - docs/archive/todo/agent-profile-model-evolution.md
@@ -16,7 +16,7 @@ last_reviewed: 2026-09-27
 
 # Memory Alias 重名缺陷
 
-> **归档说明（2026-09-27）**：两层修复随 PR #103（`dda9d9d`）合并，下文“A2-U 分支实现，待合并”均已合入。当前事实见 [MemoryLibrary](../../patchouli/memory-library.md)第 1.2 节、[生成](../../patchouli/generation.md)第 4 节与[错误模型](../../contracts/error-model.md)第 4.5 节。文中引用的 A2 计划已作废删除，引用改为纯文本，删除前最后版本见 commit `dda9d9d`。“A2-U 实现时的补充决定与后续事项”中的两项后续事项转入 [Memory alias 后续事项](../../todo/memory-alias-follow-ups.md)。
+> **归档说明（2026-09-27）**：两层修复随 PR #103（`dda9d9d`）合并，下文“A2-U 分支实现，待合并”均已合入。当前事实见 [MemoryLibrary](../../patchouli/memory-library.md)第 1.2 节、[生成](../../patchouli/generation.md)第 4 节与[错误模型](../../contracts/error-model.md)第 4.5 节。文中引用的 A2 计划已作废删除、计划 A 边界宪章已拆分删除（缓存键相关裁定现见 [Workspace 网络与任务进程架构 Idea](../../ideas/workspace-network-task-process-architecture.md)第 7.1 节），引用改为纯文本，删除前最后版本见 commit `dda9d9d`。“A2-U 实现时的补充决定与后续事项”中的两项后续事项转入 [Memory alias 后续事项](../../todo/memory-alias-follow-ups.md)。
 
 ## 问题与证据
 
@@ -27,7 +27,7 @@ alias 精确查询走 `QdrantMemoryStore.get_memory_by_alias`（scroll + `index.
 影响：
 
 1. 存储层 alias → 记忆的解析已是多义，精确读取结果不确定；
-2. [计划 A 边界宪章](../../plans/v0.7.0-plan-a-boundary-charter.md) §5 与 A2 的 Atom cache 与 Profile cache 均以 `(WorkspaceIdentity, alias)` 系资源 key 寻址（Profile 的 agent_id 即 alias），重名使 key 无法定义唯一条目，缓存与存储可能各自解析到不同原子；
+2. 计划 A 边界宪章 §5 与 A2 的 Atom cache 与 Profile cache 均以 `(WorkspaceIdentity, alias)` 系资源 key 寻址（Profile 的 agent_id 即 alias），重名使 key 无法定义唯一条目，缓存与存储可能各自解析到不同原子；
 3. A2 的 alias 替换/删除簿记（"不留可返回的旧值"）以 alias 归属可追踪为前提。
 
 ## 已裁定的分层修复设计（2026-09-25）

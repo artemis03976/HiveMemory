@@ -1,0 +1,164 @@
+---
+title: 写入意图（PendingAtom）体系的迁移
+status: idea
+owner: project
+scope: pending-intent-registry-read-consistency-and-materialization
+related_docs:
+  - docs/ideas/task-process-table-and-registration-entry.md
+  - docs/ideas/external-session-and-topic-projection.md
+  - docs/ideas/external-actor-registration-and-runtime-access.md
+  - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
+  - docs/alice/pending-atom.md
+last_reviewed: 2026-09-27
+---
+
+# 写入意图（PendingAtom）体系的迁移
+
+## 0. 文档性质
+
+本文由原 v0.7.0 A4 计划（共享 Pending 与主动记忆写入）于 2026-09-27 退回 Idea：删除了阶段划分、验收门禁、跨计划依赖与文档更新清单，设计内容保留。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-a4-pending-memory-intents.md`。
+
+- 要解决的问题：PendingAtom 体系的迁移（owner 表述，2026-09-27）。现状下写入意图的寿命与持有者见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 2.2 节。
+- 原计划中的“决定”“冻结”在本文中均为候选设计；原计划留待 A4-0 冻结的事项汇总为第 5 节的开放问题。
+- 本文的归属与可见性按原边界宪章 §6.2 的裁定写成（论证见第 4.2 节）：意图由 workspace runtime 的 registry 持有，按 policy 在 Workspace 内可见。这对应任务进程 Idea Q-2 的选项 C；是否采用取决于 Q-2，以及 Q-1（进程关闭时点）与 Q-3a（哪些工作状态进入进程工作区）。
+- 原文依赖的 A2 读取能力与缓存（resolver、L1 cache、backing 读取）来自已作废删除的 A2 计划；workspace 包的现有实现需要重新调查（[总 Idea](./workspace-network-task-process-architecture.md)第 6.1 节），本文提到时只作为候选设计的组成部分。
+
+PendingAtom 解决的是所有 Actor 共有的资源问题：Actor 明确提出 WRITE/UPDATE，而正式 Memory 由后台异步生成时，如何在物化前读回意图、在结算后定位 canonical 结果，并避免读写不一致。它不是 Alice 专属机制。现有 PendingAtomRuntime 混合了 run/frame/action 关联（执行状态，留 Alice）与 intent 资源状态（按原边界宪章的裁定归 workspace registry，见第 4.2 节）；registry 不依赖 Alice，也不设在 Patchouli，更不给外部 Actor 复制状态机。
+
+## 1. 目标边界
+
+| 能力 | 目标权威 | 说明 |
+|:---|:---|:---|
+| Pending 意图登记、内容、状态、结算关联 | workspace runtime registry（第 4.2 节） | 唯一状态机，不依赖 Alice，也不设在 Patchouli |
+| Pending/canonical 引用分派与结算跟随 | workspace 读取能力面（resolver） | L0 registry 本地查表，L2 复用 canonical backing 读取；不留 Alice 专属三级 resolver |
+| 物化任务与 canonical 生成 | Patchouli generation/domain | 任务进度和 Pending 可读内容分开 |
+| run/frame/action 关联、延迟提交、取消策略 | Alice workset/settlement adapter | 只持有引用和执行关联 |
+| 外部输入/结果 wire | 外部 Actor adapter 或 MTP adapter | 不复制 Pending 状态 |
+
+Pending 不是 canonical Memory、也不是可淘汰 cache；registry 持有不等于整个 Workspace 的 Actor 默认可读。全局 intent ID 负责定位，提交者、Workspace、operation 和内容可见性分别判断。
+
+## 2. 共同流程与独立路由
+
+```text
+WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
+  -> memory_intent.submit(PendingAtomMaterializeTask)
+  -> 读取目标 Topic 的全部可用资料（允许空 blocks）
+  -> 物化任务接纳 -> canonical revision / discarded / failed
+  -> 失效派生 cache -> Pending 解析真实结果 -> 重新授权读取 canonical
+```
+
+`interaction.submit` 和 `memory_intent.submit` 是独立路由方法、独立 operation 和独立收据；可以由同一个 application service 承接，不要求两个类。旧 `InteractionPayload.materialize_tasks` 只作兼容迁移字段，最终不能让普通交互入口隐式执行主动物化。
+
+共同输入继续使用 `PendingAtomMaterializeTask`：它的 pending alias、intent_id、source verb、identity scope 和 WriteFocus/UpdateFocus 具有跨 Actor 语义；`from_pending_atom()` 不能成为外部客户端前置依赖。ACK 必须区分 Pending 已登记、物化任务已接纳和 canonical Memory 已产生。
+
+登记和物化提交是两个业务阶段，不强制两个客户端往返。Alice 可先登记、返回 ACK，稍后按运行策略提交；外部工具可组合登记和提交，但接纳失败时需说明已登记的意图如何读回/重试，不能返回模糊的整体 success。输入 scope 必须同时匹配 access 和已登记 Pending 的归属；不可借提交方法挪用别人的 intent_id。模型名的 Task 表示请求，不表示已经入队。
+
+## 3. Topic 资料和 Session 关系
+
+主动生成需要读取对应 Topic 在共同契约确定的资料读取时点的全部可用 blocks、summary 和 provenance，再按领域预算编译；不能隐式退化为“最近五条”。Topic 为空时，有效 WRITE/UPDATE 仍可进入生成；Topic 读取失败、越权、scope 冲突和成功取得空资料必须区分。没有 Topic 或没有交互不等于没有有效主动意图。
+
+本文只讨论资料消费与生成预算；Topic 输入分类、prepare handle 是否可用、省略 Topic 的行为、资料绑定/快照时点与重试保留见[外部会话与 Topic 投影](./external-session-and-topic-projection.md#44-向主动意图交接资料)第 4.4 节与第 8 节。生成侧只提供约束，不另行决定是否创建空 Topic；如契约要求准备/释放，消费共同领域能力，不复制 prepare/cleanup 算法或跟随 Session cursor 重选资料。UPDATE 仍须验证目标 Memory、授权和已知基版本；空交互不免除这些条件。
+
+“全部可用”指 Topic 资料契约所选读取时点的实际资料快照；已折叠且未保存的原始 blocks 无法凭空恢复，原文保全由折叠专项负责。应先取得该时点全部可用材料，再按生成预算编译，不让 adapter 截取最近几条代替领域读取。
+
+代码现状（2026-09-27 复核）：`patchouli/control/memory_generation/coordinator.py` 的 `submit_active()` 仍使用 `recent_blocks(5)`；MemoryGenerationEngine 在没有上下文且没有 WRITE/UPDATE focus 时才跳过。候选方向是保留生成引擎支持意图独立生成的能力，修正上游资料获取，而非让 adapter 自行拉 blocks。
+
+Session/交互是可选来源，交互资料交接见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节：需要纳入某次交互时，通过授权结果查询确认其 applied 和实际 topic_id；路由关联本身不证明内容已应用，不要求独立 TopicAssignment 实体。意图接纳后使用契约规定的资料绑定，不因物化失败回滚已应用交互，也不让 Topic 清理影响仍被已接纳任务依赖的资料；保留/释放方式见外部会话 Idea 第 8 节，尚未决定。
+
+## 4. Pending 读取、结算和生命周期
+
+| 阶段 | 对外语义 |
+|:---|:---|
+| WRITE 未物化 | 返回登记内容/焦点和 Pending 状态，不标成 Memory |
+| UPDATE 未物化 | 返回修订意图、目标引用和已知内容；只有 instruction 时不伪造最终正文 |
+| 接纳后 | 返回真实任务/领域阶段；Actor 断连不取消已接纳工作 |
+| canonical 已产生 | 原 Pending 引用可解析真实结果，canonical 读取再次授权 |
+| 原 canonical 引用 | 返回当前已提交版本；是否提示调用者自己的未完成修订待定，不静默叠加 Pending 正文 |
+| discard/fail/cancel/expire | 明确区别，不伪造成功引用、不自动重建意图 |
+
+`task.observe` 不自动授予 Pending 内容或最终 Memory 的读取权。稳定 intent identity 用于响应丢失后的查询/重试；相同 identity 不同 payload 返回 conflict。通知事件仅作观测，不能作为唯一终态真相。当前实现不承诺跨重启恢复；若要引入持久化需要另行规划迁移。
+
+Pending snapshot、materialization task、task result 和 settlement projection 分别保存交接信息，不复制终态推进器。结算须可从权威任务/领域结果核对，不能等待事件订阅者才变正确。提交前取消与接纳后取消有不同承诺，cancel 只开放领域支持的范围。并发 UPDATE 的版本冲突仍由 canonical 更新规则判断；Pending 的原意图可读不等于所有 search 已能看到最终 Memory，也不默认加入全局搜索。
+
+### 4.1 共同引用读取与 alias resolver 归属
+
+2026-09-23 修订（取代 2026-09-17 裁定）：按原边界宪章重裁归属（论证见第 4.2 节）——Pending 资源权威状态机是 **workspace registry**（不依赖 Alice，也不设在 Patchouli）；Pending/canonical 分派、结算跟随、终态解释和 canonical 读取协作由 workspace 读取能力面（alias resolver）执行，L0 是 registry 本地查表，L2 复用 canonical backing 读取。共同读取对相同 access、引用和资源状态给出相同领域结果；MTP、管理 UI 和外部协议只改变输入转换与呈现。管理操作仍使用自己的 operation/policy，不能把结果一致理解为权限相同。
+
+当前 `agent_runtime/aliases/resolver.py` 依赖 `MTPExecutionContext`、Alice Pending runtime、Atom cache 和 MTP 异常；它在命中时直接返回。这些是迁移源，不能作为共享实现的依赖。workspace resolver 接收可信 access 与资源引用，返回中立的 Pending 内容/状态快照及 canonical 读取结果；领域错误由 adapter 映射为 MTP 或外部错误。已有 `ResolveResult` 的语义可以复用，但不得暴露权威 Pending 对象或缓存内部的共享可变引用，也不要求调用方创建 RuntimeScope。canonical 分支保留完整 `MemoryAtom`（原 A2 读取契约） 的独立副本及其中已有的来源和版本，直接支持 MemoryCompiler，不强制转换为裁剪型 MemorySnapshot。
+
+```text
+System / Alice MTP / 外部 read adapter
+    -> 相同的 workspace 读取能力边界（带 access，逐次 operation 授权）
+    -> workspace alias resolver
+         ├─ L0 Pending ref -> registry 本地查表 -> 授权读取意图/终态
+         │                  └─ 已结算 -> 目标引用 -> L1/L2 当前授权下的 canonical 读取
+         └─ canonical ref -> L1 缓存 / L2 backing 路由（冷读，库侧校验纵深防御）
+    -> Pending 内容/状态快照或完整 canonical 原子副本 -> 各 adapter 编译/呈现
+```
+
+原 L0/L1/L2 是历史查找顺序，不是三层等价缓存：Pending 是尚未物化意图的权威状态，cache 才是可丢弃派生副本。resolver 与 registry 同在 workspace runtime（原宪章裁定）；L0 是本地查表，L2 经公共 backing 路由冷读（过线契约见[总 Idea](./workspace-network-task-process-architecture.md) 7.1.3，不是递归）。能力边界承接共同入口，内部复用 backing 读取即可；不强制增加独立 service 类。
+
+| 读取对象/状态 | 共同语义 |
+|:---|:---|
+| canonical alias/UUID/ref | 返回当前可读的已提交完整 `MemoryAtom` 副本；命中缓存与冷读语义一致，不裁剪成 MemorySnapshot |
+| Pending 未物化 | 返回授权范围内的原意图、已知内容和阶段；不伪造最终正文 |
+| Pending 已结算 | 保留请求引用和 settlement 关系，经当前授权读取真实 canonical；知道 Pending 不授予目标内容读取权 |
+| discarded/failed/cancelled/expired | 明确领域终态；只有通过相应可见性检查后才能披露，不伪装为已生成 Memory |
+| 未知或不可见引用 | 遵循 A1 访问边界和防泄露错误投影；不回退到别的 Workspace，也不改查同名的另一种资源 |
+| 原 Memory 有未完成 UPDATE | 仍读取已提交 Memory；读对应 Pending 才看到修订意图，不默认为正文叠加 Pending |
+
+在 canonical 读取基线上需要确定的扩展部分：引用种类/命名空间、共同引用解析的固定状态结果、批量逐项结果、Pending 内容读取与 canonical 读取所需 operation 及资源权限、目标不可见时可披露的 settlement 字段。认证上下文复用 A1 统一网关的结果，不为不同引用另建认证凭据。原 A2 契约中的 `read -> MemoryAtom | None`、`retrieve_by_aliases/retrieve -> list[MemoryAtom]` 和 `get_agent_profile -> AgentProfile` 保持稳定，不把这些方法改成随调用方或引用种类改变的返回类型。
+
+Pending 阶段与 settlement 关系确需状态结果时，由共同引用解析方法明确表达；canonical 分支的资源值仍是完整 MemoryAtom。承载这一扩展的方法/路由及批量关联方式待定，不能借兼容恢复 MemorySnapshot/ProfileSnapshot，或把 RetrievalResponse 当作领域状态容器。各主体对同一操作使用同一路由；引用解析内部复用 canonical 读取实现，不复制领域链，也不要求外部先查 Pending 再自行读取 Memory。旧 MTP/Passive 的输出包装留在 adapter。
+
+READ、RUN、UPDATE 和 Profile 类型读取可以复用同一资源解析事实，但各自继续校验操作条件。解析到代码不授予执行权，解析到 Profile 不授予身份切换；UPDATE 的目标/基版本规则归主动写入。Profile 定义只从正式可读资源解析，未物化 Pending 不能被当作可执行 Profile；若接受结算后的引用，须沿共同跟随规则取得正式资源后再验证类型。不同操作的错误映射由兼容矩阵记录，不能把“统一解析”误作所有操作都接受所有 Pending 状态。
+
+候选设计在同一读取能力面增加 Pending/settlement 分支（L0 分支在 resolver 内本地完成），负责状态结果、批量逐项关联和 adapter 映射；保持 canonical 返回类型与授权语义，不因跟随 Pending 结算引用重新引入正常命中的逐次回源查询。不存在必须由 Alice 拼装多个领域能力的中间业务层。
+
+Pending 终态不被当作普通 Memory 负缓存淘汰；其保留与过期按权威状态生命周期处理。失效和结算推进不依赖 Alice 订阅者。settlement 经既有事件链（`pending_atom_settler`/bridge）加速 registry 终态回写，但事件是加速不是真相——终态以 intent_id 锚定的权威任务/领域结果对账核对（事件协作见总 Idea 7.1.3；本节"通知事件仅作观测"约束继续有效）。
+
+当前 resolver 以 `pending.runtime_scope.identity_scope == context.identity_scope` 判断可见性。迁移时按确定后的提交者、Workspace、operation 与 Pending policy 校验，不能要求外部构造 RuntimeScope，也不能照搬整个 scope 相等而把兼容 session 字段变为权限条件。Pending 引用类型或命名空间必须明确，未知/不可见 Pending 不回落为同名 canonical；Pending 与 canonical 的可见性分别处理，不能通过 redirect 泄露不可读目标的内容或未获准披露的元数据。
+
+结算指向应以权威 canonical identity 定位，alias 用于展示或兼容查找；若 alias 已被重新绑定，不得让旧 Pending 跟随到另一份资源。缓存丢失、失效或没有可用 alias 时，仍能按已结算的目标 identity 经授权读取；不存在和不可见不能被伪装为物化仍在进行。具体错误投影与 legacy settlement 缺失 identity 的处理待定（第 5 节）。
+
+### 4.2 候选归属的论证（原边界宪章 §6.2）
+
+原宪章把 pending registry 判给 workspace runtime，论证分四层：
+
+1. **判据面**：pending 是未被接收的要约——可撤销（CANCELLED 是既有状态）、没有任何入库承诺、从未进入库的管护，所以它在 Actor 手里（[ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md) 的管护权判据）。
+2. **决断规则面**：intent 是 Actor 的即时工作产物——由 Actor 组成、需要同步读回；generation 是异步任务的消费者，不因消费取得所有权（ADR-0006 的工作产物规则）。这一条推翻了 2026-09-17 把 pending 判给“Patchouli 资源侧”的裁定。
+3. **不增不减面**：generation 消费 materialize task 是既有交接，不变；settlement 的报告通道从“经 bridge/event 写回 Alice runtime”改为总线事件协作（registry 订阅加权威对账，见[总 Idea](./workspace-network-task-process-architecture.md) 7.1.3），属于出边通道的形态变化，不是领域扩张。
+4. **结构收益**：resolver 的 L0 变为本地查表（registry 与 resolver 同在一处）；“外部 Actor 可读回意图”“意图活得过单次 run”“单一权威状态机”三项动机都得到满足，权威状态机即 registry。
+
+执行拆分：Alice 现有 `PendingAtomRuntime` 中的 run/frame/action 关联是执行状态，留在 Actor；intent/alias/内容/状态/settlement 关联是资源工作状态，进入 registry。旧实现是迁移的起点，不是共享实现的合法依赖。
+
+ADR-0006 的判据只裁定写入意图不归记忆库；上述论证进一步把它判给 workspace runtime。在任务进程模型下，它归网络共享设施还是归任务进程，取决于[任务进程 Idea](./task-process-table-and-registration-entry.md)的 Q-2 与 Q-3a，本文不作选择。
+
+## 5. 开放问题
+
+原计划中留待 A4-0 冻结的接口与迁移事项如下，均未决定。
+
+| 事项 | 需要回答的问题 |
+|:---|:---|
+| registry 的持有者与生命周期 | 权威实现及生命周期（候选为 workspace registry，见第 4.2 节；持有者取决于任务进程 Idea Q-2、Q-3a）；不含 Alice run/frame 管理，不新增 Workspace 业务转发层 |
+| 登记/read/resolve/submit | 独立签名、operation、提交者可见范围和 Session 仅作来源的规则；外部不依赖 RuntimeScope |
+| 共同读取/引用与结果 | 按第 4.1 节确定引用区分、批量逐项结果、operation/资源权限、redirect 目标身份和可披露字段 |
+| intent identity 与幂等 | ID 签发、客户端键映射、直接提交时登记关系、同键异载荷 conflict 与未知接纳查询 |
+| 状态与收据 | 登记、任务接纳、结算的阶段，权威结果关联，内容读取与观察权的差异 |
+| Topic 与预算 | Topic 资料契约见外部会话 Idea 第 8 节；本文只讨论全部材料的预算编译，不另定省略 Topic、handle 或快照保留规则 |
+| 运行清理与切换 | 单一状态所有者下的兼容引用/委托入口和旧 run drain 要求；真实 run/frame 的提交策略与旧调用方删除 |
+| 保留期与关闭 | 容量拒绝、期限、expired/unknown、关闭时未完成任务的结果；不声称跨进程耐久性 |
+
+迁移按单一状态所有者逐步切换，必要的兼容 shim 只委托同一实现。`PendingAtomMaterializationTask` 是讨论时的泛称，实际共同模型沿用代码中的 `PendingAtomMaterializeTask`，不再创建同义类型。
+
+## 6. 设计需满足的行为约束
+
+以下约束来自原计划的验收要求，是候选设计必须满足的行为，不是测试计划：
+
+- 无交互、无 Session 的主动写入可以进入生成；Topic 缺失、越权、为空与读取失败分别表达；多于五个 blocks 不被静默截断；UPDATE 仍验证目标与基版本；
+- 无 Alice run/frame 也能读回 WRITE/UPDATE 意图；只存在一份权威状态机和领域解析实现，旧/新状态机与 resolver 不同时作为成功来源；
+- 重复键同载荷定位同一提交、同键异载荷 conflict；响应丢失后可查询；过期可解释；重复提交不产生第二个 canonical；
+- 原 Pending 引用在 cache 命中与未命中时定位同一真实结果，并重新授权 canonical 读取；Pending 与 canonical 权限可以不同；
+- 失败、取消、丢弃终态可区分；alias 重绑定后旧 Pending 不跟随到另一份资源；缓存清空后按 UUID 冷读；同名引用不跨类型回落；
+- 原 Memory 存在未完成的 UPDATE Pending 时，读取仍返回已提交版本；
+- 接纳后断连或关闭不撤销已接纳工作，结果可解释；回滚只切换 adapter，不删除已接纳的 Pending。

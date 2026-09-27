@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-20
+last_reviewed: 2026-09-27
 ---
 
 # HiveMemory 开发路线图
@@ -37,7 +37,7 @@ last_reviewed: 2026-09-20
 - 本次发布标签：`v0.6.2`（合并后创建）；
 - 最近已发布基线：`v0.6.1`；
 - 当前内容基线：`v0.6.2`，状态为 Completed（版本内容已收尾、相关计划与修复记录已归档）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 下一计划版本：`v0.7.0`，Workspace 资源平面重构计划组（A 协调入口，A1 已完成归档，A2/A5 Active，A3/A4/A6 Planned）、外部记忆服务与 Actor 交互契约（B，Planned）。
+- 下一计划版本：`v0.7.0`，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划；当前唯一的有效计划方向是任务进程表与任务请求唯一注册入口（Plan 尚未建立），计划状态见 [Plans 导航](./plans/README.md)。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.6.2`，待合并后创建，最近已发布基线为 `v0.6.1`。
 
@@ -124,7 +124,7 @@ last_reviewed: 2026-09-20
 
 | 原排期 | 新排期 | 调整原因 |
 |:---|:---|:---|
-| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0` A 计划组 / B，状态见第 4.4 节 | 内部重构由 A1–A6 及新增 A2-P 前置承接（A1 已完成归档），外部服务与协议由 B 承接，共同构成本版本，独立于 W0/W1 收口 |
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0`，状态见第 4.4 节 | 独立于 W0/W1 收口；2026-09-27 起按 Workspace 网络与任务进程架构重新规划 |
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
@@ -132,7 +132,7 @@ last_reviewed: 2026-09-20
 
 旧 Idea、W1 实施记录及历史材料中出现的上述旧版本号，按本表解释其后续排期；不重写历史使其看起来曾采用新顺序。新建 Plan 必须使用新目标版本。
 
-除已有正式计划组的 `v0.7.0` 外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
+除 `v0.7.0` 外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
 
 ### 4.2 v0.6.2：内容已收尾
 
@@ -154,39 +154,25 @@ last_reviewed: 2026-09-20
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.0` A：Workspace Resource Plane Refactor | Active | 统筹 A1–A6 及 A2-P：统一认证/授权、完整记忆版本与 lifecycle 更新、资源读取/cache、Session/Topic、共享 Pending、API 收敛和 Actor 集成；A1 已完成并归档，事实入口见 [Workspace 架构](./architecture/workspace.md)第 4 节，不新增平行业务 port/provider 层 | v0.6.2 与 WRX-0/1 基础；[协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)；[A2-P](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)已完成并于 2026-09-24 归档（交付 schema 2.1、完整历史与受控 mutation），作为 A2 的前置 |
-| `v0.7.0` B：External Memory Service & Actor Interaction | Planned | 被动对话与主动资源交互协议、身份与来源、领域提交和结果查询；参考客户端闭环与历史样例验证 | A 的访问边界与公开 application 契约；[计划 B](./plans/v0.7.0-external-memory-service-and-actor-interaction.md) |
-| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 A 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
-| `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | v0.7.0 B 的外部交互协议；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
-| `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | A 的资源边界、B 的身份/来源/提交契约、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
+| `v0.7.0` Workspace 网络与任务进程 | Partially Landed | 以唯一注册入口登记任务进程作为 Workspace 网络的运作逻辑；首个方向为任务进程表与唯一注册入口；A1 访问边界、A2-P 记忆版本与 lifecycle、包分层已完成 | v0.6.2；[Plans 导航](./plans/README.md)；[总 Idea](./ideas/workspace-network-task-process-architecture.md) |
+| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
+| `v0.7.1` 首个真实外部 harness 接入 | Candidate / 可独立交付 | 外部 harness 实际使用记忆并把结果送回 Patchouli，验证无 Alice 的跨会话闭环 | 外部 Actor 的接入与运行时访问契约（[Idea](./ideas/external-actor-registration-and-runtime-access.md)，版本归属待定）；[Passive Ingress 当前设计](./system/passive-ingress.md)；正式 Plan 待建立 |
+| `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件 Idea](./ideas/workspace-mvp-chat-attachments-design.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
 | 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.0 期间启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.10 节 Todo；正式 Plan 待建立 |
 | Electron 桌面客户端 | Candidate / `v0.8.x` 产品化窗口 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 前端传输与资源生命周期稳定；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md)；正式 Plan 待建立 |
 
-### 4.4 v0.7.0：Workspace 资源平面与外部交互计划组
+### 4.4 v0.7.0：Workspace 网络与任务进程
 
-本版本由计划 A 的 A1–A6、新增 A2-P 前置计划和计划 B 共同承接。A 的协调入口只维护依赖和共同出口，各子计划有独立的目标、迁移、测试和验收；以下为规划目标，未表示全部实现已完成。
+状态：Partially Landed。原计划 A（A1–A6、A2-P）与计划 B 的计划体系已于 2026-09-27 按新架构重整，版本内的计划状态与顺序只在 [Plans 导航](./plans/README.md)维护。
 
-- [计划 A 协调入口](./plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)按交付依赖组织计划：A1 建立统一 Actor 认证网关、Workspace Actor 准入/行为配置及运行时授权；A2-P 先交付内容版本、完整历史、lifecycle 聚合与受控更新；A2 再交付 workspace 运行时、读取能力面（alias/profile resolver、双 cache、失效事件协作）、能力层骨架与读取方法；A3 交付 ConversationSession、InteractionPayload/TurnEvent、Topic 生命周期、交互/资料 API 及能力层切片；A4 交付共享 Pending registry、主动提交、L0 接入及完整引用解析；A5 收敛能力面/backing 两层目录、补检索/使用报告差额并完成旧服务职责退出；A6 切换真实消费者、稳定装配和 shutdown。各计划继续使用同一领域链，不增加 Workspace 业务 port/provider 层。
-- 默认实施顺序为 [A1 访问边界（已归档）](./archive/plans/v0.7.0-a1-workspace-access-boundary.md) → [A2-P 内容版本与 Lifecycle](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) → [A2 读取能力面与缓存](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) → [A3 Session/Topic](./plans/v0.7.0-a3-conversation-session-and-topic-projection.md) → [A4 Pending/主动写入](./plans/v0.7.0-a4-pending-memory-intents.md) → [A5 能力面 API 收敛](./plans/v0.7.0-a5-patchouli-unified-api.md) → [A6 消费者集成](./plans/v0.7.0-a6-actor-adapters-and-integration.md)，严格线性（2026-09-25 重排：能力层骨架由 A2 交付，A3/A4 的能力切片依赖该骨架，取消 A3 并行资格）；A4 消费 A2/A3。靠前计划不以靠后计划的契约或实现作为完成门禁。A3 仍不包含完整折叠算法，后者由[话题折叠专项](./plans/topic-folding-context-and-raw-evidence.md)承接。
-
-2026-09-20 新增 A2-P（已于 2026-09-23 实施完成并归档）：动态字段聚合到 `meta.lifecycle`，维护不得推进内容 version、整颗重写原子或重新计算向量；新内容提交必须关联完整版本记录，并显式迁移旧 schema/披露历史缺口。A2 保留 Active 以承接已有工作，但缓存实现以该前置完成为门槛。历史记录从 v0.7.0 开始完整保存，v0.7.3 负责读取编译，不延后保存责任。
-
-同日修订 [A2 公共读取结果](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md#21-固定返回类型与-backing-路由)：canonical 点读返回完整 MemoryAtom/None，alias 与检索返回原子列表，Profile 返回已有 AgentProfile。MemorySnapshot/ProfileSnapshot 退出目标设计，RetrievalResponse 仅用于 adapter 或本地运行上下文过渡；A4 的 Pending 状态结果保留完整 canonical 原子，A6/B 承担消费者和协议映射。该修订仍是计划目标。
-
-- [计划 B：外部记忆服务与 Actor 交互契约](./plans/v0.7.0-external-memory-service-and-actor-interaction.md)消费 A 的访问边界、公开 API 及共享 Pending，定义被动对话与主动资源交互协议，补齐身份、来源、提交关联、物化前读取和结算解析，用参考客户端完成无 Alice 的闭环。Passive 保留被动摄入职责；外部 Actor 无需创建 Alice Runtime 或运行 frame，MCP 等协议适配不另建 Pending 状态机。历史样例用于验证后续导入契约，完整批次导入仍后置。
-
-2026-09-19 A1 完成收口：统一认证网关、两类登记、guard 签发生命周期与逐次行为授权已实现、测试、验收并通过代码审查，[A1 计划](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)已归档。当前事实入口：[Workspace 架构](./architecture/workspace.md)第 4 节、[错误模型](./contracts/error-model.md)第 4.4 节、[子系统公共契约](./contracts/subsystem-contracts.md)第 3.5 节与 [ADR-0005](./architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。附件上传的 scope 一致性缺陷单独追踪于 [Todo](./todo/workspace-asset-upload-access-scope-mismatch.md)；A6 生产接入和兼容退出仍待完成。
-
-A1 落地的目标设计：由一个 **System Actor Authentication 网关**内部完成 Principal authentication 与 Workspace authentication。principal 留在 System，Workspace guard 持有最小准入 context、签发生命周期状态与逐次行为检查。公共 application 按实际方法检查 Actor 的 Workspace 行为白名单，资源 owner 再检查资源权限；原 `Domain operation policy` 与 `Operation authorization` 合并。网关负责认证，不代理资源业务。首版采用本地配置及真实组件独立组合验证；A6 接入生产消费者，B 负责外部协议，A1 不以这两者完成为验收前提。
-
-A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与执行状态不串扰”“合法 mutation 后缓存一致”“Session 与 Topic 各自承担正确生命周期”“Pending 写后可读、结算可解析”“保留最后 settlement 的 shutdown drain”。A1–A5 不等待完整外部协议；A6 使用真实内部组件完成集成。B 的验收覆盖公开接口的读取、提交、结果观察和再次读取，不能以 fake 代替集成证据。A/B 可分别收口，共同发布 v0.7.0 前两组出口均须完成。A 系列与 B 均不包含完整沙箱、研究编排或特定厂商连接器，也不承诺所有资源与任务已持久化。
-
-统一 API 以 System、Alice、外部 Actor 的共同操作为依据，详细映射见[A5](./plans/v0.7.0-a5-patchouli-unified-api.md)；三方 adapter 对相同操作调用相同总线路由，Patchouli application 继续按处理领域实现。A3 解决外部确定性 Session 与内部 Topic 的数据边界，A4 解决主动写入的 Pending 一致性；B 区分主动工具调用和自动交接，完整交互由 adapter 自动提交，不依赖模型选择保存工具，也不因外部接入新增另一套资源 API。
-
-2026-09-17 规划裁定：按 [A2 第 1.1 节](./plans/v0.7.0-a2-workspace-resource-reads-and-caches.md)明确 ADR-0004 的继承/替换范围，通用缓存从 Alice 客户端加速转为 Patchouli 读取链内部使用的基础设施，由单一 WorkspaceRuntime 聚合。A2 交付 canonical 读取，A4 扩展统一 Pending/canonical 引用解析，A6 删除 Alice 独立 resolver 路径；Profile 定义读取留在资源侧，执行配置和 system prompt 应用留在各 Actor。外部 harness 无需支持动态 Profile 即可使用记忆服务。ADR-0004 仍记录 v0.6.2 已落地基线，正式后继 ADR 在 A6 联合验收收尾后建立；该安排不改变后续版本排期。（2026-09-23 起本段的读取链归属由[边界宪章](./plans/v0.7.0-plan-a-boundary-charter.md)取代：缓存归 workspace runtime，Patchouli 只发布失效事件，见宪章 §4.4/§5.3。）
+- **已完成**：[A1 访问边界](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)（统一认证网关、两类登记与逐次行为授权；生产入口接入等遗留工作见[未排期 Todo](./todo/a1-access-boundary-rework.md)）、[A2-P 记忆内容版本与 Lifecycle](./archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义](./archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)，以及包分层重构（见[系统架构概览](./architecture/overview.md)第 3 节）。
+- **当前方向**：以唯一注册入口把任意任务请求登记为任务进程，作为 Workspace 网络的运作逻辑；首个方向是任务进程表与任务请求唯一注册入口，Plan 尚未建立，讨论见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md)。
+- **方向保留、尚未排序**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md)、[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)、[外部 Actor 的接入登记与运行时访问](./ideas/external-actor-registration-and-runtime-access.md)。
+- **边界原则**：记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
+- v0.7.0 的整体范围尚未决定；架构层面的讨论与待决问题见 [Workspace 网络与任务进程架构 Idea](./ideas/workspace-network-task-process-architecture.md)。
 
 ### 4.5 v0.7.1：执行基座与真实外部 Actor 两个独立切片
 
@@ -200,11 +186,11 @@ A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与�
 
 #### 4.5.2 首个真实外部 harness 接入
 
-状态：Candidate，目标窗口为 v0.7.1。它消费 v0.7.0 计划 B 已验证的外部交互协议，不强依赖 HiveMemory 本地沙箱；外部 harness 可继续使用自己的工具和执行环境。优先选一个用户实际使用且有可用接入方式的 harness，具体通过 API、MCP、skill、hook 或 connector 由样本与支持接口决定。
+状态：Candidate，目标窗口为 v0.7.1。它消费外部 Actor 的接入与运行时访问契约（[Idea](./ideas/external-actor-registration-and-runtime-access.md)，版本归属待定），不强依赖 HiveMemory 本地沙箱；外部 harness 可继续使用自己的工具和执行环境。优先选一个用户实际使用且有可用接入方式的 harness，具体通过 API、MCP、skill、hook 或 connector 由样本与支持接口决定。
 
 验收必须形成真实闭环：已有记忆被检索并实际用于外部任务；对话经 Passive Ingress 回流，显式写入/修订经主动领域提交入口处理；下一次会话能召回新形成的知识并定位来源。仅采集日志、仅发送事件或仅返回 memory context 均不足以证明 Actor 接入完成。
 
-接入需把具体平台的身份、事件顺序、重发、turn 结束和来源映射到 B 的契约，验证平台能力不足时的失败披露。外部 harness 默认保有自己的 prompt history；HiveMemory 不隐式接管上下文压缩。B 定义的 ingress、交互应用和记忆物化状态继续分开；connector 不重写领域状态机，也不扩大已有幂等与持久化承诺。
+接入需把具体平台的身份、事件顺序、重发、turn 结束和来源映射到外部 Actor 接入契约，验证平台能力不足时的失败披露。外部 harness 默认保有自己的 prompt history；HiveMemory 不隐式接管上下文压缩。ingress、交互应用和记忆物化状态继续分开；connector 不重写领域状态机，也不扩大已有幂等与持久化承诺。
 
 ### 4.6 v0.7.2：冷启动、历史导入与外源文档资产化
 
@@ -212,7 +198,7 @@ A 系列的共同验收是“无 Alice 可使用资源服务”“Workspace 与�
 
 **冷启动与历史对话导入**解决“空库如何首次产生价值”和“既有会话如何保真迁入”。冷启动允许用户显式选择少量项目事实、偏好、Profile 或资料作为种子；不得自动把默认示例当作用户事实。历史导入保留 source、conversation/turn 标识、发生时间、说话者及分支/编辑关系；助手的推测或旧结论不能直接升级成用户当前事实。
 
-导入过程支持预览、来源与 Workspace 选择、稳定导入标识、去重、进度/失败报告，以及只保留证据、稍后提炼记忆。它承接 v0.7.0 B 的身份、来源和领域提交契约及历史样例缺口，另行定义批次、历史时间、冲突和恢复语义；复用 Patchouli 的物化入口，不简单按实时顺序把全部历史文本重放进当前活动话题，避免改写当前偏好或丢失历史时间关系。
+导入过程支持预览、来源与 Workspace 选择、稳定导入标识、去重、进度/失败报告，以及只保留证据、稍后提炼记忆。它承接外部 Actor 接入契约的身份、来源和领域提交语义及历史样例缺口，另行定义批次、历史时间、冲突和恢复语义；复用 Patchouli 的物化入口，不简单按实时顺序把全部历史文本重放进当前活动话题，避免改写当前偏好或丢失历史时间关系。
 
 **外源文档摄入**先形成 RAW/Artifact，再产生 representation、chunk、locator 和 evidence，最后按策略提炼候选与正式 Memory。复用 W1 的附件与 provenance 基础，并明确进程内 WorkspaceAsset 与持久化 Artifact 的区别。来源获取、确定性解析、模型辅助理解和记忆物化各自有成功/失败边界。
 
@@ -278,9 +264,9 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 ### 4.11 依赖与验收门槛
 
 ```text
-v0.6.2 已实现基础 -> v0.7.0 A：Workspace 资源与内部执行边界
+v0.6.2 已实现基础 -> v0.7.0：Workspace 网络与任务进程（首个方向：任务进程表与唯一注册入口）
                           |
-                          +-> v0.7.0 B：外部记忆服务与 Actor 交互
+                          +-> 外部 Actor 接入契约（Idea，版本归属待定）
                           |       +-> v0.7.1 真实外部 harness 闭环
                           |       |          (不强依赖本地沙箱)
                           |       +-> v0.7.2 历史导入契约与批次能力
@@ -295,7 +281,7 @@ v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
 ```
 
-A1 先完成访问基线，A2-P 交付版本/lifecycle 与迁移后 A2 再交付读取/cache，A3 可独立推进交互/Topic；A4 消费二者交付主动意图与完整读取，A5 再核对完整 API。B 可先调查场景，随后按这些交付分批冻结外部协议并以真实领域能力验收。A6 负责既有消费者及稳定生产装配。A 系列不等待 B 的完整协议；v0.7.0 发布同时核对 A1–A6、A2-P 与 B 的出口。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
+v0.7.0 内的计划顺序见 [Plans 导航](./plans/README.md)。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
 
 每项候选进入实施前必须冻结范围、权威状态、数据来源、失败/取消/恢复承诺、幂等边界和观察指标。任何跨重启恢复、强隔离或 Actor 替换承诺都必须有对应实现证据。仍未具备的能力不能通过 UI、accepted 响应或事件日志伪装成完成。
 

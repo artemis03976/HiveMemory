@@ -9,9 +9,9 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/page-folding-cross-ingress-follow-ups.md
-  - docs/plans/v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md
-  - docs/plans/v0.7.0-a3-conversation-session-and-topic-projection.md
-  - docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md
+  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/external-session-and-topic-projection.md
+  - docs/ideas/external-actor-registration-and-runtime-access.md
 updates:
   - docs/patchouli/perception.md
   - docs/patchouli/artifacts.md
@@ -58,8 +58,8 @@ A3 演进后的 InteractionPayload 表示一次完成或明确封口的交互；
 
 ## 3. 与现有计划的关系
 
-- [v0.7.0 计划 A 协调入口](./v0.7.0-workspace-resource-system-and-agent-execution-boundaries.md)提供整体边界；[A3 Session 与 Topic 投影计划](./v0.7.0-a3-conversation-session-and-topic-projection.md)冻结 Session/InteractionPayload/TurnEvent 与 Topic/LogicalBlock 的交接。本计划只在此基础上继续设计折叠、长 turn 和原始证据，不重新定义会话容器。
-- [v0.7.0 计划 B](./v0.7.0-external-memory-service-and-actor-interaction.md)提供外部接入与交互契约；本计划需与其对齐上下文所有权、来源和可能的 checkpoint/上下文服务交接。
+- [Workspace 网络与任务进程架构 Idea](../ideas/workspace-network-task-process-architecture.md)提供整体边界背景；[外部会话与 Topic 投影 Idea](../ideas/external-session-and-topic-projection.md)（原 A3）讨论 Session/InteractionPayload/TurnEvent 与 Topic/LogicalBlock 的交接，尚未决定。本计划只在此基础上继续设计折叠、长 turn 和原始证据，不重新定义会话容器。
+- [v0.7.0 计划 B](../ideas/external-actor-registration-and-runtime-access.md)提供外部接入与交互契约；本计划需与其对齐上下文所有权、来源和可能的 checkpoint/上下文服务交接。
 - 本次占位不改变 A 系列/B 已有验收出口，不将完整原文保全、长 turn 管理或上下文托管自动设为 A3、A4 或 B 的完成前提。具体依赖、交付顺序和版本调整在详细设计时一并评估。
 - 完整历史导入、特定厂商 connector、沙箱及通用工作流平台不因本文建立而并入范围；本计划只需明确与它们相关的交接。
 

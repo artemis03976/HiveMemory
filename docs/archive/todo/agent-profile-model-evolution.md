@@ -7,9 +7,8 @@ superseded_by: docs/alice/README.md
 owner: patchouli
 scope: agent-profile-mtp-decoupling-and-external-actor-semantics
 related_docs:
-  - docs/plans/v0.7.0-plan-a-boundary-charter.md
   - docs/ideas/workspace-network-task-process-architecture.md
-  - docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md
+  - docs/ideas/external-actor-registration-and-runtime-access.md
 last_reviewed: 2026-09-27
 ---
 
