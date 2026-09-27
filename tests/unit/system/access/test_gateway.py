@@ -11,19 +11,19 @@ from __future__ import annotations
 
 import pytest
 
+from hivememory.core.access import CallerPrincipal, WorkspaceOperation
 from hivememory.core.errors import AdmissionDeniedError
 from hivememory.core.models import ActorIdentity
 from hivememory.system.access import (
-    ActorAuthenticationGateway,
-    CallerPrincipal,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
+    SystemPrincipalAuthenticator,
 )
 from hivememory.workspace import (
     WorkspaceAccessGuard,
     WorkspaceActorAccessRegistry,
-    WorkspaceOperation,
 )
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -61,11 +61,13 @@ async def test_authenticate_issues_reusable_context_without_operation():
 async def test_unregistered_and_disabled_principal_share_same_denial_reason():
     """未登记与已禁用统一按 unknown_principal 拒绝，不泄漏配置细节（证据 1）。"""
     gateway = ActorAuthenticationGateway(
-        system_registry=SystemActorAccessRegistry(
-            [
-                SystemActorAccessEntry(principal_id="local-process:test"),
-                SystemActorAccessEntry(principal_id="local-process:retired", enabled=False),
-            ]
+        principals=SystemPrincipalAuthenticator(
+            SystemActorAccessRegistry(
+                [
+                    SystemActorAccessEntry(principal_id="local-process:test"),
+                    SystemActorAccessEntry(principal_id="local-process:retired", enabled=False),
+                ]
+            )
         ),
         workspace_access=WorkspaceAccessGuard(
             WorkspaceActorAccessRegistry(
@@ -113,13 +115,15 @@ async def test_adapter_mismatch_rejected_at_first_layer():
 async def test_principal_identity_rule_rejects_foreign_user():
     """接入登记的身份解析规则不允许该用户时拒绝（A1 第 2.1 节）。"""
     gateway = ActorAuthenticationGateway(
-        system_registry=SystemActorAccessRegistry(
-            [
-                SystemActorAccessEntry(
-                    principal_id="local-process:bounded",
-                    allowed_user_ids=frozenset({"u1"}),
-                )
-            ]
+        principals=SystemPrincipalAuthenticator(
+            SystemActorAccessRegistry(
+                [
+                    SystemActorAccessEntry(
+                        principal_id="local-process:bounded",
+                        allowed_user_ids=frozenset({"u1"}),
+                    )
+                ]
+            )
         ),
         workspace_access=WorkspaceAccessGuard(
             WorkspaceActorAccessRegistry(

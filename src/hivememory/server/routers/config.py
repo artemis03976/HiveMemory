@@ -10,10 +10,13 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
+from hivememory.config.app import (
+    HiveMemoryConfig,
+    get_config_file_path,
+)
 from hivememory.server.deps import get_system
 from hivememory.server.models.config import ConfigResponse
 from hivememory.system import HiveMemorySystem
-from hivememory.system.config import HiveMemoryConfig, get_config_file_path
 
 logger = logging.getLogger(__name__)
 

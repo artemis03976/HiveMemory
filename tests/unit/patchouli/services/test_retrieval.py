@@ -24,6 +24,7 @@ from hivememory.core.models import (
     PayloadLayer,
     TopicData,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
@@ -31,7 +32,10 @@ from hivememory.core.mtp.exceptions import (
     StorageReadError,
 )
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
+from hivememory.engines.retrieval.models import (
+    SearchResult,
+    SearchResults,
+)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
@@ -146,7 +150,7 @@ class TestRetrievalFamiliarAgentProfiles:
             identity_scope=make_identity_scope(),
         )
 
-        assert result == OMNI_DOLL_PROFILE
+        assert result.profile == OMNI_DOLL_PROFILE
         self.mock_library.mid_term.get_by_alias.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -160,7 +164,7 @@ class TestRetrievalFamiliarAgentProfiles:
             identity_scope=make_identity_scope(actor_identity=identity),
         )
 
-        assert result.persona == "You are a coding specialist."
+        assert result.profile.persona == "You are a coding specialist."
         self.mock_library.mid_term.get_by_alias.assert_awaited_once_with(
             make_identity_scope(actor_identity=identity),
             "coder_doll",
@@ -298,13 +302,13 @@ class TestRetrievalFamiliarRetrieve:
 
     @pytest.mark.asyncio
     async def test_retrieve_does_not_compile_context(self):
-        """检索服务只返回记忆原子，不产出 Agent 可读文本"""
+        """检索服务直接返回引擎排序后的完整原子列表，不产出 Agent 可读文本"""
         mem = _make_memory()
         self.mock_engine.retrieve.return_value = _make_engine_result([mem])
 
-        response = await self.familiar.retrieve(_make_request())
+        memories = await self.familiar.retrieve(_make_request())
 
-        assert not hasattr(response, "rendered_context")
+        assert memories == [mem]
 
     @pytest.mark.asyncio
     async def test_retrieve_async_refreshes_vitality_through_local_bus(self):
@@ -323,9 +327,9 @@ class TestRetrievalFamiliarRetrieve:
             local_bus=bus,
         )
 
-        response = await familiar.retrieve_async(_make_request())
+        memories = await familiar.retrieve_async(_make_request())
 
-        assert response.memories[0].meta.lifecycle.vitality_score == 42.0
+        assert memories[0].meta.lifecycle.vitality_score == 42.0
 
     @pytest.mark.asyncio
     async def test_retrieve_async_vitality_refresh_failure_keeps_response(self):
@@ -342,18 +346,17 @@ class TestRetrievalFamiliarRetrieve:
             local_bus=bus,
         )
 
-        response = await familiar.retrieve_async(_make_request())
+        memories = await familiar.retrieve_async(_make_request())
 
-        assert response.memories == [mem]
+        assert memories == [mem]
 
     @pytest.mark.asyncio
-    async def test_retrieve_exception_returns_empty(self):
+    async def test_retrieve_engine_failure_propagates_instead_of_empty_list(self):
+        """引擎异常按原错误传播，不伪装为"没有检索到记忆"（A2 §2.1）。"""
         self.mock_engine.retrieve.side_effect = RuntimeError("engine error")
 
-        response = await self.familiar.retrieve(_make_request())
-
-        assert response.memories_count == 0
-        assert response.latency_ms >= 0
+        with pytest.raises(RuntimeError, match="engine error"):
+            await self.familiar.retrieve(_make_request())
 
 
 class TestRetrievalFamiliarIdentityPropagation:
@@ -431,7 +434,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
         )
 
         refresh.assert_awaited_once_with([mem], persist=False)
-        assert response.memories == [mem]
+        assert response == [mem]
 
     @pytest.mark.asyncio
     async def test_retrieve_by_aliases_deduplicates_and_skips_missing(self):
@@ -444,7 +447,7 @@ class TestRetrievalFamiliarRetrieveByAliases:
         )
 
         assert self.mock_library.mid_term.get_by_alias.call_count == 2
-        assert response.memories == [mem]
+        assert response == [mem]
 
 
 class TestRetrievalFamiliarAccessStats:

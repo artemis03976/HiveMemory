@@ -6,17 +6,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from hivememory.core.models import IdentityScope, LogicalBlock, MemoryAtom, TopicAssetBinding
-from hivememory.engines.generation.models import GenerationRequest
-from hivememory.infrastructure.work_queue import InMemoryWorkStore
-from hivememory.patchouli.control.memory_generation.models import (
-    InteractionArtifactInput,
-    MemoryGenerationResult,
-    MemoryGenerationSource,
-    MemoryGenerationTaskSpec,
-)
-from hivememory.system.runtime.events import RuntimeEventSink
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.work_queue import (
     FailureAction,
     FailureDecision,
     QueuePolicy,
@@ -29,6 +20,15 @@ from hivememory.system.runtime.work_queue import (
     WorkQueueRuntime,
     WorkQueueShutdownSummary,
     adapt_queue_task,
+)
+from hivememory.core.models import IdentityScope, LogicalBlock, MemoryAtom, TopicAssetBinding
+from hivememory.engines.generation.models import GenerationRequest
+from hivememory.infrastructure.work_queue import InMemoryWorkStore
+from hivememory.patchouli.control.memory_generation.models import (
+    InteractionArtifactInput,
+    MemoryGenerationResult,
+    MemoryGenerationSource,
+    MemoryGenerationTaskSpec,
 )
 
 MemoryGenerationResults = tuple[MemoryGenerationResult, ...]

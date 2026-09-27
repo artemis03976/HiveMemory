@@ -14,14 +14,15 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
+    WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.engines.retrieval.models import QueryFilters
-from hivememory.engines.retrieval.policy import memory_belongs_to_workspace, memory_is_readable
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 
@@ -135,6 +136,20 @@ class QdrantStorageAdapter(MidTermStoragePort):
         if atom is None or not _readable(atom, identity_scope, enforce_actor_visibility):
             return None
         return atom
+
+    async def list_alias_holders(
+        self,
+        workspace_identity: WorkspaceIdentity,
+        alias: str,
+        *,
+        limit: int,
+    ) -> list[UUID]:
+        """按 Workspace 所有权边界精确匹配 alias 占用者，不叠加 actor 读取策略。"""
+        return await self._store.get_memory_ids_by_alias(
+            alias,
+            query_filter=QdrantFilterConverter.workspace_filter(workspace_identity),
+            limit=limit,
+        )
 
     async def get_by_key(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         """内部可信路径按复合键读取：只校验 ownership，不做 actor 可见性过滤。"""

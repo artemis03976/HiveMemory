@@ -14,8 +14,8 @@ from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE
-from hivememory.system.config import HiveMemoryConfig
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 

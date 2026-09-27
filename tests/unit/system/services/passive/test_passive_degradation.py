@@ -14,6 +14,10 @@ import asyncio
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
@@ -26,11 +30,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressContractError,
@@ -96,7 +95,8 @@ class _Recorder:
         self.calls.append("retrieve")
         if self.retrieval_error is not None:
             raise self.retrieval_error
-        return RetrievalResponse()
+        # 检索路由返回完整原子列表（A2 §2.1）。
+        return []
 
     async def submit(self, submission):
         self.calls.append("submit")

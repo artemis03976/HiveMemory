@@ -23,8 +23,8 @@ sys.path.insert(0, str(project_root / "src"))
 
 from unittest.mock import patch
 
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.i18n import set_default_language
-from hivememory.system.config import HiveMemoryConfig
 
 # ========== Pytest Fixtures ==========
 

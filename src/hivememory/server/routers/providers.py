@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.config.shared import ProviderCredentials
 from hivememory.server.deps import get_provider_registry
 from hivememory.server.models.provider import ProviderResponse, ProviderUpsertRequest
-from hivememory.system.config.shared import ProviderCredentials
 from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
 
 router = APIRouter(tags=["providers"])

@@ -28,6 +28,9 @@ import pytest_asyncio
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import CallerPrincipal, WorkspaceOperation
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -72,18 +75,15 @@ from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from hivememory.system.access import CallerPrincipal
-from hivememory.system.application.memory_service import MemoryApplicationService
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.workspace import WorkspaceOperation
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
+    make_workspace_runtime,
 )
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
@@ -220,8 +220,8 @@ async def wired():
         familiar.retrieve_async,
     )
     local_bus.register(
-        PatchouliLocalRoutes.GET_AGENT_PROFILE_SNAPSHOT,
-        familiar.get_agent_profile_snapshot,
+        PatchouliLocalRoutes.GET_AGENT_PROFILE,
+        familiar.get_agent_profile,
     )
     local_bus.register(
         PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
@@ -296,7 +296,11 @@ async def wired():
     bridge.mount()
 
     # System 管理门面：与外部 adapter 同一全局总线，验证 context 传播
-    system_memory = MemoryApplicationService(global_bus=global_bus, config=MagicMock())
+    system_memory = MemoryApplicationService(
+        global_bus=global_bus,
+        access_guard=access.guard,
+        memory_reader=make_workspace_runtime(global_bus).aliases,
+    )
     system_tasks = MemoryTaskApplicationService(global_bus=global_bus)
 
     try:
@@ -434,13 +438,19 @@ async def test_same_owner_actors_have_different_admission_across_workspaces(wire
 
 @pytest.mark.asyncio
 async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wired):
-    """空白名单 Actor 可进入，但资源动作全部拒绝（证据 3）。"""
+    """空白名单 Actor 可进入，但资源动作全部拒绝（证据 3）。
+
+    读取路径的 operation 检查自 A2 起在 workspace 能力层、backing 调用前执行
+    （A2 §8 D-3）；写入路径仍由 Patchouli application 检查。
+    """
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError):
+        await wired.system_memory.read(str(uuid4()), access=context)
+    with pytest.raises(OperationDeniedError):
         await wired.global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_READ,
-            str(uuid4()),
+            GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+            intent=MemoryIntent(kind="write", topic_id="t", content="x"),
             access=context,
         )
 
@@ -583,7 +593,8 @@ async def test_single_context_reused_across_different_permitted_operations(wired
         ),
         access=context,
     )
-    assert retrieval is not None
+    # 检索 backing 返回完整原子列表（A2 §2.1）；替身引擎无命中。
+    assert retrieval == []
 
     # 换操作不重建身份，但方法所需的 operation 不在白名单内时仍拒绝
     with pytest.raises(OperationDeniedError):
@@ -821,3 +832,12 @@ async def test_expired_context_rejected_and_reauthentication_restores_access(wir
         )
         is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_profile_snapshot_route_is_not_mounted_on_global_bus(wired):
+    """A2 §2.4：删除 snapshot 路由后，bridge 不再挂载任何 Profile 快照公共入口。"""
+    routes = wired.global_bus.list_routes()
+
+    assert "patchouli.public.get_agent_profile_snapshot" not in routes
+    assert GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE in routes

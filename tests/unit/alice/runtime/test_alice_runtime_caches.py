@@ -5,6 +5,7 @@ AliceRuntime 派生缓存生命周期测试
 from uuid import uuid4
 
 from hivememory.alice.runtime.core import AliceRuntime
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -13,7 +14,6 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.agent import AgentProfile
-from hivememory.system.config import HiveMemoryConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_workspace_identity
 

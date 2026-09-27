@@ -8,12 +8,12 @@ tests/integration/alice/test_system.py。本文件保留 health 报告测试。
 import pytest
 
 from hivememory.alice.system import AliceSystem
-from hivememory.system.config import HiveMemoryConfig
+from hivememory.config.app import HiveMemoryConfig
 
 
 @pytest.mark.asyncio
 async def test_health_reports_runtime_health():
-    system = AliceSystem(config=HiveMemoryConfig())
+    system = AliceSystem(config=HiveMemoryConfig().alice)
 
     health = await system.health()
 

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
     memory_task_to_payload,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 _TERMINAL_EVENT_TYPES = {
     MemoryGenerationTaskStatus.COMPLETED: RuntimeEventType.MEMORY_TASK_COMPLETED,

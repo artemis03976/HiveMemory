@@ -40,8 +40,8 @@ from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 
 if TYPE_CHECKING:
+    from hivememory.config.patchouli import MemoryPerceptionConfig
     from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
-    from hivememory.system.config.patchouli import MemoryPerceptionConfig
 
 logger = logging.getLogger(__name__)
 

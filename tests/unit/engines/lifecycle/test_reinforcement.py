@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.config.patchouli import ReinforcementEngineConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -23,7 +24,6 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import EventType, MemoryEvent
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
-from hivememory.system.config import ReinforcementEngineConfig
 from hivememory.utils.time import utc_now
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope

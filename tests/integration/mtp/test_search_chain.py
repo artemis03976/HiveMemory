@@ -23,6 +23,7 @@ import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -36,8 +37,6 @@ from hivememory.core.mtp import (
     MTPTarget,
     MTPVerb,
 )
-from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.system.config import KoakumaConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
@@ -67,12 +66,9 @@ def _make_memory(
     )
 
 
-def _make_retrieval_response(memories=None) -> RetrievalResponse:
-    memories = memories or []
-    return RetrievalResponse(
-        memories=memories,
-        memories_count=len(memories),
-    )
+def _make_retrieval_response(memories=None) -> list[MemoryAtom]:
+    """检索路由的返回值：按领域排序的完整原子列表（A2 §2.1）。"""
+    return list(memories or [])
 
 
 @pytest.fixture
@@ -292,7 +288,7 @@ class TestSearchRetrievalRequest:
 
 
 class TestSearchResultRendering:
-    """SEARCH 通过 MemoryCompiler 编译 RetrievalResponse.memories。"""
+    """SEARCH 通过 MemoryCompiler 编译检索返回的完整原子列表。"""
 
     def test_single_result_compiled_context(self, koakuma):
         mem = _make_memory(

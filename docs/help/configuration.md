@@ -8,7 +8,7 @@ code_paths:
   - configs/models.yaml
   - configs/.env.example
   - configs/providers.secrets.example.yaml
-  - src/hivememory/system/config/
+  - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
   - src/hivememory/server/routers/config.py

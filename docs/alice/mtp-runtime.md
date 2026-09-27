@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/agent_runtime/aliases/
   - src/hivememory/core/mtp/
   - src/hivememory/prompts/mtp.py
-  - src/hivememory/system/config/alice.py
+  - src/hivememory/config/alice.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
@@ -177,7 +177,7 @@ Alice 配置当前分为两组：
 | alias 解析与热缓存 | `src/hivememory/agent_runtime/aliases/resolver.py`、`cache.py` |
 | syscall 注册与实现 | `src/hivememory/agent_runtime/mtp/syscalls/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
-| Alice 配置 | `src/hivememory/system/config/alice.py` |
+| Alice 配置 | `src/hivememory/config/alice.py` |
 | parser / formatter 测试 | `tests/unit/core/mtp/` |
 | verb 与 syscall 链路测试 | `tests/unit/agent_runtime/mtp/` |
 

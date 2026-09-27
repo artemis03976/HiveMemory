@@ -8,13 +8,13 @@ code_paths:
   - src/hivememory/server/models/workspace_asset.py
   - src/hivememory/server/models/chat.py
   - src/hivememory/server/routers/chat.py
-  - src/hivememory/system/application/workspace_asset_service.py
-  - src/hivememory/system/services/attachments/upload.py
-  - src/hivememory/system/services/attachments/parse_service.py
-  - src/hivememory/system/config/attachments.py
-  - src/hivememory/system/services/attachments/
-  - src/hivememory/system/runtime/workspace/store.py
-  - src/hivememory/system/runtime/serial_gate.py
+  - src/hivememory/workspace/capability/assets.py
+  - src/hivememory/workspace/assets/upload.py
+  - src/hivememory/workspace/assets/parse_service.py
+  - src/hivememory/config/attachments.py
+  - src/hivememory/infrastructure/attachments/
+  - src/hivememory/workspace/assets/store.py
+  - src/hivememory/components/serial_gate.py
   - src/hivememory/engines/attachment_compiler/
   - src/hivememory/patchouli/service.py
   - src/hivememory/patchouli/control/interaction_submission.py
@@ -74,7 +74,7 @@ Topic settlement
 
 上传入口是 `POST /api/v1/workspace/assets`，单文件 `multipart/form-data`，文件字段名 `file`；重复 file part、多文件 part 或额外业务字段按非法请求拒绝。请求头 `Idempotency-Key` 是本次上传的稳定 operation identity，服务层将其映射为 Store 的 `client_operation_id`；同一文件重试必须沿用同一取值。身份仍由 `x-user-id` / `x-workspace-id` 统一承载。
 
-上传应用服务（`WorkspaceAssetApplicationService`）只负责用例顺序：持有 operation 串行门（`system/runtime/serial_gate.py` 的 `KeyedSerialGate`）、接收文件、调用 Store 原子注册、交给解析服务并返回最终回执。文件接收由 `system/services/attachments/upload.py` 的 `receive_upload` 完成，解析接纳由同目录 `parse_service.py` 的 `AttachmentParseService` 承担；两者都不额外引入上传数据模型。
+上传应用服务（`WorkspaceAssetApplicationService`）只负责用例顺序：持有 operation 串行门（`components/serial_gate.py` 的 `KeyedSerialGate`）、接收文件、调用 Store 原子注册、交给解析服务并返回最终回执。文件接收由 `workspace/assets/upload.py` 的 `receive_upload` 完成，解析接纳由同目录 `parse_service.py` 的 `AttachmentParseService` 承担；两者都不额外引入上传数据模型。
 
 接收阶段在创建资产前完成全部无副作用校验：拒绝空文件；文件名做 NFKC 规范化、去除路径分隔符与控制字符并限制为 200 字符（只作展示用途的 `display_name`）；按批准格式集合分派规范媒体类型（`.txt`/`.md`/`.markdown`/`.docx`，客户端 MIME 只作提示、明确冲突即拒绝）。读取按 64 KiB 分块进行，`size_bytes` 与 SHA-256 均以实际读取字节为准，超出 `max_raw_bytes` 立即中止。上传流与框架临时文件由 router 在 transport 边界关闭；接收函数不访问 Store，也不持有资产生命周期。
 
@@ -110,7 +110,7 @@ DOCX 使用标准库 `zipfile` 与 `defusedxml` 流式解析：包校验（成�
 
 解析服务在 Store 锁外经标准线程转交执行 parser。成功结果经来源核对（RAW revision/hash 与 producer/version 匹配）后以原 parse token 调用 `complete_representation`；预期失败调用 `fail_representation` 并附 `AssetSafeError(code="workspace.asset.failed")`。required representation 与资产聚合状态在同一临界区原子进入 READY/FAILED，上传响应因此只会是终态快照或稳定错误。RAW 注册成功后的解析失败仍以 201/200 返回 `state=failed` 与安全摘要，不改写为上传失败；失败保留 RAW，但普通 reader 拒绝 FAILED 资产。应用层用最终快照重建回执并保留 Store 原始 `created` 标记，解析服务不参与 HTTP 201/200 判定。
 
-同一 `(workspace_identity, client_operation_id)` 的并发上传由应用服务持有的独立 `KeyedSerialGate` 实例在单 event loop 内串行化，持门范围覆盖接收、注册与解析收尾全过程。等待方在持有方到达终态或错误收尾后继续，随后命中既有重放或冲突路径。公共门的取消与回收机制见[System 运行时](./runtime-and-bus.md#5-keyedserialgate)；上传服务不保存另一份幂等结果或资产状态。重复请求不重复解析；解析失败后的重新上传使用新的 operation，形成新资产。
+同一 `(workspace_identity, client_operation_id)` 的并发上传由应用服务持有的独立 `KeyedSerialGate` 实例在单 event loop 内串行化，持门范围覆盖接收、注册与解析收尾全过程。等待方在持有方到达终态或错误收尾后继续，随后命中既有重放或冲突路径。公共门的取消与回收机制见[System 运行时](../components/runtime-and-bus.md#5-keyedserialgate)；上传服务不保存另一份幂等结果或资产状态。重复请求不重复解析；解析失败后的重新上传使用新的 operation，形成新资产。
 
 complete/fail 被 Store 以 stale、removed 或 closed 拒绝时直接传播既有错误，HTTP 分别映射 409、410、503；不查询列表后回退到旧上传快照。请求取消时，解析服务以原 token 尽力提交安全失败，Store 拒绝只记录日志，继续传播 `CancelledError`。这些行为保证晚到结果不能覆盖已有终态，也不会因收尾回退而返回 PROCESSING。
 
@@ -161,11 +161,11 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 后端：
 
-- 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`system/application/workspace_asset_service.py`](../../src/hivememory/system/application/workspace_asset_service.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
-- 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/system/services/attachments/upload.py)、[`parse_service.py`](../../src/hivememory/system/services/attachments/parse_service.py)、[`runtime/serial_gate.py`](../../src/hivememory/system/runtime/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`system/services/attachments/`](../../src/hivememory/system/services/attachments/)；
+- 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/assets.py`](../../src/hivememory/workspace/capability/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
+- 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`components/serial_gate.py`](../../src/hivememory/components/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`infrastructure/attachments/`](../../src/hivememory/infrastructure/attachments/)；
 - Chat 选择与编译交接：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；
-- 配置：[`system/config/attachments.py`](../../src/hivememory/system/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。
+- 配置：[`config/attachments.py`](../../src/hivememory/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。
 
 前端：
 
@@ -173,8 +173,8 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 代表性行为测试：
 
-- Store 原子注册与幂等：[`tests/unit/system/runtime/workspace/test_store.py`](../../tests/unit/system/runtime/workspace/test_store.py)；
-- 上传服务与请求内解析：[`tests/integration/system/application/test_workspace_asset_service.py`](../../tests/integration/system/application/test_workspace_asset_service.py)、[`test_workspace_asset_parsing.py`](../../tests/integration/system/application/test_workspace_asset_parsing.py)；
+- Store 原子注册与幂等：[`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)；
+- 上传服务与请求内解析：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`test_workspace_asset_parsing.py`](../../tests/integration/system/application/test_workspace_asset_parsing.py)；
 - 公开入口：[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)、[`test_workspace_asset_parse_acceptance.py`](../../tests/integration/system/test_workspace_asset_parse_acceptance.py)；
 - 解析器与编译器：[`tests/unit/system/services/attachments/`](../../tests/unit/system/services/attachments/)、[`tests/integration/system/services/attachments/`](../../tests/integration/system/services/attachments/)、[`tests/unit/engines/attachment_compiler/`](../../tests/unit/engines/attachment_compiler/)；
 - codec 与 binding/promotion：[`tests/unit/patchouli/control/test_interaction_submission_v2.py`](../../tests/unit/patchouli/control/test_interaction_submission_v2.py)、[`tests/unit/patchouli/test_prepare_attachments.py`](../../tests/unit/patchouli/test_prepare_attachments.py)、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。

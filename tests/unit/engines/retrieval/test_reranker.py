@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.config.patchouli import RerankerConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -23,7 +24,6 @@ from hivememory.engines.retrieval.reranker import (
     create_reranker,
 )
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from hivememory.system.config import RerankerConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

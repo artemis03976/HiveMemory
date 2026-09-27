@@ -4,27 +4,27 @@ status: governance
 owner: system
 scope: cross-subsystem-state-durability-and-crash-recovery
 code_paths:
-  - src/hivememory/system/runtime/
+  - src/hivememory/components/
   - src/hivememory/patchouli/runtime/
   - src/hivememory/patchouli/control/
   - src/hivememory/agent_runtime/
   - src/hivememory/alice/runtime/
   - src/hivememory/patchouli/memory_library/
 related_docs:
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/architecture/workspace.md
   - docs/patchouli/artifacts.md
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
-  - docs/system/observability.md
+  - docs/components/observability.md
 last_reviewed: 2026-09-13
 ---
 
 # 运行时状态持久化与故障恢复治理
 
-本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [System 运行时与总线](../../system/runtime-and-bus.md#3-local-work-queue-runtime) 对队列机械生命周期的当前设计。v0.6.1 已完成进程内 Local Work Queue；SQLite WorkStore 与其他具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
+本文统一处理 HiveMemory 中“进程退出、worker 崩溃、请求迁移或单次写入失败后，哪些状态必须能够恢复，以及恢复时如何避免重复副作用”的跨版本治理问题。它不要求把所有对象都写入数据库，也不替代 [运行时机制：总线、调度器与 Work Queue](../../components/runtime-and-bus.md#3-local-work-queue-runtime) 对队列机械生命周期的当前设计。v0.6.1 已完成进程内 Local Work Queue；SQLite WorkStore 与其他具体持久化切片只有在绑定版本和验收出口后才形成独立 Plan。
 
 项目的核心命题是把易逝 Context 转化为可寻址、可验证、可演化的 Memory 资产。如果 Agent frame、PendingAtom、Generation task 和来源写入在进程退出后全部消失，这条命题只能在单次进程生命周期内成立。因此本治理主题首先建立“状态的耐久性等级”，再按所有权逐步补齐持久化和恢复，不把 RuntimeEvent 或日志误当成业务状态数据库。
 
@@ -36,7 +36,7 @@ last_reviewed: 2026-09-13
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
 | Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
-| WorkspaceAsset / opaque ref | System-owned 进程内 `WorkspaceAssetStore` | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
+| WorkspaceAsset / opaque ref | workspace 的进程内 `WorkspaceAssetStore`（组合根装配） | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
 | Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
@@ -271,6 +271,6 @@ v0.6.1 对这一方向的历史讨论保留于
 
 ## 7. 依赖与风险
 
-本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../system/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个 `IdentityScope` 可见，以及 Workspace ownership 在哪个最终边界校验。
+本治理主题依赖[跨子系统幂等性与重试语义](./idempotency-and-retry.md)，并复用 [System 当前 Work Queue 契约](../../components/runtime-and-bus.md#3-local-work-queue-runtime)的 lane、WorkStore 和 handler registry 方向。当前 Local Runtime 不提供 lease 契约；持久化阶段必须先定义 claim ownership、崩溃检测与安全重放，再决定是否采用 lease。身份隔离治理必须先定义哪些 record 对哪个 `IdentityScope` 可见，以及 Workspace ownership 在哪个最终边界校验。
 
 主要风险是过早把所有内存对象写入持久化层，导致 schema、隐私和迁移成本快速膨胀；因此首期应优先保护已经对外承诺的工作项和写入意图，保留短期 topic、cache 与 RuntimeEvent 的明确 ephemeral 语义。

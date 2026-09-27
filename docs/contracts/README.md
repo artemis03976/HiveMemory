@@ -23,7 +23,7 @@ Workspace 是这些交接的资源归属坐标；本目录只记录契约需要�
 
 ## 使用规则
 
-- route 字符串以 `src/hivememory/system/contracts/route_names.py` 为代码级唯一来源；
+- route 字符串以 `src/hivememory/core/contracts/route_names.py` 为代码级唯一来源；
 - 协议模型以 `src/hivememory/core/protocol/` 和 `src/hivememory/core/mtp/` 为执行证据；
 - local bus、workflow state 和具体引擎对象不是公共契约；
 - 旧 `docs/protocols/` 已在逐篇审计后移入 `archive/legacy-docs/protocols/`，不得从 Archive 反向推断当前契约。

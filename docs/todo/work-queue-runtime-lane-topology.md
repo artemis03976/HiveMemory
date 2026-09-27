@@ -4,7 +4,7 @@ status: deferred
 owner: system
 scope: work-queue-runtime-lane-composition
 related_docs:
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
 last_reviewed: 2026-08-16
 ---

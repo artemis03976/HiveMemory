@@ -9,7 +9,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from hivememory.core.errors import InvalidMemoryFieldError
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
+from hivememory.core.memory_access import memory_belongs_to_workspace
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -17,12 +20,12 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
-from hivememory.engines.retrieval.policy import memory_belongs_to_workspace
 from hivememory.server.routers.memories import router
-from hivememory.system.application.memory_service import MemoryApplicationService
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_workspace_runtime
 
 
 def _create_test_app(storage, lifecycle_engine=None):
@@ -39,9 +42,11 @@ def _create_test_app(storage, lifecycle_engine=None):
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
+    # 管理路由不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
     service = MemoryApplicationService(
         global_bus=bus,
-        config=MagicMock(),
+        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        memory_reader=make_workspace_runtime(bus).aliases,
     )
     app.dependency_overrides[deps.get_memory_service] = lambda: service
 
@@ -270,6 +275,43 @@ class TestMemoriesRouter:
         assert response.status_code == 422
         assert "summary" in response.json()["detail"]
         storage.upsert_memory.assert_not_called()
+
+    def test_create_memory_alias_conflict_returns_409(self):
+        """alias 被同 Workspace 其他记忆占用时返回 409，而不是 500。"""
+        storage = MagicMock()
+        storage.upsert_memory.side_effect = MemoryAliasConflictError(
+            "alias 已被同一 Workspace 内的其他记忆占用",
+            details={"alias": "fact_taken", "reason": "alias_occupied"},
+        )
+        client = TestClient(_create_test_app(storage))
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+                "alias": "fact_taken",
+            },
+        )
+
+        assert response.status_code == 409
+        assert "alias" in response.json()["detail"]
+
+    def test_update_memory_alias_conflict_returns_409(self):
+        """编辑改绑到已占用 alias 时返回 409。"""
+        storage = MagicMock()
+        storage.get_memory.return_value = _make_atom(title="Existing")
+        storage.upsert_memory.side_effect = MemoryAliasConflictError(
+            "alias 已被同一 Workspace 内的其他记忆占用",
+            details={"alias": "fact_taken", "reason": "alias_occupied"},
+        )
+        client = TestClient(_create_test_app(storage))
+
+        response = client.patch(f"/api/v1/memories/{uuid4()}", json={"alias": "fact_taken"})
+
+        assert response.status_code == 409
 
     def test_create_memory_storage_failure(self):
         storage = MagicMock()

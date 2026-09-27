@@ -9,6 +9,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    WorkPayloadCodecRegistry,
+    WorkPayloadDecodeError,
+    WorkState,
+    encode_canonical_json,
+)
+from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -25,14 +33,6 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.system.runtime.work_queue import (
-    QueuePolicy,
-    WorkPayloadCodecRegistry,
-    WorkPayloadDecodeError,
-    WorkState,
-    encode_canonical_json,
-)
 from tests.helpers.workspace import make_identity_scope
 
 

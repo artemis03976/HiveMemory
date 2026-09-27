@@ -7,13 +7,13 @@ import asyncio
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from hivememory.core.contracts.runtime_events import RuntimeEvent
 from hivememory.server.deps import get_system
 from hivememory.server.models.runtime_event import (
     RuntimeEventDisabledResponse,
     RuntimeEventResponse,
     RuntimeEventStatusResponse,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEvent
 
 router = APIRouter(prefix="/runtime-events", tags=["runtime-events"])
 

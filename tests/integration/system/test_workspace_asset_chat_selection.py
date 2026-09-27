@@ -8,14 +8,14 @@ removed 竞态下继续使用 representation 的缺陷。
 
 import pytest
 
+from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import AttachmentSelectionRequest
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.config import AttachmentParserConfig
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.patchouli.test_prepare_attachments import _prepare_bus
@@ -155,11 +155,11 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     """
     from unittest.mock import AsyncMock
 
+    from hivememory.alice.application.chat_service import ChatApplicationService
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.core.contracts.routes import GlobalRoutes
     from hivememory.core.protocol.gateway import GatewayDecisionOutcome
     from hivememory.core.protocol.models import AgentRunResult
-    from hivememory.system.application.chat_service import ChatApplicationService
-    from hivememory.system.contracts.routes import GlobalRoutes
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")

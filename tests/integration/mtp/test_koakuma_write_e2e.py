@@ -6,6 +6,7 @@ import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -13,7 +14,6 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
-from hivememory.system.config import KoakumaConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 

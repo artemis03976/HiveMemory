@@ -6,11 +6,11 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 
 class CandidateTopics(BaseModel):

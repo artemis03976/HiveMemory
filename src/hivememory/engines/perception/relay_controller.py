@@ -20,7 +20,7 @@ from hivememory.core.models import LogicalBlock
 from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
-    from hivememory.system.config import RelayControllerConfig
+    from hivememory.config.patchouli import RelayControllerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -289,13 +289,16 @@ def create_relay_controller(
         BaseRelayController 实例
 
     Examples:
-        >>> from hivememory.system.config import RelayControllerConfig, SimpleRelayConfig
+        >>> from hivememory.config.patchouli import RelayControllerConfig, SimpleRelayConfig
         >>> config = RelayControllerConfig(engine=SimpleRelayConfig())
         >>> controller = create_relay_controller(config)
         >>> isinstance(controller, SimpleRelayController)
         True
     """
-    from hivememory.system.config import LLMRelayConfig, SimpleRelayConfig
+    from hivememory.config.patchouli import (
+        LLMRelayConfig,
+        SimpleRelayConfig,
+    )
 
     if not config.enable:
         return NoOpRelayController()

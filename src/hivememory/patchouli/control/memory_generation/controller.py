@@ -10,6 +10,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    TaskOutcome,
+    WorkQueueError,
+    WorkQueueShutdownSummary,
+    WorkState,
+)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.events import (
     MemoryTaskEventEmitter,
@@ -20,6 +32,8 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    memory_task_from_outcome,
+    memory_task_from_spec,
 )
 from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationHandle,
@@ -27,15 +41,6 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationResults,
 )
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from hivememory.system.runtime.work_queue import (
-    QueuePolicy,
-    TaskOutcome,
-    WorkQueueError,
-    WorkQueueShutdownSummary,
-    WorkState,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +153,7 @@ class MemoryGenerationTaskController:
             # 幂等重提交只返回原任务的当前投影，不再次发布 created、入队或启动执行。
             return await self._snapshot_entry(existing)
 
-        created = MemoryGenerationTask.from_spec(
+        created = memory_task_from_spec(
             task_id,
             spec,
             created_at=datetime.now(UTC),
@@ -330,7 +335,7 @@ class MemoryGenerationTaskController:
         await self._publish_running_if_needed(entry, outcome)
 
         record = outcome.record
-        snapshot = MemoryGenerationTask.from_outcome(
+        snapshot = memory_task_from_outcome(
             entry.created,
             outcome,
             expose_terminal=True,
@@ -378,7 +383,7 @@ class MemoryGenerationTaskController:
             return entry.created.as_failed(
                 "memory generation work record missing",
             )
-        return MemoryGenerationTask.from_outcome(
+        return memory_task_from_outcome(
             entry.created,
             outcome,
             expose_terminal=False,
@@ -520,7 +525,7 @@ class MemoryGenerationTaskController:
             return
 
         entry.running_published = True
-        running = MemoryGenerationTask.from_outcome(
+        running = memory_task_from_outcome(
             entry.created,
             outcome,
             expose_terminal=False,

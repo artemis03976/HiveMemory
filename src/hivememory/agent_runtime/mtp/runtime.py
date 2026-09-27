@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from hivememory.agent_runtime.aliases import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp import (
@@ -68,13 +69,13 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.i18n.resolver import resolve_language
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.aliases import AtomCachePort
+    from hivememory.components.bus.async_bus import AsyncSystemBus
+    from hivememory.config.alice import KoakumaConfig
+    from hivememory.config.memory_compiler import MemoryCompilerConfig
     from hivememory.core.models import MemoryAtom
-    from hivememory.system.config import KoakumaConfig, MemoryCompilerConfig
-    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ class KoakumaRuntime:
             config: Koakuma 配置 (可选，使用默认值)
             alias_resolver: 运行时别名解析器
         """
-        from hivememory.system.config import KoakumaConfig
+        from hivememory.config.alice import KoakumaConfig
 
         self._bus = bus
         self._config = config or KoakumaConfig()
@@ -414,7 +415,7 @@ class KoakumaRuntime:
             command: SEARCH 指令 (target=*, args: query="...", filter="...")
 
         Returns:
-            MTPResponse: RetrievalResponse 渲染后的上下文
+            MTPResponse: 检索到的完整原子经 MemoryCompiler 编译后的上下文
         """
         query = command.args.get("query", "")
         if not query:
@@ -428,8 +429,9 @@ class KoakumaRuntime:
             self._filter_parser.parse(filter_str) if filter_str else (None, [])
         )
 
-        # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理
-        result = await self._bus.request(
+        # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理；
+        # 检索路由返回完整原子列表（A2 §2.1），MTP 输出在此编译呈现。
+        memories = await self._bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=query,
@@ -438,7 +440,7 @@ class KoakumaRuntime:
             ),
         )
 
-        if result.is_empty():
+        if not memories:
             return MTPResponse(
                 status=MTPResponseStatus.SUCCESS,
                 content="",
@@ -449,7 +451,7 @@ class KoakumaRuntime:
             )
 
         content = self._compiler.compile(
-            result.memories,
+            memories,
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
             MemoryCompileOptions(
                 retrieval_strategy_config=(
@@ -463,7 +465,7 @@ class KoakumaRuntime:
 
         # 将检索到的记忆原子缓存到调用方 Workspace 分区（完整对象，而非仅 UUID）
         self.atom_cache.ingest_atoms(
-            result.memories,
+            memories,
             workspace_identity=context.identity_scope.workspace_identity,
         )
 

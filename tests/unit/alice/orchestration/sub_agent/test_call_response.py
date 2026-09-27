@@ -6,10 +6,10 @@ from hivememory.alice.orchestration.sub_agent.call_response import (
     preparation_error_response,
     response_for_frame_result,
 )
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.mtp import MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError
-from hivememory.system.model_registry import ModelNotFoundError
 
 
 def test_cancelled_response_is_empty_cancelled_envelope():

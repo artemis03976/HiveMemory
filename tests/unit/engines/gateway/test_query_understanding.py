@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
 from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingEngine,
     QueryUnderstandingError,
 )
-from hivememory.system.config import UserQueryAnalysisConfig
 from tests.helpers.workspace import make_identity_scope
 
 

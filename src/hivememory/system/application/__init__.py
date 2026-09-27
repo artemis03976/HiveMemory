@@ -1,31 +1,13 @@
-from hivememory.system.application.agent_service import AgentApplicationService
-from hivememory.system.application.chat_service import (
-    ChatApplicationService,
-    NonStreamingChatAgentOutcome,
-    NonStreamingChatCommandOutcome,
-    NonStreamingChatResult,
-)
-from hivememory.system.application.memory_service import (
-    MemoryApplicationService,
-    MemoryLifecycleUnavailableError,
-    MemoryNotFoundError,
-)
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
+"""System 级应用服务：被动摄入与就绪检查。
+
+资源能力位于 ``hivememory.workspace.capability``，chat 编排位于
+``hivememory.alice.application``；它们与本包一样由组合根装配、经门面交给入口。
+"""
+
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
 
 __all__ = [
-    "AgentApplicationService",
-    "ChatApplicationService",
-    "NonStreamingChatAgentOutcome",
-    "NonStreamingChatCommandOutcome",
-    "NonStreamingChatResult",
-    "MemoryApplicationService",
-    "MemoryLifecycleUnavailableError",
-    "MemoryNotFoundError",
-    "MemoryTaskApplicationService",
     "PassiveIngressService",
     "SystemReadinessService",
-    "TopicApplicationService",
 ]

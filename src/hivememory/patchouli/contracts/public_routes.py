@@ -1,6 +1,6 @@
 """通过 GlobalSystemBus 暴露的 Patchouli 公开路由。"""
 
-from hivememory.system.contracts.route_names import RouteNames
+from hivememory.core.contracts.route_names import RouteNames
 
 
 class PatchouliRoutes:
@@ -20,7 +20,6 @@ class PatchouliRoutes:
     MEMORY_RETRIEVE = RouteNames.PATCHOULI_MEMORY_RETRIEVE
     MEMORY_RETRIEVE_BY_ALIASES = RouteNames.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES
     GET_AGENT_PROFILE = RouteNames.PATCHOULI_GET_AGENT_PROFILE
-    GET_AGENT_PROFILE_SNAPSHOT = RouteNames.PATCHOULI_GET_AGENT_PROFILE_SNAPSHOT
     MEMORY_READ = RouteNames.PATCHOULI_MEMORY_READ
     INTERACTION_SUBMIT = RouteNames.PATCHOULI_INTERACTION_SUBMIT
     MEMORY_INTENT_SUBMIT = RouteNames.PATCHOULI_MEMORY_INTENT_SUBMIT

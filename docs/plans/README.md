@@ -18,7 +18,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 | [v0.7.0 计划 A 边界宪章：Workspace 与记忆库的归属与独立工作契约](./v0.7.0-plan-a-boundary-charter.md) | Active | 冻结 Workspace 与 Patchouli 的归属判据、独立工作契约、状态归属表与证伪条件；已于 2026-09-23 采纳并完成 §10 联动修订，生效为计划 A 家族边界裁决唯一理由源 |
 | [A2-P 记忆内容版本与 Lifecycle 状态重构](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) | 已完成（2026-09-24 归档）/ A2 前置 | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 2.1 迁移；维护不改内容版本、不整颗重写，无 cache/Alice 独立验收 |
 | [全项目时间语义与可控时钟统一](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) | 已完成（2026-09-24 归档，嵌入 A2-P 实施）/ 跨子系统 | Memory 域 UTC 业务时间、四时间字段职责、局部 now 注入与 TimeFormatter 契约；全项目收口转为 idea（见 ideas 索引） |
-| [A2 Workspace 读取能力面与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 2026-09-25 整份重写 | 能力面读取方法（resolver 原地授权）、双 cache、失效事件协作（D1–D3）、operation 授权迁移与 L2 backing 契约；A2-0 冻结遗留开放点 |
+| [A2 Workspace 读取能力面与派生缓存](./v0.7.0-a2-workspace-resource-reads-and-caches.md) | Active / 2026-09-25 整份重写 | 能力面读取方法（resolver 原地授权）、双 cache、失效事件协作（D1–D3）、operation 授权迁移与 L2 backing 契约；A2-0 已于 2026-09-25 闭合，前置阶段 A2-U 为 alias 唯一性修复 |
 | [A3 Conversation Session 与 Topic 投影边界](./v0.7.0-a3-conversation-session-and-topic-projection.md) | Planned | 新增 Session，演进 InteractionPayload/TurnEvent；交付 Topic 生命周期、交互/资料公共路由与授权结果查询 |
 | [A4 共享 Pending 与主动记忆写入](./v0.7.0-a4-pending-memory-intents.md) | Planned | 基于前置读取和 Topic 能力交付共享 Pending、主动提交、完整引用解析与结算 |
 | [A5 能力面 API 收敛与库职责退出](./v0.7.0-a5-patchouli-unified-api.md) | Active | 消费 A1–A4 成果收敛能力面/backing 两层目录，补检索/使用报告差额，operation 检查全量退役核对，形成旧服务职责退出清单 |
@@ -30,7 +30,7 @@ v0.6.2 W1 Chat Attachments 实现与验收已完成，当前行为以 [Workspace
 
 全项目时间语义计划是可在 A1 后独立推进的跨子系统治理工作；A2-P 只依赖其中的 utils 时间工具和 UTC 字段契约，完整运行时迁移不改变 A 系列的业务依赖顺序。
 
-2026-09-23 边界冻结：新增[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)，以管护权/反转/用途三判据与"独立工作"契约重裁 Workspace 与 Patchouli 边界，cache/pending registry/resolver 归 workspace runtime，Patchouli 不增不减。同日完成宪章采纳与 §10 联动修订（协调入口、A2/A3/A4/A5/A6、AE2 措辞），宪章生效为计划 A 家族边界裁决唯一理由源；A1 返工项（operation 授权从 Patchouli application 层迁至 workspace 能力边界）的实施归属由 A2-0 裁定。canonical 变更事件契约在 A2-1 交付时登记入 routes-and-events。
+2026-09-23 边界冻结：新增[计划 A 边界宪章](./v0.7.0-plan-a-boundary-charter.md)，以管护权/反转/用途三判据与"独立工作"契约重裁 Workspace 与 Patchouli 边界，cache/pending registry/resolver 归 workspace runtime，Patchouli 不增不减。同日完成宪章采纳与 §10 联动修订（协调入口、A2/A3/A4/A5/A6、AE2 措辞），宪章生效为计划 A 家族边界裁决唯一理由源；A1 返工项（operation 授权从 Patchouli application 层迁至 workspace 能力边界）的实施归属由 A2-0 裁定。canonical 变更事件契约按晋升门禁在 A2 最终收尾时登记入 routes-and-events（2026-09-25 A2-0 更正）。
 
 2026-09-19 状态更新：A1 已完成实施、验收、代码审查与文档收口并归档为 [v0.7.0 A1 Workspace 访问边界与授权（归档）](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。当前事实入口：[Workspace 架构](../architecture/workspace.md)第 4 节（统一认证网关、两类登记、guard 签发生命周期与逐次行为授权）、[错误模型](../contracts/error-model.md)第 4.4 节、[子系统公共契约](../contracts/subsystem-contracts.md)第 3.5 节与 [ADR-0005](../architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。真实生产入口切换、shutdown 关闭时机和兼容分支退出仍由 [A6](./v0.7.0-a6-actor-adapters-and-integration.md) 完成；附件上传的 scope 一致性缺陷单独追踪于 [Todo](../todo/workspace-asset-upload-access-scope-mismatch.md)。
 

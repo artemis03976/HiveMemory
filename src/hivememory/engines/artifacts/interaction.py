@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 
+from hivememory.config.patchouli import ArtifactComponentConfig
 from hivememory.core.models import IdentityScope, LogicalBlock
 from hivememory.core.models.artifact import (
     ArtifactRef,
@@ -9,7 +10,6 @@ from hivememory.core.models.artifact import (
     InteractionTurnSnapshot,
 )
 from hivememory.patchouli.memory_library import ArtifactStore
-from hivememory.system.config.patchouli import ArtifactComponentConfig
 from hivememory.utils.time import utc_now
 
 

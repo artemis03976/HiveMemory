@@ -5,10 +5,12 @@ import logging
 from typing import TYPE_CHECKING
 
 from hivememory.alice.runtime.profile_cache import ProfileCachePort
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
     IdentityScope,
+    ResolvedAgentProfile,
     require_identity_scope,
 )
 from hivememory.core.mtp.exceptions import (
@@ -17,7 +19,6 @@ from hivememory.core.mtp.exceptions import (
     MTPError,
     SystemFault,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus
@@ -69,7 +70,7 @@ class AgentProfileResolver:
                 return cached
 
             try:
-                profile = await self._local_bus.request(
+                resolved = await self._local_bus.request(
                     GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
                     normalized_alias,
                     identity_scope=identity_scope,
@@ -93,20 +94,23 @@ class AgentProfileResolver:
                     cause=exc,
                 ) from exc
 
-            if profile is None:
+            if resolved is None:
                 raise AliasNotFoundError(
                     message_key="mtp.call.profile_not_found",
                     params={"agent_alias": normalized_alias},
                 )
-            if not isinstance(profile, AgentProfile):
+            if not isinstance(resolved, ResolvedAgentProfile):
                 exc = TypeError(
-                    f"Profile route returned {type(profile).__name__}, expected AgentProfile"
+                    f"Profile route returned {type(resolved).__name__}, "
+                    "expected ResolvedAgentProfile"
                 )
                 raise SystemFault(
                     message_key="mtp.call.profile_load_failed",
                     params={"agent_alias": normalized_alias},
                     cause=exc,
                 )
+            # backing 结果携带源原子 policy 依据，run 只使用能力描述（A2 §2.3）。
+            profile = resolved.profile
 
             logger.info("Agent profile %r loaded and cached", normalized_alias)
             self._cache.store(workspace_identity, identity, normalized_alias, profile)

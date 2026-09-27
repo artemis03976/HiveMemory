@@ -14,10 +14,12 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
     TopicData,
+    WorkspaceIdentity,
     WorkspaceMemoryKey,
     require_identity_scope,
 )
@@ -123,7 +125,18 @@ class ShortTermMemoryStore:
 
 
 class MidTermMemoryStore:
-    """中期记忆存储（向量库）。"""
+    """中期记忆存储（向量库）。
+
+    alias 唯一性不变量（A2 §8 D-4）：同一 Workspace 的中期库内，一个 alias
+    至多被一条 Memory 占用。``upsert`` 是全部完整写入（生成、手工编辑、
+    Profile 管理、revive）的汇聚点，也是唯一能覆盖所有路径的检查点，因此
+    在主后端写入前校验；归档即释放 alias，revive 撞名显式失败。
+    ``patch_payload`` 白名单不含 ``index.alias``，该路径无需校验。
+    """
+
+    # 唯一性判定只需确认"除自身外是否还有其他占用者"：自身至多一条，
+    # 因此取两条即可覆盖。
+    _ALIAS_HOLDER_PROBE_LIMIT = 2
 
     def __init__(
         self,
@@ -134,10 +147,49 @@ class MidTermMemoryStore:
         self._secondary: list[MidTermStoragePort] = secondary or []
 
     async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
-        """提交完整 canonical Memory；primary 写入后沿顺序同步 secondary。"""
+        """提交完整 canonical Memory；primary 写入后沿顺序同步 secondary。
+
+        写入前校验 alias 唯一性，冲突时抛 ``MemoryAliasConflictError`` 且不
+        产生任何写入。首版沿用 A2-P 的串行写入假设：并发写入者之间"检查→
+        写入"的竞态不在保证范围内。
+        """
+        await self.ensure_alias_available(memory)
         await self._primary.upsert(memory, recompute_vectors=recompute_vectors)
         for secondary in self._secondary:
             await secondary.upsert(memory, recompute_vectors=recompute_vectors)
+
+    async def list_alias_holders(
+        self,
+        workspace_identity: WorkspaceIdentity,
+        alias: str,
+        *,
+        limit: int = _ALIAS_HOLDER_PROBE_LIMIT,
+    ) -> list[UUID]:
+        """返回 Workspace 中期库内占用 ``alias`` 的 memory_id（primary 为准）。"""
+        return await self._primary.list_alias_holders(workspace_identity, alias, limit=limit)
+
+    async def ensure_alias_available(self, memory: MemoryAtom) -> None:
+        """校验 ``memory`` 的 alias 未被同 Workspace 的其他 Memory 占用。
+
+        无 alias 的原子不参与唯一性约束；自身已持有该 alias（如保留原 alias
+        的内容更新）视为可用。内容提交路径可在写版本 Artifact 之前调用本方法
+        提前失败，避免冲突时留下孤立记录；``upsert`` 仍会再次校验。
+        """
+        alias = memory.index.alias
+        if not alias:
+            return
+        holders = await self.list_alias_holders(memory.workspace_identity, alias)
+        others = [holder for holder in holders if holder != memory.id]
+        if others:
+            raise MemoryAliasConflictError(
+                "alias 已被同一 Workspace 内的其他记忆占用",
+                details={
+                    "alias": alias,
+                    "memory_id": str(memory.id),
+                    "conflicting_memory_id": str(others[0]),
+                    "reason": "alias_occupied",
+                },
+            )
 
     async def get(
         self,

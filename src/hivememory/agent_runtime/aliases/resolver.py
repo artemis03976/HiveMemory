@@ -19,6 +19,7 @@ from uuid import UUID
 
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.errors import ScopeRequiredError
+from hivememory.core.memory_access import memory_is_readable
 from hivememory.core.models import MemoryAtom
 from hivememory.core.models.pending import (
     PendingAtom,
@@ -31,12 +32,11 @@ from hivememory.core.mtp.exceptions import (
     StorageOfflineError,
     StorageReadError,
 )
-from hivememory.engines.retrieval.policy import memory_is_readable
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.aliases.ports import AtomCachePort
     from hivememory.agent_runtime.models import MTPExecutionContext
-    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
+    from hivememory.components.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -218,15 +218,15 @@ class RuntimeAliasResolver:
         context: MTPExecutionContext,
     ) -> MemoryAtom | None:
         """L2 冷查询：通过 bus 查询存储层。"""
-        from hivememory.system.contracts.routes import GlobalRoutes
+        from hivememory.core.contracts.routes import GlobalRoutes
 
         try:
-            retrieval_response = await self._bus.request(
+            # alias 批量读取路由返回实际可读的完整原子列表（A2 §2.1）。
+            memories = await self._bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
                 aliases=[alias],
                 identity_scope=context.identity_scope,
             )
-            memories = getattr(retrieval_response, "memories", []) or []
             memory = memories[0] if memories else None
             if memory is None:
                 logger.debug("L2 cold-lookup miss: alias='%s'", alias)

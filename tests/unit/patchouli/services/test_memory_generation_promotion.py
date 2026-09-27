@@ -30,7 +30,7 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationSource
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -130,6 +130,10 @@ class _StubMidTerm:
     async def upsert(self, atom, *, recompute_vectors: bool = True):
         self.upsert_calls.append((atom, recompute_vectors))
         return atom
+
+    async def ensure_alias_available(self, atom) -> None:
+        """alias 唯一性不在本文件的被测边界内：替身视全部 alias 为空闲。"""
+        return None
 
     async def patch_payload(self, key, patch):
         self.patch_calls.append((key, patch))

@@ -1,8 +1,9 @@
 """Workspace 准入、访问上下文生命周期与逐次行为授权。
 
-System 统一认证网关完成 Principal authentication 后调用本模块的内部
-准入方法。WorkspaceAccessGuard 根据 Workspace Actor 注册表确认准入，
-签发最小上下文，并在每次 API 动作前验证其有效性及行为白名单。
+workspace 认证入口（``workspace.authentication``）完成 Principal
+authentication 后调用本模块的内部准入方法。WorkspaceAccessGuard 根据
+Workspace Actor 注册表确认准入，签发最小上下文，并在每次 API 动作前验证
+其有效性及行为白名单（实现 ``core.access.WorkspaceAccessVerifier``）。
 资源自身的可见性仍由资源 owner 判断；本模块不依赖 System 或 Patchouli。
 """
 
@@ -10,10 +11,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
-from enum import Enum
 from weakref import WeakKeyDictionary
 
+from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -21,65 +21,10 @@ from hivememory.core.errors import (
     ScopeRequiredError,
 )
 from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
-
-
-class WorkspaceOperation(str, Enum):
-    """Actor→Workspace 的行为目录（A1 计划第 4.1 节绑定基线）。
-
-    枚举表达"系统有哪些操作"；某个 Actor 实际获准的集合只由 Workspace
-    Actor 访问注册表（``workspace.registry``）表达，两者必须分开。每个
-    operation 只授予其语义声明的能力，互不隐含、不可推导：
-
-    - ``RESOURCE_READ``：canonical 资源点读（Memory 点读、Topic 快照/数据
-      读取）；不授予检索、写入或管理能力；
-    - ``RESOURCE_SEARCH``：语义检索；不授予点读之外的新增能力，也不授予
-      主动写入；
-    - ``PROFILE_READ``：Agent Profile 定义读取；与 Profile 的管理写入/
-      列表（``MANAGEMENT_MEMORY`` 绑定例外）分别授权；
-    - ``ASSET_ACQUIRE``：WorkspaceAsset 解析/获取；**不授权上传**；
-    - ``INTERACTION_SUBMIT``：交互提交；不授予检索或主动意图；
-    - ``MEMORY_INTENT_SUBMIT``：主动记忆意图提交；不保证生成结果；
-    - ``TASK_OBSERVE``：生成任务观察/等待；不授予取消、Pending 内容读
-      或 canonical Memory 读取；
-    - ``MANAGEMENT_MEMORY``：完整的 Memory 管理能力（含已绑定的
-      AGENT_PROFILE atom 管理写入/列表例外）；不是"只读管理"，不得借
-      用为 Topic/Asset/Task 的放行依据；
-    - ``MANAGEMENT_TASK``：生成任务取消等任务管理动作；观察不授予取消；
-    - ``MANAGEMENT_TOPIC``：Topic 结算/驱逐等生命周期变更（Topic 快照
-      读取绑定 ``RESOURCE_READ``，不借本项放行）；
-    - ``MANAGEMENT_ASSET``：WorkspaceAsset 上传登记（``ASSET_ACQUIRE``
-      不授权上传）。
-
-    方法与 operation 的绑定维护在各 application 服务的类 docstring 与
-    ``patchouli.application.access_consumption`` 的兼容清单中；新增
-    operation 由引入方同步维护目录、配置与行为测试，且不自动加入已有
-    白名单。
-    """
-
-    RESOURCE_READ = "resource.read"
-    RESOURCE_SEARCH = "resource.search"
-    PROFILE_READ = "profile.read"
-    ASSET_ACQUIRE = "asset.acquire"
-    INTERACTION_SUBMIT = "interaction.submit"
-    MEMORY_INTENT_SUBMIT = "memory_intent.submit"
-    TASK_OBSERVE = "task.observe"
-    MANAGEMENT_MEMORY = "management.memory"
-    MANAGEMENT_TASK = "management.task"
-    MANAGEMENT_TOPIC = "management.topic"
-    MANAGEMENT_ASSET = "management.asset"
-
-
-@dataclass(frozen=True, eq=False, slots=True, weakref_slot=True)
-class WorkspaceAccessContext:
-    """不可变的 Workspace 准入结果，只公开已验证的身份坐标。
-
-    调用侧经 System 统一认证网关取得；直接构造或复制的同值对象不获得
-    准入资格。有效性由签发它的 guard 检查，context 不自检、不持有来源
-    principal、授权配置或单次 operation，也不作为可序列化的远端凭据。
-    """
-
-    identity_scope: IdentityScope
+from hivememory.workspace.registry import (
+    WorkspaceActorAccessRecord,
+    WorkspaceActorAccessRegistry,
+)
 
 
 class WorkspaceAccessGuard:
@@ -150,6 +95,15 @@ class WorkspaceAccessGuard:
         )
         return context
 
+    def verify_context(self, access: WorkspaceAccessContext | None) -> IdentityScope:
+        """确认上下文由本实例签发、仍在有效期且 Actor 仍有准入，返回可信 scope。
+
+        不检查行为白名单：供 operation 授权已在能力层完成的 L2 backing 读取
+        入口取得可信坐标（A2 §8 D-3，读取路径 operation 检查迁出 Patchouli
+        application）。资源归属与资源 policy 仍由资源 owner 独立校验。
+        """
+        return self._verified_record(access)[0]
+
     def authorize_operation(
         self,
         access: WorkspaceAccessContext | None,
@@ -162,6 +116,22 @@ class WorkspaceAccessGuard:
         """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
+        scope, record = self._verified_record(access)
+        # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
+        if operation not in record.allowed_operations:
+            raise OperationDeniedError(
+                details={
+                    "operation": operation.value,
+                    "reason": "operation_not_allowed",
+                }
+            )
+        return scope
+
+    def _verified_record(
+        self,
+        access: WorkspaceAccessContext | None,
+    ) -> tuple[IdentityScope, WorkspaceActorAccessRecord]:
+        """校验签发、关闭、有效期与准入记录，返回可信 scope 与当前访问记录。"""
         if type(access) is not WorkspaceAccessContext:
             raise ScopeRequiredError("公共入口需要经统一认证网关签发的 WorkspaceAccessContext")
         if self._closed:
@@ -188,19 +158,9 @@ class WorkspaceAccessGuard:
                 "该 Actor 已无有效的 Workspace 访问登记",
                 details={"reason": "actor_not_admitted"},
             )
-        # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
-        if operation not in record.allowed_operations:
-            raise OperationDeniedError(
-                details={
-                    "operation": operation.value,
-                    "reason": "operation_not_allowed",
-                }
-            )
-        return scope
+        return scope, record
 
 
 __all__ = [
-    "WorkspaceAccessContext",
     "WorkspaceAccessGuard",
-    "WorkspaceOperation",
 ]

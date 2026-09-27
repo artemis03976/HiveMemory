@@ -12,6 +12,7 @@ import logging
 import re
 
 from hivememory.core.models import MemoryType
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.exceptions import MTPParseError
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
@@ -22,7 +23,6 @@ from hivememory.core.mtp.models import (
     MTPVerb,
     MTPWarningInfo,
 )
-from hivememory.engines.retrieval.models import QueryFilters
 
 logger = logging.getLogger(__name__)
 

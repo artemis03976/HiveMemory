@@ -8,6 +8,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 import hivememory
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.config.gateway import (
+    GatewayContextPreparationConfig,
+    GatewayWorkflowConfig,
+    SystemGatewayConfig,
+)
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayTimeoutError,
@@ -15,14 +23,6 @@ from hivememory.core.protocol.gateway import (
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.system.config import (
-    GatewayContextPreparationConfig,
-    GatewayWorkflowConfig,
-    SystemGatewayConfig,
-)
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from tests.helpers.workspace import make_identity_scope
 
 

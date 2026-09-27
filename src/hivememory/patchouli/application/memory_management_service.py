@@ -3,38 +3,40 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
     MemoryType,
 )
-from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application.access_consumption import (
-    required_scope,
+    backing_scope,
     verified_scope,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.utils.uuid import normalize_uuid
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
 
 
 class MemoryManagementService:
     """Patchouli 面向公开记忆管理/读取 API 的应用服务。
 
-    每个用例绑定明确的 operation（A1 计划第 4.1 节绑定基线），在资源
-    读取或副作用之前经 ``WorkspaceAccessGuard`` 执行共享行为检查：
+    管理用例绑定明确的 operation（A1 计划第 4.1 节绑定基线），在资源
+    读取或副作用之前经 ``WorkspaceAccessVerifier`` 执行共享行为检查：
 
     - 管理 CRUD/GET/LIST/feedback：``management.memory``——owner-management
       读取语义只由该 operation 授权，Agent 的 ``resource.read``/
-      ``resource.search`` 调用同一管理入口会在校验层失败；
-    - ``read_memory``（Actor-visible UUID 点读）：``resource.read``；
-    - ``retrieve``（语义检索）：``resource.search``；
-    - ``retrieve_by_aliases``（正式 alias 读取）：``resource.read``。
+      ``resource.search`` 调用同一管理入口会在校验层失败。
+
+    Actor-visible 读取（``read_memory`` / ``retrieve_by_aliases`` /
+    ``retrieve``）自 A2 起是 L2 backing 契约（A2 §2.1/§8 D-3）：
+    ``resource.read`` / ``resource.search`` 的行为授权由 workspace 能力层在
+    backing 调用前执行，此处只校验 access 有效性并取得可信 scope；资源
+    归属与 ``MemoryAccessPolicy`` 仍由存储边界独立校验（纵深防御）。
 
     迁移期兼容（A1 第 6 节冻结清单）：未提供 ``access`` 的旧调用方（管理
     入口 HTTP 链路与 Alice resolver 代理路由）按受信适配走裸
@@ -46,7 +48,7 @@ class MemoryManagementService:
         self,
         *,
         bus,
-        access_guard: WorkspaceAccessGuard,
+        access_guard: WorkspaceAccessVerifier,
     ) -> None:
         self._bus = bus
         self._access_guard = access_guard
@@ -212,7 +214,7 @@ class MemoryManagementService:
             source=source,
         )
 
-    # ---- Actor 可见读取用例（resource.read / resource.search） ----
+    # ---- Actor 可见读取 backing（operation 授权在 workspace 能力层） ----
 
     async def read_memory(
         self,
@@ -222,17 +224,17 @@ class MemoryManagementService:
         identity_scope: IdentityScope | None = None,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
-        """Actor-visible 的 canonical UUID 点读（resource.read）。
+        """Actor-visible 的 canonical UUID 点读 backing（能力层授权 ``resource.read``）。
 
         与管理 GET 的区别：可见性由 Patchouli 按 MemoryAccessPolicy 强制
         （enforce=True），不可见与缺失统一返回 ``None``；本用例不在迁移
         兼容清单内——缺少 access 一律拒绝。
         """
-        scope = required_scope(
+        scope = backing_scope(
             access,
-            WorkspaceOperation.RESOURCE_READ,
             identity_scope,
             access_guard=self._access_guard,
+            require_access=True,
         )
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
@@ -249,12 +251,14 @@ class MemoryManagementService:
         request: RetrievalRequest,
         *,
         access: WorkspaceAccessContext | None = None,
-    ) -> RetrievalResponse:
-        # 语义检索按 resource.search 授权；检索请求中的 scope 不得偏离
-        # access 上下文（迁移期无 access 的调用走受信适配）。
-        verified_scope(
+    ) -> list[MemoryAtom]:
+        """语义检索 backing（能力层授权 ``resource.search``），返回完整原子列表。
+
+        检索请求中的 scope 不得偏离 access 上下文，不能据请求体重新选择
+        Workspace（迁移期无 access 的调用走受信适配）。
+        """
+        backing_scope(
             access,
-            WorkspaceOperation.RESOURCE_SEARCH,
             request.identity_scope,
             access_guard=self._access_guard,
         )
@@ -269,10 +273,10 @@ class MemoryManagementService:
         identity_scope: IdentityScope | None = None,
         *,
         access: WorkspaceAccessContext | None = None,
-    ) -> RetrievalResponse:
-        scope = verified_scope(
+    ) -> list[MemoryAtom]:
+        """alias 批量读取 backing（能力层授权 ``resource.read``），只含实际可读的完整原子。"""
+        scope = backing_scope(
             access,
-            WorkspaceOperation.RESOURCE_READ,
             identity_scope,
             access_guard=self._access_guard,
         )

@@ -6,6 +6,7 @@ canonical JSON roundtrip 后保持相同 ref、顺序与版本摘要（计划 15
 
 import pytest
 
+from hivememory.components.work_queue import WorkPayloadCodecRegistry
 from hivememory.core.models import TurnEvent
 from hivememory.core.models.workspace_asset import WorkspaceAssetRef
 from hivememory.core.protocol.models import InteractionPayload
@@ -14,9 +15,6 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionCodec,
     InteractionSubmissionQueue,
     InteractionSubmissionV1Codec,
-)
-from hivememory.system.runtime.work_queue import (
-    WorkPayloadCodecRegistry,
 )
 from tests.helpers.workspace import make_identity_scope
 

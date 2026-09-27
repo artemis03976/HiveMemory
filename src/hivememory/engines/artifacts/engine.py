@@ -2,6 +2,7 @@
 
 from typing import TYPE_CHECKING
 
+from hivememory.config.patchouli import ArtifactConfig
 from hivememory.engines.artifacts.document import (
     DocumentArtifactBuilder,
     NoOpDocumentArtifactBuilder,
@@ -17,7 +18,6 @@ from hivememory.engines.artifacts.memory import (
     NoOpMemoryArtifactBuilder,
     create_memory_builder,
 )
-from hivememory.system.config.patchouli import ArtifactConfig
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import ArtifactStore

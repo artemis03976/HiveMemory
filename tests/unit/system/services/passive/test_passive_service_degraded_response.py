@@ -11,13 +11,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.config.passive import PassiveIngressConfig
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.system.application.passive_ingress_service import (
     PassiveIngressService,
 )
-from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.services.passive.models import PassiveIngressEvent
 from tests.helpers.workspace import make_identity_scope
 

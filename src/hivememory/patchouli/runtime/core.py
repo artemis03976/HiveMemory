@@ -37,6 +37,17 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.components.events.operations import RuntimeOperationObserver
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    WorkQueueShutdownSummary,
+)
+from hivememory.config.patchouli import PatchouliConfig
+from hivememory.config.shared import SharedConfig
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
@@ -52,10 +63,6 @@ from hivememory.patchouli.runtime.shutdown_drain import (
     summarize_shutdown_drain_failure,
     summarize_shutdown_drain_result,
 )
-from hivememory.system.config import PatchouliConfig, SharedConfig
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
-from hivememory.system.runtime.operations import RuntimeOperationObserver
-from hivememory.system.runtime.work_queue import QueuePolicy, WorkQueueShutdownSummary
 
 if TYPE_CHECKING:
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
@@ -82,11 +89,10 @@ class PatchouliRuntime:
         - 承担 shutdown drain 运行时行为
 
     使用示例:
-        >>> # 推荐：通过 PatchouliSystem 使用（自动组装 Eye + Runtime）
+        >>> # 推荐：通过 PatchouliSystem 使用（由组合根按配置段装配）
+        >>> from hivememory.config.patchouli import PatchouliConfig
         >>> from hivememory.patchouli.system import PatchouliSystem
-        >>> from hivememory.system.config import load_app_config
-        >>> config = load_app_config()
-        >>> system = PatchouliSystem(config=config)
+        >>> system = PatchouliSystem(config=PatchouliConfig())
         >>> runtime = system.runtime
         >>>
         >>> # 高级：直接使用 Runtime（需自行管理 Gateway）
@@ -428,6 +434,7 @@ class PatchouliRuntime:
     def _build_generation_engine(self):
         """[私有构建器] 组装 Generation 引擎"""
         from hivememory.engines.generation import (
+            AliasGenerator,
             BaseDeduplicator,
             BaseMemoryExtractor,
             MemoryGenerationEngine,
@@ -448,6 +455,8 @@ class PatchouliRuntime:
             mid_term=self.memory_library.mid_term,
             extractor=extractor,
             deduplicator=deduplicator,
+            # alias 唯一性第一层：生成侧以中期库为占用查询端口（A2 §8 D-4）。
+            alias_generator=AliasGenerator(self.memory_library.mid_term),
         )
 
     def _build_artifact_engine(self):

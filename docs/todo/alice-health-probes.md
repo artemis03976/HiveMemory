@@ -5,7 +5,7 @@ owner: alice
 scope: runtime-health-readiness-probes
 related_docs:
   - docs/alice/agent-runtime.md
-  - docs/system/observability.md
+  - docs/components/observability.md
   - docs/help/troubleshooting.md
 last_reviewed: 2026-07-29
 ---

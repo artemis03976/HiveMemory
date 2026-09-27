@@ -10,7 +10,7 @@ Qdrant 向量存储层封装
 import logging
 from collections.abc import Iterable
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from qdrant_client.models import (
     Distance,
@@ -24,6 +24,9 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from hivememory.config.patchouli import QdrantConfig
+from hivememory.config.shared import EmbeddingConfig
+from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.core.mtp.exceptions import (
     StorageOfflineError,
@@ -38,7 +41,6 @@ from hivememory.infrastructure.storage.qdrant_client import (
     create_async_qdrant_client,
     wait_for_qdrant_ready,
 )
-from hivememory.system.config import EmbeddingConfig, QdrantConfig
 
 logger = logging.getLogger(__name__)
 
@@ -264,21 +266,61 @@ class QdrantMemoryStore:
 
         Returns:
             MemoryAtom 对象，未找到返回 None
+
+        Raises:
+            MemoryAliasConflictError: 过滤范围内命中多条（alias 唯一性被破坏）。
+                精确查询不按存储顺序任取其一，读取 fail closed。
+        """
+        alias_filter = FieldCondition(key="index.alias", match=MatchValue(value=alias))
+        try:
+            # 取两条即可判定多义：唯一性成立时至多一条命中。
+            points, _ = await self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=Filter(must=[query_filter, alias_filter]),
+                limit=2,
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as e:
+            raise _storage_error(e, operation=f"get_memory_by_alias({alias})", write=False) from e
+        if not points:
+            return None
+        if len(points) > 1:
+            raise MemoryAliasConflictError(
+                "alias 精确查询命中多条 Memory，解析结果不唯一",
+                details={"alias": alias, "reason": "ambiguous_alias"},
+            )
+        try:
+            return decode_memory_payload(points[0].payload or {})
+        except Exception as e:
+            raise _storage_error(e, operation=f"get_memory_by_alias({alias})", write=False) from e
+
+    async def get_memory_ids_by_alias(
+        self,
+        alias: str,
+        *,
+        query_filter: Filter,
+        limit: int,
+    ) -> list[UUID]:
+        """按 alias 精确匹配返回占用者的 memory_id，最多 ``limit`` 条。
+
+        只读取 payload 中的 ``id``，不解码完整原子；供 alias 唯一性校验使用，
+        ``query_filter`` 由调用方给出 Workspace 所有权边界。
         """
         alias_filter = FieldCondition(key="index.alias", match=MatchValue(value=alias))
         try:
             points, _ = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=Filter(must=[query_filter, alias_filter]),
-                limit=1,
-                with_payload=True,
+                limit=limit,
+                with_payload=["id"],
                 with_vectors=False,
             )
-            if not points:
-                return None
-            return decode_memory_payload(points[0].payload or {})
+            return [UUID(str((point.payload or {})["id"])) for point in points]
         except Exception as e:
-            raise _storage_error(e, operation=f"get_memory_by_alias({alias})", write=False) from e
+            raise _storage_error(
+                e, operation=f"get_memory_ids_by_alias({alias})", write=False
+            ) from e
 
     async def search_memories(
         self,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.protocol.models import AgentRunResult
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 
 class AgentRunEventEmitter:

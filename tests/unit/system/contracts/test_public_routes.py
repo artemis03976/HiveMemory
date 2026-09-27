@@ -1,6 +1,5 @@
 """公开路由注册/卸载测试 — 验证 System 门面在生命周期中正确管理全局总线路由。"""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -8,6 +7,9 @@ import pytest
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -20,9 +22,6 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.contracts.events import GlobalEvents
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_identity_scope,
@@ -242,7 +241,8 @@ class TestAlicePublicRoutes:
 
         async def retrieve_by_aliases(*, aliases, identity_scope):
             refresh_requests.append((aliases, identity_scope))
-            return SimpleNamespace(memories=[fresh_atom])
+            # alias 批量读取路由返回完整原子列表（A2 §2.1）。
+            return [fresh_atom]
 
         self.global_bus.register(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
@@ -305,7 +305,8 @@ class TestAlicePublicRoutes:
 
         async def retrieve_by_aliases(*, aliases, identity_scope):
             refresh_requests.append((aliases, identity_scope))
-            return SimpleNamespace(memories=[fresh_atom])
+            # alias 批量读取路由返回完整原子列表（A2 §2.1）。
+            return [fresh_atom]
 
         self.global_bus.register(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
@@ -379,10 +380,6 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
         assert PatchouliRoutes.MEMORY_TASK_GET == "patchouli.public.memory_task.get"
         assert PatchouliRoutes.MEMORY_TASK_CANCEL == "patchouli.public.memory_task.cancel"
-        assert (
-            PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT
-            == "patchouli.public.get_agent_profile_snapshot"
-        )
         assert PatchouliRoutes.MEMORY_READ == "patchouli.public.memory.read"
         assert PatchouliRoutes.INTERACTION_SUBMIT == "patchouli.public.interaction.submit"
         assert PatchouliRoutes.MEMORY_INTENT_SUBMIT == "patchouli.public.memory_intent.submit"

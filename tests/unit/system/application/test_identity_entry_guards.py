@@ -11,13 +11,13 @@ import inspect
 
 import pytest
 
+from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceDomainError
-from hivememory.system.application.agent_service import AgentApplicationService
-from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.application.memory_service import MemoryApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.application.topic_service import TopicApplicationService
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.topic import TopicApplicationService
 from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 
 _APPLICATION_SERVICES = (

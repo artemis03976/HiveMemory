@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from hivememory.system.config import EmbeddingConfig
+    from hivememory.config.shared import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
 

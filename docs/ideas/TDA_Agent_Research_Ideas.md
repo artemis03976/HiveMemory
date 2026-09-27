@@ -6,13 +6,13 @@ scope: agent-trajectory-topology-exploration
 related_current:
   - docs/alice/agent-runtime.md
   - docs/alice/orchestration.md
-  - docs/system/observability.md
+  - docs/components/observability.md
 last_reviewed: 2026-07-29
 ---
 
 # TDA 在 Agent 轨迹与多智能体编排中的潜在应用想法
 
-本文保存研究假设，不描述 Alice 或 System 已经交付的能力，也不构成 Roadmap 承诺。当前单帧执行、CALL 编排和运行观测分别以 [Agent Runtime](../alice/agent-runtime.md)、[多 Agent 编排](../alice/orchestration.md)和 [System 可观测性](../system/observability.md)为准。
+本文保存研究假设，不描述 Alice 或 System 已经交付的能力，也不构成 Roadmap 承诺。当前单帧执行、CALL 编排和运行观测分别以 [Agent Runtime](../alice/agent-runtime.md)、[多 Agent 编排](../alice/orchestration.md)和 [System 可观测性](../components/observability.md)为准。
 
 ## 0. 复核结论与当前基础
 

@@ -19,6 +19,7 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 
 import logging
 
+from hivememory.engines.generation.alias import AliasGenerator
 from hivememory.engines.generation.deduplicator import (
     MemoryDeduplicator,
     NoOpDeduplicator,
@@ -65,6 +66,8 @@ __all__ = [
     "MemoryDeduplicator",
     "NoOpDeduplicator",
     "create_deduplicator",
+    # 别名生成
+    "AliasGenerator",
     # 引擎
     "MemoryGenerationEngine",
 ]

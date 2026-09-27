@@ -12,9 +12,9 @@ from unittest.mock import MagicMock
 
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.components.bus.async_bus import AsyncSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 
 class MockAsyncBus(AsyncSystemBus):
@@ -61,8 +61,6 @@ class MockAsyncBus(AsyncSystemBus):
         return self._mock_storage.get_memory(*args, **kwargs)
 
     async def _handle_retrieve_by_aliases(self, *args, **kwargs):
-        from hivememory.core.protocol.models import RetrievalResponse
-
         aliases = kwargs.get("aliases")
         if aliases is None and args:
             aliases = args[0]
@@ -77,7 +75,8 @@ class MockAsyncBus(AsyncSystemBus):
             )
             if atom is not None:
                 memories.append(atom)
-        return RetrievalResponse(memories=memories, memories_count=len(memories))
+        # alias 批量读取路由返回实际可读的完整原子列表（A2 §2.1）。
+        return memories
 
     async def _handle_retrieve(self, *args, **kwargs):
         return self._mock_retrieval.retrieve(**kwargs)
@@ -121,7 +120,7 @@ def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
 
 def make_koakuma_runtime(bus: MockAsyncBus, config=None):
     from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-    from hivememory.system.config import KoakumaConfig
+    from hivememory.config.alice import KoakumaConfig
 
     return KoakumaRuntime(
         bus=bus,

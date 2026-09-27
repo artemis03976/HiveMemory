@@ -6,6 +6,7 @@
 
 import pytest
 
+from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
     AssetRepresentation,
@@ -16,7 +17,6 @@ from hivememory.core.models.workspace_asset import RepresentationLease, Workspac
 from hivememory.engines.attachment_compiler import (
     AttachmentCompiler,
 )
-from hivememory.system.config.attachments import AttachmentCompilerConfig
 from hivememory.utils.token_estimator import TokenEstimator
 from tests.helpers.workspace import make_identity_scope
 

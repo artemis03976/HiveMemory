@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/patchouli/services/lifecycle.py
   - src/hivememory/patchouli/memory_library/library.py
 related_contracts:
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
 last_reviewed: 2026-09-24
 ---

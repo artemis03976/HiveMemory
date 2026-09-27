@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.events import GlobalEvents
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.contracts.events import GlobalEvents
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 
 if TYPE_CHECKING:
     from hivememory.patchouli.application.agent_profile_management_service import (
@@ -149,10 +149,6 @@ class PatchouliBridge:
             (
                 PatchouliRoutes.GET_AGENT_PROFILE,
                 self._public_api.agent_profiles.get_agent_profile,
-            ),
-            (
-                PatchouliRoutes.GET_AGENT_PROFILE_SNAPSHOT,
-                self._public_api.agent_profiles.get_agent_profile_snapshot,
             ),
             (
                 PatchouliRoutes.MEMORY_READ,

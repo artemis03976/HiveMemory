@@ -1,37 +1,33 @@
-"""Workspace 基础设施：操作目录、访问注册表与共享行为检查。
+"""Workspace：actor 能力面及其网络共享设施。
 
-A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md）确立的分工：
-本包持有 Workspace Actor 访问注册表、操作定义目录（``WorkspaceOperation``）
-和公共 application 使用的共享行为检查（``WorkspaceAccessGuard``）。资源读取、
-缓存与失效协作由后续计划定义。``WorkspaceAccessContext`` 是本包
-持有的最小准入结果，其签发和有效性由同一 guard 管理。调用来源 principal
-与唯一对外认证网关归属 System；本包不导入 System 任何模块。
+- ``authentication``：认证入口——Principal authentication 经
+  ``core.access.PrincipalAuthenticator`` 端口委托 System，Workspace 准入由
+  本包的 guard 完成；
+- ``access`` / ``registry``：Workspace Actor 访问注册表与共享行为检查
+  （``WorkspaceAccessGuard``，实现 ``core.access.WorkspaceAccessVerifier``）；
+- ``cache`` / ``resolution`` / ``runtime``：workspace memory read 能力——
+  完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver；
+- ``assets``：WorkspaceAsset working set（AssetStore）、解析交接与上传接收；
+- ``capability``：actor 可见的能力层，operation 授权在 backing 调用前执行。
 
-资源读取、领域提交和结果查询统一由既有 Patchouli application service 与
-``GlobalSystemBus`` 公开路由承接，本包不提供第二套业务 API，也不导入
-Patchouli 内部 store/familiar/controller/local route 或 Alice/AgentRuntime
-的任何实现。
-
-依赖方向：``workspace`` 只依赖 core；System 接入层与 Patchouli
-application 消费本包的访问基础设施（WRX-2/3 起扩展 runtime 与 cache）。
+依赖方向：只依赖 core、components、engines/infrastructure 与其他子系统公开的
+``contracts`` 子包；不导入 system、Alice/AgentRuntime、Gateway 或 Patchouli
+内部实现。本包初始化不导入 ``capability``。
 """
 
-from hivememory.workspace.access import (
-    WorkspaceAccessContext,
-    WorkspaceAccessGuard,
-    WorkspaceOperation,
-)
+from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
 )
+from hivememory.workspace.runtime import WorkspaceRuntime
 
 __all__ = [
-    # 操作目录与共享行为检查
-    "WorkspaceAccessContext",
+    # 共享行为检查
     "WorkspaceAccessGuard",
-    "WorkspaceOperation",
     # Workspace Actor 访问注册表
     "WorkspaceActorAccessRecord",
     "WorkspaceActorAccessRegistry",
+    # 读取能力与派生缓存的运行时聚合
+    "WorkspaceRuntime",
 ]

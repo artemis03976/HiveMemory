@@ -49,11 +49,18 @@ alias 精确查询走 `QdrantMemoryStore.get_memory_by_alias`（scroll + `index.
 
 **与 AgentProfile 的关系**：C2 裁定 agent_id 即 alias、profile cache 按 `(Workspace, agent_alias)` 作 key（见 [AgentProfile 模型演进](./agent-profile-model-evolution.md)）——本 todo 的唯一性是 agent_id 唯一性的直接前提。
 
-**衔接时机**：第一、二层均先于或伴随 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) A2-1 的 alias 索引交付；归属计划由 A2-0 裁定。
+**衔接时机**：A2-0 裁定（2026-09-25）——第一、二层归 [A2](../plans/v0.7.0-a2-workspace-resource-reads-and-caches.md) 前置阶段 A2-U，先于 A2-1 启动并验收（A2 §8 D-4）。
 
 ## 完成条件
 
-- [ ] `AliasGenerator` 组件落地并替换 `_build_alias`，生成路径冲突时消歧重试有测试；
-- [ ] `MidTermMemoryStore.upsert` 写前唯一性校验落地，冲突抛结构化错误，覆盖 revive/手工/Profile 管理路径有测试；
-- [ ] 存量重名数据有盘点与消解记录；
-- [ ] alias 精确查询在任意存储顺序下解析结果唯一且稳定。
+- [x] `AliasGenerator` 组件落地并替换 `_build_alias`，生成路径冲突时消歧重试有测试（A2-U 分支实现，待合并）；
+- [x] `MidTermMemoryStore.upsert` 写前唯一性校验落地，冲突抛结构化错误 `MemoryAliasConflictError`（HTTP 409），覆盖 revive/手工编辑/外部创建（Profile 管理创建复用同一 `MEMORY_CREATE` 路径）有测试（A2-U 分支实现，待合并）；
+- [x] 存量重名数据有盘点与消解记录：owner 于 2026-09-25 确认本地 Qdrant 无重名（Agent Profile 数据量少），无需消解；
+- [x] alias 精确查询在任意存储顺序下解析结果唯一且稳定：命中多条时 fail closed（A2-U 分支实现，待合并）。
+
+## A2-U 实现时的补充决定与后续事项
+
+- 并发生成撞名不做专门处理（owner 2026-09-25 决定：不为尚未发生的低概率事件增加协调逻辑）：生成器查询后别名若被并发写入抢占，提交边界的写前校验按不变量显式失败；Familiar 只依赖中期库的写前校验，不持有 engine 层的 `AliasGenerator`。
+- 后续事项（不阻塞 A2）：
+  - 后缀与标题清洗后都为空（如纯中文）时生成记忆无 alias，`MemoryAtom.get_alias()` 的运行时 fallback 别名未持久化、不参与唯一性校验，却会作为 settlement 的 `canonical_alias` 返回；应在 A2-1 resolver 或 MTP 别名规则中决定无 alias 记忆的寻址方式。
+  - 每次完整写入执行 2–3 次 alias 占用查询（生成器、提交边界预检、upsert 兜底），`index.alias` 与 Workspace 字段尚无 Qdrant payload index；数据量增长后考虑补充 keyword payload index（涉及集合结构，另行安排）。

@@ -34,8 +34,8 @@ from hivememory.agent_runtime.output import (
     NullFrameOutputSink,
     TokenDelta,
 )
+from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import TurnEvent
-from hivememory.system.config import AgentRuntimeConfig
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.execution.worker import WorkerAgentService

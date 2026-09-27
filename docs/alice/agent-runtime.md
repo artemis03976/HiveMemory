@@ -103,7 +103,7 @@ session generation_options
 - api key/base 来自注册表解析结果，也可由 LiteLLM 使用环境变量；
 - session 可以覆盖 temperature、top_p 和 max_tokens；
 - 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
-- 未注入 ModelRegistry 时，调用方必须在 generation options 中直接提供可执行 model，否则 WorkerAgent 抛出 `ValueError`。
+- 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；未注入时，调用方必须在 generation options 中直接提供可执行 model，否则 WorkerAgent 抛出 `ValueError`。
 
 模型注册表启用时，frame 记录的是展示名，供 `AgentRunResult.model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把 WorkerAgent 返回的底层 model 名重新写入 frame，因此 `model_used` 可能为空。
 

@@ -6,7 +6,12 @@ import pytest
 from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, AgentProfile
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    ActorIdentity,
+    AgentProfile,
+    ResolvedAgentProfile,
+)
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     BusRouteUnavailableError,
@@ -17,6 +22,11 @@ from tests.helpers.workspace import make_identity_scope
 
 def _make_profile(alias: str = "coder_doll") -> AgentProfile:
     return AgentProfile(persona=f"{alias} persona")
+
+
+def _loaded(profile: AgentProfile) -> ResolvedAgentProfile:
+    """Profile backing 的返回形状：AgentProfile 随源原子关联返回（A2 §8 D-3）。"""
+    return ResolvedAgentProfile(profile=profile)
 
 
 def _identity(user_id: str = "u1", agent_id: str = "omni_doll") -> ActorIdentity:
@@ -46,7 +56,7 @@ async def test_resolve_default_alias_skips_bus():
 @pytest.mark.asyncio
 async def test_resolve_loads_profile_from_bus_and_caches():
     bus = MagicMock()
-    bus.request = AsyncMock(return_value=_make_profile("coder_doll"))
+    bus.request = AsyncMock(return_value=_loaded(_make_profile("coder_doll")))
     resolver = _resolver(bus)
     identity_scope = _context()
 
@@ -68,7 +78,7 @@ async def test_same_actor_same_alias_caches_per_workspace():
         async def request(self, _route, alias, *, identity_scope):
             del identity_scope
             self.load_count += 1
-            return AgentProfile(persona=f"{alias}:load-{self.load_count}")
+            return _loaded(AgentProfile(persona=f"{alias}:load-{self.load_count}"))
 
     bus = _ProfileBus()
     resolver = _resolver(bus)
@@ -109,7 +119,7 @@ async def test_same_workspace_different_team_caches_separately():
         async def request(self, _route, alias, *, identity_scope):
             del identity_scope
             self.load_count += 1
-            return AgentProfile(persona=f"{alias}:load-{self.load_count}")
+            return _loaded(AgentProfile(persona=f"{alias}:load-{self.load_count}"))
 
     bus = _ProfileBus()
     resolver = _resolver(bus)
@@ -147,7 +157,7 @@ async def test_session_id_does_not_fragment_cache():
         async def request(self, _route, alias, *, identity_scope):
             del identity_scope
             self.load_count += 1
-            return AgentProfile(persona=f"{alias}:load-{self.load_count}")
+            return _loaded(AgentProfile(persona=f"{alias}:load-{self.load_count}"))
 
     bus = _ProfileBus()
     resolver = _resolver(bus)
@@ -178,12 +188,12 @@ async def test_session_id_does_not_fragment_cache():
 @pytest.mark.asyncio
 async def test_missing_profile_failure_is_not_cached():
     """Profile 缺失错误不进入缓存，同一坐标随后可重新加载并缓存。"""
-    loads: list[AgentProfile | None] = [None]
+    loads: list[ResolvedAgentProfile | None] = [None]
 
     class _ProfileBus:
         async def request(self, _route, alias, *, identity_scope):
             del identity_scope
-            result = loads.pop(0) if loads else _make_profile(alias)
+            result = loads.pop(0) if loads else _loaded(_make_profile(alias))
             return result
 
     bus = _ProfileBus()
@@ -217,7 +227,7 @@ async def test_permission_denied_profile_load_is_not_cached():
                     message_key="mtp.call.profile_permission_denied",
                     params={"agent_alias": alias},
                 )
-            return _make_profile(alias)
+            return _loaded(_make_profile(alias))
 
     bus = _ProfileBus()
     resolver = _resolver(bus)
@@ -295,7 +305,7 @@ async def test_concurrent_resolves_keep_identity_scoped_cache_entries():
 
     async def load_profile(_route, alias, *, identity_scope):
         await asyncio.sleep(0)
-        return AgentProfile(persona=f"{alias}:{identity_scope.actor_identity.user_id}")
+        return _loaded(AgentProfile(persona=f"{alias}:{identity_scope.actor_identity.user_id}"))
 
     bus.request = AsyncMock(side_effect=load_profile)
     resolver = _resolver(bus)
@@ -328,7 +338,7 @@ async def test_concurrent_same_identity_resolve_loads_once():
     async def load_profile(_route, alias, *, identity_scope):
         del identity_scope
         await asyncio.sleep(0)
-        return _make_profile(alias)
+        return _loaded(_make_profile(alias))
 
     bus.request = AsyncMock(side_effect=load_profile)
     resolver = _resolver(bus)

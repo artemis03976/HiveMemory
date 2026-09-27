@@ -17,10 +17,10 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.config.app import load_app_config
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.system import HiveMemorySystem
-from hivememory.system.config import load_app_config
 
 logger = logging.getLogger(__name__)
 

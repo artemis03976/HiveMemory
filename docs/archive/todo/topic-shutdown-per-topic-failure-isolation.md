@@ -5,7 +5,7 @@ owner: patchouli-system
 scope: topic-shutdown-settlement-failure-isolation-and-drain-continuation
 related_docs:
   - docs/patchouli/perception.md
-  - docs/system/runtime-and-bus.md
+  - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.2-workspace-mvp.md
   - docs/governance/testing/test-design-standards.md
   - docs/archive/plans/perception-topic-buffer-boundary-refactor.md

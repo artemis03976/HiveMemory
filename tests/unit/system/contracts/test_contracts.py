@@ -4,9 +4,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hivememory.core.contracts.events import (
+    SystemEvent,
+    SystemEventType,
+)
+from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.contracts.events import SystemEvent, SystemEventType
-from hivememory.system.contracts.subsystem import SubsystemProtocol
 
 
 class _ValidSubsystem:

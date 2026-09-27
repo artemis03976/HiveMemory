@@ -74,6 +74,8 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型
+# 配置
+from hivememory.config.app import load_app_config
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -98,11 +100,6 @@ from hivememory.engines.generation.models import (
 # 基础设施
 from hivememory.infrastructure.llm.litellm_service import get_librarian_llm_service
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-
-# 配置
-from hivememory.system.config import (
-    load_app_config,
-)
 
 # 导入 conftest 中的辅助函数
 from tests.conftest import print_test_result

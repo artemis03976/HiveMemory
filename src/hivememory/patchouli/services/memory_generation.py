@@ -31,6 +31,7 @@ from hivememory.core.models.artifact import (
     snapshot_memory_atom,
 )
 from hivememory.core.models.workspace_asset import TopicAssetBinding
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -43,7 +44,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
-from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
@@ -560,9 +560,12 @@ class MemoryGenerationFamiliar:
 
         ``now`` 为提交边界时点：版本记录 ``changed_at`` 与事件 ``at`` 使用
         同一时点（A2-P 时间边界 §2.3）。全部内容提交（外部创建/编辑与生成
-        CREATE/UPDATE）都经过这里，类型相关的内容约束在写 Artifact 之前检查。
+        CREATE/UPDATE）都经过这里，类型相关的内容约束与 alias 唯一性在写
+        Artifact 之前检查：alias 冲突时不留下孤立版本记录（A2 §8 D-4；upsert
+        仍作为不变量兜底重验）。
         """
         _require_content_invariants(atom)
+        await self._mid_term.ensure_alias_available(atom)
         commit_now = require_utc(now) if now is not None else require_utc(self._now())
 
         src_refs = [interaction_ref] if interaction_ref else []

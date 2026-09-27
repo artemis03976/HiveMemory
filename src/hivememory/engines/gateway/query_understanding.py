@@ -10,13 +10,13 @@ Resolver 的私有实现细节，后续按观测数据决定是否拆分。
 
 from __future__ import annotations
 
+from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.models import TopicData
 from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
 from hivememory.engines.gateway.models import QueryUnderstandingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.prompts.gateway import get_query_understanding_system_prompt
-from hivememory.system.config import UserQueryAnalysisConfig
 from hivememory.utils.json_parser import parse_llm_json
 
 

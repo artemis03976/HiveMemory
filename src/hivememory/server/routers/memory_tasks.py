@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.server.deps import get_memory_task_service
 from hivememory.server.models.memory_task import MemoryTaskListResponse, MemoryTaskResponse
-from hivememory.system.application.memory_task_service import MemoryTaskApplicationService
+from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 
 router = APIRouter(prefix="/memory-tasks", tags=["memory-tasks"])
 

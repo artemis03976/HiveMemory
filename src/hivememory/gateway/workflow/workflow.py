@@ -6,6 +6,14 @@ import asyncio
 from time import perf_counter
 from typing import Any
 
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.core.contracts.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventType,
+)
 from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
@@ -19,8 +27,6 @@ from hivememory.gateway.workflow.steps import (
     GatewayWorkflowStep,
     RecoverableGatewayError,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 
 class GatewayWorkflow:

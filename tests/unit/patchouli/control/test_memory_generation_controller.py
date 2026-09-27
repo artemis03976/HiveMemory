@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.engines.generation.models import (
     GenerationContext,
@@ -20,8 +22,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from tests.helpers.memory import make_memory_identity_scope
 
 

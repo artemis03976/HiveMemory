@@ -80,6 +80,7 @@ def _mock_mid_term():
     mid_term = MagicMock()
     mid_term.search = AsyncMock(return_value=[])
     mid_term.upsert = AsyncMock()
+    mid_term.list_alias_holders = AsyncMock(return_value=[])
     return mid_term
 
 

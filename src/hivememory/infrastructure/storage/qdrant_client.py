@@ -8,7 +8,7 @@ import time
 
 from qdrant_client import AsyncQdrantClient
 
-from hivememory.system.config import QdrantConfig
+from hivememory.config.patchouli import QdrantConfig
 
 logger = logging.getLogger(__name__)
 

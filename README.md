@@ -65,11 +65,11 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 ## 架构概览
 
-HiveMemory 当前实现围绕 **System / Service / Runtime** 分层展开。顶层 System 负责应用编排与全局路由，Gateway 负责入口决策，Patchouli 负责记忆域能力，Alice 负责 Agent 执行与 MTP/工具运行时。
+HiveMemory 当前实现按依赖分层组织。顶层 System 负责组合、门面与生命周期，共享运行时机制位于 `components`，认证、能力层与资产设施位于 `workspace`；Gateway 负责入口决策，Patchouli 负责记忆域能力，Alice 负责 Agent 执行与 MTP/工具运行时。
 
 ### 主要运行时组成
 
-- **HiveMemorySystem**：顶层宿主，装配全局总线、应用服务、Gateway、Patchouli 与 Alice
+- **HiveMemorySystem**：组合根与门面，装配共享运行时、workspace 设施、应用服务、Gateway、Patchouli 与 Alice
 - **ChatApplicationService**：主动 chat 编排服务，负责 `prepare -> Alice run -> finalize`
 - **GatewaySystem / GatewayRuntime**：入口决策子系统，负责系统指令、话题路由、查询分析与稳定决策投影
 - **PatchouliSystem / PatchouliRuntime**：记忆子系统宿主与运行时，管理 retrieval、perception、generation、lifecycle 与 storage 能力
@@ -285,12 +285,17 @@ HiveMemory/
 ├── frontend/                # React + Vite 前端开发界面
 ├── scripts/                 # 启动与辅助脚本
 ├── src/hivememory/
-│   ├── core/                # 核心数据模型
-│   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle
-│   ├── infrastructure/      # Storage / LLM / WebSocket
+│   ├── core/                # 核心数据模型、契约常量、访问值类型与端口协议
+│   ├── config/              # 配置段模型与根配置加载
+│   ├── components/          # 进程内运行时机制：总线、调度器、work queue、运行时事件
+│   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle 算法
+│   ├── infrastructure/      # Storage / LLM / Embedding / 附件解析等外部技术适配
+│   ├── workspace/           # 认证入口、能力层、读取视图与 WorkspaceAsset 设施
+│   ├── gateway/             # Gateway 入口决策子系统
 │   ├── patchouli/           # Patchouli 记忆子系统与运行时
-│   ├── alice/               # Alice Agent runtime 与 Koakuma MTP/工具 runtime
-│   ├── system/              # 顶层 HiveMemory system、全局总线与应用服务
+│   ├── alice/               # Alice Agent 执行子系统（含暂置的 chat 编排）
+│   ├── agent_runtime/       # 单 Agent 执行层与 Koakuma MTP/工具 runtime
+│   ├── system/              # 组合根、门面、注册表与被动摄入
 │   ├── prompts/             # System prompts 与 prompt 组装
 │   └── server/              # FastAPI 服务入口与路由
 └── tests/                   # 单元测试、集成测试、端到端测试

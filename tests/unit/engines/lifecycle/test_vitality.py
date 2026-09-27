@@ -13,9 +13,9 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.config.patchouli import VitalityCalculatorConfig
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.system.config import VitalityCalculatorConfig
 from tests.helpers.memory import make_memory_metadata
 
 

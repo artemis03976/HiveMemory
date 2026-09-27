@@ -4,14 +4,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hivememory.system.application.agent_service import AgentApplicationService
-from hivememory.system.application.memory_service import (
+from hivememory.config.passive import PassiveIngressConfig
+from hivememory.config.workspace import WorkspaceConfig
+from hivememory.system.application.readiness_service import SystemReadinessService
+from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.memory import (
     MemoryApplicationService,
 )
-from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
-from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.capability.topic import TopicApplicationService
 
 
 @pytest.fixture
@@ -30,6 +31,7 @@ def passive_config():
     config = MagicMock()
     config.scheduler = scheduler
     config.passive_ingress = PassiveIngressConfig()
+    config.workspace = WorkspaceConfig()
     return config
 
 
@@ -48,9 +50,6 @@ class TestApiApplicationServices:
         assert isinstance(system.agent_service, AgentApplicationService)
         assert isinstance(system.topic_service, TopicApplicationService)
         assert isinstance(system.readiness_service, SystemReadinessService)
-        assert system.memory_service.config is passive_config
-        assert system.agent_service.config is passive_config
-        assert system.topic_service.config is passive_config
 
     def test_server_deps_return_api_services(self, passive_config):
         from hivememory.server import deps

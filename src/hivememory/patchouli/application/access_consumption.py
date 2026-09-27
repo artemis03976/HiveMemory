@@ -1,12 +1,16 @@
 """Patchouli application 的统一 access 消费辅助（A1 计划第 3.2/4.1 节）。
 
-所有公开 application API 在资源读取或业务副作用之前调用共享行为检查
-（``workspace.access.WorkspaceAccessGuard``）：
+公开 application API 在资源读取或业务副作用之前消费可信 access context
+（``core.access.WorkspaceAccessVerifier``，由 ``workspace.access.WorkspaceAccessVerifier`` 实现）：
 
-- 提供 ``access`` 时：验证 context 的签发实例与有效期，并确认
-  该 Actor 在此 Workspace 的行为白名单包含当前方法所需的 operation；
+- 提供 ``access`` 时：验证 context 的签发实例与有效期；非读取路径同时
+  确认该 Actor 在此 Workspace 的行为白名单包含当前方法所需的 operation；
   请求 DTO 中残留的 ``identity_scope``（迁移期兼容参数）不得覆盖可信
   坐标；
+- 读取路径（点读/alias 批读/语义检索/Profile 解析）自 A2 起是 L2 backing
+  契约：operation 检查迁至 workspace 能力层、在 backing 调用前执行
+  （A2 §8 D-3），此处经 :func:`backing_scope` 只校验 context 有效性，
+  资源归属与资源 policy 校验仍由存储边界独立成立；
 - 未提供 ``access`` 时：仅限下方冻结清单中的迁移期受信适配（既有调用
   方）按裸 ``IdentityScope`` 处理；**新增公开入口不得进入该分支**，清单
   各项在 A6 完成生产消费者切换后删除。
@@ -16,15 +20,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ScopeRequiredError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, require_identity_scope
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
 
-__all__ = ["required_scope", "verified_scope"]
+__all__ = ["backing_scope", "required_scope", "verified_scope"]
 
 # ---------------------------------------------------------------------------
 # 迁移期兼容清单（A1 第 6 节：写出保留入口、已有调用方和 A6 删除点）
@@ -40,7 +43,7 @@ __all__ = ["required_scope", "verified_scope"]
 # | MemoryManagementService.retrieve                    | Alice resolver（全局路由代理）      | 同上 |
 # | MemoryManagementService.retrieve_by_aliases         | Alice resolver（本地代理路由）      | 同上 |
 # | AgentProfileManagementService.create/list（管理）   | 管理入口 HTTP 链路                  | 同上 |
-# | AgentProfileManagementService.get_agent_profile(_snapshot) | Alice profile resolver       | 同上 |
+# | AgentProfileManagementService.get_agent_profile     | Alice profile resolver、Patchouli prepare | 同上 |
 # | MemoryTaskManagementService get/wait/list/cancel 无 access 调用 | Patchouli 内部 finalize/wait 链路 | 同上 |
 # | TopicManagementService list/get/settle/evict        | Topic 管理 HTTP 链路；ChatApplicationService finalize 链的候选话题列表（裸 scope 消费 TOPIC_LIST_ACTIVE） | 同上 |
 # | WorkspaceAssetApplicationService.upload_asset       | 附件上传 HTTP 链路                  | 同上 |
@@ -53,7 +56,7 @@ def verified_scope(
     operation: WorkspaceOperation,
     identity_scope: IdentityScope | None = None,
     *,
-    access_guard: WorkspaceAccessGuard,
+    access_guard: WorkspaceAccessVerifier,
 ) -> IdentityScope:
     """兼容清单方法的统一检查入口，返回向 local bus 传递的已验证 scope。
 
@@ -76,7 +79,7 @@ def required_scope(
     operation: WorkspaceOperation,
     identity_scope: IdentityScope | None = None,
     *,
-    access_guard: WorkspaceAccessGuard,
+    access_guard: WorkspaceAccessVerifier,
 ) -> IdentityScope:
     """无兼容路径的统一检查入口：缺失 access 一律拒绝。
 
@@ -89,6 +92,35 @@ def required_scope(
             f"（所需 operation: {operation.value}），不接受裸 scope"
         )
     scope = access_guard.authorize_operation(access, operation)
+    _assert_scope_consistency(scope, identity_scope)
+    return scope
+
+
+def backing_scope(
+    access: WorkspaceAccessContext | None,
+    identity_scope: IdentityScope | None = None,
+    *,
+    access_guard: WorkspaceAccessVerifier,
+    require_access: bool = False,
+) -> IdentityScope:
+    """L2 backing 读取入口的可信 scope：只校验 context 有效性，不检查 operation。
+
+    A2 §8 D-3：读取路径的行为授权已在 workspace 能力层、backing 调用前
+    执行，本层不重复检查（不双重检查）。``access`` 提供时经
+    ``verify_context`` 确认签发、有效期与准入，DTO 中的 ``identity_scope``
+    只作一致性校验；缺失时：
+
+    - ``require_access=True``（如 UUID 点读）：一律拒绝；
+    - 否则：进入冻结兼容清单中的迁移期受信适配，要求显式 ``identity_scope``。
+    """
+    if access is None:
+        if require_access:
+            raise ScopeRequiredError(
+                "该 backing 读取入口需要经统一认证网关签发的 WorkspaceAccessContext，"
+                "不接受裸 scope"
+            )
+        return require_identity_scope(identity_scope)
+    scope = access_guard.verify_context(access)
     _assert_scope_consistency(scope, identity_scope)
     return scope
 

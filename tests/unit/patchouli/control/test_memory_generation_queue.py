@@ -10,6 +10,13 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    WorkPayloadCodecRegistry,
+    WorkPayloadDecodeError,
+    WorkState,
+    encode_canonical_json,
+)
 from hivememory.core.models import (
     IndexLayer,
     LogicalBlock,
@@ -34,13 +41,6 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationQueue,
     _MemoryGenerationWork,
     _MemoryGenerationWorkAdapter,
-)
-from hivememory.system.runtime.work_queue import (
-    QueuePolicy,
-    WorkPayloadCodecRegistry,
-    WorkPayloadDecodeError,
-    WorkState,
-    encode_canonical_json,
 )
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 

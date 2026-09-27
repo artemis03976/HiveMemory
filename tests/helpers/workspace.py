@@ -3,6 +3,11 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from hivememory.core.access import (
+    CallerPrincipal,
+    WorkspaceAccessContext,
+    WorkspaceOperation,
+)
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
@@ -12,18 +17,16 @@ from hivememory.core.models import (
     build_internal_identity_scope,
 )
 from hivememory.system.access import (
-    ActorAuthenticationGateway,
-    CallerPrincipal,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
+    SystemPrincipalAuthenticator,
 )
 from hivememory.workspace import (
-    WorkspaceAccessContext,
     WorkspaceAccessGuard,
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
-    WorkspaceOperation,
 )
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 
 
 def make_workspace_identity(
@@ -194,7 +197,7 @@ def make_access_composition(
         **({"clock": clock} if clock is not None else {}),
     )
     gateway = ActorAuthenticationGateway(
-        system_registry=system_registry,
+        principals=SystemPrincipalAuthenticator(system_registry),
         workspace_access=guard,
     )
     return AccessTestComposition(
@@ -205,4 +208,17 @@ def make_access_composition(
         or make_workspace_identity(
             owner_user_id=records[0].owner_user_id if records else "test_user",
         ),
+    )
+
+
+def make_workspace_runtime(global_bus=None, *, atom_capacity: int = 16, profile_capacity: int = 16):
+    """构造经全局总线访问 Patchouli backing 的 WorkspaceRuntime（测试装配）。"""
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.workspace.capability.backing import BusCanonicalReadBackend
+    from hivememory.workspace.runtime import WorkspaceRuntime
+
+    return WorkspaceRuntime(
+        backing=BusCanonicalReadBackend(global_bus or GlobalSystemBus()),
+        atom_capacity=atom_capacity,
+        profile_capacity=profile_capacity,
     )

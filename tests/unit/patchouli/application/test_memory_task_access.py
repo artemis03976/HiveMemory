@@ -14,6 +14,7 @@ import asyncio
 
 import pytest
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import (
     OperationDeniedError,
     ResourceNotFoundError,
@@ -24,7 +25,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
-from hivememory.workspace import WorkspaceOperation
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,

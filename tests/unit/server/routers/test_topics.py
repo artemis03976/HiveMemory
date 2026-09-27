@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import TopicLastTurn, TopicSnapshot
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -14,9 +16,7 @@ from hivememory.patchouli.contracts.topic_management import (
 )
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
-from hivememory.system.application.topic_service import TopicApplicationService
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.capability.topic import TopicApplicationService
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -35,7 +35,6 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
     service = TopicApplicationService(
         global_bus=bus,
-        config=MagicMock(),
     )
     app.dependency_overrides[deps.get_topic_service] = lambda: service
 

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.system.contracts.routes import GlobalRoutes
+from hivememory.core.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+    from hivememory.components.bus.global_bus import GlobalSystemBus
 
 
 class SystemReadinessService:

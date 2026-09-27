@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.server.deps import get_model_registry
 from hivememory.server.models.model_registry import (
@@ -11,7 +12,6 @@ from hivememory.server.models.model_registry import (
 )
 from hivememory.system.model_registry import (
     DuplicateModelIdError,
-    ModelNotFoundError,
     ModelRegistry,
 )
 

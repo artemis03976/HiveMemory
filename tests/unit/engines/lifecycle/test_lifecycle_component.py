@@ -41,6 +41,13 @@ import pytest
 from rich.console import Console
 from rich.panel import Panel
 
+# 配置
+from hivememory.config.patchouli import (
+    ArchiverConfig,
+    ReinforcementEngineConfig,
+    VitalityCalculatorConfig,
+)
+
 # 核心模型
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.models import (
@@ -59,13 +66,6 @@ from hivememory.patchouli.memory_library import (
     ShortTermMemoryStore,
 )
 from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
-
-# 配置
-from hivememory.system.config import (
-    ArchiverConfig,
-    ReinforcementEngineConfig,
-    VitalityCalculatorConfig,
-)
 
 # 导入测试数据
 from tests.fixtures.lifecycle_test_data import (

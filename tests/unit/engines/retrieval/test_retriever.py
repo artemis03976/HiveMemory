@@ -14,19 +14,23 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from hivememory.config.patchouli import (
+    DenseRetrieverConfig,
+    HybridRetrieverConfig,
+    ReciprocalRankFusionConfig,
+)
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
-from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery, SearchResult
-from hivememory.engines.retrieval.retriever import DenseRetriever, HybridRetriever, SearchResults
-from hivememory.system.config import (
-    DenseRetrieverConfig,
-    HybridRetrieverConfig,
-    ReciprocalRankFusionConfig,
+from hivememory.core.models.query import QueryFilters
+from hivememory.engines.retrieval.models import (
+    RetrievalQuery,
+    SearchResult,
 )
+from hivememory.engines.retrieval.retriever import DenseRetriever, HybridRetriever, SearchResults
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

@@ -7,8 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from hivememory.infrastructure.work_queue import InMemoryWorkStore
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.work_queue import (
     DuplicateWorkItemError,
     QueuePolicy,
     WorkErrorSnapshot,
@@ -18,6 +17,7 @@ from hivememory.system.runtime.work_queue import (
     WorkStateConflictError,
     encode_canonical_json,
 )
+from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from tests.unit.infrastructure.work_queue.work_store_contract import WorkStoreContract
 
 

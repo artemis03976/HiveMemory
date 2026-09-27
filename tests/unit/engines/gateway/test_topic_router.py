@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.config.gateway import TopicRouterConfig
 from hivememory.core.models import TopicSnapshot
 from hivememory.engines.gateway.topic_router import (
     TopicRouterEngine,
     TopicRouterError,
 )
-from hivememory.system.config import TopicRouterConfig
 from tests.helpers.workspace import make_identity_scope
 
 

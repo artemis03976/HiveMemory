@@ -6,7 +6,7 @@ scope: common-runtime-and-frontend-failures
 code_paths:
   - docker/docker-compose.yml
   - src/hivememory/server/app.py
-  - src/hivememory/system/config/
+  - src/hivememory/config/
   - frontend/src/
 related_contracts:
   - docs/contracts/error-model.md

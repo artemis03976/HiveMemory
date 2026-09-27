@@ -2,8 +2,8 @@
 
 import pytest
 
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.i18n import get_default_language, set_default_language
-from hivememory.system.config import HiveMemoryConfig
 
 
 @pytest.fixture(autouse=True)

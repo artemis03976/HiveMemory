@@ -65,7 +65,7 @@ from .pending import (
     is_legal_transition,
 )
 from .projections import (
-    ProfileSnapshot,
+    ResolvedAgentProfile,
 )
 from .provenance import (
     MemoryProvenance,
@@ -137,7 +137,7 @@ __all__ = [
     "RelationLayer",
     "MemoryAtom",
     "WorkspaceMemoryKey",
-    "ProfileSnapshot",
+    "ResolvedAgentProfile",
     "ActionReducer",
     "TraceReducer",
     "ActorIdentity",

@@ -12,11 +12,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.models import WorkspaceAssetRef
 from hivememory.server import deps
 from hivememory.server.routers.workspace_assets import router
-from hivememory.system.config import AttachmentParserConfig
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import make_upload_service
 from tests.helpers.workspace import make_identity_scope
 

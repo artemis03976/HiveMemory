@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.runtime.bus import AliceBus
-from hivememory.system.contracts.events import GlobalEvents
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.application import AgentRunService

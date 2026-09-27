@@ -4,21 +4,22 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.application.topic_service import TopicApplicationService
 from hivememory.system.assembler import (
     _RegistriesBundle,
     _RuntimeBundle,
     _ServicesBundle,
     _SubsystemBundle,
 )
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.capability.topic import TopicApplicationService
+from tests.helpers.workspace import make_workspace_runtime
 
 
 @pytest.fixture
@@ -65,7 +66,6 @@ def system(mock_patchouli):
     runtime_events = RecordingRuntimeEventSink()
     topic_service = TopicApplicationService(
         global_bus=global_bus,
-        config=config,
     )
     readiness_service = MagicMock(spec=SystemReadinessService)
 
@@ -73,6 +73,7 @@ def system(mock_patchouli):
         global_bus=global_bus,
         scheduler=scheduler,
         workspace_asset_store=InMemoryWorkspaceAssetStore(),
+        workspace_runtime=make_workspace_runtime(),
         event_bus=None,
         event_sink=runtime_events,
         event_publisher=RuntimeEventPublisher(runtime_events),
@@ -208,8 +209,10 @@ class TestHiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
+            "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
         ]
+        assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         assert isinstance(stopped.data["duration_ms"], float)
@@ -230,8 +233,10 @@ class TestHiveMemorySystem:
         assert stopped.data["completed_steps"] == [
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
         ]
+        assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is False
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         system._alice.stop.assert_not_called()

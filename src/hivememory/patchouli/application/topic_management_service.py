@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.patchouli.application.access_consumption import verified_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -9,12 +10,10 @@ from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
 )
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.patchouli.runtime.bus import PatchouliBus
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
 
 
 class TopicManagementService:
@@ -34,7 +33,7 @@ class TopicManagementService:
     Actor 行为目录。
     """
 
-    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessGuard) -> None:
+    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessVerifier) -> None:
         # Topic public API 只通过 local bus 组合 topic primitives，不直接持有 familiar。
         self._bus = bus
         self._access_guard = access_guard

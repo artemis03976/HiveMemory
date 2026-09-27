@@ -2,6 +2,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
@@ -15,8 +17,6 @@ from hivememory.patchouli.memory_library.models import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 
 
 def _memory_task(

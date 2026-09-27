@@ -15,7 +15,7 @@ related_docs:
   - docs/archive/plans/chat-run-cancellation-unified.md
   - docs/todo/runtime-event-producer-migration.md
   - docs/governance/reliability/idempotency-and-retry.md
-  - docs/system/observability.md
+  - docs/components/observability.md
   - docs/contracts/routes-and-events.md
 last_reviewed: 2026-08-05
 ---

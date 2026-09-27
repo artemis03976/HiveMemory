@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.config.passive import PassiveIngressConfig
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -17,9 +20,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
-from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,

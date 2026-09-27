@@ -4,7 +4,7 @@ status: todo
 owner: system
 scope: runtime-event-producer-emitter-migration
 related_docs:
-  - docs/system/observability.md
+  - docs/components/observability.md
   - docs/contracts/routes-and-events.md
   - docs/archive/plans/runtime-event-publishing-refactor.md
 last_reviewed: 2026-08-13
@@ -16,7 +16,7 @@ last_reviewed: 2026-08-13
 
 RuntimeEventBus、`RuntimeEventPublisher`、scoped sink 和 `AgentRunEventEmitter` 已经落地，Memory Generation 也已建立独立领域 emitter；但 Chat、Gateway、Scheduler、System lifecycle 和 Passive Ingress 等生产点尚未全部收敛到相同的发布边界。
 
-当前外部信封和 best-effort 语义已经由 [System 可观测性](../system/observability.md) 与 [公开路由和事件](../contracts/routes-and-events.md)定义。剩余问题是生产端重复的 envelope 组装、默认 severity、关联上下文、payload 白名单和异常隔离逻辑，而不是重新设计一套事件系统。
+当前外部信封和 best-effort 语义已经由 [System 可观测性](../components/observability.md) 与 [公开路由和事件](../contracts/routes-and-events.md)定义。剩余问题是生产端重复的 envelope 组装、默认 severity、关联上下文、payload 白名单和异常隔离逻辑，而不是重新设计一套事件系统。
 
 ## 约束
 

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from hivememory.system.config.memory_compiler import RetrievalContextStrategyConfig
+from hivememory.config.memory_compiler import RetrievalContextStrategyConfig
 
 
 class MemoryCompileTarget(str, Enum):

@@ -1,6 +1,6 @@
 """Patchouli 配置公共表面的回归测试。"""
 
-from hivememory.system.config import (
+from hivememory.config.patchouli import (
     AdaptiveWeightedFusionConfig,
     MemoryGenerationConfig,
     MemoryLifecycleConfig,

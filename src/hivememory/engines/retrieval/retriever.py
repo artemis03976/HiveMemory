@@ -15,6 +15,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from hivememory.config.patchouli import (
+    DenseRetrieverConfig,
+    HybridRetrieverConfig,
+    SparseRetrieverConfig,
+)
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.engines.retrieval.fusion import create_fusion
 from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever, BaseReranker
@@ -25,11 +30,6 @@ from hivememory.engines.retrieval.models import (
 )
 from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from hivememory.system.config import (
-    DenseRetrieverConfig,
-    HybridRetrieverConfig,
-    SparseRetrieverConfig,
-)
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore

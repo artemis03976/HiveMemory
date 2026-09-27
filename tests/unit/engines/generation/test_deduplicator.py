@@ -12,11 +12,11 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.config.patchouli import DeduplicatorConfig
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.extractor import ExtractedMemoryDraft
 from hivememory.engines.generation.models import DuplicateDecision
-from hivememory.system.config import DeduplicatorConfig
 from tests.helpers.memory import make_memory_metadata
 
 

@@ -7,10 +7,14 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.server.routers.agents import router
-from hivememory.system.application.agent_service import AgentApplicationService
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
+from tests.helpers.workspace import make_workspace_runtime
 
 
 def _create_test_app(storage):
@@ -29,9 +33,11 @@ def _create_test_app(storage):
         GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
+    # 管理路由不经 Profile 读取 resolver 与 operation 守卫：注入真实但空白的依赖。
     service = AgentApplicationService(
         global_bus=bus,
-        config=MagicMock(),
+        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        profile_reader=make_workspace_runtime(bus).profiles,
     )
     app.dependency_overrides[deps.get_agent_service] = lambda: service
 
@@ -79,3 +85,20 @@ def test_create_agent_rejects_blank_title_with_422():
     assert response.status_code == 422
     assert "title" in response.json()["detail"]
     storage.upsert_memory.assert_not_called()
+
+
+def test_create_agent_alias_conflict_returns_409():
+    """Agent alias（即 agent_id）已被占用时返回 409，而不是 500。"""
+    storage = MagicMock()
+    storage.upsert_memory.side_effect = MemoryAliasConflictError(
+        "alias 已被同一 Workspace 内的其他记忆占用",
+        details={"alias": "reviewer_doll", "reason": "alias_occupied"},
+    )
+    client = TestClient(_create_test_app(storage))
+
+    response = client.post(
+        "/api/v1/agents",
+        json={"title": "Reviewer", "alias": "reviewer_doll"},
+    )
+
+    assert response.status_code == 409

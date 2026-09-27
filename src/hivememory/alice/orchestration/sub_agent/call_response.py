@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
     MTPError,
@@ -11,7 +12,6 @@ from hivememory.core.mtp.exceptions import (
     SubAgentExecutionError,
 )
 from hivememory.core.mtp.models import MTPCallResponse, MTPErrorInfo, MTPResponseStatus
-from hivememory.system.model_registry import ModelNotFoundError
 
 if TYPE_CHECKING:
     from hivememory.core.models import AgentProfile

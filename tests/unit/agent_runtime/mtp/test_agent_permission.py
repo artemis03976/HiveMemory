@@ -157,11 +157,11 @@ class TestProfileLoadingErrors:
         service, get_by_alias = _make_retrieval_familiar()
 
         for alias in (None, "", "  "):
-            profile = await service.get_agent_profile(
+            resolved = await service.get_agent_profile(
                 alias,
                 identity_scope=make_identity_scope(user_id="u1"),
             )
-            assert profile == OMNI_DOLL_PROFILE
+            assert resolved.profile == OMNI_DOLL_PROFILE
 
         get_by_alias.assert_not_awaited()
 
@@ -170,11 +170,11 @@ class TestProfileLoadingErrors:
         service, get_by_alias = _make_retrieval_familiar()
 
         for alias in ("default", "omni_doll"):
-            profile = await service.get_agent_profile(
+            resolved = await service.get_agent_profile(
                 alias,
                 identity_scope=make_identity_scope(user_id="u1"),
             )
-            assert profile == OMNI_DOLL_PROFILE
+            assert resolved.profile == OMNI_DOLL_PROFILE
 
         get_by_alias.assert_not_awaited()
 
@@ -254,11 +254,12 @@ class TestProfileLoadingErrors:
         service, get_by_alias = _make_retrieval_familiar()
         get_by_alias.return_value = _make_profile_atom("coder_doll", ["READ", "RUN"], ["sys_clock"])
 
-        profile = await service.get_agent_profile(
+        resolved = await service.get_agent_profile(
             "coder_doll",
             identity_scope=make_identity_scope(user_id="system"),
         )
 
+        profile = resolved.profile
         assert profile.persona == "You are coder_doll."
         assert profile.allowed_mtp_verbs == ["READ", "RUN"]
         assert profile.allowed_sys_tools == ["sys_clock"]

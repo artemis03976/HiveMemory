@@ -2,11 +2,11 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from hivememory.core.errors import InvalidMemoryFieldError
+from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.models import IdentityScope
 from hivememory.server.deps import get_agent_service, get_identity_scope
 from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
-from hivememory.system.application.agent_service import AgentApplicationService
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 
 router = APIRouter(tags=["agents"])
 
@@ -30,6 +30,9 @@ async def create_agent(
         )
     except InvalidMemoryFieldError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except MemoryAliasConflictError as exc:
+        # Agent alias 即 agent_id，同一 Workspace 内必须唯一。
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return AgentProfileResponse.from_atom(atom)

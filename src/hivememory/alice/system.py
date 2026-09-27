@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from hivememory.agent_runtime.model_resolution import ModelResolver
 from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
@@ -16,13 +17,13 @@ from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.alice import AliceConfig
+from hivememory.config.memory_compiler import MemoryCompilerConfig
+from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.contracts.subsystem import SubsystemProtocol
-from hivememory.system.model_registry import ModelRegistry
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +41,24 @@ class AliceSystem(SubsystemProtocol):
 
     def __init__(
         self,
-        config: HiveMemoryConfig,
+        config: AliceConfig,
         global_bus: GlobalSystemBus | None = None,
         event_publisher: RuntimeEventPublisher | None = None,
-        model_registry: ModelRegistry | None = None,
+        model_registry: ModelResolver | None = None,
+        *,
+        memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
         self._config = config
         publisher = event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
 
         self._runtime = AliceRuntime(
-            alice_config=config.alice,
-            memory_compiler_config=config.memory_compiler,
+            alice_config=config,
+            memory_compiler_config=memory_compiler_config or MemoryCompilerConfig(),
             model_registry=model_registry,
         )
 
         frame_factory = FrameFactory()
-        prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
+        prompt_assembler = AgentPromptAssembler(config.koakuma)
         call_context_provider = CallContextProvider(
             self._runtime.profile_resolver,
             self._runtime.alias_resolver,

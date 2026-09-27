@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Literal
 from uuid import UUID
 
+from hivememory.components.work_queue import (
+    WorkQueueCapacityError,
+    WorkQueueStoppedError,
+    WorkState,
+)
+from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.errors import (
     AssetOperationConflictError,
     WorkspaceDomainError,
@@ -17,10 +24,12 @@ from hivememory.core.models import (
     TraceReducer,
     require_identity_scope,
 )
+from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.workspace_asset import (
     RepresentationLease,
 )
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
@@ -32,10 +41,7 @@ from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
-from hivememory.engines.attachment_compiler import (
-    AttachmentCompiler,
-    AttachmentCompileResult,
-)
+from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -51,13 +57,6 @@ from hivememory.patchouli.control.memory_generation.models import MemoryGenerati
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.config import MemoryCompilerConfig
-from hivememory.system.runtime.work_queue import (
-    WorkQueueCapacityError,
-    WorkQueueStoppedError,
-    WorkState,
-)
-from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 
 logger = logging.getLogger(__name__)
 
@@ -145,11 +144,13 @@ class PatchouliService:
         attachment_leases: list[RepresentationLease] = []
 
         try:
-            agent_profile = await self._local_bus.request(
+            resolved_profile = await self._local_bus.request(
                 PatchouliLocalRoutes.GET_AGENT_PROFILE,
                 identity.agent_id,
                 identity_scope=identity_scope,
             )
+            # 运行上下文只需要能力描述；源原子 policy 依据不进入 run（A2 §2.3）。
+            agent_profile = resolved_profile.profile
             real_topic_id = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_PREPARE,
                 target_topic_id=gateway_decision.target_topic_id,
@@ -580,7 +581,11 @@ class PatchouliService:
         identity_scope: IdentityScope,
         enable_retrieval: bool = True,
     ) -> RetrievalResponse:
-        """按 GatewayDecision 派生 Patchouli 检索请求。"""
+        """按 GatewayDecision 派生 Patchouli 检索请求。
+
+        检索路由返回完整原子列表（A2 §2.1）；运行上下文仍消费旧协议
+        envelope，由本 adapter 构造并测量调用耗时（A2 §2.4，A6 切换）。
+        """
 
         identity_scope = require_identity_scope(identity_scope)
 
@@ -597,9 +602,14 @@ class PatchouliService:
             identity_scope=identity_scope,
             top_k=decision.retrieval_plan.top_k,
         )
-        return await self._local_bus.request(
+        started_at = time.monotonic()
+        memories = await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
             retrieval_request,
+        )
+        return RetrievalResponse.from_memories(
+            memories,
+            latency_ms=(time.monotonic() - started_at) * 1000,
         )
 
     async def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:

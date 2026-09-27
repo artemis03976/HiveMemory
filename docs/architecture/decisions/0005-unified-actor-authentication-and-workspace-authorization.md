@@ -5,7 +5,7 @@ owner: project
 scope: actor-authentication-workspace-admission-and-operation-authorization
 decided_at: 2026-09-19
 applies_to: v0.7.0-access-boundary-baseline
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-26
 ---
 
 # ADR-0005：统一 Actor 认证网关与 Workspace 持有的授权
@@ -46,7 +46,9 @@ v0.7.0 A1 之前，Workspace 访问由 `LocalTrustedAdmissionService` 承担：`
 
 ## Status
 
-Accepted（v0.7.0 A1 基线）。生产消费者切换、shutdown 关闭时机与兼容分支退出由 [A6 计划](../../plans/v0.7.0-a6-actor-adapters-and-integration.md)收口；外部凭据协议由计划 B 承接。
+Accepted（v0.7.0 A1 基线）。
+
+2026-09-26 实现位置修订：网关实现迁至 `workspace/authentication.py`，Principal authentication 由 System 的 `SystemPrincipalAuthenticator`（`system/access/`）经 `core.access.PrincipalAuthenticator` 端口实现并注入；`WorkspaceOperation`、`WorkspaceAccessContext`、`CallerPrincipal` 位于 `core.access`。“一个对外认证入口、两段所有权”的决定不变，接入登记仍归 System，准入与行为白名单仍归 Workspace。生产消费者切换、shutdown 关闭时机与兼容分支退出由 [A6 计划](../../plans/v0.7.0-a6-actor-adapters-and-integration.md)收口；外部凭据协议由计划 B 承接。
 
 ## Related documents
 

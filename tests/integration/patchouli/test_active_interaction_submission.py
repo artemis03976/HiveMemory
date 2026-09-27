@@ -8,6 +8,10 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    WorkState,
+)
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -41,7 +45,6 @@ from hivememory.patchouli.service import (
     ActiveInteractionFinalizationError,
     PatchouliService,
 )
-from hivememory.system.runtime.work_queue import QueuePolicy, WorkState
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

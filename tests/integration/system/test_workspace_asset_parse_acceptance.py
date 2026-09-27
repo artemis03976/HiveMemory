@@ -10,11 +10,14 @@ import threading
 
 import pytest
 
+from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.errors import AssetRemovedError, StaleAssetResultError
 from hivememory.core.models import AssetRepresentationKind, AssetSafeError, WorkspaceAssetState
-from hivememory.system.config import AttachmentParserConfig
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from hivememory.system.services.attachments import CONTENT_UNREADABLE, AttachmentParseError
+from hivememory.infrastructure.attachments import (
+    CONTENT_UNREADABLE,
+    AttachmentParseError,
+)
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
     ScriptedAttachmentParser,

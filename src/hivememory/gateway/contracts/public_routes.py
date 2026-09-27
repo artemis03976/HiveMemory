@@ -1,6 +1,6 @@
 """通过 GlobalSystemBus 暴露的 Gateway 公开路由。"""
 
-from hivememory.system.contracts.route_names import RouteNames
+from hivememory.core.contracts.route_names import RouteNames
 
 
 class GatewayPublicRoutes:

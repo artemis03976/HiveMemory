@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
     UpdateFocus,
@@ -29,13 +30,11 @@ from hivememory.core.models.pending import (
 )
 from hivememory.patchouli.application.access_consumption import required_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
 
 
 def _slugify(text: str, max_len: int = 30) -> str:
@@ -105,7 +104,7 @@ class MemoryIntentSubmissionResult:
 class MemoryIntentSubmissionService:
     """经 Patchouli 生成提交链的公开意图提交 API（``memory_intent.submit``）。"""
 
-    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessGuard) -> None:
+    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessVerifier) -> None:
         self._bus = bus
         self._access_guard = access_guard
 

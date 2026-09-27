@@ -7,14 +7,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.core.errors import WorkspaceDomainError
-from hivememory.system.application.chat_service import _run_interruptible
-from hivememory.system.runtime.control import (
+from hivememory.alice.application.chat_control import (
     ChatGenerationRun,
     ChatGenerationRunRegistry,
     ChatRunOutcome,
     ChatRunPhase,
 )
+from hivememory.alice.application.chat_service import _run_interruptible
+from hivememory.core.errors import WorkspaceDomainError
 from tests.helpers.workspace import make_identity_scope
 
 

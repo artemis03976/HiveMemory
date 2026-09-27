@@ -9,9 +9,9 @@ import logging
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
+from hivememory.config.patchouli import GarbageCollectorConfig
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
-from hivememory.system.config import GarbageCollectorConfig
 from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:

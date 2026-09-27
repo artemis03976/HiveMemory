@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from hivememory.config.memory_compiler import (
+    CascadeContextStrategyConfig,
+    CompactContextStrategyConfig,
+    FullContextStrategyConfig,
+)
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR, MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemory,
@@ -15,11 +20,6 @@ from hivememory.engines.memory_compiler.models import (
 from hivememory.i18n import (
     get_memory_envelope_text,
     get_memory_section_title,
-)
-from hivememory.system.config.memory_compiler import (
-    CascadeContextStrategyConfig,
-    CompactContextStrategyConfig,
-    FullContextStrategyConfig,
 )
 from hivememory.utils import estimate_tokens
 

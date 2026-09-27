@@ -6,6 +6,11 @@ from typing import Any
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AssetNotFoundError,
     AssetRemovedError,
@@ -17,6 +22,10 @@ from hivememory.core.models import (
     WorkspaceAssetMetadata,
     WorkspaceIdentity,
 )
+from hivememory.core.ports.workspace_assets import (
+    WorkspaceAssetCommandPort,
+    WorkspaceAssetReaderPort,
+)
 from hivememory.system.assembler import (
     SystemAssembler,
     _RegistriesBundle,
@@ -24,17 +33,9 @@ from hivememory.system.assembler import (
     _ServicesBundle,
     _SubsystemBundle,
 )
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from hivememory.system.runtime.workspace import (
-    InMemoryWorkspaceAssetStore,
-    WorkspaceAssetCommandPort,
-    WorkspaceAssetReaderPort,
-)
 from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from tests.helpers.workspace import make_workspace_runtime
 
 
 class _Scheduler:
@@ -209,6 +210,7 @@ def _build_system(
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
+        workspace_runtime=make_workspace_runtime(),
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
@@ -391,6 +393,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
+        workspace_runtime=make_workspace_runtime(),
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
