@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-27
 ---
 
 # Todo
@@ -12,8 +12,8 @@ last_reviewed: 2026-09-19
 
 当前事项：
 
-- [AgentProfile 模型演进](./agent-profile-model-evolution.md)（模型债：身份缺失/MTP 中心/外部 actor 语义；不阻塞 A2 缓存交付）；
-- [Memory Alias 重名缺陷](./memory-alias-uniqueness.md)（已知 bug，破坏 A2 缓存键前提，待归属计划）；
+- [A1 访问边界返工](./a1-access-boundary-rework.md)（未排期：operation 检查迁移、兼容分支退出、生产入口接入认证网关；不阻塞任务进程表计划）；
+- [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
@@ -25,6 +25,6 @@ last_reviewed: 2026-09-19
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [全局路由 kwargs 与 handler 签名一致性校验](./global-route-signature-consistency-check.md)；
 
-已完成的 [MTP 缓存命中作用域重验](../archive/todo/mtp-cache-scope-revalidation.md) 已归档，继续作为隔离回归基线；其他已完成事项见 [Archived Todo](../archive/todo/README.md)。
+已完成的 [MTP 缓存命中作用域重验](../archive/todo/mtp-cache-scope-revalidation.md) 已归档，继续作为隔离回归基线；[Memory Alias 重名缺陷](../archive/todo/memory-alias-uniqueness.md)与 [AgentProfile 模型演进](../archive/todo/agent-profile-model-evolution.md)于 2026-09-27 归档（后者的开放项转为 Idea 问题）；其他已完成事项见 [Archived Todo](../archive/todo/README.md)。
 
 Todo 只保存问题、证据、影响和完成条件。若事项扩展为跨系统功能或身份架构，应升级为 Plan；若已有项目 Issue，则链接 Issue，避免维护两份详细状态。

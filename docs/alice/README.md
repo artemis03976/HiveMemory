@@ -87,6 +87,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 - “灵魂”：`persona`，来自 MemoryAtom 正文，描述角色、工作方式和领域偏好；
 - “骨架”：模型名、temperature、top_p、语言、`allowed_mtp_verbs` 与 `allowed_sys_tools`，来自结构化 `agent_config`。
 
+`AgentProfile.agent_id` 是 Profile 的身份，解析时取自源原子的 `index.alias`，覆盖 `agent_config` 中的同名键；builtin Profile 的 `agent_id` 为 `None`。由于 alias 在同一 Workspace 的中期库内唯一（见 [MemoryLibrary](../patchouli/memory-library.md)第 1.2 节），`agent_id` 在同一 Workspace 内同样唯一。可见性不进入 Profile 模型，仍由源原子的 `MemoryAccessPolicy` 表达。
+
 权限与 persona 分离不是排版选择。若把工具权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它；当前实现既按 Profile 裁剪 MTP 教学与工具菜单，也在 Koakuma 执行前再次执行 verb/tool 白名单检查。提示词层降低误用概率，Runtime 层才是当前真正的执行闸门。
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。

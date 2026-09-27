@@ -185,6 +185,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 |:---|:---|:---|:---|
 | `InvalidMemoryFieldError` | 接收外部输入的 Memory 构造/编辑点（管理创建、外部编辑），包装 Pydantic `ValidationError` | 422 | 调用方提交的字段取值不满足领域约束；`from_validation_error()` 取第一个错误的字段路径生成面向调用方的消息，与程序错误区分 |
 | `StorageWriteError` | Qdrant 写入路径（`upsert_memory` / `patch_memory_payload` 等） | 5xx | 存储写入失败的结构化表达，与 `StorageOfflineError`/`StorageReadError` 同族；失败沿调用链传播，不能被吞成成功或空结果 |
+| `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 写入前校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 与 Agent Profile 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 唯一性不变量被破坏；`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
 | `MemoryDecodeError` | Memory codec 读取边界 | 5xx | payload 无法安全归一化为 schema `"2.1"`（缺 `schema_version`、未知版本、投影不一致等），fail closed |
 
 Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同一套约束；外部编辑入口把值相等判定为无变化时不产生版本（§3.2 语义见 Patchouli 生成文档）。
