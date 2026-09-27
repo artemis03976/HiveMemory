@@ -8,6 +8,9 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.alice.application.chat_service import ChatApplicationService
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import AssetNotReadyError
 from hivememory.core.models import (
     AttachmentSelectionRequest,
@@ -28,9 +31,6 @@ from hivememory.core.protocol.models import (
     AgentRunResult,
     AgentRunStatus,
 )
-from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.workspace import make_identity_scope
 
 

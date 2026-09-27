@@ -13,9 +13,10 @@ from unittest.mock import Mock
 
 import pytest
 
+from hivememory.config.patchouli import ExtractorConfig
+from hivememory.config.shared import LLMConfig
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.i18n import set_default_language
-from hivememory.system.config import ExtractorConfig, LLMConfig
 
 
 @pytest.fixture(autouse=True)

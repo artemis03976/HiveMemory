@@ -26,6 +26,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
     require_identity_scope,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
@@ -33,7 +34,7 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.engine import RetrievalEngine
-from hivememory.engines.retrieval.models import QueryFilters, RetrievalQuery
+from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.utils.time import utc_now

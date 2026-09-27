@@ -7,8 +7,8 @@ from uuid import uuid4
 import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.config.alice import KoakumaConfig
 from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTPVerb
-from hivememory.system.config import KoakumaConfig
 from tests.helpers.workspace import make_runtime_scope
 
 from .conftest import build_resumed_history, simulate_kernel_loop_single

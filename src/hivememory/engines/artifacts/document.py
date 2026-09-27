@@ -2,10 +2,10 @@
 
 from datetime import datetime
 
+from hivememory.config.patchouli import ArtifactComponentConfig
 from hivememory.core.models import WorkspaceIdentity
 from hivememory.core.models.artifact import ArtifactRef, DocumentArtifact, DocumentLocator
 from hivememory.patchouli.memory_library import ArtifactStore
-from hivememory.system.config.patchouli import ArtifactComponentConfig
 
 _DOC_FIELDS = set(DocumentArtifact.model_fields)
 

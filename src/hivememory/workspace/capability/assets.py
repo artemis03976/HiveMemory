@@ -1,35 +1,32 @@
 """WorkspaceAsset 能力：上传用例（A2 §1.2，自 ``system/application`` 原样迁入）。
 
-串行接收、原子注册与请求内解析交接；``system.runtime`` 与附件服务依赖随迁
-不变，AssetStore 仍原地保留于 ``system/runtime/workspace``。
-
-TODO(A5/A6)：能力层依赖 ``system.*`` / ``patchouli.contracts`` 属过渡期分层导入
-白名单（A2 §8 D-2），能力层与 system 的依赖方向届时重新整理。
+串行接收、原子注册与请求内解析交接；AssetStore 与解析交接位于 ``workspace.assets``，
+文件格式解析器位于 ``infrastructure.attachments``。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.components.serial_gate import KeyedSerialGate
+from hivememory.config.attachments import AttachmentParserConfig
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     WorkspaceAssetHandle,
     WorkspaceAssetUploadReceipt,
 )
-from hivememory.system.config import AttachmentParserConfig
-from hivememory.system.runtime.serial_gate import KeyedSerialGate
-from hivememory.system.runtime.workspace.ports import WorkspaceAssetCommandPort
-from hivememory.system.services.attachments.parse_service import AttachmentParseService
-from hivememory.system.services.attachments.upload import (
+from hivememory.core.ports.workspace_assets import WorkspaceAssetCommandPort
+from hivememory.workspace.assets.parse_service import AttachmentParseService
+from hivememory.workspace.assets.upload import (
     UPLOAD_PRODUCER,
     UPLOAD_PRODUCER_VERSION,
     SupportsAsyncRead,
     receive_upload,
 )
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.workspace import WorkspaceAccessContext
+    from hivememory.core.access import WorkspaceAccessContext
     from hivememory.workspace.access import WorkspaceAccessGuard
 
 

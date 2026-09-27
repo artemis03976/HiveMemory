@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.memory_access import memory_belongs_to_workspace
 from hivememory.core.models import (
@@ -19,8 +21,6 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.server.routers.memories import router
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
@@ -45,7 +45,6 @@ def _create_test_app(storage, lifecycle_engine=None):
     # 管理路由不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
     service = MemoryApplicationService(
         global_bus=bus,
-        config=MagicMock(),
         access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
         memory_reader=make_workspace_runtime(bus).aliases,
     )

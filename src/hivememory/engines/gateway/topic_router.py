@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from hivememory.config.gateway import TopicRouterConfig
 from hivememory.core.models import TopicSnapshot
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.prompts.gateway import get_topic_router_system_prompt
-from hivememory.system.config import TopicRouterConfig
 from hivememory.utils.json_parser import parse_llm_json
 
 

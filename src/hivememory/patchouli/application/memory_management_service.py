@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
@@ -16,18 +17,16 @@ from hivememory.patchouli.application.access_consumption import (
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.utils.uuid import normalize_uuid
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
 
 
 class MemoryManagementService:
     """Patchouli 面向公开记忆管理/读取 API 的应用服务。
 
     管理用例绑定明确的 operation（A1 计划第 4.1 节绑定基线），在资源
-    读取或副作用之前经 ``WorkspaceAccessGuard`` 执行共享行为检查：
+    读取或副作用之前经 ``WorkspaceAccessVerifier`` 执行共享行为检查：
 
     - 管理 CRUD/GET/LIST/feedback：``management.memory``——owner-management
       读取语义只由该 operation 授权，Agent 的 ``resource.read``/
@@ -49,7 +48,7 @@ class MemoryManagementService:
         self,
         *,
         bus,
-        access_guard: WorkspaceAccessGuard,
+        access_guard: WorkspaceAccessVerifier,
     ) -> None:
         self._bus = bus
         self._access_guard = access_guard

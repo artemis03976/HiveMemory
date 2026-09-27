@@ -3,21 +3,18 @@
 任务快照类型取自公共契约 ``patchouli.contracts.memory_tasks``，不依赖控制面
 实现；operation 检查（``task.observe`` / ``management.task``）仍由 Patchouli
 application 执行。
-
-TODO(A5/A6)：能力层依赖 ``system.*`` / ``patchouli.contracts`` 属过渡期分层导入
-白名单（A2 §8 D-2），能力层与 system 的依赖方向届时重新整理。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.workspace import WorkspaceAccessContext
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.core.access import WorkspaceAccessContext
 
 
 class MemoryTaskApplicationService:

@@ -24,12 +24,10 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
 )
+from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.models.pending import PendingAtomMaterializeTask
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
-from hivememory.engines.attachment_compiler.models import (
-    AttachmentCompileResult,
-)
-from hivememory.engines.retrieval.models import QueryFilters
 
 # QueryFilters 的规范定义位于引擎层，此处重导出以保持向后兼容
 

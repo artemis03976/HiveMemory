@@ -15,6 +15,8 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -22,8 +24,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
 )
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.system.services.passive.events import PassiveIngressEventEmitter
 from hivememory.system.services.passive.exceptions import (
     PassiveIngressContractError,

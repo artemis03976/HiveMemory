@@ -63,6 +63,12 @@ from rich.panel import Panel
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
+from hivememory.config.app import load_app_config
+from hivememory.config.memory_compiler import (
+    CascadeContextStrategyConfig,
+    CompactContextStrategyConfig,
+    FullContextStrategyConfig,
+)
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -82,12 +88,6 @@ from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerank
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
-from hivememory.system.config import load_app_config
-from hivememory.system.config.memory_compiler import (
-    CascadeContextStrategyConfig,
-    CompactContextStrategyConfig,
-    FullContextStrategyConfig,
-)
 from tests.conftest import print_test_result
 from tests.fixtures.retrieval_test_data import (
     GOLDEN_MEMORIES,

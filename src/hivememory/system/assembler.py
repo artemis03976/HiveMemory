@@ -14,36 +14,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.alice.system import AliceSystem
-from hivememory.gateway import GatewaySystem
-from hivememory.patchouli.system import PatchouliSystem
-from hivememory.system.access import (
-    ActorAuthenticationGateway,
-    SystemActorAccessEntry,
-    SystemActorAccessRegistry,
-)
-from hivememory.system.application.chat_service import ChatApplicationService
-from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.application.readiness_service import SystemReadinessService
-from hivememory.system.config import (
-    AccessControlConfig,
-    HiveMemoryConfig,
-    RuntimeEventsConfig,
-    WorkspaceActorAccessEntry,
-)
-from hivememory.system.model_registry import ModelRegistry
-from hivememory.system.provider_registry import ProviderRegistry
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import (
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import (
     NullRuntimeEventSink,
     RuntimeEventBus,
     RuntimeEventSink,
 )
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from hivememory.system.services.attachments.parse_service import AttachmentParseService
-from hivememory.workspace.access import WorkspaceAccessGuard, WorkspaceOperation
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.config.access import (
+    AccessControlConfig,
+    WorkspaceActorAccessEntry,
+)
+from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.runtime import RuntimeEventsConfig
+from hivememory.core.access import WorkspaceOperation
+from hivememory.gateway import GatewaySystem
+from hivememory.patchouli.system import PatchouliSystem
+from hivememory.system.access import (
+    SystemActorAccessEntry,
+    SystemActorAccessRegistry,
+    SystemPrincipalAuthenticator,
+)
+from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.readiness_service import SystemReadinessService
+from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.provider_registry import ProviderRegistry
+from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.assets.parse_service import AttachmentParseService
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
@@ -274,8 +276,10 @@ class SystemAssembler:
             workspace_registry,
             context_ttl_seconds=access_config.context_ttl_seconds,
         )
+        # Principal authentication 归 System（接入登记），经端口注入 workspace
+        # 认证入口；Workspace 准入与签发归 workspace guard。
         access_gateway = ActorAuthenticationGateway(
-            system_registry=system_registry,
+            principals=SystemPrincipalAuthenticator(system_registry),
             workspace_access=access_guard,
         )
         return _AccessControlBundle(
@@ -306,14 +310,16 @@ class SystemAssembler:
         registries: _RegistriesBundle,
         access_control: _AccessControlBundle,
     ) -> _SubsystemBundle:
+        # 组合根把根配置拆成各子系统自己的配置段注入，子系统不依赖根配置类型。
         gateway = GatewaySystem(
-            config=self._config,
+            config=self._config.gateway,
             global_bus=runtime.global_bus,
             runtime_events=runtime.event_sink.scoped("gateway"),
+            llm_config=self._config.get_gateway_llm_config(),
         )
 
         patchouli = PatchouliSystem(
-            config=self._config,
+            config=self._config.patchouli,
             global_bus=runtime.global_bus,
             scheduler=runtime.scheduler,
             runtime_events=runtime.event_sink.scoped("patchouli"),
@@ -323,13 +329,18 @@ class SystemAssembler:
             # A1：System composition 注入共享行为检查；Patchouli 公共入口
             # 据此执行操作授权，不反向依赖认证网关实现。
             access_guard=access_control.access_guard,
+            shared_config=self._config.shared,
+            memory_compiler_config=self._config.memory_compiler,
+            attachment_compiler_config=self._config.attachment_compiler,
+            scheduler_config=self._config.scheduler,
         )
 
         alice = AliceSystem(
-            config=self._config,
+            config=self._config.alice,
             global_bus=runtime.global_bus,
             event_publisher=runtime.event_publisher.scoped(subsystem="alice"),
             model_registry=registries.model_registry,
+            memory_compiler_config=self._config.memory_compiler,
         )
 
         return _SubsystemBundle(gateway=gateway, patchouli=patchouli, alice=alice)
@@ -366,7 +377,6 @@ class SystemAssembler:
         # workspace resolver 解析；管理用例保持对库管理路由的薄委托。
         memory = MemoryApplicationService(
             global_bus=runtime.global_bus,
-            config=self._config,
             access_guard=access_control.access_guard,
             memory_reader=runtime.workspace_runtime.aliases,
         )
@@ -375,13 +385,11 @@ class SystemAssembler:
         )
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,
-            config=self._config,
             access_guard=access_control.access_guard,
             profile_reader=runtime.workspace_runtime.profiles,
         )
         topic = TopicApplicationService(
             global_bus=runtime.global_bus,
-            config=self._config,
         )
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,

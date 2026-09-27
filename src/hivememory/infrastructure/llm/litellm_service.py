@@ -9,8 +9,8 @@ from typing import Any
 
 import litellm
 
+from hivememory.config.shared import LLMConfig
 from hivememory.infrastructure.llm.base import SingletonLLMService
-from hivememory.system.config import LLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -358,15 +358,13 @@ def get_librarian_llm_service(
     用于记忆提取等任务。
 
     Args:
-        config: LLM 配置对象（None 则自动加载全局配置）
+        config: LLM 配置对象（必须提供）
 
     Returns:
         LiteLLMService: Librarian LLM 服务实例
     """
-    from hivememory.system.config import load_app_config
-
     if config is None:
-        config = load_app_config().get_librarian_llm_config()
+        raise ValueError("config is required for get_librarian_llm_service")
 
     return LiteLLMService(config=config)
 

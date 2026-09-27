@@ -5,9 +5,6 @@
   交付边界按源原子 policy 逐次授权（A2 §2.3）；对 actor 只交付 AgentProfile；
 - 管理写入/列表保持对库管理路由的薄委托（``management.memory`` 绑定例外，
   检查仍由 Patchouli application 执行）。
-
-TODO(A5/A6)：能力层依赖 ``system.contracts`` / ``system.config`` 属过渡期
-分层导入白名单（A2 §8 D-2），能力层与 system 的依赖方向届时重新整理。
 """
 
 from __future__ import annotations
@@ -16,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import (
     AgentProfile,
@@ -29,14 +28,12 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.provenance import MemoryProvenance
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.utils.time import utc_now
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.system.config import HiveMemoryConfig
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.workspace.access import WorkspaceAccessContext, WorkspaceAccessGuard
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.workspace.access import WorkspaceAccessGuard
     from hivememory.workspace.resolution.profile import ProfileResolver
 
 
@@ -55,19 +52,13 @@ class AgentApplicationService:
     def __init__(
         self,
         global_bus: GlobalSystemBus,
-        config: HiveMemoryConfig,
         *,
         access_guard: WorkspaceAccessGuard,
         profile_reader: ProfileResolver,
     ) -> None:
         self._global_bus = global_bus
-        self._config = config
         self._access_guard = access_guard
         self._profile_reader = profile_reader
-
-    @property
-    def config(self) -> HiveMemoryConfig:
-        return self._config
 
     async def create_agent_profile(
         self,

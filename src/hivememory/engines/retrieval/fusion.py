@@ -9,13 +9,13 @@
 import logging
 from collections import defaultdict
 
-from hivememory.engines.retrieval.interfaces import BaseFusion
-from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.system.config import (
+from hivememory.config.patchouli import (
     AdaptiveWeightedFusionConfig,
     ReciprocalRankFusionConfig,
     RetrievalModeConfig,
 )
+from hivememory.engines.retrieval.interfaces import BaseFusion
+from hivememory.engines.retrieval.models import SearchResult, SearchResults
 
 logger = logging.getLogger(__name__)
 

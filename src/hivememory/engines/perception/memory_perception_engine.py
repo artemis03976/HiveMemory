@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.models import (
     ActionReducer,
     IdentityScope,
@@ -18,7 +19,6 @@ from hivememory.core.models import (
     TurnRecord,
 )
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.system.config import SemanticFlowPerceptionConfig
 from hivememory.utils.token_estimator import estimate_tokens
 
 if TYPE_CHECKING:

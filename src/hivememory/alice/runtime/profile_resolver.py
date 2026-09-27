@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from hivememory.alice.runtime.profile_cache import ProfileCachePort
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -18,7 +19,6 @@ from hivememory.core.mtp.exceptions import (
     MTPError,
     SystemFault,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.bus import AliceBus

@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.scheduler.models import MaintenanceTaskSpec
+from hivememory.config.memory_compiler import FullContextStrategyConfig
 from hivememory.core.models import IdentityScope
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
@@ -12,9 +15,6 @@ from hivememory.engines.memory_compiler import (
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
-from hivememory.system.config.memory_compiler import FullContextStrategyConfig
-from hivememory.system.runtime.events import RuntimeEventSink
-from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,
@@ -22,11 +22,9 @@ from hivememory.system.services.passive import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.system.config import HiveMemoryConfig
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.system.runtime.scheduler.async_scheduler import (
-        AsyncMaintenanceScheduler,
-    )
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
+    from hivememory.config.app import HiveMemoryConfig
 
 
 class PassiveIngressService:

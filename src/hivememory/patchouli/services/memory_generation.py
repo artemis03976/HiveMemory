@@ -31,6 +31,7 @@ from hivememory.core.models.artifact import (
     snapshot_memory_atom,
 )
 from hivememory.core.models.workspace_asset import TopicAssetBinding
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -43,7 +44,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
-from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:

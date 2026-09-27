@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.server.routers.agents import router
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
@@ -36,7 +36,6 @@ def _create_test_app(storage):
     # 管理路由不经 Profile 读取 resolver 与 operation 守卫：注入真实但空白的依赖。
     service = AgentApplicationService(
         global_bus=bus,
-        config=MagicMock(),
         access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
         profile_reader=make_workspace_runtime(bus).profiles,
     )

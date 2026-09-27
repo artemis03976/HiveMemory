@@ -27,10 +27,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from hivememory.core.models import ActorIdentity, WorkspaceIdentity
-
     # 注解引用保持 workspace 包内单向依赖：registry 不在运行期导入 access。
-    from hivememory.workspace.access import WorkspaceOperation
+    from hivememory.core.access import WorkspaceOperation
+    from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 
 __all__ = [
     "WorkspaceActorAccessRecord",

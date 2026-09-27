@@ -6,7 +6,7 @@
 
 import pytest
 
-from hivememory.system.services.attachments import (
+from hivememory.infrastructure.attachments import (
     EXECUTION_FAILURE,
     MEDIA_TYPE_DOCX,
     MEDIA_TYPE_MARKDOWN,

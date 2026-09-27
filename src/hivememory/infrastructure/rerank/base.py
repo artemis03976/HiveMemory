@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from hivememory.system.config import RerankerConfig
+    from hivememory.config.patchouli import RerankerConfig
 
 logger = logging.getLogger(__name__)
 

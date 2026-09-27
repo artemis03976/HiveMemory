@@ -31,6 +31,20 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.components.scheduler.models import MaintenanceTaskSpec
+from hivememory.config.attachments import AttachmentCompilerConfig
+from hivememory.config.memory_compiler import MemoryCompilerConfig
+from hivememory.config.patchouli import PatchouliConfig
+from hivememory.config.runtime import SchedulerConfig
+from hivememory.config.shared import SharedConfig
+from hivememory.core.access import ClosedWorkspaceAccessVerifier, WorkspaceAccessVerifier
+from hivememory.core.contracts.subsystem import SubsystemProtocol
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
@@ -47,17 +61,9 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.runtime import PatchouliRuntime
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.contracts.subsystem import SubsystemProtocol
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
-from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
-from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
-from hivememory.workspace.access import WorkspaceAccessGuard
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 
 if TYPE_CHECKING:
-    from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
+    from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -80,21 +86,31 @@ class PatchouliSystem(SubsystemProtocol):
 
     def __init__(
         self,
-        config: HiveMemoryConfig,
+        config: PatchouliConfig,
         global_bus: GlobalSystemBus | None = None,
         scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
         workspace_asset_reader: WorkspaceAssetReaderPort | None = None,
-        access_guard: WorkspaceAccessGuard | None = None,
+        access_guard: WorkspaceAccessVerifier | None = None,
+        *,
+        shared_config: SharedConfig | None = None,
+        memory_compiler_config: MemoryCompilerConfig | None = None,
+        attachment_compiler_config: AttachmentCompilerConfig | None = None,
+        scheduler_config: SchedulerConfig | None = None,
     ):
+        # 各配置段由组合根从根配置中取出后注入；Patchouli 不依赖根配置类型。
         self.config = config
+        self._shared_config = shared_config or SharedConfig()
+        self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
+        self._attachment_compiler_config = attachment_compiler_config or AttachmentCompilerConfig()
+        self._scheduler_config = scheduler_config or SchedulerConfig()
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
         # 1. 初始化 Runtime（运行时负责组装感知、检索、生成、生命周期组件图）
         self.runtime = PatchouliRuntime(
-            patchouli_config=self.config.patchouli,
-            shared_config=self.config.shared,
+            patchouli_config=self.config,
+            shared_config=self._shared_config,
             runtime_events=self._runtime_events,
             workspace_asset_reader=workspace_asset_reader,
         )
@@ -111,21 +127,21 @@ class PatchouliSystem(SubsystemProtocol):
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             interaction_queue=self._interaction_submission_queue,
-            memory_compiler_config=self.config.memory_compiler,
+            memory_compiler_config=self._memory_compiler_config,
             pending_atom_settler=self.runtime.pending_atom_settler,
             # 进程级唯一的 WorkspaceAssetStore 由 assembler 注入为只读
             # reader：附件选择在 prepare 边界 resolve/acquire（计划 9.3 节）。
             asset_reader=workspace_asset_reader,
             # W1-E 附件编译器：预算来自 System attachment_compiler 配置。
             attachment_compiler=AttachmentCompiler(
-                self.config.attachment_compiler,
+                self._attachment_compiler_config,
             ),
         )
         # A1 统一访问边界：System composition 装载 Workspace Actor 访问
         # 注册表并注入共享行为检查；Patchouli 只消费中立的检查能力，不
-        # 反向依赖 System 认证网关实现。缺省空注册表 fail closed。
+        # 反向依赖 workspace 或 System 实现（core.access 端口）。缺省 fail closed。
         if access_guard is None:
-            access_guard = WorkspaceAccessGuard(WorkspaceActorAccessRegistry([]))
+            access_guard = ClosedWorkspaceAccessVerifier()
         self._access_guard = access_guard
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
@@ -196,9 +212,9 @@ class PatchouliSystem(SubsystemProtocol):
 
     def register_maintenance_tasks(self, scheduler) -> bool:
         """向全局维护器注册 Patchouli 子系统的维护任务。"""
-        if not self.config.scheduler.enabled:
+        if not self._scheduler_config.enabled:
             return False
-        tasks_config = self.config.scheduler.tasks
+        tasks_config = self._scheduler_config.tasks
         scheduler.register(
             MaintenanceTaskSpec(
                 owner=self._MAINTENANCE_OWNER,

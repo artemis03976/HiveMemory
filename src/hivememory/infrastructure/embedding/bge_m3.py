@@ -6,10 +6,8 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any, Optional
 
-from hivememory.system.config import load_app_config
-
 if TYPE_CHECKING:
-    from hivememory.system.config import EmbeddingConfig
+    from hivememory.config.shared import EmbeddingConfig
 from hivememory.infrastructure.embedding.base import SingletonModelService
 
 logger = logging.getLogger(__name__)
@@ -114,10 +112,9 @@ def get_bge_m3_service(config: Optional["EmbeddingConfig"] = None) -> BGEM3Embed
     if _bge_m3_instance is None:
         with _bge_m3_lock:
             if _bge_m3_instance is None:
+                # 配置由调用方（存储层装配）显式提供；基础设施层不读取全局配置。
                 if config is None:
-                    global_embedding_config = load_app_config().embedding
-                    base_config = global_embedding_config.default
-                    config = base_config.model_copy(update={"model_name": _CUSTOM_BGE_M3_MODEL})
+                    raise ValueError("config is required for get_bge_m3_service")
 
                 _bge_m3_instance = BGEM3EmbeddingService(config=config)
 

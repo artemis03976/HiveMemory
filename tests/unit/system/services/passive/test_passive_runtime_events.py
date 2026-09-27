@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -26,10 +30,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,

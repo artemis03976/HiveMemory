@@ -15,19 +15,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.patchouli.application.access_consumption import required_scope
 from hivememory.patchouli.control.interaction_submission import (
     InteractionOrigin,
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.core.models import IdentityScope
     from hivememory.core.protocol.models import InteractionPayload
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
 
 
 @dataclass(frozen=True)
@@ -46,7 +45,7 @@ class InteractionSubmissionService:
         self,
         *,
         interaction_queue: InteractionSubmissionQueue,
-        access_guard: WorkspaceAccessGuard,
+        access_guard: WorkspaceAccessVerifier,
     ) -> None:
         self._queue = interaction_queue
         self._access_guard = access_guard

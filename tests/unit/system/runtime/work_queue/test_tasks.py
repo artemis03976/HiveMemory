@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.work_queue import (
     QueueTaskIdentity,
     TaskHandle,
     WorkPayloadCodecRegistry,

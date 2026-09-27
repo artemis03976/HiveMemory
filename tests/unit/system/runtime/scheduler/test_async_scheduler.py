@@ -15,10 +15,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
-from hivememory.system.runtime.scheduler.models import MaintenanceTaskSpec
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
+from hivememory.components.scheduler.models import MaintenanceTaskSpec
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 TEST_OWNER = "test_owner"
 
@@ -91,7 +91,7 @@ class _FakeMonotonic:
 def fake_clock(monkeypatch) -> _FakeMonotonic:
     clock = _FakeMonotonic()
     monkeypatch.setattr(
-        "hivememory.system.runtime.scheduler.async_scheduler.monotonic",
+        "hivememory.components.scheduler.async_scheduler.monotonic",
         clock,
     )
     return clock

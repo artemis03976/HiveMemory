@@ -26,7 +26,7 @@ from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
 
 if TYPE_CHECKING:
-    from hivememory.workspace.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkspaceAccessContext
 
 
 class ProfileResolver:

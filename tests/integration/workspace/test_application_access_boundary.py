@@ -28,6 +28,9 @@ import pytest_asyncio
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import CallerPrincipal, WorkspaceOperation
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -72,10 +75,6 @@ from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from hivememory.system.access import CallerPrincipal
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.workspace import WorkspaceOperation
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from tests.helpers.memory import make_memory_metadata
@@ -299,7 +298,6 @@ async def wired():
     # System 管理门面：与外部 adapter 同一全局总线，验证 context 传播
     system_memory = MemoryApplicationService(
         global_bus=global_bus,
-        config=MagicMock(),
         access_guard=access.guard,
         memory_reader=make_workspace_runtime(global_bus).aliases,
     )

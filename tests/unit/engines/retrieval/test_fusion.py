@@ -9,13 +9,13 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from hivememory.engines.retrieval.fusion import AdaptiveWeightedFusion, ReciprocalRankFusion
-from hivememory.engines.retrieval.models import SearchResult, SearchResults
-from hivememory.system.config import (
+from hivememory.config.patchouli import (
     AdaptiveWeightedFusionConfig,
     ReciprocalRankFusionConfig,
 )
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.engines.retrieval.fusion import AdaptiveWeightedFusion, ReciprocalRankFusion
+from hivememory.engines.retrieval.models import SearchResult, SearchResults
 from tests.helpers.memory import make_memory_metadata
 
 

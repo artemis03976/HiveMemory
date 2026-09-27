@@ -10,8 +10,8 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.core.models import AgentProfile, TopicData
+from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
-from hivememory.engines.attachment_compiler import AttachmentCompileResult
 from hivememory.i18n import set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.workspace import make_identity_scope

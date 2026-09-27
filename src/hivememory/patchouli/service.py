@@ -6,6 +6,12 @@ import time
 from typing import Any, Literal
 from uuid import UUID
 
+from hivememory.components.work_queue import (
+    WorkQueueCapacityError,
+    WorkQueueStoppedError,
+    WorkState,
+)
+from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.errors import (
     AssetOperationConflictError,
     WorkspaceDomainError,
@@ -18,10 +24,12 @@ from hivememory.core.models import (
     TraceReducer,
     require_identity_scope,
 )
+from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.workspace_asset import (
     RepresentationLease,
 )
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
@@ -33,10 +41,7 @@ from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
-from hivememory.engines.attachment_compiler import (
-    AttachmentCompiler,
-    AttachmentCompileResult,
-)
+from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -52,13 +57,6 @@ from hivememory.patchouli.control.memory_generation.models import MemoryGenerati
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.config import MemoryCompilerConfig
-from hivememory.system.runtime.work_queue import (
-    WorkQueueCapacityError,
-    WorkQueueStoppedError,
-    WorkState,
-)
-from hivememory.system.runtime.workspace.ports import WorkspaceAssetReaderPort
 
 logger = logging.getLogger(__name__)
 

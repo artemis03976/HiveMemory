@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.config.patchouli import GarbageCollectorConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -13,7 +14,6 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollector
-from hivememory.system.config import GarbageCollectorConfig
 from tests.helpers.memory import make_memory_metadata
 
 

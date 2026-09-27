@@ -19,7 +19,7 @@ from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfi
 from hivememory.core.protocol.models import RetrievalRequest
 
 if TYPE_CHECKING:
-    from hivememory.workspace.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkspaceAccessContext
 
 
 class CanonicalReadBackend(Protocol):

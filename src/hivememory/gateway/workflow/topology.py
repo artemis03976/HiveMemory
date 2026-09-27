@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.config.gateway import (
+    GatewayContextPreparationConfig,
+    TopicRouterConfig,
+    UserQueryAnalysisConfig,
+)
 from hivememory.core.models import ActorIdentity, IdentityScope, TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
@@ -36,12 +42,6 @@ from hivememory.gateway.workflow.steps import (
     RecoverableGatewayError,
 )
 from hivememory.gateway.workflow.workflow import GatewayWorkflow
-from hivememory.system.config import (
-    GatewayContextPreparationConfig,
-    TopicRouterConfig,
-    UserQueryAnalysisConfig,
-)
-from hivememory.system.runtime.events import RuntimeEventSink
 
 
 @dataclass(frozen=True)

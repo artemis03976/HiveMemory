@@ -10,6 +10,10 @@ import logging
 from typing import Any
 from uuid import uuid4
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.serial_gate import KeyedSerialGate
+from hivememory.config.passive import PassiveIngressConfig
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     ActorIdentity,
@@ -21,10 +25,6 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RuntimeEventSink
-from hivememory.system.runtime.serial_gate import KeyedSerialGate
 from hivememory.system.services.passive.dedup import ExternalEventDedupRegistry
 from hivememory.system.services.passive.events import PassiveIngressEventEmitter
 from hivememory.system.services.passive.memory_context import MemoryContextProvider

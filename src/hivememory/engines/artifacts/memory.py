@@ -10,6 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from hivememory.config.patchouli import ArtifactComponentConfig
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     ArtifactRef,
@@ -21,7 +22,6 @@ from hivememory.core.models.artifact import (
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.patchouli.memory_library import ArtifactStore
-from hivememory.system.config.patchouli import ArtifactComponentConfig
 from hivememory.utils.time import require_utc, utc_now
 
 

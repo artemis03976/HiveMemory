@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
+from hivememory.agent_runtime.model_resolution import ModelResolver
 from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
@@ -11,10 +12,10 @@ from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.alice.runtime.profile_cache import AgentProfileCache
 from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.config.alice import AliceConfig
+from hivememory.config.memory_compiler import MemoryCompilerConfig
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import IdentityScope, PendingAtomSettlement
-from hivememory.system.config import AliceConfig, MemoryCompilerConfig
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class AliceRuntime:
         self,
         alice_config: AliceConfig,
         memory_compiler_config: MemoryCompilerConfig,
-        model_registry: ModelRegistry | None = None,
+        model_registry: ModelResolver | None = None,
     ) -> None:
         # L1 atom cache 与 profile cache 是 Alice 执行路径的运行时状态
         # （ADR-0005）：与 PendingAtomRuntime 一样由 AliceRuntime 创建并持有，

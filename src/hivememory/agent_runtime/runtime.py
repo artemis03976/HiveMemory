@@ -8,15 +8,15 @@ from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecution
 from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
-from hivememory.system.model_registry import ModelNotFoundError
 
 if TYPE_CHECKING:
+    from hivememory.agent_runtime.model_resolution import ModelResolver
     from hivememory.agent_runtime.models import ExecutionFrame
     from hivememory.agent_runtime.mtp import MTPExecutor
-    from hivememory.system.config import AgentRuntimeConfig
-    from hivememory.system.model_registry import ModelRegistry
+    from hivememory.config.alice import AgentRuntimeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class AgentRuntime:
         runtime_config: AgentRuntimeConfig,
         pending_runtime: PendingAtomRuntime | None = None,
         loop_executor: AgentLoopExecutor | None = None,
-        model_registry: ModelRegistry | None = None,
+        model_registry: ModelResolver | None = None,
     ) -> None:
         self._pending_runtime = pending_runtime or PendingAtomRuntime()
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。

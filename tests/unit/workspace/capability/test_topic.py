@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.workspace.capability.topic import TopicApplicationService
 from tests.helpers.workspace import make_management_identity_scope
 
@@ -37,7 +37,6 @@ class TestTopicApplicationService:
     def service(self, bus, passive_config):
         return TopicApplicationService(
             global_bus=bus,
-            config=passive_config,
         )
 
     @pytest.mark.asyncio

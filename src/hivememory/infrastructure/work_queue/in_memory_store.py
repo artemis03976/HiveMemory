@@ -11,14 +11,14 @@ from collections import Counter, deque
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
-from hivememory.system.runtime.work_queue.exceptions import (
+from hivememory.components.work_queue.exceptions import (
     DuplicateWorkItemError,
     DuplicateWorkLaneError,
     UnknownWorkLaneError,
     WorkQueueCapacityError,
     WorkStateConflictError,
 )
-from hivememory.system.runtime.work_queue.models import (
+from hivememory.components.work_queue.models import (
     TERMINAL_WORK_STATES,
     WorkErrorSnapshot,
     WorkItem,
@@ -27,7 +27,7 @@ from hivememory.system.runtime.work_queue.models import (
     WorkState,
     can_transition_work_state,
 )
-from hivememory.system.runtime.work_queue.policies import QueuePolicy
+from hivememory.components.work_queue.policies import QueuePolicy
 
 
 @dataclass

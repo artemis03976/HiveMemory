@@ -12,9 +12,9 @@ import pytest
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_workspace_identity
 
@@ -22,7 +22,7 @@ from tests.helpers.workspace import make_workspace_identity
 @pytest.mark.asyncio
 async def test_start_registers_public_routes_and_stop_unregisters():
     bus = GlobalSystemBus()
-    system = AliceSystem(config=HiveMemoryConfig(), global_bus=bus)
+    system = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus)
 
     await system.start()
 
@@ -38,7 +38,7 @@ async def test_start_registers_public_routes_and_stop_unregisters():
 @pytest.mark.asyncio
 async def test_stop_clears_runtime_derived_caches():
     """AliceSystem.stop 在 bridge 卸载后清空执行路径派生 cache（ADR-0005）。"""
-    system = AliceSystem(config=HiveMemoryConfig())
+    system = AliceSystem(config=HiveMemoryConfig().alice)
     atom = MemoryAtom(
         id=uuid4(),
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),

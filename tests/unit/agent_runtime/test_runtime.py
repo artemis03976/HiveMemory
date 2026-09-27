@@ -12,14 +12,14 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
     PendingAtomStatus,
     TurnEvent,
 )
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.model_registry import ModelNotFoundError
 from tests.helpers.workspace import make_runtime_scope
 
 

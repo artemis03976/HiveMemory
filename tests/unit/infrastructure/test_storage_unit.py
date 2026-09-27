@@ -4,6 +4,8 @@ from uuid import uuid4
 import pytest
 from qdrant_client.models import Document
 
+from hivememory.config.patchouli import QdrantConfig
+from hivememory.config.shared import EmbeddingConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -11,15 +13,14 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.exceptions import (
     StorageOfflineError,
     StorageReadError,
     StorageWriteError,
 )
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.infrastructure.storage import QdrantMemoryStore
-from hivememory.system.config import EmbeddingConfig, QdrantConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

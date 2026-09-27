@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 
 class _Payload(BaseModel):

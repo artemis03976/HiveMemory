@@ -22,7 +22,7 @@ from hivememory.core.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.engines.retrieval.models import QueryFilters
+    from hivememory.core.models.query import QueryFilters
 
 
 class FilterConverter(ABC):

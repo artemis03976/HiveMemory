@@ -36,7 +36,7 @@ from hivememory.core.mtp.exceptions import (
 if TYPE_CHECKING:
     from hivememory.agent_runtime.aliases.ports import AtomCachePort
     from hivememory.agent_runtime.models import MTPExecutionContext
-    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
+    from hivememory.components.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +218,7 @@ class RuntimeAliasResolver:
         context: MTPExecutionContext,
     ) -> MemoryAtom | None:
         """L2 冷查询：通过 bus 查询存储层。"""
-        from hivememory.system.contracts.routes import GlobalRoutes
+        from hivememory.core.contracts.routes import GlobalRoutes
 
         try:
             # alias 批量读取路由返回实际可读的完整原子列表（A2 §2.1）。

@@ -19,17 +19,17 @@ from typing import TYPE_CHECKING, Optional
 
 import yaml
 
+from hivememory.config.shared import (
+    LLMConfig,
+    ProviderCredentials,
+)
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
-from hivememory.system.config.shared import LLMConfig, ProviderCredentials
 
 if TYPE_CHECKING:
     from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
-
-
-class ModelNotFoundError(Exception):
-    """注册表中找不到指定 ID 的模型"""
 
 
 class DuplicateModelIdError(Exception):

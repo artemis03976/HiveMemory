@@ -4,6 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
@@ -14,12 +18,8 @@ from hivememory.system.assembler import (
     _ServicesBundle,
     _SubsystemBundle,
 )
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
-from hivememory.system.runtime.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
 from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.workspace import make_workspace_runtime
 
 

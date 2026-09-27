@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from hivememory.agent_runtime.aliases import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import MemoryType
 from hivememory.core.mtp import (
@@ -68,13 +69,13 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.i18n.resolver import resolve_language
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.aliases import AtomCachePort
+    from hivememory.components.bus.async_bus import AsyncSystemBus
+    from hivememory.config.alice import KoakumaConfig
+    from hivememory.config.memory_compiler import MemoryCompilerConfig
     from hivememory.core.models import MemoryAtom
-    from hivememory.system.config import KoakumaConfig, MemoryCompilerConfig
-    from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ class KoakumaRuntime:
             config: Koakuma 配置 (可选，使用默认值)
             alias_resolver: 运行时别名解析器
         """
-        from hivememory.system.config import KoakumaConfig
+        from hivememory.config.alice import KoakumaConfig
 
         self._bus = bus
         self._config = config or KoakumaConfig()

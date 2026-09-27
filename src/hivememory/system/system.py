@@ -3,6 +3,16 @@ from __future__ import annotations
 from time import monotonic
 from typing import TYPE_CHECKING, Any, Literal
 
+from hivememory.components.events.bus import (
+    RuntimeEventBus,
+    RuntimeEventSink,
+    safe_runtime_event_value,
+)
+from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.contracts.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventType,
+)
 from hivememory.system.assembler import (
     SystemAssembler,
     _AccessControlBundle,
@@ -11,19 +21,12 @@ from hivememory.system.assembler import (
     _ServicesBundle,
     _SubsystemBundle,
 )
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
-from hivememory.system.runtime.events import (
-    RuntimeEventBus,
-    RuntimeEventSink,
-    safe_runtime_event_value,
-)
 
 if TYPE_CHECKING:
+    from hivememory.alice.application.chat_service import ChatApplicationService
     from hivememory.gateway import GatewaySystem
-    from hivememory.system.application.chat_service import ChatApplicationService
     from hivememory.system.application.passive_ingress_service import PassiveIngressService
     from hivememory.system.application.readiness_service import SystemReadinessService
     from hivememory.workspace.capability.agent_profiles import AgentApplicationService
@@ -92,7 +95,7 @@ class HiveMemorySystem:
         cls,
         config: HiveMemoryConfig | None = None,
     ) -> HiveMemorySystem:
-        from hivememory.system.config import load_app_config
+        from hivememory.config.app import load_app_config
 
         config = config or load_app_config()
         return SystemAssembler(config).assemble()
@@ -405,7 +408,8 @@ class HiveMemorySystem:
     @config.setter
     def config(self, value: HiveMemoryConfig) -> None:
         self._config = value
-        self._patchouli.config = value
+        # Patchouli 只持有自己的配置段（组合根按段注入），同步更新该段引用。
+        self._patchouli.config = value.patchouli
 
     @property
     def model_registry(self) -> ModelRegistry:

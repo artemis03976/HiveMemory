@@ -7,8 +7,8 @@
 
 import pytest
 
-from hivememory.system.config.attachments import AttachmentParserConfig
-from hivememory.system.services.attachments import (
+from hivememory.config.attachments import AttachmentParserConfig
+from hivememory.infrastructure.attachments import (
     CONTENT_UNREADABLE,
     EXECUTION_FAILURE,
     RESOURCE_LIMIT,

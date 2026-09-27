@@ -1,34 +1,68 @@
-"""调用来源身份：已被受信入口建立的 CallerPrincipal。
+"""System 侧 Principal authentication：按接入登记确认调用来源。
 
-A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md 第 2.1 节）
-的身份坐标之一：``CallerPrincipal`` 回答"本次请求来自哪个已注册的调用
-来源"，由统一网关根据 System 接入登记（``system.access.registry``）与
-对应 adapter 的受信接入信息确认——它是 System 认证平面的概念，不属于
-Workspace 访问基础设施。接入方式与来源分类由接入登记
-（``SystemActorAccessEntry``）承载；本类型只携带请求所需的来源标识。
+实现 ``core.access.PrincipalAuthenticator`` 端口，供 workspace 认证入口
+（``workspace.authentication.ActorAuthenticationGateway``）在 Workspace 准入前
+调用。接入登记（``system.access.registry``）属于安装级配置，由 System 持有；
+本类只回答"哪个已登记的调用来源在发起请求、能否服务该 Actor"，不授予任何
+Workspace operation。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from hivememory.core.access import CallerPrincipal
+from hivememory.core.errors import AdmissionDeniedError
+from hivememory.core.models import ActorIdentity
+from hivememory.system.access.registry import SystemActorAccessRegistry
 
 __all__ = [
-    "CallerPrincipal",
+    "SystemPrincipalAuthenticator",
 ]
 
 
-@dataclass(frozen=True)
-class CallerPrincipal:
-    """已被受信入口建立的调用来源身份。
+class SystemPrincipalAuthenticator:
+    """按 System 接入登记完成 Principal authentication。
 
-    回答"哪个已登记的调用来源在发起请求"；请求体中的
-    ``user_id``/``agent_id``/``role`` 字符串只是待验证的 claim，不能自封
-    principal，也不能把 ``system`` 标记当作认证结论。``principal_id``
-    使用稳定的带命名空间标识（如 ``local-process:alice-runtime``）。
+    拒绝语义（均为 ``AdmissionDeniedError``，以稳定 reason 区分）：
+
+    - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
+    - adapter 不匹配 → ``adapter_mismatch``；
+    - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``。
     """
 
-    principal_id: str
+    def __init__(self, registry: SystemActorAccessRegistry) -> None:
+        self._system_registry = registry
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.principal_id, str) or not self.principal_id.strip():
-            raise ValueError("principal_id 不能为空")
+    def authenticate_principal(
+        self,
+        *,
+        adapter: str,
+        principal: CallerPrincipal,
+        actor: ActorIdentity,
+    ) -> None:
+        """确认调用来源已登记、adapter 匹配且可服务该 Actor 用户。"""
+        entry = self._system_registry.entry_for(principal.principal_id)
+        # 未登记与已禁用统一按未知 principal 拒绝，不区分，避免泄漏配置。
+        if entry is None or not entry.enabled:
+            raise AdmissionDeniedError(
+                message="调用来源未获准接入",
+                details={
+                    "principal_id": principal.principal_id,
+                    "reason": "unknown_principal",
+                },
+            )
+        if adapter not in entry.adapters:
+            raise AdmissionDeniedError(
+                message="调用来源与接入方式不匹配",
+                details={
+                    "principal_id": principal.principal_id,
+                    "reason": "adapter_mismatch",
+                },
+            )
+        if entry.allowed_user_ids is not None and actor.user_id not in entry.allowed_user_ids:
+            raise AdmissionDeniedError(
+                message="接入登记的身份解析规则不允许该 Actor 用户",
+                details={
+                    "principal_id": principal.principal_id,
+                    "reason": "actor_not_allowed_for_principal",
+                },
+            )

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from hivememory.infrastructure.rerank.base import SingletonModelService
 
 if TYPE_CHECKING:
-    from hivememory.system.config import RerankerConfig
+    from hivememory.config.patchouli import RerankerConfig
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.work_queue import (
     DuplicateWorkPayloadCodecError,
     UnknownWorkPayloadCodecError,
     WorkPayloadCodecRegistry,

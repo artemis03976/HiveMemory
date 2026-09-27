@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 
 

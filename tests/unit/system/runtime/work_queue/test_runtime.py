@@ -10,10 +10,8 @@ from typing import Any
 
 import pytest
 
-from hivememory.infrastructure.work_queue import InMemoryWorkStore
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.work_queue import (
     FailureAction,
     FailureDecision,
     QueuePolicy,
@@ -28,6 +26,8 @@ from hivememory.system.runtime.work_queue import (
     WorkState,
     encode_canonical_json,
 )
+from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.infrastructure.work_queue import InMemoryWorkStore
 
 _TEST_WORK_KIND = "test.work.v1"
 _TEST_SCHEMA_VERSION = 1

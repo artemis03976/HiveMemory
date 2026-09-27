@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from hivememory.config.patchouli import (
+    ArtifactComponentConfig,
+    ArtifactConfig,
+)
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
@@ -29,7 +33,6 @@ from hivememory.patchouli.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
 from hivememory.patchouli.memory_library.stores import ArtifactStore
-from hivememory.system.config.patchouli import ArtifactComponentConfig, ArtifactConfig
 from tests.helpers.memory import make_memory_identity_scope
 from tests.helpers.workspace import make_identity_scope
 

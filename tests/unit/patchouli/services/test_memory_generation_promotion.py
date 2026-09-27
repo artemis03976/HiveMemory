@@ -30,7 +30,7 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationSource
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

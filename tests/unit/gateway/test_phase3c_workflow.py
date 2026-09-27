@@ -7,6 +7,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.config.gateway import (
+    GatewayContextPreparationConfig,
+    RuleInterceptorConfig,
+    TopicRouterConfig,
+    UserQueryAnalysisConfig,
+)
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
@@ -29,14 +37,6 @@ from hivememory.gateway.workflow import (
     RecoverableGatewayError,
 )
 from hivememory.gateway.workflow.topology import build_gateway_workflow
-from hivememory.system.config import (
-    GatewayContextPreparationConfig,
-    RuleInterceptorConfig,
-    TopicRouterConfig,
-    UserQueryAnalysisConfig,
-)
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from tests.helpers.workspace import make_identity_scope
 
 

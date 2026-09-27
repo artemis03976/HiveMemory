@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import (
     AssetRepresentationKind,
@@ -26,8 +27,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from hivememory.system.config import SemanticFlowPerceptionConfig
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.workspace import make_identity_scope
 
 

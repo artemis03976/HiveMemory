@@ -5,9 +5,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import hivememory.server.routers.config as config_router_module
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.server import deps
 from hivememory.server.routers.config import router
-from hivememory.system.config import HiveMemoryConfig
 
 
 def _create_test_app(mock_system):

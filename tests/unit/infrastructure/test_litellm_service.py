@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.config.shared import LLMConfig
 from hivememory.infrastructure.llm.litellm_service import (
     LiteLLMService,
     get_gateway_llm_service,
     get_librarian_llm_service,
 )
-from hivememory.system.config import LLMConfig
 
 
 def _response(
@@ -486,19 +486,6 @@ class TestFactories:
         assert isinstance(service, LiteLLMService)
         assert service.api_key == "test-key"
 
-    def test_librarian_service_loads_global_config(self, monkeypatch):
-        calls = []
-
-        def fake_load():
-            calls.append(1)
-            return SimpleNamespace(get_librarian_llm_config=lambda: _config())
-
-        monkeypatch.setattr(
-            "hivememory.system.config.load_app_config",
-            fake_load,
-        )
-
-        service = get_librarian_llm_service(None)
-
-        assert isinstance(service, LiteLLMService)
-        assert calls == [1]
+    def test_librarian_service_requires_explicit_config(self):
+        with pytest.raises(ValueError, match="config is required"):
+            get_librarian_llm_service(None)

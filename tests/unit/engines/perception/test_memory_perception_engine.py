@@ -15,10 +15,10 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
+from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.models import ActorIdentity, LogicalBlock, TraceItem, TurnEvent, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
-from hivememory.system.config import SemanticFlowPerceptionConfig
 from tests.helpers.workspace import make_identity_scope
 
 

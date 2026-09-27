@@ -11,38 +11,21 @@ HiveMemory 的分布式智能架构 v3.0。
         - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
         - LifecycleFamiliar (生命周期使魔): 活力维护、园艺任务
 
-使用示例:
-    >>> from hivememory.patchouli import PatchouliSystem, load_app_config
-    >>>
-    >>> # 快速开始
-    >>> config = load_app_config()
-    >>> system = PatchouliSystem(config=config)
-    >>>
-    >>> # 处理查询
-    >>> result = system.process_interaction(
-    ...     role="user",
-    ...     content="我之前设置的 API Key 是什么？",
-    ...     context=[],
-    ...     user_id="user123"
-    ... )
+装配:
+    PatchouliSystem 由 System 组合根按配置段装配（``config`` 为 PatchouliConfig，
+    shared / memory_compiler / attachment_compiler / scheduler 配置显式注入）。
 
 作者: HiveMemory Team
 版本: 3.0
 """
 
-# 配置 (无循环依赖)
-from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from hivememory.system.config import (
-    EmbeddingConfig,
-    HiveMemoryConfig,
-    LLMConfig,
+from hivememory.config.patchouli import (
     MemoryGenerationConfig,
     MemoryLifecycleConfig,
     MemoryPerceptionConfig,
     MemoryRetrievalConfig,
-    QdrantConfig,
-    load_app_config,
 )
+from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 
 def __getattr__(name: str):
@@ -70,13 +53,8 @@ __all__ = [
     # 记忆域服务
     "RetrievalFamiliar",
     # 配置
-    "load_app_config",
-    "HiveMemoryConfig",
     "MemoryPerceptionConfig",
     "MemoryGenerationConfig",
     "MemoryRetrievalConfig",
     "MemoryLifecycleConfig",
-    "LLMConfig",
-    "EmbeddingConfig",
-    "QdrantConfig",
 ]

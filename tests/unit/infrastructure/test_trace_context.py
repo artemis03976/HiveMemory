@@ -1,6 +1,6 @@
 import logging
 
-from hivememory.infrastructure.trace_context import (
+from hivememory.components.trace_context import (
     TraceInjectFilter,
     generate_trace_id,
     reset_trace_context,

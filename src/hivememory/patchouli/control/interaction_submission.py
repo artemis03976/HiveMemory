@@ -14,12 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from hivememory.core.models import IdentityScope
-from hivememory.core.protocol.models import InteractionPayload
-from hivememory.infrastructure.work_queue import InMemoryWorkStore
-from hivememory.patchouli.errors import TopicBusyError
-from hivememory.system.runtime.events import RuntimeEventSink
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.work_queue import (
     FailureAction,
     FailureDecision,
     QueuePolicy,
@@ -31,6 +27,10 @@ from hivememory.system.runtime.work_queue import (
     WorkRecord,
     WorkState,
 )
+from hivememory.core.models import IdentityScope
+from hivememory.core.protocol.models import InteractionPayload
+from hivememory.infrastructure.work_queue import InMemoryWorkStore
+from hivememory.patchouli.errors import TopicBusyError
 
 # ``workspace_port`` 供 Patchouli 交互提交 application 用例
 # （InteractionSubmissionService）使用：与 active/passive 并列的程序化提交

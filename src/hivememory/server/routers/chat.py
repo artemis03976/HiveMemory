@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 
+from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.server.deps import (
     RequestIdentitySelection,
     get_chat_service,
@@ -15,7 +16,6 @@ from hivememory.server.deps import (
     resolve_request_identity_scope,
 )
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
-from hivememory.system.application.chat_service import ChatApplicationService
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)

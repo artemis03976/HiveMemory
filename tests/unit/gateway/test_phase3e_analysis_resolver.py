@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.config.gateway import SystemGatewayConfig, UserQueryAnalysisConfig
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
@@ -26,10 +30,6 @@ from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.system.config import SystemGatewayConfig, UserQueryAnalysisConfig
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
 from tests.helpers.workspace import make_identity_scope
 
 

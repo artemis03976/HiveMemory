@@ -9,9 +9,6 @@
 - 管理用例（create/list/get/update/delete/feedback）保持对库管理路由的薄
   委托，owner-management 规则不变、不过 resolver；其 operation 检查仍由
   Patchouli application 执行，迁移归 A5 全量核对（A2 §1.2 按路径拆分）。
-
-TODO(A5/A6)：能力层依赖 ``system.contracts`` / ``system.config`` 属过渡期
-分层导入白名单（A2 §8 D-2），能力层与 system 的依赖方向届时重新整理。
 """
 
 from __future__ import annotations
@@ -21,6 +18,8 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     WorkspaceDomainError,
@@ -38,15 +37,13 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.system.contracts.routes import GlobalRoutes
 from hivememory.utils.time import utc_now
 from hivememory.utils.uuid import normalize_uuid
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.system.config import HiveMemoryConfig
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.workspace.access import WorkspaceAccessContext, WorkspaceAccessGuard
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.workspace.access import WorkspaceAccessGuard
     from hivememory.workspace.resolution.alias import AliasResolver
 
 
@@ -85,19 +82,13 @@ class MemoryApplicationService:
     def __init__(
         self,
         global_bus: GlobalSystemBus,
-        config: HiveMemoryConfig,
         *,
         access_guard: WorkspaceAccessGuard,
         memory_reader: AliasResolver,
     ) -> None:
         self._global_bus = global_bus
-        self._config = config
         self._access_guard = access_guard
         self._reader = memory_reader
-
-    @property
-    def config(self) -> HiveMemoryConfig:
-        return self._config
 
     async def create_memory(
         self,

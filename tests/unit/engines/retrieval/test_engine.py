@@ -14,9 +14,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import (
-    QueryFilters,
     RetrievalQuery,
     SearchResult,
     SearchResults,

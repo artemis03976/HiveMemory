@@ -113,7 +113,9 @@ def test_same_uuid_and_alias_are_partitioned_by_workspace():
     cache = AtomCache(capacity=8)
     shared_id = uuid4()
     cache.put(_atom("fact_same", content="main", memory_id=shared_id))
-    cache.put(_atom("fact_same", content="other", memory_id=shared_id, workspace_id="other_workspace"))
+    cache.put(
+        _atom("fact_same", content="other", memory_id=shared_id, workspace_id="other_workspace")
+    )
 
     assert cache.get_by_id(MAIN, shared_id).payload.content == "main"
     assert cache.get_by_alias(OTHER, "fact_same").payload.content == "other"

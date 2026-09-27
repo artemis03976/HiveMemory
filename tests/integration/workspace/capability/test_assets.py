@@ -8,22 +8,23 @@
 
 import pytest
 
+from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.models import (
     AssetRepresentationKind,
     AssetRepresentationState,
     WorkspaceAssetState,
 )
-from hivememory.system.config import AttachmentParserConfig
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from hivememory.system.services.attachments import (
-    UnsupportedAttachmentFormatError,
-)
-from hivememory.system.services.attachments.errors import (
+from hivememory.infrastructure.attachments import UnsupportedAttachmentFormatError
+from hivememory.infrastructure.attachments.errors import (
     AttachmentTooLargeError,
     EmptyAttachmentError,
     InvalidAttachmentNameError,
 )
-from hivememory.system.services.attachments.upload import UPLOAD_PRODUCER, UPLOAD_PRODUCER_VERSION
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.upload import (
+    UPLOAD_PRODUCER,
+    UPLOAD_PRODUCER_VERSION,
+)
 from hivememory.workspace.capability.assets import (
     WorkspaceAssetApplicationService,
 )

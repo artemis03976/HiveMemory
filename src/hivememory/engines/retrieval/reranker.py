@@ -12,11 +12,11 @@
 
 import logging
 
+from hivememory.config.patchouli import RerankerConfig
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 from hivememory.engines.retrieval.interfaces import BaseReranker
 from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults
 from hivememory.infrastructure.rerank.base import BaseRerankService
-from hivememory.system.config import RerankerConfig
 
 logger = logging.getLogger(__name__)
 

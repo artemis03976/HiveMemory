@@ -16,11 +16,9 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.alice.application.chat_service import NonStreamingChatAgentOutcome
 from hivememory.core.models import ActorIdentity, build_internal_identity_scope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
-from hivememory.system.application.chat_service import (
-    NonStreamingChatAgentOutcome,
-)
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 

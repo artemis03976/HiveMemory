@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from hivememory.config.patchouli import ArtifactConfig
 from hivememory.core.models import (
     IndexLayer,
     LogicalBlock,
@@ -48,7 +49,6 @@ from hivememory.patchouli.memory_library.stores import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-from hivememory.system.config.patchouli import ArtifactConfig
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

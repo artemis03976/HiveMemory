@@ -23,10 +23,10 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
-from hivememory.system.runtime.events import NullRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
 from tests.helpers.workspace import make_runtime_scope
 
 

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.system.runtime.bus.async_bus import AsyncSystemBus
+from hivememory.components.bus.async_bus import AsyncSystemBus
 
 
 class TestAsyncSystemBusRPC:

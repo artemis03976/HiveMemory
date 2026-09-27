@@ -33,7 +33,7 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.models import PreparedAgentRun
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.workspace import make_identity_scope
 
 

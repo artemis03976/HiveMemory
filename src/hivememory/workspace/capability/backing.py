@@ -14,14 +14,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfile
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.workspace.access import WorkspaceAccessContext
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.core.access import WorkspaceAccessContext
 
 
 class BusCanonicalReadBackend:

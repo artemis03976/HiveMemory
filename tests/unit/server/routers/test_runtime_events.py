@@ -6,10 +6,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.components.events.bus import RuntimeEventBus
+from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.runtime import RuntimeEventsConfig
+from hivememory.core.contracts.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventType,
+)
 from hivememory.server.routers.runtime_events import runtime_events_status, stream_runtime_events
-from hivememory.system.config import HiveMemoryConfig, RuntimeEventsConfig
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import RuntimeEventBus
 
 
 @pytest.mark.asyncio

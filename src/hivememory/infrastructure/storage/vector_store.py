@@ -24,6 +24,8 @@ from qdrant_client.models import (
     VectorParams,
 )
 
+from hivememory.config.patchouli import QdrantConfig
+from hivememory.config.shared import EmbeddingConfig
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.core.mtp.exceptions import (
@@ -39,7 +41,6 @@ from hivememory.infrastructure.storage.qdrant_client import (
     create_async_qdrant_client,
     wait_for_qdrant_ready,
 )
-from hivememory.system.config import EmbeddingConfig, QdrantConfig
 
 logger = logging.getLogger(__name__)
 

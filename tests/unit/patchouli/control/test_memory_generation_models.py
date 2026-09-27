@@ -3,6 +3,12 @@ from datetime import UTC, datetime
 
 import pytest
 
+from hivememory.components.work_queue import (
+    TaskOutcome,
+    WorkItem,
+    WorkRecord,
+    WorkState,
+)
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationResult,
@@ -13,12 +19,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     memory_task_from_outcome,
     memory_task_from_spec,
     memory_task_to_payload,
-)
-from hivememory.system.runtime.work_queue import (
-    TaskOutcome,
-    WorkItem,
-    WorkRecord,
-    WorkState,
 )
 from tests.helpers.memory import make_memory_identity_scope
 

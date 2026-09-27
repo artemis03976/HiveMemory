@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.operations import RuntimeOperationObserver
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.operations import RuntimeOperationObserver
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 
 def _observer(recorder: RecordingRuntimeEventSink | None = None) -> RuntimeOperationObserver:

@@ -5,6 +5,8 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -28,8 +30,6 @@ from hivememory.patchouli.models import (
     PreparedAgentRun,
     StreamPrelude,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
@@ -156,7 +156,6 @@ class TestAgentApplicationService:
         # 管理用例不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
         return AgentApplicationService(
             global_bus=mock_global_bus,
-            config=passive_config,
             access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
             profile_reader=make_workspace_runtime().profiles,
         )

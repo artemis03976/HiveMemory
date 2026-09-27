@@ -11,9 +11,9 @@ import inspect
 
 import pytest
 
+from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceDomainError
-from hivememory.system.application.chat_service import ChatApplicationService
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.memory import MemoryApplicationService

@@ -2,15 +2,13 @@
 
 当前只转发 Patchouli Topic 公共路由，Topic 资料切片由 A3 在同一能力骨架上
 扩展；operation 检查仍由 Patchouli application 执行。
-
-TODO(A5/A6)：能力层依赖 ``system.*`` / ``patchouli.contracts`` 属过渡期分层导入
-白名单（A2 §8 D-2），能力层与 system 的依赖方向届时重新整理。
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     IdentityScope,
     TopicSnapshot,
@@ -19,12 +17,10 @@ from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
 )
-from hivememory.system.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.system.config import HiveMemoryConfig
-    from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-    from hivememory.workspace import WorkspaceAccessContext
+    from hivememory.components.bus.global_bus import GlobalSystemBus
+    from hivememory.core.access import WorkspaceAccessContext
 
 
 class TopicApplicationService:
@@ -44,14 +40,8 @@ class TopicApplicationService:
     def __init__(
         self,
         global_bus: GlobalSystemBus,
-        config: HiveMemoryConfig,
     ) -> None:
         self._global_bus = global_bus
-        self._config = config
-
-    @property
-    def config(self) -> HiveMemoryConfig:
-        return self._config
 
     async def list_active_topics(
         self,

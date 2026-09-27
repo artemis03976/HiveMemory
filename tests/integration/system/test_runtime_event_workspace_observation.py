@@ -6,9 +6,9 @@ import asyncio
 
 import pytest
 
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RuntimeEventBus
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
+from hivememory.components.events.bus import RuntimeEventBus
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 
 @pytest.mark.asyncio

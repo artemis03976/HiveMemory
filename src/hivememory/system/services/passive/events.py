@@ -12,8 +12,14 @@
 
 from __future__ import annotations
 
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.core.contracts.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventType,
+)
 from hivememory.system.services.passive.models import PassiveConversationKey
 
 

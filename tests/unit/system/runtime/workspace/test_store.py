@@ -30,7 +30,7 @@ from hivememory.core.models import (
     WorkspaceAssetState,
     WorkspaceIdentity,
 )
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 
 
 def _scope(

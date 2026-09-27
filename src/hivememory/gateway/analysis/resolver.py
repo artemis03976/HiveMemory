@@ -10,6 +10,15 @@ from __future__ import annotations
 import re
 from time import perf_counter
 
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.config.gateway import UserQueryAnalysisConfig
+from hivememory.core.contracts.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventType,
+)
 from hivememory.core.protocol.gateway import (
     IntentType,
     MemoryWriteSignal,
@@ -25,9 +34,6 @@ from hivememory.gateway.analysis.models import (
     UserQueryAnalysisResult,
 )
 from hivememory.gateway.errors import RecoverableGatewayError
-from hivememory.system.config import UserQueryAnalysisConfig
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 
 class FallbackUserQueryAnalysisResolver:

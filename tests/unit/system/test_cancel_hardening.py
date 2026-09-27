@@ -8,6 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.alice.application.chat_control import (
+    ChatGenerationRun,
+    ChatGenerationRunRegistry,
+    ChatRunOutcome,
+    ChatRunPhase,
+)
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -22,12 +28,6 @@ from hivememory.core.protocol.models import (
     AgentRunStatus,
 )
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
-from hivememory.system.runtime.control import (
-    ChatGenerationRun,
-    ChatGenerationRunRegistry,
-    ChatRunOutcome,
-    ChatRunPhase,
-)
 from tests.helpers.workspace import make_identity_scope
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
@@ -96,7 +96,7 @@ class TestChatServiceCancelPath:
             yield {"event": "done", "data": loop_result.model_dump()}
 
         async def bus_request(route, **kwargs):
-            from hivememory.system.contracts.routes import GlobalRoutes
+            from hivememory.core.contracts.routes import GlobalRoutes
 
             if route == GlobalRoutes.GATEWAY_PROCESS:
                 return GatewayDecisionOutcome(
@@ -135,7 +135,7 @@ class TestChatServiceCancelPath:
 
         bus.request = AsyncMock(side_effect=bus_request)
 
-        from hivememory.system.application.chat_service import ChatApplicationService
+        from hivememory.alice.application.chat_service import ChatApplicationService
 
         service = ChatApplicationService(global_bus=bus)
 
@@ -154,6 +154,6 @@ class TestChatServiceCancelPath:
 
         # finalize 不应被调用
         for call in bus.request.call_args_list:
-            from hivememory.system.contracts.routes import GlobalRoutes
+            from hivememory.core.contracts.routes import GlobalRoutes
 
             assert call.args[0] != GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN

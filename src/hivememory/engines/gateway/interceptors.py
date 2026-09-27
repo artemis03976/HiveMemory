@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 
+from hivememory.config.gateway import RuleInterceptorConfig
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
 from hivememory.gateway.commands import (
@@ -21,7 +22,6 @@ from hivememory.gateway.commands import (
     CommandRouteTarget,
     CommandRouteTargetKind,
 )
-from hivememory.system.config import RuleInterceptorConfig
 
 logger = logging.getLogger(__name__)
 

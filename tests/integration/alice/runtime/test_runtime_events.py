@@ -9,10 +9,10 @@ AgentRunEventEmitter 集成测试 — 真实 Emitter → Publisher → Sink 发�
 from __future__ import annotations
 
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
-from hivememory.system.contracts.runtime_events import RuntimeEventType
-from hivememory.system.runtime.events import RecordingRuntimeEventSink
-from hivememory.system.runtime.publisher import RuntimeEventPublisher
 
 
 def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> None:

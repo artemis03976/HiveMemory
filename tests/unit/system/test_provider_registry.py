@@ -12,7 +12,7 @@ ProviderRegistry 单元测试
 import pytest
 import yaml
 
-from hivememory.system.config.shared import ProviderCredentials
+from hivememory.config.shared import ProviderCredentials
 from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
 
 # ---------------------------------------------------------------------------

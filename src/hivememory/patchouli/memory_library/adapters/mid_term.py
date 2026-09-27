@@ -21,8 +21,8 @@ from hivememory.core.models import (
     WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.engines.retrieval.models import QueryFilters
 from hivememory.patchouli.memory_library.models import StorageHealthComponent
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 

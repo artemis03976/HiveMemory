@@ -1,5 +1,5 @@
-from hivememory.system.config import HiveMemoryConfig
-from hivememory.system.config.memory_compiler import CascadeContextStrategyConfig
+from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.memory_compiler import CascadeContextStrategyConfig
 
 
 def test_memory_compiler_config_accepts_cascade_strategy():

@@ -15,12 +15,12 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 import logging
 import re
 
+from hivememory.config.patchouli import DeduplicatorConfig
 from hivememory.core.models import (
     MemoryAtom,
 )
 from hivememory.engines.generation.interfaces import BaseDeduplicator
 from hivememory.engines.generation.models import DuplicateDecision, ExtractedMemoryDraft
-from hivememory.system.config import DeduplicatorConfig
 
 logger = logging.getLogger(__name__)
 

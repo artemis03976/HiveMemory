@@ -1,8 +1,9 @@
 from unittest.mock import MagicMock, patch
 
+from hivememory.config.patchouli import RerankerConfig
+from hivememory.config.shared import EmbeddingConfig
 from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
-from hivememory.system.config import EmbeddingConfig, RerankerConfig
 
 
 class TestBGEM3EmbeddingService:

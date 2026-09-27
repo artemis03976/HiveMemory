@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from hivememory.system.runtime.work_queue import (
+from hivememory.components.work_queue import (
     TERMINAL_WORK_STATES,
     FailureAction,
     FailureDecision,

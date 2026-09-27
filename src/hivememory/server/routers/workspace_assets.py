@@ -16,6 +16,12 @@ from hivememory.core.errors import (
     StaleAssetResultError,
 )
 from hivememory.core.models import IdentityScope
+from hivememory.infrastructure.attachments import UnsupportedAttachmentFormatError
+from hivememory.infrastructure.attachments.errors import (
+    AttachmentTooLargeError,
+    EmptyAttachmentError,
+    InvalidAttachmentNameError,
+)
 from hivememory.server.deps import (
     RequestIdentitySelection,
     get_identity_selection,
@@ -23,12 +29,6 @@ from hivememory.server.deps import (
     resolve_request_identity_scope,
 )
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
-from hivememory.system.services.attachments import UnsupportedAttachmentFormatError
-from hivememory.system.services.attachments.errors import (
-    AttachmentTooLargeError,
-    EmptyAttachmentError,
-    InvalidAttachmentNameError,
-)
 from hivememory.workspace.capability.assets import (
     WorkspaceAssetApplicationService,
 )

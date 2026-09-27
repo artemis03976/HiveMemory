@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
@@ -11,11 +12,9 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.application.access_consumption import backing_scope, verified_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
 
 
 class AgentProfileManagementService:
@@ -32,7 +31,7 @@ class AgentProfileManagementService:
     兼容清单，A6 完成消费者切换后收紧。
     """
 
-    def __init__(self, *, bus: Any, access_guard: WorkspaceAccessGuard) -> None:
+    def __init__(self, *, bus: Any, access_guard: WorkspaceAccessVerifier) -> None:
         self._bus = bus
         self._access_guard = access_guard
 

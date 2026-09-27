@@ -13,6 +13,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -31,7 +32,6 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from hivememory.system.config import SemanticFlowPerceptionConfig
 from tests.helpers.workspace import make_identity_scope
 
 

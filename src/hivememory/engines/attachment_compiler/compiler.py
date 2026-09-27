@@ -15,13 +15,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.errors import WorkspaceDomainError
-from hivememory.core.models.workspace_asset import RepresentationLease, WorkspaceAssetRef
-from hivememory.engines.attachment_compiler.models import (
+from hivememory.core.models.attachment_compile import (
     AttachmentCompileDiagnostic,
     AttachmentCompileResult,
 )
-from hivememory.system.config.attachments import AttachmentCompilerConfig
+from hivememory.core.models.workspace_asset import RepresentationLease, WorkspaceAssetRef
 from hivememory.utils.token_estimator import TokenEstimator
 
 # TODO: prompt 内容格式统一

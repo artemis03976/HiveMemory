@@ -24,11 +24,11 @@ import argparse
 import asyncio
 import logging
 
+from hivememory.config.app import load_app_config
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.models.workspace import resolve_default_workspace_identity
 from hivememory.system import HiveMemorySystem
-from hivememory.system.config import load_app_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

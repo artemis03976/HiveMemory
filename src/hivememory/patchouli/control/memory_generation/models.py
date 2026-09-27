@@ -11,6 +11,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime
 
+from hivememory.components.work_queue import (
+    TaskOutcome,
+    WorkState,
+)
 from hivememory.core.models import (
     IdentityScope,
     LogicalBlock,
@@ -23,7 +27,6 @@ from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
-from hivememory.system.runtime.work_queue import TaskOutcome, WorkState
 
 _WORK_STATE_TO_TASK_STATUS = {
     WorkState.QUEUED: MemoryGenerationTaskStatus.PENDING,

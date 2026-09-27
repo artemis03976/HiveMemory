@@ -7,6 +7,9 @@ import pytest
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -19,9 +22,6 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.system.contracts.events import GlobalEvents
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_identity_scope,

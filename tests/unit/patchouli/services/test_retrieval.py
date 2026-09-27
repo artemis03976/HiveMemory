@@ -24,6 +24,7 @@ from hivememory.core.models import (
     PayloadLayer,
     TopicData,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
@@ -31,7 +32,10 @@ from hivememory.core.mtp.exceptions import (
     StorageReadError,
 )
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.engines.retrieval.models import QueryFilters, SearchResult, SearchResults
+from hivememory.engines.retrieval.models import (
+    SearchResult,
+    SearchResults,
+)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar

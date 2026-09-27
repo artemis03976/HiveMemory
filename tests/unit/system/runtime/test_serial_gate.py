@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from hivememory.system.runtime.serial_gate import KeyedSerialGate
+from hivememory.components.serial_gate import KeyedSerialGate
 
 
 @pytest.mark.asyncio

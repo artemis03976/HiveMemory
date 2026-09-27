@@ -24,8 +24,8 @@ import math
 from collections.abc import Callable
 from datetime import datetime
 
+from hivememory.config.patchouli import VitalityCalculatorConfig
 from hivememory.core.models import MemoryAtom, MemoryType
-from hivememory.system.config import VitalityCalculatorConfig
 from hivememory.utils.time import utc_now
 
 

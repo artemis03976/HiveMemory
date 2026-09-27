@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hivememory.config.memory_compiler import CompactContextStrategyConfig
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.memory_compiler.builders import (
     build_memory_atom_ir,
@@ -19,7 +20,6 @@ from hivememory.engines.memory_compiler.models import (
     MemoryEnvelopeTarget,
 )
 from hivememory.i18n.resolver import get_default_language
-from hivememory.system.config.memory_compiler import CompactContextStrategyConfig
 
 
 class MemoryCompiler:

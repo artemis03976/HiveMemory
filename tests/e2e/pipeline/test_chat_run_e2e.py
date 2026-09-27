@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.alice.application.chat_service import NonStreamingChatAgentOutcome
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -27,7 +28,6 @@ from hivememory.core.models import (
     build_internal_identity_scope,
 )
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
-from hivememory.system.application.chat_service import NonStreamingChatAgentOutcome
 from tests.e2e.conftest import wait_for_memory_persistence_async
 from tests.helpers.memory import make_memory_metadata
 

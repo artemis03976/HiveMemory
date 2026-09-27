@@ -22,7 +22,7 @@ from pathlib import Path
 
 import yaml
 
-from hivememory.system.config.shared import ProviderCredentials
+from hivememory.config.shared import ProviderCredentials
 
 logger = logging.getLogger(__name__)
 

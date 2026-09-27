@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.system.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.system.runtime.events import (
+from hivememory.components.events.bus import (
     NullRuntimeEventSink,
     RecordingRuntimeEventSink,
     RuntimeEventBus,
     safe_runtime_event_value,
+)
+from hivememory.core.contracts.runtime_events import (
+    RuntimeEvent,
+    RuntimeEventType,
 )
 
 

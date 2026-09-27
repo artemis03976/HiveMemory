@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from hivememory.config.patchouli import ReinforcementEngineConfig
 from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -33,7 +34,6 @@ from hivememory.engines.lifecycle.models import (
     ReinforcementResult,
 )
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.system.config import ReinforcementEngineConfig
 from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:

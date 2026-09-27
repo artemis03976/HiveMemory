@@ -1,7 +1,7 @@
 """Patchouli application 的统一 access 消费辅助（A1 计划第 3.2/4.1 节）。
 
 公开 application API 在资源读取或业务副作用之前消费可信 access context
-（``workspace.access.WorkspaceAccessGuard``）：
+（``core.access.WorkspaceAccessVerifier``，由 ``workspace.access.WorkspaceAccessVerifier`` 实现）：
 
 - 提供 ``access`` 时：验证 context 的签发实例与有效期；非读取路径同时
   确认该 Actor 在此 Workspace 的行为白名单包含当前方法所需的 operation；
@@ -20,13 +20,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ScopeRequiredError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, require_identity_scope
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
 
 __all__ = ["backing_scope", "required_scope", "verified_scope"]
 
@@ -57,7 +56,7 @@ def verified_scope(
     operation: WorkspaceOperation,
     identity_scope: IdentityScope | None = None,
     *,
-    access_guard: WorkspaceAccessGuard,
+    access_guard: WorkspaceAccessVerifier,
 ) -> IdentityScope:
     """兼容清单方法的统一检查入口，返回向 local bus 传递的已验证 scope。
 
@@ -80,7 +79,7 @@ def required_scope(
     operation: WorkspaceOperation,
     identity_scope: IdentityScope | None = None,
     *,
-    access_guard: WorkspaceAccessGuard,
+    access_guard: WorkspaceAccessVerifier,
 ) -> IdentityScope:
     """无兼容路径的统一检查入口：缺失 access 一律拒绝。
 
@@ -101,7 +100,7 @@ def backing_scope(
     access: WorkspaceAccessContext | None,
     identity_scope: IdentityScope | None = None,
     *,
-    access_guard: WorkspaceAccessGuard,
+    access_guard: WorkspaceAccessVerifier,
     require_access: bool = False,
 ) -> IdentityScope:
     """L2 backing 读取入口的可信 scope：只校验 context 有效性，不检查 operation。

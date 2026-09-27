@@ -8,6 +8,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from hivememory.config.patchouli import (
+    GarbageCollectorConfig,
+    ReinforcementEngineConfig,
+    VitalityCalculatorConfig,
+)
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -27,11 +32,6 @@ from hivememory.patchouli.memory_library import (
     ShortTermMemoryStore,
 )
 from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
-from hivememory.system.config import (
-    GarbageCollectorConfig,
-    ReinforcementEngineConfig,
-    VitalityCalculatorConfig,
-)
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

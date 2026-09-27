@@ -2,15 +2,15 @@
 
 import pytest
 
+from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.models import (
     AssetRepresentationKind,
     AssetRepresentationState,
     WorkspaceAssetMetadata,
     WorkspaceAssetState,
 )
-from hivememory.system.config import AttachmentParserConfig
-from hivememory.system.runtime.workspace.store import InMemoryWorkspaceAssetStore
-from hivememory.system.services.attachments.parse_service import AttachmentParseService
+from hivememory.workspace.assets.parse_service import AttachmentParseService
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.workspace import make_identity_scope
 
 

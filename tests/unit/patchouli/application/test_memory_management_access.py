@@ -18,6 +18,10 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.access import (
+    WorkspaceAccessContext,
+    WorkspaceOperation,
+)
 from hivememory.core.errors import (
     OperationDeniedError,
     ScopeRequiredError,
@@ -26,7 +30,6 @@ from hivememory.core.errors import (
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.workspace import WorkspaceAccessContext, WorkspaceOperation
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,

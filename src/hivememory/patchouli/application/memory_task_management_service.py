@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
-from hivememory.workspace.access import WorkspaceOperation
 
 if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
-    from hivememory.workspace import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
 
 
 class MemoryTaskManagementService:
@@ -34,7 +33,7 @@ class MemoryTaskManagementService:
         self,
         *,
         bus: PatchouliBus,
-        access_guard: WorkspaceAccessGuard,
+        access_guard: WorkspaceAccessVerifier,
     ) -> None:
         # Public use-case 层只通过 local bus 访问任务控制面，避免直接持有 controller。
         self._bus = bus

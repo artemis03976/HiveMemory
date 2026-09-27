@@ -1,3 +1,4 @@
+from hivememory.config.gateway import RuleInterceptorConfig
 from hivememory.engines.gateway.interceptors import RuleInterceptor
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.gateway.commands import (
@@ -8,7 +9,6 @@ from hivememory.gateway.commands import (
     CommandRouteTarget,
     create_builtin_command_registry,
 )
-from hivememory.system.config import RuleInterceptorConfig
 
 
 class TestRuleInterceptor:

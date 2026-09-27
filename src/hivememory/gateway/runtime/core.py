@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import (
+    NullRuntimeEventSink,
+    RuntimeEventSink,
+)
+from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.query_understanding import QueryUnderstandingEngine
 from hivememory.engines.gateway.topic_router import TopicRouterEngine
@@ -26,9 +32,6 @@ from hivememory.gateway.runtime.route_bindings import build_gateway_route_bindin
 from hivememory.gateway.workflow import GatewayWorkflow
 from hivememory.gateway.workflow.topology import build_gateway_workflow
 from hivememory.infrastructure.llm.base import BaseLLMService
-from hivememory.system.config import SystemGatewayConfig
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.events import NullRuntimeEventSink, RuntimeEventSink
 
 
 class GatewayRuntime:

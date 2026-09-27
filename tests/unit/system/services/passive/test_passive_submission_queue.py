@@ -6,6 +6,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    WorkQueueCapacityError,
+)
+from hivememory.config.passive import PassiveIngressConfig
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
@@ -20,11 +28,6 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.system.config.passive import PassiveIngressConfig
-from hivememory.system.contracts.routes import GlobalRoutes
-from hivememory.system.runtime.bus.global_bus import GlobalSystemBus
-from hivememory.system.runtime.scheduler.async_scheduler import AsyncMaintenanceScheduler
-from hivememory.system.runtime.work_queue import QueuePolicy, WorkQueueCapacityError
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,

@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from hivememory.system.contracts.runtime_events import RuntimeEvent
+from hivememory.core.contracts.runtime_events import RuntimeEvent
 
 
 class RuntimeEventResponse(BaseModel):

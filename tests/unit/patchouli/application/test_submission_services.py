@@ -14,6 +14,7 @@ import asyncio
 
 import pytest
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import (
     OperationDeniedError,
     ScopeRequiredError,
@@ -29,7 +30,6 @@ from hivememory.patchouli.application import (
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.workspace import WorkspaceOperation
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,

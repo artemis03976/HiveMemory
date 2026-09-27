@@ -13,11 +13,14 @@ ModelRegistry 单元测试
 import pytest
 import yaml
 
+from hivememory.config.shared import (
+    LLMConfig,
+    ProviderCredentials,
+)
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
-from hivememory.system.config.shared import LLMConfig, ProviderCredentials
 from hivememory.system.model_registry import (
     DuplicateModelIdError,
-    ModelNotFoundError,
     ModelRegistry,
 )
 

@@ -7,8 +7,8 @@ from qdrant_client.models import FieldCondition, Filter, IsEmptyCondition
 
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import ActorIdentity, MemoryType, build_internal_identity_scope
+from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.engines.retrieval.models import QueryFilters
 
 
 def _identity_scope(workspace_id: str = "main_workspace"):
