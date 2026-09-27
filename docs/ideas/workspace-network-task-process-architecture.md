@@ -50,7 +50,7 @@ last_reviewed: 2026-09-26
 | 部分 | 前提（owner 提出） | 现状事实 | 图 | 已决定事项 | 待决问题 |
 |:---|:---|:---|:---|:---|:---|
 | 第一部分：主动任务进程与被动输入 | 第 2 节 | 第 3 节 | 第 4 节 | 无 | 第 5、6 节 |
-| 第二部分：system 包的边界 | 第 8 节 | 第 9 节 | 第 9、11 节 | 无 | 第 10、11 节 |
+| 第二部分：system 包的边界 | 第 8 节 | 第 9 节 | 第 9、11 节 | 第 11.0 节 | 第 10、11 节 |
 | 第三部分：认证与授权流程 | 第 12 节 | 第 13 节 | 第 14 节 | 第 15 节 | 第 16 节 |
 
 - **前提**是 owner 在讨论中提出的出发点，不表示已经实现或已经排期；
@@ -627,6 +627,27 @@ Python 导入任何 `hivememory.x` 之前都会先执行根包初始化。实测
 | A2 迁移期转发模块 | `system/application/{agent,memory,memory_task,topic,workspace_asset}_service.py` | 取决于 M-7 |
 
 ## 11. 第二部分待决问题
+
+### 11.0 已决定事项（owner 于 2026-09-26 批准，已在分支实施）
+
+以下决定覆盖本节原列问题；第 9 节的现状事实描述的是实施前的状态。
+
+| 问题 | 决定 |
+|:---|:---|
+| D-1 / D-1a | system 是依赖图顶点：除入口（server）外无包导入 system；根包只导入版本号。由 `tests/unit/architecture/test_package_layers.py` 守护 |
+| D-2 | 新建 `components` 包（L1）：总线、调度器、work queue、运行时事件、串行门、trace context |
+| D-3 | 契约常量与 RuntimeEvent 模型进入 `core.contracts` |
+| D-4 | 新建顶层 `config` 包（L0），按子系统与高聚合组件组织配置段（`shared` / `patchouli` / `gateway` / `alice` / `memory_compiler` / `attachments` / `workspace` / `runtime` / `passive` / `access`），根配置与加载位于 `config.app`，只供 system 与 server 导入（分层测试守护）；子系统构造函数只接收自己的配置段。曾先按“配置模型随归属组件分散”实施，因同一配置段被拆进多个包而改为本方案 |
+| D-5 | 下层定义端口、system 实现并注入：`core.access.PrincipalAuthenticator`、`agent_runtime.model_resolution.ModelResolver`（`ModelNotFoundError` 移至 core）；Patchouli 经 `core.access.WorkspaceAccessVerifier` 消费行为检查 |
+| D-6 | 认证网关拆分：两步编排位于 `workspace.authentication`，Principal authentication 由 `system.access.SystemPrincipalAuthenticator` 实现 |
+| D-7 | 解析器移至 `infrastructure.attachments`；AssetStore、解析交接与上传移至 `workspace.assets`；资产端口移至 `core.ports` |
+| D-8 | passive 留在 system，作为 system 级服务 |
+| D-9 | chat 编排与 chat run 注册表暂置 `alice.application`（待 Q-3 决定最终归属） |
+
+实施中的两处偏差：
+
+- 8.2 / D-8 讨论中提到的“来源 → 目标 Workspace”登记表未实施：它改变 ingest 行为，空配置时会使现有被动接入失效，需单独决定配置形态与缺省行为；D-8a 仍待决；
+- engines 对 patchouli.memory_library、gateway.commands、agent_runtime.aliases 的 13 处既有向上导入未在本次处理，作为已知例外登记在分层测试中。
 
 每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
 
