@@ -129,6 +129,7 @@ cd frontend && npm ci && npm run lint && npm run build
 
 - 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/components/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
 - `docs/ideas/` 是探索，`docs/plans/` 是绑定版本/里程碑且可验收的实施计划，`docs/todo/` 是小范围缺陷/技术债，`docs/ROADMAP.md` 是明确标注状态的规划摘要，`docs/archive/` 只保存历史。
+- 计划不设总分结构：同一目标方向只有一份生效计划，不使用 `parent_plan`；计划正文只以事实文档、代码、ADR、已归档计划和背景 Idea 为依据，计划之间只有整份粒度的顺序依赖；未完成实施即作废的计划直接删除（入链与遗留事项的处理见 `docs/DOCUMENTATION.md` 第 10 节），方向保留但前提改变的未实施计划退回 Idea（第 8.4 节）。ADR 只叙述已做出的决定与事实，不依赖计划。
 - 开发分支尚未最终收尾时，不把候选模型、未稳定命名、目标接口、迁移步骤或“未来将支持”的设计写入当前事实文档。实现、测试、迁移、验收和代码审查完成后，才按最终代码晋升事实并归档 Plan。
 - 当前设计文档既要写可执行事实，也要保留仍然有效的问题背景、所有权理由、关键取舍、不变量和失败语义；不要把代码目录逐文件翻译成文档。
 - 新增/修改文档后检查相对链接、状态、owner、last_reviewed、相关代码入口和重复真相源；运行 `git diff --check`。
