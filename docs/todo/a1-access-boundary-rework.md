@@ -3,7 +3,7 @@ title: A1 访问边界返工
 status: todo
 owner: workspace-patchouli-system
 scope: operation-check-relocation-compat-branch-exit-and-production-gateway-wiring
-priority: unscheduled
+priority: v0.7.0
 code_paths:
   - src/hivememory/patchouli/application/access_consumption.py
   - src/hivememory/workspace/capability/
@@ -21,7 +21,7 @@ last_reviewed: 2026-09-27
 
 ## 状态与处理决定
 
-**未排期。** 本项不阻塞任务进程表与任务请求唯一注册入口计划的制定和实现；该计划不以本项完成为前提。
+**排期**（owner，2026-09-27）：在 v0.7.0 内、任务进程表与任务请求唯一注册入口计划完成之后接入，此时已有稳定的入口（[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) 6.1）。本项仍不阻塞该计划的制定和实现；该计划不以本项完成为前提。
 
 本项汇总 A1（[已归档](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)）交付后仍未完成的三部分工作。它们此前分别交由 v0.7.0 A2 与 A6 计划收口；两份计划已于 2026-09-27 作废删除（删除前最后版本见 commit `dda9d9d`），相关事项改由本 Todo 承接。
 

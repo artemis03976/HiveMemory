@@ -12,7 +12,7 @@ last_reviewed: 2026-09-27
 
 当前事项：
 
-- [A1 访问边界返工](./a1-access-boundary-rework.md)（未排期：operation 检查迁移、兼容分支退出、生产入口接入认证网关；不阻塞任务进程表计划）；
+- [A1 访问边界返工](./a1-access-boundary-rework.md)（v0.7.0，在任务进程表计划完成后接入：operation 检查迁移、兼容分支退出、生产入口接入认证网关；不阻塞任务进程表计划）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [Topic `/compact` 系统指令接入](./topic-compact-command-ingress.md)；

@@ -12,7 +12,7 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 ## Release Status
 
 - Latest published baseline: `v0.6.2`
-- Current development version: `v0.7.0` (partially merged; overall scope being replanned, see the [Roadmap](docs/ROADMAP.md))
+- Current development version: `v0.7.0` (partially merged; overall scope redefined for the new architecture, see the [Roadmap](docs/ROADMAP.md))
 - Code and package version: `0.6.2`
 - Python requirement: `>=3.12`
 - License: Apache-2.0

@@ -28,12 +28,12 @@ last_reviewed: 2026-09-27
 
 ## 0. 文档性质
 
-owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”定为 v0.7.0 当前唯一的有效计划方向。本文是形成该 Plan 之前的集中讨论载体，本身不是 Plan。
+owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”定为 v0.7.0 当前唯一的有效计划方向。本文是形成该 Plan 之前的集中讨论载体，本身不是 Plan。同日决定的 v0.7.0 范围（M-5）、迁移方式（M-1）与首条迁移流程（M-3，Alice 的 chat 链路）见总 Idea [第 6.1 节](./workspace-network-task-process-architecture.md#61-已决定事项)。
 
-- 内容自总 Idea 第一部分拆出：前提 2.2、现状事实 3.1/3.2/3.5、流程图 4.2–4.4 与问题 Q-1–Q-10、Q-14。问题编号沿用原编号，已有引用继续成立。全局拓扑、被动输入（Q-11–Q-13）、迁移问题（M-1–M-7）与认证授权（第三部分）仍在总 Idea，关联见第 5 节。
+- 内容自总 Idea 第一部分拆出：前提 2.2、现状事实 3.1/3.2/3.5、流程图 4.2–4.4 与问题 Q-1–Q-10、Q-14。问题编号沿用原编号，已有引用继续成立。全局拓扑、Import Bus（Q-11–Q-13，原“被动输入”）、迁移问题（M-1–M-7）与认证授权（第三部分）仍在总 Idea，关联见第 5 节。
 - 现状事实按 2026-09-27 的代码重新核对，路径为包分层重构后的位置。
 - 流程图只画出前提已经确定的部分；依赖待决问题的内容标注问题编号。
-- 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
+- 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。owner 已作出的决定注明日期，记录在对应位置：第 1.1 节（请求方的分类）、Q-7、Q-8、Q-10。
 - workspace 包的现有实现（A2 已实施部分）不作为本方向的前提，形成 Plan 时重新调查（总 Idea 第 6.1 节）。
 
 ## 1. 前提（owner 提出）
@@ -43,8 +43,32 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 1. 运行一个任务，需要为它保留一个“合成进程”；CPU 在进程内工作。
 2. CPU 必须在 Workspace 的一个集中区域里工作，但这件事不由单一的 runtime 环境承担。原先把 Workspace runtime 当作 CPU 真实工作区的观念是半对半错。
 3. 任意任务请求从**唯一入口**注册为一个进程，直到任务结束进程才关闭。这是新架构下 Workspace 网络的核心运作逻辑。
-4. 请求方不只有用户主动下单；满足指定条件的被动请求方（类比合成卡、ME 请求器）也可以向网络创建任务。
+4. 请求方不只有用户主动下单；满足指定条件的被动请求方（类比合成卡、ME 请求器）也可以向网络创建任务。两类请求方的定义与区分标准见 1.1。
 5. 现有实现中与此最接近的是 chat application service 的 run 注册表：用户发出指令后，注册一个独立的 chat generation run。
+
+### 1.1 请求方的分类（owner，2026-09-27）
+
+请求方只有两类：
+
+| 类别 | 定义 | 例子 |
+|:---|:---|:---|
+| 主动请求 | 用户发出的指令主动且即时地驱动接下来的任务进程 | 经 Alice 的 chat 链路；未来以 controller 模式接入的外部 harness |
+| 被动请求（Passive） | 由条件触发；用户设定之后不再主动发出请求 | 最常见的是定时任务与队列任务 |
+
+- **区分标准是“即时”**：进程在用户指令到达的那一刻创建，即为主动请求；否则为被动请求。队列任务虽由用户提交，但进程要等条件满足时才创建，因此属于被动请求。
+- **术语**：“被动（Passive）”一词保留给被动请求体系。现有的 Passive Ingress 链路不是请求方，总 Idea 称其为 Import Bus；它已从核心全局拓扑断开，不在 v0.7.0 计划内（总 Idea [2.3](./workspace-network-task-process-architecture.md#23-import-bus原被动输入)、6.1）。
+- 请求方类别与执行者（CPU）是两个维度：controller 模式下，请求方是在 HiveMemory 入口发出指令的用户，外部 harness 是 CPU；plugin 模式下的对话不经注册入口（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
+
+以下对象不是请求方：
+
+| 对象 | 定位 |
+|:---|:---|
+| CALL 派生的子执行单元 | 在父 Agent 的任务进程内执行，不能请求新进程（Q-10） |
+| 管理员直接通道 | 不是请求；性质更接近 CPU，直接执行 operation，不经注册入口、不建进程（总 Idea 第 15 节） |
+| Patchouli 的记忆任务 | 给后台系统的任务，不暴露给 Agent（Q-7） |
+| plugin 模式下的外部 harness | 对话由外部 harness 管理，不经注册入口；以不建进程的方式经能力层访问（外部 Actor Idea 1.1） |
+
+被动请求的 principal 由谁承担（总 Idea P-5b；owner 倾向由登记的 Agent 反推）仍待决；被动请求只存在于 controller 模式。外部 Actor 的形态已于 2026-09-27 审议为 plugin 与 controller 两种接入模式，请求方类型与认证 principal 的关系按两种模式的定义理解，见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1。
 
 ## 2. 现状事实（代码核对，2026-09-27）
 
@@ -80,6 +104,8 @@ flowchart LR
 ### 2.3 记忆库内部工作
 
 记忆生成（独立业务 lane）、Topic 的空闲/LRU 结算，以及在全局维护调度器上注册的维护任务，目前都在 Patchouli 或 System 调度设施内部运行，不由任何 Actor 执行。
+
+记忆任务的现有暴露面：能力层的 [`MemoryTaskApplicationService`](../../src/hivememory/workspace/capability/memory_tasks.py) 为 HTTP 管理路由 `/api/v1/memory-tasks` 提供列表、查询与取消；chat 编排在 finalize 返回后把本轮产生的记忆任务标识放入 SSE 事件（`memory_task_ids`）。MTP 没有与记忆任务相关的动词。
 
 ## 3. 流程图
 
@@ -139,7 +165,7 @@ flowchart TB
     F -- "取消 / 失败" --> H["意图与交互记录的处置<br/>随 Q-1 / Q-14 确定"]
     G --> I["进程关闭（时点见 Q-1）"]
     H --> I
-    E -. "CALL 子 Agent，见 Q-10" .-> J["被调用方的执行单元"]
+    E -. "CALL 子 Agent（Q-10）" .-> J["子执行单元<br/>在本进程内执行"]
 ```
 
 ## 4. 待决问题
@@ -184,9 +210,11 @@ stateDiagram-v2
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
-| A | 仅本进程可见（以及其子执行单元，取决于 Q-10）；结算后以正式记忆出现在网络中 | 后续任务在结算前读不到上一个任务的意图别名，与现状在同一 AliceRuntime 内可读不同 |
+| A | 仅本进程可见（包括在本进程内执行的 CALL 子执行单元，见 Q-10）；结算后以正式记忆出现在网络中 | 后续任务在结算前读不到上一个任务的意图别名，与现状在同一 AliceRuntime 内可读不同 |
 | B | 本进程及显式声明的前驱进程链可见 | 需要定义前驱的声明方式、校验与链长 |
 | C | 在 Workspace 内按 policy 可见（原 A4 方向） | 意图需要 Workspace 级的登记与可见性策略，与“中间产物归进程”的类比不同 |
+
+外部 Actor 的 plugin 模式不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），经 MCP 提交的写入意图没有所属进程；各选项需要一并考虑这种情形。
 
 ### Q-3 唯一注册入口的职责边界
 
@@ -224,17 +252,17 @@ stateDiagram-v2
 
 **子问题 Q-5a**：Gateway 命令（如 `/compact` 一类）是注册为任务进程，还是作为直接的网络操作执行而不建立进程。
 
-**子问题 Q-5b**：`PASSIVE_MEMORY` 模式的去留，取决于总 Idea 的 [Q-11](./workspace-network-task-process-architecture.md#q-11-被动交互的-topic-落位) 与 [Q-12](./workspace-network-task-process-architecture.md#q-12-被动交互的价值信号worth_saving)。
+**子问题 Q-5b**：`PASSIVE_MEMORY` 模式的去留，取决于总 Idea 的 [Q-11](./workspace-network-task-process-architecture.md#q-11-import-bus-交互的-topic-落位) 与 [Q-12](./workspace-network-task-process-architecture.md#q-12-import-bus-交互的价值信号worth_saving)；Import Bus 不在 v0.7.0 范围（总 Idea 6.1）。
 
-### Q-6 触发型请求方的范围
+### Q-6 被动请求的范围
 
-**背景**：前提第 4 条（第 1 节）允许条件触发的请求方。VISION 阶段 E 把“记忆事件触发 Agent 唤醒”放在前序阶段取得证据之后。
+**背景**：被动请求由条件触发，用户设定之后不再主动发出请求，最常见的是定时任务与队列任务（1.1）。代码中目前没有面向用户的定时任务或队列任务设施。VISION 阶段 E 把“记忆事件触发 Agent 唤醒”放在前序阶段取得证据之后。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | 当前阶段只在注册请求中保留请求方类型，不实现触发条件与调度 | 入口形状兼容触发方，不交付触发能力 |
 | B | 实现一种最小触发机制 | 需要定义触发条件、去重、失败与取消语义 |
-| C | 当前阶段不考虑触发型请求方 | 入口形状以后可能需要调整 |
+| C | 当前阶段不考虑被动请求 | 入口形状以后可能需要调整 |
 
 ### Q-7 记忆库内部工作与进程表
 
@@ -246,6 +274,11 @@ stateDiagram-v2
 | B | 全部进入统一进程表 | 进程表成为全局任务表，承担调度职责 |
 | C | 部分进入（例如由模型驱动的生成任务进入，纯维护不进入） | 需要明确划分标准 |
 
+**owner 决定（2026-09-27）**：Patchouli 的记忆任务是给后台系统的任务，不暴露给 Agent。
+
+- 该决定排除让记忆任务对 Agent 可见的形态；进程表是否收录这类后台任务（收录时同样对 Agent 不可见）尚未单独决定。
+- 现有暴露面见 2.3；[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 3.5 中涉及任务投影的结果查询需按此重新审视。
+
 ### Q-8 外部 CPU 的进程
 
 **背景**：Alice 在进程内运行，注册表能取消它，也知道它何时结束。外部 harness 不受网络控制，更接近 AE2 中“处理样板 → 外部机器”：网络送出材料，等待产物回流。
@@ -253,6 +286,8 @@ stateDiagram-v2
 - **Q-8a 回收方式**：请求方显式关闭 / TTL / 心跳 / 组合。
 - **Q-8b 取消语义**：网络对外部 CPU 的取消能做到什么程度（例如吊销访问、丢弃未提交的意图、通知外部方），各项分别是否纳入。
 - **Q-8c 粒度**：外部 harness 的一轮对应一个进程 / 一个外部会话对应一个进程 / 由接入适配层决定。
+
+**owner 决定（2026-09-27）**：本问题关联外部 Actor 的形态，严重影响实现，单独审议；v0.7.0 不对外部 Actor 所需的基建作承诺（总 Idea 6.1）。同日审议为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：本问题只涉及 controller 模式，plugin 模式不建进程；controller 模式作为 v0.7.1 的首个真实外部 harness 接入。Q-8a–Q-8c 仍待决。
 
 ### Q-9 对话连续性的承载
 
@@ -265,6 +300,8 @@ stateDiagram-v2
 | C | 由进程链（进程声明前驱）承载 | 与 Q-2 选项 B 相关 |
 | D | 以上组合 | —— |
 
+外部会话消息的接收与 Topic 投影已定于 v0.7.0 内完成，Alice 为第一个使用者（总 Idea 6.1）；本问题与该 Idea 的设计相互关联。
+
 ### Q-10 CALL 子 Agent
 
 **背景**：被调用方有不同的 agent_id、Profile 与 MTP 权限。现状下子帧与主帧共享 `PendingAtomRuntime`，子帧写入主帧可见；现有规则是 CALL 只能从根 frame 发起。
@@ -275,33 +312,38 @@ stateDiagram-v2
 | B | 共用父进程，以 frame 区分 | 父进程的访问上下文需要容纳多个身份与权限 |
 | C | 其他 | —— |
 
+**owner 决定（2026-09-27）**：CALL 派生的子执行单元在父 Agent 的任务进程内执行，不能请求新进程，即不建子进程（选项 B 的方向）。父进程的访问上下文因此需要容纳被调用方的身份与权限，子执行单元的认证方式见总 Idea P-5a。
+
 ### Q-14 主动进程的交互记录去向
 
-**背景**：Active finalize 与 Passive 已共用同一提交队列，Active 有 applied gate（总 Idea [3.4](./workspace-network-task-process-architecture.md#34-统一的交互提交队列)）。原 A3/A4 设计中，写入意图的物化需要读取本轮交互所在 Topic 的资料（见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节与[写入意图体系迁移](./pending-intent-migration.md)第 3 节）。
+**背景**：Active finalize 与 Passive Ingress 已共用同一提交队列，Active 有 applied gate（总 Idea [3.4](./workspace-network-task-process-architecture.md#34-统一的交互提交队列)）。原 A3/A4 设计中，写入意图的物化需要读取本轮交互所在 Topic 的资料（见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节与[写入意图体系迁移](./pending-intent-migration.md)第 3 节）。2026-09-27 起 Import Bus（现有 Passive Ingress 链路）已从核心全局拓扑断开，不在 v0.7.0 范围（总 Idea 6.1）；选项 B 依赖该通道，其影响需按此重新评估。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
-| A | 进程自行封口并提交交互记录（与现有 finalize 形态相同） | 外部 harness 若同时被动上报对话又开主动进程，需要规则避免同一交互被记录两次 |
-| B | 进程把执行轨迹作为一份完整交互记录交给被动输入通道；进程自身只读取与提交写入意图 | 被动输入通道需要向提交方返回可等待的 applied 回执；Alice 与外部 harness 在记录侧成为同类来源 |
+| A | 进程自行封口并提交交互记录（与现有 finalize 形态相同） | 同一外部 harness 若同时以 plugin 模式经 Import Bus 上报对话、又以 controller 模式运行任务进程，需要规则避免同一交互被记录两次 |
+| B | 进程把执行轨迹作为一份完整交互记录交给 Import Bus；进程自身只读取与提交写入意图 | Import Bus 需要向提交方返回可等待的 applied 回执；Alice 与外部 harness 在记录侧成为同类来源 |
 
 ## 5. 相关问题（位于其他文档）
 
 | 问题 | 位置 | 与本文的关系 |
 |:---|:---|:---|
 | P-4 进程级权限收窄与创建进程的授权 | 总 Idea [第三部分](./workspace-network-task-process-architecture.md#p-4-进程级权限收窄与创建进程的授权) | P-4b 与 Q-3 相关 |
-| P-5 CALL 与触发器的认证 | 同上 | P-5a 与 Q-10、P-5b/c 与 Q-6 相关 |
+| P-5 CALL 与触发器的认证 | 同上 | P-5a 与 Q-10、P-5b/c 与 Q-6 相关；P-5b 仍待决，被动请求只存在于 controller 模式 |
 | P-6 进程绑定 context 的失效时点 | 同上 | 与 Q-1 相关 |
 | P-7 进程控制操作的授权主体 | 同上 | 与 Q-3 相关 |
 | P-9d 进程的定义 | 同上 | 管理员直接通道（方案 C）与前提第 3 条的关系 |
-| P-1 经网络接入的 Actor 如何证明身份 | 同上 | 与 Q-8 相关 |
-| Q-11–Q-13 被动输入 | 总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-待决问题被动输入) | Q-14 选项 B 把进程的交互记录交给被动输入通道 |
-| M-1–M-5 迁移问题 | 总 Idea [第 6 节](./workspace-network-task-process-architecture.md#6-待决问题迁移与现有工作来自前序讨论) | M-3（首条迁移的流程）与 M-5（v0.7.0 范围）决定首个 Plan 的范围 |
+| P-1 经网络接入的 Actor 如何证明身份 | 同上 | 与 Q-8 相关；P-1a 已决定：每次请求重新校验身份（总 Idea 15.3） |
+| Q-11–Q-13 Import Bus | 总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-待决问题import-bus) | 不在 v0.7.0 范围；Q-14 选项 B 把进程的交互记录交给 Import Bus |
+| M-1–M-5 迁移问题 | 总 Idea [第 6 节](./workspace-network-task-process-architecture.md#6-待决问题迁移与现有工作来自前序讨论) | M-1、M-3、M-5 已决定（总 Idea 6.1）：按流程纵切，首条迁移流程为 Alice 的 chat 链路 |
 | 会话记录的候选设计 | [外部会话与 Topic 投影](./external-session-and-topic-projection.md) | Q-9 选项 B 的一种形态 |
 | Workspace 级共享写入意图的候选设计 | [写入意图体系迁移](./pending-intent-migration.md) | Q-2 选项 C 的一种形态 |
-| 外部 Actor 的接入与运行时访问 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | Q-8 外部 CPU 的进程；Q-3b 传输入口 |
+| 外部 Actor 的接入与运行时访问 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两种接入模式：controller 模式（v0.7.1）使用本文的进程模型，plugin 模式（其后的 v0.7.x）不建进程；Q-8 外部 CPU 的进程；Q-3b 传输入口 |
 
 ## 6. 形成 Plan 的条件
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
-- 至少以下问题影响首个 Plan 的范围与接口：Q-3（入口职责，含 Q-3a/Q-3b）、Q-1（进程关闭时点）、Q-2（中间产物的可见范围）、P-6（context 失效时点）、P-4b（创建进程的授权），以及 M-3、M-5；
+- 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围与验收口径），见总 Idea 6.1；Q-10（CALL 子执行单元在父进程内执行）；
+- 仍影响首个 Plan 范围与接口的问题：Q-3（入口职责，含 Q-3a/Q-3b）、Q-1（进程关闭时点）、Q-2（中间产物的可见范围）、P-6（context 失效时点）、P-4b（创建进程的授权）；
+- 首条迁移流程为 chat 链路，因此以下问题同样影响首个 Plan：D-9（chat 编排与 chat run 注册表的最终归属，总 Idea 第 10 节）、Q-14（交互记录去向）、Q-5/Q-5a（Gateway 位置与命令）、Q-9（对话连续性，与外部会话与 Topic 投影 Idea 相关）；Q-3 选择选项 A 时还包括 Q-4（任务类型骨架的形态）；
+- 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。
