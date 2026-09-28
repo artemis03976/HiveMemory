@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-09-27
+last_reviewed: 2026-09-28
 ---
 
 # HiveMemory 开发路线图
@@ -123,11 +123,11 @@ last_reviewed: 2026-09-27
 
 - **已完成**：[A1 访问边界](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)（统一认证网关、两类登记与逐次行为授权；生产入口接入等遗留工作见 [A1 返工 Todo](./todo/a1-access-boundary-rework.md)，在任务进程表计划完成后接入）、[A2-P 记忆内容版本与 Lifecycle](./archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义](./archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)，以及包分层重构（见[系统架构概览](./architecture/overview.md)第 3 节）。
 - **当前方向**：以唯一注册入口把任意任务请求登记为任务进程，作为 Workspace 网络的运作逻辑；首条迁移流程为 Alice 的 chat 链路；首个方向是任务进程表与任务请求唯一注册入口，Plan 尚未建立，讨论见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md)。
-- **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md)，Alice 为第一个使用者；A1 返工（任务进程表计划完成后接入）。
-- **方向保留、尚未排序**：[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)。
-- **不在 v0.7.0**：外部 Actor 的真实接入（adapter 接口与外部服务身份等，[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)）分为两种接入模式，controller 模式在 v0.7.1（第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能。
+- **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md)，Alice 为第一个使用者；[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)，分两步实施，登记位于 workspace、与任务进程解耦，与外部会话改造的先后均可；A1 返工（任务进程表计划完成后接入）。
+- **不在 v0.7.0**：外部 Actor 的真实接入（adapter 接口与外部服务身份等，[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)）分为两种接入模式，controller 模式在 v0.7.1（第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）排除在现有系统之外，逐步演进为独立功能。
 - **边界原则**：记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
 - **范围**（2026-09-27 决定）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在。验收口径是 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构；v0.7.0 不对外部 Actor 所需的基建作承诺。决定记录与架构层面的待决问题见 [Workspace 网络与任务进程架构 Idea](./ideas/workspace-network-task-process-architecture.md)第 6.1 节。
+- **版本目标**（2026-09-28 决定）：(1) Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型；(2) 非 Alice 的 CPU（测试替身即可）能跑完整个任务进程，不改动进程与入口的代码；(3) 取消与清理都经过进程容器；(4) 命令、主动请求与被动请求经同一入口注册。任务进程的结构（进程创建时机、四阶段通用骨架、进程记录与工作集、prepare 的拆分）见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2。
 
 ### 4.4 v0.7.1：执行基座与 controller 模式外部 Actor 两个独立切片
 

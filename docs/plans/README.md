@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-09-27
+last_reviewed: 2026-09-28
 ---
 
 # Plans
@@ -12,14 +12,14 @@ last_reviewed: 2026-09-27
 
 ## v0.7.0
 
-范围已决定（2026-09-27，[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) M-5）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在；首条迁移流程为 Alice 的 chat 链路（M-3），以 Alice 在新架构下跑通、各流程协作无误作为验证。当前没有生效的 Plan。
+范围已决定（2026-09-27，[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) M-5）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在；首条迁移流程为 Alice 的 chat 链路（M-3），以 Alice 在新架构下跑通、各流程协作无误作为验证；版本目标见 [ROADMAP](../ROADMAP.md) 第 4.3 节。当前没有生效的 Plan。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
 | 1 | 任务进程表与任务请求唯一注册入口 | Plan 未建立 | [任务进程 Idea](../ideas/task-process-table-and-registration-entry.md)（第 6 节列出建立 Plan 前需要决定的问题） |
 | 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
-| — | 写入意图（PendingAtom）体系的迁移 | 方向保留，未排序；是否在 v0.7.0 内未决定 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
+| — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
 
 - 不在 v0.7.0：外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；
 - 已完成：[A1 访问边界](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[A2-P 记忆内容版本与 Lifecycle](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义与可控时钟](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)（均已归档）；

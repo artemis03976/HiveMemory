@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-09-27
+last_reviewed: 2026-09-28
 ---
 
 # Ideas
@@ -26,10 +26,10 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [Workspace 网络与任务进程架构](./workspace-network-task-process-architecture.md) | Passive buffer 与统一交互提交队列、A1 访问准入；已按第二部分决定完成的包分层（components / config / system 顶点） | 第一部分：Workspace 网络的全局拓扑（请求方分为主动请求与被动请求）、迁移问题（M-1、M-3、M-5 已决定：按流程纵切，首条迁移流程为 Alice 的 chat 链路）、第 7.1 节收录的原边界宪章库外状态候选裁定（缓存、resolver、事件协作），以及已移出 v0.7.0 的 Import Bus 问题（Q-11–Q-13）；第二部分：system 包的边界（D-1–D-9 已决定并实施；passive 的接入认证 D-8a、chat 编排的最终归属 D-9、engines 的既有向上导入与 core 的内容整理待决）；第三部分：注册入口两阶段认证、能力层操作授权与资源边界授权的衔接（管理员直接通道与每次请求重新校验身份已决定；其余 P-1–P-10 待决） |
-| [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | Chat run 注册表、Alice PendingAtomRuntime、记忆库内部队列与维护调度 | v0.7.0 的首个计划方向：进程何时关闭、中间产物可见范围、唯一入口的职责、Gateway 位置、被动请求的范围、对话连续性与主动进程的交互记录去向（Q-1–Q-10、Q-14，自总 Idea 拆出）；请求方的分类、CALL 子执行单元在父进程内执行、记忆任务不暴露给 Agent 已决定，外部 CPU 的进程只涉及 controller 模式、仍待决 |
-| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；`ConversationSession` 是任务进程 Idea Q-9 选项 B 的一种形态，模型字段与 Topic 生命周期事项待定 |
-| [写入意图（PendingAtom）体系的迁移](./pending-intent-migration.md) | Alice `PendingAtomRuntime`、`PendingAtomMaterializeTask` 与主动生成路径 | 原 A4 计划退回：写入意图的权威持有者、共同引用读取与结算跟随；Workspace 级共享 registry 是任务进程 Idea Q-2 选项 C 的一种形态 |
+| [Workspace 网络与任务进程架构](./workspace-network-task-process-architecture.md) | Passive buffer 与统一交互提交队列、A1 访问准入；已按第二部分决定完成的包分层（components / config / system 顶点） | 第一部分：Workspace 网络的全局拓扑（请求方分为主动请求与被动请求）、迁移问题（M-1、M-3、M-5 已决定：按流程纵切，首条迁移流程为 Alice 的 chat 链路）、第 7.1 节收录的原边界宪章库外状态候选裁定（缓存、resolver、事件协作），以及已移出 v0.7.0 的 Import Bus 问题（Q-11–Q-13）；第二部分：system 包的边界（D-1–D-9 已决定并实施；passive 的接入认证 D-8a、chat 编排的最终归属 D-9、engines 的既有向上导入与 core 的内容整理待决）；第三部分：注册入口两阶段认证、能力层操作授权与资源边界授权的衔接（管理员直接通道、每次请求重新校验身份、Profile 权限并入 operation 控制、context 随进程结束、不开放创建任务进程已决定；其余 P-1–P-10 待决）；v0.7.0 的四条版本目标（第 6.1 节） |
+| [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | Chat run 注册表、Alice PendingAtomRuntime、记忆库内部队列与维护调度 | v0.7.0 的首个计划方向：进程何时关闭、中间产物可见范围、唯一入口的职责、Gateway 位置、被动请求的范围、对话连续性与主动进程的交互记录去向（Q-1–Q-10、Q-14，自总 Idea 拆出）；请求方的分类、任务进程的结构（两阶段认证后创建进程、四阶段通用骨架、进程记录与工作集、prepare 退化为预检索）、Gateway 位置、CALL 子执行单元在父进程内执行、记忆任务不暴露给 Agent 已决定；进程在交互被提交队列接纳后退出、对话上下文由 ConversationSession 提供、交互记录由进程自行提交已决定；交互记录的中立形态、取消策略声明与进程标识仍待决 |
+| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；任务进程 Idea Q-9 已选 B：实际使用的对话上下文由 `ConversationSession` 提供，Topic 与 Gateway 话题路由只为记忆生成服务；模型字段与 Topic 生命周期事项待定 |
+| [写入意图（PendingAtom）体系的迁移](./pending-intent-migration.md) | Alice `PendingAtomRuntime`、`PendingAtomMaterializeTask` 与主动生成路径 | 原 A4 计划退回，v0.7.0 内分两步完成：登记位于 workspace、与任务进程和记忆生成两侧解耦、经能力层实时提交、落库前对全 workspace 可回读已决定；结算后句柄的生命周期、结算事件丢失时的补齐待定 |
 
 ## 候选方向（`candidate`）
 

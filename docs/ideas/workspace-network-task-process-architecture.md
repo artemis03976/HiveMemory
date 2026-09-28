@@ -33,7 +33,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-last_reviewed: 2026-09-27
+last_reviewed: 2026-09-28
 ---
 
 # Workspace 网络与任务进程架构
@@ -102,7 +102,7 @@ v0.7.0 计划 A 按组件与机制横向拆分（访问 → 缓存 → Session �
    - 直接接收一份完整的交互记录；
    - 流式监听一个交互。
 4. 两种方式最终通过同一个 buffer 与提交路径（现有实现）进入记忆生成。具体实现细节暂不讨论。
-5. （2026-09-27）Import Bus 不在核心全局拓扑上：它从全局拓扑中断开，逐步演进为独立功能，不在 v0.7.0 计划内（6.1）。
+5. （2026-09-27）Import Bus 不在核心全局拓扑上：它从全局拓扑中断开，逐步演进为独立功能，不在 v0.7.0 计划内（6.1）。2026-09-28 进一步明确：现在不考虑 Import Bus 带来的任何效果，将其排除在现有系统之外。
 6. （2026-09-27）owner 指出，外部 Actor 的 plugin 模式很像一直以来的 Passive Ingress 模式；两种接入模式见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1。
 
 ## 3. 现状事实（代码核对）
@@ -149,7 +149,7 @@ flowchart TB
     end
 
     subgraph NET["Workspace = ME 网络"]
-        ENTRY["唯一注册入口<br/>任务请求 → 任务进程<br/>职责边界见 Q-3"]
+        ENTRY["唯一注册入口<br/>任务请求 → 任务进程<br/>只管理进程生命周期（Q-3）"]
         subgraph PT["进程表"]
             P1["任务进程<br/>CPU 的工作区<br/>CALL 子执行单元在进程内执行"]
             P2["任务进程"]
@@ -180,12 +180,12 @@ flowchart TB
     PT --> SHARED
     SHARED --> STORE
     SUBQ --> GEN --> STORE
-    P1 -. "交互记录去向 Q-14 选项 A" .-> SUBQ
-    P1 -. "写入意图提交物化" .-> GEN
+    P1 -- "交互记录（Q-14）" --> SUBQ
+    SHARED -- "写入意图：workspace 登记后提交" --> GEN
 ```
 
 - 外部 harness 有两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。controller 模式下，用户在 HiveMemory 的入口选择外部 harness 作为 actor，请求经注册入口登记为任务进程，外部 harness 是进程中的 CPU；plugin 模式下，对话由外部 harness 管理，不经注册入口，harness 以不建进程的方式经能力层访问，形状与管理员直接通道相同。
-- Import Bus（现有 Passive Ingress 链路）仍经交互提交队列进入记忆生成（3.3、3.4、4.5），但不属于核心全局拓扑。Q-14 选项 B 把进程的交互记录交给 Import Bus，该选项的影响需按此重新评估。
+- Import Bus（现有 Passive Ingress 链路）仍经交互提交队列进入记忆生成（3.3、3.4、4.5），但不属于核心全局拓扑，并已排除在现有系统之外（6.1）。任务进程的交互记录由进程自行提交（任务进程 Idea Q-14 选项 A）；写入意图在 workspace 登记后提交给记忆库，与进程解耦（写入意图迁移 Idea 0.1）。
 
 4.2–4.4（任务进程的生命周期、通用流程与 chat 任务类型）已移至[任务进程 Idea](./task-process-table-and-registration-entry.md)第 3 节。
 
@@ -299,7 +299,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 | 外部会话消息的接收与 Topic 投影 | 在 v0.7.0 内完成，Alice 作为第一个使用者，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md) |
 | A1 返工 | 在任务进程表计划完成、已有稳定入口之后接入，见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md) |
 | Import Bus（现有 Passive Ingress 链路） | 不在核心全局拓扑上，现在从全局拓扑中断开；逐步演进为独立功能，不在 v0.7.0 计划内。第 5 节 Q-11–Q-13 与第 10 节 D-8a 随之移出 v0.7.0 |
-| 写入意图（PendingAtom）体系的迁移、workspace 包的重新调查 | 本次未涉及，维持原状态：前者方向保留、未排序；后者在任务进程表计划制定时进行 |
+| 写入意图（PendingAtom）体系的迁移、workspace 包的重新调查 | 本次未涉及，维持原状态：前者方向保留、未排序；后者在任务进程表计划制定时进行。2026-09-28 决定写入意图迁移纳入 v0.7.0，分两步实施，见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 |
 
 同日作出的相关决定：
 
@@ -308,6 +308,23 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 - **外部 Actor 形态**：Q-8（外部 CPU 的进程）、E-4（结果观察）、P-5b（被动请求的 principal）以及外部 Actor 对话中请求方类型与认证 principal 的关系，都关联外部 Actor 的形态并严重影响实现，单独审议。同日审议结果：外部 Actor 分为 plugin 与 controller 两种接入模式，先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式在 v0.7.1 之后的 v0.7.x 完善。各问题在两种模式下的归属见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1；
 - **全局拓扑与 D-8 的一致性**（原第 10 节待决问题）：随 Import Bus 从核心全局拓扑断开而消解，4.1 已重画；
 - **请求方的分类**（修正 4.1 全局拓扑）：请求方只有主动请求与被动请求两类，“被动（Passive）”一词保留给被动请求体系；定义、区分标准以及不属于请求方的对象（CALL 子执行单元、管理员直接通道、Patchouli 记忆任务）见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 1.1 节。
+
+2026-09-28：
+
+**M-5 的版本目标**：以下四条是 v0.7.0 的版本目标（owner）：
+
+1. Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型，包括 `AgentRunContext`、`StreamPrelude`、`AgentRunResult` 与编译好的记忆文本；
+2. 一个非 Alice 的 CPU（测试中的替身即可）能跑完整个任务进程，不需要改动进程与入口的代码；
+3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试；
+4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见任务进程 Idea Q-6）。
+
+这四条用来区分真正的解耦与“只是把 chat 链路从 system 层搬了个地方”：四个阶段的顺序是任务的自然顺序，不需要改变；应当改变的是阶段之间的状态由谁持有、每个交界处传递什么，以及执行阶段能否由任意 CPU 承担。
+
+**Import Bus**：现在不考虑 Import Bus 带来的任何效果，将其排除在现有系统之外；任务进程 Idea Q-14 的选项 B 因此不成立。
+
+**写入意图**：写入意图迁移纳入 v0.7.0，放在外部会话与 Topic 投影改造之前或之后都可以；登记位于 workspace，与任务进程和记忆生成两侧都解耦，经能力层实时提交；取消与失败不再丢弃已提交的写入意图；PendingAtom 在落库前对全 workspace 可回读。详见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 与任务进程 Idea Q-1、Q-2。
+
+同日决定的任务进程结构（进程创建时机、四阶段通用骨架、进程记录与工作集、prepare 的拆分、附件与 Topic 的去向）见[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2；Agent Profile 权限的决定见 15.4。
 
 ## 7. 与既有文档的对应关系
 
@@ -333,7 +350,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 #### 7.1.1 候选归属表
 
-记忆库一侧的各行与 ADR-0006 一致；其余各行是原宪章的裁定。
+记忆库一侧的各行与 ADR-0006 一致；其余各行是原宪章的裁定。其中 pending registry 一行已于 2026-09-28 决定：登记位于 workspace，生命周期与任务进程解耦，经物化过线、结算以全局事件回流（[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）。
 
 | 状态/能力 | 原裁定的持有者 | 过线动作 | 依据 |
 |:---|:---|:---|:---|
@@ -479,6 +496,8 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 - **D-9a chat run 注册表**：workspace（演化为[任务进程 Idea](./task-process-table-and-registration-entry.md)的进程表） / 保留在 `alice.application` / 其他。
 - **D-9b chat 编排**（chat 任务类型的执行步骤）：workspace / alice（保留现状） / 独立的任务类型包 / system / 其他。
 
+2026-09-28 的相关决定（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）：chat run 注册表演化为进程表，`ChatGenerationRun` 演化为进程记录；不存在任务类型，chat 编排即 controller 模式下的四阶段通用骨架。两者所在的包仍待决。
+
 ### engines 的既有向上导入
 
 **背景**：分层实施时未处理 engines 对上层的 13 处既有导入，作为已知例外登记在分层测试的 `KNOWN_UPWARD_IMPORTS` 中（测试要求实际导入与登记完全一致），[AGENTS.md](../../AGENTS.md) 规定不得新增：
@@ -587,7 +606,7 @@ flowchart TB
     TR["任务请求<br/>Actor"] --> AUTH["两阶段认证<br/>Principal + Workspace"]
     AR["管理员操作请求<br/>方案 C，见第 15 节"] --> AUTH
     AUTH -- "失败" --> DENY["拒绝<br/>不创建进程"]
-    AUTH -- "任务请求通过" --> PROC["创建任务进程<br/>签发 context 并绑定进程<br/>失效时点见 P-6"]
+    AUTH -- "任务请求通过" --> PROC["创建任务进程<br/>签发 context 并绑定进程<br/>随进程关闭失效（P-6）"]
     AUTH -- "管理员请求通过" --> DCTX["签发 context<br/>不创建进程<br/>有效期见 P-9b"]
     PROC --> OPS["进程内的主动操作<br/>MCP / MTP / HTTP"]
     OPS --> CAP["能力层<br/>操作授权"]
@@ -608,7 +627,7 @@ sequenceDiagram
     participant R as 资源边界
     A->>C: 主动操作（MCP / MTP / HTTP）
     Note over A,C: 经网络接入时每次请求如何证明身份见 P-1
-    C->>C: 操作授权（与 Profile 权限的关系见 P-2，进程级收窄见 P-4）
+    C->>C: 操作授权（Profile 的 MTP 权限并入 operation 控制，见 15.4；进程级收窄见 P-4）
     alt 未获许可
         C-->>A: OperationDenied
     else 获得许可
@@ -651,6 +670,16 @@ sequenceDiagram
 - **管理员直接通道的定位**：管理员直接通道不是请求；它的性质更接近 CPU，直接执行 operation，不经注册入口、不建进程。请求方的分类见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 1.1 节。
 - **P-1a 每次请求的身份证明**：注册前经认证网关验证身份，未通过不予注册；此后每次请求都必须重新校验身份，不以注册时的认证结果代替（选项 A 的方向）。
 
+### 15.4 2026-09-28 的决定
+
+- **P-2 与 P-10**：Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（P-2 选项 C 的方向，P-10 选项 C）。
+  - 由此需要统一 operation 与 MTP 动词、系统工具的粒度（P-2 选项 C 的影响）；
+  - 授权依据来自能力层的 operation 控制，而不是 Profile 原子，持有 `management.memory` 不再能借修改 Profile 影响授权；
+  - 执行类操作（RUN、CALL、系统工具）的授权进入 operation 目录；执行本身是否经能力层、与 v0.7.1 执行基座的边界，仍由 P-3 决定。
+- **P-6**：进程收尾时还需要使用身份信息，因此 context 与进程完全绑定，随进程生命周期一起结束（选项 A）。进程在交互被提交队列接纳后关闭（任务进程 Idea Q-1），不存在结算期。
+- **P-4b**：开放创建任务进程太过复杂；现有规划中只有两种请求方式，即主动请求与被动请求（任务进程 Idea 1.1）。因此不新增“创建任务”类 operation；被动请求的认证见 P-5b、P-5c。
+- 以上决定与任务进程结构一同作出，见[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2。
+
 ## 16. 第三部分待决问题
 
 每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
@@ -682,6 +711,8 @@ sequenceDiagram
 | B | 能力层对两者取交集 | 能力层需要读取 Actor 的 Profile；Profile 成为授权输入，持有 `management.memory` 即可影响授权 |
 | C | 合并为一套权限模型 | 需要统一 operation 与 MTP 动词、系统工具的粒度 |
 
+**已决定（2026-09-28）**：见 15.4。
+
 ### P-3 能力层是否覆盖执行类操作
 
 **背景**：operation 目录中没有代码执行、工具调用或 CALL（13.2）。
@@ -692,6 +723,8 @@ sequenceDiagram
 | B | 不覆盖：能力层只负责记忆与资源，执行类操作留在各 Actor 的执行环境 | 前提 12 第 4 条“唯一可见 API”需要限定为资源操作 |
 | C | 部分覆盖 | 需要划分标准 |
 
+2026-09-28：按 15.4，执行类操作的授权已进入 operation 目录；本问题剩下执行本身是否经能力层。
+
 ### P-4 进程级权限收窄与创建进程的授权
 
 - **P-4a 进程能否持有白名单的子集**：
@@ -701,6 +734,8 @@ sequenceDiagram
   - 新增“创建任务”类 operation，可按任务类型细分；
   - 通过两阶段认证即可创建任意类型的任务进程；
   - 其他。
+
+  **已决定（2026-09-28）**：见 15.4。P-4a 仍待决。
 
 ### P-5 CALL 与触发器的认证
 
@@ -715,6 +750,8 @@ sequenceDiagram
 | A | 进程关闭时 | 若 Q-1 选两阶段关闭，结算期间 context 仍然有效 |
 | B | CPU 交还时 | 结算期间进程仍在，但 context 已失效，结算相关的内部处理不能依赖该 context |
 | C | 另设 TTL，与进程寿命取较早者 | 长任务需要续期机制 |
+
+**已决定（2026-09-28）**：选项 A，见 15.4。
 
 ### P-7 进程控制操作的授权主体
 
@@ -753,6 +790,8 @@ plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea]
 | C | 与 P-2 选项 C 一并处理，并入统一权限模型 | 取决于 P-2 的决定 |
 
 **子问题 P-10a**：外部 Actor 应用 Profile 的结果是否需要字段或伴随契约承载：需要 / 不需要 / 其他。
+
+**已决定（2026-09-28）**：P-10 见 15.4；P-10a 仍待决。
 
 ### 16.1 与前两部分问题的关联
 

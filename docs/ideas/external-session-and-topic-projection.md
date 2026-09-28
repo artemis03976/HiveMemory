@@ -14,7 +14,7 @@ related_docs:
   - docs/plans/topic-folding-context-and-raw-evidence.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-09-27
+last_reviewed: 2026-09-28
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -26,8 +26,10 @@ last_reviewed: 2026-09-27
 - 要解决的问题：Topic 体系不能接收外部 Actor 的会话消息（owner 表述，2026-09-27）。
 - **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[总 Idea](./workspace-network-task-process-architecture.md#61-已决定事项) 6.1）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x。
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
+- **Topic 与会话解耦**（owner，2026-09-28）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。
+- **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
 - 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题。
-- 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-9 选项 B（保留独立的会话记录）的一种形态，是否采用取决于 Q-9；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见[总 Idea](./workspace-network-task-process-architecture.md) Q-11，该链路不在 v0.7.0 范围。
+- 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md#q-9-对话连续性的承载) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见[总 Idea](./workspace-network-task-process-architecture.md) Q-11，该链路不在 v0.7.0 范围。
 - 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
 
 外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。本文讨论这个数据模型和交接时机，不涉及完整折叠算法；折叠和原始证据专项见[独立计划](../plans/topic-folding-context-and-raw-evidence.md)。
@@ -309,7 +311,7 @@ Topic 生命周期事项：
 
 | 事项 | 需要回答的问题 |
 |:---|:---|
-| prepare 副作用与引用 | 是否预创建/预留 Topic；handle 的 scope/调用关联、引用编码与提交参数；同 interaction_id/路由指令/幂等摘要的绑定及冲突行为 |
+| prepare 副作用与引用 | 是否预创建/预留 Topic（2026-09-28：任务进程不再预先创建，见第 0 节）；handle 的 scope/调用关联、引用编码与提交参数；同 interaction_id/路由指令/幂等摘要的绑定及冲突行为 |
 | handle 存续与交接 | 有效期、一次/多次使用、重复 prepare、接纳时保护转移、过期后的查询/冲突/显式重新准备 |
 | 条件清理 | 本次创建的证据、空/占用判定、与并发 submit/资料读取的协调、幂等结果、关闭时收尾 |
 | 资料来源与保留 | 省略 Topic 的唯一行为；是否接受 prepare handle；快照时点/版本证据、重试绑定及必要保护释放 |
