@@ -28,7 +28,7 @@ last_reviewed: 2026-09-28
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
 - **Topic 与会话解耦**（owner，2026-09-28）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
-- 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题。
+- 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
 - 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md#q-9-对话连续性的承载) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见[总 Idea](./workspace-network-task-process-architecture.md) Q-11，该链路不在 v0.7.0 范围。
 - 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
 
@@ -82,6 +82,8 @@ Session 不在事务上拥有 Topic，也不把 `session_id` 继续塞进 `Actor
 对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后；workspace 包的现有实现需要重新调查，见[总 Idea](./workspace-network-task-process-architecture.md)第 6.1 节。
 
 ### 2.2 InteractionPayload：共同封口交互
+
+`InteractionPayload` 是 owner 提出的共用提交模型（2026-09-28 确认）。controller 模式下，任务进程在结算阶段提交它，`interaction_id` 字段始终取 `process_id` 的值；只有 completed 的进程才提交（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-14-主动进程的交互记录去向) Q-14、Q-16）。
 
 ```text
 InteractionPayload（演进现有模型）
@@ -300,7 +302,7 @@ Session 完整历史的展示与 prompt 预算是两件事。Alice 可以继续�
 模型、字段与语义：
 
 1. TurnEvent 新增 kind、来源/时间、外部调用关联和多模态引用的字段；ActionReducer 的可靠关联规则；Payload 文本/trace 的派生与兼容限制。第 2 节的候选设计复用现有模型，不另建 Segment/Part 双模型。
-2. System Session 及封口 Payload 的物理位置、最小创建/读取/封口/关闭能力与 A1 operation、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
+2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）、最小创建/读取/封口/关闭能力与 A1 operation、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
 3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；移除 identity.session_id 对 equality/hash/cache key 的影响。speaker、来源与调用主体分别处理。
 4. 无 session 的旧 Alice/单次交互如何映射为明确的临时 Session，不能静默合并全用户历史；主动意图仍可无 Session。旧 Topic 只保存可证来源，不能编造完整 Session。
 5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例。

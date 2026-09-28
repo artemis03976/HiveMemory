@@ -279,7 +279,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 与上述处置相关的另外三项决定：
 
-- **workspace 包的现有实现**（A2 已实施部分：`workspace/cache/`、`workspace/resolution/`、`workspace/runtime.py` 与能力层的读取方法）：不承诺其实现正确，也不作为任务进程表计划的前提；该计划制定时重新调查，再决定保留、改造或删除；
+- **workspace 包的现有实现**（A2 已实施部分：`workspace/cache/`、`workspace/resolution/`、`workspace/runtime.py` 与能力层的读取方法）：不承诺其实现正确，也不作为任务进程表计划的前提；该计划制定时重新调查，再决定保留、改造或删除。2026-09-28 的调查结论与 workspace 的子包划分见第 10 节 D-9；
 - **A1 返工**（operation 检查迁移、迁移期兼容分支退出、生产入口接入认证网关）：未排期，不阻塞任务进程表计划，见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md)；同日第三次决定改为在任务进程表计划完成后接入（见下文 M-5）；
 - **ADR-0004 与 ADR-0005**：标记为失效（`deprecated`），没有替代 ADR。
 
@@ -350,7 +350,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 #### 7.1.1 候选归属表
 
-记忆库一侧的各行与 ADR-0006 一致；其余各行是原宪章的裁定。其中 pending registry 一行已于 2026-09-28 决定：登记位于 workspace，生命周期与任务进程解耦，经物化过线、结算以全局事件回流（[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）。
+记忆库一侧的各行与 ADR-0006 一致；其余各行是原宪章的裁定。2026-09-28 按第 10 节 D-9 决定：ConversationSession、Atom cache / Profile 解析缓存、alias resolver 各行均位于 workspace 的共享设施。其中 pending registry 一行已于 2026-09-28 决定：登记位于 workspace，生命周期与任务进程解耦，经物化过线、结算以全局事件回流（[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）。
 
 | 状态/能力 | 原裁定的持有者 | 过线动作 | 依据 |
 |:---|:---|:---|:---|
@@ -498,6 +498,29 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 
 2026-09-28 的相关决定（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）：chat run 注册表演化为进程表，`ChatGenerationRun` 演化为进程记录；不存在任务类型，chat 编排即 controller 模式下的四阶段通用骨架。两者所在的包仍待决。
 
+**owner 决定（2026-09-28）**：进程表等内容理论上应当放在 workspace 中；鉴于体量较大，暂时按下表在 workspace 内部细分子包（D-9a、D-9b 均为 workspace）。子包名是示意，最终命名在实施时确定。
+
+| 子包 | 角色（AE2 类比） | 内容 | 可以依赖 |
+|:---|:---|:---|:---|
+| `contracts` | 对外接口 | CPU 端口、能力层协议、`process_id` 等进程公共模型 | 只依赖 L0–L2 |
+| 共享设施 | 存储系统之外的网络设施 | 资产仓库、写入意图登记、ConversationSession、读取视图 | contracts |
+| `access` | 安全终端 | 认证网关、guard、访问登记 | contracts |
+| `capability` | 终端与接口 | Actor 唯一可见的 API，负责 operation 授权 | access、共享设施、contracts |
+| `process` | 合成 CPU 的调度 | 进程表、进程容器、四阶段骨架、CPU 分配 | capability、access、共享设施、contracts |
+
+- **依赖方向**：process → capability → access 或共享设施 → contracts。能力层与共享设施不得依赖 process：plugin 模式与管理员直接通道都要在不建进程的情况下使用能力层。方向规则加入 `tests/unit/architecture/test_package_layers.py`，由测试守护。
+- **暂不拆成多个顶层包**：process 与 capability 属于同一子系统、生命周期相同；拆成独立的 L3 包后两者只能经 contracts 交互，需要多定义一批端口，而 workspace 内部的方向规则能提供同样的约束。
+- **`workspace.contracts`**：workspace 目前没有 `contracts` 子包，其他 L3 子系统无法导入它。Alice 作为 CPU 既要实现 CPU 端口，又要调用能力层，因此需要建立这个子包；端口由 workspace 定义、Alice 实现，workspace 不导入 Alice（与 D-5 的做法一致，也是 v0.7.0 版本目标第 2 条的前提）。
+- **ConversationSession** 放在共享设施：它跨进程存在，不属于某个进程的工作集；按 ADR-0006 也不属于记忆库。
+- **读取视图**：Alice 的 `RuntimeAliasResolver`、alias 缓存与 Profile 缓存本来就要迁移到 workspace，只是上一轮计划回档重构后没有删除和迁移完整。workspace 现有的读取视图（`cache/`、`resolution/`、`runtime.py`）保留，作为这套迁移的目标；迁移完成后 Alice 不再持有自己的读取缓存与 resolver。
+
+重新调查的其余结论（分析，2026-09-28 核对）：
+
+- workspace 现有约 3,240 行：接入与准入 389 行、能力层 850 行、资产 1,053 行、读取视图 913 行；进程相关内容（`alice.application` 的 chat_control 与 chat_service，1,117 行）、写入意图登记（`agent_runtime/pending_atom`，522 行）、ConversationSession、CPU 端口与能力层扩展迁入后，合计将超过 5,000 行；
+- 能力层的 `read`、`retrieve_by_aliases`、`retrieve`、`get_agent_profile` 与读取视图目前都没有生产调用方；Alice 的 MTP 读取改经能力层之后，它们成为生产读取路径；
+- `engines/memory_compiler` 对 `agent_runtime.aliases` 的导入是分层测试登记的已知例外；Alice 的 alias 体系迁出、编译移到 CPU 一侧（任务进程 Idea 1.2）之后，这一例外需要随之处理；
+- 命名冲突：`workspace/runtime.py` 的 `WorkspaceRuntime` 实为读取缓存的聚合，`workspace/registry.py` 是访问登记；进程表迁入后，“runtime”与“registry”都会产生歧义，需要改名。
+
 ### engines 的既有向上导入
 
 **背景**：分层实施时未处理 engines 对上层的 13 处既有导入，作为已知例外登记在分层测试的 `KNOWN_UPWARD_IMPORTS` 中（测试要求实际导入与登记完全一致），[AGENTS.md](../../AGENTS.md) 规定不得新增：
@@ -544,7 +567,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 | 未解决的问题 | 相关问题 |
 |:---|:---|
 | D-8a | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-1；P-9a；Q-11–Q-13 |
-| D-9 | [任务进程 Idea](./task-process-table-and-registration-entry.md) Q-3、Q-5 |
+| D-9 | [任务进程 Idea](./task-process-table-and-registration-entry.md) Q-3、Q-5；已决定 workspace 的子包划分 |
 | core 的内容整理 | engines 的既有向上导入（其选项 A 会把更多内容下移到 L0） |
 
 相关事实文档：[AGENTS.md](../../AGENTS.md) 第 3 节（分层与所有权）、[系统架构概览](../architecture/overview.md)第 3 节、[系统边界与所有权](../architecture/boundaries.md)、[System](../system/README.md)、[Components](../components/README.md)、[Workspace 架构](../architecture/workspace.md)。
@@ -678,6 +701,7 @@ sequenceDiagram
   - 执行类操作（RUN、CALL、系统工具）的授权进入 operation 目录；执行本身是否经能力层、与 v0.7.1 执行基座的边界，仍由 P-3 决定。
 - **P-6**：进程收尾时还需要使用身份信息，因此 context 与进程完全绑定，随进程生命周期一起结束（选项 A）。进程在交互被提交队列接纳后关闭（任务进程 Idea Q-1），不存在结算期。
 - **P-4b**：开放创建任务进程太过复杂；现有规划中只有两种请求方式，即主动请求与被动请求（任务进程 Idea 1.1）。因此不新增“创建任务”类 operation；被动请求的认证见 P-5b、P-5c。
+- **P-7（取消）**：只有用户有权取消任务进程，入口是唯一的 HTTP server 入口；取消请求必须带明确的 `process_id`，只有 Gateway 与 Actor 执行两个阶段可以取消（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-15-各阶段取消策略的声明方式) Q-15、Q-16）。其余进程控制操作（如状态查询）的授权主体未涉及。
 - 以上决定与任务进程结构一同作出，见[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2。
 
 ## 16. 第三部分待决问题
@@ -758,6 +782,8 @@ sequenceDiagram
 **背景**：现状只比较 Workspace（13.5）。
 
 选项：仅进程的注册 principal / 注册 principal 与管理员 / Workspace 内任何获准者（现状） / 其他。控制操作是否经直接通道见 P-9a。
+
+**已决定（2026-09-28）**：取消只由用户经唯一的 HTTP server 入口发起，见 15.4；其余控制操作仍待决。
 
 ### P-8 资源边界是否增加修改与执行授权
 

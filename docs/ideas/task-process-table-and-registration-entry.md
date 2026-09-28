@@ -33,8 +33,8 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 内容自总 Idea 第一部分拆出：前提 2.2、现状事实 3.1/3.2/3.5、流程图 4.2–4.4 与问题 Q-1–Q-10、Q-14。问题编号沿用原编号，已有引用继续成立。全局拓扑、Import Bus（Q-11–Q-13，原“被动输入”）、迁移问题（M-1–M-7）与认证授权（第三部分）仍在总 Idea，关联见第 5 节。
 - 现状事实按 2026-09-27 的代码重新核对，路径为包分层重构后的位置。
 - 流程图只画出前提已经确定的部分；依赖待决问题的内容标注问题编号。
-- 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。owner 已作出的决定注明日期，记录在对应位置：第 1.1 节（请求方的分类）、第 1.2 节（任务进程的结构）、Q-1、Q-2、Q-3、Q-4、Q-5、Q-7、Q-8、Q-9、Q-10、Q-14。
-- workspace 包的现有实现（A2 已实施部分）不作为本方向的前提，形成 Plan 时重新调查（总 Idea 第 6.1 节）。
+- 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。owner 已作出的决定注明日期，记录在对应位置：第 1.1 节（请求方的分类）、第 1.2 节（任务进程的结构）、Q-1、Q-2、Q-3、Q-4、Q-5、Q-7、Q-8、Q-9、Q-10、Q-14、Q-15、Q-16。
+- workspace 包的现有实现（A2 已实施部分）不作为本方向的前提，形成 Plan 时重新调查（总 Idea 第 6.1 节）。2026-09-28 已完成调查，结论与 workspace 的子包划分见总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)。
 
 ## 1. 前提（owner 提出）
 
@@ -85,7 +85,8 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 - controller 模式下，所有任务进程共用四个阶段：Gateway 分析 → Patchouli 预检索 → Actor 执行 → Patchouli 结算。这一划分不受全局拓扑影响（Q-4）。
 - `ChatRunPhase` 设置阶段，最初主要是为了取消：四个阶段相对独立，取消需要各自处理，不同阶段的策略也不同（现状见 2.4）。阶段划分同时反映了 chat 链路的实际结构。
-- 由此：Gateway 是每个进程的第一阶段，在进程内执行（Q-5）；Gateway 识别出命令时，命令同样是一个进程，在第一阶段结束（Q-5a）。
+- 由此：Gateway 是每个进程的第一阶段，在进程内执行（Q-5）；命令解析在 Gateway 内进行，命令的实际运行不在 Gateway 中（Q-5a）。
+- 只有 Gateway 与 Actor 执行两个阶段可以取消；进入 Actor 执行前统一检查一次取消请求（Q-15）。
 - 失效条件（分析）：出现装不进四阶段的任务，例如 v0.7.4 Deep Research 需要多轮检索与执行、长期保留研究状态，或被动请求保存的指令无法作为用户消息交给 Gateway 分析。届时需要重新讨论任务类型。
 
 **CPU 分配与输入清单**
@@ -99,7 +100,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 | 部分 | 内容 | 性质 |
 |:---|:---|:---|
-| 进程记录（控制面，由进程表持有） | 进程标识、身份与访问 context、请求方式（主动或被动）、当前阶段及其取消策略、终态、CPU 分配、取消句柄 | 字段固定，有类型 |
+| 进程记录（控制面，由进程表持有） | 进程标识 `process_id`（Q-16）、身份与访问 context、请求方式（主动或被动）、当前阶段、待处理的取消请求、终态、CPU 分配 | 字段固定，有类型 |
 | 工作集中的值 | GatewayDecision（含 Topic 路由决定）、预检索得到的记忆原子、执行记录 | 不可变，关闭时无需处理 |
 | 工作集中的资源 | 附件租借 | 进程关闭时必须释放或补偿，无论从哪个阶段结束 |
 
@@ -111,8 +112,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 | 现有对象 | 去向 |
 |:---|:---|
-| `ChatGenerationRunRegistry` | 演化为进程表 |
+| `ChatGenerationRunRegistry` | 演化为进程表，位于 workspace 的 `process` 子包（总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)） |
 | `ChatGenerationRun` | 演化为进程记录 |
+| `interaction_id` / `generation_id` 作为进程标识的用法 | 由 `process_id` 取代（Q-16） |
 | `PreparedAgentRun` | 拆散：GatewayDecision 与附件租借进入工作集；记忆原子与附件进入 CPU 输入清单；`AgentRunContext` 中编译好的记忆文本改由 CPU 生成；`StreamPrelude` 改由进程从自身状态推导 |
 
 **Patchouli prepare 与结算的拆分**
@@ -130,13 +132,16 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 1. Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型，包括 `AgentRunContext`、`StreamPrelude`、`AgentRunResult` 与编译好的记忆文本；
 2. 一个非 Alice 的 CPU（测试中的替身即可）能跑完整个任务进程，不需要改动进程与入口的代码；
 3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试；
-4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6）。
+4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6；命令系统后置，v0.7.0 内现有内置命令暂时不可用，见 Q-5a）。
 
 ## 2. 现状事实（代码核对，2026-09-27）
 
 ### 2.1 Chat run 注册表
 
 [`ChatGenerationRunRegistry`](../../src/hivememory/alice/application/chat_control.py) 以 `interaction_id` 为键登记 run，重复登记直接拒绝；提供 get / cancel / status，控制请求只比较 Workspace 身份。
+
+- `interaction_id` 由 server 的 chat 路由在进入服务前生成（`interaction_{uuid}`），`generation_id` 与它取值相同；
+- SSE 的第一个事件 `generation_id` 在 Gateway 阶段之前发出；前端据此发起停止请求，请求体携带 `generation_id`。
 
 - 阶段枚举 `ChatRunPhase` 把 chat 编排写死：`CREATED → GATEWAY → PREPARE → ALICE → FINALIZE → TERMINAL`；
 - 注册表本身不持有工作状态：附件租借在 Patchouli prepare 返回的 `PreparedAgentRun` 中，写入意图在 Alice 的 `PendingAtomRuntime` 中，执行事件在 Alice run 中；
@@ -181,7 +186,9 @@ flowchart LR
 | Finalize | 拒绝取消（`already_finalizing`）；Patchouli 内部以 shield 保证继续完成已接管的工作 |
 | 断流 | 由 `finally` 统一兜底：关闭 Alice 子流、prepare 成功而 finalize 未成功时清理 prepared run、移出注册表 |
 
-Gateway 识别出命令时，chat 直接以命令结果结束，不进入 prepare。
+客户端断开时，server 的 chat 路由以同一标识发起取消（reason 为 `client_disconnected`）。
+
+命令由 Gateway 的 `GATEWAY_PROCESS` 路由内的命令分派器解析并执行，返回执行结果；Gateway 识别出命令时，chat 直接以命令结果结束，不进入 prepare。现有内置命令为 help、commands、clear（由客户端执行）与 runtime.status，没有服务端副作用。
 
 ### 2.5 Patchouli prepare 与 finalize 的现有内容
 
@@ -226,14 +233,16 @@ sequenceDiagram
     R->>E: 任务请求（主动或被动）
     E->>E: 两阶段认证
     E->>P: 创建进程（进程记录与工作集）
+    E-->>R: process_id（Q-16）
     P->>G: 阶段 1：分析
     G-->>P: GatewayDecision（含 Topic 路由决定）
-    Note over P,G: 命令在此结束进程（Q-5a）
+    Note over P,G: 可取消；Gateway 只解析命令，不执行（Q-5a）
     P->>L: 阶段 2：预检索
     L-->>P: 未编译的记忆原子
     P->>S: 取得附件租借（工作集中的资源）
     P->>P: 分配 CPU，记入进程记录
-    P->>C: 阶段 3：交付 CPU 输入清单
+    P->>P: 检查一次取消请求（Q-15）
+    P->>C: 阶段 3：交付 CPU 输入清单（可取消）
     loop 执行期间
         C->>S: 读取 / 检索
         C->>S: 写入 / 修订意图：在 workspace 登记并实时提交给 Patchouli（Q-2）
@@ -251,16 +260,17 @@ sequenceDiagram
 flowchart TB
     A["用户发送消息"] --> B["两阶段认证后创建进程"]
     B --> C["阶段 1：Gateway 分析"]
-    C -- "命令" --> K["执行命令"]
+    C -. "解析出命令" .-> K["命令的运行<br/>不在 Gateway 内，位置见 Q-5a"]
     C -- "对话" --> D["阶段 2：Patchouli 预检索<br/>返回未编译的记忆原子"]
     D --> E["分配 CPU，记入进程记录"]
-    E --> F["阶段 3：CPU 执行<br/>CPU 自行编译上下文<br/>写入意图经能力层实时提交"]
+    E --> X{"检查一次取消请求（Q-15）"}
+    X -- "有" --> I
+    X -- "无" --> F["阶段 3：CPU 执行<br/>CPU 自行编译上下文<br/>写入意图经能力层实时提交"]
     F --> G{"执行结果"}
     G -- "完成" --> H["阶段 4：Patchouli 结算<br/>提交交互记录与衍生内容（Q-14）<br/>按需创建 Topic"]
-    G -- "取消 / 失败" --> I["已提交的写入意图照常生成<br/>交互记录的处置见 Q-14"]
+    G -- "取消 / 失败" --> I["不提交交互记录（Q-14）<br/>已提交的写入意图照常生成"]
     H --> J["进程关闭，释放工作集中的资源<br/>（Q-1）"]
     I --> J
-    K --> J
     F -. "CALL 子 Agent（Q-10）" .-> L["子执行单元<br/>在本进程内执行"]
 ```
 
@@ -376,7 +386,8 @@ stateDiagram-v2
 **owner 决定（2026-09-28）**：
 
 - **Q-5**：Gateway 是每个任务进程的第一阶段，在进程内执行（1.2）。不存在任务类型，所以不是选项 A 的“只属于特定任务类型”；它也不在注册之前执行，所以不是选项 B。
-- **Q-5a**：Gateway 识别出命令时，命令同样是一个进程，在第一阶段结束。
+- **Q-5a**：命令所在的请求同样注册为进程。命令解析在 Gateway 内执行，但命令的实际运行不在 Gateway 中：后续指令会与用户请求同时出现，不能让 Gateway 实际执行命令（同日修订，原记录为“命令在第一阶段结束”）。命令在进程中何时、由谁运行，尚未决定。
+- **命令系统后置**（owner，2026-09-28）：命令系统不在 v0.7.0 计划内完整接回；现有四个内置命令（help、commands、clear、runtime.status）在 v0.7.0 内设为暂时不可用。
 - Q-5b 仍待决。
 
 ### Q-6 被动请求的范围
@@ -456,10 +467,9 @@ stateDiagram-v2
 
 **owner 决定（2026-09-28）**：选项 A。Import Bus 已经断开，现在不考虑它带来的任何效果，并将其排除在现有系统之外（总 Idea [6.1](./workspace-network-task-process-architecture.md#61-已决定事项)），因此选项 B 不成立。选项 A 影响中“同一 harness 以两种模式使用时重复记录”的问题，留待 plugin 模式设计时处理。
 
-仍待决：
-
-- 交互记录的 CPU 中立形态：外部会话与 Topic 投影 Idea 第 2.2 节的“共同封口交互”是候选；
-- 进程以取消或失败结束时是否提交交互记录。现状下只有 completed 的 run 进入 finalize。
+- 提交的交互记录采用 `InteractionPayload`：它是 owner 提出的共用提交模型，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md#22-interactionpayload共同封口交互)第 2.2 节；其 `interaction_id` 字段始终取 `process_id` 的值（Q-16）；
+- 进程以取消或失败结束时保持现有行为：只有 completed 才允许提交交互记录。已提交的写入意图照常生成，它们的材料按选项 A 本就不含当前一轮，两者一致；
+- 这一规则只针对提交给 Patchouli 的交互记录。取消或失败的一轮是否记入 ConversationSession，见外部会话与 Topic 投影 Idea 第 8 节第 6 条。
 
 相关约束：
 
@@ -476,6 +486,13 @@ stateDiagram-v2
 | B | 由四阶段骨架静态定义每个阶段的策略 | 骨架固定时实现简单；阶段策略变化需要修改骨架 |
 | C | 其他 | —— |
 
+**owner 决定（2026-09-28）**：只有 Gateway 与 Actor 执行两个阶段可以取消，因为这两块有前台调用 LLM 的行为；进程负责这两块的取消管理。其余地方不设取消响应点，相当于不允许取消；不设置额外的取消策略（选项 B 的方向）。
+
+- 统一在 Actor 执行开始前检查一次取消请求并响应：在预检索、取得附件租借、CPU 分配期间收到的取消请求，在这里生效；结算阶段不可取消（与现状的 `already_finalizing` 相同）。
+- 外部取消请求必须带明确的 `process_id`，指明取消哪个任务进程。
+- 只有用户有权取消，入口是唯一的 HTTP server 入口（总 Idea [P-7](./workspace-network-task-process-architecture.md#p-7-进程控制操作的授权主体)）。客户端断开时 server 路由发起的取消（2.4）也经这一入口。
+- 分析：系统停机时，asyncio task 在任何阶段都会被取消，这不属于外部取消请求；进程容器在这条路径上仍要释放工作集中的资源（AGENTS.md 对 `CancelledError` 传播与资源释放的要求）。
+
 ### Q-16 进程标识与交互标识
 
 **背景**：现有注册表以 `interaction_id` 为键，`generation_id` 只是它的兼容投影（2.1）；命令进程不产生交互记录（1.2）。
@@ -486,6 +503,18 @@ stateDiagram-v2
 | B | 继续以 `interaction_id` 作为进程标识，命令进程同样分配 | 不产生交互记录的进程也持有交互标识 |
 | C | 其他 | —— |
 
+**owner 决定（2026-09-28）**：删除现有的 `interaction_id` 与 `generation_id` 作为进程标识的用法，改用 `process_id` 作为任意任务进程的唯一标识，向下兼容 `interaction_id` 原先的位置。
+
+- 前后端与 server 契约不再使用 `generation_id`，也不设原拟的 `active_request_id`，统一使用 `process_id`；
+- `interaction_id` 这个名字无所谓：`InteractionPayload` 单独保留这一字段名，但始终赋 `process_id` 的值。
+
+影响（分析）：
+
+- 前端契约：SSE 首个事件 `generation_id`、停止请求体、done 事件与 RuntimeEvent 中的 `generation_id` / `interaction_id` 字段、内核终端按 `generation_id` 分组，都改用 `process_id`；
+- Qdrant 中的持久数据不保存 `interaction_id`（交互 Artifact 以 `turn_id` 与 `block_id` 记录），其余用法都在进程内：注册表、交互提交队列与 apply journal、perception、`AgentRunContext`、附件绑定的 `first_bound_interaction_id`。改名不需要数据迁移；
+- 一个进程最多提交一次交互（Q-14），`process_id` 可以直接作为交互提交的幂等键；
+- plugin 模式不建进程，它提交的 `InteractionPayload` 中 `interaction_id` 如何取值，在 plugin 模式设计时处理。
+
 ## 5. 相关问题（位于其他文档）
 
 | 问题 | 位置 | 与本文的关系 |
@@ -493,7 +522,7 @@ stateDiagram-v2
 | P-4 进程级权限收窄与创建进程的授权 | 总 Idea [第三部分](./workspace-network-task-process-architecture.md#p-4-进程级权限收窄与创建进程的授权) | P-4b 已决定：不开放创建任务进程，只有两种请求方式（总 Idea 15.4）；P-4a 仍待决 |
 | P-5 CALL 与触发器的认证 | 同上 | P-5a 与 Q-10、P-5b/c 与 Q-6 相关；P-5b 仍待决，被动请求只存在于 controller 模式 |
 | P-6 进程绑定 context 的失效时点 | 同上 | 已决定：context 与进程完全绑定，随进程关闭失效（总 Idea 15.4） |
-| P-7 进程控制操作的授权主体 | 同上 | 与 Q-3 相关 |
+| P-7 进程控制操作的授权主体 | 同上 | 取消已决定：只有用户经 HTTP server 入口取消（Q-15、总 Idea 15.4） |
 | P-9d 进程的定义 | 同上 | 管理员直接通道（方案 C）与前提第 3 条的关系 |
 | P-2、P-10 Agent Profile 的权限 | 同上 | 已决定：Profile 的两个 allow 字段演变为能力层的 operation 控制（总 Idea 15.4、本文 1.2） |
 | P-1 经网络接入的 Actor 如何证明身份 | 同上 | 与 Q-8 相关；P-1a 已决定：每次请求重新校验身份（总 Idea 15.3） |
@@ -506,12 +535,8 @@ stateDiagram-v2
 ## 6. 形成 Plan 的条件
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
-- 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A）；P-2、P-4b、P-6、P-10（总 Idea 15.4）；
+- 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；
 - 仍影响首个 Plan 范围与接口的问题：
-  - 结算阶段：交互记录的 CPU 中立形态，以及取消或失败时是否提交交互记录（Q-14）；
   - 前端：`topic_info` 事件与“当前 Topic”概念的重新设计（1.2）；
-  - 进程容器：Q-15（取消策略的声明方式）、Q-16（进程标识）；
-  - 代码归属：D-9（进程表与四阶段骨架所在的包，总 Idea 第 10 节）；
-- 形成 Plan 前重新调查 workspace 包的现有实现（总 Idea 6.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。

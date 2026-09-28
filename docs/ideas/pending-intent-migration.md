@@ -43,6 +43,8 @@ PendingAtom 解决的是所有 Actor 共有的资源问题：Actor 明确提出 
 
 PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完全解耦。这与 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md) 一致：记忆库不持有写入意图的登记，写入意图经物化过线，结算回流时注销。
 
+**代码位置**：写入意图登记位于 workspace 的共享设施子包；Alice 的 alias resolver 与缓存迁移到 workspace 的读取视图（[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9，2026-09-28）。
+
 **与任务进程解耦**：写入意图的生命周期与任务进程完全解耦；生成与结算由 Patchouli 的 memory generation controller 单独管理（[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-1）。
 
 **实时提交**：主动写入意图的提交是 workspace 能力层的一个方法，可以实时响应 Actor 的请求，不必等到一轮对话结束（operation 目录中已有 `memory_intent.submit`）。
