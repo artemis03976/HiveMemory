@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import (
@@ -52,6 +51,7 @@ from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
@@ -99,7 +99,7 @@ class _SubsystemBundle:
 
 @dataclass
 class _ServicesBundle:
-    chat: ChatApplicationService
+    process: TaskProcessService
     ingress: PassiveIngressService
     memory: MemoryApplicationService
     memory_task: MemoryTaskApplicationService
@@ -355,7 +355,7 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
-        chat = ChatApplicationService(
+        process = TaskProcessService(
             global_bus=runtime.global_bus,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
             runtime_events=runtime.event_sink.scoped(
@@ -408,7 +408,7 @@ class SystemAssembler:
         )
 
         return _ServicesBundle(
-            chat=chat,
+            process=process,
             ingress=ingress,
             memory=memory,
             memory_task=memory_task,

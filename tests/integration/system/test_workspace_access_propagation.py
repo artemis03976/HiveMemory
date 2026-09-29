@@ -1,4 +1,4 @@
-"""Chat application 经共享总线并发传播 IdentityScope 的集成测试。"""
+"""任务进程编排（chat）经共享总线并发传播 IdentityScope 的集成测试。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import asyncio
 
 import pytest
 
-from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceMismatchError
@@ -24,6 +23,7 @@ from hivememory.core.protocol.models import (
     RetrievalResponse,
 )
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
+from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -63,7 +63,7 @@ def _prepared(identity_scope) -> PreparedAgentRun:
 async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_service() -> None:
     """防止共享 Chat/Gateway/Patchouli 单例保存并覆盖 current workspace。"""
     bus = GlobalSystemBus()
-    service = ChatApplicationService(bus)
+    service = TaskProcessService(bus)
     both_gateway_calls_started = asyncio.Event()
     release_gateway = asyncio.Event()
     gateway_contexts = []
@@ -178,7 +178,7 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     with pytest.raises(WorkspaceMismatchError, match="身份作用域不一致"):
-        await ChatApplicationService(bus).chat_scoped(
+        await TaskProcessService(bus).chat_scoped(
             "question",
             identity_scope=requested,
             interaction_id="generation-drifted",
@@ -191,7 +191,7 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
 async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     """捕获共享 Chat registry 以裸 generation_id 取消异域运行的缺陷。"""
     bus = GlobalSystemBus()
-    service = ChatApplicationService(bus)
+    service = TaskProcessService(bus)
     both_gateway_calls_started = asyncio.Event()
     release_gateway = asyncio.Event()
     gateway_calls = 0

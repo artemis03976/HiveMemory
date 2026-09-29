@@ -106,7 +106,7 @@ def scheduler():
 def system_factory(mock_patchouli, global_bus, scheduler):
     def _build(**kwargs):
         ingress_service = kwargs.pop("ingress_service", MagicMock())
-        chat_service = kwargs.pop("chat_service", MagicMock())
+        process_service = kwargs.pop("process_service", MagicMock())
         memory_service = kwargs.pop("memory_service", MagicMock())
         memory_task_service = kwargs.pop("memory_task_service", MagicMock())
         agent_service = kwargs.pop("agent_service", MagicMock())
@@ -144,7 +144,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             alice=alice,
         )
         services = _ServicesBundle(
-            chat=chat_service,
+            process=process_service,
             ingress=ingress_service,
             memory=memory_service,
             memory_task=memory_task_service,

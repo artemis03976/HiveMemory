@@ -11,18 +11,18 @@ import inspect
 
 import pytest
 
-from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 
 _APPLICATION_SERVICES = (
     AgentApplicationService,
-    ChatApplicationService,
+    TaskProcessService,
     MemoryApplicationService,
     PassiveIngressService,
     TopicApplicationService,
@@ -67,7 +67,7 @@ class TestChatScopedIdentityGuard:
     async def test_chat_scoped_rejects_system_actor(self):
         from unittest.mock import AsyncMock
 
-        service = ChatApplicationService(global_bus=AsyncMock())
+        service = TaskProcessService(global_bus=AsyncMock())
 
         with pytest.raises(WorkspaceDomainError):
             await service.chat_scoped(
@@ -80,7 +80,7 @@ class TestChatScopedIdentityGuard:
     async def test_chat_stream_scoped_rejects_system_actor(self):
         from unittest.mock import AsyncMock
 
-        service = ChatApplicationService(global_bus=AsyncMock())
+        service = TaskProcessService(global_bus=AsyncMock())
 
         with pytest.raises(WorkspaceDomainError):
             async for _ in service.chat_stream_scoped(
@@ -98,7 +98,7 @@ class TestCancelUsesFrozenScope:
     def _make_service():
         from unittest.mock import AsyncMock
 
-        return ChatApplicationService(global_bus=AsyncMock())
+        return TaskProcessService(global_bus=AsyncMock())
 
     @pytest.mark.asyncio
     async def test_cancel_across_users_returns_not_found(self):

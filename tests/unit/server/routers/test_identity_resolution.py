@@ -104,7 +104,7 @@ class TestResolveRequestIdentityScope:
 def _create_chat_app(mock_service) -> FastAPI:
     app = FastAPI()
     app.include_router(chat_router, prefix="/api/v1")
-    app.dependency_overrides[deps.get_chat_service] = lambda: mock_service
+    app.dependency_overrides[deps.get_process_service] = lambda: mock_service
     return app
 
 

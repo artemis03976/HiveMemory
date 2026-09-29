@@ -216,7 +216,7 @@ def _build_system(
         event_publisher=RuntimeEventPublisher(sink),
     )
     services = _ServicesBundle(
-        chat=object(),  # type: ignore[arg-type]
+        process=object(),  # type: ignore[arg-type]
         ingress=_Ingress(calls),  # type: ignore[arg-type]
         memory=object(),  # type: ignore[arg-type]
         memory_task=object(),  # type: ignore[arg-type]
@@ -399,7 +399,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         event_publisher=RuntimeEventPublisher(sink),
     )
     services = _ServicesBundle(
-        chat=object(),  # type: ignore[arg-type]
+        process=object(),  # type: ignore[arg-type]
         ingress=_Ingress(calls),  # type: ignore[arg-type]
         memory=object(),  # type: ignore[arg-type]
         memory_task=object(),  # type: ignore[arg-type]

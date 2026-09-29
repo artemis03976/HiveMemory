@@ -1,15 +1,9 @@
 """
-ChatApplicationService — chat 任务类型的执行编排 (Phase D / v0.4.0)
+TaskProcessService — chat 任务进程的注册入口与四阶段编排骨架
 
-位于 Alice：它编排 Gateway 分析 → Patchouli prepare → Alice run → finalize，
-是 chat 这一任务类型的执行步骤；与 chat run 注册表（``chat_control``）一起
-暂置于此，待任务进程注册入口落地后再确定最终归属。
-
-v0.4.0 Phase 1 变更：
-    - _generation_events dict 替换为 RuntimeControlRegistry
-    - cancel_generation() 返回结构化 CancelResult
-    - 取消后默认跳过主动生成提交（通过 loop_result.status 传递）
-    - done 事件携带 status/reason/stopped 稳定字段
+位于 workspace：登记任务进程并编排 Gateway 分析 → Patchouli prepare →
+Alice run → finalize 四个阶段，与进程表（``workspace.process.table``）
+协作 stop 控制面；对子系统的一切调用都经全局总线的公开路由完成。
 """
 
 from __future__ import annotations
@@ -20,14 +14,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from hivememory.alice.application.chat_control import (
-    CancelResult,
-    ChatGenerationRun,
-    ChatGenerationRunRegistry,
-    ChatRunOutcome,
-    ChatRunPhase,
-    ChatRunStatusSnapshot,
-)
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
@@ -55,32 +41,40 @@ from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
 )
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
+from hivememory.workspace.process.table import (
+    CancelResult,
+    ProcessOutcome,
+    ProcessPhase,
+    ProcessRecord,
+    ProcessStatusSnapshot,
+    ProcessTable,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class _ChatRunCancelled(Exception):  # noqa: N818 - 设计要求使用私有领域分支名
-    """Chat application 内部的用户 stop 分支。"""
+class _ProcessCancelled(Exception):  # noqa: N818 - 设计要求使用私有领域分支名
+    """进程编排内部的用户 stop 分支。"""
 
-    def __init__(self, phase: ChatRunPhase, reason: str) -> None:
+    def __init__(self, phase: ProcessPhase, reason: str) -> None:
         super().__init__(f"{phase.value} cancelled: {reason}")
         self.phase = phase
         self.reason = reason
 
 
 async def _run_interruptible(
-    control: ChatGenerationRun,
-    phase: ChatRunPhase,
+    control: ProcessRecord,
+    phase: ProcessPhase,
     operation_factory: Callable[[], Awaitable[Any]],
 ) -> Any:
-    """用 Chat application 自有 child task 包装一个可中断阶段。"""
+    """用进程编排自有 child task 包装一个可中断阶段。"""
     owner_task = asyncio.current_task()
     if owner_task is None:
         raise RuntimeError("_run_interruptible 必须运行在 asyncio task 中")
     entry_cancelling = owner_task.cancelling()
 
-    if control.outcome is ChatRunOutcome.STOP_REQUESTED:
-        raise _ChatRunCancelled(phase, control.stop_reason or "user_requested")
+    if control.outcome is ProcessOutcome.STOP_REQUESTED:
+        raise _ProcessCancelled(phase, control.stop_reason or "user_requested")
 
     async def invoke() -> Any:
         return await operation_factory()
@@ -89,8 +83,8 @@ async def _run_interruptible(
     control.bind_phase(phase, task)
     try:
         result = await task
-        if control.outcome is ChatRunOutcome.STOP_REQUESTED:
-            raise _ChatRunCancelled(
+        if control.outcome is ProcessOutcome.STOP_REQUESTED:
+            raise _ProcessCancelled(
                 phase,
                 control.stop_reason or "user_requested",
             )
@@ -98,8 +92,8 @@ async def _run_interruptible(
     except asyncio.CancelledError:
         if owner_task.cancelling() > entry_cancelling:
             raise
-        if control.outcome is ChatRunOutcome.STOP_REQUESTED and control.active_task is task:
-            raise _ChatRunCancelled(
+        if control.outcome is ProcessOutcome.STOP_REQUESTED and control.active_task is task:
+            raise _ProcessCancelled(
                 phase,
                 control.stop_reason or "user_requested",
             ) from None
@@ -112,11 +106,11 @@ def _require_prepared_scope(
     prepared: Any,
     identity_scope: IdentityScope,
 ) -> None:
-    """拒绝 prepare 返回与 control registry 不一致的请求级 scope。"""
+    """拒绝 prepare 返回与进程表不一致的请求级 scope。"""
     prepared_scope = getattr(prepared, "identity_scope", None)
     if not isinstance(prepared_scope, IdentityScope) or prepared_scope != identity_scope:
         raise WorkspaceMismatchError(
-            "PreparedAgentRun 与 ChatGenerationRun 的身份作用域不一致",
+            "PreparedAgentRun 与进程记录的身份作用域不一致",
             details={
                 "requested_workspace": identity_scope.workspace_identity.workspace_id,
                 "prepared_workspace": (
@@ -147,12 +141,13 @@ class NonStreamingChatAgentOutcome:
 type NonStreamingChatResult = (NonStreamingChatCommandOutcome | NonStreamingChatAgentOutcome)
 
 
-class ChatApplicationService:
-    """顶层聊天应用服务 — 纯总线编排，不直接持有任何子系统引用。
+class TaskProcessService:
+    """任务进程服务 — chat 任务类型的注册入口与四阶段编排骨架。
 
-    身份入口约定（v0.6.2 收敛）：本服务只接受调用方在 server 边界冻结的
-    ``IdentityScope``，不再解析裸 ``user_id``。Chat 是 Agent action，必须
-    由具体 Agent 执行；actor 为保留 ``system`` 值的 scope 会在入口被拒绝。
+    纯总线编排，不直接持有任何子系统引用。身份入口约定（v0.6.2 收敛）：
+    本服务只接受调用方在 server 边界冻结的 ``IdentityScope``，不再解析裸
+    ``user_id``。Chat 是 Agent action，必须由具体 Agent 执行；actor 为保留
+    ``system`` 值的 scope 会在入口被拒绝。
     """
 
     def __init__(
@@ -162,7 +157,7 @@ class ChatApplicationService:
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
         self._bus = global_bus
-        self._registry = ChatGenerationRunRegistry()
+        self._registry = ProcessTable()
         self._events = runtime_events or NullRuntimeEventSink()
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
@@ -189,7 +184,7 @@ class ChatApplicationService:
         agent_id = identity.agent_id
         trace_id = generate_trace_id("chat")
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
-        run = ChatGenerationRun(
+        run = ProcessRecord(
             identity_scope=identity_scope,
             interaction_id=interaction_id,
         )
@@ -203,11 +198,11 @@ class ChatApplicationService:
                 trace_id=trace_id,
                 agent_id=agent_id,
             )
-            run.enter_phase(ChatRunPhase.GATEWAY)
+            run.enter_phase(ProcessPhase.GATEWAY)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             gateway_result = await _run_interruptible(
                 run,
-                ChatRunPhase.GATEWAY,
+                ProcessPhase.GATEWAY,
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
@@ -229,12 +224,12 @@ class ChatApplicationService:
                     command_execution_result=(gateway_result.command_execution_result)
                 )
 
-            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
-                raise _ChatRunCancelled(
-                    ChatRunPhase.PREPARE,
+            if run.outcome is ProcessOutcome.STOP_REQUESTED:
+                raise _ProcessCancelled(
+                    ProcessPhase.PREPARE,
                     run.stop_reason or "user_requested",
                 )
-            run.enter_phase(ChatRunPhase.PREPARE)
+            run.enter_phase(ProcessPhase.PREPARE)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -247,17 +242,17 @@ class ChatApplicationService:
             )
             _require_prepared_scope(prepared, identity_scope)
 
-            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
-                raise _ChatRunCancelled(
-                    ChatRunPhase.PREPARE,
+            if run.outcome is ProcessOutcome.STOP_REQUESTED:
+                raise _ProcessCancelled(
+                    ProcessPhase.PREPARE,
                     run.stop_reason or "user_requested",
                 )
 
-            run.enter_phase(ChatRunPhase.ALICE)
+            run.enter_phase(ProcessPhase.ALICE)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             loop_result: AgentRunResult = await _run_interruptible(
                 run,
-                ChatRunPhase.ALICE,
+                ProcessPhase.ALICE,
                 lambda: self._bus.request(
                     GlobalRoutes.ALICE_RUN_AGENT,
                     agent_run_context=prepared.agent_run_context,
@@ -291,7 +286,7 @@ class ChatApplicationService:
                 return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
 
             if not run.try_enter_finalizing():
-                raise _ChatRunCancelled(
+                raise _ProcessCancelled(
                     run.phase,
                     run.stop_reason or "user_requested",
                 )
@@ -317,7 +312,7 @@ class ChatApplicationService:
                 topic_id=prepared.topic_id,
             )
             return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
-        except _ChatRunCancelled as cancelled:
+        except _ProcessCancelled as cancelled:
             run.mark_cancelled()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_CANCELLED,
@@ -338,7 +333,7 @@ class ChatApplicationService:
                 topic_id=prepared.topic_id if prepared is not None else None,
                 severity="error",
             )
-            logger.exception("ChatApplicationService.chat 异常")
+            logger.exception("TaskProcessService.chat 异常")
             raise
         finally:
             if prepared is not None and not prepared_finalized:
@@ -380,7 +375,7 @@ class ChatApplicationService:
         identity = identity_scope.actor_identity
         self._reject_system_actor(identity.agent_id)
         agent_id = identity.agent_id
-        run = ChatGenerationRun(
+        run = ProcessRecord(
             identity_scope=identity_scope,
             interaction_id=interaction_id,
         )
@@ -402,11 +397,11 @@ class ChatApplicationService:
             )
             yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
 
-            run.enter_phase(ChatRunPhase.GATEWAY)
+            run.enter_phase(ProcessPhase.GATEWAY)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
             gateway_result = await _run_interruptible(
                 run,
-                ChatRunPhase.GATEWAY,
+                ProcessPhase.GATEWAY,
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=user_message,
@@ -434,12 +429,12 @@ class ChatApplicationService:
                 yield self._command_done(run, command_result)
                 return
 
-            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
-                raise _ChatRunCancelled(
-                    ChatRunPhase.PREPARE,
+            if run.outcome is ProcessOutcome.STOP_REQUESTED:
+                raise _ProcessCancelled(
+                    ProcessPhase.PREPARE,
                     run.stop_reason or "user_requested",
                 )
-            run.enter_phase(ChatRunPhase.PREPARE)
+            run.enter_phase(ProcessPhase.PREPARE)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -452,9 +447,9 @@ class ChatApplicationService:
             )
             _require_prepared_scope(prepared, identity_scope)
 
-            if run.outcome is ChatRunOutcome.STOP_REQUESTED:
-                raise _ChatRunCancelled(
-                    ChatRunPhase.PREPARE,
+            if run.outcome is ProcessOutcome.STOP_REQUESTED:
+                raise _ProcessCancelled(
+                    ProcessPhase.PREPARE,
                     run.stop_reason or "user_requested",
                 )
 
@@ -469,7 +464,7 @@ class ChatApplicationService:
             }
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
 
-            run.enter_phase(ChatRunPhase.ALICE)
+            run.enter_phase(ProcessPhase.ALICE)
             self._emit_chat_status(
                 run,
                 trace_id=trace_id,
@@ -479,7 +474,7 @@ class ChatApplicationService:
             loop_result = None
             stream = await _run_interruptible(
                 run,
-                ChatRunPhase.ALICE,
+                ProcessPhase.ALICE,
                 lambda: self._bus.request(
                     GlobalRoutes.ALICE_RUN_AGENT_STREAM,
                     agent_run_context=prepared.agent_run_context,
@@ -491,7 +486,7 @@ class ChatApplicationService:
                 try:
                     event = await _run_interruptible(
                         run,
-                        ChatRunPhase.ALICE,
+                        ProcessPhase.ALICE,
                         lambda: anext(stream),
                     )
                 except StopAsyncIteration:
@@ -531,7 +526,7 @@ class ChatApplicationService:
                 return
 
             if not run.try_enter_finalizing():
-                raise _ChatRunCancelled(
+                raise _ProcessCancelled(
                     run.phase,
                     run.stop_reason or "user_requested",
                 )
@@ -581,7 +576,7 @@ class ChatApplicationService:
                 },
             }
 
-        except _ChatRunCancelled as cancelled:
+        except _ProcessCancelled as cancelled:
             run.mark_cancelled()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_CANCELLED,
@@ -614,7 +609,7 @@ class ChatApplicationService:
                 "data": {"message": str(exc), "code": exc.code},
             }
         except Exception as e:
-            logger.error(f"ChatApplicationService.chat_stream 异常: {e}", exc_info=True)
+            logger.error(f"TaskProcessService.chat_stream 异常: {e}", exc_info=True)
             run.mark_failed()
             self._emit_chat_event(
                 RuntimeEventType.CHAT_RUN_FAILED,
@@ -631,7 +626,7 @@ class ChatApplicationService:
             # 分支：客户端断开或生成器被提前关闭，且此前没有 completed/cancelled/failed 终态。
             owner_is_cancelling = owner_task is not None and owner_task.cancelling() > 0
             if terminal_state is None and not owner_is_cancelling:
-                if run.outcome is ChatRunOutcome.RUNNING:
+                if run.outcome is ProcessOutcome.RUNNING:
                     run.request_stop("stream_closed")
                 run.mark_cancelled()
                 self._emit_chat_event(
@@ -665,7 +660,7 @@ class ChatApplicationService:
             if tokens is not None:
                 reset_trace_context(tokens)
 
-    # ========== Generation 控制 ==========
+    # ========== 进程控制 ==========
 
     def cancel_generation_scoped(
         self,
@@ -676,9 +671,9 @@ class ChatApplicationService:
     ) -> CancelResult:
         """幂等取消入口：请求方 scope 只做 owner/workspace 校验。
 
-        取消与事件发布一律使用 generation 创建时冻结在 registry 里的原始
-        scope；请求方当前选择（尤其是 agent 维度）不得重新构造出可能不同
-        的身份坐标，因此跨 user/workspace 的取消只会得到 ``not_found``。
+        取消与事件发布一律使用进程创建时冻结在进程表里的原始 scope；
+        请求方当前选择（尤其是 agent 维度）不得重新构造出可能不同的身份
+        坐标，因此跨 user/workspace 的取消只会得到 ``not_found``。
         """
         identity_scope = require_identity_scope(identity_scope)
         result = self._registry.cancel(
@@ -687,7 +682,7 @@ class ChatApplicationService:
             reason=reason,
         )
         run = self._registry.get(generation_id, identity_scope)
-        # 事件承载 run 创建时冻结的身份坐标；请求方 scope 仅用于上面的校验。
+        # 事件承载进程创建时冻结的身份坐标；请求方 scope 仅用于上面的校验。
         frozen_scope = run.identity_scope if run is not None else identity_scope
         self._events.emit(
             RuntimeEvent(
@@ -709,8 +704,8 @@ class ChatApplicationService:
         generation_id: str,
         *,
         identity_scope: IdentityScope,
-    ) -> ChatRunStatusSnapshot | None:
-        """返回 scoped Chat 状态；错误 scope 与不存在统一为 ``None``。"""
+    ) -> ProcessStatusSnapshot | None:
+        """返回 scoped 进程状态；错误 scope 与不存在统一为 ``None``。"""
         return self._registry.status(
             generation_id,
             require_identity_scope(identity_scope),
@@ -729,7 +724,7 @@ class ChatApplicationService:
 
     @staticmethod
     def _cancelled_done(
-        run: ChatGenerationRun,
+        run: ProcessRecord,
         loop_result: AgentRunResult | None = None,
     ) -> dict[str, Any]:
         base = loop_result.model_dump() if loop_result is not None else {}
@@ -747,7 +742,7 @@ class ChatApplicationService:
 
     @staticmethod
     def _failed_done(
-        run: ChatGenerationRun,
+        run: ProcessRecord,
         loop_result: AgentRunResult,
     ) -> dict[str, Any]:
         return {
@@ -772,7 +767,7 @@ class ChatApplicationService:
 
     @staticmethod
     def _command_done(
-        run: ChatGenerationRun,
+        run: ProcessRecord,
         command_result: CommandExecutionResult,
     ) -> dict[str, Any]:
         return {
@@ -792,7 +787,7 @@ class ChatApplicationService:
 
     def _emit_chat_status(
         self,
-        run: ChatGenerationRun,
+        run: ProcessRecord,
         *,
         trace_id: str | None = None,
         agent_id: str | None = None,
@@ -809,7 +804,7 @@ class ChatApplicationService:
     def _emit_chat_event(
         self,
         event_type: RuntimeEventType,
-        run: ChatGenerationRun,
+        run: ProcessRecord,
         *,
         trace_id: str | None = None,
         agent_id: str | None = None,
@@ -837,16 +832,16 @@ class ChatApplicationService:
         )
 
     @staticmethod
-    def _event_status(run: ChatGenerationRun) -> str:
-        if run.outcome is not ChatRunOutcome.RUNNING:
+    def _event_status(run: ProcessRecord) -> str:
+        if run.outcome is not ProcessOutcome.RUNNING:
             return run.outcome.value
         return {
-            ChatRunPhase.CREATED: "created",
-            ChatRunPhase.GATEWAY: "preparing",
-            ChatRunPhase.PREPARE: "preparing",
-            ChatRunPhase.ALICE: "streaming",
-            ChatRunPhase.FINALIZE: "finalizing",
-            ChatRunPhase.TERMINAL: "terminal",
+            ProcessPhase.CREATED: "created",
+            ProcessPhase.GATEWAY: "preparing",
+            ProcessPhase.PREPARE: "preparing",
+            ProcessPhase.ALICE: "streaming",
+            ProcessPhase.FINALIZE: "finalizing",
+            ProcessPhase.TERMINAL: "terminal",
         }[run.phase]
 
     async def _list_final_pool_topics(self, prepared_run) -> list[dict[str, Any]]:
@@ -863,8 +858,8 @@ class ChatApplicationService:
 
 
 __all__ = [
-    "ChatApplicationService",
     "NonStreamingChatAgentOutcome",
     "NonStreamingChatCommandOutcome",
     "NonStreamingChatResult",
+    "TaskProcessService",
 ]

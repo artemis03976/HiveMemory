@@ -52,10 +52,10 @@ def system(mock_patchouli):
     gateway.start = AsyncMock()
     gateway.stop = AsyncMock()
     gateway.health = AsyncMock(return_value={"status": "ok"})
-    chat_service = MagicMock()
-    chat_service.chat = AsyncMock(return_value="result")
-    chat_service.chat_stream = MagicMock()
-    chat_service.cancel_generation = MagicMock(return_value=True)
+    process_service = MagicMock()
+    process_service.chat = AsyncMock(return_value="result")
+    process_service.chat_stream = MagicMock()
+    process_service.cancel_generation = MagicMock(return_value=True)
     ingress_service = MagicMock()
     ingress_service.start = AsyncMock()
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
@@ -88,7 +88,7 @@ def system(mock_patchouli):
         alice=alice,
     )
     services = _ServicesBundle(
-        chat=chat_service,
+        process=process_service,
         ingress=ingress_service,
         memory=memory_service,
         memory_task=memory_task_service,

@@ -129,7 +129,7 @@ async def _collect_stream_events(
     agent_id: str = "omni_doll",
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.chat_service.chat_stream_scoped(
+    async for event in system.process_service.chat_stream_scoped(
         user_message=user_message,
         identity_scope=build_internal_identity_scope(
             ActorIdentity(user_id=user_id, agent_id=agent_id),

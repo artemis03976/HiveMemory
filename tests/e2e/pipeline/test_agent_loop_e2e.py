@@ -8,7 +8,7 @@
 - 多轮迭代：连续工具调用保持上下文
 - 错误恢复：工具异常不影响循环收敛
 
-入口: e2e_system.chat_service.chat()
+入口: e2e_system.process_service.chat_scoped()
 标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
 """
 
@@ -16,15 +16,15 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.alice.application.chat_service import NonStreamingChatAgentOutcome
 from hivememory.core.models import ActorIdentity, build_internal_identity_scope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
+from hivememory.workspace.process.service import NonStreamingChatAgentOutcome
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
 
 async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
-    result = await e2e_system.chat_service.chat_scoped(
+    result = await e2e_system.process_service.chat_scoped(
         user_message=prompt,
         identity_scope=build_internal_identity_scope(
             ActorIdentity(user_id=user_id, agent_id="omni_doll"),

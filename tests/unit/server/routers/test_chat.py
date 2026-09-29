@@ -28,7 +28,7 @@ def _create_test_app(mock_service):
 
     from hivememory.server import deps
 
-    app.dependency_overrides[deps.get_chat_service] = lambda: mock_service
+    app.dependency_overrides[deps.get_process_service] = lambda: mock_service
 
     return app
 

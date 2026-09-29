@@ -25,7 +25,6 @@ from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 
 if TYPE_CHECKING:
-    from hivememory.alice.application.chat_service import ChatApplicationService
     from hivememory.gateway import GatewaySystem
     from hivememory.system.application.passive_ingress_service import PassiveIngressService
     from hivememory.system.application.readiness_service import SystemReadinessService
@@ -34,6 +33,7 @@ if TYPE_CHECKING:
     from hivememory.workspace.capability.memory import MemoryApplicationService
     from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
     from hivememory.workspace.capability.topic import TopicApplicationService
+    from hivememory.workspace.process.service import TaskProcessService
     from hivememory.workspace.runtime import WorkspaceRuntime
 
 
@@ -70,7 +70,7 @@ class HiveMemorySystem:
         self._alice = subsystems.alice
 
         # 应用服务
-        self._chat_service = services.chat
+        self._process_service = services.process
         self._ingress_service = services.ingress
         self._memory_service = services.memory
         self._memory_task_service = services.memory_task
@@ -351,8 +351,8 @@ class HiveMemorySystem:
     # ========== 应用服务入口 ==========
 
     @property
-    def chat_service(self) -> ChatApplicationService:
-        return self._chat_service
+    def process_service(self) -> TaskProcessService:
+        return self._process_service
 
     @property
     def ingress_service(self) -> PassiveIngressService:

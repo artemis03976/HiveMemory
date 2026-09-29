@@ -1,6 +1,6 @@
 """Phase 1：cancel 契约加固的单元测试
 
-覆盖 RuntimeControlRegistry 幂等性、ChatApplicationService cancel 路径、
+覆盖 RuntimeControlRegistry 幂等性、TaskProcessService cancel 路径、
 AgentRunResult.status 终态传播。
 """
 
@@ -8,12 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.alice.application.chat_control import (
-    ChatGenerationRun,
-    ChatGenerationRunRegistry,
-    ChatRunOutcome,
-    ChatRunPhase,
-)
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -28,27 +22,34 @@ from hivememory.core.protocol.models import (
     AgentRunStatus,
 )
 from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
+from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.table import (
+    ProcessOutcome,
+    ProcessPhase,
+    ProcessRecord,
+    ProcessTable,
+)
 from tests.helpers.workspace import make_identity_scope
 
 # ─── RuntimeControlRegistry ─────────────────────────────────────────────────
 
 
-class TestChatGenerationRunRegistry:
+class TestProcessTable:
     def setup_method(self):
-        self.registry = ChatGenerationRunRegistry()
+        self.registry = ProcessTable()
 
     def test_cancel_records_stop_and_returns_result(self):
-        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-1")
+        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-1")
         self.registry.register(run)
 
         result = self.registry.cancel("gen-1", run.identity_scope)
 
         assert result.cancelled is True
-        assert result.status == ChatRunOutcome.STOP_REQUESTED.value
-        assert run.outcome is ChatRunOutcome.STOP_REQUESTED
+        assert result.status == ProcessOutcome.STOP_REQUESTED.value
+        assert run.outcome is ProcessOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
-        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-2")
+        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-2")
         self.registry.register(run)
 
         r1 = self.registry.cancel("gen-2", run.identity_scope)
@@ -64,20 +65,20 @@ class TestChatGenerationRunRegistry:
         assert result.status == "not_found"
 
     def test_close_removes_run(self):
-        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-3")
+        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-3")
         self.registry.register(run)
         self.registry.close(run)
         assert self.registry.get("gen-3", run.identity_scope) is None
 
     def test_run_stop_outcome(self):
-        run = ChatGenerationRun(identity_scope=make_identity_scope(), interaction_id="gen-4")
-        assert run.outcome is ChatRunOutcome.RUNNING
-        run.enter_phase(ChatRunPhase.ALICE)
+        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-4")
+        assert run.outcome is ProcessOutcome.RUNNING
+        run.enter_phase(ProcessPhase.ALICE)
         run.request_stop()
-        assert run.outcome is ChatRunOutcome.STOP_REQUESTED
+        assert run.outcome is ProcessOutcome.STOP_REQUESTED
 
 
-# ─── ChatApplicationService cancel 路径 ──────────────────────────────────────
+# ─── TaskProcessService cancel 路径 ──────────────────────────────────────────
 
 
 class TestChatServiceCancelPath:
@@ -135,9 +136,7 @@ class TestChatServiceCancelPath:
 
         bus.request = AsyncMock(side_effect=bus_request)
 
-        from hivememory.alice.application.chat_service import ChatApplicationService
-
-        service = ChatApplicationService(global_bus=bus)
+        service = TaskProcessService(global_bus=bus)
 
         events = []
         async for event in service.chat_stream_scoped(

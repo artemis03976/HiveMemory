@@ -149,17 +149,17 @@ def _decision_for_prepare():
 async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     """回归：总线 kwargs 名称必须与真实 prepare handler 签名一致。
 
-    ChatApplicationService 经 GlobalSystemBus 传递的 ``selected_attachments``
+    TaskProcessService 经 GlobalSystemBus 传递的 ``selected_attachments``
     必须被真实 ``PatchouliService.prepare_agent_run`` 接纳——此前因调用方
     传 ``attachments``、handler 收 ``selected_attachments`` 而在运行时 TypeError。
     """
     from unittest.mock import AsyncMock
 
-    from hivememory.alice.application.chat_service import ChatApplicationService
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.contracts.routes import GlobalRoutes
     from hivememory.core.protocol.gateway import GatewayDecisionOutcome
     from hivememory.core.protocol.models import AgentRunResult
+    from hivememory.workspace.process.service import TaskProcessService
 
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
@@ -196,7 +196,7 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
-    chat = ChatApplicationService(bus)
+    chat = TaskProcessService(bus)
     result = await chat.chat_scoped(
         "总结这份附件",
         identity_scope=scope,

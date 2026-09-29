@@ -45,7 +45,7 @@ __all__ = ["backing_scope", "required_scope", "verified_scope"]
 # | AgentProfileManagementService.create/list（管理）   | 管理入口 HTTP 链路                  | 同上 |
 # | AgentProfileManagementService.get_agent_profile     | Alice profile resolver、Patchouli prepare | 同上 |
 # | MemoryTaskManagementService get/wait/list/cancel 无 access 调用 | Patchouli 内部 finalize/wait 链路 | 同上 |
-# | TopicManagementService list/get/settle/evict        | Topic 管理 HTTP 链路；ChatApplicationService finalize 链的候选话题列表（裸 scope 消费 TOPIC_LIST_ACTIVE） | 同上 |
+# | TopicManagementService list/get/settle/evict        | Topic 管理 HTTP 链路；TaskProcessService finalize 链的候选话题列表（裸 scope 消费 TOPIC_LIST_ACTIVE） | 同上 |
 # | WorkspaceAssetApplicationService.upload_asset       | 附件上传 HTTP 链路                  | 同上 |
 # | PatchouliService prepare/finalize/cleanup_agent_run、record_memory_citation | 旧 Alice 迁移路径（协调计划兼容规则 4） | A6 逐项关闭旧职责 |
 # | ModelReadinessService warmup/ready                  | 系统运维入口（非 Actor 行为目录）   | 不在 Actor 行为目录内 |
