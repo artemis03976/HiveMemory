@@ -1,6 +1,6 @@
 """任务进程表 — 进程记录、进程内注册表与 stop API 控制面。
 
-进程表是 workspace 进程内共享设施：以 ``interaction_id`` 为稳定键登记
+进程表是 workspace 进程内共享设施：以 ``process_id`` 为唯一标识登记
 每个任务进程，只向同 owner/workspace 的控制请求暴露进程记录。
 """
 
@@ -50,7 +50,7 @@ class StopResult:
 class CancelResult:
     """Stop API 对外保持的结构化结果。"""
 
-    generation_id: str
+    process_id: str
     cancelled: bool
     status: str
     reason: str
@@ -60,7 +60,7 @@ class CancelResult:
 class ProcessStatusSnapshot:
     """通过 scoped control plane 暴露的任务进程状态。"""
 
-    generation_id: str
+    process_id: str
     phase: str
     status: str
     reason: str | None
@@ -70,21 +70,16 @@ class ProcessStatusSnapshot:
 class ProcessRecord:
     """一次任务进程的阶段引用与终态事实。
 
-    ``generation_id`` 只是 ``interaction_id`` 的只读兼容投影，进程内不再保存
-    第二份生成事实；进程表的稳定键即为 ``interaction_id``。
+    ``process_id`` 是任意任务进程的唯一标识（Q-16）：由 server 入口在进入
+    编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
     """
 
     identity_scope: IdentityScope
-    interaction_id: str
+    process_id: str
     phase: ProcessPhase = ProcessPhase.CREATED
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
-
-    @property
-    def generation_id(self) -> str:
-        """旧 Chat 控制 API 的兼容句柄，只读派生自 interaction_id。"""
-        return self.interaction_id
 
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
@@ -168,36 +163,36 @@ class ProcessTable:
 
     def register(self, run: ProcessRecord) -> None:
         require_identity_scope(run.identity_scope)
-        existing = self._runs.get(run.interaction_id)
+        existing = self._runs.get(run.process_id)
         if existing is not None:
             raise WorkspaceDomainError(
-                "interaction_id 已被注册，拒绝覆盖现有任务进程",
-                details={"interaction_id": run.interaction_id},
+                "process_id 已被注册，拒绝覆盖现有任务进程",
+                details={"process_id": run.process_id},
             )
-        self._runs[run.interaction_id] = run
+        self._runs[run.process_id] = run
 
     def get(
         self,
-        generation_id: str,
+        process_id: str,
         identity_scope: IdentityScope,
     ) -> ProcessRecord | None:
         """只向同 owner/workspace 的控制请求暴露进程记录。"""
         identity_scope = require_identity_scope(identity_scope)
-        run = self._runs.get(generation_id)
+        run = self._runs.get(process_id)
         if run is None or not self._same_resource_scope(run.identity_scope, identity_scope):
             return None
         return run
 
     def cancel(
         self,
-        generation_id: str,
+        process_id: str,
         identity_scope: IdentityScope,
         reason: str = "user_requested",
     ) -> CancelResult:
-        run = self.get(generation_id, identity_scope)
+        run = self.get(process_id, identity_scope)
         if run is None:
             return CancelResult(
-                generation_id=generation_id,
+                process_id=process_id,
                 cancelled=False,
                 status="not_found",
                 reason=reason,
@@ -205,7 +200,7 @@ class ProcessTable:
 
         result = run.request_stop(reason)
         return CancelResult(
-            generation_id=generation_id,
+            process_id=process_id,
             cancelled=result.accepted,
             status=run.outcome.value,
             reason=result.reason,
@@ -213,15 +208,15 @@ class ProcessTable:
 
     def status(
         self,
-        generation_id: str,
+        process_id: str,
         identity_scope: IdentityScope,
     ) -> ProcessStatusSnapshot | None:
         """查询 scoped 状态；跨 scope 与不存在统一返回 ``None``。"""
-        run = self.get(generation_id, identity_scope)
+        run = self.get(process_id, identity_scope)
         if run is None:
             return None
         return ProcessStatusSnapshot(
-            generation_id=run.generation_id,
+            process_id=run.process_id,
             phase=run.phase.value,
             status=run.outcome.value,
             reason=run.stop_reason,
@@ -229,8 +224,8 @@ class ProcessTable:
 
     def close(self, run: ProcessRecord) -> None:
         """移除已由进程编排记录终态的进程记录。"""
-        if self._runs.get(run.interaction_id) is run:
-            self._runs.pop(run.interaction_id, None)
+        if self._runs.get(run.process_id) is run:
+            self._runs.pop(run.process_id, None)
 
     @staticmethod
     def _same_resource_scope(

@@ -17,7 +17,7 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
     )
     events = emitter.for_run(
         agent_run_id="run-1",
-        generation_id="generation-1",
+        process_id="process-1",
         topic_id="topic-1",
         agent_id="agent-1",
         workspace_id="isolation_workspace",
@@ -38,8 +38,7 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
     assert all(event.subsystem == "alice" for event in sink.events)
     assert all(event.component == "agent_run_service" for event in sink.events)
     assert all(event.agent_run_id == "run-1" for event in sink.events)
-    assert all(event.generation_id == "generation-1" for event in sink.events)
-    assert all(event.interaction_id == "generation-1" for event in sink.events)
+    assert all(event.process_id == "process-1" for event in sink.events)
     assert all(event.workspace_id == "isolation_workspace" for event in sink.events)
     assert all(event.task_type == "foreground" for event in sink.events)
     assert sink.events[-1].data == {
@@ -53,7 +52,7 @@ def test_agent_run_event_emitter_records_stream_close_without_business_effects()
     sink = RecordingRuntimeEventSink()
     events = AgentRunEventEmitter(RuntimeEventPublisher(sink)).for_run(
         agent_run_id="run-1",
-        generation_id=None,
+        process_id=None,
         topic_id=None,
         agent_id=None,
     )

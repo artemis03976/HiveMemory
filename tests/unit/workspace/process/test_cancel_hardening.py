@@ -39,7 +39,7 @@ class TestProcessTable:
         self.registry = ProcessTable()
 
     def test_cancel_records_stop_and_returns_result(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-1")
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-1")
         self.registry.register(run)
 
         result = self.registry.cancel("gen-1", run.identity_scope)
@@ -49,7 +49,7 @@ class TestProcessTable:
         assert run.outcome is ProcessOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-2")
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-2")
         self.registry.register(run)
 
         r1 = self.registry.cancel("gen-2", run.identity_scope)
@@ -59,19 +59,19 @@ class TestProcessTable:
         assert r2.cancelled is True  # 重复 cancel 不报错
         assert r2.reason == r1.reason
 
-    def test_cancel_unknown_generation_id_returns_not_found(self):
+    def test_cancel_unknown_process_id_returns_not_found(self):
         result = self.registry.cancel("nonexistent", make_identity_scope())
         assert result.cancelled is False
         assert result.status == "not_found"
 
     def test_close_removes_run(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-3")
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-3")
         self.registry.register(run)
         self.registry.close(run)
         assert self.registry.get("gen-3", run.identity_scope) is None
 
     def test_run_stop_outcome(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), interaction_id="gen-4")
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-4")
         assert run.outcome is ProcessOutcome.RUNNING
         run.enter_phase(ProcessPhase.ALICE)
         run.request_stop()
@@ -142,7 +142,7 @@ class TestChatServiceCancelPath:
         async for event in service.chat_stream_scoped(
             user_message="hello",
             identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
-            interaction_id="interaction-cancel-1",
+            process_id="process-cancel-1",
         ):
             events.append(event)
 

@@ -73,7 +73,7 @@ class TestChatScopedIdentityGuard:
             await service.chat_scoped(
                 user_message="hello",
                 identity_scope=make_management_identity_scope(user_id="u1"),
-                interaction_id="interaction-system-1",
+                process_id="process-system-1",
             )
 
     @pytest.mark.asyncio
@@ -86,7 +86,7 @@ class TestChatScopedIdentityGuard:
             async for _ in service.chat_stream_scoped(
                 user_message="hello",
                 identity_scope=make_management_identity_scope(user_id="u1"),
-                interaction_id="interaction-system-2",
+                process_id="process-system-2",
             ):
                 pass
 
@@ -107,13 +107,13 @@ class TestCancelUsesFrozenScope:
         stream = service.chat_stream_scoped(
             user_message="hello",
             identity_scope=run_scope,
-            interaction_id="interaction-owner-1",
+            process_id="process-owner-1",
         )
-        # 消费 generation_id 事件后保持 run 存活
+        # 消费 process_id 事件后保持进程记录存活
         first = await stream.__anext__()
-        assert first["event"] == "generation_id"
+        assert first["event"] == "process_id"
 
-        result = service.cancel_generation_scoped(
+        result = service.cancel_process_scoped(
             "interaction-owner-1",
             identity_scope=make_identity_scope(user_id="other", agent_id="omni_doll"),
         )
@@ -131,7 +131,7 @@ class TestCancelUsesFrozenScope:
         stream = service.chat_stream_scoped(
             user_message="hello",
             identity_scope=run_scope,
-            interaction_id="interaction-owner-2",
+            process_id="process-owner-2",
         )
         await stream.__anext__()
 
@@ -139,7 +139,7 @@ class TestCancelUsesFrozenScope:
             run_scope.actor_identity,
             "isolation_workspace",
         )
-        result = service.cancel_generation_scoped(
+        result = service.cancel_process_scoped(
             "interaction-owner-2",
             identity_scope=other_workspace_scope,
         )
@@ -156,13 +156,13 @@ class TestCancelUsesFrozenScope:
         stream = service.chat_stream_scoped(
             user_message="hello",
             identity_scope=run_scope,
-            interaction_id="interaction-owner-3",
+            process_id="process-owner-3",
         )
         await stream.__anext__()
 
         # 请求方 scope 为管理语义（system actor），agent 维度与 run 不同也不影响校验
-        result = service.cancel_generation_scoped(
-            "interaction-owner-3",
+        result = service.cancel_process_scoped(
+            "process-owner-3",
             identity_scope=make_management_identity_scope(user_id="owner"),
         )
         assert result.cancelled is True

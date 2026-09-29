@@ -200,7 +200,7 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     result = await chat.chat_scoped(
         "总结这份附件",
         identity_scope=scope,
-        interaction_id="interaction-via-bus",
+        process_id="process-via-bus",
         attachments=[
             AttachmentSelectionRequest(
                 asset_ref=receipt.handle.asset_ref,

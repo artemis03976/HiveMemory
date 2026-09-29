@@ -87,7 +87,7 @@ def _runtime_for_frame(
         stream_adapter=AgentRunStreamAdapter(),
         agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
-    run_session = session or RunSession(agent_run_id="run-1", generation_id="generation-1")
+    run_session = session or RunSession(agent_run_id="run-1", process_id="process-1")
     service._create_run_session = MagicMock(return_value=run_session)
     return service, run_session
 

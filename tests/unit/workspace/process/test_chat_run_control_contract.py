@@ -18,10 +18,10 @@ from hivememory.workspace.process.table import (
 from tests.helpers.workspace import make_identity_scope
 
 
-def _run(generation_id: str) -> ProcessRecord:
+def _run(process_id: str) -> ProcessRecord:
     return ProcessRecord(
         identity_scope=make_identity_scope(),
-        interaction_id=generation_id,
+        process_id=process_id,
     )
 
 
@@ -105,7 +105,7 @@ def test_registry_not_found_and_terminal_results_are_stable() -> None:
     run.outcome = ProcessOutcome.FAILED
     registry.register(run)
 
-    terminal = registry.cancel(run.generation_id, run.identity_scope)
+    terminal = registry.cancel(run.process_id, run.identity_scope)
     assert terminal.cancelled is False
     assert terminal.reason == "already_terminal"
     assert run.outcome is ProcessOutcome.FAILED
@@ -142,7 +142,7 @@ async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled()
 
 
 def test_registry_hides_run_from_different_workspace_control_plane() -> None:
-    """防止仅凭 generation_id 跨 Workspace 查询或取消另一条 run。"""
+    """防止仅凭 process_id 跨 Workspace 查询或取消另一条进程记录。"""
     registry = ProcessTable()
     owner_context = make_identity_scope(
         user_id="u1",
@@ -156,27 +156,27 @@ def test_registry_hides_run_from_different_workspace_control_plane() -> None:
     )
     run = ProcessRecord(
         identity_scope=owner_context,
-        interaction_id="shared-generation-id",
+        process_id="shared-process-id",
     )
     registry.register(run)
 
-    assert registry.get(run.generation_id, other_context) is None
-    assert registry.status(run.generation_id, other_context) is None
-    rejected = registry.cancel(run.generation_id, other_context)
+    assert registry.get(run.process_id, other_context) is None
+    assert registry.status(run.process_id, other_context) is None
+    rejected = registry.cancel(run.process_id, other_context)
     assert rejected.status == "not_found"
     assert rejected.cancelled is False
     assert run.outcome is ProcessOutcome.RUNNING
 
 
-def test_registry_rejects_generation_id_collision_without_overwriting_owner() -> None:
-    """防止重复 generation_id 覆盖既有 scope 并把控制权转给后注册者。"""
+def test_registry_rejects_process_id_collision_without_overwriting_owner() -> None:
+    """防止重复 process_id 覆盖既有 scope 并把控制权转给后注册者。"""
     registry = ProcessTable()
     original = _run("collision")
     replacement = ProcessRecord(
         identity_scope=make_identity_scope(
             workspace_id="isolation_workspace",
         ),
-        interaction_id="collision",
+        process_id="collision",
     )
     registry.register(original)
 

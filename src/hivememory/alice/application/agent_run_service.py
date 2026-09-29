@@ -83,10 +83,10 @@ class AgentRunService:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        generation_id: str | None = None,
+        process_id: str | None = None,
     ) -> AgentRunResult:
         session = self._create_run_session(
-            generation_id=generation_id,
+            process_id=process_id,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -131,10 +131,10 @@ class AgentRunService:
         self,
         agent_run_context: AgentRunContext,
         generation_options: dict[str, Any] | None = None,
-        generation_id: str | None = None,
+        process_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         session = self._create_run_session(
-            generation_id=generation_id,
+            process_id=process_id,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -306,11 +306,11 @@ class AgentRunService:
     @staticmethod
     def _create_run_session(
         *,
-        generation_id: str | None,
+        process_id: str | None,
     ) -> RunSession:
         return RunSession(
             agent_run_id=f"agent_run_{uuid.uuid4().hex}",
-            generation_id=generation_id,
+            process_id=process_id,
         )
 
     @staticmethod
@@ -332,7 +332,7 @@ class AgentRunService:
     ) -> BoundAgentRunEvents:
         return self._agent_run_events.for_run(
             agent_run_id=session.agent_run_id,
-            generation_id=session.generation_id,
+            process_id=session.process_id,
             topic_id=agent_run_context.topic_id,
             agent_id=agent_run_context.identity_scope.actor_identity.agent_id,
             workspace_id=agent_run_context.identity_scope.workspace_identity.workspace_id,

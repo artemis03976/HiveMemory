@@ -10,7 +10,7 @@ import {
 } from '@/stores/chat/messageReducers';
 import type {
   ChatDoneEvent,
-  GenerationIdEvent,
+  ProcessIdEvent,
   ChatRunStatusEvent,
   CommandResultEvent,
   MemoryAtom,
@@ -30,7 +30,7 @@ interface CreateChatSSECallbacksDeps {
   setTopicInfo: (data: TopicInfoEvent) => void;
   setRetrievedMemories: (memories: MemoryAtom[]) => void;
   handleCommandResult: (data: CommandResultEvent) => void;
-  setGenerationId: (data: GenerationIdEvent) => void;
+  setProcessId: (data: ProcessIdEvent) => void;
   setRunStatus: (data: ChatRunStatusEvent) => void;
   markStreaming: () => void;
   finalizeSuccess: (data: ChatDoneEvent) => void;
@@ -107,8 +107,8 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
       deps.finalizeError(errorMessage, error.message);
     },
 
-    onGenerationId: (data: GenerationIdEvent) => {
-      deps.setGenerationId(data);
+    onProcessId: (data: ProcessIdEvent) => {
+      deps.setProcessId(data);
     },
 
     onRunStatus: (data: ChatRunStatusEvent) => {

@@ -29,8 +29,7 @@ type RuntimeEventData = BaseModel | Mapping[str, object]
 class RuntimeEventContext:
     task_type: TaskType | None = None
     trace_id: str | None = None
-    generation_id: str | None = None
-    interaction_id: str | None = None
+    process_id: str | None = None
     agent_run_id: str | None = None
     task_id: str | None = None
     agent_id: str | None = None
@@ -78,8 +77,7 @@ class RuntimeEventPublisher:
         *,
         task_type: TaskType | None = None,
         trace_id: str | None = None,
-        generation_id: str | None = None,
-        interaction_id: str | None = None,
+        process_id: str | None = None,
         agent_run_id: str | None = None,
         task_id: str | None = None,
         agent_id: str | None = None,
@@ -93,8 +91,7 @@ class RuntimeEventPublisher:
             for key, value in {
                 "task_type": task_type,
                 "trace_id": trace_id,
-                "generation_id": generation_id,
-                "interaction_id": interaction_id,
+                "process_id": process_id,
                 "agent_run_id": agent_run_id,
                 "task_id": task_id,
                 "agent_id": agent_id,

@@ -51,12 +51,12 @@ class ChatRequest(BaseModel):
 class StopChatRequest(BaseModel):
     """Stop 请求体。
 
-    取消不是 Agent action：不携带 agent_id，取消与事件发布使用 generation
-    创建时冻结在 registry 里的原始 scope。基础身份选择同样只来自统一请求头，
-    由 server 用于 owner/workspace 校验。
+    取消不是 Agent action：不携带 agent_id，取消与事件发布使用进程创建时
+    冻结在进程表里的原始 scope。基础身份选择同样只来自统一请求头，由
+    server 用于 owner/workspace 校验。
     """
 
-    generation_id: str = Field(..., description="要停止的生成任务 ID")
+    process_id: str = Field(..., description="要停止的任务进程 ID")
 
 
 # ========== SSE 事件数据模型 ==========
@@ -112,7 +112,7 @@ class ChatDoneEvent(BaseModel):
     final_text: str
     mtp_iterations: int
     total_iterations: int
-    generation_id: str | None = None
+    process_id: str | None = None
     status: str = "completed"
     stopped: bool = False
     reason: str | None = None

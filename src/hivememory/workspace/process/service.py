@@ -168,15 +168,16 @@ class TaskProcessService:
         user_message: str,
         *,
         identity_scope: IdentityScope,
-        interaction_id: str,
+        process_id: str,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
         attachments: list[AttachmentSelectionRequest] | None = None,
     ) -> NonStreamingChatResult:
         """非流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
 
-        ``attachments`` 只透传用户选择；ref/READY/版本校验发生在 Patchouli
-        prepare 边界（计划 9.3 节），本层不读取 Store。
+        ``process_id`` 由 server 入口在进入本服务前生成并冻结（Q-16）；
+        ``attachments`` 只透传用户选择，ref/READY/版本校验发生在 Patchouli
+        prepare 边界，本层不读取 Store。
         """
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
@@ -186,7 +187,7 @@ class TaskProcessService:
         tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
         run = ProcessRecord(
             identity_scope=identity_scope,
-            interaction_id=interaction_id,
+            process_id=process_id,
         )
         prepared = None
         prepared_finalized = False
@@ -224,17 +225,12 @@ class TaskProcessService:
                     command_execution_result=(gateway_result.command_execution_result)
                 )
 
-            if run.outcome is ProcessOutcome.STOP_REQUESTED:
-                raise _ProcessCancelled(
-                    ProcessPhase.PREPARE,
-                    run.stop_reason or "user_requested",
-                )
             run.enter_phase(ProcessPhase.PREPARE)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
                 identity_scope=identity_scope,
-                interaction_id=interaction_id,
+                interaction_id=process_id,
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
@@ -257,7 +253,7 @@ class TaskProcessService:
                     GlobalRoutes.ALICE_RUN_AGENT,
                     agent_run_context=prepared.agent_run_context,
                     generation_options=prepared.generation_options,
-                    generation_id=run.generation_id,
+                    process_id=run.process_id,
                 ),
             )
 
@@ -354,7 +350,7 @@ class TaskProcessService:
         user_message: str,
         *,
         identity_scope: IdentityScope,
-        interaction_id: str,
+        process_id: str,
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
         attachments: list[AttachmentSelectionRequest] | None = None,
@@ -362,11 +358,12 @@ class TaskProcessService:
         """
         流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
 
-        ``attachments`` 只透传用户选择；ref/READY/版本校验发生在 Patchouli
-        prepare 边界（计划 9.3 节），本层不读取 Store。
+        ``process_id`` 由 server 入口在进入本服务前生成并冻结（Q-16）；
+        ``attachments`` 只透传用户选择，ref/READY/版本校验发生在 Patchouli
+        prepare 边界，本层不读取 Store。
 
-        编排骨架: interaction_id -> prepare -> prelude events -> run_agent_stream
-                  -> [finalize if not cancelled] -> done
+        编排骨架: process_id 事件 -> gateway -> prepare -> prelude events
+                  -> run_agent_stream -> [finalize if not cancelled] -> done
         """
         trace_id = generate_trace_id("stream")
         tokens = None
@@ -377,7 +374,7 @@ class TaskProcessService:
         agent_id = identity.agent_id
         run = ProcessRecord(
             identity_scope=identity_scope,
-            interaction_id=interaction_id,
+            process_id=process_id,
         )
         prepared = None
         stream = None
@@ -395,7 +392,7 @@ class TaskProcessService:
                 trace_id=trace_id,
                 agent_id=agent_id,
             )
-            yield {"event": "generation_id", "data": {"generation_id": run.generation_id}}
+            yield {"event": "process_id", "data": {"process_id": run.process_id}}
 
             run.enter_phase(ProcessPhase.GATEWAY)
             self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
@@ -429,17 +426,12 @@ class TaskProcessService:
                 yield self._command_done(run, command_result)
                 return
 
-            if run.outcome is ProcessOutcome.STOP_REQUESTED:
-                raise _ProcessCancelled(
-                    ProcessPhase.PREPARE,
-                    run.stop_reason or "user_requested",
-                )
             run.enter_phase(ProcessPhase.PREPARE)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
                 identity_scope=identity_scope,
-                interaction_id=interaction_id,
+                interaction_id=process_id,
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
@@ -479,7 +471,7 @@ class TaskProcessService:
                     GlobalRoutes.ALICE_RUN_AGENT_STREAM,
                     agent_run_context=prepared.agent_run_context,
                     generation_options=prepared.generation_options,
-                    generation_id=run.generation_id,
+                    process_id=run.process_id,
                 ),
             )
             while True:
@@ -539,7 +531,7 @@ class TaskProcessService:
             yield {
                 "event": "run_status",
                 "data": {
-                    "generation_id": run.generation_id,
+                    "process_id": run.process_id,
                     "status": "finalizing",
                 },
             }
@@ -566,7 +558,7 @@ class TaskProcessService:
             yield {
                 "event": "done",
                 "data": {
-                    "generation_id": run.generation_id,
+                    "process_id": run.process_id,
                     **loop_result.model_dump(),
                     "status": "completed",
                     "stopped": False,
@@ -662,9 +654,9 @@ class TaskProcessService:
 
     # ========== 进程控制 ==========
 
-    def cancel_generation_scoped(
+    def cancel_process_scoped(
         self,
-        generation_id: str,
+        process_id: str,
         *,
         identity_scope: IdentityScope,
         reason: str = "user_requested",
@@ -677,18 +669,17 @@ class TaskProcessService:
         """
         identity_scope = require_identity_scope(identity_scope)
         result = self._registry.cancel(
-            generation_id,
+            process_id,
             identity_scope,
             reason=reason,
         )
-        run = self._registry.get(generation_id, identity_scope)
+        run = self._registry.get(process_id, identity_scope)
         # 事件承载进程创建时冻结的身份坐标；请求方 scope 仅用于上面的校验。
         frozen_scope = run.identity_scope if run is not None else identity_scope
         self._events.emit(
             RuntimeEvent(
                 event_type=RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
-                generation_id=generation_id,
-                interaction_id=generation_id,
+                process_id=process_id,
                 workspace_id=frozen_scope.workspace_identity.workspace_id,
                 status=result.status,
                 reason=result.reason,
@@ -699,15 +690,15 @@ class TaskProcessService:
             self._emit_chat_status(run)
         return result
 
-    def generation_status_scoped(
+    def process_status_scoped(
         self,
-        generation_id: str,
+        process_id: str,
         *,
         identity_scope: IdentityScope,
     ) -> ProcessStatusSnapshot | None:
         """返回 scoped 进程状态；错误 scope 与不存在统一为 ``None``。"""
         return self._registry.status(
-            generation_id,
+            process_id,
             require_identity_scope(identity_scope),
         )
 
@@ -732,7 +723,7 @@ class TaskProcessService:
             "event": "done",
             "data": {
                 **base,
-                "generation_id": run.generation_id,
+                "process_id": run.process_id,
                 "status": "cancelled",
                 "stopped": True,
                 "reason": run.stop_reason or "user_requested",
@@ -749,7 +740,7 @@ class TaskProcessService:
             "event": "done",
             "data": {
                 **loop_result.model_dump(),
-                "generation_id": run.generation_id,
+                "process_id": run.process_id,
                 "status": "failed",
                 "stopped": True,
                 "reason": "agent_run_failed",
@@ -773,7 +764,7 @@ class TaskProcessService:
         return {
             "event": "done",
             "data": {
-                "generation_id": run.generation_id,
+                "process_id": run.process_id,
                 "final_text": command_result.message,
                 "mtp_iterations": 0,
                 "total_iterations": 0,
@@ -818,8 +809,7 @@ class TaskProcessService:
                 event_type=event_type,
                 trace_id=trace_id,
                 task_type="foreground",
-                generation_id=run.generation_id,
-                interaction_id=run.interaction_id,
+                process_id=run.process_id,
                 workspace_id=run.identity_scope.workspace_identity.workspace_id,
                 agent_id=agent_id,
                 topic_id=topic_id,

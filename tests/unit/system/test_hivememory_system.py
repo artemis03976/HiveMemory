@@ -55,7 +55,7 @@ def system(mock_patchouli):
     process_service = MagicMock()
     process_service.chat = AsyncMock(return_value="result")
     process_service.chat_stream = MagicMock()
-    process_service.cancel_generation = MagicMock(return_value=True)
+    process_service.cancel_process = MagicMock(return_value=True)
     ingress_service = MagicMock()
     ingress_service.start = AsyncMock()
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})

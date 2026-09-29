@@ -182,26 +182,26 @@ class TestChatEntryIdentity:
 class TestStopEntryIdentity:
     def test_stop_without_identity_selection_uses_single_fallback(self):
         mock_service = MagicMock()
-        mock_service.cancel_generation_scoped.return_value = MagicMock(
-            generation_id="gen-1",
+        mock_service.cancel_process_scoped.return_value = MagicMock(
+            process_id="process-1",
             cancelled=False,
             status="not_found",
             reason="user_requested",
         )
         client = TestClient(_create_chat_app(mock_service))
 
-        response = client.post("/api/v1/chat/stop", json={"generation_id": "gen-1"})
+        response = client.post("/api/v1/chat/stop", json={"process_id": "process-1"})
 
         assert response.status_code == 200
-        scope = mock_service.cancel_generation_scoped.call_args.kwargs["identity_scope"]
+        scope = mock_service.cancel_process_scoped.call_args.kwargs["identity_scope"]
         # stop 不是 Agent action：actor 为保留 system
         assert scope.actor_identity.agent_id == SYSTEM_AGENT_ID
         assert scope.actor_identity.user_id == "default"
 
     def test_stop_uses_header_selection_for_ownership_check(self):
         mock_service = MagicMock()
-        mock_service.cancel_generation_scoped.return_value = MagicMock(
-            generation_id="gen-1",
+        mock_service.cancel_process_scoped.return_value = MagicMock(
+            process_id="process-1",
             cancelled=True,
             status="stop_requested",
             reason="user_requested",
@@ -210,13 +210,13 @@ class TestStopEntryIdentity:
 
         response = client.post(
             "/api/v1/chat/stop",
-            json={"generation_id": "gen-1"},
+            json={"process_id": "process-1"},
             headers={"x-user-id": "u1", "x-workspace-id": "main_workspace"},
         )
 
         assert response.status_code == 200
         assert response.json()["cancelled"] is True
-        scope = mock_service.cancel_generation_scoped.call_args.kwargs["identity_scope"]
+        scope = mock_service.cancel_process_scoped.call_args.kwargs["identity_scope"]
         assert scope.actor_identity.user_id == "u1"
         assert scope.actor_identity.agent_id == SYSTEM_AGENT_ID
 

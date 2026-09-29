@@ -5,7 +5,7 @@
 验证 v4「一次 chat 调用 = gateway → prepare(检索) → agent run → finalize(记忆落库)」完整闭环：
 - chat(): 非流式完整闭环，finalize 后记忆真实落库 Qdrant
 - chat(): MTP WRITE 主动生成路径（materialize_tasks → submit_active → 确定性落库）
-- chat_stream(): 完整事件序列契约（generation_id → topic_info → memory_refs → 运行期 → run_status → done）
+- chat_stream(): 完整事件序列契约（process_id → topic_info → memory_refs → 运行期 → run_status → done）
 - 检索注入：预埋记忆后 chat，memory_refs 携带引用
 
 标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
@@ -71,7 +71,7 @@ async def _collect_stream_events(
             ActorIdentity(user_id=user_id, agent_id=agent_id),
             MAIN_WORKSPACE_ID,
         ),
-        interaction_id=f"interaction_{uuid4().hex}",
+        process_id=f"process_{uuid4().hex}",
         enable_memory_retrieval=enable_memory_retrieval,
         generation_options={"temperature": 0, "top_p": 1},
     ):
@@ -96,7 +96,7 @@ class TestChatRun:
                 ActorIdentity(user_id=user_id, agent_id="omni_doll"),
                 MAIN_WORKSPACE_ID,
             ),
-            interaction_id=f"interaction_{uuid4().hex}",
+            process_id=f"process_{uuid4().hex}",
             enable_memory_retrieval=True,
         )
         assert isinstance(
@@ -125,10 +125,8 @@ class TestChatRun:
         )
         event_names = [e.get("event") for e in events]
 
-        # 序言：generation_id / topic_info
-        assert (
-            "generation_id" in event_names
-        ), f"缺少 generation_id 事件。events={_event_summary(events)}"
+        # 序言：process_id / topic_info
+        assert "process_id" in event_names, f"缺少 process_id 事件。events={_event_summary(events)}"
         assert "topic_info" in event_names, f"缺少 topic_info 事件。events={_event_summary(events)}"
         # 运行期：至少 token 或 mtp 或子代理事件之一
         assert any(
@@ -186,7 +184,7 @@ class TestChatRun:
                 ActorIdentity(user_id=user_id, agent_id="omni_doll"),
                 MAIN_WORKSPACE_ID,
             ),
-            interaction_id=f"interaction_{uuid4().hex}",
+            process_id=f"process_{uuid4().hex}",
             enable_memory_retrieval=False,
         )
         run_result = result.agent_run_result

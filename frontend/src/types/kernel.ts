@@ -80,7 +80,7 @@ export interface RuntimeEvent {
   subsystem: string | null;
   component: string | null;
   severity: 'debug' | 'info' | 'warning' | 'error';
-  generation_id: string | null;
+  process_id: string | null;
   agent_run_id: string | null;
   task_id: string | null;
   agent_id: string | null;

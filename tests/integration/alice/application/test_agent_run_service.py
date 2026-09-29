@@ -151,7 +151,7 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_agent_correlates_runtime_scope_and_generation_id():
+async def test_run_agent_correlates_runtime_scope_and_process_id():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
     context = _build_agent_run_context(_build_memory_atom())
@@ -167,13 +167,13 @@ async def test_run_agent_correlates_runtime_scope_and_generation_id():
     service._create_run_session = _capture_session
     await service.run_agent(
         context,
-        generation_id="generation-1",
+        process_id="process-1",
     )
 
     session = created_sessions[0]
-    assert session.generation_id == "generation-1"
+    assert session.process_id == "process-1"
     assert session.agent_run_id == recorder.events[0].agent_run_id
-    assert recorder.events[0].generation_id == "generation-1"
+    assert recorder.events[0].process_id == "process-1"
 
 
 @pytest.mark.asyncio

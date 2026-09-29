@@ -43,12 +43,12 @@ async def _chat_scoped(
     service: TaskProcessService,
     message: str,
     *,
-    interaction_id: str | None = None,
+    process_id: str | None = None,
 ):
     return await service.chat_scoped(
         user_message=message,
         identity_scope=_u1_scope(),
-        interaction_id=interaction_id or f"interaction_{uuid4().hex}",
+        process_id=process_id or f"process_{uuid4().hex}",
     )
 
 
@@ -56,14 +56,14 @@ async def _stream_events(
     service: TaskProcessService,
     message: str,
     *,
-    interaction_id: str | None = None,
+    process_id: str | None = None,
 ) -> list[dict]:
     return [
         event
         async for event in service.chat_stream_scoped(
             user_message=message,
             identity_scope=_u1_scope(),
-            interaction_id=interaction_id or f"interaction_{uuid4().hex}",
+            process_id=process_id or f"process_{uuid4().hex}",
         )
     ]
 
@@ -162,7 +162,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
     events = await _stream_events(TaskProcessService(bus), "/clear")
 
     assert [event["event"] for event in events] == [
-        "generation_id",
+        "process_id",
         "command_result",
         "done",
     ]
@@ -182,9 +182,9 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_chat_scoped(service, "问题", interaction_id="gen-gateway"))
+    task = asyncio.create_task(_chat_scoped(service, "问题", process_id="process-gateway"))
     await started.wait()
-    stop_result = service.cancel_generation_scoped("gen-gateway", identity_scope=_u1_scope())
+    stop_result = service.cancel_process_scoped("process-gateway", identity_scope=_u1_scope())
     result = await task
 
     assert stop_result.cancelled is True
@@ -330,9 +330,9 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_chat_scoped(service, "问题", interaction_id="gen-prepare"))
+    task = asyncio.create_task(_chat_scoped(service, "问题", process_id="process-prepare"))
     await prepare_started.wait()
-    stop_result = service.cancel_generation_scoped("gen-prepare", identity_scope=_u1_scope())
+    stop_result = service.cancel_process_scoped("process-prepare", identity_scope=_u1_scope())
     release_prepare.set()
     result = await task
 
@@ -378,9 +378,9 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_collect_stream(service, generation_id="gen-stream-cancel"))
+    task = asyncio.create_task(_collect_stream(service, process_id="process-stream-cancel"))
     await pull_started.wait()
-    stop_result = service.cancel_generation_scoped("gen-stream-cancel", identity_scope=_u1_scope())
+    stop_result = service.cancel_process_scoped("process-stream-cancel", identity_scope=_u1_scope())
     events = await task
 
     assert stop_result.cancelled is True
@@ -420,9 +420,9 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_chat_scoped(service, "问题", interaction_id="gen-finalize"))
+    task = asyncio.create_task(_chat_scoped(service, "问题", process_id="process-finalize"))
     await finalize_started.wait()
-    stop_result = service.cancel_generation_scoped("gen-finalize", identity_scope=_u1_scope())
+    stop_result = service.cancel_process_scoped("process-finalize", identity_scope=_u1_scope())
     release_finalize.set()
     result = await task
 
@@ -435,9 +435,9 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 async def _collect_stream(
     service: TaskProcessService,
     *,
-    generation_id: str,
+    process_id: str,
 ) -> list[dict]:
-    return await _stream_events(service, "问题", interaction_id=generation_id)
+    return await _stream_events(service, "问题", process_id=process_id)
 
 
 @pytest.mark.asyncio
@@ -477,7 +477,7 @@ async def test_attachments_selection_is_forwarded_to_prepare_route() -> None:
     result = await service.chat_scoped(
         "问题",
         identity_scope=_u1_scope(),
-        interaction_id="interaction-attachments",
+        process_id="process-attachments",
         attachments=selections,
     )
 
@@ -502,7 +502,7 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
         async for event in TaskProcessService(bus).chat_stream_scoped(
             "问题",
             identity_scope=_u1_scope(),
-            interaction_id="interaction-domain-error",
+            process_id="process-domain-error",
         )
     ]
 

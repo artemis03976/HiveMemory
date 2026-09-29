@@ -52,7 +52,7 @@ async def chat(
     （user_id + workspace_id）只来自统一请求头，在此一次性冻结为
     IdentityScope。
     """
-    interaction_id = f"interaction_{uuid.uuid4().hex}"
+    process_id = f"process_{uuid.uuid4().hex}"
     identity_scope = resolve_request_identity_scope(
         selection,
         require_agent=True,
@@ -67,7 +67,7 @@ async def chat(
             stream = service.chat_stream_scoped(
                 user_message=body.message,
                 identity_scope=identity_scope,
-                interaction_id=interaction_id,
+                process_id=process_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
                 generation_options=(
                     body.generation_options.model_dump(exclude_none=True)
@@ -82,8 +82,8 @@ async def chat(
                 try:
                     while not pull_task.done():
                         if await request.is_disconnected():
-                            service.cancel_generation_scoped(
-                                interaction_id,
+                            service.cancel_process_scoped(
+                                process_id,
                                 identity_scope=identity_scope,
                                 reason="client_disconnected",
                             )
@@ -98,8 +98,8 @@ async def chat(
                     }
 
                     if await request.is_disconnected():
-                        service.cancel_generation_scoped(
-                            interaction_id,
+                        service.cancel_process_scoped(
+                            process_id,
                             identity_scope=identity_scope,
                             reason="client_disconnected",
                         )
@@ -107,8 +107,8 @@ async def chat(
                 except StopAsyncIteration:
                     break
                 except asyncio.CancelledError:
-                    service.cancel_generation_scoped(
-                        interaction_id,
+                    service.cancel_process_scoped(
+                        process_id,
                         identity_scope=identity_scope,
                         reason="client_disconnected",
                     )
@@ -148,12 +148,12 @@ async def stop_chat(
     取消，不从当前选择重新构造可能不同的 scope。
     """
     identity_scope = resolve_request_identity_scope(selection)
-    result = service.cancel_generation_scoped(
-        request.generation_id,
+    result = service.cancel_process_scoped(
+        request.process_id,
         identity_scope=identity_scope,
     )
     return {
-        "generation_id": result.generation_id,
+        "process_id": result.process_id,
         "cancelled": result.cancelled,
         "status": result.status,
         "reason": result.reason,
