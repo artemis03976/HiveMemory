@@ -8,13 +8,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.core.errors import WorkspaceDomainError
-from hivememory.workspace.process.service import _run_interruptible
 from hivememory.workspace.process.table import (
     ProcessOutcome,
     ProcessPhase,
     ProcessRecord,
     ProcessTable,
 )
+from hivememory.workspace.process.task_process import _run_interruptible
 from tests.helpers.workspace import make_identity_scope
 
 

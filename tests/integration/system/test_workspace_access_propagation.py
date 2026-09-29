@@ -100,15 +100,17 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         workspace_id="isolation_workspace",
     )
     main_task = asyncio.create_task(
-        service.chat_scoped(
+        service.run_process(
             "question",
+            stream=False,
             identity_scope=main_context,
             process_id="process-main",
         )
     )
     isolation_task = asyncio.create_task(
-        service.chat_scoped(
+        service.run_process(
             "question",
+            stream=False,
             identity_scope=isolation_context,
             process_id="process-isolation",
         )
@@ -116,14 +118,14 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
 
     await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
     assert (
-        service.process_status_scoped(
+        service.process_status(
             "process-main",
             identity_scope=isolation_context,
         )
         is None
     )
     assert (
-        service.process_status_scoped(
+        service.process_status(
             "process-isolation",
             identity_scope=main_context,
         )
@@ -177,8 +179,9 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     with pytest.raises(WorkspaceMismatchError, match="身份作用域不一致"):
-        await TaskProcessService(bus).chat_scoped(
+        await TaskProcessService(bus).run_process(
             "question",
+            stream=False,
             identity_scope=requested,
             process_id="process-drifted",
         )
@@ -231,15 +234,17 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
         workspace_id="isolation_workspace",
     )
     main_task = asyncio.create_task(
-        service.chat_scoped(
+        service.run_process(
             "main",
+            stream=False,
             identity_scope=main,
             process_id="process-run-main",
         )
     )
     isolated_task = asyncio.create_task(
-        service.chat_scoped(
+        service.run_process(
             "isolated",
+            stream=False,
             identity_scope=isolated,
             process_id="process-run-isolated",
         )
@@ -247,20 +252,20 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
 
     try:
         await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
-        cross_scope_cancel = service.cancel_process_scoped(
+        cross_scope_cancel = service.cancel_process(
             "process-run-isolated",
             identity_scope=main,
         )
 
         assert cross_scope_cancel.cancelled is False
         assert cross_scope_cancel.status == "not_found"
-        isolated_status = service.process_status_scoped(
+        isolated_status = service.process_status(
             "process-run-isolated",
             identity_scope=isolated,
         )
         assert isolated_status.status == "running"
         assert (
-            service.process_status_scoped(
+            service.process_status(
                 "process-run-isolated",
                 identity_scope=main,
             )

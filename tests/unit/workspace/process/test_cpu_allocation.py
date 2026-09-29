@@ -176,9 +176,10 @@ def _service(
     )
 
 
-async def _chat_scoped(service: TaskProcessService, message: str, *, process_id: str, **kwargs):
-    return await service.chat_scoped(
-        user_message=message,
+async def _run_once(service: TaskProcessService, message: str, *, process_id: str, **kwargs):
+    return await service.run_process(
+        stream=False,
+        message=message,
         identity_scope=_u1_scope(),
         process_id=process_id,
         **kwargs,
@@ -194,8 +195,8 @@ async def _stream_events(
 ) -> list[dict]:
     return [
         event
-        async for event in service.chat_stream_scoped(
-            user_message=message,
+        async for event in service.run_process(
+            message=message,
             identity_scope=_u1_scope(),
             process_id=process_id,
             **kwargs,
@@ -227,7 +228,7 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    result = await _chat_scoped(_service(bus), "问题", process_id="process-manifest")
+    result = await _run_once(_service(bus), "问题", process_id="process-manifest")
 
     assert result.kind == "agent"
     # Profile 以冻结的 identity_scope 经公开路由按 agent_id 解析。
@@ -262,7 +263,7 @@ async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieva
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    await _chat_scoped(_service(bus), "问题", process_id="process-compile")
+    await _run_once(_service(bus), "问题", process_id="process-compile")
 
     manifest = alice_kwargs["input_manifest"]
     assert manifest.memories == atoms
@@ -286,7 +287,7 @@ async def test_manifest_memory_context_is_empty_string_without_retrieval() -> No
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    await _chat_scoped(_service(bus), "问题", process_id="process-empty-retrieval")
+    await _run_once(_service(bus), "问题", process_id="process-empty-retrieval")
 
     assert alice_kwargs["input_manifest"].memory_context == ""
 
@@ -344,7 +345,7 @@ async def test_profile_resolution_failure_propagates_before_prepare() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
 
     with pytest.raises(AliasNotFoundError):
-        await _chat_scoped(_service(bus), "问题", process_id="process-profile-fail-ns")
+        await _run_once(_service(bus), "问题", process_id="process-profile-fail-ns")
 
     assert prepare_calls == []
     assert cleanup_calls == []
@@ -389,7 +390,7 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
 
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _chat_scoped(
+    result = await _run_once(
         _service(bus, store=store),
         "带附件的消息",
         process_id="process-attachments",
@@ -427,7 +428,7 @@ async def test_attachment_version_mismatch_releases_leases_and_rejects() -> None
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     with pytest.raises(AssetOperationConflictError):
-        await _chat_scoped(
+        await _run_once(
             _service(bus, store=store),
             "带附件的消息",
             process_id="process-mismatch",
@@ -455,7 +456,7 @@ async def test_unknown_attachment_ref_rejected_without_leaking_leases() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     with pytest.raises(AssetNotFoundError):
-        await _chat_scoped(
+        await _run_once(
             _service(bus, store=store),
             "带附件的消息",
             process_id="process-unknown-ref",
@@ -485,7 +486,7 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     with pytest.raises(AssetRemovedError):
-        await _chat_scoped(
+        await _run_once(
             _service(bus, store=store),
             "带附件的消息",
             process_id="process-removed",
@@ -528,7 +529,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
     # 总预算 20 字符：ref_a（15 字符）编译后 ref_b 超出剩余预算被跳过。
-    await _chat_scoped(
+    await _run_once(
         _service(
             bus,
             store=store,
@@ -568,7 +569,7 @@ async def test_leased_attachment_released_after_completed_run() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    result = await _chat_scoped(
+    result = await _run_once(
         _service(bus, store=store),
         "带附件的消息",
         process_id="process-exit-completed",
@@ -596,7 +597,7 @@ async def test_leased_attachment_released_when_alice_fails() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
-    result = await _chat_scoped(
+    result = await _run_once(
         _service(bus, store=store),
         "带附件的消息",
         process_id="process-exit-alice-failed",
@@ -644,7 +645,7 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     service = _service(bus, store=store)
     process_id = "process-cancel-during-cleanup"
     task = asyncio.create_task(
-        _chat_scoped(
+        _run_once(
             service,
             "带附件的消息",
             process_id=process_id,
@@ -656,7 +657,7 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert service.process_status_scoped(process_id, identity_scope=scope) is None
+    assert service.process_status(process_id, identity_scope=scope) is None
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -699,7 +700,7 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert service.process_status_scoped(process_id, identity_scope=scope) is None
+    assert service.process_status(process_id, identity_scope=scope) is None
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -737,7 +738,7 @@ async def test_stop_before_alice_skips_alice_and_finalize_and_releases_leases() 
     service = _service(bus, store=store)
     process_id = "process-stop-before-alice"
     task = asyncio.create_task(
-        _chat_scoped(
+        _run_once(
             service,
             "问题",
             process_id=process_id,
@@ -745,7 +746,7 @@ async def test_stop_before_alice_skips_alice_and_finalize_and_releases_leases() 
         )
     )
     await prepare_started.wait()
-    stop_result = service.cancel_process_scoped(process_id, identity_scope=_u1_scope())
+    stop_result = service.cancel_process(process_id, identity_scope=_u1_scope())
     release_prepare.set()
     result = await task
 
@@ -789,7 +790,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_alice() -> Non
     service = _service(bus, store=store)
     process_id = "process-stop-during-allocation"
     task = asyncio.create_task(
-        _chat_scoped(
+        _run_once(
             service,
             "问题",
             process_id=process_id,
@@ -797,7 +798,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_alice() -> Non
         )
     )
     await allocation_started.wait()
-    stop_result = service.cancel_process_scoped(process_id, identity_scope=_u1_scope())
+    stop_result = service.cancel_process(process_id, identity_scope=_u1_scope())
     release_allocation.set()
     result = await task
 
@@ -829,7 +830,7 @@ async def test_stream_stop_before_alice_emits_no_prelude() -> None:
     process_id = "process-stream-stop"
     task = asyncio.create_task(_stream_events(service, "问题", process_id=process_id))
     await prepare_started.wait()
-    service.cancel_process_scoped(process_id, identity_scope=_u1_scope())
+    service.cancel_process(process_id, identity_scope=_u1_scope())
     release_prepare.set()
     events = await task
 
@@ -862,7 +863,7 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _chat_scoped(
+    result = await _run_once(
         _service(bus, store=store),
         "带附件的消息",
         process_id="process-closed-store",

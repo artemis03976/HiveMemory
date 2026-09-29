@@ -135,8 +135,8 @@ class TestChatServiceCancelPath:
         service = TaskProcessService(global_bus=bus)
 
         events = []
-        async for event in service.chat_stream_scoped(
-            user_message="hello",
+        async for event in service.run_process(
+            message="hello",
             identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
             process_id="process-cancel-1",
         ):

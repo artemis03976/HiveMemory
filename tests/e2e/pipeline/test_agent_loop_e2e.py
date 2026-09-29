@@ -8,7 +8,7 @@
 - 多轮迭代：连续工具调用保持上下文
 - 错误恢复：工具异常不影响循环收敛
 
-入口: e2e_system.process_service.chat_scoped()
+入口: e2e_system.process_service.run_process(stream=False)
 标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
 """
 
@@ -18,14 +18,15 @@ import pytest
 
 from hivememory.core.models import ActorIdentity, build_internal_identity_scope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
-from hivememory.workspace.process.service import NonStreamingChatAgentOutcome
+from hivememory.workspace.process.service import NonStreamingAgentOutcome
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
 
 async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
-    result = await e2e_system.process_service.chat_scoped(
-        user_message=prompt,
+    result = await e2e_system.process_service.run_process(
+        stream=False,
+        message=prompt,
         identity_scope=build_internal_identity_scope(
             ActorIdentity(user_id=user_id, agent_id="omni_doll"),
             MAIN_WORKSPACE_ID,
@@ -35,7 +36,7 @@ async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
         **kwargs,
     )
     assert isinstance(
-        result, NonStreamingChatAgentOutcome
+        result, NonStreamingAgentOutcome
     ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
     return result.agent_run_result
 

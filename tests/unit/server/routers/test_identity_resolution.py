@@ -155,7 +155,7 @@ class TestChatEntryIdentity:
         async def fake_stream(**kwargs):
             yield {"event": "done", "data": {"final_text": "ok"}}
 
-        mock_service.chat_stream_scoped = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
+        mock_service.run_process = MagicMock(side_effect=lambda **kw: fake_stream(**kw))
         client = TestClient(_create_chat_app(mock_service))
 
         response = client.post(
@@ -164,7 +164,7 @@ class TestChatEntryIdentity:
             headers={"x-user-id": "u1", "x-workspace-id": "main_workspace"},
         )
         assert response.status_code == 200
-        scope = mock_service.chat_stream_scoped.call_args.kwargs["identity_scope"]
+        scope = mock_service.run_process.call_args.kwargs["identity_scope"]
         assert scope.actor_identity.user_id == "u1"
         assert scope.actor_identity.agent_id == "omni_doll"
         assert scope.workspace_identity.workspace_id == "main_workspace"
@@ -182,7 +182,7 @@ class TestChatEntryIdentity:
 class TestStopEntryIdentity:
     def test_stop_without_identity_selection_uses_single_fallback(self):
         mock_service = MagicMock()
-        mock_service.cancel_process_scoped.return_value = MagicMock(
+        mock_service.cancel_process.return_value = MagicMock(
             process_id="process-1",
             cancelled=False,
             status="not_found",
@@ -193,14 +193,14 @@ class TestStopEntryIdentity:
         response = client.post("/api/v1/chat/stop", json={"process_id": "process-1"})
 
         assert response.status_code == 200
-        scope = mock_service.cancel_process_scoped.call_args.kwargs["identity_scope"]
+        scope = mock_service.cancel_process.call_args.kwargs["identity_scope"]
         # stop 不是 Agent action：actor 为保留 system
         assert scope.actor_identity.agent_id == SYSTEM_AGENT_ID
         assert scope.actor_identity.user_id == "default"
 
     def test_stop_uses_header_selection_for_ownership_check(self):
         mock_service = MagicMock()
-        mock_service.cancel_process_scoped.return_value = MagicMock(
+        mock_service.cancel_process.return_value = MagicMock(
             process_id="process-1",
             cancelled=True,
             status="stop_requested",
@@ -216,7 +216,7 @@ class TestStopEntryIdentity:
 
         assert response.status_code == 200
         assert response.json()["cancelled"] is True
-        scope = mock_service.cancel_process_scoped.call_args.kwargs["identity_scope"]
+        scope = mock_service.cancel_process.call_args.kwargs["identity_scope"]
         assert scope.actor_identity.user_id == "u1"
         assert scope.actor_identity.agent_id == SYSTEM_AGENT_ID
 

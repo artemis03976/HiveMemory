@@ -60,31 +60,32 @@ class TestServiceSignatureGuard:
                 ), f"{service_cls.__name__}.{name} 携带身份语义却未使用 identity_scope"
 
 
-class TestChatScopedIdentityGuard:
+class TestChatIdentityGuard:
     """Chat 必须由具体 Agent 执行，不能静默回退到 system。"""
 
     @pytest.mark.asyncio
-    async def test_chat_scoped_rejects_system_actor(self):
+    async def test_non_streaming_chat_rejects_system_actor(self):
         from unittest.mock import AsyncMock
 
         service = TaskProcessService(global_bus=AsyncMock())
 
         with pytest.raises(WorkspaceDomainError):
-            await service.chat_scoped(
-                user_message="hello",
+            await service.run_process(
+                stream=False,
+                message="hello",
                 identity_scope=make_management_identity_scope(user_id="u1"),
                 process_id="process-system-1",
             )
 
     @pytest.mark.asyncio
-    async def test_chat_stream_scoped_rejects_system_actor(self):
+    async def test_streaming_chat_rejects_system_actor(self):
         from unittest.mock import AsyncMock
 
         service = TaskProcessService(global_bus=AsyncMock())
 
         with pytest.raises(WorkspaceDomainError):
-            async for _ in service.chat_stream_scoped(
-                user_message="hello",
+            async for _ in service.run_process(
+                message="hello",
                 identity_scope=make_management_identity_scope(user_id="u1"),
                 process_id="process-system-2",
             ):
@@ -104,8 +105,8 @@ class TestCancelUsesFrozenScope:
     async def test_cancel_across_users_returns_not_found(self):
         service = self._make_service()
         run_scope = make_identity_scope(user_id="owner", agent_id="omni_doll")
-        stream = service.chat_stream_scoped(
-            user_message="hello",
+        stream = service.run_process(
+            message="hello",
             identity_scope=run_scope,
             process_id="process-owner-1",
         )
@@ -113,8 +114,8 @@ class TestCancelUsesFrozenScope:
         first = await stream.__anext__()
         assert first["event"] == "process_id"
 
-        result = service.cancel_process_scoped(
-            "interaction-owner-1",
+        result = service.cancel_process(
+            "process-owner-1",
             identity_scope=make_identity_scope(user_id="other", agent_id="omni_doll"),
         )
         assert result.cancelled is False
@@ -128,8 +129,8 @@ class TestCancelUsesFrozenScope:
 
         service = self._make_service()
         run_scope = make_identity_scope(user_id="owner", agent_id="omni_doll")
-        stream = service.chat_stream_scoped(
-            user_message="hello",
+        stream = service.run_process(
+            message="hello",
             identity_scope=run_scope,
             process_id="process-owner-2",
         )
@@ -139,8 +140,8 @@ class TestCancelUsesFrozenScope:
             run_scope.actor_identity,
             "isolation_workspace",
         )
-        result = service.cancel_process_scoped(
-            "interaction-owner-2",
+        result = service.cancel_process(
+            "process-owner-2",
             identity_scope=other_workspace_scope,
         )
         assert result.cancelled is False
@@ -153,15 +154,15 @@ class TestCancelUsesFrozenScope:
         """取消不携带 agent 选择：与 run 同 user/workspace 即可取消成功。"""
         service = self._make_service()
         run_scope = make_identity_scope(user_id="owner", agent_id="omni_doll")
-        stream = service.chat_stream_scoped(
-            user_message="hello",
+        stream = service.run_process(
+            message="hello",
             identity_scope=run_scope,
             process_id="process-owner-3",
         )
         await stream.__anext__()
 
         # 请求方 scope 为管理语义（system actor），agent 维度与 run 不同也不影响校验
-        result = service.cancel_process_scoped(
+        result = service.cancel_process(
             "process-owner-3",
             identity_scope=make_management_identity_scope(user_id="owner"),
         )

@@ -27,7 +27,7 @@ from hivememory.core.models import (
     build_internal_identity_scope,
 )
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
-from hivememory.workspace.process.service import NonStreamingChatAgentOutcome
+from hivememory.workspace.process.service import NonStreamingAgentOutcome
 from tests.e2e.conftest import wait_for_memory_persistence_async
 from tests.helpers.memory import make_memory_metadata
 
@@ -65,8 +65,8 @@ async def _collect_stream_events(
     enable_memory_retrieval: bool = True,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.process_service.chat_stream_scoped(
-        user_message=user_message,
+    async for event in system.process_service.run_process(
+        message=user_message,
         identity_scope=build_internal_identity_scope(
             ActorIdentity(user_id=user_id, agent_id=agent_id),
             MAIN_WORKSPACE_ID,
@@ -88,10 +88,9 @@ class TestChatRun:
     async def test_chat_full_round_trip_persists_memory(self, e2e_system, clean_user):
         """chat() 完整闭环：回答 + finalize 触发记忆落库"""
         user_id = clean_user()
-        result = await e2e_system.process_service.chat_scoped(
-            user_message=(
-                "我叫小林，我在一家物流公司工作，每天通勤两小时。" "请记住这些关于我的信息。"
-            ),
+        result = await e2e_system.process_service.run_process(
+            stream=False,
+            message=("我叫小林，我在一家物流公司工作，每天通勤两小时。" "请记住这些关于我的信息。"),
             identity_scope=build_internal_identity_scope(
                 ActorIdentity(user_id=user_id, agent_id="omni_doll"),
                 MAIN_WORKSPACE_ID,
@@ -100,7 +99,7 @@ class TestChatRun:
             enable_memory_retrieval=True,
         )
         assert isinstance(
-            result, NonStreamingChatAgentOutcome
+            result, NonStreamingAgentOutcome
         ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
         assert result.agent_run_result.final_text
         assert result.agent_run_result.status == "completed"
@@ -174,8 +173,9 @@ class TestChatRun:
         materialize_tasks 非空即证明走的是 WRITE 主动生成而非 finalize 自动提取。
         """
         user_id = clean_user()
-        result = await e2e_system.process_service.chat_scoped(
-            user_message=(
+        result = await e2e_system.process_service.run_process(
+            stream=False,
+            message=(
                 "请使用 MTP 的 WRITE 指令保存一条记忆，内容如下："
                 "我最好的朋友叫张伟，我们每个月一起打篮球。"
                 "你必须在回复中输出 WRITE 指令，把上面这句话完整写入记忆。"

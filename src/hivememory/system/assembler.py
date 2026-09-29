@@ -356,10 +356,8 @@ class SystemAssembler:
         process = TaskProcessService(
             global_bus=runtime.global_bus,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
-            runtime_events=runtime.event_sink.scoped(
-                "system",
-                component="chat_application_service",
-            ),
+            # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
+            event_publisher=runtime.event_publisher,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给任务进程：
             # 附件租借在 CPU 分配边界 resolve/acquire，随进程关闭统一释放。
             asset_reader=runtime.workspace_asset_store,

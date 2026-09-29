@@ -269,7 +269,7 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 
 It exposes two primary integration modes:
 
-- `process_service.chat_scoped()` / `chat_stream_scoped()`: active mode, where `TaskProcessService` coordinates Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
+- `process_service.run_process()` (streaming by default with `stream=True`, non-streaming with `stream=False`): active mode, where `TaskProcessService` coordinates Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
 - `ingress_service.ingest_event()` / `flush_conversation()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
 
 If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.

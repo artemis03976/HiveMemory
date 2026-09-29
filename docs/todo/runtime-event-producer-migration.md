@@ -7,14 +7,14 @@ related_docs:
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
   - docs/archive/plans/runtime-event-publishing-refactor.md
-last_reviewed: 2026-08-13
+last_reviewed: 2026-09-29
 ---
 
 # RuntimeEvent 生产端迁移后续
 
 ## 问题与证据
 
-RuntimeEventBus、`RuntimeEventPublisher`、scoped sink 和 `AgentRunEventEmitter` 已经落地，Memory Generation 也已建立独立领域 emitter；但 Chat、Gateway、Scheduler、System lifecycle 和 Passive Ingress 等生产点尚未全部收敛到相同的发布边界。
+RuntimeEventBus、`RuntimeEventPublisher`、scoped sink 和 `AgentRunEventEmitter` 已经落地，Memory Generation 也已建立独立领域 emitter，chat 任务进程已迁移到 `TaskProcessEventEmitter`（2026-09-29）；但 Gateway、Scheduler、System lifecycle 和 Passive Ingress 等生产点尚未全部收敛到相同的发布边界。
 
 当前外部信封和 best-effort 语义已经由 [System 可观测性](../components/observability.md) 与 [公开路由和事件](../contracts/routes-and-events.md)定义。剩余问题是生产端重复的 envelope 组装、默认 severity、关联上下文、payload 白名单和异常隔离逻辑，而不是重新设计一套事件系统。
 
@@ -28,7 +28,7 @@ RuntimeEventBus、`RuntimeEventPublisher`、scoped sink 和 `AgentRunEventEmitte
 
 ## 完成条件
 
-- 逐域确认 Chat、Gateway、Scheduler、System lifecycle 与 Passive Ingress 是否仍有值得迁移的长 emit/envelope 组装；
+- 逐域确认 Gateway、Scheduler、System lifecycle 与 Passive Ingress 是否仍有值得迁移的长 emit/envelope 组装（Chat 已完成）；
 - 高收益生产域使用窄领域 emitter 或 scoped publisher，业务主流程不再重复拼装稳定字段；
 - 关键 payload 有明确白名单或类型化投影，不把原始 prompt、memory context、tool args、异常正文或路径写入公共事件；
 - 删除迁移后无消费者的旧 helper 与重复测试；

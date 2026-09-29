@@ -46,15 +46,16 @@ def _u1_scope() -> IdentityScope:
     return make_identity_scope(user_id="u1", agent_id="omni_doll")
 
 
-async def _chat_scoped(
+async def _run_once(
     service: TaskProcessService,
     message: str,
     *,
     process_id: str | None = None,
     **kwargs,
 ):
-    return await service.chat_scoped(
-        user_message=message,
+    return await service.run_process(
+        stream=False,
+        message=message,
         identity_scope=_u1_scope(),
         process_id=process_id or f"process_{uuid4().hex}",
         **kwargs,
@@ -69,8 +70,8 @@ async def _stream_events(
 ) -> list[dict]:
     return [
         event
-        async for event in service.chat_stream_scoped(
-            user_message=message,
+        async for event in service.run_process(
+            message=message,
             identity_scope=_u1_scope(),
             process_id=process_id or f"process_{uuid4().hex}",
         )
@@ -166,7 +167,7 @@ async def test_non_streaming_command_short_circuits_patchouli_and_alice() -> Non
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
 
-    result = await _chat_scoped(TaskProcessService(bus), "/clear")
+    result = await _run_once(TaskProcessService(bus), "/clear")
 
     assert result.kind == "command"
     assert result.command_execution_result.command_id == "system.clear"
@@ -201,7 +202,7 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, run_agent)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _chat_scoped(TaskProcessService(bus), "问题")
+    result = await _run_once(TaskProcessService(bus), "问题")
 
     assert result.kind == "agent"
     assert result.agent_run_result.final_text == "完成"
@@ -289,9 +290,9 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_chat_scoped(service, "问题", process_id="process-gateway"))
+    task = asyncio.create_task(_run_once(service, "问题", process_id="process-gateway"))
     await started.wait()
-    stop_result = service.cancel_process_scoped("process-gateway", identity_scope=_u1_scope())
+    stop_result = service.cancel_process("process-gateway", identity_scope=_u1_scope())
     result = await task
 
     assert stop_result.cancelled is True
@@ -329,7 +330,7 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
         cleanup,
     )
 
-    result = await _chat_scoped(TaskProcessService(bus), "问题")
+    result = await _run_once(TaskProcessService(bus), "问题")
 
     assert result.kind == "agent"
     assert result.agent_run_result.status == "cancelled"
@@ -357,7 +358,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    result = await _chat_scoped(TaskProcessService(bus), "问题")
+    result = await _run_once(TaskProcessService(bus), "问题")
 
     assert result.agent_run_result.status == AgentRunStatus.FAILED.value
     finalize.assert_not_awaited()
@@ -424,9 +425,9 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_chat_scoped(service, "问题", process_id="process-prepare"))
+    task = asyncio.create_task(_run_once(service, "问题", process_id="process-prepare"))
     await prepare_started.wait()
-    stop_result = service.cancel_process_scoped("process-prepare", identity_scope=_u1_scope())
+    stop_result = service.cancel_process("process-prepare", identity_scope=_u1_scope())
     release_prepare.set()
     result = await task
 
@@ -467,7 +468,7 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
 
     task = asyncio.create_task(_collect_stream(service, process_id="process-stream-cancel"))
     await pull_started.wait()
-    stop_result = service.cancel_process_scoped("process-stream-cancel", identity_scope=_u1_scope())
+    stop_result = service.cancel_process("process-stream-cancel", identity_scope=_u1_scope())
     events = await task
 
     assert stop_result.cancelled is True
@@ -504,9 +505,9 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = TaskProcessService(bus)
 
-    task = asyncio.create_task(_chat_scoped(service, "问题", process_id="process-finalize"))
+    task = asyncio.create_task(_run_once(service, "问题", process_id="process-finalize"))
     await finalize_started.wait()
-    stop_result = service.cancel_process_scoped("process-finalize", identity_scope=_u1_scope())
+    stop_result = service.cancel_process("process-finalize", identity_scope=_u1_scope())
     release_finalize.set()
     result = await task
 
@@ -537,7 +538,7 @@ async def test_attachment_selection_without_reader_fails_allocation() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     with pytest.raises(WorkspaceDomainError, match="附件读取能力"):
-        await _chat_scoped(
+        await _run_once(
             TaskProcessService(bus),
             "问题",
             process_id="process-no-reader",
@@ -567,7 +568,7 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
 
     events = [
         event
-        async for event in TaskProcessService(bus).chat_stream_scoped(
+        async for event in TaskProcessService(bus).run_process(
             "问题",
             identity_scope=_u1_scope(),
             process_id="process-domain-error",

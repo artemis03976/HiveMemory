@@ -36,7 +36,7 @@ async def _gateway_route(**_kwargs):
 
 
 @pytest.mark.asyncio
-async def test_uploaded_ready_asset_can_be_selected_by_chat_process() -> None:
+async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     """捕获选择坐标与上传产物漂移，或 PROCESSING 资产被提前选择。"""
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
@@ -84,9 +84,10 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_process() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    chat = TaskProcessService(bus, asset_reader=store)
-    result = await chat.chat_scoped(
+    service = TaskProcessService(bus, asset_reader=store)
+    result = await service.run_process(
         "总结这两份附件",
+        stream=False,
         identity_scope=scope,
         process_id="process-selection",
         attachments=[
@@ -133,10 +134,11 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _async_true)
 
-    chat = TaskProcessService(bus, asset_reader=store)
+    service = TaskProcessService(bus, asset_reader=store)
     with pytest.raises(AssetRemovedError):
-        await chat.chat_scoped(
+        await service.run_process(
             "使用已删除附件",
+            stream=False,
             identity_scope=scope,
             process_id="process-removed",
             attachments=[
@@ -201,9 +203,10 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _async_empty_tasks)
 
-    chat = TaskProcessService(bus, asset_reader=store)
-    result = await chat.chat_scoped(
+    service = TaskProcessService(bus, asset_reader=store)
+    result = await service.run_process(
         "总结这份附件",
+        stream=False,
         identity_scope=scope,
         process_id="process-via-bus",
         attachments=[

@@ -335,7 +335,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 运行时和生命周期：
 
 - [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)；
-- 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（进程表、编排与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（`CPUInputManifest`）；
+- 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（进程表、编排骨架与交付、CPU 分配、`chat.run.*` 事件投影与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（`CPUInputManifest`）；
 - 能力层与读取视图：[`workspace/capability/`](../../src/hivememory/workspace/capability/)、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
 - Alice 派生缓存：[`KoakumaAtomCache`](../../src/hivememory/agent_runtime/aliases/cache.py)（端口见 [`AtomCachePort`](../../src/hivememory/agent_runtime/aliases/ports.py)）、[`AgentProfileCache`](../../src/hivememory/alice/runtime/profile_cache.py)；消费侧 resolver 见 [`RuntimeAliasResolver`](../../src/hivememory/agent_runtime/aliases/resolver.py) 与 [`AgentProfileResolver`](../../src/hivememory/alice/runtime/profile_resolver.py)；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；

@@ -64,8 +64,8 @@ async def chat(
         stream = None
 
         try:
-            stream = service.chat_stream_scoped(
-                user_message=body.message,
+            stream = service.run_process(
+                message=body.message,
                 identity_scope=identity_scope,
                 process_id=process_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
@@ -82,7 +82,7 @@ async def chat(
                 try:
                     while not pull_task.done():
                         if await request.is_disconnected():
-                            service.cancel_process_scoped(
+                            service.cancel_process(
                                 process_id,
                                 identity_scope=identity_scope,
                                 reason="client_disconnected",
@@ -98,7 +98,7 @@ async def chat(
                     }
 
                     if await request.is_disconnected():
-                        service.cancel_process_scoped(
+                        service.cancel_process(
                             process_id,
                             identity_scope=identity_scope,
                             reason="client_disconnected",
@@ -107,7 +107,7 @@ async def chat(
                 except StopAsyncIteration:
                     break
                 except asyncio.CancelledError:
-                    service.cancel_process_scoped(
+                    service.cancel_process(
                         process_id,
                         identity_scope=identity_scope,
                         reason="client_disconnected",
@@ -148,7 +148,7 @@ async def stop_chat(
     取消，不从当前选择重新构造可能不同的 scope。
     """
     identity_scope = resolve_request_identity_scope(selection)
-    result = service.cancel_process_scoped(
+    result = service.cancel_process(
         request.process_id,
         identity_scope=identity_scope,
     )

@@ -16,7 +16,8 @@ code_paths:
   - src/hivememory/workspace/assets/store.py
   - src/hivememory/components/serial_gate.py
   - src/hivememory/engines/attachment_compiler/
-  - src/hivememory/workspace/process/service.py
+  - src/hivememory/workspace/process/allocation.py
+  - src/hivememory/workspace/process/task_process.py
   - src/hivememory/workspace/process/working_set.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/patchouli/control/interaction_submission.py
@@ -165,7 +166,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 - 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/assets.py`](../../src/hivememory/workspace/capability/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
 - 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`components/serial_gate.py`](../../src/hivememory/components/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`infrastructure/attachments/`](../../src/hivememory/infrastructure/attachments/)；
-- Chat 选择、租借与编译：[`workspace/process/service.py`](../../src/hivememory/workspace/process/service.py)、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；finalize 写入快照：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
+- Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/task_process.py`](../../src/hivememory/workspace/process/task_process.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；finalize 写入快照：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；
 - 配置：[`config/attachments.py`](../../src/hivememory/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。
 
