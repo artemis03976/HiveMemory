@@ -109,6 +109,7 @@ last_reviewed: 2026-09-28
 | `v0.7.0` Workspace 网络与任务进程 | Partially Landed | 完全完成向 Workspace 网络与任务进程架构的演进：以唯一注册入口登记任务进程作为 Workspace 网络的运作逻辑，首条迁移流程为 Alice 的 chat 链路，首个方向为任务进程表与唯一注册入口；A1 访问边界、A2-P 记忆版本与 lifecycle、包分层已完成 | v0.6.2；[Plans 导航](./plans/README.md)；[总 Idea](./ideas/workspace-network-task-process-architecture.md) |
 | `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入（controller 模式） | Candidate / 可独立交付 | 用户在 HiveMemory 入口选择外部 harness 作为 actor，请求登记为任务进程并转发给该 harness 执行；外部 harness 实际使用记忆并把结果送回 Patchouli，验证执行者可替换与无 Alice 的跨会话闭环 | v0.7.0 的任务进程表与唯一注册入口；外部 Actor 的接入与运行时访问契约（[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）；正式 Plan 待建立 |
+| `v0.7.1` Alice 会话压缩 | Candidate | Alice 在会话内由 CPU 当场生成摘要、替换较早的上下文；Session 记录保持原样 | v0.7.0 的 ConversationSession 与会话模型（[外部会话与 Topic 投影 Idea](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；第 4.4.3 节；正式 Plan 待建立 |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
@@ -123,13 +124,13 @@ last_reviewed: 2026-09-28
 
 - **已完成**：[A1 访问边界](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)（统一认证网关、两类登记与逐次行为授权；生产入口接入等遗留工作见 [A1 返工 Todo](./todo/a1-access-boundary-rework.md)，在任务进程表计划完成后接入）、[A2-P 记忆内容版本与 Lifecycle](./archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义](./archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)，以及包分层重构（见[系统架构概览](./architecture/overview.md)第 3 节）。
 - **当前方向**：以唯一注册入口把任意任务请求登记为任务进程，作为 Workspace 网络的运作逻辑；首条迁移流程为 Alice 的 chat 链路；首个方向是任务进程表与任务请求唯一注册入口，Plan 尚未建立，讨论见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md)。
-- **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md)，Alice 为第一个使用者；[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)，分两步实施，登记位于 workspace、与任务进程解耦，与外部会话改造的先后均可；A1 返工（任务进程表计划完成后接入）。
+- **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28)，Alice 为第一个使用者，包括前端回归 session 模型（新建与恢复会话、取消“当前 Topic”、`topic_info` 改为异步记忆标注，Topic 池移到记忆面板）；[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)，分两步实施，登记位于 workspace、与任务进程解耦，与外部会话改造的先后均可；A1 返工（任务进程表计划完成后接入）。
 - **不在 v0.7.0**：外部 Actor 的真实接入（adapter 接口与外部服务身份等，[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)）分为两种接入模式，controller 模式在 v0.7.1（第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）排除在现有系统之外，逐步演进为独立功能。
 - **边界原则**：记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
 - **范围**（2026-09-27 决定）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在。验收口径是 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构；v0.7.0 不对外部 Actor 所需的基建作承诺。决定记录与架构层面的待决问题见 [Workspace 网络与任务进程架构 Idea](./ideas/workspace-network-task-process-architecture.md)第 6.1 节。
-- **版本目标**（2026-09-28 决定）：(1) Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型；(2) 非 Alice 的 CPU（测试替身即可）能跑完整个任务进程，不改动进程与入口的代码；(3) 取消与清理都经过进程容器；(4) 命令、主动请求与被动请求经同一入口注册。任务进程的结构（进程创建时机、四阶段通用骨架、进程记录与工作集、prepare 的拆分）见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2。
+- **版本目标**（2026-09-28 决定）：(1) Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型；(2) 非 Alice 的 CPU（测试替身即可）能跑完整个任务进程，不改动进程与入口的代码；(3) 取消与清理都经过进程容器；(4) 命令、主动请求与被动请求经同一入口注册（命令系统后置，v0.7.0 内现有内置命令暂时不可用）。任务进程的结构（进程创建时机、四阶段通用骨架、进程记录与工作集、prepare 的拆分）见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2。
 
-### 4.4 v0.7.1：执行基座与 controller 模式外部 Actor 两个独立切片
+### 4.4 v0.7.1：执行基座、controller 模式外部 Actor 与 Alice 会话压缩
 
 #### 4.4.1 执行基座与沙箱基线
 
@@ -148,6 +149,10 @@ last_reviewed: 2026-09-28
 接入需把具体平台的身份、事件顺序、重发、turn 结束和来源映射到外部 Actor 接入契约，验证平台能力不足时的失败披露。controller 模式下 HiveMemory 控制任务边界（actor 选择、输入、生命周期与取消、执行轨迹回流），不控制外部 harness 内部的 loop、工具与上下文压缩；外部 harness 默认保有自己的 prompt history，HiveMemory 不隐式接管上下文压缩。交互应用和记忆物化状态继续分开；adapter 不重写领域状态机，也不扩大已有幂等与持久化承诺。
 
 本版本不包括 plugin 模式（HiveMemory 以插件形式挂载在外部 harness 中，经 MCP 工具响应记忆域调用，对话经 Import Bus 回流，不接管对话）。plugin 模式已有一定代码基础，在 v0.7.1 之后的 v0.7.x 版本完善，具体版本待定；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
+
+#### 4.4.3 Alice 的会话压缩
+
+状态：Candidate，目标窗口约为 v0.7.1（2026-09-28 决定）。v0.7.0 起对话上下文由 ConversationSession 提供，会话操作为新建、恢复与压缩；压缩由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样，Topic 的 page folding 只整理记忆材料（[外部会话与 Topic 投影 Idea](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。外部 harness 自带压缩；Alice 的压缩算法在本版本实现，v0.7.0 期间 Alice 没有会话内压缩。相关候选设计见 [长时间运行 Agent 的 Turn 内上下文折叠](./ideas/long-running-agent-intra-turn-context-folding.md)。
 
 ### 4.5 v0.7.2：冷启动、历史导入与外源文档资产化
 
@@ -229,6 +234,7 @@ v0.6.2 已实现基础 -> v0.7.0：Workspace 网络与任务进程（首个方�
                           |       +-> v0.7.x plugin 模式
                           |       +-> v0.7.2 历史导入契约与批次能力
                           +-> v0.7.1 本地执行基座
+                          +-> v0.7.1 Alice 会话压缩
                           +-> v0.7.2 冷启动 / 文档资源与证据
 
 v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专项编译

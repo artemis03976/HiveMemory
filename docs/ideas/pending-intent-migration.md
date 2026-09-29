@@ -90,7 +90,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 | run/frame/action 关联、延迟提交、取消策略 | Alice workset/settlement adapter | 只持有引用和执行关联 |
 | 外部输入/结果 wire | 外部 Actor adapter 或 MTP adapter | 不复制 Pending 状态 |
 
-Pending 不是 canonical Memory、也不是可淘汰 cache；registry 持有不等于整个 Workspace 的 Actor 默认可读。全局 intent ID 负责定位，提交者、Workspace、operation 和内容可见性分别判断。
+Pending 不是 canonical Memory、也不是可淘汰 cache。第一版 PendingAtom 不设 policy，默认对全 workspace 开放（0.1）；原候选设计中“registry 持有不等于整个 Workspace 的 Actor 默认可读”的约束随之不适用于第一版。全局 intent ID 负责定位，提交者、Workspace、operation 和内容可见性分别判断。
 
 ## 2. 共同流程与独立路由
 
@@ -118,7 +118,7 @@ WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
 
 代码现状（2026-09-27 复核）：`patchouli/control/memory_generation/coordinator.py` 的 `submit_active()` 仍使用 `recent_blocks(5)`；MemoryGenerationEngine 在没有上下文且没有 WRITE/UPDATE focus 时才跳过。候选方向是保留生成引擎支持意图独立生成的能力，修正上游资料获取，而非让 adapter 自行拉 blocks。
 
-Session/交互是可选来源，交互资料交接见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节：需要纳入某次交互时，通过授权结果查询确认其 applied 和实际 topic_id；路由关联本身不证明内容已应用，不要求独立 TopicAssignment 实体。意图接纳后使用契约规定的资料绑定，不因物化失败回滚已应用交互，也不让 Topic 清理影响仍被已接纳任务依赖的资料；保留/释放方式见外部会话 Idea 第 8 节，尚未决定。
+交互是可选来源（conversation session 不是记忆的材料来源，见 0.1），交互资料交接见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节：需要纳入某次交互时，通过授权结果查询确认其 applied 和实际 topic_id；路由关联本身不证明内容已应用，不要求独立 TopicAssignment 实体。意图接纳后使用契约规定的资料绑定，不因物化失败回滚已应用交互，也不让 Topic 清理影响仍被已接纳任务依赖的资料；保留/释放方式见外部会话 Idea 第 8 节，尚未决定。
 
 ## 4. Pending 读取、结算和生命周期
 
@@ -187,11 +187,11 @@ Pending 终态不被当作普通 Memory 负缓存淘汰；其保留与过期按�
 
 执行拆分：Alice 现有 `PendingAtomRuntime` 中的 run/frame/action 关联是执行状态，留在 Actor；intent/alias/内容/状态/settlement 关联是资源工作状态，进入 registry。旧实现是迁移的起点，不是共享实现的合法依赖。
 
-ADR-0006 的判据只裁定写入意图不归记忆库；上述论证进一步把它判给 workspace runtime。在任务进程模型下，它归网络共享设施还是归任务进程，取决于[任务进程 Idea](./task-process-table-and-registration-entry.md)的 Q-2 与 Q-3a，本文不作选择。
+ADR-0006 的判据只裁定写入意图不归记忆库；上述论证进一步把它判给 workspace runtime。2026-09-28 已决定：登记位于 workspace 的共享设施，生命周期与任务进程解耦（0.1；[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）。
 
 ## 5. 开放问题
 
-原计划中留待 A4-0 冻结的接口与迁移事项如下，均未决定。
+原计划中留待 A4-0 冻结的接口与迁移事项如下；除 0.1 已决定的部分外，均未决定。
 
 | 事项 | 需要回答的问题 |
 |:---|:---|

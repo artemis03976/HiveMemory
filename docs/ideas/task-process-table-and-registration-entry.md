@@ -123,9 +123,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 附件脱离 Patchouli：附件租借作为工作集中的资源。附件编译的位置未单独决定，候选为与记忆原子一致，由 CPU 一侧编译。
 - Topic 将与 conversation session 解耦，不再承担上下文（Q-9）。因此不再需要“先建临时话题”：Gateway 的 Topic 路由决定作为工作集中的值，跨阶段传递到结算，提交后依此按需创建 Topic。现有临时话题的补偿（Patchouli 的 prepared run 清理路由）随之不再需要。
   - 实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务（Q-9）。conversation session 不是记忆的材料来源（owner，2026-09-28）。
-  - 影响：前端以 SSE 事件 `topic_info` 确认本轮的 Topic（[Chat 工作区](../frontend/chat-workspace.md)），该事件目前在 prepare 之后、Alice 执行之前发出。Topic 改为提交后创建，而进程在交互被提交队列接纳后就结束（Q-1），进程结束时新 Topic 可能还没有路由确定；Topic 又只为记忆生成服务（Q-9）。这个事件的时点、含义，以及前端“当前 Topic”的概念都需要重新设计。
+  - 影响：前端以 SSE 事件 `topic_info` 确认本轮的 Topic（[Chat 工作区](../frontend/chat-workspace.md)），该事件目前在 prepare 之后、Alice 执行之前发出。Topic 改为提交后创建，而进程在交互被提交队列接纳后就结束（Q-1），进程结束时新 Topic 可能还没有路由确定；Topic 又只为记忆生成服务（Q-9）。这个事件的时点、含义，以及前端“当前 Topic”的概念都需要重新设计。2026-09-28 已决定：取消“当前 Topic”概念，`topic_info` 改为进程结束后的异步记忆标注，前端回归 session 模型（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。
 - Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（总 Idea P-2、P-10，见其 15.4）。prepare 不再解析 Profile；Profile 其余内容在何处解析未决定，候选为 CPU 分配。
-- 结算阶段：现有 finalize 接收 Alice 的 `AgentRunResult`，用 ActionReducer / TraceReducer 从 turn events 归约 MTP 轨迹，`materialize_tasks` 是 PendingAtom 的物化任务（2.5）。写入意图改为经能力层实时提交之后，结算阶段只提交交互记录与相应的衍生内容，随后关闭进程（Q-1）；交互记录的中立形态由 Q-14 决定。
+- 结算阶段：现有 finalize 接收 Alice 的 `AgentRunResult`，用 ActionReducer / TraceReducer 从 turn events 归约 MTP 轨迹，`materialize_tasks` 是 PendingAtom 的物化任务（2.5）。写入意图改为经能力层实时提交之后，结算阶段只提交交互记录与相应的衍生内容，随后关闭进程（Q-1）；交互记录采用 `InteractionPayload`（Q-14）。
 
 **v0.7.0 版本目标**：以下四条是 v0.7.0 的版本目标（owner，2026-09-28；记录见总 Idea [6.1](./workspace-network-task-process-architecture.md#61-已决定事项)）：
 
@@ -145,7 +145,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 - 阶段枚举 `ChatRunPhase` 把 chat 编排写死：`CREATED → GATEWAY → PREPARE → ALICE → FINALIZE → TERMINAL`；
 - 注册表本身不持有工作状态：附件租借在 Patchouli prepare 返回的 `PreparedAgentRun` 中，写入意图在 Alice 的 `PendingAtomRuntime` 中，执行事件在 Alice run 中；
-- 注册与编排都在 [`chat_service.py`](../../src/hivememory/alice/application/chat_service.py) 内完成（包分层重构后暂置于 `alice.application`，最终归属待 Q-3，见总 Idea D-9）；run 记录终态后由 `close` 移出注册表。
+- 注册与编排都在 [`chat_service.py`](../../src/hivememory/alice/application/chat_service.py) 内完成（包分层重构后暂置于 `alice.application`；2026-09-28 决定迁入 workspace 的 `process` 子包，见总 Idea D-9）；run 记录终态后由 `close` 移出注册表。
 
 ```mermaid
 flowchart LR
@@ -206,7 +206,7 @@ Alice 的提示词以 Topic 的 `state_summary` 与最近 5 个 block 作为对�
 
 ### 3.1 任务进程的生命周期（前提部分）
 
-前提只确定“从唯一入口注册、任务结束后关闭”。“任务结束”如何判定属于 Q-1，两种选项的状态图见 Q-1。
+前提只确定“从唯一入口注册、任务结束后关闭”。“任务结束”的判定见 Q-1（2026-09-28 已决定：交互被提交队列接纳后关闭）。
 
 ```mermaid
 flowchart LR
@@ -317,7 +317,7 @@ stateDiagram-v2
 - 实时提交时当前一轮的交互记录还没有进入 Topic，生成材料目前只能“舍弃当前一轮”（同上 0.1 选项 A）；取消与失败不再丢弃已提交的写入意图。
 - 收尾阶段等到交互被提交队列（InteractionSubmissionQueue）成功接纳，进程即可退出并结束，不再等待 applied（owner，2026-09-28）。
   - 附件租借因此在接纳时随进程关闭释放，早于现在的“交互与后置工作结束后释放”。Artifact promotion 在生成时按 `binding.asset_ref` 重新取得内容（[Chat 附件链路](../system/attachments.md)第 4 节），不依赖本轮的租借（分析）。
-  - 对 `topic_info` 的影响见 1.2。
+  - 对 `topic_info` 的影响见 1.2（已决定改为异步的记忆标注）。
 
 ### Q-2 写入意图（中间产物）的可见范围
 
@@ -478,7 +478,7 @@ stateDiagram-v2
 
 ### Q-15 各阶段取消策略的声明方式
 
-**背景**：各阶段的取消策略不同（2.4）；取消改在进程容器上响应，进程记录持有当前阶段及其取消策略（1.2）。
+**背景**：各阶段的取消策略不同（2.4）；取消改在进程容器上响应（1.2）。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
@@ -526,7 +526,7 @@ stateDiagram-v2
 | P-9d 进程的定义 | 同上 | 管理员直接通道（方案 C）与前提第 3 条的关系 |
 | P-2、P-10 Agent Profile 的权限 | 同上 | 已决定：Profile 的两个 allow 字段演变为能力层的 operation 控制（总 Idea 15.4、本文 1.2） |
 | P-1 经网络接入的 Actor 如何证明身份 | 同上 | 与 Q-8 相关；P-1a 已决定：每次请求重新校验身份（总 Idea 15.3） |
-| Q-11–Q-13 Import Bus | 总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-待决问题import-bus) | 不在 v0.7.0 范围；Q-14 选项 B 把进程的交互记录交给 Import Bus |
+| Q-11–Q-13 Import Bus | 总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-待决问题import-bus) | 不在 v0.7.0 范围；Q-14 已选 A，进程不经 Import Bus 提交交互记录 |
 | M-1–M-5 迁移问题 | 总 Idea [第 6 节](./workspace-network-task-process-architecture.md#6-待决问题迁移与现有工作来自前序讨论) | M-1、M-3、M-5 已决定（总 Idea 6.1）：按流程纵切，首条迁移流程为 Alice 的 chat 链路 |
 | 会话记录的候选设计 | [外部会话与 Topic 投影](./external-session-and-topic-projection.md) | Q-9 选项 B 的一种形态；Topic 不再承担上下文、不再预先创建（Q-9、1.2） |
 | 写入意图的迁移 | [写入意图体系迁移](./pending-intent-migration.md) | Q-1、Q-2 已决定：登记位于 workspace、与进程解耦、第一版不设 policy；v0.7.0 内分两步实施（该 Idea 0.1） |
@@ -535,8 +535,7 @@ stateDiagram-v2
 ## 6. 形成 Plan 的条件
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
-- 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；
-- 仍影响首个 Plan 范围与接口的问题：
-  - 前端：`topic_info` 事件与“当前 Topic”概念的重新设计（1.2）；
+- 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
+- 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。

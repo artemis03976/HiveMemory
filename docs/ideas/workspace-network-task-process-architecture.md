@@ -185,7 +185,7 @@ flowchart TB
 ```
 
 - 外部 harness 有两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。controller 模式下，用户在 HiveMemory 的入口选择外部 harness 作为 actor，请求经注册入口登记为任务进程，外部 harness 是进程中的 CPU；plugin 模式下，对话由外部 harness 管理，不经注册入口，harness 以不建进程的方式经能力层访问，形状与管理员直接通道相同。
-- Import Bus（现有 Passive Ingress 链路）仍经交互提交队列进入记忆生成（3.3、3.4、4.5），但不属于核心全局拓扑，并已排除在现有系统之外（6.1）。任务进程的交互记录由进程自行提交（任务进程 Idea Q-14 选项 A）；写入意图在 workspace 登记后提交给记忆库，与进程解耦（写入意图迁移 Idea 0.1）。
+- Import Bus（现有 Passive Ingress 链路）在现有代码中仍经交互提交队列进入记忆生成（3.3、3.4、4.5）；它不属于核心全局拓扑，按 6.1 排除在现有系统之外，代码层面如何处理尚未决定。任务进程的交互记录由进程自行提交（任务进程 Idea Q-14 选项 A）；写入意图在 workspace 登记后提交给记忆库，与进程解耦（写入意图迁移 Idea 0.1）。
 
 4.2–4.4（任务进程的生命周期、通用流程与 chat 任务类型）已移至[任务进程 Idea](./task-process-table-and-registration-entry.md)第 3 节。
 
@@ -320,6 +320,8 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 这四条用来区分真正的解耦与“只是把 chat 链路从 system 层搬了个地方”：四个阶段的顺序是任务的自然顺序，不需要改变；应当改变的是阶段之间的状态由谁持有、每个交界处传递什么，以及执行阶段能否由任意 CPU 承担。
 
+**会话模型与 Topic 池**：前台对话回归常规 Agent 软件的 session 概念，保留新建、恢复、压缩三个会话操作，压缩由 CPU 负责；Topic 不绑定 Session，workspace 共享一个 Topic 池；Gateway 的会话提示后放，现在 Gateway 的话题路由只服务于后台的 Topic 路由。前端改造与新建、恢复两个操作在 v0.7.0 完成，Alice 的压缩约在 v0.7.1 完成。详见[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1。
+
 **Import Bus**：现在不考虑 Import Bus 带来的任何效果，将其排除在现有系统之外；任务进程 Idea Q-14 的选项 B 因此不成立。
 
 **写入意图**：写入意图迁移纳入 v0.7.0，放在外部会话与 Topic 投影改造之前或之后都可以；登记位于 workspace，与任务进程和记忆生成两侧都解耦，经能力层实时提交；取消与失败不再丢弃已提交的写入意图；PendingAtom 在落库前对全 workspace 可回读。详见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 与任务进程 Idea Q-1、Q-2。
@@ -334,7 +336,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 |:---|:---|
 | 唯一注册入口、进程生命周期 | [任务进程 Idea](./task-process-table-and-registration-entry.md)；现有 chat run 注册表；[Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) |
 | 进程中的写入意图 | [写入意图体系迁移](./pending-intent-migration.md)（原 A4，含原宪章 §6.2 的归属论证） |
-| 网络共享读视图 | A2 读取能力面与派生缓存（已删除，最后版本见 commit `dda9d9d`）；workspace 包的现有读取实现见 6.1 |
+| 网络共享读视图 | A2 读取能力面与派生缓存（已删除，最后版本见 commit `dda9d9d`）；workspace 包的现有读取实现保留为 Alice 读取实现的迁移目标，见第 10 节 D-9 |
 | 对话连续性（Q-9） | [外部会话与 Topic 投影](./external-session-and-topic-projection.md)（原 A3） |
 | Import Bus | [Passive Ingress 当前设计](../system/passive-ingress.md) |
 | 外部 Actor 的接入与运行时访问 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md)（原计划 B） |
@@ -346,7 +348,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 本节来自 v0.7.0 边界宪章的裁定层，于 2026-09-27 宪章拆分时移入。宪章的归属判据与记忆库一侧的独立工作契约已成为 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)；修订日志、回溯验证、可逆性押注与联动修订清单等过程记录不再保留，宪章删除前的最后版本见 commit `dda9d9d`。写入意图归属的论证移入[写入意图体系迁移](./pending-intent-migration.md)，Session 与 Topic 的切分移入[外部会话与 Topic 投影](./external-session-and-topic-projection.md)。
 
-这些裁定写于任务进程模型提出之前，把库外状态统一判给“workspace runtime”。在任务进程模型下，它们归网络共享设施还是归任务进程，取决于[任务进程 Idea](./task-process-table-and-registration-entry.md)的 Q-2 与 Q-3a；本文不作选择。下文保留原裁定的表述，均为候选设计。
+这些裁定写于任务进程模型提出之前，把库外状态统一判给“workspace runtime”。2026-09-28 按[任务进程 Idea](./task-process-table-and-registration-entry.md)的 Q-2、Q-3a 与第 10 节 D-9 决定：原判给“workspace runtime”的各项位于 workspace 的共享设施，不进入任务进程。7.1.2–7.1.8 的其余内容（独立工作义务、事件协作、读取边界、缓存、能力面入口、断开测试）仍是候选设计，保留原裁定的表述。
 
 #### 7.1.1 候选归属表
 
@@ -425,7 +427,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 原裁定（2026-09-25）：workspace 能力面的入口形状是 **in-process 的 workspace server API，不新开总线路由**。Actor 是 client，经 adapter（HTTP、MTP、MCP 与外部传输）归一化后调用能力面；能力面为实现真实功能，作为 client 调用 Patchouli 的 backing API，形成第二层 client-server，即 7.1.3 的过线契约。总线只承载库外到 Patchouli 的 backing 调用与失效事件。
 
-能力层由原 `system/application` 的资源能力部分改造而成，不新建中间层：拥有平面状态（resolver、双缓存、边界授权、lease）或组合多个领域步骤的方法构成能力实现；向单个 backing 领域操作的无状态委托可以保持薄转发，条件是转发前已在能力边界完成 operation 授权，且转发目标是一个完整的领域操作而不是裸机制（如 `patch_payload`）。现状：资源能力位于 `workspace/capability`，chat 编排暂置 `alice.application`（第 9 节 D-9）。
+能力层由原 `system/application` 的资源能力部分改造而成，不新建中间层：拥有平面状态（resolver、双缓存、边界授权、lease）或组合多个领域步骤的方法构成能力实现；向单个 backing 领域操作的无状态委托可以保持薄转发，条件是转发前已在能力边界完成 operation 授权，且转发目标是一个完整的领域操作而不是裸机制（如 `patch_payload`）。现状：资源能力位于 `workspace/capability`，chat 编排暂置 `alice.application`（第 9 节 D-9）；2026-09-28 决定 chat 编排迁入 workspace 的 `process` 子包（第 10 节 D-9）。
 
 adapter 的五条判据见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 3.4；operation 授权的检查点迁移见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md)与第三部分前提第 5 条。
 
@@ -475,7 +477,7 @@ adapter 的五条判据见[外部 Actor Idea](./external-actor-registration-and-
 
 ## 10. 第二部分：未解决的问题
 
-每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
+每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。D-9 已于 2026-09-28 决定，保留在本节以便对照选项。
 
 ### D-8a passive 的接入认证与目标 Workspace
 
@@ -496,7 +498,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 - **D-9a chat run 注册表**：workspace（演化为[任务进程 Idea](./task-process-table-and-registration-entry.md)的进程表） / 保留在 `alice.application` / 其他。
 - **D-9b chat 编排**（chat 任务类型的执行步骤）：workspace / alice（保留现状） / 独立的任务类型包 / system / 其他。
 
-2026-09-28 的相关决定（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）：chat run 注册表演化为进程表，`ChatGenerationRun` 演化为进程记录；不存在任务类型，chat 编排即 controller 模式下的四阶段通用骨架。两者所在的包仍待决。
+2026-09-28 的相关决定（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）：chat run 注册表演化为进程表，`ChatGenerationRun` 演化为进程记录；不存在任务类型，chat 编排即 controller 模式下的四阶段通用骨架。
 
 **owner 决定（2026-09-28）**：进程表等内容理论上应当放在 workspace 中；鉴于体量较大，暂时按下表在 workspace 内部细分子包（D-9a、D-9b 均为 workspace）。子包名是示意，最终命名在实施时确定。
 

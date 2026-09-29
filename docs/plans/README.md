@@ -18,7 +18,7 @@ last_reviewed: 2026-09-28
 |:---:|:---|:---|:---|
 | 1 | 任务进程表与任务请求唯一注册入口 | Plan 未建立 | [任务进程 Idea](../ideas/task-process-table-and-registration-entry.md)（第 6 节列出建立 Plan 前需要决定的问题） |
 | 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
-| — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
+| — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
 
 - 不在 v0.7.0：外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；

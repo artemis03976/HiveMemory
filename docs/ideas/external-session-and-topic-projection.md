@@ -28,11 +28,41 @@ last_reviewed: 2026-09-28
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
 - **Topic 与会话解耦**（owner，2026-09-28）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
+- **会话模型与 Topic 池**（owner，2026-09-28）：见 0.1。
 - 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
 - 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md#q-9-对话连续性的承载) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见[总 Idea](./workspace-network-task-process-architecture.md) Q-11，该链路不在 v0.7.0 范围。
 - 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
 
 外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。本文讨论这个数据模型和交接时机，不涉及完整折叠算法；折叠和原始证据专项见[独立计划](../plans/topic-folding-context-and-raw-evidence.md)。
+
+### 0.1 会话模型与 Topic 池（owner，2026-09-28）
+
+**背景**（owner 表述）：Topic 机制最初同时承担短期记忆与 Agent 上下文控制，希望实现自动的上下文场景切换：前端对应自动的 Topic 卡片切换与话题池展示，以及半自动的上下文管理，包括为适应长上下文而压缩对话。这与主流的 session 视角冲突：
+
+1. session 由用户主动创建，Topic 完全由后台自动控制；
+2. 一般的 harness 都自带运行时的上下文压缩，与 page folding 冲突；
+3. Topic 机制也不符合厂商推广 KV cache 的方向：输入一直在变，命中不了缓存，反而可能没有 token 经济效益。代码核对（2026-09-28，`prompts/assembler.py`）：Alice 每轮的 system prompt 依次包含 MTP 说明、persona、本轮检索到的记忆、附件与 Topic 的 `state_summary`，历史是 Topic 最近 5 个 block 的滑动窗口，每轮能稳定命中缓存的只有 MTP 说明与 persona。
+
+要使用外部 Actor，无论如何都必须解决 session 与 Topic 体系的不一致。Topic 机制背后的理念（对话语义的一致性与连贯性）仍然是目标，在记忆生成一侧保持；前台的对话体验回归常规 Agent 软件的 session 概念。
+
+**决定**：
+
+| 事项 | 决定 |
+|:---|:---|
+| 会话操作 | 保留三个操作：新建（清空上下文）、恢复（resume，回到原会话继续追加）、压缩（compact，在会话内由 CPU 当场生成摘要替换较早的上下文）。不设“新会话接续旧会话”的交接摘要：把旧会话的完整历史带入新会话，等同于恢复旧会话；而 `topic_title`、`topic_summary` 只供前端展示，`state_summary` 不一定已经生成，都不能作为交接摘要的来源 |
+| 压缩的归属 | 压缩由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图；Session 记录保持原样。外部 harness 自带压缩与恢复；Alice 需要实现自己的压缩。Topic 的 page folding 只整理记忆材料，两者作用于不同对象 |
+| Topic 与 Session | Topic 不绑定 Session，workspace 共享一个 Topic 池；Gateway 的路由候选为整个 workspace 的 Topic。同一主题在不同会话中的讨论路由到同一个 Topic，记忆材料的语义保持连贯。Session 与 Topic 之间只有路由关联：会话包含若干进程，每个进程的交互记录路由到某个 Topic |
+| 跨会话连续性 | 用户有意分开的会话，靠中期与长期记忆接续；想回到原来的话题时恢复原会话 |
+| Gateway 的会话提示 | 由 Gateway 识别“本轮消息属于另一个会话的话题”并提示用户恢复该会话，放到后续版本实现；现在 Gateway 的话题路由只服务于后台的 Topic 路由 |
+| 前端 | 左侧改为 session 列表（新建、恢复、重命名、加载历史）；取消“当前 Topic”概念；`topic_info` 改为异步的记忆标注（进程结束后得知本轮归入了哪个 Topic）；Topic 池移到记忆面板，作为短期库的整理视图，保留 settle 与 delete 管理 |
+
+**影响**（分析）：
+
+- 本文第 3 节“新 Session 的自动路由候选默认限制在已关联 Topic”与第 4 节“用户新建 Session 只创建会话容器；显式新 Topic 才约束内层路由”，按本决定废止或需要修订；第 7 节“Alice 可以继续选 Topic 工作集、短期窗口和检索结果组织 prompt”不再成立；
+- 一个 Topic 中会交错出现来自多个会话的 block；提交按 Topic 串行处理，不影响记忆生成，但 Topic 不能再作为某个会话的对话视图展示；
+- controller 模式下，恢复会话对外部 harness 意味着恢复它的原会话，取决于 harness 是否支持（例如 ACP 的 `session/load` 是可选能力）；不支持时只能新建；
+- Alice 一侧的压缩与候选 Idea [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)相关；占位计划[话题折叠、Actor 上下文与原始证据统一改造](../plans/topic-folding-context-and-raw-evidence.md)把 Topic 折叠与 Actor 上下文合在一起，其前提已不成立；
+- 版本安排（owner，2026-09-28）：前端改造在 v0.7.0 完成，新建与恢复两个会话操作随前端改造一起完成；Alice 的压缩算法滞后，大约在 v0.7.1 完成；Gateway 的会话提示放到后续版本。v0.7.0 期间 Alice 没有会话内压缩，长会话的上下文长度由用户新建会话来控制（分析）。
 
 ## 1. 目标与非目标
 
@@ -71,13 +101,13 @@ ConversationSession
   created_at / updated_at
 ```
 
-Session 是由用户或调用软件控制的会话总容器，维护稳定来源、顺序、生命周期和历史引用。它作为 Workspace 归属的会话资源，由 System 会话服务持有本地记录，adapter 负责输入与生命周期触发；Patchouli 不持有第二份完整历史。外部 harness 仍拥有自己原生历史，本地只记录它交付的部分，不能宣称获得未提供的完整会话。Session 的管理/读取同样经过 A1 与资源 policy。
+Session 是由用户或调用软件控制的会话总容器，维护稳定来源、顺序、生命周期和历史引用。它作为 Workspace 归属的会话资源，由 workspace 共享设施中的会话服务持有本地记录（2026-09-28，总 Idea D-9；原候选为 System 会话服务），adapter 负责输入与生命周期触发；Patchouli 不持有第二份完整历史。外部 harness 仍拥有自己原生历史，本地只记录它交付的部分，不能宣称获得未提供的完整会话。Session 的管理/读取同样经过 A1 与资源 policy。
 
 `ordered_interaction_refs` 指向本地保留的封口 `InteractionPayload`，表达逻辑顺序，不要求把全部历史装进一个无限增长对象。Session 记录与封口内容共同构成本地接收历史；内容的存放位置、分页、保留范围和容量待定（第 8 节），不能用内部 queue 或 apply journal 代替历史存储。进程内首版只承诺实际保存窗口，容量不足必须显式拒绝/报告，不能静默丢事件。会话资源不能当派生 cache 随便淘汰；删除/关闭 Session 不默认级联删除已形成的 Topic 或 Memory，provenance 引用过期时明确不可回查。route cursor 仅为可重建的路由投影，不决定既有交互的来源或内容。
 
 Session 不在事务上拥有 Topic，也不把 `session_id` 继续塞进 `ActorIdentity` 作为身份事实。交互输入直接携带本地 `session_id`，结合 A1 的可信访问范围定位并校验 Session；现有 `ActorIdentity.session_id` 仅做兼容读取，最终迁移由契约和代码一起完成，不要求增加 SessionRef/InteractionContext 两层包装。不同来源相同 external_conversation_id 不合并；受信 source namespace 与 Workspace、用户的映射构成 Session 定位坐标，消息声称的 speaker 不授予 Session 访问权。
 
-2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
+2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建（2026-09-28：任务进程在交互被提交队列接纳后即结束，不再等待 applied，见[任务进程 Idea](./task-process-table-and-registration-entry.md#q-1-进程何时关闭) Q-1）；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
 
 对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后；workspace 包的现有实现需要重新调查，见[总 Idea](./workspace-network-task-process-architecture.md)第 6.1 节。
 
@@ -104,9 +134,9 @@ InteractionPayload（演进现有模型）
 
 `interaction_id` 同时标识封口交互及其逻辑提交；同一次提交重试必须复用它。既有 envelope、公开结果与 apply journal 沿用同一值，不能各自产生新 ID；兼容参数与 payload 同时携带 ID 时须校验一致。`work_id` 仍是队列工作身份，外部 turn/event ID 和 execution reference 仍是来源关联，不与 interaction_id 互换。Session 顺序由可信 Session key 与交互 sequence 保证，不能继续简单使用 `topic:{topic_id}` 作为会话排序键；TurnEvent.sequence 则只表达交互内部顺序。
 
-开放段是 accumulator 的可变工作记录，公开提交的是封口后的不可变快照；保留类名不意味着保留当前模型的可变提交语义。`completion_state` 描述交互实际结束结果，`seal_reason` 描述为何封口，两者都不表示 Patchouli 已接纳。取消/失败也可有可保存内容，不应因没有成功 final reply 而丢弃全部记录。一份交互不硬性要求恰好一条 user 和一条 assistant；可包含多条消息或不完整工具事件。可信 scope 仍由 access/内部 envelope 承载，正文中的来源信息不能成为第二份授权身份。
+开放段是 accumulator 的可变工作记录，公开提交的是封口后的不可变快照；保留类名不意味着保留当前模型的可变提交语义。`completion_state` 描述交互实际结束结果，`seal_reason` 描述为何封口，两者都不表示 Patchouli 已接纳。取消/失败也可有可保存内容，不应因没有成功 final reply 而丢弃全部记录。一份交互不硬性要求恰好一条 user 和一条 assistant；可包含多条消息或不完整工具事件。可信 scope 仍由 access/内部 envelope 承载，正文中的来源信息不能成为第二份授权身份。controller 模式下只有 completed 的进程提交交互记录（任务进程 Idea Q-14），其余取值的用途见第 8 节第 6 条。
 
-路由指令表达本次交互的处理意图；prepare handle 作为可选提交参数交接，不成为另一份正文或授权容器。其与 interaction_id、指令和幂等摘要的绑定方式待定（第 8 节）；无论采用哪种绑定，都要说明未接纳时如何显式重新准备；接纳结果未知或已经接纳时，须先定位原结果，不能以换 handle 为由改变既有路由。
+路由指令表达本次交互的处理意图；prepare handle（2026-09-28 起在 controller 模式下失去前提，见第 4 节开头）作为可选提交参数交接，不成为另一份正文或授权容器。其与 interaction_id、指令和幂等摘要的绑定方式待定（第 8 节）；无论采用哪种绑定，都要说明未接纳时如何显式重新准备；接纳结果未知或已经接纳时，须先定位原结果，不能以换 handle 为由改变既有路由。
 
 ### 2.3 TurnEvent：复用并扩展事件表达
 
@@ -140,11 +170,13 @@ TurnEvent（在现有字段上补齐表达能力）
 
 一个 Session 可以跨多个 Topic；首版一次交互只应用一个 primary Topic，避免拆分一次工具动作并重复记忆生成。跨 Topic 拆分交互属于后续算法决定，不在本文范围。Topic 的资源归属仍是 Workspace；Session→Topic 只保存路由关联，不新增 Topic 的 Session owner。
 
-新 Session 的自动路由候选默认限制在已关联 Topic；需要复用另一 Session 的 Topic 时显式选择并授权 attach。这个默认方向需要用现有 Alice/Passive Ingress 样例确认：不能把它误做新的资源硬隔离，也不能直接重写旧 Workspace 范围 Topic 的归属。迁移期保留 legacy 路由规则并明确版本；跨 Session 关联只改变可选路由范围，不合并 Session 历史。
+（2026-09-28 废止，见 0.1：Topic 不绑定 Session，路由候选为整个 workspace 的 Topic。以下为原候选设计。）新 Session 的自动路由候选默认限制在已关联 Topic；需要复用另一 Session 的 Topic 时显式选择并授权 attach。这个默认方向需要用现有 Alice/Passive Ingress 样例确认：不能把它误做新的资源硬隔离，也不能直接重写旧 Workspace 范围 Topic 的归属。迁移期保留 legacy 路由规则并明确版本；跨 Session 关联只改变可选路由范围，不合并 Session 历史。
 
 `LogicalBlock` 可以保存 `session_id`、`interaction_id` 和 source provenance 引用，但不复制整个 Session。Session 保留提交时的内容，Topic 的 TurnRecord/LogicalBlock 是记忆侧投影；Topic 折叠、摘要或淘汰不回写 Session 历史。既有 blocks/summary/bindings 和 TopicData 快照保持 Patchouli 领域语义；新增关联优先使用兼容字段或现有应用记录，不能为此重写整个 Topic 存储模型。
 
 ## 4. Topic 路由指令与交接
+
+（2026-09-28：任务进程不再预先创建 Topic；Gateway 的路由决定由进程携带到结算，提交后按需创建 Topic（0.1；任务进程 Idea 1.2）。本节中 prepare handle 与预创建 Topic 的条件清理，在 controller 模式下失去前提，待本方向的实施批次重审；路由指令、路由关联与应用结果的内容不受影响。）
 
 本节集中定义 Topic 交接生命周期，包含没有 Session 的 prepare/主动意图场景，不意味着 Topic 属于 Session。这部分的公开方法、总线路由映射、operation 绑定和领域实现应在同一处定义；生成侧只引用本节，不另行决定 handle/assignment 的有效性、清理或来源绑定。
 
@@ -162,7 +194,7 @@ InteractionSubmitResult / 应用结果查询投影（扩展既有结果语义）
 
 `auto` 在允许的候选中判断；`continue` 将上次 Topic 作为提示，允许明确的改路由；`explicit` 在通过授权后固定目标；`new` 强制新建并排除自动并回相似 Topic。若 `continue/explicit` 在真实调用中没有不同语义，应合并枚举，不能留下两个同义分支。confidence/router_revision 只有路由器实际提供时才返回，不伪造精度和版本。
 
-用户新建 Session 只创建会话容器；显式新 Topic 才约束内层路由。清空 Actor prompt context 也不等同删除 Session 历史或 Topic，adapter 若还要强制新 Topic 须另发 `new`。这让手动选择和自动路由遵循显式优先级，避免“标题相似”覆盖用户选择。UI 按钮、会话分支与批量重路由另行规划。
+（2026-09-28：会话操作与 Topic 路由的关系按 0.1 修订。）用户新建 Session 只创建会话容器；显式新 Topic 才约束内层路由。清空 Actor prompt context 也不等同删除 Session 历史或 Topic，adapter 若还要强制新 Topic 须另发 `new`。这让手动选择和自动路由遵循显式优先级，避免“标题相似”覆盖用户选择。UI 按钮、会话分支与批量重路由另行规划。
 
 若在 prepare 阶段已经得出路由，应返回稳定的 prepare handle，submit 时携带该引用，避免前后重新路由造成不一致；它与交互路由关联的区别见第 4.2 节。未调用 prepare 的交互可按携带的路由指令在提交后处理；handle 失效不能被偷偷改写成“未提供 handle”。adapter 不把外部 session_id 伪装成 topic_id。
 
@@ -185,7 +217,7 @@ Session 服务保证输入去重和开放段的本地顺序；Patchouli applicat
 
 | 对象 | 状态由谁推进 | 与其他状态的关系 |
 |:---|:---|:---|
-| Session | System 会话服务；open/paused/closed | 不等于 Actor 正在运行或 Topic 已 settle |
+| Session | workspace 会话服务（总 Idea D-9）；open/paused/closed | 不等于 Actor 正在运行或 Topic 已 settle |
 | 开放段/封口快照 | adapter + Session accumulator；open→sealed，附 completion outcome | sealed 不等于已接纳或成功回复 |
 | interaction 提交 | Patchouli application/queue；accepted→applied/failed | applied 不保证生成 Memory |
 | Topic 路由关联 | Patchouli 路由/应用结果 | 对同一已应用交互稳定，不成为访问凭证；不新增独立状态机 |
@@ -293,7 +325,7 @@ RelayController 的新边界是 Topic working set 的折叠器：管理 Topic �
 
 更细的 page folding、raw evidence、长 turn checkpoint、容量和恢复设计由[折叠专项计划](../plans/topic-folding-context-and-raw-evidence.md)承接；本文只涉及其必须依赖的 Session/interaction/Topic 关联和事件来源边界。
 
-Session 完整历史的展示与 prompt 预算是两件事。Alice 可以继续选 Topic 工作集、短期窗口和检索结果组织 prompt；外部 harness 自主管理 prompt 与厂商缓存。不把所有 Session 内容自动注入模型，也不以重构为由删除现有记忆侧短期工作集。“接收记录就替外部 Actor 改写执行上下文”的耦合需要解除；折叠质量算法本身继续保留现有实现，直到专项替换。
+（2026-09-28：本段中 Alice 以 Topic 工作集组织 prompt 的表述已不成立，对话上下文由 Session 提供、压缩由 CPU 负责，见 0.1。）Session 完整历史的展示与 prompt 预算是两件事。Alice 可以继续选 Topic 工作集、短期窗口和检索结果组织 prompt；外部 harness 自主管理 prompt 与厂商缓存。不把所有 Session 内容自动注入模型，也不以重构为由删除现有记忆侧短期工作集。“接收记录就替外部 Actor 改写执行上下文”的耦合需要解除；折叠质量算法本身继续保留现有实现，直到专项替换。
 
 ## 8. 开放问题
 
@@ -305,9 +337,9 @@ Session 完整历史的展示与 prompt 预算是两件事。Alice 可以继续�
 2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）、最小创建/读取/封口/关闭能力与 A1 operation、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
 3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；移除 identity.session_id 对 equality/hash/cache key 的影响。speaker、来源与调用主体分别处理。
 4. 无 session 的旧 Alice/单次交互如何映射为明确的临时 Session，不能静默合并全用户历史；主动意图仍可无 Session。旧 Topic 只保存可证来源，不能编造完整 Session。
-5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例。
+5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例（2026-09-28：controller 模式下 `interaction_id` 始终取 `process_id` 的值，见任务进程 Idea Q-16）。
 6. 封口信号、completion outcome、partial/cancel/failed、迟到/重复/sequence 缺口策略；Session 与 Topic 两种序列化约束；开放段容量和无 user 事件的接收规则。
-7. 路由指令优先级、默认候选范围和显式 attach；Topic prepare/handle、条件清理、资料绑定、结果观察/保留与 API 决定见下方 Topic 生命周期事项；跨 Session 复用不改变 Workspace ownership。
+7. 路由指令优先级、默认候选范围和显式 attach（2026-09-28：默认候选范围已决定为整个 workspace，见 0.1）；Topic prepare/handle、条件清理、资料绑定、结果观察/保留与 API 决定见下方 Topic 生命周期事项；跨 Session 复用不改变 Workspace ownership。
 
 Topic 生命周期事项：
 
