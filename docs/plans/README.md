@@ -12,11 +12,11 @@ last_reviewed: 2026-09-28
 
 ## v0.7.0
 
-范围已决定（2026-09-27，[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) M-5）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在；首条迁移流程为 Alice 的 chat 链路（M-3），以 Alice 在新架构下跑通、各流程协作无误作为验证；版本目标见 [ROADMAP](../ROADMAP.md) 第 4.3 节。当前没有生效的 Plan。
+范围已决定（2026-09-27，[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) M-5）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在；首条迁移流程为 Alice 的 chat 链路（M-3），以 Alice 在新架构下跑通、各流程协作无误作为验证；版本目标见 [ROADMAP](../ROADMAP.md) 第 4.3 节。v0.7.0 按小批量逐次实施：同一方向同时只有一份生效计划，完成一批、归档一批，再建立下一批的计划。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 任务进程表与任务请求唯一注册入口 | Plan 未建立 | [任务进程 Idea](../ideas/task-process-table-and-registration-entry.md)（第 6 节列出建立 Plan 前需要决定的问题） |
+| 1 | 任务进程表与任务请求唯一注册入口 | 第一批 Planned：[任务进程表：落位与进程标识](./v0.7.0-task-process-table.md) | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
 | 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |

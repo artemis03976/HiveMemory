@@ -35,7 +35,7 @@ last_reviewed: 2026-09-28
 当前版本事实如下：
 
 - 最近已发布基线：`v0.6.2`（Git tag，2026-09-14）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 当前开发版本：`v0.7.0`，状态为 Partially Landed，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划，首条迁移流程为 Alice 的 chat 链路；首个计划方向是任务进程表与任务请求唯一注册入口（Plan 尚未建立），计划状态见 [Plans 导航](./plans/README.md)。
+- 当前开发版本：`v0.7.0`，状态为 Partially Landed，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划，首条迁移流程为 Alice 的 chat 链路；首个计划方向是任务进程表与任务请求唯一注册入口，按小批量逐次实施（第一批 Plan 已建立），计划状态见 [Plans 导航](./plans/README.md)。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近已发布标签 `v0.6.2` 对应；v0.7.0 开发期间已合入的内容尚未升版。
 
@@ -123,7 +123,7 @@ last_reviewed: 2026-09-28
 状态：Partially Landed。原计划 A（A1–A6、A2-P）与计划 B 的计划体系已于 2026-09-27 按新架构重整，版本内的计划状态与顺序只在 [Plans 导航](./plans/README.md)维护。
 
 - **已完成**：[A1 访问边界](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)（统一认证网关、两类登记与逐次行为授权；生产入口接入等遗留工作见 [A1 返工 Todo](./todo/a1-access-boundary-rework.md)，在任务进程表计划完成后接入）、[A2-P 记忆内容版本与 Lifecycle](./archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义](./archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)，以及包分层重构（见[系统架构概览](./architecture/overview.md)第 3 节）。
-- **当前方向**：以唯一注册入口把任意任务请求登记为任务进程，作为 Workspace 网络的运作逻辑；首条迁移流程为 Alice 的 chat 链路；首个方向是任务进程表与任务请求唯一注册入口，Plan 尚未建立，讨论见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md)。
+- **当前方向**：以唯一注册入口把任意任务请求登记为任务进程，作为 Workspace 网络的运作逻辑；首条迁移流程为 Alice 的 chat 链路；首个方向是任务进程表与任务请求唯一注册入口，按小批量逐次实施，第一批为[任务进程表：落位与进程标识](./plans/v0.7.0-task-process-table.md)，讨论见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md)。
 - **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28)，Alice 为第一个使用者，包括前端回归 session 模型（新建与恢复会话、取消“当前 Topic”、`topic_info` 改为异步记忆标注，Topic 池移到记忆面板）；[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)，分两步实施，登记位于 workspace、与任务进程解耦，与外部会话改造的先后均可；A1 返工（任务进程表计划完成后接入）。
 - **不在 v0.7.0**：外部 Actor 的真实接入（adapter 接口与外部服务身份等，[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)）分为两种接入模式，controller 模式在 v0.7.1（第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）排除在现有系统之外，逐步演进为独立功能。
 - **边界原则**：记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
