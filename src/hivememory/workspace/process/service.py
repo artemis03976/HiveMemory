@@ -2,8 +2,11 @@
 TaskProcessService — chat 任务进程的注册入口与四阶段编排骨架
 
 位于 workspace：登记任务进程并编排 Gateway 分析 → Patchouli prepare →
-Alice run → finalize 四个阶段，与进程表（``workspace.process.table``）
-协作 stop 控制面；对子系统的一切调用都经全局总线的公开路由完成。
+CPU 分配 → Alice run → finalize 四个阶段，与进程表
+（``workspace.process.table``）协作 stop 控制面；对子系统的一切调用都经
+全局总线的公开路由完成。CPU 分配（Profile 解析、附件租借、记忆/附件
+编译与输入清单组装）由进程在进入 Alice 之前完成；其中 Profile 解析
+暂时提前到 prepare 之前，原因见 ``_resolve_agent_profile``。
 """
 
 from __future__ import annotations
@@ -24,23 +27,44 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
+from hivememory.config.attachments import AttachmentCompilerConfig
+from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import (
     RuntimeEvent,
     RuntimeEventType,
 )
-from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
+from hivememory.core.errors import (
+    AssetOperationConflictError,
+    WorkspaceDomainError,
+    WorkspaceMismatchError,
+)
 from hivememory.core.models import (
+    AgentProfile,
     AttachmentSelectionRequest,
     IdentityScope,
+    MemoryAtom,
+    ResolvedAgentProfile,
     require_identity_scope,
 )
+from hivememory.core.models.workspace_asset import (
+    RepresentationLease,
+)
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     GatewayIngressMode,
 )
 from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
+from hivememory.engines.attachment_compiler import AttachmentCompiler
+from hivememory.engines.memory_compiler import (
+    MemoryCompileOptions,
+    MemoryCompiler,
+    MemoryEnvelopeTarget,
+)
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.table import (
     CancelResult,
     ProcessOutcome,
@@ -49,6 +73,7 @@ from hivememory.workspace.process.table import (
     ProcessStatusSnapshot,
     ProcessTable,
 )
+from hivememory.workspace.process.working_set import ProcessWorkingSet
 
 logger = logging.getLogger(__name__)
 
@@ -144,10 +169,15 @@ type NonStreamingChatResult = (NonStreamingChatCommandOutcome | NonStreamingChat
 class TaskProcessService:
     """任务进程服务 — chat 任务类型的注册入口与四阶段编排骨架。
 
-    纯总线编排，不直接持有任何子系统引用。身份入口约定（v0.6.2 收敛）：
-    本服务只接受调用方在 server 边界冻结的 ``IdentityScope``，不再解析裸
-    ``user_id``。Chat 是 Agent action，必须由具体 Agent 执行；actor 为保留
-    ``system`` 值的 scope 会在入口被拒绝。
+    对子系统的一切调用都经全局总线的公开路由完成，不直接持有任何子系统
+    引用。身份入口约定（v0.6.2 收敛）：本服务只接受调用方在 server 边界
+    冻结的 ``IdentityScope``，不再解析裸 ``user_id``。Chat 是 Agent
+    action，必须由具体 Agent 执行；actor 为保留 ``system`` 值的 scope
+    会在入口被拒绝。
+
+    CPU 分配所需能力由组合根注入：``asset_reader`` 是进程级唯一
+    WorkspaceAssetStore 的只读 reader 端口（附件租借在此 acquire，随进程
+    关闭统一 release）；两个编译配置段驱动进程侧的记忆/附件编译。
     """
 
     def __init__(
@@ -155,11 +185,22 @@ class TaskProcessService:
         global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
         gateway_request_timeout_ms: int = 8000,
+        *,
+        asset_reader: WorkspaceAssetReaderPort | None = None,
+        memory_compiler_config: MemoryCompilerConfig | None = None,
+        attachment_compiler_config: AttachmentCompilerConfig | None = None,
     ) -> None:
         self._bus = global_bus
         self._process_table = ProcessTable()
         self._events = runtime_events or NullRuntimeEventSink()
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
+        self._asset_reader = asset_reader
+        # 记忆/附件编译使用与拆分前 Patchouli prepare 相同的引擎与配置段。
+        self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
+        self._memory_compiler = MemoryCompiler()
+        self._attachment_compiler = AttachmentCompiler(
+            attachment_compiler_config or AttachmentCompilerConfig(),
+        )
 
     # ========== 非流式主链路 ==========
 
@@ -176,8 +217,9 @@ class TaskProcessService:
         """非流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
 
         ``process_id`` 由 server 入口在进入本服务前生成并冻结（Q-16）；
-        ``attachments`` 只透传用户选择，ref/READY/版本校验发生在 Patchouli
-        prepare 边界，本层不读取 Store。
+        ``attachments`` 只透传用户选择，ref/READY/版本校验发生在进程的
+        CPU 分配边界（经注入的 reader port 读取 Store），本层不接触
+        Patchouli 内部实现。
         """
         identity_scope = require_identity_scope(identity_scope)
         identity = identity_scope.actor_identity
@@ -189,7 +231,8 @@ class TaskProcessService:
             identity_scope=identity_scope,
             process_id=process_id,
         )
-        prepared = None
+        working_set = ProcessWorkingSet(asset_reader=self._asset_reader)
+        prepared: PreparedAgentRun | None = None
         prepared_finalized = False
         try:
             self._process_table.register(run)
@@ -226,6 +269,7 @@ class TaskProcessService:
                 )
 
             run.enter_phase(ProcessPhase.PREPARE)
+            agent_profile = await self._resolve_agent_profile(identity_scope)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -233,11 +277,23 @@ class TaskProcessService:
                 interaction_id=process_id,
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
-                generation_options=generation_options,
-                selected_attachments=attachments or [],
             )
+            # 先写入工作集再校验：scope 不一致时 finally 仍需把它交回 cleanup，
+            # 以补偿 prepare 可能已经预建的 Topic。
+            working_set.prepared = prepared
             _require_prepared_scope(prepared, identity_scope)
 
+            # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
+            self._allocate_cpu_inputs(
+                run,
+                working_set,
+                identity_scope=identity_scope,
+                agent_profile=agent_profile,
+                selections=attachments or [],
+            )
+
+            # 取消检查（Q-15）：只在进入 Alice 之前检查一次。prepare 与分配
+            # 期间收到的 stop 请求都在此生效，已取得的租借由 finally 释放。
             if run.outcome is ProcessOutcome.STOP_REQUESTED:
                 raise _ProcessCancelled(
                     ProcessPhase.PREPARE,
@@ -251,9 +307,8 @@ class TaskProcessService:
                 ProcessPhase.ALICE,
                 lambda: self._bus.request(
                     GlobalRoutes.ALICE_RUN_AGENT,
-                    agent_run_context=prepared.agent_run_context,
-                    generation_options=prepared.generation_options,
-                    process_id=run.process_id,
+                    input_manifest=working_set.input_manifest,
+                    generation_options=generation_options,
                 ),
             )
 
@@ -294,8 +349,9 @@ class TaskProcessService:
             )
             await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
-                prepared_run=prepared,
+                prepared_run=working_set.prepared,
                 loop_result=loop_result,
+                used_attachments=working_set.used_attachments,
             )
             prepared_finalized = True
 
@@ -332,16 +388,23 @@ class TaskProcessService:
             logger.exception("TaskProcessService.chat 异常")
             raise
         finally:
-            if prepared is not None and not prepared_finalized:
-                try:
-                    await self._bus.request(
-                        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
-                        prepared_run=prepared,
-                    )
-                except Exception:
-                    logger.warning("清理 prepared run 失败", exc_info=True)
-            self._process_table.close(run)
-            reset_trace_context(tokens)
+            # 统一释放：完成、取消、失败与分配失败各条路径都在这里释放附件
+            # 租借（幂等）。必须先于下面的 await 同步执行：owner task 在
+            # cleanup 期间被取消时，CancelledError 不会被 except Exception
+            # 捕获，释放不能依赖这些 await 完成。
+            working_set.release()
+            try:
+                if working_set.prepared is not None and not prepared_finalized:
+                    try:
+                        await self._bus.request(
+                            GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+                            prepared_run=working_set.prepared,
+                        )
+                    except Exception:
+                        logger.warning("清理 prepared run 失败", exc_info=True)
+            finally:
+                self._process_table.close(run)
+                reset_trace_context(tokens)
 
     # ========== 流式主链路 ==========
 
@@ -359,11 +422,11 @@ class TaskProcessService:
         流式 Chat 公共入口：使用 server 边界冻结的完整 Workspace scope。
 
         ``process_id`` 由 server 入口在进入本服务前生成并冻结（Q-16）；
-        ``attachments`` 只透传用户选择，ref/READY/版本校验发生在 Patchouli
-        prepare 边界，本层不读取 Store。
+        ``attachments`` 只透传用户选择，ref/READY/版本校验发生在进程的
+        CPU 分配边界（经注入的 reader port 读取 Store）。
 
-        编排骨架: process_id 事件 -> gateway -> prepare -> prelude events
-                  -> run_agent_stream -> [finalize if not cancelled] -> done
+        编排骨架: process_id 事件 -> gateway -> prepare -> CPU 分配
+                  -> 前导事件 -> run_agent_stream -> [finalize if not cancelled] -> done
         """
         trace_id = generate_trace_id("stream")
         tokens = None
@@ -376,7 +439,8 @@ class TaskProcessService:
             identity_scope=identity_scope,
             process_id=process_id,
         )
-        prepared = None
+        working_set = ProcessWorkingSet(asset_reader=self._asset_reader)
+        prepared: PreparedAgentRun | None = None
         stream = None
         # 只记录 chat 终态是否已经对外发布；finally 依赖它判断是否需要断流兜底。
         terminal_state: Literal["completed", "cancelled", "failed"] | None = None
@@ -427,6 +491,7 @@ class TaskProcessService:
                 return
 
             run.enter_phase(ProcessPhase.PREPARE)
+            agent_profile = await self._resolve_agent_profile(identity_scope)
             prepared = await self._bus.request(
                 GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
                 user_message=user_message,
@@ -434,34 +499,54 @@ class TaskProcessService:
                 interaction_id=process_id,
                 gateway_decision=gateway_result.decision,
                 enable_memory_retrieval=enable_memory_retrieval,
-                generation_options=generation_options,
-                selected_attachments=attachments or [],
             )
+            # 先写入工作集再校验：scope 不一致时 finally 仍需把它交回 cleanup，
+            # 以补偿 prepare 可能已经预建的 Topic。
+            working_set.prepared = prepared
             _require_prepared_scope(prepared, identity_scope)
 
+            # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
+            manifest = self._allocate_cpu_inputs(
+                run,
+                working_set,
+                identity_scope=identity_scope,
+                agent_profile=agent_profile,
+                selections=attachments or [],
+            )
+
+            # 取消检查（Q-15）：只在进入 Alice 之前检查一次。prepare 与分配
+            # 期间收到的 stop 请求都在此生效，已取得的租借由 finally 释放。
             if run.outcome is ProcessOutcome.STOP_REQUESTED:
                 raise _ProcessCancelled(
                     ProcessPhase.PREPARE,
                     run.stop_reason or "user_requested",
                 )
 
-            prelude = prepared.stream_prelude
+            # 前导事件只在分配成功后发出；分配失败或取消时不发出（与拆分前
+            # "prepare 失败时不发出"一致）。
             yield {
                 "event": "topic_info",
                 "data": {
-                    "topic_id": prelude.topic_id,
-                    "is_new": prelude.is_new_topic,
-                    "pool_topics": [topic.model_dump(mode="json") for topic in prelude.pool_topics],
+                    "topic_id": prepared.topic_id,
+                    "is_new": prepared.is_new_topic,
+                    "pool_topics": [
+                        topic.model_dump(mode="json") for topic in prepared.pool_topics
+                    ],
                 },
             }
-            yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
+            yield {
+                "event": "memory_refs",
+                "data": {
+                    "memories": [_memory_ref_from_atom(memory) for memory in manifest.memories],
+                },
+            }
 
             run.enter_phase(ProcessPhase.ALICE)
             self._emit_process_status(
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
-                topic_id=prelude.topic_id,
+                topic_id=prepared.topic_id,
             )
             loop_result = None
             stream = await _run_interruptible(
@@ -469,9 +554,8 @@ class TaskProcessService:
                 ProcessPhase.ALICE,
                 lambda: self._bus.request(
                     GlobalRoutes.ALICE_RUN_AGENT_STREAM,
-                    agent_run_context=prepared.agent_run_context,
-                    generation_options=prepared.generation_options,
-                    process_id=run.process_id,
+                    input_manifest=working_set.input_manifest,
+                    generation_options=generation_options,
                 ),
             )
             while True:
@@ -498,7 +582,7 @@ class TaskProcessService:
                     run,
                     trace_id=trace_id,
                     agent_id=agent_id,
-                    topic_id=prelude.topic_id,
+                    topic_id=prepared.topic_id,
                 )
                 terminal_state = "cancelled"
                 yield self._cancelled_done(run, loop_result)
@@ -510,7 +594,7 @@ class TaskProcessService:
                     run,
                     trace_id=trace_id,
                     agent_id=agent_id,
-                    topic_id=prelude.topic_id,
+                    topic_id=prepared.topic_id,
                     severity="error",
                 )
                 terminal_state = "failed"
@@ -526,7 +610,7 @@ class TaskProcessService:
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
-                topic_id=prelude.topic_id,
+                topic_id=prepared.topic_id,
             )
             yield {
                 "event": "run_status",
@@ -536,10 +620,12 @@ class TaskProcessService:
                 },
             }
             # 分支：正常完成 Alice 后进入 Patchouli finalize；成功后 prepared 不再需要 cleanup。
+            # used_attachments 来自进程侧附件编译结果（被预算跳过的附件不在其中）。
             memory_tasks = await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
-                prepared_run=prepared,
+                prepared_run=working_set.prepared,
                 loop_result=loop_result,
+                used_attachments=working_set.used_attachments,
             )
             prepared_finalized = True
             memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
@@ -551,7 +637,7 @@ class TaskProcessService:
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
-                topic_id=prelude.topic_id,
+                topic_id=prepared.topic_id,
                 data={"memory_task_ids": memory_task_ids},
             )
             terminal_state = "completed"
@@ -631,26 +717,171 @@ class TaskProcessService:
                     data={"close_reason": run.stop_reason or "stream_closed"},
                 )
                 terminal_state = "cancelled"
-            # 统一清理：无论正常、取消、失败还是断流，都尝试关闭 Alice 子流。
-            if stream is not None:
-                close = getattr(stream, "aclose", None)
-                if callable(close):
+            # 统一释放：完成、取消、失败、断流与分配失败各条路径都在这里释放
+            # 附件租借（幂等）。必须先于下面的 await 同步执行：owner task 在
+            # 关闭子流或 cleanup 期间被取消时，CancelledError 不会被
+            # except Exception 捕获，释放不能依赖这些 await 完成。附件文本在
+            # CPU 分配时已编译进清单，Alice 执行不再读取租借内容。
+            working_set.release()
+            try:
+                # 统一清理：无论正常、取消、失败还是断流，都尝试关闭 Alice 子流。
+                if stream is not None:
+                    close = getattr(stream, "aclose", None)
+                    if callable(close):
+                        try:
+                            await close()
+                        except Exception:
+                            logger.warning("关闭 Alice stream 失败", exc_info=True)
+                # 统一清理：只要 prepare 成功但 finalize 未成功，就清理可能的新建空 topic。
+                if working_set.prepared is not None and not prepared_finalized:
                     try:
-                        await close()
+                        await self._bus.request(
+                            GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+                            prepared_run=working_set.prepared,
+                        )
                     except Exception:
-                        logger.warning("关闭 Alice stream 失败", exc_info=True)
-            # 统一清理：只要 prepare 成功但 finalize 未成功，就清理可能的新建空 topic。
-            if prepared is not None and not prepared_finalized:
-                try:
-                    await self._bus.request(
-                        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
-                        prepared_run=prepared,
-                    )
-                except Exception:
-                    logger.warning("清理 prepared run 失败", exc_info=True)
-            self._process_table.close(run)
-            if tokens is not None:
-                reset_trace_context(tokens)
+                        logger.warning("清理 prepared run 失败", exc_info=True)
+            finally:
+                self._process_table.close(run)
+                if tokens is not None:
+                    reset_trace_context(tokens)
+
+    # ========== CPU 分配（PREPARE 阶段内，进入 Alice 之前） ==========
+
+    async def _resolve_agent_profile(self, identity_scope: IdentityScope) -> AgentProfile:
+        """CPU 分配的 Profile 解析：经 Patchouli 公开路由解析本进程的执行 Profile。
+
+        与拆分前 prepare 使用的本地路由是同一条解析规则；运行上下文只需要能力
+        描述，源原子 policy 依据不进入 run（A2 §2.3）。暂不经能力层：能力层需要
+        访问上下文（生产入口要到 A1 返工才取得），它依赖的 Profile 缓存也还没有
+        失效机制（见任务进程 Idea 1.2）。
+
+        中间态（2026-09-29）：Profile 属于 CPU 分配，但暂时在 Patchouli prepare
+        之前解析。当前 prepare 会按 Gateway 的路由决定预先新建 Topic，话题池已满
+        时还会先按 LRU 结算一个已有话题；若在 prepare 之后才发现 Profile 缺失，
+        失败的请求已经留下这些不可逆的副作用。Topic 的新建与驱逐改到 interaction
+        提交之后以后，Profile 解析可以回到 prepare 之后的 CPU 分配步骤。
+        """
+        resolved_profile: ResolvedAgentProfile = await self._bus.request(
+            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+            identity_scope.actor_identity.agent_id,
+            identity_scope=identity_scope,
+        )
+        return resolved_profile.profile
+
+    def _allocate_cpu_inputs(
+        self,
+        run: ProcessRecord,
+        working_set: ProcessWorkingSet,
+        *,
+        identity_scope: IdentityScope,
+        agent_profile: AgentProfile,
+        selections: list[AttachmentSelectionRequest],
+    ) -> CPUInputManifest:
+        """CPU 分配的其余部分：取得附件租借并编译附件与记忆、组装输入清单。
+
+        在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
+        :meth:`_resolve_agent_profile` 提前解析。分配期间仍处于 ``PREPARE``
+        阶段（不新增阶段取值），stop 请求不打断分配；分配完成后由调用方在
+        进入 Alice 之前统一检查取消。任何失败沿异常路径上抛，已取得的租借由
+        工作集在进程 ``finally`` 中释放。
+        """
+        prepared = working_set.prepared
+        if prepared is None:
+            raise RuntimeError("CPU 分配必须在 prepare 结果写入工作集之后执行")
+
+        # 1. 附件：按用户选择顺序 acquire READY representation 并核对版本摘要。
+        #    取得的 lease 由 _acquire_selected_attachment 直接登记进工作集。
+        for selection in selections:
+            self._acquire_selected_attachment(
+                working_set,
+                identity_scope,
+                selection,
+            )
+
+        # 2. 编译：附件与记忆文本由进程生成，CPU 只消费成品。检索为空时
+        #    memory_context 为空字符串（与拆分前 prepare 的行为一致）。
+        attachment_compile_result = self._attachment_compiler.compile(
+            leases=tuple(working_set.attachment_leases),
+        )
+        working_set.used_attachments = attachment_compile_result.used_attachments
+        memories = list(prepared.retrieval_result.memories)
+        memory_context = (
+            self._memory_compiler.compile(
+                memories,
+                MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+                MemoryCompileOptions(
+                    retrieval_strategy_config=(
+                        self._memory_compiler_config.retrieval_context.strategy
+                    ),
+                ),
+            ).text
+            if memories
+            else ""
+        )
+
+        # 3. 清单：组装与 CPU 无关的输入清单交给 Alice。
+        manifest = CPUInputManifest(
+            process_id=run.process_id,
+            identity_scope=identity_scope,
+            user_message=prepared.user_message,
+            agent_profile=agent_profile,
+            memories=memories,
+            memory_context=memory_context,
+            attachment_context=attachment_compile_result.attachment_context,
+            storage_available=prepared.storage_available,
+            topic_id=prepared.topic_id,
+            topic_context=prepared.topic_context,
+        )
+        working_set.input_manifest = manifest
+        return manifest
+
+    def _acquire_selected_attachment(
+        self,
+        working_set: ProcessWorkingSet,
+        identity_scope: IdentityScope,
+        selection: AttachmentSelectionRequest,
+    ) -> RepresentationLease:
+        """acquire 单个选中附件并核对客户端提供的版本摘要。
+
+        reader 的同一 Store 临界区已完成 Workspace/ref、asset READY 与
+        representation READY 校验并建立 lease，无需先做 resolve_asset。
+        取得的 lease 先登记进工作集；版本摘要不一致时经工作集释放该租借
+        并拒绝整轮，不留游离租借。
+        """
+        if self._asset_reader is None:
+            raise WorkspaceDomainError(
+                "当前系统未装配附件读取能力，不能处理附件选择",
+                details={"reason": "asset_reader_unavailable"},
+            )
+        lease = self._asset_reader.acquire_ready_representation(
+            identity_scope,
+            selection.asset_ref,
+        )
+        working_set.register_lease(lease)
+        representation = lease.representation
+        mismatch = (
+            lease.asset_ref != selection.asset_ref
+            or (
+                selection.representation_id is not None
+                and representation.representation_id != selection.representation_id
+            )
+            or (selection.revision is not None and representation.revision != selection.revision)
+            or (
+                selection.content_hash is not None
+                and representation.content_hash != selection.content_hash
+            )
+        )
+        if mismatch:
+            working_set.discard_lease(lease)
+            raise AssetOperationConflictError(
+                "所选附件版本与当前可用表示不一致，请重新选择附件",
+                details={
+                    "reason": "selection_version_mismatch",
+                    "asset_id": representation.asset_id,
+                },
+            )
+        return lease
 
     # ========== 进程控制 ==========
 
@@ -834,7 +1065,10 @@ class TaskProcessService:
             ProcessPhase.TERMINAL: "terminal",
         }[run.phase]
 
-    async def _list_final_pool_topics(self, prepared_run) -> list[dict[str, Any]]:
+    async def _list_final_pool_topics(
+        self,
+        prepared_run: PreparedAgentRun,
+    ) -> list[dict[str, Any]]:
         try:
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
@@ -845,6 +1079,27 @@ class TaskProcessService:
             logger.warning("Failed to load final topic pool after finalize.", exc_info=True)
             return []
         return [topic.model_dump(mode="json") for topic in (topics or [])]
+
+
+def _memory_ref_from_atom(memory: MemoryAtom) -> dict[str, Any]:
+    """把 MemoryAtom 投影为前端引用列表使用的扁平结构。"""
+
+    memory_type = memory.index.memory_type
+    return {
+        "id": str(memory.id),
+        "title": memory.index.title,
+        "summary": memory.index.summary,
+        "memory_type": (memory_type.value if hasattr(memory_type, "value") else str(memory_type)),
+        "tags": list(memory.index.tags),
+        "alias": memory.index.alias,
+        "content": memory.payload.content,
+        "created_at": memory.meta.created_at,
+        "updated_at": memory.meta.updated_at,
+        "confidence_score": memory.meta.lifecycle.confidence_score,
+        "vitality_score": memory.meta.lifecycle.vitality_score,
+        "user_id": memory.workspace_identity.owner_user_id,
+        "access_count": memory.meta.lifecycle.access_count,
+    }
 
 
 __all__ = [

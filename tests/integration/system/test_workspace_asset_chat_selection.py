@@ -1,31 +1,45 @@
-"""附件选择跨阶段集成验收（计划 D 门）。
+"""附件选择跨阶段集成验收（prepare 拆分后由进程 CPU 分配承担）。
 
 从 W1-C 的真实出口出发：真实上传应用服务（真实 text parser）把文件推进
-到 EXTRACTED_TEXT READY，随后 Patchouli prepare 按用户选择顺序
+到 EXTRACTED_TEXT READY，随后 chat 任务进程在 CPU 分配边界按用户选择顺序
 resolve/acquire 并冻结坐标。捕获选择绕过 READY 门槛、版本摘要漂移或
 removed 竞态下继续使用 representation 的缺陷。
 """
 
 import pytest
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentParserConfig
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import AttachmentSelectionRequest
-from hivememory.patchouli.control.interaction_submission import (
-    InteractionSubmissionQueue,
-)
-from hivememory.patchouli.service import PatchouliService
+from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+from hivememory.core.protocol.models import AgentRunResult
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
+from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.workspace import make_identity_scope
-from tests.unit.patchouli.test_prepare_attachments import _prepare_bus
+from tests.unit.workspace.process.test_gateway_chat_flow import (
+    _profile_route,
+    _scoped_prepared_route,
+)
+
+
+def _decision_outcome():
+    return GatewayDecisionOutcome(decision=make_gateway_decision())
+
+
+async def _gateway_route(**_kwargs):
+    """GATEWAY_PROCESS 替身：恒返回常规 RAG 决定。"""
+    return _decision_outcome()
 
 
 @pytest.mark.asyncio
-async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
+async def test_uploaded_ready_asset_can_be_selected_by_chat_process() -> None:
     """捕获选择坐标与上传产物漂移，或 PROCESSING 资产被提前选择。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -54,20 +68,28 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
         "ready",
     )
 
-    async def apply_interaction(_payload, **_kwargs):
-        return "topic-1"
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    finalize_kwargs: dict = {}
 
-    patchouli = PatchouliService(
-        _prepare_bus(),
-        interaction_queue=InteractionSubmissionQueue(apply_interaction),
-        asset_reader=store,
+    async def finalize(**kwargs):
+        finalize_kwargs.update(kwargs)
+        return []
+
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        _async_completed_result,
     )
-    prepared = await patchouli.prepare_agent_run(
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+
+    chat = TaskProcessService(bus, asset_reader=store)
+    result = await chat.chat_scoped(
         "总结这两份附件",
         identity_scope=scope,
-        interaction_id="interaction-selection",
-        gateway_decision=_decision_for_prepare(),
-        selected_attachments=[
+        process_id="process-selection",
+        attachments=[
             # 用户顺序：第二份在前。
             AttachmentSelectionRequest(
                 asset_ref=second.handle.asset_ref,
@@ -78,12 +100,12 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
         ],
     )
 
-    # 用户选择只作为 compiler input；实际使用顺序由编译产物冻结。
-    used = prepared.agent_run_context.attachment_compile_result.used_attachments
-    assert list(used) == [second.handle.asset_ref, first.handle.asset_ref]
-    assert len(prepared.attachment_leases) == 2
-
-    await patchouli.cleanup_prepared_agent_run(prepared)
+    # 用户选择只作为 compiler input：实际使用顺序由编译产物冻结。
+    assert result.kind == "agent"
+    assert list(finalize_kwargs["used_attachments"]) == [
+        second.handle.asset_ref,
+        first.handle.asset_ref,
+    ]
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -91,7 +113,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_chat_prepare() -> None:
 async def test_removed_asset_rejects_selection_after_upload() -> None:
     """捕获 removed 后的选择绕过 not-found/removed 语义进入本轮。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -105,21 +127,19 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     )
     store.remove_asset(scope, receipt.handle.asset_ref)
 
-    async def apply_interaction(_payload, **_kwargs):
-        return "topic-1"
+    bus = GlobalSystemBus()
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _async_true)
 
-    patchouli = PatchouliService(
-        _prepare_bus(),
-        interaction_queue=InteractionSubmissionQueue(apply_interaction),
-        asset_reader=store,
-    )
+    chat = TaskProcessService(bus, asset_reader=store)
     with pytest.raises(AssetRemovedError):
-        await patchouli.prepare_agent_run(
+        await chat.chat_scoped(
             "使用已删除附件",
             identity_scope=scope,
-            interaction_id="interaction-removed",
-            gateway_decision=_decision_for_prepare(),
-            selected_attachments=[
+            process_id="process-removed",
+            attachments=[
                 AttachmentSelectionRequest(asset_ref=receipt.handle.asset_ref),
             ],
         )
@@ -128,39 +148,17 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     assert store.close_and_clear().leases_cleared == 0
 
 
-def _decision_for_prepare():
-    from hivememory.core.protocol.gateway import (
-        GatewayDecision,
-        IntentType,
-        MemoryWriteSignal,
-        RetrievalPlan,
-    )
-
-    return GatewayDecision(
-        target_topic_id="topic-1",
-        rewritten_query="原查询",
-        memory_write_signal=MemoryWriteSignal.WRITE,
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
-    )
+async def _async_true(*_args, **_kwargs):
+    return True
 
 
 @pytest.mark.asyncio
 async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
-    """回归：总线 kwargs 名称必须与真实 prepare handler 签名一致。
+    """回归：真实 Patchouli prepare（精简签名）+ 进程 CPU 分配的完整链路。
 
-    TaskProcessService 经 GlobalSystemBus 传递的 ``selected_attachments``
-    必须被真实 ``PatchouliService.prepare_agent_run`` 接纳——此前因调用方
-    传 ``attachments``、handler 收 ``selected_attachments`` 而在运行时 TypeError。
+    TaskProcessService 经 GlobalSystemBus 调用真实 ``prepare_agent_run``，
+    随后在进程侧取得附件租借并编译，最终以清单调用 Alice。
     """
-    from unittest.mock import AsyncMock
-
-    from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.contracts.routes import GlobalRoutes
-    from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-    from hivememory.core.protocol.models import AgentRunResult
-    from hivememory.workspace.process.service import TaskProcessService
-
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
     upload_service = make_upload_service(
@@ -176,27 +174,34 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     )
     assert receipt.handle.asset.state.value == "ready"
 
+    from hivememory.patchouli.control.interaction_submission import (
+        InteractionSubmissionQueue,
+    )
+    from hivememory.patchouli.service import PatchouliService
+    from tests.unit.patchouli.test_phase3f_gateway_decision import _prepare_bus
+
     async def apply_interaction(_payload, **_kwargs):
         return "topic-1"
 
+    prepare_bus, _retrieve, _submit = _prepare_bus()
     patchouli_service = PatchouliService(
-        _prepare_bus(),
+        prepare_bus,
         interaction_queue=InteractionSubmissionQueue(apply_interaction),
-        asset_reader=store,
     )
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, patchouli_service.prepare_agent_run)
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
-        AsyncMock(return_value=GatewayDecisionOutcome(decision=_decision_for_prepare())),
+        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        patchouli_service.prepare_agent_run,
     )
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(
         GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(return_value=AgentRunResult(final_text="完成")),
+        _async_completed_result,
     )
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _async_empty_tasks)
 
-    chat = TaskProcessService(bus)
+    chat = TaskProcessService(bus, asset_reader=store)
     result = await chat.chat_scoped(
         "总结这份附件",
         identity_scope=scope,
@@ -210,6 +215,15 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
         ],
     )
 
-    # 真实 prepare 接纳了总线 kwargs，链路完整走通。
+    # 真实 prepare 与进程 CPU 分配完整走通。
     assert result.kind == "agent"
     assert result.agent_run_result.final_text == "完成"
+    assert store.close_and_clear().leases_cleared == 0
+
+
+async def _async_completed_result(**_kwargs):
+    return AgentRunResult(final_text="完成")
+
+
+async def _async_empty_tasks(**_kwargs):
+    return []

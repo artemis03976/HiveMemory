@@ -28,14 +28,14 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
-from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunStatus
 from hivememory.prompts.assembler import AgentPromptAssembler
+from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
@@ -58,17 +58,19 @@ def _build_memory_atom() -> MemoryAtom:
     )
 
 
-def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
-    return AgentRunContext(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
-        interaction_id="interaction-test",
+def _build_input_manifest(
+    memory: MemoryAtom,
+    *,
+    identity_scope=None,
+    process_id: str = "process-test",
+):
+    return make_input_manifest(
+        identity_scope=identity_scope or make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        process_id=process_id,
         topic_id="topic_1",
         user_message="hello",
-        topic_context=None,
-        retrieval_result=RetrievalResponse(memories=[memory]),
+        memories=[memory],
         memory_context="ctx",
-        agent_profile=OMNI_DOLL_PROFILE,
-        storage_available=True,
     )
 
 
@@ -114,7 +116,7 @@ def _stub_terminal_execution(
 async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
     runtime, service = _build_service()
     memory = _build_memory_atom()
-    context = _build_agent_run_context(memory)
+    context = _build_input_manifest(memory)
     _stub_terminal_execution(runtime)
 
     await service.run_agent(context)
@@ -131,15 +133,14 @@ async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
 async def test_root_frame_inherits_agent_run_workspace_context() -> None:
     """防止 Alice 创建 root frame 时从 actor 字段重新拼装默认 Workspace。"""
     runtime, service = _build_service()
-    context = _build_agent_run_context(_build_memory_atom()).model_copy(
-        update={
-            "identity_scope": make_identity_scope(
-                user_id="u1",
-                agent_id="omni_doll",
-                workspace_id="isolation_workspace",
-            ),
-            "interaction_id": "interaction-isolation",
-        }
+    context = _build_input_manifest(
+        _build_memory_atom(),
+        identity_scope=make_identity_scope(
+            user_id="u1",
+            agent_id="omni_doll",
+            workspace_id="isolation_workspace",
+        ),
+        process_id="interaction-isolation",
     )
     _stub_terminal_execution(runtime)
 
@@ -154,7 +155,7 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
 async def test_run_agent_correlates_runtime_scope_and_process_id():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
-    context = _build_agent_run_context(_build_memory_atom())
+    context = _build_input_manifest(_build_memory_atom(), process_id="process-1")
     _stub_terminal_execution(runtime)
     created_sessions = []
     create_run_session = service._create_run_session
@@ -165,10 +166,7 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
         return session
 
     service._create_run_session = _capture_session
-    await service.run_agent(
-        context,
-        process_id="process-1",
-    )
+    await service.run_agent(context)
 
     session = created_sessions[0]
     assert session.process_id == "process-1"
@@ -180,7 +178,7 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
 async def test_run_agent_failed_result_emits_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
-    context = _build_agent_run_context(_build_memory_atom())
+    context = _build_input_manifest(_build_memory_atom())
     _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
 
     result = await service.run_agent(context)
@@ -195,7 +193,7 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
 async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution():
     runtime, service = _build_service()
     memory = _build_memory_atom()
-    context = _build_agent_run_context(memory)
+    context = _build_input_manifest(memory)
     _stub_terminal_execution(runtime)
 
     events = [event async for event in service.run_agent_stream(context)]
@@ -214,7 +212,7 @@ async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution(
 async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
-    context = _build_agent_run_context(_build_memory_atom())
+    context = _build_input_manifest(_build_memory_atom())
 
     async def _run_frame(_frame, *, output_sink, **_kwargs):
         await output_sink.send(TokenDelta(content="hi"))
@@ -239,7 +237,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 async def test_executor_stream_close_error_does_not_replace_task_cancellation():
     recorder = RecordingRuntimeEventSink()
     _runtime, service = _build_service(runtime_events=recorder)
-    context = _build_agent_run_context(_build_memory_atom())
+    context = _build_input_manifest(_build_memory_atom())
 
     class CloseFailingExecutorStream:
         def __init__(self) -> None:
@@ -290,7 +288,7 @@ async def test_executor_stream_close_error_does_not_replace_task_cancellation():
 async def test_run_agent_stream_error_preserves_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = _build_service(runtime_events=recorder)
-    context = _build_agent_run_context(_build_memory_atom())
+    context = _build_input_manifest(_build_memory_atom())
     runtime._agent_runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):

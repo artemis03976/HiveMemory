@@ -1,5 +1,6 @@
 """Memory 能力（``workspace.capability.memory``）管理用例委托测试。"""
 
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -8,28 +9,14 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     ActorIdentity,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
-from hivememory.core.protocol.gateway import (
-    GatewayDecision,
-    IntentType,
-    MemoryWriteSignal,
-    RetrievalPlan,
-)
-from hivememory.core.protocol.models import (
-    AgentRunContext,
-    AgentRunResult,
-    RetrievalResponse,
-)
-from hivememory.patchouli.models import (
-    PreparedAgentRun,
-    StreamPrelude,
-)
+from hivememory.core.protocol.models import AgentRunResult
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.memory import (
     MemoryApplicationService,
@@ -37,6 +24,7 @@ from hivememory.workspace.capability.memory import (
     MemoryNotFoundError,
 )
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
+from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_identity_scope,
@@ -46,41 +34,17 @@ from tests.helpers.workspace import (
 
 
 def _make_prepared_run(**overrides) -> PreparedAgentRun:
-    identity = ActorIdentity(user_id="u1", agent_id="omni_doll")
-    identity_scope = make_identity_scope(
-        actor_identity=identity,
-        interaction_id="interaction-test",
-    )
-    gateway_decision = GatewayDecision(
-        target_topic_id="topic_1",
-        rewritten_query="resolved",
-        search_keywords=("k",),
-        memory_write_signal=MemoryWriteSignal.WRITE,
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
-    )
-    defaults = dict(
-        agent_run_context=AgentRunContext(
-            identity_scope=identity_scope,
-            interaction_id="test-interaction",
-            topic_id="topic_1",
-            user_message="hi",
-            topic_context=None,
-            retrieval_result=RetrievalResponse(),
-            agent_profile=OMNI_DOLL_PROFILE,
-            storage_available=True,
+    prepared = make_prepared_run(
+        identity_scope=make_identity_scope(
+            actor_identity=ActorIdentity(user_id="u1", agent_id="omni_doll"),
         ),
-        stream_prelude=StreamPrelude(
-            topic_id="topic_1",
-            is_new_topic=False,
-            pool_topics=[],
-            memory_refs=[],
-        ),
-        gateway_decision=gateway_decision,
-        generation_options=None,
+        interaction_id="test-interaction",
+        user_message="hi",
+        topic_id="topic_1",
     )
-    defaults.update(overrides)
-    return PreparedAgentRun(**defaults)
+    if overrides:
+        return replace(prepared, **overrides)
+    return prepared
 
 
 def _make_chat_result() -> AgentRunResult:

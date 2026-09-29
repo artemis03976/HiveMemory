@@ -24,7 +24,6 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
 )
-from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
@@ -185,9 +184,10 @@ class AgentRunContext(BaseModel):
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
 
-    # AttachmentCompiler 的产物（prepare 阶段生成）：携带 prompt-ready
-    # section、used_attachments 与诊断；未选择附件时为 None。
-    attachment_compile_result: AttachmentCompileResult | None = Field(default=None)
+    # 进程编译好的附件 section 文本（AttachmentCompiler 产物）；未选择附件
+    # 时为空。实际使用的附件引用集合由任务进程交给 finalize，不进入
+    # 运行上下文。
+    attachment_context: str = Field(default="")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

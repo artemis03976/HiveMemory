@@ -5,6 +5,7 @@ from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -18,6 +19,7 @@ __all__ = [
     "PatchouliLocalEvents",
     "PatchouliLocalRoutes",
     "PatchouliRoutes",
+    "PreparedAgentRun",
     "TopicEvictionResult",
     "TopicSettleResult",
 ]

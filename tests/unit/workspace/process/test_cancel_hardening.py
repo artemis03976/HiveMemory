@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.core.models import OMNI_DOLL_PROFILE
+from hivememory.core.models import ResolvedAgentProfile
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -17,11 +17,11 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import (
-    AgentRunContext,
     AgentRunResult,
     AgentRunStatus,
+    RetrievalResponse,
 )
-from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import (
     ProcessOutcome,
@@ -96,7 +96,7 @@ class TestChatServiceCancelPath:
         async def mock_stream(*_, **__):
             yield {"event": "done", "data": loop_result.model_dump()}
 
-        async def bus_request(route, **kwargs):
+        async def bus_request(route, *args, **kwargs):
             from hivememory.core.contracts.routes import GlobalRoutes
 
             if route == GlobalRoutes.GATEWAY_PROCESS:
@@ -112,22 +112,18 @@ class TestChatServiceCancelPath:
                 )
             if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
                 return PreparedAgentRun(
-                    agent_run_context=AgentRunContext(
-                        identity_scope=kwargs["identity_scope"],
-                        interaction_id=kwargs["interaction_id"],
-                        topic_id="t1",
-                        user_message="hello",
-                        agent_profile=OMNI_DOLL_PROFILE,
-                    ),
+                    identity_scope=kwargs["identity_scope"],
+                    interaction_id=kwargs["interaction_id"],
+                    user_message=kwargs["user_message"],
                     gateway_decision=kwargs["gateway_decision"],
-                    stream_prelude=StreamPrelude(
-                        topic_id="t1",
-                        is_new_topic=False,
-                        pool_topics=[],
-                        memory_refs=[],
-                    ),
-                    generation_options={},
+                    topic_id="t1",
+                    is_new_topic=False,
+                    retrieval_result=RetrievalResponse(),
                 )
+            if route == GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE:
+                from hivememory.core.models import OMNI_DOLL_PROFILE
+
+                return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
             if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
                 return mock_stream()
             if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:

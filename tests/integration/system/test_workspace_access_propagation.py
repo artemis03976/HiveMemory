@@ -9,7 +9,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceMismatchError
-from hivememory.core.models import OMNI_DOLL_PROFILE
+from hivememory.core.models import ResolvedAgentProfile
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -17,13 +17,10 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import (
-    AgentRunContext,
-    AgentRunResult,
-    RetrievalResponse,
-)
-from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
+from hivememory.core.protocol.models import AgentRunResult
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process.service import TaskProcessService
+from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -39,23 +36,23 @@ def _decision() -> GatewayDecisionOutcome:
     )
 
 
+def _profile_route():
+    """PATCHOULI_GET_AGENT_PROFILE 替身：返回 builtin omni_doll Profile。"""
+    from hivememory.core.models import OMNI_DOLL_PROFILE
+
+    async def route(agent_id, *, identity_scope):
+        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+    return route
+
+
 def _prepared(identity_scope) -> PreparedAgentRun:
-    return PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity_scope=identity_scope,
-            interaction_id="interaction-test",
-            topic_id="topic-shared-name",
-            user_message="question",
-            retrieval_result=RetrievalResponse(),
-            agent_profile=OMNI_DOLL_PROFILE,
-        ),
-        gateway_decision=_decision().decision,
-        stream_prelude=StreamPrelude(
-            topic_id="topic-shared-name",
-            is_new_topic=False,
-            pool_topics=[],
-            memory_refs=[],
-        ),
+    return make_prepared_run(
+        identity_scope=identity_scope,
+        interaction_id="interaction-test",
+        user_message="question",
+        gateway_decision=make_gateway_decision(target_topic_id="topic-shared-name"),
+        topic_id="topic-shared-name",
     )
 
 
@@ -79,9 +76,9 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     async def prepare(*, identity_scope, **_kwargs):
         return _prepared(identity_scope)
 
-    async def alice(*, agent_run_context, **_kwargs):
+    async def alice(*, input_manifest, **_kwargs):
         return AgentRunResult(
-            final_text=agent_run_context.identity_scope.workspace_identity.workspace_id
+            final_text=input_manifest.identity_scope.workspace_identity.workspace_id
         )
 
     async def finalize(*, prepared_run, **_kwargs):
@@ -90,6 +87,7 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
@@ -175,6 +173,7 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     with pytest.raises(WorkspaceMismatchError, match="身份作用域不一致"):
@@ -207,9 +206,9 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     async def prepare(*, identity_scope, **_kwargs):
         return _prepared(identity_scope)
 
-    async def alice(*, agent_run_context, **_kwargs):
+    async def alice(*, input_manifest, **_kwargs):
         return AgentRunResult(
-            final_text=agent_run_context.identity_scope.workspace_identity.workspace_id,
+            final_text=input_manifest.identity_scope.workspace_identity.workspace_id,
         )
 
     async def finalize(*, prepared_run, **_kwargs):
@@ -217,6 +216,7 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 

@@ -1,9 +1,11 @@
 """Alice 对外 Agent run 用例。
 
-AgentRunService 是 Alice 的公开 run 用例入口：创建 root frame、为每次 run
-构造 run-local RunExecutor、组装 ``AgentRunResult``，并在流式终态后发出
-唯一 done（见 docs/alice/orchestration.md §1）。queue / runner task /
-stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层。
+AgentRunService 是 Alice 的公开 run 用例入口：接收任务进程组装的 CPU
+输入清单，在内部转换为提示词组装使用的 ``AgentRunContext``；创建 root
+frame、为每次 run 构造 run-local RunExecutor、组装 ``AgentRunResult``，
+并在流式终态后发出唯一 done（见 docs/alice/orchestration.md §1）。
+queue / runner task / stream sequence 与 RuntimeEvent envelope 实现均不
+放在 application 层。
 """
 
 from __future__ import annotations
@@ -41,8 +43,10 @@ from hivememory.core.protocol.models import (
     AgentRunContext,
     AgentRunResult,
     AgentRunStatus,
+    RetrievalResponse,
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.workspace.contracts import CPUInputManifest
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,27 @@ class StreamExitReason(str, Enum):
     FAILED = "failed"
     CLOSED = "closed"
     MISSING_DONE = "missing_done"
+
+
+def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunContext:
+    """把 CPU 输入清单转换为提示词组装使用的内部运行上下文。
+
+    ``interaction_id`` 取 ``process_id``（进程是本次 Interaction 的关联 ID
+    事实来源）；``retrieval_result`` 由未编译的记忆原子构造，供预检索
+    alias 登记等流程使用。``AgentRunContext`` 不出现在任何公开路由上。
+    """
+    return AgentRunContext(
+        identity_scope=manifest.identity_scope,
+        interaction_id=manifest.process_id,
+        topic_id=manifest.topic_id,
+        user_message=manifest.user_message,
+        topic_context=manifest.topic_context,
+        retrieval_result=RetrievalResponse.from_memories(manifest.memories),
+        memory_context=manifest.memory_context,
+        agent_profile=manifest.agent_profile,
+        storage_available=manifest.storage_available,
+        attachment_context=manifest.attachment_context,
+    )
 
 
 class AgentRunService:
@@ -81,12 +106,12 @@ class AgentRunService:
 
     async def run_agent(
         self,
-        agent_run_context: AgentRunContext,
+        input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
-        process_id: str | None = None,
     ) -> AgentRunResult:
+        agent_run_context = _agent_run_context_from_manifest(input_manifest)
         session = self._create_run_session(
-            process_id=process_id,
+            process_id=input_manifest.process_id,
         )
 
         run_events = self._events_for_run(session, agent_run_context)
@@ -129,12 +154,12 @@ class AgentRunService:
 
     async def run_agent_stream(
         self,
-        agent_run_context: AgentRunContext,
+        input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
-        process_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
+        agent_run_context = _agent_run_context_from_manifest(input_manifest)
         session = self._create_run_session(
-            process_id=process_id,
+            process_id=input_manifest.process_id,
         )
 
         run_events = self._events_for_run(session, agent_run_context)

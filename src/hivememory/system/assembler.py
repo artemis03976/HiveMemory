@@ -324,14 +324,12 @@ class SystemAssembler:
             scheduler=runtime.scheduler,
             runtime_events=runtime.event_sink.scoped("patchouli"),
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
-            # Patchouli：附件选择在 prepare 边界 resolve/acquire（W1-D）。
+            # Patchouli runtime：供 Artifact promotion 在生成时自行取得内容。
             workspace_asset_reader=runtime.workspace_asset_store,
             # A1：System composition 注入共享行为检查；Patchouli 公共入口
             # 据此执行操作授权，不反向依赖认证网关实现。
             access_guard=access_control.access_guard,
             shared_config=self._config.shared,
-            memory_compiler_config=self._config.memory_compiler,
-            attachment_compiler_config=self._config.attachment_compiler,
             scheduler_config=self._config.scheduler,
         )
 
@@ -362,6 +360,12 @@ class SystemAssembler:
                 "system",
                 component="chat_application_service",
             ),
+            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给任务进程：
+            # 附件租借在 CPU 分配边界 resolve/acquire，随进程关闭统一释放。
+            asset_reader=runtime.workspace_asset_store,
+            # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
+            memory_compiler_config=self._config.memory_compiler,
+            attachment_compiler_config=self._config.attachment_compiler,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,

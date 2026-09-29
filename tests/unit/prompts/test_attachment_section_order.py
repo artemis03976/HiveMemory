@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.core.models import AgentProfile, TopicData
-from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.i18n import set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
@@ -46,12 +45,7 @@ def _make_topic_data(state_summary="state"):
     )
 
 
-def _context(attachment_context: str | None) -> AgentRunContext:
-    compile_result = (
-        AttachmentCompileResult(attachment_context=attachment_context)
-        if attachment_context is not None
-        else None
-    )
+def _context(attachment_context: str) -> AgentRunContext:
     return AgentRunContext(
         identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-order",
@@ -62,7 +56,7 @@ def _context(attachment_context: str | None) -> AgentRunContext:
         memory_context="MEMORY-CONTEXT",
         agent_profile=AgentProfile(persona="PERSONA", language="zh"),
         storage_available=True,
-        attachment_compile_result=compile_result,
+        attachment_context=attachment_context,
     )
 
 
@@ -87,11 +81,11 @@ def test_attachment_section_is_injected_between_memory_and_topic_state() -> None
     assert persona_pos < memory_pos < attachment_pos < topic_pos
 
 
-def test_none_compile_result_keeps_prompt_unchanged() -> None:
-    """捕获未选择附件时注入空附件 section 或占位符。"""
+def test_empty_attachment_context_keeps_prompt_unchanged() -> None:
+    """捕获未选择附件（attachment_context 为空）时注入空附件 section 或占位符。"""
     assembler = AgentPromptAssembler(_koakuma_off())
     with_attachment = assembler.build_main_agent_messages(_context("ATTACHMENT-SECTION"))
-    without_attachment = assembler.build_main_agent_messages(_context(None))
+    without_attachment = assembler.build_main_agent_messages(_context(""))
 
     assert "ATTACHMENT-SECTION" not in without_attachment[0]["content"]
     # 移除附件 section（连同其前导连接符）后，其余内容与带附件版本一致。

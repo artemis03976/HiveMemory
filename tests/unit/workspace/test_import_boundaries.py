@@ -10,7 +10,9 @@ workspace 包内更严格的约束：
 2. ``capability`` / ``assets`` / ``process`` 作为能力层、资产设施与进程
    编排，可依赖更低层的机制（``components``），不受上一条约束；
 3. ``process`` 以外的 workspace 模块不得导入 ``hivememory.workspace.process``：
-   能力层与共享设施不得依赖进程表与任务进程编排。
+   能力层与共享设施不得依赖进程表与任务进程编排；
+4. ``contracts`` 是跨子系统公共契约子包，只依赖 ``core``——不导入
+   workspace 的其他模块，也不导入任何子系统实现。
 
 以 AST 静态扫描直接 import（含相对导入）判定。
 """
@@ -113,5 +115,25 @@ def test_workspace_non_process_modules_do_not_import_process():
         for path in _non_process_sources()
         for target in _import_targets_of(path)
         if target == PROCESS_PACKAGE_MODULE or target.startswith(f"{PROCESS_PACKAGE_MODULE}.")
+    ]
+    assert violations == []
+
+
+def test_workspace_contracts_only_depend_on_core():
+    """contracts 是跨子系统公共契约子包：只允许 import core 与自身子模块。"""
+    contracts_package = WORKSPACE_PACKAGE / "contracts"
+    contracts_module = "hivememory.workspace.contracts"
+    files = [
+        path for path in sorted(contracts_package.rglob("*.py")) if "__pycache__" not in path.parts
+    ]
+    # 防空转：目录缺失或路径漂移时让测试显式失败，而不是零扫描静默通过
+    assert files, f"未扫描到 workspace contracts 源文件，请检查路径: {contracts_package}"
+    violations = [
+        f"{path}: {module}"
+        for path in files
+        for module in _imports_of(path)
+        if module.startswith("hivememory")
+        and not module.startswith("hivememory.core")
+        and not module.startswith(contracts_module)
     ]
     assert violations == []

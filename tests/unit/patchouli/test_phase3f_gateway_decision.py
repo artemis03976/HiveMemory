@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
-from hivememory.core.mtp.exceptions import AliasNotFoundError
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     IntentType,
@@ -43,13 +42,10 @@ def _decision(
 
 def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
     bus = PatchouliBus()
-    # 检索与 Profile backing 的正式返回形状：原子列表 / ResolvedAgentProfile（A2 §2.1）。
+    # 检索 backing 的正式返回形状：原子列表（A2 §2.1）。prepare 不再解析
+    # Profile——该项已迁到任务进程的 CPU 分配边界。
     retrieve = AsyncMock(return_value=[])
     submit = AsyncMock(return_value="topic-1")
-    bus.register(
-        PatchouliLocalRoutes.GET_AGENT_PROFILE,
-        AsyncMock(return_value=ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)),
-    )
     bus.register(
         PatchouliLocalRoutes.TOPIC_PREPARE,
         AsyncMock(return_value="topic-1"),
@@ -72,38 +68,6 @@ def _service(bus: PatchouliBus, submit: AsyncMock) -> PatchouliService:
         bus,
         interaction_queue=InteractionSubmissionQueue(submit),
     )
-
-
-@pytest.mark.asyncio
-async def test_prepare_explicit_missing_profile_fails_before_topic_creation() -> None:
-    bus = PatchouliBus()
-    failure = AliasNotFoundError(
-        message_key="mtp.call.profile_not_found",
-        params={"agent_alias": "missing_doll"},
-    )
-    get_profile = AsyncMock(side_effect=failure)
-    prepare_topic = AsyncMock(return_value="should-not-run")
-    bus.register(PatchouliLocalRoutes.GET_AGENT_PROFILE, get_profile)
-    bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
-
-    identity_scope = make_identity_scope(
-        user_id="u1",
-        agent_id="missing_doll",
-    )
-    with pytest.raises(AliasNotFoundError) as exc_info:
-        await _service(bus, AsyncMock(return_value="topic-1")).prepare_agent_run(
-            "hello",
-            identity_scope=identity_scope,
-            interaction_id="interaction-test",
-            gateway_decision=_decision(),
-        )
-
-    assert exc_info.value is failure
-    get_profile.assert_awaited_once_with(
-        "missing_doll",
-        identity_scope=identity_scope,
-    )
-    prepare_topic.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -144,7 +108,7 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
     )
 
     retrieve.assert_not_awaited()
-    assert prepared.agent_run_context.retrieval_result.is_empty()
+    assert prepared.retrieval_result.is_empty()
 
 
 @pytest.mark.asyncio

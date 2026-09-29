@@ -13,7 +13,6 @@ from hivememory.components.work_queue import (
     WorkState,
 )
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     ActorIdentity,
     IndexLayer,
     MemoryAtom,
@@ -21,30 +20,24 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
-from hivememory.core.protocol.gateway import (
-    GatewayDecision,
-    IntentType,
-    MemoryWriteSignal,
-    RetrievalPlan,
-)
 from hivememory.core.protocol.models import (
-    AgentRunContext,
     AgentRunResult,
     InteractionPayload,
     RetrievalResponse,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import (
     ActiveInteractionFinalizationError,
     PatchouliService,
 )
+from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -58,16 +51,6 @@ def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
         timeout_seconds=1,
         max_attempts=1,
         terminal_retention=16,
-    )
-
-
-def _decision() -> GatewayDecision:
-    return GatewayDecision(
-        target_topic_id="topic-1",
-        rewritten_query="normalized question",
-        memory_write_signal=MemoryWriteSignal.WRITE,
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
     )
 
 
@@ -97,22 +80,15 @@ def _prepared(
         actor_identity=identity,
     )
     return PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity_scope=identity_scope,
-            interaction_id=interaction_id,
-            topic_id="topic-1",
-            user_message="question",
-            topic_context=None,
-            retrieval_result=RetrievalResponse(memories=memories or []),
-            agent_profile=OMNI_DOLL_PROFILE,
-        ),
-        gateway_decision=_decision(),
-        stream_prelude=StreamPrelude(
-            topic_id="topic-1",
-            is_new_topic=is_new,
-            pool_topics=[],
-            memory_refs=[],
-        ),
+        identity_scope=identity_scope,
+        interaction_id=interaction_id,
+        user_message="question",
+        gateway_decision=make_gateway_decision(),
+        topic_id="topic-1",
+        is_new_topic=is_new,
+        topic_context=None,
+        pool_topics=[],
+        retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
     )
 
 

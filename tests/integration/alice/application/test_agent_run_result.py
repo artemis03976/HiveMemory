@@ -26,7 +26,8 @@ from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
-from hivememory.core.protocol.models import AgentRunContext, AgentRunStatus, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunStatus
+from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -45,17 +46,13 @@ def _frame(
     )
 
 
-def _context(frame: ExecutionFrame) -> AgentRunContext:
-    return AgentRunContext(
+def _context(frame: ExecutionFrame):
+    return make_input_manifest(
         identity_scope=frame.identity_scope,
-        interaction_id="interaction-test",
+        process_id="interaction-test",
         topic_id=frame.topic_id,
         user_message="hello",
-        topic_context=None,
-        retrieval_result=RetrievalResponse(memories=[]),
-        memory_context="",
         agent_profile=frame.agent_profile,
-        storage_available=True,
     )
 
 
