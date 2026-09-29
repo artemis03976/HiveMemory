@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # Plans
@@ -16,7 +16,7 @@ last_reviewed: 2026-09-28
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 任务进程表与任务请求唯一注册入口 | 第一批已完成归档：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)；第二批 Planned：[prepare 拆分与 CPU 输入清单](./v0.7.0-task-process-prepare-split.md) | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
+| 1 | 任务进程表与任务请求唯一注册入口 | 已完成归档：第一批[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、第二批[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)；后续批次未立项 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
 | 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
@@ -35,6 +35,7 @@ last_reviewed: 2026-09-28
 
 | Plan | 状态 | 结果与事实入口 |
 |:---|:---:|:---|
+| [v0.7.0 任务进程：prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md) | Archived（2026-09-29） | Patchouli prepare 只做话题与检索；任务进程完成 CPU 分配（Profile 解析、附件租借与编译、记忆编译），输入清单 `CPUInputManifest` 位于 `workspace.contracts`；当前事实见 [System 应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md) |
 | [v0.7.0 任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md) | Archived（2026-09-28） | 进程表与 chat 四阶段编排迁入 `workspace.process`、`process_id` 统一进程标识、取消只在 Gateway 与 Actor 执行响应；当前事实见 [System 应用服务](../system/application-services.md) |
 | [v0.7.0 A2-P 记忆内容版本与 Lifecycle 状态重构](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) | Archived（2026-09-24） | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 2.1 迁移 |
 | [全项目时间语义与可控时钟统一](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) | Archived（2026-09-24） | Memory 域 UTC 业务时间、四时间字段职责、局部 now 注入与 TimeFormatter 契约；全项目收口转为 Idea |

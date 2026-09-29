@@ -18,7 +18,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-05
+last_reviewed: 2026-09-29
 ---
 
 # Patchouli
@@ -53,6 +53,7 @@ Patchouli 不负责：
 - 解释原始入口消息、识别系统命令或形成 `GatewayDecision`；
 - 运行 Agent loop、控制模型生成、执行工具或编排子 Agent；
 - 拥有 System 的 chat/passive ingress 用例、全局维护时钟或跨系统取消；
+- 解析执行所用的 Agent Profile、持有附件租借、编译附件或为执行者组装运行上下文（这些属于 workspace 任务进程的 CPU 分配）；
 - 把检索结果无条件解释为正确事实；
 - 把 `WRITE` / `UPDATE` 的即时 ACK 当作正式记忆已经持久化；
 - 为任意不受信任内容提供执行沙箱。
@@ -93,17 +94,17 @@ GatewayDecision
   -> Patchouli PREPARE_AGENT_RUN
        -> prepare topic
        -> retrieve memories
-       -> MemoryCompiler compile retrieval context
-       -> AgentRunContext + StreamPrelude
+       -> PreparedAgentRun（话题准备结果 + 未编译的检索原子）
+  -> workspace 任务进程：CPU 分配（编译检索结果与附件，组装输入清单）
   -> Alice RUN / RUN_STREAM
-  -> Patchouli FINALIZE_AGENT_RUN
+  -> Patchouli FINALIZE_AGENT_RUN（携带实际使用的附件）
        -> TurnEvent -> Action / semantic trace
        -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
        -> WRITE / UPDATE materialize tasks -> generation tasks
        -> best-effort record retrieval HIT
 ```
 
-Prepare 只准备运行上下文，不运行 Alice。Finalize 消费已经完成的 `AgentRunResult`，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内并行执行 MTP 物化接纳与 best-effort retrieval HIT，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，System 会调用 cleanup 删除仍为空的话题。
+Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、不接触附件，也不运行 Alice；`PreparedAgentRun` 位于 `patchouli.contracts.prepare`，由任务进程读取并交回 finalize/cleanup。Finalize 消费已经完成的 `AgentRunResult`，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内并行执行 MTP 物化接纳与 best-effort retrieval HIT，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，System 会调用 cleanup 删除仍为空的话题。
 
 `WRITE` / `UPDATE` 的 ACK 只代表 Alice 已登记一个 PendingAtom。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 把 pending alias 投影为 canonical alias/UUID 或 discard/failure/cancel 终态。
 

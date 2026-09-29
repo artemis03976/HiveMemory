@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-09-29
 ---
 
 # Agent Runtime
@@ -73,7 +73,7 @@ ExecutionFrame
 
 ## 3. 输入上下文与 Prompt 组装
 
-Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：`IdentityScope`、话题、当前用户消息、最近话题 blocks、检索 atoms、已编译 memory context、Agent Profile 和 storage availability。
+Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：`IdentityScope`、话题、当前用户消息、最近话题 blocks、检索 atoms、已编译 memory context、已编译附件文本、Agent Profile 和 storage availability。`AgentRunContext` 由 `AgentRunService` 从任务进程交来的 `CPUInputManifest` 转换而来：Profile 由进程解析，记忆与附件由进程编译，Alice 只决定这些文本在提示词中的位置。
 
 Alice 在创建主帧前按“三明治”顺序组装消息：
 
@@ -171,7 +171,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 - Agent Runtime 必须与 Agent 数量无关；若 loop 开始解析子 Agent Profile、决定拓扑或组 IPC，编排责任已经回流；
 - `ExecutionFrame` 是重入状态的唯一载体，不能在另一个 service 中并行维护 iteration、sequence 或 text accumulator；
 - WorkerAgent 只负责模型生成与 MTP 定界符检测，不执行权限或记忆语义；
-- AgentRunContext 是本轮只读快照，Alice 不在执行中取得话题或长期记忆的可变所有权；
+- 输入清单与由它转换的 AgentRunContext 是本轮只读快照，Alice 不在执行中取得话题或长期记忆的可变所有权；
 - 模型解析和 generation/provider 故障必须稳定形成 `FAILED`，不能为了可用性静默运行错误模型；
 - 取消不能被包装成普通 success，流式路径也必须以 `done` 或异常明确结束；
 - 引擎事件必须保持 sequence 单调、tool_call/tool_result action_id 对齐，不能只保留用户可见正文。

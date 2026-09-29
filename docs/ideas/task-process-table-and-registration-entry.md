@@ -35,6 +35,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。owner 已作出的决定注明日期，记录在对应位置：第 1.1 节（请求方的分类）、第 1.2 节（任务进程的结构）、Q-1、Q-2、Q-3、Q-4、Q-5、Q-7、Q-8、Q-9、Q-10、Q-14、Q-15、Q-16。
 - workspace 包的现有实现（A2 已实施部分）不作为本方向的前提，形成 Plan 时重新调查（总 Idea 第 6.1 节）。2026-09-28 已完成调查，结论与 workspace 的子包划分见总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)。
 - **实施进度（2026-09-28）**：本方向的第一批实施已完成并晋升为当前事实——1.2 的进程表落位（进程表与 chat 四阶段骨架迁入 `workspace.process`）、Q-15 的取消收口与 Q-16 的 `process_id` 标识，见[已归档计划](../archive/plans/v0.7.0-task-process-table.md)与[应用服务](../system/application-services.md)。第 2 节的现状事实保留为迁移前的代码快照，不再描述当前实现。
+- **实施进度（2026-09-29）**：第二批实施已完成并晋升为当前事实——1.2 中 Patchouli prepare 与结算的拆分：prepare 只做 Topic 与检索，CPU 分配（Profile 解析、附件租借与编译、记忆编译、`CPUInputManifest`）由进程完成，附件租借由进程工作集持有并随进程结束释放，见[已归档计划](../archive/plans/v0.7.0-task-process-prepare-split.md)、[应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。1.2 中的其余内容（Topic 按需创建、结算阶段的中立输入、写入意图迁移等）仍未实施。
 
 ## 1. 前提（owner 提出）
 
@@ -73,6 +74,8 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 ### 1.2 任务进程的结构（owner，2026-09-28）
 
 > 2026-09-28：本节中 chat 链路的进程表落位已随第一批实施晋升为事实（`workspace.process`），取消收口规则（Q-15）同步落地。
+>
+> 2026-09-29：“Patchouli prepare 与结算的拆分”中的 prepare 退化、进程编译、附件与 Profile 三项已随第二批实施晋升为事实；Profile 解析时点按中间态放在 prepare 之前。结算阶段的中立输入与 Topic 按需创建尚未实施。
 
 本节适用于 controller 模式；plugin 模式不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
 
@@ -542,7 +545,7 @@ stateDiagram-v2
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
 - 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
-- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`）。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
+- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
 - 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。

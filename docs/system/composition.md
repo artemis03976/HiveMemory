@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # System 组合根与生命周期
@@ -47,12 +47,12 @@ HiveMemorySystem.build(config)
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
        -> service bundle
-            TaskProcessService（workspace.process，含进程表）
+            TaskProcessService（workspace.process，含进程表；注入 AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
             PassiveIngressService / SystemReadinessService（system.application）
             Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability）
 ```
 
-五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关，子系统共享全局基础设施，服务最后只拿到公共总线、访问检查与必要配置。
+五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关，子系统共享全局基础设施，服务最后只拿到公共总线、访问检查、必要配置与 AssetStore 读取端口。
 
 ### 1.1 Runtime bundle
 
@@ -82,7 +82,7 @@ Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 Pe
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
 | Gateway | 注入 `gateway` 配置段、已解析的 Gateway LLM 配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入 `patchouli` / `shared` / `memory_compiler` / `attachment_compiler` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader 与访问检查（`WorkspaceAccessVerifier`） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion）与访问检查（`WorkspaceAccessVerifier`） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
 | Alice | 注入 `alice` / `memory_compiler` 配置段、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）和观测 sink | Agent run、frame、MTP、工具、PendingAtom 运行时与执行路径派生 cache |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、被动摄入、能力层）通过 `GlobalSystemBus` 发起。

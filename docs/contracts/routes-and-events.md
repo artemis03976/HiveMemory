@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # 公开路由与事件
@@ -73,8 +73,8 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`）、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（按领域排序） |
 | `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope`、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（只含实际可读的原子） |
 | `patchouli.public.memory.read` | `read_memory` | memory id、`WorkspaceAccessContext` 或兼容 `IdentityScope` | `MemoryAtom \| None`（未知或不可见均为 `None`） |
-| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、`IdentityScope`、`interaction_id`、`GatewayDecision`、检索/生成选项 | `PreparedAgentRun` |
-| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、`AgentRunResult` | memory task 列表 |
+| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、`IdentityScope`、`interaction_id`、`GatewayDecision`、是否检索 | `PreparedAgentRun`（Topic 准备结果与未编译检索结果） |
+| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、`AgentRunResult`、实际使用的附件引用 `used_attachments` | memory task 列表 |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun` | 是否清理空话题 |
 | `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
 
@@ -119,8 +119,8 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options、可选 `process_id` 关联 | `AgentRunResult` |
-| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | `AgentRunContext`、generation options、可选 `process_id` 关联 | async generator 对象 |
+| `alice.public.run_agent` | `AgentRunService.run_agent` | `CPUInputManifest`（含 `process_id`）、generation options | `AgentRunResult` |
+| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | `CPUInputManifest`（含 `process_id`）、generation options | async generator 对象 |
 
 流式 route 返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
 

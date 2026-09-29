@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # 系统边界与所有权
@@ -140,9 +140,9 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 ### 6.2 Prepare / Finalize 边界
 
-`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：解析真实话题、Agent Profile、检索结果、MemoryCompiler 文本与 stream prelude。
+`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
-`finalize_agent_run` 只接收 `PreparedAgentRun + AgentRunResult`，由 Patchouli 自己构造 `InteractionPayload`、归约 trace、提交感知链并调度 materialize task。
+`finalize_agent_run` 接收 `PreparedAgentRun + AgentRunResult` 与任务进程确认的 `used_attachments`，由 Patchouli 自己构造 `InteractionPayload`、归约 trace、提交感知链并调度 materialize task。
 
 如果 System 未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
 
@@ -169,7 +169,7 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 ### 7.2 依赖方向
 
-Alice 接收 Patchouli 准备好的 `AgentRunContext`。需要检索、别名读取、Profile 或引用记录时，经映射到 Alice local bus 的全局公开路由访问 Patchouli。
+Alice 接收任务进程组装的 `CPUInputManifest`（`workspace.contracts`），在内部转换为 `AgentRunContext`。需要检索、别名读取、Profile 或引用记录时，经映射到 Alice local bus 的全局公开路由访问 Patchouli。
 
 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
@@ -190,8 +190,9 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 |:---|:---|:---|
 | `GatewayExecutionState` | Gateway | 不公开；只投影 `GatewayProcessResult` |
 | `GatewayDecision` | Gateway 形成，调用链只读消费 | frozen 公共模型 |
-| `PreparedAgentRun` | Patchouli | dataclass，只供本轮 chat 编排与 Alice 协作 |
-| `AgentRunContext` | Patchouli 组装，Alice 消费 | Pydantic 公共模型 |
+| `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass；任务进程读取话题与检索结果，并交回 finalize/cleanup |
+| `CPUInputManifest` | workspace 任务进程组装，Alice 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
+| `AgentRunContext` | Alice 由输入清单转换，供提示词组装 | Pydantic 模型，不出现在 Patchouli 路由上 |
 | `AgentRunResult` | Alice | Pydantic 公共模型 |
 | `InteractionPayload` | Patchouli 组装并消费 | 公共协议模型，不由 router 拼装 |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |

@@ -8,13 +8,14 @@ code_paths:
   - src/hivememory/gateway/contracts/
   - src/hivememory/patchouli/contracts/
   - src/hivememory/alice/contracts/
+  - src/hivememory/workspace/contracts/
   - src/hivememory/core/protocol/
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # 子系统公共契约
@@ -104,23 +105,24 @@ prepare_agent_run(
     interaction_id: str,
     gateway_decision: GatewayDecision,
     enable_memory_retrieval: bool = True,
-    generation_options: dict[str, Any] | None = None,
-    selected_attachments: list[AttachmentSelectionRequest] | None = None,
 ) -> PreparedAgentRun
 ```
 
-`PreparedAgentRun` 是不可变 dataclass，包含：
+prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备本轮 Topic（必要时新建，话题池已满时先按 LRU 结算一个已有话题），并按检索计划检索记忆。它不解析 Agent Profile、不接触附件、不编译记忆，也不为任何执行者组装运行上下文；这些属于任务进程在分配 CPU 时的工作（第 5 节）。
 
-- `agent_run_context`：Alice 的完整中立输入；
-- `gateway_decision`：本轮只读决策快照；
-- `stream_prelude`：topic、是否新话题、话题池与 memory refs；
-- `generation_options`：本轮生成覆盖参数。
+`PreparedAgentRun`（`patchouli.contracts.prepare`）是不可变 dataclass，既是 prepare 的结果，也是 finalize 与 cleanup 的输入句柄：
 
-`AgentRunContext` 至少包含 `identity_scope: IdentityScope`、`interaction_id`、真实 topic id、用户消息、话题上下文、原始 `RetrievalResponse`、MemoryCompiler 编译文本、Agent Profile 和存储可用性。`IdentityScope` 是该上下文的唯一身份来源，不再由 `user_id`、`agent_id` 或 `session_id` 在下游重新拼接。
+| 字段 | 内容 |
+|:---|:---|
+| `identity_scope`、`interaction_id`、`user_message`、`gateway_decision` | 由 prepare 入参冻结；`IdentityScope` 是唯一身份来源 |
+| `topic_id`、`is_new_topic` | 本轮真实话题与是否由 prepare 新建 |
+| `topic_context`、`pool_topics` | 话题上下文与话题池快照 |
+| `retrieval_result` | 未编译的检索结果（`RetrievalResponse`） |
+| `storage_available` | 记忆存储健康状态 |
 
-`selected_attachments` 是 Chat 请求冻结的附件选择（bound ref + 可选版本摘要）：prepare 在 Patchouli 边界逐项 acquire READY representation 并核对版本摘要，任一失败释放已取得的 lease 并拒绝整个 run。`AgentRunContext` 携带 `AttachmentCompiler` 的产物 `attachment_compile_result`（prompt-ready section、实际使用引用与诊断）；用户选择本身不作为该上下文的字段。附件链路事实见[Chat 附件链路](../system/attachments.md)。
+它位于 Patchouli 的 `contracts` 子包，因为 workspace 的任务进程需要读取其中的话题与检索结果；L3 子系统之间只能导入对方的 `contracts`。
 
-prepare 的意义不只是拼装参数。它把 Gateway 的入口决定解析成 Alice 可以直接执行的本轮记忆视图，并由 Patchouli 在交出控制权前确认真实话题、可见性和 Profile。Alice 因而无需理解 Patchouli 内部存储，也不会在执行途中重新推导另一套记忆上下文。
+prepare 的意义在于：由 Patchouli 在交出控制权前确认真实话题与本轮可见的记忆，调用方无需理解 Patchouli 内部存储。检索结果以原始 `MemoryAtom` 交出，如何呈现给执行者由任务进程决定。
 
 ### 3.2 FinalizeAgentRun
 
@@ -128,8 +130,12 @@ prepare 的意义不只是拼装参数。它把 Gateway 的入口决定解析成
 finalize_agent_run(
     prepared_run: PreparedAgentRun,
     loop_result: AgentRunResult,
+    *,
+    used_attachments: tuple[WorkspaceAssetRef, ...] = (),
 ) -> list[MemoryGenerationTask]
 ```
+
+`used_attachments` 是任务进程编译附件时确认实际进入上下文的附件引用快照，写入 `InteractionPayload.used_attachments`。附件租借由任务进程持有并在进程结束时释放，finalize 不再负责。
 
 Finalize：
 
@@ -149,7 +155,7 @@ finalize 是执行事务与记忆事务的分界。Alice 负责声明“本轮�
 cleanup_prepared_agent_run(prepared_run: PreparedAgentRun) -> bool
 ```
 
-Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题。已有话题或已经产生内容的话题不应被删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
+Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。已有话题或已经产生内容的话题不应被删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
 
 它不是 rollback，也不承诺撤销整个 prepare 之后发生的一切。跨子系统没有一项可以原子回滚的数据库事务；cleanup 只补偿明确由 prepare 创建、且仍可安全判断为空的临时副作用。将它描述为回滚会诱使调用方删除已经存在或已被其他流程使用的长期状态。
 
@@ -179,10 +185,12 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 ```python
 run_agent(
-    agent_run_context: AgentRunContext,
+    input_manifest: CPUInputManifest,
     generation_options: dict[str, Any] | None = None,
 ) -> AgentRunResult
 ```
+
+`CPUInputManifest`（`workspace.contracts`）是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`identity_scope`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。Alice 在内部把它转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不再出现在任何 Patchouli 路由上。
 
 `AgentRunResult` 包含：
 
@@ -197,11 +205,11 @@ run_agent(
 
 ### 4.2 流式运行
 
-`run_agent_stream()` 接收相同输入，经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给 System 提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能进入 Patchouli finalize。
+`run_agent_stream()` 接收相同输入（输入清单与生成覆盖参数），经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给 System 提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能进入 Patchouli finalize。
 
 ### 4.3 Alice 不变量
 
-- Alice 不修改 `AgentRunContext` 所指向的长期记忆或话题；
+- Alice 不修改输入清单所引用的长期记忆或话题；
 - WRITE/UPDATE 只产生 PendingAtom 和 materialize task；
 - 取消或失败结果不默认进入 Patchouli finalize；
 - MTP 权限由 Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 控制；
@@ -215,11 +223,16 @@ Gateway command outcome
   -> 不调用 Patchouli prepare / Alice / Patchouli finalize
 
 Gateway decision outcome
-  -> Patchouli prepare
+  -> 解析 Agent Profile（Patchouli 公开路由）
+  -> Patchouli prepare（Topic 与检索）
+  -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
   -> Alice run
-  -> completed: Patchouli finalize
+  -> completed: Patchouli finalize（携带实际使用的附件）
   -> cancelled/failed/exception: Patchouli cleanup (若已 prepare)
+  -> 进程结束：释放附件租借
 ```
+
+Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare 可能新建 Topic 或按 LRU 结算已有话题，Profile 缺失的请求应在这些副作用发生前失败。
 
 该顺序由 `TaskProcessService`（`workspace.process`）拥有。任何 transport adapter 都不能复制或调整此顺序。
 
@@ -241,7 +254,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 
 `InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：`identity_scope` 是唯一身份来源，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不重复嵌入 scope。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
-`InteractionPayload.used_attachments` 携带 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
+`InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（经 finalize 的 `used_attachments` 参数传入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。

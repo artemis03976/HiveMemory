@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-09-24
+last_reviewed: 2026-09-29
 ---
 
 # 数据模型与可变性边界
@@ -148,9 +148,9 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 | 区域 | 代表对象 | 当前风险/理由 |
 |:---|:---|:---|
 | 记忆领域 | `MemoryAtom` 及 meta/index/payload/artifacts/relations | 多层 list/dict 与模型仍可直接修改；写入口已收敛（完整提交经 Familiar、动态状态经 patch 白名单），但读取方拿到的仍是可变对象，依赖调用方不改写 |
-| 通用协议 | `RetrievalResponse`、`AgentRunContext`、`AgentRunResult`、`InteractionPayload` | 公共 DTO 与运行结果仍共享可变 list/model |
+| 通用协议 | `RetrievalResponse`、`AgentRunContext`、`CPUInputManifest`、`AgentRunResult`、`InteractionPayload` | 公共 DTO 与运行结果仍共享可变 list/model |
 | Alice Runtime | frame、progress、generation result | 请求级累积状态有意可变，但所有权标记不统一 |
-| 应用服务结果 | `StreamPrelude`、`PreparedAgentRun`、`PassiveIngressOutcome` 等 | frozen 外壳包裹可变模型、list 或 dict |
+| 应用服务结果 | `PreparedAgentRun`、`PassiveIngressOutcome` 等 | frozen 外壳包裹可变模型、list 或 dict |
 | Gateway Step | `GatewayStepResult.updates` | 只冻结顶层 mapping |
 
 浅层冻结外壳可以减少误替换，却不能作为跨异步边界的数据隔离。随着缓存、并发任务或事件分发增加，共享引用可能让历史结果被后来写回。治理时应根据语义选择：把内容投影成真正只读 DTO，或把它明确限制为请求内临时句柄。

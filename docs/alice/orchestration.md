@@ -23,7 +23,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # 多 Agent 编排
@@ -76,10 +76,10 @@ AliceSystem
 
 每次 `run_agent()` 创建一个新的主 frame：
 
-- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的 `process_id` 作为外层关联值显式传入；
+- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的 `process_id` 随输入清单传入，作为外层关联值；
 - 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
-- `identity_scope` 来自 `AgentRunContext`；`identity` 仅为 actor projection；
+- `identity_scope` 来自输入清单（经 `AgentRunContext` 转换）；`identity` 仅为 actor projection；
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 

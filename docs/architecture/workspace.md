@@ -17,6 +17,7 @@ code_paths:
   - src/hivememory/server/deps.py
   - src/hivememory/workspace/assets/
   - src/hivememory/workspace/process/
+  - src/hivememory/workspace/contracts/
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
   - src/hivememory/patchouli/memory_library/stores.py
@@ -41,7 +42,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # Workspace 架构
@@ -77,6 +78,8 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 ## 2. 在总体架构中的位置
 
 `SystemAssembler` 是组合根。它创建全局运行时和注册表，再装配 Gateway、Patchouli、Alice、workspace 设施（认证网关与 guard、能力层、读取视图、AssetStore、任务进程表与 chat 任务进程编排）以及其余应用服务；`HiveMemorySystem` 只持有这张组件图、作为入口使用的门面并负责启停。Workspace 语义横跨这些边界，但不取得任何子系统的领域所有权：
+
+workspace 的 `contracts` 子包是其他 L3 子系统可以导入的唯一入口（分层规则只允许 L3 子系统之间导入对方的 `contracts`）。它目前定义任务进程交给执行者的 `CPUInputManifest`，只依赖 `core`，由 `tests/unit/workspace/test_import_boundaries.py` 守护；workspace 中 `process` 以外的模块不得导入 `process`。
 
 ```mermaid
 flowchart TB
@@ -229,7 +232,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 
 ### 6.1 所有权和生命周期
 
-组合根在 `_RuntimeBundle` 中只创建一个 `InMemoryWorkspaceAssetStore`（`workspace/assets/store.py`）。Store 是当前进程内 WorkspaceAsset、representation、opaque ref、幂等记录和 lease 的权威真相源，通过窄化的 Reader/Command port（`core/ports/workspace_assets.py`）提供给业务消费者。它不查询 Topic，也不负责 binding 或 settlement。
+组合根在 `_RuntimeBundle` 中只创建一个 `InMemoryWorkspaceAssetStore`（`workspace/assets/store.py`）。Store 是当前进程内 WorkspaceAsset、representation、opaque ref、幂等记录和 lease 的权威真相源，通过窄化的 Reader/Command port（`core/ports/workspace_assets.py`）提供给业务消费者。它不查询 Topic，也不负责 binding 或 settlement。lease 的业务消费者有两个：任务进程在 CPU 分配时为 Chat 选择的附件取得 lease，由进程工作集持有并在进程结束时释放；Patchouli 在 Artifact promotion 时按 binding 自行取得并释放。
 
 资产、表示和引用均为当前 Store 存活期内的运行时对象。`close_and_clear()` 进入不可逆关闭状态后清空 asset、representation、ref、operation token、幂等记录、REMOVED 记录和 lease bookkeeping；关闭后的 System 不能重新打开该 Store，必须重新装配进程并重新上传资源。
 
@@ -332,6 +335,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 运行时和生命周期：
 
 - [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)；
+- 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（进程表、编排与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（`CPUInputManifest`）；
 - 能力层与读取视图：[`workspace/capability/`](../../src/hivememory/workspace/capability/)、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
 - Alice 派生缓存：[`KoakumaAtomCache`](../../src/hivememory/agent_runtime/aliases/cache.py)（端口见 [`AtomCachePort`](../../src/hivememory/agent_runtime/aliases/ports.py)）、[`AgentProfileCache`](../../src/hivememory/alice/runtime/profile_cache.py)；消费侧 resolver 见 [`RuntimeAliasResolver`](../../src/hivememory/agent_runtime/aliases/resolver.py) 与 [`AgentProfileResolver`](../../src/hivememory/alice/runtime/profile_resolver.py)；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；

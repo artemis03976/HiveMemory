@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # HiveMemory 项目总览
@@ -146,7 +146,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 ### 5.1 入口与对话
 
-- 主动 chat：Gateway 决策后执行 Patchouli prepare、Alice run、Patchouli finalize；
+- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、Patchouli finalize；
 - SSE 流式与非流式 Agent run；
 - 全局系统指令注册、解析、分发和 chat 短路；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
@@ -218,7 +218,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 消费 `AgentRunContext` 执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
+Alice 消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
@@ -232,13 +232,14 @@ Alice 消费 `AgentRunContext` 执行 Agent run，拥有 frame、Agent loop、Ko
 message
   -> Gateway PROCESS
   -> [command short-circuit] 或 GatewayDecision
-  -> Patchouli prepare
+  -> Patchouli prepare（话题与检索）
+  -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
   -> Alice run / run_stream
   -> Patchouli finalize
   -> response + background memory tasks
 ```
 
-Prepare 成功而 finalize 未完成时，System 请求 Patchouli cleanup。取消或失败的 Agent run 不默认触发长期记忆生成。
+Prepare 成功而 finalize 未完成时，任务进程请求 Patchouli cleanup；附件租借在进程结束时释放。取消或失败的 Agent run 不默认触发长期记忆生成。
 
 ### 8.2 被动模式
 

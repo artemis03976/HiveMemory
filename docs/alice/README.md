@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # Alice
@@ -30,10 +30,10 @@ Alice 是 HiveMemory 的 Agent 执行与多智能体编排子系统。若说 Gat
 
 Alice 当前拥有：
 
-- `AgentRunContext -> AgentRunResult` 的执行边界；
+- `CPUInputManifest -> AgentRunResult` 的执行边界：执行入口接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
-- Agent Profile 的运行时解析、人格注入、模型选择和权限应用；
+- 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 由 Alice 运行时解析；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - PendingAtom 的进程内写缓冲、临时 alias、物化任务投影和 settlement 运行时视图；
 - 非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
@@ -100,7 +100,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 ### 4.1 主 Agent run
 
 ```text
-Patchouli AgentRunContext
+任务进程的 CPUInputManifest
+  -> 转换为 AgentRunContext（Alice 内部）
   -> warm pre-retrieval MemoryAtoms into alias cache
   -> assemble MTP + persona + memory + topic messages
   -> create root ExecutionFrame(topic_id=...)
@@ -169,7 +170,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 | 多 Agent 编排 | `src/hivememory/alice/orchestration/run_executor.py`、`src/hivememory/alice/orchestration/sub_agent/`、`src/hivememory/alice/orchestration/run_session.py` |
 | 单 Agent 执行层 | `src/hivememory/agent_runtime/`、`agent_runtime/runtime.py` |
 | Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
-| 公共运行模型 | `src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
+| 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
 | Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
 | 执行、PendingAtom 与 MTP 测试 | `tests/unit/agent_runtime/` |
 | 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py` |
