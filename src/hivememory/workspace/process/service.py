@@ -157,7 +157,7 @@ class TaskProcessService:
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
         self._bus = global_bus
-        self._registry = ProcessTable()
+        self._process_table = ProcessTable()
         self._events = runtime_events or NullRuntimeEventSink()
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
@@ -184,7 +184,7 @@ class TaskProcessService:
         self._reject_system_actor(identity.agent_id)
         agent_id = identity.agent_id
         trace_id = generate_trace_id("chat")
-        tokens = set_trace_context(trace_id, "ChatApp.Chat", "foreground")
+        tokens = set_trace_context(trace_id, "TaskProcess.Chat", "foreground")
         run = ProcessRecord(
             identity_scope=identity_scope,
             process_id=process_id,
@@ -192,15 +192,15 @@ class TaskProcessService:
         prepared = None
         prepared_finalized = False
         try:
-            self._registry.register(run)
-            self._emit_chat_event(
+            self._process_table.register(run)
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_CREATED,
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
             )
             run.enter_phase(ProcessPhase.GATEWAY)
-            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
+            self._emit_process_status(run, trace_id=trace_id, agent_id=agent_id)
             gateway_result = await _run_interruptible(
                 run,
                 ProcessPhase.GATEWAY,
@@ -215,7 +215,7 @@ class TaskProcessService:
 
             if gateway_result.kind == "command":
                 run.mark_completed()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_COMPLETED,
                     run,
                     trace_id=trace_id,
@@ -245,7 +245,7 @@ class TaskProcessService:
                 )
 
             run.enter_phase(ProcessPhase.ALICE)
-            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
+            self._emit_process_status(run, trace_id=trace_id, agent_id=agent_id)
             loop_result: AgentRunResult = await _run_interruptible(
                 run,
                 ProcessPhase.ALICE,
@@ -259,7 +259,7 @@ class TaskProcessService:
 
             if loop_result.status == AgentRunStatus.CANCELLED.value:
                 run.mark_cancelled()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
                     run,
                     trace_id=trace_id,
@@ -271,7 +271,7 @@ class TaskProcessService:
                 )
             if loop_result.status == AgentRunStatus.FAILED.value:
                 run.mark_failed()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_FAILED,
                     run,
                     trace_id=trace_id,
@@ -286,7 +286,7 @@ class TaskProcessService:
                     run.phase,
                     run.stop_reason or "user_requested",
                 )
-            self._emit_chat_status(
+            self._emit_process_status(
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
@@ -300,7 +300,7 @@ class TaskProcessService:
             prepared_finalized = True
 
             run.mark_completed()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_COMPLETED,
                 run,
                 trace_id=trace_id,
@@ -310,7 +310,7 @@ class TaskProcessService:
             return NonStreamingChatAgentOutcome(agent_run_result=loop_result)
         except _ProcessCancelled as cancelled:
             run.mark_cancelled()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_CANCELLED,
                 run,
                 trace_id=trace_id,
@@ -321,7 +321,7 @@ class TaskProcessService:
             return NonStreamingChatAgentOutcome(agent_run_result=self._cancelled_agent_result())
         except Exception:
             run.mark_failed()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_FAILED,
                 run,
                 trace_id=trace_id,
@@ -340,7 +340,7 @@ class TaskProcessService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            self._registry.close(run)
+            self._process_table.close(run)
             reset_trace_context(tokens)
 
     # ========== 流式主链路 ==========
@@ -384,9 +384,9 @@ class TaskProcessService:
         prepared_finalized = False
         owner_task = asyncio.current_task()
         try:
-            tokens = set_trace_context(trace_id, "ChatApp.Stream", "foreground")
-            self._registry.register(run)
-            self._emit_chat_event(
+            tokens = set_trace_context(trace_id, "TaskProcess.Stream", "foreground")
+            self._process_table.register(run)
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_CREATED,
                 run,
                 trace_id=trace_id,
@@ -395,7 +395,7 @@ class TaskProcessService:
             yield {"event": "process_id", "data": {"process_id": run.process_id}}
 
             run.enter_phase(ProcessPhase.GATEWAY)
-            self._emit_chat_status(run, trace_id=trace_id, agent_id=agent_id)
+            self._emit_process_status(run, trace_id=trace_id, agent_id=agent_id)
             gateway_result = await _run_interruptible(
                 run,
                 ProcessPhase.GATEWAY,
@@ -411,7 +411,7 @@ class TaskProcessService:
             if gateway_result.kind == "command":
                 command_result = gateway_result.command_execution_result
                 run.mark_completed()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_COMPLETED,
                     run,
                     trace_id=trace_id,
@@ -457,7 +457,7 @@ class TaskProcessService:
             yield {"event": "memory_refs", "data": {"memories": prelude.memory_refs}}
 
             run.enter_phase(ProcessPhase.ALICE)
-            self._emit_chat_status(
+            self._emit_process_status(
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
@@ -493,7 +493,7 @@ class TaskProcessService:
 
             if loop_result.status == AgentRunStatus.CANCELLED.value:
                 run.mark_cancelled()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
                     run,
                     trace_id=trace_id,
@@ -505,7 +505,7 @@ class TaskProcessService:
                 return
             if loop_result.status == AgentRunStatus.FAILED.value:
                 run.mark_failed()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_FAILED,
                     run,
                     trace_id=trace_id,
@@ -522,7 +522,7 @@ class TaskProcessService:
                     run.phase,
                     run.stop_reason or "user_requested",
                 )
-            self._emit_chat_status(
+            self._emit_process_status(
                 run,
                 trace_id=trace_id,
                 agent_id=agent_id,
@@ -546,7 +546,7 @@ class TaskProcessService:
             final_pool_topics = await self._list_final_pool_topics(prepared)
 
             run.mark_completed()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_COMPLETED,
                 run,
                 trace_id=trace_id,
@@ -570,7 +570,7 @@ class TaskProcessService:
 
         except _ProcessCancelled as cancelled:
             run.mark_cancelled()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_CANCELLED,
                 run,
                 trace_id=trace_id,
@@ -586,7 +586,7 @@ class TaskProcessService:
             # 携带安全文案：沿现有 Chat 错误边界原样翻译，不做二次包装。
             logger.warning("Chat stream 领域错误: %s", exc.code)
             run.mark_failed()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_FAILED,
                 run,
                 trace_id=trace_id,
@@ -603,7 +603,7 @@ class TaskProcessService:
         except Exception as e:
             logger.error(f"TaskProcessService.chat_stream 异常: {e}", exc_info=True)
             run.mark_failed()
-            self._emit_chat_event(
+            self._emit_process_event(
                 RuntimeEventType.CHAT_RUN_FAILED,
                 run,
                 trace_id=trace_id,
@@ -621,7 +621,7 @@ class TaskProcessService:
                 if run.outcome is ProcessOutcome.RUNNING:
                     run.request_stop("stream_closed")
                 run.mark_cancelled()
-                self._emit_chat_event(
+                self._emit_process_event(
                     RuntimeEventType.CHAT_RUN_CANCELLED,
                     run,
                     trace_id=trace_id,
@@ -648,7 +648,7 @@ class TaskProcessService:
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
-            self._registry.close(run)
+            self._process_table.close(run)
             if tokens is not None:
                 reset_trace_context(tokens)
 
@@ -668,12 +668,12 @@ class TaskProcessService:
         坐标，因此跨 user/workspace 的取消只会得到 ``not_found``。
         """
         identity_scope = require_identity_scope(identity_scope)
-        result = self._registry.cancel(
+        result = self._process_table.cancel(
             process_id,
             identity_scope,
             reason=reason,
         )
-        run = self._registry.get(process_id, identity_scope)
+        run = self._process_table.get(process_id, identity_scope)
         # 事件承载进程创建时冻结的身份坐标；请求方 scope 仅用于上面的校验。
         frozen_scope = run.identity_scope if run is not None else identity_scope
         self._events.emit(
@@ -687,7 +687,7 @@ class TaskProcessService:
             )
         )
         if run is not None:
-            self._emit_chat_status(run)
+            self._emit_process_status(run)
         return result
 
     def process_status_scoped(
@@ -697,7 +697,7 @@ class TaskProcessService:
         identity_scope: IdentityScope,
     ) -> ProcessStatusSnapshot | None:
         """返回 scoped 进程状态；错误 scope 与不存在统一为 ``None``。"""
-        return self._registry.status(
+        return self._process_table.status(
             process_id,
             require_identity_scope(identity_scope),
         )
@@ -776,7 +776,7 @@ class TaskProcessService:
             },
         }
 
-    def _emit_chat_status(
+    def _emit_process_status(
         self,
         run: ProcessRecord,
         *,
@@ -784,7 +784,7 @@ class TaskProcessService:
         agent_id: str | None = None,
         topic_id: str | None = None,
     ) -> None:
-        self._emit_chat_event(
+        self._emit_process_event(
             RuntimeEventType.CHAT_RUN_STATUS,
             run,
             trace_id=trace_id,
@@ -792,7 +792,7 @@ class TaskProcessService:
             topic_id=topic_id,
         )
 
-    def _emit_chat_event(
+    def _emit_process_event(
         self,
         event_type: RuntimeEventType,
         run: ProcessRecord,

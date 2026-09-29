@@ -23,7 +23,7 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 
 ### Conversation and Integration Modes
 
-- **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, orchestrated by `ChatApplicationService` through Patchouli prepare/finalize and Alice agent execution
+- **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, driven by `TaskProcessService` (workspace task-process orchestration) through Gateway analysis, Patchouli prepare/finalize and Alice agent execution
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
 - **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks; the System-layer `PassiveIngressService` orchestrates Gateway decisions, buffering, retrieval, and Patchouli submission
 
@@ -69,7 +69,7 @@ The current implementation is organized in dependency layers. The top-level Syst
 ### Main Runtime Components
 
 - **HiveMemorySystem**: the composition root and facade that assembles shared runtime, workspace facilities, application services, Gateway, Patchouli, and Alice
-- **ChatApplicationService**: the active chat orchestrator that runs `prepare -> Alice run -> finalize`
+- **TaskProcessService**: the workspace task-process orchestrator (`workspace.process`); it owns the process table, identifies every process by `process_id`, and runs the four stages `Gateway -> prepare -> Alice run -> finalize`
 - **GatewaySystem / GatewayRuntime**: the entry-decision subsystem for commands, topic routing, query analysis, and stable decision projection
 - **PatchouliSystem / PatchouliRuntime**: the memory subsystem host and runtime for retrieval, perception, generation, lifecycle, and storage capabilities
 - **Retrieval Familiar**: the Hot Path retrieval service for hybrid retrieval, reranking, and context rendering
@@ -269,8 +269,8 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 
 It exposes two primary integration modes:
 
-- `chat()` / `chat_stream()`: active mode, where `ChatApplicationService` coordinates Patchouli memory preparation, Alice agent execution, and Patchouli finalization
-- `ingest_event()` / `flush_ingressor()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
+- `process_service.chat_scoped()` / `chat_stream_scoped()`: active mode, where `TaskProcessService` coordinates Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
+- `ingress_service.ingest_event()` / `flush_conversation()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
 
 If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.
 
@@ -289,10 +289,10 @@ HiveMemory/
 │   ├── components/          # In-process runtime mechanisms: bus, scheduler, work queue, runtime events
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle algorithms
 │   ├── infrastructure/      # Storage / LLM / Embedding / attachment parsing adapters
-│   ├── workspace/           # Authentication entry, capability layer, read view, WorkspaceAsset facilities
+│   ├── workspace/           # Authentication entry, capability layer, read view, WorkspaceAsset facilities, task processes (process)
 │   ├── gateway/             # Gateway entry-decision subsystem
 │   ├── patchouli/           # Patchouli memory subsystem and runtime
-│   ├── alice/               # Alice agent execution subsystem (hosts chat orchestration for now)
+│   ├── alice/               # Alice agent execution subsystem
 │   ├── agent_runtime/       # Single-agent execution layer and Koakuma MTP/tool runtime
 │   ├── system/              # Composition root, facade, registries, and passive ingress
 │   ├── prompts/             # System prompts and prompt assembly

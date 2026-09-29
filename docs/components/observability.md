@@ -37,7 +37,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - 标识与顺序：`event_id`、进程内 `sequence`、UTC `timestamp`；
 - 追踪：`trace_id`、`span_name`、`task_type`；
 - 来源：`source`、`subsystem`、`component`、`severity`；
-- 关联：generation、agent run、task、agent、frame、topic、atom；
+- 关联：process、agent run、task、agent、frame、topic、atom；
 - 结果：`status`、`reason`、`message`、摘要化 `data`。
 
 `workspace_id` 是可选的观测关联字段，用于把事件按资源归属域展示或筛选。它不代表完整的 `IdentityScope`，也不参与 EventBus 路由、订阅、sequence、授权、幂等判断或任何业务状态迁移；需要作出业务决定时必须回到领域返回值、异常或 Store 状态。

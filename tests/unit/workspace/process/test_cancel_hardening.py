@@ -1,6 +1,6 @@
 """Phase 1：cancel 契约加固的单元测试
 
-覆盖 RuntimeControlRegistry 幂等性、TaskProcessService cancel 路径、
+覆盖 ProcessTable（进程表）幂等性、TaskProcessService cancel 路径、
 AgentRunResult.status 终态传播。
 """
 
@@ -31,47 +31,47 @@ from hivememory.workspace.process.table import (
 )
 from tests.helpers.workspace import make_identity_scope
 
-# ─── RuntimeControlRegistry ─────────────────────────────────────────────────
+# ─── ProcessTable ─────────────────────────────────────────────────────────────
 
 
 class TestProcessTable:
     def setup_method(self):
-        self.registry = ProcessTable()
+        self.process_table = ProcessTable()
 
     def test_cancel_records_stop_and_returns_result(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-1")
-        self.registry.register(run)
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="process-1")
+        self.process_table.register(run)
 
-        result = self.registry.cancel("gen-1", run.identity_scope)
+        result = self.process_table.cancel("process-1", run.identity_scope)
 
         assert result.cancelled is True
         assert result.status == ProcessOutcome.STOP_REQUESTED.value
         assert run.outcome is ProcessOutcome.STOP_REQUESTED
 
     def test_cancel_idempotent(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-2")
-        self.registry.register(run)
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="process-2")
+        self.process_table.register(run)
 
-        r1 = self.registry.cancel("gen-2", run.identity_scope)
-        r2 = self.registry.cancel("gen-2", run.identity_scope)
+        r1 = self.process_table.cancel("process-2", run.identity_scope)
+        r2 = self.process_table.cancel("process-2", run.identity_scope)
 
         assert r1.cancelled is True
         assert r2.cancelled is True  # 重复 cancel 不报错
         assert r2.reason == r1.reason
 
     def test_cancel_unknown_process_id_returns_not_found(self):
-        result = self.registry.cancel("nonexistent", make_identity_scope())
+        result = self.process_table.cancel("nonexistent", make_identity_scope())
         assert result.cancelled is False
         assert result.status == "not_found"
 
     def test_close_removes_run(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-3")
-        self.registry.register(run)
-        self.registry.close(run)
-        assert self.registry.get("gen-3", run.identity_scope) is None
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="process-3")
+        self.process_table.register(run)
+        self.process_table.close(run)
+        assert self.process_table.get("process-3", run.identity_scope) is None
 
     def test_run_stop_outcome(self):
-        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="gen-4")
+        run = ProcessRecord(identity_scope=make_identity_scope(), process_id="process-4")
         assert run.outcome is ProcessOutcome.RUNNING
         run.enter_phase(ProcessPhase.ALICE)
         run.request_stop()

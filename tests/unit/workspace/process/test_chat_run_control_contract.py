@@ -27,7 +27,7 @@ def _run(process_id: str) -> ProcessRecord:
 
 @pytest.mark.asyncio
 async def test_gateway_stop_cancels_bound_task_immediately() -> None:
-    run = _run("generation-1")
+    run = _run("process-1")
     blocker = asyncio.Event()
     task = asyncio.create_task(blocker.wait())
     run.bind_phase(ProcessPhase.GATEWAY, task)
@@ -44,7 +44,7 @@ async def test_gateway_stop_cancels_bound_task_immediately() -> None:
 
 @pytest.mark.asyncio
 async def test_prepare_stop_records_request_without_cancelling_prepare_task() -> None:
-    run = _run("generation-2")
+    run = _run("process-2")
     run.enter_phase(ProcessPhase.PREPARE)
     blocker = asyncio.Event()
     prepare_task = asyncio.create_task(blocker.wait())
@@ -61,14 +61,14 @@ async def test_prepare_stop_records_request_without_cancelling_prepare_task() ->
 
 
 def test_finalize_and_terminal_stop_are_rejected() -> None:
-    finalizing = _run("generation-3")
+    finalizing = _run("process-3")
     finalizing.enter_phase(ProcessPhase.FINALIZE)
     result = finalizing.request_stop()
     assert result.accepted is False
     assert result.reason == "already_finalizing"
     assert finalizing.outcome is ProcessOutcome.RUNNING
 
-    terminal = _run("generation-4")
+    terminal = _run("process-4")
     terminal.phase = ProcessPhase.TERMINAL
     terminal.outcome = ProcessOutcome.COMPLETED
     result = terminal.request_stop()
@@ -78,7 +78,7 @@ def test_finalize_and_terminal_stop_are_rejected() -> None:
 
 
 def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
-    run = _run("generation-5")
+    run = _run("process-5")
     task = MagicMock()
     task.done.return_value = False
     run.bind_phase(ProcessPhase.ALICE, task)
@@ -93,26 +93,26 @@ def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
 
 
 def test_registry_not_found_and_terminal_results_are_stable() -> None:
-    registry = ProcessTable()
+    process_table = ProcessTable()
 
     identity_scope = make_identity_scope()
-    missing = registry.cancel("missing-generation", identity_scope)
+    missing = process_table.cancel("missing-process", identity_scope)
     assert missing.cancelled is False
     assert missing.status == "not_found"
 
-    run = _run("generation-6")
+    run = _run("process-6")
     run.phase = ProcessPhase.TERMINAL
     run.outcome = ProcessOutcome.FAILED
-    registry.register(run)
+    process_table.register(run)
 
-    terminal = registry.cancel(run.process_id, run.identity_scope)
+    terminal = process_table.cancel(run.process_id, run.identity_scope)
     assert terminal.cancelled is False
     assert terminal.reason == "already_terminal"
     assert run.outcome is ProcessOutcome.FAILED
 
 
 def test_stop_after_bound_task_finished_is_accepted_without_second_cancel() -> None:
-    run = _run("generation-7")
+    run = _run("process-7")
     task = MagicMock()
     task.done.return_value = True
     run.bind_phase(ProcessPhase.GATEWAY, task)
@@ -126,7 +126,7 @@ def test_stop_after_bound_task_finished_is_accepted_without_second_cancel() -> N
 
 @pytest.mark.asyncio
 async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled() -> None:
-    run = _run("generation-8")
+    run = _run("process-8")
     blocker = asyncio.Event()
 
     async def operation():
@@ -143,7 +143,7 @@ async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled()
 
 def test_registry_hides_run_from_different_workspace_control_plane() -> None:
     """防止仅凭 process_id 跨 Workspace 查询或取消另一条进程记录。"""
-    registry = ProcessTable()
+    process_table = ProcessTable()
     owner_context = make_identity_scope(
         user_id="u1",
         workspace_id="main_workspace",
@@ -158,11 +158,11 @@ def test_registry_hides_run_from_different_workspace_control_plane() -> None:
         identity_scope=owner_context,
         process_id="shared-process-id",
     )
-    registry.register(run)
+    process_table.register(run)
 
-    assert registry.get(run.process_id, other_context) is None
-    assert registry.status(run.process_id, other_context) is None
-    rejected = registry.cancel(run.process_id, other_context)
+    assert process_table.get(run.process_id, other_context) is None
+    assert process_table.status(run.process_id, other_context) is None
+    rejected = process_table.cancel(run.process_id, other_context)
     assert rejected.status == "not_found"
     assert rejected.cancelled is False
     assert run.outcome is ProcessOutcome.RUNNING
@@ -170,7 +170,7 @@ def test_registry_hides_run_from_different_workspace_control_plane() -> None:
 
 def test_registry_rejects_process_id_collision_without_overwriting_owner() -> None:
     """防止重复 process_id 覆盖既有 scope 并把控制权转给后注册者。"""
-    registry = ProcessTable()
+    process_table = ProcessTable()
     original = _run("collision")
     replacement = ProcessRecord(
         identity_scope=make_identity_scope(
@@ -178,10 +178,10 @@ def test_registry_rejects_process_id_collision_without_overwriting_owner() -> No
         ),
         process_id="collision",
     )
-    registry.register(original)
+    process_table.register(original)
 
     with pytest.raises(WorkspaceDomainError, match="拒绝覆盖"):
-        registry.register(replacement)
+        process_table.register(replacement)
 
-    assert registry.get("collision", original.identity_scope) is original
-    assert registry.get("collision", replacement.identity_scope) is None
+    assert process_table.get("collision", original.identity_scope) is original
+    assert process_table.get("collision", replacement.identity_scope) is None

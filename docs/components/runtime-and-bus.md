@@ -250,4 +250,4 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 - `tests/integration/patchouli/test_active_interaction_submission.py`
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_serial_gate.py`
-- `tests/unit/system/test_cancel_hardening.py`
+- `tests/unit/workspace/process/test_cancel_hardening.py`

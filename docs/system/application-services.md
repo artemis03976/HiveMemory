@@ -115,7 +115,7 @@ process_id
 
 `ProcessTable`（`workspace/process/table.py`）是任务进程编排拥有的进程内控制表，也是 workspace 的进程内共享设施。每条进程记录（`ProcessRecord`）有：
 
-- `process_id`：进程唯一标识，由 server 入口在进入编排服务前生成并冻结（Q-16）；
+- `process_id`：进程唯一标识，由 server 入口在进入编排服务前生成并冻结；
 - `phase`：`created/gateway/prepare/alice/finalize/terminal`；
 - `outcome`：`running/stop_requested/cancelled/completed/failed`；
 - 首次接受的 `stop_reason`；
@@ -123,7 +123,7 @@ process_id
 
 进程表不保存 `Event`、Token 或 waiter。`cancel()` 按 `process_id` 查找进程后同步调用 `request_stop()`：不存在返回 `not_found`；首次 stop 固定 reason；重复 stop 返回同一判定且不重复取消 task。取消是 owner/workspace 校验（同一用户、同一 Workspace），不是 Agent action。进程表只向同 owner/workspace 的控制请求暴露进程记录，跨 user/workspace 的取消得到 `not_found`。
 
-取消响应点按 Q-15 收口：只有 Gateway 与 Actor 执行两个阶段会取消当前 `active_task`；进入 Alice 前统一检查一次停止请求（`_run_interruptible` 的入口检查与 prepare 之后的检查），prepare 期间的停止请求照常完成 prepare 后在此生效；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。外部取消必须携带明确的 `process_id`，唯一入口是 `POST /chat/stop` 与路由内的客户端断开处理。
+取消响应点只有两处：只有 Gateway 与 Actor 执行两个阶段会取消当前 `active_task`，因为这两个阶段在前台调用 LLM；进入 Alice 前统一检查一次停止请求（`_run_interruptible` 的入口检查与 prepare 之后的检查），prepare 期间的停止请求照常完成 prepare 后在此生效；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。外部取消必须携带明确的 `process_id`，唯一入口是 `POST /chat/stop` 与路由内的客户端断开处理。
 
 用户 stop 在编排服务内被翻译为私有 `_ProcessCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 同时区分“stop 取消 child task”和“进程 owner 被 ASGI/shutdown 取消”，后者必须原样向上传播。资源所有者在 unwind 中关闭自己创建的 stream、runner 与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
 

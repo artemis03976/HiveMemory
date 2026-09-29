@@ -163,5 +163,5 @@ Dispatcher 把可预期拒绝表示为结果而非异常，因为“未知命令
 - `tests/unit/engines/gateway/test_interceptors.py`
 - `tests/unit/gateway/test_phase3b_contracts.py`
 - `tests/unit/gateway/test_phase3c_workflow.py`
-- `tests/unit/system/application/test_gateway_chat_flow.py`
+- `tests/unit/workspace/process/test_gateway_chat_flow.py`
 - `tests/unit/server/routers/test_chat.py`

@@ -180,7 +180,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 
 当前执行层配置位于 `AliceConfig.runtime.max_loop_iterations`；模型、密钥与采样默认值由 ModelRegistry 和 shared config 管理，单次请求可以覆盖。Koakuma 与 prompt 配置见 [MTP Runtime](./mtp-runtime.md)。
 
-`AgentRunEventEmitter` 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 generation、agent run、topic、agent、status、迭代与 materialize task 数量；`RuntimeEventPublisher` 统一补充 scope/context、payload 安全转换和 best-effort 异常隔离。AgentRunService 只在明确的业务分支调用这些语义方法。frame 内部过程则通过交互输出事件和结构化 TurnEvent 暴露，不进入 RuntimeEventBus。
+`AgentRunEventEmitter` 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 process、agent run、topic、agent、status、迭代与 materialize task 数量；`RuntimeEventPublisher` 统一补充 scope/context、payload 安全转换和 best-effort 异常隔离。AgentRunService 只在明确的业务分支调用这些语义方法。frame 内部过程则通过交互输出事件和结构化 TurnEvent 暴露，不进入 RuntimeEventBus。
 
 主要验证入口：
 

@@ -493,7 +493,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 
 ### D-9 chat 编排与 chat run 注册表的最终归属
 
-**背景**：两者暂置于 `alice.application`（[`chat_control.py`](../../src/hivememory/alice/application/chat_control.py)、[`chat_service.py`](../../src/hivememory/alice/application/chat_service.py)）。
+**背景**：两者在包分层重构时暂置于 `alice.application`（`chat_control.py`、`chat_service.py`）；按下方决定，已于任务进程表第一批实施中迁入 [`workspace/process/`](../../src/hivememory/workspace/process/)（[已归档计划](../archive/plans/v0.7.0-task-process-table.md)）。
 
 - **D-9a chat run 注册表**：workspace（演化为[任务进程 Idea](./task-process-table-and-registration-entry.md)的进程表） / 保留在 `alice.application` / 其他。
 - **D-9b chat 编排**（chat 任务类型的执行步骤）：workspace / alice（保留现状） / 独立的任务类型包 / system / 其他。

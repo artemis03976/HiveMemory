@@ -78,12 +78,40 @@ def test_workspace_access_and_read_modules_depend_only_on_core():
     assert violations == []
 
 
+def _non_process_sources() -> list[Path]:
+    """workspace 中 process 子包以外的全部源文件（含 capability 与 assets）。"""
+    process_package = WORKSPACE_PACKAGE / "process"
+    files = [
+        path
+        for path in sorted(WORKSPACE_PACKAGE.rglob("*.py"))
+        if "__pycache__" not in path.parts and process_package not in path.parents
+    ]
+    assert files, f"未扫描到 workspace 源文件，请检查路径: {WORKSPACE_PACKAGE}"
+    return files
+
+
+def _import_targets_of(path: Path) -> list[str]:
+    """直接 import 的模块，以及 ``from X import Y`` 形式可能指向的子模块 ``X.Y``。"""
+    targets = _imports_of(path)
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                base = node.module
+            elif node.level > 0:
+                base = _resolve_relative(path, node)
+            else:
+                continue
+            targets.extend(f"{base}.{alias.name}" for alias in node.names)
+    return targets
+
+
 def test_workspace_non_process_modules_do_not_import_process():
-    """process 以外的 workspace 模块不得导入进程表与任务进程编排。"""
+    """process 以外的 workspace 模块（含能力层与资产设施）不得导入进程表与任务进程编排。"""
     violations = [
-        f"{path}: {module}"
-        for path in _sources_excluding_unrestricted()
-        for module in _imports_of(path)
-        if module == PROCESS_PACKAGE_MODULE or module.startswith(f"{PROCESS_PACKAGE_MODULE}.")
+        f"{path}: {target}"
+        for path in _non_process_sources()
+        for target in _import_targets_of(path)
+        if target == PROCESS_PACKAGE_MODULE or target.startswith(f"{PROCESS_PACKAGE_MODULE}.")
     ]
     assert violations == []

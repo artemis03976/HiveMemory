@@ -189,7 +189,7 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
 
 @pytest.mark.asyncio
 async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
-    """捕获共享 Chat registry 以裸 process_id 取消异域运行的缺陷。"""
+    """捕获共享进程表以裸 process_id 取消异域进程的缺陷。"""
     bus = GlobalSystemBus()
     service = TaskProcessService(bus)
     both_gateway_calls_started = asyncio.Event()

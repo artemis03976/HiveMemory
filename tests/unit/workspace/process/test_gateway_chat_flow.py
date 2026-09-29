@@ -171,6 +171,54 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
 
 
 @pytest.mark.asyncio
+async def test_completed_stream_uses_one_process_id_for_events_and_downstream_routes() -> None:
+    """完成的流式进程：SSE 首个事件、finalizing 状态与 done 携带同一 process_id，
+    并以它调用 Patchouli prepare（interaction_id）与 Alice。"""
+    bus = GlobalSystemBus()
+    prepared = AsyncMock()
+    prepared.agent_run_context = object()
+    prepared.generation_options = None
+    prepared.topic_id = "topic-1"
+    prepared.stream_prelude.topic_id = "topic-1"
+    prepared.stream_prelude.is_new_topic = False
+    prepared.stream_prelude.pool_topics = []
+    prepared.stream_prelude.memory_refs = []
+    prepare_calls: list[dict] = []
+
+    async def prepare(*, identity_scope, **kwargs):
+        prepare_calls.append(kwargs)
+        prepared.identity_scope = identity_scope
+        return prepared
+
+    async def alice_stream():
+        yield {"event": "token", "data": {"content": "完成"}}
+        yield {"event": "done", "data": AgentRunResult(final_text="完成").model_dump()}
+
+    alice = AsyncMock(return_value=alice_stream())
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, alice)
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+
+    events = await _stream_events(
+        TaskProcessService(bus),
+        "问题",
+        process_id="process-complete",
+    )
+
+    assert events[0] == {"event": "process_id", "data": {"process_id": "process-complete"}}
+    assert [event["data"] for event in events if event["event"] == "run_status"] == [
+        {"process_id": "process-complete", "status": "finalizing"}
+    ]
+    assert events[-1]["event"] == "done"
+    assert events[-1]["data"]["status"] == "completed"
+    assert events[-1]["data"]["process_id"] == "process-complete"
+    assert [call["interaction_id"] for call in prepare_calls] == ["process-complete"]
+    assert alice.await_args.kwargs["process_id"] == "process-complete"
+
+
+@pytest.mark.asyncio
 async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     bus = GlobalSystemBus()
     started = asyncio.Event()

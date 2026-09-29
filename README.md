@@ -269,8 +269,8 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 它提供两种主要接入方式：
 
-- `chat()` / `chat_stream()`：主动模式，由 `TaskProcessService` 协调 Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
-- `ingest_event()` / `flush_ingressor()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
+- `process_service.chat_scoped()` / `chat_stream_scoped()`：主动模式，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
+- `ingress_service.ingest_event()` / `flush_conversation()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
 
 如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要把 HiveMemory 嵌入已有 Agent 框架，通常从 passive ingest 模式开始会更自然。
 

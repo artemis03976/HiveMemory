@@ -19,6 +19,7 @@ from hivememory.system.assembler import (
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process import TaskProcessService
 from tests.helpers.workspace import make_workspace_runtime
 
 
@@ -52,10 +53,7 @@ def system(mock_patchouli):
     gateway.start = AsyncMock()
     gateway.stop = AsyncMock()
     gateway.health = AsyncMock(return_value={"status": "ok"})
-    process_service = MagicMock()
-    process_service.chat = AsyncMock(return_value="result")
-    process_service.chat_stream = MagicMock()
-    process_service.cancel_process = MagicMock(return_value=True)
+    process_service = MagicMock(spec=TaskProcessService)
     ingress_service = MagicMock()
     ingress_service.start = AsyncMock()
     ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
