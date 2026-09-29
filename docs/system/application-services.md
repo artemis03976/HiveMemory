@@ -5,8 +5,7 @@ owner: system
 scope: application-use-cases-and-cross-subsystem-orchestration
 code_paths:
   - src/hivememory/system/application/
-  - src/hivememory/alice/application/chat_service.py
-  - src/hivememory/alice/application/chat_control.py
+  - src/hivememory/workspace/process/
   - src/hivememory/workspace/capability/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
@@ -16,14 +15,14 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # 应用服务
 
 应用服务是 transport 与子系统之间的用例层。它们由 System 组合根装配、经 `HiveMemorySystem` 门面交给入口，但按归属分布在三处：
 
-- chat 编排：`alice.application`（`ChatApplicationService` 与 chat run 控制表，暂置于 Alice，待任务进程注册入口确定最终归属）；
+- 任务进程表与 chat 任务进程编排：`workspace.process`（`ProcessTable`/`ProcessRecord` 进程表与 `TaskProcessService` 四阶段骨架）；
 - 资源能力层：`workspace.capability`（Memory、MemoryTask、Agent Profile、Topic、WorkspaceAsset 服务）；
 - 系统级服务：`system.application`（被动摄入与就绪检查）。
 
@@ -43,7 +42,7 @@ last_reviewed: 2026-09-26
 
 应用服务公共方法只接受 `identity_scope: IdentityScope` 唯一入口，不接受裸 `user_id`（由签名守卫测试约束）。用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）由 `server/deps.py resolve_request_identity_scope` 在 server 边界一次性校验并冻结为不可变 `IdentityScope`，随后沿 route 和领域 payload 传递；应用服务不再解析身份，也不得再次执行默认解析。非 Agent action 的 scope 由 server 注入保留 `system` actor，只标记"没有具体 Agent 作为操作来源主体"。后台 task、retry 和 finalize 不重新读取进程当前 Workspace；它们使用自身 DTO 中保存的 scope，在最终访问 Workspace-owned 资源时由领域所有者校验。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
-应用服务可以保存一次用例的短期控制状态，例如 chat 编排的 generation registry，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
+应用服务可以保存一次用例的短期控制状态，例如任务进程编排的进程表，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
 Memory、Agent、Topic、Task 能力服务和附件上传服务还接收统一认证网关签发的 `WorkspaceAccessContext`（`access` 参数）。管理方法（Memory CRUD/feedback、Profile 管理、Topic 管理、Task 观察/取消）将 access **原样透传**给 Patchouli 公共路由：本层不解释、不裁剪 access，也不以 DTO scope 覆盖可信坐标，行为授权在 Patchouli application 落实；能力层的 actor 可见读取方法（Memory 点读、alias 读取、语义检索、Profile 读取）则在本层按 operation 授权后经 workspace 读取视图读取，Patchouli backing 只校验 context 有效性（见[Workspace 架构](../architecture/workspace.md)第 4 节）。目前没有生产入口调用这些 actor 可见读取方法，HTTP 路由使用管理方法。`access` 缺省时依赖下游冻结的迁移期兼容分支（裸 `IdentityScope` 受信适配），兼容窗口由 A6 完成生产消费者切换后关闭。
 
@@ -59,7 +58,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 | 服务（位置） | 当前职责 | 主要依赖 |
 |:---|:---|:---|
-| `ChatApplicationService`（`alice.application`） | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 编排 | Gateway、Patchouli、Alice public routes；RuntimeEventSink |
+| `TaskProcessService`（`workspace.process`） | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 四阶段编排；进程表（`ProcessTable`）登记每个任务进程并以 `process_id` 暴露 stop 控制面 | Gateway、Patchouli、Alice public routes；RuntimeEventSink |
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
 | `MemoryApplicationService`（`workspace.capability`） | Memory CRUD、feedback 和查询参数转换，透传访问上下文；actor 可见读取经读取视图 | Patchouli memory routes；workspace 读取视图 |
 | `MemoryTaskApplicationService`（`workspace.capability`） | 查询/取消 Patchouli 拥有的 memory generation task；透传观察/取消访问上下文 | Patchouli task routes |
@@ -77,27 +76,27 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 ### 3.1 非流式链路
 
 ```text
-ChatApplicationService.chat_scoped
-  -> register ChatGenerationRun
+TaskProcessService.chat_scoped
+  -> register ProcessRecord（进程表）
   -> Gateway public process (ACTIVE_CHAT)
   -> command: return command outcome
-  -> decision: Patchouli prepare_agent_run
-  -> Alice run_agent
+  -> decision: Patchouli prepare_agent_run（interaction_id 取 process_id 值）
+  -> Alice run_agent（process_id）
   -> completed: Patchouli finalize_agent_run
   -> cancelled/failed: Patchouli cleanup_prepared_agent_run
-  -> close generation registry
+  -> close 进程表
 ```
 
 Gateway 返回 command outcome 时，服务立即完成本次 run，不进入 topic、retrieval、Alice 或主动记忆生成。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
-普通决策进入 prepare 后，如果调用方已经请求取消，则跳过 Alice 和 finalize，返回 cancelled 结果并在 finally 中请求 cleanup。Alice 只有在 `AgentRunResult.status == completed` 且 run 未取消时才允许进入 finalize；finalize 成功后才将 prepared 标记为已接管，不再 cleanup。
+普通决策进入 prepare 后，prepare 期间收到的停止请求会被进程表记录；prepare 正常返回后在进入 Alice 前统一检查一次，命中即跳过 Alice 和 finalize，返回 cancelled 结果并在 finally 中请求 cleanup。Alice 只有在 `AgentRunResult.status == completed` 且 run 未取消时才允许进入 finalize；finalize 成功后才将 prepared 标记为已接管，不再 cleanup。
 
 ### 3.2 流式链路
 
 `chat_stream_scoped()` 保持同一条阶段顺序，但把阶段事实以事件交给 transport：
 
 ```text
-generation_id
+process_id
   -> Gateway decision / command
   -> command_result + done
   -> 或 prepare
@@ -108,25 +107,27 @@ generation_id
        done(completed + memory_task_ids + pool_topics)
 ```
 
-流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭时，SSE adapter 请求停止当前 generation，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。`chat_stream_scoped()` 随后关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。
+流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭时，SSE adapter 以 `process_id` 请求停止当前进程，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。`chat_stream_scoped()` 随后关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。
 
 流式 `done`、`command_result` 和 `error` 是 transport 可消费的事件，不是新的跨子系统业务契约；它们的来源和调用顺序仍由本服务和 Contracts 共同约束。
 
-## 4. ChatGenerationRun 与取消
+## 4. 进程表与取消
 
-`ChatGenerationRunRegistry`（`alice/application/chat_control.py`）是 chat 编排拥有的进程内控制表。每条 run 有：
+`ProcessTable`（`workspace/process/table.py`）是任务进程编排拥有的进程内控制表，也是 workspace 的进程内共享设施。每条进程记录（`ProcessRecord`）有：
 
-- `generation_id`；
+- `process_id`：进程唯一标识，由 server 入口在进入编排服务前生成并冻结（Q-16）；
 - `phase`：`created/gateway/prepare/alice/finalize/terminal`；
 - `outcome`：`running/stop_requested/cancelled/completed/failed`；
 - 首次接受的 `stop_reason`；
 - 仅在 Gateway 或 Alice 阶段存在的 `active_task` 身份引用。
 
-Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run 后同步调用 `request_stop()`：不存在返回 `not_found`；首次 stop 固定 reason；重复 stop 返回同一判定且不重复取消 task。Gateway 与 Alice 阶段会取消当前 `active_task`；Prepare 只记录 stop，正常返回后由应用服务终止后续阶段；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。`active_task` 只表达当前可中断阶段的 task 身份，不是另一份取消状态。
+进程表不保存 `Event`、Token 或 waiter。`cancel()` 按 `process_id` 查找进程后同步调用 `request_stop()`：不存在返回 `not_found`；首次 stop 固定 reason；重复 stop 返回同一判定且不重复取消 task。取消是 owner/workspace 校验（同一用户、同一 Workspace），不是 Agent action。进程表只向同 owner/workspace 的控制请求暴露进程记录，跨 user/workspace 的取消得到 `not_found`。
 
-用户 stop 在 `chat_service.py` 内被翻译为私有 `_ChatRunCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 同时区分“stop 取消 child task”和“Chat owner 被 ASGI/shutdown 取消”，后者必须原样向上传播。资源所有者在 unwind 中关闭自己创建的 stream、runner 与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
+取消响应点按 Q-15 收口：只有 Gateway 与 Actor 执行两个阶段会取消当前 `active_task`；进入 Alice 前统一检查一次停止请求（`_run_interruptible` 的入口检查与 prepare 之后的检查），prepare 期间的停止请求照常完成 prepare 后在此生效；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。外部取消必须携带明确的 `process_id`，唯一入口是 `POST /chat/stop` 与路由内的客户端断开处理。
 
-当前 registry 是进程内短期控制状态，不是可恢复的长期工作记录。进程重启后不能据此恢复 run；用户可见长期任务与后台 Agent workflow 当前未立项，需在真实负载和执行能力成立后独立设计。
+用户 stop 在编排服务内被翻译为私有 `_ProcessCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 同时区分“stop 取消 child task”和“进程 owner 被 ASGI/shutdown 取消”，后者必须原样向上传播。资源所有者在 unwind 中关闭自己创建的 stream、runner 与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
+
+当前进程表是进程内短期控制状态，不是可恢复的长期工作记录。进程重启后不能据此恢复进程；用户可见长期任务与后台 Agent workflow 当前未立项，需在真实负载和执行能力成立后独立设计。
 
 ## 5. 管理类应用服务
 
@@ -154,7 +155,7 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 新增应用服务或新入口时，检查：
 
-1. 是否复制了 `ChatApplicationService` 的 prepare/run/finalize 顺序？
+1. 是否复制了 `TaskProcessService` 的 prepare/run/finalize 顺序？
 2. 是否绕过 `GlobalSystemBus` 直接持有子系统 Runtime？
 3. 是否把 command outcome 继续送进普通 chat？
 4. 是否在取消后仍调用 finalize，或 finalize 失败后忘记 cleanup？
@@ -165,9 +166,9 @@ Registry 不保存 `Event`、Token 或 waiter。`cancel_generation()` 查找 run
 
 ## 8. 验证入口
 
-- `tests/unit/system/application/test_gateway_chat_flow.py`
-- `tests/unit/system/test_chat_run_control_contract.py`
-- `tests/unit/system/test_cancel_hardening.py`
+- `tests/unit/workspace/process/test_gateway_chat_flow.py`
+- `tests/unit/workspace/process/test_chat_run_control_contract.py`
+- `tests/unit/workspace/process/test_cancel_hardening.py`
 - `tests/unit/server/routers/test_chat.py`
 - `tests/unit/system/application/test_api_services.py`
 - `tests/unit/system/application/test_identity_entry_guards.py`（服务签名/身份入口守卫）

@@ -18,7 +18,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-09-28
 ---
 
 # Chat 工作区
@@ -49,7 +49,7 @@ OmniInput 在发送前组装：
 
 `@` 菜单和 Agent 胶囊只改变本轮使用的 Agent，输入中的 `@name` 会在选中后被移除，不作为文本 mention 发送。持久化的 Agent ID 若不再存在，前端回退到 `omni_doll`。
 
-请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 generation ID 后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `generation_id`，身份校验与取消使用的 scope 由后端经 generation registry 复用创建该 run 时冻结的原始身份坐标，前端当前选择不参与构造。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
+请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 `process_id` 事件后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `process_id`，身份校验与取消使用的 scope 由后端经进程表复用创建该进程时冻结的原始身份坐标，前端当前选择不参与构造。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
 
 ## 3. SSE 事件投影
 
@@ -61,7 +61,7 @@ OmniInput 在发送前组装：
 | `topic_info` | 更新本轮真实 Topic ID 与 Topic 池快照 |
 | `memory_refs` | 替换右侧“引用记忆”列表 |
 | `command_result` | 展示命令消息，并执行如 clear chat 的显式客户端动作 |
-| `generation_id` | 建立取消请求所需的运行标识 |
+| `process_id` | 建立取消请求所需的任务进程标识 |
 | `run_status` | 驱动准备、流式、取消、收尾和失败状态 |
 | `done` | 写入最终文本、task IDs、Topic 池与终态 |
 | `error` | 结束本地流并显示错误 |

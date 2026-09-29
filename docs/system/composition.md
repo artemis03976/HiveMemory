@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # System 组合根与生命周期
@@ -47,7 +47,7 @@ HiveMemorySystem.build(config)
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
        -> service bundle
-            ChatApplicationService（alice.application）
+            TaskProcessService（workspace.process，含进程表）
             PassiveIngressService / SystemReadinessService（system.application）
             Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability）
 ```
@@ -137,7 +137,7 @@ GlobalMaintenanceScheduler.stop
 
 健康状态是观测和管理入口，不替代业务契约。模型尚未 ready 不等于所有 route 都不存在；反过来，健康返回 `ok` 也不保证一次具体检索或生成调用一定成功。
 
-System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `chat_service`（Alice chat 编排）、`ingress_service`（被动摄入）、`memory_service` 等能力服务、`access_gateway`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
+System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`ingress_service`（被动摄入）、`memory_service` 等能力服务、`access_gateway`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
 
 ## 5. 生命周期不变量与矛盾检查
 

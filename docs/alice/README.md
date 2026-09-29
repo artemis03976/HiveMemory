@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # Alice
@@ -39,7 +39,7 @@ Alice 当前拥有：
 - 非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 - Alice 私有 local bus，并经它代理 Patchouli 的公开记忆能力。
 
-这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。反过来，位于 `alice/` 的代码也不都属于 Agent 执行：`alice.application.chat_service` 与 `chat_control` 是 chat 任务类型的编排与 run 控制，暂置于 Alice 包内（待任务进程注册入口确定最终归属），它经公开路由依次调用 Gateway、Patchouli 与 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile`、`PendingAtom` 与 `AgentRunResult` 等跨边界模型位于 `core`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
+这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由依次调用 Gateway、Patchouli 与 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile`、`PendingAtom` 与 `AgentRunResult` 等跨边界模型位于 `core`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
 
 ### 1.2 Alice 不拥有什么
 
@@ -48,12 +48,12 @@ Alice 不负责：
 - 分析原始入口、识别系统命令、选择话题或形成 `GatewayDecision`；
 - 创建、检索、归档或修订长期记忆的权威事实；
 - 决定一次已完成 run 是否进入 Perception，或直接调用 Patchouli 内部 Runtime/Store；
-- 在 Agent 执行运行时中持有 HTTP、SSE 连接、chat 总超时、跨子系统取消或 prepare/finalize 补偿（这些属于 chat 编排）；
+- 在 Agent 执行运行时中持有 HTTP、SSE 连接、chat 总超时、跨子系统取消或 prepare/finalize 补偿（这些属于 `workspace.process` 的任务进程编排）；
 - 自动生成 Agent Profile、维护持久化任务图或执行通用 plan-and-execute；
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
 
-chat 编排（`alice.application`，暂置）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 只通过公开 route、公共模型和 settlement event 与它们交接。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
+chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 只通过公开 route、公共模型和 settlement event 与它们交接。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ## 2. Alice 与 AgentRuntime 为什么是两层
 
@@ -165,7 +165,6 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 |:---|:---|
 | 子系统装配与生命周期 | `src/hivememory/alice/system.py` |
 | Agent run 应用用例 | `src/hivememory/alice/application/agent_run_service.py` |
-| chat 编排与 run 控制（暂置） | `src/hivememory/alice/application/chat_service.py`、`chat_control.py` |
 | Alice 进程级资源与 local bus | `src/hivememory/alice/runtime/core.py`、`bus.py` |
 | 多 Agent 编排 | `src/hivememory/alice/orchestration/run_executor.py`、`src/hivememory/alice/orchestration/sub_agent/`、`src/hivememory/alice/orchestration/run_session.py` |
 | 单 Agent 执行层 | `src/hivememory/agent_runtime/`、`agent_runtime/runtime.py` |

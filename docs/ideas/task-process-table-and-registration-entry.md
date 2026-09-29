@@ -6,8 +6,7 @@ serves_version: v0.7.0
 owner: project
 scope: task-process-table-unique-registration-entry-and-process-lifecycle
 code_paths:
-  - src/hivememory/alice/application/chat_control.py
-  - src/hivememory/alice/application/chat_service.py
+  - src/hivememory/workspace/process/
   - src/hivememory/alice/runtime/core.py
   - src/hivememory/agent_runtime/runtime.py
   - src/hivememory/agent_runtime/pending_atom/runtime.py
@@ -35,6 +34,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 流程图只画出前提已经确定的部分；依赖待决问题的内容标注问题编号。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。owner 已作出的决定注明日期，记录在对应位置：第 1.1 节（请求方的分类）、第 1.2 节（任务进程的结构）、Q-1、Q-2、Q-3、Q-4、Q-5、Q-7、Q-8、Q-9、Q-10、Q-14、Q-15、Q-16。
 - workspace 包的现有实现（A2 已实施部分）不作为本方向的前提，形成 Plan 时重新调查（总 Idea 第 6.1 节）。2026-09-28 已完成调查，结论与 workspace 的子包划分见总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)。
+- **实施进度（2026-09-28）**：本方向的第一批实施已完成并晋升为当前事实——1.2 的进程表落位（进程表与 chat 四阶段骨架迁入 `workspace.process`）、Q-15 的取消收口与 Q-16 的 `process_id` 标识，见[已归档计划](../archive/plans/v0.7.0-task-process-table.md)与[应用服务](../system/application-services.md)。第 2 节的现状事实保留为迁移前的代码快照，不再描述当前实现。
 
 ## 1. 前提（owner 提出）
 
@@ -71,6 +71,8 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 被动请求的 principal 由谁承担（总 Idea P-5b；owner 倾向由登记的 Agent 反推）仍待决；被动请求只存在于 controller 模式。外部 Actor 的形态已于 2026-09-27 审议为 plugin 与 controller 两种接入模式，请求方类型与认证 principal 的关系按两种模式的定义理解，见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1。
 
 ### 1.2 任务进程的结构（owner，2026-09-28）
+
+> 2026-09-28：本节中 chat 链路的进程表落位已随第一批实施晋升为事实（`workspace.process`），取消收口规则（Q-15）同步落地。
 
 本节适用于 controller 模式；plugin 模式不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
 
@@ -134,18 +136,18 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试；
 4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6；命令系统后置，v0.7.0 内现有内置命令暂时不可用，见 Q-5a）。
 
-## 2. 现状事实（代码核对，2026-09-27）
+## 2. 现状事实（代码核对，2026-09-27；迁移前快照，2026-09-28 起由 `workspace.process` 取代）
 
 ### 2.1 Chat run 注册表
 
-[`ChatGenerationRunRegistry`](../../src/hivememory/alice/application/chat_control.py) 以 `interaction_id` 为键登记 run，重复登记直接拒绝；提供 get / cancel / status，控制请求只比较 Workspace 身份。
+`ChatGenerationRunRegistry`（原 `src/hivememory/alice/application/chat_control.py`，已随第一批实施删除）以 `interaction_id` 为键登记 run，重复登记直接拒绝；提供 get / cancel / status，控制请求只比较 Workspace 身份。
 
 - `interaction_id` 由 server 的 chat 路由在进入服务前生成（`interaction_{uuid}`），`generation_id` 与它取值相同；
 - SSE 的第一个事件 `generation_id` 在 Gateway 阶段之前发出；前端据此发起停止请求，请求体携带 `generation_id`。
 
 - 阶段枚举 `ChatRunPhase` 把 chat 编排写死：`CREATED → GATEWAY → PREPARE → ALICE → FINALIZE → TERMINAL`；
 - 注册表本身不持有工作状态：附件租借在 Patchouli prepare 返回的 `PreparedAgentRun` 中，写入意图在 Alice 的 `PendingAtomRuntime` 中，执行事件在 Alice run 中；
-- 注册与编排都在 [`chat_service.py`](../../src/hivememory/alice/application/chat_service.py) 内完成（包分层重构后暂置于 `alice.application`；2026-09-28 决定迁入 workspace 的 `process` 子包，见总 Idea D-9）；run 记录终态后由 `close` 移出注册表。
+- 注册与编排都在 `chat_service.py` 内完成（原 `src/hivememory/alice/application/chat_service.py`，已随第一批实施迁往 `workspace/process/service.py`）；run 记录终态后由 `close` 移出注册表。
 
 ```mermaid
 flowchart LR
@@ -176,7 +178,7 @@ flowchart LR
 
 ### 2.4 各阶段的取消行为
 
-[`chat_service.py`](../../src/hivememory/alice/application/chat_service.py) 中各阶段的取消行为（2026-09-28 核对）：
+原 `chat_service.py` 中各阶段的取消行为（2026-09-28 核对，迁移前快照）：
 
 | 阶段 | 取消行为 |
 |:---|:---|
@@ -486,7 +488,7 @@ stateDiagram-v2
 | B | 由四阶段骨架静态定义每个阶段的策略 | 骨架固定时实现简单；阶段策略变化需要修改骨架 |
 | C | 其他 | —— |
 
-**owner 决定（2026-09-28）**：只有 Gateway 与 Actor 执行两个阶段可以取消，因为这两块有前台调用 LLM 的行为；进程负责这两块的取消管理。其余地方不设取消响应点，相当于不允许取消；不设置额外的取消策略（选项 B 的方向）。
+**owner 决定（2026-09-28）**：只有 Gateway 与 Actor 执行两个阶段可以取消，因为这两块有前台调用 LLM 的行为；进程负责这两块的取消管理。其余地方不设取消响应点，相当于不允许取消；不设置额外的取消策略（选项 B 的方向）。（2026-09-28 已实施并晋升为事实，见[应用服务](../system/application-services.md)第 4 节。）
 
 - 统一在 Actor 执行开始前检查一次取消请求并响应：在预检索、取得附件租借、CPU 分配期间收到的取消请求，在这里生效；结算阶段不可取消（与现状的 `already_finalizing` 相同）。
 - 外部取消请求必须带明确的 `process_id`，指明取消哪个任务进程。
@@ -503,7 +505,7 @@ stateDiagram-v2
 | B | 继续以 `interaction_id` 作为进程标识，命令进程同样分配 | 不产生交互记录的进程也持有交互标识 |
 | C | 其他 | —— |
 
-**owner 决定（2026-09-28）**：删除现有的 `interaction_id` 与 `generation_id` 作为进程标识的用法，改用 `process_id` 作为任意任务进程的唯一标识，向下兼容 `interaction_id` 原先的位置。
+**owner 决定（2026-09-28）**：删除现有的 `interaction_id` 与 `generation_id` 作为进程标识的用法，改用 `process_id` 作为任意任务进程的唯一标识，向下兼容 `interaction_id` 原先的位置。（2026-09-28 已实施并晋升为事实：server 生成 `process_{uuid}`，RuntimeEvent/SSE/停止契约与前端统一改用 `process_id`。）
 
 - 前后端与 server 契约不再使用 `generation_id`，也不设原拟的 `active_request_id`，统一使用 `process_id`；
 - `interaction_id` 这个名字无所谓：`InteractionPayload` 单独保留这一字段名，但始终赋 `process_id` 的值。
@@ -536,7 +538,7 @@ stateDiagram-v2
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
 - 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
-- 第一批实施计划：[任务进程表：落位与进程标识](../plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口）。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
+- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
 - 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。

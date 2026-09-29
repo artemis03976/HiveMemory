@@ -23,7 +23,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-09-28
 ---
 
 # 多 Agent 编排
@@ -76,7 +76,7 @@ AliceSystem
 
 每次 `run_agent()` 创建一个新的主 frame：
 
-- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；Gateway 的 `generation_id` 作为外层关联值显式传入；
+- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的 `process_id` 作为外层关联值显式传入；
 - 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
 - `identity_scope` 来自 `AgentRunContext`；`identity` 仅为 actor projection；
@@ -198,7 +198,7 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 
 这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实。
 
-交互输出不会自动转发到 RuntimeEventBus。后者只通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/generation_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
+交互输出不会自动转发到 RuntimeEventBus。后者只通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
 
 ## 8. 失败、取消与降级
 

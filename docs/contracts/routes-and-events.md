@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # 公开路由与事件
@@ -119,8 +119,8 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options | `AgentRunResult` |
-| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | `AgentRunContext`、generation options | async generator 对象 |
+| `alice.public.run_agent` | `AgentRunService.run_agent` | `AgentRunContext`、generation options、可选 `process_id` 关联 | `AgentRunResult` |
+| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | `AgentRunContext`、generation options、可选 `process_id` 关联 | async generator 对象 |
 
 流式 route 返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
 
@@ -147,7 +147,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 - 标识与排序：`event_id`、进程内 `sequence`、UTC `timestamp`；
 - 追踪：`trace_id`、`span_name`、`task_type`；
 - 来源：`source`、`subsystem`、`component`、`severity`；
-- 关联 id：generation、agent run、task、agent、frame、topic、atom；
+- 关联 id：process（`process_id`，任务进程唯一标识）、agent run、task、agent、frame、topic、atom；
 - 可选观测标签：`workspace_id`；
 - 描述：`status`、`reason`、`message`、`data`。
 
@@ -183,7 +183,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 - 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
 - RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；
-- 两条流可以通过 `generation_id/agent_run_id` 关联展示，但不得自动互相桥接；
+- 两条流可以通过 `process_id/agent_run_id` 关联展示，但不得自动互相桥接；
 - RuntimeEvent 的缺失或 transport 故障不能改变 Agent 结果，交互输出也不替代结构化 `TurnEvent` 与权威 run 状态。
 
 ## 5. `SystemEvent` 的状态
@@ -196,7 +196,7 @@ HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成
 
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、被动接入）附加具体 `agent_id`；基础选择经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop 请求体不再重复携带身份字段，Topic 的 `?user_id=` 旧 query 与 header 收敛到同一解析规则。
 - `server/deps.py resolve_request_identity_scope` 是唯一解析入口：header 与 body/query 冲突显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 显式失败；非 Agent action 注入保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
-- Chat 必须由具体 Agent 执行；`/chat/stop` 不是 Agent action，服务端用请求方选择完成 owner/workspace 校验后，通过 generation registry 复用创建时冻结的原始 scope 取消，不从当前选择重新构造 scope。
+- Chat 必须由具体 Agent 执行；`/chat/stop` 不是 Agent action，服务端用请求方选择完成 owner/workspace 校验后，通过进程表复用创建时冻结的原始 scope 取消，不从当前选择重新构造 scope。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
 

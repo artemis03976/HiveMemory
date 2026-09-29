@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-28
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-09-19
 
 当前记录：
 
+- [v0.7.0 任务进程表：落位与进程标识](./v0.7.0-task-process-table.md)：任务进程方向第一批实施已完成——chat run 注册表与 chat 编排从 `alice.application` 迁入 `workspace.process` 并改用进程词汇（阶段 A），`process_id` 取代 `interaction_id`/`generation_id` 成为进程唯一标识、取消只在 Gateway 与 Actor 执行两个阶段响应（阶段 B）；当前事实见 [System 应用服务](../../system/application-services.md)、[系统边界与所有权](../../architecture/boundaries.md)与[公开路由与事件](../../contracts/routes-and-events.md)。
 - [v0.7.0 A1 Workspace 访问边界与授权](./v0.7.0-a1-workspace-access-boundary.md)：统一 Actor 认证网关、System 接入登记与 Workspace Actor 访问注册表、guard 持有的最小准入 context 与签发生命周期、逐次行为授权及迁移兼容清单已完成并通过验收；当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4 节、[错误模型](../../contracts/error-model.md)第 4.4 节、[子系统公共契约](../../contracts/subsystem-contracts.md)第 3.5 节、[System 应用服务](../../system/application-services.md)与 [ADR-0005](../../architecture/decisions/0005-unified-actor-authentication-and-workspace-authorization.md)。生产消费者切换与兼容退出由 A6 计划收口。
 - [v0.6.2 版本收尾审计](./v0.6.2-release-closeout-audit.md)：记录已合并范围、归档承接、版本声明、测试与构建结果；代码版本与本次发布标签为 0.6.2（标签在合并后创建）。
 - [v0.6.2 W1 Chat Attachments](./v0.6.2-w1-chat-attachments.md)：W1-A 至 W1-F 已随 PR #97 合并并归档；当前事实见 [Chat 附件链路](../../system/attachments.md)、[Workspace 架构](../../architecture/workspace.md) 与 [Artifacts](../../patchouli/artifacts.md)。

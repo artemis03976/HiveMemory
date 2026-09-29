@@ -16,6 +16,7 @@ code_paths:
   - src/hivememory/core/models/workspace_asset.py
   - src/hivememory/server/deps.py
   - src/hivememory/workspace/assets/
+  - src/hivememory/workspace/process/
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
   - src/hivememory/patchouli/memory_library/stores.py
@@ -40,7 +41,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # Workspace 架构
@@ -75,13 +76,13 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 
 ## 2. 在总体架构中的位置
 
-`SystemAssembler` 是组合根。它创建全局运行时和注册表，再装配 Gateway、Patchouli、Alice、workspace 设施（认证网关与 guard、能力层、读取视图、AssetStore）以及其余应用服务；`HiveMemorySystem` 只持有这张组件图、作为入口使用的门面并负责启停。Workspace 语义横跨这些边界，但不取得任何子系统的领域所有权：
+`SystemAssembler` 是组合根。它创建全局运行时和注册表，再装配 Gateway、Patchouli、Alice、workspace 设施（认证网关与 guard、能力层、读取视图、AssetStore、任务进程表与 chat 任务进程编排）以及其余应用服务；`HiveMemorySystem` 只持有这张组件图、作为入口使用的门面并负责启停。Workspace 语义横跨这些边界，但不取得任何子系统的领域所有权：
 
 ```mermaid
 flowchart TB
     IN["HTTP / Passive ingress / 内部测试入口"]
     SCOPE["IdentityScope\nActor + Workspace"]
-    APP["门面提供的服务\nworkspace 能力层 / chat 编排 / 被动摄入"]
+    APP["门面提供的服务\nworkspace 能力层 / 任务进程编排 / 被动摄入"]
     BUS["GlobalSystemBus"]
     GW["Gateway\n入口决策"]
     PA["Patchouli\nTopic / Memory / Artifact"]

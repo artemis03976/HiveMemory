@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # HiveMemory 项目总览
@@ -186,7 +186,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 ```text
 HiveMemorySystem（组合根与门面）
   ├─ 门面提供的服务
-  │    ├─ ChatApplicationService   chat 编排（alice.application，暂置）
+  │    ├─ TaskProcessService      任务进程表与 chat 任务进程编排（workspace.process）
   │    ├─ PassiveIngressService    被动摄入（System）
   │    └─ Memory / Task / Profile / Topic / Asset 能力服务（workspace.capability）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
