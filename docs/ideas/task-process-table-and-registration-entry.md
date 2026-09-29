@@ -17,7 +17,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-09-29
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -117,16 +117,19 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 | `ChatGenerationRunRegistry` | 演化为进程表，位于 workspace 的 `process` 子包（总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)） |
 | `ChatGenerationRun` | 演化为进程记录 |
 | `interaction_id` / `generation_id` 作为进程标识的用法 | 由 `process_id` 取代（Q-16） |
-| `PreparedAgentRun` | 拆散：GatewayDecision 与附件租借进入工作集；记忆原子与附件进入 CPU 输入清单；`AgentRunContext` 中编译好的记忆文本改由 CPU 生成；`StreamPrelude` 改由进程从自身状态推导 |
+| `PreparedAgentRun` | 拆散：GatewayDecision 与附件租借进入工作集；记忆原子、编译后的记忆与附件文本进入 CPU 输入清单；`AgentRunContext` 中编译好的记忆文本改由进程编译（2026-09-29 修订）；`StreamPrelude` 改由进程从自身状态推导 |
 
 **Patchouli prepare 与结算的拆分**
 
-- prepare 退化为只执行一轮预检索，返回未编译的记忆原子；产出 `AgentRunContext` 的步骤移到新流程，由 CPU 一侧编译。编译记忆本就是 Actor 一侧的工作：`MemoryCompiler` 已由 Alice 的 MTP runtime 直接使用；`engines/memory_compiler` 对 `agent_runtime.aliases` 的导入，是分层测试登记的已知例外之一，编译结果依赖 Alice 的 alias 体系。
-- 附件脱离 Patchouli：附件租借作为工作集中的资源。附件编译的位置未单独决定，候选为与记忆原子一致，由 CPU 一侧编译。
+- prepare 退化为只执行一轮预检索，返回未编译的记忆原子；产出 `AgentRunContext` 的步骤移到新流程。
+  - **编译由进程完成**（owner，2026-09-29；修订原记录中的“由 CPU 一侧编译”）：进程在分配 CPU 之后，调用共享引擎 `MemoryCompiler` 编译本轮检索结果，把编译后的文本与原始记忆原子一起放入输入清单；CPU 只决定文本在提示词中的位置。理由：编译算法本就是共享的 L2 引擎，已有 Patchouli prepare、Passive Ingress、Alice MTP、Alice CALL、向量存储与 reranker 等调用方；在 controller 模式下，由进程调用可以让外部 harness 的 adapter 不必各自重复调用逻辑。
+  - 原记录的理由“编译结果依赖 Alice 的 alias 体系”有误：`engines/memory_compiler` 对 `agent_runtime.aliases` 的依赖只在编译 Alice 的 MTP 解析结果（`ResolveResult`，即 MTP READ 的返回）时出现；编译检索结果（`RETRIEVAL_CONTEXT`）使用记忆自身的 alias，与 Alice 无关。MTP READ 在执行循环中的返回仍由 Alice 的 MTP runtime 编译。
+  - 编译的预算与目标将来由 CPU 在分配时声明；在只有 Alice 一个 CPU 时，沿用现有配置。
+- 附件脱离 Patchouli：附件租借作为工作集中的资源。**附件由进程取得租借并编译**（owner，2026-09-29）：进程据编译结果得知本轮实际用到的附件，交给结算阶段。
 - Topic 将与 conversation session 解耦，不再承担上下文（Q-9）。因此不再需要“先建临时话题”：Gateway 的 Topic 路由决定作为工作集中的值，跨阶段传递到结算，提交后依此按需创建 Topic。现有临时话题的补偿（Patchouli 的 prepared run 清理路由）随之不再需要。
   - 实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务（Q-9）。conversation session 不是记忆的材料来源（owner，2026-09-28）。
   - 影响：前端以 SSE 事件 `topic_info` 确认本轮的 Topic（[Chat 工作区](../frontend/chat-workspace.md)），该事件目前在 prepare 之后、Alice 执行之前发出。Topic 改为提交后创建，而进程在交互被提交队列接纳后就结束（Q-1），进程结束时新 Topic 可能还没有路由确定；Topic 又只为记忆生成服务（Q-9）。这个事件的时点、含义，以及前端“当前 Topic”的概念都需要重新设计。2026-09-28 已决定：取消“当前 Topic”概念，`topic_info` 改为进程结束后的异步记忆标注，前端回归 session 模型（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。
-- Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（总 Idea P-2、P-10，见其 15.4）。prepare 不再解析 Profile；Profile 其余内容在何处解析未决定，候选为 CPU 分配。
+- Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（总 Idea P-2、P-10，见其 15.4）。prepare 不再解析 Profile。**Profile 在 CPU 分配时由进程解析**（owner，2026-09-29）：暂时直接调用 Patchouli 的公开路由，不经能力层。原因是能力层的 `get_agent_profile` 需要访问上下文，而生产入口要到 A1 返工才取得；它依赖的 Profile 缓存也没有失效机制（`ProfileCache.evict_source` 没有调用方）。两者都具备后再改经能力层。
 - 结算阶段：现有 finalize 接收 Alice 的 `AgentRunResult`，用 ActionReducer / TraceReducer 从 turn events 归约 MTP 轨迹，`materialize_tasks` 是 PendingAtom 的物化任务（2.5）。写入意图改为经能力层实时提交之后，结算阶段只提交交互记录与相应的衍生内容，随后关闭进程（Q-1）；交互记录采用 `InteractionPayload`（Q-14）。
 
 **v0.7.0 版本目标**：以下四条是 v0.7.0 的版本目标（owner，2026-09-28；记录见总 Idea [6.1](./workspace-network-task-process-architecture.md#61-已决定事项)）：
@@ -538,7 +541,7 @@ stateDiagram-v2
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
 - 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
-- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
+- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`）。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
 - 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。
