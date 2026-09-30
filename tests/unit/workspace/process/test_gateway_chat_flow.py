@@ -18,6 +18,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    TurnEvent,
     WorkspaceAssetRef,
 )
 from hivememory.core.protocol.gateway import (
@@ -37,6 +38,11 @@ from hivememory.core.protocol.models import (
 )
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process.service import TaskProcessService
+from tests.helpers.chat_handoff import (
+    expected_mtp_traces,
+    make_mtp_turn_events,
+    make_write_materialize_task,
+)
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -113,6 +119,21 @@ def _memory_ref_atom() -> MemoryAtom:
         ),
         payload=PayloadLayer(content="引用正文"),
     )
+
+
+def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], write_task) -> None:
+    """完成的进程交给 finalize 的交互记录逐字段等于各阶段产出。"""
+    decision = _decision_outcome().decision
+    assert payload.user_message == "问题"
+    assert payload.rewritten_query == decision.rewritten_query
+    assert payload.worth_saving is True
+    assert payload.assistant_final_text == "完成"
+    assert payload.turn_events == turn_events
+    assert payload.model_used == "glm-4"
+    assert payload.materialize_tasks == [write_task]
+    # 本测试未选择附件：附件编译的实际使用集合为空
+    assert payload.used_attachments == []
+    assert payload.mtp_traces == expected_mtp_traces()
 
 
 def _scoped_prepared_route(
@@ -207,6 +228,86 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
     assert result.kind == "agent"
     assert result.agent_run_result.final_text == "完成"
     assert calls == ["gateway", "prepare", "alice", "finalize"]
+
+
+@pytest.mark.asyncio
+async def test_completed_non_streaming_process_seals_interaction_payload() -> None:
+    """完成的非流式进程：交给 finalize 的交互记录由进程封口，逐字段等于各阶段产出。"""
+    bus = GlobalSystemBus()
+    turn_events = make_mtp_turn_events()
+    write_task = make_write_materialize_task()
+    finalize_kwargs: dict = {}
+
+    async def finalize(**kwargs):
+        finalize_kwargs.update(kwargs)
+        return []
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    _register_profile(bus)
+    bus.register(
+        GlobalRoutes.ALICE_RUN_AGENT,
+        AsyncMock(
+            return_value=AgentRunResult(
+                final_text="完成",
+                turn_events=turn_events,
+                model_used="glm-4",
+                materialize_tasks=[write_task],
+            )
+        ),
+    )
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+
+    result = await _run_once(TaskProcessService(bus), "问题")
+
+    assert result.kind == "agent"
+    _assert_sealed_payload(
+        finalize_kwargs["payload"],
+        turn_events=turn_events,
+        write_task=write_task,
+    )
+
+
+@pytest.mark.asyncio
+async def test_completed_streaming_process_seals_interaction_payload() -> None:
+    """完成的流式进程：与非流式共用同一封口，done 事件还原的轮次事件逐字段进入交互记录。"""
+    bus = GlobalSystemBus()
+    turn_events = make_mtp_turn_events()
+    write_task = make_write_materialize_task()
+    finalize_kwargs: dict = {}
+
+    async def finalize(**kwargs):
+        finalize_kwargs.update(kwargs)
+        return []
+
+    async def alice_stream(**_kwargs):
+        yield {"event": "token", "data": {"content": "完成"}}
+        yield {
+            "event": "done",
+            "data": AgentRunResult(
+                final_text="完成",
+                turn_events=turn_events,
+                model_used="glm-4",
+                materialize_tasks=[write_task],
+            ).model_dump(),
+        }
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    _register_profile(bus)
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+
+    events = await _stream_events(TaskProcessService(bus), "问题")
+
+    assert events[-1]["event"] == "done"
+    assert events[-1]["data"]["status"] == "completed"
+    _assert_sealed_payload(
+        finalize_kwargs["payload"],
+        turn_events=turn_events,
+        write_task=write_task,
+    )
 
 
 @pytest.mark.asyncio

@@ -240,13 +240,15 @@ class AgentRunResult(BaseModel):
 
 class InteractionPayload(BaseModel):
     """
-    PatchouliSystem / Kernel -> Perception 的原子交互传输包
+    提交方封口、交由 Perception 消费的原子交互传输包
 
     作为系统级数据传输协议存在，承载单轮交互在进入感知层前的完整结构化结果。
+    主动与被动链路一致：payload 由提交方组装并封口，Patchouli finalize 原样
+    提交。
 
     Attributes:
         user_message: 原始用户消息
-        mtp_traces: Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表
+        mtp_traces: 封口方从结构化轮次事件归约得到的 Trace 列表
         materialize_tasks: 本 run 产出的不可变物化请求，由 finalize 分发 mode b/c
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断
@@ -274,7 +276,7 @@ class InteractionPayload(BaseModel):
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
-        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表",
+        description="由封口方在提交前从结构化轮次事件归约得到的 Trace 列表",
     )
 
     # 控制信号

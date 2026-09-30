@@ -402,8 +402,8 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
 
     assert result.kind == "agent"
     assert "selected_attachments" not in prepare_kwargs
-    # 用户顺序：第二份在前；实际使用引用按编译顺序冻结。
-    assert list(finalize_kwargs["used_attachments"]) == [ref_b, ref_a]
+    # 用户顺序：第二份在前；实际使用引用按编译顺序冻结，经封口 payload 交给 finalize。
+    assert list(finalize_kwargs["payload"].used_attachments) == [ref_b, ref_a]
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -546,7 +546,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     manifest = alice_kwargs["input_manifest"]
     assert "a" * 15 in manifest.attachment_context
     assert "b" * 10 not in manifest.attachment_context
-    assert list(finalize_kwargs["used_attachments"]) == [ref_a]
+    assert list(finalize_kwargs["payload"].used_attachments) == [ref_a]
 
 
 # ========== 租借释放路径与取消位置 ==========

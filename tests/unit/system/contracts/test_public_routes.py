@@ -22,7 +22,7 @@ from hivememory.core.models import (
     PendingAtomResolution,
     PendingAtomSettlement,
 )
-from hivememory.core.protocol.models import AgentRunContext
+from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, InteractionPayload
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -400,7 +400,7 @@ class TestChatHandoffContractShapes:
             assert kept in fields
 
     def test_patchouli_chat_route_signages_no_longer_expose_agent_run_models(self):
-        """Patchouli chat 路由签名不再出现 AgentRunContext/StreamPrelude 或附件参数。"""
+        """Patchouli chat 路由签名不再出现 AgentRunContext/AgentRunResult 或附件参数。"""
         prepare_hints = typing.get_type_hints(PatchouliService.prepare_agent_run)
         assert AgentRunContext not in prepare_hints.values()
         assert prepare_hints["return"] is PreparedAgentRun
@@ -408,8 +408,11 @@ class TestChatHandoffContractShapes:
         for removed in ("generation_options", "selected_attachments"):
             assert removed not in prepare_params
 
+        finalize_hints = typing.get_type_hints(PatchouliService.finalize_agent_run)
+        assert AgentRunResult not in finalize_hints.values()
+        assert finalize_hints["payload"] is InteractionPayload
         finalize_params = inspect.signature(PatchouliService.finalize_agent_run).parameters
-        assert "used_attachments" in finalize_params
+        assert set(finalize_params) == {"self", "prepared_run", "payload"}
 
         cleanup_params = inspect.signature(
             PatchouliService.cleanup_prepared_agent_run,

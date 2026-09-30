@@ -101,9 +101,9 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
         ],
     )
 
-    # 用户选择只作为 compiler input：实际使用顺序由编译产物冻结。
+    # 用户选择只作为 compiler input：实际使用顺序由编译产物冻结，经封口 payload 交给 finalize。
     assert result.kind == "agent"
-    assert list(finalize_kwargs["used_attachments"]) == [
+    assert list(finalize_kwargs["payload"].used_attachments) == [
         second.handle.asset_ref,
         first.handle.asset_ref,
     ]

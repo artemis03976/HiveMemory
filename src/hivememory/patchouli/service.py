@@ -11,20 +11,13 @@ from hivememory.components.work_queue import (
     WorkQueueStoppedError,
     WorkState,
 )
-from hivememory.core.models import (
-    ActionReducer,
-    IdentityScope,
-    TraceReducer,
-    WorkspaceAssetRef,
-    require_identity_scope,
-)
+from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
 )
 from hivememory.core.protocol.models import (
-    AgentRunResult,
     InteractionPayload,
     RetrievalRequest,
     RetrievalResponse,
@@ -160,33 +153,14 @@ class PatchouliService:
     async def finalize_agent_run(
         self,
         prepared_run: PreparedAgentRun,
-        loop_result: AgentRunResult,
-        *,
-        used_attachments: tuple[WorkspaceAssetRef, ...] = (),
+        payload: InteractionPayload,
     ) -> list[MemoryGenerationTask]:
-        """提交 interaction，并把 post-apply 工作交给 Patchouli 持有。
+        """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
 
-        ``used_attachments`` 是任务进程侧附件编译得到的实际使用引用快照，
-        原样写入 InteractionPayload；附件租借由进程持有并随进程关闭释放，
-        finalize 不再负责释放。
+        ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
+        原样提交，不改写其内容。物化任务按 ``payload.materialize_tasks`` 派发；附件租借由进程持有并随进程关闭
+        释放，finalize 不负责释放。
         """
-
-        decision = prepared_run.gateway_decision
-        actions = ActionReducer.reduce(loop_result.turn_events)
-        mtp_traces = TraceReducer.reduce(actions)
-        payload = InteractionPayload(
-            user_message=prepared_run.user_message,
-            mtp_traces=mtp_traces,
-            materialize_tasks=loop_result.materialize_tasks,
-            rewritten_query=decision.rewritten_query,
-            worth_saving=decision.worth_saving,
-            assistant_final_text=loop_result.final_text,
-            turn_events=loop_result.turn_events,
-            model_used=loop_result.model_used,
-            # 进程侧编译冻结的实际使用引用快照
-            used_attachments=list(used_attachments),
-        )
-
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
         if continuation is None:
             continuation = asyncio.create_task(

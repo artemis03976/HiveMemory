@@ -15,7 +15,7 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import AgentRunResult
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
@@ -112,31 +112,33 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
 
 
 @pytest.mark.asyncio
-async def test_finalize_uses_saved_decision_instead_of_legacy_gaze() -> None:
+async def test_finalize_submits_received_payload_with_prepared_identity() -> None:
+    """finalize 原样提交封口方交给它的交互记录，关联 ID 取自 prepared run。
+
+    payload 字段（rewritten_query/worth_saving 等）由提交方封口，进程侧
+    封口测试负责逐字段守护；这里只守护 Patchouli 不再改写内容。
+    """
     bus, _retrieve, submit = _prepare_bus()
-    decision = _decision()
     queue = InteractionSubmissionQueue(submit)
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
         "原问题",
         identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
-        gateway_decision=decision,
+        gateway_decision=_decision(),
     )
+    payload = InteractionPayload(user_message="原问题", assistant_final_text="回答")
 
     try:
         await queue.start()
-        await service.finalize_agent_run(
-            prepared,
-            AgentRunResult(final_text="回答"),
-        )
+        await service.finalize_agent_run(prepared, payload)
     finally:
         await queue.stop()
 
-    payload = submit.await_args.args[0]
-    assert payload.rewritten_query == decision.rewritten_query
-    assert payload.worth_saving is True
-    assert payload.assistant_final_text == "回答"
+    # submit 是提交队列的 apply 回调：首参即进入 apply 的交互记录本体
+    # （队列在 admission 与 apply 之间会对 payload 留档拷贝，这里断言值相等）。
+    applied_payload = submit.await_args.args[0]
+    assert applied_payload == payload
     assert submit.await_args.kwargs["interaction_id"] == prepared.interaction_id
 
 

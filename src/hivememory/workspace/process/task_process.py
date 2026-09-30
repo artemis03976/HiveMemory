@@ -1,10 +1,10 @@
 """任务进程 — 一次进程的状态容器与四阶段编排骨架。
 
 骨架依次驱动 Gateway 分析 → Patchouli prepare → CPU 分配 → Actor 执行 →
-（仅 completed）finalize，对子系统的一切调用都经全局总线的公开路由完成。
-骨架只产出类型化的阶段产出（见 ``workspace.process.outputs``），流式与
-非流式交付共用同一条阶段顺序、同一组取消响应点与同一个关闭流程；两者
-的执行差异只有 Actor 路由（流式逐条转交交互输出），以及 finalize 之后
+（仅 completed）封口交互记录并 finalize，对子系统的一切调用都经全局总线
+的公开路由完成。骨架只产出类型化的阶段产出（见 ``workspace.process.outputs``），
+流式与非流式交付共用同一条阶段顺序、同一组取消响应点与同一个关闭流程；
+两者的执行差异只有 Actor 路由（流式逐条转交交互输出），以及 finalize 之后
 读取话题池（只服务于流式 done 事件）。
 """
 
@@ -44,6 +44,7 @@ from hivememory.workspace.process.outputs import (
     RunFailed,
     TerminalOutput,
 )
+from hivememory.workspace.process.sealing import seal_interaction
 from hivememory.workspace.process.table import (
     ProcessOutcome,
     ProcessPhase,
@@ -284,12 +285,23 @@ class TaskProcess:
                 raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
             self._events.status()
             yield Finalizing()
-            # used_attachments 来自进程侧附件编译结果（被预算跳过的附件不在其中）。
+            # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
+            # AgentRunResult 提取执行结果字段组装交互输入的地方；组装失败
+            # 沿异常路径按进程失败处理，走现有关闭流程。
+            payload = seal_interaction(
+                user_message=request.message,
+                gateway_decision=gateway_result.decision,
+                assistant_final_text=loop_result.final_text,
+                turn_events=loop_result.turn_events,
+                model_used=loop_result.model_used,
+                materialize_tasks=loop_result.materialize_tasks,
+                # 附件编译冻结的实际使用引用（被预算跳过的附件不在其中）。
+                used_attachments=self._working_set.used_attachments,
+            )
             memory_tasks = await self._bus.request(
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
-                loop_result=loop_result,
-                used_attachments=self._working_set.used_attachments,
+                payload=payload,
             )
             self._prepared_finalized = True
             memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
