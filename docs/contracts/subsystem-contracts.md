@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # 子系统公共契约
@@ -129,25 +129,31 @@ prepare 的意义在于：由 Patchouli 在交出控制权前确认真实话题�
 ```python
 finalize_agent_run(
     prepared_run: PreparedAgentRun,
-    loop_result: AgentRunResult,
-    *,
-    used_attachments: tuple[WorkspaceAssetRef, ...] = (),
+    payload: InteractionPayload,
 ) -> list[MemoryGenerationTask]
 ```
 
-`used_attachments` 是任务进程编译附件时确认实际进入上下文的附件引用快照，写入 `InteractionPayload.used_attachments`。附件租借由任务进程持有并在进程结束时释放，finalize 不再负责。
+`payload` 是任务进程封口的本轮交互记录。进程在 Actor 正常完成、进入 finalize 之后组装它（`workspace/process/sealing.py`），材料全部来自进程自身：
+
+| 字段 | 来源 |
+|:---|:---|
+| `user_message` | 任务请求的入口消息 |
+| `rewritten_query`、`worth_saving` | Gateway 阶段的决定 |
+| `assistant_final_text`、`turn_events`、`model_used`、`materialize_tasks` | Actor 的执行结果 |
+| `mtp_traces` | 由 core 的 `ActionReducer` / `TraceReducer` 从 `turn_events` 归约 |
+| `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
+
+附件租借由任务进程持有并在进程结束时释放，finalize 不负责。
 
 Finalize：
 
-1. 从 `turn_events` 归约 action 和 MTP trace；
-2. 构造 `InteractionPayload`；
-3. 将交互提交到目标话题；
-4. 为 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
-5. 记录预检索命中。
+1. 将 payload 原样提交到目标话题，不改写其内容；
+2. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
+3. 记录预检索命中。
 
-System 只应对 `AgentRunStatus.COMPLETED` 的结果调用 finalize。Finalize 已成功后不能再 cleanup。
+任务进程只对 `AgentRunStatus.COMPLETED` 的结果封口并调用 finalize。Finalize 已成功后不能再 cleanup。
 
-finalize 是执行事务与记忆事务的分界。Alice 负责声明“本轮发生了什么”，Patchouli 负责判断这些执行事实如何形成 Interaction、引用和延迟物化任务。把归约与提交留在 Patchouli，可以避免 System 或 Alice 各自维护第二套感知规则，也确保取消和失败的半完成 run 不会默认进入长期知识。
+finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不会默认进入长期知识。
 
 ### 3.3 CleanupPreparedAgentRun
 
@@ -201,11 +207,11 @@ run_agent(
 - `materialize_tasks`：本 run 产生的不可变物化请求；
 - `model_used`：注册表解析出的展示名，空字符串表示未解析。
 
-这个结果是 Alice 对一次执行的完整事实声明，而不是已经提交的长期记忆。Chat application 通过拥有的 task 控制用户 stop，Alice 只沿 await 传播原生 `asyncio.CancelledError`；System 据此决定是否进入 finalize，Patchouli 再归约其中的 turn events 和 materialize tasks；任何一方都不能仅凭流中的部分文本推断 run 已经完成。
+这个结果是 Alice 对一次执行的完整事实声明，而不是已经提交的长期记忆。Chat application 通过拥有的 task 控制用户 stop，Alice 只沿 await 传播原生 `asyncio.CancelledError`；任务进程据此决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断 run 已经完成。
 
 ### 4.2 流式运行
 
-`run_agent_stream()` 接收相同输入（输入清单与生成覆盖参数），经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给 System 提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能进入 Patchouli finalize。
+`run_agent_stream()` 接收相同输入（输入清单与生成覆盖参数），经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给任务进程提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能封口交互记录并进入 Patchouli finalize。
 
 ### 4.3 Alice 不变量
 
@@ -227,7 +233,8 @@ Gateway decision outcome
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
   -> Alice run
-  -> completed: Patchouli finalize（携带实际使用的附件）
+  -> completed: 任务进程封口交互记录（InteractionPayload，含实际使用的附件）
+       -> Patchouli finalize
   -> cancelled/failed/exception: Patchouli cleanup (若已 prepare)
   -> 进程结束：释放附件租借
 ```
@@ -254,7 +261,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 
 `InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：`identity_scope` 是唯一身份来源，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不重复嵌入 scope。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
-`InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（经 finalize 的 `used_attachments` 参数传入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
+`InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
@@ -279,6 +286,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 8. 是否把 enqueue/apply timestamp 或 queue FIFO 误当作业务发生顺序？
 9. 是否把 topic append 顺序误当作 Agent 已观察到彼此结果的因果关系？
 10. 是否声称 finalize ordering 已经解决 prepare/LLM input snapshot 的并发？
+11. Patchouli 公开路由是否开始接收某个执行者专属的运行结果，或在 finalize 中改写提交方已封口的交互记录？
 
 这些问题能帮助评审者从契约语义发现设计分叉，而不只是检查函数签名是否还能调用。
 

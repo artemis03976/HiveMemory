@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # HiveMemory 当前系统架构
@@ -192,6 +192,7 @@ TaskProcessService（workspace.process）
   -> Patchouli PREPARE_AGENT_RUN（话题与检索）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
   -> Alice RUN_AGENT / RUN_AGENT_STREAM
+  -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN
   -> 释放附件租借，返回 Agent 结果和记忆任务信息
 ```
@@ -205,7 +206,7 @@ TaskProcessService（workspace.process）
 3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；Alice 只消费输入清单和单次生成覆盖参数；
 4. 只有正常完成的 Agent run 进入 finalize；
 5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
-6. finalize 从结构化 `turn_events` 归约 MTP trace，并提交 interaction、物化任务和检索命中。
+6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并处理物化任务和检索命中。
 
 ## 6. 被动摄入：让外部经历进入记忆，而不是伪造一次对话
 

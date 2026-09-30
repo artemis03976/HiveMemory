@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # 公开路由与事件
@@ -74,7 +74,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope`、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（只含实际可读的原子） |
 | `patchouli.public.memory.read` | `read_memory` | memory id、`WorkspaceAccessContext` 或兼容 `IdentityScope` | `MemoryAtom \| None`（未知或不可见均为 `None`） |
 | `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | message、`IdentityScope`、`interaction_id`、`GatewayDecision`、是否检索 | `PreparedAgentRun`（Topic 准备结果与未编译检索结果） |
-| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、`AgentRunResult`、实际使用的附件引用 `used_attachments` | memory task 列表 |
+| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、任务进程封口的 `InteractionPayload`（含实际使用的附件引用） | memory task 列表 |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun` | 是否清理空话题 |
 | `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
 

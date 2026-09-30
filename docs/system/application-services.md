@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # 应用服务
@@ -88,7 +88,7 @@ TaskProcessService.run_process(stream=False) -> TaskProcess.run()
   -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
   -> Alice run_agent（CPUInputManifest）
-  -> completed: Patchouli finalize_agent_run（携带 used_attachments）
+  -> completed: 封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
   -> cancelled/failed: Patchouli cleanup_prepared_agent_run
   -> TaskProcess.close()：释放附件租借，注销进程记录
 ```
@@ -96,6 +96,8 @@ TaskProcessService.run_process(stream=False) -> TaskProcess.run()
 CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单交给 Alice。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
 Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 暂时经 Patchouli 公开路由解析，不经能力层。
+
+交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；finalize 原样提交。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
 本进程的 prepare 结果、输入清单与附件租借由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有。进程无论以何种结局结束都经 `TaskProcess.close()` 关闭：先同步释放全部租借，再关闭 Alice 子流、请求 cleanup；进程记录的注销放在内层 `finally`，因此即使这些 `await` 被取消，租借与进程记录也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
 
@@ -182,6 +184,7 @@ process_id
 - `tests/unit/workspace/process/test_chat_run_control_contract.py`
 - `tests/unit/workspace/process/test_cancel_hardening.py`
 - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）
+- `tests/unit/workspace/process/test_seal_interaction.py`（交互记录封口）
 - `tests/unit/workspace/process/test_process_events.py`（`chat.run.*` 投影与 best-effort 边界）
 - `tests/unit/server/routers/test_chat.py`
 - `tests/unit/system/application/test_api_services.py`

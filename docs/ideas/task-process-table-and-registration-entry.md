@@ -17,7 +17,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -35,7 +35,8 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。owner 已作出的决定注明日期，记录在对应位置：第 1.1 节（请求方的分类）、第 1.2 节（任务进程的结构）、Q-1、Q-2、Q-3、Q-4、Q-5、Q-7、Q-8、Q-9、Q-10、Q-14、Q-15、Q-16。
 - workspace 包的现有实现（A2 已实施部分）不作为本方向的前提，形成 Plan 时重新调查（总 Idea 第 6.1 节）。2026-09-28 已完成调查，结论与 workspace 的子包划分见总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)。
 - **实施进度（2026-09-28）**：本方向的第一批实施已完成并晋升为当前事实——1.2 的进程表落位（进程表与 chat 四阶段骨架迁入 `workspace.process`）、Q-15 的取消收口与 Q-16 的 `process_id` 标识，见[已归档计划](../archive/plans/v0.7.0-task-process-table.md)与[应用服务](../system/application-services.md)。第 2 节的现状事实保留为迁移前的代码快照，不再描述当前实现。
-- **实施进度（2026-09-29）**：第二批实施已完成并晋升为当前事实——1.2 中 Patchouli prepare 与结算的拆分：prepare 只做 Topic 与检索，CPU 分配（Profile 解析、附件租借与编译、记忆编译、`CPUInputManifest`）由进程完成，附件租借由进程工作集持有并随进程结束释放，见[已归档计划](../archive/plans/v0.7.0-task-process-prepare-split.md)、[应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。1.2 中的其余内容（Topic 按需创建、结算阶段的中立输入、写入意图迁移等）仍未实施。
+- **实施进度（2026-09-29）**：第二批实施已完成并晋升为当前事实——1.2 中 Patchouli prepare 与结算的拆分：prepare 只做 Topic 与检索，CPU 分配（Profile 解析、附件租借与编译、记忆编译、`CPUInputManifest`）由进程完成，附件租借由进程工作集持有并随进程结束释放，见[已归档计划](../archive/plans/v0.7.0-task-process-prepare-split.md)、[应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。1.2 中的其余内容（Topic 按需创建、写入意图迁移等）仍未实施。
+- **实施进度（2026-09-30）**：第三批实施已完成并晋升为当前事实——1.2 中结算阶段的中立输入：进程在进入 finalize 前封口交互记录 `InteractionPayload`（MTP 轨迹经 core 归约器得到），Patchouli finalize 改为接收 `PreparedAgentRun` 与 `InteractionPayload` 并原样提交，不再接收 `AgentRunResult`，版本目标第 1 条收口；见[已归档计划](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。`InteractionPayload` 在写入意图实时派发实现前仍携带 `materialize_tasks`。
 
 ## 1. 前提（owner 提出）
 
@@ -75,7 +76,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 > 2026-09-28：本节中 chat 链路的进程表落位已随第一批实施晋升为事实（`workspace.process`），取消收口规则（Q-15）同步落地。
 >
-> 2026-09-29：“Patchouli prepare 与结算的拆分”中的 prepare 退化、进程编译、附件与 Profile 三项已随第二批实施晋升为事实；Profile 解析时点按中间态放在 prepare 之前。结算阶段的中立输入与 Topic 按需创建尚未实施。
+> 2026-09-29：“Patchouli prepare 与结算的拆分”中的 prepare 退化、进程编译、附件与 Profile 三项已随第二批实施晋升为事实；Profile 解析时点按中间态放在 prepare 之前。Topic 按需创建尚未实施。
+>
+> 2026-09-30：结算阶段的中立输入（进程封口交互记录）已随第三批实施晋升为事实。
 
 本节适用于 controller 模式；plugin 模式不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
 
@@ -135,12 +138,12 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（总 Idea P-2、P-10，见其 15.4）。prepare 不再解析 Profile。**Profile 在 CPU 分配时由进程解析**（owner，2026-09-29）：暂时直接调用 Patchouli 的公开路由，不经能力层。原因是能力层的 `get_agent_profile` 需要访问上下文，而生产入口要到 A1 返工才取得；它依赖的 Profile 缓存也没有失效机制（`ProfileCache.evict_source` 没有调用方）。两者都具备后再改经能力层。
   - **解析时点的中间态**（owner，2026-09-29）：Profile 暂时在 Gateway 之后、Patchouli prepare 之前解析。当前 prepare 会按路由决定预先新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题；若 Profile 在 prepare 之后才失败，失败的请求会留下这些不可逆的副作用。Topic 的新建与驱逐改到 interaction 提交之后（本节“Topic 不再预先创建”）以后，Profile 可以回到 prepare 之后的 CPU 分配步骤。
 - 结算阶段：现有 finalize 接收 Alice 的 `AgentRunResult`，用 ActionReducer / TraceReducer 从 turn events 归约 MTP 轨迹，`materialize_tasks` 是 PendingAtom 的物化任务（2.5）。写入意图改为经能力层实时提交之后，结算阶段只提交交互记录与相应的衍生内容，随后关闭进程（Q-1）；交互记录采用 `InteractionPayload`（Q-14）。
-  - **交互记录由进程组装**（owner，2026-09-29）：进程组装最终的交互记录 `InteractionPayload` 交给结算阶段，结算阶段不再接收 `AgentRunResult`（版本目标第 1 条）。`PendingAtomMaterializeTask` 这个类继续存在；在写入意图的实时派发实现之前，`InteractionPayload` 仍携带 `materialize_tasks`。CPU 端口放在其后的一批。
+  - **交互记录由进程组装**（owner，2026-09-29）：进程组装最终的交互记录 `InteractionPayload` 交给结算阶段，结算阶段不再接收 `AgentRunResult`（版本目标第 1 条）。`PendingAtomMaterializeTask` 这个类继续存在；在写入意图的实时派发实现之前，`InteractionPayload` 仍携带 `materialize_tasks`。CPU 端口放在其后的一批。（2026-09-30 已实施并晋升为事实，见[子系统公共契约](../contracts/subsystem-contracts.md) 3.2。）
   - 分析：被动链路已经由提交方（System 的 turn buffer）自行组装 `InteractionPayload`；ActionReducer 与 TraceReducer 位于 core，进程调用它们归约轨迹不形成第二套规则。
 
 **v0.7.0 版本目标**：以下四条是 v0.7.0 的版本目标（owner，2026-09-28；记录见总 Idea [6.1](./workspace-network-task-process-architecture.md#61-已决定事项)）：
 
-1. Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型，包括 `AgentRunContext`、`StreamPrelude`、`AgentRunResult` 与编译好的记忆文本；
+1. Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型，包括 `AgentRunContext`、`StreamPrelude`、`AgentRunResult` 与编译好的记忆文本（2026-09-30 已随第二、三批实施达成；`InteractionPayload` 过渡期仍携带 `materialize_tasks`）；
 2. 一个非 Alice 的 CPU（测试中的替身即可）能跑完整个任务进程，不需要改动进程与入口的代码；
 3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试；
 4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6；命令系统后置，v0.7.0 内现有内置命令暂时不可用，见 Q-5a）。
@@ -547,7 +550,7 @@ stateDiagram-v2
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
 - 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
-- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。第三批实施计划：[结算阶段的中立输入](../plans/v0.7.0-task-process-finalize-neutral-input.md)（进程组装交互记录，finalize 不再接收 `AgentRunResult`）。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
+- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。第三批实施计划：[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)（进程封口交互记录，finalize 不再接收 `AgentRunResult`），已实施归档。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
 - 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。

@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # HiveMemory 项目总览
@@ -146,7 +146,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 ### 5.1 入口与对话
 
-- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、Patchouli finalize；
+- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、任务进程封口交互记录、Patchouli finalize；
 - SSE 流式与非流式 Agent run；
 - 全局系统指令注册、解析、分发和 chat 短路；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
@@ -235,6 +235,7 @@ message
   -> Patchouli prepare（话题与检索）
   -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
   -> Alice run / run_stream
+  -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli finalize
   -> response + background memory tasks
 ```

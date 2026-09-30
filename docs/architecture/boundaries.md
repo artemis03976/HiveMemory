@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-09-30
 ---
 
 # 系统边界与所有权
@@ -142,7 +142,7 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 `prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
-`finalize_agent_run` 接收 `PreparedAgentRun + AgentRunResult` 与任务进程确认的 `used_attachments`，由 Patchouli 自己构造 `InteractionPayload`、归约 trace、提交感知链并调度 materialize task。
+`finalize_agent_run` 接收 `PreparedAgentRun` 与任务进程封口的 `InteractionPayload`，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
 如果 System 未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
 
@@ -194,7 +194,7 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 | `CPUInputManifest` | workspace 任务进程组装，Alice 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
 | `AgentRunContext` | Alice 由输入清单转换，供提示词组装 | Pydantic 模型，不出现在 Patchouli 路由上 |
 | `AgentRunResult` | Alice | Pydantic 公共模型 |
-| `InteractionPayload` | Patchouli 组装并消费 | 公共协议模型，不由 router 拼装 |
+| `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
 | `WorkspaceAsset` working set | Workspace（组合根装配） | `core.ports.workspace_assets` 窄化端口、`WorkspaceAssetRef` 与 lease |
 | `WorkspaceIdentity` / `IdentityScope` | Core value object；由入口和各领域所有者携带 | 不可变公共模型，不构成独立运行时状态 |

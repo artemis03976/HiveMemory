@@ -18,7 +18,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-19
+last_reviewed: 2026-09-30
 ---
 
 # 跨边界错误模型
@@ -59,7 +59,7 @@ HiveMemory 当前没有一个覆盖所有 HTTP、子系统和运行时的统一 
 
 ### 2.2 Agent run
 
-`AgentRunResult.status` 为 `completed`、`cancelled` 或 `failed`。System 只对 `completed` 调用 Patchouli finalize；取消/失败触发本轮控制收尾和 prepared cleanup。
+`AgentRunResult.status` 为 `completed`、`cancelled` 或 `failed`。任务进程只对 `completed` 封口交互记录并调用 Patchouli finalize；取消/失败触发本轮控制收尾和 prepared cleanup。
 
 ### 2.3 Passive Ingress
 
