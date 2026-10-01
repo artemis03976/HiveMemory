@@ -12,9 +12,8 @@ from typing import Any, Literal
 
 from hivememory.core.models import MemoryAtom
 from hivememory.core.protocol.gateway import CommandExecutionResult
-from hivememory.core.protocol.models import AgentRunResult
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUInputManifest
+from hivememory.workspace.contracts import CPUExecutionResult, CPUInputManifest
 
 # ========== 阶段产出 ==========
 
@@ -55,24 +54,24 @@ class CommandCompleted:
 class RunCompleted:
     """终态：Actor 完成且 finalize 已接管本轮交互。"""
 
-    loop_result: AgentRunResult
+    execution_result: CPUExecutionResult
     memory_task_ids: list[str]
     pool_topics: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
 class RunCancelled:
-    """终态：停止请求生效，或 Actor 自行报告取消（此时带 ``loop_result``）。"""
+    """终态：停止请求生效，或 Actor 自行报告取消（此时带执行结果）。"""
 
     reason: str
-    loop_result: AgentRunResult | None = None
+    execution_result: CPUExecutionResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RunFailed:
     """终态：Actor 自行报告失败。"""
 
-    loop_result: AgentRunResult
+    execution_result: CPUExecutionResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +101,7 @@ class NonStreamingAgentOutcome:
     """非流式交付的 Agent 运行终态。"""
 
     kind: Literal["agent"] = "agent"
-    agent_run_result: AgentRunResult
+    execution_result: CPUExecutionResult
 
 
 type NonStreamingResult = NonStreamingCommandOutcome | NonStreamingAgentOutcome
@@ -158,7 +157,7 @@ def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, A
                     "event": "done",
                     "data": {
                         "process_id": process_id,
-                        **output.loop_result.model_dump(),
+                        **output.execution_result.model_dump(),
                         "status": "completed",
                         "stopped": False,
                         "reason": None,
@@ -167,14 +166,14 @@ def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, A
                     },
                 }
             ]
-        case RunCancelled(reason=reason, loop_result=loop_result):
-            base = loop_result.model_dump() if loop_result is not None else {}
+        case RunCancelled(reason=reason, execution_result=execution_result):
+            base = execution_result.model_dump() if execution_result is not None else {}
             return [_stopped_done(process_id, base, status="cancelled", reason=reason)]
-        case RunFailed(loop_result=loop_result):
+        case RunFailed(execution_result=execution_result):
             return [
                 _stopped_done(
                     process_id,
-                    loop_result.model_dump(),
+                    execution_result.model_dump(),
                     status="failed",
                     reason="agent_run_failed",
                 )
@@ -208,8 +207,6 @@ def _command_done(process_id: str, command_result: CommandExecutionResult) -> di
         "data": {
             "process_id": process_id,
             "final_text": command_result.message,
-            "mtp_iterations": 0,
-            "total_iterations": 0,
             "status": "completed",
             "stopped": False,
             "reason": None,

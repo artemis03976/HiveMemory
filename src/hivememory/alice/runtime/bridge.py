@@ -6,6 +6,7 @@ Patchouli 公开能力、订阅 PendingAtom 结算事件（见 docs/alice/orches
 
 from __future__ import annotations
 
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -31,7 +32,7 @@ class AliceBridge:
     """把 Alice 本地能力桥接到系统级总线。
 
     职责：
-        - 公开路由：将 Alice 的 run_agent / run_agent_stream 挂载到全局总线
+        - 公开路由：将 Alice 的统一执行入口 run_agent 挂载到全局总线
         - 路由代理：在本地总线上挂载 Patchouli 公开路由代理（本地请求转发到全局总线）
         - 事件桥接：订阅全局 PendingAtom 事件并转发给运行时处理器
     """
@@ -105,22 +106,20 @@ class AliceBridge:
             return
         self._global_bus.register(
             AliceRoutes.RUN_AGENT,
-            self._public_api.agent.run_agent,
-        )
-        self._global_bus.register(
-            AliceRoutes.RUN_AGENT_STREAM,
-            self._run_agent_stream_route,
+            self._run_agent_route,
         )
 
     def _unregister_public_routes(self) -> None:
         if self._global_bus is None:
             return
         self._global_bus.unregister(AliceRoutes.RUN_AGENT)
-        self._global_bus.unregister(AliceRoutes.RUN_AGENT_STREAM)
 
-    async def _run_agent_stream_route(self, *args: Any, **kwargs: Any) -> Any:
-        """为 AsyncSystemBus 适配流式 handler，返回 async generator 对象。"""
-        return self._public_api.agent.run_agent_stream(*args, **kwargs)
+    async def _run_agent_route(self, *args: Any, **kwargs: Any) -> Any:
+        """统一执行路由 handler：非流式等待执行结果，流式返回事件生成器对象。"""
+        call = self._public_api.agent.run_agent(*args, **kwargs)
+        if isinstance(call, Coroutine):
+            return await call
+        return call
 
     # ========== 路由代理（本地总线 → 全局总线） ==========
 

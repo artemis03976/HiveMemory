@@ -103,12 +103,13 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
         return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
     )
     executor.terminal_result = None
+    executor.runtime_products = None
     with patch(
         "hivememory.alice.application.agent_run_service.RunExecutor",
         return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent_stream(manifest):
+            async for _ in service.run_agent(manifest, stream=True):
                 pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED

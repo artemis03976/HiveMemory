@@ -22,7 +22,7 @@ from hivememory.core.models import (
     PendingAtomResolution,
     PendingAtomSettlement,
 )
-from hivememory.core.protocol.models import AgentRunContext, AgentRunResult, InteractionPayload
+from hivememory.core.protocol.models import AgentRunContext, InteractionPayload
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -67,12 +67,13 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_start_registers_public_routes_on_global_bus(self):
+        """Alice 只挂载一条统一执行路由，已删除的流式路由名不再注册。"""
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
 
         routes = self.global_bus.list_routes()
         assert AliceRoutes.RUN_AGENT in routes
-        assert AliceRoutes.RUN_AGENT_STREAM in routes
+        assert "alice.public.run_agent_stream" not in routes
 
     @pytest.mark.asyncio
     async def test_stop_removes_public_routes_from_global_bus(self):
@@ -82,7 +83,6 @@ class TestAlicePublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert AliceRoutes.RUN_AGENT not in routes
-        assert AliceRoutes.RUN_AGENT_STREAM not in routes
 
     @pytest.mark.asyncio
     async def test_request_through_global_bus_reaches_handler(self):
@@ -106,20 +106,21 @@ class TestAlicePublicRoutes:
         assert received == [([], "id")]
 
     @pytest.mark.asyncio
-    async def test_stream_route_returns_async_generator(self):
+    async def test_stream_mode_returns_async_generator(self):
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
 
         async def _stream(**kwargs):
             yield {"event": "token"}
             yield {"event": "done"}
 
-        system._service.run_agent_stream = _stream
+        system._service.run_agent = _stream
         await system.start()
 
         stream = await self.global_bus.request(
-            AliceRoutes.RUN_AGENT_STREAM,
+            AliceRoutes.RUN_AGENT,
             messages=[],
             identity="id",
+            stream=True,
         )
 
         events = []
@@ -409,7 +410,6 @@ class TestChatHandoffContractShapes:
             assert removed not in prepare_params
 
         finalize_hints = typing.get_type_hints(PatchouliService.finalize_agent_run)
-        assert AgentRunResult not in finalize_hints.values()
         assert finalize_hints["payload"] is InteractionPayload
         finalize_params = inspect.signature(PatchouliService.finalize_agent_run).parameters
         assert set(finalize_params) == {"self", "prepared_run", "payload"}
@@ -420,13 +420,16 @@ class TestChatHandoffContractShapes:
         assert set(cleanup_params) == {"self", "prepared_run"}
 
     def test_alice_run_routes_receive_cpu_input_manifest(self):
-        """Alice 执行路由以 CPUInputManifest 为输入；AgentRunContext 仅内部使用。"""
-        for method in (AgentRunService.run_agent, AgentRunService.run_agent_stream):
-            hints = typing.get_type_hints(method)
-            assert hints["input_manifest"] is CPUInputManifest
-            params = inspect.signature(method).parameters
-            assert "agent_run_context" not in params
-            assert "process_id" not in params
+        """Alice 统一执行入口以 CPUInputManifest 为输入；AgentRunContext 仅内部使用。"""
+        hints = typing.get_type_hints(AgentRunService.run_agent)
+        assert hints["input_manifest"] is CPUInputManifest
+        params = inspect.signature(AgentRunService.run_agent).parameters
+        assert "agent_run_context" not in params
+        assert "process_id" not in params
+        # 统一入口以 stream 参数控制是否流式，不再有两个入口
+        assert params["stream"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert params["stream"].default is True
+        assert not hasattr(AgentRunService, "run_agent_stream")
 
 
 class TestPatchouliPublicRoutes:
@@ -459,7 +462,6 @@ class TestPatchouliPublicRoutes:
         assert PatchouliRoutes.WARMUP_MODELS == "patchouli.public.models.warmup"
         assert PatchouliRoutes.MODELS_READY == "patchouli.public.models.ready"
         assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
-        assert AliceRoutes.RUN_AGENT_STREAM == "alice.public.run_agent_stream"
 
     @pytest.mark.asyncio
     async def test_patchouli_public_routes_register_and_unregister(self):

@@ -203,7 +203,7 @@ class AgentRuntime:
             top_p_override=top_p_override,
         )
 
-        # 记录展示名，供 Orchestrator 组装 AgentRunResult 时读取
+        # 记录展示名，供编排组装 CPU 执行结果时读取
         frame.progress.model_used = display_name
 
         # 用解析结果覆盖 generation_options 中的对应键——

@@ -22,7 +22,7 @@ _RUNNING_STATUS = {
     ProcessPhase.CREATED: "created",
     ProcessPhase.GATEWAY: "preparing",
     ProcessPhase.PREPARE: "preparing",
-    ProcessPhase.ALICE: "streaming",
+    ProcessPhase.ACTOR: "streaming",
     ProcessPhase.FINALIZE: "finalizing",
     ProcessPhase.TERMINAL: "terminal",
 }

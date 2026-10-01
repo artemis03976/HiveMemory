@@ -2,8 +2,14 @@
 
 AgentRunService 是 Alice 的公开 run 用例入口：接收任务进程组装的 CPU
 输入清单，在内部转换为提示词组装使用的 ``AgentRunContext``；创建 root
-frame、为每次 run 构造 run-local RunExecutor、组装 ``AgentRunResult``，
-并在流式终态后发出唯一 done（见 docs/alice/orchestration.md §1）。
+frame、为每次 run 构造 run-local RunExecutor，并产出 CPU 中立的执行结果
+（见 docs/alice/orchestration.md §1）。
+
+统一入口 :meth:`AgentRunService.run_agent` 与 ``run_process`` 一样以
+``stream`` 参数控制是否流式，内部只有一套执行骨架（会话、``agent.run.*``
+事件、预检索 alias 预热、提示词组装、root frame 与 RunExecutor）：
+``stream=True`` 返回交互事件的异步生成器（最后一项是 ``done``），
+``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
 queue / runner task / stream sequence 与 RuntimeEvent envelope 实现均不
 放在 application 层。
 """
@@ -13,9 +19,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Coroutine
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Literal, cast, overload
 
 from hivememory.agent_runtime.aliases import AtomCachePort
 from hivememory.agent_runtime.models import (
@@ -30,7 +37,11 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
-from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter, BoundAgentRunEvents
+from hivememory.alice.runtime.runtime_events import (
+    AgentRunEventEmitter,
+    AgentRunStats,
+    BoundAgentRunEvents,
+)
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -41,12 +52,10 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import (
     AgentRunContext,
-    AgentRunResult,
-    AgentRunStatus,
     RetrievalResponse,
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.workspace.contracts import CPUInputManifest
+from hivememory.workspace.contracts import CPUExecutionResult, CPUExecutionStatus, CPUInputManifest
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +91,15 @@ def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunCont
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _RunPreparation:
+    """一次 run 的共享前置产物：内部上下文、会话与已 started 的事件绑定。"""
+
+    context: AgentRunContext
+    session: RunSession
+    events: BoundAgentRunEvents
+
+
 class AgentRunService:
     """Alice 对外 Agent run 用例的唯一入口。"""
 
@@ -104,137 +122,144 @@ class AgentRunService:
         self._stream_adapter = stream_adapter
         self._agent_run_events = agent_run_events
 
-    async def run_agent(
+    # ========== 统一入口 ==========
+
+    @overload
+    def run_agent(
         self,
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
-    ) -> AgentRunResult:
-        agent_run_context = _agent_run_context_from_manifest(input_manifest)
-        session = self._create_run_session(
-            process_id=input_manifest.process_id,
-        )
+        *,
+        stream: Literal[True] = True,
+    ) -> AsyncGenerator[dict[str, Any], None]: ...
 
-        run_events = self._events_for_run(session, agent_run_context)
-        run_events.started()
-
-        try:
-            self._register_preretrieval_aliases(
-                agent_run_context.retrieval_result.memories,
-                workspace_identity=agent_run_context.identity_scope.workspace_identity,
-            )
-            messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-            frame = self._create_root_frame(
-                messages=messages,
-                identity_scope=agent_run_context.identity_scope,
-                topic_id=agent_run_context.topic_id,
-                session=session,
-                agent_profile=agent_run_context.agent_profile,
-            )
-            executor = RunExecutor(
-                agent_runtime=self._agent_runtime,
-                session=session,
-                call_coordinator=self._call_coordinator,
-            )
-            engine_result = await executor.run(
-                frame,
-                generation_options=generation_options,
-            )
-            result = self._assemble_agent_run_result(
-                frame,
-                engine_result,
-                executor.runtime_products or RuntimeProducts(),
-            )
-            self._publish_terminal(run_events, result)
-            return result
-        except Exception:
-            run_events.failed(
-                message="Agent run failed.",
-            )
-            raise
-
-    async def run_agent_stream(
+    @overload
+    def run_agent(
         self,
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        agent_run_context = _agent_run_context_from_manifest(input_manifest)
-        session = self._create_run_session(
-            process_id=input_manifest.process_id,
-        )
+        *,
+        stream: Literal[False],
+    ) -> Coroutine[Any, Any, CPUExecutionResult]: ...
 
-        run_events = self._events_for_run(session, agent_run_context)
-        run_events.started()
+    def run_agent(
+        self,
+        input_manifest: CPUInputManifest,
+        generation_options: dict[str, Any] | None = None,
+        *,
+        stream: bool = True,
+    ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]:
+        """Alice Agent run 的统一入口（``stream`` 控制是否流式）。
+
+        两种模式运行同一套执行骨架，终态事件语义一致。``stream=True``
+        返回交互事件的异步生成器，最后一项是 ``done``（含运行元数据）；
+        ``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
+        """
+        producer = self._run_agent(input_manifest, generation_options, stream=stream)
+        if stream:
+            # 流式骨架只产出交互事件与 done；骨架的产出类型是两种形态的并集。
+            return cast(AsyncGenerator[dict[str, Any], None], producer)
+        return self._collect_execution_result(producer)
+
+    async def _run_agent(
+        self,
+        input_manifest: CPUInputManifest,
+        generation_options: dict[str, Any] | None,
+        *,
+        stream: bool,
+    ) -> AsyncGenerator[dict[str, Any] | CPUExecutionResult, None]:
+        """统一执行骨架：会话、事件、预热、组装、执行与终态发布只有一份。
+
+        ``stream`` 只决定执行是否接入 :class:`AgentRunStreamAdapter` 并产出
+        交互事件：流式逐条产出事件后以 ``done`` 收尾；非流式直接 await
+        RunExecutor 并产出唯一执行结果。
+        """
+        preparation = self._prepare_run(input_manifest)
+        run_events = preparation.events
 
         exit_reason = StreamExitReason.RUNNING
         executor_stream: AsyncGenerator[dict[str, Any], None] | None = None
 
         try:
             self._register_preretrieval_aliases(
-                agent_run_context.retrieval_result.memories,
-                workspace_identity=agent_run_context.identity_scope.workspace_identity,
-            )
-            messages = self._prompt_assembler.build_main_agent_messages(agent_run_context)
-            agent_stream = self._stream_adapter.create(session)
-            frame = self._create_root_frame(
-                messages=messages,
-                identity_scope=agent_run_context.identity_scope,
-                topic_id=agent_run_context.topic_id,
-                session=session,
-                agent_profile=agent_run_context.agent_profile,
+                preparation.context.retrieval_result.memories,
+                workspace_identity=preparation.context.identity_scope.workspace_identity,
             )
             executor = RunExecutor(
                 agent_runtime=self._agent_runtime,
-                session=session,
+                session=preparation.session,
                 call_coordinator=self._call_coordinator,
             )
-            event_metadata = self._event_metadata_for_frame(frame)
-            executor_stream = agent_stream.events(
-                executor.run(
-                    frame,
-                    generation_options=generation_options,
-                    run_output=agent_stream.output,
+            messages = self._prompt_assembler.build_main_agent_messages(preparation.context)
+            if stream:
+                agent_stream = self._stream_adapter.create(preparation.session)
+                frame = self._create_root_frame(
+                    messages=messages,
+                    identity_scope=preparation.context.identity_scope,
+                    topic_id=preparation.context.topic_id,
+                    session=preparation.session,
+                    agent_profile=preparation.context.agent_profile,
                 )
-            )
-            async for event in executor_stream:
-                yield event
+                event_metadata = self._event_metadata_for_frame(frame)
+                executor_stream = agent_stream.events(
+                    executor.run(
+                        frame,
+                        generation_options=generation_options,
+                        run_output=agent_stream.output,
+                    )
+                )
+                async for event in executor_stream:
+                    yield event
 
-            terminal_result = executor.terminal_result
-            if terminal_result is None:
-                exit_reason = StreamExitReason.MISSING_DONE
-                run_events.failed(
-                    message="Agent stream ended without done event.",
+                engine_result = executor.terminal_result
+                if engine_result is None:
+                    exit_reason = StreamExitReason.MISSING_DONE
+                    run_events.failed(message="Agent stream ended without done event.")
+                    raise RuntimeError("Agent stream ended without done event")
+            else:
+                frame = self._create_root_frame(
+                    messages=messages,
+                    identity_scope=preparation.context.identity_scope,
+                    topic_id=preparation.context.topic_id,
+                    session=preparation.session,
+                    agent_profile=preparation.context.agent_profile,
                 )
-                raise RuntimeError("Agent stream ended without done event")
-            result = self._assemble_agent_run_result(
-                frame,
-                terminal_result,
-                executor.runtime_products or RuntimeProducts(),
-            )
-            self._publish_terminal(run_events, result)
+                engine_result = await executor.run(frame, generation_options=generation_options)
+
+            runtime_products = executor.runtime_products or RuntimeProducts()
+            result = self._assemble_execution_result(frame, engine_result, runtime_products)
+            self._publish_terminal(run_events, result, self._stats_for(frame, runtime_products))
             exit_reason = StreamExitReason.TERMINAL
-            yield {
-                "event": "done",
-                "data": {
-                    **result.model_dump(),
-                    **event_metadata,
-                    "stream_sequence": agent_stream.next_sequence,
-                },
-            }
+            if stream:
+                yield {
+                    "event": "done",
+                    "data": {
+                        **result.model_dump(),
+                        **event_metadata,
+                        "stream_sequence": agent_stream.next_sequence,
+                    },
+                }
+            else:
+                yield result
         except Exception:
             if exit_reason not in (
                 StreamExitReason.TERMINAL,
                 StreamExitReason.MISSING_DONE,
             ):
                 exit_reason = StreamExitReason.FAILED
-                run_events.failed(
-                    message="Agent stream run failed.",
-                )
+                run_events.failed(message="Agent run failed.")
             raise
         finally:
             if exit_reason == StreamExitReason.RUNNING:
+                # GeneratorExit（交付方断流）与 CancelledError（运行被取消）
+                # 都按取消观测收口；流式附带 close_reason，非流式没有事件流。
                 run_events.cancelled(
-                    message="Agent stream closed before terminal event.",
-                    close_reason="stream_closed",
+                    message=(
+                        "Agent stream closed before terminal event."
+                        if stream
+                        else "Agent run cancelled before terminal event."
+                    ),
+                    close_reason="stream_closed" if stream else None,
                 )
             if executor_stream is not None:
                 try:
@@ -243,6 +268,29 @@ class AgentRunService:
                     raise
                 except Exception:
                     logger.warning("关闭 Agent executor stream 失败", exc_info=True)
+
+    async def _collect_execution_result(
+        self,
+        producer: AsyncGenerator[dict[str, Any] | CPUExecutionResult, None],
+    ) -> CPUExecutionResult:
+        """非流式交付：骨架只产出唯一的执行结果，直接取该项。"""
+        result: CPUExecutionResult | None = None
+        async for item in producer:
+            if isinstance(item, CPUExecutionResult):
+                result = item
+        if result is None:
+            raise RuntimeError("Agent run ended without execution result")
+        return result
+
+    # ========== 执行骨架的共享步骤 ==========
+
+    def _prepare_run(self, input_manifest: CPUInputManifest) -> _RunPreparation:
+        """构造 run 上下文与会话，绑定 ``agent.run.*`` 事件并发布 started。"""
+        context = _agent_run_context_from_manifest(input_manifest)
+        session = self._create_run_session(process_id=input_manifest.process_id)
+        run_events = self._events_for_run(session, context)
+        run_events.started()
+        return _RunPreparation(context=context, session=session, events=run_events)
 
     def _register_preretrieval_aliases(
         self,
@@ -293,27 +341,35 @@ class AgentRunService:
         return frame
 
     @staticmethod
-    def _assemble_agent_run_result(
+    def _assemble_execution_result(
         frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
         runtime_products: RuntimeProducts,
-    ) -> AgentRunResult:
-        """把执行层终态与产品投影为稳定的 Alice 公共结果。"""
+    ) -> CPUExecutionResult:
+        """把执行层终态与产品投影为 CPU 中立的执行结果。"""
         if engine_result.status == FrameExecutionStatus.CANCELLED:
-            run_status = AgentRunStatus.CANCELLED
+            run_status = CPUExecutionStatus.CANCELLED
         elif engine_result.status == FrameExecutionStatus.COMPLETED:
-            run_status = AgentRunStatus.COMPLETED
+            run_status = CPUExecutionStatus.COMPLETED
         else:
-            run_status = AgentRunStatus.FAILED
+            run_status = CPUExecutionStatus.FAILED
         progress = frame.progress
-        return AgentRunResult(
+        return CPUExecutionResult(
             status=run_status,
             final_text="".join(progress.text_segments),
-            mtp_iterations=max(0, progress.iteration - 1),
-            total_iterations=progress.iteration,
             turn_events=progress.turn_events,
             materialize_tasks=list(runtime_products.materialize_tasks),
             model_used=progress.model_used,
+        )
+
+    @staticmethod
+    def _stats_for(frame: ExecutionFrame, runtime_products: RuntimeProducts) -> AgentRunStats:
+        """从 frame 进度与运行时产品取得 ``agent.run.*`` 终态事件的观测统计。"""
+        progress = frame.progress
+        return AgentRunStats(
+            mtp_iterations=max(0, progress.iteration - 1),
+            total_iterations=progress.iteration,
+            materialize_task_count=len(runtime_products.materialize_tasks),
         )
 
     @staticmethod
@@ -341,14 +397,15 @@ class AgentRunService:
     @staticmethod
     def _publish_terminal(
         run_events: BoundAgentRunEvents,
-        result: AgentRunResult,
+        result: CPUExecutionResult,
+        stats: AgentRunStats,
     ) -> None:
-        if result.status == AgentRunStatus.CANCELLED.value:
-            run_events.cancelled(result)
-        elif result.status == AgentRunStatus.FAILED.value:
-            run_events.failed(result)
+        if result.status == CPUExecutionStatus.CANCELLED.value:
+            run_events.cancelled(stats)
+        elif result.status == CPUExecutionStatus.FAILED.value:
+            run_events.failed(stats)
         else:
-            run_events.completed(result)
+            run_events.completed(stats)
 
     def _events_for_run(
         self,

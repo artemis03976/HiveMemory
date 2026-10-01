@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
+from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter, AgentRunStats
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.contracts.runtime_events import RuntimeEventType
-from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 
 
 def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> None:
@@ -22,14 +21,10 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
         agent_id="agent-1",
         workspace_id="isolation_workspace",
     )
-    result = AgentRunResult(
-        status=AgentRunStatus.COMPLETED,
-        mtp_iterations=2,
-        total_iterations=3,
-    )
+    stats = AgentRunStats(mtp_iterations=2, total_iterations=3, materialize_task_count=1)
 
     events.started()
-    events.completed(result)
+    events.completed(stats)
 
     assert [event.event_type for event in sink.events] == [
         RuntimeEventType.AGENT_RUN_STARTED,
@@ -44,7 +39,7 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
     assert sink.events[-1].data == {
         "mtp_iterations": 2,
         "total_iterations": 3,
-        "materialize_task_count": 0,
+        "materialize_task_count": 1,
     }
 
 

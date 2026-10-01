@@ -1,7 +1,8 @@
 """任务进程 ``chat.run.*`` 观测事件的投影契约。
 
 驱动真实 TaskProcessService + RuntimeEventPublisher，只以 RecordingRuntimeEventSink
-替换事件总线这一边界外端口；子系统路由用 GlobalSystemBus 上的替身注册。
+替换事件总线这一边界外端口；子系统路由用 GlobalSystemBus 上的替身注册，
+Actor 阶段以测试 CPU 替换 Alice。
 """
 
 from __future__ import annotations
@@ -26,9 +27,10 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import AgentRunResult, RetrievalResponse
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
+from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.workspace import make_identity_scope
 
 _TOPIC_ID = "topic-events"
@@ -66,7 +68,7 @@ async def _profile(agent_id, *, identity_scope):
     return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
 
-def _bus_until_alice() -> GlobalSystemBus:
+def _bus_until_actor() -> GlobalSystemBus:
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile)
@@ -82,19 +84,15 @@ def _chat_events(sink: RecordingRuntimeEventSink) -> list[RuntimeEvent]:
 @pytest.mark.asyncio
 async def test_completed_stream_events_share_process_correlation_and_bind_topic() -> None:
     """完成的流式进程：生命周期事件共享进程关联字段，prepare 之后的事件关联 Topic。"""
-    bus = _bus_until_alice()
-
-    async def alice_stream():
-        yield {"event": "done", "data": AgentRunResult(final_text="完成").model_dump()}
-
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
+    bus = _bus_until_actor()
+    cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(
         GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
         AsyncMock(return_value=[SimpleNamespace(task_id="memory-task-1")]),
     )
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink))
+    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=cpu)
 
     async for _ in service.run_process(
         "问题", identity_scope=_scope(), process_id="process-events"
@@ -148,7 +146,7 @@ async def test_stop_during_gateway_publishes_request_and_cancelled_phase() -> No
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink))
+    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
     task = asyncio.create_task(
         service.run_process(
             "问题", stream=False, identity_scope=_scope(), process_id="process-stop"
@@ -189,13 +187,10 @@ async def test_stop_during_gateway_publishes_request_and_cancelled_phase() -> No
 @pytest.mark.asyncio
 async def test_failed_event_carries_domain_error_code() -> None:
     """Workspace 领域错误的失败事件只携带安全错误码。"""
-    bus = _bus_until_alice()
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(side_effect=AssetNotReadyError("附件尚未就绪")),
-    )
+    bus = _bus_until_actor()
+    cpu = ScriptedCPU(error=AssetNotReadyError("附件尚未就绪"))
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink))
+    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=cpu)
 
     with pytest.raises(AssetNotReadyError):
         await service.run_process(
@@ -215,13 +210,10 @@ async def test_failed_event_carries_domain_error_code() -> None:
 @pytest.mark.asyncio
 async def test_failed_event_does_not_expose_exception_text() -> None:
     """非领域异常的失败事件使用固定摘要，异常正文不进入公共观测信封。"""
-    bus = _bus_until_alice()
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(side_effect=RuntimeError("internal-secret-detail")),
-    )
+    bus = _bus_until_actor()
+    cpu = ScriptedCPU(error=RuntimeError("internal-secret-detail"))
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink))
+    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=cpu)
 
     with pytest.raises(RuntimeError, match="internal-secret-detail"):
         await service.run_process(
@@ -238,7 +230,11 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
 async def test_stream_closed_before_terminal_publishes_cancelled_with_close_reason() -> None:
     """交付方在终态前关闭流：进程按断流取消收口并发布关闭原因。"""
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(GlobalSystemBus(), RuntimeEventPublisher(sink))
+    service = TaskProcessService(
+        GlobalSystemBus(),
+        RuntimeEventPublisher(sink),
+        cpu=ScriptedCPU(result=make_cpu_result()),
+    )
     stream = service.run_process("问题", identity_scope=_scope(), process_id="process-closed")
 
     first = await stream.__anext__()
@@ -263,10 +259,10 @@ class _RaisingSink(RecordingRuntimeEventSink):
 @pytest.mark.asyncio
 async def test_event_sink_failure_does_not_change_chat_result() -> None:
     """观测是 best-effort 旁路：sink 失败时进程仍按业务结果完成。"""
-    bus = _bus_until_alice()
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, AsyncMock(return_value=AgentRunResult()))
+    bus = _bus_until_actor()
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    service = TaskProcessService(bus, RuntimeEventPublisher(_RaisingSink()))
+    cpu = ScriptedCPU(result=make_cpu_result())
+    service = TaskProcessService(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
 
     result = await service.run_process(
         "问题",
@@ -276,4 +272,4 @@ async def test_event_sink_failure_does_not_change_chat_result() -> None:
     )
 
     assert isinstance(result, NonStreamingAgentOutcome)
-    assert result.agent_run_result.status == "completed"
+    assert result.execution_result.status == "completed"

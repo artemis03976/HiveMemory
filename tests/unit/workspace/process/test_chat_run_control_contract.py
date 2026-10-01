@@ -81,7 +81,7 @@ def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
     run = _run("process-5")
     task = MagicMock()
     task.done.return_value = False
-    run.bind_phase(ProcessPhase.ALICE, task)
+    run.bind_phase(ProcessPhase.ACTOR, task)
 
     first = run.request_stop("first_reason")
     second = run.request_stop("second_reason")

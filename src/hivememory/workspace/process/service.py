@@ -4,7 +4,9 @@ TaskProcessService — 任务请求的唯一注册入口与进程控制面
 位于 workspace：为每次任务请求创建一个 :class:`TaskProcess`（四阶段编排
 骨架见 ``workspace.process.task_process``），把它的阶段产出交付为流式
 事件或非流式结果，并经进程表（``workspace.process.table``）提供 stop 与
-状态查询。对子系统的一切调用都经全局总线的公开路由完成。
+状态查询。对子系统的一切调用都经全局总线的公开路由完成；Actor 执行经
+组合根注入的 CPU 端口（``workspace.contracts`` 的 ``CPUPort``）完成，
+本服务不持有任何具体 CPU 的引用。
 """
 
 from __future__ import annotations
@@ -26,7 +28,11 @@ from hivememory.core.models import (
     require_identity_scope,
 )
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
-from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
+from hivememory.workspace.contracts import (
+    CPUExecutionResult,
+    CPUExecutionStatus,
+    CPUPort,
+)
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.outputs import (
@@ -57,7 +63,8 @@ class TaskProcessService:
     action，必须由具体 Agent 执行；actor 为保留 ``system`` 值的 scope
     会在入口被拒绝。
 
-    CPU 分配所需能力由组合根注入：``asset_reader`` 是进程级唯一
+    CPU 分配与 Actor 执行所需能力由组合根注入：``cpu`` 是 CPU 端口
+    （由 CPU 的提供方实现，当前为 Alice）；``asset_reader`` 是进程级唯一
     WorkspaceAssetStore 的只读 reader 端口（附件租借在此 acquire，随进程
     关闭统一 release）；两个编译配置段驱动进程侧的记忆/附件编译。
     """
@@ -68,6 +75,7 @@ class TaskProcessService:
         event_publisher: RuntimeEventPublisher | None = None,
         gateway_request_timeout_ms: int = 8000,
         *,
+        cpu: CPUPort,
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
@@ -78,6 +86,7 @@ class TaskProcessService:
             event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
         )
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
+        self._cpu = cpu
         self._allocator = CPUAllocator(
             global_bus,
             asset_reader=asset_reader,
@@ -168,11 +177,13 @@ class TaskProcessService:
                 match output:
                     case CommandCompleted(command_result=command_result):
                         result = NonStreamingCommandOutcome(command_execution_result=command_result)
-                    case RunCompleted(loop_result=loop_result) | RunFailed(loop_result=loop_result):
-                        result = NonStreamingAgentOutcome(agent_run_result=loop_result)
-                    case RunCancelled(loop_result=loop_result):
+                    case RunCompleted(execution_result=execution_result) | RunFailed(
+                        execution_result=execution_result
+                    ):
+                        result = NonStreamingAgentOutcome(execution_result=execution_result)
+                    case RunCancelled(execution_result=execution_result):
                         result = NonStreamingAgentOutcome(
-                            agent_run_result=_cancelled_agent_result(loop_result)
+                            execution_result=_cancelled_execution_result(execution_result)
                         )
                     case ProcessFailed(error=error):
                         raise error
@@ -189,6 +200,7 @@ class TaskProcessService:
             global_bus=self._bus,
             process_table=self._process_table,
             allocator=self._allocator,
+            cpu=self._cpu,
             events=self._events,
             gateway_request_timeout_ms=self._gateway_request_timeout_ms,
         )
@@ -256,10 +268,11 @@ def _stream_error(error: Exception) -> dict[str, Any]:
     return {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
 
 
-def _cancelled_agent_result(loop_result: AgentRunResult | None) -> AgentRunResult:
-    if loop_result is None:
-        return AgentRunResult(status=AgentRunStatus.CANCELLED)
-    return loop_result.model_copy(update={"status": AgentRunStatus.CANCELLED})
+def _cancelled_execution_result(result: CPUExecutionResult | None) -> CPUExecutionResult:
+    """把 Actor 自报的执行结果归一为取消终态；无结果时构造纯取消结果。"""
+    if result is None:
+        return CPUExecutionResult(status=CPUExecutionStatus.CANCELLED)
+    return result.model_copy(update={"status": CPUExecutionStatus.CANCELLED.value})
 
 
 __all__ = [

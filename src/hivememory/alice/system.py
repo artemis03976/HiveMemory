@@ -1,7 +1,8 @@
 """
 AliceSystem - 多智能体编排与计算子系统
 
-SubsystemProtocol 实现，装配 AliceRuntime、AgentRunService 与 AliceBridge。
+SubsystemProtocol 实现，装配 AliceRuntime、AgentRunService、AliceCPU 与
+AliceBridge。
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import logging
 from typing import Any
 
 from hivememory.agent_runtime.model_resolution import ModelResolver
-from hivememory.alice.application import AgentRunService
+from hivememory.alice.application import AgentRunService, AliceCPU
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
@@ -34,7 +35,7 @@ class AliceSystem(SubsystemProtocol):
 
     职责：
     - 装配 AliceRuntime 与 AgentRunService
-    - 提供稳定的 run_agent / run_agent_stream 用例入口
+    - 提供统一的 run_agent 用例入口与 CPUPort 端口实现
     - 将公开路由注册到全局总线
     - 实现 SubsystemProtocol 生命周期
     """
@@ -86,6 +87,10 @@ class AliceSystem(SubsystemProtocol):
             global_bus=global_bus,
         )
 
+        # 任务进程经 CPUPort 端口调用本子系统；端口实现由组合根注入进程，
+        # workspace 侧不出现 Alice 的路由名或结果类型。
+        self._cpu = AliceCPU(global_bus) if global_bus is not None else None
+
         logger.info("AliceSystem 初始化完成")
 
     @property
@@ -95,6 +100,13 @@ class AliceSystem(SubsystemProtocol):
     @property
     def service(self) -> AgentRunService:
         return self._service
+
+    @property
+    def cpu_port(self) -> AliceCPU:
+        """Alice 充当任务进程 CPU 的端口实现（要求装配了全局总线）。"""
+        if self._cpu is None:
+            raise RuntimeError("AliceSystem 未装配全局总线，无法提供 CPU 端口实现")
+        return self._cpu
 
     @property
     def runtime(self) -> AliceRuntime:

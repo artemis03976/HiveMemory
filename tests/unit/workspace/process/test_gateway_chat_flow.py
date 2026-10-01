@@ -1,4 +1,9 @@
-"""Phase 3F 主动聊天 Gateway 编排测试。"""
+"""Phase 3F 主动聊天 Gateway 编排测试。
+
+被测边界：``TaskProcessService`` 的四阶段编排在命令短路、完成、取消、失败
+与断流路径上的行为；Actor 阶段以测试 CPU 替换 Alice（总线上不注册 Alice
+路由），子系统路由用 GlobalSystemBus 上的替身隔离。
+"""
 
 from __future__ import annotations
 
@@ -31,18 +36,16 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import (
-    AgentRunResult,
-    AgentRunStatus,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_mtp_turn_events,
     make_write_materialize_task,
 )
+from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -182,23 +185,38 @@ def _register_profile(bus: GlobalSystemBus) -> None:
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
 
 
+def _service(
+    bus: GlobalSystemBus,
+    cpu: ScriptedCPU | None = None,
+) -> TaskProcessService:
+    """构造被测服务：默认注入恒完成的测试 CPU。"""
+    return TaskProcessService(bus, cpu=cpu or ScriptedCPU(result=make_cpu_result()))
+
+
 @pytest.mark.asyncio
-async def test_non_streaming_command_short_circuits_patchouli_and_alice() -> None:
+async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    cpu = ScriptedCPU(result=make_cpu_result())
 
-    result = await _run_once(TaskProcessService(bus), "/clear")
+    result = await _run_once(_service(bus, cpu), "/clear")
 
     assert result.kind == "command"
     assert result.command_execution_result.command_id == "system.clear"
+    assert cpu.calls == []
     assert bus.list_routes() == [GlobalRoutes.GATEWAY_PROCESS]
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -> None:
+async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -> None:
     bus = GlobalSystemBus()
     calls: list[str] = []
+
+    class _RecordingCPU(ScriptedCPU):
+        def execute(self, manifest, *, generation_options=None, stream=False):
+            calls.append("cpu")
+            return super().execute(manifest, generation_options=generation_options, stream=stream)
 
     async def gateway(**_kwargs):
         calls.append("gateway")
@@ -209,10 +227,6 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
         assert kwargs["gateway_decision"] == _decision_outcome().decision
         return await _scoped_prepared_route()(**kwargs)
 
-    async def run_agent(**_kwargs):
-        calls.append("alice")
-        return AgentRunResult(final_text="完成")
-
     async def finalize(**_kwargs):
         calls.append("finalize")
         return []
@@ -220,14 +234,13 @@ async def test_non_streaming_decision_uses_one_prepare_run_finalize_sequence() -
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, run_agent)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _run_once(TaskProcessService(bus), "问题")
+    result = await _run_once(_service(bus, _RecordingCPU(result=make_cpu_result())), "问题")
 
     assert result.kind == "agent"
-    assert result.agent_run_result.final_text == "完成"
-    assert calls == ["gateway", "prepare", "alice", "finalize"]
+    assert result.execution_result.final_text == "完成"
+    assert calls == ["gateway", "prepare", "cpu", "finalize"]
 
 
 @pytest.mark.asyncio
@@ -237,6 +250,12 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
     turn_events = make_mtp_turn_events()
     write_task = make_write_materialize_task()
     finalize_kwargs: dict = {}
+    cpu = ScriptedCPU(
+        result=make_cpu_result(
+            turn_events=turn_events,
+            materialize_tasks=[write_task],
+        )
+    )
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
@@ -245,20 +264,9 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(
-            return_value=AgentRunResult(
-                final_text="完成",
-                turn_events=turn_events,
-                model_used="glm-4",
-                materialize_tasks=[write_task],
-            )
-        ),
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _run_once(TaskProcessService(bus), "问题")
+    result = await _run_once(_service(bus, cpu), "问题")
 
     assert result.kind == "agent"
     _assert_sealed_payload(
@@ -270,36 +278,30 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
 
 @pytest.mark.asyncio
 async def test_completed_streaming_process_seals_interaction_payload() -> None:
-    """完成的流式进程：与非流式共用同一封口，done 事件还原的轮次事件逐字段进入交互记录。"""
+    """完成的流式进程：与非流式共用同一封口，CPU 终态结果逐字段进入交互记录。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
     write_task = make_write_materialize_task()
     finalize_kwargs: dict = {}
+    cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "完成"}}],
+        result=make_cpu_result(
+            turn_events=turn_events,
+            materialize_tasks=[write_task],
+        ),
+    )
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
         return []
 
-    async def alice_stream(**_kwargs):
-        yield {"event": "token", "data": {"content": "完成"}}
-        yield {
-            "event": "done",
-            "data": AgentRunResult(
-                final_text="完成",
-                turn_events=turn_events,
-                model_used="glm-4",
-                materialize_tasks=[write_task],
-            ).model_dump(),
-        }
-
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
-    events = await _stream_events(TaskProcessService(bus), "问题")
+    events = await _stream_events(_service(bus, cpu), "问题")
 
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "completed"
@@ -318,7 +320,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
         AsyncMock(return_value=_command_outcome()),
     )
 
-    events = await _stream_events(TaskProcessService(bus), "/clear")
+    events = await _stream_events(_service(bus), "/clear")
 
     assert [event["event"] for event in events] == [
         "process_id",
@@ -332,30 +334,28 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
 @pytest.mark.asyncio
 async def test_completed_stream_uses_one_process_id_for_events_and_downstream_routes() -> None:
     """完成的流式进程：SSE 首个事件、finalizing 状态与 done 携带同一 process_id，
-    并以它调用 Patchouli prepare（interaction_id）与 Alice（清单 process_id）；
+    并以它调用 Patchouli prepare（interaction_id）与 CPU（清单 process_id）；
     topic_info 与 memory_refs 由进程从 prepare 结果推导。"""
     bus = GlobalSystemBus()
     prepare_calls: list[dict] = []
+    cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "完成"}}],
+        result=make_cpu_result(),
+    )
 
     async def prepare(*, identity_scope, **kwargs):
         prepare_calls.append(kwargs)
         route = _scoped_prepared_route(memories=[_memory_ref_atom()])
         return await route(identity_scope=identity_scope, **kwargs)
 
-    async def alice_stream(**_kwargs):
-        yield {"event": "token", "data": {"content": "完成"}}
-        yield {"event": "done", "data": AgentRunResult(final_text="完成").model_dump()}
-
-    alice = AsyncMock(return_value=alice_stream())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     events = await _stream_events(
-        TaskProcessService(bus),
+        _service(bus, cpu),
         "问题",
         process_id="process-complete",
     )
@@ -376,7 +376,7 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
     assert events[-1]["data"]["status"] == "completed"
     assert events[-1]["data"]["process_id"] == "process-complete"
     assert [call["interaction_id"] for call in prepare_calls] == ["process-complete"]
-    assert alice.await_args.kwargs["input_manifest"].process_id == "process-complete"
+    assert cpu.calls[0].manifest.process_id == "process-complete"
 
 
 @pytest.mark.asyncio
@@ -389,7 +389,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
         await asyncio.Event().wait()
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    service = TaskProcessService(bus)
+    service = _service(bus)
 
     task = asyncio.create_task(_run_once(service, "问题", process_id="process-gateway"))
     await started.wait()
@@ -399,13 +399,14 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
     assert stop_result.cancelled is True
 
     assert result.kind == "agent"
-    assert result.agent_run_result.status == "cancelled"
+    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
 
 
 @pytest.mark.asyncio
 async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
     bus = GlobalSystemBus()
     prepared_holder: dict = {}
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED))
 
     async def prepare(**kwargs):
         prepared = await _scoped_prepared_route()(**kwargs)
@@ -423,18 +424,14 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
     )
     _register_profile(bus)
     bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(return_value=AgentRunResult(status=AgentRunStatus.CANCELLED)),
-    )
-    bus.register(
         GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
         cleanup,
     )
 
-    result = await _run_once(TaskProcessService(bus), "问题")
+    result = await _run_once(_service(bus, cpu), "问题")
 
     assert result.kind == "agent"
-    assert result.agent_run_result.status == "cancelled"
+    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
     cleanup.assert_awaited_once_with(prepared_run=prepared_holder["prepared"])
 
 
@@ -443,6 +440,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus = GlobalSystemBus()
     finalize = AsyncMock(return_value=[])
     cleanup = AsyncMock(return_value=True)
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
     bus.register(
         GlobalRoutes.GATEWAY_PROCESS,
         AsyncMock(return_value=_decision_outcome()),
@@ -452,16 +450,12 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
         _scoped_prepared_route(),
     )
     _register_profile(bus)
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(return_value=AgentRunResult(status=AgentRunStatus.FAILED)),
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    result = await _run_once(TaskProcessService(bus), "问题")
+    result = await _run_once(_service(bus, cpu), "问题")
 
-    assert result.agent_run_result.status == AgentRunStatus.FAILED.value
+    assert result.execution_result.status == CPUExecutionStatus.FAILED.value
     finalize.assert_not_awaited()
     cleanup.assert_awaited_once()
 
@@ -469,13 +463,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
 @pytest.mark.asyncio
 async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None:
     bus = GlobalSystemBus()
-
-    async def alice_stream(**_kwargs):
-        yield {
-            "event": "done",
-            "data": AgentRunResult(status=AgentRunStatus.FAILED).model_dump(),
-        }
-
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
     bus.register(
         GlobalRoutes.GATEWAY_PROCESS,
         AsyncMock(return_value=_decision_outcome()),
@@ -485,24 +473,24 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
         _scoped_prepared_route(),
     )
     _register_profile(bus)
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
     cleanup = AsyncMock(return_value=True)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    events = await _stream_events(TaskProcessService(bus), "问题")
+    events = await _stream_events(_service(bus, cpu), "问题")
 
     assert events[-1]["event"] == "done"
-    assert events[-1]["data"]["status"] == AgentRunStatus.FAILED.value
+    assert events[-1]["data"]["status"] == CPUExecutionStatus.FAILED.value
     assert events[-1]["data"]["stopped"] is True
     cleanup.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finalize() -> None:
+async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize() -> None:
     bus = GlobalSystemBus()
     prepare_started = asyncio.Event()
     release_prepare = asyncio.Event()
     prepare_cancelled = False
+    cpu = ScriptedCPU(result=make_cpu_result())
 
     async def prepare(*, identity_scope, **kwargs):
         nonlocal prepare_cancelled
@@ -515,16 +503,14 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
         route = _scoped_prepared_route()
         return await route(identity_scope=identity_scope, **kwargs)
 
-    alice = AsyncMock()
     finalize = AsyncMock()
     cleanup = AsyncMock(return_value=True)
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service = TaskProcessService(bus)
+    service = _service(bus, cpu)
 
     task = asyncio.create_task(_run_once(service, "问题", process_id="process-prepare"))
     await prepare_started.wait()
@@ -534,25 +520,20 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_alice_and_finali
 
     assert stop_result.cancelled is True
     assert prepare_cancelled is False
-    assert result.agent_run_result.status == AgentRunStatus.CANCELLED.value
-    alice.assert_not_awaited()
+    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert cpu.calls == []
     finalize.assert_not_awaited()
     cleanup.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> None:
+async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() -> None:
     bus = GlobalSystemBus()
-    pull_started = asyncio.Event()
-    stream_closed = asyncio.Event()
-
-    async def alice_stream():
-        try:
-            pull_started.set()
-            await asyncio.Event().wait()
-            yield {"event": "token", "data": {"content": "late"}}
-        finally:
-            stream_closed.set()
+    cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "late"}}],
+        result=make_cpu_result(),
+        hang_before_result=True,
+    )
 
     finalize = AsyncMock()
     cleanup = AsyncMock(return_value=True)
@@ -562,18 +543,17 @@ async def test_stream_stop_cancels_current_alice_pull_and_closes_stream() -> Non
         _scoped_prepared_route(),
     )
     _register_profile(bus)
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, AsyncMock(return_value=alice_stream()))
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service = TaskProcessService(bus)
+    service = _service(bus, cpu)
 
-    task = asyncio.create_task(_collect_stream(service, process_id="process-stream-cancel"))
-    await pull_started.wait()
+    task = asyncio.create_task(_stream_events(service, "问题", process_id="process-stream-cancel"))
+    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
     stop_result = service.cancel_process("process-stream-cancel", identity_scope=_u1_scope())
     events = await task
 
     assert stop_result.cancelled is True
-    assert stream_closed.is_set()
+    assert cpu.closed is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
     finalize.assert_not_awaited()
@@ -598,13 +578,9 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
         _scoped_prepared_route(),
     )
     _register_profile(bus)
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        AsyncMock(return_value=AgentRunResult(final_text="完成")),
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service = TaskProcessService(bus)
+    service = _service(bus)
 
     task = asyncio.create_task(_run_once(service, "问题", process_id="process-finalize"))
     await finalize_started.wait()
@@ -614,33 +590,24 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 
     assert stop_result.cancelled is False
     assert stop_result.reason == "already_finalizing"
-    assert result.agent_run_result.status == AgentRunStatus.COMPLETED.value
+    assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
     cleanup.assert_not_awaited()
-
-
-async def _collect_stream(
-    service: TaskProcessService,
-    *,
-    process_id: str,
-) -> list[dict]:
-    return await _stream_events(service, "问题", process_id=process_id)
 
 
 @pytest.mark.asyncio
 async def test_attachment_selection_without_reader_fails_allocation() -> None:
-    """捕获装配遗漏：有附件选择但 Store 未注入时，分配显式失败且不进入 Alice。"""
+    """捕获装配遗漏：有附件选择但 Store 未注入时，分配显式失败且不进入 CPU。"""
     bus = GlobalSystemBus()
     cleanup = AsyncMock(return_value=True)
+    cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    alice = AsyncMock(return_value=AgentRunResult(final_text="完成"))
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     with pytest.raises(WorkspaceDomainError, match="附件读取能力"):
         await _run_once(
-            TaskProcessService(bus),
+            _service(bus, cpu),
             "问题",
             process_id="process-no-reader",
             attachments=[
@@ -650,7 +617,7 @@ async def test_attachment_selection_without_reader_fails_allocation() -> None:
             ],
         )
 
-    alice.assert_not_awaited()
+    assert cpu.calls == []
     cleanup.assert_awaited_once()
 
 
@@ -669,7 +636,7 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
 
     events = [
         event
-        async for event in TaskProcessService(bus).run_process(
+        async for event in _service(bus).run_process(
             "问题",
             identity_scope=_u1_scope(),
             process_id="process-domain-error",

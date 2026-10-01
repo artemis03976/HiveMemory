@@ -18,6 +18,7 @@ from hivememory.workspace.capability.agent_profiles import AgentApplicationServi
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
 from hivememory.workspace.process.service import TaskProcessService
+from tests.helpers.cpu import ScriptedCPU
 from tests.helpers.workspace import make_identity_scope, make_management_identity_scope
 
 _APPLICATION_SERVICES = (
@@ -67,7 +68,7 @@ class TestChatIdentityGuard:
     async def test_non_streaming_chat_rejects_system_actor(self):
         from unittest.mock import AsyncMock
 
-        service = TaskProcessService(global_bus=AsyncMock())
+        service = TaskProcessService(global_bus=AsyncMock(), cpu=ScriptedCPU())
 
         with pytest.raises(WorkspaceDomainError):
             await service.run_process(
@@ -81,7 +82,7 @@ class TestChatIdentityGuard:
     async def test_streaming_chat_rejects_system_actor(self):
         from unittest.mock import AsyncMock
 
-        service = TaskProcessService(global_bus=AsyncMock())
+        service = TaskProcessService(global_bus=AsyncMock(), cpu=ScriptedCPU())
 
         with pytest.raises(WorkspaceDomainError):
             async for _ in service.run_process(
@@ -99,7 +100,7 @@ class TestCancelUsesFrozenScope:
     def _make_service():
         from unittest.mock import AsyncMock
 
-        return TaskProcessService(global_bus=AsyncMock())
+        return TaskProcessService(global_bus=AsyncMock(), cpu=ScriptedCPU())
 
     @pytest.mark.asyncio
     async def test_cancel_across_users_returns_not_found(self):

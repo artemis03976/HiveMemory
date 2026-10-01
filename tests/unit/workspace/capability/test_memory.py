@@ -15,7 +15,6 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
-from hivememory.core.protocol.models import AgentRunResult
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.memory import (
@@ -47,39 +46,20 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
     return prepared
 
 
-def _make_chat_result() -> AgentRunResult:
-    return AgentRunResult(
-        final_text="hello!",
-        mtp_iterations=0,
-        total_iterations=1,
-        turn_events=[],
-    )
-
-
 @pytest.fixture
 def mock_global_bus():
     """模拟 GlobalSystemBus，根据路由返回不同结果。"""
     bus = MagicMock(spec=GlobalSystemBus)
 
     prepared = _make_prepared_run()
-    chat_result = _make_chat_result()
 
     async def route_dispatch(route, *args, **kwargs):
         if route == GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN:
             return prepared
-        elif route == GlobalRoutes.ALICE_RUN_AGENT:
-            return chat_result
         elif route == GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN:
             return None
         elif route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
             return True
-        elif route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
-
-            async def _stream():
-                yield {"event": "token", "data": {"content": "hi"}}
-                yield {"event": "done", "data": chat_result.model_dump()}
-
-            return _stream()
         return None
 
     bus.request = AsyncMock(side_effect=route_dispatch)

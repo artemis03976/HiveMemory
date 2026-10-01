@@ -2,10 +2,12 @@
 
 骨架依次驱动 Gateway 分析 → Patchouli prepare → CPU 分配 → Actor 执行 →
 （仅 completed）封口交互记录并 finalize，对子系统的一切调用都经全局总线
-的公开路由完成。骨架只产出类型化的阶段产出（见 ``workspace.process.outputs``），
-流式与非流式交付共用同一条阶段顺序、同一组取消响应点与同一个关闭流程；
-两者的执行差异只有 Actor 路由（流式逐条转交交互输出），以及 finalize 之后
-读取话题池（只服务于流式 done 事件）。
+的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
+的 :class:`CPUPort`）完成。骨架只产出类型化的阶段产出（见
+``workspace.process.outputs``），流式与非流式交付共用同一条阶段顺序、
+同一组取消响应点与同一个关闭流程；两者的执行差异只有 CPU 以流式还是
+非流式产出（流式逐条转交交互事件），以及 finalize 之后读取话题池
+（只服务于流式 done 事件）。
 """
 
 from __future__ import annotations
@@ -26,9 +28,14 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import AttachmentSelectionRequest, IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
-from hivememory.core.protocol.models import AgentRunResult, AgentRunStatus
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUInputManifest
+from hivememory.workspace.contracts import (
+    CPUExecutionResult,
+    CPUExecutionStatus,
+    CPUInputManifest,
+    CPUOutput,
+    CPUPort,
+)
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.outputs import (
@@ -143,7 +150,7 @@ class TaskProcess:
     """一次任务进程：进程记录、工作集与事件投影的容器。
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；实例只
-    运行一次。``stream`` 只决定 Actor 以流式还是非流式路由执行。
+    运行一次。``stream`` 只决定 CPU 以流式还是非流式产出。
     """
 
     def __init__(
@@ -154,6 +161,7 @@ class TaskProcess:
         global_bus: GlobalSystemBus,
         process_table: ProcessTable,
         allocator: CPUAllocator,
+        cpu: CPUPort,
         events: TaskProcessEventEmitter,
         gateway_request_timeout_ms: int,
     ) -> None:
@@ -162,6 +170,7 @@ class TaskProcess:
         self._bus = global_bus
         self._process_table = process_table
         self._allocator = allocator
+        self._cpu = cpu
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
         self._record = ProcessRecord(
@@ -174,7 +183,7 @@ class TaskProcess:
 
         self._trace_tokens: Any = None
         self._owner_task: asyncio.Task[Any] | None = None
-        self._actor_stream: AsyncGenerator[dict[str, Any], None] | None = None
+        self._cpu_output: AsyncGenerator[CPUOutput, None] | None = None
         # 终态产出是否已经交出；关闭时据此判断是否需要按断流收口。
         self._terminal_published = False
         # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
@@ -222,62 +231,55 @@ class TaskProcess:
             prepared, manifest = await self._prepare_and_allocate(gateway_result.decision)
             yield InputsAllocated(prepared=prepared, manifest=manifest)
 
-            # ---- Actor 执行：可被 stop 中断；流式逐条转交交互输出 ----
-            record.enter_phase(ProcessPhase.ALICE)
+            # ---- Actor 执行：可被 stop 中断；流式逐条转交交互事件 ----
+            record.enter_phase(ProcessPhase.ACTOR)
             self._events.status()
-            loop_result: AgentRunResult | None = None
-            if self._stream:
-                actor_stream = await _run_interruptible(
-                    record,
-                    ProcessPhase.ALICE,
-                    lambda: self._bus.request(
-                        GlobalRoutes.ALICE_RUN_AGENT_STREAM,
-                        input_manifest=manifest,
-                        generation_options=request.generation_options,
-                    ),
-                )
-                # 子流由关闭流程统一关闭（含断流与取消路径）。
-                self._actor_stream = actor_stream
-                while True:
-                    try:
-                        event = await _run_interruptible(
-                            record,
-                            ProcessPhase.ALICE,
-                            lambda: anext(actor_stream),
-                        )
-                    except StopAsyncIteration:
-                        break
-                    if event["event"] == "done":
-                        loop_result = AgentRunResult(**event["data"])
-                    else:
-                        yield ActorEvent(event)
-                if loop_result is None:
-                    raise RuntimeError("Stream ended without done event")
-            else:
-                loop_result = await _run_interruptible(
-                    record,
-                    ProcessPhase.ALICE,
-                    lambda: self._bus.request(
-                        GlobalRoutes.ALICE_RUN_AGENT,
-                        input_manifest=manifest,
-                        generation_options=request.generation_options,
-                    ),
-                )
+            # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
+            # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
+            # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
+            # 响应点不变；迭代器交给关闭流程统一关闭（含断流与取消路径）。
+            cpu_output = self._cpu.execute(
+                manifest,
+                generation_options=request.generation_options,
+                stream=self._stream,
+            )
+            self._cpu_output = cpu_output
+            execution_result: CPUExecutionResult | None = None
+            while True:
+                try:
+                    item = await _run_interruptible(
+                        record,
+                        ProcessPhase.ACTOR,
+                        lambda: anext(cpu_output),
+                    )
+                except StopAsyncIteration:
+                    break
+                if isinstance(item, CPUExecutionResult):
+                    # 终态结果恰好出现一次且是最后一项；拿到即结束拉取。
+                    execution_result = item
+                    break
+                yield ActorEvent(item)
+            # 拿到终态结果后立即关闭 CPU 输出流，让 CPU 在 finalize 之前释放
+            # 自己的资源（finalize 要等交互被应用）；关闭流程中的关闭仅作兜底。
+            await self._close_cpu_output()
+            # 迭代器在没有终态结果时结束属于端口语义错误，按进程失败处理。
+            if execution_result is None:
+                raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
 
-            if loop_result.status == AgentRunStatus.CANCELLED.value:
+            if execution_result.status == CPUExecutionStatus.CANCELLED.value:
                 record.mark_cancelled()
                 self._events.cancelled()
                 yield self._terminal(
                     RunCancelled(
                         reason=record.stop_reason or "user_requested",
-                        loop_result=loop_result,
+                        execution_result=execution_result,
                     )
                 )
                 return
-            if loop_result.status == AgentRunStatus.FAILED.value:
+            if execution_result.status == CPUExecutionStatus.FAILED.value:
                 record.mark_failed()
                 self._events.failed()
-                yield self._terminal(RunFailed(loop_result))
+                yield self._terminal(RunFailed(execution_result))
                 return
 
             # ---- finalize（仅 completed）：进入后拒绝取消 ----
@@ -286,15 +288,15 @@ class TaskProcess:
             self._events.status()
             yield Finalizing()
             # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
-            # AgentRunResult 提取执行结果字段组装交互输入的地方；组装失败
-            # 沿异常路径按进程失败处理，走现有关闭流程。
+            # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
+            # 按进程失败处理，走现有关闭流程。
             payload = seal_interaction(
                 user_message=request.message,
                 gateway_decision=gateway_result.decision,
-                assistant_final_text=loop_result.final_text,
-                turn_events=loop_result.turn_events,
-                model_used=loop_result.model_used,
-                materialize_tasks=loop_result.materialize_tasks,
+                assistant_final_text=execution_result.final_text,
+                turn_events=execution_result.turn_events,
+                model_used=execution_result.model_used,
+                materialize_tasks=execution_result.materialize_tasks,
                 # 附件编译冻结的实际使用引用（被预算跳过的附件不在其中）。
                 used_attachments=self._working_set.used_attachments,
             )
@@ -312,7 +314,7 @@ class TaskProcess:
             self._events.completed(memory_task_ids=memory_task_ids)
             yield self._terminal(
                 RunCompleted(
-                    loop_result=loop_result,
+                    execution_result=execution_result,
                     memory_task_ids=memory_task_ids,
                     pool_topics=pool_topics,
                 )
@@ -378,7 +380,7 @@ class TaskProcess:
     # ========== 关闭流程 ==========
 
     async def close(self) -> None:
-        """进程关闭：终态兜底、释放租借、关闭 Actor 子流、补偿 prepare、注销进程。
+        """进程关闭：终态兜底、释放租借、关闭 CPU 输出流、补偿 prepare、注销进程。
 
         无论完成、取消、失败、断流还是分配失败，都经此关闭。租借释放必须先于
         任何 await 同步执行：owner task 在关闭子流或 cleanup 期间被取消时，
@@ -397,11 +399,7 @@ class TaskProcess:
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._working_set.release()
         try:
-            if self._actor_stream is not None:
-                try:
-                    await self._actor_stream.aclose()
-                except Exception:
-                    logger.warning("关闭 Alice stream 失败", exc_info=True)
+            await self._close_cpu_output()
             # 只要 prepare 成功但 finalize 未成功，就清理可能的新建空 Topic。
             if self._working_set.prepared is not None and not self._prepared_finalized:
                 try:
@@ -415,6 +413,16 @@ class TaskProcess:
             self._process_table.close(record)
             if self._trace_tokens is not None:
                 reset_trace_context(self._trace_tokens)
+
+    async def _close_cpu_output(self) -> None:
+        """幂等关闭 CPU 输出流：先摘除引用，关闭失败只记录警告。"""
+        cpu_output, self._cpu_output = self._cpu_output, None
+        if cpu_output is None:
+            return
+        try:
+            await cpu_output.aclose()
+        except Exception:
+            logger.warning("关闭 CPU 输出流失败", exc_info=True)
 
     async def _list_final_pool_topics(
         self,

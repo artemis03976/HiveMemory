@@ -35,4 +35,3 @@ class RouteNames:
     PATCHOULI_MODELS_READY = "patchouli.public.models.ready"
 
     ALICE_RUN_AGENT = "alice.public.run_agent"
-    ALICE_RUN_AGENT_STREAM = "alice.public.run_agent_stream"

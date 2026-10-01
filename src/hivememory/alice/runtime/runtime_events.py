@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.contracts.runtime_events import RuntimeEventType
-from hivememory.core.protocol.models import AgentRunResult
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRunStats:
+    """``agent.run.*`` 终态事件的观测统计，由调用方从 frame 进度取得。
+
+    Alice 的专属统计（MTP 迭代次数等）不进入 CPU 中立的执行结果，只在
+    这里用于可观测性发布；载荷键名沿用既有 wire 名称。
+    """
+
+    mtp_iterations: int
+    total_iterations: int
+    materialize_task_count: int
 
 
 class AgentRunEventEmitter:
@@ -46,21 +60,21 @@ class BoundAgentRunEvents:
             status="started",
         )
 
-    def completed(self, result: AgentRunResult) -> None:
+    def completed(self, stats: AgentRunStats) -> None:
         self._publisher.emit(
             RuntimeEventType.AGENT_RUN_COMPLETED,
-            status=str(result.status),
-            data=self._terminal_data(result),
+            status="completed",
+            data=self._terminal_data(stats),
         )
 
     def cancelled(
         self,
-        result: AgentRunResult | None = None,
+        stats: AgentRunStats | None = None,
         *,
         message: str | None = None,
         close_reason: str | None = None,
     ) -> None:
-        data = self._terminal_data(result) if result is not None else {}
+        data = self._terminal_data(stats) if stats is not None else {}
         if close_reason is not None:
             data["close_reason"] = close_reason
         self._publisher.emit(
@@ -72,7 +86,7 @@ class BoundAgentRunEvents:
 
     def failed(
         self,
-        result: AgentRunResult | None = None,
+        stats: AgentRunStats | None = None,
         *,
         message: str | None = None,
         reason: str | None = None,
@@ -83,16 +97,16 @@ class BoundAgentRunEvents:
             severity="error",
             reason=reason,
             message=message,
-            data=self._terminal_data(result) if result is not None else None,
+            data=self._terminal_data(stats) if stats is not None else None,
         )
 
     @staticmethod
-    def _terminal_data(result: AgentRunResult) -> dict[str, object]:
+    def _terminal_data(stats: AgentRunStats) -> dict[str, object]:
         return {
-            "mtp_iterations": result.mtp_iterations,
-            "total_iterations": result.total_iterations,
-            "materialize_task_count": len(result.materialize_tasks),
+            "mtp_iterations": stats.mtp_iterations,
+            "total_iterations": stats.total_iterations,
+            "materialize_task_count": stats.materialize_task_count,
         }
 
 
-__all__ = ["AgentRunEventEmitter", "BoundAgentRunEvents"]
+__all__ = ["AgentRunEventEmitter", "AgentRunStats", "BoundAgentRunEvents"]

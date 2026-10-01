@@ -78,8 +78,6 @@ export interface ChatRunStatusEvent {
 
 export interface ChatDoneEvent {
   final_text: string;
-  mtp_iterations: number;
-  total_iterations: number;
   mtp_commands_executed?: string[];
   process_id?: string | null;
   status?: Exclude<ChatRunStatus, 'idle' | 'preparing' | 'streaming' | 'cancelling' | 'finalizing'>;

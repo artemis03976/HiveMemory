@@ -1,7 +1,7 @@
 """Phase 1：cancel 契约加固的单元测试
 
 覆盖 ProcessTable（进程表）幂等性、TaskProcessService cancel 路径、
-AgentRunResult.status 终态传播。
+CPU 执行结果 status 终态传播。
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -16,12 +16,9 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import (
-    AgentRunResult,
-    AgentRunStatus,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import (
     ProcessOutcome,
@@ -29,6 +26,7 @@ from hivememory.workspace.process.table import (
     ProcessRecord,
     ProcessTable,
 )
+from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.workspace import make_identity_scope
 
 # ─── ProcessTable ─────────────────────────────────────────────────────────────
@@ -73,7 +71,7 @@ class TestProcessTable:
     def test_run_stop_outcome(self):
         run = ProcessRecord(identity_scope=make_identity_scope(), process_id="process-4")
         assert run.outcome is ProcessOutcome.RUNNING
-        run.enter_phase(ProcessPhase.ALICE)
+        run.enter_phase(ProcessPhase.ACTOR)
         run.request_stop()
         assert run.outcome is ProcessOutcome.STOP_REQUESTED
 
@@ -87,14 +85,7 @@ class TestChatServiceCancelPath:
     @pytest.mark.asyncio
     async def test_cancel_skips_finalize(self):
         bus = MagicMock()
-
-        loop_result = AgentRunResult(
-            final_text="hi",
-            status=AgentRunStatus.CANCELLED,
-        )
-
-        async def mock_stream(*_, **__):
-            yield {"event": "done", "data": loop_result.model_dump()}
+        cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED))
 
         async def bus_request(route, *args, **kwargs):
             from hivememory.core.contracts.routes import GlobalRoutes
@@ -124,15 +115,13 @@ class TestChatServiceCancelPath:
                 from hivememory.core.models import OMNI_DOLL_PROFILE
 
                 return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
-            if route == GlobalRoutes.ALICE_RUN_AGENT_STREAM:
-                return mock_stream()
             if route == GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN:
                 return True
             raise AssertionError(f"Unexpected bus route called: {route}")
 
         bus.request = AsyncMock(side_effect=bus_request)
 
-        service = TaskProcessService(global_bus=bus)
+        service = TaskProcessService(global_bus=bus, cpu=cpu)
 
         events = []
         async for event in service.run_process(

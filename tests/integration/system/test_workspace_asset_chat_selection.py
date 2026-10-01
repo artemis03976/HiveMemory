@@ -14,11 +14,11 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import AttachmentSelectionRequest
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import AgentRunResult
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.chat_handoff import make_gateway_decision
+from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.workspace.process.test_gateway_chat_flow import (
     _profile_route,
@@ -78,13 +78,11 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _async_completed_result,
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    service = TaskProcessService(bus, asset_reader=store)
+    service = TaskProcessService(
+        bus, asset_reader=store, cpu=ScriptedCPU(result=make_cpu_result(final_text="完成"))
+    )
     result = await service.run_process(
         "总结这两份附件",
         stream=False,
@@ -134,7 +132,9 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _async_true)
 
-    service = TaskProcessService(bus, asset_reader=store)
+    service = TaskProcessService(
+        bus, asset_reader=store, cpu=ScriptedCPU(result=make_cpu_result(final_text="完成"))
+    )
     with pytest.raises(AssetRemovedError):
         await service.run_process(
             "使用已删除附件",
@@ -197,13 +197,11 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     )
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _async_completed_result,
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _async_empty_tasks)
 
-    service = TaskProcessService(bus, asset_reader=store)
+    service = TaskProcessService(
+        bus, asset_reader=store, cpu=ScriptedCPU(result=make_cpu_result(final_text="完成"))
+    )
     result = await service.run_process(
         "总结这份附件",
         stream=False,
@@ -220,12 +218,8 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
 
     # 真实 prepare 与进程 CPU 分配完整走通。
     assert result.kind == "agent"
-    assert result.agent_run_result.final_text == "完成"
+    assert result.execution_result.final_text == "完成"
     assert store.close_and_clear().leases_cleared == 0
-
-
-async def _async_completed_result(**_kwargs):
-    return AgentRunResult(final_text="完成")
 
 
 async def _async_empty_tasks(**_kwargs):

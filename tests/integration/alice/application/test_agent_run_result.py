@@ -26,7 +26,7 @@ from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
-from hivememory.core.protocol.models import AgentRunStatus
+from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.workspace import make_runtime_scope
 
@@ -113,11 +113,9 @@ async def test_run_agent_assembles_result_from_completed_frame():
     )
     service, session = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame))
+    result = await service.run_agent(_context(frame), stream=False)
 
     assert result.final_text == "hello world"
-    assert result.mtp_iterations == 2
-    assert result.total_iterations == 3
     assert [event.kind for event in result.turn_events] == ["user_message", "assistant_message"]
     agent_runtime.finalize_run.assert_called_once()
     assert agent_runtime.finalize_run.call_args.args[0] == "run-1"
@@ -142,7 +140,7 @@ async def test_run_agent_cancellation_unwinds_and_propagates():
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    task = asyncio.create_task(service.run_agent(_context(frame)))
+    task = asyncio.create_task(service.run_agent(_context(frame), stream=False))
     await started.wait()
     task.cancel()
 
@@ -165,9 +163,9 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame))
+    result = await service.run_agent(_context(frame), stream=False)
 
-    assert result.status == AgentRunStatus.FAILED.value
+    assert result.status == CPUExecutionStatus.FAILED.value
     assert result.materialize_tasks == []
     assert agent_runtime.finalize_run.call_args.args[1].status == (
         FrameExecutionStatus.BUDGET_EXHAUSTED
@@ -187,10 +185,10 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    events = [event async for event in service.run_agent_stream(_context(frame))]
+    events = [event async for event in service.run_agent(_context(frame), stream=True)]
 
     done = next(event for event in events if event["event"] == "done")
-    assert done["data"]["status"] == AgentRunStatus.FAILED.value
+    assert done["data"]["status"] == CPUExecutionStatus.FAILED.value
     assert done["data"]["agent_run_id"] == "run-1"
     assert done["data"]["frame_id"] == "frame-main"
 
@@ -206,7 +204,7 @@ async def test_run_agent_preserves_factory_initialized_turn_events():
     frame = _frame(messages=messages)
     service, _ = _runtime_for_frame(frame)
 
-    result = await service.run_agent(_context(frame))
+    result = await service.run_agent(_context(frame), stream=False)
 
     assert [event.kind for event in result.turn_events] == ["user_message"]
     assert result.turn_events[0].content == "current"

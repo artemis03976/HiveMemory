@@ -205,39 +205,6 @@ class MTPExecutionResult(BaseModel):
     call_request: MTPCallRequest | None = Field(default=None)
 
 
-class AgentRunStatus(str, Enum):
-    """单次 Alice agent.run 的终态状态。"""
-
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-
-
-class AgentRunResult(BaseModel):
-    """上层一次 chat 调用后系统运行至自然中断的完整产出。
-
-    字段不变量：每个字段由 Alice 子系统组装，且有完全明确的下游消费者。
-        final_text          → 用户可见回复 / InteractionPayload.assistant_final_text
-        mtp_iterations      → 统计
-        total_iterations    → 统计
-        turn_events         → ActionReducer → TraceReducer → 感知层
-        materialize_tasks   → finalize 启动 mode b/c + 组 Settlement
-        status              → v0.4.0: agent.run 终态；仅 completed 进入 finalize
-        model_used          → 本次 run 实际使用的模型展示名（来自 ModelRegistry）；
-                              空字符串表示注册表未启用或解析失败
-    """
-
-    status: AgentRunStatus = Field(default=AgentRunStatus.COMPLETED)
-    final_text: str = Field(default="")
-    mtp_iterations: int = Field(default=0)
-    total_iterations: int = Field(default=1)
-    turn_events: list[Any] = Field(default_factory=list)
-    materialize_tasks: list[PendingAtomMaterializeTask] = Field(default_factory=list)
-    model_used: str = Field(default="", description="实际使用的模型展示名，空字符串表示未解析")
-
-    model_config = ConfigDict(use_enum_values=True)
-
-
 class InteractionPayload(BaseModel):
     """
     提交方封口、交由 Perception 消费的原子交互传输包
@@ -286,7 +253,7 @@ class InteractionPayload(BaseModel):
     )
 
     worth_saving: bool | None = Field(default=None, description="Gateway 价值判断")
-    # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
+    # 本次 run 实际使用的模型展示名（来自 CPU 执行结果的 model_used）
     # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
         default="", description="实际使用的模型展示名，空字符串表示注册表未启用"
@@ -311,6 +278,4 @@ __all__ = [
     "AgentRunContext",
     "InteractionPayload",
     "MTPExecutionResult",
-    "AgentRunStatus",
-    "AgentRunResult",
 ]

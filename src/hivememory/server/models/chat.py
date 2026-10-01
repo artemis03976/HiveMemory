@@ -110,8 +110,6 @@ class ChatDoneEvent(BaseModel):
     """done 事件: 生成完成"""
 
     final_text: str
-    mtp_iterations: int
-    total_iterations: int
     process_id: str | None = None
     status: str = "completed"
     stopped: bool = False

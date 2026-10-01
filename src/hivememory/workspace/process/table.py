@@ -23,7 +23,7 @@ class ProcessPhase(str, Enum):
     CREATED = "created"
     GATEWAY = "gateway"
     PREPARE = "prepare"
-    ALICE = "alice"
+    ACTOR = "actor"
     FINALIZE = "finalize"
     TERMINAL = "terminal"
 

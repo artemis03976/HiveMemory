@@ -1,9 +1,10 @@
 """任务进程 CPU 分配的行为测试（prepare 拆分第二批）。
 
-被测边界：``TaskProcessService`` 在 prepare 之后、进入 Alice 之前完成
-Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``。Patchouli 与
-Alice 以总线路由替身隔离；附件租借以真实 ``InMemoryWorkspaceAssetStore``
-的公开可观察状态验收，不断言私有字段。
+被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
+Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``。Patchouli 以
+总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册 Alice
+路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
+验收，不断言私有字段。
 """
 
 from __future__ import annotations
@@ -36,15 +37,13 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import (
-    AgentRunResult,
-    AgentRunStatus,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_gateway_decision
+from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 from tests.helpers.workspace_assets import make_ready_text_asset
@@ -168,9 +167,12 @@ def _service(
     *,
     store: InMemoryWorkspaceAssetStore | None = None,
     attachment_compiler_config: AttachmentCompilerConfig | None = None,
+    cpu: ScriptedCPU | None = None,
 ) -> TaskProcessService:
+    """构造被测服务：默认注入恒完成的测试 CPU。"""
     return TaskProcessService(
         bus,
+        cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         asset_reader=store,
         attachment_compiler_config=attachment_compiler_config,
     )
@@ -219,23 +221,17 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
         _profile_route(profile=profile, calls=profile_calls),
     )
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    alice_kwargs: dict = {}
-
-    async def alice(**kwargs):
-        alice_kwargs.update(kwargs)
-        return AgentRunResult(final_text="完成")
-
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
+    cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    result = await _run_once(_service(bus), "问题", process_id="process-manifest")
+    result = await _run_once(_service(bus, cpu=cpu), "问题", process_id="process-manifest")
 
     assert result.kind == "agent"
     # Profile 以冻结的 identity_scope 经公开路由按 agent_id 解析。
     assert [agent_id for agent_id, _scope in profile_calls] == ["omni_doll"]
     assert profile_calls[0][1] == _u1_scope()
 
-    manifest = alice_kwargs["input_manifest"]
+    manifest = cpu.calls[0].manifest
     assert manifest.process_id == "process-manifest"
     assert manifest.agent_profile is profile
     assert manifest.user_message == "问题"
@@ -254,18 +250,12 @@ async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieva
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route(memories=atoms))
-    alice_kwargs: dict = {}
-
-    async def alice(**kwargs):
-        alice_kwargs.update(kwargs)
-        return AgentRunResult(final_text="完成")
-
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
+    cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    await _run_once(_service(bus), "问题", process_id="process-compile")
+    await _run_once(_service(bus, cpu=cpu), "问题", process_id="process-compile")
 
-    manifest = alice_kwargs["input_manifest"]
+    manifest = cpu.calls[0].manifest
     assert manifest.memories == atoms
     assert "部署手册" in manifest.memory_context
     assert "发布记录" in manifest.memory_context
@@ -278,18 +268,12 @@ async def test_manifest_memory_context_is_empty_string_without_retrieval() -> No
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route(memories=[]))
-    alice_kwargs: dict = {}
-
-    async def alice(**kwargs):
-        alice_kwargs.update(kwargs)
-        return AgentRunResult(final_text="完成")
-
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
+    cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    await _run_once(_service(bus), "问题", process_id="process-empty-retrieval")
+    await _run_once(_service(bus, cpu=cpu), "问题", process_id="process-empty-retrieval")
 
-    assert alice_kwargs["input_manifest"].memory_context == ""
+    assert cpu.calls[0].manifest.memory_context == ""
 
 
 def _recording(calls: list):
@@ -319,14 +303,15 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _raising(failure))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _recording(prepare_calls))
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, _raising(AssertionError("Alice 不应被调用")))
+    cpu = ScriptedCPU(result=make_cpu_result())
 
-    events = await _stream_events(_service(bus), "问题", process_id="process-profile-fail")
+    events = await _stream_events(_service(bus, cpu=cpu), "问题", process_id="process-profile-fail")
 
     assert [event["event"] for event in events if event["event"] == "topic_info"] == []
     assert [event["event"] for event in events if event["event"] == "error"] == ["error"]
     assert prepare_calls == []
     assert cleanup_calls == []
+    assert cpu.calls == []
 
 
 @pytest.mark.asyncio
@@ -379,10 +364,6 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     finalize_kwargs: dict = {}
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _constant(AgentRunResult(final_text="完成")),
-    )
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
@@ -514,18 +495,13 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    alice_kwargs: dict = {}
+    cpu = ScriptedCPU(result=make_cpu_result())
     finalize_kwargs: dict = {}
-
-    async def alice(**kwargs):
-        alice_kwargs.update(kwargs)
-        return AgentRunResult(final_text="完成")
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, alice)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
     # 总预算 20 字符：ref_a（15 字符）编译后 ref_b 超出剩余预算被跳过。
@@ -534,6 +510,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
             bus,
             store=store,
             attachment_compiler_config=AttachmentCompilerConfig(max_total_context_chars=20),
+            cpu=cpu,
         ),
         "带附件的消息",
         process_id="process-budget",
@@ -543,7 +520,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
         ],
     )
 
-    manifest = alice_kwargs["input_manifest"]
+    manifest = cpu.calls[0].manifest
     assert "a" * 15 in manifest.attachment_context
     assert "b" * 10 not in manifest.attachment_context
     assert list(finalize_kwargs["payload"].used_attachments) == [ref_a]
@@ -563,10 +540,6 @@ async def test_leased_attachment_released_after_completed_run() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _constant(AgentRunResult(final_text="完成")),
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
     result = await _run_once(
@@ -576,13 +549,13 @@ async def test_leased_attachment_released_after_completed_run() -> None:
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.agent_run_result.status == AgentRunStatus.COMPLETED.value
+    assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
     assert store.close_and_clear().leases_cleared == 0
 
 
 @pytest.mark.asyncio
-async def test_leased_attachment_released_when_alice_fails() -> None:
-    """Alice 失败路径：不进入 finalize，进程 finally 仍释放租借。"""
+async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
+    """CPU 自报失败路径：不进入 finalize，进程 finally 仍释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     scope = _u1_scope()
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
@@ -591,20 +564,17 @@ async def test_leased_attachment_released_when_alice_fails() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _constant(AgentRunResult(status=AgentRunStatus.FAILED)),
-    )
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
 
     result = await _run_once(
-        _service(bus, store=store),
+        _service(bus, store=store, cpu=cpu),
         "带附件的消息",
-        process_id="process-exit-alice-failed",
+        process_id="process-exit-cpu-failed",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.agent_run_result.status == AgentRunStatus.FAILED.value
+    assert result.execution_result.status == CPUExecutionStatus.FAILED.value
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -634,15 +604,11 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
     bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _constant(AgentRunResult(status=AgentRunStatus.FAILED)),
+        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _blocking_cleanup(cleanup_started)
     )
-    bus.register(
-        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
-        _blocking_cleanup(cleanup_started),
-    )
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
 
-    service = _service(bus, store=store)
+    service = _service(bus, store=store, cpu=cpu)
     process_id = "process-cancel-during-cleanup"
     task = asyncio.create_task(
         _run_once(
@@ -668,24 +634,17 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
     scope = _u1_scope()
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
 
-    async def alice_stream():
-        yield {
-            "event": "done",
-            "data": AgentRunResult(status=AgentRunStatus.FAILED).model_dump(),
-        }
-
     bus = GlobalSystemBus()
     cleanup_started = asyncio.Event()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT_STREAM, _constant(alice_stream()))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
     bus.register(
-        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
-        _blocking_cleanup(cleanup_started),
+        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _blocking_cleanup(cleanup_started)
     )
 
-    service = _service(bus, store=store)
+    service = _service(bus, store=store, cpu=cpu)
     process_id = "process-stream-cancel-during-cleanup"
     task = asyncio.create_task(
         _stream_events(
@@ -705,10 +664,10 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
 
 
 @pytest.mark.asyncio
-async def test_stop_before_alice_skips_alice_and_finalize_and_releases_leases() -> None:
-    """prepare 或分配期间收到的停止请求在进入 Alice 前生效（Q-15）。
+async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() -> None:
+    """prepare 或分配期间收到的停止请求在进入 Actor 执行前生效（Q-15）。
 
-    Alice 与 finalize 均未调用；cleanup 被调用；分配已取得的租借已释放。
+    CPU 与 finalize 均未调用；cleanup 被调用；分配已取得的租借已释放。
     """
     store = InMemoryWorkspaceAssetStore()
     scope = _u1_scope()
@@ -728,15 +687,16 @@ async def test_stop_before_alice_skips_alice_and_finalize_and_releases_leases() 
     async def cleanup(*, prepared_run):
         cleanup_calls.append(prepared_run)
 
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, _raising(AssertionError("Alice 不应被调用")))
+    finalize_calls: list = []
     bus.register(
         GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
-        _raising(AssertionError("finalize 不应被调用")),
+        _recording(finalize_calls),
     )
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    cpu = ScriptedCPU(result=make_cpu_result())
 
-    service = _service(bus, store=store)
-    process_id = "process-stop-before-alice"
+    service = _service(bus, store=store, cpu=cpu)
+    process_id = "process-stop-before-actor"
     task = asyncio.create_task(
         _run_once(
             service,
@@ -751,16 +711,18 @@ async def test_stop_before_alice_skips_alice_and_finalize_and_releases_leases() 
     result = await task
 
     assert stop_result.cancelled is True
-    assert result.agent_run_result.status == AgentRunStatus.CANCELLED.value
+    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert cpu.calls == []
+    assert finalize_calls == []
     assert len(cleanup_calls) == 1
     assert store.close_and_clear().leases_cleared == 0
 
 
 @pytest.mark.asyncio
-async def test_stop_during_profile_resolution_takes_effect_before_alice() -> None:
-    """Profile 解析期间收到 stop：prepare 与其余分配照常完成，进入 Alice 前生效（Q-15）。
+async def test_stop_during_profile_resolution_takes_effect_before_actor() -> None:
+    """Profile 解析期间收到 stop：prepare 与其余分配照常完成，进入 Actor 前生效（Q-15）。
 
-    Alice 与 finalize 均未调用；cleanup 被调用；分配已取得的租借已释放。
+    CPU 与 finalize 均未调用；cleanup 被调用；分配已取得的租借已释放。
     """
     store = InMemoryWorkspaceAssetStore()
     scope = _u1_scope()
@@ -780,14 +742,14 @@ async def test_stop_during_profile_resolution_takes_effect_before_alice() -> Non
     async def cleanup(*, prepared_run):
         cleanup_calls.append(prepared_run)
 
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, _raising(AssertionError("Alice 不应被调用")))
     bus.register(
         GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
         _raising(AssertionError("finalize 不应被调用")),
     )
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    cpu = ScriptedCPU(result=make_cpu_result())
 
-    service = _service(bus, store=store)
+    service = _service(bus, store=store, cpu=cpu)
     process_id = "process-stop-during-allocation"
     task = asyncio.create_task(
         _run_once(
@@ -803,13 +765,14 @@ async def test_stop_during_profile_resolution_takes_effect_before_alice() -> Non
     result = await task
 
     assert stop_result.cancelled is True
-    assert result.agent_run_result.status == AgentRunStatus.CANCELLED.value
+    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert cpu.calls == []
     assert len(cleanup_calls) == 1
     assert store.close_and_clear().leases_cleared == 0
 
 
 @pytest.mark.asyncio
-async def test_stream_stop_before_alice_emits_no_prelude() -> None:
+async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     """流式路径：prepare 期间收到 stop 时，前导事件不发出，done 为 cancelled。"""
     bus = GlobalSystemBus()
     prepare_started = asyncio.Event()
@@ -821,12 +784,9 @@ async def test_stream_stop_before_alice_emits_no_prelude() -> None:
         _prepare_route(started=prepare_started, gate=release_prepare),
     )
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT_STREAM,
-        _raising(AssertionError("Alice 不应被调用")),
-    )
+    cpu = ScriptedCPU(result=make_cpu_result())
 
-    service = _service(bus)
+    service = _service(bus, cpu=cpu)
     process_id = "process-stream-stop"
     task = asyncio.create_task(_stream_events(service, "问题", process_id=process_id))
     await prepare_started.wait()
@@ -838,6 +798,7 @@ async def test_stream_stop_before_alice_emits_no_prelude() -> None:
     assert [event["event"] for event in events if event["event"] == "memory_refs"] == []
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
+    assert cpu.calls == []
 
 
 @pytest.mark.asyncio
@@ -857,10 +818,6 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
         store.close_and_clear()
         return []
 
-    bus.register(
-        GlobalRoutes.ALICE_RUN_AGENT,
-        _constant(AgentRunResult(final_text="完成")),
-    )
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
     result = await _run_once(
@@ -870,7 +827,7 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.agent_run_result.final_text == "完成"
+    assert result.execution_result.final_text == "完成"
 
 
 def _scoped_prepared(kwargs: dict[str, Any]) -> PreparedAgentRun:

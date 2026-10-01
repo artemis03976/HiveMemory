@@ -27,12 +27,12 @@ async def test_start_registers_public_routes_and_stop_unregisters():
     await system.start()
 
     assert AliceRoutes.RUN_AGENT in bus.list_routes()
-    assert AliceRoutes.RUN_AGENT_STREAM in bus.list_routes()
+    # 两条执行路由合并为一条统一路由
+    assert "alice.public.run_agent_stream" not in bus.list_routes()
 
     await system.stop()
 
     assert AliceRoutes.RUN_AGENT not in bus.list_routes()
-    assert AliceRoutes.RUN_AGENT_STREAM not in bus.list_routes()
 
 
 @pytest.mark.asyncio

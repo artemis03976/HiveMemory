@@ -76,8 +76,9 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
 
     assert "run_agent" not in runtime_public_methods
     assert "run_agent_stream" not in runtime_public_methods
-    assert inspect.iscoroutinefunction(AgentRunService.run_agent)
-    assert inspect.isasyncgenfunction(AgentRunService.run_agent_stream)
+    # 统一入口是同步分发方法（按 stream 返回事件生成器或结果协程），不再有两个入口。
+    assert not inspect.iscoroutinefunction(AgentRunService.run_agent)
+    assert not hasattr(AgentRunService, "run_agent_stream")
 
 
 def test_alice_runtime_owns_derived_caches() -> None:
