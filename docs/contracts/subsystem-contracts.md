@@ -15,12 +15,12 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # 子系统公共契约
 
-本文定义 System、Gateway、Patchouli、Alice 跨边界可观察的输入、输出和不变量。路由字符串与事件名的完整清单见[routes-and-events.md](./routes-and-events.md)。
+本文定义 System、Gateway、Patchouli、Alice 跨边界可观察的输入、输出和不变量，以及任务进程与执行者之间的 CPU 端口。路由字符串与事件名的完整清单见[routes-and-events.md](./routes-and-events.md)。
 
 契约不是把公开函数逐一抄进文档，也不是要求每个子系统共享同一套内部对象。它描述的是一次能力交接：调用方必须提供哪些事实，所有者承诺返回什么，以及双方都不能偷偷改变哪些语义。只要这些交接保持稳定，Gateway 的分析流程、Patchouli 的记忆实现和 Alice 的执行循环就可以各自演进；一旦内部 workflow state 或引擎实体越过边界，局部重构便会重新变成全系统改造。
 
@@ -151,7 +151,7 @@ Finalize：
 2. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
 3. 记录预检索命中。
 
-任务进程只对 `AgentRunStatus.COMPLETED` 的结果封口并调用 finalize。Finalize 已成功后不能再 cleanup。
+任务进程只对 `status == completed` 的执行结果封口并调用 finalize。Finalize 已成功后不能再 cleanup。
 
 finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不会默认进入长期知识。
 
@@ -185,35 +185,63 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 两类入口并存是显式契约而非疏漏：`read_memory`、`interaction.submit`、`memory_intent.submit` 等不在迁移兼容清单内，缺失 access 一律拒绝；管理 CRUD、检索、Profile、Topic 管理和附件上传等既有调用方在缺失 access 时按裸 scope 受信适配运行，清单（保留入口、已有调用方、A6 删除点）唯一维护在 `patchouli/application/access_consumption.py`，A6 完成生产消费者切换后删除兼容分支。Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义（接入认证、准入、行为授权、context 有效性）见[错误模型](./error-model.md)，完整访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
-## 4. Alice 契约
+## 4. CPU 端口与 Alice 实现
 
-### 4.1 非流式运行
+### 4.1 CPU 端口
+
+```python
+class CPUPort(Protocol):
+    def execute(
+        self,
+        manifest: CPUInputManifest,
+        *,
+        generation_options: dict[str, Any] | None,
+        stream: bool,
+    ) -> AsyncGenerator[CPUOutput, None]: ...
+```
+
+CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接口：端口由 workspace 定义，执行者实现，组合根注入 `TaskProcessService`。进程只依赖端口与本节的中立模型，因此执行者可以替换而不改动进程与入口；当前唯一的实现是 Alice 的 `AliceCPU`（4.4），测试中的 `ScriptedCPU` 同样能跑完整个任务进程。端口采用对象而不是总线路由，是因为外部 harness 的驱动多数不是子系统：按路由契约接入，每种驱动都要新增路由常量，或在总线之后再建一层分派。
+
+`CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`identity_scope`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。
+
+端口语义：
+
+- **输出顺序**：`execute` 返回的异步生成器先产出交互事件（只在流式时），再产出唯一的终态结果 `CPUExecutionResult`；终态结果恰好出现一次，并且是最后一项，非流式时它是唯一一项。输出流在没有终态结果时结束属于协议错误，进程按失败处理。
+- **交互事件**：带 `event` 与 `data` 的字典，进程原样转交给流式交付，不做解释。
+- **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出异常，由进程按失败处理。
+- **取消与关闭**：用户停止时，进程取消正在拉取下一项的任务；进程在拿到终态结果后、以及在关闭流程中关闭输出流。实现必须传播 `asyncio.CancelledError`，并在输出流关闭时释放自己创建的资源。
+- **`generation_options`**：由各个执行者自行解释，进程原样传递。
+
+### 4.2 执行结果
+
+`CPUExecutionResult` 是执行者对一次执行的完整事实声明，而不是已经提交的长期记忆：
+
+- `status`：`completed`、`cancelled` 或 `failed`（`CPUExecutionStatus`）；
+- `final_text`：最终用户可见文本；
+- `turn_events`：结构化运行事实（`TurnEvent`）；
+- `model_used`：执行者实际使用的模型展示名，空字符串表示未解析；
+- `materialize_tasks`：本次执行产生的不可变物化请求；写入意图的实时派发实现之前保留。
+
+执行者专属的统计（例如 Alice 的 MTP 迭代次数）不进入执行结果，只出现在各自的观测事件中。任务进程据执行结果决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断执行已经完成。
+
+### 4.3 Alice 的执行入口
 
 ```python
 run_agent(
     input_manifest: CPUInputManifest,
     generation_options: dict[str, Any] | None = None,
-) -> AgentRunResult
+    *,
+    stream: bool = True,
+) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]
 ```
 
-`CPUInputManifest`（`workspace.contracts`）是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`identity_scope`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。Alice 在内部把它转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不再出现在任何 Patchouli 路由上。
+`AgentRunService.run_agent` 是 Alice 唯一的执行入口，经全局路由 `alice.public.run_agent` 暴露。流式与非流式运行同一套执行骨架，`stream` 只决定是否产出交互事件：流式时返回事件的异步生成器，最后一项是 `done`（执行结果的字段加上运行元数据）；非流式时返回可 await 的 `CPUExecutionResult`。消费者关闭事件流时，Alice 取消并 join 自己创建的 runner。Alice 在内部把输入清单转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不出现在任何公开路由上。
 
-`AgentRunResult` 包含：
+### 4.4 Alice 的端口实现
 
-- `status`：`completed`、`cancelled` 或 `failed`；
-- `final_text`：最终用户可见文本；
-- `mtp_iterations` / `total_iterations`：执行统计；
-- `turn_events`：结构化运行事实；
-- `materialize_tasks`：本 run 产生的不可变物化请求；
-- `model_used`：注册表解析出的展示名，空字符串表示未解析。
+`AliceCPU`（`alice/application/cpu.py`）经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
 
-这个结果是 Alice 对一次执行的完整事实声明，而不是已经提交的长期记忆。Chat application 通过拥有的 task 控制用户 stop，Alice 只沿 await 传播原生 `asyncio.CancelledError`；任务进程据此决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断 run 已经完成。
-
-### 4.2 流式运行
-
-`run_agent_stream()` 接收相同输入（输入清单与生成覆盖参数），经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给任务进程提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能封口交互记录并进入 Patchouli finalize。
-
-### 4.3 Alice 不变量
+### 4.5 Alice 不变量
 
 - Alice 不修改输入清单所引用的长期记忆或话题；
 - WRITE/UPDATE 只产生 PendingAtom 和 materialize task；
@@ -226,13 +254,13 @@ run_agent(
 ```text
 Gateway command outcome
   -> System 返回命令结果
-  -> 不调用 Patchouli prepare / Alice / Patchouli finalize
+  -> 不调用 Patchouli prepare / CPU / Patchouli finalize
 
 Gateway decision outcome
   -> 解析 Agent Profile（Patchouli 公开路由）
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
-  -> Alice run
+  -> Actor 执行：经 CPU 端口（当前为 Alice）
   -> completed: 任务进程封口交互记录（InteractionPayload，含实际使用的附件）
        -> Patchouli finalize
   -> cancelled/failed/exception: Patchouli cleanup (若已 prepare)
@@ -243,7 +271,7 @@ Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare �
 
 该顺序由 `TaskProcessService`（`workspace.process`）拥有。任何 transport adapter 都不能复制或调整此顺序。
 
-顺序本身就是契约的一部分：Gateway 先收敛入口语义，Patchouli 再准备长期知识的本轮视图，Alice 只执行，最后由 Patchouli 提交。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两条 finalize 规则不一致的问题。
+顺序本身就是契约的一部分：Gateway 先收敛入口语义，Patchouli 再准备长期知识的本轮视图，CPU 只执行，最后由 Patchouli 提交。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两条 finalize 规则不一致的问题。
 
 ## 6. 被动链路契约
 
@@ -281,7 +309,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 3. command outcome 是否仍能立即短路？Passive Memory 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
 4. prepare、run、finalize 的顺序或资格是否被 transport、事件订阅者或兼容 fallback 悄悄改变？
 5. cleanup 是否仍是对空话题的有限补偿，还是被当成可以撤销长期状态的事务回滚？
-6. `AgentRunResult`、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
+6. 执行结果、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
 7. 身份、可见性和权限检查是否仍由状态所有者执行，而不是由拿到 id 的调用方自行假设？
 8. 是否把 enqueue/apply timestamp 或 queue FIFO 误当作业务发生顺序？
 9. 是否把 topic append 顺序误当作 Agent 已观察到彼此结果的因果关系？
@@ -299,7 +327,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 - 新增必填公共字段或改变字段语义；
 - 改变 prepare/finalize/cleanup 顺序；
 - 允许 Passive Memory 返回命令；
-- 改变 AgentRunResult 终态和 finalize 资格；
+- 改变 CPU 端口的输出语义、执行结果终态和 finalize 资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/application/test_agent_run_service.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/application/test_agent_run_service.py`、`tests/unit/alice/application/test_alice_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。

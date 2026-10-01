@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # 应用服务
@@ -58,7 +58,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 | 服务（位置） | 当前职责 | 主要依赖 |
 |:---|:---|:---|
-| `TaskProcessService`（`workspace.process`） | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 四阶段编排；CPU 分配（Profile 解析、附件租借、附件与记忆编译、组装 `CPUInputManifest`）；进程表（`ProcessTable`）登记每个任务进程并以 `process_id` 暴露 stop 控制面 | Gateway、Patchouli、Alice public routes；WorkspaceAsset reader 端口；MemoryCompiler、AttachmentCompiler；RuntimeEventPublisher（经 `TaskProcessEventEmitter` 投影 `chat.run.*`） |
+| `TaskProcessService`（`workspace.process`） | 主动非流式/流式 chat、command short-circuit、取消和 prepare/run/finalize 四阶段编排；CPU 分配（Profile 解析、附件租借、附件与记忆编译、组装 `CPUInputManifest`）；进程表（`ProcessTable`）登记每个任务进程并以 `process_id` 暴露 stop 控制面 | Gateway、Patchouli public routes；CPU 端口（组合根注入，当前为 Alice 的实现）；WorkspaceAsset reader 端口；MemoryCompiler、AttachmentCompiler；RuntimeEventPublisher（经 `TaskProcessEventEmitter` 投影 `chat.run.*`） |
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
 | `MemoryApplicationService`（`workspace.capability`） | Memory CRUD、feedback 和查询参数转换，透传访问上下文；actor 可见读取经读取视图 | Patchouli memory routes；workspace 读取视图 |
 | `MemoryTaskApplicationService`（`workspace.capability`） | 查询/取消 Patchouli 拥有的 memory generation task；透传观察/取消访问上下文 | Patchouli task routes |
@@ -73,9 +73,11 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 ## 3. 主动 chat：唯一编排者
 
-`TaskProcessService.run_process()` 是任务请求的唯一注册入口（当前只有主动 chat 经它进入），`stream` 参数（默认 `True`）只决定交付形态；入口参数 `message` 是交给 Gateway 分析的指令文本。每次调用创建一个 `TaskProcess`（`workspace/process/task_process.py`），它既是本进程的状态容器（进程记录、工作集、事件投影），也承载唯一的编排骨架 `run()` 与唯一的关闭流程 `close()`。骨架只产出类型化的阶段产出（`workspace/process/outputs.py`），流式交付把它们投影为 SSE 事件，非流式交付只取终态产出；两种形态共用同一条阶段顺序、同一组取消响应点与同一个关闭流程。它们在执行上只有两处差异：Actor 走 Alice 的非流式或流式路由，finalize 之后的话题池读取只服务于流式 `done` 事件。编排途中的异常在两种形态下都先记录失败终态、完成关闭，再由流式交付翻译为 `error` 事件（Workspace 领域错误携带安全文案与错误码，其余统一为系统错误），或由非流式交付原样上抛。
+`TaskProcessService.run_process()` 是任务请求的唯一注册入口（当前只有主动 chat 经它进入），`stream` 参数（默认 `True`）只决定交付形态；入口参数 `message` 是交给 Gateway 分析的指令文本。每次调用创建一个 `TaskProcess`（`workspace/process/task_process.py`），它既是本进程的状态容器（进程记录、工作集、事件投影），也承载唯一的编排骨架 `run()` 与唯一的关闭流程 `close()`。骨架只产出类型化的阶段产出（`workspace/process/outputs.py`），流式交付把它们投影为 SSE 事件，非流式交付只取终态产出；两种形态共用同一条阶段顺序、同一组取消响应点与同一个关闭流程。它们在执行上只有两处差异：CPU 以流式还是非流式产出，finalize 之后的话题池读取只服务于流式 `done` 事件。编排途中的异常在两种形态下都先记录失败终态、完成关闭，再由流式交付翻译为 `error` 事件（Workspace 领域错误携带安全文案与错误码，其余统一为系统错误），或由非流式交付原样上抛。
 
 CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成；`chat.run.*` 观测事件由领域 emitter `TaskProcessEventEmitter`（`workspace/process/events.py`）投影。
+
+Actor 执行经 CPU 端口完成：`TaskProcessService` 由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
 
 ### 3.1 非流式链路
 
@@ -87,27 +89,27 @@ TaskProcessService.run_process(stream=False) -> TaskProcess.run()
   -> decision: 解析 Agent Profile（Patchouli get_agent_profile）
   -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
-  -> Alice run_agent（CPUInputManifest）
+  -> Actor 执行：CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
   -> completed: 封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
   -> cancelled/failed: Patchouli cleanup_prepared_agent_run
   -> TaskProcess.close()：释放附件租借，注销进程记录
 ```
 
-CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单交给 Alice。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
+CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
 Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 暂时经 Patchouli 公开路由解析，不经能力层。
 
 交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；finalize 原样提交。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
-本进程的 prepare 结果、输入清单与附件租借由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有。进程无论以何种结局结束都经 `TaskProcess.close()` 关闭：先同步释放全部租借，再关闭 Alice 子流、请求 cleanup；进程记录的注销放在内层 `finally`，因此即使这些 `await` 被取消，租借与进程记录也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
+本进程的 prepare 结果、输入清单与附件租借由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有。进程无论以何种结局结束都经 `TaskProcess.close()` 关闭：先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；进程记录的注销放在内层 `finally`，因此即使这些 `await` 被取消，租借与进程记录也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
 
-Gateway 返回 command outcome 时，服务立即完成本次 run，不进入 topic、retrieval、Alice 或主动记忆生成。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
+Gateway 返回 command outcome 时，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
-普通决策进入 prepare 后，Profile 解析、prepare 与 CPU 分配期间收到的停止请求会被进程表记录；分配完成、进入 Alice 前统一检查一次，命中即跳过 Alice 和 finalize，返回 cancelled 结果，并在关闭流程中释放租借、请求 cleanup。Alice 只有在 `AgentRunResult.status == completed` 且 run 未取消时才允许进入 finalize；finalize 成功后才将 prepared 标记为已接管，不再 cleanup。
+普通决策进入 prepare 后，Profile 解析、prepare 与 CPU 分配期间收到的停止请求会被进程表记录；分配完成、进入 Actor 执行前统一检查一次，命中即跳过 Actor 执行和 finalize，返回 cancelled 结果，并在关闭流程中释放租借、请求 cleanup。只有在 CPU 执行结果的 `status == completed` 且进程未取消时才允许进入 finalize；finalize 成功后才将 prepared 标记为已接管，不再 cleanup。
 
 ### 3.2 流式链路
 
-`run_process()`（默认 `stream=True`）运行同一个骨架，Actor 走流式路由，阶段产出按以下顺序投影为 transport 事件：
+`run_process()`（默认 `stream=True`）运行同一个骨架，CPU 以流式产出，阶段产出按以下顺序投影为 transport 事件：
 
 ```text
 process_id
@@ -116,12 +118,12 @@ process_id
   -> 或 Profile 解析、prepare、CPU 分配
        topic_info
        memory_refs
-       Alice stream events
+       CPU 交互事件（原样转交）
        run_status(finalizing)
        done(completed + memory_task_ids + pool_topics)
 ```
 
-流式生成必须收到 Alice 的最终 `done` 才能构造 `AgentRunResult`。若流在没有终态事件时结束，服务按协议错误处理；客户端提前关闭时，SSE adapter 以 `process_id` 请求停止当前进程，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。进程的关闭流程随后以 `stream_closed` 收口尚未发布终态的进程，释放附件租借、关闭 Alice 子流，并对尚未 finalize 的 prepared run 执行 cleanup。`topic_info` 与 `memory_refs` 由进程从 prepare 结果与输入清单推导，只在 CPU 分配成功后发出。
+流式执行必须收到 CPU 的终态结果才能结束 Actor 阶段。若输出流在没有终态结果时结束，服务按协议错误处理；`done` 携带执行结果的字段（终态、最终回复、轮次事件、物化任务、模型名）与进程字段，不含执行者专属的统计。客户端提前关闭时，SSE adapter 以 `process_id` 请求停止当前进程，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。进程的关闭流程随后以 `stream_closed` 收口尚未发布终态的进程，释放附件租借、关闭 CPU 输出流，并对尚未 finalize 的 prepared run 执行 cleanup。`topic_info` 与 `memory_refs` 由进程从 prepare 结果与输入清单推导，只在 CPU 分配成功后发出。
 
 流式 `done`、`command_result` 和 `error` 是 transport 可消费的事件，不是新的跨子系统业务契约；它们的来源和调用顺序仍由本服务和 Contracts 共同约束。
 
@@ -130,14 +132,14 @@ process_id
 `ProcessTable`（`workspace/process/table.py`）是任务进程编排拥有的进程内控制表，也是 workspace 的进程内共享设施。每条进程记录（`ProcessRecord`）有：
 
 - `process_id`：进程唯一标识，由 server 入口在进入编排服务前生成并冻结；
-- `phase`：`created/gateway/prepare/alice/finalize/terminal`；
+- `phase`：`created/gateway/prepare/actor/finalize/terminal`（`actor` 即 Actor 执行阶段）；
 - `outcome`：`running/stop_requested/cancelled/completed/failed`；
 - 首次接受的 `stop_reason`；
-- 仅在 Gateway 或 Alice 阶段存在的 `active_task` 身份引用。
+- 仅在 Gateway 或 Actor 执行阶段存在的 `active_task` 身份引用。
 
 进程表不保存 `Event`、Token 或 waiter。`cancel()` 按 `process_id` 查找进程后同步调用 `request_stop()`：不存在返回 `not_found`；首次 stop 固定 reason；重复 stop 返回同一判定且不重复取消 task。取消是 owner/workspace 校验（同一用户、同一 Workspace），不是 Agent action。进程表只向同 owner/workspace 的控制请求暴露进程记录，跨 user/workspace 的取消得到 `not_found`。
 
-取消响应点只有两处：只有 Gateway 与 Actor 执行两个阶段会取消当前 `active_task`，因为这两个阶段在前台调用 LLM；进入 Alice 前统一检查一次停止请求（CPU 分配之后的检查与 `_run_interruptible` 的入口检查），Profile 解析、prepare 与 CPU 分配期间的停止请求都在这些工作照常完成后于此生效；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。外部取消必须携带明确的 `process_id`，唯一入口是 `POST /chat/stop` 与路由内的客户端断开处理。
+取消响应点只有两处：只有 Gateway 与 Actor 执行两个阶段会取消当前 `active_task`，因为这两个阶段在前台调用 LLM；进入 Actor 执行前统一检查一次停止请求（CPU 分配之后的检查与 `_run_interruptible` 的入口检查），Profile 解析、prepare 与 CPU 分配期间的停止请求都在这些工作照常完成后于此生效；阶段交接窗口只记录 stop，下一阶段不会启动；Finalize 与 Terminal 拒绝 stop。外部取消必须携带明确的 `process_id`，唯一入口是 `POST /chat/stop` 与路由内的客户端断开处理。
 
 用户 stop 在编排骨架内被翻译为私有 `_ProcessCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 同时区分“stop 取消 child task”和“进程 owner 被 ASGI/shutdown 取消”，后者必须原样向上传播。资源所有者在 unwind 中关闭自己创建的 stream、runner 与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
 
@@ -160,7 +162,7 @@ process_id
 ## 6. 错误、观测与 cleanup
 
 - 业务拒绝或资源不存在应使用服务定义的稳定结果/异常；
-- Gateway/Alice 的 task cancellation 不应被包装成普通 success 或 failed；Gateway timeout 仍按自己的 deadline/fallback 契约处理；
+- Gateway 与 Actor 执行（CPU）的 task cancellation 不应被包装成普通 success 或 failed；Gateway timeout 仍按自己的 deadline/fallback 契约处理；
 - `chat.run.*` 事件由 `TaskProcessEventEmitter` 从进程记录投影阶段与终态，经 `RuntimeEventPublisher` best-effort 发布：发布失败不改变返回值，失败事件只携带 Workspace 领域错误码或固定摘要，不写入异常正文；
 - cleanup 是 prepare 失败后的有限补偿，不是跨子系统 rollback；
 - 应用服务捕获的错误应保留原始因果，不能通过“空列表/空话题”掩盖 route 缺失或契约违约。
@@ -184,6 +186,7 @@ process_id
 - `tests/unit/workspace/process/test_chat_run_control_contract.py`
 - `tests/unit/workspace/process/test_cancel_hardening.py`
 - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）
+- `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局、停止、缺终态与输出流关闭）
 - `tests/unit/workspace/process/test_seal_interaction.py`（交互记录封口）
 - `tests/unit/workspace/process/test_process_events.py`（`chat.run.*` 投影与 best-effort 边界）
 - `tests/unit/server/routers/test_chat.py`

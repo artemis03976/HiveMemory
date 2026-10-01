@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-01
 ---
 
 # System 组合根与生命周期
@@ -47,7 +47,7 @@ HiveMemorySystem.build(config)
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
        -> service bundle
-            TaskProcessService（workspace.process，含进程表；注入 AssetStore 只读 reader、root RuntimeEventPublisher 与 memory_compiler / attachment_compiler 配置段）
+            TaskProcessService（workspace.process，含进程表；注入 CPU 端口（AliceSystem.cpu_port）、AssetStore 只读 reader、root RuntimeEventPublisher 与 memory_compiler / attachment_compiler 配置段）
             PassiveIngressService / SystemReadinessService（system.application）
             Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability）
 ```

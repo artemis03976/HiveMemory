@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # Agent Runtime
@@ -105,7 +105,7 @@ session generation_options
 - 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
 - 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；未注入时，调用方必须在 generation options 中直接提供可执行 model，否则 WorkerAgent 抛出 `ValueError`。
 
-模型注册表启用时，frame 记录的是展示名，供 `AgentRunResult.model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把 WorkerAgent 返回的底层 model 名重新写入 frame，因此 `model_used` 可能为空。
+模型注册表启用时，frame 记录的是展示名，供执行结果的 `model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把 WorkerAgent 返回的底层 model 名重新写入 frame，因此 `model_used` 可能为空。
 
 ## 5. 单帧执行循环
 
@@ -151,16 +151,17 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 
 非流式 LiteLLM await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Agent loop 在 `finally` 中关闭 Worker generator，Worker 再关闭 LiteLLM/provider response；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
 
-## 7. AgentRunResult 的组装边界
+## 7. 执行结果的组装边界
 
-Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统的 `AgentRunResult` 必须由 AgentRunService 组装：
+Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程的 CPU 中立执行结果（`CPUExecutionResult`，`workspace.contracts`）必须由 AgentRunService 组装：
 
 - `final_text` 来自主 frame 累积正文；
-- `turn_events` 是当前用户消息、assistant 输出和工具事件的有序事实；
-- `mtp_iterations/total_iterations` 来自主 frame PCB；
+- `turn_events` 是当前用户消息、assistant 输出和工具事件的有序事实（`TurnEvent`）；
 - `materialize_tasks` 由 PendingAtomRuntime 按共享 run_id 认领，包含父子帧写意图；
 - `status` 由取消状态与运行终态确定；
 - `model_used` 来自主 frame 模型解析。
+
+迭代统计（`mtp_iterations/total_iterations`）来自主 frame PCB，但属于 Alice 的观测：它们只进入 `agent.run.*` 终态事件的载荷，不进入执行结果。
 
 执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，AgentRunService 只在 run 边界投影稳定公共结果。
 
@@ -197,8 +198,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向跨子系统
 
 - frame、执行进度和消息历史只在内存中，进程重启、worker 崩溃或请求迁移后不能恢复；
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或 checkpoint 恢复策略；
-- 主 run 的失败和预算耗尽都由 Alice 组装为 `AgentRunStatus.FAILED`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
-- `AgentRunResult.turn_events` 在公共模型中仍声明为 `list[Any]`，类型边界没有完全收紧到 `TurnEvent`；
+- 主 run 的失败和预算耗尽都由 Alice 组装为执行结果的 `failed`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；
 - AliceRuntime 仍直接持有 PendingAtom settlement/cache 刷新逻辑；这部分属于进程级运行时投影，但尚未进一步提取为窄事件处理器；
 - 流式取消只能在 LiteLLM chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；

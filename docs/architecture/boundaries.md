@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # 系统边界与所有权
@@ -191,9 +191,10 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 | `GatewayExecutionState` | Gateway | 不公开；只投影 `GatewayProcessResult` |
 | `GatewayDecision` | Gateway 形成，调用链只读消费 | frozen 公共模型 |
 | `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass；任务进程读取话题与检索结果，并交回 finalize/cleanup |
-| `CPUInputManifest` | workspace 任务进程组装，Alice 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
+| `CPUInputManifest` | workspace 任务进程组装，CPU 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
+| `CPUPort` | workspace 定义，CPU 实现（当前为 Alice 的 `AliceCPU`），组合根注入任务进程 | `workspace.contracts` 中的协议；任务进程只经它调用 CPU |
 | `AgentRunContext` | Alice 由输入清单转换，供提示词组装 | Pydantic 模型，不出现在 Patchouli 路由上 |
-| `AgentRunResult` | Alice | Pydantic 公共模型 |
+| `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
 | `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
 | `WorkspaceAsset` working set | Workspace（组合根装配） | `core.ports.workspace_assets` 窄化端口、`WorkspaceAssetRef` 与 lease |

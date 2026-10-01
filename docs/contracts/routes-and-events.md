@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # 公开路由与事件
@@ -119,10 +119,11 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent` | `CPUInputManifest`（含 `process_id`）、generation options | `AgentRunResult` |
-| `alice.public.run_agent_stream` | `AgentRunService.run_agent_stream` 适配器 | `CPUInputManifest`（含 `process_id`）、generation options | async generator 对象 |
+| `alice.public.run_agent` | `AgentRunService.run_agent`（统一入口） | `CPUInputManifest`（含 `process_id`）、generation options、`stream` | `stream=True`：交互输出的 async generator 对象；`stream=False`：`CPUExecutionResult` |
 
-流式 route 返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
+任务进程不直接调用这条路由，而是经组合根注入的 CPU 端口调用执行者；Alice 的端口实现 `AliceCPU` 经这条路由调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。
+
+`stream=True` 时返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
 
 ## 3. 全局业务事件
 
@@ -179,7 +180,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 ### 4.2 与 Agent 交互输出流的边界
 
-`alice.public.run_agent_stream` 的交互输出与 `/runtime-events/stream` 是两条独立通道：
+`alice.public.run_agent`（`stream=True`）的交互输出与 `/runtime-events/stream` 是两条独立通道：
 
 - 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
 - RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；

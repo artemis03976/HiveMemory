@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-01
 ---
 
 # Alice
@@ -30,16 +30,16 @@ Alice 是 HiveMemory 的 Agent 执行与多智能体编排子系统。若说 Gat
 
 Alice 当前拥有：
 
-- `CPUInputManifest -> AgentRunResult` 的执行边界：执行入口接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；
+- `CPUInputManifest -> CPUExecutionResult` 的执行边界：唯一的执行入口 `run_agent` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
 - 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 由 Alice 运行时解析；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - PendingAtom 的进程内写缓冲、临时 alias、物化任务投影和 settlement 运行时视图；
-- 非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
+- 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 - Alice 私有 local bus，并经它代理 Patchouli 的公开记忆能力。
 
-这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由依次调用 Gateway、Patchouli 与 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile`、`PendingAtom` 与 `AgentRunResult` 等跨边界模型位于 `core`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
+这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
 
 ### 1.2 Alice 不拥有什么
 
@@ -108,13 +108,13 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
   -> RunExecutor -> AgentRuntime.run_frame()
        -> LLM generate
        -> natural stop | MTP execute | CALL suspend | cancel
-  -> AgentRunService assembles AgentRunResult
-  -> System decides whether Patchouli finalize may run
+  -> AgentRunService assembles CPUExecutionResult
+  -> 任务进程据执行结果决定是否封口交互记录并进入 Patchouli finalize
 ```
 
-Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的 `AgentRunResult` 包含自然语言正文、结构化 `TurnEvent[]`、迭代统计、实际模型展示名和 `PendingAtomMaterializeTask[]`。
+Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名和 `PendingAtomMaterializeTask[]`；迭代统计只出现在 `agent.run.*` 观测事件中。
 
-`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为 `AgentRunStatus.FAILED`，基础设施异常才向上抛出并由 System 结束 chat 用例；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在 System 管理的主动流程中进入 Patchouli finalize。
+`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在任务进程管理的主动流程中进入 Patchouli finalize。
 
 ### 4.2 CALL 与瞬态子帧
 
@@ -145,11 +145,11 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
+`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册统一执行路由 `alice.public.run_agent`（带 `stream` 参数），并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
 
 AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/cancelled 业务事件。事件只更新 Alice 的运行时投影；正式记忆是否落库仍以 Patchouli 为准。
 
-每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent。流式路径必须出现 `done` 才被视为正常终态；流生成器在终态前关闭时，Alice 会请求取消并发出 cancelled 观测事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
+每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。流式路径必须出现 `done` 才被视为正常终态；流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 
 ## 7. 当前设计文档
 

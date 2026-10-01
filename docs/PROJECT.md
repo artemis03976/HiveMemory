@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # HiveMemory 项目总览
@@ -218,7 +218,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
+Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
@@ -234,7 +234,7 @@ message
   -> [command short-circuit] 或 GatewayDecision
   -> Patchouli prepare（话题与检索）
   -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
-  -> Alice run / run_stream
+  -> Actor 执行：CPU 端口（当前为 Alice run，流式或非流式）
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli finalize
   -> response + background memory tasks
