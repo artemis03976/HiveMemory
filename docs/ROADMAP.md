@@ -152,7 +152,7 @@ last_reviewed: 2026-10-01
 
 #### 4.4.3 Alice 的会话压缩
 
-状态：Candidate，目标窗口约为 v0.7.1（2026-09-28 决定）。v0.7.0 起对话上下文由 ConversationSession 提供，会话操作为新建、恢复与压缩；压缩由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样，Topic 的 page folding 只整理记忆材料（[外部会话与 Topic 投影 Idea](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。外部 harness 自带压缩；Alice 的压缩算法在本版本实现，v0.7.0 期间 Alice 没有会话内压缩。相关候选设计见 [长时间运行 Agent 的 Turn 内上下文折叠](./ideas/long-running-agent-intra-turn-context-folding.md)。
+状态：Candidate，目标窗口约为 v0.7.1（2026-09-28 决定）。v0.7.0 起对话上下文由 ConversationSession 提供，会话操作为新建、恢复与压缩；压缩由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样，Topic 的 page folding 只整理记忆材料（[外部会话与 Topic 投影 Idea](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。外部 harness 自带压缩；Alice 的压缩算法在本版本实现，v0.7.0 期间 Alice 没有会话内压缩。用户以 `/compact` 指令触发压缩：对外部 Actor 触发其 harness 自带的压缩，对 Alice 使用自己的实现；前台的会话压缩与后台 Topic 的 page folding 是两项独立工作（owner，2026-10-01；见[会话 `/compact` 指令 Todo](./todo/conversation-compact-command.md)）。相关候选设计见 [长时间运行 Agent 的 Turn 内上下文折叠](./ideas/long-running-agent-intra-turn-context-folding.md)。
 
 ### 4.5 v0.7.2：冷启动、历史导入与外源文档资产化
 
@@ -217,8 +217,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [Mock fallback 披露](./todo/frontend-mock-fallback-disclosure.md) | 前端可靠性优先项 | 可辨认的数据来源与可兑现的写操作 |
 | [Memory Garden 语义检索](./todo/frontend-memory-semantic-search.md) | 前端资源体验 | 复用真实后端能力，保留失败和空结果 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |
-| [Page Folding 跨入口后续](./todo/page-folding-cross-ingress-follow-ups.md) | 由[话题折叠、Actor 上下文与原始证据计划](./plans/topic-folding-context-and-raw-evidence.md)集中承接，Planned / 占位；发布版本待详细设计确定 | 统筹折叠算法、原文证据与长 turn 两份 Idea；本次仅建立独立里程碑，不扩大 v0.7.0 A/B 的发布范围 |
-| [Topic /compact](./todo/topic-compact-command-ingress.md) | 独立小切片，可并行 | 不作为 Workspace、文档或 Research 的统一前置 |
+| [会话 /compact 指令](./todo/conversation-compact-command.md) | 依赖 ConversationSession、命令运行位置与 Alice 会话压缩（约 v0.7.1） | compact 只作用于 CPU 的会话上下文，不改写 Session 记录与 Topic；后台 Topic 的 page folding 是另一个问题 |
 | [Work Queue 多 lane 拓扑](./todo/work-queue-runtime-lane-topology.md) | 保持 Deferred | 只有共享 Store、跨 lane 调度或可复现故障触发才重评 |
 
 上述排期摘要不代替 Todo 本体的完成条件。实现时先复核其是否已解决；跨系统范围扩大则建立 Plan，不通过“清理 Todo”引入未评审的新状态机。

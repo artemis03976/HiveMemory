@@ -20,7 +20,7 @@ related_docs:
   - ../plans/perception-topic-buffer-boundary-refactor.md
   - ../plans/v0.6.2-identity-projection-cleanup.md
   - ../plans/v0.6.2-v1-memory-legacy-migration.md
-  - ../../todo/page-folding-cross-ingress-follow-ups.md
+  - ../../ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - ../../patchouli/perception.md
   - ../../patchouli/artifacts.md
   - ../../architecture/workspace.md
@@ -204,6 +204,6 @@ Artifact 按类型采用不同的来源粒度：`InteractionArtifact` 的每个 
 
 - [v0.6.2 identity projection cleanup（已归档计划）](../plans/v0.6.2-identity-projection-cleanup.md)：B1 identity/workspace 收敛的实现依据；
 - [V1→V2 memory legacy migration](../plans/v0.6.2-v1-memory-legacy-migration.md)：历史记录迁移与兼容门槛；
-- [page folding cross-ingress follow-ups](../../todo/page-folding-cross-ingress-follow-ups.md)：折叠态 Topic 和跨入口行为的后续问题；
+- page folding cross-ingress follow-ups（Todo，2026-10-01 拆分后删除，删除前最后版本见 commit `74b5056`；后台部分见 [Page Folding Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md) 第 9 节）：折叠态 Topic 和跨入口行为的后续问题；
 - [Topic shutdown 逐 Topic 失败隔离（已归档 todo）](../todo/topic-shutdown-per-topic-failure-isolation.md)：同样作用于 `flush_all_for_shutdown`，可能触及相同维护路径；
 - [ADR-0002：全局唯一身份与按需并发保护](../../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md)。

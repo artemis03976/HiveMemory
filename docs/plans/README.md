@@ -29,7 +29,7 @@ last_reviewed: 2026-10-01
 
 | 计划 | 状态 | 说明 |
 |:---|:---:|:---|
-| [话题折叠、Actor 上下文与原始证据统一改造](./topic-folding-context-and-raw-evidence.md) | Planned / 占位 | 统筹话题折叠算法重构、原始证据和长 turn 上下文两份 Idea；详细设计与发布版本待补齐 |
+| 暂无 | — | 原占位计划“话题折叠、Actor 上下文与原始证据统一改造”于 2026-10-01 退回 Idea 后删除（删除前最后版本见 commit `74b5056`）：后台部分并入 [Page Folding Raw Evidence](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)，前台部分并入[长时间运行 Agent 的 Turn 内上下文折叠](../ideas/long-running-agent-intra-turn-context-folding.md) |
 
 ## 已完成的计划
 

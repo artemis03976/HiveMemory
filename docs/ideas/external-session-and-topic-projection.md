@@ -11,10 +11,11 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-  - docs/plans/topic-folding-context-and-raw-evidence.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-09-28
+  - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
+  - docs/ideas/long-running-agent-intra-turn-context-folding.md
+last_reviewed: 2026-10-01
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -33,7 +34,7 @@ last_reviewed: 2026-09-28
 - 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md#q-9-对话连续性的承载) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见[总 Idea](./workspace-network-task-process-architecture.md) Q-11，该链路不在 v0.7.0 范围。
 - 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
 
-外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。本文讨论这个数据模型和交接时机，不涉及完整折叠算法；折叠和原始证据专项见[独立计划](../plans/topic-folding-context-and-raw-evidence.md)。
+外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。本文讨论这个数据模型和交接时机，不涉及完整折叠算法；后台 Topic 折叠与原始证据见 [Page Folding Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)，前台上下文与长 turn 见[长时间运行 Agent 的 Turn 内上下文折叠 Idea](./long-running-agent-intra-turn-context-folding.md)。
 
 ### 0.1 会话模型与 Topic 池（owner，2026-09-28）
 
@@ -50,7 +51,7 @@ last_reviewed: 2026-09-28
 | 事项 | 决定 |
 |:---|:---|
 | 会话操作 | 保留三个操作：新建（清空上下文）、恢复（resume，回到原会话继续追加）、压缩（compact，在会话内由 CPU 当场生成摘要替换较早的上下文）。不设“新会话接续旧会话”的交接摘要：把旧会话的完整历史带入新会话，等同于恢复旧会话；而 `topic_title`、`topic_summary` 只供前端展示，`state_summary` 不一定已经生成，都不能作为交接摘要的来源 |
-| 压缩的归属 | 压缩由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图；Session 记录保持原样。外部 harness 自带压缩与恢复；Alice 需要实现自己的压缩。Topic 的 page folding 只整理记忆材料，两者作用于不同对象 |
+| 压缩的归属 | 压缩由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图；Session 记录保持原样。外部 harness 自带压缩与恢复；Alice 需要实现自己的压缩。Topic 的 page folding 只整理记忆材料，两者作用于不同对象。补充（owner，2026-10-01）：ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作；compact 归属前台，用户的 `/compact` 指令对外部 Actor 触发其 harness 自带的压缩，对 Alice 由 Alice 自己实现（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding，面向 Topic 累计消息过长时保证输入记忆生成的资料不会导致上下文爆炸（[Page Folding Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)） |
 | Topic 与 Session | Topic 不绑定 Session，workspace 共享一个 Topic 池；Gateway 的路由候选为整个 workspace 的 Topic。同一主题在不同会话中的讨论路由到同一个 Topic，记忆材料的语义保持连贯。Session 与 Topic 之间只有路由关联：会话包含若干进程，每个进程的交互记录路由到某个 Topic |
 | 跨会话连续性 | 用户有意分开的会话，靠中期与长期记忆接续；想回到原来的话题时恢复原会话 |
 | Gateway 的会话提示 | 由 Gateway 识别“本轮消息属于另一个会话的话题”并提示用户恢复该会话，放到后续版本实现；现在 Gateway 的话题路由只服务于后台的 Topic 路由 |
@@ -61,7 +62,7 @@ last_reviewed: 2026-09-28
 - 本文第 3 节“新 Session 的自动路由候选默认限制在已关联 Topic”与第 4 节“用户新建 Session 只创建会话容器；显式新 Topic 才约束内层路由”，按本决定废止或需要修订；第 7 节“Alice 可以继续选 Topic 工作集、短期窗口和检索结果组织 prompt”不再成立；
 - 一个 Topic 中会交错出现来自多个会话的 block；提交按 Topic 串行处理，不影响记忆生成，但 Topic 不能再作为某个会话的对话视图展示；
 - controller 模式下，恢复会话对外部 harness 意味着恢复它的原会话，取决于 harness 是否支持（例如 ACP 的 `session/load` 是可选能力）；不支持时只能新建；
-- Alice 一侧的压缩与候选 Idea [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)相关；占位计划[话题折叠、Actor 上下文与原始证据统一改造](../plans/topic-folding-context-and-raw-evidence.md)把 Topic 折叠与 Actor 上下文合在一起，其前提已不成立；
+- Alice 一侧的压缩与候选 Idea [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)相关；占位计划“话题折叠、Actor 上下文与原始证据统一改造”把 Topic 折叠与 Actor 上下文合在一起，其前提已不成立（2026-10-01 退回 Idea 后删除，前台部分并入[Turn 内上下文折叠 Idea](./long-running-agent-intra-turn-context-folding.md)，后台部分并入 [Page Folding Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)）；
 - 版本安排（owner，2026-09-28）：前端改造在 v0.7.0 完成，新建与恢复两个会话操作随前端改造一起完成；Alice 的压缩算法滞后，大约在 v0.7.1 完成；Gateway 的会话提示放到后续版本。v0.7.0 期间 Alice 没有会话内压缩，长会话的上下文长度由用户新建会话来控制（分析）。
 
 ## 1. 目标与非目标
@@ -323,7 +324,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 RelayController 的新边界是 Topic working set 的折叠器：管理 Topic 侧的 token/block 预算、折叠原文的引用和供 Patchouli 生成使用的摘要。它不负责 ConversationSession 生命周期，也不应替外部 harness 压缩 prompt history。外部 harness 提供的 summary/checkpoint 作为扩展后的 `TurnEvent(kind=external_summary)` 或带 provenance 的辅助材料进入系统，不自动覆盖 Topic canonical `state_summary`。
 
-更细的 page folding、raw evidence、长 turn checkpoint、容量和恢复设计由[折叠专项计划](../plans/topic-folding-context-and-raw-evidence.md)承接；本文只涉及其必须依赖的 Session/interaction/Topic 关联和事件来源边界。
+更细的设计分别见两份 Idea：page folding、raw evidence、容量与后台恢复见 [Page Folding Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，长 turn checkpoint 与前台上下文见[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)；本文只涉及其必须依赖的 Session/interaction/Topic 关联和事件来源边界。
 
 （2026-09-28：本段中 Alice 以 Topic 工作集组织 prompt 的表述已不成立，对话上下文由 Session 提供、压缩由 CPU 负责，见 0.1。）Session 完整历史的展示与 prompt 预算是两件事。Alice 可以继续选 Topic 工作集、短期窗口和检索结果组织 prompt；外部 harness 自主管理 prompt 与厂商缓存。不把所有 Session 内容自动注入模型，也不以重构为由删除现有记忆侧短期工作集。“接收记录就替外部 Actor 改写执行上下文”的耦合需要解除；折叠质量算法本身继续保留现有实现，直到专项替换。
 

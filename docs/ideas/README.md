@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-09-28
+last_reviewed: 2026-10-01
 ---
 
 # Ideas
@@ -37,7 +37,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 |:---|:---|:---|
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（无生产调用方）、ingest HTTP 入口与能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（controller 模式为 v0.7.1 的首个真实接入，plugin 模式在其后的 v0.7.x 完善）；外部 Actor 如何登记进系统、运行时如何访问系统，以及 adapter 的接口边界（E-1 已决定维持配置装载；E-2–E-4 待决） |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、LogicalBlock、Agent runtime、topic Page Folding 与 passive event ingress | 如何在一个 turn 内多次 compact，同时保持执行连续性、记忆生成语义、原始证据和跨入口契约 |
-| [Page Folding Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md) | `state_summary` 折叠、InteractionArtifact 与异步 Generation | 保存原始折叠页是否值得引入新的耐久性、隐私与去重成本 |
+| [Page Folding Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md) | `state_summary` 折叠、InteractionArtifact 与异步 Generation | 后台 Topic 累计消息过长时，如何保证输入记忆生成的资料不会导致上下文爆炸；保存原始折叠页是否值得引入新的耐久性、隐私与去重成本（2026-10-01 定位为后台问题，前台会话压缩归 CPU） |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |
 | [复合意图分解](./composite-intent-decomposition.md) | `COMPOSITE` 分类信号与私有 `sub_intents` | 真实样本能否证明单主意图路径存在稳定缺口，以及 envelope、消费所有权与 fallback 如何冻结 |
 | [全项目时间使用统一规范](./project-wide-time-semantics-standardization.md) | A2-P 已统一 Memory 域时间（UTC-aware、四字段职责、局部 now 注入）；附录 D 记录的域外调用清单 | monotonic 域统一、topic 域字段分类、耗时统计与展示 allowlist 的治理路径与 owner |

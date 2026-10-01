@@ -13,7 +13,7 @@ related_contracts:
   - docs/system/passive-ingress.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # 感知与短期话题
@@ -171,4 +171,4 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 
 调整这些语义时必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain，因为“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数。
 
-后续跨入口上下文所有权、token-aware 保留、summary-only 与折叠证据 checkpoint 统一记录在 [Page Folding 跨入口后续技术债](../todo/page-folding-cross-ingress-follow-ups.md)。
+token-aware 保留、summary-only Topic、入口来源与折叠证据等后台折叠的已知缺口记录在 [Page Folding Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md) 第 9 节；跨入口的上下文所有权属于前台上下文，见[长时间运行 Agent 的 Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md) 第 14 节。

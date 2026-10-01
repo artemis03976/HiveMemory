@@ -13,13 +13,15 @@ related_current:
 related_ideas:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
 related_todos:
-  - docs/todo/page-folding-cross-ingress-follow-ups.md
-last_reviewed: 2026-07-30
+  - docs/todo/conversation-compact-command.md
+last_reviewed: 2026-10-01
 ---
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
 
 本文记录一项面向未来生产级长时间运行 Agent 的开放设计，不是当前能力说明，也不代表近期排期。当前短期话题、Agent runtime、Passive Ingress、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
+
+> 定位调整（owner，2026-10-01）：ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding（[Page Folding Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)）。影响（分析）：本文的 Level 1（Turn 内上下文折叠）属于前台、由 CPU 管理的上下文，Level 2（Topic Page Folding）属于后台；下文把两级串成一条流水线的设计需要按这一划分重新审视。
 
 ## 0. 核心判断与升级门槛
 
@@ -440,3 +442,22 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 10. 哪些真实使用指标足以证明该复杂度优于“外部 Agent 自行 compact，HiveMemory 只做 post-hoc 记忆生成”？
 
 这些问题在获得生产样本与明确所有权之前应保持开放，不应仅凭模型类名或配置草案提前固化。
+
+## 14. 前台上下文的已知缺口与待设计范围
+
+2026-10-01 并入：原占位计划“话题折叠、Actor 上下文与原始证据统一改造”（`docs/plans/topic-folding-context-and-raw-evidence.md`）退回 Idea，原 Todo“Page Folding 跨入口上下文与证据后续技术债”（`docs/todo/page-folding-cross-ingress-follow-ups.md`）拆分。两份文档中属于前台上下文的内容并入本节，属于后台 Topic 管理的内容并入 [Page Folding Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md) 第 9 节，原文件随后删除，删除前最后版本见 commit `74b5056`。
+
+### 14.1 已知缺口（代码核对，2026-07-30 记录）
+
+- **没有托管上下文能力**：Passive Ingress 默认由外部 harness 管理 prompt history，公共响应只返回 retrieval memory，不返回 `state_summary` 与 recent blocks。系统没有 `external | hivememory` 这类显式的上下文所有权能力，也没有带版本或覆盖游标的压缩后上下文输出。因此 Discord 等轻量 bot 不能把 HiveMemory 内部的折叠当作外部 prompt 压缩服务使用（对应第 8.3 节）。
+- 按开头的定位调整，前台上下文的压缩归 CPU。若要支持由 HiveMemory 托管的 bot 上下文，需要形成独立 Plan，定义上下文所有权、版本/覆盖游标、返回模型，以及调用方替换历史的幂等契约（候选，未决定；与第 13 节问题 8 相关）。
+
+### 14.2 待设计范围（原占位计划的前台部分）
+
+| 工作域 | 需要覆盖的问题 |
+|:---|:---|
+| 长 turn 与运行中折叠 | segment/checkpoint 候选模型、事件顺序、覆盖关系、工具调用的原子边界、seal/cancel/failure 及恢复范围 |
+| Alice 与外部 harness | 自主管理上下文、外部摘要/checkpoint 的来源、混合来源 Topic，以及显式委托上下文管理的适用范围 |
+| 执行与记忆的边界 | 执行接力摘要与记忆摘要的用途差异（第 6 节）；前台的上下文压缩不改写后台 Topic 的折叠状态 |
+
+`InteractionPayload` 表示一次完成或明确封口的交互；本文的长 turn 分片与 checkpoint 是运行中的预算与覆盖机制，两者生命周期不同。证据与折叠覆盖关系应引用 `interaction_id`（controller 模式下取 `process_id` 的值）与 `TurnEvent` 范围建立，不另建一套来源 ID。

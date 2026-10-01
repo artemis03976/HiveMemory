@@ -8,14 +8,25 @@ related_current:
   - docs/patchouli/perception.md
   - docs/patchouli/artifacts.md
   - docs/patchouli/generation.md
+  - docs/system/passive-ingress.md
 related_ideas:
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-07-30
+  - docs/ideas/external-session-and-topic-projection.md
+last_reviewed: 2026-10-01
 ---
 
 # Patchouli Page Folding Raw Evidence 设计备忘
 
 本文是一项未排期的开放设计，不是 Patchouli 当前能力说明。当前 Page Folding、Artifact 与 Generation 的真实边界分别以[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。一个未结束 turn 内多次 compact 的工作集管理另见[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)；两项 Idea 可以共享 evidence refs，但不能互相充当已经落地的能力。
+
+## 0.0 定位调整（owner，2026-10-01）
+
+ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作。前台的上下文压缩归 CPU（用户以 `/compact` 触发，见[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本 Idea 针对的是后台问题：Topic 累计消息过长时，如何保证输入 Patchouli 记忆生成的资料不会导致上下文爆炸。
+
+影响（分析）：
+
+- 下文把 `TOKEN_OVERFLOW` 描述为“面向 Agent 热路径的设计决策”，并设计了 Agent Context Flow（3.1）。这反映的是当前代码：Alice 每轮的历史来自 Topic 的 `state_summary` 与最近 blocks（`prompts/assembler.py`）。ConversationSession 落地后，Agent 的上下文改由会话提供，page folding 不再服务 Agent 的上下文，相关段落需要按新的定位重新审视；
+- 第 0 节所述“Agent 的工作上下文与系统保存的原始证据是两种不同资产”仍然成立，只是 Agent 的工作上下文从此归前台、由 CPU 管理。
 
 ## 0. 复核结论与成立条件
 
@@ -391,3 +402,34 @@ For Generation:
 
 这保留了当前设计中最重要的热路径性质，同时为未来更高质量的记忆生成、审计、回放和调试提供基础设施。
 
+## 9. 后台折叠的已知缺口与待设计范围
+
+2026-10-01 并入：原占位计划“话题折叠、Actor 上下文与原始证据统一改造”（`docs/plans/topic-folding-context-and-raw-evidence.md`）退回 Idea，原 Todo“Page Folding 跨入口上下文与证据后续技术债”（`docs/todo/page-folding-cross-ingress-follow-ups.md`）拆分。两份文档中属于后台 Topic 管理的内容并入本节，属于前台上下文的内容并入[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)第 14 节，原文件随后删除，删除前最后版本见 commit `74b5056`。
+
+### 9.1 已知缺口（代码核对，2026-07-30 记录，2026-10-01 复核配置）
+
+- **软水位线**：overflow 后只按 block 数保留后缀。单个超大 turn 或最近 blocks 本身可能继续超过 `fold_token_threshold`，因此它只是软水位线。按 0.0 节的定位，后果是 Topic 交给记忆生成的资料可能超出预算。
+- **不支持 summary-only Topic**：公开配置拒绝 `fold_retain_recent_blocks=0`（`config/patchouli.py`，`ge=1`）。底层 Store 把零值定义为“清空全部 blocks”，但 `TopicData.is_empty`、shutdown settlement、Generation identity 与 InteractionArtifact 尚不支持只剩摘要的 Topic。
+- **缺少入口来源**：主动与被动入口共享 `InteractionPayload` 和短期 Topic，payload 与 block 没有稳定的 ingress origin 与 connector provenance，因此不能安全地按入口类型切换整个 Topic 的折叠策略。若直接根据 `PASSIVE_MEMORY` 跳过折叠，Patchouli 内部 buffer 与 settlement generation 可能无界增长。
+- **compact-only**：`TOKEN_OVERFLOW` 只压缩，被折叠的旧前缀不会自动形成 settlement 或 raw evidence artifact（见第 0、1 节），长时间运行的被动对话尤其可能只剩有损摘要，高保真的原始 turn 可能在正式记忆或 artifact 生成前被裁剪。
+
+“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数；调整这些语义时，必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain。
+
+### 9.2 待设计范围（原占位计划的后台部分）
+
+| 工作域 | 需要覆盖的问题 |
+|:---|:---|
+| 折叠算法 | RelayController 的定位、触发策略与摘要算法的分离、token 与 block 数的联合预算、摘要自身的增长、超大 block 与保留后缀 |
+| 原始证据 | 保存时机、存储归属、引用与覆盖范围、折叠前后的材料交接、容量、保留期限、删除与写入失败 |
+| Generation 与生命周期 | 普通 settlement、高保真分块处理、去重与来源关联、幂等、背压、关闭及持久化恢复的承诺边界 |
+
+### 9.3 升级为 Plan 前需要回答的问题
+
+在第 0 节的成立条件之外，还需要回答（候选，未决定）：
+
+1. count limit 与 token budget 的联合保留算法如何处理单个超大 block，需要哪些可观测事件；
+2. 是否支持 retain zero：若支持，需要完整定义 summary-only Topic 的非空判断、身份归属、shutdown/idle settlement、Generation 与 artifact 行为；若不支持，继续在 schema 与当前文档中明确拒绝；
+3. 在需要按入口区分折叠策略之前，如何定义 interaction origin/provenance 以及混合来源 Topic 的冲突规则，而不是根据 connector 名称或单个事件临时推断；
+4. folded prefix 采用 checkpoint settlement、append-only raw evidence 还是其他耐久化路径，以及写入失败、容量、隐私、删除与 shutdown 语义。
+
+每项跨系统能力在实施前都应形成独立 Plan，并同步更新 Perception、Generation、Artifacts、Passive Ingress 与相关契约文档。

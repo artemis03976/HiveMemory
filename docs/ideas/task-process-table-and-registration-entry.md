@@ -468,7 +468,7 @@ stateDiagram-v2
 
 - 现状下 Alice 的对话上下文来自 Topic 的 `state_summary` 与最近 5 个 block（2.5），迁移后改由 ConversationSession 提供；
 - Topic 不再预先创建，见 1.2；
-- 占位计划[话题折叠、Actor 上下文与原始证据统一改造](../plans/topic-folding-context-and-raw-evidence.md)的背景写的是“话题折叠同时影响 Alice 使用的上下文”，按本决定已不成立。
+- 占位计划“话题折叠、Actor 上下文与原始证据统一改造”的背景写的是“话题折叠同时影响 Alice 使用的上下文”，按本决定已不成立。该计划已于 2026-10-01 退回 Idea 后删除（删除前最后版本见 commit `74b5056`），内容按前台与后台分别并入[Turn 内上下文折叠 Idea](./long-running-agent-intra-turn-context-folding.md)与 [Page Folding Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。
 
 ### Q-10 CALL 子 Agent
 
