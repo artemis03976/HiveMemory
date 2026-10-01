@@ -153,7 +153,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 1. Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型，包括 `AgentRunContext`、`StreamPrelude`、`AgentRunResult` 与编译好的记忆文本（2026-09-30 已随第二、三批实施达成；`InteractionPayload` 过渡期仍携带 `materialize_tasks`）；
 2. 一个非 Alice 的 CPU（测试中的替身即可）能跑完整个任务进程，不需要改动进程与入口的代码（2026-10-01 已随第四批实施达成）；
 3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试；
-4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6；命令系统后置，v0.7.0 内现有内置命令暂时不可用，见 Q-5a）。
+4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6；命令系统后置，v0.7.0 内现有内置命令暂时不可用，见 Q-5a）。2026-10-01：被动请求按 Q-6 这一阶段不考虑。
 
 ## 2. 现状事实（代码核对，2026-09-27；迁移前快照，2026-09-28 起由 `workspace.process` 取代）
 
@@ -409,6 +409,8 @@ stateDiagram-v2
 - **Q-5**：Gateway 是每个任务进程的第一阶段，在进程内执行（1.2）。不存在任务类型，所以不是选项 A 的“只属于特定任务类型”；它也不在注册之前执行，所以不是选项 B。
 - **Q-5a**：命令所在的请求同样注册为进程。命令解析在 Gateway 内执行，但命令的实际运行不在 Gateway 中：后续指令会与用户请求同时出现，不能让 Gateway 实际执行命令（同日修订，原记录为“命令在第一阶段结束”）。命令在进程中何时、由谁运行，尚未决定。
 - **命令系统后置**（owner，2026-09-28）：命令系统不在 v0.7.0 计划内完整接回；现有四个内置命令（help、commands、clear、runtime.status）在 v0.7.0 内设为暂时不可用。
+- **“暂时不可用”的含义**（owner，2026-10-01）：命令仍由 Gateway 解析（Gateway 已有的功能），但不会执行。
+- **解析与执行分开**（owner，2026-10-01）：Gateway 的命令解析与执行分开，Gateway 只输出解析结果；现有的命令分发与执行（dispatcher 与 handler）删除。命令在进程中何时、由谁运行，仍随命令系统后置决定。
 - Q-5b 仍待决。
 
 ### Q-6 被动请求的范围
@@ -420,6 +422,8 @@ stateDiagram-v2
 | A | 当前阶段只在注册请求中保留请求方类型，不实现触发条件与调度 | 入口形状兼容触发方，不交付触发能力 |
 | B | 实现一种最小触发机制 | 需要定义触发条件、去重、失败与取消语义 |
 | C | 当前阶段不考虑被动请求 | 入口形状以后可能需要调整 |
+
+**owner 决定（2026-10-01）**：选项 C，这一阶段先不考虑被动请求，避免现在做好的接口被后续的设计重新推翻。版本目标第 4 条中的被动请求部分随之不在这一阶段实施。
 
 ### Q-7 记忆库内部工作与进程表
 
@@ -557,7 +561,7 @@ stateDiagram-v2
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
 - 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
-- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。第三批实施计划：[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)（进程封口交互记录，finalize 不再接收 `AgentRunResult`），已实施归档。第四批实施计划：[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)，已实施归档。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
+- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。第三批实施计划：[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)（进程封口交互记录，finalize 不再接收 `AgentRunResult`），已实施归档。第四批实施计划：[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)，已实施归档。第五批实施计划：[命令只解析不执行](../plans/v0.7.0-task-process-command-parse-only.md)。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
 - 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。
