@@ -11,13 +11,12 @@ import logging
 import re
 
 from hivememory.config.gateway import RuleInterceptorConfig
+from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
 from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
-    CommandParseResult,
-    CommandParseStatus,
     CommandRegistry,
     CommandRouteTarget,
     CommandRouteTargetKind,

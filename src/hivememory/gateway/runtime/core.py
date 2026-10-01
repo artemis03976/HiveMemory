@@ -18,10 +18,7 @@ from hivememory.gateway.analysis import (
     LLMUserQueryAnalysisResolver,
     UserQueryAnalysisResolver,
 )
-from hivememory.gateway.commands import (
-    SystemCommandDispatcher,
-    create_builtin_command_registry,
-)
+from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import (
     GatewayContextProvider,
     GlobalBusGatewayContextProvider,
@@ -84,17 +81,12 @@ class GatewayRuntime:
             else:
                 analysis_resolver = FallbackUserQueryAnalysisResolver(config.user_query_analysis)
 
+        # 命令只解析不执行：runtime 只装配命令注册表供入口拦截识别，
+        # 分发与执行随命令系统接回时在新的运行位置重新设计。
         registry = create_builtin_command_registry(config.commands.builtin)
         interceptor = create_interceptor(config.interceptor, registry)
-        command_dispatcher = SystemCommandDispatcher(
-            registry,
-            global_bus=global_bus,
-            debug_enabled=config.commands.enable_debug_commands,
-            expose_listing=config.commands.expose_listing,
-        )
         self.workflow = workflow or build_gateway_workflow(
             interceptor=interceptor,
-            command_dispatcher=command_dispatcher,
             context_provider=context_provider,
             topic_router=topic_router,
             analysis_resolver=analysis_resolver,

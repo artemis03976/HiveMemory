@@ -37,6 +37,7 @@ from hivememory.workspace.contracts import (
     CPUPort,
 )
 from hivememory.workspace.process.allocation import CPUAllocator
+from hivememory.workspace.process.command_terminal import command_terminal
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.outputs import (
     ActorEvent,
@@ -221,7 +222,9 @@ class TaskProcess:
                 ),
             )
             if gateway_result.kind == "command":
-                command_result = gateway_result.command_execution_result
+                # 命令只解析不执行：解析结果在这里转换为命令终态，命令不可用
+                # 是命令自身的终态，进程仍按 completed 结局收口。
+                command_result = command_terminal(gateway_result.command_parse_result)
                 record.mark_completed()
                 self._events.command_completed(command_id=command_result.command_id)
                 yield self._terminal(CommandCompleted(command_result))

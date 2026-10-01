@@ -20,8 +20,8 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
-    CommandExecutionResult,
-    CommandExecutionStatus,
+    CommandParseResult,
+    CommandParseStatus,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -239,10 +239,11 @@ async def test_command_outcome_raises_contract_error() -> None:
     """PASSIVE_MEMORY 返回 command outcome 是契约违约，不降级。"""
     recorder = _Recorder()
     recorder.gateway_outcome = GatewayCommandOutcome(
-        command_execution_result=CommandExecutionResult(
-            command_id="cmd-1",
-            status=CommandExecutionStatus.COMPLETED,
-            message="ok",
+        command_parse_result=CommandParseResult(
+            raw_input="/clear",
+            name="/clear",
+            tokens=["/clear"],
+            parse_status=CommandParseStatus.MATCHED,
         )
     )
     ingressor, _ = _build(recorder)

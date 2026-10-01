@@ -27,8 +27,9 @@ from hivememory.core.models import (
     WorkspaceAssetRef,
 )
 from hivememory.core.protocol.gateway import (
-    CommandExecutionResult,
     CommandExecutionStatus,
+    CommandParseResult,
+    CommandParseStatus,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -100,12 +101,15 @@ def _decision_outcome() -> GatewayDecisionOutcome:
 
 
 def _command_outcome() -> GatewayCommandOutcome:
+    """Gateway 命令只解析：/clear 的解析成功结果（不含任何执行产物）。"""
     return GatewayCommandOutcome(
-        command_execution_result=CommandExecutionResult(
+        command_parse_result=CommandParseResult(
             command_id="system.clear",
-            status=CommandExecutionStatus.COMPLETED,
-            message="已清空聊天。",
-            client_action={"type": "clear_chat"},
+            raw_input="/clear",
+            name="/clear",
+            tokens=["/clear"],
+            matched_alias="/clear",
+            parse_status=CommandParseStatus.MATCHED,
         )
     )
 
@@ -195,6 +199,7 @@ def _service(
 
 @pytest.mark.asyncio
 async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
+    """命令只解析不执行：进程把解析结果转为"暂不可用"终态，不调用 prepare/Profile/CPU。"""
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
@@ -204,6 +209,9 @@ async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
 
     assert result.kind == "command"
     assert result.command_execution_result.command_id == "system.clear"
+    assert result.command_execution_result.status == CommandExecutionStatus.NOT_IMPLEMENTED
+    assert result.command_execution_result.error_code == "command.unavailable"
+    assert result.command_execution_result.client_action is None
     assert cpu.calls == []
     assert bus.list_routes() == [GlobalRoutes.GATEWAY_PROCESS]
 
@@ -314,6 +322,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
 
 @pytest.mark.asyncio
 async def test_streaming_command_emits_result_and_done_only() -> None:
+    """流式命令请求：command_result 为"暂不可用"终态且不带客户端动作，随后 done 收口。"""
     bus = GlobalSystemBus()
     bus.register(
         GlobalRoutes.GATEWAY_PROCESS,
@@ -327,8 +336,10 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
         "command_result",
         "done",
     ]
-    assert events[1]["data"]["client_action"] == {"type": "clear_chat"}
-    assert events[2]["data"]["final_text"] == "已清空聊天。"
+    assert events[1]["data"]["status"] == "not_implemented"
+    assert events[1]["data"]["error_code"] == "command.unavailable"
+    assert events[1]["data"]["client_action"] is None
+    assert events[2]["data"]["final_text"] == "系统指令 /clear 暂不可用。"
 
 
 @pytest.mark.asyncio

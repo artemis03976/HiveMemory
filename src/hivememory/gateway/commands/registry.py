@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.gateway.commands.models import (
-    CommandDefinition,
-    CommandParseResult,
-    CommandParseStatus,
-)
+from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
+from hivememory.gateway.commands.models import CommandDefinition
 from hivememory.gateway.commands.parser import (
     CommandParseError,
     build_parse_result,

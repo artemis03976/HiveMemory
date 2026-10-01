@@ -51,8 +51,8 @@ SUBSYSTEM_GROUP = {"agent_runtime": "alice"}
 ROOT_CONFIG_MODULE = "hivememory.config.app"
 ROOT_CONFIG_CONSUMERS = {"system", "server"}
 
-# 已知的向上依赖（engines 直接使用 Patchouli 存储层、Gateway 命令模型与
-# AgentRuntime alias 结果），属于分层重构之前就存在的耦合，另行处理。
+# 已知的向上依赖（engines 直接使用 Patchouli 存储层与 AgentRuntime alias
+# 结果），属于分层重构之前就存在的耦合，另行处理。
 # 断言为精确相等：新增违规或修复后未同步本清单都会失败。
 KNOWN_UPWARD_IMPORTS = {
     ("engines/artifacts/document.py", "hivememory.patchouli.memory_library"),
@@ -60,7 +60,6 @@ KNOWN_UPWARD_IMPORTS = {
     ("engines/artifacts/interaction.py", "hivememory.patchouli.memory_library"),
     ("engines/artifacts/memory.py", "hivememory.patchouli.memory_library"),
     ("engines/gateway/interceptors.py", "hivememory.gateway.commands"),
-    ("engines/gateway/models.py", "hivememory.gateway.commands.models"),
     ("engines/generation/engine.py", "hivememory.patchouli.memory_library.stores"),
     ("engines/lifecycle/engine.py", "hivememory.patchouli.memory_library.stores"),
     ("engines/lifecycle/garbage_collector.py", "hivememory.patchouli.memory_library.library"),

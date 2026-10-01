@@ -10,7 +10,7 @@ from hivememory.config.gateway import (
     TopicRouterConfig,
     UserQueryAnalysisConfig,
 )
-from hivememory.core.models import ActorIdentity, IdentityScope, TopicSnapshot
+from hivememory.core.models import IdentityScope, TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
@@ -33,8 +33,6 @@ from hivememory.gateway.analysis import (
     UserQueryAnalysisResolver,
     UserQueryAnalysisResult,
 )
-from hivememory.gateway.commands import SystemCommandDispatcher
-from hivememory.gateway.commands.models import CommandParseResult
 from hivememory.gateway.context import CandidateTopics, GatewayContextProvider
 from hivememory.gateway.workflow.state import GatewayStateSnapshot
 from hivememory.gateway.workflow.steps import (
@@ -48,12 +46,6 @@ from hivememory.gateway.workflow.workflow import GatewayWorkflow
 class EntryInterceptionInput:
     raw_message: str
     ingress_mode: GatewayIngressMode
-
-
-@dataclass(frozen=True)
-class CommandDispatchInput:
-    command: CommandParseResult | None
-    identity: ActorIdentity
 
 
 @dataclass(frozen=True)
@@ -81,7 +73,6 @@ class SimpleChatDefaultsInput:
 def build_gateway_workflow(
     *,
     interceptor: BaseInterceptor,
-    command_dispatcher: SystemCommandDispatcher,
     context_provider: GatewayContextProvider | None,
     topic_router: TopicRouterEngine | None,
     analysis_resolver: UserQueryAnalysisResolver | None,
@@ -98,12 +89,6 @@ def build_gateway_workflow(
         return interceptor.intercept(
             selected.raw_message,
             allow_system=selected.ingress_mode == GatewayIngressMode.ACTIVE_CHAT,
-        )
-
-    async def invoke_command(selected: CommandDispatchInput):
-        return await command_dispatcher.execute(
-            selected.command,
-            identity=selected.identity,
         )
 
     async def invoke_candidate_topics(
@@ -155,12 +140,6 @@ def build_gateway_workflow(
             invoke=invoke_entry,
             project=_project_entry_result,
             resolve_flow_end=_resolve_entry_flow_end,
-        ),
-        command_dispatch_step=GatewayWorkflowStep(
-            step_id="command_dispatch",
-            select_input=_select_command_dispatch_input,
-            invoke=invoke_command,
-            project=lambda output: {"command_execution_result": output},
         ),
         decision_prefix=(
             GatewayWorkflowStep(
@@ -238,17 +217,6 @@ def _resolve_entry_flow_end(output: InterceptorResult | None) -> str | None:
     if output is not None and output.intent == GatewayIntent.SYSTEM:
         return "system_command"
     return None
-
-
-def _select_command_dispatch_input(
-    snapshot: GatewayStateSnapshot,
-) -> CommandDispatchInput:
-    if snapshot.ingress_mode != GatewayIngressMode.ACTIVE_CHAT:
-        raise RuntimeError("PASSIVE_MEMORY 不得进入 command dispatch")
-    return CommandDispatchInput(
-        command=snapshot.command_parse_result,
-        identity=snapshot.identity_scope.actor_identity,
-    )
 
 
 def _select_candidate_topics_input(
@@ -333,7 +301,6 @@ def _conservative_analysis_result(
 
 __all__ = [
     "CandidateTopicsInput",
-    "CommandDispatchInput",
     "EntryInterceptionInput",
     "RoutedTopicInput",
     "SimpleChatDefaultsInput",

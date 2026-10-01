@@ -2,10 +2,10 @@
 
 import pytest
 
+from hivememory.core.protocol.gateway import CommandParseStatus
 from hivememory.gateway.commands.models import (
     CommandCategory,
     CommandDefinition,
-    CommandParseStatus,
     CommandRouteTarget,
     CommandRouteTargetKind,
 )

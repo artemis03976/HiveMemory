@@ -10,8 +10,8 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
-    CommandExecutionResult,
-    CommandExecutionStatus,
+    CommandParseResult,
+    CommandParseStatus,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -186,10 +186,11 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
         GlobalRoutes.GATEWAY_PROCESS,
         AsyncMock(
             return_value=GatewayCommandOutcome(
-                command_execution_result=CommandExecutionResult(
-                    command_id="system.clear",
-                    status=CommandExecutionStatus.COMPLETED,
-                    message="clear",
+                command_parse_result=CommandParseResult(
+                    raw_input="/clear",
+                    name="/clear",
+                    tokens=["/clear"],
+                    parse_status=CommandParseStatus.MATCHED,
                 )
             )
         ),

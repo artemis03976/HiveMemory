@@ -17,6 +17,8 @@ from hivememory.config.gateway import (
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import TopicSnapshot
 from hivememory.core.protocol.gateway import (
+    CommandParseResult,
+    CommandParseStatus,
     GatewayIngressMode,
     IntentType,
     MemoryWriteSignal,
@@ -26,10 +28,7 @@ from hivememory.core.protocol.gateway import (
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.gateway.analysis import UserQueryAnalysisResult
-from hivememory.gateway.commands import (
-    SystemCommandDispatcher,
-    create_builtin_command_registry,
-)
+from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import CandidateTopics
 from hivememory.gateway.workflow import (
     GatewayExecutionState,
@@ -89,7 +88,6 @@ def _make_workflow(
     registry = create_builtin_command_registry()
     return build_gateway_workflow(
         interceptor=create_interceptor(RuleInterceptorConfig(), registry),
-        command_dispatcher=SystemCommandDispatcher(registry),
         context_provider=provider,
         topic_router=router,
         analysis_resolver=resolver,
@@ -104,7 +102,8 @@ def _make_workflow(
 
 
 @pytest.mark.asyncio
-async def test_command_branch_dispatches_and_short_circuits_decision_prefix() -> None:
+async def test_command_branch_returns_parse_result_and_skips_decision_prefix() -> None:
+    """主动模式命令只解析：命令结果携带 matched 解析产物，且不运行任何决策步骤。"""
     provider = _Provider()
     router = _Router()
     resolver = _Resolver()
@@ -115,17 +114,60 @@ async def test_command_branch_dispatches_and_short_circuits_decision_prefix() ->
     )
 
     result = await workflow.run(
-        "/clear",
+        "/help",
         identity_scope=make_identity_scope(user_id="u1"),
         ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
     )
 
     assert result.kind == "command"
-    assert result.command_execution_result.client_action["type"] == "clear_chat"
+    assert result.command_parse_result.parse_status == CommandParseStatus.MATCHED
+    assert result.command_parse_result.command_id == "system.help"
     provider.prepare_candidate_topics.assert_not_awaited()
     provider.prepare_routed_topic.assert_not_awaited()
     router.route.assert_not_awaited()
     resolver.resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unknown_slash_input_returns_command_outcome_with_unknown_parse() -> None:
+    """未知 slash 输入仍以命令结果收口，解析状态为 unknown；完成事件的
+    command_id 在解析失败时回退为解析出的命令名。"""
+    events = RecordingRuntimeEventSink()
+    workflow = _make_workflow(events=events)
+
+    result = await workflow.run(
+        "/no_such_command",
+        identity_scope=make_identity_scope(user_id="u1"),
+        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+    )
+
+    assert result.kind == "command"
+    assert result.command_parse_result.parse_status == CommandParseStatus.UNKNOWN
+    assert result.command_parse_result.command_id is None
+    assert result.command_parse_result.name == "/no_such_command"
+    completed = events.events[-1]
+    assert completed.event_type == RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value
+    assert completed.data["outcome_kind"] == "command"
+    assert completed.data["command_id"] == "/no_such_command"
+
+
+def test_passive_state_with_command_flow_end_cannot_finalize() -> None:
+    """被动模式不得产生命令结果：命令流程删除执行步骤后，finalize 是唯一守卫。"""
+    state = GatewayExecutionState(
+        raw_message="/help",
+        identity_scope=make_identity_scope(user_id="u1"),
+        ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
+        command_parse_result=CommandParseResult(
+            command_id="system.help",
+            raw_input="/help",
+            name="/help",
+            parse_status=CommandParseStatus.MATCHED,
+        ),
+        flow_end_reason="system_command",
+    )
+
+    with pytest.raises(RuntimeError, match="PASSIVE_MEMORY 不得产生 command outcome"):
+        state.finalize()
 
 
 @pytest.mark.asyncio
