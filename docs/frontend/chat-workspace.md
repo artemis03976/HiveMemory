@@ -18,7 +18,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-10-01
 ---
 
 # Chat 工作区
@@ -60,7 +60,7 @@ OmniInput 在发送前组装：
 | `sub_agent_start` / `sub_agent_end` | 创建子 Agent 区块并收束状态 |
 | `topic_info` | 更新本轮真实 Topic ID 与 Topic 池快照 |
 | `memory_refs` | 替换右侧“引用记忆”列表 |
-| `command_result` | 展示命令消息，并执行如 clear chat 的显式客户端动作 |
+| `command_result` | 展示命令消息；结果带显式客户端动作（如 `clear_chat`）时执行该动作。当前内置命令暂时不可用，后端不返回客户端动作（见 [Gateway 全局命令](../gateway/commands.md)） |
 | `process_id` | 建立取消请求所需的任务进程标识 |
 | `run_status` | 驱动准备、流式、取消、收尾和失败状态 |
 | `done` | 写入最终文本、task IDs、Topic 池与终态 |

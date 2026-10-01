@@ -53,9 +53,9 @@ HiveMemory 当前没有一个覆盖所有 HTTP、子系统和运行时的统一 
 - `requires_confirmation`；
 - `not_implemented`。
 
-这些是系统指令的可预期终态，仍通过 `GatewayCommandOutcome` 正常返回。`error_code` 可提供稳定机器标识，`message` 面向当前客户端展示。
+这些是系统指令的可预期终态，作为正常结果返回给调用方（流式 `command_result`、非流式 `NonStreamingCommandOutcome`）。Gateway 只解析命令，`GatewayCommandOutcome` 只携带解析结果；命令终态由任务进程按解析状态产生，当前只会出现 `not_implemented`（解析成功，`command.unavailable`：内置命令暂时不可用）与 `rejected`（解析失败，`command.parse.<解析状态>`），其余取值随命令系统接回时使用。`error_code` 可提供稳定机器标识，`message` 面向当前客户端展示。
 
-`rejected` 或 `requires_confirmation` 并不表示 Gateway 自身发生异常。把它们建模为正常结果，可以让 transport 稳定展示命令终态，也避免顶层异常处理器误将一次业务拒绝记录成系统故障。
+`rejected`、`not_implemented` 或 `requires_confirmation` 并不表示 Gateway 或任务进程自身发生异常。把它们建模为正常结果，可以让 transport 稳定展示命令终态，也避免顶层异常处理器误将一次业务拒绝记录成系统故障。
 
 ### 2.2 Agent run
 

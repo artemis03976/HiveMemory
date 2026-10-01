@@ -8,10 +8,12 @@ related_docs:
   - docs/gateway/commands.md
   - docs/patchouli/perception.md
   - docs/governance/testing/test-design-standards.md
-last_reviewed: 2026-08-22
+last_reviewed: 2026-10-01
 ---
 
 # Topic `/compact` 系统指令接入
+
+> **前提变化（2026-10-01）**：本事项依赖的 Gateway 命令执行链路已删除。Gateway 现在只解析命令、不执行，`SystemCommandDispatcher` 与 `CommandDispatchInput` 已不存在，内置命令暂时不可用，命令在任务进程中何时、由谁运行随命令系统后置决定（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-5a、[Gateway 全局命令](../gateway/commands.md)）。另外，前端的“当前 Topic”概念按[外部会话与 Topic 投影 Idea](../ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1 将被取消，会话模型中的“压缩”指 CPU 对会话上下文的压缩，与 Topic manual compact 不是同一对象。下文“冻结设计”中经 dispatcher 执行与传播 `current_topic_id` 的路径不再成立，需要随命令系统接回重新设计；本事项是否保留尚未决定。
 
 ## 排期与非阻塞关系
 

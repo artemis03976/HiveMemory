@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-10-01
 ---
 
 # Gateway 固定工作流
@@ -29,7 +29,6 @@ Gateway workflow 解决的不是“如何自由编排任意 Agent 任务”，�
 ```text
 GatewayContextProvider
 RuleInterceptor + CommandRegistry
-SystemCommandDispatcher
 TopicRouterEngine
 UserQueryAnalysisResolver
         |
@@ -40,7 +39,7 @@ build_gateway_workflow()
 GatewayWorkflow
 ```
 
-`GatewayWorkflow` 是请求级执行协调者，`GatewayExecutionState` 只由它持有。Engine、Provider、Resolver 和 Dispatcher 可以替换，但不能改变公共终态结构；拓扑若发生变化，应显式修改 `build_gateway_workflow()` 和当前文档，而不是让某个 Engine 私下跳转到另一步。
+`GatewayWorkflow` 是请求级执行协调者，`GatewayExecutionState` 只由它持有。Engine、Provider 和 Resolver 可以替换，但不能改变公共终态结构；拓扑若发生变化，应显式修改 `build_gateway_workflow()` 和当前文档，而不是让某个 Engine 私下跳转到另一步。
 
 `GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、完整的 `IdentityScope`、入口模式和有效 deadline 交给 workflow；Gateway 不接收 Chat Run 控制对象或取消参数。
 
@@ -49,7 +48,7 @@ GatewayWorkflow
 ```text
 entry_interception
   |
-  +-- system_command --> command_dispatch --> finalize command outcome
+  +-- system_command --> finalize command outcome（只携带解析结果）
   |
   `-- decision -------> candidate_topics_preparation
                          -> topic_routing
@@ -61,7 +60,7 @@ entry_interception
 
 ### 2.1 入口分支
 
-`entry_interception` 执行低成本确定性判断。在 `ACTIVE_CHAT` 中，它可以把 slash command 标记为 `system_command`；在 `PASSIVE_MEMORY` 中，`allow_system=false`，因此 command dispatch 在结构上不可达。
+`entry_interception` 执行低成本确定性判断。在 `ACTIVE_CHAT` 中，它可以把 slash command 标记为 `system_command`；在 `PASSIVE_MEMORY` 中，`allow_system=false`，因此命令分支在结构上不可达，`finalize()` 也拒绝被动模式产生命令结果。命令分支在入口步骤之后直接 finalize：Gateway 只解析命令，不运行任何执行步骤（见[全局命令](./commands.md)）。
 
 简单寒暄也可以被 L1 规则命中，但它不会提前结束整个 decision flow。Gateway 仍准备候选话题并完成话题路由，只在最后以 `simple_chat_defaults` 代替 LLM 查询分析。这保持了话题连续性，同时避免为明确的寒暄调用查询分析模型。
 
@@ -103,15 +102,15 @@ state.snapshot()
 
 内部 state 不会直接泄露给 System 或 transport。只有 `finalize()` 能构造公共结果：
 
-- `system_command` 分支必须来自 `ACTIVE_CHAT`，必须已有 `CommandExecutionResult`，且不能包含查询分析；
-- decision 分支不得包含 command result，必须已有 `topic_id` 和完整 `UserQueryAnalysisResult`；
+- `system_command` 分支必须来自 `ACTIVE_CHAT`，必须已有 `CommandParseResult`，且不能包含查询分析；
+- decision 分支不得包含命令解析结果，必须已有 `topic_id` 和完整 `UserQueryAnalysisResult`；
 - 成功构造后 state 标记为 `completed`，再次 finalize 或提交都会失败。
 
 最终结果只有：
 
 ```text
 GatewayCommandOutcome
-  -> command_execution_result
+  -> command_parse_result
 
 GatewayDecisionOutcome
   -> target_topic_id
@@ -131,14 +130,13 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 
 请求 deadline 从 workflow 开始时计算。每个 Step 的实际等待时间是“Step timeout”与“整次请求剩余时间”的较小值。若整次 deadline 在某个可降级 Step 中耗尽，该 Step 先提交 fallback，后续带 fallback 的 Step 不再调用能力，而是继续提交保守默认值，直到形成完整 decision；若当前 Step 没有 fallback，则抛出 `GatewayTimeoutError`。
 
-因此，“整次超时”并不总等于“没有结果”。Gateway 只在每个剩余字段都有安全默认值时继续完成；command dispatch、入口不变量或没有 fallback 的能力不能被伪装成成功。
+因此，“整次超时”并不总等于“没有结果”。Gateway 只在每个剩余字段都有安全默认值时继续完成；入口不变量或没有 fallback 的能力不能被伪装成成功。
 
 ## 6. 当前 fallback 矩阵
 
 | Step | 可恢复失败后的提交 | 设计理由 |
 |:---|:---|:---|
 | `entry_interception` | 无 fallback | 入口分类失败会影响分支合法性，不能猜测 |
-| `command_dispatch` | 无 workflow fallback | Dispatcher 自身把解析、权限和 handler 失败投影为结构化命令终态 |
 | `candidate_topics_preparation` | 空 `CandidateTopics` | 仍可创建新话题，不伪造已有话题 |
 | `topic_routing` | `NEW_TOPIC`，标题/摘要为空 | 选错已有话题比新建话题风险更高 |
 | `routed_topic_preparation` | `None` | 查询分析可以在缺少历史上下文时继续 |
@@ -149,7 +147,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 
 ## 7. 观测不是控制面
 
-Workflow 发布 started、step completed、completed 和 failed RuntimeEvent。Step 事件会记录 `step_id`、序号、耗时、是否 fallback 和原因；终态事件记录 outcome kind 与总耗时。原生 task cancellation 直接离开 Gateway，不发布 `gateway.workflow.cancelled`，也不伪装成 failed 观测。
+Workflow 发布 started、step completed、completed 和 failed RuntimeEvent。Step 事件会记录 `step_id`、序号、耗时、是否 fallback 和原因；终态事件记录 outcome kind 与总耗时；命令结果还记录 `command_id`（解析失败时为解析出的命令名）。原生 task cancellation 直接离开 Gateway，不发布 `gateway.workflow.cancelled`，也不伪装成 failed 观测。
 
 RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入公共 outcome。关于 RuntimeEvent 的统一边界见 [运行时事件与可观测性](../components/observability.md)。
 
@@ -157,7 +155,7 @@ RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入�
 
 - workflow 是进程内一次性执行，不持久化中间状态，也不能在重启后恢复；
 - 当前没有 Step retry、熔断、并行分支或动态插件拓扑；
-- fallback 不会回滚已经完成的外部只读调用，command 副作用也没有跨子系统事务；
+- fallback 不会回滚已经完成的外部只读调用；
 - `NEW_TOPIC` fallback 可以没有标题和摘要，下游必须把它视为保守路由，而不是完整的模型生成元数据；
 - 取消依赖被调用协程正确响应 asyncio cancellation，不能保证终止外部提供商已经接收的请求；
 - RuntimeEvent 可以解释发生了 fallback，但公共调用方不会直接得到逐 Step 诊断。

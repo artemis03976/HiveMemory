@@ -64,7 +64,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、可选 `request_timeout_ms` | `GatewayProcessResult` |
+| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、可选 `request_timeout_ms` | `GatewayProcessResult`（命令结果只携带解析结果） |
 
 ### 2.2 Patchouli Chat / Retrieval
 

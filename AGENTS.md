@@ -40,7 +40,7 @@
 | --- | --- | --- |
 | System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Passive Ingress、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
 | Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、actor 可见的能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆编译与输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
-| Gateway | 入口拦截、命令、话题/查询分析、检索计划和保守降级 | 记忆存储、检索执行、回复生成、Interaction 提交 |
+| Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
 | Alice | Agent run、frame、MTP/工具、PendingAtom 运行时和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core/Contracts | 依赖中立的模型、协议枚举、route/event 常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |

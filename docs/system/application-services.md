@@ -103,7 +103,7 @@ Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare �
 
 本进程的 prepare 结果、输入清单与附件租借由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有。进程无论以何种结局结束都经 `TaskProcess.close()` 关闭：先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；进程记录的注销放在内层 `finally`，因此即使这些 `await` 被取消，租借与进程记录也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
 
-Gateway 返回 command outcome 时，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
+Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
 普通决策进入 prepare 后，Profile 解析、prepare 与 CPU 分配期间收到的停止请求会被进程表记录；分配完成、进入 Actor 执行前统一检查一次，命中即跳过 Actor 执行和 finalize，返回 cancelled 结果，并在关闭流程中释放租借、请求 cleanup。只有在 CPU 执行结果的 `status == completed` 且进程未取消时才允许进入 finalize；finalize 成功后才将 prepared 标记为已接管，不再 cleanup。
 
@@ -186,6 +186,7 @@ process_id
 - `tests/unit/workspace/process/test_chat_run_control_contract.py`
 - `tests/unit/workspace/process/test_cancel_hardening.py`
 - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）
+- `tests/unit/workspace/process/test_command_terminal.py`（命令解析结果转换为命令终态）
 - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局、停止、缺终态与输出流关闭）
 - `tests/unit/workspace/process/test_seal_interaction.py`（交互记录封口）
 - `tests/unit/workspace/process/test_process_events.py`（`chat.run.*` 投影与 best-effort 边界）

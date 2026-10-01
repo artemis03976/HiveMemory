@@ -70,7 +70,7 @@ local bus 则是一个子系统内部的组合机制。它允许所有者替换�
 |:---|:---|:---|
 | System | 组合根与门面、配置加载、生命周期、共享设施实例的装配与关闭、Provider/Model 注册表、接入登记与 Principal authentication、被动摄入、就绪检查 | 查询分析、记忆算法、Agent loop、MTP 具体执行、Workspace 准入与行为白名单（归 workspace）、运行时机制实现（归 components） |
 | Workspace | 认证入口与准入、逐次行为授权、actor 能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
-| Gateway | 入口拦截、命令、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
+| Gateway | 入口拦截、命令解析（不执行）、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
 | Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
 | Alice | Agent run、frame 编排、MTP/工具执行、PendingAtom 运行时 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core contracts | 依赖中立的数据模型、协议枚举、稳定常量、访问值类型与端口协议 | 业务编排、I/O 与运行时状态 |

@@ -16,7 +16,7 @@ last_reviewed: 2026-10-01
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 任务进程表与任务请求唯一注册入口 | 第五批 Planned：[命令只解析不执行](./v0.7.0-task-process-command-parse-only.md)；已完成归档：第一批[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、第二批[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、第三批[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、第四批[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md) | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
+| 1 | 任务进程表与任务请求唯一注册入口 | 已完成：第一至第五批均已实施归档（[落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)、[命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md)）；Topic 按需创建与写入意图分别归外部会话与写入意图迁移两个方向 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
 | 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
@@ -35,6 +35,7 @@ last_reviewed: 2026-10-01
 
 | Plan | 状态 | 结果与事实入口 |
 |:---|:---:|:---|
+| [v0.7.0 任务进程：命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md) | Archived（2026-10-01） | Gateway 的命令结果只携带解析结果，删除命令分发与执行，任务进程产生“暂不可用”的命令终态；当前事实见 [Gateway 全局命令](../gateway/commands.md) |
 | [v0.7.0 任务进程：CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md) | Archived（2026-10-01） | `workspace.contracts` 定义 `CPUPort` 与 `CPUExecutionResult`，任务进程只经注入的端口调用 CPU；Alice 统一流式与非流式入口并实现端口；测试 CPU 跑通任务进程；当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)与 [System 应用服务](../system/application-services.md) |
 | [v0.7.0 任务进程：结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md) | Archived（2026-09-30） | 任务进程封口交互记录 `InteractionPayload`，Patchouli finalize 改为接收 `PreparedAgentRun` 与 `InteractionPayload` 并原样提交，不再接收 `AgentRunResult`；当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)与 [System 应用服务](../system/application-services.md) |
 | [v0.7.0 任务进程：prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md) | Archived（2026-09-29） | Patchouli prepare 只做话题与检索；任务进程完成 CPU 分配（Profile 解析、附件租借与编译、记忆编译），输入清单 `CPUInputManifest` 位于 `workspace.contracts`；当前事实见 [System 应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md) |

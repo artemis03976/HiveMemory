@@ -59,12 +59,14 @@ process(
 
 `GatewayProcessResult` 是不可变判别联合：
 
-- `GatewayCommandOutcome(kind="command")`：包含 `CommandExecutionResult`；
+- `GatewayCommandOutcome(kind="command")`：包含命令解析结果 `CommandParseResult`；
 - `GatewayDecisionOutcome(kind="decision")`：包含 `GatewayDecision`。
 
-二者互斥。命令终态不能同时携带普通分析结果；普通决策不能携带命令执行结果。
+二者互斥。命令结果不能同时携带普通分析结果；普通决策不能携带命令解析结果。
 
-这种互斥使命令成为真正的短路终态。系统指令已经完成、被拒绝或要求确认时，继续执行检索、Agent run 和记忆提交既浪费资源，也可能把一条控制消息误当成普通对话沉淀。判别联合让调用方必须显式选择一条链路，不能依赖多个可空字段猜测 Gateway 的意图。
+Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandParseStatus` 位于 `core.protocol.gateway`，命令结果只携带解析产物（命令标识、名称、参数与解析状态），用户可见的命令终态由任务进程产生（第 5 节）。命令的实际运行不在 Gateway 中，因为后续指令会与用户请求同时出现，入口分析不能产生命令副作用；命令在任务进程中何时、由谁运行尚未决定，内置命令当前暂时不可用。
+
+这种互斥使命令成为真正的短路终态。一条输入一旦被识别为系统命令，继续执行检索、Agent run 和记忆提交既浪费资源，也可能把一条控制消息误当成普通对话沉淀。判别联合让调用方必须显式选择一条链路，不能依赖多个可空字段猜测 Gateway 的意图。
 
 ### 2.2 GatewayDecision
 
@@ -84,7 +86,7 @@ process(
 
 ### 2.3 模式不变量
 
-- `ACTIVE_CHAT` 可以识别并执行系统指令；
+- `ACTIVE_CHAT` 可以识别（解析）系统指令，不执行；
 - `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；
 - `request_timeout_ms` 只能收紧配置的默认总超时，不能扩大它；
 - 局部可恢复失败可以降级，但最终结果仍必须满足完整终态不变量。
@@ -252,8 +254,8 @@ run_agent(
 ## 5. 顶层主动链路契约
 
 ```text
-Gateway command outcome
-  -> System 返回命令结果
+Gateway command outcome（解析结果）
+  -> 任务进程产生命令终态（解析成功：暂不可用；解析失败：拒绝）
   -> 不调用 Patchouli prepare / CPU / Patchouli finalize
 
 Gateway decision outcome
@@ -306,7 +308,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 
 1. 这个模型是否只包含一次交接需要的稳定事实，还是暴露了可变 workflow state、引擎对象或回调？
 2. 接收方是否正在修改本应只读的决定，或重新推导一份与所有者可能分叉的状态？
-3. command outcome 是否仍能立即短路？Passive Memory 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
+3. command outcome 是否仍能立即短路？Gateway 是否开始执行命令，或在公开结果中携带执行产物？Passive Memory 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
 4. prepare、run、finalize 的顺序或资格是否被 transport、事件订阅者或兼容 fallback 悄悄改变？
 5. cleanup 是否仍是对空话题的有限补偿，还是被当成可以撤销长期状态的事务回滚？
 6. 执行结果、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
