@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/VISION.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-10-01
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -91,6 +91,23 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 | E-4 结果观察的方式 | 主要涉及 plugin 模式，controller 模式可经任务进程观察结果；仍待决 |
 | [P-5b 被动请求的 principal](./workspace-network-task-process-architecture.md#p-5-call-与触发器的认证) | 被动请求只存在于 controller 模式；owner 倾向由登记的 Agent 反推；仍待决 |
 | 请求方类型与认证 principal 的关系 | 按两种模式的定义：controller 模式下，用户直接向 HiveMemory 的入口发出请求；plugin 模式下，没有请求进入注册入口，外部 harness 以不建进程的方式访问能力层。外部 harness 连接方的身份如何证明见 P-1c |
+
+### 1.2 harness 登记的两个侧面（owner，2026-09-30）
+
+owner 采纳：一个外部 harness 只登记一份，由这份登记派生两个侧面。
+
+| 侧面 | 回答的问题 | 运行时去向 | 使用方 |
+|:---|:---|:---|:---|
+| 接入侧面 | 该 harness 以哪个调用来源（principal）接入、经哪个入站 adapter、可以声称哪些用户身份 | System 接入登记（`SystemActorAccessEntry`，2.1） | 认证网关第一阶段；harness 回调能力层时的认证 |
+| 执行侧面 | 任务进程如何驱动该 harness 执行（驱动类型及其配置） | CPU：workspace 定义的 CPU 端口的一个实现 | 任务进程的 Actor 执行阶段 |
+
+- 运行时仍是两个注册表，按方向分开：入站认证属于 System，出站执行属于任务进程。System 装载登记后分别构造两者并注入使用方，与总 Idea D-5 的做法一致。
+- 由此，任务进程调用 CPU 采用对象端口：端口由 workspace 定义，CPU 实现，组合根注入，不采用总线路由契约（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）。
+- 登记仍在启动时从配置装载（E-1）。
+- 并非每个参与者都有两个侧面（分析）：plugin 模式的 harness 与管理员直接通道只有接入侧面；Alice 两个侧面都有，执行侧面是内置的；测试 CPU 只有执行侧面。
+- 驱动类型与 harness 实例（分析）：驱动类型是代码，按协议而不是按 harness 编写，例如一个 ACP 驱动可以覆盖所有支持 ACP 的 harness；harness 实例是登记数据，包括选用的驱动、驱动配置与绑定的 principal。能否不写代码就加入一个新 harness 取决于 E-2a：采用通用协议时，只需新增一条登记；按各家 SDK 或 CLI 适配时，每家至少需要一个驱动。入站方向的 `adapters` 字段已经是“代码定义种类、登记数据引用种类”的形态。
+- 后续设计（owner，2026-09-30）：actor 对应哪个 CPU 的映射放在哪里（执行侧面 / Agent Profile 的字段 / 独立的映射表 / 其他）；按 actor 或按请求选择 CPU 的机制。v0.7.0 只需要 Alice 接入 CPU 端口。
+- 仍待决：登记记录的结构，以及它与 Workspace Actor 访问登记的关系（E-1a）。
 
 ## 2. 现状事实（代码核对，2026-09-27）
 
@@ -243,6 +260,8 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 **子问题 E-1a**：System 接入登记与 Workspace Actor 访问登记是否经同一入口维护：同一入口 / 分开维护 / 其他。
 
 **owner 决定（2026-09-27）**：接入登记维持启动时从配置装载（选项 A）。运行时登记与其他配置文件的热更新一并由未来单独的计划实现；E-1a 随该计划决定。
+
+**补充（owner，2026-09-30）**：启动时从配置装载的决定仍然成立，harness 登记（1.2）同样从配置装载。目前 `configs/config.yaml` 没有 access 配置段（2.1），需要先建立承载登记的配置文件。owner 于 2026-10-01 决定：登记使用单独的配置文件，在 [A1 返工](../todo/a1-access-boundary-rework.md)中建立；文件的形状随 A1 返工确定。
 
 ### E-2 运行时访问的传输承载
 

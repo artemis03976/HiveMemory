@@ -14,7 +14,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/todo/workspace-asset-upload-access-scope-mismatch.md
-last_reviewed: 2026-09-27
+last_reviewed: 2026-10-01
 ---
 
 # A1 访问边界返工
@@ -47,4 +47,5 @@ last_reviewed: 2026-09-27
 - [ ] 所有公开方法的 operation 检查在确定的目标位置执行，Patchouli application 不再承担行为白名单检查；
 - [ ] 裸 scope 兼容分支删除，缺少 access 的公开调用显式拒绝；
 - [ ] 生产入口经认证网关取得 context，并确定 context 在停止时的关闭时机；
+- [ ] 建立承载接入登记的单独配置文件（owner，2026-10-01；见[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md) E-1 的补充）：现有 `access` 配置段在 `configs/config.yaml` 中没有内容，网关认证按设计 fail closed，生产入口接入网关前需要有可装载的登记；文件形状需要为 harness 登记的接入与执行两个侧面（该 Idea 1.2）留出位置；
 - [ ] 返工完成后，把 A1 以来的实际变化统一整理进入事实文档（[Workspace 架构](../architecture/workspace.md)第 4 节、[错误模型](../contracts/error-model.md)第 4.4 节、[子系统公共契约](../contracts/subsystem-contracts.md)第 3.5 节）。

@@ -17,7 +17,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -101,6 +101,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 - 进入 Actor 执行阶段前完成 CPU 分配，并同步记录到进程中。
 - 前面阶段的产出作为面向 CPU 的输入清单，让任意 Actor 都能接收。
+- **CPU 端口**（owner，2026-09-30）：进程经对象端口调用 CPU：端口由 workspace 定义（`workspace.contracts`），CPU 实现，组合根注入；不采用总线路由契约。依据是外部 harness 的一份登记派生接入与执行两个侧面（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#12-harness-登记的两个侧面owner2026-09-30) 1.2）：外部 harness 的驱动多数不是子系统，按路由契约接入需要为每种驱动增加路由常量，或在总线后面再建一层分派。v0.7.0 只需要 Alice 接入；CPU 的选择机制与 actor 对应 CPU 的映射后续设计。
+  - **CPU 端口的输出**（owner，2026-10-01）：CPU 的事件流把终态结果与其余交互事件分开，交互事件原样透传；执行结果去掉 `mtp_iterations` 与 `total_iterations` 两个冗余字段。
+  - **Alice 的统一入口**（owner，2026-10-01）：Alice 的流式与非流式两条执行路径合并为一个入口，与任务进程的 `run_process` 一样以参数控制是否流式。
 
 **进程记录与工作集**
 
@@ -550,7 +553,7 @@ stateDiagram-v2
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束：Plan 只能以事实文档、代码、ADR、已归档计划与作为背景的 Idea 为依据，不以另一份活动计划的章节为依据；
 - 已决定：M-1（按流程纵切）、M-3（首条迁移流程为 Alice 的 chat 链路）、M-5（v0.7.0 范围、验收口径与四条版本目标），见总 Idea 6.1；任务进程的结构（1.2），包括 Q-3、Q-4、Q-5、Q-5a；Q-1（交互被提交队列接纳后进程退出）、Q-2 与写入意图迁移（纳入 v0.7.0，分两步，见该 Idea 0.1）；Q-9（选项 B）；Q-10；Q-14（选项 A，只有 completed 才提交）；Q-15；Q-16；P-2、P-4b、P-6、P-7（取消）、P-10（总 Idea 15.4）；D-9 与 workspace 的子包划分（总 Idea 第 10 节）；命令系统后置（Q-5a）；会话模型、Topic 池与 `topic_info` 的改造（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
-- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。第三批实施计划：[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)（进程封口交互记录，finalize 不再接收 `AgentRunResult`），已实施归档。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
+- 第一批实施计划：[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)（进程表迁入 workspace 的 `process` 子包、`process_id` 与取消收口），已实施归档。第二批实施计划：[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)（prepare 只做 Topic 与检索，进程解析 Profile、持有附件租借并编译，输入清单进入 `workspace.contracts`），已实施归档。第三批实施计划：[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)（进程封口交互记录，finalize 不再接收 `AgentRunResult`），已实施归档。第四批实施计划：[CPU 端口与测试 CPU](../plans/v0.7.0-task-process-cpu-port.md)。v0.7.0 按小批量逐次实施，后续批次各自建立计划；
 - 影响首个 Plan 的问题已全部有决定；形成 Plan 时仍需确定 v0.7.0 内各方向的范围与顺序。会话操作的版本已决定：前端改造与新建、恢复两个操作在 v0.7.0，Alice 的压缩约在 v0.7.1（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）；
 - 首个 Plan 不以 A1 返工为前提；A1 返工在本计划完成、已有稳定入口之后接入（总 Idea 6.1）；
 - owner 对各问题的决定记录在本文对应问题下，并注明日期。

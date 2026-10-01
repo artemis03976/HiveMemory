@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-01
 ---
 
 # Plans
@@ -16,7 +16,7 @@ last_reviewed: 2026-09-30
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 任务进程表与任务请求唯一注册入口 | 已完成归档：第一批[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、第二批[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、第三批[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)；后续批次未立项 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
+| 1 | 任务进程表与任务请求唯一注册入口 | 第四批 Planned：[CPU 端口与测试 CPU](./v0.7.0-task-process-cpu-port.md)；已完成归档：第一批[任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、第二批[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、第三批[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md) | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
 | 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
