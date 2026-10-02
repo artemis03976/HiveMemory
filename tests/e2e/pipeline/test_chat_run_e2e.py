@@ -1,11 +1,11 @@
 """
 完整 Chat Run E2E 测试
 
-驱动真实 HiveMemorySystem（真实 LLM + Qdrant）经 ChatApplicationService 统一入口，
+驱动真实 HiveMemorySystem（真实 LLM + Qdrant）经 TaskProcessService 统一入口，
 验证 v4「一次 chat 调用 = gateway → prepare(检索) → agent run → finalize(记忆落库)」完整闭环：
 - chat(): 非流式完整闭环，finalize 后记忆真实落库 Qdrant
 - chat(): MTP WRITE 主动生成路径（materialize_tasks → submit_active → 确定性落库）
-- chat_stream(): 完整事件序列契约（generation_id → topic_info → memory_refs → 运行期 → run_status → done）
+- chat_stream(): 完整事件序列契约（process_id → topic_info → memory_refs → 运行期 → run_status → done）
 - 检索注入：预埋记忆后 chat，memory_refs 携带引用
 
 标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
@@ -18,7 +18,6 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.alice.application.chat_service import NonStreamingChatAgentOutcome
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -28,6 +27,7 @@ from hivememory.core.models import (
     build_internal_identity_scope,
 )
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
+from hivememory.workspace.process.service import NonStreamingAgentOutcome
 from tests.e2e.conftest import wait_for_memory_persistence_async
 from tests.helpers.memory import make_memory_metadata
 
@@ -65,13 +65,13 @@ async def _collect_stream_events(
     enable_memory_retrieval: bool = True,
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.chat_service.chat_stream_scoped(
-        user_message=user_message,
+    async for event in system.process_service.run_process(
+        message=user_message,
         identity_scope=build_internal_identity_scope(
             ActorIdentity(user_id=user_id, agent_id=agent_id),
             MAIN_WORKSPACE_ID,
         ),
-        interaction_id=f"interaction_{uuid4().hex}",
+        process_id=f"process_{uuid4().hex}",
         enable_memory_retrieval=enable_memory_retrieval,
         generation_options={"temperature": 0, "top_p": 1},
     ):
@@ -88,19 +88,18 @@ class TestChatRun:
     async def test_chat_full_round_trip_persists_memory(self, e2e_system, clean_user):
         """chat() 完整闭环：回答 + finalize 触发记忆落库"""
         user_id = clean_user()
-        result = await e2e_system.chat_service.chat_scoped(
-            user_message=(
-                "我叫小林，我在一家物流公司工作，每天通勤两小时。" "请记住这些关于我的信息。"
-            ),
+        result = await e2e_system.process_service.run_process(
+            stream=False,
+            message=("我叫小林，我在一家物流公司工作，每天通勤两小时。" "请记住这些关于我的信息。"),
             identity_scope=build_internal_identity_scope(
                 ActorIdentity(user_id=user_id, agent_id="omni_doll"),
                 MAIN_WORKSPACE_ID,
             ),
-            interaction_id=f"interaction_{uuid4().hex}",
+            process_id=f"process_{uuid4().hex}",
             enable_memory_retrieval=True,
         )
         assert isinstance(
-            result, NonStreamingChatAgentOutcome
+            result, NonStreamingAgentOutcome
         ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
         assert result.agent_run_result.final_text
         assert result.agent_run_result.status == "completed"
@@ -125,10 +124,8 @@ class TestChatRun:
         )
         event_names = [e.get("event") for e in events]
 
-        # 序言：generation_id / topic_info
-        assert (
-            "generation_id" in event_names
-        ), f"缺少 generation_id 事件。events={_event_summary(events)}"
+        # 序言：process_id / topic_info
+        assert "process_id" in event_names, f"缺少 process_id 事件。events={_event_summary(events)}"
         assert "topic_info" in event_names, f"缺少 topic_info 事件。events={_event_summary(events)}"
         # 运行期：至少 token 或 mtp 或子代理事件之一
         assert any(
@@ -176,8 +173,9 @@ class TestChatRun:
         materialize_tasks 非空即证明走的是 WRITE 主动生成而非 finalize 自动提取。
         """
         user_id = clean_user()
-        result = await e2e_system.chat_service.chat_scoped(
-            user_message=(
+        result = await e2e_system.process_service.run_process(
+            stream=False,
+            message=(
                 "请使用 MTP 的 WRITE 指令保存一条记忆，内容如下："
                 "我最好的朋友叫张伟，我们每个月一起打篮球。"
                 "你必须在回复中输出 WRITE 指令，把上面这句话完整写入记忆。"
@@ -186,7 +184,7 @@ class TestChatRun:
                 ActorIdentity(user_id=user_id, agent_id="omni_doll"),
                 MAIN_WORKSPACE_ID,
             ),
-            interaction_id=f"interaction_{uuid4().hex}",
+            process_id=f"process_{uuid4().hex}",
             enable_memory_retrieval=False,
         )
         run_result = result.agent_run_result

@@ -440,10 +440,10 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
 
 def test_chat_result_default_turn_events():
-    """AgentRunResult 新字段有默认值"""
-    from hivememory.core.protocol.models import AgentRunResult
+    """CPU 执行结果的轮次事件字段有默认值"""
+    from hivememory.workspace.contracts import CPUExecutionResult
 
-    r = AgentRunResult(final_text="hi")
+    r = CPUExecutionResult(final_text="hi")
     assert r.turn_events == []
 
 

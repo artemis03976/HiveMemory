@@ -3,6 +3,8 @@
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
     CommandExecutionStatus,
+    CommandParseResult,
+    CommandParseStatus,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -28,6 +30,8 @@ __all__ = [
     "RetrievalRequest",
     "CommandExecutionResult",
     "CommandExecutionStatus",
+    "CommandParseResult",
+    "CommandParseStatus",
     "GatewayCommandOutcome",
     "GatewayDecision",
     "GatewayDecisionOutcome",

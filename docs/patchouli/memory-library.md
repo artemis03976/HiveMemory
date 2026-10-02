@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-24
+last_reviewed: 2026-09-29
 ---
 
 # MemoryLibrary 与存储层
@@ -117,7 +117,7 @@ Revive 当前由 Patchouli local route 暴露给内部用例。它是显式状�
 - artifact store 为 optional，关闭时报告 `healthy=true, required=false, detail=disabled`；
 - 聚合 `healthy` 只要求所有 required 组件健康。
 
-Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。Qdrant 不可用时，prepare 可以把 `storage_available=false` 放入 AgentRunContext，使 Alice 避免继续发出依赖长期存储的记忆操作。健康检查是降级信号，不是跨介质数据一致性证明。
+Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。Qdrant 不可用时，prepare 把 `storage_available=false` 放入 `PreparedAgentRun`，任务进程再把它写入交给 Alice 的输入清单，使 Alice 避免继续发出依赖长期存储的记忆操作。健康检查是降级信号，不是跨介质数据一致性证明。
 
 ## 4. 配置所有权
 

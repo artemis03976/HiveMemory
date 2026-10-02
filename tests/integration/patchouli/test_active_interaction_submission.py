@@ -13,7 +13,6 @@ from hivememory.components.work_queue import (
     WorkState,
 )
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     ActorIdentity,
     IndexLayer,
     MemoryAtom,
@@ -21,25 +20,17 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
-from hivememory.core.protocol.gateway import (
-    GatewayDecision,
-    IntentType,
-    MemoryWriteSignal,
-    RetrievalPlan,
-)
 from hivememory.core.protocol.models import (
-    AgentRunContext,
-    AgentRunResult,
     InteractionPayload,
     RetrievalResponse,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-from hivememory.patchouli.models import PreparedAgentRun, StreamPrelude
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import (
     ActiveInteractionFinalizationError,
@@ -58,16 +49,6 @@ def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
         timeout_seconds=1,
         max_attempts=1,
         terminal_retention=16,
-    )
-
-
-def _decision() -> GatewayDecision:
-    return GatewayDecision(
-        target_topic_id="topic-1",
-        rewritten_query="normalized question",
-        memory_write_signal=MemoryWriteSignal.WRITE,
-        retrieval_plan=RetrievalPlan(),
-        intent_type=IntentType.RAG,
     )
 
 
@@ -97,22 +78,13 @@ def _prepared(
         actor_identity=identity,
     )
     return PreparedAgentRun(
-        agent_run_context=AgentRunContext(
-            identity_scope=identity_scope,
-            interaction_id=interaction_id,
-            topic_id="topic-1",
-            user_message="question",
-            topic_context=None,
-            retrieval_result=RetrievalResponse(memories=memories or []),
-            agent_profile=OMNI_DOLL_PROFILE,
-        ),
-        gateway_decision=_decision(),
-        stream_prelude=StreamPrelude(
-            topic_id="topic-1",
-            is_new_topic=is_new,
-            pool_topics=[],
-            memory_refs=[],
-        ),
+        identity_scope=identity_scope,
+        interaction_id=interaction_id,
+        topic_id="topic-1",
+        is_new_topic=is_new,
+        topic_context=None,
+        pool_topics=[],
+        retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
     )
 
 
@@ -126,9 +98,25 @@ def _write_task() -> PendingAtomMaterializeTask:
     )
 
 
+def _sealed_payload(
+    *,
+    final_text: str = "answer",
+    materialize_tasks: list[PendingAtomMaterializeTask] | None = None,
+) -> InteractionPayload:
+    """构造任务进程封口后的交互记录（finalize 的输入）。"""
+    return InteractionPayload(
+        user_message="question",
+        rewritten_query="原查询",
+        worth_saving=True,
+        assistant_final_text=final_text,
+        materialize_tasks=list(materialize_tasks or []),
+    )
+
+
 @pytest.mark.asyncio
 async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -> None:
     calls: list[str] = []
+    dispatched_tasks: list[PendingAtomMaterializeTask] = []
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
@@ -139,7 +127,8 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         calls.append("apply")
         return target_topic_id
 
-    async def materialize(*_args, **_kwargs):
+    async def materialize(tasks, **_kwargs):
+        dispatched_tasks.extend(tasks)
         calls.append("materialize")
         return []
 
@@ -148,16 +137,13 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = _prepared()
-    loop_result = AgentRunResult(
-        final_text="answer",
-        materialize_tasks=[_write_task()],
-    )
+    payload = _sealed_payload(materialize_tasks=[_write_task()])
 
     try:
         submit_spy = AsyncMock(wraps=queue.submit)
         queue.submit = submit_spy
         await queue.start()
-        finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, loop_result))
+        finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, payload))
         await asyncio.wait_for(apply_started.wait(), timeout=1)
         assert calls == ["apply_started"]
 
@@ -166,14 +152,18 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
 
         submission = submit_spy.await_args.args[0]
         assert isinstance(submission, InteractionSubmission)
+        # finalize 把收到的 payload 原样提交给交互提交队列。
+        assert submission.payload is payload
         assert submission.origin == "active_chat"
         assert submission.identity_scope == prepared.identity_scope
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply", "materialize"]
+        # 物化任务按 payload.materialize_tasks 派发。
+        assert dispatched_tasks == payload.materialize_tasks
 
         # 重复 finalize 复用原 work，interaction apply 不会再次执行。
-        await service.finalize_agent_run(prepared, loop_result)
+        await service.finalize_agent_run(prepared, payload)
         assert calls.count("apply_started") == 1
         # finalize 可重新 dispatch；真正的幂等复用由下游 intent_id 边界保证。
         assert calls.count("materialize") == 2
@@ -208,7 +198,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
                 prepared,
-                AgentRunResult(final_text="answer"),
+                _sealed_payload(),
             )
         )
 
@@ -249,8 +239,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
             await service.finalize_agent_run(
                 prepared,
-                AgentRunResult(
-                    final_text="answer",
+                _sealed_payload(
                     materialize_tasks=[_write_task()],
                 ),
             )
@@ -275,9 +264,7 @@ async def test_queue_shutdown_returns_explicit_active_finalize_error() -> None:
     service = PatchouliService(PatchouliBus(), interaction_queue=queue)
     prepared = _prepared()
 
-    finalize_task = asyncio.create_task(
-        service.finalize_agent_run(prepared, AgentRunResult(final_text="answer"))
-    )
+    finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, _sealed_payload()))
     for _ in range(20):
         if await queue.is_accepted(prepared.interaction_id):
             break
@@ -327,8 +314,7 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
             await service.finalize_agent_run(
                 prepared,
-                AgentRunResult(
-                    final_text="answer",
+                _sealed_payload(
                     materialize_tasks=[_write_task()],
                 ),
             )
@@ -373,8 +359,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
                 prepared,
-                AgentRunResult(
-                    final_text="answer",
+                _sealed_payload(
                     materialize_tasks=[_write_task()],
                 ),
             )
@@ -421,7 +406,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
                 prepared,
-                AgentRunResult(final_text="answer"),
+                _sealed_payload(),
             )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -466,8 +451,7 @@ async def test_post_apply_materialization_failure_isolated_from_chat() -> None:
         await queue.start()
         result = await service.finalize_agent_run(
             _prepared(),
-            AgentRunResult(
-                final_text="answer",
+            _sealed_payload(
                 materialize_tasks=[_write_task()],
             ),
         )
@@ -499,8 +483,7 @@ async def test_pending_atom_failure_publish_does_not_reopen_chat_outcome() -> No
         await queue.start()
         result = await service.finalize_agent_run(
             _prepared(),
-            AgentRunResult(
-                final_text="answer",
+            _sealed_payload(
                 materialize_tasks=[_write_task()],
             ),
         )
@@ -525,7 +508,7 @@ async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
         await queue.start()
         result = await service.finalize_agent_run(
             _prepared(memories=[_memory()]),
-            AgentRunResult(final_text="answer"),
+            _sealed_payload(),
         )
         await service.drain_active_finalizations()
     finally:

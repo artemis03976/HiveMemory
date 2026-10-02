@@ -21,7 +21,7 @@
 
 ## 3. 当前架构与所有权
 
-当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：资源能力由 `workspace.capability` 提供，chat 编排位于 `alice.application`（暂置），被动摄入与就绪检查位于 `system.application`。
+当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：资源能力由 `workspace.capability` 提供，chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，被动摄入与就绪检查位于 `system.application`。
 
 包按层组织，依赖只能指向同层或更低层（由 `tests/unit/architecture/test_package_layers.py` 守护）：
 
@@ -39,20 +39,20 @@
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |
 | System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Passive Ingress、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
-| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、actor 可见的能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接 | 记忆算法与 canonical 存储、接入登记、Agent loop |
-| Gateway | 入口拦截、命令、话题/查询分析、检索计划和保守降级 | 记忆存储、检索执行、回复生成、Interaction 提交 |
-| Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环 |
-| Alice | Agent run、frame、MTP/工具、PendingAtom 运行时和 CALL 编排；chat 任务编排与 chat run 控制状态（暂置） | 长期记忆所有权、Gateway 分析、HTTP 生命周期 |
+| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、actor 可见的能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆编译与输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
+| Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
+| Alice | Agent run、frame、MTP/工具、PendingAtom 运行时和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core/Contracts | 依赖中立的模型、协议枚举、route/event 常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
 | Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context） | 业务状态与业务判断 |
 
-必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层 / Alice chat 编排 / System 被动摄入） -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
+必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
 关键所有权约束：
 
 - Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者。
 - Alice 只拥有本次 Agent run 的 frame、turn events、工具调用、alias/cache 和 PendingAtom 运行时视图。
-- System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat run 控制状态暂由 Alice 的 chat 编排持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
+- System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
 - `IdentityScope`（Actor + Workspace）必须沿应用服务、公共 route、Interaction 和后台任务传播，并在资源 owner 处再次校验。
@@ -61,9 +61,9 @@
 
 ## 4. 关键流程不变量
 
-- 主动链路：`Gateway process -> Patchouli prepare -> Alice run -> (仅 completed) Patchouli finalize`。
+- 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (仅 completed) 任务进程封口交互记录 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
-- prepare 失败或 Agent 取消/失败时，不默认进入 finalize；System 可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
+- prepare 失败或 Agent 取消/失败时，不默认进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
 - `MTP WRITE/UPDATE` 的 ACK 只表示 PendingAtom 已登记；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
 - MTP 权限由 Agent Profile 的允许 verb/tool 控制；CALL 只允许根 frame 发起，子 frame 不得递归 CALL。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。

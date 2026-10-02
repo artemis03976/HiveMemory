@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-01
 ---
 
 # HiveMemory 项目总览
@@ -135,7 +135,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
 | 最近已发布基线 | `v0.6.2` | Git tag 创建于 2026-09-14；Workspace、Identity 收敛、W1 附件和 MTP scope 修复 |
-| 当前开发版本 | `v0.7.0` | Partially Landed：访问边界、记忆内容版本与 lifecycle、包分层已合入，整体范围按新架构重新规划，见 [ROADMAP](./ROADMAP.md) |
+| 当前开发版本 | `v0.7.0` | Partially Landed：访问边界、记忆内容版本与 lifecycle、包分层已合入；整体范围已按新架构重新划定，见 [ROADMAP](./ROADMAP.md) |
 | 规范代码版本 | `0.6.2` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
 版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.6.2，与最近已发布标签 v0.6.2 对应；v0.7.0 开发期间已合入的内容尚未升版。v0.6.2 的核对记录见 [v0.6.2 收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
@@ -146,7 +146,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 ### 5.1 入口与对话
 
-- 主动 chat：Gateway 决策后执行 Patchouli prepare、Alice run、Patchouli finalize；
+- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、任务进程封口交互记录、Patchouli finalize；
 - SSE 流式与非流式 Agent run；
 - 全局系统指令注册、解析、分发和 chat 短路；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
@@ -186,7 +186,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 ```text
 HiveMemorySystem（组合根与门面）
   ├─ 门面提供的服务
-  │    ├─ ChatApplicationService   chat 编排（alice.application，暂置）
+  │    ├─ TaskProcessService      任务进程表与 chat 任务进程编排（workspace.process）
   │    ├─ PassiveIngressService    被动摄入（System）
   │    └─ Memory / Task / Profile / Topic / Asset 能力服务（workspace.capability）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
@@ -218,7 +218,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 消费 `AgentRunContext` 执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
+Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
@@ -232,13 +232,15 @@ Alice 消费 `AgentRunContext` 执行 Agent run，拥有 frame、Agent loop、Ko
 message
   -> Gateway PROCESS
   -> [command short-circuit] 或 GatewayDecision
-  -> Patchouli prepare
-  -> Alice run / run_stream
+  -> Patchouli prepare（话题与检索）
+  -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
+  -> Actor 执行：CPU 端口（当前为 Alice run，流式或非流式）
+  -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli finalize
   -> response + background memory tasks
 ```
 
-Prepare 成功而 finalize 未完成时，System 请求 Patchouli cleanup。取消或失败的 Agent run 不默认触发长期记忆生成。
+Prepare 成功而 finalize 未完成时，任务进程请求 Patchouli cleanup；附件租借在进程结束时释放。取消或失败的 Agent run 不默认触发长期记忆生成。
 
 ### 8.2 被动模式
 

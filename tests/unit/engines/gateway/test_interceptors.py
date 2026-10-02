@@ -1,10 +1,10 @@
 from hivememory.config.gateway import RuleInterceptorConfig
+from hivememory.core.protocol.gateway import CommandParseStatus
 from hivememory.engines.gateway.interceptors import RuleInterceptor
 from hivememory.engines.gateway.models import GatewayIntent
 from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
-    CommandParseStatus,
     CommandRegistry,
     CommandRouteTarget,
     create_builtin_command_registry,

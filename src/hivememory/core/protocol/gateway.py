@@ -55,6 +55,39 @@ class RetrievalPlan(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class CommandParseStatus(str, Enum):
+    """L1 指令解析结果状态；这里只描述解析，不代表执行结果。"""
+
+    MATCHED = "matched"
+    INVALID_ARGS = "invalid_args"
+    UNKNOWN = "unknown"
+    AMBIGUOUS = "ambiguous"
+
+
+class CommandParseResult(BaseModel):
+    """系统指令解析产物，由 Gateway S0 透传给后续应用层。"""
+
+    command_id: str | None = None
+    raw_input: str
+    name: str = ""
+    args: FrozenDict[str, Any] = Field(default_factory=FrozenDict)
+    tokens: tuple[str, ...] = Field(default_factory=tuple)
+    matched_alias: str | None = None
+    parse_status: CommandParseStatus
+    error: str | None = None
+
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+        arbitrary_types_allowed=True,
+    )
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def _freeze_args(cls, value: Any) -> FrozenDict[str, Any]:
+        return freeze_mapping(value)
+
+
 class CommandExecutionStatus(str, Enum):
     """系统指令执行终态。"""
 
@@ -111,10 +144,10 @@ class GatewayDecision(BaseModel):
 
 
 class GatewayCommandOutcome(BaseModel):
-    """系统指令终态。"""
+    """系统指令终态：Gateway 只解析命令，公开结果只携带解析产物。"""
 
     kind: Literal["command"] = "command"
-    command_execution_result: CommandExecutionResult
+    command_parse_result: CommandParseResult
 
     model_config = ConfigDict(frozen=True)
 
@@ -142,6 +175,8 @@ class GatewayTimeoutError(GatewayControlError):
 __all__ = [
     "CommandExecutionResult",
     "CommandExecutionStatus",
+    "CommandParseResult",
+    "CommandParseStatus",
     "GatewayCommandOutcome",
     "GatewayControlError",
     "GatewayDecision",

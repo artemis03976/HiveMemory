@@ -36,14 +36,12 @@ class GatewayWorkflow:
         self,
         *,
         entry_step: GatewayWorkflowStep[Any, Any],
-        command_dispatch_step: GatewayWorkflowStep[Any, Any],
         decision_prefix: tuple[GatewayWorkflowStep[Any, Any], ...],
         simple_chat_defaults_step: GatewayWorkflowStep[Any, Any],
         user_query_analysis_step: GatewayWorkflowStep[Any, Any],
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._entry_step = entry_step
-        self._command_dispatch_step = command_dispatch_step
         self._decision_prefix = decision_prefix
         self._simple_chat_defaults_step = simple_chat_defaults_step
         self._user_query_analysis_step = user_query_analysis_step
@@ -93,16 +91,8 @@ class GatewayWorkflow:
             if state.flow_end_reason is not None:
                 if state.flow_end_reason != "system_command":
                     raise RuntimeError(f"不支持的 Gateway terminal branch: {state.flow_end_reason}")
-                current_step_id = self._command_dispatch_step.step_id
-                deadline_reached = await self._run_step(
-                    state,
-                    self._command_dispatch_step,
-                    completed_steps,
-                    deadline=deadline,
-                )
-                if deadline_reached:
-                    deadline = 0.0
-                completed_steps += 1
+                # 命令只解析不执行：入口拦截识别出命令后直接以命令结果收口，
+                # 不再运行任何执行步骤。
                 outcome = state.finalize()
                 self._emit_completed(
                     outcome,
@@ -316,7 +306,9 @@ class GatewayWorkflow:
                 }
             )
         else:
-            data["command_id"] = outcome.command_execution_result.command_id
+            # 解析失败时 command_id 为空，回退到解析出的命令名。
+            parse = outcome.command_parse_result
+            data["command_id"] = parse.command_id or parse.name or "unknown"
         self._emit(
             RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED,
             workspace_id=workspace_id,

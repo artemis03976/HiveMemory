@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-01
 ---
 
 # PendingAtom：运行时写缓冲与物化交接
@@ -38,7 +38,7 @@ PendingAtom 不是简化版 MemoryAtom，也不是尚未获得 UUID 的正式记
 | 对象 | 所有者 | 表达的事实 | 生命周期 |
 |:---|:---|:---|:---|
 | `PendingAtom` | Alice Runtime | Agent 在一次 run 中提出的写入或修订意图 | 进程内、短暂、可失败或取消 |
-| `PendingAtomMaterializeTask` | Alice -> Patchouli 交接 | 对一个有效意图的不可变物化请求 | 随 `AgentRunResult` 进入 finalize |
+| `PendingAtomMaterializeTask` | Alice -> Patchouli 交接 | 对一个有效意图的不可变物化请求 | 随 CPU 执行结果交给任务进程，经 `InteractionPayload.materialize_tasks` 进入 finalize |
 | `PendingAtomSettlement` | Patchouli -> Alice 交接 | Patchouli 对物化请求的处理结果 | 通过事件回填运行时视图 |
 | `MemoryAtom` | Patchouli | 已进入记忆域的正式资产 | 由 MemoryLibrary 与 Store 持久化和演化 |
 
@@ -153,8 +153,8 @@ WRITE / UPDATE
   -> AgentRuntime.finalize_run(run_id, result) once
   -> claim current run's PENDING atoms
   -> PendingAtom(MATERIALIZING)
-  -> PendingAtomMaterializeTask[]
-  -> Patchouli finalize / generation
+  -> PendingAtomMaterializeTask[]（随 CPU 执行结果交给任务进程）
+  -> 任务进程封口 InteractionPayload -> Patchouli finalize / generation
   -> settled | failed | cancelled event
   -> AliceRuntime updates the process-local view
 ```

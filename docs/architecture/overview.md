@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/components/
   - src/hivememory/config/
   - src/hivememory/workspace/
-  - src/hivememory/alice/application/chat_service.py
+  - src/hivememory/workspace/process/
   - src/hivememory/gateway/system.py
   - src/hivememory/patchouli/system.py
   - src/hivememory/alice/system.py
@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-01
 ---
 
 # HiveMemory 当前系统架构
@@ -40,13 +40,13 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 记忆需要跨会话保持身份、来源和版本，Agent 执行则围绕一次 run、一个 frame 和一组临时工具结果展开。早期实现曾把两类状态放进同一运行时，结果是 Patchouli 既要管理知识，又要管理 Agent loop；任何一侧变化都可能穿透另一侧。
 
-当前架构将 Patchouli 与 Alice 分开：Patchouli 是长期记忆与知识平面，Alice 是临时执行与控制平面。`AgentRunContext` 和 `AgentRunResult` 是二者的交接面，而不是共享内部状态的借口。
+当前架构将 Patchouli 与 Alice 分开：Patchouli 是长期记忆与知识平面，Alice 是临时执行与控制平面。二者之间由 workspace 的任务进程居中交接：Patchouli 交出话题与未编译的检索结果（`PreparedAgentRun`），进程编译并组装与执行者无关的输入清单（`CPUInputManifest`），经 workspace 定义的 CPU 端口交给执行者（当前为 Alice），执行者交回 CPU 中立的执行结果（`CPUExecutionResult`）。这些交接模型不是共享内部状态的借口。
 
 ### 1.3 统一入口与领域自治
 
 主动对话、被动摄入和系统指令都需要理解“这条输入要去哪里”，但入口判断本身不应取得记忆或执行的所有权。Gateway 因此独立为系统级守门人：它形成决策，却不执行检索、不生成回答，也不写入记忆。
 
-应用层用例再把 Gateway 的入口决策、Patchouli 的记忆事务和 Alice 的执行能力编排为完整用例（chat 编排目前位于 `alice.application`，被动摄入位于 System）。这样既保持统一入口，又避免 Gateway 演变成新的 God Object。
+应用层用例再把 Gateway 的入口决策、Patchouli 的记忆事务和 Alice 的执行能力编排为完整用例（chat 任务进程的进程表与编排位于 `workspace.process`，被动摄入位于 System）。这样既保持统一入口，又避免 Gateway 演变成新的 God Object。
 
 ## 2. 当前基线
 
@@ -82,7 +82,7 @@ Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdow
 flowchart TB
     API["HTTP / SSE / WebSocket 适配层"] --> FACADE["HiveMemorySystem 门面"]
     FACADE --> CAP["Workspace 能力层"]
-    FACADE --> CHAT["Chat 编排（alice.application）"]
+    FACADE --> CHAT["任务进程编排（workspace.process）"]
     CAP --> BUS["GlobalSystemBus"]
     CHAT --> BUS
 
@@ -114,7 +114,7 @@ System 层拥有：
 - Provider / Model 注册表，以及调用来源接入登记与 Principal authentication；
 - 被动摄入与就绪检查。
 
-资源能力（能力层、认证入口与准入、读取视图、WorkspaceAsset）属于 workspace；chat 编排与 chat run 控制状态暂置于 `alice.application`。System 更像舞台管理者：它知道谁应先出场、关闭时谁先收尾，也持有全局时钟和观测设施；但它不替任何角色完成领域工作。System 不实现 Gateway 分析、记忆域算法或 Agent 执行循环，否则顶层编排很快会重新变成无法测试和替换的总管对象。
+资源能力（能力层、认证入口与准入、读取视图、WorkspaceAsset）与任务进程表及 chat 任务进程编排属于 workspace（`workspace.process`）。System 更像舞台管理者：它知道谁应先出场、关闭时谁先收尾，也持有全局时钟和观测设施；但它不替任何角色完成领域工作。System 不实现 Gateway 分析、记忆域算法或 Agent 执行循环，否则顶层编排很快会重新变成无法测试和替换的总管对象。
 
 ### 3.2 Gateway：真理之眼的工程边界
 
@@ -151,7 +151,7 @@ Alice 是 Agent 执行与控制平面，拥有：
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 
-因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定 prepare/finalize。chat 编排（`alice.application.chat_service`）作为 chat 任务类型的执行步骤暂置于 Alice 包内，只经公开路由依次调用 Gateway、Patchouli 与 Alice，不持有其他子系统的对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
+因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定 prepare/finalize。chat 任务进程编排（`workspace.process`）作为 chat 任务类型的执行步骤位于 workspace 包内，只经公开路由依次调用 Gateway、Patchouli 与 Alice，不持有其他子系统的对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
 
 ## 4. 共享运行时：连接而不混合
 
@@ -184,14 +184,17 @@ SQLite 后续见[持久化治理](../governance/reliability/durability-and-recov
 ## 5. 主动对话：一次跨平面的受控交接
 
 ```text
-ChatApplicationService
+TaskProcessService（workspace.process）
   -> Gateway PROCESS (ACTIVE_CHAT)
      -> command: 返回命令结果并短路
      -> decision: 继续
-  -> Patchouli PREPARE_AGENT_RUN
-  -> Alice RUN_AGENT / RUN_AGENT_STREAM
+  -> Patchouli GET_AGENT_PROFILE（CPU 分配的一部分，暂时先于 prepare）
+  -> Patchouli PREPARE_AGENT_RUN（话题与检索）
+  -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
+  -> Actor 执行：CPU 端口（当前为 Alice，经 RUN_AGENT 路由）
+  -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN
-  -> 返回 Agent 结果和记忆任务信息
+  -> 释放附件租借，返回 Agent 结果和记忆任务信息
 ```
 
 这条三段式链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把 finalize 藏进 Alice，Agent 取消就可能留下半完成的长期写入；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败、观测和补偿。
@@ -199,11 +202,11 @@ ChatApplicationService
 关键语义：
 
 1. Gateway 必须先形成命令终态或完整决策；
-2. Patchouli prepare 解析 Agent Profile、话题、检索结果和已编译记忆上下文，返回 `PreparedAgentRun`；
-3. Alice 只消费 `AgentRunContext` 和单次生成覆盖参数；
-4. 只有正常完成的 Agent run 进入 finalize；
-5. prepare 成功但 finalize 未成功时，chat 编排请求 Patchouli cleanup，清理可能预创建的空话题；
-6. finalize 从结构化 `turn_events` 归约 MTP trace，并提交 interaction、物化任务和检索命中。
+2. Patchouli prepare 只准备话题并检索记忆，返回 `PreparedAgentRun`（未编译的检索原子）；
+3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 只消费输入清单和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
+4. 只有执行结果为 completed 的一轮进入 finalize；
+5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
+6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并处理物化任务和检索命中。
 
 ## 6. 被动摄入：让外部经历进入记忆，而不是伪造一次对话
 
@@ -285,7 +288,7 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 
 - 组合与生命周期：`src/hivememory/system/assembler.py`、`src/hivememory/system/system.py`；
 - 包分层：`tests/unit/architecture/test_package_layers.py`；
-- 主动链路：`src/hivememory/alice/application/chat_service.py`；
+- 主动链路：`src/hivememory/workspace/process/`；
 - 被动链路：`src/hivememory/system/application/passive_ingress_service.py`、`src/hivememory/system/services/passive/`；
 - 子系统宿主：`src/hivememory/{gateway,patchouli,alice}/system.py`；
 - 主要测试：`tests/unit/system/`、`tests/unit/gateway/`、`tests/e2e/pipeline/`。

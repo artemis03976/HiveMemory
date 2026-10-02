@@ -5,8 +5,8 @@ horizon: candidate
 owner: system
 scope: chat-run-cancellation-future
 code_paths:
-  - src/hivememory/system/application/chat_service.py
-  - src/hivememory/system/runtime/control.py
+  - src/hivememory/workspace/process/task_process.py
+  - src/hivememory/workspace/process/table.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/alice/application/agent_run_service.py
   - src/hivememory/alice/runtime/streaming.py
@@ -18,7 +18,8 @@ related_docs:
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-08-05
+  - docs/ideas/task-process-table-and-registration-entry.md
+last_reviewed: 2026-10-01
 ---
 
 # Chat Run 取消与生命周期后续设计
@@ -30,6 +31,8 @@ last_reviewed: 2026-08-05
 
 最小闭环已完成。只有在产品需求、运行指标或真实故障证明有必要时，才按本文各节的
 独立启用条件立项。不得以“架构最终会需要”为理由一次性实施全部内容。
+
+**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应 `TaskProcess.run()`（`workspace/process/task_process.py`），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
 
 本文覆盖：
 
@@ -112,6 +115,17 @@ flowchart TD
 - Chat Run 需要独立状态查询或后台观察。
 
 在此之前，独立 Job 只增加 registry、task、队列和关闭协议，不应实现。
+
+### 3.4 已发现的断连丢失提交（2026-10-01 复核，已复现）
+
+`TaskProcess.run()` 先进入 FINALIZE（此后 stop 返回 `already_finalizing`），再产出 `finalizing` 状态事件，然后才调用 finalize。server 路由每发出一个事件就检查一次断开，断开即关闭流；若断开落在这个产出点，finalize 不会被调用，关闭流程转而执行 cleanup，Actor 已完成的一轮交互丢失。这与“finalize 开始后 stop 不再打断提交”（第 2 节基线第 6 条）在语义上矛盾。finalize 调用开始之后断开不受影响：Patchouli 以 shield 继续，cleanup 会跳过已接管的 continuation。该问题在迁入任务进程前的 `chat_stream()` 中同样存在。
+
+候选处理方向（只列选项，不代表倾向）：
+
+- 先让 Patchouli 接管 finalize，再产出 `finalizing` 事件；
+- finalize 之前不产出单独的事件；
+- 关闭流程对已进入 FINALIZE、尚未交给 Patchouli 的进程补做结算，而不是 cleanup；
+- 保持现状，作为本候选的启用依据之一，随独立 Job 一并解决。
 
 ---
 
@@ -289,6 +303,8 @@ OPEN -> COMMITTED
 ---
 
 ## 8. 候选 F：Gateway command 提交屏障
+
+> 2026-10-01：Gateway 命令已改为只解析、不执行，命令分发与执行已删除（[Gateway 全局命令](../gateway/commands.md)），当前不存在会在 Gateway 中产生副作用的命令。命令在任务进程中何时、由谁运行尚未决定，本节内容待命令系统接回时按新的运行位置重新审视。
 
 Gateway 最小方案取消整个 workflow task，因此取消可能在 command await 中到达。
 若未来 command 出现不可逆副作用，需要按行为分类：

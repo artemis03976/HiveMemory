@@ -3,7 +3,7 @@ title: A1 访问边界返工
 status: todo
 owner: workspace-patchouli-system
 scope: operation-check-relocation-compat-branch-exit-and-production-gateway-wiring
-priority: unscheduled
+priority: v0.7.0
 code_paths:
   - src/hivememory/patchouli/application/access_consumption.py
   - src/hivememory/workspace/capability/
@@ -14,14 +14,14 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/todo/workspace-asset-upload-access-scope-mismatch.md
-last_reviewed: 2026-09-27
+last_reviewed: 2026-10-01
 ---
 
 # A1 访问边界返工
 
 ## 状态与处理决定
 
-**未排期。** 本项不阻塞任务进程表与任务请求唯一注册入口计划的制定和实现；该计划不以本项完成为前提。
+**排期**（owner，2026-09-27）：在 v0.7.0 内、任务进程表与任务请求唯一注册入口计划完成之后接入，此时已有稳定的入口（[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) 6.1）。本项仍不阻塞该计划的制定和实现；该计划不以本项完成为前提。
 
 本项汇总 A1（[已归档](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)）交付后仍未完成的三部分工作。它们此前分别交由 v0.7.0 A2 与 A6 计划收口；两份计划已于 2026-09-27 作废删除（删除前最后版本见 commit `dda9d9d`），相关事项改由本 Todo 承接。
 
@@ -47,4 +47,5 @@ last_reviewed: 2026-09-27
 - [ ] 所有公开方法的 operation 检查在确定的目标位置执行，Patchouli application 不再承担行为白名单检查；
 - [ ] 裸 scope 兼容分支删除，缺少 access 的公开调用显式拒绝；
 - [ ] 生产入口经认证网关取得 context，并确定 context 在停止时的关闭时机；
+- [ ] 建立承载接入登记的单独配置文件（owner，2026-10-01；见[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md) E-1 的补充）：现有 `access` 配置段在 `configs/config.yaml` 中没有内容，网关认证按设计 fail closed，生产入口接入网关前需要有可装载的登记；文件形状需要为 harness 登记的接入与执行两个侧面（该 Idea 1.2）留出位置；
 - [ ] 返工完成后，把 A1 以来的实际变化统一整理进入事实文档（[Workspace 架构](../architecture/workspace.md)第 4 节、[错误模型](../contracts/error-model.md)第 4.4 节、[子系统公共契约](../contracts/subsystem-contracts.md)第 3.5 节）。

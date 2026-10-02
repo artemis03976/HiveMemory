@@ -17,7 +17,7 @@ from hivememory.core.contracts.runtime_events import (
 def test_runtime_event_defaults_json_serializable():
     event = RuntimeEvent(
         event_type=RuntimeEventType.CHAT_RUN_CREATED,
-        generation_id="gen-1",
+        process_id="process-1",
     )
 
     assert event.event_id.startswith("evt_")

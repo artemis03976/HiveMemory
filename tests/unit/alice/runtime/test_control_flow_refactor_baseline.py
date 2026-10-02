@@ -8,7 +8,6 @@ from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
-from hivememory.alice.application import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
@@ -76,8 +75,6 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
 
     assert "run_agent" not in runtime_public_methods
     assert "run_agent_stream" not in runtime_public_methods
-    assert inspect.iscoroutinefunction(AgentRunService.run_agent)
-    assert inspect.isasyncgenfunction(AgentRunService.run_agent_stream)
 
 
 def test_alice_runtime_owns_derived_caches() -> None:

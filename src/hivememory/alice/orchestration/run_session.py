@@ -15,7 +15,7 @@ class RunSession:
     """
 
     agent_run_id: str
-    generation_id: str | None = None
+    process_id: str | None = None
     frames: dict[str, ExecutionFrame] = field(default_factory=dict)
     root_frame_id: str | None = None
     call_records: dict[tuple[str, str], CallRecord] = field(default_factory=dict)

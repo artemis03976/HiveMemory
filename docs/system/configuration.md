@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-29
 ---
 
 # System 配置与注册表
@@ -37,8 +37,8 @@ last_reviewed: 2026-09-26
 | `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
 | `passive_ingress` | `config.passive` | dedup、turn accumulator 上限 | System passive ingress |
-| `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者 |
-| `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler |
+| `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者；由组合根注入 workspace 任务进程（检索结果编译）与 Alice（MTP 输出编译） |
+| `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler；`attachment_compiler` 由组合根注入 workspace 任务进程 |
 | `access` | `config.access` | 调用来源接入登记、Workspace Actor 访问登记、context TTL | System 接入登记 / workspace 准入 |
 | `workspace` | `config.workspace` | 读取视图缓存容量 | workspace |
 | `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置 | 对应子系统 |

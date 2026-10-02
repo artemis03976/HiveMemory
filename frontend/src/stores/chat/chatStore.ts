@@ -11,7 +11,7 @@
 
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import { ChatSSEClient, stopGeneration } from '@/services/chatApi';
+import { ChatSSEClient, stopProcess } from '@/services/chatApi';
 import { createChatSSECallbacks } from '@/stores/chat/streamHandlers';
 import { applyDone, applyStreamError } from '@/stores/chat/messageReducers';
 import { useMemoryTaskStore } from '@/stores/memory';
@@ -60,7 +60,7 @@ interface ChatStore {
   // Internal
   _sseClient: ChatSSEClient | null;
   _currentStreamingMessageId: string | null;
-  _currentGenerationId: string | null;
+  _currentProcessId: string | null;
 }
 
 // ========== Store Implementation ==========
@@ -84,7 +84,7 @@ export const useChatStore = create<ChatStore>()(
         retrievedMemories: [],
         _sseClient: null,
         _currentStreamingMessageId: null,
-        _currentGenerationId: null,
+        _currentProcessId: null,
 
         // Agent Action
         setCurrentAgentId: (id: string) => set({ currentAgentId: id }),
@@ -95,9 +95,9 @@ export const useChatStore = create<ChatStore>()(
           if (!isActiveChatRunStatus(state.runStatus)) return;
           if (state.runStatus === 'cancelling') return;
 
-          const generationId = state._currentGenerationId;
-          if (generationId) {
-            void stopGeneration(generationId);
+          const processId = state._currentProcessId;
+          if (processId) {
+            void stopProcess(processId);
           }
 
           set({
@@ -204,11 +204,11 @@ export const useChatStore = create<ChatStore>()(
                   useTopicStore.getState().fetchTopics();
                 }
               },
-              setGenerationId: (data) => {
+              setProcessId: (data) => {
                 const current = get();
-                set({ _currentGenerationId: data.generation_id });
+                set({ _currentProcessId: data.process_id });
                 if (current.runStatus === 'cancelling') {
-                  void stopGeneration(data.generation_id);
+                  void stopProcess(data.process_id);
                 }
               },
               markStreaming: () => {
@@ -247,7 +247,7 @@ export const useChatStore = create<ChatStore>()(
                     error: isFailed ? (data.reason ?? '生成失败') : null,
                   },
                   _currentStreamingMessageId: null,
-                  _currentGenerationId: null,
+                  _currentProcessId: null,
                 }));
 
                 if (memoryTaskIds.length > 0) {
@@ -279,7 +279,7 @@ export const useChatStore = create<ChatStore>()(
                   lastRunReason: errorDetail ?? errorMessage,
                   connection: { status: 'error', error: errorMessage },
                   _currentStreamingMessageId: null,
-                  _currentGenerationId: null,
+                  _currentProcessId: null,
                 }));
               },
             });

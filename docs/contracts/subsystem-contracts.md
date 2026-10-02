@@ -8,18 +8,19 @@ code_paths:
   - src/hivememory/gateway/contracts/
   - src/hivememory/patchouli/contracts/
   - src/hivememory/alice/contracts/
+  - src/hivememory/workspace/contracts/
   - src/hivememory/core/protocol/
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-01
 ---
 
 # 子系统公共契约
 
-本文定义 System、Gateway、Patchouli、Alice 跨边界可观察的输入、输出和不变量。路由字符串与事件名的完整清单见[routes-and-events.md](./routes-and-events.md)。
+本文定义 System、Gateway、Patchouli、Alice 跨边界可观察的输入、输出和不变量，以及任务进程与执行者之间的 CPU 端口。路由字符串与事件名的完整清单见[routes-and-events.md](./routes-and-events.md)。
 
 契约不是把公开函数逐一抄进文档，也不是要求每个子系统共享同一套内部对象。它描述的是一次能力交接：调用方必须提供哪些事实，所有者承诺返回什么，以及双方都不能偷偷改变哪些语义。只要这些交接保持稳定，Gateway 的分析流程、Patchouli 的记忆实现和 Alice 的执行循环就可以各自演进；一旦内部 workflow state 或引擎实体越过边界，局部重构便会重新变成全系统改造。
 
@@ -58,12 +59,14 @@ process(
 
 `GatewayProcessResult` 是不可变判别联合：
 
-- `GatewayCommandOutcome(kind="command")`：包含 `CommandExecutionResult`；
+- `GatewayCommandOutcome(kind="command")`：包含命令解析结果 `CommandParseResult`；
 - `GatewayDecisionOutcome(kind="decision")`：包含 `GatewayDecision`。
 
-二者互斥。命令终态不能同时携带普通分析结果；普通决策不能携带命令执行结果。
+二者互斥。命令结果不能同时携带普通分析结果；普通决策不能携带命令解析结果。
 
-这种互斥使命令成为真正的短路终态。系统指令已经完成、被拒绝或要求确认时，继续执行检索、Agent run 和记忆提交既浪费资源，也可能把一条控制消息误当成普通对话沉淀。判别联合让调用方必须显式选择一条链路，不能依赖多个可空字段猜测 Gateway 的意图。
+Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandParseStatus` 位于 `core.protocol.gateway`，命令结果只携带解析产物（命令标识、名称、参数与解析状态），用户可见的命令终态由任务进程产生（第 5 节）。命令的实际运行不在 Gateway 中，因为后续指令会与用户请求同时出现，入口分析不能产生命令副作用；命令在任务进程中何时、由谁运行尚未决定，内置命令当前暂时不可用。
+
+这种互斥使命令成为真正的短路终态。一条输入一旦被识别为系统命令，继续执行检索、Agent run 和记忆提交既浪费资源，也可能把一条控制消息误当成普通对话沉淀。判别联合让调用方必须显式选择一条链路，不能依赖多个可空字段猜测 Gateway 的意图。
 
 ### 2.2 GatewayDecision
 
@@ -83,7 +86,7 @@ process(
 
 ### 2.3 模式不变量
 
-- `ACTIVE_CHAT` 可以识别并执行系统指令；
+- `ACTIVE_CHAT` 可以识别（解析）系统指令，不执行；
 - `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；
 - `request_timeout_ms` 只能收紧配置的默认总超时，不能扩大它；
 - 局部可恢复失败可以降级，但最终结果仍必须满足完整终态不变量。
@@ -98,50 +101,60 @@ Patchouli 的公开面分为 chat 协作、记忆、任务、Agent Profile、话
 
 ```python
 prepare_agent_run(
-    user_message: str,
     *,
     identity_scope: IdentityScope,
     interaction_id: str,
     gateway_decision: GatewayDecision,
     enable_memory_retrieval: bool = True,
-    generation_options: dict[str, Any] | None = None,
-    selected_attachments: list[AttachmentSelectionRequest] | None = None,
 ) -> PreparedAgentRun
 ```
 
-`PreparedAgentRun` 是不可变 dataclass，包含：
+prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备本轮 Topic（必要时新建，话题池已满时先按 LRU 结算一个已有话题），并按检索计划检索记忆。它不解析 Agent Profile、不接触附件、不编译记忆，也不为任何执行者组装运行上下文；这些属于任务进程在分配 CPU 时的工作（第 5 节）。
 
-- `agent_run_context`：Alice 的完整中立输入；
-- `gateway_decision`：本轮只读决策快照；
-- `stream_prelude`：topic、是否新话题、话题池与 memory refs；
-- `generation_options`：本轮生成覆盖参数。
+`PreparedAgentRun`（`patchouli.contracts.prepare`）是不可变 dataclass，既是 prepare 的结果，也是 finalize 与 cleanup 的输入句柄：
 
-`AgentRunContext` 至少包含 `identity_scope: IdentityScope`、`interaction_id`、真实 topic id、用户消息、话题上下文、原始 `RetrievalResponse`、MemoryCompiler 编译文本、Agent Profile 和存储可用性。`IdentityScope` 是该上下文的唯一身份来源，不再由 `user_id`、`agent_id` 或 `session_id` 在下游重新拼接。
+| 字段 | 内容 |
+|:---|:---|
+| `identity_scope`、`interaction_id` | 由 prepare 入参冻结；`IdentityScope` 是唯一身份来源 |
+| `topic_id`、`is_new_topic` | 本轮真实话题与是否由 prepare 新建 |
+| `topic_context`、`pool_topics` | 话题上下文与话题池快照 |
+| `retrieval_result` | 未编译的检索结果（`RetrievalResponse`） |
+| `storage_available` | 记忆存储健康状态 |
 
-`selected_attachments` 是 Chat 请求冻结的附件选择（bound ref + 可选版本摘要）：prepare 在 Patchouli 边界逐项 acquire READY representation 并核对版本摘要，任一失败释放已取得的 lease 并拒绝整个 run。`AgentRunContext` 携带 `AttachmentCompiler` 的产物 `attachment_compile_result`（prompt-ready section、实际使用引用与诊断）；用户选择本身不作为该上下文的字段。附件链路事实见[Chat 附件链路](../system/attachments.md)。
+它位于 Patchouli 的 `contracts` 子包，因为 workspace 的任务进程需要读取其中的话题与检索结果；L3 子系统之间只能导入对方的 `contracts`。用户消息与 Gateway 决定由任务进程自己持有（组装输入清单与封口交互记录时使用），prepare 不接收用户消息，也不回传决定。
 
-prepare 的意义不只是拼装参数。它把 Gateway 的入口决定解析成 Alice 可以直接执行的本轮记忆视图，并由 Patchouli 在交出控制权前确认真实话题、可见性和 Profile。Alice 因而无需理解 Patchouli 内部存储，也不会在执行途中重新推导另一套记忆上下文。
+prepare 的意义在于：由 Patchouli 在交出控制权前确认真实话题与本轮可见的记忆，调用方无需理解 Patchouli 内部存储。检索结果以原始 `MemoryAtom` 交出，如何呈现给执行者由任务进程决定。
 
 ### 3.2 FinalizeAgentRun
 
 ```python
 finalize_agent_run(
     prepared_run: PreparedAgentRun,
-    loop_result: AgentRunResult,
+    payload: InteractionPayload,
 ) -> list[MemoryGenerationTask]
 ```
 
+`payload` 是任务进程封口的本轮交互记录。进程在 Actor 正常完成、进入 finalize 之后组装它（`workspace/process/sealing.py`），材料全部来自进程自身：
+
+| 字段 | 来源 |
+|:---|:---|
+| `user_message` | 任务请求的入口消息 |
+| `rewritten_query`、`worth_saving` | Gateway 阶段的决定 |
+| `assistant_final_text`、`turn_events`、`model_used`、`materialize_tasks` | Actor 的执行结果 |
+| `mtp_traces` | 由 core 的 `ActionReducer` / `TraceReducer` 从 `turn_events` 归约 |
+| `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
+
+附件租借由任务进程持有并在进程结束时释放，finalize 不负责。
+
 Finalize：
 
-1. 从 `turn_events` 归约 action 和 MTP trace；
-2. 构造 `InteractionPayload`；
-3. 将交互提交到目标话题；
-4. 为 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
-5. 记录预检索命中。
+1. 将 payload 原样提交到目标话题，不改写其内容；
+2. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
+3. 记录预检索命中。
 
-System 只应对 `AgentRunStatus.COMPLETED` 的结果调用 finalize。Finalize 已成功后不能再 cleanup。
+任务进程只对 `status == completed` 的执行结果封口并调用 finalize。Finalize 已成功后不能再 cleanup。
 
-finalize 是执行事务与记忆事务的分界。Alice 负责声明“本轮发生了什么”，Patchouli 负责判断这些执行事实如何形成 Interaction、引用和延迟物化任务。把归约与提交留在 Patchouli，可以避免 System 或 Alice 各自维护第二套感知规则，也确保取消和失败的半完成 run 不会默认进入长期知识。
+finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不会默认进入长期知识。
 
 ### 3.3 CleanupPreparedAgentRun
 
@@ -149,7 +162,7 @@ finalize 是执行事务与记忆事务的分界。Alice 负责声明“本轮�
 cleanup_prepared_agent_run(prepared_run: PreparedAgentRun) -> bool
 ```
 
-Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题。已有话题或已经产生内容的话题不应被删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
+Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。已有话题或已经产生内容的话题不应被删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
 
 它不是 rollback，也不承诺撤销整个 prepare 之后发生的一切。跨子系统没有一项可以原子回滚的数据库事务；cleanup 只补偿明确由 prepare 创建、且仍可安全判断为空的临时副作用。将它描述为回滚会诱使调用方删除已经存在或已被其他流程使用的长期状态。
 
@@ -173,35 +186,65 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 两类入口并存是显式契约而非疏漏：`read_memory`、`interaction.submit`、`memory_intent.submit` 等不在迁移兼容清单内，缺失 access 一律拒绝；管理 CRUD、检索、Profile、Topic 管理和附件上传等既有调用方在缺失 access 时按裸 scope 受信适配运行，清单（保留入口、已有调用方、A6 删除点）唯一维护在 `patchouli/application/access_consumption.py`，A6 完成生产消费者切换后删除兼容分支。Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义（接入认证、准入、行为授权、context 有效性）见[错误模型](./error-model.md)，完整访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
-## 4. Alice 契约
+## 4. CPU 端口与 Alice 实现
 
-### 4.1 非流式运行
+### 4.1 CPU 端口
+
+```python
+class CPUPort(Protocol):
+    def execute(
+        self,
+        manifest: CPUInputManifest,
+        *,
+        generation_options: dict[str, Any] | None,
+        stream: bool,
+    ) -> AsyncGenerator[CPUOutput, None]: ...
+```
+
+CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接口：端口由 workspace 定义，执行者实现，组合根注入 `TaskProcessService`。进程只依赖端口与本节的中立模型，因此执行者可以替换而不改动进程与入口；当前唯一的实现是 Alice 的 `AliceCPU`（4.4），测试中的 `ScriptedCPU` 同样能跑完整个任务进程。端口采用对象而不是总线路由，是因为外部 harness 的驱动多数不是子系统：按路由契约接入，每种驱动都要新增路由常量，或在总线之后再建一层分派。
+
+`CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`identity_scope`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。
+
+端口语义：
+
+- **输出顺序**：`execute` 返回的异步生成器先产出交互事件（只在流式时），再产出唯一的终态结果 `CPUExecutionResult`；终态结果恰好出现一次，并且是最后一项，非流式时它是唯一一项。输出流在没有终态结果时结束属于协议错误，进程按失败处理。
+- **交互事件**：带 `event` 与 `data` 的字典，进程原样转交给流式交付，不做解释。
+- **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出异常，由进程按失败处理。
+- **取消与关闭**：用户停止时，进程取消正在拉取下一项的任务；进程在拿到终态结果后、以及在关闭流程中关闭输出流。实现必须传播 `asyncio.CancelledError`，并在输出流关闭时释放自己创建的资源。
+- **`generation_options`**：由各个执行者自行解释，进程原样传递。
+
+### 4.2 执行结果
+
+`CPUExecutionResult` 是执行者对一次执行的完整事实声明，而不是已经提交的长期记忆：
+
+- `status`：`completed`、`cancelled` 或 `failed`（`CPUExecutionStatus`）；
+- `final_text`：最终用户可见文本；
+- `turn_events`：结构化运行事实（`TurnEvent`）；
+- `model_used`：执行者实际使用的模型展示名，空字符串表示未解析；
+- `materialize_tasks`：本次执行产生的不可变物化请求；写入意图的实时派发实现之前保留。
+
+执行者专属的统计（例如 Alice 的 MTP 迭代次数）不进入执行结果，只出现在各自的观测事件中。任务进程据执行结果决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断执行已经完成。
+
+### 4.3 Alice 的执行入口
 
 ```python
 run_agent(
-    agent_run_context: AgentRunContext,
+    input_manifest: CPUInputManifest,
     generation_options: dict[str, Any] | None = None,
-) -> AgentRunResult
+    *,
+    stream: bool = True,
+) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]
 ```
 
-`AgentRunResult` 包含：
+`AgentRunService.run_agent` 是 Alice 唯一的执行入口，经全局路由 `alice.public.run_agent` 暴露。流式与非流式运行同一套执行骨架，`stream` 只决定是否产出交互事件：流式时返回事件的异步生成器，最后一项是 `done`（执行结果的字段加上运行元数据）；非流式时返回可 await 的 `CPUExecutionResult`。消费者关闭事件流时，Alice 取消并 join 自己创建的 runner。Alice 在内部把输入清单转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不出现在任何公开路由上。
 
-- `status`：`completed`、`cancelled` 或 `failed`；
-- `final_text`：最终用户可见文本；
-- `mtp_iterations` / `total_iterations`：执行统计；
-- `turn_events`：结构化运行事实；
-- `materialize_tasks`：本 run 产生的不可变物化请求；
-- `model_used`：注册表解析出的展示名，空字符串表示未解析。
+### 4.4 Alice 的端口实现
 
-这个结果是 Alice 对一次执行的完整事实声明，而不是已经提交的长期记忆。Chat application 通过拥有的 task 控制用户 stop，Alice 只沿 await 传播原生 `asyncio.CancelledError`；System 据此决定是否进入 finalize，Patchouli 再归约其中的 turn events 和 materialize tasks；任何一方都不能仅凭流中的部分文本推断 run 已经完成。
+`AliceCPU`（`alice/application/cpu.py`）经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
 
-### 4.2 流式运行
+### 4.5 Alice 不变量
 
-`run_agent_stream()` 接收相同输入，经全局 RPC 返回 async generator。流中包含增量事件，消费者关闭时由 Alice 取消并 join 自己创建的 runner；最终必须给 System 提供完整 `AgentRunResult`，只有拿到正常完成的最终结果才能进入 Patchouli finalize。
-
-### 4.3 Alice 不变量
-
-- Alice 不修改 `AgentRunContext` 所指向的长期记忆或话题；
+- Alice 不修改输入清单所引用的长期记忆或话题；
 - WRITE/UPDATE 只产生 PendingAtom 和 materialize task；
 - 取消或失败结果不默认进入 Patchouli finalize；
 - MTP 权限由 Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 控制；
@@ -210,20 +253,26 @@ run_agent(
 ## 5. 顶层主动链路契约
 
 ```text
-Gateway command outcome
-  -> System 返回命令结果
-  -> 不调用 Patchouli prepare / Alice / Patchouli finalize
+Gateway command outcome（解析结果）
+  -> 任务进程产生命令终态（解析成功：暂不可用；解析失败：拒绝）
+  -> 不调用 Patchouli prepare / CPU / Patchouli finalize
 
 Gateway decision outcome
-  -> Patchouli prepare
-  -> Alice run
-  -> completed: Patchouli finalize
+  -> 解析 Agent Profile（Patchouli 公开路由）
+  -> Patchouli prepare（Topic 与检索）
+  -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
+  -> Actor 执行：经 CPU 端口（当前为 Alice）
+  -> completed: 任务进程封口交互记录（InteractionPayload，含实际使用的附件）
+       -> Patchouli finalize
   -> cancelled/failed/exception: Patchouli cleanup (若已 prepare)
+  -> 进程结束：释放附件租借
 ```
 
-该顺序由 `ChatApplicationService` 拥有。任何 transport adapter 都不能复制或调整此顺序。
+Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare 可能新建 Topic 或按 LRU 结算已有话题，Profile 缺失的请求应在这些副作用发生前失败。
 
-顺序本身就是契约的一部分：Gateway 先收敛入口语义，Patchouli 再准备长期知识的本轮视图，Alice 只执行，最后由 Patchouli 提交。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两条 finalize 规则不一致的问题。
+该顺序由 `TaskProcessService`（`workspace.process`）拥有。任何 transport adapter 都不能复制或调整此顺序。
+
+顺序本身就是契约的一部分：Gateway 先收敛入口语义，Patchouli 再准备长期知识的本轮视图，CPU 只执行，最后由 Patchouli 提交。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两条 finalize 规则不一致的问题。
 
 ## 6. 被动链路契约
 
@@ -241,7 +290,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 
 `InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：`identity_scope` 是唯一身份来源，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不重复嵌入 scope。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
-`InteractionPayload.used_attachments` 携带 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
+`InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
@@ -258,14 +307,15 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 
 1. 这个模型是否只包含一次交接需要的稳定事实，还是暴露了可变 workflow state、引擎对象或回调？
 2. 接收方是否正在修改本应只读的决定，或重新推导一份与所有者可能分叉的状态？
-3. command outcome 是否仍能立即短路？Passive Memory 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
+3. command outcome 是否仍能立即短路？Gateway 是否开始执行命令，或在公开结果中携带执行产物？Passive Memory 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
 4. prepare、run、finalize 的顺序或资格是否被 transport、事件订阅者或兼容 fallback 悄悄改变？
 5. cleanup 是否仍是对空话题的有限补偿，还是被当成可以撤销长期状态的事务回滚？
-6. `AgentRunResult`、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
+6. 执行结果、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
 7. 身份、可见性和权限检查是否仍由状态所有者执行，而不是由拿到 id 的调用方自行假设？
 8. 是否把 enqueue/apply timestamp 或 queue FIFO 误当作业务发生顺序？
 9. 是否把 topic append 顺序误当作 Agent 已观察到彼此结果的因果关系？
 10. 是否声称 finalize ordering 已经解决 prepare/LLM input snapshot 的并发？
+11. Patchouli 公开路由是否开始接收某个执行者专属的运行结果，或在 finalize 中改写提交方已封口的交互记录？
 
 这些问题能帮助评审者从契约语义发现设计分叉，而不只是检查函数签名是否还能调用。
 
@@ -278,7 +328,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 - 新增必填公共字段或改变字段语义；
 - 改变 prepare/finalize/cleanup 顺序；
 - 允许 Passive Memory 返回命令；
-- 改变 AgentRunResult 终态和 finalize 资格；
+- 改变 CPU 端口的输出语义、执行结果终态和 finalize 资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/application/test_agent_run_service.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_phase3b_contracts.py`、`tests/unit/patchouli/test_phase3f_gateway_decision.py`、`tests/unit/alice/application/test_agent_run_service.py`、`tests/unit/alice/application/test_alice_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。

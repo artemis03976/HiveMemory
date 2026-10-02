@@ -22,7 +22,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-28
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -192,7 +192,7 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 
 ## 4. 前台运行控制不属于本包
 
-chat run 的阶段、停止原因与可中断阶段 task 由 chat 编排的 `ChatGenerationRunRegistry`（`alice/application/chat_control.py`）持有，它是用例级控制状态，不是通用运行时机制。其结构、取消传播与不承诺的范围统一维护在[应用服务](../system/application-services.md)第 4 节。本包只提供它所依赖的通用机制：总线 RPC、原生 `asyncio.CancelledError` 传播路径上的 work queue 取消语义，以及观测旁路。
+chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进程编排的 `ProcessTable`（`workspace/process/table.py`）持有，它是用例级控制状态，不是通用运行时机制。其结构、取消传播与不承诺的范围统一维护在[应用服务](../system/application-services.md)第 4 节。本包只提供它所依赖的通用机制：总线 RPC、原生 `asyncio.CancelledError` 传播路径上的 work queue 取消语义，以及观测旁路。
 
 ## 5. KeyedSerialGate
 
@@ -215,7 +215,7 @@ chat run 的阶段、停止原因与可中断阶段 task 由 chat 编排的 `Cha
 Subsystem maintenance task -> GlobalMaintenanceScheduler callback
 Accepted local work -> WorkQueueRuntime -> business handler
 Any operation -> RuntimeEventSink (best-effort observation)
-Chat cancel -> ChatGenerationRunRegistry（chat 编排，不属于本包） -> current phase task
+Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本包） -> current phase task
 ```
 
 禁止：
@@ -250,4 +250,4 @@ Chat cancel -> ChatGenerationRunRegistry（chat 编排，不属于本包） -> c
 - `tests/integration/patchouli/test_active_interaction_submission.py`
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_serial_gate.py`
-- `tests/unit/system/test_cancel_hardening.py`
+- `tests/unit/workspace/process/test_cancel_hardening.py`

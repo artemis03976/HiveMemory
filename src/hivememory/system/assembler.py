@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import (
@@ -52,6 +51,7 @@ from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
@@ -99,7 +99,7 @@ class _SubsystemBundle:
 
 @dataclass
 class _ServicesBundle:
-    chat: ChatApplicationService
+    process: TaskProcessService
     ingress: PassiveIngressService
     memory: MemoryApplicationService
     memory_task: MemoryTaskApplicationService
@@ -324,14 +324,12 @@ class SystemAssembler:
             scheduler=runtime.scheduler,
             runtime_events=runtime.event_sink.scoped("patchouli"),
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
-            # Patchouli：附件选择在 prepare 边界 resolve/acquire（W1-D）。
+            # Patchouli runtime：供 Artifact promotion 在生成时自行取得内容。
             workspace_asset_reader=runtime.workspace_asset_store,
             # A1：System composition 注入共享行为检查；Patchouli 公共入口
             # 据此执行操作授权，不反向依赖认证网关实现。
             access_guard=access_control.access_guard,
             shared_config=self._config.shared,
-            memory_compiler_config=self._config.memory_compiler,
-            attachment_compiler_config=self._config.attachment_compiler,
             scheduler_config=self._config.scheduler,
         )
 
@@ -355,13 +353,20 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
-        chat = ChatApplicationService(
+        process = TaskProcessService(
             global_bus=runtime.global_bus,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
-            runtime_events=runtime.event_sink.scoped(
-                "system",
-                component="chat_application_service",
-            ),
+            # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
+            event_publisher=runtime.event_publisher,
+            # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
+            # 由组合根注入，workspace.process 不出现 Alice 的路由名或结果类型。
+            cpu=subsystems.alice.cpu_port,
+            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给任务进程：
+            # 附件租借在 CPU 分配边界 resolve/acquire，随进程关闭统一释放。
+            asset_reader=runtime.workspace_asset_store,
+            # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
+            memory_compiler_config=self._config.memory_compiler,
+            attachment_compiler_config=self._config.attachment_compiler,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,
@@ -408,7 +413,7 @@ class SystemAssembler:
         )
 
         return _ServicesBundle(
-            chat=chat,
+            process=process,
             ingress=ingress,
             memory=memory,
             memory_task=memory_task,

@@ -25,14 +25,13 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
-from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.prompts.assembler import AgentPromptAssembler
+from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -55,17 +54,14 @@ def _build_memory_atom() -> MemoryAtom:
     )
 
 
-def _build_agent_run_context(memory: MemoryAtom) -> AgentRunContext:
-    return AgentRunContext(
+def _build_input_manifest(memory: MemoryAtom):
+    return make_input_manifest(
         identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
-        interaction_id="test-interaction",
+        process_id="process-test",
         topic_id="topic_1",
         user_message="hello",
-        topic_context=None,
-        retrieval_result=RetrievalResponse(memories=[memory]),
+        memories=[memory],
         memory_context="ctx",
-        agent_profile=OMNI_DOLL_PROFILE,
-        storage_available=True,
     )
 
 
@@ -101,18 +97,19 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
 async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
     recorder = RecordingRuntimeEventSink()
     _runtime, service = _build_service(runtime_events=recorder)
-    context = _build_agent_run_context(_build_memory_atom())
+    manifest = _build_input_manifest(_build_memory_atom())
     executor = MagicMock()
     executor.run = AsyncMock(
         return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
     )
     executor.terminal_result = None
+    executor.runtime_products = None
     with patch(
         "hivememory.alice.application.agent_run_service.RunExecutor",
         return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent_stream(context):
+            async for _ in service.run_agent(manifest, stream=True):
                 pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED

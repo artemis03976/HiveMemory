@@ -8,7 +8,7 @@
 - 多轮迭代：连续工具调用保持上下文
 - 错误恢复：工具异常不影响循环收敛
 
-入口: e2e_system.chat_service.chat()
+入口: e2e_system.process_service.run_process(stream=False)
 标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
 """
 
@@ -16,16 +16,22 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.alice.application.chat_service import NonStreamingChatAgentOutcome
 from hivememory.core.models import ActorIdentity, build_internal_identity_scope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
+from hivememory.workspace.process.service import NonStreamingAgentOutcome
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
 
+def _mtp_calls(result) -> int:
+    """执行结果的轮次事件中 MTP 工具调用（tool_call）的次数。"""
+    return sum(1 for event in result.turn_events if event.kind == "tool_call")
+
+
 async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
-    result = await e2e_system.chat_service.chat_scoped(
-        user_message=prompt,
+    result = await e2e_system.process_service.run_process(
+        stream=False,
+        message=prompt,
         identity_scope=build_internal_identity_scope(
             ActorIdentity(user_id=user_id, agent_id="omni_doll"),
             MAIN_WORKSPACE_ID,
@@ -35,9 +41,9 @@ async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
         **kwargs,
     )
     assert isinstance(
-        result, NonStreamingChatAgentOutcome
+        result, NonStreamingAgentOutcome
     ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
-    return result.agent_run_result
+    return result.execution_result
 
 
 class TestAgentLoop:
@@ -45,7 +51,7 @@ class TestAgentLoop:
 
     @pytest.mark.asyncio
     async def test_agent_loop_simple_reply_converges(self, e2e_system, clean_user):
-        """无 MTP 指令：单帧自然收敛，mtp_iterations == 0"""
+        """无 MTP 指令：单帧自然收敛，不发生 MTP 工具调用"""
         user_id = clean_user()
         result = await _chat(
             e2e_system,
@@ -53,7 +59,7 @@ class TestAgentLoop:
             "你好，请用一句话介绍你自己。",
         )
         assert result.final_text
-        assert result.mtp_iterations == 0
+        assert _mtp_calls(result) == 0
         assert result.status == "completed"
 
     @pytest.mark.asyncio
@@ -65,9 +71,7 @@ class TestAgentLoop:
             user_id,
             "请调用系统时钟工具查看当前时间，并告诉我现在是几点几分。",
         )
-        assert (
-            result.mtp_iterations >= 1
-        ), f"应发生至少 1 次 MTP 工具调用, 实际 {result.mtp_iterations}"
+        assert _mtp_calls(result) >= 1, f"应发生至少 1 次 MTP 工具调用, 实际 {_mtp_calls(result)}"
         assert result.final_text
         # 时间结果应包含数字（工具返回的时间字符串）
         assert any(ch.isdigit() for ch in result.final_text)
@@ -81,7 +85,7 @@ class TestAgentLoop:
             user_id,
             "请使用 Python 计算 16 乘以 30 的结果，并直接告诉我答案。",
         )
-        assert result.mtp_iterations >= 1
+        assert _mtp_calls(result) >= 1
         assert "480" in result.final_text
 
     @pytest.mark.asyncio
@@ -93,9 +97,7 @@ class TestAgentLoop:
             user_id,
             "请先调用系统时钟工具获取当前时间，然后用 Python 计算 32 乘以 32 的结果，最后把答案告诉我。",
         )
-        assert (
-            result.mtp_iterations >= 2
-        ), f"应发生至少 2 次 MTP 工具调用, 实际 {result.mtp_iterations}"
+        assert _mtp_calls(result) >= 2, f"应发生至少 2 次 MTP 工具调用, 实际 {_mtp_calls(result)}"
         assert "1024" in result.final_text
 
     @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from enum import Enum
 
 from hivememory.core.models import IdentityScope, TopicData
 from hivememory.core.protocol.gateway import (
-    CommandExecutionResult,
+    CommandParseResult,
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -17,7 +17,6 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.engines.gateway.models import InterceptorResult
 from hivememory.gateway.analysis import UserQueryAnalysisResult
-from hivememory.gateway.commands.models import CommandParseResult
 from hivememory.gateway.context import CandidateTopics
 from hivememory.gateway.workflow.steps import GatewayStepResult
 
@@ -56,7 +55,6 @@ class GatewayExecutionState:
     candidate_topics: CandidateTopics | None = None
     l1_result: InterceptorResult | None = None
     command_parse_result: CommandParseResult | None = None
-    command_execution_result: CommandExecutionResult | None = None
     flow_end_reason: str | None = None
     topic_id: str | None = None
     new_topic_title: str | None = None
@@ -71,7 +69,6 @@ class GatewayExecutionState:
             "candidate_topics",
             "l1_result",
             "command_parse_result",
-            "command_execution_result",
             "topic_id",
             "new_topic_title",
             "new_topic_summary",
@@ -137,20 +134,21 @@ class GatewayExecutionState:
         if self.flow_end_reason == "system_command":
             if self.ingress_mode != GatewayIngressMode.ACTIVE_CHAT:
                 raise RuntimeError("PASSIVE_MEMORY 不得产生 command outcome")
-            if self.command_execution_result is None:
-                raise RuntimeError("Command flow 缺少 command execution result")
+            if self.command_parse_result is None:
+                raise RuntimeError("Command flow 缺少 command parse result")
             if self.user_query_analysis is not None:
                 raise RuntimeError("Command flow 不得包含 decision analysis")
+            # Gateway 只解析命令：终态直接投影解析产物，执行由后续应用层决定。
             outcome: GatewayProcessResult = GatewayCommandOutcome(
-                command_execution_result=self.command_execution_result,
+                command_parse_result=self.command_parse_result,
             )
             self._mark_completed()
             return outcome
 
         if self.flow_end_reason is not None:
             raise RuntimeError(f"未知 Gateway flow end reason: {self.flow_end_reason}")
-        if self.command_execution_result is not None:
-            raise RuntimeError("Decision flow 不得包含 command execution result")
+        if self.command_parse_result is not None:
+            raise RuntimeError("Decision flow 不得包含 command parse result")
         if self.topic_id is None:
             raise RuntimeError("Decision flow 缺少 topic route")
         if self.user_query_analysis is None:

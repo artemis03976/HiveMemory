@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-09-29
 ---
 
 # MemoryCompiler
@@ -96,7 +96,7 @@ Compiler 维持输入顺序，不重新排序。top-k、分数和权限必须在
 
 ## 6. 当前调用点
 
-- Patchouli prepare：把 Gateway 计划召回的 atoms 编译为 AgentRunContext.memory_context；
+- workspace 任务进程：在 CPU 分配时把 Patchouli prepare 返回的检索原子编译为 `RETRIEVAL_CONTEXT` 文本，放入输入清单的 `memory_context`（Patchouli prepare 本身不再编译）；
 - System Passive Ingress：构造被动分析所需记忆上下文；
 - Koakuma MTP：编译 SEARCH envelope 与 READ 的 atom/pending/redirect/terminal 结果；
 - Alice orchestration：编译子 Agent shared context injection；

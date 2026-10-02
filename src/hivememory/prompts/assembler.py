@@ -44,11 +44,9 @@ class AgentPromptAssembler:
 
         builder.with_memory_context(context.memory_context)
         # W1-E：附件 section 固定位于 memory_context 之后、topic state 之前；
-        # 只消费 AttachmentCompileResult.attachment_context，不接触 Store/lease。
-        if context.attachment_compile_result is not None:
-            builder.with_attachment_context(
-                context.attachment_compile_result.attachment_context,
-            )
+        # 只消费任务进程编译好的 attachment_context 文本，不接触 Store/lease。
+        if context.attachment_context:
+            builder.with_attachment_context(context.attachment_context)
         builder.with_topic_state(topic_state)
 
         system_prompt = builder.build()

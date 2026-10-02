@@ -67,7 +67,7 @@ class TestApiApplicationServices:
             deps._system = system
 
             assert deps.get_memory_service() is system.memory_service
-            assert deps.get_chat_service() is system.chat_service
+            assert deps.get_process_service() is system.process_service
             assert deps.get_ingress_service() is system.ingress_service
             assert deps.get_agent_service() is system.agent_service
             assert deps.get_topic_service() is system.topic_service

@@ -21,7 +21,7 @@ import type {
   ChatErrorEvent,
   SubAgentStartEvent,
   SubAgentEndEvent,
-  GenerationIdEvent,
+  ProcessIdEvent,
   ChatRunStatusEvent,
   CommandResultEvent,
 } from '@/types';
@@ -146,8 +146,8 @@ export class ChatSSEClient {
         callbacks.onSubAgentEnd(data as SubAgentEndEvent);
         break;
 
-      case 'generation_id':
-        callbacks.onGenerationId(data as GenerationIdEvent);
+      case 'process_id':
+        callbacks.onProcessId(data as ProcessIdEvent);
         break;
 
       case 'run_status':
@@ -160,17 +160,17 @@ export class ChatSSEClient {
   }
 }
 
-export async function stopGeneration(generationId: string): Promise<void> {
+export async function stopProcess(processId: string): Promise<void> {
   try {
-    // 取消不是 Agent action：只携带 generation_id 与基础身份选择；
-    // 后端通过 generation registry 复用创建时冻结的原始 scope 执行取消。
+    // 取消不是 Agent action：只携带 process_id 与基础身份选择；
+    // 后端通过进程表复用创建时冻结的原始 scope 执行取消。
     await fetch('/api/v1/chat/stop', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...identityHeaders(),
       },
-      body: JSON.stringify({ generation_id: generationId }),
+      body: JSON.stringify({ process_id: processId }),
     });
   } catch {
     // fire-and-forget: network errors should not block the local stop flow

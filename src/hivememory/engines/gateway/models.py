@@ -6,8 +6,11 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
-from hivememory.gateway.commands.models import CommandParseResult
+from hivememory.core.protocol.gateway import (
+    CommandParseResult,
+    IntentType,
+    MemoryWriteSignal,
+)
 
 
 class GatewayIntent(str, Enum):

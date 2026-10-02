@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-01
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -193,7 +193,7 @@ Alice 配置当前分为两组：
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
 - RuntimeAliasResolver 的三级命中都在 resolver/owner 边界重验调用方 scope：L1 atom cache 命中与 L2 冷查询重验 `IdentityScope` 与资源 ownership；L0 PendingAtom 命中比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理（回归入口见 [MTP cache scope revalidation 归档记录](../archive/todo/mtp-cache-scope-revalidation.md)）；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
-- Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为 `AgentRunStatus.FAILED`，CALL callee 映射为稳定的 budget error；
+- Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为执行结果的 `failed`，CALL callee 映射为稳定的 budget error；
 - Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区；frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

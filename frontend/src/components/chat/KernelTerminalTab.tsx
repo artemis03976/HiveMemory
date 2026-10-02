@@ -100,7 +100,7 @@ function ToolbarButton({ onClick, title, active, children }: { onClick: () => vo
 function EventRow({ event }: { event: RuntimeEvent }) {
   const date = new Date(event.timestamp);
   const ts = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;
-  const scope = event.task_id || event.generation_id || event.agent_run_id || event.trace_id || 'runtime';
+  const scope = event.task_id || event.process_id || event.agent_run_id || event.trace_id || 'runtime';
   const severityClass =
     event.severity === 'error'
       ? 'text-magic-fire bg-magic-fire/10'

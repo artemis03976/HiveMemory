@@ -11,7 +11,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/alice/pending-atom.md
-last_reviewed: 2026-09-27
+last_reviewed: 2026-09-28
 ---
 
 # 写入意图（PendingAtom）体系的迁移
@@ -22,10 +22,63 @@ last_reviewed: 2026-09-27
 
 - 要解决的问题：PendingAtom 体系的迁移（owner 表述，2026-09-27）。现状下写入意图的寿命与持有者见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 2.2 节。
 - 原计划中的“决定”“冻结”在本文中均为候选设计；原计划留待 A4-0 冻结的事项汇总为第 5 节的开放问题。
-- 本文的归属与可见性按原边界宪章 §6.2 的裁定写成（论证见第 4.2 节）：意图由 workspace runtime 的 registry 持有，按 policy 在 Workspace 内可见。这对应任务进程 Idea Q-2 的选项 C；是否采用取决于 Q-2，以及 Q-1（进程关闭时点）与 Q-3a（哪些工作状态进入进程工作区）。
+- 本文的归属与可见性按原边界宪章 §6.2 的裁定写成（论证见第 4.2 节）：意图由 workspace runtime 的 registry 持有，按 policy 在 Workspace 内可见。2026-09-28 的决定见 0.1：登记位于 workspace，第一版不设 policy。这对应任务进程 Idea Q-2 的选项 C；是否采用取决于 Q-2，以及 Q-1（进程关闭时点）与 Q-3a（哪些工作状态进入进程工作区）。
 - 原文依赖的 A2 读取能力与缓存（resolver、L1 cache、backing 读取）来自已作废删除的 A2 计划；workspace 包的现有实现需要重新调查（[总 Idea](./workspace-network-task-process-architecture.md)第 6.1 节），本文提到时只作为候选设计的组成部分。
 
 PendingAtom 解决的是所有 Actor 共有的资源问题：Actor 明确提出 WRITE/UPDATE，而正式 Memory 由后台异步生成时，如何在物化前读回意图、在结算后定位 canonical 结果，并避免读写不一致。它不是 Alice 专属机制。现有 PendingAtomRuntime 混合了 run/frame/action 关联（执行状态，留 Alice）与 intent 资源状态（按原边界宪章的裁定归 workspace registry，见第 4.2 节）；registry 不依赖 Alice，也不设在 Patchouli，更不给外部 Actor 复制状态机。
+
+### 0.1 owner 的决定（2026-09-28）
+
+以下决定优先于本文其余部分的候选设计；两者不一致时，以本节为准。
+
+**版本与顺序**：写入意图迁移纳入 v0.7.0；放在外部会话与 Topic 投影改造之前或之后都可以。
+
+**流程与两侧的解耦**：
+
+1. Actor 发出主动写入请求；
+2. 请求进入 workspace 能力层；
+3. 在 workspace 的 PendingAtomRuntime 中登记；
+4. 调用 Patchouli 的 API 提交；
+5. 收到 Patchouli 一侧发出的全局事件（结算）。
+
+PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完全解耦。这与 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md) 一致：记忆库不持有写入意图的登记，写入意图经物化过线，结算回流时注销。
+
+**代码位置**：写入意图登记位于 workspace 的共享设施子包；Alice 的 alias resolver 与缓存迁移到 workspace 的读取视图（[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9，2026-09-28）。
+
+**与任务进程解耦**：写入意图的生命周期与任务进程完全解耦；生成与结算由 Patchouli 的 memory generation controller 单独管理（[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-1）。
+
+**实时提交**：主动写入意图的提交是 workspace 能力层的一个方法，可以实时响应 Actor 的请求，不必等到一轮对话结束（operation 目录中已有 `memory_intent.submit`）。
+
+**取消与失败**：不再丢弃已经提交的写入意图。
+
+**生成材料**：记忆的历史材料来源只有 Topic 中的内容，conversation session 不是。实时提交时当前一轮的交互记录还没有进入 Topic，因此目前只能采用：
+
+| 选项 | 内容 | 决定 |
+|:---|:---|:---|
+| A | 只用意图的 focus 与 Topic 中已有的内容，舍弃当前一轮的交互记录 | 采用 |
+| B | 进程把当前一轮尚未闭合的执行记录作为快照，随意图一起提交 | 目前不采用 |
+| C | 从 conversation session 的历史取材料 | 排除：session 不是记忆的材料来源 |
+
+按选项 A：Gateway 路由到已有 Topic 时，材料是该 Topic 在提交时点已有的内容；路由到新 Topic 时，Topic 要到结算后才创建（任务进程 Idea 1.2），材料只有 focus。生成引擎支持只凭 focus 生成（第 3 节）。
+
+**回读与可见性**：在记忆正式落库之前，PendingAtom 是替代正式记忆的唯一机制，因此直到落库之前，它都必须对后续进程可回读（任务进程 Idea Q-2）。第一版采用简单实现：PendingAtom 不设 policy，默认对全 workspace 开放。PendingAtom 不参与检索，能拿到其别名的一般只有写入它的 agent，狭义上能做到“中间产物归进程”。
+
+**结算后的句柄**：结算后 PendingAtom 句柄的生命周期需要重新设计。这一项不阻塞现有计划；兼容期内暂不回收句柄。
+
+**分两步实施**：
+
+1. 登记迁出 Alice：登记移到 workspace、对全 workspace 开放的回读、能力层的提交方法、生命周期与进程解耦、结算事件的接收；
+2. 实时派发生成（材料按选项 A）。
+
+依赖实时派发的简化，必须与第 2 步在同一份计划中完成，包括：收尾阶段不再派发物化、`InteractionPayload.materialize_tasks` 移除、写入意图不再作为进程工作集中的资源。
+
+**分析与遗留（未决定）**：
+
+- 本文第 4 节要求结算能从权威的任务与领域结果核对，不能只依赖事件订阅者；结算事件丢失时 workspace 一侧的登记如何补齐（例如按 intent_id 查询结算结果），尚未决定；
+- 可见范围比现状宽：现在回读要求 IdentityScope 完全相同（`agent_runtime/aliases/resolver.py`），第一版放宽到整个 workspace。别名为 `draft_{slug}_{4 位十六进制}` 或 `rev_{base_alias}_{4 位十六进制}`，slug 取自标题或内容开头，后缀只有 16 位，所以“只有写入者知道别名”是惯例而不是强制；真正的边界是 workspace，读取时仍要校验 workspace；
+- `WriteFocus` 目前只有 content、reason、title，不携带目标 policy；将来 WRITE 若能声明 policy，需要重新审视“pending 不设 policy”；
+- 兼容期不回收句柄，意味着进程内的登记会一直增长到重启；
+- 取消语义的变化在实施完成后，需要按晋升门禁同步到 AGENTS.md 第 4 节与相关契约。
 
 ## 1. 目标边界
 
@@ -37,7 +90,7 @@ PendingAtom 解决的是所有 Actor 共有的资源问题：Actor 明确提出 
 | run/frame/action 关联、延迟提交、取消策略 | Alice workset/settlement adapter | 只持有引用和执行关联 |
 | 外部输入/结果 wire | 外部 Actor adapter 或 MTP adapter | 不复制 Pending 状态 |
 
-Pending 不是 canonical Memory、也不是可淘汰 cache；registry 持有不等于整个 Workspace 的 Actor 默认可读。全局 intent ID 负责定位，提交者、Workspace、operation 和内容可见性分别判断。
+Pending 不是 canonical Memory、也不是可淘汰 cache。第一版 PendingAtom 不设 policy，默认对全 workspace 开放（0.1）；原候选设计中“registry 持有不等于整个 Workspace 的 Actor 默认可读”的约束随之不适用于第一版。全局 intent ID 负责定位，提交者、Workspace、operation 和内容可见性分别判断。
 
 ## 2. 共同流程与独立路由
 
@@ -65,7 +118,7 @@ WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
 
 代码现状（2026-09-27 复核）：`patchouli/control/memory_generation/coordinator.py` 的 `submit_active()` 仍使用 `recent_blocks(5)`；MemoryGenerationEngine 在没有上下文且没有 WRITE/UPDATE focus 时才跳过。候选方向是保留生成引擎支持意图独立生成的能力，修正上游资料获取，而非让 adapter 自行拉 blocks。
 
-Session/交互是可选来源，交互资料交接见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节：需要纳入某次交互时，通过授权结果查询确认其 applied 和实际 topic_id；路由关联本身不证明内容已应用，不要求独立 TopicAssignment 实体。意图接纳后使用契约规定的资料绑定，不因物化失败回滚已应用交互，也不让 Topic 清理影响仍被已接纳任务依赖的资料；保留/释放方式见外部会话 Idea 第 8 节，尚未决定。
+交互是可选来源（conversation session 不是记忆的材料来源，见 0.1），交互资料交接见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节：需要纳入某次交互时，通过授权结果查询确认其 applied 和实际 topic_id；路由关联本身不证明内容已应用，不要求独立 TopicAssignment 实体。意图接纳后使用契约规定的资料绑定，不因物化失败回滚已应用交互，也不让 Topic 清理影响仍被已接纳任务依赖的资料；保留/释放方式见外部会话 Idea 第 8 节，尚未决定。
 
 ## 4. Pending 读取、结算和生命周期
 
@@ -134,20 +187,20 @@ Pending 终态不被当作普通 Memory 负缓存淘汰；其保留与过期按�
 
 执行拆分：Alice 现有 `PendingAtomRuntime` 中的 run/frame/action 关联是执行状态，留在 Actor；intent/alias/内容/状态/settlement 关联是资源工作状态，进入 registry。旧实现是迁移的起点，不是共享实现的合法依赖。
 
-ADR-0006 的判据只裁定写入意图不归记忆库；上述论证进一步把它判给 workspace runtime。在任务进程模型下，它归网络共享设施还是归任务进程，取决于[任务进程 Idea](./task-process-table-and-registration-entry.md)的 Q-2 与 Q-3a，本文不作选择。
+ADR-0006 的判据只裁定写入意图不归记忆库；上述论证进一步把它判给 workspace runtime。2026-09-28 已决定：登记位于 workspace 的共享设施，生命周期与任务进程解耦（0.1；[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）。
 
 ## 5. 开放问题
 
-原计划中留待 A4-0 冻结的接口与迁移事项如下，均未决定。
+原计划中留待 A4-0 冻结的接口与迁移事项如下；除 0.1 已决定的部分外，均未决定。
 
 | 事项 | 需要回答的问题 |
 |:---|:---|
-| registry 的持有者与生命周期 | 权威实现及生命周期（候选为 workspace registry，见第 4.2 节；持有者取决于任务进程 Idea Q-2、Q-3a）；不含 Alice run/frame 管理，不新增 Workspace 业务转发层 |
+| registry 的持有者与生命周期 | 持有者已决定为 workspace，生命周期与任务进程解耦（0.1）；结算后句柄的生命周期待重新设计，兼容期不回收；不含 Alice run/frame 管理，不新增 Workspace 业务转发层 |
 | 登记/read/resolve/submit | 独立签名、operation、提交者可见范围和 Session 仅作来源的规则；外部不依赖 RuntimeScope |
 | 共同读取/引用与结果 | 按第 4.1 节确定引用区分、批量逐项结果、operation/资源权限、redirect 目标身份和可披露字段 |
 | intent identity 与幂等 | ID 签发、客户端键映射、直接提交时登记关系、同键异载荷 conflict 与未知接纳查询 |
 | 状态与收据 | 登记、任务接纳、结算的阶段，权威结果关联，内容读取与观察权的差异 |
-| Topic 与预算 | Topic 资料契约见外部会话 Idea 第 8 节；本文只讨论全部材料的预算编译，不另定省略 Topic、handle 或快照保留规则 |
+| Topic 与预算 | 实时提交的材料按 0.1 选项 A；Topic 资料契约见外部会话 Idea 第 8 节；本文只讨论全部材料的预算编译，不另定省略 Topic、handle 或快照保留规则 |
 | 运行清理与切换 | 单一状态所有者下的兼容引用/委托入口和旧 run drain 要求；真实 run/frame 的提交策略与旧调用方删除 |
 | 保留期与关闭 | 容量拒绝、期限、expired/unknown、关闭时未完成任务的结果；不声称跨进程耐久性 |
 

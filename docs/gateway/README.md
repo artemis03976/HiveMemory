@@ -12,7 +12,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-10-01
 ---
 
 # Gateway
@@ -68,7 +68,7 @@ GatewaySystem
   -> GatewayRuntime
        -> GatewayBus（子系统本地路由）
        -> GatewayContextProvider
-       -> RuleInterceptor / CommandRegistry / Dispatcher
+       -> RuleInterceptor / CommandRegistry（命令只解析）
        -> TopicRouterEngine
        -> UserQueryAnalysisResolver
        -> GatewayWorkflow
@@ -80,7 +80,7 @@ GatewaySystem
 
 ## 4. 两种入口模式
 
-`ACTIVE_CHAT` 允许命令短路，也允许普通决策。命令一旦命中，无论执行成功、被拒绝还是尚未实现，都会形成 `GatewayCommandOutcome`，不再进入话题、检索或 Alice 链路。
+`ACTIVE_CHAT` 允许命令短路，也允许普通决策。命令一旦命中（包括未知命令与参数无效），Gateway 只解析不执行，以携带解析结果的 `GatewayCommandOutcome` 结束，不再进入话题、检索或 Agent 执行链路；用户可见的命令终态由任务进程产生，内置命令当前暂时不可用。
 
 `PASSIVE_MEMORY` 禁止系统命令，只能形成 `GatewayDecisionOutcome`。它复用同一套话题与查询分析能力，但被动摄入的 buffer、去重、outbox、Patchouli submit 和降级响应属于 [System Passive Ingress](../system/passive-ingress.md)，不属于 Gateway。
 
@@ -90,6 +90,6 @@ GatewaySystem
 
 - [固定工作流](./workflow.md)：拓扑、状态提交、终态投影、deadline、取消与 fallback；
 - [话题与查询分析](./analysis.md)：两阶段上下文、Topic Router、第一代 Resolver 与技术债；
-- [全局命令](./commands.md)：Registry、Parser、Dispatcher、权限和命令短路。
+- [全局命令](./commands.md)：Registry、Parser、命令短路与“只解析、暂不执行”的命令终态。
 
 原 `docs/engines/gateway.md` 与 `docs/mod/` 中的 Gateway 实施稿已经完成审计并移入 Archive；复合意图计划则进入 Plans。它们保留了演化过程和未落地设想，但不再占用当前入口；逐篇结论见 [`docs/mod` 迁移记录](../archive/plans/documentation-migration-audit-docs-mod.md)，当前事实以代码、测试、本目录文档和 Contracts 为准。

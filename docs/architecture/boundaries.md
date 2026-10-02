@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-01
 ---
 
 # 系统边界与所有权
@@ -46,7 +46,7 @@ last_reviewed: 2026-09-26
 
 ## 2. 边界原则
 
-1. **应用层编排，子系统执行**：跨多个子系统的用户用例由应用层服务编排（chat 编排暂置于 `alice.application`，被动摄入位于 System），领域行为留在其所有者内部。
+1. **应用层编排，子系统执行**：跨多个子系统的用户用例由应用层服务编排（chat 任务进程编排位于 `workspace.process`，被动摄入位于 System），领域行为留在其所有者内部。
 2. **公开路由跨边界，local bus 留在边界内**：调用方不能依赖另一个子系统的 local route 或 Runtime 组件。
 3. **模型应依赖中立**：跨边界模型放在 `core/protocol` 或明确的公共 contract 模块中，不暴露具体引擎对象。
 4. **状态只有一个所有者**：其他模块可以读取投影或发送命令，不能并行维护同一状态的第二份权威副本。
@@ -69,16 +69,16 @@ local bus 则是一个子系统内部的组合机制。它允许所有者替换�
 | 边界 | 负责 | 明确不负责 |
 |:---|:---|:---|
 | System | 组合根与门面、配置加载、生命周期、共享设施实例的装配与关闭、Provider/Model 注册表、接入登记与 Principal authentication、被动摄入、就绪检查 | 查询分析、记忆算法、Agent loop、MTP 具体执行、Workspace 准入与行为白名单（归 workspace）、运行时机制实现（归 components） |
-| Workspace | 认证入口与准入、逐次行为授权、actor 能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接 | 记忆算法与 canonical 存储、接入登记、Agent loop |
-| Gateway | 入口拦截、命令、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
+| Workspace | 认证入口与准入、逐次行为授权、actor 能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Gateway | 入口拦截、命令解析（不执行）、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
 | Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
-| Alice | Agent run、frame 编排、MTP/工具执行、PendingAtom 运行时；chat 编排与 chat run 控制（暂置于 `alice.application`） | 长期记忆所有权、Gateway 分析、HTTP 生命周期 |
+| Alice | Agent run、frame 编排、MTP/工具执行、PendingAtom 运行时 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core contracts | 依赖中立的数据模型、协议枚举、稳定常量、访问值类型与端口协议 | 业务编排、I/O 与运行时状态 |
 | Components | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context | 业务状态与业务判断 |
 
 ## 4. System 边界
 
-System 是舞台管理者：它装配所有参与者，知道它们按什么顺序启动和关闭，并提供入口使用的门面；它并不替参与者完成领域工作。System 位于依赖图顶点，除入口外不被任何包导入；它拥有的能力（接入登记、模型注册表等）若被下层需要，由下层以端口协议声明、System 实现并注入。跨子系统用例由应用层编排：被动摄入由 System 编排，chat 编排暂置于 `alice.application`；入口只调用门面提供的服务，避免 transport adapter 成为第二套业务实现。
+System 是舞台管理者：它装配所有参与者，知道它们按什么顺序启动和关闭，并提供入口使用的门面；它并不替参与者完成领域工作。System 位于依赖图顶点，除入口外不被任何包导入；它拥有的能力（接入登记、模型注册表等）若被下层需要，由下层以端口协议声明、System 实现并注入。跨子系统用例由应用层编排：被动摄入由 System 编排，chat 任务进程编排位于 `workspace.process`；入口只调用门面提供的服务，避免 transport adapter 成为第二套业务实现。
 
 ### 4.1 拥有的状态
 
@@ -140,13 +140,13 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 ### 6.2 Prepare / Finalize 边界
 
-`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：解析真实话题、Agent Profile、检索结果、MemoryCompiler 文本与 stream prelude。
+`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
-`finalize_agent_run` 只接收 `PreparedAgentRun + AgentRunResult`，由 Patchouli 自己构造 `InteractionPayload`、归约 trace、提交感知链并调度 materialize task。
+`finalize_agent_run` 接收 `PreparedAgentRun` 与任务进程封口的 `InteractionPayload`，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
-如果 System 未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
+如果任务进程未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
 
-prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间只让 Alice 消费一个本轮快照。这一设计允许 Alice 专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
+prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）。这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
 
 ### 6.3 禁止的越界
 
@@ -162,15 +162,14 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 ### 7.1 拥有的状态
 
 - 一次 Agent run 的 frame、消息、turn events 和终态；
-- Agent loop 的迭代与流式执行资源；task cancellation 的业务裁决属于 chat 编排，Agent 执行只负责原生传播与本地 unwind；
-- chat 编排的 chat run 控制状态：phase、outcome、首次 stop reason 与当前可中断阶段 task 引用（暂置于 `alice.application`）；
+- Agent loop 的迭代与流式执行资源；task cancellation 的业务裁决属于任务进程编排（`workspace.process`），Agent 执行只负责原生传播与本地 unwind；
 - Koakuma 的 MTP parser、权限检查、alias cache 与 syscall registry（alias cache 按 `(WorkspaceIdentity, alias)` 分区）；
 - PendingAtom 在当前运行期内的别名、redirect 和 terminal view；
 - CALL 的父子 frame 调度。
 
 ### 7.2 依赖方向
 
-Alice 接收 Patchouli 准备好的 `AgentRunContext`。需要检索、别名读取、Profile 或引用记录时，经映射到 Alice local bus 的全局公开路由访问 Patchouli。
+Alice 接收任务进程组装的 `CPUInputManifest`（`workspace.contracts`），在内部转换为 `AgentRunContext`。需要检索、别名读取、Profile 或引用记录时，经映射到 Alice local bus 的全局公开路由访问 Patchouli。
 
 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
@@ -191,15 +190,17 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 |:---|:---|:---|
 | `GatewayExecutionState` | Gateway | 不公开；只投影 `GatewayProcessResult` |
 | `GatewayDecision` | Gateway 形成，调用链只读消费 | frozen 公共模型 |
-| `PreparedAgentRun` | Patchouli | dataclass，只供本轮 chat 编排与 Alice 协作 |
-| `AgentRunContext` | Patchouli 组装，Alice 消费 | Pydantic 公共模型 |
-| `AgentRunResult` | Alice | Pydantic 公共模型 |
-| `InteractionPayload` | Patchouli 组装并消费 | 公共协议模型，不由 router 拼装 |
+| `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass；任务进程读取话题与检索结果，并交回 finalize/cleanup |
+| `CPUInputManifest` | workspace 任务进程组装，CPU 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
+| `CPUPort` | workspace 定义，CPU 实现（当前为 Alice 的 `AliceCPU`），组合根注入任务进程 | `workspace.contracts` 中的协议；任务进程只经它调用 CPU |
+| `AgentRunContext` | Alice 由输入清单转换，供提示词组装 | Pydantic 模型，不出现在 Patchouli 路由上 |
+| `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
+| `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
 | `WorkspaceAsset` working set | Workspace（组合根装配） | `core.ports.workspace_assets` 窄化端口、`WorkspaceAssetRef` 与 lease |
 | `WorkspaceIdentity` / `IdentityScope` | Core value object；由入口和各领域所有者携带 | 不可变公共模型，不构成独立运行时状态 |
 | PendingAtom 运行时状态 | Alice | 结算事件从 Patchouli 回传 |
-| chat run 控制 | Alice chat 编排（暂置） | 编排内部状态与 RuntimeEvent 投影 |
+| 任务进程控制（chat run 的 phase/outcome/stop reason/active_task） | Workspace 任务进程表（`workspace.process`） | 编排内部状态与 RuntimeEvent 投影 |
 | passive run 控制 | System | 应用服务内部状态与 RuntimeEvent 投影 |
 | 根配置 / 配置段 | System 加载（`config.app`）/ 各组件接收自己的段（`config.<section>`） | 组合根按段注入；下层不持有根配置 |
 | RuntimeEvent | System 观测设施 | best-effort 事件信封 |

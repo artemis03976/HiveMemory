@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-24
+last_reviewed: 2026-09-30
 ---
 
 # 记忆生成
@@ -173,8 +173,8 @@ WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PEN
 Patchouli finalize 当前顺序为：
 
 ```text
-AgentRunResult
-  -> build InteractionPayload
+InteractionPayload（任务进程封口）
+  -> submit as-is
   -> wait until current turn is applied to Perception
   -> lock Chat completed
   -> independently submit WRITE/UPDATE materialize tasks

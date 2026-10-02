@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-09-29
 ---
 
 # 运行时事件与可观测性
@@ -37,7 +37,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - 标识与顺序：`event_id`、进程内 `sequence`、UTC `timestamp`；
 - 追踪：`trace_id`、`span_name`、`task_type`；
 - 来源：`source`、`subsystem`、`component`、`severity`；
-- 关联：generation、agent run、task、agent、frame、topic、atom；
+- 关联：process、agent run、task、agent、frame、topic、atom；
 - 结果：`status`、`reason`、`message`、摘要化 `data`。
 
 `workspace_id` 是可选的观测关联字段，用于把事件按资源归属域展示或筛选。它不代表完整的 `IdentityScope`，也不参与 EventBus 路由、订阅、sequence、授权、幂等判断或任何业务状态迁移；需要作出业务决定时必须回到领域返回值、异常或 Store 状态。
@@ -57,7 +57,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 
 ## 3. Publisher、Scoped sink 与操作观测
 
-SystemAssembler 创建唯一 root `RuntimeEventPublisher`，并为 Alice 注入 subsystem scope；Publisher 负责合并稳定的 subsystem/source/component 与 run/task context，把 Pydantic 或 Mapping payload 转为安全 dict，并在 sink 或 payload 转换失败时保持 best-effort。Alice 进一步通过 `AgentRunEventEmitter` 把 `agent.run.*` 领域事实投影到 Publisher。Gateway、Patchouli、Chat、Scheduler 与 System lifecycle 当前仍可继续使用 scoped sink，后续按计划渐进迁移。
+SystemAssembler 创建唯一 root `RuntimeEventPublisher`，并为 Alice 注入 subsystem scope；Publisher 负责合并稳定的 subsystem/source/component 与 run/task context，把 Pydantic 或 Mapping payload 转为安全 dict，并在 sink 或 payload 转换失败时保持 best-effort。Alice 进一步通过 `AgentRunEventEmitter` 把 `agent.run.*` 领域事实投影到 Publisher；chat 任务进程（`workspace.process`）通过 `TaskProcessEventEmitter` 投影 `chat.run.*`，进程创建时绑定 process、trace、workspace 与 agent 关联字段，prepare 返回后再绑定 topic。Gateway、Patchouli、Scheduler 与 System lifecycle 当前仍可继续使用 scoped sink，后续按计划渐进迁移。
 
 `RuntimeOperationObserver` 对单个 async operation 提供统一的 started/completed/failed 记录：
 
@@ -97,7 +97,7 @@ Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `Fram
 
 ## 7. 当前生产端边界与演进计划
 
-RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段。统一 `RuntimeEventPublisher` 基础设施已经落地，Alice 的 `agent.run.*` 已迁移到 `AgentRunEventEmitter`，补齐了 `generation_id` 关联并删除 Agent run 主流程中的 envelope 构造；Chat、Gateway workflow、memory task、Scheduler、System lifecycle 与 Passive Ingress 尚未全部切换到这一模式。
+RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段。统一 `RuntimeEventPublisher` 基础设施已经落地，Alice 的 `agent.run.*` 已迁移到 `AgentRunEventEmitter`，补齐了 `process_id` 关联并删除 Agent run 主流程中的 envelope 构造；chat 任务进程的 `chat.run.*` 已迁移到 `TaskProcessEventEmitter`，编排骨架只在业务控制流中调用领域方法，不再拼装信封，失败事件只携带 Workspace 领域错误码或固定摘要。Gateway workflow、memory task、Scheduler、System lifecycle 与 Passive Ingress 尚未全部切换到这一模式。
 
 这项重复不会改变当前 wire format 或业务正确性，但会让默认 severity、关联上下文、payload 白名单和异常隔离在多个生产域中漂移。后续迁移应保持三个约束：事件发生时机仍由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。剩余范围与完成条件见 [RuntimeEvent 生产端迁移后续](../todo/runtime-event-producer-migration.md)。
 
@@ -108,6 +108,7 @@ RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段�
 - `tests/unit/components/events/test_bus.py`
 - `tests/unit/components/events/test_publisher.py`
 - `tests/unit/alice/runtime/test_runtime_events.py`
+- `tests/unit/workspace/process/test_process_events.py`
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_trace_context.py`
 - `tests/unit/system/test_lifecycle.py`

@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-01
 ---
 
 # Alice
@@ -30,16 +30,16 @@ Alice 是 HiveMemory 的 Agent 执行与多智能体编排子系统。若说 Gat
 
 Alice 当前拥有：
 
-- `AgentRunContext -> AgentRunResult` 的执行边界；
+- `CPUInputManifest -> CPUExecutionResult` 的执行边界：唯一的执行入口 `run_agent` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
-- Agent Profile 的运行时解析、人格注入、模型选择和权限应用；
+- 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 由 Alice 运行时解析；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - PendingAtom 的进程内写缓冲、临时 alias、物化任务投影和 settlement 运行时视图；
-- 非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
+- 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 - Alice 私有 local bus，并经它代理 Patchouli 的公开记忆能力。
 
-这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。反过来，位于 `alice/` 的代码也不都属于 Agent 执行：`alice.application.chat_service` 与 `chat_control` 是 chat 任务类型的编排与 run 控制，暂置于 Alice 包内（待任务进程注册入口确定最终归属），它经公开路由依次调用 Gateway、Patchouli 与 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile`、`PendingAtom` 与 `AgentRunResult` 等跨边界模型位于 `core`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
+这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
 
 ### 1.2 Alice 不拥有什么
 
@@ -48,12 +48,12 @@ Alice 不负责：
 - 分析原始入口、识别系统命令、选择话题或形成 `GatewayDecision`；
 - 创建、检索、归档或修订长期记忆的权威事实；
 - 决定一次已完成 run 是否进入 Perception，或直接调用 Patchouli 内部 Runtime/Store；
-- 在 Agent 执行运行时中持有 HTTP、SSE 连接、chat 总超时、跨子系统取消或 prepare/finalize 补偿（这些属于 chat 编排）；
+- 在 Agent 执行运行时中持有 HTTP、SSE 连接、chat 总超时、跨子系统取消或 prepare/finalize 补偿（这些属于 `workspace.process` 的任务进程编排）；
 - 自动生成 Agent Profile、维护持久化任务图或执行通用 plan-and-execute；
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
 
-chat 编排（`alice.application`，暂置）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 只通过公开 route、公共模型和 settlement event 与它们交接。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
+chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 只通过公开 route、公共模型和 settlement event 与它们交接。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ## 2. Alice 与 AgentRuntime 为什么是两层
 
@@ -100,20 +100,21 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 ### 4.1 主 Agent run
 
 ```text
-Patchouli AgentRunContext
+任务进程的 CPUInputManifest
+  -> 转换为 AgentRunContext（Alice 内部）
   -> warm pre-retrieval MemoryAtoms into alias cache
   -> assemble MTP + persona + memory + topic messages
   -> create root ExecutionFrame(topic_id=...)
   -> RunExecutor -> AgentRuntime.run_frame()
        -> LLM generate
        -> natural stop | MTP execute | CALL suspend | cancel
-  -> AgentRunService assembles AgentRunResult
-  -> System decides whether Patchouli finalize may run
+  -> AgentRunService assembles CPUExecutionResult
+  -> 任务进程据执行结果决定是否封口交互记录并进入 Patchouli finalize
 ```
 
-Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的 `AgentRunResult` 包含自然语言正文、结构化 `TurnEvent[]`、迭代统计、实际模型展示名和 `PendingAtomMaterializeTask[]`。
+Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名和 `PendingAtomMaterializeTask[]`；迭代统计只出现在 `agent.run.*` 观测事件中。
 
-`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为 `AgentRunStatus.FAILED`，基础设施异常才向上抛出并由 System 结束 chat 用例；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在 System 管理的主动流程中进入 Patchouli finalize。
+`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在任务进程管理的主动流程中进入 Patchouli finalize。
 
 ### 4.2 CALL 与瞬态子帧
 
@@ -144,11 +145,11 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
+`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册统一执行路由 `alice.public.run_agent`（带 `stream` 参数），并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
 
 AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/cancelled 业务事件。事件只更新 Alice 的运行时投影；正式记忆是否落库仍以 Patchouli 为准。
 
-每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent。流式路径必须出现 `done` 才被视为正常终态；流生成器在终态前关闭时，Alice 会请求取消并发出 cancelled 观测事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
+每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。流式路径必须出现 `done` 才被视为正常终态；流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 
 ## 7. 当前设计文档
 
@@ -165,12 +166,11 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 |:---|:---|
 | 子系统装配与生命周期 | `src/hivememory/alice/system.py` |
 | Agent run 应用用例 | `src/hivememory/alice/application/agent_run_service.py` |
-| chat 编排与 run 控制（暂置） | `src/hivememory/alice/application/chat_service.py`、`chat_control.py` |
 | Alice 进程级资源与 local bus | `src/hivememory/alice/runtime/core.py`、`bus.py` |
 | 多 Agent 编排 | `src/hivememory/alice/orchestration/run_executor.py`、`src/hivememory/alice/orchestration/sub_agent/`、`src/hivememory/alice/orchestration/run_session.py` |
 | 单 Agent 执行层 | `src/hivememory/agent_runtime/`、`agent_runtime/runtime.py` |
 | Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
-| 公共运行模型 | `src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
+| 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
 | Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
 | 执行、PendingAtom 与 MTP 测试 | `tests/unit/agent_runtime/` |
 | 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py` |

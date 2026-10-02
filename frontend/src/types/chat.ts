@@ -71,17 +71,15 @@ export type ChatRunStatus =
   | 'failed';
 
 export interface ChatRunStatusEvent {
-  generation_id: string;
+  process_id: string;
   status: Exclude<ChatRunStatus, 'idle'>;
   reason?: string | null;
 }
 
 export interface ChatDoneEvent {
   final_text: string;
-  mtp_iterations: number;
-  total_iterations: number;
   mtp_commands_executed?: string[];
-  generation_id?: string | null;
+  process_id?: string | null;
   status?: Exclude<ChatRunStatus, 'idle' | 'preparing' | 'streaming' | 'cancelling' | 'finalizing'>;
   stopped?: boolean;
   reason?: string | null;
@@ -110,8 +108,8 @@ export interface MemoryRefsEvent {
   memories: MemoryAtom[];
 }
 
-export interface GenerationIdEvent {
-  generation_id: string;
+export interface ProcessIdEvent {
+  process_id: string;
 }
 
 export interface CommandResultEvent {
@@ -127,7 +125,7 @@ export interface CommandResultEvent {
 
 export type SSEEventType =
   | 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'command_result' | 'done' | 'error'
-  | 'sub_agent_start' | 'sub_agent_end' | 'generation_id' | 'run_status';
+  | 'sub_agent_start' | 'sub_agent_end' | 'process_id' | 'run_status';
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -141,7 +139,7 @@ export interface SSEEvent {
     | ChatDoneEvent
     | ChatErrorEvent
     | ChatRunStatusEvent
-    | GenerationIdEvent;
+    | ProcessIdEvent;
 }
 
 // ========== Connection State ==========
@@ -197,6 +195,6 @@ export interface SSECallbacks {
   onSubAgentMTPStart: (data: MTPStartEvent) => void;
   onSubAgentMTPResult: (data: MTPResultEvent) => void;
   onSubAgentEnd: (data: SubAgentEndEvent) => void;
-  onGenerationId: (data: GenerationIdEvent) => void;
+  onProcessId: (data: ProcessIdEvent) => void;
   onRunStatus: (data: ChatRunStatusEvent) => void;
 }

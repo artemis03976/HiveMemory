@@ -29,10 +29,7 @@ from hivememory.core.protocol.gateway import (
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.gateway.analysis import UserQueryAnalysisResult
-from hivememory.gateway.commands import (
-    SystemCommandDispatcher,
-    create_builtin_command_registry,
-)
+from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import GlobalBusGatewayContextProvider
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.workflow.topology import build_gateway_workflow
@@ -129,7 +126,6 @@ def _build_provider_workflow(
     registry = create_builtin_command_registry()
     return build_gateway_workflow(
         interceptor=create_interceptor(RuleInterceptorConfig(), registry),
-        command_dispatcher=SystemCommandDispatcher(registry),
         context_provider=GlobalBusGatewayContextProvider(global_bus=bus),
         topic_router=router,
         analysis_resolver=resolver,

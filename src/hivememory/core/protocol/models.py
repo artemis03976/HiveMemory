@@ -24,7 +24,6 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
 )
-from hivememory.core.models.attachment_compile import AttachmentCompileResult
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
@@ -185,9 +184,10 @@ class AgentRunContext(BaseModel):
     agent_profile: AgentProfile
     storage_available: bool = Field(default=True)
 
-    # AttachmentCompiler 的产物（prepare 阶段生成）：携带 prompt-ready
-    # section、used_attachments 与诊断；未选择附件时为 None。
-    attachment_compile_result: AttachmentCompileResult | None = Field(default=None)
+    # 进程编译好的附件 section 文本（AttachmentCompiler 产物）；未选择附件
+    # 时为空。实际使用的附件引用集合由任务进程交给 finalize，不进入
+    # 运行上下文。
+    attachment_context: str = Field(default="")
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -205,48 +205,17 @@ class MTPExecutionResult(BaseModel):
     call_request: MTPCallRequest | None = Field(default=None)
 
 
-class AgentRunStatus(str, Enum):
-    """单次 Alice agent.run 的终态状态。"""
-
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-
-
-class AgentRunResult(BaseModel):
-    """上层一次 chat 调用后系统运行至自然中断的完整产出。
-
-    字段不变量：每个字段由 Alice 子系统组装，且有完全明确的下游消费者。
-        final_text          → 用户可见回复 / InteractionPayload.assistant_final_text
-        mtp_iterations      → 统计
-        total_iterations    → 统计
-        turn_events         → ActionReducer → TraceReducer → 感知层
-        materialize_tasks   → finalize 启动 mode b/c + 组 Settlement
-        status              → v0.4.0: agent.run 终态；仅 completed 进入 finalize
-        model_used          → 本次 run 实际使用的模型展示名（来自 ModelRegistry）；
-                              空字符串表示注册表未启用或解析失败
-    """
-
-    status: AgentRunStatus = Field(default=AgentRunStatus.COMPLETED)
-    final_text: str = Field(default="")
-    mtp_iterations: int = Field(default=0)
-    total_iterations: int = Field(default=1)
-    turn_events: list[Any] = Field(default_factory=list)
-    materialize_tasks: list[PendingAtomMaterializeTask] = Field(default_factory=list)
-    model_used: str = Field(default="", description="实际使用的模型展示名，空字符串表示未解析")
-
-    model_config = ConfigDict(use_enum_values=True)
-
-
 class InteractionPayload(BaseModel):
     """
-    PatchouliSystem / Kernel -> Perception 的原子交互传输包
+    提交方封口、交由 Perception 消费的原子交互传输包
 
     作为系统级数据传输协议存在，承载单轮交互在进入感知层前的完整结构化结果。
+    主动与被动链路一致：payload 由提交方组装并封口，Patchouli finalize 原样
+    提交。
 
     Attributes:
         user_message: 原始用户消息
-        mtp_traces: Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表
+        mtp_traces: 封口方从结构化轮次事件归约得到的 Trace 列表
         materialize_tasks: 本 run 产出的不可变物化请求，由 finalize 分发 mode b/c
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断
@@ -274,7 +243,7 @@ class InteractionPayload(BaseModel):
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
-        description="由 Patchouli finalize 阶段从结构化轮次事件归约得到的 Trace 列表",
+        description="由封口方在提交前从结构化轮次事件归约得到的 Trace 列表",
     )
 
     # 控制信号
@@ -284,7 +253,7 @@ class InteractionPayload(BaseModel):
     )
 
     worth_saving: bool | None = Field(default=None, description="Gateway 价值判断")
-    # 本次 run 实际使用的模型展示名（来自 AgentRunResult.model_used）
+    # 本次 run 实际使用的模型展示名（来自 CPU 执行结果的 model_used）
     # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
         default="", description="实际使用的模型展示名，空字符串表示注册表未启用"
@@ -309,6 +278,4 @@ __all__ = [
     "AgentRunContext",
     "InteractionPayload",
     "MTPExecutionResult",
-    "AgentRunStatus",
-    "AgentRunResult",
 ]

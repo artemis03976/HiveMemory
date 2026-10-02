@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
 
-from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, IdentityScope
@@ -21,6 +20,7 @@ from hivememory.workspace.capability.assets import WorkspaceAssetApplicationServ
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process.service import TaskProcessService
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +62,9 @@ def get_memory_task_service() -> MemoryTaskApplicationService:
     return get_system().memory_task_service
 
 
-def get_chat_service() -> ChatApplicationService:
-    """FastAPI Depends 注入 — 获取主动对话应用服务。"""
-    return get_system().chat_service
+def get_process_service() -> TaskProcessService:
+    """FastAPI Depends 注入 — 获取任务进程编排服务。"""
+    return get_system().process_service
 
 
 def get_ingress_service() -> PassiveIngressService:

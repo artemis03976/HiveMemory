@@ -23,7 +23,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-01
 ---
 
 # 多 Agent 编排
@@ -36,8 +36,10 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 
 ```text
 AliceSystem
+  ├─ AliceCPU
+  │    └─ workspace CPUPort 的实现：经 alice.public.run_agent 调用，done -> CPUExecutionResult
   ├─ AgentRunService
-  │    ├─ public run API / root frame bootstrap / AgentRunResult / stream done
+  │    ├─ unified run API (stream 参数) / root frame bootstrap / CPUExecutionResult / stream done
   │    ├─ RunSession
   │    │    └─ frame registry / CallRecord ledger
   │    ├─ RunExecutor
@@ -57,7 +59,8 @@ AliceSystem
        └─ AgentRuntime facade -> execute one frame to a terminal/trap outcome
 ```
 
-- AgentRunService 是 Alice 的公开 run 用例入口，负责创建入口 frame、为每次 run 构造 Executor、组装 `AgentRunResult`，并在流式终态后发出唯一 `done`；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
+- AgentRunService 是 Alice 的公开 run 用例入口：`run_agent` 以 `stream` 参数控制是否流式，内部只有一套执行骨架，负责创建入口 frame、为每次 run 构造 Executor、组装 CPU 中立的执行结果，并在流式终态后发出唯一 `done`。两种模式的 `agent.run.*` 终态事件语义一致：完成、失败与终态前被关闭或取消分别只发布一次；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；它经全局总线调用 Alice 的统一执行路由，原样转交交互事件并把 `done` 转换为执行结果，端口输出流关闭时一并关闭 Alice 的事件流，因此 Alice 的运行时仍在公开路由之后；
 - AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache 和 PendingAtom 运行时投影（cache 按授权坐标分区），不参与单次 run 的控制链；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并且是唯一调用 `finalize_run()` 的位置；
@@ -76,10 +79,10 @@ AliceSystem
 
 每次 `run_agent()` 创建一个新的主 frame：
 
-- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；Gateway 的 `generation_id` 作为外层关联值显式传入；
+- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的 `process_id` 随输入清单传入，作为外层关联值；
 - 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
-- `identity_scope` 来自 `AgentRunContext`；`identity` 仅为 actor projection；
+- `identity_scope` 来自输入清单（经 `AgentRunContext` 转换）；`identity` 仅为 actor projection；
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
@@ -196,9 +199,9 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - 子帧自身的 token/MTP 事件：`scope=sub`，并带 depth/frame_id；
 - `sub_agent_end`：最终 success/error/cancelled、子帧 `terminal_status`、目标 alias 与 frame id；success 携带 reply，error 携带稳定 `error_code`。
 
-这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done.AgentRunResult.turn_events` 才是交给 Patchouli 的结构化一轮事实。
+这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done` 携带的执行结果中的 `turn_events` 才是结构化的一轮事实，由任务进程封口后交给 Patchouli。
 
-交互输出不会自动转发到 RuntimeEventBus。后者只通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/generation_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
+交互输出不会自动转发到 RuntimeEventBus。后者只通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
 
 ## 8. 失败、取消与降级
 

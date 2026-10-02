@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-10-01
 ---
 
 # 被动对话摄入
@@ -124,7 +124,7 @@ Ingressor 返回 `finalized_turns` 与 `accepted_submissions`；应用服务再�
 - `memory_write_signal=SKIP` 不得删除 raw interaction 或 provenance；
 - RuntimeEvent 失败不能改变业务结果。
 
-Passive turn admission 后与主动交互共享 Patchouli 的短期 topic working set 和 Page Folding。当前公共响应只返回 retrieval memory，不返回 `state_summary + recent_blocks`；相关开放项见 [Page Folding 跨入口后续技术债](../todo/page-folding-cross-ingress-follow-ups.md)。
+Passive turn admission 后与主动交互共享 Patchouli 的短期 topic working set 和 Page Folding。当前公共响应只返回 retrieval memory，不返回 `state_summary + recent_blocks`；由 HiveMemory 托管外部 bot 上下文的开放项见[长时间运行 Agent 的 Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md) 第 14 节，后台折叠的缺口见 [Page Folding Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md) 第 9 节。
 
 ## 6. 配置与验证入口
 

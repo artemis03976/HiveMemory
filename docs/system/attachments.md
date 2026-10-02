@@ -16,6 +16,9 @@ code_paths:
   - src/hivememory/workspace/assets/store.py
   - src/hivememory/components/serial_gate.py
   - src/hivememory/engines/attachment_compiler/
+  - src/hivememory/workspace/process/allocation.py
+  - src/hivememory/workspace/process/task_process.py
+  - src/hivememory/workspace/process/working_set.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/patchouli/control/interaction_submission.py
   - src/hivememory/patchouli/services/memory_generation.py
@@ -35,14 +38,14 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-09-11
+last_reviewed: 2026-10-01
 ---
 
 # Chat 附件链路
 
-本文是 Chat 附件从上传、确定性解析、Chat 选择、上下文编译到 Topic binding 与 Artifact promotion 的当前事实入口。它描述一条横跨 System（上传应用服务与 WorkspaceAssetStore）、Patchouli（prepare/finalize 与 binding）和前端（上传队列与选择状态）的完整链路；WorkspaceAssetStore 本身的两级状态机、READY-only 使用、删除与 lease 底层语义以[Workspace 架构](../architecture/workspace.md)为准，跨子系统身份与 interaction 时序以[子系统公共契约](../contracts/subsystem-contracts.md)为准。
+本文是 Chat 附件从上传、确定性解析、Chat 选择、上下文编译到 Topic binding 与 Artifact promotion 的当前事实入口。它描述一条横跨 workspace（上传应用服务、WorkspaceAssetStore，以及任务进程的附件租借与编译）、Patchouli（finalize 与 binding）和前端（上传队列与选择状态）的完整链路；WorkspaceAssetStore 本身的两级状态机、READY-only 使用、删除与 lease 底层语义以[Workspace 架构](../architecture/workspace.md)为准，跨子系统身份与 interaction 时序以[子系统公共契约](../contracts/subsystem-contracts.md)为准。
 
-链路的核心不变量只有一条：**Interaction 载荷只携带一份附件事实——AttachmentCompiler 确认实际进入上下文的使用引用**。用户选择只作为 prepare/compiler 的短期输入，上传、选择或编译跳过本身不产生任何长期关系。
+链路的核心不变量只有一条：**Interaction 载荷只携带一份附件事实——AttachmentCompiler 确认实际进入上下文的使用引用**。用户选择只作为任务进程 CPU 分配与 compiler 的短期输入，上传、选择或编译跳过本身不产生任何长期关系。
 
 ## 1. 阶段链路总览
 
@@ -56,12 +59,13 @@ last_reviewed: 2026-09-11
   -> HTTP 响应即终态：READY 或 FAILED + 安全摘要
 
 Chat 请求 attachments（bound ref + 可选版本摘要）
-  -> Patchouli prepare：逐项 acquire READY representation + 版本核对
-  -> AttachmentCompiler：确定性 section + used refs + 诊断
-  -> AgentRunContext.attachment_compile_result
+  -> 任务进程 CPU 分配：逐项 acquire READY representation + 版本核对，lease 登记进进程工作集
+  -> AttachmentCompiler（进程调用）：确定性 section + used refs + 诊断
+  -> CPUInputManifest.attachment_context（经 CPU 端口交给 CPU）
 
-finalize
+任务进程封口交互记录
   -> InteractionPayload.used_attachments（不可变 transport snapshot）
+  -> Patchouli finalize 原样提交
   -> submission handler 以 asset_refs 形参传入 Perception apply
   -> Perception apply：TopicAssetBinding（按 asset_id 幂等）
 
@@ -118,15 +122,15 @@ complete/fail 被 Store 以 stale、removed 或 closed 拒绝时直接传播既�
 
 前端上传队列与 Chat 回合选择是两种状态：队列项保存文件与服务端回执，选择集合只保存 `assetState=ready`（即 required representation READY）的项。用户可逐项选择与取消；取消只移除本地选择，不调用 Store、不创建 binding、不删除资产。opaque ref 与选择集合只存在于当前运行时内存，不写入 localStorage；页面刷新后需重新上传。
 
-`POST /api/v1/chat` 的 `attachments` 字段是发送时冻结的有序选择数组，每项携带 bound ref 与可选的预期版本摘要（representation_id/revision/content_hash）；同一 ref 只能出现一次，空数组与缺省等价。HTTP 层只校验字段类型与数组结构；ref 归属、READY 状态与版本核对发生在 Patchouli prepare 边界。
+`POST /api/v1/chat` 的 `attachments` 字段是发送时冻结的有序选择数组，每项携带 bound ref 与可选的预期版本摘要（representation_id/revision/content_hash）；同一 ref 只能出现一次，空数组与缺省等价。HTTP 层只校验字段类型与数组结构；ref 归属、READY 状态与版本核对发生在任务进程的 CPU 分配边界（Patchouli prepare 之后、Alice 之前）。
 
-prepare 按用户顺序逐项调用 reader 的 `acquire_ready_representation()`——该端口已在 Store 同一临界区完成归属、asset READY 与 representation READY 校验并建立 lease，不做前置 `resolve_asset`。返回 lease 的 representation ID/revision/hash 与请求摘要核对，任一失败释放已取得的 lease 并拒绝整个 run；请求字段结构错误在 HTTP body 校验拒绝（422），ref/READY/版本失败在 prepare 拒绝（Alice 未启动、Interaction 未提交），沿 Chat/Workspace 错误边界以安全文案返回。remove 早于 acquire 按既有 Store 语义拒绝本轮；acquire 早于 remove 时已有 lease 保存冻结内容，本轮继续可用。
+任务进程按用户顺序逐项调用 reader 的 `acquire_ready_representation()`——该端口已在 Store 同一临界区完成归属、asset READY 与 representation READY 校验并建立 lease，不做前置 `resolve_asset`。返回 lease 的 representation ID/revision/hash 与请求摘要核对，任一失败释放已取得的 lease 并拒绝整个 run；请求字段结构错误在 HTTP body 校验拒绝（422），ref/READY/版本失败在 CPU 分配时拒绝（Alice 未启动、Interaction 未提交，prepare 预建的空话题经 cleanup 清理），沿 Chat/Workspace 错误边界以安全文案返回。remove 早于 acquire 按既有 Store 语义拒绝本轮；acquire 早于 remove 时已有 lease 保存冻结内容，本轮继续可用。
 
-lease 生命周期覆盖 prepare acquire、附件编译到 Interaction finalize：prepare 失败立即逐项释放；prepare 成功未进入 finalize 时由 `cleanup_prepared_agent_run` 释放；进入 finalize 后由 continuation 在 Interaction 与后置工作完成后释放。释放容忍 Store 已关闭并记录摘要；重复释放沿 Store 幂等语义处理。
+lease 由任务进程的工作集（`ProcessWorkingSet`）持有，生命周期与进程相同：无论完成、取消、失败、断流还是 CPU 分配失败，进程关闭时（`TaskProcess.close()`）统一释放；释放先于关闭 CPU 输出流与 cleanup 等 `await` 同步执行，这些 `await` 被取消也不会泄漏 lease。正常完成时，finalize 返回（Interaction 已 applied）之后才释放；finalize 期间进程被取消（例如客户端断开）时，lease 随进程结束释放，而 Interaction 仍由 Patchouli 的 continuation 继续应用。释放容忍 Store 已关闭并记录摘要；重复释放沿 Store 幂等语义处理。
 
 ## 5. AttachmentCompiler
 
-`AttachmentCompiler` 是独立于 `MemoryCompiler` 的附件上下文编译组件：不接收 `MemoryAtom`、不使用 Memory target 枚举、不产生 Memory artifact、不做资产状态迁移。它在 prepare 阶段被调用，输入是校验后的 lease 集合与 `AttachmentCompilerConfig` 预算，输出不可变的 `AttachmentCompileResult`：
+`AttachmentCompiler` 是独立于 `MemoryCompiler` 的附件上下文编译组件：不接收 `MemoryAtom`、不使用 Memory target 枚举、不产生 Memory artifact、不做资产状态迁移。它由任务进程在 CPU 分配时调用，输入是校验后的 lease 集合与 `AttachmentCompilerConfig` 预算，输出不可变的 `AttachmentCompileResult`：
 
 - `attachment_context`：确定性附件 section（边界标记声明正文精确长度，正文逐字保留，不构成系统指令）；
 - `used_attachments`：实际进入 section 的 bound ref 集合（按用户顺序）；
@@ -134,11 +138,11 @@ lease 生命周期覆盖 prepare acquire、附件编译到 Interaction finalize�
 
 预算规则固定为：多附件严格按用户顺序；单附件超预算时在 locator 边界保留前部完整内容并声明 truncated；合计超总预算时跳过剩余附件；首个完整单元无法保留且此前无保留内容时整体编译失败；全部选中项被跳过同样整体失败，不生成空 section。正文中的指令样式文本只保留字面内容。
 
-用户选择只存在于 prepare 的短期输入（有序 lease）；compiler 的输入就是这组 lease，输出 `used_attachments`（bound ref 集合）是 binding 投影的唯一输入，`AgentRunContext` 与 `InteractionPayload` 中不存在独立的选择字段。
+用户选择只存在于 CPU 分配的短期输入（有序 lease）；compiler 的输入就是这组 lease，输出 `used_attachments`（bound ref 集合）是 binding 投影的唯一输入，输入清单与 `InteractionPayload` 中不存在独立的选择字段。`diagnostics` 目前没有消费方。
 
 ## 6. Interaction binding
 
-finalize 从 `AttachmentCompileResult` 生成一份有序的实际使用引用快照，写入 `InteractionPayload.used_attachments`。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。
+任务进程封口交互记录时，把 `AttachmentCompileResult.used_attachments` 这份有序的实际使用引用快照写入 `InteractionPayload.used_attachments`，finalize 原样提交。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。
 
 Perception 在 Interaction 成功 apply 的同一 Topic 快照更新中，把去重后的 `(asset_id, asset_ref)` 写入 `TopicAssetBinding`（按 `asset_id` 幂等，保留首次绑定时间语义）。编译跳过、预算未保留、admission/apply 失败与取消均不建立 binding；上传和解析本身同样不产生 binding。快照中的引用坐标可参与 interaction digest 以防 retry 替换 ref，但正文与 lease 不进入长期载荷。
 
@@ -153,7 +157,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 ## 8. 失败语义与限制汇总
 
 - 上传前可确定的错误：缺少/非法文件元数据 400、大小超限 413、不支持的媒体类型 415、operation 输入冲突 409、原资产已移除 410、Store 不可用 503；
-- Chat 选择错误：字段结构 422；ref/READY/版本失败在 prepare 边界以 `workspace.asset.not_found` / `not_ready` / `failed` / `removed` / `operation_conflict(store_closed)` 语义沿 SSE `error` 事件返回安全文案与 code；
+- Chat 选择错误：字段结构 422；ref/READY/版本失败在 CPU 分配边界以 `workspace.asset.not_found` / `not_ready` / `failed` / `removed` / `operation_conflict(store_closed)` 语义沿 SSE `error` 事件返回安全文案与 code；
 - 解析失败：资产终态 `workspace.asset.failed` + 安全文案，RAW 保留；
 - ref 失效或 Store 关闭：已提交 binding 不变，promotion 跳过并记录结构化 warning。
 
@@ -163,7 +167,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 - 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/assets.py`](../../src/hivememory/workspace/capability/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
 - 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`components/serial_gate.py`](../../src/hivememory/components/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`infrastructure/attachments/`](../../src/hivememory/infrastructure/attachments/)；
-- Chat 选择与编译交接：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；
+- Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/task_process.py`](../../src/hivememory/workspace/process/task_process.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；封口写入快照：[`workspace/process/sealing.py`](../../src/hivememory/workspace/process/sealing.py)；finalize 原样提交：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；
 - 配置：[`config/attachments.py`](../../src/hivememory/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。
 
@@ -177,7 +181,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 - 上传服务与请求内解析：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`test_workspace_asset_parsing.py`](../../tests/integration/system/application/test_workspace_asset_parsing.py)；
 - 公开入口：[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)、[`test_workspace_asset_parse_acceptance.py`](../../tests/integration/system/test_workspace_asset_parse_acceptance.py)；
 - 解析器与编译器：[`tests/unit/system/services/attachments/`](../../tests/unit/system/services/attachments/)、[`tests/integration/system/services/attachments/`](../../tests/integration/system/services/attachments/)、[`tests/unit/engines/attachment_compiler/`](../../tests/unit/engines/attachment_compiler/)；
-- codec 与 binding/promotion：[`tests/unit/patchouli/control/test_interaction_submission_v2.py`](../../tests/unit/patchouli/control/test_interaction_submission_v2.py)、[`tests/unit/patchouli/test_prepare_attachments.py`](../../tests/unit/patchouli/test_prepare_attachments.py)、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。
+- codec 与 binding/promotion：[`tests/unit/patchouli/control/test_interaction_submission_v2.py`](../../tests/unit/patchouli/control/test_interaction_submission_v2.py)、[`tests/unit/workspace/process/test_cpu_allocation.py`](../../tests/unit/workspace/process/test_cpu_allocation.py)（选择、租借释放与 used refs）、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。
 
 ## 10. 当前边界与限制
 

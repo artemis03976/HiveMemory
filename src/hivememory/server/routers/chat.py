@@ -8,14 +8,14 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 
-from hivememory.alice.application.chat_service import ChatApplicationService
 from hivememory.server.deps import (
     RequestIdentitySelection,
-    get_chat_service,
     get_identity_selection,
+    get_process_service,
     resolve_request_identity_scope,
 )
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
+from hivememory.workspace.process.service import TaskProcessService
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ async def chat(
     request: Request,
     body: ChatRequest,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
-    service: ChatApplicationService = Depends(get_chat_service),
+    service: TaskProcessService = Depends(get_process_service),
 ):
     """Stream an active chat run over SSE.
 
@@ -52,7 +52,7 @@ async def chat(
     （user_id + workspace_id）只来自统一请求头，在此一次性冻结为
     IdentityScope。
     """
-    interaction_id = f"interaction_{uuid.uuid4().hex}"
+    process_id = f"process_{uuid.uuid4().hex}"
     identity_scope = resolve_request_identity_scope(
         selection,
         require_agent=True,
@@ -64,10 +64,10 @@ async def chat(
         stream = None
 
         try:
-            stream = service.chat_stream_scoped(
-                user_message=body.message,
+            stream = service.run_process(
+                message=body.message,
                 identity_scope=identity_scope,
-                interaction_id=interaction_id,
+                process_id=process_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
                 generation_options=(
                     body.generation_options.model_dump(exclude_none=True)
@@ -82,8 +82,8 @@ async def chat(
                 try:
                     while not pull_task.done():
                         if await request.is_disconnected():
-                            service.cancel_generation_scoped(
-                                interaction_id,
+                            service.cancel_process(
+                                process_id,
                                 identity_scope=identity_scope,
                                 reason="client_disconnected",
                             )
@@ -98,8 +98,8 @@ async def chat(
                     }
 
                     if await request.is_disconnected():
-                        service.cancel_generation_scoped(
-                            interaction_id,
+                        service.cancel_process(
+                            process_id,
                             identity_scope=identity_scope,
                             reason="client_disconnected",
                         )
@@ -107,8 +107,8 @@ async def chat(
                 except StopAsyncIteration:
                     break
                 except asyncio.CancelledError:
-                    service.cancel_generation_scoped(
-                        interaction_id,
+                    service.cancel_process(
+                        process_id,
                         identity_scope=identity_scope,
                         reason="client_disconnected",
                     )
@@ -139,21 +139,21 @@ async def chat(
 async def stop_chat(
     request: StopChatRequest,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
-    service: ChatApplicationService = Depends(get_chat_service),
+    service: TaskProcessService = Depends(get_process_service),
 ):
     """Idempotently cancel an active streaming generation.
 
     取消不是 Agent action：基础身份选择只来自统一请求头，服务端用其做
-    owner/workspace 校验后，通过 generation registry 复用创建时冻结的
-    原始 scope 执行取消，不从当前选择重新构造可能不同的 scope。
+    owner/workspace 校验后，通过进程表复用创建时冻结的原始 scope 执行
+    取消，不从当前选择重新构造可能不同的 scope。
     """
     identity_scope = resolve_request_identity_scope(selection)
-    result = service.cancel_generation_scoped(
-        request.generation_id,
+    result = service.cancel_process(
+        request.process_id,
         identity_scope=identity_scope,
     )
     return {
-        "generation_id": result.generation_id,
+        "process_id": result.process_id,
         "cancelled": result.cancelled,
         "status": result.status,
         "reason": result.reason,

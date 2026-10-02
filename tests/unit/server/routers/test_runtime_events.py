@@ -68,12 +68,12 @@ async def test_runtime_events_stream_returns_sse_replay():
 
 @pytest.mark.asyncio
 async def test_runtime_events_stream_preserves_workspace_correlations():
-    """确认 SSE 重放保留观测所需的 Workspace 与 Interaction 投影。"""
+    """确认 SSE 重放保留观测所需的 Workspace 与进程标识投影。"""
     bus = RuntimeEventBus()
     bus.emit(
         RuntimeEvent(
             event_type=RuntimeEventType.CHAT_RUN_CREATED,
-            interaction_id="interaction-isolated",
+            process_id="process-isolated",
             workspace_id="isolation_workspace",
         )
     )
@@ -88,7 +88,7 @@ async def test_runtime_events_stream_preserves_workspace_correlations():
     data_line = next(line for line in chunk.splitlines() if line.startswith("data: "))
     payload = json.loads(data_line.removeprefix("data: "))
 
-    assert payload["interaction_id"] == "interaction-isolated"
+    assert payload["process_id"] == "process-isolated"
     assert payload["workspace_id"] == "isolation_workspace"
 
     await response.body_iterator.aclose()

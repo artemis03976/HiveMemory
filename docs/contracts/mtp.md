@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-01
 ---
 
 # Memory Tool Protocol (MTP)
@@ -126,7 +126,7 @@ RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读�
 - `content` 必填；`title`、`reason` 可选；
 - 立即注册 PendingAtom 并返回 `ack + pending_alias`；
 - 不在 Koakuma 内同步创建正式 MemoryAtom；
-- PendingAtom materialize task 随 `AgentRunResult` 交给 Patchouli finalize；
+- PendingAtom materialize task 随 CPU 执行结果交给任务进程，经 `InteractionPayload` 进入 Patchouli finalize；
 - 只有完成 finalize 后，后续生成/结算流程才可能形成正式记忆。
 
 ACK 表示意图已被运行时接收，不表示长期记忆已经持久化。

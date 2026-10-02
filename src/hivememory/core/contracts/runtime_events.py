@@ -94,8 +94,7 @@ class RuntimeEvent(BaseModel):
     component: str | None = None
     severity: Literal["debug", "info", "warning", "error"] = "info"
 
-    generation_id: str | None = None
-    interaction_id: str | None = None
+    process_id: str | None = None
     agent_run_id: str | None = None
     task_id: str | None = None
     agent_id: str | None = None

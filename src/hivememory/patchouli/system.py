@@ -9,7 +9,7 @@
     - 实现 SubsystemProtocol 契约
 
 数据流:
-    Active: ChatService -> prepare_agent_run (Patchouli) -> run_agent (Alice) -> finalize_agent_run (Patchouli)
+    Active: 任务进程 -> prepare_agent_run (Patchouli) -> CPU 端口 (Alice) -> finalize_agent_run (Patchouli)
     Passive: PassiveIngressService -> ingest_event -> InteractionSubmissionQueue -> apply_interaction
 
     ┌─────────────────────────────────────────┐
@@ -37,15 +37,12 @@ from hivememory.components.events.bus import (
     RuntimeEventSink,
 )
 from hivememory.components.scheduler.models import MaintenanceTaskSpec
-from hivememory.config.attachments import AttachmentCompilerConfig
-from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import SchedulerConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.core.access import ClosedWorkspaceAccessVerifier, WorkspaceAccessVerifier
 from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
-from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     InteractionSubmissionService,
@@ -94,15 +91,11 @@ class PatchouliSystem(SubsystemProtocol):
         access_guard: WorkspaceAccessVerifier | None = None,
         *,
         shared_config: SharedConfig | None = None,
-        memory_compiler_config: MemoryCompilerConfig | None = None,
-        attachment_compiler_config: AttachmentCompilerConfig | None = None,
         scheduler_config: SchedulerConfig | None = None,
     ):
         # 各配置段由组合根从根配置中取出后注入；Patchouli 不依赖根配置类型。
         self.config = config
         self._shared_config = shared_config or SharedConfig()
-        self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
-        self._attachment_compiler_config = attachment_compiler_config or AttachmentCompilerConfig()
         self._scheduler_config = scheduler_config or SchedulerConfig()
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
@@ -127,15 +120,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             interaction_queue=self._interaction_submission_queue,
-            memory_compiler_config=self._memory_compiler_config,
             pending_atom_settler=self.runtime.pending_atom_settler,
-            # 进程级唯一的 WorkspaceAssetStore 由 assembler 注入为只读
-            # reader：附件选择在 prepare 边界 resolve/acquire（计划 9.3 节）。
-            asset_reader=workspace_asset_reader,
-            # W1-E 附件编译器：预算来自 System attachment_compiler 配置。
-            attachment_compiler=AttachmentCompiler(
-                self._attachment_compiler_config,
-            ),
         )
         # A1 统一访问边界：System composition 装载 Workspace Actor 访问
         # 注册表并注入共享行为检查；Patchouli 只消费中立的检查能力，不

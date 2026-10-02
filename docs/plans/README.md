@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-09-27
+last_reviewed: 2026-10-01
 ---
 
 # Plans
@@ -12,29 +12,34 @@ last_reviewed: 2026-09-27
 
 ## v0.7.0
 
-当前没有生效的 Plan；v0.7.0 的整体范围尚未决定（[总 Idea](../ideas/workspace-network-task-process-architecture.md) M-5）。
+范围已决定（2026-09-27，[总 Idea](../ideas/workspace-network-task-process-architecture.md#61-已决定事项) M-5）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在；首条迁移流程为 Alice 的 chat 链路（M-3），以 Alice 在新架构下跑通、各流程协作无误作为验证；版本目标见 [ROADMAP](../ROADMAP.md) 第 4.3 节。v0.7.0 按小批量逐次实施：同一方向同时只有一份生效计划，完成一批、归档一批，再建立下一批的计划。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 任务进程表与任务请求唯一注册入口 | 唯一有效的计划方向；Plan 未建立 | [任务进程 Idea](../ideas/task-process-table-and-registration-entry.md)（第 6 节列出建立 Plan 前需要决定的问题） |
-| — | 外部会话消息的接收与 Topic 投影 | 方向保留，未排序 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
-| — | 写入意图（PendingAtom）体系的迁移 | 方向保留，未排序 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
-| — | 外部 Actor 的接入登记与运行时访问 | 方向保留，未排序 | [Idea](../ideas/external-actor-registration-and-runtime-access.md)（原计划 B） |
+| 1 | 任务进程表与任务请求唯一注册入口 | 已完成：第一至第五批均已实施归档（[落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)、[命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md)）；Topic 按需创建与写入意图分别归外部会话与写入意图迁移两个方向 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
+| 1 之后 | A1 访问边界返工 | 在任务进程表计划完成、已有稳定入口之后接入 | [Todo](../todo/a1-access-boundary-rework.md) |
+| — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
+| — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
 
+- 不在 v0.7.0：外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；
 - 已完成：[A1 访问边界](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[A2-P 记忆内容版本与 Lifecycle](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义与可控时钟](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)（均已归档）；
-- 未排期：[A1 访问边界返工](../todo/a1-access-boundary-rework.md)（Todo，不阻塞上述方向）；
 - 已删除：A2（未完成部分）、A5、A6、WRX-0 清单、计划 A 协调入口与边界宪章，删除前最后版本见 commit `dda9d9d`；处置记录见总 Idea 第 6.1 节。
 
 ## 未绑定版本
 
 | 计划 | 状态 | 说明 |
 |:---|:---:|:---|
-| [话题折叠、Actor 上下文与原始证据统一改造](./topic-folding-context-and-raw-evidence.md) | Planned / 占位 | 统筹话题折叠算法重构、原始证据和长 turn 上下文两份 Idea；详细设计与发布版本待补齐 |
+| 暂无 | — | 原占位计划“话题折叠、Actor 上下文与原始证据统一改造”于 2026-10-01 退回 Idea 后删除（删除前最后版本见 commit `74b5056`）：后台部分并入 [Page Folding Raw Evidence](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)，前台部分并入[长时间运行 Agent 的 Turn 内上下文折叠](../ideas/long-running-agent-intra-turn-context-folding.md) |
 
 ## 已完成的计划
 
 | Plan | 状态 | 结果与事实入口 |
 |:---|:---:|:---|
+| [v0.7.0 任务进程：命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md) | Archived（2026-10-01） | Gateway 的命令结果只携带解析结果，删除命令分发与执行，任务进程产生“暂不可用”的命令终态；当前事实见 [Gateway 全局命令](../gateway/commands.md) |
+| [v0.7.0 任务进程：CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md) | Archived（2026-10-01） | `workspace.contracts` 定义 `CPUPort` 与 `CPUExecutionResult`，任务进程只经注入的端口调用 CPU；Alice 统一流式与非流式入口并实现端口；测试 CPU 跑通任务进程；当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)与 [System 应用服务](../system/application-services.md) |
+| [v0.7.0 任务进程：结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md) | Archived（2026-09-30） | 任务进程封口交互记录 `InteractionPayload`，Patchouli finalize 改为接收 `PreparedAgentRun` 与 `InteractionPayload` 并原样提交，不再接收 `AgentRunResult`；当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)与 [System 应用服务](../system/application-services.md) |
+| [v0.7.0 任务进程：prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md) | Archived（2026-09-29） | Patchouli prepare 只做话题与检索；任务进程完成 CPU 分配（Profile 解析、附件租借与编译、记忆编译），输入清单 `CPUInputManifest` 位于 `workspace.contracts`；当前事实见 [System 应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md) |
+| [v0.7.0 任务进程表：落位与进程标识](../archive/plans/v0.7.0-task-process-table.md) | Archived（2026-09-28） | 进程表与 chat 四阶段编排迁入 `workspace.process`、`process_id` 统一进程标识、取消只在 Gateway 与 Actor 执行响应；当前事实见 [System 应用服务](../system/application-services.md) |
 | [v0.7.0 A2-P 记忆内容版本与 Lifecycle 状态重构](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md) | Archived（2026-09-24） | 完整版本历史、meta.lifecycle 聚合、受控局部更新与 schema 2.1 迁移 |
 | [全项目时间语义与可控时钟统一](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) | Archived（2026-09-24） | Memory 域 UTC 业务时间、四时间字段职责、局部 now 注入与 TimeFormatter 契约；全项目收口转为 Idea |
 | [v0.7.0 A1 Workspace 访问边界与授权](../archive/plans/v0.7.0-a1-workspace-access-boundary.md) | Archived | 统一认证网关、两类登记、guard 签发生命周期与逐次行为授权；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |

@@ -12,7 +12,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 ## 发布状态
 
 - 最近已发布基线：`v0.6.2`
-- 当前开发版本：`v0.7.0`（部分内容已合入，整体范围重新规划中，见 [ROADMAP](docs/ROADMAP.md)）
+- 当前开发版本：`v0.7.0`（部分内容已合入，整体范围已按新架构重新划定，见 [ROADMAP](docs/ROADMAP.md)）
 - 代码与包版本：`0.6.2`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
@@ -23,7 +23,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 ### 对话与接入模式
 
-- **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `ChatApplicationService` 编排 Patchouli prepare/finalize 与 Alice Agent 执行
+- **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `TaskProcessService`（workspace 任务进程编排）驱动 Gateway 分析、Patchouli prepare/finalize 与 Alice Agent 执行
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
 - **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 System 层 `PassiveIngressService` 负责编排 Gateway 决策、缓冲、检索和 Patchouli 提交
 
@@ -69,7 +69,7 @@ HiveMemory 当前实现按依赖分层组织。顶层 System 负责组合、门�
 ### 主要运行时组成
 
 - **HiveMemorySystem**：组合根与门面，装配共享运行时、workspace 设施、应用服务、Gateway、Patchouli 与 Alice
-- **ChatApplicationService**：主动 chat 编排服务，负责 `prepare -> Alice run -> finalize`
+- **TaskProcessService**：workspace 任务进程编排服务（`workspace.process`），持有进程表并以 `process_id` 统一进程标识，负责 `Gateway -> prepare -> Alice run -> finalize` 四阶段编排
 - **GatewaySystem / GatewayRuntime**：入口决策子系统，负责系统指令、话题路由、查询分析与稳定决策投影
 - **PatchouliSystem / PatchouliRuntime**：记忆子系统宿主与运行时，管理 retrieval、perception、generation、lifecycle 与 storage 能力
 - **Retrieval Familiar**：Hot Path 检索服务，负责混合检索、重排序、上下文渲染
@@ -269,8 +269,8 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 它提供两种主要接入方式：
 
-- `chat()` / `chat_stream()`：主动模式，由 `ChatApplicationService` 协调 Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
-- `ingest_event()` / `flush_ingressor()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
+- `process_service.run_process()`（默认 `stream=True` 流式，`stream=False` 非流式）：主动模式，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
+- `ingress_service.ingest_event()` / `flush_conversation()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
 
 如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要把 HiveMemory 嵌入已有 Agent 框架，通常从 passive ingest 模式开始会更自然。
 
@@ -289,10 +289,10 @@ HiveMemory/
 │   ├── components/          # 进程内运行时机制：总线、调度器、work queue、运行时事件
 │   ├── engines/             # Gateway / Retrieval / Perception / Generation / Lifecycle 算法
 │   ├── infrastructure/      # Storage / LLM / Embedding / 附件解析等外部技术适配
-│   ├── workspace/           # 认证入口、能力层、读取视图与 WorkspaceAsset 设施
+│   ├── workspace/           # 认证入口、能力层、读取视图、WorkspaceAsset 设施与任务进程（process）
 │   ├── gateway/             # Gateway 入口决策子系统
 │   ├── patchouli/           # Patchouli 记忆子系统与运行时
-│   ├── alice/               # Alice Agent 执行子系统（含暂置的 chat 编排）
+│   ├── alice/               # Alice Agent 执行子系统
 │   ├── agent_runtime/       # 单 Agent 执行层与 Koakuma MTP/工具 runtime
 │   ├── system/              # 组合根、门面、注册表与被动摄入
 │   ├── prompts/             # System prompts 与 prompt 组装
