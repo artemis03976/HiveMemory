@@ -157,7 +157,7 @@ def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, A
                     "event": "done",
                     "data": {
                         "process_id": process_id,
-                        **output.execution_result.model_dump(),
+                        **_done_result_fields(output.execution_result),
                         "status": "completed",
                         "stopped": False,
                         "reason": None,
@@ -167,18 +167,27 @@ def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, A
                 }
             ]
         case RunCancelled(reason=reason, execution_result=execution_result):
-            base = execution_result.model_dump() if execution_result is not None else {}
+            base = _done_result_fields(execution_result) if execution_result is not None else {}
             return [_stopped_done(process_id, base, status="cancelled", reason=reason)]
         case RunFailed(execution_result=execution_result):
             return [
                 _stopped_done(
                     process_id,
-                    execution_result.model_dump(),
+                    _done_result_fields(execution_result),
                     status="failed",
                     reason="agent_run_failed",
                 )
             ]
     raise TypeError(f"没有流式投影的阶段产出: {type(output).__name__}")
+
+
+# 只服务于封口交互记录的执行结果字段，不下发给流式交付方。
+_SEALING_ONLY_FIELDS = frozenset({"turn_events", "materialize_tasks"})
+
+
+def _done_result_fields(result: CPUExecutionResult) -> dict[str, Any]:
+    """``done`` 事件携带的执行结果字段（不含封口专用字段）。"""
+    return result.model_dump(exclude=set(_SEALING_ONLY_FIELDS))
 
 
 def _stopped_done(

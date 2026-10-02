@@ -38,7 +38,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - **实施进度（2026-09-29）**：第二批实施已完成并晋升为当前事实——1.2 中 Patchouli prepare 与结算的拆分：prepare 只做 Topic 与检索，CPU 分配（Profile 解析、附件租借与编译、记忆编译、`CPUInputManifest`）由进程完成，附件租借由进程工作集持有并随进程结束释放，见[已归档计划](../archive/plans/v0.7.0-task-process-prepare-split.md)、[应用服务](../system/application-services.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。1.2 中的其余内容（Topic 按需创建、写入意图迁移等）仍未实施。
 - **实施进度（2026-09-30）**：第三批实施已完成并晋升为当前事实——1.2 中结算阶段的中立输入：进程在进入 finalize 前封口交互记录 `InteractionPayload`（MTP 轨迹经 core 归约器得到），Patchouli finalize 改为接收 `PreparedAgentRun` 与 `InteractionPayload` 并原样提交，不再接收 `AgentRunResult`，版本目标第 1 条收口；见[已归档计划](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。`InteractionPayload` 在写入意图实时派发实现前仍携带 `materialize_tasks`。
 - **实施进度（2026-10-01）**：第四批实施已完成并晋升为当前事实——1.2 中的 CPU 端口：`workspace.contracts` 定义对象端口 `CPUPort` 与 CPU 中立的执行结果 `CPUExecutionResult`（取代 `AgentRunResult`，不含 `mtp_iterations`/`total_iterations`），任务进程只经组合根注入的端口调用 CPU，交互事件原样透传、终态结果单独产出；Alice 的流式与非流式合并为以 `stream` 参数控制的统一入口与单一路由，并以 `AliceCPU` 实现端口；测试 CPU 在没有 Alice 路由的情况下跑通任务进程，版本目标第 2 条达成。见[已归档计划](../archive/plans/v0.7.0-task-process-cpu-port.md)与[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节。CPU 的选择机制与 actor 对应 CPU 的映射仍待后续设计。
-- **实施进度（2026-10-01，第五批）**：命令只解析不执行已实施并晋升为当前事实：Gateway 的命令结果只携带解析结果（解析模型移入 `core.protocol.gateway`），命令分发与执行已删除，任务进程按解析状态产生命令终态，内置命令暂时不可用；见[已归档计划](../archive/plans/v0.7.0-task-process-command-parse-only.md)与 [Gateway 全局命令](../gateway/commands.md)。本方向在 v0.7.0 内的批次至此全部完成；1.2 中剩余的 Topic 按需创建与写入意图分别归外部会话与 Topic 投影、写入意图迁移两个方向。
+- **实施进度（2026-10-01，第五批）**：命令只解析不执行已实施并晋升为当前事实：Gateway 的命令结果只携带解析结果（解析模型移入 `core.protocol.gateway`），命令分发与执行已删除，任务进程按解析状态产生命令终态，内置命令暂时不可用；见[已归档计划](../archive/plans/v0.7.0-task-process-command-parse-only.md)与 [Gateway 全局命令](../gateway/commands.md)。本方向在 v0.7.0 内的批次至此全部完成。1.2 中的 Topic 按需创建与写入意图分别归外部会话与 Topic 投影、写入意图迁移两个方向；进程记录与工作集中尚未实施的部分见 1.2“进程记录与工作集”的实施状态。
 
 ## 1. 前提（owner 提出）
 
@@ -123,6 +123,10 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 槽位可以动态，值必须有类型：哪些槽位被填上由进程自己决定（例如命令进程只有 GatewayDecision），但每个槽位都有声明的类型与所有者；不使用 `dict[str, Any]` 这类无类型载体。
 - 进程关闭时释放工作集中登记的资源，取代现有分散的清理：`finally` 中的 prepared run 清理、finalize 中的租借释放、临时话题的补偿（2.5）。
 - 写入意图不在工作集中：它在 workspace 登记，生命周期与进程完全解耦（Q-1、Q-2，[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）；进程最多在执行记录中保留意图的引用。
+- **实施状态**（2026-10-01 复核）：
+  - 进程记录（`ProcessRecord`）目前只有 `process_id`、冻结的 `IdentityScope`、当前阶段、停止请求与终态。请求方式、CPU 分配与访问 context 尚未记入：被动请求这一阶段不考虑（Q-6），CPU 的选择机制后置，访问 context 随 A1 返工取得。
+  - 工作集（`ProcessWorkingSet`）持有 prepare 结果、附件租借与附件编译得出的实际使用引用。GatewayDecision 与 CPU 执行结果目前由编排骨架以局部值持有，尚未成为工作集槽位；Topic 路由决定跨阶段传到结算是 Topic 按需创建的一部分（本节“Patchouli prepare 与结算的拆分”）。
+  - `PreparedAgentRun` 已不再回传用户消息与 GatewayDecision，两者由进程自己持有。
 
 现有对象的去向：
 
@@ -153,7 +157,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 1. Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型，包括 `AgentRunContext`、`StreamPrelude`、`AgentRunResult` 与编译好的记忆文本（2026-09-30 已随第二、三批实施达成；`InteractionPayload` 过渡期仍携带 `materialize_tasks`）；
 2. 一个非 Alice 的 CPU（测试中的替身即可）能跑完整个任务进程，不需要改动进程与入口的代码（2026-10-01 已随第四批实施达成）；
-3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试；
+3. 取消与清理都经过进程容器：进程关闭时释放已登记的资源，取代 Patchouli 的清理路由与 chat 编排中的补偿；每个阶段的取消都能通过容器接口测试（2026-10-01：取消与关闭已收口到进程容器，`TaskProcess.close()` 统一释放附件租借、关闭 CPU 输出流并请求 cleanup，各阶段的取消经进程服务接口测试；剩余的 Patchouli cleanup 路由随 Topic 按需创建移除，归外部会话与 Topic 投影方向）；
 4. 命令、主动请求与被动请求经同一入口注册（被动请求的实现范围见 Q-6；命令系统后置，v0.7.0 内现有内置命令暂时不可用，见 Q-5a）。2026-10-01：被动请求按 Q-6 这一阶段不考虑；命令与主动请求经同一入口登记为进程、命令只解析不执行，已随第五批实施达成，本条在这一阶段收口。
 
 ## 2. 现状事实（代码核对，2026-09-27；迁移前快照，2026-09-28 起由 `workspace.process` 取代）
@@ -287,7 +291,7 @@ flowchart TB
     D --> E["分配 CPU，记入进程记录"]
     E --> X{"检查一次取消请求（Q-15）"}
     X -- "有" --> I
-    X -- "无" --> F["阶段 3：CPU 执行<br/>CPU 自行编译上下文<br/>写入意图经能力层实时提交"]
+    X -- "无" --> F["阶段 3：CPU 执行<br/>消费进程编译的输入清单<br/>写入意图经能力层实时提交"]
     F --> G{"执行结果"}
     G -- "完成" --> H["阶段 4：Patchouli 结算<br/>提交交互记录与衍生内容（Q-14）<br/>按需创建 Topic"]
     G -- "取消 / 失败" --> I["不提交交互记录（Q-14）<br/>已提交的写入意图照常生成"]

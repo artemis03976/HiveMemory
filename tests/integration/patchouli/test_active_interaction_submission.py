@@ -36,7 +36,6 @@ from hivememory.patchouli.service import (
     ActiveInteractionFinalizationError,
     PatchouliService,
 )
-from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -81,8 +80,6 @@ def _prepared(
     return PreparedAgentRun(
         identity_scope=identity_scope,
         interaction_id=interaction_id,
-        user_message="question",
-        gateway_decision=make_gateway_decision(),
         topic_id="topic-1",
         is_new_topic=is_new,
         topic_context=None,

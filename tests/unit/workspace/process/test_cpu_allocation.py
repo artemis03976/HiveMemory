@@ -137,9 +137,7 @@ def _prepare_route(
     async def route(
         *,
         identity_scope,
-        user_message,
         interaction_id,
-        gateway_decision,
         **_kwargs,
     ):
         if started is not None:
@@ -149,8 +147,6 @@ def _prepare_route(
         return PreparedAgentRun(
             identity_scope=identity_scope,
             interaction_id=interaction_id,
-            user_message=user_message,
-            gateway_decision=gateway_decision,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
             topic_context=None,
@@ -835,8 +831,6 @@ def _scoped_prepared(kwargs: dict[str, Any]) -> PreparedAgentRun:
     return PreparedAgentRun(
         identity_scope=kwargs["identity_scope"],
         interaction_id=kwargs["interaction_id"],
-        user_message=kwargs["user_message"],
-        gateway_decision=kwargs["gateway_decision"],
         topic_id="topic-1",
         is_new_topic=False,
     )

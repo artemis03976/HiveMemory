@@ -154,16 +154,12 @@ def _scoped_prepared_route(
     async def route(
         *,
         identity_scope,
-        user_message,
         interaction_id,
-        gateway_decision,
         **_kwargs,
     ):
         return PreparedAgentRun(
             identity_scope=identity_scope,
             interaction_id=interaction_id,
-            user_message=user_message,
-            gateway_decision=gateway_decision,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
             topic_context=None,
@@ -318,6 +314,79 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
         turn_events=turn_events,
         write_task=write_task,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected_keys"),
+    [
+        (
+            CPUExecutionStatus.COMPLETED,
+            {
+                "process_id",
+                "status",
+                "final_text",
+                "model_used",
+                "stopped",
+                "reason",
+                "memory_task_ids",
+                "pool_topics",
+            },
+        ),
+        (
+            CPUExecutionStatus.FAILED,
+            {
+                "process_id",
+                "status",
+                "final_text",
+                "model_used",
+                "stopped",
+                "reason",
+                "memory_task_ids",
+            },
+        ),
+        (
+            CPUExecutionStatus.CANCELLED,
+            {
+                "process_id",
+                "status",
+                "final_text",
+                "model_used",
+                "stopped",
+                "reason",
+                "memory_task_ids",
+            },
+        ),
+    ],
+)
+async def test_streaming_done_omits_sealing_only_result_fields(
+    status: CPUExecutionStatus,
+    expected_keys: set[str],
+) -> None:
+    """流式 done 只携带交付方使用的执行结果字段：轮次事件与物化任务只用于封口，不下发。"""
+    bus = GlobalSystemBus()
+    cpu = ScriptedCPU(
+        result=make_cpu_result(
+            status=status,
+            turn_events=make_mtp_turn_events(),
+            materialize_tasks=[make_write_materialize_task()],
+        ),
+    )
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    _register_profile(bus)
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+
+    events = await _stream_events(_service(bus, cpu), "问题")
+
+    done = events[-1]
+    assert done["event"] == "done"
+    assert set(done["data"]) == expected_keys
+    assert done["data"]["status"] == status.value
+    assert done["data"]["final_text"] == "完成"
+    assert done["data"]["model_used"] == "glm-4"
 
 
 @pytest.mark.asyncio

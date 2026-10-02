@@ -113,21 +113,16 @@ async def _run_interruptible(
 
 
 def _require_prepared_scope(
-    prepared: Any,
+    prepared: PreparedAgentRun,
     identity_scope: IdentityScope,
 ) -> None:
     """拒绝 prepare 返回与进程表不一致的请求级 scope。"""
-    prepared_scope = getattr(prepared, "identity_scope", None)
-    if not isinstance(prepared_scope, IdentityScope) or prepared_scope != identity_scope:
+    if prepared.identity_scope != identity_scope:
         raise WorkspaceMismatchError(
             "PreparedAgentRun 与进程记录的身份作用域不一致",
             details={
                 "requested_workspace": identity_scope.workspace_identity.workspace_id,
-                "prepared_workspace": (
-                    prepared_scope.workspace_identity.workspace_id
-                    if isinstance(prepared_scope, IdentityScope)
-                    else None
-                ),
+                "prepared_workspace": prepared.identity_scope.workspace_identity.workspace_id,
             },
         )
 
@@ -349,7 +344,6 @@ class TaskProcess:
         agent_profile = await self._allocator.resolve_agent_profile(request.identity_scope)
         prepared: PreparedAgentRun = await self._bus.request(
             GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
-            user_message=request.message,
             identity_scope=request.identity_scope,
             interaction_id=request.process_id,
             gateway_decision=decision,
@@ -366,6 +360,7 @@ class TaskProcess:
             self._working_set,
             process_id=record.process_id,
             identity_scope=request.identity_scope,
+            user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),
         )

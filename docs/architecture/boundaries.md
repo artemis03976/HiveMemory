@@ -144,9 +144,9 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 `finalize_agent_run` 接收 `PreparedAgentRun` 与任务进程封口的 `InteractionPayload`，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
-如果 System 未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
+如果任务进程未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
 
-prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间只让 Alice 消费一个本轮快照。这一设计允许 Alice 专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
+prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）。这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
 
 ### 6.3 禁止的越界
 

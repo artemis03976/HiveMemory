@@ -378,7 +378,7 @@ class TestChatHandoffContractShapes:
     """prepare 拆分后的交接契约形状（PreparedAgentRun 与公开路由签名）。"""
 
     def test_prepared_agent_run_no_longer_carries_cpu_side_payload(self):
-        """PreparedAgentRun 只承载 Topic 与检索：不再有 Profile/租借/编译文本。"""
+        """PreparedAgentRun 只承载 Topic 与检索：不再有 Profile/租借/编译文本，也不回传用户消息与 Gateway 决定。"""
         fields = {field.name for field in dataclasses.fields(PreparedAgentRun)}
         for removed in (
             "agent_run_context",
@@ -386,13 +386,13 @@ class TestChatHandoffContractShapes:
             "attachment_leases",
             "generation_options",
             "agent_profile",
+            "user_message",
+            "gateway_decision",
         ):
             assert removed not in fields
         for kept in (
             "identity_scope",
             "interaction_id",
-            "user_message",
-            "gateway_decision",
             "topic_id",
             "is_new_topic",
             "retrieval_result",
@@ -406,7 +406,7 @@ class TestChatHandoffContractShapes:
         assert AgentRunContext not in prepare_hints.values()
         assert prepare_hints["return"] is PreparedAgentRun
         prepare_params = inspect.signature(PatchouliService.prepare_agent_run).parameters
-        for removed in ("generation_options", "selected_attachments"):
+        for removed in ("user_message", "generation_options", "selected_attachments"):
             assert removed not in prepare_params
 
         finalize_hints = typing.get_type_hints(PatchouliService.finalize_agent_run)

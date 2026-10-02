@@ -9,7 +9,7 @@
     - 实现 SubsystemProtocol 契约
 
 数据流:
-    Active: ChatService -> prepare_agent_run (Patchouli) -> run_agent (Alice) -> finalize_agent_run (Patchouli)
+    Active: 任务进程 -> prepare_agent_run (Patchouli) -> CPU 端口 (Alice) -> finalize_agent_run (Patchouli)
     Passive: PassiveIngressService -> ingest_event -> InteractionSubmissionQueue -> apply_interaction
 
     ┌─────────────────────────────────────────┐

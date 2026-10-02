@@ -47,8 +47,6 @@ def make_prepared_run(
     *,
     identity_scope: IdentityScope | None = None,
     interaction_id: str = "interaction-test",
-    user_message: str = "hello",
-    gateway_decision: GatewayDecision | None = None,
     topic_id: str = "topic-1",
     is_new_topic: bool = False,
     topic_context: TopicData | None = None,
@@ -60,8 +58,6 @@ def make_prepared_run(
     return PreparedAgentRun(
         identity_scope=identity_scope or make_identity_scope(),
         interaction_id=interaction_id,
-        user_message=user_message,
-        gateway_decision=gateway_decision or make_gateway_decision(),
         topic_id=topic_id,
         is_new_topic=is_new_topic,
         topic_context=topic_context,

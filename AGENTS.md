@@ -63,7 +63,7 @@
 
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (仅 completed) 任务进程封口交互记录 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
-- prepare 失败或 Agent 取消/失败时，不默认进入 finalize；System 可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
+- prepare 失败或 Agent 取消/失败时，不默认进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
 - `MTP WRITE/UPDATE` 的 ACK 只表示 PendingAtom 已登记；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
 - MTP 权限由 Agent Profile 的允许 verb/tool 控制；CALL 只允许根 frame 发起，子 frame 不得递归 CALL。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。

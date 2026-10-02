@@ -101,7 +101,7 @@ Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare �
 
 交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；finalize 原样提交。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
-本进程的 prepare 结果、输入清单与附件租借由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有。进程无论以何种结局结束都经 `TaskProcess.close()` 关闭：先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；进程记录的注销放在内层 `finally`，因此即使这些 `await` 被取消，租借与进程记录也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
+本进程的 prepare 结果、附件租借与附件编译得出的实际使用引用由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。进程无论以何种结局结束都经 `TaskProcess.close()` 关闭：先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；进程记录的注销放在内层 `finally`，因此即使这些 `await` 被取消，租借与进程记录也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
 
 Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
@@ -123,7 +123,7 @@ process_id
        done(completed + memory_task_ids + pool_topics)
 ```
 
-流式执行必须收到 CPU 的终态结果才能结束 Actor 阶段。若输出流在没有终态结果时结束，服务按协议错误处理；`done` 携带执行结果的字段（终态、最终回复、轮次事件、物化任务、模型名）与进程字段，不含执行者专属的统计。客户端提前关闭时，SSE adapter 以 `process_id` 请求停止当前进程，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。进程的关闭流程随后以 `stream_closed` 收口尚未发布终态的进程，释放附件租借、关闭 CPU 输出流，并对尚未 finalize 的 prepared run 执行 cleanup。`topic_info` 与 `memory_refs` 由进程从 prepare 结果与输入清单推导，只在 CPU 分配成功后发出。
+流式执行必须收到 CPU 的终态结果才能结束 Actor 阶段。若输出流在没有终态结果时结束，服务按协议错误处理；`done` 只携带交付方使用的执行结果字段（终态、最终回复、模型名）与进程字段：轮次事件与物化任务只用于封口交互记录，不下发；也不含执行者专属的统计。客户端提前关闭时，SSE adapter 以 `process_id` 请求停止当前进程，先取消并 join 自己创建的 stream-pull task，再关闭 Chat generator。进程的关闭流程随后以 `stream_closed` 收口尚未发布终态的进程，释放附件租借、关闭 CPU 输出流，并对尚未 finalize 的 prepared run 执行 cleanup。`topic_info` 与 `memory_refs` 由进程从 prepare 结果与输入清单推导，只在 CPU 分配成功后发出。
 
 流式 `done`、`command_result` 和 `error` 是 transport 可消费的事件，不是新的跨子系统业务契约；它们的来源和调用顺序仍由本服务和 Contracts 共同约束。
 

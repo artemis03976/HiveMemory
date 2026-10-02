@@ -101,7 +101,6 @@ Patchouli 的公开面分为 chat 协作、记忆、任务、Agent Profile、话
 
 ```python
 prepare_agent_run(
-    user_message: str,
     *,
     identity_scope: IdentityScope,
     interaction_id: str,
@@ -116,13 +115,13 @@ prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备�
 
 | 字段 | 内容 |
 |:---|:---|
-| `identity_scope`、`interaction_id`、`user_message`、`gateway_decision` | 由 prepare 入参冻结；`IdentityScope` 是唯一身份来源 |
+| `identity_scope`、`interaction_id` | 由 prepare 入参冻结；`IdentityScope` 是唯一身份来源 |
 | `topic_id`、`is_new_topic` | 本轮真实话题与是否由 prepare 新建 |
 | `topic_context`、`pool_topics` | 话题上下文与话题池快照 |
 | `retrieval_result` | 未编译的检索结果（`RetrievalResponse`） |
 | `storage_available` | 记忆存储健康状态 |
 
-它位于 Patchouli 的 `contracts` 子包，因为 workspace 的任务进程需要读取其中的话题与检索结果；L3 子系统之间只能导入对方的 `contracts`。
+它位于 Patchouli 的 `contracts` 子包，因为 workspace 的任务进程需要读取其中的话题与检索结果；L3 子系统之间只能导入对方的 `contracts`。用户消息与 Gateway 决定由任务进程自己持有（组装输入清单与封口交互记录时使用），prepare 不接收用户消息，也不回传决定。
 
 prepare 的意义在于：由 Patchouli 在交出控制权前确认真实话题与本轮可见的记忆，调用方无需理解 Patchouli 内部存储。检索结果以原始 `MemoryAtom` 交出，如何呈现给执行者由任务进程决定。
 

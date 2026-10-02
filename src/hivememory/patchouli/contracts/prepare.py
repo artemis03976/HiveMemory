@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
-from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import RetrievalResponse
 
 
@@ -18,15 +17,14 @@ class PreparedAgentRun:
     """Patchouli prepare 的结果，也是 finalize 与 cleanup 的输入句柄。
 
     只承载 Patchouli 自己的内容（Topic 准备与未编译检索结果）：Profile
-    解析、附件租借与记忆/附件编译由 chat 任务进程在 CPU 分配时完成。
-    ``topic_context`` 与 ``pool_topics`` 在 ConversationSession 一批之前
-    暂时保留。它不进入任何序列化载荷。
+    解析、附件租借与记忆/附件编译由 chat 任务进程在 CPU 分配时完成；用户
+    消息与 Gateway 决定由进程自己持有，不经此回传。``topic_context`` 与
+    ``pool_topics`` 在 ConversationSession 一批之前暂时保留。它不进入任何
+    序列化载荷。
     """
 
     identity_scope: IdentityScope
     interaction_id: str
-    user_message: str
-    gateway_decision: GatewayDecision
     topic_id: str
     is_new_topic: bool
     topic_context: TopicData | None = None

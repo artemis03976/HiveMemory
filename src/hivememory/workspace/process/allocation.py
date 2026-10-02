@@ -86,10 +86,11 @@ class CPUAllocator:
         *,
         process_id: str,
         identity_scope: IdentityScope,
+        user_message: str,
         agent_profile: AgentProfile,
         selections: list[AttachmentSelectionRequest],
     ) -> CPUInputManifest:
-        """取得附件租借并编译附件与记忆、组装输入清单，写入工作集。
+        """取得附件租借并编译附件与记忆，组装输入清单。
 
         在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
         :meth:`resolve_agent_profile` 提前解析。stop 请求不打断分配，由调用方
@@ -130,7 +131,7 @@ class CPUAllocator:
         manifest = CPUInputManifest(
             process_id=process_id,
             identity_scope=identity_scope,
-            user_message=prepared.user_message,
+            user_message=user_message,
             agent_profile=agent_profile,
             memories=memories,
             memory_context=memory_context,
@@ -139,7 +140,6 @@ class CPUAllocator:
             topic_id=prepared.topic_id,
             topic_context=prepared.topic_context,
         )
-        working_set.input_manifest = manifest
         return manifest
 
     def _acquire_selected_attachment(

@@ -52,12 +52,10 @@ def _decision_outcome() -> GatewayDecisionOutcome:
     )
 
 
-async def _prepare(*, identity_scope, user_message, interaction_id, gateway_decision, **_kwargs):
+async def _prepare(*, identity_scope, interaction_id, **_kwargs):
     return PreparedAgentRun(
         identity_scope=identity_scope,
         interaction_id=interaction_id,
-        user_message=user_message,
-        gateway_decision=gateway_decision,
         topic_id=_TOPIC_ID,
         is_new_topic=False,
         retrieval_result=RetrievalResponse(),

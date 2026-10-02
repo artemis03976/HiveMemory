@@ -1,9 +1,9 @@
-"""进程工作集 — 单个任务进程的输入产出与附件租借持有。
+"""进程工作集 — 单个任务进程的 prepare 结果与附件租借持有。
 
 工作集是编排服务的 per-run 状态容器：持有 Patchouli prepare 的结果
-（``PreparedAgentRun``，Patchouli 公开契约）、进程组装的 CPU 输入清单与
-本轮取得的附件租借。编排骨架从这里读取 prepare 结果完成 CPU 分配，把它交回
-finalize/cleanup 路由，并把清单经 CPU 端口交给 CPU。进程的关闭流程
+（``PreparedAgentRun``，Patchouli 公开契约）、本轮取得的附件租借与附件编译
+冻结的实际使用引用。编排骨架从这里读取 prepare 结果完成 CPU 分配，并把它
+交回 finalize/cleanup 路由。进程的关闭流程
 （``TaskProcess.close``）先调用 :meth:`ProcessWorkingSet.release`，覆盖完成、
 取消、失败、断流与 CPU 分配失败各条路径；“租借随进程关闭释放”是唯一的释放事实（Q-1），finalize/cleanup
 不再负责释放。
@@ -21,7 +21,6 @@ from hivememory.core.models.workspace_asset import (
 )
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts.process import CPUInputManifest
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +32,11 @@ class ProcessWorkingSet:
     ``prepared`` 在 prepare 返回后立即写入（身份 scope 校验失败时结束路径仍要
     把它交回 cleanup，以补偿 prepare 预建的 Topic）；CPU 分配在校验通过后读取
     其中的 Topic 与检索结果，结束路径把它交回 Patchouli 的 finalize/cleanup 路由。
-    ``input_manifest`` 在 CPU 分配完成后写入，是经 CPU 端口交给 CPU 的输入。
+    ``used_attachments`` 在附件编译后写入，供封口交互记录使用。
     """
 
     asset_reader: WorkspaceAssetReaderPort | None
     prepared: PreparedAgentRun | None = None
-    input_manifest: CPUInputManifest | None = None
     attachment_leases: list[RepresentationLease] = field(default_factory=list)
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()
 

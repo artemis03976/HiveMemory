@@ -20,7 +20,7 @@ from hivememory.core.protocol.gateway import (
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult
 from hivememory.workspace.process.service import TaskProcessService
-from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
+from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.workspace import make_identity_scope
 
@@ -51,8 +51,6 @@ def _prepared(identity_scope) -> PreparedAgentRun:
     return make_prepared_run(
         identity_scope=identity_scope,
         interaction_id="interaction-test",
-        user_message="question",
-        gateway_decision=make_gateway_decision(target_topic_id="topic-shared-name"),
         topic_id="topic-shared-name",
     )
 

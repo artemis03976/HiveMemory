@@ -88,7 +88,6 @@ class PatchouliService:
 
     async def prepare_agent_run(
         self,
-        user_message: str,
         *,
         identity_scope: IdentityScope,
         interaction_id: str,
@@ -98,8 +97,9 @@ class PatchouliService:
         """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。
 
         返回的 PreparedAgentRun 携带话题准备结果与检索到的原始记忆原子；
-        Profile 解析、附件租借与编译由任务进程在 CPU 分配时完成。prepare
-        失败时只清理本轮可能预创建的空话题。
+        Profile 解析、附件租借与编译由任务进程在 CPU 分配时完成，用户消息
+        与 Gateway 决定也由进程持有。prepare 失败时只清理本轮可能预创建的
+        空话题。
         """
         identity_scope = require_identity_scope(identity_scope)
         real_topic_id: str | None = None
@@ -133,8 +133,6 @@ class PatchouliService:
             return PreparedAgentRun(
                 identity_scope=identity_scope,
                 interaction_id=interaction_id,
-                user_message=user_message,
-                gateway_decision=gateway_decision,
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
                 topic_context=topic_context,

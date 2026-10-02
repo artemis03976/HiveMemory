@@ -34,7 +34,6 @@ def _make_prepared_run(**overrides) -> PreparedAgentRun:
             actor_identity=ActorIdentity(user_id="u1", agent_id="omni_doll"),
         ),
         interaction_id="test-interaction",
-        user_message="hi",
         topic_id="topic_1",
     )
     if overrides:

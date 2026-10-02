@@ -105,8 +105,6 @@ class TestChatServiceCancelPath:
                 return PreparedAgentRun(
                     identity_scope=kwargs["identity_scope"],
                     interaction_id=kwargs["interaction_id"],
-                    user_message=kwargs["user_message"],
-                    gateway_decision=kwargs["gateway_decision"],
                     topic_id="t1",
                     is_new_topic=False,
                     retrieval_result=RetrievalResponse(),

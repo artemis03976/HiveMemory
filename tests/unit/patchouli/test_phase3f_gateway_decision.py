@@ -71,18 +71,16 @@ def _service(bus: PatchouliBus, submit: AsyncMock) -> PatchouliService:
 
 
 @pytest.mark.asyncio
-async def test_prepare_stores_decision_and_derives_retrieval_request() -> None:
+async def test_prepare_derives_retrieval_request_from_decision() -> None:
     bus, retrieve, _submit = _prepare_bus()
     decision = _decision(top_k=9)
 
-    prepared = await _service(bus, _submit).prepare_agent_run(
-        "原问题",
+    await _service(bus, _submit).prepare_agent_run(
         identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         gateway_decision=decision,
     )
 
-    assert prepared.gateway_decision is decision
     request = retrieve.await_args.args[0]
     assert request.semantic_query == "保持原查询"
     assert request.keywords == ["gateway"]
@@ -101,7 +99,6 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
     )
 
     prepared = await _service(bus, _submit).prepare_agent_run(
-        "你好",
         identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         gateway_decision=decision,
@@ -122,7 +119,6 @@ async def test_finalize_submits_received_payload_with_prepared_identity() -> Non
     queue = InteractionSubmissionQueue(submit)
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
-        "原问题",
         identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
         interaction_id="interaction-test",
         gateway_decision=_decision(),
