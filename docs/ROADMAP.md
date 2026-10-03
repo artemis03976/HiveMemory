@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-02
 ---
 
 # HiveMemory 开发路线图
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-01
 当前版本事实如下：
 
 - 最近已发布基线：`v0.6.2`（Git tag，2026-09-14）；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)记录内容核对与验证结果；
-- 当前开发版本：`v0.7.0`，状态为 Partially Landed，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划，首条迁移流程为 Alice 的 chat 链路；首个计划方向是任务进程表与任务请求唯一注册入口，按小批量逐次实施（前两批已实施并归档），计划状态见 [Plans 导航](./plans/README.md)。
+- 当前开发版本：`v0.7.0`，状态为 Partially Landed，按 [Workspace 网络与任务进程架构](./ideas/workspace-network-task-process-architecture.md)重新规划，首条迁移流程为 Alice 的 chat 链路；首个计划方向是任务进程表与任务请求唯一注册入口，按小批量逐次实施（五批均已实施并归档），计划状态见 [Plans 导航](./plans/README.md)。
 
 当前规范代码版本为 `0.6.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近已发布标签 `v0.6.2` 对应；v0.7.0 开发期间已合入的内容尚未升版。
 
@@ -122,9 +122,9 @@ last_reviewed: 2026-10-01
 
 状态：Partially Landed。原计划 A（A1–A6、A2-P）与计划 B 的计划体系已于 2026-09-27 按新架构重整，版本内的计划状态与顺序只在 [Plans 导航](./plans/README.md)维护。
 
-- **已完成**：[A1 访问边界](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)（统一认证网关、两类登记与逐次行为授权；生产入口接入等遗留工作见 [A1 返工 Todo](./todo/a1-access-boundary-rework.md)，在任务进程表计划完成后接入）、[A2-P 记忆内容版本与 Lifecycle](./archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义](./archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)、[任务进程表第一批：落位与进程标识](./archive/plans/v0.7.0-task-process-table.md)（进程表与 chat 四阶段编排迁入 `workspace.process`、`process_id` 统一进程标识、取消收口），以及包分层重构（见[系统架构概览](./architecture/overview.md)第 3 节）。
+- **已完成**：[A1 访问边界](./archive/plans/v0.7.0-a1-workspace-access-boundary.md)（统一认证网关、两类登记与逐次行为授权；生产入口接入等遗留工作见 [A1 返工计划](./plans/v0.7.0-a1-access-boundary-rework.md)）、[A2-P 记忆内容版本与 Lifecycle](./archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[全项目时间语义](./archive/plans/v0.7.0-time-semantics-and-controllable-clock.md)、[任务进程表第一批：落位与进程标识](./archive/plans/v0.7.0-task-process-table.md)（进程表与 chat 四阶段编排迁入 `workspace.process`、`process_id` 统一进程标识、取消收口），以及包分层重构（见[系统架构概览](./architecture/overview.md)第 3 节）。
 - **当前方向**：以唯一注册入口把任意任务请求登记为任务进程，作为 Workspace 网络的运作逻辑；首条迁移流程为 Alice 的 chat 链路；首个方向是任务进程表与任务请求唯一注册入口，按小批量逐次实施，第一批[任务进程表：落位与进程标识](./archive/plans/v0.7.0-task-process-table.md)已实施归档，第二批[prepare 拆分与 CPU 输入清单](./archive/plans/v0.7.0-task-process-prepare-split.md)已实施归档，第三批[结算阶段的中立输入](./archive/plans/v0.7.0-task-process-finalize-neutral-input.md)（进程封口交互记录，finalize 不再接收 `AgentRunResult`，收口版本目标第 1 条）已实施归档，第四批[CPU 端口与测试 CPU](./archive/plans/v0.7.0-task-process-cpu-port.md)（workspace 定义对象端口、Alice 实现并统一流式与非流式入口，以测试 CPU 跑通任务进程，收口版本目标第 2 条）已实施归档，第五批[命令只解析不执行](./archive/plans/v0.7.0-task-process-command-parse-only.md)（Gateway 只输出命令解析结果、删除命令执行，内置命令暂时不可用；被动请求按 Q-6 这一阶段不考虑）已实施归档。任务进程方向在 v0.7.0 内的批次至此全部完成，版本目标第 1、2 条已达成，第 4 条在这一阶段收口；第 3 条剩余的 cleanup 路由随外部会话与 Topic 投影方向（Topic 按需创建）移除。讨论见[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md)。
-- **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28)，Alice 为第一个使用者，包括前端回归 session 模型（新建与恢复会话、取消“当前 Topic”、`topic_info` 改为异步记忆标注，Topic 池移到记忆面板）；[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)，分两步实施，登记位于 workspace、与任务进程解耦，与外部会话改造的先后均可；A1 返工（任务进程表方向已完成，可以接入）。
+- **v0.7.0 内完成**：[外部会话消息的接收与 Topic 投影](./ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28)，Alice 为第一个使用者，包括前端回归 session 模型（新建与恢复会话、取消“当前 Topic”、`topic_info` 改为异步记忆标注，Topic 池移到记忆面板）；[写入意图（PendingAtom）体系的迁移](./ideas/pending-intent-migration.md)，分两步实施，登记位于 workspace、与任务进程解耦，与外部会话改造的先后均可；[A1 返工](./plans/v0.7.0-a1-access-boundary-rework.md)（Planned，计划已于 2026-10-02 由 Todo 升级建立）；Alice 的能力层调用迁移，让 Alice 的 MTP 调用改经 workspace 能力层（Planned，排在 A1 返工之后，单独建立计划；依赖 A1 返工重新建立的访问边界，因为 MTP 的调用只带 `IdentityScope`，能力层要求访问 context，见[总 Idea](./ideas/workspace-network-task-process-architecture.md#155-2026-10-02-的决定) 15.5）。System 层面的 API（模型、Provider、配置、运行时事件与日志）直接经 server 进入 System，与 workspace 无关。
 - **不在 v0.7.0**：外部 Actor 的真实接入（adapter 接口与外部服务身份等，[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)）分为两种接入模式，controller 模式在 v0.7.1（第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）排除在现有系统之外，逐步演进为独立功能。
 - **边界原则**：记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
 - **范围**（2026-09-27 决定）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在。验收口径是 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构；v0.7.0 不对外部 Actor 所需的基建作承诺。决定记录与架构层面的待决问题见 [Workspace 网络与任务进程架构 Idea](./ideas/workspace-network-task-process-architecture.md)第 6.1 节。

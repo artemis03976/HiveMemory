@@ -17,6 +17,10 @@ code_paths:
   - src/hivememory/core/memory_access.py
   - src/hivememory/core/models/agent.py
   - src/hivememory/agent_runtime/mtp/runtime.py
+  - src/hivememory/agent_runtime/aliases/resolver.py
+  - src/hivememory/alice/runtime/bridge.py
+  - src/hivememory/workspace/capability/
+  - src/hivememory/server/deps.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/system/services/passive/
   - src/hivememory/patchouli/control/interaction_submission.py
@@ -33,7 +37,8 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-last_reviewed: 2026-09-28
+  - docs/plans/v0.7.0-a1-access-boundary-rework.md
+last_reviewed: 2026-10-03
 ---
 
 # Workspace 网络与任务进程架构
@@ -280,7 +285,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 与上述处置相关的另外三项决定：
 
 - **workspace 包的现有实现**（A2 已实施部分：`workspace/cache/`、`workspace/resolution/`、`workspace/runtime.py` 与能力层的读取方法）：不承诺其实现正确，也不作为任务进程表计划的前提；该计划制定时重新调查，再决定保留、改造或删除。2026-09-28 的调查结论与 workspace 的子包划分见第 10 节 D-9；
-- **A1 返工**（operation 检查迁移、迁移期兼容分支退出、生产入口接入认证网关）：未排期，不阻塞任务进程表计划，见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md)；同日第三次决定改为在任务进程表计划完成后接入（见下文 M-5）；
+- **A1 返工**（operation 检查迁移、迁移期兼容分支退出、生产入口接入认证网关）：未排期，不阻塞任务进程表计划，见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)；同日第三次决定改为在任务进程表计划完成后接入（见下文 M-5）；
 - **ADR-0004 与 ADR-0005**：标记为失效（`deprecated`），没有替代 ADR。
 
 2026-09-27（第三次）：
@@ -297,7 +302,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 | 外部 Actor 的真实接入 | 真正的 adapter 接口与外部服务身份等（原计划 B 的内容）不在 v0.7.0：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x，见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) |
 | 任务进程表与唯一注册入口 | v0.7.0 的首个方向，见[任务进程 Idea](./task-process-table-and-registration-entry.md) |
 | 外部会话消息的接收与 Topic 投影 | 在 v0.7.0 内完成，Alice 作为第一个使用者，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md) |
-| A1 返工 | 在任务进程表计划完成、已有稳定入口之后接入，见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md) |
+| A1 返工 | 在任务进程表计划完成、已有稳定入口之后接入，见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md) |
 | Import Bus（现有 Passive Ingress 链路） | 不在核心全局拓扑上，现在从全局拓扑中断开；逐步演进为独立功能，不在 v0.7.0 计划内。第 5 节 Q-11–Q-13 与第 10 节 D-8a 随之移出 v0.7.0 |
 | 写入意图（PendingAtom）体系的迁移、workspace 包的重新调查 | 本次未涉及，维持原状态：前者方向保留、未排序；后者在任务进程表计划制定时进行。2026-09-28 决定写入意图迁移纳入 v0.7.0，分两步实施，见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 |
 
@@ -429,7 +434,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 能力层由原 `system/application` 的资源能力部分改造而成，不新建中间层：拥有平面状态（resolver、双缓存、边界授权、lease）或组合多个领域步骤的方法构成能力实现；向单个 backing 领域操作的无状态委托可以保持薄转发，条件是转发前已在能力边界完成 operation 授权，且转发目标是一个完整的领域操作而不是裸机制（如 `patch_payload`）。现状：资源能力位于 `workspace/capability`，chat 编排暂置 `alice.application`（第 9 节 D-9）；2026-09-28 决定 chat 编排迁入 workspace 的 `process` 子包（第 10 节 D-9）。
 
-adapter 的五条判据见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 3.4；operation 授权的检查点迁移见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md)与第三部分前提第 5 条。
+adapter 的五条判据见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 3.4；operation 授权的检查点迁移见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)与第三部分前提第 5 条。
 
 #### 7.1.7 库外模式的断开测试
 
@@ -576,7 +581,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 
 ## 12. 第三部分前提（owner 提出）
 
-1. 前两部分的架构流向问题解决后，workspace 将成为唯一的集中交互能力提供者，system 的 server 层也只是它的消费者。
+1. 前两部分的架构流向问题解决后，workspace 将成为唯一的集中交互能力提供者，system 的 server 层也只是它的消费者。System 层面的 API 除外，见 15.5。
 2. 借由唯一的任务请求注册入口进行两阶段身份认证：
    - **Principal authentication**：请求方身份是否合法注册在系统内；
    - **Workspace authentication**：当前 actor 是否有权限在这个 workspace 中工作。
@@ -584,7 +589,8 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 4. 进程内，actor 的任何主动操作请求（MCP、MTP、HTTP 请求）都导向 workspace 的能力层；能力层是 actor 唯一可见的 API 接口。
 5. 能力层进行统一的操作权限授权（Operation Authorization），通过后才进入业务逻辑。
 6. 资源自身的可见性授权与读取权限，仍留在资源读取边界上各自进行，因为任意资源在运行时可能来回变动所处位置，并被缓存。
-7. system 管理员操作与普通 agent actor 性质不同：只有操作请求，没有完整的任务进程周期。这是把 system 操作也兼并为 CPU 的一种所带来的代价。
+7. 管理员操作也作为 CPU 的一种接入。管理员操作指用户从 server 直接发起、没有具体 Agent 的操作（现状见 13.5）。它和 actor 发出的请求一样调用 workspace 能力层，经过同一套操作授权与业务逻辑，响应路径相同，因此不为管理员另设一套 API。代价是它与普通 agent actor 性质不同：只有操作请求，没有完整的任务进程周期。
+   - 这里的“CPU”指能力层的调用方，即[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#12-harness-登记的两个侧面owner2026-09-30) 1.2 中的接入侧面；它与任务进程经 CPU 端口驱动的执行侧面无关。管理员与 plugin 模式的 harness 只有接入侧面，Alice 两个侧面都有。
 8. 至此，以 A1 为代表的 workspace 权限体系在新架构下的流程已经理顺。
 
 ## 13. 第三部分现状事实（代码核对）
@@ -615,10 +621,27 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 - 授权谓词位于 [`core/memory_access.py`](../../src/hivememory/core/memory_access.py)；workspace resolver 在交付前、记忆库在冷读时各自应用，缓存不保存授权结论。
 - 管理读取按 owner-management 语义，不做 Actor 可见性过滤，只校验 Workspace 归属。
 
-### 13.5 进程控制与管理员身份
+### 13.5 HTTP 入口、进程控制与管理员身份
 
-- `ChatGenerationRunRegistry` 的 get / cancel / status 只比较 Workspace 身份：同一 Workspace 下任何请求都能查询或停止其他请求方的 run。
-- `SYSTEM_AGENT_ID = "system"`（`core/constants.py`）表示“没有具体 Agent 作为操作来源主体”，不承担权限绕过语义；管理 HTTP 路由目前不传 access。
+2026-10-02 按代码重新核对。HTTP 入口的请求分为四类：
+
+| 类别 | 路由 | 去向与身份 |
+|:---|:---|:---|
+| 任务请求 | `POST /chat` | 唯一创建任务进程的入口；必须显式给出具体 `agent_id` |
+| 管理员操作 | memories、topics、agents、workspace assets、memory-tasks | 调用 workspace 能力层的应用服务（[`workspace/capability/`](../../src/hivememory/workspace/capability/)）；身份取自请求头，agent 一律注入 `system`；memory-tasks 路由不带身份 |
+| 进程控制 | `POST /chat/stop` | 进程服务的 `cancel_process`；请求方身份只用于校验 owner 与 workspace |
+| System 层面 | models、providers、config、runtime-events、logs | 直接调用 System 的注册表、门面或 server 的日志广播，不经 workspace |
+
+`/ingest` 属于 Import Bus，不在 v0.7.0 范围（6.1）。
+
+- 代码中没有独立的管理员角色。`SYSTEM_AGENT_ID = "system"`（`core/constants.py`）表示“没有具体 Agent 作为操作来源主体”，不承担权限绕过语义；[`server/deps.py`](../../src/hivememory/server/deps.py) 为所有非 Agent 操作注入它。管理 HTTP 路由目前不传 access。
+- 进程表（`workspace/process/`）的查询与取消只比较 Workspace 身份（owner 与 workspace）：同一 Workspace 下任何请求都能查询或停止其他请求方的进程。
+
+### 13.6 Alice 的 MTP 调用路径
+
+- Alice 的 MTP 读取（语义检索、alias 批读）、Profile 解析与引用记录，经 Alice 本地总线代理（[`alice/runtime/bridge.py`](../../src/hivememory/alice/runtime/bridge.py)）直接请求 Patchouli 的公开路由，不经能力层。调用方是 [`agent_runtime/mtp/runtime.py`](../../src/hivememory/agent_runtime/mtp/runtime.py) 与 [`agent_runtime/aliases/resolver.py`](../../src/hivememory/agent_runtime/aliases/resolver.py)。
+- 这些调用只携带 `IdentityScope`，不携带访问 context。能力层的 `read`、`retrieve_by_aliases`、`retrieve` 则要求 `WorkspaceAccessContext`，目前没有生产调用方；能力层也没有引用记录的方法。
+- 进程记录与 CPU 输入清单都不携带访问 context：生产入口还没有从认证网关取得 context（13.1）。
 
 ## 14. 第三部分流程图
 
@@ -668,7 +691,7 @@ sequenceDiagram
 
 ### 15.1 管理员操作采用方案 C
 
-讨论中列出的四种做法：
+**问题**：前提第 7 条已经确定，管理员操作与 actor 的请求共用能力层；剩下的问题是，管理员的一次操作是否也要创建任务进程。讨论中列出的四种做法：
 
 | 做法 | 内容 |
 |:---|:---|
@@ -692,7 +715,7 @@ sequenceDiagram
 
 ### 15.3 2026-09-27 的决定
 
-- **管理员直接通道的定位**：管理员直接通道不是请求；它的性质更接近 CPU，直接执行 operation，不经注册入口、不建进程。请求方的分类见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 1.1 节。
+- **管理员直接通道的定位**：管理员直接通道不是请求；它的性质更接近 CPU（即能力层的调用方，见前提第 7 条），直接执行 operation，不经注册入口、不建进程。请求方的分类见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 1.1 节。
 - **P-1a 每次请求的身份证明**：注册前经认证网关验证身份，未通过不予注册；此后每次请求都必须重新校验身份，不以注册时的认证结果代替（选项 A 的方向）。
 
 ### 15.4 2026-09-28 的决定
@@ -705,6 +728,28 @@ sequenceDiagram
 - **P-4b**：开放创建任务进程太过复杂；现有规划中只有两种请求方式，即主动请求与被动请求（任务进程 Idea 1.1）。因此不新增“创建任务”类 operation；被动请求的认证见 P-5b、P-5c。
 - **P-7（取消）**：只有用户有权取消任务进程，入口是唯一的 HTTP server 入口；取消请求必须带明确的 `process_id`，只有 Gateway 与 Actor 执行两个阶段可以取消（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-15-各阶段取消策略的声明方式) Q-15、Q-16）。其余进程控制操作（如状态查询）的授权主体未涉及。
 - 以上决定与任务进程结构一同作出，见[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2。
+
+### 15.5 2026-10-02 的决定
+
+- **System 层面的 API**：一部分 API 属于 System 层面，例如模型、Provider、配置、运行时事件与日志（13.5）。它们直接经 server 进入 System，与 workspace 无关：不经能力层，也不在两阶段认证与操作授权的范围内。前提第 1 条“server 只是 workspace 的消费者”只适用于与 workspace 相关的请求。
+- **Alice 的能力层调用迁移**：前提第 4 条要求 actor 的主动操作都导向能力层，Alice 目前还没有做到（13.6）。这项迁移依赖 A1 访问边界的重新建立，原因是 MTP 与能力层的参数信息不对等：MTP 的调用只带 `IdentityScope`，能力层要求访问 context，而生产入口要到 A1 返工才从认证网关取得 context。它与 [A1 返工](../plans/v0.7.0-a1-access-boundary-rework.md)相关，但单独建立计划，排在 A1 返工之后。
+
+同日为 A1 返工作出的决定：
+
+- **放行分支分两步去掉**：放行分支指公开方法在缺少 access 时直接相信传入 `IdentityScope` 的那段代码；去掉它不移除方法本身，只是缺少 access 的调用改为拒绝。A1 返工去掉 HTTP 入口与任务进程（含 Gateway 阶段）所调用方法的放行分支；Alice MTP 仍在调用的四个方法（`retrieve`、`retrieve_by_aliases`、`get_agent_profile`、`record_memory_citation`）的放行分支，留给 Alice 的能力层调用迁移计划去掉。
+- **HTTP 入口的接入**：HTTP 入口与对应的 server 作为 system actor 的 adapter 接入系统，需要登记 principal。
+- **访问登记**：v0.7.0 允许登记一条覆盖该用户所有具体 Agent 的用户级记录；它不覆盖 `system`，`system` 单独登记，持有管理操作（P-9e）。`principals` 与 `workspace_actors` 使用单独的配置文件，不再放在 `config.yaml`（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-1-接入登记的来源与生效时点) E-1 的补充；2026-10-03 细化为两个文件，见 15.6）。
+- **不建进程的访问**：一次请求一个 context，请求结束即失效（P-9b）。memory-tasks 路由补上身份，按 `task.observe` / `management.task` 授权；取消进程维持进程服务的 owner 与 workspace 校验，不新增 operation（P-9c 的一部分）。
+- **Profile 权限的归属**：15.4 中 Profile 的两个 allow 字段并入 operation 控制（P-2、P-10），归 Alice 的能力层调用迁移计划，不在 A1 返工内。
+
+### 15.6 2026-10-03 的决定
+
+以下决定在复核 [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md)时作出。
+
+- **去掉 context 的固定有效期**：进程 context 随进程关闭失效（P-6），不建进程的 context 随请求结束失效（P-9b），两种 context 都有明确的失效时点，因此不再保留 `context_ttl_seconds`。plugin 模式需要长连接时，再随其设计决定是否需要有效期。
+- **两类登记各用一个配置文件**：`principals` 与 `workspace_actors` 分成两个文件，分别对应 System 与 workspace 两个配置所有者（[Workspace 架构](../architecture/workspace.md)第 4 节）；harness 登记的执行侧面在 principals 文件中留出位置。
+- **阶段调用的 operation 检查放在进程内**：任务进程的阶段调用（Gateway 读取话题、prepare、Profile 解析、附件租借、finalize、话题池列表）是进程自己的编排，不是 actor 的主动操作，不在前提第 4 条的范围内。它们的 operation 检查由进程在调用前进行，使用同一个 guard 与同一份访问登记的白名单。
+- **两个提交路由的检查暂留在 Patchouli**：`interaction.submit` 与 `memory_intent.submit` 目前没有生产调用方，能力层也没有对应方法；它们的 operation 检查暂留在 Patchouli，等能力层出现对应方法时再迁。
 
 ## 16. 第三部分待决问题
 
@@ -797,13 +842,16 @@ sequenceDiagram
 | B | 不增加 | 修改权限只由 operation 与读取可见性共同约束 |
 | C | 只对部分资源类型增加 | 需要划分资源类型 |
 
-### P-9 方案 C 的后续问题
+### P-9 管理员直接通道（方案 C）的后续问题
 
-- **P-9a 直接通道的适用范围**：除管理员操作外，以下请求是否也经直接通道：进程控制与状态查询、任务观察、Import Bus 输入（与 D-8a 相关）、其他。逐项决定。
-- **P-9b 直接通道 context 的有效期**：随单次请求 / 固定 TTL / 其他。
-- **P-9c 两类 context 的区分与可用操作**：能力层如何区分绑定进程的 context 与直接通道的 context；直接通道允许调用哪些 operation：仅 `management.*` / `management.*` 加部分读取类操作 / 按访问登记决定 / 其他。
+**背景**：[15.1](#151-管理员操作采用方案-c) 决定管理员操作采用方案 C，即不建进程的直接通道：经同一认证网关取得 context，在能力层照常做操作授权，但不创建任务进程。以下问题都由这个决定引出。System 层面的 API 不经 workspace（15.5），不在本问题范围内。
+
+- **P-9a 直接通道的适用范围**：除管理员操作外，以下请求是否也经直接通道：进程控制与状态查询、任务观察、Import Bus 输入（与 D-8a 相关；Import Bus 已移出 v0.7.0，见 6.1）、其他。逐项决定。
+  - 分析（2026-10-02）：这些请求都不会创建进程（前提第 3 条、P-4b）。逐项要回答的是：是否经认证网关取得 context，以及可以调用哪些 operation（P-9c）。其中取消进程目前不是能力层的 operation（13.2、13.5）。
+- **P-9b 直接通道 context 的有效期**：随单次请求 / 固定 TTL / 其他。**已决定（2026-10-02）**：随单次请求，见 15.5。
+- **P-9c 两类 context 的区分与可用操作**：能力层如何区分绑定进程的 context 与直接通道的 context；直接通道允许调用哪些 operation：仅 `management.*` / `management.*` 加部分读取类操作 / 按访问登记决定 / 其他。2026-10-02：memory-tasks 与取消进程的处理已决定，见 15.5；其余仍待决。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义。
-- **P-9e 管理员在访问登记中的表示**：以保留的 `system` agent 标记登记 / 设独立的管理员 actor 标识 / 其他。现状见 13.5。
+- **P-9e 管理员在访问登记中的表示**：以保留的 `system` agent 标记登记 / 设独立的管理员 actor 标识 / 其他。现状见 13.5：代码中没有独立的管理员角色，server 为非 Agent 操作注入 `system`。**已决定（2026-10-02）**：以保留的 `system` 单独登记，用户级记录不覆盖它，见 15.5。
 
 plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），P-9a 与 P-9c 需要一并考虑这类访问。
 

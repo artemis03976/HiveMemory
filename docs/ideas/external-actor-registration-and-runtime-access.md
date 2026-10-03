@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/VISION.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-03
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -80,7 +80,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 - [任务进程 Idea](./task-process-table-and-registration-entry.md#q-2-写入意图中间产物的可见范围) Q-2：plugin 模式经 MCP 提交的写入意图没有所属进程（2026-09-28 已消解：写入意图在 workspace 登记，与进程解耦）；
 - 任务进程 Idea Q-14：两条回流路径进入同一提交队列；同一 harness 同时以两种模式使用时，同一交互可能被记录两次（2026-09-28：Q-14 选 A，Import Bus 排除在现有系统之外，此问题留待 plugin 模式设计时处理）；
 - [外部会话与 Topic 投影](./external-session-and-topic-projection.md)：plugin 模式的会话归外部 harness 所有，Alice 与 controller 模式的会话由 HiveMemory 发起；
-- 总 Idea [P-9](./workspace-network-task-process-architecture.md#p-9-方案-c-的后续问题)：不建进程的访问不只来自管理员；
+- 总 Idea [P-9](./workspace-network-task-process-architecture.md#p-9-管理员直接通道方案-c的后续问题)：不建进程的访问不只来自管理员；
 - Import Bus：同时是 plugin 模式的对话回流通道，不只承担对话导入。
 
 此前列入“外部 Actor 形态”单独审议的问题，在两种模式下的归属：
@@ -133,7 +133,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### 2.4 能力层
 
-- `workspace/capability/` 下有 memory、agent_profiles、topic、memory_tasks、assets 五类能力服务。读取方法在 backing 调用前执行 `authorize_operation`；写入与管理路径的 operation 检查仍在 Patchouli application，见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md)。workspace 包的现有实现需要重新调查（总 Idea 第 6.1 节）。
+- `workspace/capability/` 下有 memory、agent_profiles、topic、memory_tasks、assets 五类能力服务。读取方法在 backing 调用前执行 `authorize_operation`；写入与管理路径的 operation 检查仍在 Patchouli application，见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)。workspace 包的现有实现需要重新调查（总 Idea 第 6.1 节）。
 - `WorkspaceOperation` 共 11 项，没有代码执行、工具调用、CALL 或创建任务类操作（总 Idea 13.2）。
 
 ## 3. 仍然成立的设计材料（来自原计划 B）
@@ -261,7 +261,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 **owner 决定（2026-09-27）**：接入登记维持启动时从配置装载（选项 A）。运行时登记与其他配置文件的热更新一并由未来单独的计划实现；E-1a 随该计划决定。
 
-**补充（owner，2026-09-30）**：启动时从配置装载的决定仍然成立，harness 登记（1.2）同样从配置装载。目前 `configs/config.yaml` 没有 access 配置段（2.1），需要先建立承载登记的配置文件。owner 于 2026-10-01 决定：登记使用单独的配置文件，在 [A1 返工](../todo/a1-access-boundary-rework.md)中建立；文件的形状随 A1 返工确定。
+**补充（owner，2026-09-30）**：启动时从配置装载的决定仍然成立，harness 登记（1.2）同样从配置装载。目前 `configs/config.yaml` 没有 access 配置段（2.1），需要先建立承载登记的配置文件。owner 于 2026-10-01 决定：登记使用单独的配置文件，在 [A1 返工](../plans/v0.7.0-a1-access-boundary-rework.md)中建立。2026-10-02：`principals` 与 `workspace_actors` 移出 `config.yaml`，改用单独的配置文件；2026-10-03 细化为两类登记各用一个文件，harness 登记的执行侧面在 principals 文件中留出位置，具体结构不在 A1 返工中定义（总 Idea 15.5、15.6）。
 
 ### E-2 运行时访问的传输承载
 

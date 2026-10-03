@@ -5,18 +5,20 @@ owner: system-workspace
 scope: workspace-asset-upload-access-scope-consistency
 priority: P1
 code_paths:
-  - src/hivememory/system/application/workspace_asset_service.py
+  - src/hivememory/workspace/capability/assets.py
   - src/hivememory/workspace/access.py
   - src/hivememory/system/runtime/workspace/store.py
 related_docs:
   - docs/archive/plans/v0.7.0-a1-workspace-access-boundary.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-19
+last_reviewed: 2026-10-02
 ---
 
 # WorkspaceAsset 上传的认证上下文与 scope 不一致
 
 ## 状态与处理决定
+
+**排期（2026-10-02）**：由 [v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)修复（该计划第 4.5 节）；2026-10-02 复核，`workspace/capability/assets.py` 的 `upload_asset` 仍未校验传入 scope 与 context 一致。修复验收后本记录归档。
 
 2026-09-19 在 v0.7.0 A1 重新实现的代码审查中确认，记录为已知 bug，尚未修复。由于修复可能涉及 Asset 链路的身份传递及兼容行为，按用户决定单独留待后续处理，具体修复版本未定。本记录承接该审查发现，不改变 [A1（已归档）](../archive/plans/v0.7.0-a1-workspace-access-boundary.md) 中“请求 DTO 不得覆盖可信身份”的目标约束，也不将记录问题等同于验收通过。
 
@@ -24,7 +26,7 @@ last_reviewed: 2026-09-19
 
 ## 问题与影响
 
-[WorkspaceAssetApplicationService.upload_asset](../../src/hivememory/system/application/workspace_asset_service.py) 同时接收 `access` 与 `identity_scope`。提供 access 时，共享检查确认其具有 `management.asset` 权限，但方法未校验传入 scope 与 `access.identity_scope` 是否一致，随后直接使用传入 scope 选择串行门分区、注册资产并交给解析服务。
+[WorkspaceAssetApplicationService.upload_asset](../../src/hivememory/workspace/capability/assets.py) 同时接收 `access` 与 `identity_scope`。提供 access 时，共享检查确认其具有 `management.asset` 权限，但方法未校验传入 scope 与 `access.identity_scope` 是否一致，随后直接使用传入 scope 选择串行门分区、注册资产并交给解析服务。
 
 因此，调用方可以持有 W1 的合法上传权限，却通过另一个 scope 把资产写入未获准进入的 W2；这个 scope 也可以同时替换 Actor 与 owner。问题发生在授权结果与实际资源操作之间：认证上下文自身不需要被篡改，也不需要通过 W2 的准入。
 
