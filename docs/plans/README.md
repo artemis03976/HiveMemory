@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-03
 ---
 
 # Plans
@@ -17,7 +17,8 @@ last_reviewed: 2026-10-02
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
 | 1 | 任务进程表与任务请求唯一注册入口 | 已完成：第一至第五批均已实施归档（[落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)、[命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md)）；Topic 按需创建与写入意图分别归外部会话与写入意图迁移两个方向 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
-| 1 之后 | A1 访问边界返工 | Planned：计划已建立（2026-10-02 由 Todo 升级），下一步实施 | [计划](./v0.7.0-a1-access-boundary-rework.md) |
+| 1 之后 | A1 访问边界返工 | 进行中：第一版实现已提交（`37f800e`）；2026-10-03 已按身份与访问体系 Idea 的第一批改写设计，以 `37f800e` 为起点继续实施 | [计划](./v0.7.0-a1-access-boundary-rework.md) |
+| 与 A1 返工同步 | 身份与访问体系 | 2026-10-03 建立独立 Idea：界定 actor 身份、访问 context、`IdentityScope` 与资源身份；第一批即改写后的 A1 返工计划，第二批处理记录与后台任务的资源身份 | [Idea](../ideas/identity-and-access-model.md) |
 | A1 返工之后 | Alice 的能力层调用迁移 | 依赖 A1 返工重新建立的访问边界，单独建立计划；计划尚未建立 | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#155-2026-10-02-的决定) 15.5 |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |

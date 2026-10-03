@@ -17,7 +17,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-03
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -124,7 +124,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 进程关闭时释放工作集中登记的资源，取代现有分散的清理：`finally` 中的 prepared run 清理、finalize 中的租借释放、临时话题的补偿（2.5）。
 - 写入意图不在工作集中：它在 workspace 登记，生命周期与进程完全解耦（Q-1、Q-2，[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）；进程最多在执行记录中保留意图的引用。
 - **实施状态**（2026-10-01 复核）：
-  - 进程记录（`ProcessRecord`）目前只有 `process_id`、冻结的 `IdentityScope`、当前阶段、停止请求与终态。请求方式、CPU 分配与访问 context 尚未记入：被动请求这一阶段不考虑（Q-6），CPU 的选择机制后置，访问 context 随 A1 返工取得。
+  - 进程记录（`ProcessRecord`）目前只有 `process_id`、冻结的 `IdentityScope`、当前阶段、停止请求与终态。请求方式、CPU 分配与访问 context 尚未记入：被动请求这一阶段不考虑（Q-6），CPU 的选择机制后置，访问 context 随 A1 返工取得。（2026-10-03 注：进程记录在进程关闭时从进程表移除，与进程同寿；按 Q-3a 由它持有访问 context，与[身份与访问体系 Idea](./identity-and-access-model.md)不变量 3 一致。进程记录如何持有身份见该 Idea I-8（选项 C：只持有 context 与进程元数据，不保存身份）。`TaskProcess` 反向持有进程表与各类组件、自行登记与注销的问题见 [Todo](../todo/task-process-container-ownership.md)。）
   - 工作集（`ProcessWorkingSet`）持有 prepare 结果、附件租借与附件编译得出的实际使用引用。GatewayDecision 与 CPU 执行结果目前由编排骨架以局部值持有，尚未成为工作集槽位；Topic 路由决定跨阶段传到结算是 Topic 按需创建的一部分（本节“Patchouli prepare 与结算的拆分”）。
   - `PreparedAgentRun` 已不再回传用户消息与 GatewayDecision，两者由进程自己持有。
 

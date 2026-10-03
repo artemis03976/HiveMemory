@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-03
 ---
 
 # Todo
@@ -12,6 +12,7 @@ last_reviewed: 2026-10-02
 
 当前事项：
 
+- [TaskProcess 容器的职责与依赖方向](./task-process-container-ownership.md)（未排期：容器反向持有进程表与各类组件、自行登记与注销，与“入口只管理任务进程的生命周期”不一致；2026-10-03 登记）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；

@@ -38,6 +38,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/plans/v0.7.0-a1-access-boundary-rework.md
+  - docs/ideas/identity-and-access-model.md
 last_reviewed: 2026-10-03
 ---
 
@@ -581,6 +582,8 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 
 ## 12. 第三部分前提（owner 提出）
 
+> 2026-10-03：认证与授权流程中流动的身份数据（actor 身份、访问 context、`IdentityScope` 与资源身份）独立为[身份与访问体系 Idea](./identity-and-access-model.md)。本部分继续讨论流程本身；两者冲突时，身份数据的界定以该 Idea 为准。
+
 1. 前两部分的架构流向问题解决后，workspace 将成为唯一的集中交互能力提供者，system 的 server 层也只是它的消费者。System 层面的 API 除外，见 15.5。
 2. 借由唯一的任务请求注册入口进行两阶段身份认证：
    - **Principal authentication**：请求方身份是否合法注册在系统内；
@@ -736,7 +739,7 @@ sequenceDiagram
 
 同日为 A1 返工作出的决定：
 
-- **放行分支分两步去掉**：放行分支指公开方法在缺少 access 时直接相信传入 `IdentityScope` 的那段代码；去掉它不移除方法本身，只是缺少 access 的调用改为拒绝。A1 返工去掉 HTTP 入口与任务进程（含 Gateway 阶段）所调用方法的放行分支；Alice MTP 仍在调用的四个方法（`retrieve`、`retrieve_by_aliases`、`get_agent_profile`、`record_memory_citation`）的放行分支，留给 Alice 的能力层调用迁移计划去掉。
+- **放行分支分两步去掉**：放行分支指公开方法在缺少 access 时直接相信传入 `IdentityScope` 的那段代码；去掉它不移除方法本身，只是缺少 access 的调用改为拒绝。A1 返工去掉 HTTP 入口与任务进程（含 Gateway 阶段）所调用方法的放行分支；Alice MTP 仍在调用的四个方法（`retrieve`、`retrieve_by_aliases`、`get_agent_profile`、`record_memory_citation`）的放行分支，留给 Alice 的能力层调用迁移计划去掉。（2026-10-03 注：按[身份与访问体系 Idea](./identity-and-access-model.md)，资源 owner 不再接收访问 context，Patchouli 一侧不再有放行分支，本项随该 Idea 的第一批重新处理，见其第 8 节。）
 - **HTTP 入口的接入**：HTTP 入口与对应的 server 作为 system actor 的 adapter 接入系统，需要登记 principal。
 - **访问登记**：v0.7.0 允许登记一条覆盖该用户所有具体 Agent 的用户级记录；它不覆盖 `system`，`system` 单独登记，持有管理操作（P-9e）。`principals` 与 `workspace_actors` 使用单独的配置文件，不再放在 `config.yaml`（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-1-接入登记的来源与生效时点) E-1 的补充；2026-10-03 细化为两个文件，见 15.6）。
 - **不建进程的访问**：一次请求一个 context，请求结束即失效（P-9b）。memory-tasks 路由补上身份，按 `task.observe` / `management.task` 授权；取消进程维持进程服务的 owner 与 workspace 校验，不新增 operation（P-9c 的一部分）。
@@ -749,7 +752,7 @@ sequenceDiagram
 - **去掉 context 的固定有效期**：进程 context 随进程关闭失效（P-6），不建进程的 context 随请求结束失效（P-9b），两种 context 都有明确的失效时点，因此不再保留 `context_ttl_seconds`。plugin 模式需要长连接时，再随其设计决定是否需要有效期。
 - **两类登记各用一个配置文件**：`principals` 与 `workspace_actors` 分成两个文件，分别对应 System 与 workspace 两个配置所有者（[Workspace 架构](../architecture/workspace.md)第 4 节）；harness 登记的执行侧面在 principals 文件中留出位置。
 - **阶段调用的 operation 检查放在进程内**：任务进程的阶段调用（Gateway 读取话题、prepare、Profile 解析、附件租借、finalize、话题池列表）是进程自己的编排，不是 actor 的主动操作，不在前提第 4 条的范围内。它们的 operation 检查由进程在调用前进行，使用同一个 guard 与同一份访问登记的白名单。
-- **两个提交路由的检查暂留在 Patchouli**：`interaction.submit` 与 `memory_intent.submit` 目前没有生产调用方，能力层也没有对应方法；它们的 operation 检查暂留在 Patchouli，等能力层出现对应方法时再迁。
+- **两个提交路由的检查暂留在 Patchouli**：`interaction.submit` 与 `memory_intent.submit` 目前没有生产调用方，能力层也没有对应方法；它们的 operation 检查暂留在 Patchouli，等能力层出现对应方法时再迁。（2026-10-03 注：按身份与访问体系 Idea，资源 owner 不再接收访问 context，本项失去前提，这两个路由的 operation 检查在能力层出现对应方法时进行，见其第 8 节。）
 
 ## 16. 第三部分待决问题
 
