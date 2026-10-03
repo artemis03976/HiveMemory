@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
@@ -20,15 +19,17 @@ if TYPE_CHECKING:
 class AgentProfileManagementService:
     """Patchouli 面向公开 agent profile 管理/读取 API 的应用服务。
 
-    Profile 管理写入/列表沿用 AGENT_PROFILE atom 的既有绑定例外，绑定
-    ``management.memory``，在资源读取前经共享行为检查（A1 计划第 4.1 节）。
+    Profile 管理写入/列表沿用 AGENT_PROFILE atom 的既有绑定例外，其
+    ``management.memory`` 行为授权已上移到 workspace 能力层（A1 访问边界
+    返工第 4.3 节）；本层只经 :func:`verified_scope` 校验 access 有效性与
+    DTO scope 一致性，缺少 access 一律拒绝。
 
     ``get_agent_profile`` 是 Profile 读取的 L2 backing（A2 §2.3/§8 D-3）：
     ``profile.read`` 的行为授权由 workspace 能力层在 backing 调用前执行，
     此处只校验 access 有效性；返回 ``ResolvedAgentProfile``（AgentProfile +
-    源原子 policy 依据与关联），可见性校验在库内独立成立。无 access 的
-    既有调用方（Alice profile resolver、Patchouli prepare）走 A1 第 6 节
-    兼容清单，A6 完成消费者切换后收紧。
+    源原子 policy 依据与关联），可见性校验在库内独立成立。它是迁移期受信
+    适配清单中的方法：Alice 的 profile resolver 仍不带 access 调用，裸
+    scope 适配保留（见 ``access_consumption``）。
     """
 
     def __init__(self, *, bus: Any, access_guard: WorkspaceAccessVerifier) -> None:
@@ -46,7 +47,6 @@ class AgentProfileManagementService:
             raise ValueError("create_agent_profile 需要 atom 载荷")
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -69,7 +69,6 @@ class AgentProfileManagementService:
     ) -> list[MemoryAtom]:
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )

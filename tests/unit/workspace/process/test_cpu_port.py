@@ -42,7 +42,7 @@ from tests.helpers.chat_handoff import (
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_process_access
 from tests.helpers.workspace_assets import make_ready_text_asset
 
 
@@ -89,25 +89,30 @@ async def _prepare_route(
     )
 
 
-async def _profile_route(agent_id, *, identity_scope):
+async def _profile_route(agent_id, *, identity_scope, **_kwargs):
     from hivememory.core.models import OMNI_DOLL_PROFILE, ResolvedAgentProfile
 
     return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
 
-def _service(
+async def _service(
     bus: GlobalSystemBus,
     cpu: ScriptedCPU,
     *,
     event_publisher: RuntimeEventPublisher | None = None,
     store: InMemoryWorkspaceAssetStore | None = None,
 ) -> TaskProcessService:
-    return TaskProcessService(
+    """构造被测服务并注入配套 guard；签发的 access 挂在 test_access 供调用方传递。"""
+    guard, access = await make_process_access()
+    service = TaskProcessService(
         bus,
         event_publisher,
         cpu=cpu,
         asset_reader=store,
+        access_guard=guard,
     )
+    service.test_access = access  # type: ignore[attr-defined]
+    return service
 
 
 async def _run_once(service: TaskProcessService, message: str, *, process_id: str, **kwargs):
@@ -115,6 +120,7 @@ async def _run_once(service: TaskProcessService, message: str, *, process_id: st
         stream=False,
         message=message,
         identity_scope=_u1_scope(),
+        access=service.test_access,
         process_id=process_id,
         **kwargs,
     )
@@ -132,6 +138,7 @@ async def _stream_events(
         async for event in service.run_process(
             message=message,
             identity_scope=_u1_scope(),
+            access=service.test_access,
             process_id=process_id,
             **kwargs,
         )
@@ -164,7 +171,7 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _run_once(_service(bus, cpu), "问题", process_id="process-cpu-once")
+    result = await _run_once(await _service(bus, cpu), "问题", process_id="process-cpu-once")
 
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
@@ -194,7 +201,7 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
-    events = await _stream_events(_service(bus, cpu), "问题", process_id="process-cpu-stream")
+    events = await _stream_events(await _service(bus, cpu), "问题", process_id="process-cpu-stream")
 
     assert cpu.calls[0].stream is True
     assert [event["event"] for event in events] == [
@@ -227,7 +234,7 @@ async def test_test_cpu_receives_generation_options_and_manifest() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
     await _run_once(
-        _service(bus, cpu),
+        await _service(bus, cpu),
         "问题",
         process_id="process-cpu-options",
         generation_options={"temperature": 0.3},
@@ -256,7 +263,7 @@ async def test_cpu_iterator_is_closed_before_finalize(stream: bool) -> None:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
-    service = _service(bus, cpu)
+    service = await _service(bus, cpu)
 
     if stream:
         await _stream_events(service, "问题", process_id="process-cpu-close-early-stream")
@@ -279,7 +286,7 @@ async def test_cpu_self_reported_terminal_ends_process_without_finalize(
     cpu = ScriptedCPU(result=make_cpu_result(status=status))
     cleanup_calls: list = []
 
-    async def cleanup(*, prepared_run):
+    async def cleanup(*, prepared_run, **_kwargs):
         cleanup_calls.append(prepared_run)
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
@@ -291,7 +298,7 @@ async def test_cpu_self_reported_terminal_ends_process_without_finalize(
         AsyncMock(side_effect=AssertionError("finalize 不应被调用")),
     )
 
-    result = await _run_once(_service(bus, cpu), "问题", process_id=f"process-cpu-{status.value}")
+    result = await _run_once(await _service(bus, cpu), "问题", process_id=f"process-cpu-{status.value}")
 
     assert result.execution_result.status == status.value
     assert len(cleanup_calls) == 1
@@ -315,7 +322,7 @@ async def test_stop_during_cpu_pull_cancels_process_and_closes_cpu_iterator() ->
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
-    service = _service(bus, cpu, event_publisher=RuntimeEventPublisher(sink))
+    service = await _service(bus, cpu, event_publisher=RuntimeEventPublisher(sink))
     process_id = "process-cpu-stop"
     task = asyncio.create_task(_stream_events(service, "问题", process_id=process_id))
 
@@ -344,7 +351,7 @@ async def test_cpu_stream_without_terminal_result_fails_process_with_error_event
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
-    events = await _stream_events(_service(bus, cpu), "问题", process_id="process-cpu-no-done")
+    events = await _stream_events(await _service(bus, cpu), "问题", process_id="process-cpu-no-done")
 
     assert [event for event in events if event["event"] == "error"] == [
         {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
@@ -362,7 +369,7 @@ async def test_cpu_once_without_terminal_result_raises_protocol_error() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
     with pytest.raises(RuntimeError, match="终态执行结果"):
-        await _run_once(_service(bus, cpu), "问题", process_id="process-cpu-no-done-ns")
+        await _run_once(await _service(bus, cpu), "问题", process_id="process-cpu-no-done-ns")
 
 
 @pytest.mark.asyncio
@@ -376,7 +383,7 @@ async def test_cpu_exception_fails_process() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
     with pytest.raises(RuntimeError, match="cpu exploded"):
-        await _run_once(_service(bus, cpu), "问题", process_id="process-cpu-error")
+        await _run_once(await _service(bus, cpu), "问题", process_id="process-cpu-error")
 
 
 # ========== 断流关闭与租借释放 ==========
@@ -400,10 +407,11 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
-    service = _service(bus, cpu, store=store)
+    service = await _service(bus, cpu, store=store)
     stream = service.run_process(
         "带附件的消息",
         identity_scope=scope,
+        access=service.test_access,
         process_id="process-cpu-closed",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )

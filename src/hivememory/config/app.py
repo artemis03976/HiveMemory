@@ -15,11 +15,6 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-from hivememory.config.access import (
-    AccessControlConfig,
-    SystemPrincipalAccessEntry,
-    WorkspaceActorAccessEntry,
-)
 from hivememory.config.alice import AliceConfig
 from hivememory.config.attachments import AttachmentCompilerConfig, AttachmentParserConfig
 from hivememory.config.gateway import SystemGatewayConfig
@@ -167,6 +162,9 @@ def yaml_config_settings_source() -> dict[str, Any]:
 class SystemConfig(BaseModel):
     name: str = Field(default="HiveMemory")
     debug: bool = Field(default=False)
+    # server 自身作为调用来源经统一认证网关认证时使用的 principal 标识；
+    # 必须与 configs/system_principals.yaml 中的接入登记一致。
+    server_principal_id: str = Field(default="hivememory:http-server")
 
     model_config = ConfigDict(extra="ignore")
 
@@ -211,7 +209,6 @@ class HiveMemoryConfig(BaseSettings):
     alice: AliceConfig = Field(default_factory=AliceConfig)
     attachment_parser: AttachmentParserConfig = Field(default_factory=AttachmentParserConfig)
     attachment_compiler: AttachmentCompilerConfig = Field(default_factory=AttachmentCompilerConfig)
-    access: AccessControlConfig = Field(default_factory=AccessControlConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
 
     model_config = SettingsConfigDict(
@@ -271,10 +268,6 @@ def get_gateway_llm_config() -> LLMConfig:
 
 
 __all__ = [
-    # 访问控制（接入登记与 Workspace Actor 访问登记的本地声明）
-    "AccessControlConfig",
-    "SystemPrincipalAccessEntry",
-    "WorkspaceActorAccessEntry",
     # 被动接入
     "PassiveIngressConfig",
     # 顶层

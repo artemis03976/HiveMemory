@@ -23,10 +23,7 @@ from hivememory.components.events.bus import (
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.config.access import (
-    AccessControlConfig,
-    WorkspaceActorAccessEntry,
-)
+from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.runtime import RuntimeEventsConfig
 from hivememory.core.access import WorkspaceOperation
@@ -230,17 +227,15 @@ class SystemAssembler:
     # ------------------------------------------------------------------
 
     def _build_access_control(self) -> _AccessControlBundle:
-        """装载访问控制配置并构造网关与共享行为检查（A1 计划第 1.2 节）。
+        """装载两类访问登记并构造网关与共享行为检查（A1 访问边界返工第 4.2 节）。
 
-        System composition 负责"装载和注入配置"：System 接入登记转入
-        System 注册表，Workspace Actor 访问登记转入 Workspace 注册表，
-        operation 枚举值在装载期校验（未知值显式失败，不静默丢弃）。
-        缺省空配置即 fail closed——网关拒绝一切认证；既有裸 scope 兼容
-        链路不受影响，生产消费者切换由 A6 完成。
+        System composition 负责"装载和注入配置"：接入登记从
+        ``configs/system_principals.yaml`` 装载转入 System 注册表，
+        Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
+        转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
+        失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
         """
-        access_config = self._config.access
-        if not isinstance(access_config, AccessControlConfig):
-            access_config = AccessControlConfig()
+        registration = load_access_registration()
 
         system_entries = [
             SystemActorAccessEntry(
@@ -254,7 +249,7 @@ class SystemAssembler:
                     else None
                 ),
             )
-            for entry in access_config.principals
+            for entry in registration.principals.principals
         ]
         workspace_records = [
             WorkspaceActorAccessRecord(
@@ -267,15 +262,12 @@ class SystemAssembler:
                     self._parse_operation(name, entry) for name in entry.allowed_operations
                 ),
             )
-            for entry in access_config.workspace_actors
+            for entry in registration.workspace_actors.workspace_actors
         ]
 
         system_registry = SystemActorAccessRegistry(system_entries)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
-        access_guard = WorkspaceAccessGuard(
-            workspace_registry,
-            context_ttl_seconds=access_config.context_ttl_seconds,
-        )
+        access_guard = WorkspaceAccessGuard(workspace_registry)
         # Principal authentication 归 System（接入登记），经端口注入 workspace
         # 认证入口；Workspace 准入与签发归 workspace guard。
         access_gateway = ActorAuthenticationGateway(
@@ -290,7 +282,7 @@ class SystemAssembler:
         )
 
     @staticmethod
-    def _parse_operation(name: str, entry: WorkspaceActorAccessEntry) -> WorkspaceOperation:
+    def _parse_operation(name: str, entry) -> WorkspaceOperation:
         """把配置中的 operation 枚举值解析为枚举成员；未知值装载期失败。"""
         try:
             return WorkspaceOperation(name)
@@ -367,6 +359,9 @@ class SystemAssembler:
             # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
+            # 任务进程持有绑定 context 并做阶段授权（A1 访问边界返工 4.3）：
+            # 共享行为检查与网关使用同一实例。
+            access_guard=access_control.access_guard,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,
@@ -379,14 +374,12 @@ class SystemAssembler:
             ),
         )
         # 能力层（A2）：读取方法在 backing 调用前执行 operation 授权，随后经
-        # workspace resolver 解析；管理用例保持对库管理路由的薄委托。
+        # workspace resolver 解析；写入与管理用例的 operation 授权同样在本层
+        # 执行（A1 访问边界返工 4.3），管理路由保持薄委托。
         memory = MemoryApplicationService(
             global_bus=runtime.global_bus,
             access_guard=access_control.access_guard,
             memory_reader=runtime.workspace_runtime.aliases,
-        )
-        memory_task = MemoryTaskApplicationService(
-            global_bus=runtime.global_bus,
         )
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,
@@ -395,6 +388,7 @@ class SystemAssembler:
         )
         topic = TopicApplicationService(
             global_bus=runtime.global_bus,
+            access_guard=access_control.access_guard,
         )
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,

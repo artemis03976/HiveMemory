@@ -17,7 +17,10 @@ from hivememory.patchouli.contracts.topic_management import (
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
 from hivememory.workspace.capability.topic import TopicApplicationService
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import (
+    make_identity_scope,
+    make_server_access_overrides,
+)
 
 
 def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
@@ -33,10 +36,15 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, manual_settle_topic)
     if evict_topic is not None:
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
+    # Topic 读取/生命周期变更的 operation 授权在能力层执行：服务与访问
+    # 依赖共享同一组合的 guard，context 才能通过签发校验。
+    overrides, composition = make_server_access_overrides()
     service = TopicApplicationService(
         global_bus=bus,
+        access_guard=composition.guard,
     )
     app.dependency_overrides[deps.get_topic_service] = lambda: service
+    app.dependency_overrides.update(overrides)
 
     return app
 

@@ -12,6 +12,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.server.routers.memory_tasks import router
+from tests.helpers.workspace import make_server_access_overrides
 
 
 def _create_test_app(service):
@@ -21,6 +22,9 @@ def _create_test_app(service):
     from hivememory.server import deps
 
     app.dependency_overrides[deps.get_memory_task_service] = lambda: service
+    # memory-tasks 路由补身份后经统一认证网关取得请求级 context。
+    overrides, _ = make_server_access_overrides()
+    app.dependency_overrides.update(overrides)
     return app
 
 
@@ -87,8 +91,13 @@ def test_cancel_memory_task_calls_service():
     assert body["reason"] == "user_requested"
     assert body["source"] == "WRITE"
     assert body["pending_alias"] == "draft_abc"
-    service.cancel_memory_task.assert_awaited_once_with("task_1")
-    service.get_memory_task.assert_awaited_once_with("task_1")
+    service.cancel_memory_task.assert_awaited_once()
+    # 路由在 service 调用前经网关取得请求级 access context
+    assert "task_1" == service.cancel_memory_task.await_args.args[0]
+    assert "access" in service.cancel_memory_task.await_args.kwargs
+    service.get_memory_task.assert_awaited_once()
+    assert "task_1" == get_memory_task.await_args.args[0]
+    assert "access" in get_memory_task.await_args.kwargs
 
 
 def test_cancel_memory_task_returns_terminal_cancelled_state():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from hivememory.core.models import IdentityScope, TopicData
 from hivememory.core.protocol.gateway import (
@@ -20,6 +21,9 @@ from hivememory.gateway.analysis import UserQueryAnalysisResult
 from hivememory.gateway.context import CandidateTopics
 from hivememory.gateway.workflow.steps import GatewayStepResult
 
+if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext
+
 
 class ExecutionStateStatus(str, Enum):
     """Gateway workflow 的执行生命周期。"""
@@ -35,6 +39,7 @@ class GatewayStateSnapshot:
     raw_message: str
     identity_scope: IdentityScope
     ingress_mode: GatewayIngressMode
+    access: WorkspaceAccessContext | None
     candidate_topics: CandidateTopics | None
     l1_result: InterceptorResult | None
     command_parse_result: CommandParseResult | None
@@ -47,11 +52,17 @@ class GatewayStateSnapshot:
 
 @dataclass
 class GatewayExecutionState:
-    """仅由 GatewayWorkflow 持有和提交的请求级工作状态。"""
+    """仅由 GatewayWorkflow 持有和提交的请求级工作状态。
+
+    ``access`` 是调用方绑定的访问 context（主动链路为任务进程的进程
+    context，被动链路为 ``None``）：随状态贯穿各步骤并原样传给话题读取，
+    步骤不得覆盖。
+    """
 
     raw_message: str
     identity_scope: IdentityScope
     ingress_mode: GatewayIngressMode
+    access: WorkspaceAccessContext | None = None
     candidate_topics: CandidateTopics | None = None
     l1_result: InterceptorResult | None = None
     command_parse_result: CommandParseResult | None = None
@@ -63,7 +74,7 @@ class GatewayExecutionState:
     user_query_analysis: UserQueryAnalysisResult | None = None
     status: ExecutionStateStatus = ExecutionStateStatus.RUNNING
 
-    _INITIAL_FIELDS = frozenset({"raw_message", "identity_scope", "ingress_mode"})
+    _INITIAL_FIELDS = frozenset({"raw_message", "identity_scope", "ingress_mode", "access"})
     _UPDATABLE_FIELDS = frozenset(
         {
             "candidate_topics",
@@ -84,6 +95,7 @@ class GatewayExecutionState:
             raw_message=self.raw_message,
             identity_scope=self.identity_scope,
             ingress_mode=self.ingress_mode,
+            access=self.access,
             candidate_topics=self.candidate_topics,
             l1_result=self.l1_result,
             command_parse_result=self.command_parse_result,

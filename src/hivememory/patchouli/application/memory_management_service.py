@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
@@ -25,12 +24,10 @@ if TYPE_CHECKING:
 class MemoryManagementService:
     """Patchouli 面向公开记忆管理/读取 API 的应用服务。
 
-    管理用例绑定明确的 operation（A1 计划第 4.1 节绑定基线），在资源
-    读取或副作用之前经 ``WorkspaceAccessVerifier`` 执行共享行为检查：
-
-    - 管理 CRUD/GET/LIST/feedback：``management.memory``——owner-management
-      读取语义只由该 operation 授权，Agent 的 ``resource.read``/
-      ``resource.search`` 调用同一管理入口会在校验层失败。
+    管理用例（create/list/get/update/delete/feedback）绑定
+    ``management.memory`` 的行为授权已上移到 workspace 能力层（A1 访问
+    边界返工第 4.3 节）；本层只经 :func:`verified_scope` 校验 access 有效性
+    并核对 DTO scope 一致性，缺少 access 一律拒绝。
 
     Actor-visible 读取（``read_memory`` / ``retrieve_by_aliases`` /
     ``retrieve``）自 A2 起是 L2 backing 契约（A2 §2.1/§8 D-3）：
@@ -38,10 +35,9 @@ class MemoryManagementService:
     backing 调用前执行，此处只校验 access 有效性并取得可信 scope；资源
     归属与 ``MemoryAccessPolicy`` 仍由存储边界独立校验（纵深防御）。
 
-    迁移期兼容（A1 第 6 节冻结清单）：未提供 ``access`` 的旧调用方（管理
-    入口 HTTP 链路与 Alice resolver 代理路由）按受信适配走裸
-    ``IdentityScope``；该分支不得保留无许可的公共成功语义，A6 完成生产
-    消费者切换后删除。
+    迁移期受信适配清单见 ``access_consumption``：仅 ``retrieve`` 与
+    ``retrieve_by_aliases`` 仍有 Alice 侧调用方不带 access，按裸
+    ``IdentityScope`` 受信适配保留；其余入口一律强制 access。
     """
 
     def __init__(
@@ -66,7 +62,6 @@ class MemoryManagementService:
             raise ValueError("create_memory 需要 atom 载荷")
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -91,7 +86,6 @@ class MemoryManagementService:
     ) -> list[MemoryAtom]:
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -126,7 +120,6 @@ class MemoryManagementService:
     ) -> MemoryAtom | None:
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -156,7 +149,6 @@ class MemoryManagementService:
     ) -> MemoryAtom | None:
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -181,7 +173,6 @@ class MemoryManagementService:
     ) -> bool:
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -202,7 +193,6 @@ class MemoryManagementService:
     ):
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_MEMORY,
             identity_scope,
             access_guard=self._access_guard,
         )

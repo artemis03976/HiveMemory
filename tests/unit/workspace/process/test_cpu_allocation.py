@@ -45,7 +45,7 @@ from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_process_access
 from tests.helpers.workspace_assets import make_ready_text_asset
 
 
@@ -108,7 +108,7 @@ def _profile_route(
     注入 stop 请求。
     """
 
-    async def route(agent_id, *, identity_scope):
+    async def route(agent_id, *, identity_scope, **_kwargs):
         if calls is not None:
             calls.append((agent_id, identity_scope))
         if started is not None:
@@ -158,20 +158,24 @@ def _prepare_route(
     return route
 
 
-def _service(
+async def _service(
     bus: GlobalSystemBus,
     *,
     store: InMemoryWorkspaceAssetStore | None = None,
     attachment_compiler_config: AttachmentCompilerConfig | None = None,
     cpu: ScriptedCPU | None = None,
 ) -> TaskProcessService:
-    """构造被测服务：默认注入恒完成的测试 CPU。"""
-    return TaskProcessService(
+    """构造被测服务并注入配套 guard；签发的 access 挂在 test_access 供调用方传递。"""
+    guard, access = await make_process_access()
+    service = TaskProcessService(
         bus,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         asset_reader=store,
         attachment_compiler_config=attachment_compiler_config,
+        access_guard=guard,
     )
+    service.test_access = access  # type: ignore[attr-defined]
+    return service
 
 
 async def _run_once(service: TaskProcessService, message: str, *, process_id: str, **kwargs):
@@ -179,6 +183,7 @@ async def _run_once(service: TaskProcessService, message: str, *, process_id: st
         stream=False,
         message=message,
         identity_scope=_u1_scope(),
+        access=service.test_access,
         process_id=process_id,
         **kwargs,
     )
@@ -196,6 +201,7 @@ async def _stream_events(
         async for event in service.run_process(
             message=message,
             identity_scope=_u1_scope(),
+            access=service.test_access,
             process_id=process_id,
             **kwargs,
         )
@@ -220,7 +226,7 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    result = await _run_once(_service(bus, cpu=cpu), "问题", process_id="process-manifest")
+    result = await _run_once(await _service(bus, cpu=cpu), "问题", process_id="process-manifest")
 
     assert result.kind == "agent"
     # Profile 以冻结的 identity_scope 经公开路由按 agent_id 解析。
@@ -249,7 +255,7 @@ async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieva
     cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    await _run_once(_service(bus, cpu=cpu), "问题", process_id="process-compile")
+    await _run_once(await _service(bus, cpu=cpu), "问题", process_id="process-compile")
 
     manifest = cpu.calls[0].manifest
     assert manifest.memories == atoms
@@ -267,7 +273,7 @@ async def test_manifest_memory_context_is_empty_string_without_retrieval() -> No
     cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    await _run_once(_service(bus, cpu=cpu), "问题", process_id="process-empty-retrieval")
+    await _run_once(await _service(bus, cpu=cpu), "问题", process_id="process-empty-retrieval")
 
     assert cpu.calls[0].manifest.memory_context == ""
 
@@ -301,7 +307,7 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    events = await _stream_events(_service(bus, cpu=cpu), "问题", process_id="process-profile-fail")
+    events = await _stream_events(await _service(bus, cpu=cpu), "问题", process_id="process-profile-fail")
 
     assert [event["event"] for event in events if event["event"] == "topic_info"] == []
     assert [event["event"] for event in events if event["event"] == "error"] == ["error"]
@@ -326,7 +332,7 @@ async def test_profile_resolution_failure_propagates_before_prepare() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
 
     with pytest.raises(AliasNotFoundError):
-        await _run_once(_service(bus), "问题", process_id="process-profile-fail-ns")
+        await _run_once(await _service(bus), "问题", process_id="process-profile-fail-ns")
 
     assert prepare_calls == []
     assert cleanup_calls == []
@@ -368,7 +374,7 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
     result = await _run_once(
-        _service(bus, store=store),
+        await _service(bus, store=store),
         "带附件的消息",
         process_id="process-attachments",
         attachments=[
@@ -406,7 +412,7 @@ async def test_attachment_version_mismatch_releases_leases_and_rejects() -> None
 
     with pytest.raises(AssetOperationConflictError):
         await _run_once(
-            _service(bus, store=store),
+            await _service(bus, store=store),
             "带附件的消息",
             process_id="process-mismatch",
             attachments=[
@@ -434,7 +440,7 @@ async def test_unknown_attachment_ref_rejected_without_leaking_leases() -> None:
 
     with pytest.raises(AssetNotFoundError):
         await _run_once(
-            _service(bus, store=store),
+            await _service(bus, store=store),
             "带附件的消息",
             process_id="process-unknown-ref",
             attachments=[
@@ -464,7 +470,7 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
 
     with pytest.raises(AssetRemovedError):
         await _run_once(
-            _service(bus, store=store),
+            await _service(bus, store=store),
             "带附件的消息",
             process_id="process-removed",
             attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
@@ -502,7 +508,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
 
     # 总预算 20 字符：ref_a（15 字符）编译后 ref_b 超出剩余预算被跳过。
     await _run_once(
-        _service(
+        await _service(
             bus,
             store=store,
             attachment_compiler_config=AttachmentCompilerConfig(max_total_context_chars=20),
@@ -539,7 +545,7 @@ async def test_leased_attachment_released_after_completed_run() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
     result = await _run_once(
-        _service(bus, store=store),
+        await _service(bus, store=store),
         "带附件的消息",
         process_id="process-exit-completed",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
@@ -564,7 +570,7 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
 
     result = await _run_once(
-        _service(bus, store=store, cpu=cpu),
+        await _service(bus, store=store, cpu=cpu),
         "带附件的消息",
         process_id="process-exit-cpu-failed",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
@@ -577,7 +583,7 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
 def _blocking_cleanup(started: asyncio.Event):
     """PATCHOULI_CLEANUP_PREPARED_AGENT_RUN 替身：开始后一直挂起，模拟 cleanup 期间被取消。"""
 
-    async def cleanup(*, prepared_run):
+    async def cleanup(*, prepared_run, **_kwargs):
         started.set()
         await asyncio.Event().wait()
 
@@ -604,7 +610,7 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     )
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
 
-    service = _service(bus, store=store, cpu=cpu)
+    service = await _service(bus, store=store, cpu=cpu)
     process_id = "process-cancel-during-cleanup"
     task = asyncio.create_task(
         _run_once(
@@ -640,7 +646,7 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
         GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _blocking_cleanup(cleanup_started)
     )
 
-    service = _service(bus, store=store, cpu=cpu)
+    service = await _service(bus, store=store, cpu=cpu)
     process_id = "process-stream-cancel-during-cleanup"
     task = asyncio.create_task(
         _stream_events(
@@ -680,7 +686,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     )
     cleanup_calls: list = []
 
-    async def cleanup(*, prepared_run):
+    async def cleanup(*, prepared_run, **_kwargs):
         cleanup_calls.append(prepared_run)
 
     finalize_calls: list = []
@@ -691,7 +697,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    service = _service(bus, store=store, cpu=cpu)
+    service = await _service(bus, store=store, cpu=cpu)
     process_id = "process-stop-before-actor"
     task = asyncio.create_task(
         _run_once(
@@ -735,7 +741,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
     cleanup_calls: list = []
 
-    async def cleanup(*, prepared_run):
+    async def cleanup(*, prepared_run, **_kwargs):
         cleanup_calls.append(prepared_run)
 
     bus.register(
@@ -745,7 +751,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    service = _service(bus, store=store, cpu=cpu)
+    service = await _service(bus, store=store, cpu=cpu)
     process_id = "process-stop-during-allocation"
     task = asyncio.create_task(
         _run_once(
@@ -782,7 +788,7 @@ async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    service = _service(bus, cpu=cpu)
+    service = await _service(bus, cpu=cpu)
     process_id = "process-stream-stop"
     task = asyncio.create_task(_stream_events(service, "问题", process_id=process_id))
     await prepare_started.wait()
@@ -817,7 +823,7 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
     result = await _run_once(
-        _service(bus, store=store),
+        await _service(bus, store=store),
         "带附件的消息",
         process_id="process-closed-store",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],

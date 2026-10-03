@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from hivememory.server.deps import RequestIdentitySelection
 from hivememory.server.models.chat import ChatRequest
 from hivememory.server.routers.chat import _cancel_and_join, chat, router
+from tests.helpers.workspace import make_server_access_overrides
 
 
 def _create_test_app(mock_service):
@@ -29,6 +30,9 @@ def _create_test_app(mock_service):
     from hivememory.server import deps
 
     app.dependency_overrides[deps.get_process_service] = lambda: mock_service
+    # /chat 与 /chat/stop 经统一认证网关取得访问 context（进程绑定/请求级）。
+    overrides, _ = make_server_access_overrides()
+    app.dependency_overrides.update(overrides)
 
     return app
 

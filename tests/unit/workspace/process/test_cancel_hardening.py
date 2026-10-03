@@ -27,7 +27,7 @@ from hivememory.workspace.process.table import (
     ProcessTable,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_process_access
 
 # ─── ProcessTable ─────────────────────────────────────────────────────────────
 
@@ -119,12 +119,14 @@ class TestChatServiceCancelPath:
 
         bus.request = AsyncMock(side_effect=bus_request)
 
-        service = TaskProcessService(global_bus=bus, cpu=cpu)
+        guard, access = await make_process_access()
+        service = TaskProcessService(global_bus=bus, cpu=cpu, access_guard=guard)
 
         events = []
         async for event in service.run_process(
             message="hello",
             identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+            access=access,
             process_id="process-cancel-1",
         ):
             events.append(event)

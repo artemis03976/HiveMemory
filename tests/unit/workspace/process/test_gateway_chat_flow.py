@@ -48,7 +48,7 @@ from tests.helpers.chat_handoff import (
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_process_access
 
 
 def _u1_scope() -> IdentityScope:
@@ -67,6 +67,7 @@ async def _run_once(
         stream=False,
         message=message,
         identity_scope=_u1_scope(),
+        access=service.test_access,
         process_id=process_id or f"process_{uuid4().hex}",
         **kwargs,
     )
@@ -83,6 +84,7 @@ async def _stream_events(
         async for event in service.run_process(
             message=message,
             identity_scope=_u1_scope(),
+            access=service.test_access,
             process_id=process_id or f"process_{uuid4().hex}",
         )
     ]
@@ -175,7 +177,7 @@ def _profile_route():
     """PATCHOULI_GET_AGENT_PROFILE 替身：返回 builtin omni_doll Profile。"""
     from hivememory.core.models import OMNI_DOLL_PROFILE, ResolvedAgentProfile
 
-    async def route(agent_id, *, identity_scope):
+    async def route(agent_id, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
     return route
@@ -185,12 +187,24 @@ def _register_profile(bus: GlobalSystemBus) -> None:
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
 
 
-def _service(
+async def _service(
     bus: GlobalSystemBus,
     cpu: ScriptedCPU | None = None,
 ) -> TaskProcessService:
-    """构造被测服务：默认注入恒完成的测试 CPU。"""
-    return TaskProcessService(bus, cpu=cpu or ScriptedCPU(result=make_cpu_result()))
+    """构造被测服务：默认注入恒完成的测试 CPU。
+
+    任务进程要求注册入口传入由同一 guard 签发的 access context（A1 访问
+    边界返工第 4.1 节）：这里为每个服务显式签发一份并挂在 ``test_access``
+    属性上，供 ``_run_once`` / ``_stream_events`` 及直接调用方传递。
+    """
+    guard, access = await make_process_access()
+    service = TaskProcessService(
+        bus,
+        cpu=cpu or ScriptedCPU(result=make_cpu_result()),
+        access_guard=guard,
+    )
+    service.test_access = access  # type: ignore[attr-defined]
+    return service
 
 
 @pytest.mark.asyncio
@@ -201,7 +215,7 @@ async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    result = await _run_once(_service(bus, cpu), "/clear")
+    result = await _run_once(await _service(bus, cpu), "/clear")
 
     assert result.kind == "command"
     assert result.command_execution_result.command_id == "system.clear"
@@ -240,7 +254,7 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _run_once(_service(bus, _RecordingCPU(result=make_cpu_result())), "问题")
+    result = await _run_once(await _service(bus, _RecordingCPU(result=make_cpu_result())), "问题")
 
     assert result.kind == "agent"
     assert result.execution_result.final_text == "完成"
@@ -270,7 +284,7 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _run_once(_service(bus, cpu), "问题")
+    result = await _run_once(await _service(bus, cpu), "问题")
 
     assert result.kind == "agent"
     _assert_sealed_payload(
@@ -305,7 +319,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
-    events = await _stream_events(_service(bus, cpu), "问题")
+    events = await _stream_events(await _service(bus, cpu), "问题")
 
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "completed"
@@ -379,7 +393,7 @@ async def test_streaming_done_omits_sealing_only_result_fields(
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
-    events = await _stream_events(_service(bus, cpu), "问题")
+    events = await _stream_events(await _service(bus, cpu), "问题")
 
     done = events[-1]
     assert done["event"] == "done"
@@ -398,7 +412,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
         AsyncMock(return_value=_command_outcome()),
     )
 
-    events = await _stream_events(_service(bus), "/clear")
+    events = await _stream_events(await _service(bus), "/clear")
 
     assert [event["event"] for event in events] == [
         "process_id",
@@ -435,7 +449,7 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     events = await _stream_events(
-        _service(bus, cpu),
+        await _service(bus, cpu),
         "问题",
         process_id="process-complete",
     )
@@ -469,7 +483,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
         await asyncio.Event().wait()
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    service = _service(bus)
+    service = await _service(bus)
 
     task = asyncio.create_task(_run_once(service, "问题", process_id="process-gateway"))
     await started.wait()
@@ -508,11 +522,16 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
         cleanup,
     )
 
-    result = await _run_once(_service(bus, cpu), "问题")
+    service = await _service(bus, cpu)
+    result = await _run_once(service, "问题")
 
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
-    cleanup.assert_awaited_once_with(prepared_run=prepared_holder["prepared"])
+    # cleanup 携带进程绑定的 access context，但不做阶段 operation 检查。
+    cleanup.assert_awaited_once_with(
+        prepared_run=prepared_holder["prepared"],
+        access=service.test_access,
+    )
 
 
 @pytest.mark.asyncio
@@ -533,7 +552,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    result = await _run_once(_service(bus, cpu), "问题")
+    result = await _run_once(await _service(bus, cpu), "问题")
 
     assert result.execution_result.status == CPUExecutionStatus.FAILED.value
     finalize.assert_not_awaited()
@@ -556,7 +575,7 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
     cleanup = AsyncMock(return_value=True)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    events = await _stream_events(_service(bus, cpu), "问题")
+    events = await _stream_events(await _service(bus, cpu), "问题")
 
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == CPUExecutionStatus.FAILED.value
@@ -590,7 +609,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service = _service(bus, cpu)
+    service = await _service(bus, cpu)
 
     task = asyncio.create_task(_run_once(service, "问题", process_id="process-prepare"))
     await prepare_started.wait()
@@ -625,7 +644,7 @@ async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() ->
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service = _service(bus, cpu)
+    service = await _service(bus, cpu)
 
     task = asyncio.create_task(_stream_events(service, "问题", process_id="process-stream-cancel"))
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
@@ -660,7 +679,7 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service = _service(bus)
+    service = await _service(bus)
 
     task = asyncio.create_task(_run_once(service, "问题", process_id="process-finalize"))
     await finalize_started.wait()
@@ -687,7 +706,7 @@ async def test_attachment_selection_without_reader_fails_allocation() -> None:
 
     with pytest.raises(WorkspaceDomainError, match="附件读取能力"):
         await _run_once(
-            _service(bus, cpu),
+            await _service(bus, cpu),
             "问题",
             process_id="process-no-reader",
             attachments=[
@@ -714,11 +733,13 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=False))
 
+    service = await _service(bus)
     events = [
         event
-        async for event in _service(bus).run_process(
+        async for event in service.run_process(
             "问题",
             identity_scope=_u1_scope(),
+            access=service.test_access,
             process_id="process-domain-error",
         )
     ]

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.patchouli.application.access_consumption import verified_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -19,16 +18,12 @@ if TYPE_CHECKING:
 class TopicManagementService:
     """Patchouli 对外提供的 Topic 管理应用服务。
 
-    A1 计划（第 1.1/4.1 节）补齐的访问差额：Topic 公共入口此前仅按裸
-    scope 处理、未接入统一行为检查，现按既有操作的显式绑定接入——
+    ``list_active_topics`` / ``get_topic_data``（``resource.read``）与
+    ``settle_topic`` / ``evict_topic``（``management.topic``）的行为授权已
+    上移到 workspace 能力层或任务进程（A1 访问边界返工第 4.3 节）；本层
+    只经 :func:`verified_scope` 校验 access 有效性与 DTO scope 一致性，
+    缺少 access 一律拒绝。Topic 可见性仍由领域实现强制。
 
-    - ``list_active_topics`` / ``get_topic_data``：``resource.read``（调用
-      方可见的 Topic 工作集读取，可见性仍由领域实现强制）；
-    - ``settle_topic`` / ``evict_topic``：``management.topic``（生命周期
-      变更；不借用 ``management.memory`` 泛化放行）。
-
-    未提供 ``access`` 的旧调用方（Topic 管理 HTTP 链路）在 A1 第 6 节
-    兼容清单内按受信适配保持既有行为，A6 完成消费者切换后收紧。
     ``prepare_topic`` 是内部对话编排用例（未挂载公开路由），不属于
     Actor 行为目录。
     """
@@ -42,12 +37,11 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]:
         scope = verified_scope(
             access,
-            WorkspaceOperation.RESOURCE_READ,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -64,13 +58,12 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicData | None:
         """无副作用读取调用方可见的完整话题数据。"""
         scope = verified_scope(
             access,
-            WorkspaceOperation.RESOURCE_READ,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -88,13 +81,12 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
         topic_id: str | None = None,
     ) -> TopicSettleResult:
-        """通过本地总线结算 Topic（management.topic），返回稳定业务结果。"""
+        """通过本地总线结算 Topic（生命周期变更授权在能力层），返回稳定业务结果。"""
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_TOPIC,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -108,13 +100,12 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicEvictionResult:
-        """通过本地总线驱逐 Topic（management.topic），不触发记忆结算。"""
+        """通过本地总线驱逐 Topic（生命周期变更授权在能力层），不触发记忆结算。"""
         scope = verified_scope(
             access,
-            WorkspaceOperation.MANAGEMENT_TOPIC,
             identity_scope,
             access_guard=self._access_guard,
         )
@@ -131,11 +122,7 @@ class TopicManagementService:
         new_topic_summary: str | None,
         identity_scope: IdentityScope,
     ) -> str:
-        """内部对话编排用例（旧 Active 链路，未挂载公开路由）。
-
-        不属于 A1 的 Actor 行为目录；旧职责在 A6 随 Alice 收缩逐项关闭
-        （协调计划兼容规则 4）。
-        """
+        """内部对话编排用例（未挂载公开路由），不属于 Actor 行为目录。"""
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_PREPARE,
             target_topic_id,

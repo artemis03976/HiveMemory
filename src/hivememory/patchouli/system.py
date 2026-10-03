@@ -116,18 +116,22 @@ class PatchouliSystem(SubsystemProtocol):
             ),
         )
 
-        # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
-        self._service = PatchouliService(
-            bus=self.runtime.local_bus,
-            interaction_queue=self._interaction_submission_queue,
-            pending_atom_settler=self.runtime.pending_atom_settler,
-        )
         # A1 统一访问边界：System composition 装载 Workspace Actor 访问
         # 注册表并注入共享行为检查；Patchouli 只消费中立的检查能力，不
         # 反向依赖 workspace 或 System 实现（core.access 端口）。缺省 fail closed。
         if access_guard is None:
             access_guard = ClosedWorkspaceAccessVerifier()
         self._access_guard = access_guard
+
+        # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
+        self._service = PatchouliService(
+            bus=self.runtime.local_bus,
+            interaction_queue=self._interaction_submission_queue,
+            pending_atom_settler=self.runtime.pending_atom_settler,
+            # 任务进程的阶段路由（prepare/finalize/cleanup）据此校验 access
+            # 有效性；与 application 服务共用同一共享行为检查。
+            access_guard=access_guard,
+        )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
             access_guard=access_guard,

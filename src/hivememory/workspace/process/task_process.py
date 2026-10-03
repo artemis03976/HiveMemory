@@ -24,11 +24,13 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import AttachmentSelectionRequest, IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
@@ -132,10 +134,13 @@ class ProcessRequest:
     """一次任务请求的入口参数（``process_id`` 由 server 入口冻结）。
 
     ``message`` 是交给 Gateway 分析的指令文本：主动请求是用户本次发出的消息。
+    ``access`` 是 server 入口经统一认证网关取得、绑定本进程的访问 context；
+    阶段 operation 授权在进程内按阶段语义执行（A1 访问边界返工第 4.3 节）。
     """
 
     message: str
     identity_scope: IdentityScope
+    access: WorkspaceAccessContext
     process_id: str
     enable_memory_retrieval: bool = True
     generation_options: dict[str, Any] | None = None
@@ -147,6 +152,11 @@ class TaskProcess:
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；实例只
     运行一次。``stream`` 只决定 CPU 以流式还是非流式产出。
+
+    阶段授权（A1 访问边界返工第 4.3 节）：阶段调用是进程自身的编排而非
+    actor 的主动操作，operation 检查在进程内、每次阶段调用前按阶段语义
+    执行，再把绑定的 access context 原样传给对应路由；授权规则仍是同一份
+    Workspace 访问登记的白名单。
     """
 
     def __init__(
@@ -160,6 +170,7 @@ class TaskProcess:
         cpu: CPUPort,
         events: TaskProcessEventEmitter,
         gateway_request_timeout_ms: int,
+        access_guard: WorkspaceAccessGuard,
     ) -> None:
         self._request = request
         self._stream = stream
@@ -168,10 +179,13 @@ class TaskProcess:
         self._allocator = allocator
         self._cpu = cpu
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
+        self._access_guard = access_guard
+        self._access = request.access
 
         self._record = ProcessRecord(
             identity_scope=request.identity_scope,
             process_id=request.process_id,
+            access=request.access,
         )
         self._working_set = allocator.new_working_set()
         self._trace_id = generate_trace_id("task")
@@ -205,6 +219,10 @@ class TaskProcess:
             # ---- Gateway：可被 stop 中断 ----
             record.enter_phase(ProcessPhase.GATEWAY)
             self._events.status()
+            # 阶段授权：Gateway 分析要读取话题快照与话题数据，绑定
+            # resource.read；Gateway 不做授权判断，只把 context 原样传给
+            # Patchouli 的读取路由。
+            self._access_guard.authorize_operation(self._access, WorkspaceOperation.RESOURCE_READ)
             gateway_result = await _run_interruptible(
                 record,
                 ProcessPhase.GATEWAY,
@@ -214,6 +232,7 @@ class TaskProcess:
                     identity_scope=request.identity_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
+                    access=self._access,
                 ),
             )
             if gateway_result.kind == "command":
@@ -302,6 +321,7 @@ class TaskProcess:
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
+                access=self._access,
             )
             self._prepared_finalized = True
             memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
@@ -336,15 +356,27 @@ class TaskProcess:
         self,
         decision: GatewayDecision,
     ) -> tuple[PreparedAgentRun, CPUInputManifest]:
-        """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。"""
+        """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
+
+        各阶段调用的 operation 授权按阶段语义在进程内执行：Profile 解析与
+        附件租借的检查在 CPUAllocator 内、副作用前执行；prepare 绑定
+        ``resource.search``；finalize 所需的 ``interaction.submit`` 提前到
+        进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒。
+        """
         record = self._record
         request = self._request
         record.enter_phase(ProcessPhase.PREPARE)
         # Profile 暂时先于 prepare 解析（中间态），原因见 CPUAllocator.resolve_agent_profile。
-        agent_profile = await self._allocator.resolve_agent_profile(request.identity_scope)
+        agent_profile = await self._allocator.resolve_agent_profile(
+            request.identity_scope,
+            access=self._access,
+        )
+        # prepare 做话题准备与检索，绑定 resource.search。
+        self._access_guard.authorize_operation(self._access, WorkspaceOperation.RESOURCE_SEARCH)
         prepared: PreparedAgentRun = await self._bus.request(
             GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
             identity_scope=request.identity_scope,
+            access=self._access,
             interaction_id=request.process_id,
             gateway_decision=decision,
             enable_memory_retrieval=request.enable_memory_retrieval,
@@ -363,7 +395,12 @@ class TaskProcess:
             user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),
+            access=self._access,
         )
+
+        # finalize（提交交互记录）绑定 interaction.submit；检查在进入 Actor
+        # 执行前执行，避免 CPU 执行完才在结算被拒。
+        self._access_guard.authorize_operation(self._access, WorkspaceOperation.INTERACTION_SUBMIT)
 
         # 取消检查（Q-15）：只在进入 Actor 之前检查一次。prepare 与分配
         # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
@@ -404,10 +441,14 @@ class TaskProcess:
                     await self._bus.request(
                         GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
                         prepared_run=self._working_set.prepared,
+                        access=self._access,
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
         finally:
+            # 绑定 context 随进程关闭失效（P-6）：无论 completed、失败、取消
+            # 还是断流，进程结束后该凭据不再可用。
+            self._access_guard.invalidate(self._access)
             self._process_table.close(record)
             if self._trace_tokens is not None:
                 reset_trace_context(self._trace_tokens)
@@ -427,9 +468,12 @@ class TaskProcess:
         prepared_run: PreparedAgentRun,
     ) -> list[dict[str, Any]]:
         try:
+            # 结算后的话题池读取绑定 resource.read（阶段授权在进程内）。
+            self._access_guard.authorize_operation(self._access, WorkspaceOperation.RESOURCE_READ)
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
                 identity_scope=prepared_run.identity_scope,
+                access=self._access,
                 include_empty=True,
             )
         except Exception:

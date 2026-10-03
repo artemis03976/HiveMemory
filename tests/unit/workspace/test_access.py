@@ -1,10 +1,10 @@
 """WorkspaceAccessGuard 共享行为检查的单元测试。
 
-被测对象：workspace.access（A1 计划第 3.2/3.4 节）。保护的契约：同一
-有效凭据可先后执行不同获准操作；白名单外的 operation 拒绝且不触达
-资源后端；缺失/裸 scope/复制或重建的凭据、其他实例签发的凭据均被拒绝。
-准入结果的不可变性、有效期与关闭由同一 guard 保证；``verify_context``
-只校验凭据有效性、不查行为白名单（A2 §8 D-3 backing 读取入口）。
+被测对象：workspace.access（A1 访问边界设计）。保护的契约：同一有效凭据
+可先后执行不同获准操作；白名单外的 operation 拒绝且不触达资源后端；
+缺失/裸 scope/复制或重建的凭据、其他实例签发的凭据均被拒绝。context 不设
+固定有效期，只随单个失效、guard 关闭失去有效性；``verify_context`` 只校验
+凭据有效性、不查行为白名单（A2 §8 D-3 backing 读取入口）。
 """
 
 from __future__ import annotations
@@ -19,7 +19,11 @@ from hivememory.core.access import (
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ScopeRequiredError,
+)
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -169,42 +173,32 @@ async def test_guard_rejects_other_runtime_even_with_the_same_access_record():
 
 
 @pytest.mark.asyncio
-async def test_guard_rejects_expired_context_and_new_context_remains_issuable():
-    """超过认证有效区间后旧凭据拒绝；重新认证取得的新凭据可用（证据 7）。"""
-    now = 1000.0
-
-    def clock():
-        return now
-
+async def test_guard_rejects_invalidated_context_and_keeps_others_usable():
+    """单个 context 失效（P-6）后被拒绝；同实例签发的其他凭据不受影响。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,
-        context_ttl_seconds=60,
-        clock=clock,
     )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
+    first = await composition.authenticate(agent_id="a1", user_id="u1")
+    second = await composition.authenticate(agent_id="a1", user_id="u1")
 
-    now += 59
-    assert (
-        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
-        is context.identity_scope
-    )
-    now += 1  # 到达有效期即拒绝（>=）
+    composition.guard.invalidate(first)
+
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
-    assert exc_info.value.details["reason"] == "context_expired"
-
-    # 到期不是网关关闭：重新认证可取得新的有效凭据
-    renewed = await composition.authenticate(agent_id="a1", user_id="u1")
+        composition.guard.authorize_operation(first, WorkspaceOperation.RESOURCE_READ)
+    assert exc_info.value.details["reason"] == "context_not_issued"
+    # 同实例签发的其他 context 不随单个失效受影响。
     assert (
-        composition.guard.authorize_operation(renewed, WorkspaceOperation.RESOURCE_READ)
-        is renewed.identity_scope
+        composition.guard.authorize_operation(second, WorkspaceOperation.RESOURCE_READ)
+        is second.identity_scope
     )
+    # 失效是幂等操作：重复失效不抛错。
+    composition.guard.invalidate(first)
 
 
 @pytest.mark.asyncio
-async def test_guard_rejects_context_after_gateway_close():
-    """网关关闭即运行实例结束：已签发凭据一并失效（证据 7）。"""
+async def test_gateway_close_rejects_new_auth_but_keeps_issued_contexts():
+    """网关关闭只拒绝新认证；已签发 context 的失效由各自所有者完成。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,
@@ -213,10 +207,32 @@ async def test_guard_rejects_context_after_gateway_close():
 
     composition.gateway.close()
     assert composition.gateway.is_closed
+    with pytest.raises(AdmissionDeniedError) as auth_info:
+        await composition.authenticate(agent_id="a1", user_id="u1")
+    assert auth_info.value.details["reason"] == "authentication_gateway_closed"
+
+    # 已签发 context 在 guard 关闭前仍然有效。
+    assert (
+        composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
+        is context.identity_scope
+    )
+
+
+@pytest.mark.asyncio
+async def test_guard_close_rejects_issued_contexts_and_new_admission():
+    """guard 关闭即运行实例结束：已签发凭据与新认证一并拒绝。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    composition.guard.close()
 
     with pytest.raises(ScopeRequiredError) as exc_info:
         composition.guard.authorize_operation(context, WorkspaceOperation.RESOURCE_READ)
     assert exc_info.value.details["reason"] == "authentication_gateway_closed"
+    assert composition.gateway.is_closed
 
 
 @pytest.mark.asyncio
@@ -242,35 +258,28 @@ async def test_verify_context_returns_scope_without_consulting_whitelist():
 
 
 @pytest.mark.asyncio
-async def test_verify_context_still_rejects_expired_and_unissued_contexts():
-    """verify_context 不跳过签发与有效期校验：到期与伪造凭据都拒绝。"""
-    now = 1000.0
-
-    def clock():
-        return now
-
+async def test_verify_context_still_rejects_invalidated_and_unissued_contexts():
+    """verify_context 不跳过签发与失效校验：已失效与伪造凭据都拒绝。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,
-        context_ttl_seconds=60,
-        clock=clock,
     )
     context = await composition.authenticate(agent_id="a1", user_id="u1")
     forged = WorkspaceAccessContext(identity_scope=context.identity_scope)
 
     with pytest.raises(ScopeRequiredError) as forged_info:
         composition.guard.verify_context(forged)
-    now += 60
-    with pytest.raises(ScopeRequiredError) as expired_info:
+    composition.guard.invalidate(context)
+    with pytest.raises(ScopeRequiredError) as invalidated_info:
         composition.guard.verify_context(context)
 
     assert forged_info.value.details["reason"] == "context_not_issued"
-    assert expired_info.value.details["reason"] == "context_expired"
+    assert invalidated_info.value.details["reason"] == "context_not_issued"
 
 
 @pytest.mark.asyncio
-async def test_guard_does_not_retain_unused_contexts_without_ttl():
-    """长期运行且没有 TTL 时，签发跟踪不能保留每次请求的完整上下文。"""
+async def test_guard_does_not_retain_unused_contexts():
+    """没有固定有效期时，签发跟踪不能保留所有者已释放的上下文。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,

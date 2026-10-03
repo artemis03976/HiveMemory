@@ -101,7 +101,7 @@ class WorkspaceAccessVerifier(Protocol):
     """资源 owner 使用的共享行为检查端口（``WorkspaceAccessGuard`` 实现）。"""
 
     def verify_context(self, access: WorkspaceAccessContext | None) -> IdentityScope:
-        """确认上下文由签发方签发、仍在有效期且 Actor 仍有准入，返回可信 scope。"""
+        """确认上下文由签发方签发、尚未失效且 Actor 仍有准入，返回可信 scope。"""
         ...
 
     def authorize_operation(

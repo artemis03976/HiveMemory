@@ -3,12 +3,12 @@
 能力层是 in-process 的 workspace server API（宪章 §5.3）：actor 经 HTTP/MTP/
 外部 adapter 归一化后调用本模块，本模块作为 client 调用 Patchouli backing。
 
-- Actor 可见读取（``read`` / ``retrieve_by_aliases`` / ``retrieve``）是本计划的
-  核心改造：operation 授权在 backing 调用前执行，随后经 workspace alias
-  resolver 多级解析并在交付边界逐次授权（A2 §2.2）；
-- 管理用例（create/list/get/update/delete/feedback）保持对库管理路由的薄
-  委托，owner-management 规则不变、不过 resolver；其 operation 检查仍由
-  Patchouli application 执行，迁移归 A5 全量核对（A2 §1.2 按路径拆分）。
+- Actor 可见读取（``read`` / ``retrieve_by_aliases`` / ``retrieve``）：operation
+  授权在 backing 调用前执行，随后经 workspace alias resolver 多级解析并在
+  交付边界逐次授权（A2 §2.2）；
+- 管理用例（create/list/get/update/delete/feedback）：``management.memory``
+  的 operation 授权同样在本层、路由调用前执行（A1 访问边界返工第 4.3 节），
+  owner-management 规则不变、不过 resolver。
 """
 
 from __future__ import annotations
@@ -60,23 +60,21 @@ class MemoryApplicationService:
 
     HTTP routers call this service instead of reaching into Patchouli internals.
 
-    Actor 可见读取的 operation 绑定（A1 行为白名单机制，检查点在本层、
-    backing 调用前，A2 §5.2）：``read`` / ``retrieve_by_aliases`` →
-    ``resource.read``，``retrieve`` → ``resource.search``。这些方法强制要求
-    经统一认证网关签发的 ``WorkspaceAccessContext``，不提供裸 scope 兼容。
+    operation 授权统一在本层、backing/管理路由调用前执行（A1 访问边界
+    返工第 4.3 节）：``read`` / ``retrieve_by_aliases`` → ``resource.read``，
+    ``retrieve`` → ``resource.search``；管理用例（create/list/get/update/
+    delete/feedback，含 Agent Profile 的既有绑定例外）→ ``management.memory``。
+    这些方法强制要求经统一认证网关签发的 ``WorkspaceAccessContext``，不提供
+    裸 scope 兼容。
 
     身份入口约定（v0.6.2 收敛）：所有用例只接受 server 边界一次性冻结的
     ``IdentityScope``，不在服务内解析裸 ``user_id`` 或默认 Agent。管理用例
     （本服务的全部读写）按 owner-management 语义在 Workspace ownership
     hard boundary 内访问该 Workspace 的全部 Memory，不执行 Agent 级
     ``MemoryAccessPolicy`` 可见性过滤；``system`` actor 只标记"没有具体
-    Agent 作为操作来源主体"，不承担任何权限绕过语义。
-
-    管理用例的访问上下文约定（A1 计划第 1.2/3.3 节）：接收统一认证网关
-    签发的 ``WorkspaceAccessContext`` 并**原样透传**给 Patchouli 公共
-    管理路由，行为检查在 Patchouli application 落实；本层不解释、不裁剪
-    access，也不以 DTO scope 覆盖可信坐标。``access`` 缺省时依赖下游
-    冻结的迁移期兼容分支（管理入口 HTTP 链路），A6 切换生产入口后收紧。
+    Agent 作为操作来源主体"，不承担任何权限绕过语义。管理用例把已授权的
+    ``access`` **原样透传**给 Patchouli 公共管理路由，本层不解释、不裁剪
+    access，也不以 DTO scope 覆盖可信坐标。
     """
 
     def __init__(
@@ -100,13 +98,14 @@ class MemoryApplicationService:
         memory_type: str,
         tags: list[str],
         alias: str | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """管理创建入口：在显式 Workspace scope 中创建 Memory。
+        """管理创建入口（``management.memory``）：在显式 Workspace scope 中创建 Memory。
 
         ``provenance.source_agent_id`` 记录来源 actor（管理入口为保留
         ``system``），只作 provenance 展示，不参与可见性授权。
         """
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
         try:
             index = IndexLayer(
@@ -151,13 +150,14 @@ class MemoryApplicationService:
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
-        """管理读取入口：在显式 Workspace scope 中列出 Memory。
+        """管理读取入口（``management.memory``）：在显式 Workspace scope 中列出 Memory。
 
         按 owner-management 语义返回该 Workspace 的全部 Memory（不含
         Agent Profile），不做 Agent ``MemoryAccessPolicy`` 过滤。
         """
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         filters = self._build_filters(memory_type=memory_type)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_LIST,
@@ -175,9 +175,10 @@ class MemoryApplicationService:
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """管理读取入口：在显式 Workspace scope 中读取 Memory。"""
+        """管理读取入口（``management.memory``）：在显式 Workspace scope 中读取 Memory。"""
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_GET,
             memory_id,
@@ -200,9 +201,10 @@ class MemoryApplicationService:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """管理更新入口：显式授权 mutation，且不改变原 ownership/provenance。"""
+        """管理更新入口（``management.memory``）：显式授权 mutation，且不改变原 ownership/provenance。"""
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_UPDATE,
             memory_id,
@@ -226,9 +228,10 @@ class MemoryApplicationService:
         identity_scope: IdentityScope,
         positive: bool,
         source: str,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ):
-        """管理反馈入口：在显式 Workspace scope 中记录反馈。"""
+        """管理反馈入口（``management.memory``）：在显式 Workspace scope 中记录反馈。"""
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         try:
             return await self._global_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK,
@@ -252,9 +255,10 @@ class MemoryApplicationService:
         memory_id: UUID,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> bool:
-        """管理删除入口：在显式 Workspace scope 中删除 Memory。"""
+        """管理删除入口（``management.memory``）：在显式 Workspace scope 中删除 Memory。"""
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_DELETE,
             memory_id,

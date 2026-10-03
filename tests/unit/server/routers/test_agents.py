@@ -11,10 +11,11 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.server.routers.agents import router
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import (
+    make_server_access_overrides,
+    make_workspace_runtime,
+)
 
 
 def _create_test_app(storage):
@@ -33,13 +34,16 @@ def _create_test_app(storage):
         GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
-    # 管理路由不经 Profile 读取 resolver 与 operation 守卫：注入真实但空白的依赖。
+    # 管理用例的 operation 授权（management.memory）在本层执行：服务与
+    # 访问依赖共享同一组合的 guard，context 才能通过签发校验。
+    overrides, composition = make_server_access_overrides()
     service = AgentApplicationService(
         global_bus=bus,
-        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        access_guard=composition.guard,
         profile_reader=make_workspace_runtime(bus).profiles,
     )
     app.dependency_overrides[deps.get_agent_service] = lambda: service
+    app.dependency_overrides.update(overrides)
 
     return app
 

@@ -31,6 +31,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.workspace import make_process_access
 from tests.helpers.workspace import make_identity_scope
 
 _TOPIC_ID = "topic-events"
@@ -62,7 +63,7 @@ async def _prepare(*, identity_scope, interaction_id, **_kwargs):
     )
 
 
-async def _profile(agent_id, *, identity_scope):
+async def _profile(agent_id, *, identity_scope, **_kwargs):
     return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
 
@@ -73,6 +74,18 @@ def _bus_until_actor() -> GlobalSystemBus:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
     return bus
+
+
+async def _make_service(
+    bus: GlobalSystemBus,
+    publisher=None,
+    cpu=None,
+) -> TaskProcessService:
+    """构造被测服务与配套 access context（同 guard 签发，挂在 test_access）。"""
+    guard, access = await make_process_access()
+    service = TaskProcessService(bus, publisher, cpu=cpu, access_guard=guard)
+    service.test_access = access  # type: ignore[attr-defined]
+    return service
 
 
 def _chat_events(sink: RecordingRuntimeEventSink) -> list[RuntimeEvent]:
@@ -90,10 +103,10 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
     )
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=cpu)
+    service = await _make_service(bus, RuntimeEventPublisher(sink), cpu=cpu)
 
     async for _ in service.run_process(
-        "问题", identity_scope=_scope(), process_id="process-events"
+        "问题", identity_scope=_scope(), access=service.test_access, process_id="process-events"
     ):
         pass
 
@@ -144,10 +157,10 @@ async def test_stop_during_gateway_publishes_request_and_cancelled_phase() -> No
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
+    service = await _make_service(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
     task = asyncio.create_task(
         service.run_process(
-            "问题", stream=False, identity_scope=_scope(), process_id="process-stop"
+            "问题", stream=False, identity_scope=_scope(), access=service.test_access, process_id="process-stop"
         )
     )
     await gateway_started.wait()
@@ -188,11 +201,11 @@ async def test_failed_event_carries_domain_error_code() -> None:
     bus = _bus_until_actor()
     cpu = ScriptedCPU(error=AssetNotReadyError("附件尚未就绪"))
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=cpu)
+    service = await _make_service(bus, RuntimeEventPublisher(sink), cpu=cpu)
 
     with pytest.raises(AssetNotReadyError):
         await service.run_process(
-            "问题", stream=False, identity_scope=_scope(), process_id="p-domain"
+            "问题", stream=False, identity_scope=_scope(), access=service.test_access, process_id="p-domain"
         )
 
     failed = _chat_events(sink)[-1]
@@ -211,11 +224,11 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
     bus = _bus_until_actor()
     cpu = ScriptedCPU(error=RuntimeError("internal-secret-detail"))
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(bus, RuntimeEventPublisher(sink), cpu=cpu)
+    service = await _make_service(bus, RuntimeEventPublisher(sink), cpu=cpu)
 
     with pytest.raises(RuntimeError, match="internal-secret-detail"):
         await service.run_process(
-            "问题", stream=False, identity_scope=_scope(), process_id="p-internal"
+            "问题", stream=False, identity_scope=_scope(), access=service.test_access, process_id="p-internal"
         )
 
     failed = _chat_events(sink)[-1]
@@ -228,12 +241,14 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
 async def test_stream_closed_before_terminal_publishes_cancelled_with_close_reason() -> None:
     """交付方在终态前关闭流：进程按断流取消收口并发布关闭原因。"""
     sink = RecordingRuntimeEventSink()
-    service = TaskProcessService(
+    service = await _make_service(
         GlobalSystemBus(),
         RuntimeEventPublisher(sink),
         cpu=ScriptedCPU(result=make_cpu_result()),
     )
-    stream = service.run_process("问题", identity_scope=_scope(), process_id="process-closed")
+    stream = service.run_process(
+        "问题", identity_scope=_scope(), access=service.test_access, process_id="process-closed"
+    )
 
     first = await stream.__anext__()
     await stream.aclose()
@@ -260,12 +275,13 @@ async def test_event_sink_failure_does_not_change_chat_result() -> None:
     bus = _bus_until_actor()
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     cpu = ScriptedCPU(result=make_cpu_result())
-    service = TaskProcessService(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
+    service = await _make_service(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
 
     result = await service.run_process(
         "问题",
         stream=False,
         identity_scope=_scope(),
+        access=service.test_access,
         process_id="process-sink-failure",
     )
 

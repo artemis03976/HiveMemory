@@ -10,10 +10,15 @@ from sse_starlette.sse import EventSourceResponse
 
 from hivememory.server.deps import (
     RequestIdentitySelection,
+    authenticate_request_access,
+    get_access_gateway,
     get_identity_selection,
     get_process_service,
+    get_server_principal_id,
+    release_request_access,
     resolve_request_identity_scope,
 )
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
 from hivememory.workspace.process.service import TaskProcessService
 
@@ -45,12 +50,16 @@ async def chat(
     body: ChatRequest,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
     service: TaskProcessService = Depends(get_process_service),
+    gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
+    principal_id: str = Depends(get_server_principal_id),
 ):
     """Stream an active chat run over SSE.
 
     Chat 是 Agent action：body 必须携带具体 ``agent_id``；用户导向基础选择
     （user_id + workspace_id）只来自统一请求头，在此一次性冻结为
-    IdentityScope。
+    IdentityScope，并以 server 自身 principal 经统一认证网关取得访问
+    context。context 绑定任务进程，进程以任何结局关闭时失效（P-6），
+    不在请求结束时重复失效。
     """
     process_id = f"process_{uuid.uuid4().hex}"
     identity_scope = resolve_request_identity_scope(
@@ -58,6 +67,9 @@ async def chat(
         require_agent=True,
         agent_id=body.agent_id,
         session_id=body.session_id,
+    )
+    access = await authenticate_request_access(
+        identity_scope, gateway=gateway, principal_id=principal_id
     )
 
     async def event_generator():
@@ -67,6 +79,7 @@ async def chat(
             stream = service.run_process(
                 message=body.message,
                 identity_scope=identity_scope,
+                access=access,
                 process_id=process_id,
                 enable_memory_retrieval=body.enable_memory_retrieval,
                 generation_options=(
@@ -140,18 +153,27 @@ async def stop_chat(
     request: StopChatRequest,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
     service: TaskProcessService = Depends(get_process_service),
+    gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
+    principal_id: str = Depends(get_server_principal_id),
 ):
     """Idempotently cancel an active streaming generation.
 
-    取消不是 Agent action：基础身份选择只来自统一请求头，服务端用其做
-    owner/workspace 校验后，通过进程表复用创建时冻结的原始 scope 执行
-    取消，不从当前选择重新构造可能不同的 scope。
+    取消不是 Agent action：基础身份选择只来自统一请求头。请求先经统一
+    认证网关取得请求级 (user, ``system``) context——只有已获准入的用户能
+    发起取消；取消本身仍由进程服务校验 owner 与 workspace，不新增
+    operation，context 在请求结束时失效。
     """
     identity_scope = resolve_request_identity_scope(selection)
-    result = service.cancel_process(
-        request.process_id,
-        identity_scope=identity_scope,
+    access = await authenticate_request_access(
+        identity_scope, gateway=gateway, principal_id=principal_id
     )
+    try:
+        result = service.cancel_process(
+            request.process_id,
+            identity_scope=identity_scope,
+        )
+    finally:
+        release_request_access(access, gateway)
     return {
         "process_id": result.process_id,
         "cancelled": result.cancelled,

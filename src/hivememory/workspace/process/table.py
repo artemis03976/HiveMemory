@@ -9,12 +9,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
     IdentityScope,
     require_identity_scope,
 )
+
+if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext
 
 
 class ProcessPhase(str, Enum):
@@ -68,14 +72,17 @@ class ProcessStatusSnapshot:
 
 @dataclass
 class ProcessRecord:
-    """一次任务进程的阶段引用与终态事实。
+    """一次任务进程的阶段引用、访问 context 与终态事实。
 
     ``process_id`` 是任意任务进程的唯一标识（Q-16）：由 server 入口在进入
     编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
+    ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：
+    进程以任何结局关闭时使其失效（P-6）。
     """
 
     identity_scope: IdentityScope
     process_id: str
+    access: WorkspaceAccessContext | None = None
     phase: ProcessPhase = ProcessPhase.CREATED
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
     stop_reason: str | None = None

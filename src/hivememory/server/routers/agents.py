@@ -2,9 +2,14 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.models import IdentityScope
-from hivememory.server.deps import get_agent_service, get_identity_scope
+from hivememory.server.deps import (
+    get_agent_service,
+    get_identity_scope,
+    get_request_access_context,
+)
 from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 
@@ -16,6 +21,7 @@ async def create_agent(
     body: AgentCreateRequest,
     service: AgentApplicationService = Depends(get_agent_service),
     identity_scope: IdentityScope = Depends(get_identity_scope),
+    access: WorkspaceAccessContext = Depends(get_request_access_context),
 ):
     """创建新的 Agent Profile（管理用例，actor 为保留 system）"""
     try:
@@ -27,14 +33,13 @@ async def create_agent(
             content=body.content,
             tags=body.tags,
             agent_config=body.agent_config,
+            access=access,
         )
     except InvalidMemoryFieldError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except MemoryAliasConflictError as exc:
         # Agent alias 即 agent_id，同一 Workspace 内必须唯一。
         raise HTTPException(status_code=409, detail=str(exc))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
     return AgentProfileResponse.from_atom(atom)
 
 
@@ -42,10 +47,10 @@ async def create_agent(
 async def list_agents(
     service: AgentApplicationService = Depends(get_agent_service),
     identity_scope: IdentityScope = Depends(get_identity_scope),
+    access: WorkspaceAccessContext = Depends(get_request_access_context),
 ):
     """列出所有 Agent Profile（管理用例，actor 为保留 system）"""
-    try:
-        atoms = await service.list_agent_profiles(identity_scope=identity_scope, limit=100)
-        return [AgentProfileResponse.from_atom(atom) for atom in atoms]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    atoms = await service.list_agent_profiles(
+        identity_scope=identity_scope, limit=100, access=access
+    )
+    return [AgentProfileResponse.from_atom(atom) for atom in atoms]

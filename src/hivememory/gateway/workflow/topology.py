@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.config.gateway import (
@@ -41,6 +42,9 @@ from hivememory.gateway.workflow.steps import (
 )
 from hivememory.gateway.workflow.workflow import GatewayWorkflow
 
+if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext
+
 
 @dataclass(frozen=True)
 class EntryInterceptionInput:
@@ -51,6 +55,7 @@ class EntryInterceptionInput:
 @dataclass(frozen=True)
 class CandidateTopicsInput:
     identity_scope: IdentityScope
+    access: WorkspaceAccessContext | None
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,7 @@ class TopicRoutingInput:
 @dataclass(frozen=True)
 class RoutedTopicInput:
     identity_scope: IdentityScope
+    access: WorkspaceAccessContext | None
     topic_id: str
 
 
@@ -97,7 +103,8 @@ def build_gateway_workflow(
         if context_provider is None:
             raise RecoverableGatewayError("Gateway Context Provider 未装配")
         return await context_provider.prepare_candidate_topics(
-            identity_scope=selected.identity_scope
+            identity_scope=selected.identity_scope,
+            access=selected.access,
         )
 
     async def invoke_topic_router(
@@ -118,6 +125,7 @@ def build_gateway_workflow(
             raise RecoverableGatewayError("Gateway Context Provider 未装配")
         return await context_provider.prepare_routed_topic(
             identity_scope=selected.identity_scope,
+            access=selected.access,
             topic_id=selected.topic_id,
         )
 
@@ -222,7 +230,10 @@ def _resolve_entry_flow_end(output: InterceptorResult | None) -> str | None:
 def _select_candidate_topics_input(
     snapshot: GatewayStateSnapshot,
 ) -> CandidateTopicsInput:
-    return CandidateTopicsInput(identity_scope=snapshot.identity_scope)
+    return CandidateTopicsInput(
+        identity_scope=snapshot.identity_scope,
+        access=snapshot.access,
+    )
 
 
 def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingInput:
@@ -247,6 +258,7 @@ def _select_routed_topic_input(snapshot: GatewayStateSnapshot) -> RoutedTopicInp
         raise RuntimeError("Routed Topic Preparation 前必须完成 topic routing")
     return RoutedTopicInput(
         identity_scope=snapshot.identity_scope,
+        access=snapshot.access,
         topic_id=snapshot.topic_id,
     )
 

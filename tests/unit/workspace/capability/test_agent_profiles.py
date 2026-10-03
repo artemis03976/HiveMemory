@@ -16,12 +16,12 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
     make_identity_scope,
     make_management_identity_scope,
     make_workspace_runtime,
@@ -95,16 +95,29 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 
 class TestAgentApplicationService:
     @pytest.fixture
-    def service(self, mock_global_bus, passive_config):
-        # 管理用例不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
+    def composition(self):
+        # 管理用例的 operation 授权（management.memory）在本层执行：用真实
+        # 组合为 (u1, system) 签发管理 context。
+        return make_access_composition(
+            [make_actor_access_record(owner_user_id="u1", agent_id="system")]
+        )
+
+    @pytest.fixture
+    def service(self, mock_global_bus, passive_config, composition):
+        # 管理用例不经读取 resolver：注入真实但空白的读取依赖。
         return AgentApplicationService(
             global_bus=mock_global_bus,
-            access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+            access_guard=composition.guard,
             profile_reader=make_workspace_runtime().profiles,
         )
 
+    @pytest.fixture
+    def access(self, composition):
+        """管理入口的访问 context（management.memory 授权后的凭据）。"""
+        return composition.authenticate(agent_id="system", user_id="u1")
+
     @pytest.mark.asyncio
-    async def test_create_agent_profile_uses_public_route(self, service, mock_global_bus):
+    async def test_create_agent_profile_uses_public_route(self, service, mock_global_bus, access):
         created = _make_memory_atom(title="Worker")
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = created
@@ -118,6 +131,7 @@ class TestAgentApplicationService:
             content="persona",
             tags=["agent"],
             agent_config={"allowed_mtp_verbs": ["SEARCH"]},
+            access=await access,
         )
 
         mock_global_bus.request.assert_awaited_once()
@@ -133,12 +147,12 @@ class TestAgentApplicationService:
         assert payload.payload.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
 
     @pytest.mark.asyncio
-    async def test_list_agent_profiles_uses_public_route(self, service, mock_global_bus):
+    async def test_list_agent_profiles_uses_public_route(self, service, mock_global_bus, access):
         mock_global_bus.request.side_effect = None
         mock_global_bus.request.return_value = []
 
         identity_scope = make_management_identity_scope(user_id="u1")
-        await service.list_agent_profiles(identity_scope=identity_scope)
+        await service.list_agent_profiles(identity_scope=identity_scope, access=await access)
         # 路由 + 默认 limit=100 是真实生产参数契约
         mock_global_bus.request.assert_awaited_once()
         route = mock_global_bus.request.await_args.args[0]

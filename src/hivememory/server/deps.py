@@ -1,11 +1,13 @@
 """依赖注入 — HiveMemorySystem 单例管理与身份解析唯一入口"""
 
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
 
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.access import CallerPrincipal, WorkspaceAccessContext
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
@@ -15,6 +17,7 @@ from hivememory.system import HiveMemorySystem
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
 from hivememory.workspace.capability.memory import MemoryApplicationService
@@ -26,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 _system: HiveMemorySystem | None = None
 _ws_manager: WebSocketConnectionManager | None = None
+
+#: server 作为 system actor 的 adapter 接入统一认证网关（A1 访问边界返工 4.1）。
+HTTP_ADAPTER = "http"
 
 
 def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
@@ -222,6 +228,78 @@ def get_identity_scope(
     :func:`resolve_request_identity_scope` 做冲突检测后自行解析。
     """
     return resolve_request_identity_scope(selection)
+
+
+# ---------------------------------------------------------------------------
+# 统一认证网关接入（A1 访问边界返工第 4.1 节）
+#
+# server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
+# 每个与 workspace 相关的请求经网关取得 context。请求头中的用户身份不做
+# 证明——这是本地单用户部署的信任假设。
+# ---------------------------------------------------------------------------
+
+
+def get_access_gateway() -> ActorAuthenticationGateway:
+    """FastAPI Depends 注入 — 统一认证网关（未装配时显式失败）。"""
+    gateway = get_system().access_gateway
+    if gateway is None:
+        raise RuntimeError("统一认证网关未装配，无法完成请求认证")
+    return gateway
+
+
+def get_server_principal_id() -> str:
+    """FastAPI Depends 注入 — server 自身经网关认证使用的 principal 标识。"""
+    return get_system().config.system.server_principal_id
+
+
+async def authenticate_request_access(
+    identity_scope: IdentityScope,
+    *,
+    gateway: ActorAuthenticationGateway,
+    principal_id: str,
+) -> WorkspaceAccessContext:
+    """以 server 自身 principal 经统一认证网关取得访问 context。
+
+    ``identity_scope`` 是 :func:`resolve_request_identity_scope` 冻结的
+    请求身份；网关认证失败（未登记 principal、adapter 不匹配、未获准入）
+    以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
+    """
+    return await gateway.authenticate(
+        adapter=HTTP_ADAPTER,
+        principal=CallerPrincipal(principal_id),
+        actor=identity_scope.actor_identity,
+        workspace=identity_scope.workspace_identity,
+    )
+
+
+async def get_request_access_context(
+    identity_scope: IdentityScope = Depends(get_identity_scope),
+    gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
+    principal_id: str = Depends(get_server_principal_id),
+) -> AsyncIterator[WorkspaceAccessContext]:
+    """FastAPI yield 依赖 — 管理员请求的请求级 access context。
+
+    以 (user, ``system``) 坐标经网关认证取得 context，一次请求一个；
+    请求结束（含失败）时失效（A1 访问边界返工第 4.4 节）。供 memories、
+    agents、memory-tasks、workspace assets 等管理路由使用；身份解析带
+    body/query 冲突检测的路由自行调用 :func:`authenticate_request_access`
+    并在请求收尾时失效 context。
+    """
+    context = await authenticate_request_access(
+        identity_scope, gateway=gateway, principal_id=principal_id
+    )
+    try:
+        yield context
+    finally:
+        gateway.invalidate_context(context)
+
+
+def release_request_access(
+    access: WorkspaceAccessContext,
+    gateway: ActorAuthenticationGateway,
+) -> None:
+    """使请求级 access context 失效；请求结束（含失败）时由 server 调用。"""
+    gateway.invalidate_context(access)
 
 
 def init_websocket_log_broadcasting(

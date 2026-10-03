@@ -21,16 +21,21 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.server.routers.memories import router
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.memory import MemoryApplicationService
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import (
+    make_server_access_overrides,
+    make_workspace_runtime,
+)
 
 
 def _create_test_app(storage, lifecycle_engine=None):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    # 生产入口的未处理异常由全局处理器按 500 返回；测试 app 复用同一处理器。
+    from hivememory.server.app import global_exception_handler
+
+    app.add_exception_handler(Exception, global_exception_handler)
 
     from hivememory.server import deps
 
@@ -42,13 +47,16 @@ def _create_test_app(storage, lifecycle_engine=None):
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
-    # 管理路由不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
+    # 管理用例的 operation 授权（management.memory）在本层执行：服务与
+    # 访问依赖共享同一组合的 guard，context 才能通过签发校验。
+    overrides, composition = make_server_access_overrides()
     service = MemoryApplicationService(
         global_bus=bus,
-        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        access_guard=composition.guard,
         memory_reader=make_workspace_runtime(bus).aliases,
     )
     app.dependency_overrides[deps.get_memory_service] = lambda: service
+    app.dependency_overrides.update(overrides)
 
     return app
 
@@ -166,7 +174,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
 
         app = _create_test_app(storage)
-        client = TestClient(app)
+        # 全局异常处理器只在非调试模式下生效：显式关闭测试期异常上抛。
+        client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/memories",
@@ -207,7 +216,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
 
         app = _create_test_app(storage)
-        client = TestClient(app)
+        # 全局异常处理器只在非调试模式下生效：显式关闭测试期异常上抛。
+        client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/memories",
@@ -318,7 +328,8 @@ class TestMemoriesRouter:
         storage.upsert_memory.side_effect = RuntimeError("storage unavailable")
 
         app = _create_test_app(storage)
-        client = TestClient(app)
+        # 全局异常处理器只在非调试模式下生效：显式关闭测试期异常上抛。
+        client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/memories",

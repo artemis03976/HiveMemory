@@ -1,9 +1,8 @@
 """Workspace 认证入口：统一 Actor Authentication 网关。
 
-A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md 第 3/3.1 节）
-确立的认证编排：所有调用侧只调用一个网关，输入受信接入信息、待解析的
-Actor 身份和目标 Workspace；网关内部顺序完成两项认证，全部成功后返回
-一个可在有效区间内复用的 ``WorkspaceAccessContext``。
+统一认证编排（A1 访问边界设计）：所有调用侧只调用一个网关，输入受信接入
+信息、待解析的 Actor 身份和目标 Workspace；网关内部顺序完成两项认证，全部
+成功后返回一个可复用的 ``WorkspaceAccessContext``。
 
     1. Principal authentication —— 经 ``core.access.PrincipalAuthenticator``
        端口委托 System 实现（接入登记与 adapter 匹配），确认
@@ -17,7 +16,7 @@ Actor 身份和目标 Workspace；网关内部顺序完成两项认证，全部�
 执行 search/read/submit，不接受任意 action 代执行业务，也不替代全局
 总线路由——认证成功后，调用侧沿既有 adapter/service/bridge 发起业务调用。
 
-阶段拒绝语义（A1 第 3.4 节，均以稳定 reason 区分）：
+阶段拒绝语义（均以稳定 reason 区分）：
 
 - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
 - adapter 不匹配 → ``adapter_mismatch``；
@@ -50,11 +49,12 @@ class ActorAuthenticationGateway:
     网关不执行业务、不转发路由；adapter 负责协议解析与接入证据，网关
     负责按登记规则统一验证并作出认证结论。
 
-    生命周期（A1 第 3.4 节）：context 仅在本网关（其所在运行实例）内
-    复用；有效区间由 Workspace guard 的 ``context_ttl_seconds`` 声明，
-    ``None`` 表示不设固定 TTL。:meth:`close` 关闭共享 guard，使旧 context
-    一并失效。本类不提供配置热更新——首版本地
-    配置在运行实例内不可变，修改经重启生效。
+    生命周期（v0.7.0 A1 访问边界返工第 4.4 节）：context 不设固定有效期，
+    只随三个时点失效——绑定的任务进程关闭、请求级 context 随请求结束、
+    System 停止。:meth:`close` 只关闭网关自身、拒绝新的认证，已签发
+    context 的失效由各自所有者完成；System 停止时在任务进程收尾后另行
+    关闭 guard。本类不提供配置热更新——首版本地配置在运行实例内不可变，
+    修改经重启生效。
     """
 
     def __init__(
@@ -65,15 +65,20 @@ class ActorAuthenticationGateway:
     ) -> None:
         self._principals = principals
         self._workspace_access = workspace_access
+        self._closed = False
 
     @property
     def is_closed(self) -> bool:
-        """网关是否已关闭；关闭后不再签发 context，旧 context 一并失效。"""
-        return self._workspace_access.is_closed
+        """网关或共享 guard 是否已关闭；关闭后不再签发 context。"""
+        return self._closed or self._workspace_access.is_closed
 
     def close(self) -> None:
-        """关闭同一运行实例的 Workspace guard，使已签发 context 失效。"""
-        self._workspace_access.close()
+        """关闭网关：拒绝新的认证请求，不影响已签发 context 的剩余生命周期。"""
+        self._closed = True
+
+    def invalidate_context(self, access: WorkspaceAccessContext) -> None:
+        """使单个已签发 context 失效；委托给持有签发状态的共享 guard。"""
+        self._workspace_access.invalidate(access)
 
     async def authenticate(
         self,

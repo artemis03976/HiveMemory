@@ -1,0 +1,17 @@
+# System 接入登记（调用来源）
+#
+# 本文件是两类访问登记之一（System 所有）：声明允许接入的调用来源及其
+# 可用的 adapter。principal 配置不授予任何 Workspace operation——操作
+# 许可只由 workspace_actors.yaml 表达。
+#
+# 拒绝未知字段；本文件缺失时按空登记 fail closed（网关拒绝一切认证）。
+# 登记修改经重启生效，不提供热更新。
+
+principals:
+  # HTTP 入口（server）作为 system actor 的 adapter 接入统一认证网关。
+  # principal_id 需与 config.yaml 的 system.server_principal_id 一致。
+  - principal_id: "hivememory:http-server"
+    kind: "http-server"
+    enabled: true
+    adapters:
+      - "http"

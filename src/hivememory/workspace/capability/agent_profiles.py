@@ -3,8 +3,8 @@
 - ``get_agent_profile``：``profile.read`` 授权在 backing 调用前执行，随后经
   workspace Profile 读取 resolver 按 ``(Workspace, agent_alias)`` 命中或冷读，
   交付边界按源原子 policy 逐次授权（A2 §2.3）；对 actor 只交付 AgentProfile；
-- 管理写入/列表保持对库管理路由的薄委托（``management.memory`` 绑定例外，
-  检查仍由 Patchouli application 执行）。
+- 管理写入/列表（``management.memory`` 绑定例外）的 operation 授权同样在
+  本层、路由调用前执行（A1 访问边界返工第 4.3 节）。
 """
 
 from __future__ import annotations
@@ -44,9 +44,10 @@ class AgentApplicationService:
     不是具体 Agent 的执行动作，因此 server 边界为其冻结 ``system`` actor
     的 IdentityScope；``source_agent_id`` 只作 provenance 展示。
 
-    访问上下文约定（A1 计划）：管理用例的 ``access`` 为统一认证网关签发的
-    可信 context，原样透传给 Patchouli 公共管理路由，行为检查在 application
-    落实；Profile 定义读取的 ``profile.read`` 在本层、backing 调用前检查。
+    访问上下文约定（A1 访问边界返工第 4.3 节）：管理用例的 ``access`` 为
+    统一认证网关签发的可信 context，``management.memory`` 授权在本层、
+    路由调用前检查后**原样透传**给 Patchouli 公共管理路由；Profile 定义
+    读取的 ``profile.read`` 也在本层、backing 调用前检查。
     """
 
     def __init__(
@@ -70,9 +71,10 @@ class AgentApplicationService:
         content: str = "",
         tags: list[str],
         agent_config: dict[str, Any] | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """在显式 Workspace scope 中创建 Agent Profile（管理用例）。"""
+        """在显式 Workspace scope 中创建 Agent Profile（``management.memory`` 管理用例）。"""
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
         try:
             index = IndexLayer(
@@ -115,9 +117,10 @@ class AgentApplicationService:
         *,
         identity_scope: IdentityScope,
         limit: int = 100,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
-        """在显式 Workspace scope 中列出 Agent Profile（管理用例）。"""
+        """在显式 Workspace scope 中列出 Agent Profile（``management.memory`` 管理用例）。"""
+        self._access_guard.authorize_operation(access, WorkspaceOperation.MANAGEMENT_MEMORY)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
             identity_scope=identity_scope,

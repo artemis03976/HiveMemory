@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from starlette.datastructures import UploadFile
 from starlette.formparsers import MultiPartException
 
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import (
     AssetNotFoundError,
     AssetOperationConflictError,
@@ -23,10 +24,9 @@ from hivememory.infrastructure.attachments.errors import (
     InvalidAttachmentNameError,
 )
 from hivememory.server.deps import (
-    RequestIdentitySelection,
-    get_identity_selection,
+    get_identity_scope,
+    get_request_access_context,
     get_workspace_asset_service,
-    resolve_request_identity_scope,
 )
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
 from hivememory.workspace.capability.assets import (
@@ -94,17 +94,17 @@ async def upload_workspace_asset(
     request: Request,
     response: Response,
     idempotency_key: str | None = Header(default=None),
-    selection: RequestIdentitySelection = Depends(get_identity_selection),
+    identity_scope: IdentityScope = Depends(get_identity_scope),
+    access: WorkspaceAccessContext = Depends(get_request_access_context),
     service: WorkspaceAssetApplicationService = Depends(get_workspace_asset_service),
 ) -> WorkspaceAssetUploadResponse:
     """上传单个附件，创建 WorkspaceAsset 并返回 bound ref 与 RAW 摘要。
 
     首次创建返回 201；同一 ``Idempotency-Key`` 且内容一致的重放返回 200
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动
-    加入当前 Chat run。
+    加入当前 Chat run。上传绑定 ``management.asset``：请求经统一认证网关
+    取得访问 context，scope 一致性由应用服务在副作用前校验。
     """
-    identity_scope: IdentityScope = resolve_request_identity_scope(selection)
-
     operation_id = idempotency_key.strip() if idempotency_key else ""
     if not operation_id:
         raise HTTPException(
@@ -126,6 +126,7 @@ async def upload_workspace_asset(
             declared_media_type=upload.content_type,
             source=upload,
             client_operation_id=operation_id,
+            access=access,
         )
     except EmptyAttachmentError as exc:
         raise HTTPException(

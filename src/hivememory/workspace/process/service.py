@@ -20,6 +20,7 @@ from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
@@ -28,6 +29,7 @@ from hivememory.core.models import (
     require_identity_scope,
 )
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
+from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
@@ -66,7 +68,10 @@ class TaskProcessService:
     CPU 分配与 Actor 执行所需能力由组合根注入：``cpu`` 是 CPU 端口
     （由 CPU 的提供方实现，当前为 Alice）；``asset_reader`` 是进程级唯一
     WorkspaceAssetStore 的只读 reader 端口（附件租借在此 acquire，随进程
-    关闭统一 release）；两个编译配置段驱动进程侧的记忆/附件编译。
+    关闭统一释放）；两个编译配置段驱动进程侧的记忆/附件编译；
+    ``access_guard`` 与统一认证网关共享同一实例——注册入口在创建进程前
+    校验收到的 context，阶段 operation 授权在进程内执行，进程以任何结局
+    关闭时使绑定 context 失效（A1 访问边界返工第 4.3/4.4 节）。
     """
 
     def __init__(
@@ -79,6 +84,7 @@ class TaskProcessService:
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
+        access_guard: WorkspaceAccessGuard,
     ) -> None:
         self._bus = global_bus
         self._process_table = ProcessTable()
@@ -87,11 +93,13 @@ class TaskProcessService:
         )
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._cpu = cpu
+        self._access_guard = access_guard
         self._allocator = CPUAllocator(
             global_bus,
             asset_reader=asset_reader,
             memory_compiler_config=memory_compiler_config,
             attachment_compiler_config=attachment_compiler_config,
+            access_guard=access_guard,
         )
 
     # ========== 注册入口 ==========
@@ -102,6 +110,7 @@ class TaskProcessService:
         message: str,
         *,
         identity_scope: IdentityScope,
+        access: WorkspaceAccessContext,
         process_id: str,
         stream: Literal[True] = True,
         enable_memory_retrieval: bool = True,
@@ -115,6 +124,7 @@ class TaskProcessService:
         message: str,
         *,
         identity_scope: IdentityScope,
+        access: WorkspaceAccessContext,
         process_id: str,
         stream: Literal[False],
         enable_memory_retrieval: bool = True,
@@ -127,6 +137,7 @@ class TaskProcessService:
         message: str,
         *,
         identity_scope: IdentityScope,
+        access: WorkspaceAccessContext,
         process_id: str,
         stream: bool = True,
         enable_memory_retrieval: bool = True,
@@ -135,16 +146,19 @@ class TaskProcessService:
     ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, NonStreamingResult]:
         """任务请求的唯一注册入口：使用 server 边界冻结的完整 Workspace scope。
 
-        ``message`` 是交给 Gateway 分析的指令文本。``stream=True``（默认）
-        返回流式事件的异步生成器；``stream=False``
-        返回可 await 的非流式结果。两种形态运行同一条进程骨架，身份校验在
-        开始迭代或 await 时才执行。``process_id`` 由 server 入口在进入本服务
-        前生成并冻结（Q-16）；``attachments`` 只透传用户选择，ref/READY/版本
-        校验发生在进程的 CPU 分配边界。
+        ``message`` 是交给 Gateway 分析的指令文本。``access`` 是调用方经
+        统一认证网关取得的访问 context，绑定本进程、随进程关闭失效；阶段
+        operation 授权在进程内执行。``stream=True``（默认）返回流式事件的
+        异步生成器；``stream=False`` 返回可 await 的非流式结果。两种形态
+        运行同一条进程骨架，身份校验与 context 校验在开始迭代或 await 时
+        才执行。``process_id`` 由 server 入口在进入本服务前生成并冻结
+        （Q-16）；``attachments`` 只透传用户选择，ref/READY/版本校验发生在
+        进程的 CPU 分配边界。
         """
         request = ProcessRequest(
             message=message,
             identity_scope=identity_scope,
+            access=access,
             process_id=process_id,
             enable_memory_retrieval=enable_memory_retrieval,
             generation_options=generation_options,
@@ -194,6 +208,10 @@ class TaskProcessService:
     def _open_process(self, request: ProcessRequest, *, stream: bool) -> TaskProcess:
         identity_scope = require_identity_scope(request.identity_scope)
         self._reject_system_actor(identity_scope.actor_identity.agent_id)
+        # 注册入口先校验收到的 context（两阶段认证成立的凭据，A1 访问边界
+        # 返工第 4.1 节）：校验不通过不创建进程，保证未通过两阶段认证的
+        # 请求不创建任务进程由入口自身成立。
+        self._access_guard.verify_context(request.access)
         return TaskProcess(
             request,
             stream=stream,
@@ -203,6 +221,7 @@ class TaskProcessService:
             cpu=self._cpu,
             events=self._events,
             gateway_request_timeout_ms=self._gateway_request_timeout_ms,
+            access_guard=self._access_guard,
         )
 
     # ========== 进程控制 ==========

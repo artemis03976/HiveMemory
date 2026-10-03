@@ -112,11 +112,16 @@ def _create_topics_app() -> FastAPI:
     app = FastAPI()
     app.include_router(topics_router, prefix="/api/v1")
 
+    from hivememory.server.deps import get_request_access_context
+
     bus = MagicMock()
     handler = AsyncMock(return_value=[])
 
     bus.request = handler
     app.dependency_overrides[deps.get_topic_service] = lambda: _TopicServiceStub(bus)
+    # topics 路由经统一认证网关取得请求级 context：覆盖注入真实组合的网关。
+    overrides, _ = make_server_access_overrides(users=["u1", "query-user", "header-user"])
+    app.dependency_overrides.update(overrides)
     return app
 
 
@@ -124,7 +129,7 @@ class _TopicServiceStub:
     def __init__(self, bus):
         self._bus = bus
 
-    async def list_active_topics(self, *, identity_scope):
+    async def list_active_topics(self, *, identity_scope, access=None):
         return await self._bus.request("topic.list_active", identity_scope=identity_scope)
 
 
@@ -254,11 +259,15 @@ class TestScopeResolvedOncePerRequest:
         app.include_router(topics_router, prefix="/api/v1")
 
         class ScopeCapturingStub:
-            async def list_active_topics(self, *, identity_scope):
+            async def list_active_topics(self, *, identity_scope, access=None):
                 captured.append(identity_scope)
                 return []
 
         app.dependency_overrides[deps.get_topic_service] = lambda: ScopeCapturingStub()
+        from tests.helpers.workspace import make_server_access_overrides
+
+        overrides, _ = make_server_access_overrides(users=["u1"])
+        app.dependency_overrides.update(overrides)
 
         client = TestClient(app)
         client.get("/api/v1/topics", headers={"x-user-id": "u1"})

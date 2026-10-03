@@ -1,9 +1,9 @@
 """Workspace Actor 访问注册表：准入状态与行为白名单的权威配置。
 
-A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md 第 2.2/3.2 节）
-确立的两类登记之一：本注册表由 Workspace 访问基础设施持有和查询，回答
-"这个 Actor 在这个 Workspace 是否被允许进入、进入后允许执行哪些 operation"。
-一条访问记录同时承载准入状态与行为白名单，不强制拆成两个 store。
+两类登记之一（v0.7.0 A1 访问边界返工第 4.2 节）：本注册表由 Workspace
+访问基础设施持有和查询，回答"这个 Actor 在这个 Workspace 是否被允许进入、
+进入后允许执行哪些 operation"。一条访问记录同时承载准入状态与行为白名单，
+不强制拆成两个 store。
 
 职责边界：
 
@@ -12,19 +12,26 @@ A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md 第 2.2/3.2 节）
   Actor 的 ``user_id + agent_id``；``session_id``、run/frame 和调用协议
   不进入权限键；
 - ``team_id`` 由可信身份关系提供给资源 policy，不进入本注册表；
-- 首版为进程内不可变本地配置，配置修改经重启生效，不提供热更新、
-  持久化或管理 API；System composition 负责装载配置并注入给统一认证
-  网关与共享行为检查。
+- 首版为进程内不可变本地配置（``configs/workspace_actors.yaml``），
+  配置修改经重启生效，不提供热更新、持久化或管理 API；System composition
+  负责装载配置并注入给统一认证网关与共享行为检查。
+
+用户级记录（v0.7.0 简化）：``agent_id`` 为 ``None`` 的记录覆盖该用户的
+所有具体 Agent，但不覆盖保留的 ``system``——system 必须单独显式登记。
+匹配时精确记录优先；精确记录禁用即拒绝，不回落到用户级记录；每个
+(owner, workspace, user) 至多一条用户级记录，重复在装载期失败。
 
 W0 兼容基线：``actor.user_id == workspace.owner_user_id`` 仍是准入前提，
 因此本注册表在装载期拒绝跨 owner 的访问记录（跨 owner 成员模型不在
-A1 范围内）；相同 owner 也不表示自动获准——缺失记录即准入失败。
+当前范围内）；相同 owner 也不表示自动获准——缺失记录即准入失败。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from hivememory.core.constants import SYSTEM_AGENT_ID
 
 if TYPE_CHECKING:
     # 注解引用保持 workspace 包内单向依赖：registry 不在运行期导入 access。
@@ -44,23 +51,26 @@ class WorkspaceActorAccessRecord:
     ``enabled=False`` 表示该 Actor 当前不被允许进入该 Workspace；
     ``allowed_operations`` 是进入后的行为上限，**允许为空**——空集合代表
     可进入但未获准执行任何资源操作，不是身份认证失败。
+
+    ``agent_id`` 为 ``None`` 表示用户级记录：覆盖该用户的所有具体 Agent，
+    不覆盖保留的 ``system``。
     """
 
     owner_user_id: str
     workspace_id: str
     user_id: str
-    agent_id: str
+    agent_id: str | None
     enabled: bool = True
     allowed_operations: frozenset[WorkspaceOperation] = frozenset()
 
     @property
-    def key(self) -> tuple[str, str, str, str]:
+    def key(self) -> tuple[str, str, str, str | None]:
         """注册表内部唯一键：完整 Workspace 坐标 + Actor 坐标。"""
         return (self.owner_user_id, self.workspace_id, self.user_id, self.agent_id)
 
 
 class WorkspaceActorAccessRegistry:
-    """进程内不可变的 Workspace Actor 访问注册表（v0.7.0 首版本地配置）。
+    """进程内不可变的 Workspace Actor 访问注册表（v0.7.0 本地配置）。
 
     供 Workspace guard 的内部准入与逐次行为检查查询；System 统一认证
     网关通过 guard 完成 Workspace 准入，不直接读取本注册表。
@@ -69,8 +79,8 @@ class WorkspaceActorAccessRegistry:
     """
 
     def __init__(self, records: list[WorkspaceActorAccessRecord]) -> None:
-        """装载访问记录；重复键与跨 owner 记录在装载期显式失败。"""
-        by_key: dict[tuple[str, str, str, str], WorkspaceActorAccessRecord] = {}
+        """装载访问记录；重复键、跨 owner 记录与配置矛盾在装载期显式失败。"""
+        by_key: dict[tuple[str, str, str, str | None], WorkspaceActorAccessRecord] = {}
         for record in records:
             if not isinstance(record, WorkspaceActorAccessRecord):
                 raise TypeError("访问记录必须是 WorkspaceActorAccessRecord")
@@ -85,6 +95,8 @@ class WorkspaceActorAccessRegistry:
                     f"（W0 兼容基线）: {record.key}"
                 )
             if record.key in by_key:
+                # 用户级记录键以 ``agent_id=None`` 收敛：同一 (owner,
+                # workspace, user) 的第二条用户级记录在此被拒绝。
                 raise ValueError(f"Workspace Actor 访问记录键重复: {record.key}")
             by_key[record.key] = record
         self._records = by_key
@@ -96,14 +108,19 @@ class WorkspaceActorAccessRegistry:
     ) -> WorkspaceActorAccessRecord | None:
         """按完整坐标查询访问记录；查无结果返回 ``None``（调用方拒绝）。
 
-        键包含 ``owner_user_id``：两个 owner 使用相同 ``workspace_id`` 时
-        记录不串扰。
+        精确记录优先：命中（含禁用）即返回，由调用方按 ``enabled`` 拒绝，
+        不回落到用户级记录。未命中精确记录且 Actor 不是保留 ``system``
+        时，回落到该用户的用户级记录（``agent_id=None``）；``system``
+        不被用户级记录覆盖，必须单独登记。
         """
-        return self._records.get(
-            (
-                workspace_identity.owner_user_id,
-                workspace_identity.workspace_id,
-                actor_identity.user_id,
-                actor_identity.agent_id,
-            )
+        coordinates = (
+            workspace_identity.owner_user_id,
+            workspace_identity.workspace_id,
+            actor_identity.user_id,
         )
+        exact = self._records.get((*coordinates, actor_identity.agent_id))
+        if exact is not None:
+            return exact
+        if actor_identity.agent_id == SYSTEM_AGENT_ID:
+            return None
+        return self._records.get((*coordinates, None))
