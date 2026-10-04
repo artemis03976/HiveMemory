@@ -7,13 +7,14 @@ Chat 路由单元测试
     2. 正常对话 — SSE 事件序列: topic_info → token → done
     3. MTP 对话 — SSE 事件序列: topic_info → token → mtp_start → mtp_result → token → done
     4. 异常处理 — SSE error 事件
-    5. 断连/断流 — cancel_process 使用进程绑定的 access，close_process 收口
+    5. 断连/断流 — stop_process(handle, reason="client_disconnected") 停止
+       自己注册的进程（不经进程控制授权），close_process(handle) 收口
 """
 
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, sentinel
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -31,9 +32,9 @@ from hivememory.server.routers.chat import _cancel_and_join, chat, router
 from tests.helpers.workspace import make_server_access_overrides
 
 
-def _registered_process(*, process_id: str, access):
-    """构造 ``register_process`` 返回的进程句柄 stub（携带 record.access）。"""
-    return SimpleNamespace(record=SimpleNamespace(process_id=process_id, access=access))
+def _registered_process(*, process_id: str):
+    """构造 ``register_process`` 返回的进程句柄 stub（只暴露 process_id）。"""
+    return SimpleNamespace(process_id=process_id)
 
 
 def _create_test_app(mock_service, access=None):
@@ -56,14 +57,12 @@ def _create_test_app(mock_service, access=None):
 def _wired_chat_service(stream_factory):
     """构造按注册→运行编排的 mock 任务进程服务。
 
-    ``register_process`` 返回携带 ``record.access`` 的进程 stub；``run_process``
-    与生产签名一致地接收 ``(process, stream=True)``。
+    ``register_process`` 返回只暴露 ``process_id`` 的进程句柄 stub；
+    ``run_process`` 与生产签名一致地接收 ``(handle, stream=True)``。
     """
     mock_service = MagicMock()
     mock_service.register_process = AsyncMock(
-        side_effect=lambda **kwargs: _registered_process(
-            process_id=kwargs["process_id"], access=sentinel.process_access
-        )
+        side_effect=lambda **kwargs: _registered_process(process_id=kwargs["process_id"])
     )
     mock_service.run_process = MagicMock(
         side_effect=lambda *args, **kw: stream_factory(*args, **kw)
@@ -190,9 +189,9 @@ class TestChatRegistration:
             "top_p": 0.8,
             "max_tokens": 1024,
         }
-        # run_process 收到注册返回的进程句柄（带进程绑定 access）与 stream=True
+        # run_process 收到注册返回的不透明进程句柄与 stream=True
         run_args, run_kwargs = mock_service.run_process.call_args
-        assert run_args[0].record.access is sentinel.process_access
+        assert run_args[0].process_id == register_kwargs["process_id"]
         assert run_kwargs == {"stream": True}
 
     def test_registration_precedes_stream_run(self):
@@ -201,11 +200,9 @@ class TestChatRegistration:
 
         async def fake_register(**kwargs):
             order.append("register")
-            return _registered_process(
-                process_id=kwargs["process_id"], access=sentinel.process_access
-            )
+            return _registered_process(process_id=kwargs["process_id"])
 
-        def fake_run(process, *, stream=True):
+        def fake_run(handle, *, stream=True):
             order.append("run")
 
             async def gen():
@@ -234,11 +231,9 @@ class TestChatRegistration:
 
         async def fake_register(**kwargs):
             captured.append(kwargs["process_id"])
-            return _registered_process(
-                process_id=kwargs["process_id"], access=sentinel.process_access
-            )
+            return _registered_process(process_id=kwargs["process_id"])
 
-        def fake_run(process, *, stream=True):
+        def fake_run(handle, *, stream=True):
             async def gen():
                 yield {"event": "done", "data": {"final_text": "ok"}}
 
@@ -259,7 +254,7 @@ class TestChatRegistration:
         assert response.status_code == 200
         assert len(captured) == 1
         assert captured[0].startswith("process_")
-        assert captured[0] == mock_service.run_process.call_args.args[0].record.process_id
+        assert captured[0] == mock_service.run_process.call_args.args[0].process_id
 
 
 class TestChatRouter:
@@ -475,14 +470,17 @@ def _simple_stream(*events, exc: Exception | None = None):
 class TestChatDisconnect:
     @staticmethod
     def _direct_call(mock_service, request):
-        """绕过 HTTP 栈直接调用 chat 路由（使用真实网关组合完成认证）。"""
+        """绕过 HTTP 栈直接调用 chat 路由（使用真实网关组合完成认证）。
+
+        chat 路由只声明 service 与 principal_id 依赖：注册入口的认证在
+        ``register_process`` 内完成，路由不再注入网关。
+        """
         _, composition = make_server_access_overrides()
         return chat(
             request=request,
             body=ChatRequest(message="hello", agent_id="test_agent"),
             selection=RequestIdentitySelection(user_id=None, workspace_id=None),
             service=mock_service,
-            gateway=composition.gateway,
             principal_id=composition.principal.principal_id,
         )
 
@@ -503,7 +501,7 @@ class TestChatDisconnect:
         blocker = asyncio.Event()
         stream_factory = self._blocking_stream(blocker, {"event": "process_id", "data": {}})
         mock_service = _wired_chat_service(lambda *args, **kw: stream_factory(**kw))
-        mock_service.cancel_process = MagicMock()
+        mock_service.stop_process = MagicMock()
 
         disconnect_checks = 0
 
@@ -522,28 +520,28 @@ class TestChatDisconnect:
 
         process_id = mock_service.register_process.call_args.kwargs["process_id"]
         assert process_id.startswith("process_")
-        mock_service.cancel_process.assert_called_once_with(
-            process_id,
-            access=sentinel.process_access,
-            reason="client_disconnected",
-        )
+        # 客户端断开经句柄停止自己注册的进程（不经进程控制授权，无 access）
+        handle = mock_service.stop_process.call_args.args[0]
+        assert handle.process_id == process_id
+        assert mock_service.stop_process.call_args.kwargs == {"reason": "client_disconnected"}
         mock_service.close_process.assert_awaited_once()
+        assert mock_service.close_process.await_args.args[0] is handle
 
     @pytest.mark.asyncio
     async def test_disconnect_before_process_id_event_cancels_process(self):
         stream_started = asyncio.Event()
         blocker = asyncio.Event()
 
-        async def fake_stream(process, *, stream=True):
+        async def fake_stream(handle, *, stream=True):
             stream_started.set()
             try:
                 await blocker.wait()
-                yield {"event": "process_id", "data": {"process_id": process.record.process_id}}
+                yield {"event": "process_id", "data": {"process_id": handle.process_id}}
             finally:
                 blocker.set()
 
         mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-        mock_service.cancel_process = MagicMock()
+        mock_service.stop_process = MagicMock()
 
         disconnect_checks = 0
 
@@ -560,11 +558,9 @@ class TestChatDisconnect:
 
         assert stream_started.is_set()
         process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        mock_service.cancel_process.assert_called_once_with(
-            process_id,
-            access=sentinel.process_access,
-            reason="client_disconnected",
-        )
+        handle = mock_service.stop_process.call_args.args[0]
+        assert handle.process_id == process_id
+        assert mock_service.stop_process.call_args.kwargs == {"reason": "client_disconnected"}
         mock_service.close_process.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -573,12 +569,9 @@ class TestChatDisconnect:
         stream_closed = asyncio.Event()
         pull_task = None
 
-        async def fake_stream(process, *, stream=True):
+        async def fake_stream(handle, *, stream=True):
             nonlocal pull_task
-            yield {
-                "event": "process_id",
-                "data": {"process_id": process.record.process_id},
-            }
+            yield {"event": "process_id", "data": {"process_id": handle.process_id}}
             pull_task = asyncio.current_task()
             pull_started.set()
             try:
@@ -587,7 +580,7 @@ class TestChatDisconnect:
                 stream_closed.set()
 
         mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-        mock_service.cancel_process = MagicMock()
+        mock_service.stop_process = MagicMock()
 
         class FakeRequest:
             async def is_disconnected(self):
@@ -609,13 +602,11 @@ class TestChatDisconnect:
         assert pull_task is not None
         assert pull_task.done()
         assert pull_task.cancelled()
-        # ASGI 取消同样走进程取消入口（进程绑定的 access + 断连原因）
+        # ASGI 取消同样走句柄的停止入口（不经进程控制授权 + 断连原因）
         process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        mock_service.cancel_process.assert_called_once_with(
-            process_id,
-            access=sentinel.process_access,
-            reason="client_disconnected",
-        )
+        handle = mock_service.stop_process.call_args.args[0]
+        assert handle.process_id == process_id
+        assert mock_service.stop_process.call_args.kwargs == {"reason": "client_disconnected"}
         mock_service.close_process.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -627,11 +618,8 @@ class TestChatDisconnect:
         测试覆盖）；本测试验证路由在断流时调用了它。
         """
 
-        async def fake_stream(process, *, stream=True):
-            yield {
-                "event": "process_id",
-                "data": {"process_id": process.record.process_id},
-            }
+        async def fake_stream(handle, *, stream=True):
+            yield {"event": "process_id", "data": {"process_id": handle.process_id}}
             yield {"event": "token", "data": {"content": "late"}}
 
         mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
@@ -698,6 +686,4 @@ class TestChatDisconnect:
         mock_service.run_process.assert_not_called()
         mock_service.close_process.assert_awaited_once()
         closed = mock_service.close_process.await_args.args[0]
-        assert closed.record.process_id == (
-            mock_service.register_process.call_args.kwargs["process_id"]
-        )
+        assert closed.process_id == (mock_service.register_process.call_args.kwargs["process_id"])

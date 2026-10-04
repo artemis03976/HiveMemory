@@ -2,8 +2,9 @@
 
 被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、
 取消、失败与断流路径上的行为。注册经真实认证网关完成两阶段认证（组合内
-显式登记），停止请求经进程记录注入；Actor 阶段以测试 CPU 替换 Alice
-（总线上不注册 Alice 路由），子系统路由用 GlobalSystemBus 上的替身隔离。
+显式登记）并返回进程句柄；停止请求经句柄 stop 入口注入；Actor 阶段以
+测试 CPU 替换 Alice（总线上不注册 Alice 路由），子系统路由用
+GlobalSystemBus 上的替身隔离。
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from uuid import uuid4
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceOperation
+from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AssetNotReadyError,
@@ -48,9 +49,8 @@ from hivememory.core.protocol.gateway import (
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionStatus
-from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessStatusSnapshot
-from hivememory.workspace.process.task_process import TaskProcess
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_mtp_turn_events,
@@ -80,7 +80,7 @@ def _workspace() -> WorkspaceIdentity:
 
 
 def _expected_scope() -> IdentityScope:
-    """认证声明经 guard 授权规则应组装出的 IdentityScope。"""
+    """认证声明经操作授权者授权规则应组装出的 IdentityScope。"""
     return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
 
 
@@ -89,17 +89,31 @@ def _composition() -> AccessTestComposition:
     return make_access_composition([make_actor_access_record(owner_user_id=_USER, agent_id=_AGENT)])
 
 
+def _capture_issued_contexts(composition: AccessTestComposition) -> list[WorkspaceAccessContext]:
+    """包装认证网关捕获每次签发的 context：注册入口签发即绑定，供失效断言使用。"""
+    issued: list[WorkspaceAccessContext] = []
+    original = composition.gateway.authenticate
+
+    async def authenticate(**kwargs):
+        context = await original(**kwargs)
+        issued.append(context)
+        return context
+
+    composition.gateway.authenticate = authenticate  # type: ignore[method-assign]
+    return issued
+
+
 async def _service(
     bus: GlobalSystemBus,
     cpu: ScriptedCPU | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一 guard/gateway 实例。"""
+    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = _composition()
     service = TaskProcessService(
         bus,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
     return service, composition
 
@@ -111,7 +125,7 @@ async def _register(
     *,
     process_id: str,
     **kwargs,
-) -> TaskProcess:
+) -> ProcessHandle:
     """按组合的默认声明注册进程：两阶段认证由注册入口完成。"""
     return await service.register_process(
         adapter="local",
@@ -132,8 +146,8 @@ async def _run_once(
     process_id: str,
     **kwargs,
 ):
-    process = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return await service.run_process(process, stream=False)
+    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return await service.run_process(handle, stream=False)
 
 
 async def _stream_events(
@@ -144,8 +158,8 @@ async def _stream_events(
     process_id: str,
     **kwargs,
 ) -> list[dict]:
-    process = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return [event async for event in service.run_process(process, stream=True)]
+    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return [event async for event in service.run_process(handle, stream=True)]
 
 
 def _decision_outcome() -> GatewayDecisionOutcome:
@@ -536,8 +550,9 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
 
 
 @pytest.mark.asyncio
-async def test_stage_routes_receive_only_guard_assembled_identity_scope() -> None:
-    """阶段授权之后，Gateway 与 prepare 路由只收到 guard 组装的 IdentityScope：无 access。"""
+async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -> None:
+    """阶段授权之后，Gateway、prepare 与结算后话题池读取只收到操作授权者组装的
+    IdentityScope：无 access，也不取自 prepare 结果。"""
     bus = GlobalSystemBus()
     captured: dict[str, dict] = {}
 
@@ -549,18 +564,27 @@ async def test_stage_routes_receive_only_guard_assembled_identity_scope() -> Non
         captured["prepare"] = kwargs
         return await _scoped_prepared_route()(**kwargs)
 
+    async def topic_list(**kwargs):
+        captured["topic_pool"] = kwargs
+        return []
+
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topic_list)
 
     service, composition = await _service(bus)
-    await _run_once(composition, service, "问题", process_id="process-scope-only")
+    # 话题池读取只发生在流式交付（结算后、done 之前）。
+    await _stream_events(composition, service, "问题", process_id="process-scope-only")
 
     assert "access" not in captured["gateway"]
     assert captured["gateway"]["identity_scope"] == _expected_scope()
     assert "access" not in captured["prepare"]
     assert captured["prepare"]["identity_scope"] == _expected_scope()
+    # 结算后的话题池读取同样只收到授权返回的 scope（不取自 prepared_run）。
+    assert "access" not in captured["topic_pool"]
+    assert captured["topic_pool"]["identity_scope"] == _expected_scope()
 
 
 @pytest.mark.asyncio
@@ -574,14 +598,14 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     service, composition = await _service(bus)
-    process = await _register(composition, service, "问题", process_id="process-gateway")
+    handle = await _register(composition, service, "问题", process_id="process-gateway")
 
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await started.wait()
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     result = await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
 
@@ -658,10 +682,6 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
         GlobalRoutes.GATEWAY_PROCESS,
         AsyncMock(return_value=_decision_outcome()),
     )
-    bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
-        _scoped_prepared_route(),
-    )
     _register_profile(bus)
     prepared_holder: dict = {}
     bus.register(
@@ -716,15 +736,15 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus, cpu)
-    process = await _register(composition, service, "问题", process_id="process-prepare")
+    handle = await _register(composition, service, "问题", process_id="process-prepare")
 
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await prepare_started.wait()
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     release_prepare.set()
     result = await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     assert prepare_cancelled is False
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
@@ -753,14 +773,14 @@ async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() ->
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus, cpu)
-    process = await _register(composition, service, "问题", process_id="process-stream-cancel")
+    handle = await _register(composition, service, "问题", process_id="process-stream-cancel")
 
-    task = asyncio.create_task(_collect_stream(service.run_process(process, stream=True)))
+    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     events = await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     assert cpu.closed is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
@@ -793,15 +813,15 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus)
-    process = await _register(composition, service, "问题", process_id="process-finalize")
+    handle = await _register(composition, service, "问题", process_id="process-finalize")
 
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await finalize_started.wait()
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     release_finalize.set()
     result = await task
 
-    assert stop_result.accepted is False
+    assert stop_result.cancelled is False
     assert stop_result.reason == "already_finalizing"
     assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
     cleanup.assert_not_awaited()
@@ -809,7 +829,7 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 
 @pytest.mark.asyncio
 async def test_completed_delivery_closes_process_and_invalidates_context() -> None:
-    """交付结束自动收口：绑定 context 失效（guard 拒绝），进程从表中注销。"""
+    """交付结束自动收口：绑定 context 失效（兑现被拒），进程从表中注销。"""
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
@@ -818,7 +838,8 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
 
     service, composition = await _service(bus)
     requestor = await composition.authenticate(agent_id=_AGENT)
-    process = await _register(composition, service, "问题", process_id="process-autoclose")
+    issued = _capture_issued_contexts(composition)
+    handle = await _register(composition, service, "问题", process_id="process-autoclose")
 
     snapshot = service.process_status("process-autoclose", access=requestor)
     assert snapshot == ProcessStatusSnapshot(
@@ -828,7 +849,7 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
         reason=None,
     )
 
-    result = await service.run_process(process, stream=False)
+    result = await service.run_process(handle, stream=False)
     assert result.kind == "agent"
 
     assert service.process_status("process-autoclose", access=requestor) is None
@@ -836,9 +857,10 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
     assert cancel_result.cancelled is False
     assert cancel_result.status == "not_found"
     assert cancel_result.process_id == "process-autoclose"
+    assert composition.gateway.describe_context(issued[0]) is None
     with pytest.raises(ScopeRequiredError) as excinfo:
-        composition.guard.authorize_operation(
-            process.record.access,
+        composition.authorizer.authorize_operation(
+            issued[0],
             WorkspaceOperation.RESOURCE_READ,
             _workspace(),
         )
@@ -892,8 +914,8 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=False))
 
     service, composition = await _service(bus)
-    process = await _register(composition, service, "问题", process_id="process-domain-error")
-    events = [event async for event in service.run_process(process, stream=True)]
+    handle = await _register(composition, service, "问题", process_id="process-domain-error")
+    events = [event async for event in service.run_process(handle, stream=True)]
 
     errors = [event for event in events if event["event"] == "error"]
     assert len(errors) == 1

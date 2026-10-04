@@ -4,7 +4,7 @@
 ``GlobalSystemBus`` 调用 Patchouli 公共 backing 路由（第二层 client-server），
 不形成递归，也不持有 Patchouli 的 Runtime、Service 或存储对象。
 
-``scope`` 是能力层完成操作授权后由 guard 组装的可信坐标，原样传给
+``scope`` 是能力层完成操作授权后由操作授权者组装的可信坐标，原样传给
 Patchouli backing；本模块位于授权点以下，不接收访问 context。
 
 库不可达（backing 路由未挂载，如 Patchouli 未启动或已卸载）时抛出

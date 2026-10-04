@@ -76,7 +76,7 @@ class TestAgentApplicationService:
         # 上，便于断言授权失败时 backing 未被触达。
         return AgentApplicationService(
             global_bus=mock_global_bus,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
             profile_reader=make_workspace_runtime(global_bus=mock_global_bus).profiles,
         )
 
@@ -190,7 +190,7 @@ class TestAgentApplicationService:
         )
         service = AgentApplicationService(
             global_bus=mock_global_bus,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
             profile_reader=make_workspace_runtime(global_bus=mock_global_bus).profiles,
         )
         access = await composition.authenticate(agent_id="system", user_id="u1")

@@ -5,7 +5,8 @@
 晚到结果不能复活资产或覆盖内容；HTTP 状态映射由公开入口集成测试验证。
 
 访问边界（A1 访问边界返工第 4.5 节）：上传 access 由与上传服务共享
-guard 的组合签发；本文件关注 Store 竞态，access 只用于进入上传用例。
+访问组合（认证一侧 + 操作授权者）的网关签发；本文件关注 Store 竞态，
+access 只用于进入上传用例。
 """
 
 import asyncio
@@ -33,7 +34,7 @@ from tests.helpers.workspace import make_identity_scope
 
 
 def _stack(store: InMemoryWorkspaceAssetStore, parser: ScriptedAttachmentParser):
-    """构造共享 guard 的上传服务与访问组合。"""
+    """构造共享认证一侧的上传服务与访问组合。"""
     composition = make_upload_access(user_id="user-1")
     service = make_upload_service(
         store=store,
@@ -45,7 +46,7 @@ def _stack(store: InMemoryWorkspaceAssetStore, parser: ScriptedAttachmentParser)
 
 
 async def _raced_upload(service, composition):
-    """发起一次携带可控解析的竞态上传（guard 组装 scope）。"""
+    """发起一次携带可控解析的竞态上传（授权组装可信 scope）。"""
     return await service.upload_asset(
         target_workspace=composition.default_workspace,
         file_name="raced.txt",

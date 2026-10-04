@@ -85,9 +85,9 @@ class HiveMemorySystem:
 
         # 访问控制（A1）：统一认证网关是唯一对外认证入口；A1 访问边界返工
         # 后生产 HTTP 入口已经接入。缺省 None 仅兼容旧装配调用，正常构建由
-        # assembler 注入。
+        # assembler 注入。授予记录归认证一侧（经网关转交失效与清空），
+        # 操作授权者无状态、不需要关闭。
         self._access_gateway = access_control.access_gateway if access_control else None
-        self._access_guard = access_control.access_guard if access_control else None
 
         self._started = False
         self._scheduler_stopped = False
@@ -205,7 +205,7 @@ class HiveMemorySystem:
             "gateway.stop",
             "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
-            "workspace_access_guard.close",
+            "workspace_access_grants.clear",
         ]
         self._emit_lifecycle_event(
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
@@ -221,7 +221,7 @@ class HiveMemorySystem:
         scheduler_stopped = self._scheduler_stopped
         try:
             # 先关闭统一认证网关、拒绝新认证（A1 访问边界返工 4.4）：已签发
-            # context 由各自所有者在收尾时失效，guard 待任务进程收尾后关闭。
+            # context 由各自所有者在收尾时失效；任务进程收尾后经网关清空
             if self._access_gateway is not None:
                 self._access_gateway.close()
             completed_steps.append("access_gateway.close")
@@ -235,9 +235,9 @@ class HiveMemorySystem:
                 completed_steps.append("workspace_runtime.close")
                 self._workspace_asset_store.close_and_clear()
                 completed_steps.append("workspace_asset_store.close_and_clear")
-                if self._access_guard is not None:
-                    self._access_guard.close()
-                completed_steps.append("workspace_access_guard.close")
+                if self._access_gateway is not None:
+                    self._access_gateway.clear_contexts()
+                completed_steps.append("workspace_access_grants.clear")
                 self._emit_lifecycle_event(
                     RuntimeEventType.SYSTEM_STOPPED,
                     status="stopped",
@@ -265,11 +265,12 @@ class HiveMemorySystem:
             completed_steps.append("workspace_runtime.close")
             self._workspace_asset_store.close_and_clear()
             completed_steps.append("workspace_asset_store.close_and_clear")
-            # guard 最后关闭：在途任务进程与请求收尾仍需校验各自持有的
-            # context；此后全部已签发 context 一并失效。
-            if self._access_guard is not None:
-                self._access_guard.close()
-            completed_steps.append("workspace_access_guard.close")
+            # 最后经认证网关清空全部授予记录：在途任务进程与请求收尾仍需
+            # 兑现各自持有的 context；此后已签发 context 的兑现自然失败
+            # （操作授权者无状态，不需要关闭）。
+            if self._access_gateway is not None:
+                self._access_gateway.clear_contexts()
+            completed_steps.append("workspace_access_grants.clear")
             self._started = False
         except Exception as exc:
             self._emit_lifecycle_event(

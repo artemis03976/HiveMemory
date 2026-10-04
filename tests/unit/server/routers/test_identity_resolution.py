@@ -139,18 +139,26 @@ class TestResolveRequestIdentityClaims:
             )
         assert exc_info.value.status_code == 400
 
+    def test_agent_action_explicit_system_agent_rejected(self):
+        """Agent action 显式使用保留 system：它表示"没有具体 Agent"，解析即拒绝（400）。
+
+        注册入口保留同一检查（由 chat 路由测试覆盖）；此处钉住声明解析层的契约。
+        """
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_request_identity_claims(
+                RequestIdentitySelection(user_id="u1", workspace_id=None),
+                require_agent=True,
+                agent_id=SYSTEM_AGENT_ID,
+            )
+        assert exc_info.value.status_code == 400
+
 
 # ─── HTTP 入口行为 ───────────────────────────────────────────────────────────
 
 
 def _registered_process_stub(**register_kwargs):
-    """构造 ``register_process`` 返回的进程句柄 stub（携带 record.access）。"""
-    return SimpleNamespace(
-        record=SimpleNamespace(
-            process_id=register_kwargs["process_id"],
-            access=SimpleNamespace(name="process_access"),
-        )
-    )
+    """构造 ``register_process`` 返回的进程句柄 stub（只暴露 process_id）。"""
+    return SimpleNamespace(process_id=register_kwargs["process_id"])
 
 
 def _create_chat_app(mock_service, access=None):
@@ -213,7 +221,7 @@ class TestChatEntryIdentity:
             side_effect=lambda **kwargs: _registered_process_stub(**kwargs)
         )
 
-        async def fake_stream(process, *, stream=True):
+        async def fake_stream(handle, *, stream=True):
             yield {"event": "done", "data": {"final_text": "ok"}}
 
         mock_service.run_process = MagicMock(
@@ -250,14 +258,14 @@ class TestStopEntryIdentity:
         """取消发生时快照请求级 context 的授予摘要；请求结束后它已失效。
 
         返回 ``(mock_service, summaries)``：``summaries`` 记录 cancel_process
-        被调用时刻 guard 兑现出的授予摘要（此时 context 尚未随请求收尾失效）。
+        被调用时刻经认证网关取回的授予摘要（此时 context 尚未随请求收尾失效）。
         """
 
         summaries: list = []
         mock_service = MagicMock()
 
         def fake_cancel(process_id, *, access):
-            summaries.append(composition.guard.describe(access))
+            summaries.append(composition.gateway.describe_context(access))
             return MagicMock(
                 process_id=process_id,
                 cancelled=cancelled,
@@ -286,7 +294,7 @@ class TestStopEntryIdentity:
         assert summaries[0].agent_id == SYSTEM_AGENT_ID
         # 请求结束后请求级 context 已失效
         access = mock_service.cancel_process.call_args.kwargs["access"]
-        assert composition.guard.describe(access) is None
+        assert composition.gateway.describe_context(access) is None
 
     def test_stop_uses_header_selection_for_ownership_check(self):
         overrides, composition = make_server_access_overrides(users=["u1"])
@@ -310,7 +318,7 @@ class TestStopEntryIdentity:
         assert summaries[0].agent_id == SYSTEM_AGENT_ID
         # 请求结束后请求级 context 已失效
         access = mock_service.cancel_process.call_args.kwargs["access"]
-        assert composition.guard.describe(access) is None
+        assert composition.gateway.describe_context(access) is None
 
 
 class TestTopicsEntryIdentity:

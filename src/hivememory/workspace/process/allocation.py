@@ -8,7 +8,7 @@ CPU 分配由进程完成而不是交给 Actor：Profile 经 Patchouli 公开路
 授权边界（A1 访问边界返工第 4.4 节）：本层是任务进程的阶段授权点——
 Profile 解析绑定 ``profile.read``、附件租借绑定 ``asset.acquire``，检查
 都以任务目标 workspace 为目标、在对应副作用前执行；CPU 输入清单的
-``IdentityScope`` 由 guard 的 CPU 执行身份过渡方法组装（I-9），不取自
+``IdentityScope`` 由操作授权者的 CPU 执行身份过渡方法组装（I-9），不取自
 调用方。
 """
 
@@ -34,7 +34,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.working_set import ProcessWorkingSet
 
@@ -44,7 +44,7 @@ class CPUAllocator:
 
     ``asset_reader`` 是进程级唯一 WorkspaceAssetStore 的只读 reader 端口；
     两个编译配置段驱动进程侧的记忆/附件编译（与拆分前 Patchouli prepare
-    使用相同的引擎与配置段）。``access_guard`` 与统一认证网关共享同一实例：
+    使用相同的引擎与配置段）。``operation_authorizer`` 是组合根注入的操作授权者：
     Profile 解析与附件租借的阶段操作授权在本层、对应副作用前执行。
     """
 
@@ -52,13 +52,13 @@ class CPUAllocator:
         self,
         global_bus: GlobalSystemBus,
         *,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
     ) -> None:
         self._bus = global_bus
-        self._access_guard = access_guard
+        self._authorizer = operation_authorizer
         self._asset_reader = asset_reader
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._memory_compiler = MemoryCompiler()
@@ -82,7 +82,7 @@ class CPUAllocator:
         能力描述，源原子 policy 依据不进入 run（A2 §2.3）。暂不经能力层：
         它依赖的 Profile 缓存也还没有失效机制（见任务进程 Idea 1.2）；
         ``profile.read`` 的阶段授权在本层、路由调用前执行，Patchouli 只
-        接收 guard 组装的可信 scope。
+        接收操作授权者组装的可信 scope。
 
         中间态（2026-09-29）：Profile 属于 CPU 分配，但暂时在 Patchouli prepare
         之前解析。当前 prepare 会按 Gateway 的路由决定预先新建 Topic，话题池已满
@@ -91,7 +91,7 @@ class CPUAllocator:
         提交之后以后，Profile 解析可以回到 prepare 之后的 CPU 分配步骤。
         """
         # 阶段授权：Profile 解析绑定 profile.read，先于路由调用执行。
-        scope = self._access_guard.authorize_operation(
+        scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.PROFILE_READ, target_workspace
         )
         resolved_profile: ResolvedAgentProfile = await self._bus.request(
@@ -117,7 +117,7 @@ class CPUAllocator:
         在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
         :meth:`resolve_agent_profile` 提前解析。附件租借绑定 ``asset.acquire``，
         授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
-        CPU 执行身份由 guard 的过渡方法组装（I-9）：清单携带的
+        CPU 执行身份由操作授权者的过渡方法组装（I-9）：清单携带的
         ``IdentityScope`` 不取自调用方。stop 请求不打断分配，由调用方在
         进入 Actor 之前统一检查。任何失败沿异常路径上抛，已取得的租借由
         工作集在进程关闭时释放。
@@ -162,7 +162,7 @@ class CPUAllocator:
         #    Alice 的能力层调用迁移完成后随本方法一并调整。
         manifest = CPUInputManifest(
             process_id=process_id,
-            identity_scope=self._access_guard.cpu_execution_identity(access, target_workspace),
+            identity_scope=self._authorizer.cpu_execution_identity(access, target_workspace),
             user_message=user_message,
             agent_profile=agent_profile,
             memories=memories,
@@ -184,7 +184,7 @@ class CPUAllocator:
         """acquire 单个选中附件并核对客户端提供的版本摘要。
 
         附件租借绑定 ``asset.acquire``：授权检查先于租借副作用执行，租借
-        使用 guard 返回的可信 scope。reader 的同一 Store 临界区已完成
+        使用操作授权者返回的可信 scope。reader 的同一 Store 临界区已完成
         Workspace/ref、asset READY 与 representation READY 校验并建立
         lease，无需先做 resolve_asset。取得的 lease 先登记进工作集；版本
         摘要不一致时经工作集释放该租借并拒绝整轮，不留游离租借。
@@ -194,7 +194,7 @@ class CPUAllocator:
                 "当前系统未装配附件读取能力，不能处理附件选择",
                 details={"reason": "asset_reader_unavailable"},
             )
-        scope = self._access_guard.authorize_operation(
+        scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.ASSET_ACQUIRE, target_workspace
         )
         lease = self._asset_reader.acquire_ready_representation(

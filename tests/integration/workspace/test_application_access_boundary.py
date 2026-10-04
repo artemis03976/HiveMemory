@@ -10,15 +10,15 @@ Alice/PendingAtomRuntime/MTP（headless）。
 保护 A1 访问边界返工计划的验收证据：
 - 两项认证在统一网关一次完成，签发即绑定运行；未登记 principal、不匹配
   adapter 与无准入记录的 Actor 分别以稳定 reason 拒绝；
-- 访问 context 不透明：身份只能经 guard 的 ``authorize_operation`` 兑现；
+- 访问 context 不透明：身份只能经操作授权者的 ``authorize_operation`` 兑现；
   能力层作为授权点在 backing 调用前执行 operation 检查，Patchouli 公开
   路由只接收授权点组装的 ``IdentityScope``；
 - 同一 principal 多 Actor、同一 Actor 多 Workspace 的许可互不串扰；
 - 空白名单可进入但资源动作全拒绝；operation 互不隐含；
 - context 与单次 operation 解耦：同一 context 先后执行不同获准操作；
 - 失效 context 拒绝、重新认证恢复；System 停止先关网关（拒绝新认证）
-  再关 guard（已签发 context 一并失效）；授权拒绝不产生副作用、不包装
-  成服务不可用。
+  再清空授予记录（已签发 context 兑现按 ``context_not_issued`` 失败）；
+  授权拒绝不产生副作用、不包装成服务不可用。
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ from hivememory.core.models import (
     PendingAtomSettlement,
     TurnRecord,
 )
-from hivememory.core.protocol.models import InteractionPayload, RetrievalRequest
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     InteractionSubmissionService,
@@ -289,10 +289,12 @@ async def wired():
     # System 管理门面：与外部 adapter 同一全局总线，授权点在能力层
     system_memory = MemoryApplicationService(
         global_bus=global_bus,
-        access_guard=access.guard,
+        operation_authorizer=access.authorizer,
         memory_reader=make_workspace_runtime(global_bus).aliases,
     )
-    system_tasks = MemoryTaskApplicationService(global_bus=global_bus, access_guard=access.guard)
+    system_tasks = MemoryTaskApplicationService(
+        global_bus=global_bus, operation_authorizer=access.authorizer
+    )
 
     try:
         yield _Wired(
@@ -396,8 +398,8 @@ async def _seed_public_fact(store, *, alias, content, workspace=MAIN, agent_id="
 
 
 async def _submit_intent(wired, context: ActorIdentity) -> dict:
-    """以 guard 组装的可信 scope 提交一条 WRITE 意图（a1 获准）。"""
-    scope = wired.access.guard.authorize_operation(context, INTENT, MAIN)
+    """以操作授权者组装的可信 scope 提交一条 WRITE 意图（a1 获准）。"""
+    scope = wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
     return await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
         intent=MemoryIntent(
@@ -441,11 +443,11 @@ async def test_mismatched_adapter_denied_at_principal_authentication(wired):
 async def test_same_owner_actors_have_different_admission_across_workspaces(wired):
     """同一 owner：a2 在 MAIN 获准、在 OTHER 无准入记录；权限互不串扰（证据 1/2）。
 
-    context 不透明：驻留坐标只能经 guard 兑现——授权返回的 scope 携带
+    context 不透明：驻留坐标只能经操作授权者兑现——授权返回的 scope 携带
     准入的 workspace。
     """
     main_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
-    scope = wired.access.guard.authorize_operation(main_context, READ, MAIN)
+    scope = wired.access.authorizer.authorize_operation(main_context, READ, MAIN)
     assert scope.workspace_identity == MAIN
 
     with pytest.raises(AdmissionDeniedError) as exc_info:
@@ -459,7 +461,7 @@ async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wir
 
     读取与管理路径的 operation 检查在 workspace 能力层、backing 调用前
     执行；写入路径的 ``memory_intent.submit`` 当前没有能力层方法，授权
-    由调用方（未来的能力层）先经 guard 检查。
+    由调用方（未来的能力层）先经操作授权者检查。
     """
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
@@ -467,7 +469,7 @@ async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wir
         await wired.system_memory.read(str(uuid4()), target_workspace=MAIN, access=context)
     assert read_error.value.details["reason"] == "operation_not_allowed"
     with pytest.raises(OperationDeniedError) as intent_error:
-        wired.access.guard.authorize_operation(context, INTENT, MAIN)
+        wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
     assert intent_error.value.details["reason"] == "operation_not_allowed"
 
 
@@ -477,7 +479,7 @@ async def test_read_only_actor_cannot_submit_intent_or_reach_management(wired):
     read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError):
-        wired.access.guard.authorize_operation(read_context, INTENT, MAIN)
+        wired.access.authorizer.authorize_operation(read_context, INTENT, MAIN)
     with pytest.raises(OperationDeniedError):
         await wired.system_memory.get_memory(uuid4(), target_workspace=MAIN, access=read_context)
 
@@ -580,13 +582,13 @@ async def test_single_context_reused_across_different_permitted_operations(wired
     )
     assert read is not None
 
-    search_scope = wired.access.guard.authorize_operation(context, SEARCH, MAIN)
+    # 检索参数由调用方提交：检索请求由能力层用授权返回的可信 scope 构造
+    # （A1 访问边界返工第 4.5 节），替身引擎无命中。
     retrieval = await wired.system_memory.retrieve(
-        RetrievalRequest(semantic_query="reuse", identity_scope=search_scope),
+        semantic_query="reuse",
         target_workspace=MAIN,
         access=context,
     )
-    # 检索 backing 返回完整原子列表（A2 §2.1）；替身引擎无命中。
     assert retrieval == []
 
     # 换操作不重建身份，但方法所需的 operation 不在白名单内时仍拒绝
@@ -599,10 +601,10 @@ async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
     """interaction.submit 经真实全局路由与内存队列接纳；收据可用（无 Alice）。
 
     公开路由只接收授权点组装的 ``IdentityScope``；队列记录里的身份即
-    guard 返回的可信 scope。
+    操作授权者返回的可信 scope。
     """
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    scope = wired.access.guard.authorize_operation(context, INTERACT, MAIN)
+    scope = wired.access.authorizer.authorize_operation(context, INTERACT, MAIN)
     receipt = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
         payload=InteractionPayload(
@@ -628,8 +630,8 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     """失效 context 不能再授权新工作；已接纳交互只携带 scope，停止后仍可应用。
 
     System 停止顺序（A1 访问边界返工第 4.8 节）：网关先关闭（拒绝新
-    认证），guard 后关闭（已签发 context 一并失效，``context_not_issued``
-    取代旧的固定 TTL 语义）。
+    认证），授予记录在任务进程收尾后清空（已签发 context 兑现按
+    ``context_not_issued`` 失败，取代旧的固定 TTL 语义）。
     """
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     payload = InteractionPayload(
@@ -638,7 +640,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
         assistant_final_text="delayed answer",
         turn_events=[],
     )
-    scope = wired.access.guard.authorize_operation(context, INTERACT, MAIN)
+    scope = wired.access.authorizer.authorize_operation(context, INTERACT, MAIN)
     first = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
         payload=payload,
@@ -647,16 +649,16 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
         requested_topic_id="topic_delayed",
     )
 
-    # 绑定所有者使 context 失效（进程关闭/请求结束的等价物）：
+    # 绑定所有者经认证网关使 context 失效（进程关闭/请求结束的等价物）：
     # 后续授权按 context_not_issued 拒绝，不能把新工作送入队列。
-    wired.access.guard.invalidate(context)
+    wired.access.gateway.invalidate_context(context)
     with pytest.raises(ScopeRequiredError) as exc_info:
-        wired.access.guard.authorize_operation(context, INTERACT, MAIN)
+        wired.access.authorizer.authorize_operation(context, INTERACT, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
 
     # 重新认证恢复：同一 interaction_id 的幂等重放返回原收据。
     renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    renewed_scope = wired.access.guard.authorize_operation(renewed, INTERACT, MAIN)
+    renewed_scope = wired.access.authorizer.authorize_operation(renewed, INTERACT, MAIN)
     replay = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
         payload=payload,
@@ -666,17 +668,19 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     )
     assert replay.work_id == first.work_id
 
-    # System 停止：网关关闭后拒绝新认证；guard 关闭后既有 context 一并失效。
+    # System 停止：网关先关闭（拒绝新认证）；任务进程收尾后经网关清空
+    # 全部授予记录——已签发 context 的兑现按 context_not_issued 失败
+    # （操作授权者无状态，不随停止关闭，A1 访问边界返工第 4.8 节）。
     wired.access.gateway.close()
     with pytest.raises(AdmissionDeniedError) as auth_error:
         await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     assert auth_error.value.details["reason"] == "authentication_gateway_closed"
-    wired.access.guard.close()
+    wired.access.gateway.clear_contexts()
     with pytest.raises(ScopeRequiredError) as closed_error:
-        wired.access.guard.authorize_operation(renewed, INTERACT, MAIN)
-    assert closed_error.value.details["reason"] == "authentication_gateway_closed"
+        wired.access.authorizer.authorize_operation(renewed, INTERACT, MAIN)
+    assert closed_error.value.details["reason"] == "context_not_issued"
 
-    # 已接纳的交互只携带 scope：网关与 guard 关闭不影响其应用。
+    # 已接纳的交互只携带 scope：网关关闭与授予记录清空不影响其应用。
     await wired.queue.start()
     outcome = await wired.queue.wait(first.interaction_id, timeout=2)
     assert outcome.state.value == "succeeded"
@@ -687,10 +691,10 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
 async def test_invalidated_context_cannot_create_a_generation_task(wired):
     """context 失效后授权点拿不到可信 scope：意图不会进入生成链。"""
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    wired.access.guard.invalidate(context)
+    wired.access.gateway.invalidate_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
-        wired.access.guard.authorize_operation(context, INTENT, MAIN)
+        wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
     assert await wired.controller.list_tasks() == []
 
@@ -713,7 +717,7 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
     )
     assert result.status.value == "completed"
     assert result.canonical_alias == "memory_alias"
-    assert result.identity_scope == wired.access.guard.authorize_operation(
+    assert result.identity_scope == wired.access.authorizer.authorize_operation(
         intent_context, INTENT, MAIN
     )
 
@@ -726,8 +730,8 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
 
 
 @pytest.mark.asyncio
-async def test_system_management_facade_propagates_guard_scope_via_global_bus(wired):
-    """System 管理门面与 adapter 走同一全局总线，guard 组装的 scope 完整传播（证据 5）。"""
+async def test_system_management_facade_propagates_authorized_scope_via_global_bus(wired):
+    """System 管理门面与 adapter 走同一全局总线，授权组装的 scope 完整传播（证据 5）。"""
     atom = await _seed_public_fact(wired.store, alias="fact_system", content="system path")
     manage_context = await wired.access.authenticate(agent_id="a5", workspace=MAIN)
 
@@ -795,7 +799,7 @@ async def test_invalidated_context_rejected_and_reauthentication_restores_access
         is not None
     )
 
-    wired.access.guard.invalidate(context)
+    wired.access.gateway.invalidate_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
         await wired.system_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)

@@ -10,7 +10,8 @@
 （只服务于流式 done 事件）。
 
 进程的登记与注销由注册入口（``workspace.process.service``）负责：本骨架
-经进程记录使用绑定的访问 context，不持有进程表，也不使 context 失效。
+经进程记录使用绑定的访问 context 与事件发布器，不持有进程表，也不使
+context 失效。进程记录与 ``TaskProcess`` 都不离开注册入口。
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.access import WorkspaceAccessGuard
+from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
@@ -46,7 +47,6 @@ from hivememory.workspace.contracts import (
 )
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.command_terminal import command_terminal
-from hivememory.workspace.process.events import BoundProcessEvents
 from hivememory.workspace.process.outputs import (
     ActorEvent,
     CommandCompleted,
@@ -139,13 +139,13 @@ class ProcessRequest:
     """一次任务进程的任务参数（注册完成后冻结，不含身份凭据）。
 
     ``message`` 是交给 Gateway 分析的指令文本：主动请求是用户本次发出的
-    消息。``workspace`` 是注册时通过认证的请求进入 workspace：它是各阶段
-    授权点显式接收的目标 workspace（I-4、I-8）——授权点以下只流动 guard
-    组装并经此目标校验的 ``IdentityScope``。
+    消息。``target_workspace`` 是注册时通过认证的请求进入 workspace：它是
+    各阶段授权点显式接收的目标 workspace（I-4、I-8）——授权点以下只流动
+    操作授权者组装并经此目标校验的 ``IdentityScope``。
     """
 
     message: str
-    workspace: WorkspaceIdentity
+    target_workspace: WorkspaceIdentity
     enable_memory_retrieval: bool = True
     generation_options: dict[str, Any] | None = None
     attachments: tuple[AttachmentSelectionRequest, ...] = ()
@@ -159,9 +159,9 @@ class TaskProcess:
 
     阶段授权（A1 访问边界返工第 4.4 节）：阶段调用是进程自身的编排而非
     actor 的主动操作，operation 检查在进程内、每次阶段调用前以任务参数中
-    的目标 workspace 执行，再把 guard 返回的 ``IdentityScope`` 传给对应
-    路由；授权规则仍是同一份 Workspace 访问登记的白名单。访问 context
-    只由进程记录（``record.access``）持有，本类不另存。
+    的目标 workspace 执行，再把操作授权者返回的 ``IdentityScope`` 传给
+    对应路由；授权规则仍是同一份 Workspace 访问登记的白名单。访问 context
+    与事件发布器都只由进程记录持有，本类不另存。
     """
 
     def __init__(
@@ -172,9 +172,8 @@ class TaskProcess:
         global_bus: GlobalSystemBus,
         allocator: CPUAllocator,
         cpu: CPUPort,
-        events: BoundProcessEvents,
         gateway_request_timeout_ms: int,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
         trace_id: str,
     ) -> None:
         self._record = record
@@ -186,9 +185,7 @@ class TaskProcess:
         self._allocator = allocator
         self._cpu = cpu
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
-        self._access_guard = access_guard
-        # 注册入口在创建时绑定的进程事件发布器（观测标签绑定一次）。
-        self._events = events
+        self._authorizer = operation_authorizer
         self._trace_id = trace_id
 
         self._working_set = allocator.new_working_set()
@@ -206,7 +203,7 @@ class TaskProcess:
 
     @property
     def record(self) -> ProcessRecord:
-        """本进程的进程记录（访问 context 的唯一持有者）。"""
+        """本进程的进程记录（访问 context 与事件发布器的唯一持有者）。"""
         return self._record
 
     # ========== 编排骨架 ==========
@@ -215,6 +212,7 @@ class TaskProcess:
         """按四阶段顺序产出阶段产出，结束时（含提前关闭）执行 :meth:`close`。"""
         record = self._record
         request = self._request
+        events = record.events
         self._stream = stream
         self._owner_task = asyncio.current_task()
         try:
@@ -227,7 +225,7 @@ class TaskProcess:
 
             # ---- Gateway：可被 stop 中断 ----
             record.enter_phase(ProcessPhase.GATEWAY)
-            self._events.status()
+            events.status(record)
             # 阶段授权：Gateway 分析要读取话题快照与话题数据，绑定
             # resource.read；Gateway 不做授权判断，只把组装后的 scope
             # 用于话题读取路由。
@@ -248,7 +246,7 @@ class TaskProcess:
                 # 是命令自身的终态，进程仍按 completed 结局收口。
                 command_result = command_terminal(gateway_result.command_parse_result)
                 record.mark_completed()
-                self._events.command_completed(command_id=command_result.command_id)
+                events.command_completed(record, command_id=command_result.command_id)
                 yield self._terminal(CommandCompleted(command_result))
                 return
 
@@ -258,7 +256,7 @@ class TaskProcess:
 
             # ---- Actor 执行：可被 stop 中断；流式逐条转交交互事件 ----
             record.enter_phase(ProcessPhase.ACTOR)
-            self._events.status()
+            events.status(record)
             # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
             # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
@@ -293,7 +291,7 @@ class TaskProcess:
 
             if execution_result.status == CPUExecutionStatus.CANCELLED.value:
                 record.mark_cancelled()
-                self._events.cancelled()
+                events.cancelled(record)
                 yield self._terminal(
                     RunCancelled(
                         reason=record.stop_reason or "user_requested",
@@ -303,14 +301,14 @@ class TaskProcess:
                 return
             if execution_result.status == CPUExecutionStatus.FAILED.value:
                 record.mark_failed()
-                self._events.failed()
+                events.failed(record)
                 yield self._terminal(RunFailed(execution_result))
                 return
 
             # ---- finalize（仅 completed）：进入后拒绝取消 ----
             if not record.try_enter_finalizing():
                 raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
-            self._events.status()
+            events.status(record)
             yield Finalizing()
             # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
             # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
@@ -333,10 +331,10 @@ class TaskProcess:
             self._prepared_finalized = True
             memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
             # 结算后的话题池只服务于流式 done 事件的前端刷新。
-            pool_topics = await self._list_final_pool_topics(prepared) if self._stream else []
+            pool_topics = await self._list_final_pool_topics() if self._stream else []
 
             record.mark_completed()
-            self._events.completed(memory_task_ids=memory_task_ids)
+            events.completed(record, memory_task_ids=memory_task_ids)
             yield self._terminal(
                 RunCompleted(
                     execution_result=execution_result,
@@ -346,7 +344,7 @@ class TaskProcess:
             )
         except _ProcessCancelled as cancelled:
             record.mark_cancelled()
-            self._events.cancelled(phase=cancelled.phase)
+            events.cancelled(record, phase=cancelled.phase)
             yield self._terminal(RunCancelled(reason=record.stop_reason or "user_requested"))
         except Exception as exc:
             if isinstance(exc, WorkspaceDomainError):
@@ -354,7 +352,7 @@ class TaskProcess:
             else:
                 logger.exception("任务进程异常")
             record.mark_failed()
-            self._events.failed(exc)
+            events.failed(record, exc)
             yield self._terminal(ProcessFailed(exc))
         finally:
             await self.close()
@@ -376,7 +374,7 @@ class TaskProcess:
         # Profile 暂时先于 prepare 解析（中间态），原因见 CPUAllocator.resolve_agent_profile。
         agent_profile = await self._allocator.resolve_agent_profile(
             access=record.access,
-            target_workspace=request.workspace,
+            target_workspace=request.target_workspace,
         )
         # prepare 做话题准备与检索，绑定 resource.search。
         prepare_scope = self._authorize(WorkspaceOperation.RESOURCE_SEARCH)
@@ -390,7 +388,7 @@ class TaskProcess:
         # 先写入工作集再校验：scope 不一致时关闭流程仍需把它交回 cleanup，
         # 以补偿 prepare 可能已经预建的 Topic。
         self._working_set.prepared = prepared
-        self._events.bind_topic(prepared.topic_id)
+        record.events.bind_topic(prepared.topic_id)
         _require_prepared_scope(prepared, prepare_scope)
 
         # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
@@ -401,7 +399,7 @@ class TaskProcess:
             agent_profile=agent_profile,
             selections=list(request.attachments),
             access=record.access,
-            target_workspace=request.workspace,
+            target_workspace=request.target_workspace,
         )
 
         # finalize（提交交互记录）绑定 interaction.submit；检查在进入 Actor
@@ -417,13 +415,13 @@ class TaskProcess:
     def _authorize(self, operation: WorkspaceOperation) -> IdentityScope:
         """以进程记录绑定的 context 对任务目标 workspace 执行阶段授权。
 
-        返回 guard 组装的可信 scope，供紧随的阶段路由使用；授权失败沿
-        异常路径按进程失败收口。
+        返回操作授权者组装的可信 scope，供紧随的阶段路由使用；授权失败
+        沿异常路径按进程失败收口。
         """
-        return self._access_guard.authorize_operation(
+        return self._authorizer.authorize_operation(
             self._record.access,
             operation,
-            self._request.workspace,
+            self._request.target_workspace,
         )
 
     def _terminal(self, output: TerminalOutput) -> TerminalOutput:
@@ -446,13 +444,14 @@ class TaskProcess:
             return
         self._closed = True
         record = self._record
+        events = record.events
         # 分支：交付方提前关闭（如客户端断流），且此前没有交出终态。
         owner_is_cancelling = self._owner_task is not None and self._owner_task.cancelling() > 0
         if not self._terminal_published and not owner_is_cancelling:
             if record.outcome is ProcessOutcome.RUNNING:
                 record.request_stop("stream_closed")
             record.mark_cancelled()
-            self._events.closed_before_terminal()
+            events.closed_before_terminal(record)
             self._terminal_published = True
 
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
@@ -483,17 +482,17 @@ class TaskProcess:
         except Exception:
             logger.warning("关闭 CPU 输出流失败", exc_info=True)
 
-    async def _list_final_pool_topics(
-        self,
-        prepared_run: PreparedAgentRun,
-    ) -> list[dict[str, Any]]:
+    async def _list_final_pool_topics(self) -> list[dict[str, Any]]:
+        """结算后的话题池读取（``resource.read``），只服务流式 done 事件。
+
+        授权失败沿异常路径按空池收口（前端刷新失败不影响业务终态）；
+        路由收到的是授权返回的 scope，不取自 prepare 结果。
+        """
         try:
-            # 结算后的话题池读取绑定 resource.read（阶段授权在进程内）；
-            # prepare 已校验 prepared_run 携带的就是授权组装的 scope。
-            self._authorize(WorkspaceOperation.RESOURCE_READ)
+            pool_scope = self._authorize(WorkspaceOperation.RESOURCE_READ)
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
-                identity_scope=prepared_run.identity_scope,
+                identity_scope=pool_scope,
                 include_empty=True,
             )
         except Exception:

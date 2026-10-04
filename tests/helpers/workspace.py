@@ -23,11 +23,14 @@ from hivememory.system.access import (
     SystemPrincipalAuthenticator,
 )
 from hivememory.workspace import (
-    WorkspaceAccessGuard,
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
 )
-from hivememory.workspace.authentication import ActorAuthenticationGateway
+from hivememory.workspace.authentication import (
+    ActorAuthenticationGateway,
+    WorkspaceAuthenticator,
+)
+from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
 def make_workspace_identity(
@@ -145,10 +148,17 @@ def make_actor_access_record(
 
 @dataclass
 class AccessTestComposition:
-    """一次性装配的网关 + 守卫组合，供各层测试显式认证。"""
+    """一次性装配的认证与授权两侧组合，供各层测试显式认证与授权。
+
+    ``gateway`` / ``authenticator`` 是认证一侧（签发、失效、清空、诊断），
+    ``authorizer`` 是操作授权者（第 3 阶段授权、进程控制授权、CPU 执行
+    身份）；两者与生产装配同构：授权者经认证一侧的只读兑现接口取授权
+    依据。
+    """
 
     gateway: ActorAuthenticationGateway
-    guard: WorkspaceAccessGuard
+    authenticator: WorkspaceAuthenticator
+    authorizer: WorkspaceOperationAuthorizer
     principal: CallerPrincipal
     default_workspace: WorkspaceIdentity
 
@@ -184,10 +194,11 @@ def make_access_composition(
     adapters: tuple[str, ...] = ("local",),
     default_workspace: WorkspaceIdentity | None = None,
 ) -> AccessTestComposition:
-    """构造 System 接入登记 + Workspace Actor 注册表 + 网关 + 守卫。
+    """构造 System 接入登记 + Workspace Actor 注册表 + 认证网关 + 操作授权者。
 
-    context 不设固定有效期，只随进程关闭、请求结束与 guard 关闭失效；
-    需要验证单个 context 失效时使用 :meth:`AccessTestComposition.invalidate`。
+    context 不设固定有效期，只随进程关闭、请求结束与认证一侧清空失效；
+    需要验证单个 context 失效时经组合的网关调用
+    ``gateway.invalidate_context(context)``。
     """
     principal = CallerPrincipal(principal_id)
     system_registry = SystemActorAccessRegistry(
@@ -199,14 +210,16 @@ def make_access_composition(
         ]
     )
     workspace_registry = WorkspaceActorAccessRegistry(records)
-    guard = WorkspaceAccessGuard(workspace_registry)
+    authenticator = WorkspaceAuthenticator(workspace_registry)
+    authorizer = WorkspaceOperationAuthorizer(authenticator)
     gateway = ActorAuthenticationGateway(
         principals=SystemPrincipalAuthenticator(system_registry),
-        workspace_access=guard,
+        authenticator=authenticator,
     )
     return AccessTestComposition(
         gateway=gateway,
-        guard=guard,
+        authenticator=authenticator,
+        authorizer=authorizer,
         principal=principal,
         default_workspace=default_workspace
         or make_workspace_identity(
@@ -235,15 +248,15 @@ async def make_process_access(
     workspace_id: str = "main_workspace",
     process_id: str = "process_test",
 ) -> tuple[
-    WorkspaceAccessGuard,
+    WorkspaceOperationAuthorizer,
     ActorAuthenticationGateway,
     WorkspaceAccessContext,
     ActorIdentity,
     WorkspaceIdentity,
 ]:
-    """任务进程测试的 (guard, gateway, access, actor, workspace) 组合。
+    """任务进程测试的 (authorizer, gateway, access, actor, workspace) 组合。
 
-    进程持有的 access 必须由注入服务的那一个 guard/gateway 组合签发（换
+    进程持有的 access 必须由注入服务的那一个 gateway 组合签发（换
     实例即 ``context_not_issued``），因此测试用与生产装配相同的组合方式
     显式构造：context 以 ``for_task_process(process_id)`` 绑定签发；返回
     的 actor/workspace 声明供 ``register_process`` 使用。记录授予全部
@@ -261,7 +274,7 @@ async def make_process_access(
         workspace=workspace,
         binding=RunBinding.for_task_process(process_id),
     )
-    return composition.guard, composition.gateway, context, actor, workspace
+    return composition.authorizer, composition.gateway, context, actor, workspace
 
 
 def make_server_access_overrides(*, users: list[str] | None = None):

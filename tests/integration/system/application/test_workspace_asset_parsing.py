@@ -5,7 +5,8 @@
 串行化与资源边界；转换正确性由 15.4 节的真实 parser 样本另行验证。
 
 访问边界（A1 访问边界返工第 4.5 节）：上传 access 由与上传服务共享
-guard 的组合签发；注册与解析交接一律使用 guard 返回的可信 scope。
+访问组合（认证一侧 + 操作授权者）的网关签发；注册与解析交接一律使用
+授权返回的可信 scope。
 """
 
 import asyncio
@@ -42,7 +43,7 @@ def _service(
     parser_factory=None,
     **config_overrides,
 ):
-    """构造上传服务与同源访问组合（guard 是同一实例）。"""
+    """构造上传服务与同源访问组合（认证一侧是同一实例）。"""
     config = AttachmentParserConfig(**config_overrides)
     composition = make_upload_access(user_id="user-1")
     return (

@@ -1,9 +1,9 @@
 """Topic 能力（``workspace.capability.topic``）管理用例测试。
 
 能力层是授权点（A1 访问边界返工第 4.5 节）：方法只接收访问 context 与目标
-workspace，``IdentityScope`` 由 guard 组装并传给 Patchouli；读取（list 绑定
-``resource.read``）与生命周期变更（settle/evict 绑定 ``management.topic``）
-的授权在本层、路由调用前执行，白名单缺少对应 operation 时以
+workspace，``IdentityScope`` 由操作授权者组装并传给 Patchouli；话题列表与
+生命周期变更（list/settle/evict 均绑定 ``management.topic``，总 Idea
+P-9g）的授权在本层、路由调用前执行，白名单缺少对应 operation 时以
 ``OperationDeniedError`` 拒绝，不触达 Patchouli 路由。
 """
 
@@ -15,6 +15,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError
+from hivememory.core.models import ActorIdentity
 from hivememory.workspace.capability.topic import TopicApplicationService
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -45,7 +46,7 @@ class TestTopicApplicationService:
 
     @pytest.fixture
     def service(self, bus, composition):
-        return TopicApplicationService(global_bus=bus, access_guard=composition.guard)
+        return TopicApplicationService(global_bus=bus, operation_authorizer=composition.authorizer)
 
     @pytest.mark.asyncio
     async def test_list_active_topics_uses_public_route(self, service, bus, composition, workspace):
@@ -129,13 +130,46 @@ class TestTopicApplicationService:
         assert result.removed is True
 
     @pytest.mark.asyncio
-    async def test_list_active_topics_without_resource_read_denied_before_route(
-        self, service, bus, composition, workspace
+    async def test_list_active_topics_without_management_topic_denied_before_route(
+        self, bus, workspace
     ):
-        """白名单缺少 ``resource.read`` 时列表在本层拒绝，不触达 Patchouli 路由。"""
+        """白名单缺少 ``management.topic`` 时列表在本层拒绝，不触达 Patchouli 路由。
+
+        P-9g 后列表不再绑定 ``resource.read``：仅有资源读取许可的管理视角
+        不能列出话题。
+        """
         handler = AsyncMock(return_value=["snapshot"])
         bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, handler)
-        observing_only = make_access_composition(
+        read_only = make_access_composition(
+            [
+                make_actor_access_record(
+                    owner_user_id="u1",
+                    agent_id="system",
+                    allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                )
+            ],
+            default_workspace=workspace,
+        )
+        access = await read_only.authenticate(agent_id="system", user_id="u1")
+        denied_service = TopicApplicationService(
+            global_bus=bus, operation_authorizer=read_only.authorizer
+        )
+
+        with pytest.raises(OperationDeniedError) as exc_info:
+            await denied_service.list_active_topics(target_workspace=workspace, access=access)
+
+        assert exc_info.value.details["reason"] == "operation_not_allowed"
+        assert exc_info.value.details["operation"] == WorkspaceOperation.MANAGEMENT_TOPIC.value
+        handler.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_list_active_topics_with_management_topic_without_resource_read_succeeds(
+        self, bus, workspace
+    ):
+        """仅有 ``management.topic``（无 ``resource.read``）的 context 可调列表（P-9g）。"""
+        handler = AsyncMock(return_value=["snapshot"])
+        bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, handler)
+        management_only = make_access_composition(
             [
                 make_actor_access_record(
                     owner_user_id="u1",
@@ -145,15 +179,20 @@ class TestTopicApplicationService:
             ],
             default_workspace=workspace,
         )
-        access = await observing_only.authenticate(agent_id="system", user_id="u1")
-        denied_service = TopicApplicationService(global_bus=bus, access_guard=observing_only.guard)
+        access = await management_only.authenticate(agent_id="system", user_id="u1")
+        service = TopicApplicationService(
+            global_bus=bus, operation_authorizer=management_only.authorizer
+        )
 
-        with pytest.raises(OperationDeniedError) as exc_info:
-            await denied_service.list_active_topics(target_workspace=workspace, access=access)
+        result = await service.list_active_topics(target_workspace=workspace, access=access)
 
-        assert exc_info.value.details["reason"] == "operation_not_allowed"
-        assert exc_info.value.details["operation"] == WorkspaceOperation.RESOURCE_READ.value
-        handler.assert_not_awaited()
+        assert result == ["snapshot"]
+        # 传给 Patchouli 的 scope 来自操作授权者：已认证 actor + 目标 workspace
+        handler.assert_awaited_once()
+        scope = handler.await_args.kwargs["identity_scope"]
+        assert scope.actor_identity == ActorIdentity(user_id="u1", agent_id="system")
+        assert scope.workspace_identity == workspace
+        assert "access" not in handler.await_args.kwargs
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -191,7 +230,7 @@ class TestTopicApplicationService:
             default_workspace=workspace,
         )
         access = await read_only.authenticate(agent_id="system", user_id="u1")
-        service = TopicApplicationService(global_bus=bus, access_guard=read_only.guard)
+        service = TopicApplicationService(global_bus=bus, operation_authorizer=read_only.authorizer)
 
         with pytest.raises(OperationDeniedError) as exc_info:
             await invoke(service, workspace, access)

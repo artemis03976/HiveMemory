@@ -72,8 +72,9 @@ class WorkspaceActorAccessRecord:
 class WorkspaceActorAccessRegistry:
     """进程内不可变的 Workspace Actor 访问注册表（v0.7.0 本地配置）。
 
-    供 Workspace guard 的内部准入与逐次行为检查查询；System 统一认证
-    网关通过 guard 完成 Workspace 准入，不直接读取本注册表。
+    供认证一侧（``workspace.authentication.WorkspaceAuthenticator``）的
+    内部准入与操作授权者（``workspace.authorization``）的逐次授权查询；
+    认证网关经认证一侧完成 Workspace 准入，不直接读取本注册表。
     未登记 Workspace、未知 Actor 或缺失访问记录一律查无结果，由调用方
     fail closed；本类不区分"未登记"与"已吊销"，避免泄漏配置细节。
     """

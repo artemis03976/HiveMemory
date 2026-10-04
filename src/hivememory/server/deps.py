@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -236,10 +237,11 @@ def resolve_request_identity_claims(
     """server 边界唯一声明解析入口 — 只产出 actor 声明与请求进入的 workspace。
 
     身份选择与冲突检测规则见 :func:`_resolve_identity_coordinates`。经
-    认证网关的请求一律使用本函数；成功认证即确认了这份声明，server 不
-    从签发的 context 读回身份。Agent action（``require_agent=True``）显式
-    给出保留的 :data:`SYSTEM_AGENT_ID` 时返回 400：它表示"没有具体 Agent"，
-    不能作为任务进程的执行 Agent（注册入口仍保留同一检查）。
+    认证网关的请求一律使用本函数；声明只作为认证输入，认证通过后经过
+    验证的身份只存在于认证一侧的授予记录中，server 不把声明当作已确认
+    的身份继续使用。Agent action（``require_agent=True``）显式给出保留的
+    :data:`SYSTEM_AGENT_ID` 时返回 400：它表示"没有具体 Agent"，不能作为
+    任务进程的执行 Agent（注册入口仍保留同一检查）。
     """
     user_id, resolved_agent_id = _resolve_identity_coordinates(
         selection,
@@ -297,13 +299,14 @@ def resolve_request_identity_scope(
 
 
 # ---------------------------------------------------------------------------
-# 统一认证网关接入（A1 访问边界返工第 4.3/4.8 节）
+# 统一认证网关接入（A1 访问边界返工第 4.1/4.3 节）
 #
 # server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
 # 每个与 workspace 相关的请求经网关取得 context。请求头中的用户身份不做
 # 证明——这是本地单用户部署的信任假设。认证前 server 只持有声明
-# （:class:`RequestIdentityClaims`）；成功认证即确认了这份声明，server 不
-# 从签发的 context 读回身份。
+# （:class:`RequestIdentityClaims`），声明只作为认证输入：认证通过后，
+# 经过验证的身份只存在于认证一侧的授予记录中，server 不把声明当作已确认
+# 的身份继续使用，也不把声明交给路由处理函数。
 # ---------------------------------------------------------------------------
 
 
@@ -334,9 +337,9 @@ async def authenticate_request_access(
     """以 server 自身 principal 经统一认证网关取得请求级访问 context。
 
     ``claims`` 是 :func:`resolve_request_identity_claims` 解析的请求身份
-    声明；运行绑定为本次请求的标识（P-9b/P-9c）。网关认证失败（未登记
-    principal、adapter 不匹配、未获准入）以 ``AdmissionDeniedError`` 拒绝，
-    由访问错误映射转为 HTTP 状态码。
+    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识
+    （P-9b/P-9c）。网关认证失败（未登记 principal、adapter 不匹配、未获
+    准入）以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
     """
     return await gateway.authenticate(
         adapter=HTTP_ADAPTER,
@@ -349,15 +352,36 @@ async def authenticate_request_access(
 
 @dataclass(frozen=True)
 class RequestAccess:
-    """一次管理员请求的访问凭据与进入 workspace。
+    """一次管理员请求的请求级访问凭据与目标 workspace。
 
-    ``claims`` 是认证前的声明（成功认证即被确认），``access`` 是请求级
-    context；能力层调用使用 ``access`` 与 ``claims.workspace``（目标
-    workspace），不使用任何预先组装的 ``IdentityScope``。
+    声明只作为认证输入：路由处理函数只取得 ``access`` 与
+    ``target_workspace``（这次操作的参数，当前取请求进入的 workspace），
+    不接触声明、认证后的身份或任何预先组装的 ``IdentityScope``（A1 访问
+    边界返工第 4.1/4.3 节）。
     """
 
-    claims: RequestIdentityClaims
     access: WorkspaceAccessContext
+    target_workspace: WorkspaceIdentity
+
+
+@asynccontextmanager
+async def request_access_for_claims(
+    claims: RequestIdentityClaims,
+    *,
+    gateway: ActorAuthenticationGateway,
+    principal_id: str,
+) -> AsyncIterator[RequestAccess]:
+    """以给定声明取得请求级访问凭据；退出时使 context 失效。
+
+    供身份解析带 body/query 冲突检测的路由（topics、chat/stop）与
+    :func:`get_request_access` 共用：取得 context、以
+    :class:`RequestAccess` 交出凭据与目标 workspace，声明不越过认证边界。
+    """
+    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
+    try:
+        yield RequestAccess(access=access, target_workspace=claims.workspace)
+    finally:
+        gateway.invalidate_context(access)
 
 
 async def get_request_access(
@@ -370,23 +394,13 @@ async def get_request_access(
     以 (user, ``system``) 声明经网关认证取得 context，一次请求一个；
     请求结束（含失败）时失效（A1 访问边界返工第 4.8 节）。供 memories、
     agents、memory-tasks、workspace assets 等管理路由使用；身份解析带
-    body/query 冲突检测的路由自行调用 :func:`authenticate_request_access`
-    并在请求收尾时失效 context。
+    body/query 冲突检测的路由改用 :func:`request_access_for_claims`。
     """
     claims = resolve_request_identity_claims(selection)
-    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
-    try:
-        yield RequestAccess(claims=claims, access=access)
-    finally:
-        gateway.invalidate_context(access)
-
-
-def release_request_access(
-    access: WorkspaceAccessContext,
-    gateway: ActorAuthenticationGateway,
-) -> None:
-    """使请求级 access context 失效；请求结束（含失败）时由 server 调用。"""
-    gateway.invalidate_context(access)
+    async with request_access_for_claims(
+        claims, gateway=gateway, principal_id=principal_id
+    ) as request_access:
+        yield request_access
 
 
 def init_websocket_log_broadcasting(

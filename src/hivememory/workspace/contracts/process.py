@@ -29,7 +29,7 @@ class CPUInputManifest(BaseModel):
         description="任务进程唯一标识；同时充当本次 Interaction 的稳定关联 ID",
     )
     identity_scope: IdentityScope = Field(
-        description="CPU 执行身份（过渡期由 guard 的 CPU 执行身份方法组装，I-9）"
+        description="CPU 执行身份（过渡期由操作授权者的 CPU 执行身份方法组装，I-9）"
     )
     user_message: str = Field(description="原始用户消息")
     agent_profile: AgentProfile = Field(description="CPU 分配时经 Patchouli 公开路由解析的 Profile")

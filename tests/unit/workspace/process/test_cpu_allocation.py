@@ -2,7 +2,8 @@
 
 被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
 Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 解析与
-附件租借的阶段 operation 授权在分配层、副作用前执行，清单身份由 guard 组装。
+附件租借的阶段 operation 授权在分配层、副作用前执行，清单身份由操作授权者
+组装。
 Patchouli 以总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册
 Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
 验收，不断言私有字段。
@@ -46,8 +47,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus
-from hivememory.workspace.process.service import TaskProcessService
-from hivememory.workspace.process.task_process import TaskProcess
+from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
@@ -74,7 +74,7 @@ def _workspace() -> WorkspaceIdentity:
 
 
 def _expected_scope() -> IdentityScope:
-    """认证声明经 guard 授权规则应组装出的 IdentityScope。"""
+    """认证声明经操作授权者授权规则应组装出的 IdentityScope。"""
     return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
 
 
@@ -119,9 +119,9 @@ def _memory_atom(title: str) -> MemoryAtom:
 
 
 async def _store_scope(composition: AccessTestComposition) -> IdentityScope:
-    """构造 Store 测试资产的 scope：经 guard 授权组装，与进程内阶段授权同源。"""
+    """构造 Store 测试资产的 scope：经操作授权者授权组装，与进程内阶段授权同源。"""
     context = await composition.authenticate(agent_id=_AGENT)
-    return composition.guard.authorize_operation(
+    return composition.authorizer.authorize_operation(
         context, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
     )
 
@@ -215,7 +215,7 @@ async def _service(
     cpu: ScriptedCPU | None = None,
     composition: AccessTestComposition | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一 guard/gateway 实例。"""
+    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = TaskProcessService(
         bus,
@@ -223,7 +223,7 @@ async def _service(
         asset_reader=store,
         attachment_compiler_config=attachment_compiler_config,
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
     return service, composition
 
@@ -235,7 +235,7 @@ async def _register(
     *,
     process_id: str,
     **kwargs,
-) -> TaskProcess:
+) -> ProcessHandle:
     """按组合的默认声明注册进程：两阶段认证由注册入口完成。"""
     return await service.register_process(
         adapter="local",
@@ -256,8 +256,8 @@ async def _run_once(
     process_id: str,
     **kwargs,
 ):
-    process = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return await service.run_process(process, stream=False)
+    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return await service.run_process(handle, stream=False)
 
 
 async def _stream_events(
@@ -268,8 +268,8 @@ async def _stream_events(
     process_id: str,
     **kwargs,
 ) -> list[dict]:
-    process = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return [event async for event in service.run_process(process, stream=True)]
+    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return [event async for event in service.run_process(handle, stream=True)]
 
 
 # ========== 清单组装（Profile 与编译） ==========
@@ -294,7 +294,7 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     result = await _run_once(composition, service, "问题", process_id="process-manifest")
 
     assert result.kind == "agent"
-    # Profile 以 guard 组装的 identity_scope 经公开路由按 agent_id 解析。
+    # Profile 以操作授权者组装的 identity_scope 经公开路由按 agent_id 解析。
     assert [agent_id for agent_id, _scope in profile_calls] == ["omni_doll"]
     assert profile_calls[0][1] == _expected_scope()
 
@@ -310,8 +310,8 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
 
 
 @pytest.mark.asyncio
-async def test_manifest_identity_scope_is_assembled_by_guard_from_authenticated_claims() -> None:
-    """清单身份由 guard 的 CPU 执行身份方法组装：与通过认证的声明一致，不取自调用方。"""
+async def test_manifest_identity_scope_is_assembled_by_authorizer_cpu_execution_identity() -> None:
+    """清单身份由操作授权者的 CPU 执行身份方法组装：与通过认证的声明一致，不取自调用方。"""
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
@@ -799,14 +799,14 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
 
     service, composition = await _service(bus, store=store, cpu=cpu)
     requestor = await composition.authenticate(agent_id=_AGENT)
-    process = await _register(
+    handle = await _register(
         composition,
         service,
         "带附件的消息",
         process_id="process-cancel-during-cleanup",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await cleanup_started.wait()
     task.cancel()
     release_cleanup.set()
@@ -839,14 +839,14 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
 
     service, composition = await _service(bus, store=store, cpu=cpu)
     requestor = await composition.authenticate(agent_id=_AGENT)
-    process = await _register(
+    handle = await _register(
         composition,
         service,
         "带附件的消息",
         process_id="process-stream-cancel-during-cleanup",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(_collect_stream(service.run_process(process, stream=True)))
+    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
     await cleanup_started.wait()
     task.cancel()
     release_cleanup.set()
@@ -895,20 +895,20 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
-    process = await _register(
+    handle = await _register(
         composition,
         service,
         "问题",
         process_id="process-stop-before-actor",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await prepare_started.wait()
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     release_prepare.set()
     result = await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     assert finalize_calls == []
@@ -951,20 +951,20 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
-    process = await _register(
+    handle = await _register(
         composition,
         service,
         "问题",
         process_id="process-stop-during-allocation",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await allocation_started.wait()
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     release_allocation.set()
     result = await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     assert cleanup_calls != [] and all(
@@ -989,10 +989,10 @@ async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu=cpu)
-    process = await _register(composition, service, "问题", process_id="process-stream-stop")
-    task = asyncio.create_task(_collect_stream(service.run_process(process, stream=True)))
+    handle = await _register(composition, service, "问题", process_id="process-stream-stop")
+    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
     await prepare_started.wait()
-    process.record.request_stop()
+    service.stop_process(handle, reason="user_requested")
     release_prepare.set()
     events = await task
 

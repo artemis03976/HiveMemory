@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -76,21 +76,20 @@ class ProcessRecord:
     ``process_id`` 是任意任务进程的唯一标识（Q-16）：由 server 入口在进入
     编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
     ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：它是
-    记录持有的唯一身份凭据，只交给 guard 用于授权与控制比对，进程以任何
-    结局关闭时由注册入口使其失效（P-6）。记录不保存 actor、驻留 workspace
-    等身份字段：阶段调用的目标取自任务参数，观测标签（``events``）在注册
-    时用通过认证的声明绑定一次（I-8 选项 C）。
+    记录持有的唯一身份凭据，只交给操作授权者用于授权与控制比对，进程以
+    任何结局关闭时由注册入口使其失效（P-6）。记录不保存 actor、驻留
+    workspace 等身份字段：阶段调用的目标取自任务参数，观测标签（``events``）
+    在注册时用通过认证的声明绑定一次（I-8 选项 C）；``events`` 是记录与
+    事件发布器之间唯一的持有关系，发布器不回指记录。
     """
 
     process_id: str
     access: WorkspaceAccessContext
+    events: BoundProcessEvents
     phase: ProcessPhase = ProcessPhase.CREATED
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
-    # 进程元数据：注册入口在创建时绑定的 chat.run.* 事件发布器
-    # （携带通过认证声明的 workspace_id / agent_id 观测标签）。
-    events: BoundProcessEvents | None = field(default=None, repr=False, compare=False)
 
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
@@ -184,7 +183,7 @@ class ProcessTable:
     def get(self, process_id: str) -> ProcessRecord | None:
         """按 ``process_id`` 原样取回进程记录；找不到返回 ``None``。
 
-        控制请求（取消与状态查询）的授权比对由注册入口经 guard 完成，
+        控制请求（取消与状态查询）的授权比对由注册入口经操作授权者完成，
         本表不做 scope 过滤。
         """
         return self._runs.get(process_id)

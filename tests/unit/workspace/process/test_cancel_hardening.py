@@ -1,9 +1,9 @@
 """Phase 1：cancel 契约加固的单元测试。
 
 覆盖服务控制面的 not_found 语义与 CPU 自报取消的终态传播。进程记录/进程
-表的 stop 语义、重复 process_id 拒绝与注册入口的访问边界契约由
+表的 stop 语义、重复 process_id 拒绝与注册入口句柄 API 的访问边界契约由
 ``test_chat_run_control_contract.py`` 覆盖（A1 访问边界返工后进程表不再
-自带 cancel，控制授权由注册入口经 guard 完成）。
+自带 cancel，控制授权由注册入口经操作授权者完成）。
 """
 
 from __future__ import annotations
@@ -24,9 +24,8 @@ from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionStatus
-from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import CancelResult
-from hivememory.workspace.process.task_process import TaskProcess
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.workspace import (
@@ -61,13 +60,13 @@ async def _service(
     cpu: ScriptedCPU,
     composition: AccessTestComposition | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与控制授权使用同一 guard/gateway 实例。"""
+    """构造被测服务与配套认证组合：注册与控制授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = TaskProcessService(
         bus,
         cpu=cpu,
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
     return service, composition
 
@@ -78,7 +77,7 @@ async def _register(
     message: str,
     *,
     process_id: str,
-) -> TaskProcess:
+) -> ProcessHandle:
     """按组合的默认声明注册进程：两阶段认证由注册入口完成。"""
     return await service.register_process(
         adapter="local",
@@ -147,8 +146,8 @@ async def test_cpu_self_reported_cancel_skips_finalize_and_reports_cancelled_don
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, cpu=cpu)
-    process = await _register(composition, service, "hello", process_id="process-cancel-1")
-    events = [event async for event in service.run_process(process, stream=True)]
+    handle = await _register(composition, service, "hello", process_id="process-cancel-1")
+    events = [event async for event in service.run_process(handle, stream=True)]
 
     done_events = [event for event in events if event["event"] == "done"]
     assert len(done_events) == 1

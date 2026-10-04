@@ -46,7 +46,7 @@ def composition(workspace):
 
 
 def _service(bus: GlobalSystemBus, composition) -> MemoryTaskApplicationService:
-    return MemoryTaskApplicationService(global_bus=bus, access_guard=composition.guard)
+    return MemoryTaskApplicationService(global_bus=bus, operation_authorizer=composition.authorizer)
 
 
 @pytest.mark.asyncio
@@ -63,7 +63,7 @@ async def test_list_memory_tasks_requests_patchouli_route(composition, workspace
     # 结果经真实总线派发到达，验证 request→返回完整链路
     assert result == ["task"]
     handler.assert_awaited_once()
-    expected_scope = composition.guard.authorize_operation(
+    expected_scope = composition.authorizer.authorize_operation(
         access, WorkspaceOperation.TASK_OBSERVE, workspace
     )
     assert handler.await_args.kwargs["identity_scope"] == expected_scope
@@ -82,7 +82,7 @@ async def test_get_memory_task_requests_patchouli_route(composition, workspace):
     )
 
     assert result == "task"
-    expected_scope = composition.guard.authorize_operation(
+    expected_scope = composition.authorizer.authorize_operation(
         access, WorkspaceOperation.TASK_OBSERVE, workspace
     )
     handler.assert_awaited_once_with("task_1", identity_scope=expected_scope)
@@ -100,7 +100,7 @@ async def test_cancel_memory_task_requests_patchouli_route(composition, workspac
     )
 
     assert result is True
-    expected_scope = composition.guard.authorize_operation(
+    expected_scope = composition.authorizer.authorize_operation(
         access, WorkspaceOperation.MANAGEMENT_TASK, workspace
     )
     handler.assert_awaited_once_with("task_1", identity_scope=expected_scope)

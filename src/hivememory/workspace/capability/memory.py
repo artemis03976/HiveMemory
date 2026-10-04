@@ -10,9 +10,10 @@
   授权同样在本层、路由调用前执行。
 
 身份与访问约定（A1 访问边界返工第 4.5 节）：本层是授权点——方法只接收
-访问 context 与目标 workspace，先用 guard 的 ``authorize_operation`` 取得
-可信 ``IdentityScope``，再用它构造领域对象并调用 Patchouli；context 不
-向下传递，调用方也不能另行传入 scope。
+访问 context 与目标 workspace，先用操作授权者的 ``authorize_operation``
+取得可信 ``IdentityScope``，再用它构造领域对象与检索请求并调用
+Patchouli；context 不向下传递，调用方也不能另行传入 scope 或携带身份
+的检索请求。
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     WorkspaceDomainError,
-    WorkspaceMismatchError,
 )
 from hivememory.core.models import (
     IndexLayer,
@@ -47,7 +47,8 @@ if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.core.models import IdentityScope, WorkspaceIdentity
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.models.query import QueryFilters
+    from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.alias import AliasResolver
 
 
@@ -69,7 +70,7 @@ class MemoryApplicationService:
     ``resource.search``；管理用例（create/list/get/update/delete/feedback，
     含 Agent Profile 的既有绑定例外）→ ``management.memory``。方法显式
     接收目标 workspace（当前只接受等于 context 驻留 workspace 的目标），
-    ``IdentityScope`` 由 guard 组装，不接收调用方传入的 scope。
+    ``IdentityScope`` 由操作授权者组装，不接收调用方传入的 scope。
 
     管理用例按 owner-management 语义在 Workspace ownership hard boundary
     内访问该 Workspace 的全部 Memory，不执行 Agent 级
@@ -81,11 +82,11 @@ class MemoryApplicationService:
         self,
         global_bus: GlobalSystemBus,
         *,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
         memory_reader: AliasResolver,
     ) -> None:
         self._global_bus = global_bus
-        self._access_guard = access_guard
+        self._authorizer = operation_authorizer
         self._reader = memory_reader
 
     async def create_memory(
@@ -290,25 +291,28 @@ class MemoryApplicationService:
 
     async def retrieve(
         self,
-        request: RetrievalRequest,
         *,
+        semantic_query: str,
+        keywords: list[str] | None = None,
+        top_k: int = 5,
+        filters: QueryFilters | None = None,
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
         """语义检索（``resource.search``）：保持领域排序，结果协作预热缓存。
 
-        请求内的 ``identity_scope`` 必须与 guard 组装的可信 scope 一致：
-        检索请求冻结操作坐标，不能据请求体重新选择 Workspace。
+        调用方只提交检索参数：检索请求由本层用授权返回的可信 scope 构造，
+        ``IdentityScope`` 不进入调用方输入（A1 访问边界返工第 4.5 节），
+        不能据请求体重新选择 Workspace。
         """
         scope = self._authorize(access, WorkspaceOperation.RESOURCE_SEARCH, target_workspace)
-        if request.identity_scope != scope:
-            raise WorkspaceMismatchError(
-                details={
-                    "reason": "request_scope_mismatches_access_context",
-                    "access_workspace_id": scope.workspace_identity.workspace_id,
-                    "request_workspace_id": request.identity_scope.workspace_identity.workspace_id,
-                }
-            )
+        request = RetrievalRequest(
+            semantic_query=semantic_query,
+            keywords=list(keywords or ()),
+            identity_scope=scope,
+            filters=filters,
+            top_k=top_k,
+        )
         return await self._reader.search(request, scope=scope)
 
     # ---- 内部辅助 ----
@@ -319,8 +323,8 @@ class MemoryApplicationService:
         operation: WorkspaceOperation,
         target_workspace: WorkspaceIdentity,
     ) -> IdentityScope:
-        """在 backing/管理路由调用前执行操作授权，返回 guard 组装的可信 scope。"""
-        return self._access_guard.authorize_operation(access, operation, target_workspace)
+        """在 backing/管理路由调用前执行操作授权，返回组装的可信 scope。"""
+        return self._authorizer.authorize_operation(access, operation, target_workspace)
 
     @staticmethod
     def _build_filters(

@@ -14,7 +14,7 @@ import pytest
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity
-from hivememory.workspace import WorkspaceActorAccessRegistry
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.workspace import (
     make_actor_access_record,
     make_workspace_identity,

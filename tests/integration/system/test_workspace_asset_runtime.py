@@ -360,12 +360,12 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
         RuntimeEventType.SYSTEM_SHUTTING_DOWN,
         RuntimeEventType.SYSTEM_STOPPED,
     ]
-    # A1 访问边界返工：Store 在全部消费者停止后收口，guard 的关闭是停止
-    # 顺序的最后一步（第 4.8 节）。
+    # A1 访问边界返工：Store 在全部消费者停止后收口，授予记录的清空是
+    # 停止顺序的最后一步（第 4.8 节）。
     completed_steps = sink.events[-1].data["completed_steps"]
     assert completed_steps[-2:] == [
         "workspace_asset_store.close_and_clear",
-        "workspace_access_guard.close",
+        "workspace_access_grants.clear",
     ]
 
 
@@ -465,9 +465,10 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
 async def test_system_stop_rejects_new_authentication_and_invalidates_issued_contexts() -> None:
     """System 停止的访问生命周期（A1 访问边界返工第 4.8 节）。
 
-    停止顺序：统一认证网关先关闭（拒绝新认证），guard 在 Store 最终清理
-    之后关闭（已签发 context 一并失效）——停止后旧 context 不能再经
-    ``authorize_operation`` 兑现。
+    停止顺序：统一认证网关先关闭（拒绝新认证），授予记录在 Store 最终
+    清理之后经认证网关 ``clear_contexts`` 清空——停止后旧 context 不能再
+    经 ``authorize_operation`` 兑现（``context_not_issued``）；操作授权者
+    无状态，不随停止关闭。
     """
     store = InMemoryWorkspaceAssetStore()
     scope = _scope()
@@ -480,7 +481,8 @@ async def test_system_stop_rejects_new_authentication_and_invalidates_issued_con
     access_control = _AccessControlBundle(
         system_registry=object(),  # type: ignore[arg-type]
         workspace_registry=object(),  # type: ignore[arg-type]
-        access_guard=composition.guard,
+        authenticator=composition.authenticator,
+        operation_authorizer=composition.authorizer,
         access_gateway=composition.gateway,
     )
     system, _, _, sink = _build_system(
@@ -491,18 +493,18 @@ async def test_system_stop_rejects_new_authentication_and_invalidates_issued_con
     sink.events.clear()
     await system.stop()
 
-    # 停止事件里网关先于 guard 关闭，guard 是最后一个完成步骤。
+    # 停止事件里网关先于授予记录清空关闭，清空是最后一个完成步骤。
     steps = [event for event in sink.events if event.event_type == RuntimeEventType.SYSTEM_STOPPED]
     completed = steps[-1].data["completed_steps"]
     assert completed[0] == "access_gateway.close"
-    assert completed[-1] == "workspace_access_guard.close"
+    assert completed[-1] == "workspace_access_grants.clear"
 
-    # 停止后：新认证被网关拒绝；已签发 context 在 guard 兑现处失效。
+    # 停止后：新认证被网关拒绝；已签发 context 在清空后兑现失败。
     with pytest.raises(AdmissionDeniedError) as auth_error:
         await composition.authenticate(agent_id="agent-1")
     assert auth_error.value.details["reason"] == "authentication_gateway_closed"
     with pytest.raises(ScopeRequiredError) as scope_error:
-        composition.guard.authorize_operation(
+        composition.authorizer.authorize_operation(
             context, WorkspaceOperation.RESOURCE_READ, scope.workspace_identity
         )
-    assert scope_error.value.details["reason"] == "authentication_gateway_closed"
+    assert scope_error.value.details["reason"] == "context_not_issued"

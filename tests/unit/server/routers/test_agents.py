@@ -34,12 +34,12 @@ def _create_test_app(storage):
         GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
-    # 管理用例的 operation 授权（management.memory）在本层执行：服务与
-    # 访问依赖共享同一组合的 guard，context 才能通过签发校验。
+    # 管理用例的 operation 授权（management.memory）在能力层执行：服务与
+    # 访问依赖共享同一组合的操作授权者，context 才能通过签发校验。
     overrides, composition = make_server_access_overrides()
     service = AgentApplicationService(
         global_bus=bus,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
         profile_reader=make_workspace_runtime(bus).profiles,
     )
     app.dependency_overrides[deps.get_agent_service] = lambda: service
@@ -52,11 +52,12 @@ class _AgentProfileManagementStub:
     def __init__(self, storage):
         self.storage = storage
 
-    async def create_agent_profile(self, identity_scope, atom, access=None):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
+    async def create_agent_profile(self, identity_scope, atom):
         self.storage.upsert_memory(atom)
         return atom
 
-    async def list_agent_profiles(self, *, identity_scope, limit=100, access=None):
+    async def list_agent_profiles(self, *, identity_scope, limit=100):
         return self.storage.get_all_memories(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=limit,
@@ -109,7 +110,7 @@ def test_create_agent_alias_conflict_returns_409():
 
 
 def test_list_agents_passes_target_workspace_and_access():
-    """router 以 header 声明解析的 target_workspace 与请求级 access 调用能力层。"""
+    """路由只取得请求级 context 与目标 workspace，并以此调用能力层。"""
     service = MagicMock()
     service.list_agent_profiles = AsyncMock(return_value=[])
 
@@ -129,4 +130,6 @@ def test_list_agents_passes_target_workspace_and_access():
     assert kwargs["target_workspace"].workspace_id == "main_workspace"
     assert kwargs["limit"] == 100
     assert isinstance(kwargs["access"], WorkspaceAccessContext)
+    # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
     assert "identity_scope" not in kwargs
+    assert "claims" not in kwargs

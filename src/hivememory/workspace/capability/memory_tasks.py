@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.core.models import IdentityScope, WorkspaceIdentity
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
 class MemoryTaskApplicationService:
@@ -32,17 +32,17 @@ class MemoryTaskApplicationService:
     访问上下文约定（A1 访问边界返工第 4.5 节）：本层是授权点——方法只
     接收访问 context 与目标 workspace；行为检查先于后端读取——观察
     （list/get）绑定 ``task.observe``，取消绑定 ``management.task``；
-    Patchouli 只接收 guard 返回的可信 scope。
+    Patchouli 只接收操作授权者返回的可信 scope。
     """
 
     def __init__(
         self,
         global_bus: GlobalSystemBus,
         *,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
     ) -> None:
         self._global_bus = global_bus
-        self._access_guard = access_guard
+        self._authorizer = operation_authorizer
 
     async def list_memory_tasks(
         self,
@@ -93,8 +93,8 @@ class MemoryTaskApplicationService:
         operation: WorkspaceOperation,
         target_workspace: WorkspaceIdentity,
     ) -> IdentityScope:
-        """在后端读取/取消前执行操作授权，返回 guard 组装的可信 scope。"""
-        return self._access_guard.authorize_operation(access, operation, target_workspace)
+        """在后端读取/取消前执行操作授权，返回组装的可信 scope。"""
+        return self._authorizer.authorize_operation(access, operation, target_workspace)
 
 
 __all__ = ["MemoryTaskApplicationService"]

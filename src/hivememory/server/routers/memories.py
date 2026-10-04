@@ -32,7 +32,7 @@ async def create_memory(
     """创建新的记忆（管理用例，actor 为保留 system）"""
     try:
         atom = await service.create_memory(
-            target_workspace=request_access.claims.workspace,
+            target_workspace=request_access.target_workspace,
             title=body.title,
             summary=body.summary,
             content=body.content,
@@ -59,7 +59,7 @@ async def list_memories(
 ):
     """检索记忆 — 支持语义搜索和过滤（owner-management 语义，不做 Agent 可见性过滤）"""
     atoms = await service.list_memories(
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         query=query,
         memory_type=memory_type,
         limit=limit,
@@ -84,7 +84,7 @@ async def get_memory(
     try:
         atom = await service.get_memory(
             uid,
-            target_workspace=request_access.claims.workspace,
+            target_workspace=request_access.target_workspace,
             access=request_access.access,
         )
     except MemoryNotFoundError:
@@ -108,7 +108,7 @@ async def update_memory(
     try:
         atom = await service.update_memory(
             uid,
-            target_workspace=request_access.claims.workspace,
+            target_workspace=request_access.target_workspace,
             title=body.title,
             summary=body.summary,
             content=body.content,
@@ -142,7 +142,7 @@ async def record_memory_feedback(
     try:
         result = await service.record_feedback(
             uid,
-            target_workspace=request_access.claims.workspace,
+            target_workspace=request_access.target_workspace,
             positive=body.positive,
             source=body.source,
             access=request_access.access,
@@ -182,7 +182,7 @@ async def delete_memory(
 
     success = await service.delete_memory(
         uid,
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         access=request_access.access,
     )
     if not success:

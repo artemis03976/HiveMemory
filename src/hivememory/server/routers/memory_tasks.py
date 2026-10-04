@@ -16,7 +16,7 @@ async def list_memory_tasks(
 ) -> MemoryTaskListResponse:
     """列出本 Workspace 的记忆生成任务（观察绑定 ``task.observe``）。"""
     tasks = await service.list_memory_tasks(
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         access=request_access.access,
     )
     return MemoryTaskListResponse(
@@ -33,7 +33,7 @@ async def get_memory_task(
     """读取单个记忆生成任务（观察绑定 ``task.observe``）。"""
     memory_task = await service.get_memory_task(
         task_id,
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         access=request_access.access,
     )
     if memory_task is None:
@@ -50,14 +50,14 @@ async def cancel_memory_task(
     """取消记忆生成任务（取消绑定 ``management.task``，观察不授予取消）。"""
     ok = await service.cancel_memory_task(
         task_id,
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         access=request_access.access,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="task not found")
     memory_task = await service.get_memory_task(
         task_id,
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         access=request_access.access,
     )
     if memory_task is None:

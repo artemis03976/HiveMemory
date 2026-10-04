@@ -100,7 +100,7 @@ async def upload_workspace_asset(
     首次创建返回 201；同一 ``Idempotency-Key`` 且内容一致的重放返回 200
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动
     加入当前 Chat run。上传绑定 ``management.asset``：请求经统一认证网关
-    取得访问 context，注册使用的 scope 由 guard 在授权时组装，调用方不能
+    取得访问 context，注册使用的 scope 由操作授权者在授权时组装，调用方不能
     另行传入（P-1 缺陷的结构性修复，A1 访问边界返工第 4.5 节）。
     """
     operation_id = idempotency_key.strip() if idempotency_key else ""
@@ -119,7 +119,7 @@ async def upload_workspace_asset(
     try:
         upload = uploads[0]
         receipt = await service.upload_asset(
-            target_workspace=request_access.claims.workspace,
+            target_workspace=request_access.target_workspace,
             file_name=upload.filename or "",
             declared_media_type=upload.content_type,
             source=upload,

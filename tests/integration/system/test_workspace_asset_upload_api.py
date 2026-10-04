@@ -5,7 +5,7 @@
 解析；Workspace 隔离与各错误路径都有稳定的 HTTP 状态。
 
 访问边界（A1 访问边界返工第 4.3/4.5 节）：上传路由经统一认证网关取得
-请求级 context（真实网关 + 测试登记组合），注册使用的 scope 只由 guard
+请求级 context（真实网关 + 测试登记组合），注册使用的 scope 只由授权点
 在授权时组装——测试以真实网关依赖覆盖替代 ``deps.get_system``。
 """
 
@@ -91,7 +91,7 @@ def _make_docx(body_xml: str) -> bytes:
 def upload_stack():
     """构造真实 router + 真实网关组合 + 应用服务 + Store 的测试应用。
 
-    上传服务的 guard 与网关依赖覆盖背后的组合是同一实例：请求级 context
+    上传服务的操作授权者与网关依赖覆盖背后的组合是同一实例：请求级 context
     由该组合签发，``authorize_operation`` 才能兑现（换实例即
     ``context_not_issued``）。测试应用另挂载生产访问错误处理器，验证
     准入拒绝的稳定 403 映射。

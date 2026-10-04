@@ -27,7 +27,7 @@ from hivememory.workspace.assets.upload import (
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
 class WorkspaceAssetApplicationService:
@@ -37,10 +37,10 @@ class WorkspaceAssetApplicationService:
     Store 的重放/冲突判定。
 
     访问边界（A1 访问边界返工第 4.5 节）：WorkspaceAsset 不属于
-    Patchouli，在自己的公共入口调用同一共享操作授权——上传绑定
+    Patchouli，在自己的公共入口调用同一操作授权——上传绑定
     ``management.asset``（``asset.acquire`` 只授权解析/获取，不自动授权
     上传），授权先于接收与注册副作用。本层是授权点：只接收访问 context
-    与目标 workspace，注册与解析交接一律使用 guard 返回的可信 scope，
+    与目标 workspace，注册与解析交接一律使用操作授权者返回的可信 scope，
     调用方不能再另传 scope（P-1 缺陷由此结构性消除）。
     """
 
@@ -50,12 +50,12 @@ class WorkspaceAssetApplicationService:
         parser_config: AttachmentParserConfig,
         parse_service: AttachmentParseService,
         *,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
     ) -> None:
         self._store = store
         self._parser_config = parser_config
         self._parse_service = parse_service
-        self._access_guard = access_guard
+        self._authorizer = operation_authorizer
         self._serial_gate = KeyedSerialGate[tuple[WorkspaceIdentity, str]]()
 
     async def upload_asset(
@@ -70,8 +70,8 @@ class WorkspaceAssetApplicationService:
     ) -> WorkspaceAssetUploadReceipt:
         """接收一个文件，注册资产并返回解析终态，保留首次创建/重放标记。"""
         # 行为检查先于接收与注册副作用：不允许未经许可的上传消耗解析与
-        # 存储资源；后续全部使用 guard 返回的可信 scope。
-        authorized_scope = self._access_guard.authorize_operation(
+        # 存储资源；后续全部使用操作授权者返回的可信 scope。
+        authorized_scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.MANAGEMENT_ASSET, target_workspace
         )
         key = (authorized_scope.workspace_identity, client_operation_id)

@@ -38,10 +38,10 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.authentication import ActorAuthenticationGateway
+from hivememory.workspace.authentication import ActorAuthenticationGateway, WorkspaceAuthenticator
+from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
@@ -79,11 +79,12 @@ class _RegistriesBundle:
 
 @dataclass
 class _AccessControlBundle:
-    """访问控制产物：两类注册表、共享行为检查与统一认证网关。"""
+    """访问控制产物：两类注册表、认证一侧、操作授权者与统一认证网关。"""
 
     system_registry: SystemActorAccessRegistry
     workspace_registry: WorkspaceActorAccessRegistry
-    access_guard: WorkspaceAccessGuard
+    authenticator: WorkspaceAuthenticator
+    operation_authorizer: WorkspaceOperationAuthorizer
     access_gateway: ActorAuthenticationGateway
 
 
@@ -227,13 +228,16 @@ class SystemAssembler:
     # ------------------------------------------------------------------
 
     def _build_access_control(self) -> _AccessControlBundle:
-        """装载两类访问登记并构造网关与共享操作授权（A1 访问边界返工第 4.7 节）。
+        """装载两类访问登记并构造认证与授权两侧（A1 访问边界返工第 4.2/4.7 节）。
 
         System composition 负责"装载和注入配置"：接入登记从
         ``configs/system_principals.yaml`` 装载转入 System 注册表，
         Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
         转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
         失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
+        认证与操作授权分属两个类（I-10）：认证网关与认证一侧持有授予
+        记录，操作授权者经只读兑现接口取得授权依据；组合根把操作授权者
+        注入各授权点，运行持有者只经认证网关接触认证一侧。
         """
         registration = load_access_registration()
 
@@ -267,17 +271,21 @@ class SystemAssembler:
 
         system_registry = SystemActorAccessRegistry(system_entries)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
-        access_guard = WorkspaceAccessGuard(workspace_registry)
-        # Principal authentication 归 System（接入登记），经端口注入 workspace
-        # 认证入口；Workspace 准入与签发归 workspace guard。
+        # 第 2 阶段与签发归认证一侧；第 3 阶段归操作授权者（经只读兑现
+        # 接口取得授权依据，无 per-context 状态）。
+        authenticator = WorkspaceAuthenticator(workspace_registry)
+        operation_authorizer = WorkspaceOperationAuthorizer(authenticator)
+        # Principal authentication 归 System（接入登记），经端口注入认证
+        # 网关；Workspace 准入与签发归认证一侧。
         access_gateway = ActorAuthenticationGateway(
             principals=SystemPrincipalAuthenticator(system_registry),
-            workspace_access=access_guard,
+            authenticator=authenticator,
         )
         return _AccessControlBundle(
             system_registry=system_registry,
             workspace_registry=workspace_registry,
-            access_guard=access_guard,
+            authenticator=authenticator,
+            operation_authorizer=operation_authorizer,
             access_gateway=access_gateway,
         )
 
@@ -358,10 +366,10 @@ class SystemAssembler:
             # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
-            # 注册入口完成两阶段认证（A1 访问边界返工 4.4）：网关与共享
-            # 操作授权使用同一实例，签发的 context 绑定本进程。
+            # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
+            # 认证经网关，阶段与控制授权经操作授权者。
             access_gateway=access_control.access_gateway,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,
@@ -373,26 +381,26 @@ class SystemAssembler:
                 component="passive_ingress_service",
             ),
         )
-        # 能力层（A2）：读取方法在 backing 调用前执行 operation 授权，随后经
-        # workspace resolver 解析；写入与管理用例的 operation 授权同样在本层
-        # 执行（A1 访问边界返工 4.3），管理路由保持薄委托。
+        # 能力层（A2）：读取方法在 backing 调用前执行操作授权，随后经
+        # workspace resolver 解析；写入与管理用例的授权同样在本层执行
+        # （A1 访问边界返工 4.5），管理路由保持薄委托。
         memory = MemoryApplicationService(
             global_bus=runtime.global_bus,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
         )
         memory_task = MemoryTaskApplicationService(
             global_bus=runtime.global_bus,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
         )
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
         )
         topic = TopicApplicationService(
             global_bus=runtime.global_bus,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
         )
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,
@@ -406,8 +414,8 @@ class SystemAssembler:
                 store=runtime.workspace_asset_store,
                 config=self._config.attachment_parser,
             ),
-            # A1：上传在自己的公共入口调用同一共享行为检查。
-            access_guard=access_control.access_guard,
+            # A1：上传在自己的公共入口执行同一操作授权。
+            operation_authorizer=access_control.operation_authorizer,
         )
 
         return _ServicesBundle(

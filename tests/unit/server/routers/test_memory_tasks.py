@@ -174,7 +174,10 @@ def test_list_memory_tasks_without_operation_allowance_returns_403():
     bus = GlobalSystemBus()
     list_handler = AsyncMock(return_value=[])
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST, list_handler)
-    service = MemoryTaskApplicationService(global_bus=bus, access_guard=composition.guard)
+    service = MemoryTaskApplicationService(
+        global_bus=bus,
+        operation_authorizer=composition.authorizer,
+    )
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")

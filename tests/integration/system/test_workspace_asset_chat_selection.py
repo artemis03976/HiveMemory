@@ -51,7 +51,7 @@ async def _upload(
     operation_id: str,
     media_type: str = "text/markdown",
 ):
-    """经组合签发的 access 上传（guard 组装可信 scope）。"""
+    """经组合签发的 access 上传（授权组装可信 scope）。"""
     return await upload_service.upload_asset(
         target_workspace=composition.default_workspace,
         file_name=file_name,
@@ -63,13 +63,13 @@ async def _upload(
 
 
 def _process_service(bus: GlobalSystemBus, composition, store, cpu: ScriptedCPU):
-    """注册入口与上传共享同一网关组合：context 只能被同一 guard 兑现。"""
+    """注册入口与上传共享同一访问组合：context 只能经同一认证一侧兑现。"""
     return TaskProcessService(
         bus,
         asset_reader=store,
         cpu=cpu,
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
 
 

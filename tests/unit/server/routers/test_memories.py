@@ -47,12 +47,12 @@ def _create_test_app(storage, lifecycle_engine=None):
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
-    # 管理用例的 operation 授权（management.memory）在本层执行：服务与
-    # 访问依赖共享同一组合的 guard，context 才能通过签发校验。
+    # 管理用例的 operation 授权（management.memory）在能力层执行：服务与
+    # 访问依赖共享同一组合的操作授权者，context 才能通过签发校验。
     overrides, composition = make_server_access_overrides()
     service = MemoryApplicationService(
         global_bus=bus,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
         memory_reader=make_workspace_runtime(bus).aliases,
     )
     app.dependency_overrides[deps.get_memory_service] = lambda: service
@@ -66,7 +66,8 @@ class _MemoryManagementStub:
         self.storage = storage
         self.lifecycle_engine = lifecycle_engine
 
-    async def create_memory(self, identity_scope, atom, access=None):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
+    async def create_memory(self, identity_scope, atom):
         self.storage.upsert_memory(atom)
         return atom
 
@@ -79,7 +80,6 @@ class _MemoryManagementStub:
         limit=20,
         exclude_types=None,
         refresh_vitality=True,
-        access=None,
     ):
         if query:
             results = self.storage.search_memories(
@@ -105,7 +105,7 @@ class _MemoryManagementStub:
             )
         ]
 
-    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True, access=None):
+    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True):
         atom = self.storage.get_memory(memory_id)
         if atom is not None and not memory_belongs_to_workspace(
             atom,
@@ -142,10 +142,10 @@ class _MemoryManagementStub:
         self.storage.upsert_memory(atom)
         return atom
 
-    async def delete_memory(self, memory_id, *, identity_scope, access=None):
+    async def delete_memory(self, memory_id, *, identity_scope):
         return self.storage.delete_memory(memory_id)
 
-    async def record_feedback(self, memory_id, *, identity_scope, positive, source, access=None):
+    async def record_feedback(self, memory_id, *, identity_scope, positive, source):
         if self.lifecycle_engine is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
         return self.lifecycle_engine.record_feedback(
@@ -563,10 +563,11 @@ class TestMemoriesRouter:
 
 class TestRouterCapabilityContract:
     def test_create_memory_passes_target_workspace_and_access(self):
-        """router 以 header 声明解析的 target_workspace 与请求级 access 调用能力层。
+        """路由只取得请求级 context 与目标 workspace，并以此调用能力层。
 
         mock 能力服务以观察调用契约：目标 workspace 与 header 用户一致、
-        access 是网关签发的请求级 context，且不再有 identity_scope kwarg。
+        access 是网关签发的请求级 context；路由处理函数不接触声明——
+        调用参数里没有 identity_scope，也没有认证前的 claims。
         """
         service = MagicMock()
         atom = _make_atom(title="Created memory")
@@ -596,4 +597,6 @@ class TestRouterCapabilityContract:
         assert kwargs["target_workspace"].owner_user_id == "u1"
         assert kwargs["target_workspace"].workspace_id == "main_workspace"
         assert isinstance(kwargs["access"], WorkspaceAccessContext)
+        # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
         assert "identity_scope" not in kwargs
+        assert "claims" not in kwargs

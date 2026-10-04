@@ -19,7 +19,7 @@ async def create_agent(
     """创建新的 Agent Profile（管理用例，actor 为保留 system）"""
     try:
         atom = await service.create_agent_profile(
-            target_workspace=request_access.claims.workspace,
+            target_workspace=request_access.target_workspace,
             title=body.title,
             alias=body.alias,
             summary=body.summary,
@@ -43,7 +43,7 @@ async def list_agents(
 ):
     """列出所有 Agent Profile（管理用例，actor 为保留 system）"""
     atoms = await service.list_agent_profiles(
-        target_workspace=request_access.claims.workspace,
+        target_workspace=request_access.target_workspace,
         limit=100,
         access=request_access.access,
     )

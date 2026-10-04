@@ -5,7 +5,7 @@ resolver 只依赖本协议，不导入 System 路由常量或 Patchouli 实现�
 由组合根注入。冷读取经公共 backing 路由（宪章 §4.4 过线契约），库侧资源
 归属与 policy 校验独立成立，构成纵深防御。
 
-``scope`` 是能力层完成操作授权后由 guard 组装的可信坐标；resolver 与
+``scope`` 是能力层完成操作授权后由操作授权者组装的可信坐标；resolver 与
 backing 位于授权点以下，不接收访问 context。
 """
 

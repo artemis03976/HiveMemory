@@ -5,12 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.deps import (
     RequestIdentitySelection,
-    authenticate_request_access,
     get_access_gateway,
     get_identity_selection,
     get_server_principal_id,
     get_topic_service,
-    release_request_access,
+    request_access_for_claims,
     resolve_request_identity_claims,
 )
 from hivememory.server.models.topic import (
@@ -41,20 +40,19 @@ async def list_topics(
     gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
     principal_id: str = Depends(get_server_principal_id),
 ) -> ActiveTopicListResponse:
-    """获取活跃话题列表（读取绑定 ``resource.read``）"""
+    """获取活跃话题列表（管理员话题列表，暂绑 ``management.topic``，P-9g）"""
     claims = resolve_request_identity_claims(
         selection,
         explicit_user_id=user_id,
         explicit_workspace_id=workspace_id,
     )
-    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
-    try:
+    async with request_access_for_claims(
+        claims, gateway=gateway, principal_id=principal_id
+    ) as request_access:
         snapshots = await service.list_active_topics(
-            target_workspace=claims.workspace,
-            access=access,
+            target_workspace=request_access.target_workspace,
+            access=request_access.access,
         )
-    finally:
-        release_request_access(access, gateway)
     return ActiveTopicListResponse(
         topics=[ActiveTopicResponse.from_domain(snapshot) for snapshot in snapshots]
     )
@@ -76,13 +74,15 @@ async def settle_topic(
         explicit_user_id=user_id,
         explicit_workspace_id=workspace_id,
     )
-    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
     try:
-        result = await service.settle_topic(
-            target_workspace=claims.workspace,
-            topic_id=topic_id,
-            access=access,
-        )
+        async with request_access_for_claims(
+            claims, gateway=gateway, principal_id=principal_id
+        ) as request_access:
+            result = await service.settle_topic(
+                target_workspace=request_access.target_workspace,
+                topic_id=topic_id,
+                access=request_access.access,
+            )
     except TopicSettleAdmissionError as exc:
         raise HTTPException(
             status_code=503,
@@ -95,8 +95,6 @@ async def settle_topic(
         ) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="话题不存在") from exc
-    finally:
-        release_request_access(access, gateway)
     return TopicSettleResponse.from_domain(result)
 
 
@@ -116,18 +114,18 @@ async def delete_topic(
         explicit_user_id=user_id,
         explicit_workspace_id=workspace_id,
     )
-    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
     try:
-        result = await service.evict_topic(
-            target_workspace=claims.workspace,
-            topic_id=topic_id,
-            access=access,
-        )
+        async with request_access_for_claims(
+            claims, gateway=gateway, principal_id=principal_id
+        ) as request_access:
+            result = await service.evict_topic(
+                target_workspace=request_access.target_workspace,
+                topic_id=topic_id,
+                access=request_access.access,
+            )
     except TopicBusyError as exc:
         raise HTTPException(
             status_code=409,
             detail="话题正在处理，请稍后重试",
         ) from exc
-    finally:
-        release_request_access(access, gateway)
     return TopicDeleteResponse.from_domain(result)

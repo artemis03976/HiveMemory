@@ -141,7 +141,7 @@ class TestChatIdentityGuard:
             AsyncMock(),  # system actor 在认证与总线触达前即被拒绝
             cpu=ScriptedCPU(result=make_cpu_result()),
             access_gateway=composition.gateway,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
         )
 
     @pytest.mark.asyncio
@@ -217,13 +217,13 @@ class TestCancelUsesRequestorContext:
             AsyncMock(),
             cpu=ScriptedCPU(result=make_cpu_result()),
             access_gateway=composition.gateway,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
         )
 
     @staticmethod
     async def _register_running_process(service, composition, process_id: str):
         """注册一个已启动的流式进程并消费 process_id 事件，保持记录存活。"""
-        process = await service.register_process(
+        handle = await service.register_process(
             adapter="local",
             principal=composition.principal,
             actor=ActorIdentity(user_id="owner", agent_id="omni_doll"),
@@ -231,7 +231,7 @@ class TestCancelUsesRequestorContext:
             process_id=process_id,
             message="hello",
         )
-        stream = service.run_process(process, stream=True)
+        stream = service.run_process(handle, stream=True)
         first = await stream.__anext__()
         assert first["event"] == "process_id"
         return stream
@@ -348,7 +348,7 @@ class TestRequestAccessEntryGuard:
             principal_id=composition.principal.principal_id,
         )
 
-        summary = composition.guard.describe(access)
+        summary = composition.gateway.describe_context(access)
         assert summary is not None
         assert summary.actor_user_id == "u1"
         assert summary.agent_id == SYSTEM_AGENT_ID

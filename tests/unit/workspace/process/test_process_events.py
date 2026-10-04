@@ -36,7 +36,7 @@ from hivememory.core.protocol.gateway import (
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
-from hivememory.workspace.process.task_process import TaskProcess
+from hivememory.workspace.process.service import ProcessHandle
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -107,14 +107,14 @@ async def _service(
     *,
     composition: AccessTestComposition | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一 guard/gateway 实例。"""
+    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = TaskProcessService(
         bus,
         publisher,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
     return service, composition
 
@@ -125,7 +125,7 @@ async def _register(
     message: str,
     *,
     process_id: str,
-) -> TaskProcess:
+) -> ProcessHandle:
     """按组合的默认声明注册进程：观测标签在创建时用通过认证的声明绑定一次。"""
     return await service.register_process(
         adapter="local",
@@ -153,9 +153,9 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
-    process = await _register(composition, service, "问题", process_id="process-events")
+    handle = await _register(composition, service, "问题", process_id="process-events")
 
-    async for _ in service.run_process(process, stream=True):
+    async for _ in service.run_process(handle, stream=True):
         pass
 
     events = _chat_events(sink)
@@ -206,14 +206,14 @@ async def test_stop_during_gateway_cancels_process_in_gateway_phase() -> None:
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
-    process = await _register(composition, service, "问题", process_id="process-stop")
-    task = asyncio.create_task(service.run_process(process, stream=False))
+    handle = await _register(composition, service, "问题", process_id="process-stop")
+    task = asyncio.create_task(service.run_process(handle, stream=False))
     await gateway_started.wait()
 
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     events = _chat_events(sink)
     cancelled = events[-1]
     assert cancelled.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
@@ -274,10 +274,10 @@ async def test_failed_event_carries_domain_error_code() -> None:
     cpu = ScriptedCPU(error=AssetNotReadyError("附件尚未就绪"))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
-    process = await _register(composition, service, "问题", process_id="p-domain")
+    handle = await _register(composition, service, "问题", process_id="p-domain")
 
     with pytest.raises(AssetNotReadyError):
-        await service.run_process(process, stream=False)
+        await service.run_process(handle, stream=False)
 
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
@@ -296,10 +296,10 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
     cpu = ScriptedCPU(error=RuntimeError("internal-secret-detail"))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
-    process = await _register(composition, service, "问题", process_id="p-internal")
+    handle = await _register(composition, service, "问题", process_id="p-internal")
 
     with pytest.raises(RuntimeError, match="internal-secret-detail"):
-        await service.run_process(process, stream=False)
+        await service.run_process(handle, stream=False)
 
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
@@ -317,8 +317,8 @@ async def test_stream_closed_before_terminal_publishes_cancelled_with_close_reas
         cpu=ScriptedCPU(result=make_cpu_result()),
     )
     requestor = await composition.authenticate(agent_id=_AGENT)
-    process = await _register(composition, service, "问题", process_id="process-closed")
-    stream = service.run_process(process, stream=True)
+    handle = await _register(composition, service, "问题", process_id="process-closed")
+    stream = service.run_process(handle, stream=True)
 
     first = await stream.__anext__()
     await stream.aclose()
@@ -346,9 +346,9 @@ async def test_event_sink_failure_does_not_change_chat_result() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     cpu = ScriptedCPU(result=make_cpu_result())
     service, composition = await _service(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
-    process = await _register(composition, service, "问题", process_id="process-sink-failure")
+    handle = await _register(composition, service, "问题", process_id="process-sink-failure")
 
-    result = await service.run_process(process, stream=False)
+    result = await service.run_process(handle, stream=False)
 
     assert isinstance(result, NonStreamingAgentOutcome)
     assert result.execution_result.status == "completed"

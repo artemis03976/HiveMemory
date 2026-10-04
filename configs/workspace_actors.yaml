@@ -25,7 +25,9 @@ workspace_actors:
       - "interaction.submit"
 
   # 保留 system actor：管理入口（memories/topics/agents/assets/memory-tasks
-  # 与 chat 取消）以 (user, system) 坐标经网关取得 context。
+  # 与 chat 取消）以 (user, system) 坐标经网关取得 context。system 直接
+  # 通道不持有 actor 可见的读取 operation（总 Idea 15.7/P-9g）：不含
+  # resource.read，管理员的话题列表由 management.topic 覆盖。
   - owner_user_id: "default"
     workspace_id: "main_workspace"
     user_id: "default"
@@ -35,5 +37,4 @@ workspace_actors:
       - "management.topic"
       - "management.asset"
       - "management.task"
-      - "resource.read"
       - "task.observe"

@@ -7,7 +7,7 @@
   路由调用前执行。
 
 身份与访问约定（A1 访问边界返工第 4.5 节）：本层是授权点——方法只接收
-访问 context 与目标 workspace，``IdentityScope`` 由 guard 组装，不接收
+访问 context 与目标 workspace，``IdentityScope`` 由操作授权者组装，不接收
 调用方传入的 scope。
 """
 
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.core.models import AgentProfile, WorkspaceIdentity
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.profile import ProfileResolver
 
 
@@ -49,19 +49,19 @@ class AgentApplicationService:
 
     访问上下文约定（A1 访问边界返工第 4.5 节）：方法的 ``access`` 为统一
     认证网关签发的可信 context，``management.memory`` / ``profile.read``
-    授权在本层、路由调用前执行；Patchouli 只接收 guard 返回的可信 scope，
-    不再接收 context。
+    授权在本层、路由调用前执行；Patchouli 只接收操作授权者返回的可信
+    scope，不再接收 context。
     """
 
     def __init__(
         self,
         global_bus: GlobalSystemBus,
         *,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
         profile_reader: ProfileResolver,
     ) -> None:
         self._global_bus = global_bus
-        self._access_guard = access_guard
+        self._authorizer = operation_authorizer
         self._profile_reader = profile_reader
 
     async def create_agent_profile(
@@ -77,7 +77,7 @@ class AgentApplicationService:
         access: WorkspaceAccessContext,
     ) -> MemoryAtom:
         """在目标 Workspace 中创建 Agent Profile（``management.memory`` 管理用例）。"""
-        scope = self._access_guard.authorize_operation(
+        scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace
         )
         # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
@@ -124,7 +124,7 @@ class AgentApplicationService:
         access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
         """在目标 Workspace 中列出 Agent Profile（``management.memory`` 管理用例）。"""
-        scope = self._access_guard.authorize_operation(
+        scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace
         )
         return await self._global_bus.request(
@@ -146,7 +146,7 @@ class AgentApplicationService:
         自定义 alias 缺失、不可见、类型不符或配置损坏均显式失败，不降级为
         默认配置。读取 Profile 不等于获得其描述的权限。
         """
-        scope = self._access_guard.authorize_operation(
+        scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.PROFILE_READ, target_workspace
         )
         return await self._profile_reader.get(agent_alias, scope=scope)

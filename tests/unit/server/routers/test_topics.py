@@ -36,12 +36,13 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, manual_settle_topic)
     if evict_topic is not None:
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
-    # Topic 读取/生命周期变更的 operation 授权在能力层执行：服务与访问
-    # 依赖共享同一组合的 guard，context 才能通过签发校验。
+    # Topic 读取/生命周期变更的 operation 授权（management.topic，P-9g）在
+    # 能力层执行：服务与访问依赖共享同一组合的操作授权者，context 才能通过
+    # 签发校验。
     overrides, composition = make_server_access_overrides()
     service = TopicApplicationService(
         global_bus=bus,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
     app.dependency_overrides[deps.get_topic_service] = lambda: service
     app.dependency_overrides.update(overrides)
@@ -53,7 +54,8 @@ class _TopicManagementStub:
     def __init__(self, librarian_core):
         self.librarian_core = librarian_core
 
-    async def list_active_topics(self, *, identity_scope, access=None):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
+    async def list_active_topics(self, *, identity_scope):
         return self.librarian_core.get_active_topics_snapshots(identity_scope.actor_identity)
 
 
@@ -110,7 +112,7 @@ class TestTopicsRouter:
     def test_settle_topic(self):
         librarian_core = MagicMock()
 
-        async def manual_settle_result(*, identity_scope, topic_id=None, access=None):
+        async def manual_settle_result(*, identity_scope, topic_id=None):
             return TopicSettleResult(
                 topic_id=topic_id,
                 generation_task_id="task-1",
@@ -130,7 +132,7 @@ class TestTopicsRouter:
         """settle 成功不依赖是否存在 generation task。"""
         librarian_core = MagicMock()
 
-        async def manual_settle_topic(*, identity_scope, topic_id=None, access=None):
+        async def manual_settle_topic(*, identity_scope, topic_id=None):
             return TopicSettleResult(
                 topic_id=topic_id,
             )
@@ -149,7 +151,7 @@ class TestTopicsRouter:
         """生成队列拒绝接纳时，HTTP 边界应保留可重试语义。"""
         librarian_core = MagicMock()
 
-        async def reject_settlement(*, identity_scope, topic_id=None, access=None):
+        async def reject_settlement(*, identity_scope, topic_id=None):
             raise TopicSettleAdmissionError("话题内容已保留，可重试")
 
         app = _create_test_app(
@@ -167,7 +169,7 @@ class TestTopicsRouter:
         """不存在的 Topic 应在 HTTP 边界映射为 404。"""
         librarian_core = MagicMock()
 
-        async def reject_missing_topic(*, identity_scope, topic_id=None, access=None):
+        async def reject_missing_topic(*, identity_scope, topic_id=None):
             raise KeyError(topic_id)
 
         app = _create_test_app(
@@ -225,7 +227,7 @@ class TestTopicsRouter:
         """手动删除不得把正在处理中的 Topic 当作普通服务器错误。"""
         librarian_core = MagicMock()
 
-        async def reject_busy_topic(*, identity_scope, topic_id, access=None):
+        async def reject_busy_topic(*, identity_scope, topic_id):
             raise TopicBusyError(f"topic '{topic_id}' 正忙")
 
         app = _create_test_app(librarian_core, evict_topic=reject_busy_topic)

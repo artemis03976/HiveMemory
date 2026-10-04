@@ -2,7 +2,7 @@
 
 - ``WorkspaceOperation``：Actor→Workspace 的行为目录；
 - ``WorkspaceAccessContext``：统一认证后签发的不透明访问凭据，签发内容
-  （actor、驻留 workspace、principal、运行绑定）由签发它的 guard 内部
+  （actor、驻留 workspace、principal、运行绑定）由签发它的认证一侧内部
   保存，对外没有公开字段；
 - ``AccessRunType`` / ``RunBinding``：访问 context 的运行绑定（运行类型
   与运行标识）；
@@ -46,8 +46,11 @@ class WorkspaceOperation(str, Enum):
       AGENT_PROFILE atom 管理写入/列表例外）；不是"只读管理"，不得借
       用为 Topic/Asset/Task 的放行依据；
     - ``MANAGEMENT_TASK``：生成任务取消等任务管理动作；观察不授予取消；
-    - ``MANAGEMENT_TOPIC``：Topic 结算/驱逐等生命周期变更（Topic 快照
-      读取绑定 ``RESOURCE_READ``，不借本项放行）；
+    - ``MANAGEMENT_TOPIC``：Topic 结算/驱逐等生命周期变更，以及管理员的
+      话题列表（P-9g：``system`` 直接通道不持有 actor 可见的读取
+      operation，列表暂由本项覆盖；若以后为管理视角的读取单独设立
+      operation，再随之调整）——Gateway 分析中的话题读取仍绑定
+      ``RESOURCE_READ``，不借本项放行；
     - ``MANAGEMENT_ASSET``：WorkspaceAsset 上传登记（``ASSET_ACQUIRE``
       不授权上传）。
 
@@ -73,10 +76,10 @@ class WorkspaceOperation(str, Enum):
 class WorkspaceAccessContext:
     """不透明的 Workspace 访问凭据：对外没有公开字段。
 
-    调用侧经 System 统一认证网关取得；它只能交给签发它的 guard 兑现——
-    准入的 actor、驻留 workspace、来源 principal 与运行绑定由 guard 在
-    签发时写入内部的授予记录，context 本身不携带、不暴露任何身份。
-    直接构造的对象不在 guard 的授予记录中，等同未签发；按对象身份判定
+    调用侧经 System 统一认证网关取得；它只能交给认证一侧兑现——
+    准入的 actor、驻留 workspace、来源 principal 与运行绑定在签发时写入
+    认证一侧内部的授予记录，context 本身不携带、不暴露任何身份。
+    直接构造的对象不在授予记录中，等同未签发；按对象身份判定
     凭据，复制或反序列化都不产生等效凭据。context 不自检、不作为可序
     列化的远端凭据，也不写入任何记录、事件或 DTO。
     """

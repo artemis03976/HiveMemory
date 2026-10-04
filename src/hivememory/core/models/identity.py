@@ -94,7 +94,7 @@ class IdentityScope(BaseModel):
 
     身份类型本身不承担授权规则（不变量 6）："actor 用户等于 workspace
     owner"等 owner 约束属于两阶段认证的第 2 阶段与两阶段授权的第 3 阶段，
-    由认证网关与 guard 在准入和授权时检查，不在本模型构造时校验。
+    由认证网关（准入）与操作授权者（操作授权）检查，不在本模型构造时校验。
     """
 
     actor_identity: ActorIdentity

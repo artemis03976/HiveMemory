@@ -1,7 +1,8 @@
 """Memory 能力（``workspace.capability.memory``）管理与读取入口测试。
 
 能力层是授权点（A1 访问边界返工第 4.5 节）：方法只接收访问 context 与目标
-workspace，``IdentityScope`` 由 guard 组装并传给 Patchouli；白名单缺少对应
+workspace，``IdentityScope`` 由操作授权者组装并传给 Patchouli，检索请求也
+由本层用授权返回的 scope 构造（调用方不传入 scope）；白名单缺少对应
 operation 时在本层以 ``OperationDeniedError`` 拒绝，不触达 Patchouli 路由。
 """
 
@@ -14,7 +15,7 @@ import pytest_asyncio
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.errors import OperationDeniedError, WorkspaceMismatchError
+from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -32,7 +33,6 @@ from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_identity_scope,
     make_workspace_identity,
     make_workspace_runtime,
 )
@@ -80,7 +80,7 @@ class TestMemoryApplicationService:
         # 便于断言授权失败时 backing 未被触达。
         return MemoryApplicationService(
             global_bus=mock_global_bus,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
             memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
         )
 
@@ -222,7 +222,7 @@ class TestMemoryApplicationService:
         )
         service = MemoryApplicationService(
             global_bus=mock_global_bus,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
             memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
         )
         access = await composition.authenticate(agent_id="system", user_id="u1")
@@ -256,10 +256,7 @@ class TestMemoryApplicationService:
             ),
             pytest.param(
                 lambda service, workspace, access: service.retrieve(
-                    RetrievalRequest(
-                        semantic_query="q",
-                        identity_scope=make_identity_scope(user_id="u1", agent_id="system"),
-                    ),
+                    semantic_query="q",
                     target_workspace=workspace,
                     access=access,
                 ),
@@ -286,7 +283,7 @@ class TestMemoryApplicationService:
         )
         service = MemoryApplicationService(
             global_bus=mock_global_bus,
-            access_guard=composition.guard,
+            operation_authorizer=composition.authorizer,
             memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
         )
         access = await composition.authenticate(agent_id="system", user_id="u1")
@@ -299,21 +296,54 @@ class TestMemoryApplicationService:
         mock_global_bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_retrieve_rejects_request_scope_mismatching_access_context(
-        self, service, mock_global_bus, workspace, access
+    async def test_retrieve_builds_backing_request_from_authorized_scope(
+        self, mock_global_bus, workspace, composition, access
     ):
-        """检索请求冻结的 scope 与 guard 组装的可信 scope 不一致时拒绝，不触达 backing。"""
-        request = RetrievalRequest(
-            semantic_query="q",
-            identity_scope=make_identity_scope(
-                user_id="u1", agent_id="system", workspace_id="other_workspace"
-            ),
+        """检索请求由能力层用授权返回的可信 scope 构造，身份不进入调用方输入。
+
+        调用方只提交检索参数（semantic_query/keywords/top_k 原样进入请求），
+        传给 backing 读取器的 ``RetrievalRequest.identity_scope`` 与调用
+        scope 都等于操作授权者组装的可信 scope。
+        """
+        captured: dict[str, object] = {}
+
+        class CapturingReader:
+            """捕获能力层构造的检索请求与调用 scope 的替身读取器。"""
+
+            async def search(self, request, *, scope):
+                captured["request"] = request
+                captured["scope"] = scope
+                return [_make_memory_atom(title="Hit")]
+
+        expected_scope = composition.authorizer.authorize_operation(
+            access, WorkspaceOperation.RESOURCE_SEARCH, workspace
+        )
+        service = MemoryApplicationService(
+            global_bus=mock_global_bus,
+            operation_authorizer=composition.authorizer,
+            memory_reader=CapturingReader(),
         )
 
-        with pytest.raises(WorkspaceMismatchError) as exc_info:
-            await service.retrieve(request, target_workspace=workspace, access=access)
+        result = await service.retrieve(
+            semantic_query="q",
+            keywords=["keyword"],
+            top_k=3,
+            target_workspace=workspace,
+            access=access,
+        )
 
-        assert exc_info.value.details["reason"] == "request_scope_mismatches_access_context"
-        assert exc_info.value.details["access_workspace_id"] == "main_workspace"
-        assert exc_info.value.details["request_workspace_id"] == "other_workspace"
-        mock_global_bus.request.assert_not_awaited()
+        assert [atom.index.title for atom in result] == ["Hit"]
+        request = captured["request"]
+        assert isinstance(request, RetrievalRequest)
+        # 调用方检索参数原样进入请求
+        assert request.semantic_query == "q"
+        assert request.keywords == ["keyword"]
+        assert request.top_k == 3
+        # identity_scope 不是调用方输入：等于操作授权者组装的可信 scope
+        # （已认证 actor + 目标 workspace）
+        assert request.identity_scope == expected_scope
+        assert request.identity_scope.actor_identity == ActorIdentity(
+            user_id="u1", agent_id="system"
+        )
+        assert request.identity_scope.workspace_identity == workspace
+        assert captured["scope"] == expected_scope

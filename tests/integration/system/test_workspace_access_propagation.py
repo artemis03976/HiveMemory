@@ -2,7 +2,7 @@
 
 访问边界（A1 访问边界返工第 4.4 节）：每个进程的 context 在
 ``register_process`` 经真实网关签发并绑定本进程；进程控制（状态查询与
-取消）由请求级 context 经 guard 的进程控制授权比对驻留坐标——跨
+取消）由请求级 context 经操作授权者的进程控制授权比对驻留坐标——跨
 workspace 请求与不存在统一按 ``not_found`` 呈现。
 """
 
@@ -88,7 +88,7 @@ def _service(bus: GlobalSystemBus, composition, cpu) -> TaskProcessService:
         bus,
         cpu=cpu,
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
 
 
@@ -173,7 +173,7 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         )
     )
 
-    # 请求级 context 由同一 guard 签发：进程控制授权比对驻留坐标。
+    # 请求级 context 由同一认证一侧签发：进程控制授权比对驻留坐标。
     main_request_access = await composition.authenticate(agent_id="a1", workspace=main_ws)
     isolation_request_access = await composition.authenticate(agent_id="a1", workspace=isolation_ws)
     await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)

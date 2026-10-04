@@ -38,8 +38,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus
-from hivememory.workspace.process.service import TaskProcessService
-from hivememory.workspace.process.task_process import TaskProcess
+from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_gateway_decision,
@@ -71,7 +70,7 @@ def _workspace() -> WorkspaceIdentity:
 
 
 def _expected_scope() -> IdentityScope:
-    """认证声明经 guard 授权规则应组装出的 IdentityScope。"""
+    """认证声明经操作授权者授权规则应组装出的 IdentityScope。"""
     return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
 
 
@@ -144,7 +143,7 @@ async def _service(
     store: InMemoryWorkspaceAssetStore | None = None,
     composition: AccessTestComposition | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一 guard/gateway 实例。"""
+    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = TaskProcessService(
         bus,
@@ -152,7 +151,7 @@ async def _service(
         cpu=cpu,
         asset_reader=store,
         access_gateway=composition.gateway,
-        access_guard=composition.guard,
+        operation_authorizer=composition.authorizer,
     )
     return service, composition
 
@@ -164,7 +163,7 @@ async def _register(
     *,
     process_id: str,
     **kwargs,
-) -> TaskProcess:
+) -> ProcessHandle:
     """按组合的默认声明注册进程：两阶段认证由注册入口完成。"""
     return await service.register_process(
         adapter="local",
@@ -185,8 +184,8 @@ async def _run_once(
     process_id: str,
     **kwargs,
 ):
-    process = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return await service.run_process(process, stream=False)
+    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return await service.run_process(handle, stream=False)
 
 
 async def _stream_events(
@@ -197,8 +196,8 @@ async def _stream_events(
     process_id: str,
     **kwargs,
 ) -> list[dict]:
-    process = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return [event async for event in service.run_process(process, stream=True)]
+    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return [event async for event in service.run_process(handle, stream=True)]
 
 
 # ========== 测试 CPU 跑通完整进程（总线上无 Alice 路由） ==========
@@ -421,15 +420,15 @@ async def test_stop_during_cpu_pull_cancels_process_and_closes_cpu_iterator() ->
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
     service, composition = await _service(bus, cpu, event_publisher=RuntimeEventPublisher(sink))
-    process = await _register(composition, service, "问题", process_id="process-cpu-stop")
-    task = asyncio.create_task(_collect_stream(service.run_process(process, stream=True)))
+    handle = await _register(composition, service, "问题", process_id="process-cpu-stop")
+    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
 
-    # 等 CPU 进入挂起点，再经进程记录注入停止请求：stop 必须在 Actor 拉取期间生效。
+    # 等 CPU 进入挂起点，再经句柄注入停止请求：stop 必须在 Actor 拉取期间生效。
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
-    stop_result = process.record.request_stop()
+    stop_result = service.stop_process(handle, reason="user_requested")
     events = await task
 
-    assert stop_result.accepted is True
+    assert stop_result.cancelled is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
     assert cpu.closed is True
@@ -500,7 +499,7 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     requestor = await composition.authenticate(agent_id=_AGENT)
-    scope = composition.guard.authorize_operation(
+    scope = composition.authorizer.authorize_operation(
         requestor, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
     )
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="正文甲")
@@ -517,14 +516,14 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
     service, composition = await _service(bus, cpu, store=store)
-    process = await _register(
+    handle = await _register(
         composition,
         service,
         "带附件的消息",
         process_id="process-cpu-closed",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    stream = service.run_process(process, stream=True)
+    stream = service.run_process(handle, stream=True)
     seen: list[dict[str, Any]] = [await stream.__anext__()]
     # 消费到 CPU 的交互事件为止：此时 CPU 已挂起在终态之前，进程尚未发布终态。
     while seen[-1]["event"] != "token":
