@@ -602,7 +602,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await started.wait()
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     result = await task
 
     assert stop_result.cancelled is True
@@ -740,7 +740,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
 
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await prepare_started.wait()
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     release_prepare.set()
     result = await task
 
@@ -777,7 +777,7 @@ async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() ->
 
     task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     events = await task
 
     assert stop_result.cancelled is True
@@ -817,7 +817,7 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await finalize_started.wait()
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     release_finalize.set()
     result = await task
 

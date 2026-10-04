@@ -425,7 +425,7 @@ async def test_stop_during_cpu_pull_cancels_process_and_closes_cpu_iterator() ->
 
     # 等 CPU 进入挂起点，再经句柄注入停止请求：stop 必须在 Actor 拉取期间生效。
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     events = await task
 
     assert stop_result.cancelled is True

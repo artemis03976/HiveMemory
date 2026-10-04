@@ -7,7 +7,7 @@ Chat 路由单元测试
     2. 正常对话 — SSE 事件序列: topic_info → token → done
     3. MTP 对话 — SSE 事件序列: topic_info → token → mtp_start → mtp_result → token → done
     4. 异常处理 — SSE error 事件
-    5. 断连/断流 — stop_process(handle, reason="client_disconnected") 停止
+    5. 断连/断流 — cancel_process(handle, reason="client_disconnected") 取消
        自己注册的进程（不经进程控制授权），close_process(handle) 收口
 """
 
@@ -501,7 +501,7 @@ class TestChatDisconnect:
         blocker = asyncio.Event()
         stream_factory = self._blocking_stream(blocker, {"event": "process_id", "data": {}})
         mock_service = _wired_chat_service(lambda *args, **kw: stream_factory(**kw))
-        mock_service.stop_process = MagicMock()
+        mock_service.cancel_process = MagicMock()
 
         disconnect_checks = 0
 
@@ -521,9 +521,9 @@ class TestChatDisconnect:
         process_id = mock_service.register_process.call_args.kwargs["process_id"]
         assert process_id.startswith("process_")
         # 客户端断开经句柄停止自己注册的进程（不经进程控制授权，无 access）
-        handle = mock_service.stop_process.call_args.args[0]
+        handle = mock_service.cancel_process.call_args.args[0]
         assert handle.process_id == process_id
-        assert mock_service.stop_process.call_args.kwargs == {"reason": "client_disconnected"}
+        assert mock_service.cancel_process.call_args.kwargs == {"reason": "client_disconnected"}
         mock_service.close_process.assert_awaited_once()
         assert mock_service.close_process.await_args.args[0] is handle
 
@@ -541,7 +541,7 @@ class TestChatDisconnect:
                 blocker.set()
 
         mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-        mock_service.stop_process = MagicMock()
+        mock_service.cancel_process = MagicMock()
 
         disconnect_checks = 0
 
@@ -558,9 +558,9 @@ class TestChatDisconnect:
 
         assert stream_started.is_set()
         process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        handle = mock_service.stop_process.call_args.args[0]
+        handle = mock_service.cancel_process.call_args.args[0]
         assert handle.process_id == process_id
-        assert mock_service.stop_process.call_args.kwargs == {"reason": "client_disconnected"}
+        assert mock_service.cancel_process.call_args.kwargs == {"reason": "client_disconnected"}
         mock_service.close_process.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -580,7 +580,7 @@ class TestChatDisconnect:
                 stream_closed.set()
 
         mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-        mock_service.stop_process = MagicMock()
+        mock_service.cancel_process = MagicMock()
 
         class FakeRequest:
             async def is_disconnected(self):
@@ -604,9 +604,9 @@ class TestChatDisconnect:
         assert pull_task.cancelled()
         # ASGI 取消同样走句柄的停止入口（不经进程控制授权 + 断连原因）
         process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        handle = mock_service.stop_process.call_args.args[0]
+        handle = mock_service.cancel_process.call_args.args[0]
         assert handle.process_id == process_id
-        assert mock_service.stop_process.call_args.kwargs == {"reason": "client_disconnected"}
+        assert mock_service.cancel_process.call_args.kwargs == {"reason": "client_disconnected"}
         mock_service.close_process.assert_awaited_once()
 
     @pytest.mark.asyncio

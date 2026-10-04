@@ -210,7 +210,7 @@ async def test_stop_during_gateway_cancels_process_in_gateway_phase() -> None:
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await gateway_started.wait()
 
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     await task
 
     assert stop_result.cancelled is True

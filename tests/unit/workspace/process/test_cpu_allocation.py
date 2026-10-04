@@ -904,7 +904,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     )
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await prepare_started.wait()
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     release_prepare.set()
     result = await task
 
@@ -960,7 +960,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     )
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await allocation_started.wait()
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     release_allocation.set()
     result = await task
 
@@ -992,7 +992,7 @@ async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     handle = await _register(composition, service, "问题", process_id="process-stream-stop")
     task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
     await prepare_started.wait()
-    service.stop_process(handle, reason="user_requested")
+    service.cancel_process(handle, reason="user_requested")
     release_prepare.set()
     events = await task
 

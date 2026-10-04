@@ -1,19 +1,21 @@
 """任务进程 stop 控制契约测试。
 
-覆盖两层契约：进程记录与进程表的 stop 语义（request_stop、登记/注销、
-重复 process_id 拒绝），以及注册入口句柄 API 的访问边界——注册认证失败
-不创建、不登记进程；注册成功返回只暴露 process_id 的句柄；流未开始的
-close_process 使 context 失效并从表中注销；交付以任何结局结束后 context
-都已失效；句柄停止与取消入口发布相同事件且不经进程控制授权；对未知句柄
-的 stop/close 幂等；认证成功后登记失败使已签发 context 失效。跨 workspace
-请求方的控制请求统一按 not_found 呈现；context 失效的请求方以
-ScopeRequiredError 拒绝。
+覆盖两层契约：进程记录的 stop 语义（request_stop）与进程表作为唯一进程
+注册表的登记/注销（以 process_id 为键登记任务进程、重复 process_id 拒绝、
+注销只移除同一对象），以及注册入口句柄 API 的访问边界——注册认证失败
+不创建、不登记进程；注册成功返回只暴露 process_id 的句柄；句柄按对象身份
+判定有效，重新构造的句柄与进程关闭后的旧句柄不能运行、取消或关闭进程；
+流未开始的 close_process 使 context 失效并从表中注销；交付以任何结局结束
+后 context 都已失效；取消只有一个方法，句柄形式与控制请求形式发布相同
+事件，句柄形式不经进程控制授权，错误的参数组合被拒绝；认证成功后登记
+失败使已签发 context 失效。跨 workspace 请求方的控制请求统一按 not_found
+呈现；context 失效的请求方以 ScopeRequiredError 拒绝。
 """
 
 from __future__ import annotations
 
 import asyncio
-import dataclasses
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -285,29 +287,45 @@ async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled()
 # ========== 进程表：登记、取回与注销 ==========
 
 
-def test_table_get_returns_registered_record_and_close_removes_it() -> None:
-    """进程表按 process_id 原样取回记录；注销后取回为 None，不做 scope 过滤。"""
-    table = ProcessTable()
-    record = _record("process-1")
-    table.register(record)
+def _process_stand_in(process_id: str) -> SimpleNamespace:
+    """进程表级测试的任务进程替身：进程表只经 ``record.process_id`` 寻址。"""
+    return SimpleNamespace(record=_record(process_id))
 
-    assert table.get("process-1") is record
+
+def test_table_get_returns_registered_process_and_close_removes_it() -> None:
+    """进程表登记任务进程本身：按 process_id 原样取回同一对象，注销后取回为 None。"""
+    table = ProcessTable()
+    process = _process_stand_in("process-1")
+    table.register(process)
+
+    assert table.get("process-1") is process
     assert table.get("missing") is None
 
-    table.close(record)
+    table.close(process)
     assert table.get("process-1") is None
 
 
 def test_table_rejects_duplicate_process_id_without_overwriting() -> None:
-    """防止重复 process_id 覆盖既有进程记录并把控制权转给后注册者。"""
+    """防止重复 process_id 覆盖既有进程并把控制权转给后注册者。"""
     table = ProcessTable()
-    original = _record("collision")
+    original = _process_stand_in("collision")
     table.register(original)
 
     with pytest.raises(WorkspaceDomainError, match="拒绝覆盖"):
-        table.register(_record("collision"))
+        table.register(_process_stand_in("collision"))
 
     assert table.get("collision") is original
+
+
+def test_table_close_only_removes_the_same_process_object() -> None:
+    """注销按对象身份：同 process_id 的另一个对象不能把已登记的进程注销掉。"""
+    table = ProcessTable()
+    registered = _process_stand_in("process-shared-id")
+    table.register(registered)
+
+    table.close(_process_stand_in("process-shared-id"))
+
+    assert table.get("process-shared-id") is registered
 
 
 # ========== 注册入口：认证、签发即绑定、登记 ==========
@@ -389,7 +407,7 @@ async def test_process_handle_exposes_only_process_id() -> None:
     handle = await _register(composition, service, process_id="process-opaque")
 
     assert handle.process_id == "process-opaque"
-    assert [field.name for field in dataclasses.fields(handle)] == ["process_id"]
+    assert [name for name in dir(handle) if not name.startswith("_")] == ["process_id"]
     assert not hasattr(handle, "record")
     assert not hasattr(handle, "access")
     assert not hasattr(handle, "task")
@@ -402,9 +420,9 @@ async def test_close_process_before_stream_invalidates_context_and_deregisters()
     service, composition = await _service()
     requestor = await composition.authenticate(agent_id=_AGENT)
     issued = _capture_issued_contexts(composition)
-    await _register(composition, service, process_id="process-never-run")
+    handle = await _register(composition, service, process_id="process-never-run")
 
-    await service.close_process(ProcessHandle(process_id="process-never-run"))
+    await service.close_process(handle)
 
     _assert_context_invalidated(composition, issued[0])
     cancel_result = service.cancel_process("process-never-run", access=requestor)
@@ -418,10 +436,10 @@ async def test_close_process_is_idempotent() -> None:
     """close_process 幂等：重复调用是空操作，不改变收口后的可见状态。"""
     service, composition = await _service()
     requestor = await composition.authenticate(agent_id=_AGENT)
-    await _register(composition, service, process_id="process-close-twice")
+    handle = await _register(composition, service, process_id="process-close-twice")
 
-    await service.close_process(ProcessHandle(process_id="process-close-twice"))
-    await service.close_process(ProcessHandle(process_id="process-close-twice"))
+    await service.close_process(handle)
+    await service.close_process(handle)
 
     assert service.process_status("process-close-twice", access=requestor) is None
 
@@ -460,61 +478,137 @@ async def test_registration_failure_after_authentication_invalidates_issued_cont
     )
 
 
-# ========== 句柄 API：运行、停止与关闭 ==========
+# ========== 句柄 API：有效性、运行、取消与关闭 ==========
+
+
+def _cancel_requested_events(sink: RecordingRuntimeEventSink) -> list:
+    return [
+        event
+        for event in sink.events
+        if event.event_type == RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED
+    ]
 
 
 @pytest.mark.asyncio
-async def test_run_process_with_unknown_handle_raises_domain_error() -> None:
-    """未知或已关闭的句柄：run_process 显式失败（process_handle_unknown）。"""
+async def test_run_process_with_closed_handle_raises_domain_error() -> None:
+    """进程关闭后的旧句柄：run_process 显式失败（process_handle_unknown）。"""
     service, composition = await _service()
     handle = await _register(composition, service, process_id="process-closed-handle")
     await service.close_process(handle)
 
-    unknown = ProcessHandle(process_id="process-closed-handle")
     for kwargs in ({"stream": True}, {"stream": False}):
         with pytest.raises(WorkspaceDomainError) as excinfo:
-            service.run_process(unknown, **kwargs)
-    assert excinfo.value.details["reason"] == "process_handle_unknown"
-    assert excinfo.value.details["process_id"] == "process-closed-handle"
+            service.run_process(handle, **kwargs)
+        assert excinfo.value.details["reason"] == "process_handle_unknown"
+        assert excinfo.value.details["process_id"] == "process-closed-handle"
 
 
 @pytest.mark.asyncio
-async def test_stop_and_close_unknown_handle_are_idempotent() -> None:
-    """未知句柄：stop 返回 not_found 幂等结果，close 是空操作。"""
-    service, _composition = await _service()
-    unknown = ProcessHandle(process_id="never-registered")
+async def test_reconstructed_handle_cannot_run_cancel_or_close_the_process() -> None:
+    """按 process_id 重新构造的句柄无效：不能运行、取消或关闭进程，进程不受影响。"""
+    sink = RecordingRuntimeEventSink()
+    service, composition = await _service(event_publisher=RuntimeEventPublisher(sink))
+    requestor = await composition.authenticate(agent_id=_AGENT)
+    await _register(composition, service, process_id="process-forged")
+    # 入口 adapter 拿不到进程对象：只能用一个 process_id 相同的替身去构造句柄。
+    forged = ProcessHandle(SimpleNamespace(record=SimpleNamespace(process_id="process-forged")))
 
-    result = service.stop_process(unknown)
-
-    assert result == CancelResult(
-        process_id="never-registered",
+    with pytest.raises(WorkspaceDomainError) as excinfo:
+        service.run_process(forged, stream=False)
+    assert excinfo.value.details["reason"] == "process_handle_unknown"
+    assert service.cancel_process(forged, reason="client_disconnected") == CancelResult(
+        process_id="process-forged",
         cancelled=False,
         status="not_found",
         reason="client_disconnected",
     )
-    await service.close_process(unknown)
+    await service.close_process(forged)
+
+    assert _cancel_requested_events(sink) == []
+    assert service.process_status("process-forged", access=requestor) == ProcessStatusSnapshot(
+        process_id="process-forged",
+        phase="created",
+        status="running",
+        reason=None,
+    )
 
 
 @pytest.mark.asyncio
-async def test_stop_after_delivery_completed_reports_not_found() -> None:
-    """交付结束已收口的进程：句柄未知，重复停止按 not_found 收口。"""
+async def test_stale_handle_cannot_control_a_reregistered_process() -> None:
+    """进程关闭后同一 process_id 重新登记：旧句柄不能取消或关闭新进程。"""
+    service, composition = await _service()
+    requestor = await composition.authenticate(agent_id=_AGENT)
+    stale = await _register(composition, service, process_id="process-reused-id")
+    await service.close_process(stale)
+    await _register(composition, service, process_id="process-reused-id")
+
+    result = service.cancel_process(stale, reason="client_disconnected")
+    await service.close_process(stale)
+
+    assert result.status == "not_found"
+    assert service.process_status("process-reused-id", access=requestor) == ProcessStatusSnapshot(
+        process_id="process-reused-id",
+        phase="created",
+        status="running",
+        reason=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_cancel_after_delivery_reports_not_found_without_event() -> None:
+    """交付结束已收口的进程：句柄已失效，取消按 not_found 收口且不发布事件。"""
     bus = _bus_until_finalize()
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    service, composition = await _service(bus)
-    handle = await _register(composition, service, process_id="process-stopped-late")
+    sink = RecordingRuntimeEventSink()
+    service, composition = await _service(bus, event_publisher=RuntimeEventPublisher(sink))
+    handle = await _register(composition, service, process_id="process-cancelled-late")
 
     result = await service.run_process(handle, stream=False)
     assert result.kind == "agent"
 
-    stop_result = service.stop_process(handle)
-    assert stop_result.cancelled is False
-    assert stop_result.status == "not_found"
+    cancel_result = service.cancel_process(handle)
+    assert cancel_result == CancelResult(
+        process_id="process-cancelled-late",
+        cancelled=False,
+        status="not_found",
+        reason="user_requested",
+    )
+    assert _cancel_requested_events(sink) == []
+
+
+@pytest.mark.asyncio
+async def test_control_request_not_found_publishes_event_with_requestor_label() -> None:
+    """控制请求找不到进程：返回 not_found，并发布带请求方观测标签的事件。"""
+    sink = RecordingRuntimeEventSink()
+    service, composition = await _service(event_publisher=RuntimeEventPublisher(sink))
+    requestor = await composition.authenticate(agent_id=_AGENT)
+
+    result = service.cancel_process("process-missing", access=requestor)
+
+    assert result.status == "not_found"
+    events = _cancel_requested_events(sink)
+    assert [(event.process_id, event.workspace_id, event.status) for event in events] == [
+        ("process-missing", _WORKSPACE_ID, "not_found")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cancel_rejects_mismatched_arguments() -> None:
+    """错误组合在接线处失败：句柄形式不接受 access，按 process_id 取消必须提供 access。"""
+    service, composition = await _service()
+    requestor = await composition.authenticate(agent_id=_AGENT)
+    handle = await _register(composition, service, process_id="process-arguments")
+
+    with pytest.raises(TypeError, match="不接受 access"):
+        service.cancel_process(handle, access=requestor)  # type: ignore[call-overload]
+    with pytest.raises(TypeError, match="必须提供请求级 access"):
+        service.cancel_process("process-arguments")  # type: ignore[call-overload]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("use_handle", [True, False], ids=["handle", "control_plane"])
-async def test_accepted_stop_publishes_identical_events(use_handle: bool) -> None:
-    """句柄停止与取消入口成功分支共用 stop 记录与事件发布：事件序列逐字段相同。"""
+async def test_accepted_cancel_publishes_identical_events(use_handle: bool) -> None:
+    """句柄形式与控制请求形式的取消共用 stop 记录与事件发布：事件序列逐字段相同。"""
     gateway_started = asyncio.Event()
     bus = GlobalSystemBus()
 
@@ -533,7 +627,7 @@ async def test_accepted_stop_publishes_identical_events(use_handle: bool) -> Non
     await gateway_started.wait()
 
     if use_handle:
-        stop_result = service.stop_process(handle, reason="user_requested")
+        stop_result = service.cancel_process(handle, reason="user_requested")
     else:
         stop_result = service.cancel_process("process-stop-parity", access=requestor)
     await task
@@ -560,8 +654,8 @@ async def test_accepted_stop_publishes_identical_events(use_handle: bool) -> Non
 
 
 @pytest.mark.asyncio
-async def test_handle_stop_skips_process_control_authorization() -> None:
-    """句柄停止不经进程控制授权：未签发的伪造 access 无法取消，持有句柄即可停止。"""
+async def test_handle_cancel_skips_process_control_authorization() -> None:
+    """句柄形式的取消不经进程控制授权：未签发的伪造 access 无法取消，持有句柄即可取消。"""
     gateway_started = asyncio.Event()
     bus = GlobalSystemBus()
 
@@ -580,8 +674,8 @@ async def test_handle_stop_skips_process_control_authorization() -> None:
         service.cancel_process("process-handle-stop", access=WorkspaceAccessContext())
     assert excinfo.value.details["reason"] == "context_not_issued"
 
-    # 持有句柄即为生命周期所有者：不提交任何 access 也能停止自己的进程。
-    stop_result = service.stop_process(handle, reason="client_disconnected")
+    # 持有句柄即为生命周期所有者：不提交任何 access 也能取消自己的进程。
+    stop_result = service.cancel_process(handle, reason="client_disconnected")
     await task
 
     assert stop_result.cancelled is True
@@ -626,7 +720,7 @@ async def test_failed_delivery_invalidates_bound_context() -> None:
 
 @pytest.mark.asyncio
 async def test_cancelled_delivery_invalidates_bound_context() -> None:
-    """取消结局：句柄停止后进程以取消收口，绑定 context 失效。"""
+    """取消结局：以句柄取消后进程以取消收口，绑定 context 失效。"""
     gateway_started = asyncio.Event()
     bus = GlobalSystemBus()
 
@@ -642,7 +736,7 @@ async def test_cancelled_delivery_invalidates_bound_context() -> None:
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await gateway_started.wait()
 
-    stop_result = service.stop_process(handle, reason="user_requested")
+    stop_result = service.cancel_process(handle, reason="user_requested")
     result = await task
 
     assert stop_result.cancelled is True

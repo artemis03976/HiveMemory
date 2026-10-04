@@ -1,9 +1,11 @@
-"""任务进程表 — 进程记录与进程内注册表。
+"""任务进程表 — 进程记录与唯一的进程注册表。
 
-进程表是 workspace 进程内共享设施：以 ``process_id`` 为唯一标识登记
-每个任务进程。注册、注销与进程控制授权由注册入口
-（``workspace.process.service``）负责；进程记录只持有访问 context 与
-进程自身的元数据，不保存身份字段（A1 访问边界返工第 4.4 节，I-8）。
+进程表是 workspace 进程内共享设施，也是唯一的进程注册表：以
+``process_id`` 为键登记任务进程（``TaskProcess`` 容器），进程记录作为
+进程的控制面经进程取得，不单独登记（任务进程 Idea 1.2 的 2026-10-04 注）。
+注册、注销与进程控制授权由注册入口（``workspace.process.service``）负责；
+进程记录只持有访问 context 与进程自身的元数据，不保存身份字段（A1 访问
+边界返工第 4.4 节，I-8）。
 """
 
 from __future__ import annotations
@@ -15,9 +17,12 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceDomainError
 
+# TaskProcess 只做类型检查时导入：task_process 在运行时从本模块导入进程
+# 记录与相关枚举，反向的运行时导入会形成循环。
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.workspace.process.events import BoundProcessEvents
+    from hivememory.workspace.process.task_process import TaskProcess
 
 
 class ProcessPhase(str, Enum):
@@ -166,32 +171,34 @@ class ProcessRecord:
 
 
 class ProcessTable:
-    """进程内任务进程注册表：登记与注销由注册入口负责。"""
+    """进程内唯一的任务进程注册表：登记 ``process_id → TaskProcess``。
+
+    登记与注销由注册入口负责；进程记录经 ``process.record`` 取得。本表
+    不做 scope 过滤，控制请求的授权比对由注册入口经操作授权者完成。
+    """
 
     def __init__(self) -> None:
-        self._runs: dict[str, ProcessRecord] = {}
+        self._processes: dict[str, TaskProcess] = {}
 
-    def register(self, run: ProcessRecord) -> None:
-        existing = self._runs.get(run.process_id)
-        if existing is not None:
+    def register(self, process: TaskProcess) -> None:
+        """登记任务进程；``process_id`` 已被占用时拒绝，不覆盖现有进程。"""
+        process_id = process.record.process_id
+        if process_id in self._processes:
             raise WorkspaceDomainError(
                 "process_id 已被注册，拒绝覆盖现有任务进程",
-                details={"process_id": run.process_id},
+                details={"process_id": process_id},
             )
-        self._runs[run.process_id] = run
+        self._processes[process_id] = process
 
-    def get(self, process_id: str) -> ProcessRecord | None:
-        """按 ``process_id`` 原样取回进程记录；找不到返回 ``None``。
+    def get(self, process_id: str) -> TaskProcess | None:
+        """按 ``process_id`` 原样取回已登记的任务进程；找不到返回 ``None``。"""
+        return self._processes.get(process_id)
 
-        控制请求（取消与状态查询）的授权比对由注册入口经操作授权者完成，
-        本表不做 scope 过滤。
-        """
-        return self._runs.get(process_id)
-
-    def close(self, run: ProcessRecord) -> None:
-        """移除已由进程编排记录终态的进程记录。"""
-        if self._runs.get(run.process_id) is run:
-            self._runs.pop(run.process_id, None)
+    def close(self, process: TaskProcess) -> None:
+        """注销任务进程；只移除正是该对象的登记，不误删同 id 的其他进程。"""
+        process_id = process.record.process_id
+        if self._processes.get(process_id) is process:
+            self._processes.pop(process_id, None)
 
 
 __all__ = [

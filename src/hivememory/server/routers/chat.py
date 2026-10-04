@@ -88,8 +88,9 @@ async def chat(
     前不组装 ``IdentityScope``，声明只作为注册入口的认证输入）。注册入口
     以 server 自身 principal 完成两阶段认证并立即创建、登记任务进程（签发
     即绑定，运行类型为本进程），返回不透明的进程句柄；注册失败直接抛出、
-    返回 HTTP 403 且不创建进程，注册成功后才开始流式响应。客户端断开经
-    :meth:`stop_process` 停止句柄对应的进程（不经进程控制授权）；进程经
+    返回 HTTP 403 且不创建进程，注册成功后才开始流式响应。客户端断开以
+    句柄形式的 :meth:`cancel_process` 取消进程（不经进程控制授权），取消
+    先于关闭；进程经
     :meth:`close_process` 关闭（context 失效并从进程表注销，A1 访问边界
     返工第 4.4 节），关闭路径只执行一次：生成器开始迭代过时由其
     ``finally`` 收口；生成器从未开始时（例如关停信号在注册期间到达）由
@@ -136,10 +137,10 @@ async def chat(
                 try:
                     while not pull_task.done():
                         if await request.is_disconnected():
-                            # 客户端断开是用户经 HTTP 入口发起的停止：持有
-                            # 句柄即为进程生命周期的所有者，stop_process
-                            # 不经进程控制授权，保留取消语义与事件。
-                            service.stop_process(handle, reason="client_disconnected")
+                            # 客户端断开是一次取消：持有句柄即为进程生命
+                            # 周期的所有者，句柄形式的取消不经进程控制授权；
+                            # 取消先于关闭，保留断开原因与对应的终态事件。
+                            service.cancel_process(handle, reason="client_disconnected")
                             return
                         await asyncio.sleep(0.1)
 
@@ -151,12 +152,12 @@ async def chat(
                     }
 
                     if await request.is_disconnected():
-                        service.stop_process(handle, reason="client_disconnected")
+                        service.cancel_process(handle, reason="client_disconnected")
                         break
                 except StopAsyncIteration:
                     break
                 except asyncio.CancelledError:
-                    service.stop_process(handle, reason="client_disconnected")
+                    service.cancel_process(handle, reason="client_disconnected")
                     raise
                 finally:
                     await _cancel_and_join(pull_task)
