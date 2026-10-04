@@ -55,7 +55,9 @@
 - System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
-- `IdentityScope`（Actor + Workspace）必须沿应用服务、公共 route、Interaction 和后台任务传播，并在资源 owner 处再次校验。
+- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。唯一的已知例外是 Import Bus 的 `/ingest`（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。
+- 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者。
+- 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。
 - Cache、queue、registry、scheduler 和 EventBus 默认是进程级共享基础设施；`workspace_id` 观测标签不等于授权或分区。
 - `WorkspaceAsset` 是 workspace 的进程内资源；Topic、Memory、Artifact 的 Workspace 归属仍由 Patchouli 领域规则校验。
 
@@ -139,7 +141,7 @@ cd frontend && npm ci && npm run lint && npm run build
 
 - [ ] 改动范围只覆盖任务所需文件，未覆盖用户已有修改。
 - [ ] 所有跨边界调用遵循公共 route/model/event 和唯一状态所有者；新增导入符合包分层规则。
-- [ ] Workspace/IdentityScope、取消、超时、失败、幂等和资源清理语义已核对。
+- [ ] Workspace 访问与身份数据（访问 context、`IdentityScope`、资源归属与发起者）、取消、超时、失败、幂等和资源清理语义已核对。
 - [ ] 新测试属于正确主类型，断言可在生产代码改坏时失败。
 - [ ] 已运行与改动匹配的定向测试、静态检查和必要的全量门槛。
 - [ ] 文档只陈述有证据的当前事实，计划仍留在正确的工作文档中。

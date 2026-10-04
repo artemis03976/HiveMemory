@@ -336,7 +336,7 @@ RelayController 的新边界是 Topic working set 的折叠器：管理 Topic �
 
 1. TurnEvent 新增 kind、来源/时间、外部调用关联和多模态引用的字段；ActionReducer 的可靠关联规则；Payload 文本/trace 的派生与兼容限制。第 2 节的候选设计复用现有模型，不另建 Segment/Part 双模型。
 2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）、最小创建/读取/封口/关闭能力与 A1 operation、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
-3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；移除 identity.session_id 对 equality/hash/cache key 的影响。speaker、来源与调用主体分别处理。
+3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；移除 identity.session_id 对 equality/hash/cache key 的影响（2026-10-04：`ActorIdentity.session_id` 随身份与访问体系第二批移除，见[身份与访问体系 Idea](./identity-and-access-model.md#i-7-actoridentitysession_id) I-7）。speaker、来源与调用主体分别处理。
 4. 无 session 的旧 Alice/单次交互如何映射为明确的临时 Session，不能静默合并全用户历史；主动意图仍可无 Session。旧 Topic 只保存可证来源，不能编造完整 Session。
 5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例（2026-09-28：controller 模式下 `interaction_id` 始终取 `process_id` 的值，见任务进程 Idea Q-16）。
 6. 封口信号、completion outcome、partial/cancel/failed、迟到/重复/sequence 缺口策略；Session 与 Topic 两种序列化约束；开放段容量和无 user 事件的接收规则。
