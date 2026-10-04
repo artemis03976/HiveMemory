@@ -23,7 +23,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-03
+last_reviewed: 2026-10-04
 ---
 
 # 身份与访问体系
@@ -270,7 +270,20 @@ class ProcessRecord:                     # 进程元数据，与进程同寿
 **补充：进程句柄（owner，2026-10-03，第一批实现审查）**。第一批的实现中，注册入口把整个 `TaskProcess` 交给入口 adapter，server 由此读取 `record.access`：客户端断开时，以进程自己的 context 作为取消入口的请求方，进程控制授权变成自己与自己比对。server 不是进程 context 的运行持有者（不变量 2），不应接触它。决定：
 
 - 注册入口返回不透明的进程句柄，只暴露 `process_id`；入口 adapter 不接触进程记录、`TaskProcess` 与其中的 context；
-- 运行、停止与关闭都经注册入口、以句柄为参数进行。持有句柄即为该进程生命周期的所有者，因此停止自己注册的进程不经进程控制授权；取消入口只服务于以请求级 context 发起的控制请求（`/chat/stop`）。
+- 运行、停止与关闭都经注册入口、以句柄为参数进行。持有句柄即为该进程生命周期的所有者，因此停止自己注册的进程不经进程控制授权；取消入口只服务于以请求级 context 发起的控制请求（`/chat/stop`）。（2026-10-04 注：停止与取消已统一为一个取消方法，见下一条补充。）
+
+**补充：句柄的有效性与统一的取消方法（owner，2026-10-04，按上一条补充调整后的实现审查）**。调整后的实现中，句柄是只含 `process_id` 的值对象，注册入口按 `handle.process_id` 查表即认定所有权；而 `process_id` 会经 SSE 事件发给客户端，也会随 `/chat/stop` 的请求体传回。任何拿到 `process_id` 的代码都能现造一个句柄，绕过进程控制授权停止进程，上一条补充“持有句柄即为所有者”的前提不成立。同时注册入口另有停止与取消两个方法，两者对进程的作用相同，只在取消的依据上不同。决定：
+
+- **句柄按对象身份判定有效**，与访问 context 采用同一种机制：句柄只由注册入口签发，比较按对象身份；句柄私下记着它对应的进程对象，注册入口解析时要求进程表中登记的进程正是句柄记着的那一个。按 `process_id` 重新构造的对象不是有效句柄；进程关闭后的旧句柄同样无效。入口 adapter 只见过句柄、见不到进程对象，因此造不出有效句柄。这维护的是可信进程内的调用纪律，不隔离刻意读取私有属性的代码，与访问 context 的信任模型一致；句柄不离开进程，不提供序列化。
+- **取消进程只有一个方法**，取消的依据作为参数：
+  - 传入句柄：调用方是进程的所有者，不经进程控制授权，不接受另传的访问 context；
+  - 传入 `process_id` 与请求级 context：控制请求，经进程控制授权（P-7）；不匹配时与进程不存在一样按不存在处理。
+
+  两种依据由方法签名区分（只有 `process_id` 而没有 context 不能取消）；stop 记录、终态判定与运行时事件只有一份实现。
+- **找不到进程时的事件**：句柄已失效（进程已由所有者关闭）时只返回不存在，不发布事件；控制请求找不到进程或无权控制时返回不存在，并发布带请求方观测标签的事件。前者没有需要观测的外部请求，后者是一次外部控制请求。
+- **客户端断开仍是一次取消，不并入关闭**：断开时先同步取消（记录断开原因、取消当前阶段的任务，使进程以已取消的终态结束），再取消并等待正在拉取事件的任务，最后关闭进程。若把取消并入关闭，它会落在拉取任务被取消之后，断开原因与对应的终态事件将不再记录。
+
+进程表登记的对象见[任务进程 Idea](./task-process-table-and-registration-entry.md) 1.2 的 2026-10-04 注。
 
 ### I-9 CPU 在过渡期的身份
 
@@ -327,7 +340,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 
 | 批次 | 范围 | 关系 |
 |:---|:---|:---|
-| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者（I-10） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
+| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄，按对象身份判定有效，取消进程只有一个方法（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者（I-10） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
 | 第二批 | 记录与后台任务改用资源身份（6.3 第三类）；修订 AGENTS.md 第 3 节的相应规则（修改 AGENTS.md 需 owner 同意） | 在第一批之后 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
