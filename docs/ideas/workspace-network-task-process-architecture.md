@@ -798,7 +798,9 @@ sequenceDiagram
   - 同一个用户也可能需要 agent 视角，例如排查某个 agent 能看到什么，那是以具体 Agent 进行的 actor 可见读取。
 - **workspace 读取缓存只由 actor 可见读取回填**，管理读取不回填。
 
-分析（2026-10-03）：workspace 读取缓存的失效机制尚未接上（13.7）。actor 可见读取接入生产之前（Alice 的能力层调用迁移，15.5）需要补上，否则管理写入之后，agent 会从缓存读到旧内容。管理员的直接通道还可以持有哪些 operation，见 P-9c 的分析与 P-9g。
+分析（2026-10-03）：workspace 读取缓存的失效机制尚未接上（13.7）。actor 可见读取接入生产之前（Alice 的能力层调用迁移，15.5）需要补上，否则管理写入之后，agent 会从缓存读到旧内容。
+
+**同日补充决定**（owner，2026-10-03，P-9c 的一部分）：`system` 的默认白名单去掉 `resource.read`，它对 system actor 不必要。此后管理员的直接通道只持有 `management.*` 与 `task.observe`，不持有任何 actor 可见的读取 operation，由白名单保证管理员不会走到带缓存的读取。管理员的话题列表目前绑定 `resource.read`（13.7），暂时改绑 `management.topic`（P-9g）。
 
 ## 16. 第三部分待决问题
 
@@ -903,6 +905,7 @@ sequenceDiagram
     - 现状相当于“按访问登记决定”：`system` 的默认登记是四项 `management.*` 加 `resource.read`、`task.observe`（13.7）。两类 context 的区分实际依靠 actor，即 `system` 记录与用户级记录分开登记；授予记录中的运行类型没有代码使用。
     - 按 15.7 可以补一条判据：直接通道不持有会进入 agent 工作集的读取 operation（`resource.read`、`resource.search`、`profile.read`）。这样由白名单保证管理员不会走到带缓存的读取，而不是依赖管理路由不调用这些方法。`task.observe` 不涉及缓存，不受影响。
     - 采用这条判据，需要先为管理员的话题列表另选 operation（P-9g），再从 `system` 的默认登记中去掉 `resource.read`；这会改动 [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记。
+  - **已决定（2026-10-03，部分）**：`system` 的默认白名单去掉 `resource.read`，见 15.7 的同日补充决定。能力层如何区分两类 context 仍待决。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义。
 - **P-9e 管理员在访问登记中的表示**：以保留的 `system` agent 标记登记 / 设独立的管理员 actor 标识 / 其他。现状见 13.5：代码中没有独立的管理员角色，server 为非 Agent 操作注入 `system`。**已决定（2026-10-02）**：以保留的 `system` 单独登记，用户级记录不覆盖它，见 15.5。
 - **P-9f 两种读取视角的入口形式**（2026-10-03，由 15.7 引出）：两个入口，视角体现在方法名与 operation 上（现状）/ 一个入口加显式视角参数，例如 `read(memory_id, view=AGENT | OWNER)`，视角映射到 operation / 一个入口，按调用方持有的权限决定视角 / 其他。
@@ -918,6 +921,8 @@ sequenceDiagram
   - 影响：
     - 前两项都能让 `system` 的默认登记去掉 `resource.read`。第一项要修改 operation 目录中“Topic 快照读取绑定 `resource.read`、不借 `management.topic` 放行”的约定（`core/access.py`）；第二项在目录中增加一项，并同步维护配置与测试。
     - 第三项不改目录与登记，边界依赖管理路由不调用带缓存的读取。
+  - 2026-10-03：第三项随 `system` 去掉 `resource.read` 的决定排除（15.7），在前两项中选择；A1 返工计划实施这一步之前需要决定。
+  - **已决定（2026-10-03）**：第一项。管理员的话题列表暂时映射到 `management.topic`。operation 目录（`core/access.py`）中“Topic 快照读取绑定 `resource.read`、不借 `management.topic` 放行”的约定相应改为：actor 的话题读取绑定 `resource.read`，管理视角的话题列表绑定 `management.topic`。
 
 plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），P-9a 与 P-9c 需要一并考虑这类访问。
 
