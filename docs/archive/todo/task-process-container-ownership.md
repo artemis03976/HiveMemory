@@ -2,7 +2,7 @@
 title: TaskProcess 容器的职责与依赖方向
 status: archived
 archived_at: 2026-10-04
-implemented_by: 任务进程编排骨架拆分（2026-10-04，分支 feat/workspace-access-boundary-rework）
+implemented_by: 1de4066（任务进程编排骨架拆分）
 superseded_by: docs/system/application-services.md
 owner: workspace
 scope: task-process-container-registration-lifecycle-and-dependencies
