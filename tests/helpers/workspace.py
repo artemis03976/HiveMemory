@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from hivememory.core.access import (
     CallerPrincipal,
+    RunBinding,
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
@@ -159,14 +160,20 @@ class AccessTestComposition:
         workspace: WorkspaceIdentity | None = None,
         adapter: str = "local",
         principal_id: str | None = None,
+        binding: RunBinding | None = None,
     ) -> WorkspaceAccessContext:
-        """按组合内的默认坐标完成两项认证并返回访问上下文。"""
+        """按组合内的默认坐标完成两项认证并返回访问上下文。
+
+        ``binding`` 缺省为测试请求级运行绑定；任务进程测试应显式传
+        ``RunBinding.for_task_process(process_id)``。
+        """
         target_user = user_id or (self.default_workspace.owner_user_id)
         return await self.gateway.authenticate(
             adapter=adapter,
             principal=CallerPrincipal(principal_id or self.principal.principal_id),
             actor=ActorIdentity(user_id=target_user, agent_id=agent_id),
             workspace=workspace or self.default_workspace,
+            binding=binding or RunBinding.for_request("test_request"),
         )
 
 
@@ -226,28 +233,35 @@ async def make_process_access(
     user_id: str = "u1",
     agent_id: str = "omni_doll",
     workspace_id: str = "main_workspace",
-) -> tuple[WorkspaceAccessGuard, WorkspaceAccessContext]:
-    """任务进程测试的 (guard, access) 组合：guard 需注入 TaskProcessService。
+    process_id: str = "process_test",
+) -> tuple[
+    WorkspaceAccessGuard,
+    ActorAuthenticationGateway,
+    WorkspaceAccessContext,
+    ActorIdentity,
+    WorkspaceIdentity,
+]:
+    """任务进程测试的 (guard, gateway, access, actor, workspace) 组合。
 
-    进程持有的 access 必须由注入服务的那一个 guard 签发（换实例即
-    ``context_not_issued``），因此测试用与生产装配相同的组合方式显式构造。
-    记录授予全部 operation（测试便利），阶段授权按阶段语义逐项检查。
+    进程持有的 access 必须由注入服务的那一个 guard/gateway 组合签发（换
+    实例即 ``context_not_issued``），因此测试用与生产装配相同的组合方式
+    显式构造：context 以 ``for_task_process(process_id)`` 绑定签发；返回
+    的 actor/workspace 声明供 ``register_process`` 使用。记录授予全部
+    operation（测试便利），阶段授权按阶段语义逐项检查。
     """
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id=user_id, agent_id=agent_id)]
     )
-    scope = make_identity_scope(
-        user_id=user_id,
-        agent_id=agent_id,
-        workspace_id=workspace_id,
-    )
+    actor = ActorIdentity(user_id=user_id, agent_id=agent_id)
+    workspace = make_workspace_identity(owner_user_id=user_id, workspace_id=workspace_id)
     context = await composition.gateway.authenticate(
         adapter="local",
         principal=composition.principal,
-        actor=scope.actor_identity,
-        workspace=scope.workspace_identity,
+        actor=actor,
+        workspace=workspace,
+        binding=RunBinding.for_task_process(process_id),
     )
-    return composition.guard, context
+    return composition.guard, composition.gateway, context, actor, workspace
 
 
 def make_server_access_overrides(*, users: list[str] | None = None):
@@ -262,13 +276,9 @@ def make_server_access_overrides(*, users: list[str] | None = None):
 
     users = users or ["default"]
     composition = make_access_composition(
-        [
-            make_actor_access_record(owner_user_id=user, agent_id=None)
-            for user in users
-        ]
+        [make_actor_access_record(owner_user_id=user, agent_id=None) for user in users]
         + [
-            make_actor_access_record(owner_user_id=user, agent_id=SYSTEM_AGENT_ID)
-            for user in users
+            make_actor_access_record(owner_user_id=user, agent_id=SYSTEM_AGENT_ID) for user in users
         ],
         adapters=("http",),
     )

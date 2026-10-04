@@ -1,4 +1,10 @@
-"""任务进程编排（chat）经共享总线并发传播 IdentityScope 的集成测试。"""
+"""任务进程编排（chat）经共享总线并发传播 IdentityScope 的集成测试。
+
+访问边界（A1 访问边界返工第 4.4 节）：每个进程的 context 在
+``register_process`` 经真实网关签发并绑定本进程；进程控制（状态查询与
+取消）由请求级 context 经 guard 的进程控制授权比对驻留坐标——跨
+workspace 请求与不存在统一按 ``not_found`` 呈现。
+"""
 
 from __future__ import annotations
 
@@ -9,7 +15,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceMismatchError
-from hivememory.core.models import ResolvedAgentProfile
+from hivememory.core.models import ActorIdentity, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -22,7 +28,12 @@ from hivememory.workspace.contracts import CPUExecutionResult
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_identity_scope,
+    make_workspace_identity,
+)
 
 
 def _decision() -> GatewayDecisionOutcome:
@@ -55,6 +66,44 @@ def _prepared(identity_scope) -> PreparedAgentRun:
     )
 
 
+def _composition():
+    """两个 workspace（同 owner）的用户级登记 + 真实网关组合。"""
+    return make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1", workspace_id="main_workspace", agent_id=None
+            ),
+            make_actor_access_record(
+                owner_user_id="u1", workspace_id="isolation_workspace", agent_id=None
+            ),
+        ],
+        default_workspace=make_workspace_identity(
+            owner_user_id="u1", workspace_id="main_workspace"
+        ),
+    )
+
+
+def _service(bus: GlobalSystemBus, composition, cpu) -> TaskProcessService:
+    return TaskProcessService(
+        bus,
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        access_guard=composition.guard,
+    )
+
+
+async def _register(service, composition, *, workspace, process_id: str, message: str):
+    """经注册入口完成两阶段认证并登记进程（认证失败不创建进程）。"""
+    return await service.register_process(
+        adapter="local",
+        principal=composition.principal,
+        actor=ActorIdentity(user_id="u1", agent_id="a1"),
+        workspace=workspace,
+        process_id=process_id,
+        message=message,
+    )
+
+
 class _WorkspaceEchoCPU:
     """按清单回显 workspace_id 的最小 CPU 实现：验证并发 run 的上下文隔离。"""
 
@@ -70,8 +119,11 @@ class _WorkspaceEchoCPU:
 @pytest.mark.asyncio
 async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_service() -> None:
     """防止共享 Chat/Gateway/Patchouli 单例保存并覆盖 current workspace。"""
+    composition = _composition()
     bus = GlobalSystemBus()
-    service = TaskProcessService(bus, cpu=_WorkspaceEchoCPU())
+    service = _service(bus, composition, _WorkspaceEchoCPU())
+    main_ws = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
+    isolation_ws = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
     both_gateway_calls_started = asyncio.Event()
     release_gateway = asyncio.Event()
     gateway_contexts = []
@@ -96,46 +148,37 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    main_context = make_identity_scope(
-        user_id="u1",
-        workspace_id="main_workspace",
-    )
-    isolation_context = make_identity_scope(
-        user_id="u1",
-        workspace_id="isolation_workspace",
-    )
     main_task = asyncio.create_task(
         service.run_process(
-            "question",
+            await _register(
+                service,
+                composition,
+                workspace=main_ws,
+                process_id="process-main",
+                message="question",
+            ),
             stream=False,
-            identity_scope=main_context,
-            process_id="process-main",
         )
     )
     isolation_task = asyncio.create_task(
         service.run_process(
-            "question",
+            await _register(
+                service,
+                composition,
+                workspace=isolation_ws,
+                process_id="process-isolation",
+                message="question",
+            ),
             stream=False,
-            identity_scope=isolation_context,
-            process_id="process-isolation",
         )
     )
 
+    # 请求级 context 由同一 guard 签发：进程控制授权比对驻留坐标。
+    main_request_access = await composition.authenticate(agent_id="a1", workspace=main_ws)
+    isolation_request_access = await composition.authenticate(agent_id="a1", workspace=isolation_ws)
     await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
-    assert (
-        service.process_status(
-            "process-main",
-            identity_scope=isolation_context,
-        )
-        is None
-    )
-    assert (
-        service.process_status(
-            "process-isolation",
-            identity_scope=main_context,
-        )
-        is None
-    )
+    assert service.process_status("process-main", access=isolation_request_access) is None
+    assert service.process_status("process-isolation", access=main_request_access) is None
 
     release_gateway.set()
     main_result, isolation_result = await asyncio.wait_for(
@@ -146,25 +189,23 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     assert main_result.execution_result.final_text == "main_workspace"
     assert isolation_result.execution_result.final_text == "isolation_workspace"
     assert {context for context in gateway_contexts} == {
-        main_context,
-        isolation_context,
+        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace"),
+        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolation_workspace"),
     }
     assert {context for context in finalized_contexts} == {
-        main_context,
-        isolation_context,
+        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace"),
+        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolation_workspace"),
     }
 
 
 @pytest.mark.asyncio
 async def test_chat_rejects_prepared_run_from_different_workspace_before_alice() -> None:
     """防止 prepare 返回漂移 scope 后继续执行 Alice 或 finalize 写入。"""
+    composition = _composition()
     bus = GlobalSystemBus()
-    requested = make_identity_scope(
-        user_id="u1",
-        workspace_id="main_workspace",
-    )
     drifted = make_identity_scope(
         user_id="u1",
+        agent_id="a1",
         workspace_id="isolation_workspace",
     )
     cleaned = []
@@ -183,13 +224,16 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
+    service = _service(bus, composition, ScriptedCPU(result=make_cpu_result()))
+    process = await _register(
+        service,
+        composition,
+        workspace=make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace"),
+        process_id="process-drifted",
+        message="question",
+    )
     with pytest.raises(WorkspaceMismatchError, match="身份作用域不一致"):
-        await TaskProcessService(bus, cpu=ScriptedCPU(result=make_cpu_result())).run_process(
-            "question",
-            stream=False,
-            identity_scope=requested,
-            process_id="process-drifted",
-        )
+        await service.run_process(process, stream=False)
 
     assert cleaned == [drifted]
 
@@ -197,8 +241,11 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
 @pytest.mark.asyncio
 async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     """捕获共享进程表以裸 process_id 取消异域进程的缺陷。"""
+    composition = _composition()
     bus = GlobalSystemBus()
-    service = TaskProcessService(bus, cpu=_WorkspaceEchoCPU())
+    service = _service(bus, composition, _WorkspaceEchoCPU())
+    main_ws = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
+    isolation_ws = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
     both_gateway_calls_started = asyncio.Event()
     release_gateway = asyncio.Event()
     gateway_calls = 0
@@ -222,51 +269,51 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    main = make_identity_scope(
-        user_id="u1",
-        agent_id="a1",
-        workspace_id="main_workspace",
-    )
-    isolated = make_identity_scope(
-        user_id="u1",
-        agent_id="a1",
-        workspace_id="isolation_workspace",
-    )
     main_task = asyncio.create_task(
         service.run_process(
-            "main",
+            await _register(
+                service,
+                composition,
+                workspace=main_ws,
+                process_id="process-run-main",
+                message="main",
+            ),
             stream=False,
-            identity_scope=main,
-            process_id="process-run-main",
         )
     )
     isolated_task = asyncio.create_task(
         service.run_process(
-            "isolated",
+            await _register(
+                service,
+                composition,
+                workspace=isolation_ws,
+                process_id="process-run-isolated",
+                message="isolated",
+            ),
             stream=False,
-            identity_scope=isolated,
-            process_id="process-run-isolated",
         )
     )
 
+    main_request_access = await composition.authenticate(agent_id="a1", workspace=main_ws)
+    isolated_request_access = await composition.authenticate(agent_id="a1", workspace=isolation_ws)
     try:
         await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
         cross_scope_cancel = service.cancel_process(
             "process-run-isolated",
-            identity_scope=main,
+            access=main_request_access,
         )
 
         assert cross_scope_cancel.cancelled is False
         assert cross_scope_cancel.status == "not_found"
         isolated_status = service.process_status(
             "process-run-isolated",
-            identity_scope=isolated,
+            access=isolated_request_access,
         )
         assert isolated_status.status == "running"
         assert (
             service.process_status(
                 "process-run-isolated",
-                identity_scope=main,
+                access=main_request_access,
             )
             is None
         )

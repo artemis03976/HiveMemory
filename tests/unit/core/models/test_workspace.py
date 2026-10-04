@@ -10,7 +10,6 @@ from hivememory.core.errors import (
     AssetNotReadyError,
     AssetOperationConflictError,
     AssetRemovedError,
-    OwnerMismatchError,
     ScopeRequiredError,
     StaleAssetResultError,
     WorkspaceMismatchError,
@@ -95,21 +94,28 @@ def test_internal_builder_can_address_isolation_workspace_explicitly():
     assert scope.workspace_identity.owner_user_id == "user-a"
 
 
-def test_identity_scope_rejects_cross_owner_actor():
-    """防止 actor user 借用另一用户的 Workspace 资源域。"""
+def test_identity_scope_accepts_cross_owner_coordinates():
+    """owner 规则移到准入与授权阶段：身份类型可冻结跨 owner 的操作坐标。
+
+    ``IdentityScope`` 只回答"谁在执行、作用于哪个资源归属域"，不在构造时
+    校验 actor 用户等于 workspace owner（不变量 6）；"actor 借用另一用户
+    的资源域"由认证网关准入（``actor_not_owner``）与 guard 操作授权
+    （``target_owner_mismatch``）在两阶段认证/授权中拒绝。
+    """
     workspace = WorkspaceIdentity(
         owner_user_id="owner-a",
         workspace_key=MAIN_WORKSPACE_ID,
         workspace_id=MAIN_WORKSPACE_ID,
     )
 
-    with pytest.raises(OwnerMismatchError) as caught:
-        IdentityScope(
-            actor_identity=ActorIdentity(user_id="attacker"),
-            workspace_identity=workspace,
-        )
+    scope = IdentityScope(
+        actor_identity=ActorIdentity(user_id="attacker"),
+        workspace_identity=workspace,
+    )
 
-    assert caught.value.code == "workspace.owner_mismatch"
+    # 构造不再抛 OwnerMismatchError，且坐标原样冻结、不被改写。
+    assert scope.actor_identity.user_id == "attacker"
+    assert scope.workspace_identity == workspace
 
 
 def test_identity_scope_rejects_interaction_id():

@@ -227,7 +227,7 @@ class SystemAssembler:
     # ------------------------------------------------------------------
 
     def _build_access_control(self) -> _AccessControlBundle:
-        """装载两类访问登记并构造网关与共享行为检查（A1 访问边界返工第 4.2 节）。
+        """装载两类访问登记并构造网关与共享操作授权（A1 访问边界返工第 4.7 节）。
 
         System composition 负责"装载和注入配置"：接入登记从
         ``configs/system_principals.yaml`` 装载转入 System 注册表，
@@ -318,9 +318,8 @@ class SystemAssembler:
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
             # Patchouli runtime：供 Artifact promotion 在生成时自行取得内容。
             workspace_asset_reader=runtime.workspace_asset_store,
-            # A1：System composition 注入共享行为检查；Patchouli 公共入口
-            # 据此执行操作授权，不反向依赖认证网关实现。
-            access_guard=access_control.access_guard,
+            # Patchouli 是授权点以下的资源 owner：不注入共享操作授权，
+            # 公开路由只接收授权点组装的 IdentityScope（A1 访问边界返工 4.6）。
             shared_config=self._config.shared,
             scheduler_config=self._config.scheduler,
         )
@@ -359,8 +358,9 @@ class SystemAssembler:
             # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
-            # 任务进程持有绑定 context 并做阶段授权（A1 访问边界返工 4.3）：
-            # 共享行为检查与网关使用同一实例。
+            # 注册入口完成两阶段认证（A1 访问边界返工 4.4）：网关与共享
+            # 操作授权使用同一实例，签发的 context 绑定本进程。
+            access_gateway=access_control.access_gateway,
             access_guard=access_control.access_guard,
         )
         ingress = PassiveIngressService(
@@ -380,6 +380,10 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             access_guard=access_control.access_guard,
             memory_reader=runtime.workspace_runtime.aliases,
+        )
+        memory_task = MemoryTaskApplicationService(
+            global_bus=runtime.global_bus,
+            access_guard=access_control.access_guard,
         )
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,

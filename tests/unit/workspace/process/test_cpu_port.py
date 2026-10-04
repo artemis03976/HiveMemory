@@ -1,7 +1,8 @@
 """任务进程经 CPU 端口执行 Actor 阶段的行为测试。
 
 被测边界：进程只经组合根注入的 ``CPUPort`` 调用 CPU，总线上不注册任何
-Alice 路由；测试 CPU（``tests.helpers.cpu``）覆盖完成、自报取消/失败、
+Alice 路由；进入 Actor 执行前的 ``interaction.submit`` 阶段授权缺许可时
+CPU 不被执行。测试 CPU（``tests.helpers.cpu``）覆盖完成、自报取消/失败、
 停止请求、协议错误与断流关闭五种场景。子系统路由用 GlobalSystemBus 上的
 替身隔离。
 """
@@ -18,15 +19,19 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
+    ActorIdentity,
     AttachmentSelectionRequest,
     IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    WorkspaceIdentity,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
@@ -34,6 +39,7 @@ from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.task_process import TaskProcess
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_gateway_decision,
@@ -42,13 +48,48 @@ from tests.helpers.chat_handoff import (
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope, make_process_access
+from tests.helpers.workspace import (
+    AccessTestComposition,
+    make_access_composition,
+    make_actor_access_record,
+    make_workspace_identity,
+)
 from tests.helpers.workspace_assets import make_ready_text_asset
 
+_USER = "u1"
+_AGENT = "omni_doll"
 
-def _u1_scope() -> IdentityScope:
-    """Chat 是 Agent action：构造携带具体 Agent 的显式 scope。"""
-    return make_identity_scope(user_id="u1", agent_id="omni_doll")
+
+def _actor() -> ActorIdentity:
+    """注册入口的 actor 声明（认证前不组装 IdentityScope）。"""
+    return ActorIdentity(user_id=_USER, agent_id=_AGENT)
+
+
+def _workspace() -> WorkspaceIdentity:
+    """注册入口的请求进入 workspace 声明。"""
+    return make_workspace_identity(owner_user_id=_USER)
+
+
+def _expected_scope() -> IdentityScope:
+    """认证声明经 guard 授权规则应组装出的 IdentityScope。"""
+    return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
+
+
+def _composition(
+    *,
+    excluded_operations: frozenset[WorkspaceOperation] = frozenset(),
+) -> AccessTestComposition:
+    """构造访问组合：默认授予全部 operation，可排除指定 operation 复现缺许可场景。"""
+    allowed = frozenset(WorkspaceOperation) - excluded_operations
+    return make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id=_USER,
+                agent_id=_AGENT,
+                allowed_operations=allowed,
+            )
+        ]
+    )
 
 
 def _memory_atom(title: str) -> MemoryAtom:
@@ -101,48 +142,63 @@ async def _service(
     *,
     event_publisher: RuntimeEventPublisher | None = None,
     store: InMemoryWorkspaceAssetStore | None = None,
-) -> TaskProcessService:
-    """构造被测服务并注入配套 guard；签发的 access 挂在 test_access 供调用方传递。"""
-    guard, access = await make_process_access()
+    composition: AccessTestComposition | None = None,
+) -> tuple[TaskProcessService, AccessTestComposition]:
+    """构造被测服务与配套认证组合：注册与阶段授权使用同一 guard/gateway 实例。"""
+    composition = composition or _composition()
     service = TaskProcessService(
         bus,
         event_publisher,
         cpu=cpu,
         asset_reader=store,
-        access_guard=guard,
+        access_gateway=composition.gateway,
+        access_guard=composition.guard,
     )
-    service.test_access = access  # type: ignore[attr-defined]
-    return service
+    return service, composition
 
 
-async def _run_once(service: TaskProcessService, message: str, *, process_id: str, **kwargs):
-    return await service.run_process(
-        stream=False,
-        message=message,
-        identity_scope=_u1_scope(),
-        access=service.test_access,
+async def _register(
+    composition: AccessTestComposition,
+    service: TaskProcessService,
+    message: str,
+    *,
+    process_id: str,
+    **kwargs,
+) -> TaskProcess:
+    """按组合的默认声明注册进程：两阶段认证由注册入口完成。"""
+    return await service.register_process(
+        adapter="local",
+        principal=composition.principal,
+        actor=_actor(),
+        workspace=_workspace(),
         process_id=process_id,
+        message=message,
         **kwargs,
     )
 
 
+async def _run_once(
+    composition: AccessTestComposition,
+    service: TaskProcessService,
+    message: str,
+    *,
+    process_id: str,
+    **kwargs,
+):
+    process = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return await service.run_process(process, stream=False)
+
+
 async def _stream_events(
+    composition: AccessTestComposition,
     service: TaskProcessService,
     message: str,
     *,
     process_id: str,
     **kwargs,
 ) -> list[dict]:
-    return [
-        event
-        async for event in service.run_process(
-            message=message,
-            identity_scope=_u1_scope(),
-            access=service.test_access,
-            process_id=process_id,
-            **kwargs,
-        )
-    ]
+    process = await _register(composition, service, message, process_id=process_id, **kwargs)
+    return [event async for event in service.run_process(process, stream=True)]
 
 
 # ========== 测试 CPU 跑通完整进程（总线上无 Alice 路由） ==========
@@ -171,7 +227,8 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
 
-    result = await _run_once(await _service(bus, cpu), "问题", process_id="process-cpu-once")
+    service, composition = await _service(bus, cpu)
+    result = await _run_once(composition, service, "问题", process_id="process-cpu-once")
 
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
@@ -201,7 +258,8 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
-    events = await _stream_events(await _service(bus, cpu), "问题", process_id="process-cpu-stream")
+    service, composition = await _service(bus, cpu)
+    events = await _stream_events(composition, service, "问题", process_id="process-cpu-stream")
 
     assert cpu.calls[0].stream is True
     assert [event["event"] for event in events] == [
@@ -233,8 +291,10 @@ async def test_test_cpu_receives_generation_options_and_manifest() -> None:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
+    service, composition = await _service(bus, cpu)
     await _run_once(
-        await _service(bus, cpu),
+        composition,
+        service,
         "问题",
         process_id="process-cpu-options",
         generation_options={"temperature": 0.3},
@@ -263,14 +323,49 @@ async def test_cpu_iterator_is_closed_before_finalize(stream: bool) -> None:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
-    service = await _service(bus, cpu)
+    service, composition = await _service(bus, cpu)
 
     if stream:
-        await _stream_events(service, "问题", process_id="process-cpu-close-early-stream")
+        await _stream_events(
+            composition, service, "问题", process_id="process-cpu-close-early-stream"
+        )
     else:
-        await _run_once(service, "问题", process_id="process-cpu-close-early-once")
+        await _run_once(composition, service, "问题", process_id="process-cpu-close-early-once")
 
     assert closed_at_finalize == [True]
+
+
+# ========== 进入 Actor 前的阶段授权 ==========
+
+
+@pytest.mark.asyncio
+async def test_missing_interaction_submit_operation_skips_cpu_execution() -> None:
+    """缺 interaction.submit：进入 Actor 执行前被拒，CPU 不执行，cleanup 补偿 prepare。"""
+    bus = GlobalSystemBus()
+    cpu = ScriptedCPU(result=make_cpu_result())
+    cleanup_calls: list = []
+
+    async def cleanup(*, prepared_run, **_kwargs):
+        cleanup_calls.append(prepared_run)
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route)
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    composition = _composition(
+        excluded_operations=frozenset({WorkspaceOperation.INTERACTION_SUBMIT})
+    )
+
+    service, composition = await _service(bus, cpu, composition=composition)
+    with pytest.raises(OperationDeniedError) as excinfo:
+        await _run_once(composition, service, "问题", process_id="process-no-interaction-submit")
+
+    assert excinfo.value.details["reason"] == "operation_not_allowed"
+    assert excinfo.value.details["operation"] == "interaction.submit"
+    assert cpu.calls == []
+    assert cleanup_calls != [] and all(
+        prepared.interaction_id == "process-no-interaction-submit" for prepared in cleanup_calls
+    )
 
 
 # ========== CPU 自报取消与失败 ==========
@@ -298,10 +393,13 @@ async def test_cpu_self_reported_terminal_ends_process_without_finalize(
         AsyncMock(side_effect=AssertionError("finalize 不应被调用")),
     )
 
-    result = await _run_once(await _service(bus, cpu), "问题", process_id=f"process-cpu-{status.value}")
+    service, composition = await _service(bus, cpu)
+    result = await _run_once(composition, service, "问题", process_id=f"process-cpu-{status.value}")
 
     assert result.execution_result.status == status.value
-    assert len(cleanup_calls) == 1
+    assert cleanup_calls != [] and all(
+        prepared.interaction_id == f"process-cpu-{status.value}" for prepared in cleanup_calls
+    )
 
 
 # ========== 停止请求与协议错误 ==========
@@ -322,16 +420,16 @@ async def test_stop_during_cpu_pull_cancels_process_and_closes_cpu_iterator() ->
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
-    service = await _service(bus, cpu, event_publisher=RuntimeEventPublisher(sink))
-    process_id = "process-cpu-stop"
-    task = asyncio.create_task(_stream_events(service, "问题", process_id=process_id))
+    service, composition = await _service(bus, cpu, event_publisher=RuntimeEventPublisher(sink))
+    process = await _register(composition, service, "问题", process_id="process-cpu-stop")
+    task = asyncio.create_task(_collect_stream(service.run_process(process, stream=True)))
 
-    # 等 CPU 进入挂起点，再注入停止请求：stop 必须在 Actor 拉取期间生效。
+    # 等 CPU 进入挂起点，再经进程记录注入停止请求：stop 必须在 Actor 拉取期间生效。
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
-    stop_result = service.cancel_process(process_id, identity_scope=_u1_scope())
+    stop_result = process.record.request_stop()
     events = await task
 
-    assert stop_result.cancelled is True
+    assert stop_result.accepted is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
     assert cpu.closed is True
@@ -339,6 +437,10 @@ async def test_stop_during_cpu_pull_cancels_process_and_closes_cpu_iterator() ->
         event for event in sink.events if event.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
     ]
     assert cancelled[-1].data == {"phase": "actor"}
+
+
+async def _collect_stream(stream) -> list[dict]:
+    return [event async for event in stream]
 
 
 @pytest.mark.asyncio
@@ -351,7 +453,8 @@ async def test_cpu_stream_without_terminal_result_fails_process_with_error_event
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
-    events = await _stream_events(await _service(bus, cpu), "问题", process_id="process-cpu-no-done")
+    service, composition = await _service(bus, cpu)
+    events = await _stream_events(composition, service, "问题", process_id="process-cpu-no-done")
 
     assert [event for event in events if event["event"] == "error"] == [
         {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
@@ -368,8 +471,9 @@ async def test_cpu_once_without_terminal_result_raises_protocol_error() -> None:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
+    service, composition = await _service(bus, cpu)
     with pytest.raises(RuntimeError, match="终态执行结果"):
-        await _run_once(await _service(bus, cpu), "问题", process_id="process-cpu-no-done-ns")
+        await _run_once(composition, service, "问题", process_id="process-cpu-no-done-ns")
 
 
 @pytest.mark.asyncio
@@ -382,8 +486,9 @@ async def test_cpu_exception_fails_process() -> None:
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
+    service, composition = await _service(bus, cpu)
     with pytest.raises(RuntimeError, match="cpu exploded"):
-        await _run_once(await _service(bus, cpu), "问题", process_id="process-cpu-error")
+        await _run_once(composition, service, "问题", process_id="process-cpu-error")
 
 
 # ========== 断流关闭与租借释放 ==========
@@ -393,7 +498,11 @@ async def test_cpu_exception_fails_process() -> None:
 async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -> None:
     """交付方提前关闭流式交付：测试 CPU 的迭代器被关闭，租借已释放。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = _u1_scope()
+    composition = _composition()
+    requestor = await composition.authenticate(agent_id=_AGENT)
+    scope = composition.guard.authorize_operation(
+        requestor, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
+    )
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="正文甲")
 
     bus = GlobalSystemBus()
@@ -407,14 +516,15 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
-    service = await _service(bus, cpu, store=store)
-    stream = service.run_process(
+    service, composition = await _service(bus, cpu, store=store)
+    process = await _register(
+        composition,
+        service,
         "带附件的消息",
-        identity_scope=scope,
-        access=service.test_access,
         process_id="process-cpu-closed",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
+    stream = service.run_process(process, stream=True)
     seen: list[dict[str, Any]] = [await stream.__anext__()]
     # 消费到 CPU 的交互事件为止：此时 CPU 已挂起在终态之前，进程尚未发布终态。
     while seen[-1]["event"] != "token":

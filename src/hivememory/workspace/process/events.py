@@ -48,24 +48,41 @@ class TaskProcessEventEmitter:
         self,
         record: ProcessRecord,
         *,
+        workspace_id: str,
+        agent_id: str,
         trace_id: str | None = None,
     ) -> BoundProcessEvents:
-        """绑定一次进程的稳定关联字段（身份坐标取自进程创建时冻结的 scope）。"""
+        """绑定一次进程的稳定关联字段。
+
+        ``workspace_id`` / ``agent_id`` 是观测标签（字符串，不等于授权或
+        分区）：由注册入口在创建进程时用通过认证的注册声明绑定一次，此后
+        不再改变（A1 访问边界返工第 4.4 节，I-8 选项 C）。
+        """
         return BoundProcessEvents(
             record,
             self._publisher.bind(
                 task_type="foreground",
                 trace_id=trace_id,
                 process_id=record.process_id,
-                workspace_id=record.identity_scope.workspace_identity.workspace_id,
-                agent_id=record.identity_scope.actor_identity.agent_id,
+                workspace_id=workspace_id,
+                agent_id=agent_id,
             ),
         )
 
-    def cancel_requested(self, result: CancelResult, *, workspace_id: str) -> None:
-        """停止请求的即时判定；进程不存在（含跨 scope）时同样发布。"""
+    def cancel_requested(
+        self,
+        result: CancelResult,
+        *,
+        process_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> None:
+        """停止请求的即时判定；进程不存在或不可控时同样发布。
+
+        ``workspace_id`` 是观测标签：进程存在时取注册时绑定的标签，否则
+        可传请求方 context 的驻留 workspace 摘要（经 guard 诊断查询）。
+        """
         self._publisher.bind(
-            process_id=result.process_id,
+            process_id=process_id or result.process_id,
             workspace_id=workspace_id,
         ).emit(
             RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
@@ -88,6 +105,15 @@ class BoundProcessEvents:
 
     def created(self) -> None:
         self._emit(RuntimeEventType.CHAT_RUN_CREATED)
+
+    def cancel_requested(self, result: CancelResult) -> None:
+        """停止请求的即时判定（经进程绑定的稳定关联字段发布）。"""
+        self._publisher.emit(
+            RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
+            status=result.status,
+            reason=result.reason,
+            data={"cancelled": result.cancelled},
+        )
 
     def status(self) -> None:
         self._emit(RuntimeEventType.CHAT_RUN_STATUS)

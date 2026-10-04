@@ -3,6 +3,10 @@
 覆盖计划 A 门/B/C 门验收：HTTP 上传结果与同一 Workspace 的 Store 快照及
 资产列表一致；上传响应在请求内到达 READY/FAILED 终态；幂等重放不重复
 解析；Workspace 隔离与各错误路径都有稳定的 HTTP 状态。
+
+访问边界（A1 访问边界返工第 4.3/4.5 节）：上传路由经统一认证网关取得
+请求级 context（真实网关 + 测试登记组合），注册使用的 scope 只由 guard
+在授权时组装——测试以真实网关依赖覆盖替代 ``deps.get_system``。
 """
 
 import io
@@ -13,12 +17,18 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.config.attachments import AttachmentParserConfig
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ScopeRequiredError,
+    WorkspaceMismatchError,
+)
 from hivememory.core.models import WorkspaceAssetRef
 from hivememory.server import deps
 from hivememory.server.routers.workspace_assets import router
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import make_upload_service
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_server_access_overrides
 
 USER_HEADERS = {"x-user-id": "user-1"}
 
@@ -79,13 +89,49 @@ def _make_docx(body_xml: str) -> bytes:
 
 @pytest.fixture
 def upload_stack():
-    """构造真实 router + 应用服务 + Store 的测试应用。"""
+    """构造真实 router + 真实网关组合 + 应用服务 + Store 的测试应用。
+
+    上传服务的 guard 与网关依赖覆盖背后的组合是同一实例：请求级 context
+    由该组合签发，``authorize_operation`` 才能兑现（换实例即
+    ``context_not_issued``）。测试应用另挂载生产访问错误处理器，验证
+    准入拒绝的稳定 403 映射。
+    """
+    from hivememory.server.app import (
+        admission_denied_handler,
+        operation_denied_handler,
+        scope_required_handler,
+        workspace_mismatch_handler,
+    )
+
     store = InMemoryWorkspaceAssetStore()
-    service = make_upload_service(store=store, parser_config=AttachmentParserConfig())
+    overrides, composition = make_server_access_overrides(users=["user-1", "user-2"])
+    service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+        access_composition=composition,
+    )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_workspace_asset_service] = lambda: service
+    app.dependency_overrides.update(overrides)
+    app.add_exception_handler(AdmissionDeniedError, admission_denied_handler)
+    app.add_exception_handler(OperationDeniedError, operation_denied_handler)
+    app.add_exception_handler(WorkspaceMismatchError, workspace_mismatch_handler)
+    app.add_exception_handler(ScopeRequiredError, scope_required_handler)
     return TestClient(app), store
+
+
+def test_unadmitted_user_upload_returns_403_with_stable_reason(upload_stack) -> None:
+    """未登记用户经网关准入拒绝：403 + 稳定 reason，不产生资产副作用。"""
+    client, store = upload_stack
+
+    response = _upload_files(client, headers={"x-user-id": "user-3"})
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["error"] == "workspace.admission_denied"
+    assert body["reason"] == "actor_not_admitted"
+    assert store.list_workspace_assets(make_identity_scope(user_id="user-3")) == []
 
 
 def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload_stack) -> None:
@@ -307,16 +353,19 @@ def test_unsupported_format_returns_415_with_stable_hint(upload_stack) -> None:
     assert pdf.json()["detail"]
 
 
-def test_oversized_file_returns_413(upload_stack) -> None:
+def test_oversized_file_returns_413() -> None:
     """捕获超限文件未被稳定拒绝。"""
     store = InMemoryWorkspaceAssetStore()
+    overrides, composition = make_server_access_overrides(users=["user-1"])
     service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(max_raw_bytes=8),
+        access_composition=composition,
     )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_workspace_asset_service] = lambda: service
+    app.dependency_overrides.update(overrides)
     client = TestClient(app)
 
     response = _upload_files(client, content=b"123456789")

@@ -2,14 +2,16 @@
 Agents 路由单元测试
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import MemoryAliasConflictError
+from hivememory.server import deps
 from hivememory.server.routers.agents import router
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from tests.helpers.workspace import (
@@ -21,8 +23,6 @@ from tests.helpers.workspace import (
 def _create_test_app(storage):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
-
-    from hivememory.server import deps
 
     bus = GlobalSystemBus()
     management = _AgentProfileManagementStub(storage)
@@ -106,3 +106,27 @@ def test_create_agent_alias_conflict_returns_409():
     )
 
     assert response.status_code == 409
+
+
+def test_list_agents_passes_target_workspace_and_access():
+    """router 以 header 声明解析的 target_workspace 与请求级 access 调用能力层。"""
+    service = MagicMock()
+    service.list_agent_profiles = AsyncMock(return_value=[])
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_agent_service] = lambda: service
+    overrides, _ = make_server_access_overrides(users=["u1"])
+    app.dependency_overrides.update(overrides)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/agents", headers={"x-user-id": "u1"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+    kwargs = service.list_agent_profiles.await_args.kwargs
+    assert kwargs["target_workspace"].owner_user_id == "u1"
+    assert kwargs["target_workspace"].workspace_id == "main_workspace"
+    assert kwargs["limit"] == 100
+    assert isinstance(kwargs["access"], WorkspaceAccessContext)
+    assert "identity_scope" not in kwargs

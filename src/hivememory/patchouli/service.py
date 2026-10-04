@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from hivememory.components.work_queue import (
@@ -22,7 +22,6 @@ from hivememory.core.protocol.models import (
     RetrievalRequest,
     RetrievalResponse,
 )
-from hivememory.patchouli.application.access_consumption import verified_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
@@ -33,9 +32,6 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
-
-if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +67,10 @@ class PatchouliService:
     prepare 只做 Topic 与检索：Profile 解析、附件租借与记忆/附件编译由
     chat 任务进程在 CPU 分配时完成，不再出现在 Patchouli 公开路由上。
 
-    访问边界（A1 访问边界返工第 4.3/4.5 节）：任务进程在阶段授权后传入
-    绑定的 access context；本门面只经 ``verify_context`` 校验其有效性并与
-    请求/prepare 冻结的 scope 核对一致性，不检查行为白名单。缺少 access
-    一律拒绝。
+    访问边界（A1 访问边界返工第 4.6 节）：本门面是授权点以下的资源
+    owner，阶段路由只接收任务进程在阶段授权后组装的 ``IdentityScope``，
+    不接收访问 context，也不做 operation 检查；资源归属仍由本层与领域
+    实现独立校验。
     """
 
     def __init__(
@@ -83,14 +79,12 @@ class PatchouliService:
         *,
         interaction_queue: InteractionSubmissionQueue,
         pending_atom_settler: PendingAtomSettler | None = None,
-        access_guard: WorkspaceAccessVerifier,
     ) -> None:
         if interaction_queue is None:
             raise TypeError("interaction_queue is required")
         self._local_bus = bus
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         self._interaction_queue = interaction_queue
-        self._access_guard = access_guard
         self._active_finalizations: dict[
             str,
             asyncio.Task[list[MemoryGenerationTask]],
@@ -101,7 +95,6 @@ class PatchouliService:
         self,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext,
         interaction_id: str,
         gateway_decision: GatewayDecision,
         enable_memory_retrieval: bool = True,
@@ -111,11 +104,10 @@ class PatchouliService:
         返回的 PreparedAgentRun 携带话题准备结果与检索到的原始记忆原子；
         Profile 解析、附件租借与编译由任务进程在 CPU 分配时完成，用户消息
         与 Gateway 决定也由进程持有。prepare 失败时只清理本轮可能预创建的
-        空话题。``access`` 是任务进程绑定并已完成 ``resource.search`` 授权
-        的 context，此处只校验有效性并与请求 scope 核对一致性。
+        空话题。``identity_scope`` 是任务进程完成 ``resource.search`` 阶段
+        授权后组装的可信 scope。
         """
-        scope = verified_scope(access, identity_scope, access_guard=self._access_guard)
-        identity_scope = scope
+        identity_scope = require_identity_scope(identity_scope)
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
 
@@ -166,18 +158,15 @@ class PatchouliService:
         self,
         prepared_run: PreparedAgentRun,
         payload: InteractionPayload,
-        *,
-        access: WorkspaceAccessContext,
     ) -> list[MemoryGenerationTask]:
         """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
 
         ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
         原样提交，不改写其内容。物化任务按 ``payload.materialize_tasks`` 派发；附件租借由进程持有并随进程关闭
-        释放，finalize 不负责释放。``access`` 是任务进程绑定的 context
-        （``interaction.submit`` 授权已在进程进入 Actor 前检查），此处只校验
-        有效性并与 prepare 冻结在 prepared_run 的 scope 核对一致性。
+        释放，finalize 不负责释放。``interaction.submit`` 授权已在任务进程
+        进入 Actor 执行前检查，身份坐标取自 prepare 冻结在 prepared_run 的
+        可信 scope。
         """
-        verified_scope(access, prepared_run.identity_scope, access_guard=self._access_guard)
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
         if continuation is None:
             continuation = asyncio.create_task(
@@ -393,16 +382,13 @@ class PatchouliService:
     async def cleanup_prepared_agent_run(
         self,
         prepared_run: PreparedAgentRun,
-        *,
-        access: WorkspaceAccessContext,
     ) -> bool:
         """清理已 prepare 但未 finalize 的预创建空话题。
 
         附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不再负责。
         cleanup 不做阶段 operation 检查（只补偿本进程 prepare 的结果），
-        但仍要求携带有效的 access context 并与 prepare 冻结 scope 一致。
+        身份坐标取自 prepare 冻结在 prepared_run 的可信 scope。
         """
-        verified_scope(access, prepared_run.identity_scope, access_guard=self._access_guard)
         if not prepared_run.is_new_topic:
             return False
         continuation = self._active_finalizations.get(prepared_run.interaction_id)

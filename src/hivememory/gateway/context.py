@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,9 +11,6 @@ from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes
-
-if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
 
 
 class CandidateTopics(BaseModel):
@@ -28,22 +25,20 @@ class CandidateTopics(BaseModel):
 class GatewayContextProvider(Protocol):
     """只负责读取 Gateway 所需上下文，不参与业务决策（也不做授权判断）。
 
-    ``access`` 是调用方绑定的访问 context，原样传给 Patchouli 读取路由；
-    无 Actor context 的调用方传 ``None``，读取失败由步骤 fallback 保守降级。
+    ``identity_scope`` 是调用方冻结的执行坐标，原样传给 Patchouli 读取
+    路由；Gateway 不接收访问 context，读取失败由步骤 fallback 保守降级。
     """
 
     async def prepare_candidate_topics(
         self,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> CandidateTopics: ...
 
     async def prepare_routed_topic(
         self,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
         topic_id: str,
     ) -> TopicData | None: ...
 
@@ -64,13 +59,11 @@ class GlobalBusGatewayContextProvider:
         self,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> CandidateTopics:
         try:
             snapshots = await self._global_bus.request(
                 PatchouliRoutes.TOPIC_LIST_ACTIVE,
                 identity_scope=identity_scope,
-                access=access,
                 include_empty=self._include_empty_topics,
             )
         except Exception as exc:
@@ -89,7 +82,6 @@ class GlobalBusGatewayContextProvider:
         self,
         *,
         identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
         topic_id: str,
     ) -> TopicData | None:
         if topic_id == "NEW_TOPIC":
@@ -98,7 +90,6 @@ class GlobalBusGatewayContextProvider:
             topic_data = await self._global_bus.request(
                 PatchouliRoutes.TOPIC_GET_DATA,
                 identity_scope=identity_scope,
-                access=access,
                 topic_id=topic_id,
             )
         except Exception as exc:

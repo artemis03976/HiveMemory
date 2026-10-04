@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
@@ -27,9 +27,6 @@ from hivememory.gateway.workflow.steps import (
     GatewayWorkflowStep,
     RecoverableGatewayError,
 )
-
-if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
 
 
 class GatewayWorkflow:
@@ -57,12 +54,11 @@ class GatewayWorkflow:
         identity_scope: IdentityScope,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
-        access: WorkspaceAccessContext | None = None,
     ) -> GatewayProcessResult:
         """执行 Entry、固定 topic 前缀和唯一 analysis 分支。
 
-        ``access`` 是调用方绑定的访问 context，随状态贯穿各步骤并原样传给
-        话题读取；Gateway 自身不做授权判断。
+        ``identity_scope`` 是调用方冻结的执行坐标，随状态贯穿各步骤并原
+        样传给话题读取；Gateway 不接收访问 context，也不做授权判断。
         """
 
         started_at = perf_counter()
@@ -70,7 +66,6 @@ class GatewayWorkflow:
             raw_message=message,
             identity_scope=require_identity_scope(identity_scope),
             ingress_mode=ingress_mode,
-            access=access,
         )
         workspace_id = state.identity_scope.workspace_identity.workspace_id
         current_step_id: str | None = None

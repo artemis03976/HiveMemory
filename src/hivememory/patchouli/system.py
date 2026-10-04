@@ -40,7 +40,6 @@ from hivememory.components.scheduler.models import MaintenanceTaskSpec
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import SchedulerConfig
 from hivememory.config.shared import SharedConfig
-from hivememory.core.access import ClosedWorkspaceAccessVerifier, WorkspaceAccessVerifier
 from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.application import (
@@ -88,7 +87,6 @@ class PatchouliSystem(SubsystemProtocol):
         scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
         workspace_asset_reader: WorkspaceAssetReaderPort | None = None,
-        access_guard: WorkspaceAccessVerifier | None = None,
         *,
         shared_config: SharedConfig | None = None,
         scheduler_config: SchedulerConfig | None = None,
@@ -116,47 +114,34 @@ class PatchouliSystem(SubsystemProtocol):
             ),
         )
 
-        # A1 统一访问边界：System composition 装载 Workspace Actor 访问
-        # 注册表并注入共享行为检查；Patchouli 只消费中立的检查能力，不
-        # 反向依赖 workspace 或 System 实现（core.access 端口）。缺省 fail closed。
-        if access_guard is None:
-            access_guard = ClosedWorkspaceAccessVerifier()
-        self._access_guard = access_guard
-
         # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
+        # 访问边界（A1 访问边界返工第 4.6 节）：Patchouli 是授权点以下的
+        # 资源 owner，公开方法与阶段路由只接收授权点组装的 IdentityScope，
+        # 不接收访问 context，也不再注入共享操作授权。
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             interaction_queue=self._interaction_submission_queue,
             pending_atom_settler=self.runtime.pending_atom_settler,
-            # 任务进程的阶段路由（prepare/finalize/cleanup）据此校验 access
-            # 有效性；与 application 服务共用同一共享行为检查。
-            access_guard=access_guard,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
-            access_guard=access_guard,
         )
         self._memory_task_management_service = MemoryTaskManagementService(
             bus=self.runtime.local_bus,
-            access_guard=access_guard,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
             bus=self.runtime.local_bus,
-            access_guard=access_guard,
         )
         # 公开交互提交/意图提交用例（WRX-1）：封装内部 queue 与生成提交链，
         # Passive/Alice/外部 adapter 统一经此提交，不直接持有内部协作者。
         self._interaction_submission_service = InteractionSubmissionService(
             interaction_queue=self._interaction_submission_queue,
-            access_guard=access_guard,
         )
         self._memory_intent_submission_service = MemoryIntentSubmissionService(
             bus=self.runtime.local_bus,
-            access_guard=access_guard,
         )
         self._topic_management_service = TopicManagementService(
             bus=self.runtime.local_bus,
-            access_guard=access_guard,
         )
         self._model_readiness_service = ModelReadinessService(
             bus=self.runtime.local_bus,

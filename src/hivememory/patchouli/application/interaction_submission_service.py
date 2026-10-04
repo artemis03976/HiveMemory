@@ -1,12 +1,13 @@
 """Patchouli 交互提交 application API（interaction.submit）。
 
 公开的独立交互提交入口：封装 ``InteractionSubmissionQueue`` 的接纳与
-收据，绑定 ``interaction.submit`` operation。队列继续是 Patchouli 的
-内部协作者——Passive/Alice/外部 adapter 统一经本 API 提交，不直接持有
-queue；单条事件接收、队列接纳、交互应用与 Memory 物化是不同事实。
+收据。队列继续是 Patchouli 的内部协作者——Passive/Alice/外部 adapter
+统一经本 API 提交，不直接持有 queue；单条事件接收、队列接纳、交互应用
+与 Memory 物化是不同事实。
 
-本 API 不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
-拒绝，不进入裸 scope 受信适配。
+本路由目前没有生产调用方，operation 授权（``interaction.submit``）在
+workspace 能力层出现对应方法时进行（总 Idea 15.6，A1 访问边界返工第
+4.6 节）；本层只接收调用方传入的 ``IdentityScope``。
 """
 
 from __future__ import annotations
@@ -15,8 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from hivememory.core.access import WorkspaceOperation
-from hivememory.patchouli.application.access_consumption import required_scope
+from hivememory.core.models import require_identity_scope
 from hivememory.patchouli.control.interaction_submission import (
     InteractionOrigin,
     InteractionSubmission,
@@ -24,7 +24,6 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.core.models import IdentityScope
     from hivememory.core.protocol.models import InteractionPayload
 
@@ -41,37 +40,24 @@ class InteractionSubmitResult:
 class InteractionSubmissionService:
     """经 Patchouli 交互队列的公开提交 API（``interaction.submit``）。"""
 
-    def __init__(
-        self,
-        *,
-        interaction_queue: InteractionSubmissionQueue,
-        access_guard: WorkspaceAccessVerifier,
-    ) -> None:
+    def __init__(self, *, interaction_queue: InteractionSubmissionQueue) -> None:
         self._queue = interaction_queue
-        self._access_guard = access_guard
 
     async def submit_interaction(
         self,
         *,
-        access: WorkspaceAccessContext,
-        payload: InteractionPayload,
         identity_scope: IdentityScope | None = None,
+        payload: InteractionPayload,
         requested_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
         origin: InteractionOrigin = "workspace_port",
     ) -> InteractionSubmitResult:
         """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。
 
-        ``identity_scope`` 是迁移期兼容参数：提供时必须与 access 上下文
-        一致（DTO 不得覆盖可信坐标）。授权延迟的 flush 场景应在领域提交
-        时取得或确认有效 access，不能把早先事件的授权当作无限期权限。
+        ``identity_scope`` 由调用方的授权点组装后传入；出现生产调用方前
+        应先在能力层增加对应方法并执行 operation 授权。
         """
-        scope = required_scope(
-            access,
-            WorkspaceOperation.INTERACTION_SUBMIT,
-            identity_scope,
-            access_guard=self._access_guard,
-        )
+        scope = require_identity_scope(identity_scope)
         if payload is None:
             raise ValueError("submit_interaction 需要 payload 载荷")
 

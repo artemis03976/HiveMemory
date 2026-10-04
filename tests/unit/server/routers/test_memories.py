@@ -2,7 +2,7 @@
 Memories 路由单元测试
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.memory_access import memory_belongs_to_workspace
@@ -20,6 +21,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
+from hivememory.server import deps
 from hivememory.server.routers.memories import router
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from tests.helpers.memory import make_memory_metadata
@@ -36,8 +38,6 @@ def _create_test_app(storage, lifecycle_engine=None):
     from hivememory.server.app import global_exception_handler
 
     app.add_exception_handler(Exception, global_exception_handler)
-
-    from hivememory.server import deps
 
     bus = GlobalSystemBus()
     management = _MemoryManagementStub(storage, lifecycle_engine)
@@ -559,3 +559,41 @@ class TestMemoriesRouter:
 
         response = client.delete(f"/api/v1/memories/{uuid4()}")
         assert response.status_code == 404
+
+
+class TestRouterCapabilityContract:
+    def test_create_memory_passes_target_workspace_and_access(self):
+        """router 以 header 声明解析的 target_workspace 与请求级 access 调用能力层。
+
+        mock 能力服务以观察调用契约：目标 workspace 与 header 用户一致、
+        access 是网关签发的请求级 context，且不再有 identity_scope kwarg。
+        """
+        service = MagicMock()
+        atom = _make_atom(title="Created memory")
+        service.create_memory = AsyncMock(return_value=atom)
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+        app.dependency_overrides[deps.get_memory_service] = lambda: service
+        overrides, _ = make_server_access_overrides(users=["u1"])
+        app.dependency_overrides.update(overrides)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+            },
+            headers={"x-user-id": "u1"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["title"] == "Created memory"
+        kwargs = service.create_memory.await_args.kwargs
+        assert kwargs["target_workspace"].owner_user_id == "u1"
+        assert kwargs["target_workspace"].workspace_id == "main_workspace"
+        assert isinstance(kwargs["access"], WorkspaceAccessContext)
+        assert "identity_scope" not in kwargs

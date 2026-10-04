@@ -10,8 +10,9 @@ DEFAULT_USER_ID = "default"
 """默认用户 ID - 用于未登录/匿名场景。
 
 使用边界（v0.6.2 身份收敛）：该回退值只允许出现在两处——
-1. ``server/deps.py resolve_request_identity_scope``：HTTP 顶层身份解析的
-   唯一缺省回退点；
+1. ``server/deps.py`` 的 ``_resolve_identity_coordinates``（声明解析
+   ``resolve_request_identity_claims`` 与 /ingest 例外路径
+   ``resolve_request_identity_scope`` 共用的唯一缺省回退点）；
 2. ``ActorIdentity.user_id`` 字段默认值（``core/models/identity.py``）。
 应用服务与引擎层不得再次解析或回退默认身份；新增使用位置前先确认
 不属于上述边界（由 tests/unit/core/models/test_identity_model_guard.py

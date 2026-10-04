@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
-from hivememory.patchouli.application.access_consumption import verified_scope
+from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot, require_identity_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
@@ -11,7 +10,6 @@ from hivememory.patchouli.contracts.topic_management import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
@@ -19,32 +17,26 @@ class TopicManagementService:
     """Patchouli 对外提供的 Topic 管理应用服务。
 
     ``list_active_topics`` / ``get_topic_data``（``resource.read``）与
-    ``settle_topic`` / ``evict_topic``（``management.topic``）的行为授权已
-    上移到 workspace 能力层或任务进程（A1 访问边界返工第 4.3 节）；本层
-    只经 :func:`verified_scope` 校验 access 有效性与 DTO scope 一致性，
-    缺少 access 一律拒绝。Topic 可见性仍由领域实现强制。
+    ``settle_topic`` / ``evict_topic``（``management.topic``）的行为授权
+    已上移到 workspace 能力层或任务进程的阶段检查（A1 访问边界返工第
+    4.4/4.6 节）；本层是授权点以下的资源 owner，只接收授权点组装的
+    ``IdentityScope``，不接收访问 context。Topic 可见性仍由领域实现强制。
 
     ``prepare_topic`` 是内部对话编排用例（未挂载公开路由），不属于
     Actor 行为目录。
     """
 
-    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessVerifier) -> None:
+    def __init__(self, *, bus: PatchouliBus) -> None:
         # Topic public API 只通过 local bus 组合 topic primitives，不直接持有 familiar。
         self._bus = bus
-        self._access_guard = access_guard
 
     async def list_active_topics(
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext,
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]:
-        scope = verified_scope(
-            access,
-            identity_scope,
-            access_guard=self._access_guard,
-        )
+        scope = require_identity_scope(identity_scope)
         kwargs = {"identity_scope": scope}
         if include_empty:
             kwargs["include_empty"] = True
@@ -58,15 +50,10 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicData | None:
         """无副作用读取调用方可见的完整话题数据。"""
-        scope = verified_scope(
-            access,
-            identity_scope,
-            access_guard=self._access_guard,
-        )
+        scope = require_identity_scope(identity_scope)
         topic_data = await self._bus.request(
             PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
@@ -81,15 +68,10 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext,
         topic_id: str | None = None,
     ) -> TopicSettleResult:
         """通过本地总线结算 Topic（生命周期变更授权在能力层），返回稳定业务结果。"""
-        scope = verified_scope(
-            access,
-            identity_scope,
-            access_guard=self._access_guard,
-        )
+        scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
             scope,
@@ -100,15 +82,10 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope | None = None,
-        access: WorkspaceAccessContext,
         topic_id: str,
     ) -> TopicEvictionResult:
         """通过本地总线驱逐 Topic（生命周期变更授权在能力层），不触发记忆结算。"""
-        scope = verified_scope(
-            access,
-            identity_scope,
-            access_guard=self._access_guard,
-        )
+        scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_EVICT,
             scope,

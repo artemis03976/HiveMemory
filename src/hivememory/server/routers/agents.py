@@ -2,14 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
-from hivememory.core.models import IdentityScope
-from hivememory.server.deps import (
-    get_agent_service,
-    get_identity_scope,
-    get_request_access_context,
-)
+from hivememory.server.deps import RequestAccess, get_agent_service, get_request_access
 from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 
@@ -20,20 +14,19 @@ router = APIRouter(tags=["agents"])
 async def create_agent(
     body: AgentCreateRequest,
     service: AgentApplicationService = Depends(get_agent_service),
-    identity_scope: IdentityScope = Depends(get_identity_scope),
-    access: WorkspaceAccessContext = Depends(get_request_access_context),
+    request_access: RequestAccess = Depends(get_request_access),
 ):
     """创建新的 Agent Profile（管理用例，actor 为保留 system）"""
     try:
         atom = await service.create_agent_profile(
-            identity_scope=identity_scope,
+            target_workspace=request_access.claims.workspace,
             title=body.title,
             alias=body.alias,
             summary=body.summary,
             content=body.content,
             tags=body.tags,
             agent_config=body.agent_config,
-            access=access,
+            access=request_access.access,
         )
     except InvalidMemoryFieldError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -46,11 +39,12 @@ async def create_agent(
 @router.get("/agents", response_model=list[AgentProfileResponse])
 async def list_agents(
     service: AgentApplicationService = Depends(get_agent_service),
-    identity_scope: IdentityScope = Depends(get_identity_scope),
-    access: WorkspaceAccessContext = Depends(get_request_access_context),
+    request_access: RequestAccess = Depends(get_request_access),
 ):
     """列出所有 Agent Profile（管理用例，actor 为保留 system）"""
     atoms = await service.list_agent_profiles(
-        identity_scope=identity_scope, limit=100, access=access
+        target_workspace=request_access.claims.workspace,
+        limit=100,
+        access=request_access.access,
     )
     return [AgentProfileResponse.from_atom(atom) for atom in atoms]

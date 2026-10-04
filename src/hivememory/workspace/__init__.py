@@ -3,8 +3,8 @@
 - ``authentication``：认证入口——Principal authentication 经
   ``core.access.PrincipalAuthenticator`` 端口委托 System，Workspace 准入由
   本包的 guard 完成；
-- ``access`` / ``registry``：Workspace Actor 访问注册表与共享行为检查
-  （``WorkspaceAccessGuard``，实现 ``core.access.WorkspaceAccessVerifier``）；
+- ``access`` / ``registry``：Workspace Actor 访问注册表与共享操作授权
+  （``WorkspaceAccessGuard``，签发并兑现不透明访问 context）；
 - ``cache`` / ``resolution`` / ``runtime``：workspace memory read 能力——
   完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver；
 - ``assets``：WorkspaceAsset working set（AssetStore）、解析交接与上传接收；

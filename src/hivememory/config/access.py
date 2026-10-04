@@ -1,6 +1,6 @@
 """访问控制配置：System 接入登记与 Workspace Actor 访问登记的文件声明与装载。
 
-两类登记各用一个单独的 YAML 文件（v0.7.0 A1 访问边界返工第 4.2 节），
+两类登记各用一个单独的 YAML 文件（v0.7.0 A1 访问边界返工第 4.7 节），
 对应各自的配置所有者，``config.yaml`` 不再承载 access 段：
 
 - ``configs/system_principals.yaml``：调用来源的接入登记（System 所有）；

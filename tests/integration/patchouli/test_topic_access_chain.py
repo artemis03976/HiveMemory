@@ -103,15 +103,10 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         )
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, admit_settlement)
-    # A1：公共入口统一消费共享行为检查；测试组合用全操作本地注册表
-    from tests.helpers.workspace import make_access_composition, make_actor_access_record
-
-    access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="test_agent")],
-        default_workspace=make_identity_scope(user_id="u1").workspace_identity,
-    )
+    # A1 访问边界返工（第 4.6 节）：Patchouli 公开路由是授权点以下的资源
+    # owner，只接收授权点组装的 IdentityScope，不再注入共享行为检查。
     return (
-        TopicManagementService(bus=bus, access_guard=access.guard),
+        TopicManagementService(bus=bus),
         familiar,
         working_set,
         store,

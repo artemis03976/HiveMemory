@@ -8,6 +8,9 @@
 同一组取消响应点与同一个关闭流程；两者的执行差异只有 CPU 以流式还是
 非流式产出（流式逐条转交交互事件），以及 finalize 之后读取话题池
 （只服务于流式 done 事件）。
+
+进程的登记与注销由注册入口（``workspace.process.service``）负责：本骨架
+经进程记录使用绑定的访问 context，不持有进程表，也不使 context 失效。
 """
 
 from __future__ import annotations
@@ -20,14 +23,17 @@ from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.trace_context import (
-    generate_trace_id,
     reset_trace_context,
     set_trace_context,
 )
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
-from hivememory.core.models import AttachmentSelectionRequest, IdentityScope
+from hivememory.core.models import (
+    AttachmentSelectionRequest,
+    IdentityScope,
+    WorkspaceIdentity,
+)
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.access import WorkspaceAccessGuard
@@ -40,7 +46,7 @@ from hivememory.workspace.contracts import (
 )
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.command_terminal import command_terminal
-from hivememory.workspace.process.events import TaskProcessEventEmitter
+from hivememory.workspace.process.events import BoundProcessEvents
 from hivememory.workspace.process.outputs import (
     ActorEvent,
     CommandCompleted,
@@ -59,7 +65,6 @@ from hivememory.workspace.process.table import (
     ProcessOutcome,
     ProcessPhase,
     ProcessRecord,
-    ProcessTable,
 )
 
 logger = logging.getLogger(__name__)
@@ -118,7 +123,7 @@ def _require_prepared_scope(
     prepared: PreparedAgentRun,
     identity_scope: IdentityScope,
 ) -> None:
-    """拒绝 prepare 返回与进程表不一致的请求级 scope。"""
+    """拒绝 prepare 返回与授权组装的 scope 不一致的请求。"""
     if prepared.identity_scope != identity_scope:
         raise WorkspaceMismatchError(
             "PreparedAgentRun 与进程记录的身份作用域不一致",
@@ -131,17 +136,16 @@ def _require_prepared_scope(
 
 @dataclass(frozen=True, kw_only=True)
 class ProcessRequest:
-    """一次任务请求的入口参数（``process_id`` 由 server 入口冻结）。
+    """一次任务进程的任务参数（注册完成后冻结，不含身份凭据）。
 
-    ``message`` 是交给 Gateway 分析的指令文本：主动请求是用户本次发出的消息。
-    ``access`` 是 server 入口经统一认证网关取得、绑定本进程的访问 context；
-    阶段 operation 授权在进程内按阶段语义执行（A1 访问边界返工第 4.3 节）。
+    ``message`` 是交给 Gateway 分析的指令文本：主动请求是用户本次发出的
+    消息。``workspace`` 是注册时通过认证的请求进入 workspace：它是各阶段
+    授权点显式接收的目标 workspace（I-4、I-8）——授权点以下只流动 guard
+    组装并经此目标校验的 ``IdentityScope``。
     """
 
     message: str
-    identity_scope: IdentityScope
-    access: WorkspaceAccessContext
-    process_id: str
+    workspace: WorkspaceIdentity
     enable_memory_retrieval: bool = True
     generation_options: dict[str, Any] | None = None
     attachments: tuple[AttachmentSelectionRequest, ...] = ()
@@ -151,45 +155,43 @@ class TaskProcess:
     """一次任务进程：进程记录、工作集与事件投影的容器。
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；实例只
-    运行一次。``stream`` 只决定 CPU 以流式还是非流式产出。
+    运行一次。``run`` 的 ``stream`` 参数只决定 CPU 以流式还是非流式产出。
 
-    阶段授权（A1 访问边界返工第 4.3 节）：阶段调用是进程自身的编排而非
-    actor 的主动操作，operation 检查在进程内、每次阶段调用前按阶段语义
-    执行，再把绑定的 access context 原样传给对应路由；授权规则仍是同一份
-    Workspace 访问登记的白名单。
+    阶段授权（A1 访问边界返工第 4.4 节）：阶段调用是进程自身的编排而非
+    actor 的主动操作，operation 检查在进程内、每次阶段调用前以任务参数中
+    的目标 workspace 执行，再把 guard 返回的 ``IdentityScope`` 传给对应
+    路由；授权规则仍是同一份 Workspace 访问登记的白名单。访问 context
+    只由进程记录（``record.access``）持有，本类不另存。
     """
 
     def __init__(
         self,
-        request: ProcessRequest,
         *,
-        stream: bool,
+        record: ProcessRecord,
+        request: ProcessRequest,
         global_bus: GlobalSystemBus,
-        process_table: ProcessTable,
         allocator: CPUAllocator,
         cpu: CPUPort,
-        events: TaskProcessEventEmitter,
+        events: BoundProcessEvents,
         gateway_request_timeout_ms: int,
         access_guard: WorkspaceAccessGuard,
+        trace_id: str,
     ) -> None:
+        self._record = record
         self._request = request
-        self._stream = stream
+        # stream 只决定 CPU 以流式还是非流式产出，由 run_process 的交付
+        # 形态在 run() 发起时传入；注册阶段不选择。
+        self._stream = False
         self._bus = global_bus
-        self._process_table = process_table
         self._allocator = allocator
         self._cpu = cpu
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._access_guard = access_guard
-        self._access = request.access
+        # 注册入口在创建时绑定的进程事件发布器（观测标签绑定一次）。
+        self._events = events
+        self._trace_id = trace_id
 
-        self._record = ProcessRecord(
-            identity_scope=request.identity_scope,
-            process_id=request.process_id,
-            access=request.access,
-        )
         self._working_set = allocator.new_working_set()
-        self._trace_id = generate_trace_id("task")
-        self._events = events.for_process(self._record, trace_id=self._trace_id)
 
         self._trace_tokens: Any = None
         self._owner_task: asyncio.Task[Any] | None = None
@@ -198,13 +200,22 @@ class TaskProcess:
         self._terminal_published = False
         # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
         self._prepared_finalized = False
+        # 关闭流程是否已经执行过；close() 幂等的依据（run() 收尾与注册入口
+        # 的 close_process 都会调用它）。
+        self._closed = False
+
+    @property
+    def record(self) -> ProcessRecord:
+        """本进程的进程记录（访问 context 的唯一持有者）。"""
+        return self._record
 
     # ========== 编排骨架 ==========
 
-    async def run(self) -> AsyncGenerator[ProcessOutput, None]:
+    async def run(self, *, stream: bool) -> AsyncGenerator[ProcessOutput, None]:
         """按四阶段顺序产出阶段产出，结束时（含提前关闭）执行 :meth:`close`。"""
         record = self._record
         request = self._request
+        self._stream = stream
         self._owner_task = asyncio.current_task()
         try:
             self._trace_tokens = set_trace_context(
@@ -212,27 +223,24 @@ class TaskProcess:
                 "TaskProcess.Stream" if self._stream else "TaskProcess.NonStreaming",
                 "foreground",
             )
-            self._process_table.register(record)
-            self._events.created()
             yield ProcessStarted()
 
             # ---- Gateway：可被 stop 中断 ----
             record.enter_phase(ProcessPhase.GATEWAY)
             self._events.status()
             # 阶段授权：Gateway 分析要读取话题快照与话题数据，绑定
-            # resource.read；Gateway 不做授权判断，只把 context 原样传给
-            # Patchouli 的读取路由。
-            self._access_guard.authorize_operation(self._access, WorkspaceOperation.RESOURCE_READ)
+            # resource.read；Gateway 不做授权判断，只把组装后的 scope
+            # 用于话题读取路由。
+            gateway_scope = self._authorize(WorkspaceOperation.RESOURCE_READ)
             gateway_result = await _run_interruptible(
                 record,
                 ProcessPhase.GATEWAY,
                 lambda: self._bus.request(
                     GlobalRoutes.GATEWAY_PROCESS,
                     message=request.message,
-                    identity_scope=request.identity_scope,
+                    identity_scope=gateway_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
                     request_timeout_ms=self._gateway_request_timeout_ms,
-                    access=self._access,
                 ),
             )
             if gateway_result.kind == "command":
@@ -321,7 +329,6 @@ class TaskProcess:
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
-                access=self._access,
             )
             self._prepared_finalized = True
             memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
@@ -358,8 +365,8 @@ class TaskProcess:
     ) -> tuple[PreparedAgentRun, CPUInputManifest]:
         """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
 
-        各阶段调用的 operation 授权按阶段语义在进程内执行：Profile 解析与
-        附件租借的检查在 CPUAllocator 内、副作用前执行；prepare 绑定
+        各阶段调用的操作授权按阶段语义在进程内执行：Profile 解析与附件
+        租借的检查在 CPUAllocator 内、副作用前执行；prepare 绑定
         ``resource.search``；finalize 所需的 ``interaction.submit`` 提前到
         进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒。
         """
@@ -368,16 +375,15 @@ class TaskProcess:
         record.enter_phase(ProcessPhase.PREPARE)
         # Profile 暂时先于 prepare 解析（中间态），原因见 CPUAllocator.resolve_agent_profile。
         agent_profile = await self._allocator.resolve_agent_profile(
-            request.identity_scope,
-            access=self._access,
+            access=record.access,
+            target_workspace=request.workspace,
         )
         # prepare 做话题准备与检索，绑定 resource.search。
-        self._access_guard.authorize_operation(self._access, WorkspaceOperation.RESOURCE_SEARCH)
+        prepare_scope = self._authorize(WorkspaceOperation.RESOURCE_SEARCH)
         prepared: PreparedAgentRun = await self._bus.request(
             GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
-            identity_scope=request.identity_scope,
-            access=self._access,
-            interaction_id=request.process_id,
+            identity_scope=prepare_scope,
+            interaction_id=record.process_id,
             gateway_decision=decision,
             enable_memory_retrieval=request.enable_memory_retrieval,
         )
@@ -385,28 +391,40 @@ class TaskProcess:
         # 以补偿 prepare 可能已经预建的 Topic。
         self._working_set.prepared = prepared
         self._events.bind_topic(prepared.topic_id)
-        _require_prepared_scope(prepared, request.identity_scope)
+        _require_prepared_scope(prepared, prepare_scope)
 
         # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
         manifest = self._allocator.allocate(
             self._working_set,
             process_id=record.process_id,
-            identity_scope=request.identity_scope,
             user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),
-            access=self._access,
+            access=record.access,
+            target_workspace=request.workspace,
         )
 
         # finalize（提交交互记录）绑定 interaction.submit；检查在进入 Actor
         # 执行前执行，避免 CPU 执行完才在结算被拒。
-        self._access_guard.authorize_operation(self._access, WorkspaceOperation.INTERACTION_SUBMIT)
+        self._authorize(WorkspaceOperation.INTERACTION_SUBMIT)
 
         # 取消检查（Q-15）：只在进入 Actor 之前检查一次。prepare 与分配
         # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
         if record.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
         return prepared, manifest
+
+    def _authorize(self, operation: WorkspaceOperation) -> IdentityScope:
+        """以进程记录绑定的 context 对任务目标 workspace 执行阶段授权。
+
+        返回 guard 组装的可信 scope，供紧随的阶段路由使用；授权失败沿
+        异常路径按进程失败收口。
+        """
+        return self._access_guard.authorize_operation(
+            self._record.access,
+            operation,
+            self._request.workspace,
+        )
 
     def _terminal(self, output: TerminalOutput) -> TerminalOutput:
         self._terminal_published = True
@@ -415,12 +433,18 @@ class TaskProcess:
     # ========== 关闭流程 ==========
 
     async def close(self) -> None:
-        """进程关闭：终态兜底、释放租借、关闭 CPU 输出流、补偿 prepare、注销进程。
+        """进程关闭：终态兜底、释放租借、关闭 CPU 输出流、补偿 prepare。
 
         无论完成、取消、失败、断流还是分配失败，都经此关闭。租借释放必须先于
         任何 await 同步执行：owner task 在关闭子流或 cleanup 期间被取消时，
-        释放不能依赖这些 await 完成；进程记录的注销放在内层 ``finally``。
+        释放不能依赖这些 await 完成。context 失效与进程注销由注册入口在
+        本流程之后执行（A1 访问边界返工第 4.4 节）；本方法幂等——新架构下
+        run() 的收尾与注册入口的 :meth:`close_process` 都会调用它，已收口
+        的进程重复调用是空操作。
         """
+        if self._closed:
+            return
+        self._closed = True
         record = self._record
         # 分支：交付方提前关闭（如客户端断流），且此前没有交出终态。
         owner_is_cancelling = self._owner_task is not None and self._owner_task.cancelling() > 0
@@ -441,17 +465,13 @@ class TaskProcess:
                     await self._bus.request(
                         GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
                         prepared_run=self._working_set.prepared,
-                        access=self._access,
                     )
                 except Exception:
                     logger.warning("清理 prepared run 失败", exc_info=True)
         finally:
-            # 绑定 context 随进程关闭失效（P-6）：无论 completed、失败、取消
-            # 还是断流，进程结束后该凭据不再可用。
-            self._access_guard.invalidate(self._access)
-            self._process_table.close(record)
             if self._trace_tokens is not None:
                 reset_trace_context(self._trace_tokens)
+                self._trace_tokens = None
 
     async def _close_cpu_output(self) -> None:
         """幂等关闭 CPU 输出流：先摘除引用，关闭失败只记录警告。"""
@@ -468,12 +488,12 @@ class TaskProcess:
         prepared_run: PreparedAgentRun,
     ) -> list[dict[str, Any]]:
         try:
-            # 结算后的话题池读取绑定 resource.read（阶段授权在进程内）。
-            self._access_guard.authorize_operation(self._access, WorkspaceOperation.RESOURCE_READ)
+            # 结算后的话题池读取绑定 resource.read（阶段授权在进程内）；
+            # prepare 已校验 prepared_run 携带的就是授权组装的 scope。
+            self._authorize(WorkspaceOperation.RESOURCE_READ)
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
                 identity_scope=prepared_run.identity_scope,
-                access=self._access,
                 include_empty=True,
             )
         except Exception:

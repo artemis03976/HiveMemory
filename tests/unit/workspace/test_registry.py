@@ -133,11 +133,12 @@ def test_user_level_record_does_not_cover_reserved_system_agent():
     )
     workspace = make_workspace_identity(owner_user_id="u1")
 
-    assert registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID)) is None
-    # 显式登记后 system 精确命中。
-    system_record = make_actor_access_record(
-        owner_user_id="u1", agent_id=SYSTEM_AGENT_ID
+    assert (
+        registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID))
+        is None
     )
+    # 显式登记后 system 精确命中。
+    system_record = make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID)
     explicit = WorkspaceActorAccessRegistry(
         [
             make_actor_access_record(owner_user_id="u1", agent_id=None),
@@ -157,13 +158,8 @@ def test_exact_record_takes_precedence_over_user_level_record():
     registry = WorkspaceActorAccessRegistry([user_level, exact])
     workspace = make_workspace_identity(owner_user_id="u1")
 
-    assert (
-        registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="a1")) is exact
-    )
-    assert (
-        registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="a2"))
-        is user_level
-    )
+    assert registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="a1")) is exact
+    assert registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="a2")) is user_level
 
 
 def test_disabled_exact_record_rejects_without_user_level_fallback():

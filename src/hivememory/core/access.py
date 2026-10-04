@@ -1,15 +1,18 @@
 """依赖中立的访问值类型与端口协议（A1 访问模型）。
 
 - ``WorkspaceOperation``：Actor→Workspace 的行为目录；
-- ``WorkspaceAccessContext``：统一认证后签发的不可变准入结果；
+- ``WorkspaceAccessContext``：统一认证后签发的不透明访问凭据，签发内容
+  （actor、驻留 workspace、principal、运行绑定）由签发它的 guard 内部
+  保存，对外没有公开字段；
+- ``AccessRunType`` / ``RunBinding``：访问 context 的运行绑定（运行类型
+  与运行标识）；
 - ``CallerPrincipal``：受信入口建立的调用来源身份；
-- ``WorkspaceAccessVerifier``：资源 owner 消费的共享行为检查端口，由
-  ``workspace.access.WorkspaceAccessGuard`` 实现；
 - ``PrincipalAuthenticator``：Principal authentication 端口，由 System 实现，
   供 workspace 认证入口在 Workspace 准入前调用。
 
-本模块只依赖 core；签发状态、准入记录与接入登记分别由 workspace 与 system
-持有，不在此处。
+本模块只依赖 core；签发状态、授予记录、准入记录与接入登记分别由
+workspace 与 system 持有，不在此处。资源 owner 与 Gateway 不接收访问
+context——授权点以下只流动授权点组装的 ``IdentityScope``。
 """
 
 from __future__ import annotations
@@ -18,12 +21,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
-from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import ActorIdentity, IdentityScope
+from hivememory.core.models import ActorIdentity
 
 
 class WorkspaceOperation(str, Enum):
-    """Actor→Workspace 的行为目录（A1 计划第 4.1 节绑定基线）。
+    """Actor→Workspace 的行为目录（A1 访问边界返工第 4.7 节默认登记基线）。
 
     枚举表达"系统有哪些操作"；某个 Actor 实际获准的集合只由 Workspace
     Actor 访问注册表（``workspace.registry``）表达，两者必须分开。每个
@@ -49,10 +51,9 @@ class WorkspaceOperation(str, Enum):
     - ``MANAGEMENT_ASSET``：WorkspaceAsset 上传登记（``ASSET_ACQUIRE``
       不授权上传）。
 
-    方法与 operation 的绑定维护在各 application 服务的类 docstring 与
-    ``patchouli.application.access_consumption`` 的兼容清单中；新增
-    operation 由引入方同步维护目录、配置与行为测试，且不自动加入已有
-    白名单。
+    方法与 operation 的绑定维护在各授权点（workspace 能力层、任务进程的
+    阶段检查）的类 docstring 中；新增 operation 由引入方同步维护目录、
+    配置与行为测试，且不自动加入已有白名单。
     """
 
     RESOURCE_READ = "resource.read"
@@ -70,14 +71,55 @@ class WorkspaceOperation(str, Enum):
 
 @dataclass(frozen=True, eq=False, slots=True, weakref_slot=True)
 class WorkspaceAccessContext:
-    """不可变的 Workspace 准入结果，只公开已验证的身份坐标。
+    """不透明的 Workspace 访问凭据：对外没有公开字段。
 
-    调用侧经 System 统一认证网关取得；直接构造或复制的同值对象不获得
-    准入资格。有效性由签发它的 guard 检查，context 不自检、不持有来源
-    principal、授权配置或单次 operation，也不作为可序列化的远端凭据。
+    调用侧经 System 统一认证网关取得；它只能交给签发它的 guard 兑现——
+    准入的 actor、驻留 workspace、来源 principal 与运行绑定由 guard 在
+    签发时写入内部的授予记录，context 本身不携带、不暴露任何身份。
+    直接构造的对象不在 guard 的授予记录中，等同未签发；按对象身份判定
+    凭据，复制或反序列化都不产生等效凭据。context 不自检、不作为可序
+    列化的远端凭据，也不写入任何记录、事件或 DTO。
     """
 
-    identity_scope: IdentityScope
+
+class AccessRunType(str, Enum):
+    """访问 context 绑定的运行类型：context 只在绑定的一次运行内有效。
+
+    任务进程 context 在注册时签发并绑定 ``process_id``，随进程关闭失效；
+    请求级 context 由入口在请求开始时签发并绑定本次请求，请求结束失效
+    （P-6、P-9b、P-9c）。
+    """
+
+    TASK_PROCESS = "task_process"
+    REQUEST = "request"
+
+
+@dataclass(frozen=True, slots=True)
+class RunBinding:
+    """访问 context 的运行绑定：运行类型与运行标识（认证签发时写入授予记录）。
+
+    ``run_id`` 是运行标识：任务进程为 server 入口冻结的 ``process_id``，
+    请求级 context 为入口为本次请求生成的标识。
+    """
+
+    run_type: AccessRunType
+    run_id: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.run_type, AccessRunType):
+            raise ValueError("run_type 必须是 AccessRunType")
+        if not isinstance(self.run_id, str) or not self.run_id.strip():
+            raise ValueError("run_id 不能为空")
+
+    @classmethod
+    def for_task_process(cls, process_id: str) -> RunBinding:
+        """任务进程运行绑定。"""
+        return cls(run_type=AccessRunType.TASK_PROCESS, run_id=process_id)
+
+    @classmethod
+    def for_request(cls, request_id: str) -> RunBinding:
+        """请求级运行绑定。"""
+        return cls(run_type=AccessRunType.REQUEST, run_id=request_id)
 
 
 @dataclass(frozen=True)
@@ -97,47 +139,6 @@ class CallerPrincipal:
             raise ValueError("principal_id 不能为空")
 
 
-class WorkspaceAccessVerifier(Protocol):
-    """资源 owner 使用的共享行为检查端口（``WorkspaceAccessGuard`` 实现）。"""
-
-    def verify_context(self, access: WorkspaceAccessContext | None) -> IdentityScope:
-        """确认上下文由签发方签发、尚未失效且 Actor 仍有准入，返回可信 scope。"""
-        ...
-
-    def authorize_operation(
-        self,
-        access: WorkspaceAccessContext | None,
-        operation: WorkspaceOperation,
-    ) -> IdentityScope:
-        """在 ``verify_context`` 之上检查行为许可，返回可信 scope。"""
-        ...
-
-
-class ClosedWorkspaceAccessVerifier:
-    """未注入共享行为检查时的 fail-closed 缺省实现。
-
-    行为等价于"空访问注册表、未签发任何 context"的 guard：任何上下文都按
-    未签发拒绝；缺失 access 的迁移期兼容分支不经过本检查。
-    """
-
-    def verify_context(self, access: WorkspaceAccessContext | None) -> IdentityScope:
-        if type(access) is not WorkspaceAccessContext:
-            raise ScopeRequiredError("公共入口需要经统一认证网关签发的 WorkspaceAccessContext")
-        raise ScopeRequiredError(
-            "access context 未由本运行实例签发",
-            details={"reason": "context_not_issued"},
-        )
-
-    def authorize_operation(
-        self,
-        access: WorkspaceAccessContext | None,
-        operation: WorkspaceOperation,
-    ) -> IdentityScope:
-        if not isinstance(operation, WorkspaceOperation):
-            raise TypeError("operation 必须是 WorkspaceOperation")
-        return self.verify_context(access)
-
-
 class PrincipalAuthenticator(Protocol):
     """Principal authentication 端口：确认调用来源已登记且可服务该 Actor。
 
@@ -154,10 +155,10 @@ class PrincipalAuthenticator(Protocol):
 
 
 __all__ = [
+    "AccessRunType",
     "CallerPrincipal",
-    "ClosedWorkspaceAccessVerifier",
     "PrincipalAuthenticator",
+    "RunBinding",
     "WorkspaceAccessContext",
-    "WorkspaceAccessVerifier",
     "WorkspaceOperation",
 ]

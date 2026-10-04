@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING
 from hivememory.components.serial_gate import KeyedSerialGate
 from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import WorkspaceMismatchError
-from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
+from hivememory.core.models import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     WorkspaceAssetHandle,
     WorkspaceAssetUploadReceipt,
@@ -34,16 +33,15 @@ if TYPE_CHECKING:
 class WorkspaceAssetApplicationService:
     """只编排上传用例，输入规则与解析接纳由附件服务负责。
 
-    接收 server 已冻结的 IdentityScope。同 key 的门覆盖完整请求，等待方
-    只会在前次请求终态或错误收尾后进入 Store 的重放/冲突判定。
+    同 key 的门覆盖完整请求，等待方只会在前次请求终态或错误收尾后进入
+    Store 的重放/冲突判定。
 
-    访问边界（A1 访问边界返工第 4.3/4.5 节）：WorkspaceAsset 不属于
-    Patchouli，在自己的公共入口调用同一共享行为检查——上传绑定
+    访问边界（A1 访问边界返工第 4.5 节）：WorkspaceAsset 不属于
+    Patchouli，在自己的公共入口调用同一共享操作授权——上传绑定
     ``management.asset``（``asset.acquire`` 只授权解析/获取，不自动授权
-    上传），行为检查先于接收与注册副作用。``access`` 为统一认证网关签发
-    的可信 context，必须提供；传入的 ``identity_scope`` 只作一致性校验，
-    与 context 的可信坐标不一致时在副作用前拒绝（P-1 缺陷修复：跨
-    Workspace、跨 owner 或替换 Actor 的 scope 冲突不再放行）。
+    上传），授权先于接收与注册副作用。本层是授权点：只接收访问 context
+    与目标 workspace，注册与解析交接一律使用 guard 返回的可信 scope，
+    调用方不能再另传 scope（P-1 缺陷由此结构性消除）。
     """
 
     def __init__(
@@ -63,7 +61,7 @@ class WorkspaceAssetApplicationService:
     async def upload_asset(
         self,
         *,
-        identity_scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         file_name: str,
         declared_media_type: str | None,
         source: SupportsAsyncRead,
@@ -72,20 +70,10 @@ class WorkspaceAssetApplicationService:
     ) -> WorkspaceAssetUploadReceipt:
         """接收一个文件，注册资产并返回解析终态，保留首次创建/重放标记。"""
         # 行为检查先于接收与注册副作用：不允许未经许可的上传消耗解析与
-        # 存储资源。
+        # 存储资源；后续全部使用 guard 返回的可信 scope。
         authorized_scope = self._access_guard.authorize_operation(
-            access, WorkspaceOperation.MANAGEMENT_ASSET
+            access, WorkspaceOperation.MANAGEMENT_ASSET, target_workspace
         )
-        # 可信 context 是认证后操作范围的依据，另行传入的 scope 只能用于
-        # 一致性校验；冲突在读取上传内容之前拒绝，不产生任何副作用。
-        if identity_scope != authorized_scope:
-            raise WorkspaceMismatchError(
-                details={
-                    "reason": "request_scope_mismatches_access_context",
-                    "access_workspace_id": authorized_scope.workspace_identity.workspace_id,
-                    "request_workspace_id": identity_scope.workspace_identity.workspace_id,
-                }
-            )
         key = (authorized_scope.workspace_identity, client_operation_id)
         async with self._serial_gate.hold(key):
             metadata, content, content_hash = await receive_upload(

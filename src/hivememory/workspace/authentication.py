@@ -1,19 +1,20 @@
 """Workspace 认证入口：统一 Actor Authentication 网关。
 
 统一认证编排（A1 访问边界设计）：所有调用侧只调用一个网关，输入受信接入
-信息、待解析的 Actor 身份和目标 Workspace；网关内部顺序完成两项认证，全部
-成功后返回一个可复用的 ``WorkspaceAccessContext``。
+信息、待解析的 Actor 身份、目标 Workspace 与本次运行的绑定；网关内部顺序
+完成两项认证，全部成功后返回一个不透明的 ``WorkspaceAccessContext``。
 
     1. Principal authentication —— 经 ``core.access.PrincipalAuthenticator``
        端口委托 System 实现（接入登记与 adapter 匹配），确认
        CallerPrincipal 和 ActorIdentity；
     2. Workspace authentication / admission —— 核对 Workspace Actor
-       准入记录（含 W0 owner 约束），由 Workspace guard 签发准入结果。
+       准入记录（含 W0 owner 约束），由 Workspace guard 签发准入结果，
+       并把来源 principal 与运行绑定写入 guard 内部的授予记录。
 
 认证入口不要求提供待执行的 operation，也不向调用方返回"只完成第一项
-认证"的可访问上下文。网关经端口委托 System 完成接入登记校验，并委托 Workspace guard
-完成内部准入；网关不持有 Workspace 签发状态或授权配置，也不
-执行 search/read/submit，不接受任意 action 代执行业务，也不替代全局
+认证"的可访问上下文。网关经端口委托 System 完成接入登记校验，并委托
+Workspace guard 完成内部准入；网关不持有 Workspace 签发状态或授权配置，
+也不执行 search/read/submit，不接受任意 action 代执行业务，也不替代全局
 总线路由——认证成功后，调用侧沿既有 adapter/service/bridge 发起业务调用。
 
 阶段拒绝语义（均以稳定 reason 区分）：
@@ -21,17 +22,23 @@
 - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
 - adapter 不匹配 → ``adapter_mismatch``；
 - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``；
-- actor user ≠ workspace owner（W0 兼容基线）→ ``actor_not_owner``；
+- actor user ≠ 要进入的 workspace 的 owner（W0 兼容基线，第 2 阶段检查）
+  → ``actor_not_owner``；
 - Workspace 无有效 Actor 访问记录 → ``actor_not_admitted``。
 
-以上均为 ``AdmissionDeniedError``（第一、二层失败）；缺少行为许可发生在
-后续每次动作的共享行为检查（``workspace.access.WorkspaceAccessGuard``），
+以上均为 ``AdmissionDeniedError``（第一、二阶段失败）；缺少行为许可发生
+在后续每次操作的共享操作授权（``workspace.access.WorkspaceAccessGuard``），
 属 ``OperationDeniedError``，不在本网关判断。
 """
 
 from __future__ import annotations
 
-from hivememory.core.access import CallerPrincipal, PrincipalAuthenticator, WorkspaceAccessContext
+from hivememory.core.access import (
+    CallerPrincipal,
+    PrincipalAuthenticator,
+    RunBinding,
+    WorkspaceAccessContext,
+)
 from hivememory.core.errors import AdmissionDeniedError
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.workspace.access import WorkspaceAccessGuard
@@ -45,11 +52,13 @@ class ActorAuthenticationGateway:
     """统一 Actor Authentication 网关（workspace 认证入口）。
 
     一次 :meth:`authenticate` 调用完成 Principal authentication 与
-    Workspace authentication；两项均通过才签发 ``WorkspaceAccessContext``。
+    Workspace authentication；两项均通过才签发 ``WorkspaceAccessContext``，
+    签发时写入运行绑定（I-3）：任务进程 context 绑定本进程的
+    ``process_id``，请求级 context 绑定入口为本次请求生成的标识。
     网关不执行业务、不转发路由；adapter 负责协议解析与接入证据，网关
     负责按登记规则统一验证并作出认证结论。
 
-    生命周期（v0.7.0 A1 访问边界返工第 4.4 节）：context 不设固定有效期，
+    生命周期（v0.7.0 A1 访问边界返工第 4.8 节）：context 不设固定有效期，
     只随三个时点失效——绑定的任务进程关闭、请求级 context 随请求结束、
     System 停止。:meth:`close` 只关闭网关自身、拒绝新的认证，已签发
     context 的失效由各自所有者完成；System 停止时在任务进程收尾后另行
@@ -87,12 +96,15 @@ class ActorAuthenticationGateway:
         principal: CallerPrincipal,
         actor: ActorIdentity,
         workspace: WorkspaceIdentity,
+        binding: RunBinding,
     ) -> WorkspaceAccessContext:
         """完成两项认证并签发访问上下文；任一失败即拒绝，无部分成功。
 
         ``adapter`` 是调用来源实际使用的接入方式标识；``principal`` 由
-        受信 adapter 依据其接入证据构造。认证成功返回的 context 与单次
-        operation 解耦，可在此后各次获准动作中复用。
+        受信 adapter 依据其接入证据构造；``binding`` 是本次运行绑定——
+        任务进程注册传 :meth:`RunBinding.for_task_process`，请求级访问传
+        :meth:`RunBinding.for_request`。认证成功返回的 context 与单次
+        operation 解耦，可在此后各次获准操作中经 guard 逐次授权。
         """
         if self.is_closed:
             raise AdmissionDeniedError(
@@ -107,6 +119,8 @@ class ActorAuthenticationGateway:
             raise TypeError("actor 必须是 ActorIdentity")
         if not isinstance(workspace, WorkspaceIdentity):
             raise TypeError("workspace 必须是 WorkspaceIdentity")
+        if not isinstance(binding, RunBinding):
+            raise TypeError("binding 必须是 RunBinding")
 
         # ---- 1. Principal authentication：委托 System 实现的接入登记校验 ----
         self._principals.authenticate_principal(
@@ -115,5 +129,10 @@ class ActorAuthenticationGateway:
             actor=actor,
         )
 
-        # ---- 2. Workspace authentication / admission ----
-        return self._workspace_access._admit(actor=actor, workspace=workspace)
+        # ---- 2. Workspace authentication / admission（签发即绑定运行） ----
+        return self._workspace_access._admit(
+            actor=actor,
+            workspace=workspace,
+            principal=principal,
+            binding=binding,
+        )

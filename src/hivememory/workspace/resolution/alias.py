@@ -15,7 +15,6 @@ resolver 不做检索排序、内容解释或任何写入；只缓存 Workspace 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
@@ -24,9 +23,6 @@ from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
-
-if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +46,6 @@ class AliasResolver:
         memory_id: UUID,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> MemoryAtom | None:
         """UUID 点读：未知或对当前 Actor 不可见时返回 None（A1 防泄露）。"""
         self._guard.ensure_open()
@@ -61,7 +56,7 @@ class AliasResolver:
 
         atom, fill = await self._guard.load(
             workspace,
-            lambda: self._backing.read(memory_id, scope=scope, access=access),
+            lambda: self._backing.read(memory_id, scope=scope),
         )
         if atom is None:
             # 缺失与不可见被合并为 None，不能据此写共享负缓存（A2 §3.2）。
@@ -73,7 +68,6 @@ class AliasResolver:
         aliases: list[str],
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> list[MemoryAtom]:
         """alias 批量读取：结果按请求顺序，只包含实际可读的完整原子。
 
@@ -96,7 +90,7 @@ class AliasResolver:
         if misses:
             atoms, fill = await self._guard.load(
                 workspace,
-                lambda: self._backing.retrieve_by_aliases(misses, scope=scope, access=access),
+                lambda: self._backing.retrieve_by_aliases(misses, scope=scope),
             )
             pending = set(misses)
             for atom in atoms:
@@ -113,7 +107,6 @@ class AliasResolver:
         request: RetrievalRequest,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> list[MemoryAtom]:
         """语义检索：仍执行检索并保持领域排序，结果协作预热 AtomCache。
 
@@ -123,7 +116,7 @@ class AliasResolver:
         self._guard.ensure_open()
         atoms, fill = await self._guard.load(
             scope.workspace_identity,
-            lambda: self._backing.retrieve(request, access=access),
+            lambda: self._backing.retrieve(request),
             retry_on_stale=False,
         )
         delivered = []

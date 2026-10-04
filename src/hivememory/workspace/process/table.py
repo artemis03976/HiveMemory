@@ -1,24 +1,23 @@
-"""任务进程表 — 进程记录、进程内注册表与 stop API 控制面。
+"""任务进程表 — 进程记录与进程内注册表。
 
 进程表是 workspace 进程内共享设施：以 ``process_id`` 为唯一标识登记
-每个任务进程，只向同 owner/workspace 的控制请求暴露进程记录。
+每个任务进程。注册、注销与进程控制授权由注册入口
+（``workspace.process.service``）负责；进程记录只持有访问 context 与
+进程自身的元数据，不保存身份字段（A1 访问边界返工第 4.4 节，I-8）。
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceDomainError
-from hivememory.core.models import (
-    IdentityScope,
-    require_identity_scope,
-)
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.workspace.process.events import BoundProcessEvents
 
 
 class ProcessPhase(str, Enum):
@@ -72,21 +71,26 @@ class ProcessStatusSnapshot:
 
 @dataclass
 class ProcessRecord:
-    """一次任务进程的阶段引用、访问 context 与终态事实。
+    """一次任务进程的阶段引用、访问 context 与终态事实（与进程同寿）。
 
     ``process_id`` 是任意任务进程的唯一标识（Q-16）：由 server 入口在进入
     编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
-    ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：
-    进程以任何结局关闭时使其失效（P-6）。
+    ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：它是
+    记录持有的唯一身份凭据，只交给 guard 用于授权与控制比对，进程以任何
+    结局关闭时由注册入口使其失效（P-6）。记录不保存 actor、驻留 workspace
+    等身份字段：阶段调用的目标取自任务参数，观测标签（``events``）在注册
+    时用通过认证的声明绑定一次（I-8 选项 C）。
     """
 
-    identity_scope: IdentityScope
     process_id: str
-    access: WorkspaceAccessContext | None = None
+    access: WorkspaceAccessContext
     phase: ProcessPhase = ProcessPhase.CREATED
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
+    # 进程元数据：注册入口在创建时绑定的 chat.run.* 事件发布器
+    # （携带通过认证声明的 workspace_id / agent_id 观测标签）。
+    events: BoundProcessEvents | None = field(default=None, repr=False, compare=False)
 
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
@@ -163,13 +167,12 @@ class ProcessRecord:
 
 
 class ProcessTable:
-    """进程内任务进程注册表与 stop API 控制面。"""
+    """进程内任务进程注册表：登记与注销由注册入口负责。"""
 
     def __init__(self) -> None:
         self._runs: dict[str, ProcessRecord] = {}
 
     def register(self, run: ProcessRecord) -> None:
-        require_identity_scope(run.identity_scope)
         existing = self._runs.get(run.process_id)
         if existing is not None:
             raise WorkspaceDomainError(
@@ -178,68 +181,18 @@ class ProcessTable:
             )
         self._runs[run.process_id] = run
 
-    def get(
-        self,
-        process_id: str,
-        identity_scope: IdentityScope,
-    ) -> ProcessRecord | None:
-        """只向同 owner/workspace 的控制请求暴露进程记录。"""
-        identity_scope = require_identity_scope(identity_scope)
-        run = self._runs.get(process_id)
-        if run is None or not self._same_resource_scope(run.identity_scope, identity_scope):
-            return None
-        return run
+    def get(self, process_id: str) -> ProcessRecord | None:
+        """按 ``process_id`` 原样取回进程记录；找不到返回 ``None``。
 
-    def cancel(
-        self,
-        process_id: str,
-        identity_scope: IdentityScope,
-        reason: str = "user_requested",
-    ) -> CancelResult:
-        run = self.get(process_id, identity_scope)
-        if run is None:
-            return CancelResult(
-                process_id=process_id,
-                cancelled=False,
-                status="not_found",
-                reason=reason,
-            )
-
-        result = run.request_stop(reason)
-        return CancelResult(
-            process_id=process_id,
-            cancelled=result.accepted,
-            status=run.outcome.value,
-            reason=result.reason,
-        )
-
-    def status(
-        self,
-        process_id: str,
-        identity_scope: IdentityScope,
-    ) -> ProcessStatusSnapshot | None:
-        """查询 scoped 状态；跨 scope 与不存在统一返回 ``None``。"""
-        run = self.get(process_id, identity_scope)
-        if run is None:
-            return None
-        return ProcessStatusSnapshot(
-            process_id=run.process_id,
-            phase=run.phase.value,
-            status=run.outcome.value,
-            reason=run.stop_reason,
-        )
+        控制请求（取消与状态查询）的授权比对由注册入口经 guard 完成，
+        本表不做 scope 过滤。
+        """
+        return self._runs.get(process_id)
 
     def close(self, run: ProcessRecord) -> None:
         """移除已由进程编排记录终态的进程记录。"""
         if self._runs.get(run.process_id) is run:
             self._runs.pop(run.process_id, None)
-
-    @staticmethod
-    def _same_resource_scope(
-        registered: IdentityScope,
-        requested: IdentityScope,
-    ) -> bool:
-        return registered.workspace_identity == requested.workspace_identity
 
 
 __all__ = [
