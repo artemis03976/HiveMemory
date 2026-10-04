@@ -21,6 +21,7 @@ code_paths:
 related_docs:
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
+  - docs/plans/v0.7.0-identity-access-batch-2.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -31,7 +32,7 @@ last_reviewed: 2026-10-04
 
 # 身份与访问体系
 
-**文档状态**：Idea，未形成实施承诺；第一批已实施，第二批待推进（前置决定均已作出）
+**文档状态**：Idea，未形成实施承诺；第一批已实施，第二批已建立计划（[v0.7.0 第二批](../plans/v0.7.0-identity-access-batch-2.md)），尚未实施
 **记录日期**：2026-10-03；2026-10-04 按“已完成 / 未完成”重新整理，同日记录 I-6、I-6a、I-7、I-11 的决定，按 I-6 把资源一侧的概念改为“资源归属”，并把第二批扩大为 Patchouli 全系统的重构
 
 ## 0. 文档性质
@@ -413,7 +414,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | 批次 | 范围 | 状态 |
 |:---|:---|:---|
 | 第一批 | workspace 边界：入口在认证前只持有声明；访问 context 为密封凭据并暂存 principal（I-1、I-2）；注册入口完成认证、签发即绑定、先注册后运行（I-3）；授权点显式接收目标 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；进程记录只持有 context、进程句柄与唯一的取消方法（I-8）；CPU 过渡身份（I-9）；认证一侧与操作授权者分开且互不依赖（I-10）；资源 owner 与 Gateway 只接收 `IdentityScope` | 已完成：随 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)实施，2026-10-04 归档；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |
-| 第二批 | Patchouli 全系统重构：公开路由仍接收 `IdentityScope`，内部拆为归属与发起者，不再传递或组装 `IdentityScope`（6.5，I-6）；记录与后台任务不再保存 `IdentityScope`，以独立字段携带归属与发起者，如 `MemoryGenerationTask` 的 `from_actor` 与 `belong_to`（6.1 第三类，I-6、I-6a）；非主动生成路径以 `system` 为发起者（I-11）；从 `ActorIdentity` 移除 `session_id`（I-7）；收紧 Patchouli 应用服务的签名（6.2）；修订 AGENTS.md 第 3 节的相应规则（6.4） | 未开始：前置决定均已作出，AGENTS.md 已在实施分支上修订（2026-10-04）；计划尚未建立 |
+| 第二批 | Patchouli 全系统重构：公开路由仍接收 `IdentityScope`，内部拆为归属与发起者，不再传递或组装 `IdentityScope`（6.5，I-6）；记录与后台任务不再保存 `IdentityScope`，以独立字段携带归属与发起者，如 `MemoryGenerationTask` 的 `from_actor` 与 `belong_to`（6.1 第三类，I-6、I-6a）；非主动生成路径以 `system` 为发起者（I-11）；从 `ActorIdentity` 移除 `session_id`（I-7）；收紧 Patchouli 应用服务的签名（6.2）；修订 AGENTS.md 第 3 节的相应规则（6.4） | 计划已建立：[v0.7.0 身份与访问体系第二批](../plans/v0.7.0-identity-access-batch-2.md)（2026-10-04），尚未实施；AGENTS.md 已在实施分支上修订 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
 第一批使总 Idea 中两项早先的决定失去前提：“放行分支分两步去掉”与“两个提交路由的检查暂留在 Patchouli”。资源 owner 不再接收访问 context 后，这两项按最终设计记录在总 Idea 15.8。
@@ -424,6 +425,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 |:---|:---|
 | [总 Idea](./workspace-network-task-process-architecture.md)第三部分 | 认证与授权的流程与待决问题（P-1、P-4a、P-9 等）在那里；本文界定其中流动的身份数据 |
 | [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)（已归档） | 第一批的实施计划 |
+| [v0.7.0 身份与访问体系第二批](../plans/v0.7.0-identity-access-batch-2.md) | 第二批的实施计划 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Q-3a 决定访问 context 进入进程记录，与不变量 3 一致；进程记录如何持有身份见 I-8；认证与进程创建的顺序见 I-3 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | principal 与 adapter 的登记（I-2）；plugin 模式下不建进程的访问同样遵循本文的边界 |
 | [外部会话 Idea](./external-session-and-topic-projection.md) | `ActorIdentity.session_id` 随第二批移除（I-7），承接该文第 8 节第 3 项；chat 请求体中 `session_id` 的语义仍归该文 |
@@ -435,4 +437,4 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)与[文档治理规范](../DOCUMENTATION.md)第 8.3 节；
 - 第一批已完成；
-- 第二批：I-6、I-6a、I-7、I-11 已决定（2026-10-04）；AGENTS.md 第 3 节已经 owner 同意，在实施分支上修订（6.4）。
+- 第二批：I-6、I-6a、I-7、I-11 已决定（2026-10-04）；AGENTS.md 第 3 节已经 owner 同意，在实施分支上修订（6.4）；计划已建立（[v0.7.0 第二批](../plans/v0.7.0-identity-access-batch-2.md)）。
