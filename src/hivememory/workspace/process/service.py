@@ -3,15 +3,15 @@ TaskProcessService — 任务请求的唯一注册入口与进程控制面
 
 位于 workspace：完成任务请求的两阶段认证（注册步骤），签发即绑定并立即
 创建进程、登记到进程表，返回不透明的进程句柄；已注册的
-:class:`TaskProcess`（四阶段编排骨架见 ``workspace.process.task_process``）
-经句柄交付为流式事件或非流式结果，并经进程表提供取消与状态查询。对子
-系统的一切调用都经全局总线的公开路由完成；Actor 执行经组合根注入的 CPU
-端口（``workspace.contracts`` 的 ``CPUPort``）完成，本服务不持有任何具体
-CPU 的引用。
+:class:`TaskProcess`（状态容器）经句柄交给组合根注入的执行器
+:class:`TaskProcessRunner`（四阶段编排骨架）运行，交付为流式事件或非流式
+结果，并经进程表提供取消与状态查询。本入口只管理任务进程的生命周期
+（任务进程 Idea Q-3）：不持有总线、CPU 端口、CPU 分配器、asset reader
+与编译配置等编排依赖，它们只由执行器持有。
 
 注册入口的生命周期职责（A1 访问边界返工第 4.4 节）：未通过两阶段认证不
 创建进程；注册成功即登记，进程以任何结局关闭后由本入口使 context 失效
-并从进程表注销——``TaskProcess`` 只释放自身资源。进程表是唯一的进程
+并从进程表注销——执行器的关闭流程只释放进程自身的资源。进程表是唯一的进程
 注册表，登记 ``process_id → TaskProcess``。进程记录与 ``TaskProcess`` 都不
 离开本入口：入口 adapter（server）只持有 :class:`ProcessHandle`；句柄按
 对象身份判定有效，持有有效句柄即为该进程生命周期的所有者，运行与关闭以
@@ -27,12 +27,9 @@ from collections.abc import AsyncGenerator, Coroutine
 from contextlib import aclosing
 from typing import Any, Literal, overload
 
-from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.trace_context import generate_trace_id
-from hivememory.config.attachments import AttachmentCompilerConfig
-from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.access import (
     CallerPrincipal,
     RunBinding,
@@ -45,15 +42,12 @@ from hivememory.core.models import (
     AttachmentSelectionRequest,
     WorkspaceIdentity,
 )
-from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
-    CPUPort,
 )
-from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.outputs import (
     CommandCompleted,
@@ -66,6 +60,7 @@ from hivememory.workspace.process.outputs import (
     RunFailed,
     stream_events,
 )
+from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.table import (
     CancelResult,
     ProcessRecord,
@@ -106,52 +101,36 @@ class ProcessHandle:
 class TaskProcessService:
     """任务进程服务 — 任务请求的唯一注册入口与进程控制面。
 
-    对子系统的一切调用都经全局总线的公开路由完成，不直接持有任何子系统
-    引用。注册入口完成两阶段认证（v0.7.0 A1 访问边界返工第 4.4 节）：
-    调用方只提交 actor 声明与请求进入的 workspace（认证前不组装
-    ``IdentityScope``），认证失败直接抛出 ``AdmissionDeniedError``，不
-    创建、不登记进程。任务进程是 Agent action，必须由具体 Agent 执行；
-    actor 为保留 ``system`` 值的声明在认证前被拒绝。
+    注册入口完成两阶段认证（v0.7.0 A1 访问边界返工第 4.4 节）：调用方只
+    提交 actor 声明与请求进入的 workspace（认证前不组装 ``IdentityScope``），
+    认证失败直接抛出 ``AdmissionDeniedError``，不创建、不登记进程。任务
+    进程是 Agent action，必须由具体 Agent 执行；actor 为保留 ``system`` 值
+    的声明在认证前被拒绝。
 
-    CPU 分配与 Actor 执行所需能力由组合根注入：``cpu`` 是 CPU 端口
-    （由 CPU 的提供方实现，当前为 Alice）；``asset_reader`` 是进程级唯一
-    WorkspaceAssetStore 的只读 reader 端口（附件租借在此 acquire，随进程
-    关闭统一释放）；两个编译配置段驱动进程侧的记忆/附件编译。本服务是
-    进程 context 的运行持有者：注册经 ``access_gateway`` 认证签发即绑定
-    本进程；阶段 operation 授权经 ``operation_authorizer`` 在进程内执行；
-    进程以任何结局关闭时由本入口经认证网关使绑定 context 失效。
+    本入口只持有生命周期依赖：``runner`` 是组合根构建的执行器（四阶段编排
+    骨架，持有总线、CPU 端口、CPU 分配器等编排依赖）；本服务是进程
+    context 的运行持有者——注册经 ``access_gateway`` 认证签发即绑定本进程，
+    进程以任何结局关闭时由本入口经认证网关使绑定 context 失效；
+    ``operation_authorizer`` 只用于进程控制授权（阶段授权由执行器执行）；
+    ``event_publisher`` 驱动 ``chat.run.*`` 观测事件。
     """
 
     def __init__(
         self,
-        global_bus: GlobalSystemBus,
-        event_publisher: RuntimeEventPublisher | None = None,
-        gateway_request_timeout_ms: int = 8000,
+        runner: TaskProcessRunner,
         *,
-        cpu: CPUPort,
-        asset_reader: WorkspaceAssetReaderPort | None = None,
-        memory_compiler_config: MemoryCompilerConfig | None = None,
-        attachment_compiler_config: AttachmentCompilerConfig | None = None,
         access_gateway: ActorAuthenticationGateway,
         operation_authorizer: WorkspaceOperationAuthorizer,
+        event_publisher: RuntimeEventPublisher | None = None,
     ) -> None:
-        self._bus = global_bus
+        self._runner = runner
         # 唯一的进程注册表：process_id → 已注册的 TaskProcess（不外泄）。
         self._process_table = ProcessTable()
         self._events = TaskProcessEventEmitter(
             event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
         )
-        self._gateway_request_timeout_ms = gateway_request_timeout_ms
-        self._cpu = cpu
         self._access_gateway = access_gateway
         self._authorizer = operation_authorizer
-        self._allocator = CPUAllocator(
-            global_bus,
-            asset_reader=asset_reader,
-            memory_compiler_config=memory_compiler_config,
-            attachment_compiler_config=attachment_compiler_config,
-            operation_authorizer=operation_authorizer,
-        )
 
     # ========== 注册入口 ==========
 
@@ -209,16 +188,7 @@ class TaskProcessService:
                 generation_options=generation_options,
                 attachments=tuple(attachments or ()),
             )
-            process = TaskProcess(
-                record=record,
-                request=request,
-                global_bus=self._bus,
-                allocator=self._allocator,
-                cpu=self._cpu,
-                gateway_request_timeout_ms=self._gateway_request_timeout_ms,
-                operation_authorizer=self._authorizer,
-                trace_id=trace_id,
-            )
+            process = TaskProcess(record=record, request=request, trace_id=trace_id)
             self._process_table.register(process)
             record.events.created(record)
         except BaseException:
@@ -263,7 +233,7 @@ class TaskProcessService:
         return self._deliver_once(process)
 
     async def close_process(self, handle: ProcessHandle) -> None:
-        """注册入口的关闭路径：释放进程资源，使绑定 context 失效并注销。
+        """注册入口的关闭路径：经执行器释放进程资源，使绑定 context 失效并注销。
 
         进程正常交付结束、以任何结局终态化、或注册成功但流一直没有开始
         （例如关停信号在注册期间到达），都经本路径收口；幂等，重复调用
@@ -282,7 +252,7 @@ class TaskProcessService:
         """
         record = process.record
         try:
-            await process.close()
+            await self._runner.close(process)
         finally:
             # 绑定 context 随进程关闭失效（P-6）：无论 completed、失败、
             # 取消还是断流，进程结束后该凭据不再可用。
@@ -295,7 +265,7 @@ class TaskProcessService:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """流式交付：阶段产出逐项投影为流式事件；编排异常翻译为 error 事件。"""
         try:
-            async with aclosing(process.run(stream=True)) as outputs:
+            async with aclosing(self._runner.run(process, stream=True)) as outputs:
                 async for output in outputs:
                     if isinstance(output, ProcessFailed):
                         yield _stream_error(output.error)
@@ -309,7 +279,7 @@ class TaskProcessService:
         """非流式交付：只取终态产出；编排异常在进程关闭后原样上抛。"""
         try:
             result: NonStreamingResult | None = None
-            async with aclosing(process.run(stream=False)) as outputs:
+            async with aclosing(self._runner.run(process, stream=False)) as outputs:
                 async for output in outputs:
                     match output:
                         case CommandCompleted(command_result=command_result):

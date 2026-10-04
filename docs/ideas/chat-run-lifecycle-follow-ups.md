@@ -5,7 +5,7 @@ horizon: candidate
 owner: system
 scope: chat-run-cancellation-future
 code_paths:
-  - src/hivememory/workspace/process/task_process.py
+  - src/hivememory/workspace/process/runner.py
   - src/hivememory/workspace/process/table.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/alice/application/agent_run_service.py
@@ -32,7 +32,7 @@ last_reviewed: 2026-10-01
 最小闭环已完成。只有在产品需求、运行指标或真实故障证明有必要时，才按本文各节的
 独立启用条件立项。不得以“架构最终会需要”为理由一次性实施全部内容。
 
-**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应 `TaskProcess.run()`（`workspace/process/task_process.py`），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
+**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
 
 本文覆盖：
 
@@ -118,7 +118,7 @@ flowchart TD
 
 ### 3.4 已发现的断连丢失提交（2026-10-01 复核，已复现）
 
-`TaskProcess.run()` 先进入 FINALIZE（此后 stop 返回 `already_finalizing`），再产出 `finalizing` 状态事件，然后才调用 finalize。server 路由每发出一个事件就检查一次断开，断开即关闭流；若断开落在这个产出点，finalize 不会被调用，关闭流程转而执行 cleanup，Actor 已完成的一轮交互丢失。这与“finalize 开始后 stop 不再打断提交”（第 2 节基线第 6 条）在语义上矛盾。finalize 调用开始之后断开不受影响：Patchouli 以 shield 继续，cleanup 会跳过已接管的 continuation。该问题在迁入任务进程前的 `chat_stream()` 中同样存在。
+`TaskProcessRunner.run()` 先进入 FINALIZE（此后 stop 返回 `already_finalizing`），再产出 `finalizing` 状态事件，然后才调用 finalize。server 路由每发出一个事件就检查一次断开，断开即关闭流；若断开落在这个产出点，finalize 不会被调用，关闭流程转而执行 cleanup，Actor 已完成的一轮交互丢失。这与“finalize 开始后 stop 不再打断提交”（第 2 节基线第 6 条）在语义上矛盾。finalize 调用开始之后断开不受影响：Patchouli 以 shield 继续，cleanup 会跳过已接管的 continuation。该问题在迁入任务进程前的 `chat_stream()` 中同样存在。
 
 候选处理方向（只列选项，不代表倾向）：
 

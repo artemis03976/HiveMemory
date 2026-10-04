@@ -200,7 +200,7 @@ AGENTS.md 第 3 节写有“`IdentityScope`（Actor + Workspace）必须沿应�
 - 由此，chat 链路的认证从 server 移到注册入口：server 把自身的 principal、adapter，以及 actor 声明与请求进入的 workspace 交给注册入口（分析）；
 - 不建进程的请求级 context 仍由 server 按请求认证，绑定本次请求（分析）。
 
-**注册入口的形态（owner，2026-10-03）**：先注册、后运行。注册入口提供立即执行的注册步骤：认证、签发即绑定、创建进程并登记到进程表，失败直接抛出，HTTP 入口据此返回 403；流式响应只负责运行。注册成功但流一直没有开始时，由注册入口负责关闭进程。原 [TaskProcess 容器 Todo](../todo/task-process-container-ownership.md)中“登记与注销由入口负责”一项随之并入 A1 返工计划。
+**注册入口的形态（owner，2026-10-03）**：先注册、后运行。注册入口提供立即执行的注册步骤：认证、签发即绑定、创建进程并登记到进程表，失败直接抛出，HTTP 入口据此返回 403；流式响应只负责运行。注册成功但流一直没有开始时，由注册入口负责关闭进程。原 [TaskProcess 容器 Todo](../archive/todo/task-process-container-ownership.md)中“登记与注销由入口负责”一项随之并入 A1 返工计划。
 
 ### I-4 第 3 阶段如何指定目标 workspace
 
@@ -268,7 +268,7 @@ class ProcessRecord:                     # 进程元数据，与进程同寿
 ```
 
 - context 只由进程记录持有：注册请求只携带声明（actor 声明、请求进入的 workspace、server 的 principal 与 adapter），不携带 context；注册入口认证成功后直接把 context 写入记录（I-3）；`TaskProcess` 经记录使用它，不另存；
-- `TaskProcess` 反向持有进程表与各类组件的结构问题单独登记为 [Todo](../todo/task-process-container-ownership.md)，不在本 Idea 内处理。
+- `TaskProcess` 反向持有进程表与各类组件的结构问题单独登记为 [Todo](../archive/todo/task-process-container-ownership.md)，不在本 Idea 内处理。（2026-10-04：该 Todo 已完成并归档，四阶段骨架拆为执行器 `TaskProcessRunner`，`TaskProcess` 只是状态容器。）
 
 **补充：进程句柄（owner，2026-10-03，第一批实现审查）**。第一批的实现中，注册入口把整个 `TaskProcess` 交给入口 adapter，server 由此读取 `record.access`：客户端断开时，以进程自己的 context 作为取消入口的请求方，进程控制授权变成自己与自己比对。server 不是进程 context 的运行持有者（不变量 2），不应接触它。决定：
 
@@ -333,7 +333,7 @@ Alice 改经能力层调用之前（总 Idea 15.5），CPU 输入清单携带一
 
 - 命名与 Principal 一侧对应：第 1 阶段由 `PrincipalAuthenticator` 端口完成（System 的 `SystemPrincipalAuthenticator` 实现），第 2 阶段由 `WorkspaceAuthenticator` 完成，认证网关负责编排两者。
 - 授予记录由签发它的 `WorkspaceAuthenticator` 持有。操作授权者只依赖它的只读兑现接口，因此不能签发 context；依赖方向是授权指向认证，与阶段顺序一致。（2026-10-04 修订：授予内容改为密封在 context 内，操作授权者不再依赖认证一侧，见下方补充。）
-- 各调用方的依赖：server 只依赖认证网关；能力层、`TaskProcess` 与 CPU 分配只依赖操作授权者；注册入口同时依赖两者，因为它既是进程 context 的运行持有者，又是授权点。
+- 各调用方的依赖：server 只依赖认证网关；能力层、`TaskProcess` 与 CPU 分配只依赖操作授权者；注册入口同时依赖两者，因为它既是进程 context 的运行持有者，又是授权点。（2026-10-04 注：任务进程的阶段授权现由执行器 `TaskProcessRunner` 执行，`TaskProcess` 只是状态容器，不再依赖操作授权者。）
 - 拒绝语义不变；访问 context 的对外形态（I-1）与第 4 节的不变量不变。
 - 本 Idea 在 I-10 之前所说的 guard，按职责对应到这两个类：签发、失效与授予记录归 `WorkspaceAuthenticator`，兑现与授权归 `WorkspaceOperationAuthorizer`。
 

@@ -19,10 +19,10 @@ from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import ActorIdentity, AttachmentSelectionRequest
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_access, make_upload_service
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.workspace.process.test_gateway_chat_flow import (
     _profile_route,
@@ -64,7 +64,7 @@ async def _upload(
 
 def _process_service(bus: GlobalSystemBus, composition, store, cpu: ScriptedCPU):
     """注册入口与上传共享同一访问组合：签发与授权读取同一份访问登记。"""
-    return TaskProcessService(
+    return make_task_process_service(
         bus,
         asset_reader=store,
         cpu=cpu,

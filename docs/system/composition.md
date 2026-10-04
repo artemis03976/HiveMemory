@@ -48,12 +48,14 @@ HiveMemorySystem.build(config)
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
        -> service bundle
-            TaskProcessService（workspace.process，含进程表；注入认证网关与操作授权者、CPU 端口（AliceSystem.cpu_port）、AssetStore 只读 reader、root RuntimeEventPublisher 与 memory_compiler / attachment_compiler 配置段）
+            CPUAllocator（workspace.process；注入操作授权者、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
+            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、操作授权者与 Gateway 请求超时）
+            TaskProcessService（workspace.process，注册入口，含进程表；注入 TaskProcessRunner、认证网关、操作授权者与 root RuntimeEventPublisher）
             PassiveIngressService / SystemReadinessService（system.application）
             Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability；注入操作授权者）
 ```
 
-五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关只注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server；操作授权者注入能力层与注册入口；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
+五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关只注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server；操作授权者注入能力层、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
 
 ### 1.1 Runtime bundle
 

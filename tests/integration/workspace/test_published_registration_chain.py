@@ -117,6 +117,7 @@ from hivememory.workspace.registry import WorkspaceActorAccessRecord, WorkspaceA
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import make_workspace_runtime
 
 #: 发布 principals 登记中 server 的接入标识（adapter http）；测试断言它与
@@ -309,7 +310,7 @@ async def published_stack():
     memory_task_service = MemoryTaskApplicationService(
         bus, operation_authorizer=registration.authorizer
     )
-    process_service = TaskProcessService(
+    process_service = make_task_process_service(
         bus,
         cpu=cpu,
         access_gateway=registration.gateway,
@@ -515,7 +516,7 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
     stack = published_stack
     hang_cpu = ScriptedCPU(result=make_cpu_result(final_text="不该到达"), hang_before_result=True)
     runtime_events = RecordingRuntimeEventSink()
-    process_service = TaskProcessService(
+    process_service = make_task_process_service(
         stack.bus,
         event_publisher=RuntimeEventPublisher(runtime_events),
         cpu=hang_cpu,

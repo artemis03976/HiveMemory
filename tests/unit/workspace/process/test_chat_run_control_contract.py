@@ -49,6 +49,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.authentication import AccessGrantSummary
 from hivememory.workspace.process.events import BoundProcessEvents
+from hivememory.workspace.process.runner import _run_interruptible
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import (
     CancelResult,
@@ -58,9 +59,9 @@ from hivememory.workspace.process.table import (
     ProcessStatusSnapshot,
     ProcessTable,
 )
-from hivememory.workspace.process.task_process import _run_interruptible
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -133,9 +134,9 @@ async def _service(
     """构造被测服务与配套认证组合：注册与控制授权使用同一网关/授权者实例。"""
     bus = bus or GlobalSystemBus()
     composition = composition or _composition()
-    service = TaskProcessService(
+    service = make_task_process_service(
         bus,
-        event_publisher,
+        event_publisher=event_publisher,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,

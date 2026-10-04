@@ -47,6 +47,7 @@ from tests.helpers.chat_handoff import (
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -145,9 +146,9 @@ async def _service(
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
-    service = TaskProcessService(
+    service = make_task_process_service(
         bus,
-        event_publisher,
+        event_publisher=event_publisher,
         cpu=cpu,
         asset_reader=store,
         access_gateway=composition.gateway,
@@ -533,3 +534,57 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
 
     assert cpu.closed is True
     assert store.close_and_clear().leases_cleared == 0
+
+
+class _SlowClosingCPU:
+    """产出一条交互事件后挂起；输出流被关闭时在收尾处挂起，直到测试放行。"""
+
+    def __init__(self) -> None:
+        self.close_entered = asyncio.Event()
+        self.release_close = asyncio.Event()
+
+    def execute(self, manifest, *, generation_options, stream):
+        return self._iterate()
+
+    async def _iterate(self):
+        try:
+            yield {"event": "token", "data": {"content": "一"}}
+            await asyncio.Event().wait()
+        finally:
+            self.close_entered.set()
+            await self.release_close.wait()
+
+
+@pytest.mark.asyncio
+async def test_close_interrupted_while_closing_cpu_output_still_requests_prepare_cleanup() -> None:
+    """关闭 CPU 输出流期间交付方被取消：注册入口的再次关闭补做 prepare cleanup。
+
+    第一次关闭在等待 CPU 收尾时被取消，取消不被吞掉；工作集中尚未取出的
+    prepare 结果由注册入口收口时的再次关闭交回 cleanup（只交回一次），
+    进程随后注销。
+    """
+    bus = GlobalSystemBus()
+    cpu = _SlowClosingCPU()
+    cleanup = AsyncMock(return_value=True)
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route)
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+
+    service, composition = await _service(bus, cpu)
+    requestor = await composition.authenticate(agent_id=_AGENT)
+    handle = await _register(composition, service, "问题", process_id="process-close-interrupted")
+    stream = service.run_process(handle, stream=True)
+    seen: list[dict[str, Any]] = [await stream.__anext__()]
+    while seen[-1]["event"] != "token":
+        seen.append(await stream.__anext__())
+
+    close_task = asyncio.create_task(stream.aclose())
+    await asyncio.wait_for(cpu.close_entered.wait(), timeout=1)
+    close_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await close_task
+
+    assert cleanup.await_count == 1
+    assert cleanup.await_args.kwargs["prepared_run"].interaction_id == "process-close-interrupted"
+    assert service.process_status("process-close-interrupted", access=requestor) is None

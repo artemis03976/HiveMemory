@@ -28,6 +28,7 @@ from hivememory.workspace.contracts import CPUExecutionResult
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -84,7 +85,7 @@ def _composition():
 
 
 def _service(bus: GlobalSystemBus, composition, cpu) -> TaskProcessService:
-    return TaskProcessService(
+    return make_task_process_service(
         bus,
         cpu=cpu,
         access_gateway=composition.gateway,

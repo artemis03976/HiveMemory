@@ -9,8 +9,8 @@ contracts"；本模块把认证与授权两侧的依赖方向固化为精确清�
 
 - 认证与授权模块（``workspace.authentication`` / ``workspace.authorization``）
   只出现在 workspace、组合根与 HTTP 入口；
-- 能力层、``TaskProcess`` 与 CPU 分配是操作授权者（``authorization``）的
-  调用方，不导入认证网关与 ``WorkspaceAuthenticator``；
+- 能力层、任务进程执行器（``TaskProcessRunner``）与 CPU 分配是操作授权者
+  （``authorization``）的调用方，不导入认证网关与 ``WorkspaceAuthenticator``；
 - 操作授权者不导入任务进程与能力层；认证一侧与操作授权者互不导入，只经
   context 这个类型发生联系（I-10 的 2026-10-04 补充）；
 - context 是密封凭据：签发（``_seal``）与撤销（``_revoke``）只在认证一侧
@@ -45,7 +45,7 @@ AUTHORIZER_ONLY_FILES = frozenset(
         "workspace/capability/topic.py",
         "workspace/capability/memory_tasks.py",
         "workspace/capability/assets.py",
-        "workspace/process/task_process.py",
+        "workspace/process/runner.py",
         "workspace/process/allocation.py",
     }
 )
@@ -77,7 +77,7 @@ def test_auth_and_authz_imported_only_by_access_aware_packages():
 
 
 def test_capability_and_process_do_not_import_the_auth_side():
-    """能力层、TaskProcess 与 CPU 分配只经操作授权者授权，不导入认证一侧。
+    """能力层、任务进程执行器与 CPU 分配只经操作授权者授权，不导入认证一侧。
 
     授权点不接触签发与撤销：认证网关与 ``WorkspaceAuthenticator``
     只属于运行持有者（server、注册入口）与组合根。

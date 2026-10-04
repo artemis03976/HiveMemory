@@ -36,6 +36,7 @@ from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationSe
 from hivememory.workspace.capability.topic import TopicApplicationService
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -137,7 +138,7 @@ class TestChatIdentityGuard:
 
     @staticmethod
     def _make_service(composition) -> TaskProcessService:
-        return TaskProcessService(
+        return make_task_process_service(
             AsyncMock(),  # system actor 在认证与总线触达前即被拒绝
             cpu=ScriptedCPU(result=make_cpu_result()),
             access_gateway=composition.gateway,
@@ -213,7 +214,7 @@ class TestCancelUsesRequestorContext:
 
     @staticmethod
     def _make_service(composition) -> TaskProcessService:
-        return TaskProcessService(
+        return make_task_process_service(
             AsyncMock(),
             cpu=ScriptedCPU(result=make_cpu_result()),
             access_gateway=composition.gateway,

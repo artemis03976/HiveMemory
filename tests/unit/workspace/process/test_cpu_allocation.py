@@ -51,6 +51,7 @@ from hivememory.workspace.process.service import ProcessHandle, TaskProcessServi
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -217,7 +218,7 @@ async def _service(
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
-    service = TaskProcessService(
+    service = make_task_process_service(
         bus,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         asset_reader=store,

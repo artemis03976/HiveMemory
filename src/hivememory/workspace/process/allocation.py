@@ -5,6 +5,9 @@ CPU 分配由进程完成而不是交给 Actor：Profile 经 Patchouli 公开路
 进程调用共享编译引擎生成，最后组装与 CPU 无关的输入清单。Actor 只消费
 清单，不接触租借或编译配置。
 
+附件租借由本分配器取得，也由本分配器释放（:meth:`CPUAllocator.release`）：
+工作集只登记租借，不持有 reader。
+
 授权边界（A1 访问边界返工第 4.4 节）：本层是任务进程的阶段授权点——
 Profile 解析绑定 ``profile.read``、附件租借绑定 ``asset.acquire``，检查
 都以任务目标 workspace 为目标、在对应副作用前执行；CPU 输入清单的
@@ -13,6 +16,8 @@ Profile 解析绑定 ``profile.read``、附件租借绑定 ``asset.acquire``，�
 """
 
 from __future__ import annotations
+
+import logging
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentCompilerConfig
@@ -37,6 +42,8 @@ from hivememory.engines.memory_compiler import (
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.working_set import ProcessWorkingSet
+
+logger = logging.getLogger(__name__)
 
 
 class CPUAllocator:
@@ -65,10 +72,6 @@ class CPUAllocator:
         self._attachment_compiler = AttachmentCompiler(
             attachment_compiler_config or AttachmentCompilerConfig(),
         )
-
-    def new_working_set(self) -> ProcessWorkingSet:
-        """为一次进程创建工作集；租借经同一 reader 释放。"""
-        return ProcessWorkingSet(asset_reader=self._asset_reader)
 
     async def resolve_agent_profile(
         self,
@@ -120,7 +123,7 @@ class CPUAllocator:
         CPU 执行身份由操作授权者的过渡方法组装（I-9）：清单携带的
         ``IdentityScope`` 不取自调用方。stop 请求不打断分配，由调用方在
         进入 Actor 之前统一检查。任何失败沿异常路径上抛，已取得的租借由
-        工作集在进程关闭时释放。
+        本分配器在进程关闭时释放。
         """
         prepared = working_set.prepared
         if prepared is None:
@@ -187,7 +190,7 @@ class CPUAllocator:
         使用操作授权者返回的可信 scope。reader 的同一 Store 临界区已完成
         Workspace/ref、asset READY 与 representation READY 校验并建立
         lease，无需先做 resolve_asset。取得的 lease 先登记进工作集；版本
-        摘要不一致时经工作集释放该租借并拒绝整轮，不留游离租借。
+        摘要不一致时立即移出工作集并释放该租借，拒绝整轮，不留游离租借。
         """
         if self._asset_reader is None:
             raise WorkspaceDomainError(
@@ -216,7 +219,8 @@ class CPUAllocator:
             )
         )
         if mismatch:
-            working_set.discard_lease(lease)
+            working_set.remove_lease(lease)
+            self._release_lease(lease)
             raise AssetOperationConflictError(
                 "所选附件版本与当前可用表示不一致，请重新选择附件",
                 details={
@@ -225,6 +229,31 @@ class CPUAllocator:
                 },
             )
         return lease
+
+    # ========== 租借释放 ==========
+
+    def release(self, working_set: ProcessWorkingSet) -> None:
+        """释放工作集登记的全部附件租借（幂等：租借只取出一次）。
+
+        进程关闭时由编排骨架同步调用，先于关闭流程中的任何 ``await``。
+        逐项释放；Store 关闭等 ``WorkspaceDomainError`` 只记录警告，不改变
+        进程已经确定的终态。
+        """
+        for lease in working_set.take_leases():
+            self._release_lease(lease)
+
+    def _release_lease(self, lease: RepresentationLease) -> None:
+        if self._asset_reader is None:
+            return
+        try:
+            self._asset_reader.release_representation_lease(lease.lease_id)
+        except WorkspaceDomainError as exc:
+            # Store 已关闭等清理路径：记录摘要，不改变进程终态。
+            logger.warning(
+                "释放附件 lease 失败: lease_id=%s, code=%s",
+                lease.lease_id,
+                exc.code,
+            )
 
 
 __all__ = ["CPUAllocator"]

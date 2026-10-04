@@ -3,7 +3,8 @@
 进程表是 workspace 进程内共享设施，也是唯一的进程注册表：以
 ``process_id`` 为键登记任务进程（``TaskProcess`` 容器），进程记录作为
 进程的控制面经进程取得，不单独登记（任务进程 Idea 1.2 的 2026-10-04 注）。
-注册、注销与进程控制授权由注册入口（``workspace.process.service``）负责；
+注册、注销与进程控制授权由注册入口（``workspace.process.service``）负责，
+阶段推进与终态记录由编排骨架（``workspace.process.runner``）负责；
 进程记录只持有访问 context 与进程自身的元数据，不保存身份字段（A1 访问
 边界返工第 4.4 节，I-8）。
 """
@@ -95,6 +96,16 @@ class ProcessRecord:
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
+
+    @property
+    def is_terminal(self) -> bool:
+        """进程是否已记录终态（completed / cancelled / failed）。
+
+        编排骨架每次记录终态后紧接着交出终态产出，中间没有 ``await``，
+        因此它同时表示“终态产出已经交出”；关闭流程据此判断是否需要按
+        断流收口。
+        """
+        return self.phase is ProcessPhase.TERMINAL
 
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""

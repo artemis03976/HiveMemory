@@ -22,7 +22,7 @@ last_reviewed: 2026-10-04
 
 应用服务是 transport 与子系统之间的用例层。它们由 System 组合根装配、经 `HiveMemorySystem` 门面交给入口，但按归属分布在三处：
 
-- 任务进程表与 chat 任务进程编排：`workspace.process`（`ProcessTable`/`ProcessRecord` 进程表、`TaskProcessService` 唯一注册入口与 `TaskProcess` 四阶段骨架）；
+- 任务进程表与 chat 任务进程编排：`workspace.process`（`ProcessTable`/`ProcessRecord` 进程表、`TaskProcessService` 唯一注册入口、`TaskProcess` 进程状态容器与 `TaskProcessRunner` 四阶段骨架）；
 - 资源能力层：`workspace.capability`（Memory、MemoryTask、Agent Profile、Topic、WorkspaceAsset 服务）；
 - 系统级服务：`system.application`（被动摄入与就绪检查）。
 
@@ -73,17 +73,29 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 ## 3. 主动 chat：唯一编排者
 
-`TaskProcessService` 是任务请求的唯一注册入口（当前只有主动 chat 经它进入），注册与运行分开：`register_process()` 完成认证并创建进程、返回进程句柄（第 4 节），`run_process(handle, stream=…)` 运行已注册的进程，`stream`（默认 `True`）只决定交付形态；注册参数 `message` 是交给 Gateway 分析的指令文本。每次注册创建一个 `TaskProcess`（`workspace/process/task_process.py`），它既是本进程的状态容器（进程记录、工作集、事件投影），也承载唯一的编排骨架 `run()` 与唯一的关闭流程 `close()`。骨架只产出类型化的阶段产出（`workspace/process/outputs.py`），流式交付把它们投影为 SSE 事件，非流式交付只取终态产出；两种形态共用同一条阶段顺序、同一组取消响应点与同一个关闭流程。它们在执行上只有两处差异：CPU 以流式还是非流式产出，finalize 之后的话题池读取只服务于流式 `done` 事件。编排途中的异常在两种形态下都先记录失败终态、完成关闭，再由流式交付翻译为 `error` 事件（Workspace 领域错误携带安全文案与错误码，其余统一为系统错误），或由非流式交付原样上抛。
+`TaskProcessService` 是任务请求的唯一注册入口（当前只有主动 chat 经它进入），注册与运行分开：`register_process()` 完成认证并创建进程、返回进程句柄（第 4 节），`run_process(handle, stream=…)` 运行已注册的进程，`stream`（默认 `True`）只决定交付形态；注册参数 `message` 是交给 Gateway 分析的指令文本。
 
-CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成；`chat.run.*` 观测事件由领域 emitter `TaskProcessEventEmitter`（`workspace/process/events.py`）投影。
+任务进程由三个角色组成，按“谁持有什么”划分：
 
-Actor 执行经 CPU 端口完成：`TaskProcessService` 由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
+| 角色 | 持有 | 不持有 |
+|:---|:---|:---|
+| `TaskProcessService`（注册入口，`workspace/process/service.py`） | 生命周期依赖：认证网关、操作授权者（进程控制授权）、事件 emitter、进程表、执行器 | 总线、CPU 端口、CPU 分配器、asset reader、编译配置等编排依赖 |
+| `TaskProcess`（进程状态容器，`workspace/process/task_process.py`） | 本进程独有的东西：进程记录（含访问 context 与绑定了本进程标签的观测通道）、任务参数、工作集、`trace_id`、驱动本进程的 owner task | 任何跨进程共享的依赖 |
+| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、`CPUAllocator`、操作授权者（阶段授权）、Gateway 超时配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)` | 任何进程的状态 |
+
+这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-3），并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（同一 Idea 1.2）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。
+
+骨架只产出类型化的阶段产出（`workspace/process/outputs.py`），流式交付把它们投影为 SSE 事件，非流式交付只取终态产出；两种形态共用同一条阶段顺序、同一组取消响应点与同一个关闭流程。它们在执行上只有两处差异：CPU 以流式还是非流式产出，finalize 之后的话题池读取只服务于流式 `done` 事件。编排途中的异常在两种形态下都先记录失败终态、完成关闭，再由流式交付翻译为 `error` 事件（Workspace 领域错误携带安全文案与错误码，其余统一为系统错误），或由非流式交付原样上抛。
+
+CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成，它取得的附件租借也由它在进程关闭时释放；`chat.run.*` 观测事件由领域 emitter `TaskProcessEventEmitter`（`workspace/process/events.py`）投影。
+
+Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
 
 ### 3.1 非流式链路
 
 ```text
 TaskProcessService.register_process()：认证、创建进程、登记进程表，返回进程句柄
-TaskProcessService.run_process(handle, stream=False) -> TaskProcess.run()
+TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(process)
   -> Gateway public process (ACTIVE_CHAT)             阶段授权 resource.read
   -> command: return command outcome
   -> decision: 解析 Agent Profile（Patchouli get_agent_profile）  profile.read
@@ -93,10 +105,10 @@ TaskProcessService.run_process(handle, stream=False) -> TaskProcess.run()
   -> Actor 执行：CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
   -> completed: 封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
   -> cancelled/failed: Patchouli cleanup_prepared_agent_run（不做阶段授权）
-  -> 关闭：TaskProcess.close() 释放附件租借；注册入口撤销 context、从进程表注销
+  -> 关闭：TaskProcessRunner.close(process) 经 CPUAllocator 释放附件租借；注册入口撤销 context、从进程表注销
 ```
 
-每次阶段调用前，进程以注册时通过认证的 Workspace 为目标调用 `authorize_operation`，把返回的 `IdentityScope` 传给对应路由；某一阶段缺少 operation 时在该阶段失败，不产生后续副作用。`interaction.submit` 提前到进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒。CPU 输入清单中的 `IdentityScope` 由操作授权者的过渡方法 `cpu_execution_identity` 组装（[Workspace 架构](../architecture/workspace.md)第 4.4 节）。
+每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_operation`，把返回的 `IdentityScope` 传给对应路由；某一阶段缺少 operation 时在该阶段失败，不产生后续副作用。`interaction.submit` 提前到进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒。CPU 输入清单中的 `IdentityScope` 由操作授权者的过渡方法 `cpu_execution_identity` 组装（[Workspace 架构](../architecture/workspace.md)第 4.4 节）。
 
 CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
@@ -104,7 +116,9 @@ Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare �
 
 交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；finalize 原样提交。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
-本进程的 prepare 结果、附件租借与附件编译得出的实际使用引用由进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）持有；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。进程无论以何种结局结束都经注册入口关闭：`TaskProcess.close()` 先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
+进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用与 Actor 执行期间打开的 CPU 输出流；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
+
+进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
 
 Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 

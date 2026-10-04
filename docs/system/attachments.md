@@ -17,7 +17,7 @@ code_paths:
   - src/hivememory/components/serial_gate.py
   - src/hivememory/engines/attachment_compiler/
   - src/hivememory/workspace/process/allocation.py
-  - src/hivememory/workspace/process/task_process.py
+  - src/hivememory/workspace/process/runner.py
   - src/hivememory/workspace/process/working_set.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/patchouli/control/interaction_submission.py
@@ -38,7 +38,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # Chat 附件链路
@@ -126,7 +126,7 @@ complete/fail 被 Store 以 stale、removed 或 closed 拒绝时直接传播既�
 
 任务进程按用户顺序逐项调用 reader 的 `acquire_ready_representation()`——该端口已在 Store 同一临界区完成归属、asset READY 与 representation READY 校验并建立 lease，不做前置 `resolve_asset`。返回 lease 的 representation ID/revision/hash 与请求摘要核对，任一失败释放已取得的 lease 并拒绝整个 run；请求字段结构错误在 HTTP body 校验拒绝（422），ref/READY/版本失败在 CPU 分配时拒绝（Alice 未启动、Interaction 未提交，prepare 预建的空话题经 cleanup 清理），沿 Chat/Workspace 错误边界以安全文案返回。remove 早于 acquire 按既有 Store 语义拒绝本轮；acquire 早于 remove 时已有 lease 保存冻结内容，本轮继续可用。
 
-lease 由任务进程的工作集（`ProcessWorkingSet`）持有，生命周期与进程相同：无论完成、取消、失败、断流还是 CPU 分配失败，进程关闭时（`TaskProcess.close()`）统一释放；释放先于关闭 CPU 输出流与 cleanup 等 `await` 同步执行，这些 `await` 被取消也不会泄漏 lease。正常完成时，finalize 返回（Interaction 已 applied）之后才释放；finalize 期间进程被取消（例如客户端断开）时，lease 随进程结束释放，而 Interaction 仍由 Patchouli 的 continuation 继续应用。释放容忍 Store 已关闭并记录摘要；重复释放沿 Store 幂等语义处理。
+lease 登记在任务进程的工作集（`ProcessWorkingSet`）中，生命周期与进程相同：无论完成、取消、失败、断流还是 CPU 分配失败，进程关闭时（执行器的 `TaskProcessRunner.close(process)`）由取得它的 `CPUAllocator` 统一释放；工作集只登记，不持有 reader；释放先于关闭 CPU 输出流与 cleanup 等 `await` 同步执行，这些 `await` 被取消也不会泄漏 lease。正常完成时，finalize 返回（Interaction 已 applied）之后才释放；finalize 期间进程被取消（例如客户端断开）时，lease 随进程结束释放，而 Interaction 仍由 Patchouli 的 continuation 继续应用。释放容忍 Store 已关闭并记录摘要；重复释放沿 Store 幂等语义处理。
 
 ## 5. AttachmentCompiler
 
@@ -167,7 +167,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 - 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/assets.py`](../../src/hivememory/workspace/capability/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
 - 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`components/serial_gate.py`](../../src/hivememory/components/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`infrastructure/attachments/`](../../src/hivememory/infrastructure/attachments/)；
-- Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/task_process.py`](../../src/hivememory/workspace/process/task_process.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；封口写入快照：[`workspace/process/sealing.py`](../../src/hivememory/workspace/process/sealing.py)；finalize 原样提交：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
+- Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/runner.py`](../../src/hivememory/workspace/process/runner.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；封口写入快照：[`workspace/process/sealing.py`](../../src/hivememory/workspace/process/sealing.py)；finalize 原样提交：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；
 - 配置：[`config/attachments.py`](../../src/hivememory/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。
 

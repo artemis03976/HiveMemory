@@ -38,6 +38,7 @@ from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -109,9 +110,9 @@ async def _service(
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
-    service = TaskProcessService(
+    service = make_task_process_service(
         bus,
-        publisher,
+        event_publisher=publisher,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,

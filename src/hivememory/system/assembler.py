@@ -48,6 +48,8 @@ from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process.allocation import CPUAllocator
+from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
@@ -354,24 +356,36 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
-        process = TaskProcessService(
-            global_bus=runtime.global_bus,
-            gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
-            # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
-            event_publisher=runtime.event_publisher,
-            # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
-            # 由组合根注入，workspace.process 不出现 Alice 的路由名或结果类型。
-            cpu=subsystems.alice.cpu_port,
-            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给任务进程：
-            # 附件租借在 CPU 分配边界 resolve/acquire，随进程关闭统一释放。
+        # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
+        # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
+        allocator = CPUAllocator(
+            runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
+            # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
             # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
+        )
+        runner = TaskProcessRunner(
+            runtime.global_bus,
+            # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
+            # 由组合根注入，workspace.process 不出现 Alice 的路由名或结果类型。
+            cpu=subsystems.alice.cpu_port,
+            allocator=allocator,
+            # 阶段授权在执行器内、每次阶段调用前执行。
+            operation_authorizer=access_control.operation_authorizer,
+            gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
+        )
+        process = TaskProcessService(
+            runner,
             # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
-            # 认证经网关，阶段与控制授权经操作授权者。
+            # 认证经网关，进程控制授权经操作授权者。
             access_gateway=access_control.access_gateway,
             operation_authorizer=access_control.operation_authorizer,
+            # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
+            event_publisher=runtime.event_publisher,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,
