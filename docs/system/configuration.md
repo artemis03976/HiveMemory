@@ -8,12 +8,14 @@ code_paths:
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
   - configs/config.yaml
+  - configs/system_principals.yaml
+  - configs/workspace_actors.yaml
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-04
 ---
 
 # System 配置与注册表
@@ -32,18 +34,32 @@ last_reviewed: 2026-09-29
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、日志输出；默认语言、fallback 字段、支持语言列表 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`、日志输出；默认语言、fallback 字段、支持语言列表 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、observer/perception/GC 任务开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
 | `passive_ingress` | `config.passive` | dedup、turn accumulator 上限 | System passive ingress |
 | `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者；由组合根注入 workspace 任务进程（检索结果编译）与 Alice（MTP 输出编译） |
 | `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler；`attachment_compiler` 由组合根注入 workspace 任务进程 |
-| `access` | `config.access` | 调用来源接入登记、Workspace Actor 访问登记、context TTL | System 接入登记 / workspace 准入 |
 | `workspace` | `config.workspace` | 读取视图缓存容量 | workspace |
 | `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置 | 对应子系统 |
 
-System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
+访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
+
+### 1.1 访问登记文件
+
+两类访问登记各用一个 YAML 文件，对应各自的配置所有者，由 `config/access.py` 的 `load_access_registration()` 在组合根装配时装载，不经过 `HiveMemoryConfig`：
+
+| 文件 | 顶层键 | 配置所有者 | 路径覆盖 |
+|:---|:---|:---|:---|
+| `configs/system_principals.yaml` | `principals`：调用来源的接入登记 | System | `HIVEMEMORY_PRINCIPALS_PATH` |
+| `configs/workspace_actors.yaml` | `workspace_actors`：Workspace Actor 的准入与行为白名单 | workspace | `HIVEMEMORY_WORKSPACE_ACTORS_PATH` |
+
+- 两个文件都拒绝未知字段；默认路径的文件缺失时按空登记装载并告警，网关随后拒绝一切认证（fail closed）；显式指定的路径缺失或内容非法时装载失败。
+- 登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
+- `system.server_principal_id`（默认 `hivememory:http-server`）是 server 经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致。
+
+登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
 
 ## 2. 来源与优先级
 

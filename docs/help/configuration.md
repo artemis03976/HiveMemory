@@ -8,13 +8,16 @@ code_paths:
   - configs/models.yaml
   - configs/.env.example
   - configs/providers.secrets.example.yaml
+  - configs/system_principals.yaml
+  - configs/workspace_actors.yaml
+  - src/hivememory/config/access.py
   - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
   - src/hivememory/server/routers/config.py
 related_contracts:
   - docs/architecture/boundaries.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-10-04
 ---
 
 # HiveMemory 配置指南
@@ -31,6 +34,8 @@ HiveMemory 把配置分为三类：主配置描述系统如何装配，Model Reg
 | `configs/models.yaml` | 模型 ID、展示名、LiteLLM model、Provider 引用和默认采样参数 | 可以提交；不要写密钥 |
 | 根 `.env` 或 `configs/.env` | 环境覆盖与 Provider 密钥 | 不提交 |
 | `configs/providers.secrets.yaml` | 由 UI/API 管理的 Provider 凭证 | 不提交，已 gitignore |
+| `configs/system_principals.yaml` | 访问登记：允许接入的调用来源（server 自身作为 `hivememory:http-server` 登记） | 可以提交；不含凭据 |
+| `configs/workspace_actors.yaml` | 访问登记：哪个用户/Agent 可以进入哪个 Workspace、能执行哪些操作 | 可以提交；不含凭据 |
 | `HIVEMEMORY_CONFIG_PATH` | 改用指定 YAML 主配置 | 由部署环境决定 |
 
 `.env` 与 `configs/.env` 都会被配置加载器读取。为减少同一键在两个文件中重复，个人开发建议只维护根 `.env`；Docker Compose 也明确把根 `.env` 作为可选 `env_file`。容器同时挂载 `configs/`，因此其中的配置和 secret 文件可以持久化。
@@ -112,6 +117,17 @@ Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子
 
 ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证在后续动态解析时可立即被读取。但已经解析并交给长期存活组件的配置仍可能需要重启。
 
+### 5.1 访问登记
+
+与 Workspace 相关的 HTTP 请求（Chat、停止、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关：server 以 `system.server_principal_id` 登记的 principal 接入，再按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。随仓库发布的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（Chat 所需的读取、检索、Profile、附件与交互提交），并为管理操作单独登记保留的 `system`（记忆、话题、附件与任务管理）。
+
+- 使用其他用户（请求头 `x-user-id`）时，需要在 `workspace_actors.yaml` 中为该用户登记对应记录，否则请求返回 403（`reason=actor_not_admitted`）；
+- 两个登记文件可分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置；修改后需要重启服务；
+- 登记文件缺失时按空登记处理，所有 Workspace 请求都会被拒绝；
+- 请求头中的用户身份不做证明，只适用于本地单用户部署。
+
+字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
+
 ## 6. 当前 Settings 页面限制
 
 Provider 与 Model Registry 使用独立、已对齐的 API。其余主配置表单仍采用旧的扁平前端类型，而后端已经使用 `shared/patchouli/alice/gateway/...` 嵌套结构；部分分类可能显示错误、读取空字段或提交不完整结构。当前不要把 Settings 中所有可见开关都视为可靠控制面。
@@ -122,6 +138,6 @@ Provider 与 Model Registry 使用独立、已对齐的 API。其余主配置表
 
 - 不提交 `.env`、`configs/providers.secrets.yaml` 或任何真实 API key；
 - 不因为 API 响应会脱敏，就在 `models.yaml` 的高级覆盖中保存密钥；
-- 生产环境优先使用进程/编排环境注入，并限制配置 API 的网络可达性；当前服务没有登录与权限系统；
+- 生产环境优先使用进程/编排环境注入，并限制配置 API 的网络可达性；当前服务没有登录系统，请求头中的用户身份不做证明，访问登记只适用于本地单用户部署；
 - 修改 Provider/Model/Config 后检查实际进程使用的模型，而不只看页面保存 toast；
 - 项目版本不是可覆盖配置；代码、Python 包、FastAPI 与 health 使用同一规范版本，是否已经发布仍以匹配的 Git tag 为准，完整口径见 [Project](../PROJECT.md)。

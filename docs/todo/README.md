@@ -12,9 +12,8 @@ last_reviewed: 2026-10-03
 
 当前事项：
 
-- [TaskProcess 容器的职责与依赖方向](./task-process-container-ownership.md)（未排期：容器反向持有进程表与各类组件、自行登记与注销，与“入口只管理任务进程的生命周期”不一致；2026-10-03 登记）；
+- [TaskProcess 容器的职责与依赖方向](./task-process-container-ownership.md)（未排期：登记与注销、context 的持有已随 A1 返工解决，剩余每个进程的容器持有 service 级共享依赖；2026-10-03 登记，2026-10-04 更新）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
-- [WorkspaceAsset 上传的认证上下文与 scope 不一致](./workspace-asset-upload-access-scope-mismatch.md)（已知 bug，后续处理）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
 - [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；
@@ -24,7 +23,7 @@ last_reviewed: 2026-10-03
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [全局路由 kwargs 与 handler 签名一致性校验](./global-route-signature-consistency-check.md)；
 
-原“A1 访问边界返工”涉及 workspace、Patchouli、server 与配置的跨系统改动，于 2026-10-02 升级为计划：[v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)。
+原“A1 访问边界返工”涉及 workspace、Patchouli、server 与配置的跨系统改动，于 2026-10-02 升级为计划，2026-10-04 实施归档：[v0.7.0 A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)。原“WorkspaceAsset 上传的认证上下文与 scope 不一致”已随该计划修复并归档：[归档记录](../archive/todo/workspace-asset-upload-access-scope-mismatch.md)。
 
 原“Page Folding 跨入口上下文与证据后续技术债”于 2026-10-01 按前台与后台拆分后删除（删除前最后版本见 commit `74b5056`）：后台 Topic 折叠的缺口并入 [Page Folding Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md) 第 9 节，前台上下文的缺口并入 [Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md) 第 14 节。
 

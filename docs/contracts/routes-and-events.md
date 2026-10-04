@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 公开路由与事件
@@ -70,9 +70,9 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`）、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（按领域排序） |
-| `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope`、可选 `WorkspaceAccessContext` | `list[MemoryAtom]`（只含实际可读的原子） |
-| `patchouli.public.memory.read` | `read_memory` | memory id、`WorkspaceAccessContext` 或兼容 `IdentityScope` | `MemoryAtom \| None`（未知或不可见均为 `None`） |
+| `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `list[MemoryAtom]`（按领域排序） |
+| `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `list[MemoryAtom]`（只含实际可读的原子） |
+| `patchouli.public.memory.read` | `read_memory` | memory id、`identity_scope`、refresh | `MemoryAtom \| None`（未知或不可见均为 `None`） |
 | `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | `IdentityScope`、`interaction_id`、`GatewayDecision`、是否检索 | `PreparedAgentRun`（Topic 准备结果与未编译检索结果） |
 | `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、任务进程封口的 `InteractionPayload`（含实际使用的附件引用） | memory task 列表 |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun` | 是否清理空话题 |
@@ -82,10 +82,10 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.interaction.submit` | `submit_interaction` | `WorkspaceAccessContext`（必需）、`InteractionPayload`、可选 requested topic / interaction id | `InteractionSubmitResult`（接纳结果） |
-| `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `WorkspaceAccessContext`（必需）、`MemoryIntent` | `MemoryIntentSubmissionResult`（结果经任务观察查询） |
+| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`、`InteractionPayload`、可选 requested topic / interaction id | `InteractionSubmitResult`（接纳结果） |
+| `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `identity_scope`、`MemoryIntent` | `MemoryIntentSubmissionResult`（结果经任务观察查询） |
 
-上表两条路由要求有效访问上下文，供持有 context 的调用方提交交互与主动记忆意图。现有主动（chat finalize）与被动生产路径不经这两条路由，而是直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.identity_scope` 是唯一作用域来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
+上表两条路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权，目前没有生产调用方。现有主动（chat finalize）与被动生产路径不经这两条路由，而是直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.identity_scope` 是唯一作用域来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
 
 ### 2.3 Patchouli Memory
 
@@ -102,12 +102,12 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory_task.list` | `list_memory_tasks` | 无 | task 列表 |
-| `patchouli.public.memory_task.get` | `get_memory_task` | task id | task 或 `None` |
-| `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id | `bool` |
+| `patchouli.public.memory_task.list` | `list_memory_tasks` | `identity_scope` | 本 Workspace 的 task 列表 |
+| `patchouli.public.memory_task.get` | `get_memory_task` | task id、`identity_scope` | task 或 `None`（越域与不存在统一为 not found） |
+| `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id、`identity_scope` | `bool`（越域与不存在统一为 not found） |
 | `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`MemoryAtom` | `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、`IdentityScope`（自定义 alias 必需）、可选 `WorkspaceAccessContext` | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、`IdentityScope`（自定义 alias 必需） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
 | `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、可选 topic id | `TopicSettleResult` |
@@ -193,11 +193,13 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 ## 6. HTTP 入口的身份交接与管理读取边界
 
-HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。
+HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、被动接入）附加具体 `agent_id`；基础选择经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop 请求体不再重复携带身份字段，Topic 的 `?user_id=` 旧 query 与 header 收敛到同一解析规则。
-- `server/deps.py resolve_request_identity_scope` 是唯一解析入口：header 与 body/query 冲突显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 显式失败；非 Agent action 注入保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
-- Chat 必须由具体 Agent 执行；`/chat/stop` 不是 Agent action，服务端用请求方选择完成 owner/workspace 校验后，通过进程表复用创建时冻结的原始 scope 取消，不从当前选择重新构造 scope。
+- `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`：header 与 body/query 冲突显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
+- 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作与 `/chat/stop` 取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
+- `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
+- 被动接入 `/ingest` 不经认证网关，由 `resolve_request_identity_scope` 在认证前组装 `IdentityScope`（已知例外）。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
 

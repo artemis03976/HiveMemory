@@ -18,7 +18,7 @@ code_paths:
   - src/hivememory/patchouli/application/access_consumption.py
 related_docs:
   - docs/ideas/workspace-network-task-process-architecture.md
-  - docs/plans/v0.7.0-a1-access-boundary-rework.md
+  - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -36,7 +36,8 @@ last_reviewed: 2026-10-04
 owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在本文集中讨论。起因是 A1 返工的实现暴露出两个现象：访问 context 只剩 `IdentityScope` 一个字段；代码里 `identity_scope` 与 `access` 两个身份字段随意混用。这说明 A1 交付时建立的权限体系与身份之间的边界是错的。这本应是一个独立且复杂的体系，但鉴于 A1 的错误实现，需要在 v0.7.0 内正式建立，否则后续漂移会更严重。
 
 - **与总 Idea 第三部分的分工**：[总 Idea](./workspace-network-task-process-architecture.md)第三部分讨论认证与授权的流程（两阶段认证、能力层操作授权、管理员直接通道、P-1–P-10）；本文界定在这些流程中流动的身份数据：actor 身份、访问 context、`IdentityScope` 与资源身份分别是什么、在哪里产生、可以流向哪里。
-- **与 A1 返工计划的关系**：[A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md)的第一版实现已提交（commit `37f800e`），但计划第 4 节的设计以“访问 context 携带 `IdentityScope`、资源 owner 校验 context”为前提，与本文冲突。A1 返工计划已于 2026-10-03 按本文第一批改写（第 8 节）。
+- **与 A1 返工计划的关系**：[A1 返工计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md)的第一版实现已提交（commit `37f800e`），但计划第 4 节的设计以“访问 context 携带 `IdentityScope`、资源 owner 校验 context”为前提，与本文冲突。A1 返工计划已于 2026-10-03 按本文第一批改写（第 8 节）。
+- **实施进度（2026-10-04）**：第一批已随 A1 返工实施完成并晋升为当前事实，计划已归档；当前的身份数据形态、两阶段认证与两阶段授权、密封的访问 context、认证一侧与操作授权者的划分见 [Workspace 架构](../architecture/workspace.md)第 4 节。本文第 6 节的现状事实保留为第一批实施前的代码快照，不再描述当前实现；第二批（第 8 节）与 I-6、I-7 仍待推进。
 - 现状事实按 commit `37f800e` 的代码核对（第 6 节）。待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
 
 ## 1. 前提（owner 提出，2026-10-03）
@@ -351,7 +352,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 
 | 批次 | 范围 | 关系 |
 |:---|:---|:---|
-| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄，按对象身份判定有效，取消进程只有一个方法（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者；context 自带密封的授予内容，认证与授权互不依赖（I-10 及其补充） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
+| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄，按对象身份判定有效，取消进程只有一个方法（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者；context 自带密封的授予内容，认证与授权互不依赖（I-10 及其补充） | 即 A1 返工计划，已于 2026-10-03 按此改写；2026-10-04 实施完成并归档 |
 | 第二批 | 记录与后台任务改用资源身份（6.3 第三类）；修订 AGENTS.md 第 3 节的相应规则（修改 AGENTS.md 需 owner 同意） | 在第一批之后 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
@@ -366,7 +367,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | 文档 | 关系 |
 |:---|:---|
 | [总 Idea](./workspace-network-task-process-architecture.md)第三部分 | 认证与授权的流程与待决问题（P-1、P-4a、P-9 等）仍在那里；本文界定其中流动的身份数据 |
-| [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md) | 第一批的实施计划，已于 2026-10-03 改写 |
+| [A1 返工计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md) | 第一批的实施计划，已于 2026-10-03 改写 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Q-3a 已决定访问 context 进入进程记录，进程记录与进程同寿，与不变量 3 一致；进程记录如何持有身份见 I-8；认证与进程创建的顺序见 I-3 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | principal 与 adapter 的登记（I-2）；plugin 模式下不建进程的访问同样遵循本文的边界 |
 | [外部会话 Idea](./external-session-and-topic-projection.md) | `session_id` 的处理（I-7） |

@@ -1,32 +1,37 @@
 ---
 title: WorkspaceAsset 上传的认证上下文与 scope 不一致
-status: todo
+status: archived
+archived_at: 2026-10-04
+implemented_by: v0.7.0 A1 访问边界返工（37f800e–1dc16ca）
+superseded_by: docs/architecture/workspace.md、docs/system/application-services.md
 owner: system-workspace
 scope: workspace-asset-upload-access-scope-consistency
 priority: P1
 code_paths:
   - src/hivememory/workspace/capability/assets.py
-  - src/hivememory/workspace/access.py
-  - src/hivememory/system/runtime/workspace/store.py
+  - src/hivememory/workspace/authorization.py
 related_docs:
   - docs/archive/plans/v0.7.0-a1-workspace-access-boundary.md
+  - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-04
 ---
 
 # WorkspaceAsset 上传的认证上下文与 scope 不一致
 
 ## 状态与处理决定
 
+> **已修复并归档（2026-10-04）**：由 [v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)结构性修复。上传方法 `upload_asset` 只接收访问 context 与目标 Workspace，先经操作授权者授权（`management.asset`），串行门分区、资产注册与解析交接一律使用授权返回的 `IdentityScope`；调用方不再能另传 scope，无 access 的兼容入口已随兼容分支删除。完成条件的对应证据：目标不等于驻留 Workspace 时在副作用前拒绝且不产生资产（`test_upload_target_outside_resident_workspace_is_denied_before_side_effects`）；缺少 `management.asset` 时拒绝且不注册任何资产（`test_upload_without_management_asset_operation_denied_and_registers_nothing`）；未获准入的用户经 HTTP 上传返回 403（`test_unadmitted_user_upload_returns_403_with_stable_reason`）；以上均使用真实网关、操作授权者、上传服务与内存 Store。当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4.5 节与 [System 应用服务](../../system/application-services.md)第 2 节；以下内容保留原始记录。
+
 **排期（2026-10-02）**：由 [v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)修复（该计划第 4.5 节）；2026-10-02 复核，`workspace/capability/assets.py` 的 `upload_asset` 仍未校验传入 scope 与 context 一致。修复验收后本记录归档。
 
-2026-09-19 在 v0.7.0 A1 重新实现的代码审查中确认，记录为已知 bug，尚未修复。由于修复可能涉及 Asset 链路的身份传递及兼容行为，按用户决定单独留待后续处理，具体修复版本未定。本记录承接该审查发现，不改变 [A1（已归档）](../archive/plans/v0.7.0-a1-workspace-access-boundary.md) 中“请求 DTO 不得覆盖可信身份”的目标约束，也不将记录问题等同于验收通过。
+2026-09-19 在 v0.7.0 A1 重新实现的代码审查中确认，记录为已知 bug，尚未修复。由于修复可能涉及 Asset 链路的身份传递及兼容行为，按用户决定单独留待后续处理，具体修复版本未定。本记录承接该审查发现，不改变 [A1（已归档）](../plans/v0.7.0-a1-workspace-access-boundary.md) 中“请求 DTO 不得覆盖可信身份”的目标约束，也不将记录问题等同于验收通过。
 
 证据基线为 `318d8f02` 之上的 A1 工作区实现；以下描述针对当时的带 access 上传路径，不代表 v0.6.2 的稳定基线。
 
 ## 问题与影响
 
-[WorkspaceAssetApplicationService.upload_asset](../../src/hivememory/workspace/capability/assets.py) 同时接收 `access` 与 `identity_scope`。提供 access 时，共享检查确认其具有 `management.asset` 权限，但方法未校验传入 scope 与 `access.identity_scope` 是否一致，随后直接使用传入 scope 选择串行门分区、注册资产并交给解析服务。
+[WorkspaceAssetApplicationService.upload_asset](../../../src/hivememory/workspace/capability/assets.py) 同时接收 `access` 与 `identity_scope`。提供 access 时，共享检查确认其具有 `management.asset` 权限，但方法未校验传入 scope 与 `access.identity_scope` 是否一致，随后直接使用传入 scope 选择串行门分区、注册资产并交给解析服务。
 
 因此，调用方可以持有 W1 的合法上传权限，却通过另一个 scope 把资产写入未获准进入的 W2；这个 scope 也可以同时替换 Actor 与 owner。问题发生在授权结果与实际资源操作之间：认证上下文自身不需要被篡改，也不需要通过 W2 的准入。
 
@@ -43,7 +48,7 @@ last_reviewed: 2026-10-02
 
 预期应在读取上传内容、注册资产或启动解析之前拒绝 scope 冲突，目标 Workspace 不产生资产或解析状态。
 
-当次相关测试共 178 项通过，但已有附件测试通过 [make_upload_service](../../tests/helpers/attachment_parsing.py) 使用无 access 的兼容路径，未覆盖上述带 access 的身份冲突。真实组件的独立复现确认了该缺陷，尚未加入回归测试。
+当次相关测试共 178 项通过，但已有附件测试通过 [make_upload_service](../../../tests/helpers/attachment_parsing.py) 使用无 access 的兼容路径，未覆盖上述带 access 的身份冲突。真实组件的独立复现确认了该缺陷，尚未加入回归测试。
 
 ## 后续处理范围与完成条件
 

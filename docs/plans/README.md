@@ -17,9 +17,9 @@ last_reviewed: 2026-10-03
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
 | 1 | 任务进程表与任务请求唯一注册入口 | 已完成：第一至第五批均已实施归档（[落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)、[命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md)）；Topic 按需创建与写入意图分别归外部会话与写入意图迁移两个方向 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
-| 1 之后 | A1 访问边界返工 | 进行中：第一版实现已提交（`37f800e`）；2026-10-03 已按身份与访问体系 Idea 的第一批改写设计，以 `37f800e` 为起点继续实施 | [计划](./v0.7.0-a1-access-boundary-rework.md) |
-| 与 A1 返工同步 | 身份与访问体系 | 2026-10-03 建立独立 Idea：界定 actor 身份、访问 context、`IdentityScope` 与资源身份；第一批即改写后的 A1 返工计划，第二批处理记录与后台任务的资源身份 | [Idea](../ideas/identity-and-access-model.md) |
-| A1 返工之后 | Alice 的能力层调用迁移 | 依赖 A1 返工重新建立的访问边界，单独建立计划；计划尚未建立 | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#155-2026-10-02-的决定) 15.5 |
+| 1 之后 | A1 访问边界返工 | 已完成：2026-10-04 实施归档；与 workspace 相关的 HTTP 请求都经认证网关，两阶段认证与两阶段授权按身份与访问体系 Idea 的第一批落地 | [归档计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md)；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |
+| 与 A1 返工同步 | 身份与访问体系 | 2026-10-03 建立独立 Idea：界定 actor 身份、访问 context、`IdentityScope` 与资源身份；第一批随 A1 返工完成（2026-10-04）；第二批处理记录与后台任务的资源身份，计划尚未建立 | [Idea](../ideas/identity-and-access-model.md) |
+| A1 返工之后 | Alice 的能力层调用迁移 | 前驱 A1 返工已完成，计划尚未建立；前置条件包括接上 workspace 读取缓存的失效（总 Idea 13.7、15.7） | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#155-2026-10-02-的决定) 15.5 |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | — | 写入意图（PendingAtom）体系的迁移 | v0.7.0 内完成，分两步；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md)（原 A4） |
 
@@ -37,6 +37,7 @@ last_reviewed: 2026-10-03
 
 | Plan | 状态 | 结果与事实入口 |
 |:---|:---:|:---|
+| [v0.7.0 A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md) | Archived（2026-10-04） | 与 workspace 相关的 HTTP 请求都经统一认证网关；访问 context 改为密封的运行时凭据，认证一侧与操作授权者互不依赖；注册入口先注册后运行，进程表登记任务进程，句柄按对象身份判定有效；Patchouli 与 Gateway 只接收 `IdentityScope`；两个登记文件与用户级记录；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节、[错误模型](../contracts/error-model.md)、[System 应用服务](../system/application-services.md)与 [System 配置](../system/configuration.md) |
 | [v0.7.0 任务进程：命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md) | Archived（2026-10-01） | Gateway 的命令结果只携带解析结果，删除命令分发与执行，任务进程产生“暂不可用”的命令终态；当前事实见 [Gateway 全局命令](../gateway/commands.md) |
 | [v0.7.0 任务进程：CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md) | Archived（2026-10-01） | `workspace.contracts` 定义 `CPUPort` 与 `CPUExecutionResult`，任务进程只经注入的端口调用 CPU；Alice 统一流式与非流式入口并实现端口；测试 CPU 跑通任务进程；当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)与 [System 应用服务](../system/application-services.md) |
 | [v0.7.0 任务进程：结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md) | Archived（2026-09-30） | 任务进程封口交互记录 `InteractionPayload`，Patchouli finalize 改为接收 `PreparedAgentRun` 与 `InteractionPayload` 并原样提交，不再接收 `AgentRunResult`；当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)与 [System 应用服务](../system/application-services.md) |

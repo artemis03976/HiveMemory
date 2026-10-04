@@ -190,7 +190,7 @@ HiveMemorySystem（组合根与门面）
   │    ├─ PassiveIngressService    被动摄入（System）
   │    └─ Memory / Task / Profile / Topic / Asset 能力服务（workspace.capability）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
-  ├─ Workspace 设施：认证网关与 guard、读取视图、WorkspaceAssetStore
+  ├─ Workspace 设施：认证网关、认证一侧与操作授权者、读取视图、WorkspaceAssetStore
   ├─ GatewaySystem   入口决策与命令
   ├─ PatchouliSystem 记忆与知识平面
   └─ AliceSystem     Agent 执行与控制平面

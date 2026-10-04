@@ -39,9 +39,9 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-  - docs/plans/v0.7.0-a1-access-boundary-rework.md
+  - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
   - docs/ideas/identity-and-access-model.md
-last_reviewed: 2026-10-03
+last_reviewed: 2026-10-04
 ---
 
 # Workspace 网络与任务进程架构
@@ -288,7 +288,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 与上述处置相关的另外三项决定：
 
 - **workspace 包的现有实现**（A2 已实施部分：`workspace/cache/`、`workspace/resolution/`、`workspace/runtime.py` 与能力层的读取方法）：不承诺其实现正确，也不作为任务进程表计划的前提；该计划制定时重新调查，再决定保留、改造或删除。2026-09-28 的调查结论与 workspace 的子包划分见第 10 节 D-9；
-- **A1 返工**（operation 检查迁移、迁移期兼容分支退出、生产入口接入认证网关）：未排期，不阻塞任务进程表计划，见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)；同日第三次决定改为在任务进程表计划完成后接入（见下文 M-5）；
+- **A1 返工**（operation 检查迁移、迁移期兼容分支退出、生产入口接入认证网关）：未排期，不阻塞任务进程表计划，见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)；同日第三次决定改为在任务进程表计划完成后接入（见下文 M-5）；
 - **ADR-0004 与 ADR-0005**：标记为失效（`deprecated`），没有替代 ADR。
 
 2026-09-27（第三次）：
@@ -305,7 +305,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 | 外部 Actor 的真实接入 | 真正的 adapter 接口与外部服务身份等（原计划 B 的内容）不在 v0.7.0：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x，见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) |
 | 任务进程表与唯一注册入口 | v0.7.0 的首个方向，见[任务进程 Idea](./task-process-table-and-registration-entry.md) |
 | 外部会话消息的接收与 Topic 投影 | 在 v0.7.0 内完成，Alice 作为第一个使用者，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md) |
-| A1 返工 | 在任务进程表计划完成、已有稳定入口之后接入，见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md) |
+| A1 返工 | 在任务进程表计划完成、已有稳定入口之后接入，见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md) |
 | Import Bus（现有 Passive Ingress 链路） | 不在核心全局拓扑上，现在从全局拓扑中断开；逐步演进为独立功能，不在 v0.7.0 计划内。第 5 节 Q-11–Q-13 与第 10 节 D-8a 随之移出 v0.7.0 |
 | 写入意图（PendingAtom）体系的迁移、workspace 包的重新调查 | 本次未涉及，维持原状态：前者方向保留、未排序；后者在任务进程表计划制定时进行。2026-09-28 决定写入意图迁移纳入 v0.7.0，分两步实施，见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 |
 
@@ -437,7 +437,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本节问题随其独立演进处理�
 
 能力层由原 `system/application` 的资源能力部分改造而成，不新建中间层：拥有平面状态（resolver、双缓存、边界授权、lease）或组合多个领域步骤的方法构成能力实现；向单个 backing 领域操作的无状态委托可以保持薄转发，条件是转发前已在能力边界完成 operation 授权，且转发目标是一个完整的领域操作而不是裸机制（如 `patch_payload`）。现状：资源能力位于 `workspace/capability`，chat 编排暂置 `alice.application`（第 9 节 D-9）；2026-09-28 决定 chat 编排迁入 workspace 的 `process` 子包（第 10 节 D-9）。
 
-adapter 的五条判据见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 3.4；operation 授权的检查点迁移见 [A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)与第三部分前提第 5 条。
+adapter 的五条判据见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 3.4；operation 授权的检查点迁移见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)与第三部分前提第 5 条。
 
 #### 7.1.7 库外模式的断开测试
 
@@ -601,12 +601,14 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 
 ## 13. 第三部分现状事实（代码核对）
 
+> 2026-10-04：13.1–13.6 是 A1 访问边界返工之前的代码快照，13.7 按 commit `bd9b301` 核对；A1 返工已实施完成并归档（[归档计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md)），认证与授权的当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节。以下快照保留为讨论背景，不再描述当前实现。
+
 ### 13.1 A1 的认证与授权组件
 
 | 组件 | 位置 | 现有行为 |
 |:---|:---|:---|
 | 统一认证网关 | [`workspace/authentication.py`](../../src/hivememory/workspace/authentication.py) 的 `ActorAuthenticationGateway.authenticate`（Principal authentication 经 `core.access.PrincipalAuthenticator` 端口委托 `system/access/` 的 `SystemPrincipalAuthenticator`） | 第一步 Principal authentication：查 System 接入登记（未登记与已禁用统一拒绝）、匹配 adapter、按可选的 `allowed_user_ids` 收紧；第二步委托 guard 做 Workspace 准入。两步都通过才签发 context，失败为 `AdmissionDeniedError` |
-| Workspace guard | [`workspace/access.py`](../../src/hivememory/workspace/access.py) 的 `WorkspaceAccessGuard` | `_admit` 签发 context；`authorize_operation` 每次调用都重新查询访问记录再检查白名单，缺少许可为 `OperationDeniedError`；`verify_context` 只校验签发、有效期与准入 |
+| Workspace guard | `workspace/access.py` 的 `WorkspaceAccessGuard`（A1 返工中拆分为 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，原文件已删除） | `_admit` 签发 context；`authorize_operation` 每次调用都重新查询访问记录再检查白名单，缺少许可为 `OperationDeniedError`；`verify_context` 只校验签发、有效期与准入 |
 | 访问上下文 | `WorkspaceAccessContext` | 不可变，只携带 `IdentityScope`；签发记录以弱引用保存；有效期由 `context_ttl_seconds` 决定，默认 None；不作为可序列化的远端凭据 |
 | 两类登记 | [`system/access/registry.py`](../../src/hivememory/system/access/registry.py)、[`workspace/registry.py`](../../src/hivememory/workspace/registry.py) | 启动时从配置装载，运行中不可变，修改需要重启；Workspace 访问记录按 (owner, workspace, user, agent) 登记，W0 基线要求 user 等于 owner |
 
@@ -756,7 +758,7 @@ sequenceDiagram
 ### 15.5 2026-10-02 的决定
 
 - **System 层面的 API**：一部分 API 属于 System 层面，例如模型、Provider、配置、运行时事件与日志（13.5）。它们直接经 server 进入 System，与 workspace 无关：不经能力层，也不在两阶段认证与操作授权的范围内。前提第 1 条“server 只是 workspace 的消费者”只适用于与 workspace 相关的请求。
-- **Alice 的能力层调用迁移**：前提第 4 条要求 actor 的主动操作都导向能力层，Alice 目前还没有做到（13.6）。这项迁移依赖 A1 访问边界的重新建立，原因是 MTP 与能力层的参数信息不对等：MTP 的调用只带 `IdentityScope`，能力层要求访问 context，而生产入口要到 A1 返工才从认证网关取得 context。它与 [A1 返工](../plans/v0.7.0-a1-access-boundary-rework.md)相关，但单独建立计划，排在 A1 返工之后。
+- **Alice 的能力层调用迁移**：前提第 4 条要求 actor 的主动操作都导向能力层，Alice 目前还没有做到（13.6）。这项迁移依赖 A1 访问边界的重新建立，原因是 MTP 与能力层的参数信息不对等：MTP 的调用只带 `IdentityScope`，能力层要求访问 context，而生产入口要到 A1 返工才从认证网关取得 context。它与 [A1 返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)相关，但单独建立计划，排在 A1 返工之后。
 
 同日为 A1 返工作出的决定：
 
@@ -768,7 +770,7 @@ sequenceDiagram
 
 ### 15.6 2026-10-03 的决定
 
-以下决定在复核 [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md)时作出。
+以下决定在复核 [A1 返工计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md)时作出。
 
 - **去掉 context 的固定有效期**：进程 context 随进程关闭失效（P-6），不建进程的 context 随请求结束失效（P-9b），两种 context 都有明确的失效时点，因此不再保留 `context_ttl_seconds`。plugin 模式需要长连接时，再随其设计决定是否需要有效期。
 - **两类登记各用一个配置文件**：`principals` 与 `workspace_actors` 分成两个文件，分别对应 System 与 workspace 两个配置所有者（[Workspace 架构](../architecture/workspace.md)第 4 节）；harness 登记的执行侧面在 principals 文件中留出位置。
@@ -904,7 +906,7 @@ sequenceDiagram
   - 分析（2026-10-03）：
     - 现状相当于“按访问登记决定”：`system` 的默认登记是四项 `management.*` 加 `resource.read`、`task.observe`（13.7）。两类 context 的区分实际依靠 actor，即 `system` 记录与用户级记录分开登记；授予记录中的运行类型没有代码使用。
     - 按 15.7 可以补一条判据：直接通道不持有会进入 agent 工作集的读取 operation（`resource.read`、`resource.search`、`profile.read`）。这样由白名单保证管理员不会走到带缓存的读取，而不是依赖管理路由不调用这些方法。`task.observe` 不涉及缓存，不受影响。
-    - 采用这条判据，需要先为管理员的话题列表另选 operation（P-9g），再从 `system` 的默认登记中去掉 `resource.read`；这会改动 [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记。
+    - 采用这条判据，需要先为管理员的话题列表另选 operation（P-9g），再从 `system` 的默认登记中去掉 `resource.read`；这会改动 [A1 返工计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记。
   - **已决定（2026-10-03，部分）**：`system` 的默认白名单去掉 `resource.read`，见 15.7 的同日补充决定。能力层如何区分两类 context 仍待决。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义。
 - **P-9e 管理员在访问登记中的表示**：以保留的 `system` agent 标记登记 / 设独立的管理员 actor 标识 / 其他。现状见 13.5：代码中没有独立的管理员角色，server 为非 Agent 操作注入 `system`。**已决定（2026-10-02）**：以保留的 `system` 单独登记，用户级记录不覆盖它，见 15.5。
@@ -953,7 +955,7 @@ plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea]
 | P-5b、P-5c | Q-6 |
 | P-6 | Q-1 |
 | P-9a | D-8a；任务进程 Idea 前提第 3 条；[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 1.1（plugin 模式） |
-| P-9c、P-9f、P-9g | [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记；Alice 的能力层调用迁移（actor 可见读取接入生产，15.5）；[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md) |
+| P-9c、P-9f、P-9g | [A1 返工计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记；Alice 的能力层调用迁移（actor 可见读取接入生产，15.5）；[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md) |
 | P-9d | 任务进程 Idea 前提 |
 | P-10 | P-2；Q-8（外部 CPU 的进程） |
 
