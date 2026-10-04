@@ -20,6 +20,8 @@ code_paths:
   - src/hivememory/agent_runtime/aliases/resolver.py
   - src/hivememory/alice/runtime/bridge.py
   - src/hivememory/workspace/capability/
+  - src/hivememory/workspace/resolution/
+  - src/hivememory/workspace/cache/
   - src/hivememory/server/deps.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/system/services/passive/
@@ -594,6 +596,7 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 6. 资源自身的可见性授权与读取权限，仍留在资源读取边界上各自进行，因为任意资源在运行时可能来回变动所处位置，并被缓存。
 7. 管理员操作也作为 CPU 的一种接入。管理员操作指用户从 server 直接发起、没有具体 Agent 的操作（现状见 13.5）。它和 actor 发出的请求一样调用 workspace 能力层，经过同一套操作授权与业务逻辑，响应路径相同，因此不为管理员另设一套 API。代价是它与普通 agent actor 性质不同：只有操作请求，没有完整的任务进程周期。
    - 这里的“CPU”指能力层的调用方，即[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#12-harness-登记的两个侧面owner2026-09-30) 1.2 中的接入侧面；它与任务进程经 CPU 端口驱动的执行侧面无关。管理员与 plugin 模式的 harness 只有接入侧面，Alice 两个侧面都有。
+   - 2026-10-03 注：本条统一的是接入路径，不是用例清单。管理员与 agent 对部分读取期望的行为不同，读取按视角区分，见 15.7。
 8. 至此，以 A1 为代表的 workspace 权限体系在新架构下的流程已经理顺。
 
 ## 13. 第三部分现状事实（代码核对）
@@ -645,6 +648,24 @@ Import Bus 不在 v0.7.0 范围（6.1），本问题随其独立演进处理。
 - Alice 的 MTP 读取（语义检索、alias 批读）、Profile 解析与引用记录，经 Alice 本地总线代理（[`alice/runtime/bridge.py`](../../src/hivememory/alice/runtime/bridge.py)）直接请求 Patchouli 的公开路由，不经能力层。调用方是 [`agent_runtime/mtp/runtime.py`](../../src/hivememory/agent_runtime/mtp/runtime.py) 与 [`agent_runtime/aliases/resolver.py`](../../src/hivememory/agent_runtime/aliases/resolver.py)。
 - 这些调用只携带 `IdentityScope`，不携带访问 context。能力层的 `read`、`retrieve_by_aliases`、`retrieve` 则要求 `WorkspaceAccessContext`，目前没有生产调用方；能力层也没有引用记录的方法。
 - 进程记录与 CPU 输入清单都不携带访问 context：生产入口还没有从认证网关取得 context（13.1）。
+
+### 13.7 能力层的两族读取与 workspace 读取缓存
+
+代码核对：2026-10-03，commit `bd9b301`（A1 返工的实现之后；13.1–13.6 的快照早于该实现，按 A1 返工计划第 10 节在计划完成时更新）。
+
+| | actor 可见读取 | 管理读取 |
+|:---|:---|:---|
+| 能力层方法 | `MemoryApplicationService` 的 `read`、`retrieve_by_aliases`、`retrieve`；`AgentApplicationService.get_agent_profile` | `MemoryApplicationService` 的 `get_memory`、`list_memories`；`AgentApplicationService.list_agent_profiles` |
+| operation | `resource.read`、`resource.search`、`profile.read` | `management.memory` |
+| 可见性 | 按原子的 `MemoryAccessPolicy` 对当前 Actor 授权，不可见与不存在都按不存在处理 | owner 管理语义：整个 workspace 可见，只校验 Workspace 归属（13.4） |
+| 读取路径 | workspace resolver（[`workspace/resolution/`](../../src/hivememory/workspace/resolution/)）：L0 pending（未接入）、L1 `AtomCache`、L2 冷读并回填 | 经 Patchouli 公开路由直接读取中期库 |
+| 记忆不存在时 | `read` 返回 `None` | `get_memory` 抛出 `MemoryNotFoundError` |
+| 生产调用方 | 无；Alice 仍直接调用 Patchouli（13.6） | HTTP 管理路由（13.5） |
+
+- `AtomCache`（[`workspace/cache/atom.py`](../../src/hivememory/workspace/cache/atom.py)）是进程级的全局 LRU，不按 workspace 分配额度；它只缓存完整原子，每次交付都按原子 policy 重新授权，不缓存授权结论。
+- workspace 读取缓存的失效机制尚未接上：`AtomCache.evict`、`ProfileCache.evict_source` 与失效代次的 `WorkspaceEpoch.advance` 都没有调用方。
+- 管理读取顺带的活力刷新使用 `persist=False`，只更新返回的副本，不写回中期库。
+- 话题列表 `TopicApplicationService.list_active_topics` 绑定 `resource.read`，直接读取 Patchouli，不经缓存。默认登记（`configs/workspace_actors.yaml`）中 `system` 的白名单包含 `resource.read`，用于这个话题列表；同一个 operation 也放行带缓存的 `read` 与 `retrieve_by_aliases`。
 
 ## 14. 第三部分流程图
 
@@ -754,6 +775,31 @@ sequenceDiagram
 - **阶段调用的 operation 检查放在进程内**：任务进程的阶段调用（Gateway 读取话题、prepare、Profile 解析、附件租借、finalize、话题池列表）是进程自己的编排，不是 actor 的主动操作，不在前提第 4 条的范围内。它们的 operation 检查由进程在调用前进行，使用同一个 guard 与同一份访问登记的白名单。
 - **两个提交路由的检查暂留在 Patchouli**：`interaction.submit` 与 `memory_intent.submit` 目前没有生产调用方，能力层也没有对应方法；它们的 operation 检查暂留在 Patchouli，等能力层出现对应方法时再迁。（2026-10-03 注：按身份与访问体系 Idea，资源 owner 不再接收访问 context，本项失去前提，这两个路由的 operation 检查在能力层出现对应方法时进行，见其第 8 节。）
 
+### 15.7 2026-10-03 的决定：读取按视角区分
+
+**背景**（owner 提出）：HTTP 入口作为 system actor 接入，统一了认证一侧的行为；但 system actor 期望的行为有时与普通 agent actor 不同。例如读取记忆时，workspace 一侧走三级命中，system actor 并不需要，直接从中期记忆库查询即可；如果让 system actor 复用三级命中的读取，它读到的记忆会进入缓存，用户在系统里查看记忆就会反过来影响 agent 的读取。
+
+目前管理路由不经三级命中，这种情况尚未发生（13.7）。一旦发生，由于 `AtomCache` 是进程级的全局 LRU，用户浏览记忆还会把 agent 的工作集挤出缓存。
+
+**决定**（owner，2026-10-03）：
+
+- **前提第 7 条统一的是接入路径，不是用例清单。** 管理员与 actor 经同一个认证网关、同一套操作授权、同一个能力层，没有放行分支，也没有绕过 workspace 的入口，这一点已经达成；但同一个资源动作不一定只有一个方法。
+- **读取按视角区分：**
+
+  | 视角 | 回答的问题 | 可见性 | 读取路径 |
+  |:---|:---|:---|:---|
+  | agent 视角（actor 可见读取） | 这个 agent 能看到什么 | 按 Agent policy 过滤，逐次交付授权 | workspace 工作集缓存（三级命中） |
+  | owner 视角（管理读取） | 我的 workspace 里有什么 | 整个 workspace 可见 | 直接读取中期库，不进入缓存 |
+
+  因此部分读取需要两个入口（例如 `read` 与 `get_memory`）。这是两种视角的固有差异，不是重复实现：同一个方法要表现出两种视角，就必须在某处把视角作为输入传入。入口采用什么形式见 P-9f。
+- **视角由 operation 表达，不按 actor 类型分支。** 读取方法内不判断调用方是否为 `system`：
+  - 按身份类型分支，与 A1 把 owner 规则写进身份类型是同一类问题（[身份与访问体系 Idea](./identity-and-access-model.md) 不变量 6）；
+  - `system` 只表示“没有具体 Agent”，不承担权限绕过语义（13.5）；
+  - 同一个用户也可能需要 agent 视角，例如排查某个 agent 能看到什么，那是以具体 Agent 进行的 actor 可见读取。
+- **workspace 读取缓存只由 actor 可见读取回填**，管理读取不回填。
+
+分析（2026-10-03）：workspace 读取缓存的失效机制尚未接上（13.7）。actor 可见读取接入生产之前（Alice 的能力层调用迁移，15.5）需要补上，否则管理写入之后，agent 会从缓存读到旧内容。管理员的直接通道还可以持有哪些 operation，见 P-9c 的分析与 P-9g。
+
 ## 16. 第三部分待决问题
 
 每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
@@ -853,8 +899,25 @@ sequenceDiagram
   - 分析（2026-10-02）：这些请求都不会创建进程（前提第 3 条、P-4b）。逐项要回答的是：是否经认证网关取得 context，以及可以调用哪些 operation（P-9c）。其中取消进程目前不是能力层的 operation（13.2、13.5）。
 - **P-9b 直接通道 context 的有效期**：随单次请求 / 固定 TTL / 其他。**已决定（2026-10-02）**：随单次请求，见 15.5。
 - **P-9c 两类 context 的区分与可用操作**：能力层如何区分绑定进程的 context 与直接通道的 context；直接通道允许调用哪些 operation：仅 `management.*` / `management.*` 加部分读取类操作 / 按访问登记决定 / 其他。2026-10-02：memory-tasks 与取消进程的处理已决定，见 15.5；其余仍待决。
+  - 分析（2026-10-03）：
+    - 现状相当于“按访问登记决定”：`system` 的默认登记是四项 `management.*` 加 `resource.read`、`task.observe`（13.7）。两类 context 的区分实际依靠 actor，即 `system` 记录与用户级记录分开登记；授予记录中的运行类型没有代码使用。
+    - 按 15.7 可以补一条判据：直接通道不持有会进入 agent 工作集的读取 operation（`resource.read`、`resource.search`、`profile.read`）。这样由白名单保证管理员不会走到带缓存的读取，而不是依赖管理路由不调用这些方法。`task.observe` 不涉及缓存，不受影响。
+    - 采用这条判据，需要先为管理员的话题列表另选 operation（P-9g），再从 `system` 的默认登记中去掉 `resource.read`；这会改动 [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义。
 - **P-9e 管理员在访问登记中的表示**：以保留的 `system` agent 标记登记 / 设独立的管理员 actor 标识 / 其他。现状见 13.5：代码中没有独立的管理员角色，server 为非 Agent 操作注入 `system`。**已决定（2026-10-02）**：以保留的 `system` 单独登记，用户级记录不覆盖它，见 15.5。
+- **P-9f 两种读取视角的入口形式**（2026-10-03，由 15.7 引出）：两个入口，视角体现在方法名与 operation 上（现状）/ 一个入口加显式视角参数，例如 `read(memory_id, view=AGENT | OWNER)`，视角映射到 operation / 一个入口，按调用方持有的权限决定视角 / 其他。
+  - 影响：
+    - 两个入口：入口成对出现；需要共享底层读取机制、统一返回约定，并在文档中成对列出。
+    - 视角参数：对外只有一个接口；但参数会改变可见性、是否进缓存与返回约定，需要严格的测试。
+    - 按权限决定：持有管理权限的 agent 在日常读取中会越过自身 policy（代理混淆）；同一调用的结果取决于调用方的白名单，难以测试与推断。
+  - 分析（2026-10-03）：
+    - 成对的读取目前只有记忆点读（`read` 与 `get_memory`）。条件列出与语义检索（`list_memories` 与 `retrieve`）、Profile 的管理列表与 agent 解析，用途不同；写入只有管理一族。无论选哪种形式，两种视角的差别都应收敛为两个开关：可见性规则，以及是否参与缓存。
+    - 现在两者的返回约定不一致：记忆不存在时，`read` 返回 `None`，`get_memory` 抛出 `MemoryNotFoundError`（13.7）。
+    - “[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md)”Todo 按 15.7 属于 owner 视角：检索结果不进入缓存，也不做 Agent policy 过滤，因此不应直接复用能力层的 `retrieve`。
+- **P-9g 管理员话题列表的 operation**（2026-10-03，由 P-9c 的分析引出）：`management.topic` 同时覆盖管理视角的话题列表 / 新增管理视角的读取 operation / 保留 `resource.read` / 其他。
+  - 影响：
+    - 前两项都能让 `system` 的默认登记去掉 `resource.read`。第一项要修改 operation 目录中“Topic 快照读取绑定 `resource.read`、不借 `management.topic` 放行”的约定（`core/access.py`）；第二项在目录中增加一项，并同步维护配置与测试。
+    - 第三项不改目录与登记，边界依赖管理路由不调用带缓存的读取。
 
 plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），P-9a 与 P-9c 需要一并考虑这类访问。
 
@@ -885,6 +948,7 @@ plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea]
 | P-5b、P-5c | Q-6 |
 | P-6 | Q-1 |
 | P-9a | D-8a；任务进程 Idea 前提第 3 条；[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 1.1（plugin 模式） |
+| P-9c、P-9f、P-9g | [A1 返工计划](../plans/v0.7.0-a1-access-boundary-rework.md) 4.7 的默认登记；Alice 的能力层调用迁移（actor 可见读取接入生产，15.5）；[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md) |
 | P-9d | 任务进程 Idea 前提 |
 | P-10 | P-2；Q-8（外部 CPU 的进程） |
 

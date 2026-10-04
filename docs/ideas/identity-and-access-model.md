@@ -71,8 +71,8 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 | 阶段 | 回答的问题 | 输入 | 产出 | 在哪里做 |
 |:---|:---|:---|:---|:---|
 | 1 Principal 认证 | 调用来源是否已登记、能否代表这个 actor | principal、adapter、actor 声明 | 已验证的 `ActorIdentity` | System 接入登记（经端口） |
-| 2 Workspace 认证 | 这个 actor 能否进入 workspace W | 已验证的 actor、请求进入的 W | 访问 context：actor 驻留在 W，属于本次运行 | workspace guard |
-| 3 操作授权 | 这次操作（发起者 → 目标 workspace T）是否被允许 | 访问 context、operation、目标 T | `IdentityScope(actor, T)` | 授权点：能力层、任务进程的阶段检查 |
+| 2 Workspace 认证 | 这个 actor 能否进入 workspace W | 已验证的 actor、请求进入的 W | 访问 context：actor 驻留在 W，属于本次运行 | `WorkspaceAuthenticator`，由认证网关调用（I-10） |
+| 3 操作授权 | 这次操作（发起者 → 目标 workspace T）是否被允许 | 访问 context、operation、目标 T | `IdentityScope(actor, T)` | 授权点：能力层、任务进程的阶段检查，均经 `WorkspaceOperationAuthorizer`（I-10） |
 | 4 资源授权 | 目标资源是否允许这次操作 | `IdentityScope`、资源身份与资源 policy | 允许，或按不可见处理 | 资源 owner（Patchouli 等） |
 
 - 前两阶段在进入 workspace 时完成（任务进程在创建前完成）；后两阶段在每次操作时进行。经网络接入的 actor 每次请求都重新认证（总 Idea 15.3，P-1a）。
@@ -106,7 +106,7 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 - **网络凭据**：context 不是远端凭据；
 - **会话、trace、交互等关联 ID**：它们不是授权要素，属于运行或交互本身。
 
-以上内容由签发 context 的 guard 内部保存，context 对外是不透明凭据（I-1）；运行绑定在签发时写入（I-3）。
+以上内容由签发 context 的 `WorkspaceAuthenticator` 内部保存（I-10），context 对外是不透明凭据（I-1）；运行绑定在签发时写入（I-3）。
 
 ## 6. 现状事实（代码核对，2026-10-03，commit `37f800e`）
 
@@ -267,6 +267,11 @@ class ProcessRecord:                     # 进程元数据，与进程同寿
 - context 只由进程记录持有：注册请求只携带声明（actor 声明、请求进入的 workspace、server 的 principal 与 adapter），不携带 context；注册入口认证成功后直接把 context 写入记录（I-3）；`TaskProcess` 经记录使用它，不另存；
 - `TaskProcess` 反向持有进程表与各类组件的结构问题单独登记为 [Todo](../todo/task-process-container-ownership.md)，不在本 Idea 内处理。
 
+**补充：进程句柄（owner，2026-10-03，第一批实现审查）**。第一批的实现中，注册入口把整个 `TaskProcess` 交给入口 adapter，server 由此读取 `record.access`：客户端断开时，以进程自己的 context 作为取消入口的请求方，进程控制授权变成自己与自己比对。server 不是进程 context 的运行持有者（不变量 2），不应接触它。决定：
+
+- 注册入口返回不透明的进程句柄，只暴露 `process_id`；入口 adapter 不接触进程记录、`TaskProcess` 与其中的 context；
+- 运行、停止与关闭都经注册入口、以句柄为参数进行。持有句柄即为该进程生命周期的所有者，因此停止自己注册的进程不经进程控制授权；取消入口只服务于以请求级 context 发起的控制请求（`/chat/stop`）。
+
 ### I-9 CPU 在过渡期的身份
 
 Alice 改经能力层调用之前（总 Idea 15.5），CPU 输入清单携带一个 `IdentityScope`，Alice 用它直接调用 Patchouli。现状是它直接取自调用方传入的 scope（`workspace/process/allocation.py`）。按不变量 4，`IdentityScope` 只由授权点经 guard 组装，但 CPU 执行本身没有对应的 operation。
@@ -279,13 +284,50 @@ Alice 改经能力层调用之前（总 Idea 15.5），CPU 输入清单携带一
 
 **owner 决定（2026-10-03）**：选项 A。该方法只供任务进程在 CPU 分配时使用，Alice 的能力层调用迁移完成后删除。
 
+### I-10 workspace 一侧的认证与操作授权如何划分
+
+代码核对：2026-10-03，commit `bd9b301`（第一批的实现）。workspace 一侧仍沿用 A1 的划分：
+
+| | 认证网关 `ActorAuthenticationGateway` | guard `WorkspaceAccessGuard` |
+|:---|:---|:---|
+| 第 1 阶段 | 经 `PrincipalAuthenticator` 端口委托 System | —— |
+| 第 2 阶段 | 调用 guard 的私有方法 `_admit` | owner 检查、查准入记录、签发 context、写入授予记录 |
+| 第 3 阶段、进程控制、CPU 执行身份、诊断查询 | —— | 全部在这里 |
+| 失效与关闭 | `invalidate_context` 转交 guard；关闭状态同时读取 guard 的状态 | `invalidate`、`close` |
+
+- [A1](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)（已归档）有意这样划分。当时网关位于 `system/access`，只编排两项认证；签发跟踪、生命周期与行为授权都由 Workspace guard 负责，原文是“准入、生命周期和行为授权属于同一 guard”。理由是两类配置的所有者不同，System 中的网关不应持有 Workspace 的签发状态。
+- 总 Idea 第二部分的 D-6（2026-09-26）把网关移入 `workspace/authentication.py`，按包划分的理由随之消失，但划分保留了下来：
+  - 网关成为一层薄编排，靠跨类调用私有方法完成第 2 阶段；
+  - guard 同时负责第 2 阶段的签发与第 3 阶段的授权；
+  - 失效接口两处都有：server 经网关调用，注册入口经 guard 调用。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 认证一侧聚合：第 2 阶段、签发、失效与关闭都移到认证一侧；guard 只负责兑现 context 与授权 | 与第 3 节的阶段模型一一对应；去掉私有调用与重复的失效接口 |
+| B | 保留 A1 的划分，只消除重复接口，把 `_admit` 改为包内正式接口 | 改动最小；guard 仍同时负责签发与授权 |
+| C | 合并为一个访问服务，对外提供认证与授权两个角色协议 | 只装配一个对象；能授权的对象同时也能签发，边界只靠类型约束 |
+
+**owner 决定（2026-10-03）**：选项 A，并把 guard 拆成两个类。认证与操作授权是两个分开的行为，第 2 阶段与第 3 阶段各有一个负责者：
+
+| 类 | 负责 | 状态 | 调用方 |
+|:---|:---|:---|:---|
+| `ActorAuthenticationGateway` | 唯一对外的认证入口：依次调用两个认证者，完成第 1、2 阶段；为运行持有者提供 context 的失效与诊断查询，为 System 提供关闭 | 网关自身的关闭状态 | 运行持有者：server（请求级 context）、注册入口（进程 context）；System |
+| `WorkspaceAuthenticator` | 第 2 阶段：检查 actor 用户等于要进入的 workspace 的 owner（I-5），准入记录存在且启用；签发 context 并写入授予记录；单个失效与全部清空；向操作授权者提供只读的兑现接口 | 授予记录 | 只有认证网关，以及经只读兑现接口的操作授权者 |
+| `WorkspaceOperationAuthorizer` | 第 3 阶段：经兑现接口取得授予记录，检查目标 workspace（I-4）、目标的 owner（I-5）与白名单，组装 `IdentityScope`；进程控制授权（P-7）；CPU 执行身份的过渡方法（I-9） | 无状态，只读访问登记 | 授权点：注册入口、能力层、任务进程的阶段检查（含 CPU 分配） |
+
+- 命名与 Principal 一侧对应：第 1 阶段由 `PrincipalAuthenticator` 端口完成（System 的 `SystemPrincipalAuthenticator` 实现），第 2 阶段由 `WorkspaceAuthenticator` 完成，认证网关负责编排两者。
+- 授予记录由签发它的 `WorkspaceAuthenticator` 持有。操作授权者只依赖它的只读兑现接口，因此不能签发 context；依赖方向是授权指向认证，与阶段顺序一致。
+- 各调用方的依赖：server 只依赖认证网关；能力层、`TaskProcess` 与 CPU 分配只依赖操作授权者；注册入口同时依赖两者，因为它既是进程 context 的运行持有者，又是授权点。
+- 拒绝语义不变；访问 context 的对外形态（I-1）与第 4 节的不变量不变。
+- 本 Idea 在 I-10 之前所说的 guard，按职责对应到这两个类：签发、失效与授予记录归 `WorkspaceAuthenticator`，兑现与授权归 `WorkspaceOperationAuthorizer`。
+
 ## 8. 分批
 
 owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留，逐步分批修正项目中的使用点。各批范围为当前设想，形成计划时细化。
 
 | 批次 | 范围 | 关系 |
 |:---|:---|:---|
-| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
+| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者（I-10） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
 | 第二批 | 记录与后台任务改用资源身份（6.3 第三类）；修订 AGENTS.md 第 3 节的相应规则（修改 AGENTS.md 需 owner 同意） | 在第一批之后 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
