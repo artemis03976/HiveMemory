@@ -106,7 +106,7 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 - **网络凭据**：context 不是远端凭据；
 - **会话、trace、交互等关联 ID**：它们不是授权要素，属于运行或交互本身。
 
-以上内容由签发 context 的 `WorkspaceAuthenticator` 内部保存（I-10），context 对外是不透明凭据（I-1）；运行绑定在签发时写入（I-3）。
+以上内容在签发时密封在 context 内（I-10 的 2026-10-04 补充），context 没有公开字段（I-1）；运行绑定在签发时写入（I-3）。
 
 ## 6. 现状事实（代码核对，2026-10-03，commit `37f800e`）
 
@@ -163,6 +163,8 @@ AGENTS.md 第 3 节写有“`IdentityScope`（Actor + Workspace）必须沿应�
 - guard 只注入给授权点（注册入口、进程的阶段检查、能力层、取消入口）；Gateway、Patchouli、CPU 不持有 guard，即使拿到 context 也取不出身份；
 - server 使用认证前自己持有的声明（actor 声明与请求进入的 workspace），认证成功即确认了这份声明，不从 context 读回；
 - guard 可以提供只用于日志与诊断的查询，它不能成为第二个兑现入口。
+
+（2026-10-04 注：本决定的意图不变，实现机制已修订：第 5 节的内容从签发方移回 context 内部密封保存，读取限制改由私有接口与架构测试保证，见 I-10 的 2026-10-04 补充。）
 
 ### I-2 来源（principal、adapter）是否随 context 保存
 
@@ -329,10 +331,19 @@ Alice 改经能力层调用之前（总 Idea 15.5），CPU 输入清单携带一
 | `WorkspaceOperationAuthorizer` | 第 3 阶段：经兑现接口取得授予记录，检查目标 workspace（I-4）、目标的 owner（I-5）与白名单，组装 `IdentityScope`；进程控制授权（P-7）；CPU 执行身份的过渡方法（I-9） | 无状态，只读访问登记 | 授权点：注册入口、能力层、任务进程的阶段检查（含 CPU 分配） |
 
 - 命名与 Principal 一侧对应：第 1 阶段由 `PrincipalAuthenticator` 端口完成（System 的 `SystemPrincipalAuthenticator` 实现），第 2 阶段由 `WorkspaceAuthenticator` 完成，认证网关负责编排两者。
-- 授予记录由签发它的 `WorkspaceAuthenticator` 持有。操作授权者只依赖它的只读兑现接口，因此不能签发 context；依赖方向是授权指向认证，与阶段顺序一致。
+- 授予记录由签发它的 `WorkspaceAuthenticator` 持有。操作授权者只依赖它的只读兑现接口，因此不能签发 context；依赖方向是授权指向认证，与阶段顺序一致。（2026-10-04 修订：授予内容改为密封在 context 内，操作授权者不再依赖认证一侧，见下方补充。）
 - 各调用方的依赖：server 只依赖认证网关；能力层、`TaskProcess` 与 CPU 分配只依赖操作授权者；注册入口同时依赖两者，因为它既是进程 context 的运行持有者，又是授权点。
 - 拒绝语义不变；访问 context 的对外形态（I-1）与第 4 节的不变量不变。
 - 本 Idea 在 I-10 之前所说的 guard，按职责对应到这两个类：签发、失效与授予记录归 `WorkspaceAuthenticator`，兑现与授权归 `WorkspaceOperationAuthorizer`。
+
+**补充：访问 context 的实现机制（owner，2026-10-04，I-10 实现的审查）**。I-10 实现后，操作授权者为了读取授予记录，必须依赖 `WorkspaceAuthenticator`；而这个类同时暴露签发、失效与清空，授权者在结构上也能签发 context。再提供只读接口只能收窄依赖，去不掉依赖。根源在 I-1 选择的凭据模型：context 是引用式凭据，内容存在签发方，读取内容就必须回到签发方。这与 I-10“认证与授权是两个分开的行为”在结构上冲突。决定：
+
+- **context 自带密封的授予内容**：第 5 节的内容在签发时写入 context，context 没有公开字段；只能由 `WorkspaceAuthenticator` 签发，直接构造被拒绝；context 拒绝复制与序列化，撤销状态随凭据对象本身。
+- **内容只在授权点读取**：操作授权者读取凭据内容并按访问登记检查；认证一侧的诊断查询也读取它，只用于日志与观测标签。签发、读取与撤销都是凭据上的私有接口，由架构测试限定调用方所在的模块。
+- **`WorkspaceAuthenticator`** 只负责第 2 阶段的准入与签发、撤销（单个失效；System 停止时撤销全部）与诊断查询；不再提供兑现接口，也不再有自身的关闭状态。关闭只在认证网关：拒绝新的认证，已签发的 context 照常可用，直到被撤销。
+- **`WorkspaceOperationAuthorizer`** 只依赖访问登记，不依赖认证一侧。认证与授权互不依赖，只经凭据类型发生联系；认证网关仍是唯一对外的认证入口，编排第 1、2 阶段。
+- **与 I-1 的关系**：I-1 的意图不变：context 没有公开字段，身份只在授权点取得，不写入任何记录、事件或 DTO。变的是机制：内容从签发方移回凭据内；读取限制从“必须被注入签发方对象”改为“私有接口加架构测试限定调用方”。两者都属于项目一贯的信任模型：维护可信进程内的调用纪律，不隔离恶意代码。
+- **与 `37f800e` 的区别**：那时 context 持有的是公开的 `IdentityScope`，即第 3 阶段的产物，任何代码都能读取并直接当作操作身份往下传；本补充下 context 持有的是第 2 阶段的结果（第 5 节的授予内容），不公开，读到之后仍须经第 3 阶段的检查才组装 `IdentityScope`。
 
 ## 8. 分批
 
@@ -340,7 +351,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 
 | 批次 | 范围 | 关系 |
 |:---|:---|:---|
-| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄，按对象身份判定有效，取消进程只有一个方法（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者（I-10） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
+| 第一批 | workspace 边界：入口在认证前只持有 actor 声明与请求进入的 workspace；访问 context 按第 5 节重新定义为不透明凭据（I-1、I-2）；注册入口完成认证、签发即绑定并立即创建进程（I-3）；授权点显式接收目标 workspace 并组装 `IdentityScope`，当前目标只能是驻留 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；注册入口先注册、后运行，并负责进程的登记与注销（I-3）；CPU 输入清单的 `IdentityScope` 由 guard 的过渡方法组装（I-9）；按不变量 2，资源 owner 与 Gateway 只接收 `IdentityScope`，Patchouli 不再消费访问 context（`access_consumption` 与 `WorkspaceAccessVerifier` 端口随之失去用途）；进程记录只持有 context 与进程元数据，不保存身份：取消经 guard 比对、阶段调用的目标取自任务参数、事件标签在创建时绑定（I-8）；注册入口交给入口 adapter 的是不透明的进程句柄，按对象身份判定有效，取消进程只有一个方法（I-8 补充）；第 2 阶段与第 3 阶段分属 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`，认证网关编排两个认证者；context 自带密封的授予内容，认证与授权互不依赖（I-10 及其补充） | 即 A1 返工计划，已于 2026-10-03 按此改写；`37f800e` 的实现按该计划第 7 节保留或调整 |
 | 第二批 | 记录与后台任务改用资源身份（6.3 第三类）；修订 AGENTS.md 第 3 节的相应规则（修改 AGENTS.md 需 owner 同意） | 在第一批之后 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
