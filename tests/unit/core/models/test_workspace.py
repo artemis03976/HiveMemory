@@ -113,7 +113,7 @@ def test_identity_scope_accepts_cross_owner_coordinates():
         workspace_identity=workspace,
     )
 
-    # 构造不再抛 OwnerMismatchError，且坐标原样冻结、不被改写。
+    # 构造不校验 owner 规则（I-5：owner 校验在第 2、3 阶段），坐标原样冻结、不被改写。
     assert scope.actor_identity.user_id == "attacker"
     assert scope.workspace_identity == workspace
 

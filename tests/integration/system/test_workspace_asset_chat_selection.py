@@ -63,7 +63,7 @@ async def _upload(
 
 
 def _process_service(bus: GlobalSystemBus, composition, store, cpu: ScriptedCPU):
-    """注册入口与上传共享同一访问组合：context 只能经同一认证一侧兑现。"""
+    """注册入口与上传共享同一访问组合：签发与授权读取同一份访问登记。"""
     return TaskProcessService(
         bus,
         asset_reader=store,

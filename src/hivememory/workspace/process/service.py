@@ -391,7 +391,7 @@ class TaskProcessService:
         ):
             result = _not_found(target, reason)
             # 请求方 context 的驻留 workspace 只是观测标签；经认证网关的
-            # 诊断查询取回，不作为身份兑现。
+            # 诊断查询取回，不作为授权依据。
             summary = self._access_gateway.describe_context(access)
             self._events.cancel_requested(
                 result,
@@ -433,7 +433,7 @@ class TaskProcessService:
         return process
 
     def _lookup(self, handle: ProcessHandle) -> TaskProcess | None:
-        """按对象身份兑现句柄：进程表中登记的必须正是句柄签发时对应的进程。"""
+        """按对象身份解析句柄：进程表中登记的必须正是句柄签发时对应的进程。"""
         if not isinstance(handle, ProcessHandle):
             raise TypeError("handle 必须是注册入口签发的 ProcessHandle")
         process = self._process_table.get(handle.process_id)

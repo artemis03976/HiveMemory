@@ -23,7 +23,12 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.access import (
+    CallerPrincipal,
+    RunBinding,
+    WorkspaceAccessContext,
+    WorkspaceOperation,
+)
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
@@ -81,10 +86,20 @@ def _workspace(
 
 
 def _record(process_id: str) -> ProcessRecord:
-    """记录级测试的进程记录：access 是不透明凭据，记录级 stop 语义不使用它。"""
+    """记录级测试的进程记录：记录级 stop 语义不使用 access。
+
+    context 只能由认证一侧签发；记录级测试是同步的，直接经认证一侧的
+    准入签发一份绑定本进程的 context（跳过第 1 阶段，不影响 stop 语义）。
+    """
+    access = _composition().authenticator.admit(
+        actor=_actor(),
+        workspace=_workspace(),
+        principal=CallerPrincipal("local-process:test"),
+        binding=RunBinding.for_task_process(process_id),
+    )
     return ProcessRecord(
         process_id=process_id,
-        access=WorkspaceAccessContext(),
+        access=access,
         events=BoundProcessEvents(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
 
@@ -175,7 +190,7 @@ def _bus_until_finalize() -> GlobalSystemBus:
 
 
 def _assert_context_invalidated(composition: AccessTestComposition, context) -> None:
-    """绑定 context 已随进程关闭失效：诊断查询返回 None，授权兑现被拒绝。"""
+    """绑定 context 已随进程关闭撤销：诊断查询返回 None，授权被拒绝。"""
     assert composition.gateway.describe_context(context) is None
     with pytest.raises(ScopeRequiredError) as excinfo:
         composition.authorizer.authorize_operation(
@@ -389,7 +404,7 @@ async def test_register_success_returns_handle_and_binds_issued_context_to_proce
         bound_context, WorkspaceOperation.RESOURCE_READ, _workspace()
     )
     assert scope == IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
-    # 签发即绑定：授予记录的运行绑定是本进程的 process_id（诊断查询）。
+    # 签发即绑定：授予内容的运行绑定是本进程的 process_id（诊断查询）。
     assert composition.gateway.describe_context(bound_context) == AccessGrantSummary(
         actor_user_id=_USER,
         agent_id=_AGENT,
@@ -416,7 +431,7 @@ async def test_process_handle_exposes_only_process_id() -> None:
 
 @pytest.mark.asyncio
 async def test_close_process_before_stream_invalidates_context_and_deregisters() -> None:
-    """流从未开始：close_process 使 context 失效（兑现被拒）并从表中注销。"""
+    """流从未开始：close_process 撤销 context（授权被拒）并从表中注销。"""
     service, composition = await _service()
     requestor = await composition.authenticate(agent_id=_AGENT)
     issued = _capture_issued_contexts(composition)
@@ -655,7 +670,7 @@ async def test_accepted_cancel_publishes_identical_events(use_handle: bool) -> N
 
 @pytest.mark.asyncio
 async def test_handle_cancel_skips_process_control_authorization() -> None:
-    """句柄形式的取消不经进程控制授权：未签发的伪造 access 无法取消，持有句柄即可取消。"""
+    """句柄形式的取消不经进程控制授权：已撤销的 access 无法取消，持有句柄即可取消。"""
     gateway_started = asyncio.Event()
     bus = GlobalSystemBus()
 
@@ -669,9 +684,11 @@ async def test_handle_cancel_skips_process_control_authorization() -> None:
     task = asyncio.create_task(service.run_process(handle, stream=False))
     await gateway_started.wait()
 
-    # 取消入口需要经网关签发的请求级 context：伪造（未签发）凭据被拒绝。
+    # 控制请求形式需要有效的请求级 context：已撤销的凭据被拒绝。
+    revoked = await composition.authenticate(agent_id=_AGENT)
+    composition.gateway.invalidate_context(revoked)
     with pytest.raises(ScopeRequiredError) as excinfo:
-        service.cancel_process("process-handle-stop", access=WorkspaceAccessContext())
+        service.cancel_process("process-handle-stop", access=revoked)
     assert excinfo.value.details["reason"] == "context_not_issued"
 
     # 持有句柄即为生命周期所有者：不提交任何 access 也能取消自己的进程。

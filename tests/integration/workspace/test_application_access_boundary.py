@@ -10,14 +10,14 @@ Alice/PendingAtomRuntime/MTP（headless）。
 保护 A1 访问边界返工计划的验收证据：
 - 两项认证在统一网关一次完成，签发即绑定运行；未登记 principal、不匹配
   adapter 与无准入记录的 Actor 分别以稳定 reason 拒绝；
-- 访问 context 不透明：身份只能经操作授权者的 ``authorize_operation`` 兑现；
+- 访问 context 是密封凭据：身份只在操作授权者的 ``authorize_operation`` 中读取；
   能力层作为授权点在 backing 调用前执行 operation 检查，Patchouli 公开
   路由只接收授权点组装的 ``IdentityScope``；
 - 同一 principal 多 Actor、同一 Actor 多 Workspace 的许可互不串扰；
 - 空白名单可进入但资源动作全拒绝；operation 互不隐含；
 - context 与单次 operation 解耦：同一 context 先后执行不同获准操作；
 - 失效 context 拒绝、重新认证恢复；System 停止先关网关（拒绝新认证）
-  再清空授予记录（已签发 context 兑现按 ``context_not_issued`` 失败）；
+  再撤销全部已签发 context（之后授权按 ``context_not_issued`` 失败）；
   授权拒绝不产生副作用、不包装成服务不可用。
 """
 
@@ -443,8 +443,8 @@ async def test_mismatched_adapter_denied_at_principal_authentication(wired):
 async def test_same_owner_actors_have_different_admission_across_workspaces(wired):
     """同一 owner：a2 在 MAIN 获准、在 OTHER 无准入记录；权限互不串扰（证据 1/2）。
 
-    context 不透明：驻留坐标只能经操作授权者兑现——授权返回的 scope 携带
-    准入的 workspace。
+    context 是密封凭据：驻留坐标只在操作授权者中读取——授权返回的 scope
+    携带准入的 workspace。
     """
     main_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
     scope = wired.access.authorizer.authorize_operation(main_context, READ, MAIN)
@@ -630,7 +630,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     """失效 context 不能再授权新工作；已接纳交互只携带 scope，停止后仍可应用。
 
     System 停止顺序（A1 访问边界返工第 4.8 节）：网关先关闭（拒绝新
-    认证），授予记录在任务进程收尾后清空（已签发 context 兑现按
+    认证），任务进程收尾后撤销全部已签发 context（之后授权按
     ``context_not_issued`` 失败，取代旧的固定 TTL 语义）。
     """
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
@@ -668,19 +668,19 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     )
     assert replay.work_id == first.work_id
 
-    # System 停止：网关先关闭（拒绝新认证）；任务进程收尾后经网关清空
-    # 全部授予记录——已签发 context 的兑现按 context_not_issued 失败
+    # System 停止：网关先关闭（拒绝新认证）；任务进程收尾后经网关撤销
+    # 全部已签发 context——它们不再能通过授权（context_not_issued）
     # （操作授权者无状态，不随停止关闭，A1 访问边界返工第 4.8 节）。
     wired.access.gateway.close()
     with pytest.raises(AdmissionDeniedError) as auth_error:
         await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     assert auth_error.value.details["reason"] == "authentication_gateway_closed"
-    wired.access.gateway.clear_contexts()
+    wired.access.gateway.revoke_all_contexts()
     with pytest.raises(ScopeRequiredError) as closed_error:
         wired.access.authorizer.authorize_operation(renewed, INTERACT, MAIN)
     assert closed_error.value.details["reason"] == "context_not_issued"
 
-    # 已接纳的交互只携带 scope：网关关闭与授予记录清空不影响其应用。
+    # 已接纳的交互只携带 scope：网关关闭与撤销全部 context 不影响其应用。
     await wired.queue.start()
     outcome = await wired.queue.wait(first.interaction_id, timeout=2)
     assert outcome.state.value == "succeeded"

@@ -5,11 +5,13 @@ Idea I-10）：
 
 - :class:`ActorAuthenticationGateway` 是唯一对外的认证入口：依次调用
   ``PrincipalAuthenticator``（第 1 阶段）与 :class:`WorkspaceAuthenticator`
-  （第 2 阶段），转交 context 的失效、清空与诊断查询，并负责关闭；
-- :class:`WorkspaceAuthenticator` 负责第 2 阶段准入与 context 签发，
-  持有"context → 授予记录"的弱引用字典（认证一侧），并向操作授权者
-  （``workspace.authorization.WorkspaceOperationAuthorizer``）提供只读的
-  兑现接口。
+  （第 2 阶段），转交 context 的撤销与诊断查询，并负责关闭（拒绝新认证）；
+- :class:`WorkspaceAuthenticator` 负责第 2 阶段准入，签发写有授予内容的
+  密封 context，并负责撤销（I-10 的 2026-10-04 补充）。
+
+授予内容密封在 context 内，操作授权者
+（``workspace.authorization.WorkspaceOperationAuthorizer``）直接读取，不依赖
+认证一侧；认证与授权只经 context 这个类型发生联系。
 
 运行持有者（server、注册入口）只经认证网关接触认证一侧，不直接持有
 ``WorkspaceAuthenticator``。认证入口不要求提供待执行的 operation，也不向
@@ -32,35 +34,32 @@ Idea I-10）：
 from __future__ import annotations
 
 from dataclasses import dataclass
-from weakref import WeakKeyDictionary
+from weakref import WeakSet
 
 from hivememory.core.access import (
+    AccessGrant,
     CallerPrincipal,
     PrincipalAuthenticator,
     RunBinding,
     WorkspaceAccessContext,
 )
-from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError
+from hivememory.core.errors import AdmissionDeniedError
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
-from hivememory.workspace.registry import (
-    WorkspaceActorAccessRecord,
-    WorkspaceActorAccessRegistry,
-)
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 
 __all__ = [
     "AccessGrantSummary",
     "ActorAuthenticationGateway",
-    "RedeemedAccess",
     "WorkspaceAuthenticator",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class AccessGrantSummary:
-    """授予记录的只读摘要，仅供日志与观测标签使用。
+    """授予内容的只读摘要，仅供日志与观测标签使用。
 
-    本摘要不能作为身份兑现入口：授权仍必须把 context 交给操作授权者；
-    摘要中的坐标不构成准入或授权结论。
+    本摘要不能作为授权依据：授权仍必须把 context 交给操作授权者；摘要中
+    的坐标不构成准入或授权结论。
     """
 
     actor_user_id: str
@@ -71,96 +70,20 @@ class AccessGrantSummary:
     run_id: str
 
 
-@dataclass(frozen=True, slots=True)
-class RedeemedAccess:
-    """兑现结果：授予记录的只读投影，供操作授权者做第 3 阶段判断。
-
-    ``access_record`` 是当前访问登记记录（含行为白名单）；授权判断所需的
-    actor 与驻留 workspace 都来自认证一侧的授予记录，不是调用方传入的
-    声明。
-    """
-
-    actor: ActorIdentity
-    workspace: WorkspaceIdentity
-    access_record: WorkspaceActorAccessRecord
-
-
-@dataclass(frozen=True, slots=True)
-class _GrantRecord:
-    """认证一侧内部保存的一次授予记录（身份与访问体系 Idea 第 5 节）。
-
-    行为白名单不进入授予记录：每次授权都经兑现接口按访问登记即时查询，
-    不缓存授权结论；有效期也不进入——失效由绑定的运行结束决定。
-    """
-
-    actor: ActorIdentity
-    workspace: WorkspaceIdentity
-    principal: CallerPrincipal
-    binding: RunBinding
-
-
 class WorkspaceAuthenticator:
-    """第 2 阶段 Workspace 认证与访问 context 签发（认证一侧）。
+    """第 2 阶段 Workspace 认证：准入、签发与撤销（认证一侧）。
 
-    准入 :meth:`admit` 只由认证网关调用；:meth:`redeem` / :meth:`peek` 是
-    向操作授权者提供的只读兑现接口——授予记录不外泄可变引用，兑现不改变
-    签发状态。失效（:meth:`invalidate`）、清空（:meth:`clear`）与诊断查询
-    （:meth:`describe`）只经认证网关转交。该机制维护可信进程内调用纪律，
-    不隔离任意恶意 Python 代码。
+    准入 :meth:`admit` 只由认证网关调用；撤销（:meth:`invalidate`、
+    :meth:`revoke_all`）与诊断查询（:meth:`describe`）只经认证网关转交。
+    签发的 context 自带密封的授予内容，本类只记住"签发过哪些仍可能存活
+    的 context"，用于 System 停止时撤销全部；没有自身的关闭状态——关闭
+    只在认证网关，已签发的 context 照常可用，直到被撤销。该机制维护可信
+    进程内调用纪律，不隔离任意恶意 Python 代码。
     """
 
     def __init__(self, access_registry: WorkspaceActorAccessRegistry) -> None:
         self._registry = access_registry
-        self._closed = False
-        self._issued: WeakKeyDictionary[WorkspaceAccessContext, _GrantRecord] = WeakKeyDictionary()
-
-    @property
-    def is_closed(self) -> bool:
-        return self._closed
-
-    def close(self) -> None:
-        """结束认证一侧的生命周期：拒绝新的准入，既有授予记录一并失效。"""
-        self._closed = True
-        self._issued.clear()
-
-    def clear(self) -> None:
-        """System 停止时清空全部授予记录（P-6 的收尾步骤）。
-
-        清空后已签发 context 的兑现自然失败（``context_not_issued``）；
-        操作授权者无状态，不需要随之关闭。
-        """
-        self._issued.clear()
-
-    def invalidate(self, access: WorkspaceAccessContext) -> None:
-        """使单个已签发 context 失效（进程关闭或请求结束时调用）。
-
-        失效必须由 context 的绑定所有者触发：任务进程以任何结局关闭时
-        失效绑定的 context，请求级 context 在请求结束时失效。对未签发或
-        已失效的 context 重复失效是幂等空操作。
-        """
-        if type(access) is not WorkspaceAccessContext:
-            raise TypeError("invalidate 只接受 WorkspaceAccessContext")
-        self._issued.pop(access, None)
-
-    def describe(self, access: WorkspaceAccessContext) -> AccessGrantSummary | None:
-        """返回授予记录的只读摘要；未签发或已失效返回 ``None``。
-
-        只用于日志与观测标签（如取消入口为观测事件取请求方的驻留
-        workspace 标签），不能作为身份兑现入口。
-        """
-        if type(access) is not WorkspaceAccessContext:
-            raise TypeError("describe 只接受 WorkspaceAccessContext")
-        grant = self._issued.get(access)
-        if grant is None:
-            return None
-        return AccessGrantSummary(
-            actor_user_id=grant.actor.user_id,
-            agent_id=grant.actor.agent_id,
-            workspace_id=grant.workspace.workspace_id,
-            principal_id=grant.principal.principal_id,
-            run_type=grant.binding.run_type.value,
-            run_id=grant.binding.run_id,
-        )
+        self._issued: WeakSet[WorkspaceAccessContext] = WeakSet()
 
     def admit(
         self,
@@ -170,7 +93,7 @@ class WorkspaceAuthenticator:
         principal: CallerPrincipal,
         binding: RunBinding,
     ) -> WorkspaceAccessContext:
-        """第 2 阶段认证：确认 Workspace 准入并写入授予记录、签发 context。
+        """第 2 阶段认证：确认 Workspace 准入，签发写有授予内容的 context。
 
         owner 约束（W0 基线）在本阶段检查：actor 用户必须等于要进入的
         workspace 的 owner。不检查 principal，也不重复校验入参类型与关闭
@@ -193,62 +116,55 @@ class WorkspaceAuthenticator:
                 message="该 Actor 在目标 Workspace 没有有效的访问登记",
                 details={"reason": "actor_not_admitted"},
             )
-        context = WorkspaceAccessContext()
-        self._issued[context] = _GrantRecord(
-            actor=actor,
-            workspace=workspace,
-            principal=principal,
-            binding=binding,
+        # 行为白名单不进入授予内容：每次授权都按访问登记即时查询，不缓存
+        # 授权结论；有效期也不进入——失效由绑定的运行结束决定。
+        context = WorkspaceAccessContext._seal(
+            AccessGrant(actor=actor, workspace=workspace, principal=principal, binding=binding)
         )
+        self._issued.add(context)
         return context
 
-    def redeem(self, access: WorkspaceAccessContext | None) -> RedeemedAccess:
-        """只读兑现：确认签发与准入仍然有效，返回授予记录的只读投影。
+    def invalidate(self, access: WorkspaceAccessContext) -> None:
+        """撤销单个 context（进程关闭或请求结束时调用）。
 
-        供操作授权者在每次操作授权前调用：context 未签发或已失效、认证
-        一侧已关闭、或准入记录已不再有效时分别以稳定 reason 拒绝。每次
-        兑现都按完整坐标查询访问登记，不缓存授权结论。
+        撤销必须由 context 的绑定所有者触发：任务进程以任何结局关闭时
+        撤销绑定的 context，请求级 context 在请求结束时撤销。重复撤销是
+        幂等空操作。
         """
         if type(access) is not WorkspaceAccessContext:
-            raise ScopeRequiredError("公共入口需要经统一认证网关签发的 WorkspaceAccessContext")
-        if self._closed:
-            raise ScopeRequiredError(
-                "认证一侧已关闭，access context 失效",
-                details={"reason": "authentication_gateway_closed"},
-            )
-        grant = self._issued.get(access)
-        if grant is None:
-            raise ScopeRequiredError(
-                "access context 未由本运行实例签发",
-                details={"reason": "context_not_issued"},
-            )
-        # 每次兑现按完整坐标查询准入：授予记录不绑定白名单快照。
-        record = self._registry.record_for(grant.workspace, grant.actor)
-        if record is None or not record.enabled:
-            raise ScopeRequiredError(
-                "该 Actor 已无有效的 Workspace 访问登记",
-                details={"reason": "actor_not_admitted"},
-            )
-        return RedeemedAccess(actor=grant.actor, workspace=grant.workspace, access_record=record)
+            raise TypeError("invalidate 只接受 WorkspaceAccessContext")
+        access._revoke()
+        self._issued.discard(access)
 
-    def peek(self, access: WorkspaceAccessContext) -> RedeemedAccess | None:
-        """只查签发记录取回兑现投影；未签发或已失效返回 ``None``。
+    def revoke_all(self) -> None:
+        """System 停止时撤销全部已签发 context（P-6 的收尾步骤）。
 
-        供操作授权者的进程控制授权在记录侧使用：进程记录中的 context 在
-        收尾窗口内可能已失效，此时按"不可控"处理而不是接线缺陷。不做
-        关闭检查——关闭只拒绝新的准入与兑现，已登记进程的收尾窗口按
-        不可控呈现；准入复查失败同样折叠为 ``None``（当前注册表进程内
-        不可变，此路径不可观测）。
+        撤销后 context 不再能通过授权（``context_not_issued``）；操作授权者
+        无状态，不需要随之关闭。
+        """
+        for context in list(self._issued):
+            context._revoke()
+        self._issued.clear()
+
+    def describe(self, access: WorkspaceAccessContext) -> AccessGrantSummary | None:
+        """返回授予内容的只读摘要；已撤销返回 ``None``。
+
+        只用于日志与观测标签（如取消入口为观测事件取请求方的驻留
+        workspace 标签），不能作为授权依据。
         """
         if type(access) is not WorkspaceAccessContext:
-            return None
-        grant = self._issued.get(access)
+            raise TypeError("describe 只接受 WorkspaceAccessContext")
+        grant = access._unseal()
         if grant is None:
             return None
-        record = self._registry.record_for(grant.workspace, grant.actor)
-        if record is None or not record.enabled:
-            return None
-        return RedeemedAccess(actor=grant.actor, workspace=grant.workspace, access_record=record)
+        return AccessGrantSummary(
+            actor_user_id=grant.actor.user_id,
+            agent_id=grant.actor.agent_id,
+            workspace_id=grant.workspace.workspace_id,
+            principal_id=grant.principal.principal_id,
+            run_type=grant.binding.run_type.value,
+            run_id=grant.binding.run_id,
+        )
 
 
 class ActorAuthenticationGateway:
@@ -260,13 +176,14 @@ class ActorAuthenticationGateway:
     两项均通过才签发 ``WorkspaceAccessContext``，签发时写入运行绑定
     （I-3）：任务进程 context 绑定本进程的 ``process_id``，请求级
     context 绑定入口为本次请求生成的标识。网关是唯一对外的认证入口：
-    context 的失效、清空与诊断查询都经这里转交认证一侧，运行持有者不
+    context 的撤销与诊断查询都经这里转交认证一侧，运行持有者不
     直接接触 ``WorkspaceAuthenticator``。
 
     生命周期（v0.7.0 A1 访问边界返工第 4.8 节）：context 不设固定有效期，
     只随三个时点失效——绑定的任务进程关闭、请求级 context 随请求结束、
-    System 停止。:meth:`close` 关闭网关并拒绝新的认证；任务进程收尾后经
-    :meth:`clear_contexts` 清空全部授予记录。本类不提供配置热更新——
+    System 停止。:meth:`close` 关闭网关并拒绝新的认证，已签发 context 照常
+    可用；任务进程收尾后经 :meth:`revoke_all_contexts` 撤销全部已签发
+    context。本类不提供配置热更新——
     首版本地配置在运行实例内不可变，修改经重启生效。
     """
 
@@ -282,23 +199,23 @@ class ActorAuthenticationGateway:
 
     @property
     def is_closed(self) -> bool:
-        """网关或认证一侧是否已关闭；关闭后不再签发 context。"""
-        return self._closed or self._authenticator.is_closed
+        """网关是否已关闭；关闭后不再签发 context。"""
+        return self._closed
 
     def close(self) -> None:
         """关闭网关：拒绝新的认证请求，不影响已签发 context 的剩余生命周期。"""
         self._closed = True
 
     def invalidate_context(self, access: WorkspaceAccessContext) -> None:
-        """使单个已签发 context 失效；转交认证一侧（进程关闭或请求结束）。"""
+        """撤销单个已签发 context；转交认证一侧（进程关闭或请求结束）。"""
         self._authenticator.invalidate(access)
 
-    def clear_contexts(self) -> None:
-        """System 停止时清空全部授予记录；此后已签发 context 的兑现自然失败。"""
-        self._authenticator.clear()
+    def revoke_all_contexts(self) -> None:
+        """System 停止时撤销全部已签发 context；此后它们不再能通过授权。"""
+        self._authenticator.revoke_all()
 
     def describe_context(self, access: WorkspaceAccessContext) -> AccessGrantSummary | None:
-        """返回授予记录的只读摘要（日志与观测标签专用）；转交认证一侧。"""
+        """返回授予内容的只读摘要（日志与观测标签专用）；转交认证一侧。"""
         return self._authenticator.describe(access)
 
     async def authenticate(

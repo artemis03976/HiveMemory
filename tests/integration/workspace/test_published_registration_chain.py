@@ -4,8 +4,8 @@
 （``configs/system_principals.yaml`` 与 ``configs/workspace_actors.yaml``），
 按组合根 ``SystemAssembler._build_access_control`` 的同一方式构造真实认证
 组合——``SystemPrincipalAuthenticator``（第 1 阶段）+
-``WorkspaceAuthenticator``（第 2 阶段与签发）+ ``WorkspaceOperationAuthorizer``
-（第 3 阶段授权）+ ``ActorAuthenticationGateway``（唯一对外认证入口）。
+``WorkspaceAuthenticator``（第 2 阶段、签发与撤销）+ ``WorkspaceOperationAuthorizer``
+（第 3 阶段授权，与认证一侧互不依赖）+ ``ActorAuthenticationGateway``（唯一对外认证入口）。
 HTTP 入口经 FastAPI TestClient 与依赖覆盖驱动 memories / topics /
 memory-tasks 管理路由与 chat 注册入口；server principal 配置取自
 ``HiveMemoryConfig``（与发布登记的 ``hivememory:http-server`` 对齐）。
@@ -163,7 +163,7 @@ class _PublishedRegistration:
             ]
         )
         self.authenticator = WorkspaceAuthenticator(self.workspace_registry)
-        self.authorizer = WorkspaceOperationAuthorizer(self.authenticator)
+        self.authorizer = WorkspaceOperationAuthorizer(self.workspace_registry)
         self.gateway = ActorAuthenticationGateway(
             principals=SystemPrincipalAuthenticator(self.system_registry),
             authenticator=self.authenticator,
@@ -489,7 +489,7 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     assert len(stack.cpu.calls) == 1
     manifest_scope = stack.cpu.calls[0].manifest.identity_scope
     assert manifest_scope.actor_identity == ActorIdentity(user_id="default", agent_id="test_agent")
-    # prepare 收到的是授权返回的 scope（进程绑定 context 的兑现结果）。
+    # prepare 收到的是授权返回的 scope（由进程绑定 context 的授予内容组装）。
     assert stack.seen.prepare_scopes[-1].actor_identity.agent_id == "test_agent"
 
 
@@ -522,7 +522,7 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
         access_gateway=stack.registration.gateway,
         operation_authorizer=stack.registration.authorizer,
     )
-    # 捕获注册签发的进程 context：取消收口后断言其授予记录已清空。
+    # 捕获注册签发的进程 context：取消收口后断言它已被撤销。
     original_authenticate = stack.registration.gateway.authenticate
     issued_contexts: list[WorkspaceAccessContext] = []
 

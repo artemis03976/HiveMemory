@@ -150,10 +150,10 @@ def make_actor_access_record(
 class AccessTestComposition:
     """一次性装配的认证与授权两侧组合，供各层测试显式认证与授权。
 
-    ``gateway`` / ``authenticator`` 是认证一侧（签发、失效、清空、诊断），
+    ``gateway`` / ``authenticator`` 是认证一侧（准入、签发、撤销、诊断），
     ``authorizer`` 是操作授权者（第 3 阶段授权、进程控制授权、CPU 执行
-    身份）；两者与生产装配同构：授权者经认证一侧的只读兑现接口取授权
-    依据。
+    身份）；两者与生产装配同构：互不依赖，都只读同一份访问登记，授权者
+    读取 context 密封的授予内容。
     """
 
     gateway: ActorAuthenticationGateway
@@ -196,7 +196,7 @@ def make_access_composition(
 ) -> AccessTestComposition:
     """构造 System 接入登记 + Workspace Actor 注册表 + 认证网关 + 操作授权者。
 
-    context 不设固定有效期，只随进程关闭、请求结束与认证一侧清空失效；
+    context 不设固定有效期，只随进程关闭、请求结束与撤销全部失效；
     需要验证单个 context 失效时经组合的网关调用
     ``gateway.invalidate_context(context)``。
     """
@@ -211,7 +211,7 @@ def make_access_composition(
     )
     workspace_registry = WorkspaceActorAccessRegistry(records)
     authenticator = WorkspaceAuthenticator(workspace_registry)
-    authorizer = WorkspaceOperationAuthorizer(authenticator)
+    authorizer = WorkspaceOperationAuthorizer(workspace_registry)
     gateway = ActorAuthenticationGateway(
         principals=SystemPrincipalAuthenticator(system_registry),
         authenticator=authenticator,
@@ -256,9 +256,8 @@ async def make_process_access(
 ]:
     """任务进程测试的 (authorizer, gateway, access, actor, workspace) 组合。
 
-    进程持有的 access 必须由注入服务的那一个 gateway 组合签发（换
-    实例即 ``context_not_issued``），因此测试用与生产装配相同的组合方式
-    显式构造：context 以 ``for_task_process(process_id)`` 绑定签发；返回
+    进程持有的 access 由注入服务的同一组合签发，与生产装配一致：认证
+    一侧与操作授权者读取同一份访问登记。测试显式构造该组合：context 以 ``for_task_process(process_id)`` 绑定签发；返回
     的 actor/workspace 声明供 ``register_process`` 使用。记录授予全部
     operation（测试便利），阶段授权按阶段语义逐项检查。
     """

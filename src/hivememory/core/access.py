@@ -1,17 +1,17 @@
 """依赖中立的访问值类型与端口协议（A1 访问模型）。
 
 - ``WorkspaceOperation``：Actor→Workspace 的行为目录；
-- ``WorkspaceAccessContext``：统一认证后签发的不透明访问凭据，签发内容
-  （actor、驻留 workspace、principal、运行绑定）由签发它的认证一侧内部
-  保存，对外没有公开字段；
+- ``WorkspaceAccessContext``：统一认证后签发的密封访问凭据，签发时写入
+  授予内容 ``AccessGrant``（actor、驻留 workspace、principal、运行绑定），
+  对外没有公开字段；
 - ``AccessRunType`` / ``RunBinding``：访问 context 的运行绑定（运行类型
   与运行标识）；
 - ``CallerPrincipal``：受信入口建立的调用来源身份；
 - ``PrincipalAuthenticator``：Principal authentication 端口，由 System 实现，
   供 workspace 认证入口在 Workspace 准入前调用。
 
-本模块只依赖 core；签发状态、授予记录、准入记录与接入登记分别由
-workspace 与 system 持有，不在此处。资源 owner 与 Gateway 不接收访问
+本模块只依赖 core；签发与撤销、准入记录与接入登记分别由 workspace 与
+system 持有，不在此处。资源 owner 与 Gateway 不接收访问
 context——授权点以下只流动授权点组装的 ``IdentityScope``。
 """
 
@@ -19,9 +19,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import NoReturn, Protocol
 
-from hivememory.core.models import ActorIdentity
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 
 
 class WorkspaceOperation(str, Enum):
@@ -72,19 +72,6 @@ class WorkspaceOperation(str, Enum):
     MANAGEMENT_ASSET = "management.asset"
 
 
-@dataclass(frozen=True, eq=False, slots=True, weakref_slot=True)
-class WorkspaceAccessContext:
-    """不透明的 Workspace 访问凭据：对外没有公开字段。
-
-    调用侧经 System 统一认证网关取得；它只能交给认证一侧兑现——
-    准入的 actor、驻留 workspace、来源 principal 与运行绑定在签发时写入
-    认证一侧内部的授予记录，context 本身不携带、不暴露任何身份。
-    直接构造的对象不在授予记录中，等同未签发；按对象身份判定
-    凭据，复制或反序列化都不产生等效凭据。context 不自检、不作为可序
-    列化的远端凭据，也不写入任何记录、事件或 DTO。
-    """
-
-
 class AccessRunType(str, Enum):
     """访问 context 绑定的运行类型：context 只在绑定的一次运行内有效。
 
@@ -99,7 +86,7 @@ class AccessRunType(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class RunBinding:
-    """访问 context 的运行绑定：运行类型与运行标识（认证签发时写入授予记录）。
+    """访问 context 的运行绑定：运行类型与运行标识（认证签发时写入授予内容）。
 
     ``run_id`` 是运行标识：任务进程为 server 入口冻结的 ``process_id``，
     请求级 context 为入口为本次请求生成的标识。
@@ -142,6 +129,85 @@ class CallerPrincipal:
             raise ValueError("principal_id 不能为空")
 
 
+@dataclass(frozen=True, slots=True)
+class AccessGrant:
+    """访问 context 密封的授予内容：第 2 阶段 Workspace 认证的结果。
+
+    回答"这个 actor 驻留在哪个 workspace、经由哪个来源接入、属于哪一次
+    运行"（身份与访问体系 Idea 第 5 节）。``workspace`` 是驻留 workspace，
+    不是某次操作的目标；第 3 阶段的操作授权读取它，再按目标 workspace
+    组装 ``IdentityScope``。
+    """
+
+    actor: ActorIdentity
+    workspace: WorkspaceIdentity
+    principal: CallerPrincipal
+    binding: RunBinding
+
+
+class WorkspaceAccessContext:
+    """密封的 Workspace 访问凭据：签发时写入授予内容，对外没有公开字段。
+
+    调用侧经统一认证网关取得，只把它作为凭据交给授权点（I-1，I-10 的
+    2026-10-04 补充）。凭据上的三个私有接口由架构测试限定调用方所在的
+    模块：
+
+    - :meth:`_seal`：签发，只由 ``WorkspaceAuthenticator`` 调用；
+    - :meth:`_revoke`：撤销，只由 ``WorkspaceAuthenticator`` 调用；
+    - :meth:`_unseal`：读取授予内容，只由操作授权者与认证一侧的诊断查询
+      调用。
+
+    直接构造被拒绝；复制与序列化被拒绝（撤销状态随凭据对象本身，副本
+    不能逃过撤销）；按对象身份比较。它不作为可序列化的远端凭据，也不写入
+    任何记录、事件或 DTO。该机制维护可信进程内调用纪律，不隔离任意恶意
+    Python 代码。
+    """
+
+    __slots__ = ("__weakref__", "_grant", "_revoked")
+
+    def __init__(self) -> None:
+        raise TypeError("WorkspaceAccessContext 只能由 WorkspaceAuthenticator 签发")
+
+    @classmethod
+    def _seal(cls, grant: AccessGrant) -> WorkspaceAccessContext:
+        """签发写有授予内容的凭据（只由 ``WorkspaceAuthenticator`` 调用）。"""
+        if not isinstance(grant, AccessGrant):
+            raise TypeError("grant 必须是 AccessGrant")
+        context = object.__new__(cls)
+        object.__setattr__(context, "_grant", grant)
+        object.__setattr__(context, "_revoked", False)
+        return context
+
+    def _unseal(self) -> AccessGrant | None:
+        """读取授予内容；已撤销或不是签发得到的对象返回 ``None``。"""
+        if getattr(self, "_revoked", True):
+            return None
+        grant: AccessGrant | None = getattr(self, "_grant", None)
+        return grant
+
+    def _revoke(self) -> None:
+        """撤销凭据（只由 ``WorkspaceAuthenticator`` 调用）；幂等。"""
+        object.__setattr__(self, "_revoked", True)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("WorkspaceAccessContext 是密封的凭据，不能修改")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("WorkspaceAccessContext 是密封的凭据，不能修改")
+
+    def __copy__(self) -> WorkspaceAccessContext:
+        raise TypeError("WorkspaceAccessContext 不能复制")
+
+    def __deepcopy__(self, memo: dict[int, object]) -> WorkspaceAccessContext:
+        raise TypeError("WorkspaceAccessContext 不能复制")
+
+    def __reduce_ex__(self, protocol: object) -> NoReturn:
+        raise TypeError("WorkspaceAccessContext 不能序列化")
+
+    def __repr__(self) -> str:
+        return "WorkspaceAccessContext(<sealed>)"
+
+
 class PrincipalAuthenticator(Protocol):
     """Principal authentication 端口：确认调用来源已登记且可服务该 Actor。
 
@@ -158,6 +224,7 @@ class PrincipalAuthenticator(Protocol):
 
 
 __all__ = [
+    "AccessGrant",
     "AccessRunType",
     "CallerPrincipal",
     "PrincipalAuthenticator",

@@ -238,7 +238,7 @@ def resolve_request_identity_claims(
 
     身份选择与冲突检测规则见 :func:`_resolve_identity_coordinates`。经
     认证网关的请求一律使用本函数；声明只作为认证输入，认证通过后经过
-    验证的身份只存在于认证一侧的授予记录中，server 不把声明当作已确认
+    验证的身份只存在于密封的 context 中，server 不把声明当作已确认
     的身份继续使用。Agent action（``require_agent=True``）显式给出保留的
     :data:`SYSTEM_AGENT_ID` 时返回 400：它表示"没有具体 Agent"，不能作为
     任务进程的执行 Agent（注册入口仍保留同一检查）。
@@ -305,7 +305,7 @@ def resolve_request_identity_scope(
 # 每个与 workspace 相关的请求经网关取得 context。请求头中的用户身份不做
 # 证明——这是本地单用户部署的信任假设。认证前 server 只持有声明
 # （:class:`RequestIdentityClaims`），声明只作为认证输入：认证通过后，
-# 经过验证的身份只存在于认证一侧的授予记录中，server 不把声明当作已确认
+# 经过验证的身份只存在于密封的 context 中，server 不把声明当作已确认
 # 的身份继续使用，也不把声明交给路由处理函数。
 # ---------------------------------------------------------------------------
 

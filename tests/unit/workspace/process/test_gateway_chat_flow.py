@@ -829,7 +829,7 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 
 @pytest.mark.asyncio
 async def test_completed_delivery_closes_process_and_invalidates_context() -> None:
-    """交付结束自动收口：绑定 context 失效（兑现被拒），进程从表中注销。"""
+    """交付结束自动收口：绑定 context 撤销（授权被拒），进程从表中注销。"""
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())

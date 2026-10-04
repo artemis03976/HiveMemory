@@ -1,13 +1,13 @@
 """ActorAuthenticationGateway 的单元测试。
 
 被测对象：System 统一认证网关（A1 访问边界返工第 4.2 节）。保护的契约：
-一次认证调用完成两项认证并签发不透明 context，签发内容（来源 principal
-与运行绑定）写入认证一侧（``WorkspaceAuthenticator``）的授予记录，经网关
-的 ``describe_context`` 诊断查询逐项可见；未登记/禁用折叠为同一 reason
+一次认证调用完成两项认证并签发密封的 context，授予内容（来源 principal
+与运行绑定）在签发时写入 context，经网关的 ``describe_context`` 诊断查询
+逐项可见；未登记/禁用折叠为同一 reason
 （不泄漏配置）、adapter 不匹配、身份解析收紧、W0 owner 约束与缺失
 Workspace 访问记录分别拒绝；同一 principal 服务多个 Actor 不是失败；
-关闭语义可区分：``gateway.close`` 只拒新认证，认证一侧 ``close`` 才影响
-已签发 context 的授予记录。
+生命周期语义可区分：``gateway.close`` 只拒新认证，已签发 context 照常
+可用；``revoke_all_contexts`` 才使已签发 context 失效。
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ async def test_authenticate_issues_reusable_context_without_operation():
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a1", user_id="u1")
 
-    # context 不携带身份或 operation：签发内容只存在于认证一侧的授予记录中。
+    # context 没有公开字段：授予内容密封在内，也不携带 operation。
     assert not hasattr(first, "operation")
     assert not hasattr(first, "identity_scope")
     first_summary = composition.gateway.describe_context(first)
@@ -73,7 +73,7 @@ async def test_authenticate_issues_reusable_context_without_operation():
 
 @pytest.mark.asyncio
 async def test_grant_record_keeps_principal_and_run_binding():
-    """授予记录保存来源 principal 与运行绑定（I-2/I-3），经诊断查询逐项一致。"""
+    """授予内容携带来源 principal 与运行绑定（I-2/I-3），经诊断查询逐项一致。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,
@@ -258,11 +258,11 @@ async def test_close_rejects_new_authentication():
 
 
 @pytest.mark.asyncio
-async def test_gateway_close_only_blocks_new_authentication_and_keeps_grant_records():
-    """gateway.close 只拒新认证：既有授予记录的诊断查询不受影响。
+async def test_gateway_close_only_blocks_new_authentication_and_keeps_issued_contexts():
+    """gateway.close 只拒新认证：已签发 context 照常通过授权，直到被撤销。
 
-    关闭网关不等于清空授予记录——已签发 context 的剩余生命周期（失效、
-    清空）由各自所有者与 System 停止顺序完成，不经网关的 close。
+    关闭网关不等于撤销——已签发 context 的剩余生命周期（单个撤销、撤销
+    全部）由各自所有者与 System 停止顺序完成，不经网关的 close。
     """
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
@@ -272,33 +272,27 @@ async def test_gateway_close_only_blocks_new_authentication_and_keeps_grant_reco
 
     composition.gateway.close()
 
-    # 诊断查询转交认证一侧，网关关闭不影响已写入的授予记录。
     summary = composition.gateway.describe_context(context)
     assert summary is not None
     assert summary.workspace_id == MAIN.workspace_id
-    # 认证一侧未随之关闭：redeem 不按 gateway_closed 拒绝。
-    redeemed = composition.authenticator.redeem(context)
-    assert redeemed.workspace == MAIN
+    scope = composition.authorizer.authorize_operation(
+        context, WorkspaceOperation.RESOURCE_READ, MAIN
+    )
+    assert scope.workspace_identity == MAIN
 
 
 @pytest.mark.asyncio
-async def test_authenticator_close_clears_grant_records_seen_through_gateway():
-    """认证一侧 close 才影响已签发 context：诊断查询转交后返回 None。
-
-    网关的 ``describe_context`` 只转交认证一侧：授予记录被 close 清空后，
-    运行持有者经网关看到的也是空，且网关随认证一侧进入关闭态。
-    """
+async def test_revoke_all_through_gateway_revokes_issued_contexts():
+    """网关转交撤销全部：已签发 context 不再能通过授权，诊断查询返回 None。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,
     )
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
-    composition.authenticator.close()
+    composition.gateway.revoke_all_contexts()
 
-    assert composition.gateway.is_closed
     assert composition.gateway.describe_context(context) is None
-    # 兑现按认证一侧关闭拒绝，而不是未签发。
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authenticator.redeem(context)
-    assert exc_info.value.details["reason"] == "authentication_gateway_closed"
+        composition.authorizer.authorize_operation(context, WorkspaceOperation.RESOURCE_READ, MAIN)
+    assert exc_info.value.details["reason"] == "context_not_issued"

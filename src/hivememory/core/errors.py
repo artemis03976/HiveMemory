@@ -47,12 +47,6 @@ class ScopeRequiredError(WorkspaceDomainError):
     code = "workspace.scope_required"
 
 
-class OwnerMismatchError(WorkspaceDomainError):
-    """执行者用户与资源域所有者不一致。"""
-
-    code = "workspace.owner_mismatch"
-
-
 class WorkspaceMismatchError(WorkspaceDomainError):
     """资源与请求不属于同一 Workspace。"""
 
@@ -170,7 +164,6 @@ class ModelNotFoundError(Exception):
 __all__ = [
     "WorkspaceDomainError",
     "ScopeRequiredError",
-    "OwnerMismatchError",
     "WorkspaceMismatchError",
     "AdmissionDeniedError",
     "OperationDeniedError",

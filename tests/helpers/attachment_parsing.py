@@ -47,8 +47,8 @@ def make_upload_service(
     """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。
 
     A1 访问边界返工：上传服务在自己公共入口执行 ``management.asset``
-    授权，注入的操作授权者必须经签发上传 access 的同一认证一侧兑现
-    （换组合即 ``context_not_issued``）；``access_composition`` 缺省为
+    授权；注入的操作授权者与签发上传 access 的认证一侧来自同一组合，
+    读取同一份访问登记（与生产装配一致）；``access_composition`` 缺省为
     :func:`make_upload_access` 的全操作本地登记组合。
     """
     composition = access_composition or make_upload_access()

@@ -235,9 +235,10 @@ class SystemAssembler:
         Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
         转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
         失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
-        认证与操作授权分属两个类（I-10）：认证网关与认证一侧持有授予
-        记录，操作授权者经只读兑现接口取得授权依据；组合根把操作授权者
-        注入各授权点，运行持有者只经认证网关接触认证一侧。
+        认证与操作授权分属两个类（I-10 及其补充）：认证一侧签发与撤销
+        密封的 context，操作授权者读取其授予内容，两者互不依赖、都只读
+        访问注册表；组合根把操作授权者注入各授权点，运行持有者只经认证
+        网关接触认证一侧。
         """
         registration = load_access_registration()
 
@@ -271,10 +272,11 @@ class SystemAssembler:
 
         system_registry = SystemActorAccessRegistry(system_entries)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
-        # 第 2 阶段与签发归认证一侧；第 3 阶段归操作授权者（经只读兑现
-        # 接口取得授权依据，无 per-context 状态）。
+        # 第 2 阶段的准入、签发与撤销归认证一侧；第 3 阶段归操作授权者
+        # （无状态，读取 context 密封的授予内容）。两者互不依赖，都只读
+        # 同一份 Workspace 访问登记。
         authenticator = WorkspaceAuthenticator(workspace_registry)
-        operation_authorizer = WorkspaceOperationAuthorizer(authenticator)
+        operation_authorizer = WorkspaceOperationAuthorizer(workspace_registry)
         # Principal authentication 归 System（接入登记），经端口注入认证
         # 网关；Workspace 准入与签发归认证一侧。
         access_gateway = ActorAuthenticationGateway(

@@ -92,8 +92,7 @@ def upload_stack():
     """构造真实 router + 真实网关组合 + 应用服务 + Store 的测试应用。
 
     上传服务的操作授权者与网关依赖覆盖背后的组合是同一实例：请求级 context
-    由该组合签发，``authorize_operation`` 才能兑现（换实例即
-    ``context_not_issued``）。测试应用另挂载生产访问错误处理器，验证
+    由该组合签发，授权按同一份访问登记判定（与生产装配一致）。测试应用另挂载生产访问错误处理器，验证
     准入拒绝的稳定 403 映射。
     """
     from hivememory.server.app import (

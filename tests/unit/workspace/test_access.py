@@ -1,39 +1,38 @@
-"""Workspace 认证一侧与操作授权者的单元测试。
+"""Workspace 认证一侧、密封的访问 context 与操作授权者的单元测试。
 
-被测对象：``workspace.authentication.WorkspaceAuthenticator``（认证一侧）
-与 ``workspace.authorization.WorkspaceOperationAuthorizer``（操作授权者）
-（A1 访问边界返工第 4.2 节，身份与访问体系 Idea I-10）。保护的契约：
+被测对象：``core.access.WorkspaceAccessContext``（密封凭据）、
+``workspace.authentication.WorkspaceAuthenticator``（认证一侧）与
+``workspace.authorization.WorkspaceOperationAuthorizer``（操作授权者）
+（A1 访问边界返工第 4.2 节，身份与访问体系 Idea I-10 及其 2026-10-04
+补充）。保护的契约：
 
-- ``WorkspaceAccessContext`` 是不透明凭据：没有公开字段，直接构造的实例
-  等同未签发，复制或按值重建都不产生等效凭据；认证一侧以"context →
-  授予记录"的弱引用字典跟踪签发，不保留所有者已释放的 context；
-- ``WorkspaceAuthenticator.redeem`` 是只读兑现：未签发/已失效
-  （``context_not_issued``）、认证一侧已关闭
-  （``authentication_gateway_closed``）、准入失效（``actor_not_admitted``）
-  分别以稳定 reason 拒绝；类型错误是无 reason 的 ``ScopeRequiredError``；
-  ``peek`` 只查签发记录，不做关闭检查，查无结果返回 ``None``；
-- 授予记录的生命周期：单个失效（``invalidate``，幂等）、System 停止清空
-  （``clear``，之后兑现按 ``context_not_issued`` 失败）与认证一侧关闭
-  （``close``，之后兑现按 ``authentication_gateway_closed`` 失败）三者
-  语义可区分；诊断查询（``describe``）返回 ``AccessGrantSummary``；
-- ``WorkspaceOperationAuthorizer.authorize_operation`` 显式接收目标
-  workspace：目标非驻留（``target_workspace_not_resident``）、白名单缺失
-  （``operation_not_allowed``）分别拒绝；成功路径返回授权者组装的
-  ``IdentityScope``；
+- ``WorkspaceAccessContext`` 是密封凭据：没有公开字段，repr 不泄露内容；
+  直接构造、复制、序列化与修改都被拒绝（副本不能逃过撤销）；
+- 认证一侧的撤销：单个撤销（``invalidate``，幂等）与 System 停止时的
+  撤销全部（``revoke_all``）之后，context 不再能通过授权
+  （``context_not_issued``）；撤销全部不影响之后的新认证；网关关闭只拒绝
+  新认证，已签发的 context 照常可用；诊断查询（``describe``）返回
+  ``AccessGrantSummary``，已撤销返回 ``None``；认证一侧不保留所有者已
+  释放的 context；
+- ``WorkspaceOperationAuthorizer`` 只依赖访问登记：错误类型的凭据在类型
+  边界即失败（无 reason）；``authorize_operation`` 显式接收目标
+  workspace，目标非驻留（``target_workspace_not_resident``）、目标 owner
+  不符（``target_owner_mismatch``）、白名单缺失（``operation_not_allowed``）
+  分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
 - 进程控制授权比对请求方与进程记录的驻留坐标（P-7）：请求方无效按
-  ``ScopeRequiredError`` 拒绝，记录侧无效按 ``False``（不可控）呈现；
-- ``cpu_execution_identity`` 过渡方法不检查 operation，但保留目标检查。
+  ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
+- ``cpu_execution_identity`` 过渡方法不检查 operation，但与操作授权共用
+  目标与 owner 检查。
 
 签发约定：``WorkspaceAuthenticator.admit`` 只由认证网关调用——本套件的
 全部签发都经 ``composition.gateway.authenticate`` 完成，不直接调用
-``admit``。context 不设固定有效期，只随单个失效、清空与认证一侧关闭
-失去有效性。
+``admit``，也不调用 context 的私有接口。
 """
 
 from __future__ import annotations
 
+import pickle
 from copy import copy, deepcopy
-from dataclasses import fields, replace
 from weakref import ref
 
 import pytest
@@ -49,8 +48,8 @@ from hivememory.core.errors import (
     OperationDeniedError,
     ScopeRequiredError,
 )
-from hivememory.core.models import ActorIdentity, IdentityScope
-from hivememory.workspace.authentication import AccessGrantSummary, RedeemedAccess
+from hivememory.core.models import IdentityScope
+from hivememory.workspace.authentication import AccessGrantSummary
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -61,266 +60,129 @@ from tests.helpers.workspace import (
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 ISOLATION = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
 FOREIGN_OWNER = make_workspace_identity(owner_user_id="u2", workspace_id="main_workspace")
+READ = WorkspaceOperation.RESOURCE_READ
 
 
-# ---------------------------------------------------------------------------
-# 认证一侧（WorkspaceAuthenticator）：兑现、授予记录、失效、清空、诊断与关闭
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_redeem_returns_readonly_projection_of_the_grant_record():
-    """兑现返回授予记录的只读投影：actor、驻留 workspace 与访问登记逐项一致。
-
-    actor 与驻留 workspace 来自认证一侧的授予记录（网关签发时写入），不是
-    调用方传入的声明；``access_record`` 是当前访问登记记录（含行为白名单）。
-    """
-    record = make_actor_access_record(
-        owner_user_id="u1",
-        agent_id="a1",
-        allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
-    )
-    composition = make_access_composition([record], default_workspace=MAIN)
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-
-    redeemed = composition.authenticator.redeem(context)
-
-    assert isinstance(redeemed, RedeemedAccess)
-    assert redeemed.actor == ActorIdentity(user_id="u1", agent_id="a1")
-    assert redeemed.workspace == MAIN
-    assert redeemed.access_record == record
-
-
-@pytest.mark.asyncio
-async def test_redeem_rejects_unissued_context_with_context_not_issued_reason():
-    """类型正确但未经本实例签发的 context 按 context_not_issued 拒绝。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+def _composition(**record_kwargs):
+    """u1/a1 驻留 MAIN 的认证组合（缺省授予全部 operation）。"""
+    return make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="a1", **record_kwargs)],
         default_workspace=MAIN,
     )
 
+
+def _assert_revoked(composition, context) -> None:
+    """已撤销的 context 不再能通过授权，诊断查询也不再返回摘要。"""
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authenticator.redeem(WorkspaceAccessContext())
-
+        composition.authorizer.authorize_operation(context, READ, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
+    assert composition.gateway.describe_context(context) is None
+
+
+# ---------------------------------------------------------------------------
+# 密封的访问 context
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_redeem_rejects_missing_and_wrong_typed_access_without_reason():
-    """缺失凭据与错误类型的凭据在类型边界即失败，且不带稳定 reason。
+async def test_context_is_sealed_without_public_fields():
+    """context 没有公开字段，repr 不泄露授予内容：身份只在授权点读取。"""
+    context = await _composition().authenticate(agent_id="a1", user_id="u1")
 
-    网关签发的 ``WorkspaceAccessContext`` 之外的对象（含 ``None`` 与裸
-    scope）都不是可兑现凭据；类型错误不区分具体形态，details 中无 reason。
-    """
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
+    assert [name for name in dir(context) if not name.startswith("_")] == []
+    assert repr(context) == "WorkspaceAccessContext(<sealed>)"
 
-    with pytest.raises(ScopeRequiredError) as missing_info:
-        composition.authenticator.redeem(None)
-    with pytest.raises(ScopeRequiredError) as bare_info:
-        composition.authenticator.redeem(make_identity_scope(user_id="u1", agent_id="a1"))
 
-    assert missing_info.value.code == "workspace.scope_required"
-    assert "reason" not in missing_info.value.details
-    assert bare_info.value.code == "workspace.scope_required"
-    assert "reason" not in bare_info.value.details
+def test_direct_construction_of_context_is_refused():
+    """context 只能由认证一侧签发：直接构造即失败，不存在“未签发的 context”。"""
+    with pytest.raises(TypeError, match="只能由 WorkspaceAuthenticator 签发"):
+        WorkspaceAccessContext()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "rebuild",
-    [
-        copy,
-        deepcopy,
-        replace,
-        lambda c: WorkspaceAccessContext(),
-    ],
-    ids=["copy", "deepcopy", "replace", "direct_construct"],
+    "duplicate",
+    [copy, deepcopy, pickle.dumps],
+    ids=["copy", "deepcopy", "pickle"],
 )
-async def test_copied_or_reconstructed_context_does_not_inherit_the_grant(rebuild):
-    """复制或重新构造 context 不继承原对象的授予记录（按对象身份判定凭据）。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
+async def test_context_refuses_copy_and_serialization(duplicate):
+    """撤销状态随凭据对象本身：复制与序列化被拒绝，副本不能逃过撤销。"""
+    context = await _composition().authenticate(agent_id="a1", user_id="u1")
+
+    with pytest.raises(TypeError):
+        duplicate(context)
+
+
+@pytest.mark.asyncio
+async def test_context_cannot_be_modified():
+    """密封凭据不能修改：已撤销的 context 不能被改回有效状态。"""
+    composition = _composition()
     context = await composition.authenticate(agent_id="a1", user_id="u1")
+    composition.gateway.invalidate_context(context)
 
-    rebuilt = rebuild(context)
-    assert rebuilt is not context
-    with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authenticator.redeem(rebuilt)
-    assert exc_info.value.details["reason"] == "context_not_issued"
-    # 原凭据不受伪造副本影响，仍可正常兑现。
-    redeemed = composition.authenticator.redeem(context)
-    assert redeemed.workspace == MAIN
+    with pytest.raises(AttributeError, match="密封"):
+        context._revoked = False  # type: ignore[attr-defined]
+    _assert_revoked(composition, context)
 
 
-def test_context_is_opaque_without_public_identity_fields():
-    """context 没有公开字段：身份只存在于认证一侧内部的授予记录中。"""
-    assert fields(WorkspaceAccessContext) == ()
-    context = WorkspaceAccessContext()
-    assert not hasattr(context, "identity_scope")
-    assert not hasattr(context, "actor")
-    assert not hasattr(context, "workspace")
-
-
-def test_authenticator_does_not_trust_a_self_validating_object():
-    """认证一侧只接受本实例实际签发的 WorkspaceAccessContext 实例。"""
-    record = make_actor_access_record(owner_user_id="u1", agent_id="a1")
-    composition = make_access_composition([record], default_workspace=MAIN)
-
-    class SelfValidatingAccess:
-        """旧协议形态的伪造对象：自带身份并自报可用。"""
-
-        def ensure_usable(self, *, clock):
-            return record
-
-    with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authenticator.redeem(SelfValidatingAccess())
-
-    assert exc_info.value.code == "workspace.scope_required"
+# ---------------------------------------------------------------------------
+# 认证一侧（WorkspaceAuthenticator）：撤销、诊断与网关关闭
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_authenticator_rejects_other_runtime_even_with_the_same_access_record():
-    """即使复用同一条配置对象，不同运行实例也不能互认准入结果。"""
-    record = make_actor_access_record(owner_user_id="u1", agent_id="a1")
-    first = make_access_composition([record], default_workspace=MAIN)
-    second = make_access_composition([record], default_workspace=MAIN)
-    context = await first.authenticate(agent_id="a1", user_id="u1")
-
-    with pytest.raises(ScopeRequiredError) as exc_info:
-        second.authenticator.redeem(context)
-
-    assert exc_info.value.details["reason"] == "context_not_issued"
-
-
-@pytest.mark.asyncio
-async def test_invalidate_rejects_invalidated_context_and_keeps_others_usable():
-    """单个 context 失效（P-6）后兑现被拒；同实例签发的其他凭据不受影响。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
+async def test_invalidate_revokes_single_context_and_keeps_others_usable():
+    """单个撤销（P-6）后该 context 不再能通过授权；其他凭据不受影响；幂等。"""
+    composition = _composition()
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a1", user_id="u1")
 
     composition.authenticator.invalidate(first)
 
-    with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authenticator.redeem(first)
-    assert exc_info.value.details["reason"] == "context_not_issued"
-    # 同实例签发的其他 context 不随单个失效受影响。
-    redeemed = composition.authenticator.redeem(second)
-    assert redeemed.workspace == MAIN
-    # 失效是幂等操作：重复失效不抛错。
+    _assert_revoked(composition, first)
+    assert composition.authorizer.authorize_operation(second, READ, MAIN).workspace_identity == MAIN
     composition.authenticator.invalidate(first)
+    _assert_revoked(composition, first)
 
 
 @pytest.mark.asyncio
-async def test_clear_drops_all_grants_and_redeem_fails_with_context_not_issued():
-    """System 停止清空（P-6 收尾）后全部授予记录失效，兑现按未签发拒绝。
+async def test_revoke_all_revokes_every_issued_context_and_new_auth_still_works():
+    """System 停止时撤销全部（P-6 收尾）：已签发的 context 全部失效。
 
-    清空不是关闭：认证一侧未关闭，重新认证仍可签发新的有效 context。
+    撤销全部不是关闭：之后重新认证仍可签发新的有效 context。
     """
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
+    composition = _composition()
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a1", user_id="u1")
 
-    composition.authenticator.clear()
+    composition.gateway.revoke_all_contexts()
 
     for stale in (first, second):
-        with pytest.raises(ScopeRequiredError) as exc_info:
-            composition.authenticator.redeem(stale)
-        assert exc_info.value.details["reason"] == "context_not_issued"
-        assert composition.authenticator.describe(stale) is None
-    # 清空后认证流程不受影响：新签发的 context 可正常兑现。
+        _assert_revoked(composition, stale)
     fresh = await composition.authenticate(agent_id="a1", user_id="u1")
-    assert composition.authenticator.redeem(fresh).workspace == MAIN
-
-
-@pytest.mark.asyncio
-async def test_close_rejects_redeem_and_new_admission_with_gateway_closed_reason():
-    """认证一侧关闭即运行实例结束：已签发凭据与新认证一并拒绝。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-
-    composition.authenticator.close()
-
-    assert composition.authenticator.is_closed
-    # 网关随认证一侧进入关闭态，新认证被拒绝。
-    assert composition.gateway.is_closed
-    with pytest.raises(AdmissionDeniedError) as auth_info:
-        await composition.authenticate(agent_id="a1", user_id="u1")
-    assert auth_info.value.details["reason"] == "authentication_gateway_closed"
-    # 已签发 context 的兑现按认证一侧关闭拒绝。
-    with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authenticator.redeem(context)
-    assert exc_info.value.details["reason"] == "authentication_gateway_closed"
+    assert composition.authorizer.authorize_operation(fresh, READ, MAIN).workspace_identity == MAIN
 
 
 @pytest.mark.asyncio
 async def test_gateway_close_rejects_new_auth_but_keeps_issued_contexts():
-    """网关关闭只拒绝新认证；已签发 context 的兑现不受影响。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
+    """网关关闭只拒绝新认证；已签发的 context 照常通过授权，直到被撤销。"""
+    composition = _composition()
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     composition.gateway.close()
+
     assert composition.gateway.is_closed
     with pytest.raises(AdmissionDeniedError) as auth_info:
         await composition.authenticate(agent_id="a1", user_id="u1")
     assert auth_info.value.details["reason"] == "authentication_gateway_closed"
-
-    # 认证一侧未关闭：已签发 context 仍可兑现与授权。
-    redeemed = composition.authenticator.redeem(context)
-    assert redeemed.workspace == MAIN
-
-
-@pytest.mark.asyncio
-async def test_peek_returns_projection_without_close_check():
-    """peek 只查签发记录取回兑现投影：查无结果返回 None，不受关闭影响。
-
-    供操作授权者的进程控制授权在记录侧使用：已失效与未签发都按 ``None``
-    呈现；认证一侧关闭后 peek 也不抛错（收尾窗口内的控制请求按不可控
-    处理），与 ``redeem`` 的关闭拒绝语义不同。
-    """
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
+    assert (
+        composition.authorizer.authorize_operation(context, READ, MAIN).workspace_identity == MAIN
     )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-    forged = WorkspaceAccessContext()
-
-    # 有效签发：peek 返回与 redeem 一致的只读投影。
-    peeked = composition.authenticator.peek(context)
-    assert isinstance(peeked, RedeemedAccess)
-    assert peeked == composition.authenticator.redeem(context)
-    # 已失效与未签发（含类型错误）：返回 None 而非抛错。
-    composition.authenticator.invalidate(context)
-    assert composition.authenticator.peek(context) is None
-    assert composition.authenticator.peek(forged) is None
-    assert composition.authenticator.peek(None) is None
-
-    # 关闭清空全部授予记录：先前有效的 context 也按 None 呈现，不抛错。
-    composition.authenticator.close()
-    assert composition.authenticator.peek(context) is None
-    assert composition.authenticator.peek(forged) is None
 
 
 @pytest.mark.asyncio
 async def test_describe_returns_grant_summary_for_issued_context():
-    """诊断查询返回授予记录摘要：actor/驻留/principal/运行绑定逐项一致。"""
+    """诊断查询返回授予内容摘要：actor/驻留/principal/运行绑定逐项一致。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,
@@ -332,38 +194,20 @@ async def test_describe_returns_grant_summary_for_issued_context():
         binding=RunBinding.for_task_process("process-1"),
     )
 
-    summary = composition.authenticator.describe(context)
-
-    assert isinstance(summary, AccessGrantSummary)
-    assert summary.actor_user_id == "u1"
-    assert summary.agent_id == "a1"
-    assert summary.workspace_id == MAIN.workspace_id
-    assert summary.principal_id == "local-process:test"
-    assert summary.run_type == AccessRunType.TASK_PROCESS.value
-    assert summary.run_id == "process-1"
-
-
-@pytest.mark.asyncio
-async def test_describe_returns_none_for_unissued_and_invalidated_contexts():
-    """未签发与已失效的 context 在诊断查询中返回 None。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
+    assert composition.gateway.describe_context(context) == AccessGrantSummary(
+        actor_user_id="u1",
+        agent_id="a1",
+        workspace_id=MAIN.workspace_id,
+        principal_id="local-process:test",
+        run_type=AccessRunType.TASK_PROCESS.value,
+        run_id="process-1",
     )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-    composition.authenticator.invalidate(context)
-
-    assert composition.authenticator.describe(WorkspaceAccessContext()) is None
-    assert composition.authenticator.describe(context) is None
 
 
 @pytest.mark.asyncio
 async def test_authenticator_does_not_retain_unused_contexts():
-    """没有固定有效期时，签发跟踪不能保留所有者已释放的上下文。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
+    """没有固定有效期时，认证一侧不能保留所有者已释放的上下文。"""
+    composition = _composition()
     context = await composition.authenticate(agent_id="a1", user_id="u1")
     context_ref = ref(context)
     del context
@@ -379,8 +223,8 @@ async def test_authenticator_does_not_retain_unused_contexts():
 async def test_authorize_operation_returns_assembled_scope_for_whitelisted_operations():
     """同一有效凭据可先后执行 read/search 等不同获准操作（A1 证据 6）。
 
-    返回的 ``IdentityScope`` 由授权者从兑现投影组装：actor 与目标 workspace
-    坐标正确，与签发 context 解耦（context 本身不携带身份）。
+    返回的 ``IdentityScope`` 由授权者从 context 密封的授予内容组装：actor 与
+    目标 workspace 坐标正确，与单次 operation 解耦。
     """
     composition = make_access_composition(
         [
@@ -442,7 +286,7 @@ async def test_authorize_operation_rejects_foreign_owner_target():
     owner 是 WorkspaceIdentity 坐标的一部分：跨 owner 的目标必然不等于
     驻留 workspace，因此稳定 reason 是 ``target_workspace_not_resident``；
     纯 ``target_owner_mismatch`` 分支只由授权者内部纵深防御保留——经网关
-    准入签发的授予记录已在第 2 阶段绑定 owner，无法单独触发。
+    准入签发的授予内容已在第 2 阶段绑定 owner，无法单独触发。
     """
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
@@ -485,19 +329,23 @@ async def test_authorize_operation_rejects_missing_and_bare_scope_context():
 
 
 @pytest.mark.asyncio
-async def test_authorize_operation_rejects_unissued_context_with_context_not_issued():
-    """类型正确但未经本实例签发的 context 在授权入口按 context_not_issued 拒绝。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+async def test_authorize_operation_rechecks_admission_against_the_access_registry():
+    """授权时按访问登记复查准入：登记中没有该 Actor 的准入记录时拒绝。
+
+    授予内容不绑定白名单快照，每次授权都即时查询访问登记。访问登记在
+    进程内不可变、系统中只有一个实例，这是防御性分支；测试以一份不含该
+    Actor 的登记构造授权者来模拟“准入记录已不存在”。
+    """
+    context = await _composition().authenticate(agent_id="a1", user_id="u1")
+    registry_without_actor = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="other-agent")],
         default_workspace=MAIN,
     )
 
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authorizer.authorize_operation(
-            WorkspaceAccessContext(), WorkspaceOperation.RESOURCE_READ, MAIN
-        )
+        registry_without_actor.authorizer.authorize_operation(context, READ, MAIN)
 
-    assert exc_info.value.details["reason"] == "context_not_issued"
+    assert exc_info.value.details["reason"] == "actor_not_admitted"
 
 
 @pytest.mark.asyncio
@@ -553,23 +401,26 @@ async def test_cpu_execution_identity_skips_whitelist_but_checks_target():
 
 
 @pytest.mark.asyncio
-async def test_cpu_execution_identity_rejects_unissued_and_invalidated_contexts():
-    """CPU 执行身份不跳过签发与失效校验：伪造与已失效凭据都拒绝。"""
+async def test_cpu_execution_identity_rejects_revoked_and_foreign_owner_contexts():
+    """CPU 执行身份不跳过撤销与 owner 检查（与操作授权共用目标检查）。"""
     composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="a1"),
+            make_actor_access_record(owner_user_id="u2", agent_id="a1"),
+        ],
         default_workspace=MAIN,
     )
     context = await composition.authenticate(agent_id="a1", user_id="u1")
-    forged = WorkspaceAccessContext()
+    foreign = await composition.authenticate(agent_id="a1", user_id="u2", workspace=FOREIGN_OWNER)
 
-    with pytest.raises(ScopeRequiredError) as forged_info:
-        composition.authorizer.cpu_execution_identity(forged, MAIN)
-    composition.authenticator.invalidate(context)
-    with pytest.raises(ScopeRequiredError) as invalidated_info:
+    with pytest.raises(OperationDeniedError) as owner_info:
+        composition.authorizer.cpu_execution_identity(foreign, MAIN)
+    composition.gateway.invalidate_context(context)
+    with pytest.raises(ScopeRequiredError) as revoked_info:
         composition.authorizer.cpu_execution_identity(context, MAIN)
 
-    assert forged_info.value.details["reason"] == "context_not_issued"
-    assert invalidated_info.value.details["reason"] == "context_not_issued"
+    assert owner_info.value.details["reason"] == "target_workspace_not_resident"
+    assert revoked_info.value.details["reason"] == "context_not_issued"
 
 
 class TestAuthorizeProcessControl:
@@ -628,35 +479,30 @@ class TestAuthorizeProcessControl:
         assert composition.authorizer.authorize_process_control(requestor, record_access) is False
 
     @pytest.mark.asyncio
-    async def test_unissued_requestor_context_raises_scope_required(self):
-        """请求方 context 未签发 → ScopeRequiredError（生产入口不应出现的接线缺陷）。"""
+    async def test_revoked_requestor_context_raises_scope_required(self):
+        """请求方 context 已撤销 → ScopeRequiredError（生产入口不应出现的接线缺陷）。"""
         composition = make_access_composition(
             [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
             default_workspace=MAIN,
         )
+        requestor = await composition.authenticate(agent_id="a1", user_id="u1", workspace=MAIN)
         record_access = await self._issued_record_context(composition)
+        composition.gateway.invalidate_context(requestor)
 
         with pytest.raises(ScopeRequiredError) as exc_info:
-            composition.authorizer.authorize_process_control(
-                WorkspaceAccessContext(), record_access
-            )
+            composition.authorizer.authorize_process_control(requestor, record_access)
 
         assert exc_info.value.details["reason"] == "context_not_issued"
 
     @pytest.mark.asyncio
-    async def test_invalidated_or_unissued_record_context_is_uncontrollable(self):
-        """进程记录侧 context 已失效或未签发 → False（收尾窗口按不可控处理）。"""
+    async def test_revoked_record_context_is_uncontrollable(self):
+        """进程记录侧 context 已撤销 → False（收尾窗口按不可控处理，不泄露进程是否存在）。"""
         composition = make_access_composition(
             [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
             default_workspace=MAIN,
         )
         requestor = await composition.authenticate(agent_id="a1", user_id="u1", workspace=MAIN)
 
-        invalidated = await self._issued_record_context(composition)
-        composition.authenticator.invalidate(invalidated)
-        assert composition.authorizer.authorize_process_control(requestor, invalidated) is False
-        # 伪造的记录侧凭据同样不可控，不泄露进程是否存在。
-        assert (
-            composition.authorizer.authorize_process_control(requestor, WorkspaceAccessContext())
-            is False
-        )
+        revoked = await self._issued_record_context(composition)
+        composition.gateway.invalidate_context(revoked)
+        assert composition.authorizer.authorize_process_control(requestor, revoked) is False

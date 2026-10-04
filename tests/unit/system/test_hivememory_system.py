@@ -220,7 +220,7 @@ class TestHiveMemorySystem:
             "gateway.stop",
             "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
-            "workspace_access_grants.clear",
+            "workspace_access_contexts.revoke",
         ]
         assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
@@ -246,7 +246,7 @@ class TestHiveMemorySystem:
             "passive_ingress.shutdown_drain",
             "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
-            "workspace_access_grants.clear",
+            "workspace_access_contexts.revoke",
         ]
         assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is False

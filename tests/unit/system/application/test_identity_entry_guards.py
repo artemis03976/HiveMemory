@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.core.access import AccessRunType, WorkspaceAccessContext
+from hivememory.core.access import AccessRunType
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import ScopeRequiredError, WorkspaceDomainError
 from hivememory.core.models import ActorIdentity
@@ -306,14 +306,18 @@ class TestCancelUsesRequestorContext:
         await stream.aclose()
 
     @pytest.mark.asyncio
-    async def test_cancel_with_unissued_requestor_context_is_a_wiring_defect(self):
-        """未签发的请求方 context 在取消入口显式失败（server 必须经网关签发）。"""
+    async def test_cancel_with_revoked_requestor_context_is_a_wiring_defect(self):
+        """已撤销的请求方 context 在取消入口显式失败（server 必须持有有效的请求级 context）。"""
         composition = self._make_composition()
         service = self._make_service(composition)
         stream = await self._register_running_process(service, composition, "process-owner-4")
+        requestor = await composition.authenticate(
+            agent_id=SYSTEM_AGENT_ID, user_id="owner", workspace=MAIN
+        )
+        composition.gateway.invalidate_context(requestor)
 
         with pytest.raises(ScopeRequiredError) as exc_info:
-            service.cancel_process("process-owner-4", access=WorkspaceAccessContext())
+            service.cancel_process("process-owner-4", access=requestor)
 
         assert exc_info.value.details["reason"] == "context_not_issued"
 
@@ -329,7 +333,7 @@ class TestRequestAccessEntryGuard:
 
     @pytest.mark.asyncio
     async def test_authenticate_request_access_binds_request_run(self):
-        """请求级认证经网关签发：授予记录保存 server principal 与请求运行类型。"""
+        """请求级认证经网关签发：授予内容携带 server principal 与请求运行类型。"""
         composition = make_access_composition(
             [
                 make_actor_access_record(owner_user_id="u1", agent_id=None),
