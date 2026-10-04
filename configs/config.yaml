@@ -7,6 +7,9 @@
 system:
   name: "HiveMemory"
   debug: true
+  # server 自身经统一认证网关认证时使用的 principal 标识；
+  # 必须与 configs/system_principals.yaml 中的接入登记一致。
+  server_principal_id: "hivememory:http-server"
 
 # ========== 国际化配置 ==========
 i18n:

@@ -4,6 +4,9 @@
 拒绝旧值回填与成功返回）、归属纵深防御、不写负缓存、alias 批读的顺序与
 去重、语义检索的协作预热，以及关闭语义。backing 以内存替身实现（被测
 单元边界之外的 Patchouli），按 backing 契约只返回当前 Actor 可读的原子。
+
+resolver 与 backing 位于授权点以下（A1 访问边界返工第 4.1 节）：只流动
+授权点组装的可信 ``IdentityScope``，不接收访问 context。
 """
 
 from __future__ import annotations
@@ -92,13 +95,13 @@ class _FakeBacking:
         if self.on_fetch is not None:
             self.on_fetch()
 
-    async def read(self, memory_id, *, scope, access):
+    async def read(self, memory_id, *, scope):
         atom = self.atoms.get((scope.workspace_identity, memory_id))
         result = atom.model_copy(deep=True) if atom and self._visible(atom, scope) else None
         self._fetched()
         return result
 
-    async def retrieve_by_aliases(self, aliases, *, scope, access):
+    async def retrieve_by_aliases(self, aliases, *, scope):
         found = [
             atom.model_copy(deep=True)
             for atom in self.atoms.values()
@@ -107,12 +110,12 @@ class _FakeBacking:
         self._fetched()
         return found
 
-    async def retrieve(self, request, *, access):
+    async def retrieve(self, request):
         results = [atom.model_copy(deep=True) for atom in self.search_results]
         self._fetched()
         return results
 
-    async def get_agent_profile(self, agent_alias, *, scope, access):  # pragma: no cover
+    async def get_agent_profile(self, agent_alias, *, scope):  # pragma: no cover
         raise AssertionError("alias resolver 不读取 Profile")
 
 
@@ -129,10 +132,10 @@ async def test_valid_hit_is_served_without_reaching_backing():
     backing = _FakeBacking()
     atom = backing.store(_atom("fact_hit", content="cached"))
     resolver, _, _ = _resolver(backing)
-    await resolver.read(atom.id, scope=A1, access=None)
+    await resolver.read(atom.id, scope=A1)
     backing.remove(atom)
 
-    again = await resolver.read(atom.id, scope=A1, access=None)
+    again = await resolver.read(atom.id, scope=A1)
 
     assert (again.payload.content, backing.calls) == ("cached", 1)
 
@@ -143,10 +146,10 @@ async def test_shared_entry_is_authorized_per_actor_without_cold_read():
     backing = _FakeBacking()
     private = backing.store(_atom("fact_private", private_to="a2"))
     resolver, _, _ = _resolver(backing)
-    await resolver.read(private.id, scope=A2, access=None)
+    await resolver.read(private.id, scope=A2)
 
-    denied = await resolver.read(private.id, scope=A1, access=None)
-    allowed = await resolver.read(private.id, scope=A2, access=None)
+    denied = await resolver.read(private.id, scope=A1)
+    allowed = await resolver.read(private.id, scope=A2)
 
     assert denied is None
     assert allowed.id == private.id
@@ -172,9 +175,9 @@ async def test_stale_cold_read_is_retried_and_only_current_value_is_cached():
         epochs.advance(MAIN)
 
     backing.on_fetch = concurrent_update
-    result = await resolver.read(atom.id, scope=A1, access=None)
+    result = await resolver.read(atom.id, scope=A1)
     backing.remove(atom)
-    cached = await resolver.read(atom.id, scope=A1, access=None)
+    cached = await resolver.read(atom.id, scope=A1)
 
     assert (result.payload.content, cached.payload.content) == ("v2", "v2")
 
@@ -188,11 +191,11 @@ async def test_persistent_concurrent_changes_fail_explicitly_without_caching():
     backing.on_fetch = lambda: epochs.advance(MAIN)
 
     with pytest.raises(ResourceUnavailableError) as exc_info:
-        await resolver.read(atom.id, scope=A1, access=None)
+        await resolver.read(atom.id, scope=A1)
 
     assert exc_info.value.details["reason"] == "stale_read_retry_exhausted"
     backing.on_fetch = None
-    await resolver.read(atom.id, scope=A1, access=None)
+    await resolver.read(atom.id, scope=A1)
     assert backing.calls == 4  # 3 次被拒的冷读 + 1 次未命中缓存的冷读
 
 
@@ -202,15 +205,15 @@ async def test_backing_atom_from_another_workspace_is_neither_delivered_nor_cach
     backing = _FakeBacking()
     foreign = _atom("fact_foreign", workspace_id="other_workspace")
 
-    async def leaky_retrieve_by_aliases(aliases, *, scope, access):
+    async def leaky_retrieve_by_aliases(aliases, *, scope):
         backing.calls += 1
         return [foreign]
 
     backing.retrieve_by_aliases = leaky_retrieve_by_aliases  # type: ignore[method-assign]
     resolver, _, _ = _resolver(backing)
 
-    first = await resolver.resolve_aliases(["fact_foreign"], scope=A1, access=None)
-    second = await resolver.resolve_aliases(["fact_foreign"], scope=A1, access=None)
+    first = await resolver.resolve_aliases(["fact_foreign"], scope=A1)
+    second = await resolver.resolve_aliases(["fact_foreign"], scope=A1)
 
     assert (first, second, backing.calls) == ([], [], 2)
 
@@ -222,10 +225,10 @@ async def test_missing_result_is_not_negatively_cached():
     resolver, _, _ = _resolver(backing)
     atom = _atom("fact_late")
 
-    assert await resolver.read(atom.id, scope=A1, access=None) is None
+    assert await resolver.read(atom.id, scope=A1) is None
     backing.store(atom)
 
-    assert (await resolver.read(atom.id, scope=A1, access=None)).id == atom.id
+    assert (await resolver.read(atom.id, scope=A1)).id == atom.id
 
 
 @pytest.mark.asyncio
@@ -236,20 +239,19 @@ async def test_alias_batch_keeps_request_order_and_cold_reads_only_misses():
     second = backing.store(_atom("fact_b"))
     third = backing.store(_atom("fact_c"))
     resolver, _, _ = _resolver(backing)
-    await resolver.resolve_aliases(["fact_c"], scope=A1, access=None)
+    await resolver.resolve_aliases(["fact_c"], scope=A1)
     requested: list[list[str]] = []
     original = backing.retrieve_by_aliases
 
-    async def recording_retrieve(aliases, *, scope, access):
+    async def recording_retrieve(aliases, *, scope):
         requested.append(list(aliases))
-        return await original(aliases, scope=scope, access=access)
+        return await original(aliases, scope=scope)
 
     backing.retrieve_by_aliases = recording_retrieve  # type: ignore[method-assign]
 
     result = await resolver.resolve_aliases(
         ["fact_c", "fact_a", "  fact_a ", "", "fact_b", "fact_missing"],
         scope=A1,
-        access=None,
     )
 
     assert [atom.id for atom in result] == [third.id, first.id, second.id]
@@ -265,8 +267,8 @@ async def test_search_warms_cache_for_subsequent_reads():
     resolver, _, _ = _resolver(backing)
     request = RetrievalRequest(semantic_query="found", identity_scope=A1)
 
-    found = await resolver.search(request, scope=A1, access=None)
-    cached = await resolver.read(atom.id, scope=A1, access=None)
+    found = await resolver.search(request, scope=A1)
+    cached = await resolver.read(atom.id, scope=A1)
 
     assert ([item.id for item in found], cached.id, backing.calls) == ([atom.id], atom.id, 1)
 
@@ -281,9 +283,9 @@ async def test_search_during_workspace_change_returns_results_without_warming():
     backing.on_fetch = lambda: epochs.advance(MAIN)
     request = RetrievalRequest(semantic_query="found", identity_scope=A1)
 
-    found = await resolver.search(request, scope=A1, access=None)
+    found = await resolver.search(request, scope=A1)
     backing.on_fetch = None
-    after = await resolver.read(atom.id, scope=A1, access=None)
+    after = await resolver.read(atom.id, scope=A1)
 
     assert [item.id for item in found] == [atom.id]
     assert after is None  # 未预热：backing 点读存储中没有该原子
@@ -295,12 +297,12 @@ async def test_closed_resolver_rejects_new_reads_explicitly():
     backing = _FakeBacking()
     atom = backing.store(_atom("fact_closed"))
     resolver, _, guard = _resolver(backing)
-    await resolver.read(atom.id, scope=A1, access=None)
+    await resolver.read(atom.id, scope=A1)
 
     guard.close()
 
     with pytest.raises(ResourceUnavailableError) as exc_info:
-        await resolver.read(atom.id, scope=A1, access=None)
+        await resolver.read(atom.id, scope=A1)
     assert exc_info.value.details["reason"] == "workspace_runtime_closed"
 
 
@@ -315,6 +317,6 @@ async def test_read_in_flight_at_close_returns_result_without_backfill():
     resolver = AliasResolver(cache=cache, guard=guard, backing=backing)
     backing.on_fetch = guard.close
 
-    result = await resolver.read(atom.id, scope=A1, access=None)
+    result = await resolver.read(atom.id, scope=A1)
 
     assert (result.id, cache.size) == (atom.id, 0)

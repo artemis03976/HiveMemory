@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/VISION.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-03
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-01
 - 本文只保留这个问题以及仍然成立的设计材料。没有保留的内容：阶段划分（EMS-0–6）、交付与验收出口、A/B 交接与依赖顺序、测试矩阵、代码落点与迁移切片、文档收口清单；以 Passive Ingress 返回记忆 context 为前提的实时被动模式；以“System 应用服务 → GlobalSystemBus → Patchouli application”为主干的目标结构（已被总 Idea 第 12 节“能力层是 Actor 唯一可见的 API”这一前提取代）。
 - 现状事实按 2026-09-27 的代码核对。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
-- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（总 Idea [6.1](./workspace-network-task-process-architecture.md#61-已决定事项)）。外部 Actor 分为两种接入模式（1.1）：先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式在 v0.7.1 之后的 v0.7.x 版本完善。本文的 horizon 相应为 `candidate`，目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.2 与 4.4.2 节。
+- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（总 Idea [5.4](./workspace-network-task-process-architecture.md#54-m-5-v070-的范围与版本目标)）。外部 Actor 分为两种接入模式（1.1）：先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式在 v0.7.1 之后的 v0.7.x 版本完善。本文的 horizon 相应为 `candidate`，目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.2 与 4.4.2 节。
 
 ## 1. 问题
 
@@ -67,7 +67,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 |:---|:---|:---|
 | 能力层（资源操作与授权） | 共用 | 共用 |
 | 任务进程与注册入口 | 不使用：外部 harness 的任务对 HiveMemory 不可见 | 使用：外部 harness 与 Alice 同为进程中的 CPU |
-| 访问 context | 不绑定进程，形状与管理员直接通道相同（总 Idea [第 15 节](./workspace-network-task-process-architecture.md#15-第三部分已决定事项)、P-9） | 绑定进程 |
+| 访问 context | 不绑定进程，形状与管理员直接通道相同（总 Idea [15.1](./workspace-network-task-process-architecture.md#151-管理员操作的接入方式方案-c)、P-9） | 绑定进程 |
 | 记忆域访问 | 外部 harness 经 MCP 调用能力层 | 外部 harness 同样可经 MCP 调用能力层；例如 ACP 在创建会话时允许客户端提供 MCP server，HiveMemory 可以提供绑定进程的端点 |
 | 交互记录的回流 | 经 Import Bus（现有 Passive Ingress 链路；已排除在现有系统之外，随 plugin 模式另行设计） | 任务进程自行提交（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-14-主动进程的交互记录去向) Q-14 选项 A） |
 | HiveMemory 能否发起任务 | 不能 | 能；被动请求（定时任务、队列任务）只能在此模式下存在 |
@@ -80,7 +80,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 - [任务进程 Idea](./task-process-table-and-registration-entry.md#q-2-写入意图中间产物的可见范围) Q-2：plugin 模式经 MCP 提交的写入意图没有所属进程（2026-09-28 已消解：写入意图在 workspace 登记，与进程解耦）；
 - 任务进程 Idea Q-14：两条回流路径进入同一提交队列；同一 harness 同时以两种模式使用时，同一交互可能被记录两次（2026-09-28：Q-14 选 A，Import Bus 排除在现有系统之外，此问题留待 plugin 模式设计时处理）；
 - [外部会话与 Topic 投影](./external-session-and-topic-projection.md)：plugin 模式的会话归外部 harness 所有，Alice 与 controller 模式的会话由 HiveMemory 发起；
-- 总 Idea [P-9](./workspace-network-task-process-architecture.md#p-9-方案-c-的后续问题)：不建进程的访问不只来自管理员；
+- 总 Idea [P-9](./workspace-network-task-process-architecture.md#p-9-管理员直接通道方案-c的后续问题)：不建进程的访问不只来自管理员；
 - Import Bus：同时是 plugin 模式的对话回流通道，不只承担对话导入。
 
 此前列入“外部 Actor 形态”单独审议的问题，在两种模式下的归属：
@@ -123,7 +123,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 - [`ActorAuthenticationGateway`](../../src/hivememory/workspace/authentication.py) 执行两阶段认证：Principal authentication 由 System 的 `SystemPrincipalAuthenticator` 经 `core.access.PrincipalAuthenticator` 端口实现，Workspace 准入由 `WorkspaceAccessGuard` 完成；两步都通过才签发 `WorkspaceAccessContext`。
 - context 是进程内对象，只携带 `IdentityScope`，不作为可序列化的远端凭据。
-- 认证网关没有生产调用方。principal 的身份证明应由 adapter 依据接入证据构造，目前没有 adapter 实现这一证明（总 Idea 13.1 与 P-1）。
+- 认证网关没有生产调用方。principal 的身份证明应由 adapter 依据接入证据构造，目前没有 adapter 实现这一证明（总 Idea P-1）。
 
 ### 2.3 HTTP 入口
 
@@ -133,8 +133,8 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### 2.4 能力层
 
-- `workspace/capability/` 下有 memory、agent_profiles、topic、memory_tasks、assets 五类能力服务。读取方法在 backing 调用前执行 `authorize_operation`；写入与管理路径的 operation 检查仍在 Patchouli application，见 [A1 访问边界返工](../todo/a1-access-boundary-rework.md)。workspace 包的现有实现需要重新调查（总 Idea 第 6.1 节）。
-- `WorkspaceOperation` 共 11 项，没有代码执行、工具调用、CALL 或创建任务类操作（总 Idea 13.2）。
+- `workspace/capability/` 下有 memory、agent_profiles、topic、memory_tasks、assets 五类能力服务。读取方法在 backing 调用前执行 `authorize_operation`；写入与管理路径的 operation 检查仍在 Patchouli application，见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)。workspace 包的现有实现需要重新调查（总 Idea 5.5）。
+- `WorkspaceOperation` 共 11 项，没有代码执行、工具调用、CALL 或创建任务类操作（总 Idea 13.1）。
 
 ## 3. 仍然成立的设计材料（来自原计划 B）
 
@@ -253,7 +253,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | 维持启动时从配置装载 | 新增或撤销外部 Actor 需要修改配置并重启 |
-| B | 提供运行时登记入口（例如经管理员直接通道，见总 Idea 第 15 节方案 C） | 需要定义登记、修改、撤销的授权与生效时点，以及已签发 context 的处理 |
+| B | 提供运行时登记入口（例如经管理员直接通道，见总 Idea 15.1 方案 C） | 需要定义登记、修改、撤销的授权与生效时点，以及已签发 context 的处理 |
 | C | 登记数据来自外部身份系统 | 需要定义与外部系统的信任关系与同步方式 |
 | D | 其他 | —— |
 
@@ -261,7 +261,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 **owner 决定（2026-09-27）**：接入登记维持启动时从配置装载（选项 A）。运行时登记与其他配置文件的热更新一并由未来单独的计划实现；E-1a 随该计划决定。
 
-**补充（owner，2026-09-30）**：启动时从配置装载的决定仍然成立，harness 登记（1.2）同样从配置装载。目前 `configs/config.yaml` 没有 access 配置段（2.1），需要先建立承载登记的配置文件。owner 于 2026-10-01 决定：登记使用单独的配置文件，在 [A1 返工](../todo/a1-access-boundary-rework.md)中建立；文件的形状随 A1 返工确定。
+**补充（owner，2026-09-30）**：启动时从配置装载的决定仍然成立，harness 登记（1.2）同样从配置装载。目前 `configs/config.yaml` 没有 access 配置段（2.1），需要先建立承载登记的配置文件。owner 于 2026-10-01 决定：登记使用单独的配置文件，在 [A1 返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)中建立。2026-10-02：`principals` 与 `workspace_actors` 移出 `config.yaml`，改用单独的配置文件；2026-10-03 细化为两类登记各用一个文件，harness 登记的执行侧面在 principals 文件中留出位置，具体结构不在 A1 返工中定义（总 Idea 15.6）。
 
 ### E-2 运行时访问的传输承载
 
@@ -304,9 +304,9 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 | 问题 | 位置 | 关系 |
 |:---|:---|:---|
-| P-1 经网络接入的 Actor 每次请求如何证明身份 | [总 Idea](./workspace-network-task-process-architecture.md#p-1-经网络接入的-actor每次请求如何证明身份)第三部分 | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.3） |
+| P-1 经网络接入的 Actor 每次请求如何证明身份 | [总 Idea](./workspace-network-task-process-architecture.md#p-1-经网络接入的-actor每次请求如何证明身份)第三部分 | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.2） |
 | P-3 能力层是否覆盖执行类操作 | 同上 | 外部 Actor 可调用的操作范围（3.5） |
 | P-9a 直接通道的适用范围 | 同上 | 外部 Actor 的哪些请求不建进程；plugin 模式的访问不建进程（1.1） |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
 | Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部-cpu-的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
-| Q-11–Q-13 Import Bus | [总 Idea](./workspace-network-task-process-architecture.md#5-待决问题import-bus)第 5 节 | Import Bus 路线的 Topic 落位、价值信号与历史导入；不在 v0.7.0 范围 |
+| Q-11–Q-13 Import Bus | [总 Idea](./workspace-network-task-process-architecture.md#62-import-bus-的问题不在-v070)第 6.2 节 | Import Bus 路线的 Topic 落位、价值信号与历史导入；不在 v0.7.0 范围 |

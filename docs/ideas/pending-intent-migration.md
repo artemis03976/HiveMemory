@@ -23,7 +23,7 @@ last_reviewed: 2026-09-28
 - 要解决的问题：PendingAtom 体系的迁移（owner 表述，2026-09-27）。现状下写入意图的寿命与持有者见[任务进程 Idea](./task-process-table-and-registration-entry.md)第 2.2 节。
 - 原计划中的“决定”“冻结”在本文中均为候选设计；原计划留待 A4-0 冻结的事项汇总为第 5 节的开放问题。
 - 本文的归属与可见性按原边界宪章 §6.2 的裁定写成（论证见第 4.2 节）：意图由 workspace runtime 的 registry 持有，按 policy 在 Workspace 内可见。2026-09-28 的决定见 0.1：登记位于 workspace，第一版不设 policy。这对应任务进程 Idea Q-2 的选项 C；是否采用取决于 Q-2，以及 Q-1（进程关闭时点）与 Q-3a（哪些工作状态进入进程工作区）。
-- 原文依赖的 A2 读取能力与缓存（resolver、L1 cache、backing 读取）来自已作废删除的 A2 计划；workspace 包的现有实现需要重新调查（[总 Idea](./workspace-network-task-process-architecture.md)第 6.1 节），本文提到时只作为候选设计的组成部分。
+- 原文依赖的 A2 读取能力与缓存（resolver、L1 cache、backing 读取）来自已作废删除的 A2 计划；workspace 包的现有实现需要重新调查（[总 Idea](./workspace-network-task-process-architecture.md)第 5.5 节），本文提到时只作为候选设计的组成部分。
 
 PendingAtom 解决的是所有 Actor 共有的资源问题：Actor 明确提出 WRITE/UPDATE，而正式 Memory 由后台异步生成时，如何在物化前读回意图、在结算后定位 canonical 结果，并避免读写不一致。它不是 Alice 专属机制。现有 PendingAtomRuntime 混合了 run/frame/action 关联（执行状态，留 Alice）与 intent 资源状态（按原边界宪章的裁定归 workspace registry，见第 4.2 节）；registry 不依赖 Alice，也不设在 Patchouli，更不给外部 Actor 复制状态机。
 

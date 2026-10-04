@@ -77,7 +77,7 @@ IdentityScope
 
 子 Agent 默认继承父 run 的 `IdentityScope`，只能通过显式、经授权的 `context_refs` 缩小或选择可见资产；不能通过自然语言或 alias 自行扩大 scope。`request/run/frame` 等关联坐标属于其它运行模型，不应重新塞回 `IdentityScope`。
 
-入口层现状（v0.6.2 收敛后）：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_scope` 一次性校验并冻结，应用服务不再解析裸 `user_id`；非 Agent action 由 server 注入保留 `system` actor（仅 provenance 语义，不参与授权）；Memory 管理读取按 owner-management 语义在 ownership hard boundary 内跳过 actor 可见性过滤，Agent retrieval 仍执行 `MemoryAccessPolicy`。
+入口层现状（v0.7.0 A1 访问边界返工后）：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（`/ingest` 仍在认证前组装，是已知例外；模型见[Workspace 架构](../../architecture/workspace.md)第 4 节），应用服务不再解析裸 `user_id`；非 Agent action 使用保留 `system` actor（表示没有具体 Agent，不参与 `MemoryAccessPolicy` 资源授权；它在访问登记中单独登记，只持有管理类 operation）；Memory 管理读取按 owner-management 语义在 ownership hard boundary 内跳过 actor 可见性过滤，Agent retrieval 仍执行 `MemoryAccessPolicy`。
 
 ### 3.2 所有者重新校验
 

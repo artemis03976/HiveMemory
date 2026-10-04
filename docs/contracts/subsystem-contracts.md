@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 子系统公共契约
@@ -26,7 +26,7 @@ last_reviewed: 2026-10-01
 
 因此，公共模型倾向于使用 frozen、Pydantic 或依赖中立的 dataclass。不可变并不只是编码偏好，它要求上游先形成完整决定，再交给下游只读消费；依赖中立则阻止某个领域对象沿模型引用把存储、Runtime 或 Controller 一并泄漏出去。本文既记录字段和终态，也记录这些形态背后的所有权理由。
 
-跨边界的身份坐标统一使用 `IdentityScope`：它同时冻结 actor 与 Workspace 归属，是一次请求、交互或后台任务的唯一身份来源。领域所有者在最终读写处校验 scope；共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。完整的资源归属模型见[Workspace 架构](../architecture/workspace.md)，本文只记录各契约需要携带和验证的部分。
+跨边界的身份坐标统一使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装，是进入公开路由的唯一身份输入；交互与后台任务的领域载体同样以它保存作用域。领域所有者在最终读写处校验 scope；共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。完整的资源归属模型见[Workspace 架构](../architecture/workspace.md)，本文只记录各契约需要携带和验证的部分。
 
 ## 1. 生命周期契约
 
@@ -178,13 +178,20 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附
 | Citation | 记录 MTP READ/RUN 等来源的记忆引用 |
 | Readiness | 模型 warmup 与 ready 查询 |
 
-Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；以上能力在携带访问上下文时按第 3.5 节执行行为授权，任务归属按权威 `IdentityScope` 投影判断，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；`IdentityScope` 用于确认访问归属，不构造另一套局部 ID 命名空间。
+Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节），任务归属按 `IdentityScope` 投影判断，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；`IdentityScope` 用于确认访问归属，不构造另一套局部 ID 命名空间。
 
-### 3.5 访问上下文与行为授权
+### 3.5 访问 context 与操作授权
 
-公共 application 方法约定接收 `access: WorkspaceAccessContext | None` 参数：context 由 workspace 认证入口（统一认证网关，`workspace.authentication`）签发、由 workspace 访问基础设施逐次校验，Patchouli 经 `core.access.WorkspaceAccessVerifier` 消费这一检查。提供 access 时，application 在资源读取或副作用之前按方法绑定的 operation 调用共享行为检查，取得可信 `IdentityScope` 后才进入领域链；读取类 backing 路由（`memory.read`、`memory.retrieve`、`memory.retrieve_by_aliases`、`get_agent_profile`）例外：operation 授权由 workspace 能力层在调用前执行，Patchouli 一侧只校验 context 的签发、有效期与准入，不重复检查 operation。请求 DTO 中携带的 scope 只能作一致性校验，不得覆盖可信坐标。`WorkspaceAccessContext` 只公开已准入的 `IdentityScope`，不携带调用来源、行为白名单或单次 operation；同一有效 context 可先后执行不同的获准操作。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）只接收 `IdentityScope`，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成——workspace 能力层与任务进程的阶段检查先经 `WorkspaceOperationAuthorizer.authorize_operation(access, operation, target_workspace)` 授权，再把返回的 `IdentityScope` 交给 Patchouli 路由（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
-两类入口并存是显式契约而非疏漏：`read_memory`、`interaction.submit`、`memory_intent.submit` 等不在迁移兼容清单内，缺失 access 一律拒绝；管理 CRUD、检索、Profile、Topic 管理和附件上传等既有调用方在缺失 access 时按裸 scope 受信适配运行，清单（保留入口、已有调用方、A6 删除点）唯一维护在 `patchouli/application/access_consumption.py`，A6 完成生产消费者切换后删除兼容分支。Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义（接入认证、准入、行为授权、context 有效性）见[错误模型](./error-model.md)，完整访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
+Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
+
+两类直接调用目前没有操作授权：
+
+- Alice 的 MTP 读取（`memory.retrieve`、`memory.retrieve_by_aliases`）、Profile 解析（`get_agent_profile`）与引用记录（`record_memory_citation`）以 `IdentityScope` 直接请求 Patchouli，不经能力层；
+- 交互提交（`interaction.submit`）与主动记忆意图提交（`memory_intent.submit`）只接收 `IdentityScope`，目前没有生产调用方。
+
+Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
 
 ## 4. CPU 端口与 Alice 实现
 

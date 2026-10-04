@@ -3,12 +3,17 @@
 能力层是 in-process 的 workspace server API（宪章 §5.3）：actor 经 HTTP/MTP/
 外部 adapter 归一化后调用本模块，本模块作为 client 调用 Patchouli backing。
 
-- Actor 可见读取（``read`` / ``retrieve_by_aliases`` / ``retrieve``）是本计划的
-  核心改造：operation 授权在 backing 调用前执行，随后经 workspace alias
-  resolver 多级解析并在交付边界逐次授权（A2 §2.2）；
-- 管理用例（create/list/get/update/delete/feedback）保持对库管理路由的薄
-  委托，owner-management 规则不变、不过 resolver；其 operation 检查仍由
-  Patchouli application 执行，迁移归 A5 全量核对（A2 §1.2 按路径拆分）。
+- Actor 可见读取（``read`` / ``retrieve_by_aliases`` / ``retrieve``）：
+  ``resource.read`` / ``resource.search`` 授权在 backing 调用前执行，随后
+  经 workspace alias resolver 多级解析并在交付边界逐次授权（A2 §2.2）；
+- 管理用例（create/list/get/update/delete/feedback）：``management.memory``
+  授权同样在本层、路由调用前执行。
+
+身份与访问约定（A1 访问边界返工第 4.5 节）：本层是授权点——方法只接收
+访问 context 与目标 workspace，先用操作授权者的 ``authorize_operation``
+取得可信 ``IdentityScope``，再用它构造领域对象与检索请求并调用
+Patchouli；context 不向下传递，调用方也不能另行传入 scope 或携带身份
+的检索请求。
 """
 
 from __future__ import annotations
@@ -23,10 +28,8 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     WorkspaceDomainError,
-    WorkspaceMismatchError,
 )
 from hivememory.core.models import (
-    IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -43,7 +46,9 @@ from hivememory.utils.uuid import normalize_uuid
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.access import WorkspaceAccessContext
-    from hivememory.workspace.access import WorkspaceAccessGuard
+    from hivememory.core.models import IdentityScope, WorkspaceIdentity
+    from hivememory.core.models.query import QueryFilters
+    from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.alias import AliasResolver
 
 
@@ -60,53 +65,48 @@ class MemoryApplicationService:
 
     HTTP routers call this service instead of reaching into Patchouli internals.
 
-    Actor 可见读取的 operation 绑定（A1 行为白名单机制，检查点在本层、
-    backing 调用前，A2 §5.2）：``read`` / ``retrieve_by_aliases`` →
-    ``resource.read``，``retrieve`` → ``resource.search``。这些方法强制要求
-    经统一认证网关签发的 ``WorkspaceAccessContext``，不提供裸 scope 兼容。
+    操作授权统一在本层、backing/管理路由调用前执行：``read`` /
+    ``retrieve_by_aliases`` → ``resource.read``，``retrieve`` →
+    ``resource.search``；管理用例（create/list/get/update/delete/feedback，
+    含 Agent Profile 的既有绑定例外）→ ``management.memory``。方法显式
+    接收目标 workspace（当前只接受等于 context 驻留 workspace 的目标），
+    ``IdentityScope`` 由操作授权者组装，不接收调用方传入的 scope。
 
-    身份入口约定（v0.6.2 收敛）：所有用例只接受 server 边界一次性冻结的
-    ``IdentityScope``，不在服务内解析裸 ``user_id`` 或默认 Agent。管理用例
-    （本服务的全部读写）按 owner-management 语义在 Workspace ownership
-    hard boundary 内访问该 Workspace 的全部 Memory，不执行 Agent 级
+    管理用例按 owner-management 语义在 Workspace ownership hard boundary
+    内访问该 Workspace 的全部 Memory，不执行 Agent 级
     ``MemoryAccessPolicy`` 可见性过滤；``system`` actor 只标记"没有具体
     Agent 作为操作来源主体"，不承担任何权限绕过语义。
-
-    管理用例的访问上下文约定（A1 计划第 1.2/3.3 节）：接收统一认证网关
-    签发的 ``WorkspaceAccessContext`` 并**原样透传**给 Patchouli 公共
-    管理路由，行为检查在 Patchouli application 落实；本层不解释、不裁剪
-    access，也不以 DTO scope 覆盖可信坐标。``access`` 缺省时依赖下游
-    冻结的迁移期兼容分支（管理入口 HTTP 链路），A6 切换生产入口后收紧。
     """
 
     def __init__(
         self,
         global_bus: GlobalSystemBus,
         *,
-        access_guard: WorkspaceAccessGuard,
+        operation_authorizer: WorkspaceOperationAuthorizer,
         memory_reader: AliasResolver,
     ) -> None:
         self._global_bus = global_bus
-        self._access_guard = access_guard
+        self._authorizer = operation_authorizer
         self._reader = memory_reader
 
     async def create_memory(
         self,
         *,
-        identity_scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         title: str,
         summary: str,
         content: str,
         memory_type: str,
         tags: list[str],
         alias: str | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """管理创建入口：在显式 Workspace scope 中创建 Memory。
+        """管理创建入口（``management.memory``）：在目标 Workspace 中创建 Memory。
 
         ``provenance.source_agent_id`` 记录来源 actor（管理入口为保留
         ``system``），只作 provenance 展示，不参与可见性授权。
         """
+        scope = self._authorize(access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace)
         # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
         try:
             index = IndexLayer(
@@ -124,10 +124,10 @@ class MemoryApplicationService:
         now = utc_now()
         atom = MemoryAtom(
             meta=MetaData(
-                workspace_identity=identity_scope.workspace_identity,
+                workspace_identity=scope.workspace_identity,
                 provenance=MemoryProvenance(
-                    source_agent_id=identity_scope.actor_identity.agent_id,
-                    source_team_id=identity_scope.actor_identity.team_id,
+                    source_agent_id=scope.actor_identity.agent_id,
+                    source_team_id=scope.actor_identity.team_id,
                 ),
                 access_policy=MemoryAccessPolicy.public(),
                 created_at=now,
@@ -139,51 +139,50 @@ class MemoryApplicationService:
         )
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_CREATE,
-            identity_scope,
+            scope,
             atom,
-            access=access,
         )
 
     async def list_memories(
         self,
         *,
-        identity_scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
-        """管理读取入口：在显式 Workspace scope 中列出 Memory。
+        """管理读取入口（``management.memory``）：在目标 Workspace 中列出 Memory。
 
         按 owner-management 语义返回该 Workspace 的全部 Memory（不含
         Agent Profile），不做 Agent ``MemoryAccessPolicy`` 过滤。
         """
+        scope = self._authorize(access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace)
         filters = self._build_filters(memory_type=memory_type)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_LIST,
-            identity_scope=identity_scope,
+            identity_scope=scope,
             query=query,
             filters=filters if filters else None,
             limit=limit,
             exclude_types=[MemoryType.AGENT_PROFILE.value],
             refresh_vitality=True,
-            access=access,
         )
 
     async def get_memory(
         self,
         memory_id: UUID,
         *,
-        identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None = None,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """管理读取入口：在显式 Workspace scope 中读取 Memory。"""
+        """管理读取入口（``management.memory``）：在目标 Workspace 中读取 Memory。"""
+        scope = self._authorize(access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace)
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_GET,
             memory_id,
-            identity_scope=identity_scope,
+            identity_scope=scope,
             refresh_vitality=True,
-            access=access,
         )
         if atom is None:
             raise MemoryNotFoundError("记忆不存在")
@@ -193,27 +192,27 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        identity_scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """管理更新入口：显式授权 mutation，且不改变原 ownership/provenance。"""
+        """管理更新入口（``management.memory``）：显式授权 mutation，且不改变原 ownership/provenance。"""
+        scope = self._authorize(access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace)
         atom = await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_UPDATE,
             memory_id,
-            identity_scope=identity_scope,
+            identity_scope=scope,
             title=title,
             summary=summary,
             content=content,
             alias=alias,
             tags=tags,
             agent_config=agent_config,
-            access=access,
         )
         if atom is None:
             raise MemoryNotFoundError("记忆不存在")
@@ -223,20 +222,20 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        identity_scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         positive: bool,
         source: str,
-        access: WorkspaceAccessContext | None = None,
+        access: WorkspaceAccessContext,
     ):
-        """管理反馈入口：在显式 Workspace scope 中记录反馈。"""
+        """管理反馈入口（``management.memory``）：在目标 Workspace 中记录反馈。"""
+        scope = self._authorize(access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace)
         try:
             return await self._global_bus.request(
                 GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK,
                 memory_id,
-                identity_scope=identity_scope,
+                identity_scope=scope,
                 positive=positive,
                 source=source,
-                access=access,
             )
         except WorkspaceDomainError:
             # 访问/领域受控错误必须按原语义传播（A1 第 3.4 节），
@@ -251,15 +250,15 @@ class MemoryApplicationService:
         self,
         memory_id: UUID,
         *,
-        identity_scope: IdentityScope,
-        access: WorkspaceAccessContext | None = None,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
     ) -> bool:
-        """管理删除入口：在显式 Workspace scope 中删除 Memory。"""
+        """管理删除入口（``management.memory``）：在目标 Workspace 中删除 Memory。"""
+        scope = self._authorize(access, WorkspaceOperation.MANAGEMENT_MEMORY, target_workspace)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_DELETE,
             memory_id,
-            identity_scope=identity_scope,
-            access=access,
+            identity_scope=scope,
         )
 
     # ---- Actor 可见读取（operation 授权在 backing 调用前，A2 §2.2） ----
@@ -268,6 +267,7 @@ class MemoryApplicationService:
         self,
         memory_id: UUID | str,
         *,
+        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> MemoryAtom | None:
         """UUID 点读（``resource.read``）：返回完整原子独立副本。
@@ -275,40 +275,56 @@ class MemoryApplicationService:
         未知或对当前 Actor 不可见的资源按 A1 防泄露规则返回 ``None``；非法
         UUID 字符串维持 ``ValueError``（A2 §8.2）。
         """
-        scope = self._access_guard.authorize_operation(access, WorkspaceOperation.RESOURCE_READ)
-        return await self._reader.read(normalize_uuid(memory_id), scope=scope, access=access)
+        scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
+        return await self._reader.read(normalize_uuid(memory_id), scope=scope)
 
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
         *,
+        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
         """alias 批量读取（``resource.read``）：按请求顺序返回实际可读的完整原子。"""
-        scope = self._access_guard.authorize_operation(access, WorkspaceOperation.RESOURCE_READ)
-        return await self._reader.resolve_aliases(aliases, scope=scope, access=access)
+        scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
+        return await self._reader.resolve_aliases(aliases, scope=scope)
 
     async def retrieve(
         self,
-        request: RetrievalRequest,
         *,
+        semantic_query: str,
+        keywords: list[str] | None = None,
+        top_k: int = 5,
+        filters: QueryFilters | None = None,
+        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
         """语义检索（``resource.search``）：保持领域排序，结果协作预热缓存。
 
-        请求中保留的 ``identity_scope`` 只作一致性校验，必须与 access 的
-        可信 scope 相同，不能据请求体重新选择 Workspace。
+        调用方只提交检索参数：检索请求由本层用授权返回的可信 scope 构造，
+        ``IdentityScope`` 不进入调用方输入（A1 访问边界返工第 4.5 节），
+        不能据请求体重新选择 Workspace。
         """
-        scope = self._access_guard.authorize_operation(access, WorkspaceOperation.RESOURCE_SEARCH)
-        if request.identity_scope != scope:
-            raise WorkspaceMismatchError(
-                details={
-                    "reason": "request_scope_mismatches_access_context",
-                    "access_workspace_id": scope.workspace_identity.workspace_id,
-                    "request_workspace_id": request.identity_scope.workspace_identity.workspace_id,
-                }
-            )
-        return await self._reader.search(request, scope=scope, access=access)
+        scope = self._authorize(access, WorkspaceOperation.RESOURCE_SEARCH, target_workspace)
+        request = RetrievalRequest(
+            semantic_query=semantic_query,
+            keywords=list(keywords or ()),
+            identity_scope=scope,
+            filters=filters,
+            top_k=top_k,
+        )
+        return await self._reader.search(request, scope=scope)
+
+    # ---- 内部辅助 ----
+
+    def _authorize(
+        self,
+        access: WorkspaceAccessContext,
+        operation: WorkspaceOperation,
+        target_workspace: WorkspaceIdentity,
+    ) -> IdentityScope:
+        """在 backing/管理路由调用前执行操作授权，返回组装的可信 scope。"""
+        return self._authorizer.authorize_operation(access, operation, target_workspace)
 
     @staticmethod
     def _build_filters(

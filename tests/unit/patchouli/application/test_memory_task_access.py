@@ -1,11 +1,12 @@
-"""MemoryTaskManagementService 授权与归属校验的单元测试。
+"""MemoryTaskManagementService 归属校验的单元测试。
 
-被测对象（A1 计划第 3.4/4.1 节）：
-- get/wait/list 绑定 ``task.observe``，cancel 绑定 ``management.task``，
-  行为检查先于后端读取；
-- 提供 access 时任务必须携带归属投影且与上下文一致：跨 scope、无归属与
-  不存在统一按 not found 拒绝，不泄漏其他 Workspace 的任务存在性；
-- 无 access 的旧调用为兼容清单内的迁移期受信适配，保持既有行为。
+被测对象（A1 访问边界返工第 4.5/4.6 节）：
+- 本层是授权点以下的资源 owner：``task.observe`` / ``management.task`` 的
+  行为授权已上移 workspace 能力层，公开方法不接收 ``access`` 参数；
+- 任务必须携带归属投影且属于 scope 的 Workspace：跨 Workspace、无归属
+  （legacy）与不存在统一按 not found 拒绝，不泄漏其他 Workspace 的任务
+  存在性；
+- 列表按 scope 的 Workspace 过滤。
 """
 
 from __future__ import annotations
@@ -14,23 +15,15 @@ import asyncio
 
 import pytest
 
-from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import (
-    OperationDeniedError,
-    ResourceNotFoundError,
-)
+from hivememory.core.errors import ResourceNotFoundError, ScopeRequiredError
+from hivememory.core.models import IdentityScope
 from hivememory.patchouli.application import MemoryTaskManagementService
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
-from tests.helpers.workspace import (
-    make_access_composition,
-    make_actor_access_record,
-    make_identity_scope,
-    make_workspace_identity,
-)
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 OTHER = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
@@ -42,8 +35,10 @@ class FakeTaskBus:
     def __init__(self, tasks):
         self._tasks = {task.task_id: task for task in tasks}
         self.cancelled: list[str] = []
+        self.requested: list[str] = []
 
     async def request(self, route, *args, **kwargs):
+        self.requested.append(route)
         if route == "memory_task.get":
             return self._tasks.get(args[0])
         if route == "memory_task.cancel":
@@ -78,101 +73,118 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _context(operation, workspace=MAIN):
-    """按指定 operation 构造最小许可的认证上下文与配套守卫。"""
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1",
-                workspace_id=workspace.workspace_id,
-                agent_id="a1",
-                allowed_operations=frozenset({operation}),
-            )
-        ],
-        default_workspace=workspace,
+def _scope(workspace=MAIN) -> IdentityScope:
+    return make_identity_scope(
+        user_id=workspace.owner_user_id,
+        agent_id="a1",
+        workspace_id=workspace.workspace_id,
     )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-    return context, composition.guard
 
 
-def _service(bus, guard):
-    return MemoryTaskManagementService(bus=bus, access_guard=guard)
-
-
-def test_observe_with_matching_scope_returns_task_projection():
-    """task.observe + 归属一致：返回任务只读投影。"""
+def test_get_memory_task_returns_task_in_own_workspace():
+    """归属投影与 scope 同 Workspace：返回任务只读快照。"""
     task = _task()
-    context, guard = _run(_context(WorkspaceOperation.TASK_OBSERVE))
-    service = _service(FakeTaskBus([task]), guard)
+    service = MemoryTaskManagementService(bus=FakeTaskBus([task]))
 
-    result = _run(service.get_memory_task(task.task_id, access=context))
+    result = _run(service.get_memory_task(task.task_id, identity_scope=_scope()))
 
-    assert result is not None
-    assert result.identity_scope == context.identity_scope
+    assert result is task
+    assert result.identity_scope is not None
+    assert result.identity_scope.workspace_identity == MAIN
 
 
-def test_observe_rejects_cross_scope_and_unscoped_tasks_as_not_found():
-    """跨 scope 与无归属（legacy）任务统一 not found，不泄漏存在性。"""
+def test_get_memory_task_hides_cross_workspace_unscoped_and_missing_as_not_found():
+    """跨 Workspace、无归属（legacy）与不存在统一 not found，不泄漏存在性。"""
     foreign = _task(workspace=OTHER)
     legacy = _task(task_id="active:legacy", scoped=False)
-    context, guard = _run(_context(WorkspaceOperation.TASK_OBSERVE))
-    service = _service(FakeTaskBus([foreign, legacy]), guard)
+    service = MemoryTaskManagementService(bus=FakeTaskBus([foreign, legacy]))
 
-    with pytest.raises(ResourceNotFoundError):
-        _run(service.get_memory_task(foreign.task_id, access=context))
-    with pytest.raises(ResourceNotFoundError):
-        _run(service.get_memory_task(legacy.task_id, access=context))
-    with pytest.raises(ResourceNotFoundError):
-        _run(service.get_memory_task("active:ghost", access=context))
+    scope = _scope()
+    with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found") as excinfo:
+        _run(service.get_memory_task(foreign.task_id, identity_scope=scope))
+    assert excinfo.value.details == {"task_id": foreign.task_id}
 
-    # 无 access 的旧调用保持既有行为（受信适配）
-    assert _run(service.get_memory_task(foreign.task_id, access=None)) is foreign
+    with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found"):
+        _run(service.get_memory_task(legacy.task_id, identity_scope=scope))
+
+    with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found") as excinfo:
+        _run(service.get_memory_task("active:ghost", identity_scope=scope))
+    assert excinfo.value.details == {"task_id": "active:ghost"}
 
 
-def test_cancel_requires_management_operation_not_task_observe():
-    """task.observe 不授予取消：取消绑定 management.task，且不触发取消副作用。"""
+def test_cancel_memory_task_in_own_workspace_cancels():
+    """归属一致的任务可取消：取消请求到达控制器。"""
     task = _task()
     bus = FakeTaskBus([task])
-    context, guard = _run(_context(WorkspaceOperation.TASK_OBSERVE))
-    service = _service(bus, guard)
 
-    with pytest.raises(OperationDeniedError):
-        _run(service.cancel_memory_task(task.task_id, access=context))
+    result = _run(
+        MemoryTaskManagementService(bus=bus).cancel_memory_task(
+            task.task_id, identity_scope=_scope()
+        )
+    )
+
+    assert result is True
+    assert bus.cancelled == [task.task_id]
+
+
+def test_cancel_memory_task_rejects_cross_workspace_as_not_found():
+    """另一 Workspace 的 scope 不能取消跨域任务：not found 且无取消副作用。"""
+    task = _task()
+    bus = FakeTaskBus([task])
+    foreign_scope = _scope(OTHER)
+
+    with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found"):
+        _run(
+            MemoryTaskManagementService(bus=bus).cancel_memory_task(
+                task.task_id, identity_scope=foreign_scope
+            )
+        )
     assert bus.cancelled == []
 
 
-def test_cancel_with_management_operation_checks_ownership():
-    """management.task 取消自己的任务放行；跨 scope 任务按 not found 拒绝。"""
-    task = _task()
-    context, guard = _run(_context(WorkspaceOperation.MANAGEMENT_TASK))
-    own_bus = FakeTaskBus([task])
-    assert _run(_service(own_bus, guard).cancel_memory_task(task.task_id, access=context)) is True
-    assert own_bus.cancelled == [task.task_id]
-
-    # 另一 Workspace 的 Actor 上下文：不能取消跨 scope 任务，也不暴露存在性
-    foreign_context, foreign_guard = _run(
-        _context(WorkspaceOperation.MANAGEMENT_TASK, workspace=OTHER)
-    )
-    foreign_bus = FakeTaskBus([task])
-    with pytest.raises(ResourceNotFoundError):
-        _run(
-            _service(foreign_bus, foreign_guard).cancel_memory_task(
-                task.task_id,
-                access=foreign_context,
-            )
-        )
-    assert foreign_bus.cancelled == []
-
-
-def test_list_with_access_filters_to_own_workspace():
-    """带 access 的列表按归属过滤；legacy 列表保持全量行为。"""
+def test_list_memory_tasks_filters_to_own_workspace():
+    """列表按 scope 的 Workspace 过滤；无归属（legacy）任务不可见。"""
     own = _task()
     foreign = _task(task_id="active:i2", workspace=OTHER)
-    context, guard = _run(_context(WorkspaceOperation.TASK_OBSERVE))
-    service = _service(FakeTaskBus([own, foreign]), guard)
+    legacy = _task(task_id="active:legacy", scoped=False)
+    bus = FakeTaskBus([own, foreign, legacy])
 
-    filtered = _run(service.list_memory_tasks(access=context))
+    filtered = _run(MemoryTaskManagementService(bus=bus).list_memory_tasks(identity_scope=_scope()))
     assert [t.task_id for t in filtered] == [own.task_id]
 
-    everything = _run(service.list_memory_tasks(access=None))
-    assert len(everything) == 2
+    # 同一任务面对另一 Workspace 的 scope 时角色互换：过滤器只由 scope 决定
+    foreign_view = _run(
+        MemoryTaskManagementService(bus=bus).list_memory_tasks(identity_scope=_scope(OTHER))
+    )
+    assert [t.task_id for t in foreign_view] == [foreign.task_id]
+
+
+def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
+    """授权点参数不再出现在本层签名：构造与公开方法均不接受 access。"""
+    with pytest.raises(TypeError, match="access_guard"):
+        MemoryTaskManagementService(bus=FakeTaskBus([]), access_guard=object())
+
+    service = MemoryTaskManagementService(bus=FakeTaskBus([_task()]))
+    with pytest.raises(TypeError, match="access"):
+        _run(service.get_memory_task("active:i1", identity_scope=_scope(), access=object()))
+    with pytest.raises(TypeError, match="access"):
+        _run(service.cancel_memory_task("active:i1", identity_scope=_scope(), access=object()))
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda svc: svc.list_memory_tasks(),
+        lambda svc: svc.get_memory_task("active:i1"),
+        lambda svc: svc.cancel_memory_task("active:i1"),
+    ],
+    ids=["list_memory_tasks", "get_memory_task", "cancel_memory_task"],
+)
+def test_missing_identity_scope_rejected_as_scope_required(invoke):
+    """identity_scope 缺失按 ScopeRequiredError 拒绝，且不触达任务控制面。"""
+    bus = FakeTaskBus([])
+    service = MemoryTaskManagementService(bus=bus)
+
+    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+        _run(invoke(service))
+    assert bus.requested == []

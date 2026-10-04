@@ -8,6 +8,7 @@ from hivememory.config.passive import PassiveIngressConfig
 from hivememory.config.workspace import WorkspaceConfig
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.system import HiveMemorySystem
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.memory import (
     MemoryApplicationService,
@@ -50,6 +51,8 @@ class TestApiApplicationServices:
         assert isinstance(system.agent_service, AgentApplicationService)
         assert isinstance(system.topic_service, TopicApplicationService)
         assert isinstance(system.readiness_service, SystemReadinessService)
+        # A1 访问边界返工：统一认证网关随组合根装配并暴露给 server 入口。
+        assert isinstance(system.access_gateway, ActorAuthenticationGateway)
 
     def test_server_deps_return_api_services(self, passive_config):
         from hivememory.server import deps

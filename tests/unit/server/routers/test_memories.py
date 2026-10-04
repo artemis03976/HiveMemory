@@ -2,7 +2,7 @@
 Memories 路由单元测试
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.memory_access import memory_belongs_to_workspace
@@ -20,19 +21,23 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
+from hivememory.server import deps
 from hivememory.server.routers.memories import router
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.memory import MemoryApplicationService
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import (
+    make_server_access_overrides,
+    make_workspace_runtime,
+)
 
 
 def _create_test_app(storage, lifecycle_engine=None):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
+    # 生产入口的未处理异常由全局处理器按 500 返回；测试 app 复用同一处理器。
+    from hivememory.server.app import global_exception_handler
 
-    from hivememory.server import deps
+    app.add_exception_handler(Exception, global_exception_handler)
 
     bus = GlobalSystemBus()
     management = _MemoryManagementStub(storage, lifecycle_engine)
@@ -42,13 +47,16 @@ def _create_test_app(storage, lifecycle_engine=None):
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
-    # 管理路由不经读取 resolver 与 operation 守卫：注入真实但空白的依赖。
+    # 管理用例的 operation 授权（management.memory）在能力层执行：服务与
+    # 访问依赖共享同一组合的操作授权者，context 才能通过签发校验。
+    overrides, composition = make_server_access_overrides()
     service = MemoryApplicationService(
         global_bus=bus,
-        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        operation_authorizer=composition.authorizer,
         memory_reader=make_workspace_runtime(bus).aliases,
     )
     app.dependency_overrides[deps.get_memory_service] = lambda: service
+    app.dependency_overrides.update(overrides)
 
     return app
 
@@ -58,7 +66,8 @@ class _MemoryManagementStub:
         self.storage = storage
         self.lifecycle_engine = lifecycle_engine
 
-    async def create_memory(self, identity_scope, atom, access=None):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
+    async def create_memory(self, identity_scope, atom):
         self.storage.upsert_memory(atom)
         return atom
 
@@ -71,7 +80,6 @@ class _MemoryManagementStub:
         limit=20,
         exclude_types=None,
         refresh_vitality=True,
-        access=None,
     ):
         if query:
             results = self.storage.search_memories(
@@ -97,7 +105,7 @@ class _MemoryManagementStub:
             )
         ]
 
-    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True, access=None):
+    async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True):
         atom = self.storage.get_memory(memory_id)
         if atom is not None and not memory_belongs_to_workspace(
             atom,
@@ -134,10 +142,10 @@ class _MemoryManagementStub:
         self.storage.upsert_memory(atom)
         return atom
 
-    async def delete_memory(self, memory_id, *, identity_scope, access=None):
+    async def delete_memory(self, memory_id, *, identity_scope):
         return self.storage.delete_memory(memory_id)
 
-    async def record_feedback(self, memory_id, *, identity_scope, positive, source, access=None):
+    async def record_feedback(self, memory_id, *, identity_scope, positive, source):
         if self.lifecycle_engine is None:
             raise RuntimeError("Memory lifecycle engine is unavailable")
         return self.lifecycle_engine.record_feedback(
@@ -166,7 +174,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
 
         app = _create_test_app(storage)
-        client = TestClient(app)
+        # 全局异常处理器只在非调试模式下生效：显式关闭测试期异常上抛。
+        client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/memories",
@@ -207,7 +216,8 @@ class TestMemoriesRouter:
         storage = MagicMock()
 
         app = _create_test_app(storage)
-        client = TestClient(app)
+        # 全局异常处理器只在非调试模式下生效：显式关闭测试期异常上抛。
+        client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/memories",
@@ -318,7 +328,8 @@ class TestMemoriesRouter:
         storage.upsert_memory.side_effect = RuntimeError("storage unavailable")
 
         app = _create_test_app(storage)
-        client = TestClient(app)
+        # 全局异常处理器只在非调试模式下生效：显式关闭测试期异常上抛。
+        client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post(
             "/api/v1/memories",
@@ -548,3 +559,44 @@ class TestMemoriesRouter:
 
         response = client.delete(f"/api/v1/memories/{uuid4()}")
         assert response.status_code == 404
+
+
+class TestRouterCapabilityContract:
+    def test_create_memory_passes_target_workspace_and_access(self):
+        """路由只取得请求级 context 与目标 workspace，并以此调用能力层。
+
+        mock 能力服务以观察调用契约：目标 workspace 与 header 用户一致、
+        access 是网关签发的请求级 context；路由处理函数不接触声明——
+        调用参数里没有 identity_scope，也没有认证前的 claims。
+        """
+        service = MagicMock()
+        atom = _make_atom(title="Created memory")
+        service.create_memory = AsyncMock(return_value=atom)
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+        app.dependency_overrides[deps.get_memory_service] = lambda: service
+        overrides, _ = make_server_access_overrides(users=["u1"])
+        app.dependency_overrides.update(overrides)
+        client = TestClient(app)
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Created memory",
+                "summary": "A sufficiently long memory summary",
+                "content": "Created memory content",
+                "memory_type": "FACT",
+            },
+            headers={"x-user-id": "u1"},
+        )
+
+        assert response.status_code == 201
+        assert response.json()["title"] == "Created memory"
+        kwargs = service.create_memory.await_args.kwargs
+        assert kwargs["target_workspace"].owner_user_id == "u1"
+        assert kwargs["target_workspace"].workspace_id == "main_workspace"
+        assert isinstance(kwargs["access"], WorkspaceAccessContext)
+        # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
+        assert "identity_scope" not in kwargs
+        assert "claims" not in kwargs

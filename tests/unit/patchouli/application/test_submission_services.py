@@ -1,11 +1,14 @@
 """InteractionSubmissionService / MemoryIntentSubmissionService 的单元测试。
 
-被测对象：两个公开提交 API的授权绑定与载荷语义（A1 计划第 4.1 节）：
-- ``submit_interaction`` 绑定 ``interaction.submit``，经真实内存队列接纳并
-  返回收据投影；scope 不一致与未获准 operation 拒绝；
-- ``submit_memory_intent`` 绑定 ``memory_intent.submit``，把中立意图转换
-  为内部生成任务（出站载荷契约），确定性 alias 支持重试幂等，
-  来源字段不由 application API 重复写入。
+被测对象：两个公开提交 API 的身份边界与载荷语义（A1 访问边界返工第 4.6 节）：
+- 本层不再检查 operation：``interaction.submit`` / ``memory_intent.submit``
+  的行为授权在 workspace 能力层出现对应方法时进行，本层只接收调用方传入
+  的 ``IdentityScope``，不接收 ``access`` 参数；
+- ``submit_interaction`` 经真实内存队列接纳并返回收据投影；
+- ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
+  确定性 alias 支持重试幂等；
+- ``identity_scope`` 缺失经 ``require_identity_scope`` 按 ``ScopeRequiredError``
+  拒绝。
 """
 
 from __future__ import annotations
@@ -14,12 +17,8 @@ import asyncio
 
 import pytest
 
-from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import (
-    OperationDeniedError,
-    ScopeRequiredError,
-    WorkspaceMismatchError,
-)
+from hivememory.core.errors import ScopeRequiredError
+from hivememory.core.models import IdentityScope
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.application import (
@@ -30,36 +29,15 @@ from hivememory.patchouli.application import (
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from tests.helpers.workspace import (
-    make_access_composition,
-    make_actor_access_record,
-    make_identity_scope,
-    make_workspace_identity,
-)
-
-MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
-OTHER = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
+from tests.helpers.workspace import make_identity_scope
 
 
 def _run(coro):
     return asyncio.run(coro)
 
 
-async def _context(operation, workspace=MAIN):
-    """按指定 operation 构造最小许可的认证上下文与配套守卫。"""
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1",
-                workspace_id=workspace.workspace_id,
-                agent_id="a1",
-                allowed_operations=frozenset({operation}),
-            )
-        ],
-        default_workspace=workspace,
-    )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-    return context, composition.guard
+def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
+    return make_identity_scope(user_id="u1", agent_id="a1", workspace_id=workspace_id)
 
 
 def _payload():
@@ -74,8 +52,8 @@ def _payload():
 # ---- 交互提交 ----
 
 
-def test_submit_interaction_accepts_via_queue_and_returns_receipt():
-    """interaction.submit 经真实内存队列接纳，收据投影携带稳定 interaction_id。"""
+def test_submit_interaction_accepts_scope_and_returns_receipt():
+    """合法 scope 直接提交：经真实内存队列接纳，收据携带稳定 interaction_id。"""
     applied = []
 
     async def _apply(
@@ -84,15 +62,13 @@ def test_submit_interaction_accepts_via_queue_and_returns_receipt():
         applied.append(interaction_id)
         return target_topic_id
 
-    context, guard = _run(_context(WorkspaceOperation.INTERACTION_SUBMIT))
     service = InteractionSubmissionService(
         interaction_queue=InteractionSubmissionQueue(_apply),
-        access_guard=guard,
     )
 
     result = _run(
         service.submit_interaction(
-            access=context,
+            identity_scope=_scope(),
             payload=_payload(),
             requested_topic_id="topic_1",
             interaction_id="interaction_stable_1",
@@ -105,65 +81,42 @@ def test_submit_interaction_accepts_via_queue_and_returns_receipt():
     assert applied == []
 
 
-def test_submit_interaction_rejects_wrong_operation_and_scope_mismatch():
-    """未获准 operation 不能提交交互；残留 scope 参数偏离上下文即拒绝。"""
+def test_submit_interaction_without_identity_scope_rejected():
+    """identity_scope 缺失按 ScopeRequiredError 拒绝，不进入队列。"""
+    applied = []
+
+    async def _apply(payload, **kwargs):
+        applied.append(kwargs)
+        return "topic"
+
+    service = InteractionSubmissionService(
+        interaction_queue=InteractionSubmissionQueue(_apply),
+    )
+
+    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+        _run(service.submit_interaction(payload=_payload()))
+    assert applied == []
+
+
+def test_submit_interaction_rejects_access_parameter_and_access_guard():
+    """授权点参数不再出现在本层签名：构造与提交均不接受 access。"""
 
     async def _apply_noop(payload, **kwargs):
         return "topic"
 
-    # 同一注册表下两个 Actor：a1 持有 interaction.submit，a2 仅 read
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1",
-                agent_id="a1",
-                allowed_operations=frozenset({WorkspaceOperation.INTERACTION_SUBMIT}),
-            ),
-            make_actor_access_record(
-                owner_user_id="u1",
-                agent_id="a2",
-                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
-            ),
-        ],
-        default_workspace=MAIN,
-    )
-    submit_context = _run(composition.authenticate(agent_id="a1"))
-    read_context = _run(composition.authenticate(agent_id="a2"))
-    service = InteractionSubmissionService(
-        interaction_queue=InteractionSubmissionQueue(_apply_noop),
-        access_guard=composition.guard,
-    )
+    queue = InteractionSubmissionQueue(_apply_noop)
+    with pytest.raises(TypeError, match="access_guard"):
+        InteractionSubmissionService(interaction_queue=queue, access_guard=object())
 
-    with pytest.raises(OperationDeniedError):
-        _run(service.submit_interaction(access=read_context, payload=_payload()))
-
-    foreign_scope = make_identity_scope(
-        user_id="u1", agent_id="a1", workspace_id=OTHER.workspace_id
-    )
-    with pytest.raises(WorkspaceMismatchError):
+    service = InteractionSubmissionService(interaction_queue=queue)
+    with pytest.raises(TypeError, match="access"):
         _run(
             service.submit_interaction(
-                access=submit_context,
+                identity_scope=_scope(),
                 payload=_payload(),
-                identity_scope=foreign_scope,
+                access=object(),
             )
         )
-
-
-def test_submit_interaction_without_access_rejected():
-    """交互提交不在兼容清单内：缺少 access 一律拒绝，不进入裸 scope 适配。"""
-
-    async def _apply_noop(payload, **kwargs):
-        return "topic"
-
-    _, guard = _run(_context(WorkspaceOperation.INTERACTION_SUBMIT))
-    service = InteractionSubmissionService(
-        interaction_queue=InteractionSubmissionQueue(_apply_noop),
-        access_guard=guard,
-    )
-
-    with pytest.raises(ScopeRequiredError):
-        _run(service.submit_interaction(access=None, payload=_payload()))
 
 
 # ---- 意图提交 ----
@@ -180,12 +133,12 @@ def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    context, guard = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
-    service = MemoryIntentSubmissionService(bus=bus, access_guard=guard)
+    service = MemoryIntentSubmissionService(bus=bus)
+    scope = _scope()
 
     result = _run(
         service.submit_memory_intent(
-            access=context,
+            identity_scope=scope,
             intent=MemoryIntent(
                 kind="write",
                 topic_id="topic_1",
@@ -200,7 +153,7 @@ def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
     assert task.source_verb == "WRITE"
     assert isinstance(task.focus, WriteFocus)
     assert task.focus.content == "remember this"
-    assert task.identity_scope == context.identity_scope
+    assert task.identity_scope == scope
     assert captured["topic_id"] == "topic_1"
 
 
@@ -214,12 +167,11 @@ def test_submit_memory_intent_update_maps_update_focus():
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    context, guard = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
-    service = MemoryIntentSubmissionService(bus=bus, access_guard=guard)
+    service = MemoryIntentSubmissionService(bus=bus)
 
     _run(
         service.submit_memory_intent(
-            access=context,
+            identity_scope=_scope(),
             intent=MemoryIntent(
                 kind="update",
                 topic_id="topic_1",
@@ -247,8 +199,7 @@ def test_same_intent_id_derives_identical_pending_alias():
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    context, guard = _run(_context(WorkspaceOperation.MEMORY_INTENT_SUBMIT))
-    service = MemoryIntentSubmissionService(bus=bus, access_guard=guard)
+    service = MemoryIntentSubmissionService(bus=bus)
     intent = MemoryIntent(
         kind="write",
         topic_id="topic_1",
@@ -257,22 +208,35 @@ def test_same_intent_id_derives_identical_pending_alias():
         intent_id="intent_stable_123",
     )
 
-    _run(service.submit_memory_intent(access=context, intent=intent))
-    _run(service.submit_memory_intent(access=context, intent=intent))
+    _run(service.submit_memory_intent(identity_scope=_scope(), intent=intent))
+    _run(service.submit_memory_intent(identity_scope=_scope(), intent=intent))
 
     assert aliases[0] == aliases[1]
     assert aliases[0].startswith("draft_stable_title_")
 
 
-def test_submit_memory_intent_rejects_unpermitted_operation():
-    """task.observe 不能提交主动意图：行为授权拒绝（能力互不隐含）。"""
-    context, guard = _run(_context(WorkspaceOperation.TASK_OBSERVE))
-    service = MemoryIntentSubmissionService(bus=PatchouliBus(), access_guard=guard)
+def test_submit_memory_intent_requires_identity_scope():
+    """identity_scope 缺失按 ScopeRequiredError 拒绝，不进入生成提交链。"""
+    bus = PatchouliBus()
+    submitted: list = []
 
-    with pytest.raises(OperationDeniedError):
+    async def _submit_active(tasks, topic_id, *, identity_scope):
+        submitted.append(tasks)
+        return []
+
+    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
+    service = MemoryIntentSubmissionService(bus=bus)
+
+    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
         _run(
             service.submit_memory_intent(
-                access=context,
                 intent=MemoryIntent(kind="write", topic_id="topic_1", content="x"),
             )
         )
+    assert submitted == []
+
+
+def test_intent_service_constructor_rejects_access_guard():
+    """构造函数不再接收 access_guard：guard 注入已随边界返工删除。"""
+    with pytest.raises(TypeError, match="access_guard"):
+        MemoryIntentSubmissionService(bus=PatchouliBus(), access_guard=object())

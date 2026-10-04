@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # System 组合根与生命周期
@@ -40,19 +40,22 @@ HiveMemorySystem.build(config)
        -> registries bundle
             ProviderRegistry
             ModelRegistry
-       -> access-control bundle
+       -> access-control bundle（两类登记分别从 configs/system_principals.yaml、configs/workspace_actors.yaml 装载）
             SystemActorAccessRegistry / WorkspaceActorAccessRegistry
-            WorkspaceAccessGuard
-            ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator）
+            WorkspaceAuthenticator（workspace.authentication；准入、签发与撤销）
+            WorkspaceOperationAuthorizer（workspace.authorization；操作授权，只依赖访问注册表）
+            ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator 与 WorkspaceAuthenticator）
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
        -> service bundle
-            TaskProcessService（workspace.process，含进程表；注入 CPU 端口（AliceSystem.cpu_port）、AssetStore 只读 reader、root RuntimeEventPublisher 与 memory_compiler / attachment_compiler 配置段）
+            CPUAllocator（workspace.process；注入操作授权者、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
+            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、操作授权者与 Gateway 请求超时）
+            TaskProcessService（workspace.process，注册入口，含进程表；注入 TaskProcessRunner、认证网关、操作授权者与 root RuntimeEventPublisher）
             PassiveIngressService / SystemReadinessService（system.application）
-            Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability）
+            Memory / MemoryTask / Agent / Topic / WorkspaceAsset 能力服务（workspace.capability；注入操作授权者）
 ```
 
-五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关，子系统共享全局基础设施，服务最后只拿到公共总线、访问检查、必要配置与 AssetStore 读取端口。
+五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关只注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server；操作授权者注入能力层、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
 
 ### 1.1 Runtime bundle
 
@@ -82,7 +85,7 @@ Alice 执行路径的两个派生 cache（L1 atom cache、profile cache）与 Pe
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
 | Gateway | 注入 `gateway` 配置段、已解析的 Gateway LLM 配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion）与访问检查（`WorkspaceAccessVerifier`） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
 | Alice | 注入 `alice` / `memory_compiler` 配置段、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）和观测 sink | Agent run、frame、MTP、工具、PendingAtom 运行时与执行路径派生 cache |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、被动摄入、能力层）通过 `GlobalSystemBus` 发起。
@@ -111,21 +114,23 @@ Gateway.start
 当前 `stop()` 的有效顺序是：
 
 ```text
-GlobalMaintenanceScheduler.stop
+ActorAuthenticationGateway.close
+  -> GlobalMaintenanceScheduler.stop
   -> PassiveIngressService.shutdown_drain
   -> Alice.stop
   -> Patchouli.stop
   -> Gateway.stop
   -> WorkspaceRuntime.close
   -> WorkspaceAssetStore.close_and_clear
+  -> 撤销全部已签发的访问 context（ActorAuthenticationGateway.revoke_all_contexts）
   -> SYSTEM_STOPPED
 ```
 
-先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时在 bridge 卸载后自行清空其执行路径的派生 cache；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时在 bridge 卸载后自行清空其执行路径的派生 cache；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
 
-对于从未成功启动的 System，`stop()` 在完成必要的 Passive drain 后即可关闭读取视图、清空 AssetStore 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
+对于从未成功启动的 System，`stop()` 在关闭认证网关、完成必要的 Passive drain 后即可关闭读取视图、清空 AssetStore、撤销全部访问 context 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
 
 ## 4. 健康状态与公共入口
 

@@ -4,6 +4,9 @@
 ``GlobalSystemBus`` 调用 Patchouli 公共 backing 路由（第二层 client-server），
 不形成递归，也不持有 Patchouli 的 Runtime、Service 或存储对象。
 
+``scope`` 是能力层完成操作授权后由操作授权者组装的可信坐标，原样传给
+Patchouli backing；本模块位于授权点以下，不接收访问 context。
+
 库不可达（backing 路由未挂载，如 Patchouli 未启动或已卸载）时抛出
 ``ResourceUnavailableError``，由调用方显式失败，不以空结果伪装成功；
 存储错误与领域错误按原结构化错误传播。
@@ -11,17 +14,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfile
 from hivememory.core.protocol.models import RetrievalRequest
-
-if TYPE_CHECKING:
-    from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.access import WorkspaceAccessContext
 
 
 class BusCanonicalReadBackend:
@@ -35,12 +35,10 @@ class BusCanonicalReadBackend:
         memory_id: UUID,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> MemoryAtom | None:
         return await self._request(
             GlobalRoutes.PATCHOULI_MEMORY_READ,
             memory_id,
-            access=access,
             identity_scope=scope,
         )
 
@@ -49,25 +47,20 @@ class BusCanonicalReadBackend:
         aliases: list[str],
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> list[MemoryAtom]:
         return await self._request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
             list(aliases),
             identity_scope=scope,
-            access=access,
         )
 
     async def retrieve(
         self,
         request: RetrievalRequest,
-        *,
-        access: WorkspaceAccessContext | None,
     ) -> list[MemoryAtom]:
         return await self._request(
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request,
-            access=access,
         )
 
     async def get_agent_profile(
@@ -75,13 +68,11 @@ class BusCanonicalReadBackend:
         agent_alias: str | None,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> ResolvedAgentProfile:
         return await self._request(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             agent_alias,
             identity_scope=scope,
-            access=access,
         )
 
     async def _request(self, route: str, *args: Any, **kwargs: Any) -> Any:

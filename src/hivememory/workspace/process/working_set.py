@@ -1,81 +1,79 @@
-"""进程工作集 — 单个任务进程的 prepare 结果与附件租借持有。
+"""进程工作集 — 单个任务进程的阶段产出与待释放资源的登记。
 
-工作集是编排服务的 per-run 状态容器：持有 Patchouli prepare 的结果
-（``PreparedAgentRun``，Patchouli 公开契约）、本轮取得的附件租借与附件编译
-冻结的实际使用引用。编排骨架从这里读取 prepare 结果完成 CPU 分配，并把它
-交回 finalize/cleanup 路由。进程的关闭流程
-（``TaskProcess.close``）先调用 :meth:`ProcessWorkingSet.release`，覆盖完成、
-取消、失败、断流与 CPU 分配失败各条路径；“租借随进程关闭释放”是唯一的释放事实（Q-1），finalize/cleanup
-不再负责释放。
+工作集是任务进程状态的一部分（任务进程 Idea 1.2：进程记录 + 工作集），
+只登记、不释放：持有 Patchouli prepare 的结果（``PreparedAgentRun``，
+Patchouli 公开契约）、本轮取得的附件租借、附件编译冻结的实际使用引用与
+CPU 输出流。资源由取得它的一方释放——附件租借由 ``CPUAllocator`` 释放，
+CPU 输出流与 prepare 结果的 cleanup 由编排骨架（``TaskProcessRunner``）
+处理；工作集不持有任何跨进程共享的依赖。
+
+每项待释放的资源都只能取出一次（``take_*``）：关闭流程因此可以重复执行，
+已经释放的资源不会被再次释放。“租借随进程关闭释放”是唯一的释放事实
+（Q-1），finalize/cleanup 不再负责释放。
 """
 
 from __future__ import annotations
 
-import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 
-from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models.workspace_asset import (
     RepresentationLease,
     WorkspaceAssetRef,
 )
-from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-
-logger = logging.getLogger(__name__)
+from hivememory.workspace.contracts import CPUOutput
 
 
 @dataclass
 class ProcessWorkingSet:
     """一次任务进程的进程内工作集。
 
-    ``prepared`` 在 prepare 返回后立即写入（身份 scope 校验失败时结束路径仍要
-    把它交回 cleanup，以补偿 prepare 预建的 Topic）；CPU 分配在校验通过后读取
-    其中的 Topic 与检索结果，结束路径把它交回 Patchouli 的 finalize/cleanup 路由。
+    ``prepared`` 在 prepare 返回后立即写入（身份 scope 校验失败时关闭流程
+    仍要把它交回 cleanup，以补偿 prepare 预建的 Topic）；CPU 分配在校验
+    通过后读取其中的 Topic 与检索结果。finalize 成功后 Patchouli 接管本轮
+    交互，工作集经 :meth:`hand_off_prepared` 记下不再负有补偿义务。
     ``used_attachments`` 在附件编译后写入，供封口交互记录使用。
+    ``cpu_output`` 是 Actor 执行期间打开的 CPU 输出流，进程关闭时必须关闭。
     """
 
-    asset_reader: WorkspaceAssetReaderPort | None
     prepared: PreparedAgentRun | None = None
     attachment_leases: list[RepresentationLease] = field(default_factory=list)
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()
+    cpu_output: AsyncGenerator[CPUOutput, None] | None = None
+    # prepare 结果是否已交回 Patchouli（finalize 接管，或关闭流程已取出
+    # 请求 cleanup）；交回之后工作集不再负有补偿义务。
+    _prepared_handed_off: bool = field(default=False, repr=False)
 
     def register_lease(self, lease: RepresentationLease) -> None:
         """登记一项已取得的附件租借，随进程关闭统一释放。"""
         self.attachment_leases.append(lease)
 
-    def discard_lease(self, lease: RepresentationLease) -> None:
-        """释放单个租借并将其移出工作集（版本核对失败时使用）。
-
-        主要调用点总是先 :meth:`register_lease` 再核对；若传入未登记的
-        租借，则跳过移除、直接按 Store 幂等语义尝试释放。
-        """
+    def remove_lease(self, lease: RepresentationLease) -> None:
+        """把单个租借移出工作集（由取得方立即释放时使用）；未登记时忽略。"""
         if lease in self.attachment_leases:
             self.attachment_leases.remove(lease)
-        self._release_one(lease)
 
-    def release(self) -> None:
-        """幂等释放当前登记的全部附件租借。
-
-        逐项释放；Store 关闭等 ``WorkspaceDomainError`` 只记录警告，不
-        改变进程已经确定的终态。重复调用是空操作。
-        """
+    def take_leases(self) -> list[RepresentationLease]:
+        """取出全部待释放的租借；重复调用返回空列表。"""
         leases, self.attachment_leases = self.attachment_leases, []
-        for lease in leases:
-            self._release_one(lease)
+        return leases
 
-    def _release_one(self, lease: RepresentationLease) -> None:
-        if self.asset_reader is None:
-            return
-        try:
-            self.asset_reader.release_representation_lease(lease.lease_id)
-        except WorkspaceDomainError as exc:
-            # Store 已关闭等清理路径：记录摘要，不改变进程终态。
-            logger.warning(
-                "释放附件 lease 失败: lease_id=%s, code=%s",
-                lease.lease_id,
-                exc.code,
-            )
+    def take_cpu_output(self) -> AsyncGenerator[CPUOutput, None] | None:
+        """取出待关闭的 CPU 输出流；已经取出时返回 ``None``。"""
+        cpu_output, self.cpu_output = self.cpu_output, None
+        return cpu_output
+
+    def hand_off_prepared(self) -> None:
+        """finalize 成功：Patchouli 已接管本轮交互，prepare 结果不再需要 cleanup。"""
+        self._prepared_handed_off = True
+
+    def take_prepared_for_cleanup(self) -> PreparedAgentRun | None:
+        """取出仍需交回 cleanup 的 prepare 结果；只取出一次，交回后返回 ``None``。"""
+        if self.prepared is None or self._prepared_handed_off:
+            return None
+        self._prepared_handed_off = True
+        return self.prepared
 
 
 __all__ = [

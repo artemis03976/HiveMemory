@@ -55,7 +55,11 @@ class GatewayWorkflow:
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
     ) -> GatewayProcessResult:
-        """执行 Entry、固定 topic 前缀和唯一 analysis 分支。"""
+        """执行 Entry、固定 topic 前缀和唯一 analysis 分支。
+
+        ``identity_scope`` 是调用方冻结的执行坐标，随状态贯穿各步骤并原
+        样传给话题读取；Gateway 不接收访问 context，也不做授权判断。
+        """
 
         started_at = perf_counter()
         state = GatewayExecutionState(

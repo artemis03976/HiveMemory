@@ -16,17 +16,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from hivememory.core.memory_access import access_policy_permits
 from hivememory.core.models import AgentProfile, IdentityScope
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.workspace.cache.profile import ProfileCache, ProfileCacheEntry
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
-
-if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
 
 
 class ProfileResolver:
@@ -48,7 +43,6 @@ class ProfileResolver:
         agent_alias: str | None,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> AgentProfile:
         """解析并交付 AgentProfile 独立副本。
 
@@ -65,7 +59,7 @@ class ProfileResolver:
 
         resolved, fill = await self._guard.load(
             workspace,
-            lambda: self._backing.get_agent_profile(alias or None, scope=scope, access=access),
+            lambda: self._backing.get_agent_profile(alias or None, scope=scope),
         )
         policy = resolved.access_policy
         source_memory_id = resolved.source_memory_id

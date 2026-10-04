@@ -15,7 +15,6 @@ from hivememory.core.errors import (
     AssetRemovedError,
     StaleAssetResultError,
 )
-from hivememory.core.models import IdentityScope
 from hivememory.infrastructure.attachments import UnsupportedAttachmentFormatError
 from hivememory.infrastructure.attachments.errors import (
     AttachmentTooLargeError,
@@ -23,10 +22,9 @@ from hivememory.infrastructure.attachments.errors import (
     InvalidAttachmentNameError,
 )
 from hivememory.server.deps import (
-    RequestIdentitySelection,
-    get_identity_selection,
+    RequestAccess,
+    get_request_access,
     get_workspace_asset_service,
-    resolve_request_identity_scope,
 )
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
 from hivememory.workspace.capability.assets import (
@@ -94,17 +92,17 @@ async def upload_workspace_asset(
     request: Request,
     response: Response,
     idempotency_key: str | None = Header(default=None),
-    selection: RequestIdentitySelection = Depends(get_identity_selection),
+    request_access: RequestAccess = Depends(get_request_access),
     service: WorkspaceAssetApplicationService = Depends(get_workspace_asset_service),
 ) -> WorkspaceAssetUploadResponse:
     """上传单个附件，创建 WorkspaceAsset 并返回 bound ref 与 RAW 摘要。
 
     首次创建返回 201；同一 ``Idempotency-Key`` 且内容一致的重放返回 200
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动
-    加入当前 Chat run。
+    加入当前 Chat run。上传绑定 ``management.asset``：请求经统一认证网关
+    取得访问 context，注册使用的 scope 由操作授权者在授权时组装，调用方不能
+    另行传入（P-1 缺陷的结构性修复，A1 访问边界返工第 4.5 节）。
     """
-    identity_scope: IdentityScope = resolve_request_identity_scope(selection)
-
     operation_id = idempotency_key.strip() if idempotency_key else ""
     if not operation_id:
         raise HTTPException(
@@ -121,11 +119,12 @@ async def upload_workspace_asset(
     try:
         upload = uploads[0]
         receipt = await service.upload_asset(
-            identity_scope=identity_scope,
+            target_workspace=request_access.target_workspace,
             file_name=upload.filename or "",
             declared_media_type=upload.content_type,
             source=upload,
             client_operation_id=operation_id,
+            access=request_access.access,
         )
     except EmptyAttachmentError as exc:
         raise HTTPException(

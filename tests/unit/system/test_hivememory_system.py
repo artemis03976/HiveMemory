@@ -20,7 +20,11 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.capability.topic import TopicApplicationService
 from hivememory.workspace.process import TaskProcessService
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_workspace_runtime,
+)
 
 
 @pytest.fixture
@@ -62,8 +66,14 @@ def system(mock_patchouli):
     memory_task_service = MagicMock()
     agent_service = MagicMock()
     runtime_events = RecordingRuntimeEventSink()
+    # 访问控制组合：Topic 能力服务的操作授权经共享操作授权者完成；
+    # 门面未注入 access_control（None），网关相关路径按未装配处理。
+    access_composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")]
+    )
     topic_service = TopicApplicationService(
         global_bus=global_bus,
+        operation_authorizer=access_composition.authorizer,
     )
     readiness_service = MagicMock(spec=SystemReadinessService)
 
@@ -202,6 +212,7 @@ class TestHiveMemorySystem:
         assert stopped.status == "stopped"
         assert stopped.data["already_stopped"] is False
         assert stopped.data["completed_steps"] == [
+            "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
             "alice.stop",
@@ -209,6 +220,7 @@ class TestHiveMemorySystem:
             "gateway.stop",
             "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
+            "workspace_access_contexts.revoke",
         ]
         assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
@@ -229,10 +241,12 @@ class TestHiveMemorySystem:
         stopped = events[-1]
         assert stopped.data["already_stopped"] is True
         assert stopped.data["completed_steps"] == [
+            "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
             "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
+            "workspace_access_contexts.revoke",
         ]
         assert system.workspace_runtime.is_closed is True
         assert stopped.data["scheduler_stopped"] is False
@@ -271,6 +285,7 @@ class TestHiveMemorySystem:
         assert failed.severity == "error"
         assert failed.reason == "stop boom"
         assert failed.data["completed_steps"] == [
+            "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
         ]

@@ -5,21 +5,17 @@ resolver 只依赖本协议，不导入 System 路由常量或 Patchouli 实现�
 由组合根注入。冷读取经公共 backing 路由（宪章 §4.4 过线契约），库侧资源
 归属与 policy 校验独立成立，构成纵深防御。
 
-``scope`` 是能力层完成 operation 授权后取得的可信坐标；``access`` 原样传给
-backing 供其校验 context 有效性。``access`` 为 ``None`` 仅用于迁移期受信
-兼容入口（Alice 旧链路委托，A6 删除）。
+``scope`` 是能力层完成操作授权后由操作授权者组装的可信坐标；resolver 与
+backing 位于授权点以下，不接收访问 context。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 from uuid import UUID
 
 from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfile
 from hivememory.core.protocol.models import RetrievalRequest
-
-if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
 
 
 class CanonicalReadBackend(Protocol):
@@ -34,7 +30,6 @@ class CanonicalReadBackend(Protocol):
         memory_id: UUID,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> MemoryAtom | None:
         """Actor-visible 的 UUID 点读。"""
         ...
@@ -44,7 +39,6 @@ class CanonicalReadBackend(Protocol):
         aliases: list[str],
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> list[MemoryAtom]:
         """按 alias 批量读取实际可读的完整原子。"""
         ...
@@ -52,8 +46,6 @@ class CanonicalReadBackend(Protocol):
     async def retrieve(
         self,
         request: RetrievalRequest,
-        *,
-        access: WorkspaceAccessContext | None,
     ) -> list[MemoryAtom]:
         """语义检索，按领域排序返回完整原子列表。"""
         ...
@@ -63,7 +55,6 @@ class CanonicalReadBackend(Protocol):
         agent_alias: str | None,
         *,
         scope: IdentityScope,
-        access: WorkspaceAccessContext | None,
     ) -> ResolvedAgentProfile:
         """Profile 定义解析：AgentProfile + 源原子 policy 依据与关联。"""
         ...

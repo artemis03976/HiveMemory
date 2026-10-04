@@ -3,6 +3,10 @@
 被测边界：真实 ``InMemoryWorkspaceAssetStore`` + 上传应用服务 + 可控
 解析替身。覆盖状态接纳、结果提交、失败收尾、取消安全收尾、同 key
 串行化与资源边界；转换正确性由 15.4 节的真实 parser 样本另行验证。
+
+访问边界（A1 访问边界返工第 4.5 节）：上传 access 由与上传服务共享
+访问组合（认证一侧 + 操作授权者）的网关签发；注册与解析交接一律使用
+授权返回的可信 scope。
 """
 
 import asyncio
@@ -23,12 +27,10 @@ from hivememory.infrastructure.attachments import (
 )
 from hivememory.workspace.assets.parse_service import ASSET_FAILED_CODE
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.capability.assets import (
-    WorkspaceAssetApplicationService,
-)
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
     ScriptedAttachmentParser,
+    make_upload_access,
     make_upload_service,
     scripted_factory,
     wait_until_condition,
@@ -40,22 +42,31 @@ def _service(
     store: InMemoryWorkspaceAssetStore,
     parser_factory=None,
     **config_overrides,
-) -> WorkspaceAssetApplicationService:
+):
+    """构造上传服务与同源访问组合（认证一侧是同一实例）。"""
     config = AttachmentParserConfig(**config_overrides)
-    return make_upload_service(
-        store=store,
-        parser_config=config,
-        parser_factory=parser_factory,
+    composition = make_upload_access(user_id="user-1")
+    return (
+        make_upload_service(
+            store=store,
+            parser_config=config,
+            parser_factory=parser_factory,
+            access_composition=composition,
+        ),
+        composition,
     )
 
 
-def _upload(service, scope, *, content: bytes, operation_id: str = "op-1", name: str = "doc.txt"):
-    return service.upload_asset(
-        identity_scope=scope,
+async def _upload(
+    service, composition, *, content: bytes, operation_id: str = "op-1", name: str = "doc.txt"
+):
+    return await service.upload_asset(
+        target_workspace=composition.default_workspace,
         file_name=name,
         declared_media_type="text/plain",
         source=ChunkedSource(content),
         client_operation_id=operation_id,
+        access=await composition.authenticate(),
     )
 
 
@@ -78,9 +89,9 @@ async def test_parse_acceptance_leaves_single_tokened_target_mid_parse() -> None
     scope = make_identity_scope(user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(store, scope, gate=gate)
-    service = _service(store, scripted_factory(parser))
+    service, composition = _service(store, scripted_factory(parser))
 
-    task = asyncio.create_task(_upload(service, scope, content=b"payload"))
+    task = asyncio.create_task(_upload(service, composition, content=b"payload"))
     await wait_until_condition(lambda: parser.snapshots_at_parse)
     mid_parse = parser.snapshots_at_parse[0][0].asset
 
@@ -112,9 +123,9 @@ async def test_expected_parse_failure_commits_failed_terminal_with_safe_error() 
             params={"reason": "unsupported_encoding"},
         ),
     )
-    service = _service(store, scripted_factory(parser))
+    service, composition = _service(store, scripted_factory(parser))
 
-    receipt = await _upload(service, scope, content=b"\xff\xfe\x00")
+    receipt = await _upload(service, composition, content=b"\xff\xfe\x00")
     asset = receipt.handle.asset
     extracted = _extracted_of(asset)
     raw = _raw_of(asset)
@@ -141,11 +152,10 @@ async def test_expected_parse_failure_commits_failed_terminal_with_safe_error() 
 async def test_unexpected_parser_exception_commits_generic_failure_without_leak() -> None:
     """捕获内部异常文本进入公共 message 或 asset 快照。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
     parser = ScriptedAttachmentParser(error=RuntimeError("boom-secret-internal"))
-    service = _service(store, scripted_factory(parser))
+    service, composition = _service(store, scripted_factory(parser))
 
-    receipt = await _upload(service, scope, content=b"x")
+    receipt = await _upload(service, composition, content=b"x")
 
     asset = receipt.handle.asset
     assert (asset.state, asset.safe_error_code) == (
@@ -160,11 +170,10 @@ async def test_unexpected_parser_exception_commits_generic_failure_without_leak(
 async def test_result_source_mismatch_is_treated_as_execution_failure() -> None:
     """捕获来自其他 RAW 或 producer 漂移的结果被当成有效内容提交。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
     parser = ScriptedAttachmentParser(producer_override="drifted-producer")
-    service = _service(store, scripted_factory(parser))
+    service, composition = _service(store, scripted_factory(parser))
 
-    receipt = await _upload(service, scope, content=b"x")
+    receipt = await _upload(service, composition, content=b"x")
 
     assert receipt.handle.asset.state == WorkspaceAssetState.FAILED
     assert receipt.handle.asset.safe_error_message == "附件解析失败，请重新上传"
@@ -177,9 +186,9 @@ async def test_cancelled_request_submits_safe_failure_with_original_token() -> N
     scope = make_identity_scope(user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(gate=gate)
-    service = _service(store, scripted_factory(parser))
+    service, composition = _service(store, scripted_factory(parser))
 
-    task = asyncio.create_task(_upload(service, scope, content=b"slow"))
+    task = asyncio.create_task(_upload(service, composition, content=b"slow"))
     await wait_until_condition(lambda: parser.started.is_set())
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -202,14 +211,14 @@ async def test_concurrent_same_key_uploads_serialize_and_parse_once() -> None:
     scope = make_identity_scope(user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(gate=gate)
-    service = _service(store, scripted_factory(parser))
+    service, composition = _service(store, scripted_factory(parser))
 
     first_task = asyncio.create_task(
-        _upload(service, scope, content=b"same", operation_id="op-same")
+        _upload(service, composition, content=b"same", operation_id="op-same")
     )
     await wait_until_condition(lambda: parser.started.is_set())
     second_task = asyncio.create_task(
-        _upload(service, scope, content=b"same", operation_id="op-same"),
+        _upload(service, composition, content=b"same", operation_id="op-same"),
     )
     await asyncio.sleep(0)
     # 持有方仍在解析：等待方未触发第二次解析，也未拿到结果。
@@ -231,11 +240,10 @@ async def test_concurrent_same_key_uploads_serialize_and_parse_once() -> None:
 async def test_resource_limit_boundary_fails_without_silent_truncation() -> None:
     """捕获正文输出超限被静默截断为部分成功。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
     # 不注入替身：使用真实文本解析器验证配置预算边界。
-    service = _service(store, max_extracted_text_bytes=4)
+    service, composition = _service(store, max_extracted_text_bytes=4)
 
-    receipt = await _upload(service, scope, content=b"123456")
+    receipt = await _upload(service, composition, content=b"123456")
     asset = receipt.handle.asset
     extracted = _extracted_of(asset)
 

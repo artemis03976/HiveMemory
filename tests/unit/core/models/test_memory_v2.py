@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.errors import OwnerMismatchError, ScopeRequiredError
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
     Artifacts,
@@ -128,13 +128,23 @@ def test_memory_atom_rejects_unknown_schema() -> None:
         MemoryAtom.model_validate({**_atom().model_dump(mode="json"), "schema_version": 3})
 
 
-def test_identity_scope_rejects_actor_owner_drift() -> None:
-    """捕获生成入口用 actor user 覆盖另一资源 owner 的缺陷。"""
-    with pytest.raises(OwnerMismatchError):
-        IdentityScope(
-            actor_identity=ActorIdentity(user_id="actor", agent_id="agent-a"),
-            workspace_identity=_workspace(user_id="owner"),
-        )
+def test_identity_scope_keeps_cross_owner_coordinates_for_authorization() -> None:
+    """身份模型只冻结坐标：跨 owner 的 scope 可构造，owner 规则在授权点生效。
+
+    生成入口若用 actor user 覆盖另一资源 owner，缺陷改由授权点拦截
+    （guard ``authorize_operation`` 的 ``target_owner_mismatch`` 与网关
+    准入的 ``actor_not_owner``）；``IdentityScope`` 构造不再承担 owner
+    校验（不变量 6），坐标原样保留供授权点比对。
+    """
+    target = _workspace(user_id="owner")
+
+    scope = IdentityScope(
+        actor_identity=ActorIdentity(user_id="actor", agent_id="agent-a"),
+        workspace_identity=target,
+    )
+
+    assert scope.actor_identity.user_id == "actor"
+    assert scope.workspace_identity == target
 
 
 def test_memory_key_construction_rejects_missing_scope() -> None:

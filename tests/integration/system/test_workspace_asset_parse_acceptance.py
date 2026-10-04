@@ -3,6 +3,10 @@
 被测协作边界：真实 ``InMemoryWorkspaceAssetStore`` + 上传应用服务 +
 可控解析替身。覆盖 complete 与 remove 的竞态线性化：首个有效提交胜出，
 晚到结果不能复活资产或覆盖内容；HTTP 状态映射由公开入口集成测试验证。
+
+访问边界（A1 访问边界返工第 4.5 节）：上传 access 由与上传服务共享
+访问组合（认证一侧 + 操作授权者）的网关签发；本文件关注 Store 竞态，
+access 只用于进入上传用例。
 """
 
 import asyncio
@@ -21,11 +25,36 @@ from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
     ScriptedAttachmentParser,
+    make_upload_access,
     make_upload_service,
     scripted_factory,
     wait_until_condition,
 )
 from tests.helpers.workspace import make_identity_scope
+
+
+def _stack(store: InMemoryWorkspaceAssetStore, parser: ScriptedAttachmentParser):
+    """构造共享认证一侧的上传服务与访问组合。"""
+    composition = make_upload_access(user_id="user-1")
+    service = make_upload_service(
+        store=store,
+        parser_config=AttachmentParserConfig(),
+        parser_factory=scripted_factory(parser),
+        access_composition=composition,
+    )
+    return service, composition
+
+
+async def _raced_upload(service, composition):
+    """发起一次携带可控解析的竞态上传（授权组装可信 scope）。"""
+    return await service.upload_asset(
+        target_workspace=composition.default_workspace,
+        file_name="raced.txt",
+        declared_media_type="text/plain",
+        source=ChunkedSource(b"raced"),
+        client_operation_id="op-race",
+        access=await composition.authenticate(),
+    )
 
 
 @pytest.mark.asyncio
@@ -48,21 +77,9 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
     scope = make_identity_scope(user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(error=parse_error, gate=gate)
-    service = make_upload_service(
-        store=store,
-        parser_config=AttachmentParserConfig(),
-        parser_factory=scripted_factory(parser),
-    )
+    service, composition = _stack(store, parser)
 
-    task = asyncio.create_task(
-        service.upload_asset(
-            identity_scope=scope,
-            file_name="raced.txt",
-            declared_media_type="text/plain",
-            source=ChunkedSource(b"raced"),
-            client_operation_id="op-race",
-        ),
-    )
+    task = asyncio.create_task(_raced_upload(service, composition))
     await wait_until_condition(lambda: parser.started.is_set())
     removed = store.remove_asset(scope, _current_ref(store, scope))
     assert removed.state == WorkspaceAssetState.REMOVED
@@ -84,20 +101,8 @@ async def test_late_parse_failure_preserves_winner_and_reports_stale_result() ->
     scope = make_identity_scope(user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(error=RuntimeError("late failure"), gate=gate)
-    service = make_upload_service(
-        store=store,
-        parser_config=AttachmentParserConfig(),
-        parser_factory=scripted_factory(parser),
-    )
-    task = asyncio.create_task(
-        service.upload_asset(
-            identity_scope=scope,
-            file_name="raced.txt",
-            declared_media_type="text/plain",
-            source=ChunkedSource(b"raced"),
-            client_operation_id="op-race",
-        )
-    )
+    service, composition = _stack(store, parser)
+    task = asyncio.create_task(_raced_upload(service, composition))
     try:
         await wait_until_condition(parser.started.is_set)
         handle = store.list_workspace_assets(scope)[0]

@@ -1,7 +1,12 @@
-"""任务进程表 — 进程记录、进程内注册表与 stop API 控制面。
+"""任务进程表 — 进程记录与唯一的进程注册表。
 
-进程表是 workspace 进程内共享设施：以 ``process_id`` 为唯一标识登记
-每个任务进程，只向同 owner/workspace 的控制请求暴露进程记录。
+进程表是 workspace 进程内共享设施，也是唯一的进程注册表：以
+``process_id`` 为键登记任务进程（``TaskProcess`` 容器），进程记录作为
+进程的控制面经进程取得，不单独登记（任务进程 Idea 1.2 的 2026-10-04 注）。
+注册、注销与进程控制授权由注册入口（``workspace.process.service``）负责，
+阶段推进与终态记录由编排骨架（``workspace.process.runner``）负责；
+进程记录只持有访问 context 与进程自身的元数据，不保存身份字段（A1 访问
+边界返工第 4.4 节，I-8）。
 """
 
 from __future__ import annotations
@@ -9,12 +14,16 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceDomainError
-from hivememory.core.models import (
-    IdentityScope,
-    require_identity_scope,
-)
+
+# TaskProcess 只做类型检查时导入：task_process 在运行时从本模块导入进程
+# 记录与相关枚举，反向的运行时导入会形成循环。
+if TYPE_CHECKING:
+    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.workspace.process.events import BoundProcessEvents
+    from hivememory.workspace.process.task_process import TaskProcess
 
 
 class ProcessPhase(str, Enum):
@@ -68,18 +77,35 @@ class ProcessStatusSnapshot:
 
 @dataclass
 class ProcessRecord:
-    """一次任务进程的阶段引用与终态事实。
+    """一次任务进程的阶段引用、访问 context 与终态事实（与进程同寿）。
 
     ``process_id`` 是任意任务进程的唯一标识（Q-16）：由 server 入口在进入
     编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
+    ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：它是
+    记录持有的唯一身份凭据，只交给操作授权者用于授权与控制比对，进程以
+    任何结局关闭时由注册入口使其失效（P-6）。记录不保存 actor、驻留
+    workspace 等身份字段：阶段调用的目标取自任务参数，观测标签（``events``）
+    在注册时用通过认证的声明绑定一次（I-8 选项 C）；``events`` 是记录与
+    事件发布器之间唯一的持有关系，发布器不回指记录。
     """
 
-    identity_scope: IdentityScope
     process_id: str
+    access: WorkspaceAccessContext
+    events: BoundProcessEvents
     phase: ProcessPhase = ProcessPhase.CREATED
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
     stop_reason: str | None = None
     active_task: asyncio.Task[object] | None = None
+
+    @property
+    def is_terminal(self) -> bool:
+        """进程是否已记录终态（completed / cancelled / failed）。
+
+        编排骨架每次记录终态后紧接着交出终态产出，中间没有 ``await``，
+        因此它同时表示“终态产出已经交出”；关闭流程据此判断是否需要按
+        断流收口。
+        """
+        return self.phase is ProcessPhase.TERMINAL
 
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
@@ -156,83 +182,34 @@ class ProcessRecord:
 
 
 class ProcessTable:
-    """进程内任务进程注册表与 stop API 控制面。"""
+    """进程内唯一的任务进程注册表：登记 ``process_id → TaskProcess``。
+
+    登记与注销由注册入口负责；进程记录经 ``process.record`` 取得。本表
+    不做 scope 过滤，控制请求的授权比对由注册入口经操作授权者完成。
+    """
 
     def __init__(self) -> None:
-        self._runs: dict[str, ProcessRecord] = {}
+        self._processes: dict[str, TaskProcess] = {}
 
-    def register(self, run: ProcessRecord) -> None:
-        require_identity_scope(run.identity_scope)
-        existing = self._runs.get(run.process_id)
-        if existing is not None:
+    def register(self, process: TaskProcess) -> None:
+        """登记任务进程；``process_id`` 已被占用时拒绝，不覆盖现有进程。"""
+        process_id = process.record.process_id
+        if process_id in self._processes:
             raise WorkspaceDomainError(
                 "process_id 已被注册，拒绝覆盖现有任务进程",
-                details={"process_id": run.process_id},
+                details={"process_id": process_id},
             )
-        self._runs[run.process_id] = run
+        self._processes[process_id] = process
 
-    def get(
-        self,
-        process_id: str,
-        identity_scope: IdentityScope,
-    ) -> ProcessRecord | None:
-        """只向同 owner/workspace 的控制请求暴露进程记录。"""
-        identity_scope = require_identity_scope(identity_scope)
-        run = self._runs.get(process_id)
-        if run is None or not self._same_resource_scope(run.identity_scope, identity_scope):
-            return None
-        return run
+    def get(self, process_id: str) -> TaskProcess | None:
+        """按 ``process_id`` 原样取回已登记的任务进程；找不到返回 ``None``。"""
+        return self._processes.get(process_id)
 
-    def cancel(
-        self,
-        process_id: str,
-        identity_scope: IdentityScope,
-        reason: str = "user_requested",
-    ) -> CancelResult:
-        run = self.get(process_id, identity_scope)
-        if run is None:
-            return CancelResult(
-                process_id=process_id,
-                cancelled=False,
-                status="not_found",
-                reason=reason,
-            )
-
-        result = run.request_stop(reason)
-        return CancelResult(
-            process_id=process_id,
-            cancelled=result.accepted,
-            status=run.outcome.value,
-            reason=result.reason,
-        )
-
-    def status(
-        self,
-        process_id: str,
-        identity_scope: IdentityScope,
-    ) -> ProcessStatusSnapshot | None:
-        """查询 scoped 状态；跨 scope 与不存在统一返回 ``None``。"""
-        run = self.get(process_id, identity_scope)
-        if run is None:
-            return None
-        return ProcessStatusSnapshot(
-            process_id=run.process_id,
-            phase=run.phase.value,
-            status=run.outcome.value,
-            reason=run.stop_reason,
-        )
-
-    def close(self, run: ProcessRecord) -> None:
-        """移除已由进程编排记录终态的进程记录。"""
-        if self._runs.get(run.process_id) is run:
-            self._runs.pop(run.process_id, None)
-
-    @staticmethod
-    def _same_resource_scope(
-        registered: IdentityScope,
-        requested: IdentityScope,
-    ) -> bool:
-        return registered.workspace_identity == requested.workspace_identity
+    def close(self, process: TaskProcess) -> None:
+        """注销任务进程；只移除正是该对象的登记，不误删同 id 的其他进程。"""
+        process_id = process.record.process_id
+        if self._processes.get(process_id) is process:
+            self._processes.pop(process_id, None)
 
 
 __all__ = [

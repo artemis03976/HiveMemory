@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 系统边界与所有权
@@ -60,7 +60,7 @@ last_reviewed: 2026-10-01
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`）；workspace 持有认证入口（`workspace.authentication`，编排两阶段认证，经 `core.access.PrincipalAuthenticator` 端口委托 System 完成第一步）、准入判定、签发生命周期与行为白名单（`workspace.access`、`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、`WorkspaceAccessContext`、`CallerPrincipal`、`WorkspaceAccessVerifier`、`PrincipalAuthenticator`）位于 `core.access`。网关完成两项认证后，每次动作的行为授权由公共 application 调用共享行为检查执行，资源 owner 再独立执行资源规则。依赖方向为 `system → workspace → core`；workspace 不导入 System，Patchouli 经 `core.access.WorkspaceAccessVerifier` 消费行为检查，不依赖 workspace 或 System 的实现。完整模型见[Workspace 架构](./workspace.md)第 4 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点（能力层、任务进程的阶段检查）完成，授权点以下只流动授权组装的 `IdentityScope`；资源 owner 再独立执行资源规则，Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[Workspace 架构](./workspace.md)第 4 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 

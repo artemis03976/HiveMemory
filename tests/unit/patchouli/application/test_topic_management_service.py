@@ -1,11 +1,13 @@
-"""TopicManagementService 访问检查与读语义的单元测试。
+"""TopicManagementService 身份边界与读语义的单元测试。
 
-被测对象：Patchouli Topic 公共入口（A1 计划第 1.1/4.1 节补齐的访问差额）：
-- ``list_active_topics``/``get_topic_data`` 绑定 ``resource.read``；
-- ``settle_topic``/``evict_topic`` 绑定 ``management.topic``，未获准的
-  读取操作不能触发结算/驱逐副作用；
-- 无 access 的旧调用（Topic 管理 HTTP 链路）为兼容清单内的受信适配；
-- ``get_topic_data`` 隐藏越域话题，不泄漏可见性。
+被测对象：Patchouli Topic 公共入口（A1 访问边界返工第 4.6 节）：
+- 本层是授权点以下的资源 owner：公开方法不接收 ``access`` 参数，构造函数
+  不接收 ``access_guard``；``resource.read`` / ``management.topic`` 的行为
+  授权在 workspace 能力层与任务进程阶段检查完成；
+- ``identity_scope`` 缺失经 ``require_identity_scope`` 按 ``ScopeRequiredError``
+  拒绝，不触达资源后端；
+- ``get_topic_data`` 隐藏越域话题，不泄漏可见性；
+- settle/evict 的路由契约保持（scope 定位传参）。
 local bus 为记录型假总线（边界外协作者）。
 """
 
@@ -15,17 +17,11 @@ import asyncio
 
 import pytest
 
-from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import OperationDeniedError
-from hivememory.core.models import TopicData
+from hivememory.core.errors import ScopeRequiredError
+from hivememory.core.models import IdentityScope, TopicData
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from tests.helpers.workspace import (
-    make_access_composition,
-    make_actor_access_record,
-    make_identity_scope,
-    make_workspace_identity,
-)
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
@@ -46,33 +42,16 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _context(operation):
-    """按指定 operation 构造最小许可的认证上下文与配套守卫。"""
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1",
-                agent_id="a1",
-                allowed_operations=frozenset({operation}),
-            )
-        ],
-        default_workspace=MAIN,
-    )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-    return context, composition.guard
+def _scope(workspace_id: str = MAIN.workspace_id) -> IdentityScope:
+    return make_identity_scope(user_id="u1", agent_id="a1", workspace_id=workspace_id)
 
 
-def test_list_topics_with_resource_read_returns_snapshots():
-    """resource.read 列出 Topic 快照：list → tuple 转换保持既有契约。"""
-    context, guard = _run(_context(WorkspaceOperation.RESOURCE_READ))
+def test_list_active_topics_forwards_scope_to_local_route():
+    """列表以调用方 scope 请求 TOPIC_LIST_ACTIVE，并保持 list → tuple 转换。"""
     bus = RecordingBus({PatchouliLocalRoutes.TOPIC_LIST_ACTIVE: ["snapshot"]})
-    scope = context.identity_scope
+    scope = _scope()
 
-    result = _run(
-        TopicManagementService(bus=bus, access_guard=guard).list_active_topics(
-            identity_scope=scope, access=context
-        )
-    )
+    result = _run(TopicManagementService(bus=bus).list_active_topics(identity_scope=scope))
 
     assert result == ("snapshot",)
     route, _, kwargs = bus.calls[0]
@@ -80,9 +59,23 @@ def test_list_topics_with_resource_read_returns_snapshots():
     assert kwargs["identity_scope"] == scope
 
 
-def test_get_topic_data_reads_with_resource_read_and_hides_foreign_workspace():
-    """resource.read 读取话题数据；越域话题与缺失统一返回 None。"""
-    context, guard = _run(_context(WorkspaceOperation.RESOURCE_READ))
+def test_list_active_topics_forwards_include_empty_flag():
+    """include_empty=True 原样传入 TOPIC_LIST_ACTIVE（池快照含空话题）。"""
+    bus = RecordingBus({PatchouliLocalRoutes.TOPIC_LIST_ACTIVE: []})
+
+    result = _run(
+        TopicManagementService(bus=bus).list_active_topics(
+            identity_scope=_scope(), include_empty=True
+        )
+    )
+
+    assert result == ()
+    _, _, kwargs = bus.calls[0]
+    assert kwargs["include_empty"] is True
+
+
+def test_get_topic_data_reads_with_scope_and_hides_foreign_workspace():
+    """越域话题与缺失统一返回 None；自己的话题照常返回，不泄漏可见性。"""
     foreign = TopicData(
         topic_id="t1",
         workspace_identity=make_workspace_identity(
@@ -91,13 +84,22 @@ def test_get_topic_data_reads_with_resource_read_and_hides_foreign_workspace():
         topic_title="Other",
         last_update=1.0,
     )
-    bus = RecordingBus({PatchouliLocalRoutes.TOPIC_GET: foreign})
-    service = TopicManagementService(bus=bus, access_guard=guard)
+    bus_foreign = RecordingBus({PatchouliLocalRoutes.TOPIC_GET: foreign})
+    service = TopicManagementService(bus=bus_foreign)
+    scope = _scope()
 
-    result = _run(
-        service.get_topic_data(identity_scope=context.identity_scope, access=context, topic_id="t1")
+    assert _run(service.get_topic_data(identity_scope=scope, topic_id="t1")) is None
+
+    bus_missing = RecordingBus()
+    assert (
+        _run(
+            TopicManagementService(bus=bus_missing).get_topic_data(
+                identity_scope=scope, topic_id="t1"
+            )
+        )
+        is None
     )
-    assert result is None
+    assert bus_missing.calls[0][0] == PatchouliLocalRoutes.TOPIC_GET
 
     own = TopicData(
         topic_id="t1",
@@ -107,60 +109,58 @@ def test_get_topic_data_reads_with_resource_read_and_hides_foreign_workspace():
     )
     bus_own = RecordingBus({PatchouliLocalRoutes.TOPIC_GET: own})
     result_own = _run(
-        TopicManagementService(bus=bus_own, access_guard=guard).get_topic_data(
-            identity_scope=context.identity_scope, access=context, topic_id="t1"
-        )
+        TopicManagementService(bus=bus_own).get_topic_data(identity_scope=scope, topic_id="t1")
     )
     assert result_own is own
 
 
-def test_settle_and_evict_require_management_topic_operation():
-    """resource.read 不能结算/驱逐：生命周期变更绑定 management.topic。"""
-    context, guard = _run(_context(WorkspaceOperation.RESOURCE_READ))
-    bus = RecordingBus()
-    service = TopicManagementService(bus=bus, access_guard=guard)
-
-    with pytest.raises(OperationDeniedError):
-        _run(service.settle_topic(identity_scope=context.identity_scope, access=context))
-    with pytest.raises(OperationDeniedError):
-        _run(
-            service.evict_topic(
-                identity_scope=context.identity_scope, access=context, topic_id="t1"
-            )
-        )
-    # 行为授权失败时不产生结算/驱逐副作用
-    assert bus.calls == []
-
-
-def test_settle_and_evict_with_management_topic_operation_reach_local_routes():
-    """management.topic 通过后按原业务链调用 local bus（路由契约保持）。"""
-    context, guard = _run(_context(WorkspaceOperation.MANAGEMENT_TOPIC))
+def test_settle_and_evict_forward_scope_to_local_routes():
+    """settle/evict 以 (scope, topic_id) 请求既有路由，返回业务结果。"""
     bus = RecordingBus(
         {
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE: "settle-result",
             PatchouliLocalRoutes.TOPIC_EVICT: "evict-result",
         }
     )
-    service = TopicManagementService(bus=bus, access_guard=guard)
-    scope = context.identity_scope
+    service = TopicManagementService(bus=bus)
+    scope = _scope()
 
-    settle = _run(service.settle_topic(identity_scope=scope, access=context, topic_id="t_settle"))
-    evict = _run(service.evict_topic(identity_scope=scope, access=context, topic_id="t_evict"))
+    settle = _run(service.settle_topic(identity_scope=scope, topic_id="t_settle"))
+    evict = _run(service.evict_topic(identity_scope=scope, topic_id="t_evict"))
     assert settle == "settle-result"
     assert evict == "evict-result"
     assert bus.calls[0][:2] == (PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, (scope, "t_settle"))
     assert bus.calls[1][:2] == (PatchouliLocalRoutes.TOPIC_EVICT, (scope, "t_evict"))
 
 
-def test_legacy_bare_scope_path_still_works_as_trusted_adapter():
-    """迁移期兼容：无 access 的 Topic 管理调用保持既有行为。"""
-    bus = RecordingBus({PatchouliLocalRoutes.TOPIC_LIST_ACTIVE: ["snapshot"]})
-    legacy_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    service = TopicManagementService(
-        bus=bus,
-        access_guard=make_access_composition([make_actor_access_record(owner_user_id="u1")]).guard,
-    )
+def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
+    """授权点参数不再出现在本层签名：构造与公开方法均不接受 access。"""
+    with pytest.raises(TypeError, match="access_guard"):
+        TopicManagementService(bus=RecordingBus(), access_guard=object())
 
-    result = _run(service.list_active_topics(identity_scope=legacy_scope))
-    assert result == ("snapshot",)
-    assert bus.calls[0][2]["identity_scope"] == legacy_scope
+    service = TopicManagementService(bus=RecordingBus())
+    scope = _scope()
+    with pytest.raises(TypeError, match="access"):
+        _run(service.list_active_topics(identity_scope=scope, access=object()))
+    with pytest.raises(TypeError, match="access"):
+        _run(service.settle_topic(identity_scope=scope, access=object()))
+
+
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda svc: svc.list_active_topics(),
+        lambda svc: svc.get_topic_data(topic_id="t1"),
+        lambda svc: svc.settle_topic(),
+        lambda svc: svc.evict_topic(topic_id="t1"),
+    ],
+    ids=["list_active_topics", "get_topic_data", "settle_topic", "evict_topic"],
+)
+def test_missing_identity_scope_rejected_as_scope_required(invoke):
+    """identity_scope 缺失按 ScopeRequiredError 拒绝，且不触达资源后端。"""
+    bus = RecordingBus()
+    service = TopicManagementService(bus=bus)
+
+    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+        _run(invoke(service))
+    assert bus.calls == []

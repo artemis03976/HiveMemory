@@ -12,6 +12,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from hivememory import __version__
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ScopeRequiredError,
+    WorkspaceMismatchError,
+)
 from hivememory.server.deps import (
     get_system,
     init_system,
@@ -114,6 +120,49 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"error": "Internal Server Error", "detail": str(exc)},
     )
+
+
+# ---------------------------------------------------------------------------
+# 访问错误的稳定 HTTP 映射（A1 访问边界返工第 4.9 节）
+#
+# 响应保留稳定机器码与 details.reason，不暴露接入凭据。
+# ---------------------------------------------------------------------------
+
+
+def _access_error_payload(exc) -> dict:
+    """访问领域错误的统一响应体：机器码 + 细节 + reason。"""
+    reason = exc.details.get("reason") if getattr(exc, "details", None) else None
+    payload = {"error": exc.code, "detail": str(exc)}
+    if reason is not None:
+        payload["reason"] = reason
+    return payload
+
+
+@app.exception_handler(AdmissionDeniedError)
+async def admission_denied_handler(request: Request, exc: AdmissionDeniedError):
+    """准入拒绝 → 403；认证网关已关闭（停机中）→ 503。"""
+    if exc.details.get("reason") == "authentication_gateway_closed":
+        return JSONResponse(status_code=503, content=_access_error_payload(exc))
+    return JSONResponse(status_code=403, content=_access_error_payload(exc))
+
+
+@app.exception_handler(OperationDeniedError)
+async def operation_denied_handler(request: Request, exc: OperationDeniedError):
+    """行为未获准 → 403。"""
+    return JSONResponse(status_code=403, content=_access_error_payload(exc))
+
+
+@app.exception_handler(WorkspaceMismatchError)
+async def workspace_mismatch_handler(request: Request, exc: WorkspaceMismatchError):
+    """请求 scope 与可信 context 不一致（或资源越域）→ 409。"""
+    return JSONResponse(status_code=409, content=_access_error_payload(exc))
+
+
+@app.exception_handler(ScopeRequiredError)
+async def scope_required_handler(request: Request, exc: ScopeRequiredError):
+    """生产入口经网关后不应出现 scope 缺失；出现即为接线缺陷，按 500 返回并记录。"""
+    logger.error(f"访问接线缺陷（scope_required）: {exc}", exc_info=True)
+    return JSONResponse(status_code=500, content=_access_error_payload(exc))
 
 
 # 健康检查 (Liveness)

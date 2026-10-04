@@ -25,7 +25,7 @@ last_reviewed: 2026-10-01
 本文由原 v0.7.0 A3 计划（Conversation Session 与 Topic 投影边界）于 2026-09-27 退回 Idea：删除了阶段划分、交付切片、验收门禁、跨计划依赖与文档更新清单，设计内容保留。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-a3-conversation-session-and-topic-projection.md`。
 
 - 要解决的问题：Topic 体系不能接收外部 Actor 的会话消息（owner 表述，2026-09-27）。
-- **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[总 Idea](./workspace-network-task-process-architecture.md#61-已决定事项) 6.1）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x。
+- **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[总 Idea](./workspace-network-task-process-architecture.md#54-m-5-v070-的范围与版本目标) 5.4）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x。
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
 - **Topic 与会话解耦**（owner，2026-09-28）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
@@ -110,7 +110,7 @@ Session 不在事务上拥有 Topic，也不把 `session_id` 继续塞进 `Actor
 
 2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建（2026-09-28：任务进程在交互被提交队列接纳后即结束，不再等待 applied，见[任务进程 Idea](./task-process-table-and-registration-entry.md#q-1-进程何时关闭) Q-1）；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
 
-对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后；workspace 包的现有实现需要重新调查，见[总 Idea](./workspace-network-task-process-architecture.md)第 6.1 节。
+对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后；workspace 包的现有实现需要重新调查，见[总 Idea](./workspace-network-task-process-architecture.md)第 5.5 节。
 
 ### 2.2 InteractionPayload：共同封口交互
 

@@ -23,7 +23,11 @@ class CandidateTopics(BaseModel):
 
 
 class GatewayContextProvider(Protocol):
-    """只负责读取 Gateway 所需上下文，不参与业务决策。"""
+    """只负责读取 Gateway 所需上下文，不参与业务决策（也不做授权判断）。
+
+    ``identity_scope`` 是调用方冻结的执行坐标，原样传给 Patchouli 读取
+    路由；Gateway 不接收访问 context，读取失败由步骤 fallback 保守降级。
+    """
 
     async def prepare_candidate_topics(
         self,

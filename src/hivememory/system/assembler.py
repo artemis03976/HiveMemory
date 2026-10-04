@@ -23,10 +23,7 @@ from hivememory.components.events.bus import (
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.config.access import (
-    AccessControlConfig,
-    WorkspaceActorAccessEntry,
-)
+from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.runtime import RuntimeEventsConfig
 from hivememory.core.access import WorkspaceOperation
@@ -41,16 +38,18 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.authentication import ActorAuthenticationGateway
+from hivememory.workspace.authentication import ActorAuthenticationGateway, WorkspaceAuthenticator
+from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.process.allocation import CPUAllocator
+from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
@@ -82,11 +81,12 @@ class _RegistriesBundle:
 
 @dataclass
 class _AccessControlBundle:
-    """访问控制产物：两类注册表、共享行为检查与统一认证网关。"""
+    """访问控制产物：两类注册表、认证一侧、操作授权者与统一认证网关。"""
 
     system_registry: SystemActorAccessRegistry
     workspace_registry: WorkspaceActorAccessRegistry
-    access_guard: WorkspaceAccessGuard
+    authenticator: WorkspaceAuthenticator
+    operation_authorizer: WorkspaceOperationAuthorizer
     access_gateway: ActorAuthenticationGateway
 
 
@@ -230,17 +230,19 @@ class SystemAssembler:
     # ------------------------------------------------------------------
 
     def _build_access_control(self) -> _AccessControlBundle:
-        """装载访问控制配置并构造网关与共享行为检查（A1 计划第 1.2 节）。
+        """装载两类访问登记并构造认证与授权两侧（A1 访问边界返工第 4.2/4.7 节）。
 
-        System composition 负责"装载和注入配置"：System 接入登记转入
-        System 注册表，Workspace Actor 访问登记转入 Workspace 注册表，
-        operation 枚举值在装载期校验（未知值显式失败，不静默丢弃）。
-        缺省空配置即 fail closed——网关拒绝一切认证；既有裸 scope 兼容
-        链路不受影响，生产消费者切换由 A6 完成。
+        System composition 负责"装载和注入配置"：接入登记从
+        ``configs/system_principals.yaml`` 装载转入 System 注册表，
+        Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
+        转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
+        失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
+        认证与操作授权分属两个类（I-10 及其补充）：认证一侧签发与撤销
+        密封的 context，操作授权者读取其授予内容，两者互不依赖、都只读
+        访问注册表；组合根把操作授权者注入各授权点，运行持有者只经认证
+        网关接触认证一侧。
         """
-        access_config = self._config.access
-        if not isinstance(access_config, AccessControlConfig):
-            access_config = AccessControlConfig()
+        registration = load_access_registration()
 
         system_entries = [
             SystemActorAccessEntry(
@@ -254,7 +256,7 @@ class SystemAssembler:
                     else None
                 ),
             )
-            for entry in access_config.principals
+            for entry in registration.principals.principals
         ]
         workspace_records = [
             WorkspaceActorAccessRecord(
@@ -267,30 +269,32 @@ class SystemAssembler:
                     self._parse_operation(name, entry) for name in entry.allowed_operations
                 ),
             )
-            for entry in access_config.workspace_actors
+            for entry in registration.workspace_actors.workspace_actors
         ]
 
         system_registry = SystemActorAccessRegistry(system_entries)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
-        access_guard = WorkspaceAccessGuard(
-            workspace_registry,
-            context_ttl_seconds=access_config.context_ttl_seconds,
-        )
-        # Principal authentication 归 System（接入登记），经端口注入 workspace
-        # 认证入口；Workspace 准入与签发归 workspace guard。
+        # 第 2 阶段的准入、签发与撤销归认证一侧；第 3 阶段归操作授权者
+        # （无状态，读取 context 密封的授予内容）。两者互不依赖，都只读
+        # 同一份 Workspace 访问登记。
+        authenticator = WorkspaceAuthenticator(workspace_registry)
+        operation_authorizer = WorkspaceOperationAuthorizer(workspace_registry)
+        # Principal authentication 归 System（接入登记），经端口注入认证
+        # 网关；Workspace 准入与签发归认证一侧。
         access_gateway = ActorAuthenticationGateway(
             principals=SystemPrincipalAuthenticator(system_registry),
-            workspace_access=access_guard,
+            authenticator=authenticator,
         )
         return _AccessControlBundle(
             system_registry=system_registry,
             workspace_registry=workspace_registry,
-            access_guard=access_guard,
+            authenticator=authenticator,
+            operation_authorizer=operation_authorizer,
             access_gateway=access_gateway,
         )
 
     @staticmethod
-    def _parse_operation(name: str, entry: WorkspaceActorAccessEntry) -> WorkspaceOperation:
+    def _parse_operation(name: str, entry) -> WorkspaceOperation:
         """把配置中的 operation 枚举值解析为枚举成员；未知值装载期失败。"""
         try:
             return WorkspaceOperation(name)
@@ -326,9 +330,8 @@ class SystemAssembler:
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
             # Patchouli runtime：供 Artifact promotion 在生成时自行取得内容。
             workspace_asset_reader=runtime.workspace_asset_store,
-            # A1：System composition 注入共享行为检查；Patchouli 公共入口
-            # 据此执行操作授权，不反向依赖认证网关实现。
-            access_guard=access_control.access_guard,
+            # Patchouli 是授权点以下的资源 owner：不注入共享操作授权，
+            # 公开路由只接收授权点组装的 IdentityScope（A1 访问边界返工 4.6）。
             shared_config=self._config.shared,
             scheduler_config=self._config.scheduler,
         )
@@ -353,20 +356,36 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
-        process = TaskProcessService(
-            global_bus=runtime.global_bus,
-            gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
-            # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
-            event_publisher=runtime.event_publisher,
-            # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
-            # 由组合根注入，workspace.process 不出现 Alice 的路由名或结果类型。
-            cpu=subsystems.alice.cpu_port,
-            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给任务进程：
-            # 附件租借在 CPU 分配边界 resolve/acquire，随进程关闭统一释放。
+        # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
+        # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
+        allocator = CPUAllocator(
+            runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
+            # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
             # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
+        )
+        runner = TaskProcessRunner(
+            runtime.global_bus,
+            # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
+            # 由组合根注入，workspace.process 不出现 Alice 的路由名或结果类型。
+            cpu=subsystems.alice.cpu_port,
+            allocator=allocator,
+            # 阶段授权在执行器内、每次阶段调用前执行。
+            operation_authorizer=access_control.operation_authorizer,
+            gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
+        )
+        process = TaskProcessService(
+            runner,
+            # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
+            # 认证经网关，进程控制授权经操作授权者。
+            access_gateway=access_control.access_gateway,
+            operation_authorizer=access_control.operation_authorizer,
+            # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
+            event_publisher=runtime.event_publisher,
         )
         ingress = PassiveIngressService(
             bus=runtime.global_bus,
@@ -378,23 +397,26 @@ class SystemAssembler:
                 component="passive_ingress_service",
             ),
         )
-        # 能力层（A2）：读取方法在 backing 调用前执行 operation 授权，随后经
-        # workspace resolver 解析；管理用例保持对库管理路由的薄委托。
+        # 能力层（A2）：读取方法在 backing 调用前执行操作授权，随后经
+        # workspace resolver 解析；写入与管理用例的授权同样在本层执行
+        # （A1 访问边界返工 4.5），管理路由保持薄委托。
         memory = MemoryApplicationService(
             global_bus=runtime.global_bus,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
         )
         memory_task = MemoryTaskApplicationService(
             global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
         )
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,
-            access_guard=access_control.access_guard,
+            operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
         )
         topic = TopicApplicationService(
             global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
         )
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,
@@ -408,8 +430,8 @@ class SystemAssembler:
                 store=runtime.workspace_asset_store,
                 config=self._config.attachment_parser,
             ),
-            # A1：上传在自己的公共入口调用同一共享行为检查。
-            access_guard=access_control.access_guard,
+            # A1：上传在自己的公共入口执行同一操作授权。
+            operation_authorizer=access_control.operation_authorizer,
         )
 
         return _ServicesBundle(

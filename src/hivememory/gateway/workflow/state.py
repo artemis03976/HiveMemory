@@ -47,7 +47,13 @@ class GatewayStateSnapshot:
 
 @dataclass
 class GatewayExecutionState:
-    """仅由 GatewayWorkflow 持有和提交的请求级工作状态。"""
+    """仅由 GatewayWorkflow 持有和提交的请求级工作状态。
+
+    ``identity_scope`` 是调用方（主动链路为任务进程在阶段授权后组装的
+    scope，被动链路为被动摄入身份）冻结的执行坐标，随状态贯穿各步骤并
+    原样传给话题读取；步骤不得覆盖。Gateway 不接收访问 context，也不做
+    授权判断（A1 访问边界返工第 4.6 节）。
+    """
 
     raw_message: str
     identity_scope: IdentityScope

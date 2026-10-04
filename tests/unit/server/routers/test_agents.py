@@ -2,26 +2,27 @@
 Agents 路由单元测试
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import MemoryAliasConflictError
+from hivememory.server import deps
 from hivememory.server.routers.agents import router
-from hivememory.workspace.access import WorkspaceAccessGuard
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.registry import WorkspaceActorAccessRegistry
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import (
+    make_server_access_overrides,
+    make_workspace_runtime,
+)
 
 
 def _create_test_app(storage):
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
-
-    from hivememory.server import deps
 
     bus = GlobalSystemBus()
     management = _AgentProfileManagementStub(storage)
@@ -33,13 +34,16 @@ def _create_test_app(storage):
         GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
-    # 管理路由不经 Profile 读取 resolver 与 operation 守卫：注入真实但空白的依赖。
+    # 管理用例的 operation 授权（management.memory）在能力层执行：服务与
+    # 访问依赖共享同一组合的操作授权者，context 才能通过签发校验。
+    overrides, composition = make_server_access_overrides()
     service = AgentApplicationService(
         global_bus=bus,
-        access_guard=WorkspaceAccessGuard(WorkspaceActorAccessRegistry([])),
+        operation_authorizer=composition.authorizer,
         profile_reader=make_workspace_runtime(bus).profiles,
     )
     app.dependency_overrides[deps.get_agent_service] = lambda: service
+    app.dependency_overrides.update(overrides)
 
     return app
 
@@ -48,11 +52,12 @@ class _AgentProfileManagementStub:
     def __init__(self, storage):
         self.storage = storage
 
-    async def create_agent_profile(self, identity_scope, atom, access=None):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
+    async def create_agent_profile(self, identity_scope, atom):
         self.storage.upsert_memory(atom)
         return atom
 
-    async def list_agent_profiles(self, *, identity_scope, limit=100, access=None):
+    async def list_agent_profiles(self, *, identity_scope, limit=100):
         return self.storage.get_all_memories(
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=limit,
@@ -102,3 +107,29 @@ def test_create_agent_alias_conflict_returns_409():
     )
 
     assert response.status_code == 409
+
+
+def test_list_agents_passes_target_workspace_and_access():
+    """路由只取得请求级 context 与目标 workspace，并以此调用能力层。"""
+    service = MagicMock()
+    service.list_agent_profiles = AsyncMock(return_value=[])
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_agent_service] = lambda: service
+    overrides, _ = make_server_access_overrides(users=["u1"])
+    app.dependency_overrides.update(overrides)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/agents", headers={"x-user-id": "u1"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+    kwargs = service.list_agent_profiles.await_args.kwargs
+    assert kwargs["target_workspace"].owner_user_id == "u1"
+    assert kwargs["target_workspace"].workspace_id == "main_workspace"
+    assert kwargs["limit"] == 100
+    assert isinstance(kwargs["access"], WorkspaceAccessContext)
+    # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
+    assert "identity_scope" not in kwargs
+    assert "claims" not in kwargs

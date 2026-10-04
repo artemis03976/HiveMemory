@@ -10,10 +10,13 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
+    AdmissionDeniedError,
     AssetNotFoundError,
     AssetRemovedError,
+    ScopeRequiredError,
 )
 from hivememory.core.models import (
     ActorIdentity,
@@ -28,6 +31,7 @@ from hivememory.core.ports.workspace_assets import (
 )
 from hivememory.system.assembler import (
     SystemAssembler,
+    _AccessControlBundle,
     _RegistriesBundle,
     _RuntimeBundle,
     _ServicesBundle,
@@ -35,7 +39,12 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_workspace_identity,
+    make_workspace_runtime,
+)
 
 
 class _Scheduler:
@@ -186,13 +195,18 @@ def _build_system(
     asset_ref: Any,
     *,
     failing_subsystem: str | None = None,
+    access_control: Any | None = None,
 ) -> tuple[
     HiveMemorySystem,
     list[str],
     dict[str, _AssetReadingSubsystem],
     RecordingRuntimeEventSink,
 ]:
-    """组合真实 System+Store，并以 fake 隔离本测试边界外的子系统。"""
+    """组合真实 System+Store，并以 fake 隔离本测试边界外的子系统。
+
+    ``access_control`` 供访问生命周期用例注入 ``_AccessControlBundle`` 形状
+    的产物；缺省 ``None`` 表示未装配访问控制（构造兼容路径）。
+    """
     calls: list[str] = []
     sink = RecordingRuntimeEventSink()
     subsystems = {
@@ -238,6 +252,7 @@ def _build_system(
             alice=subsystems["alice"],  # type: ignore[arg-type]
         ),
         services=services,
+        access_control=access_control,
     )
     return system, calls, subsystems, sink
 
@@ -345,7 +360,13 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
         RuntimeEventType.SYSTEM_SHUTTING_DOWN,
         RuntimeEventType.SYSTEM_STOPPED,
     ]
-    assert sink.events[-1].data["completed_steps"][-1] == ("workspace_asset_store.close_and_clear")
+    # A1 访问边界返工：Store 在全部消费者停止后收口，撤销全部已签发
+    # context 是停止顺序的最后一步（第 4.8 节）。
+    completed_steps = sink.events[-1].data["completed_steps"]
+    assert completed_steps[-2:] == [
+        "workspace_asset_store.close_and_clear",
+        "workspace_access_contexts.revoke",
+    ]
 
 
 @pytest.mark.asyncio
@@ -438,3 +459,52 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         "lease_consumer",
         "gateway",
     ]
+
+
+@pytest.mark.asyncio
+async def test_system_stop_rejects_new_authentication_and_invalidates_issued_contexts() -> None:
+    """System 停止的访问生命周期（A1 访问边界返工第 4.8 节）。
+
+    停止顺序：统一认证网关先关闭（拒绝新认证），在 Store 最终清理之后
+    经认证网关 ``revoke_all_contexts`` 撤销全部已签发 context——停止后旧
+    context 不能再通过 ``authorize_operation``（``context_not_issued``）；
+    操作授权者无状态，不随停止关闭。
+    """
+    store = InMemoryWorkspaceAssetStore()
+    scope = _scope()
+    handle = _ready_asset(store, scope)
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="user-1", agent_id="agent-1")],
+        default_workspace=make_workspace_identity(owner_user_id="user-1"),
+    )
+    context = await composition.authenticate(agent_id="agent-1")
+    access_control = _AccessControlBundle(
+        system_registry=object(),  # type: ignore[arg-type]
+        workspace_registry=object(),  # type: ignore[arg-type]
+        authenticator=composition.authenticator,
+        operation_authorizer=composition.authorizer,
+        access_gateway=composition.gateway,
+    )
+    system, _, _, sink = _build_system(
+        store, scope, handle.asset_ref, access_control=access_control
+    )
+
+    await system.start()
+    sink.events.clear()
+    await system.stop()
+
+    # 停止事件里网关最先关闭，撤销全部 context 是最后一个完成步骤。
+    steps = [event for event in sink.events if event.event_type == RuntimeEventType.SYSTEM_STOPPED]
+    completed = steps[-1].data["completed_steps"]
+    assert completed[0] == "access_gateway.close"
+    assert completed[-1] == "workspace_access_contexts.revoke"
+
+    # 停止后：新认证被网关拒绝；已签发 context 撤销后不再能通过授权。
+    with pytest.raises(AdmissionDeniedError) as auth_error:
+        await composition.authenticate(agent_id="agent-1")
+    assert auth_error.value.details["reason"] == "authentication_gateway_closed"
+    with pytest.raises(ScopeRequiredError) as scope_error:
+        composition.authorizer.authorize_operation(
+            context, WorkspaceOperation.RESOURCE_READ, scope.workspace_identity
+        )
+    assert scope_error.value.details["reason"] == "context_not_issued"

@@ -1,13 +1,17 @@
 """依赖注入 — HiveMemorySystem 单例管理与身份解析唯一入口"""
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from uuid import uuid4
 
 from fastapi import Depends, Header, HTTPException, status
 
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceAccessContext
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
-from hivememory.core.models import ActorIdentity, IdentityScope
+from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
@@ -15,6 +19,7 @@ from hivememory.system import HiveMemorySystem
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
 from hivememory.workspace.capability.memory import MemoryApplicationService
@@ -26,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 _system: HiveMemorySystem | None = None
 _ws_manager: WebSocketConnectionManager | None = None
+
+#: server 作为 system actor 的 adapter 接入统一认证网关（A1 访问边界返工 4.1）。
+HTTP_ADAPTER = "http"
 
 
 def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
@@ -108,7 +116,7 @@ def get_identity_selection(
     """FastAPI Depends 注入 — 从请求头提取用户导向身份选择。
 
     请求头缺省时字段为 ``None``（区别于"显式提供了 default"），交由
-    :func:`resolve_request_identity_scope` 在唯一回退点处理。
+    :func:`resolve_request_identity_claims` 在唯一回退点处理。
     """
     return RequestIdentitySelection(user_id=x_user_id, workspace_id=x_workspace_id)
 
@@ -143,16 +151,15 @@ def _merge_identity_field(
     return value
 
 
-def resolve_request_identity_scope(
+def _resolve_identity_coordinates(
     selection: RequestIdentitySelection,
     *,
-    require_agent: bool = False,
-    agent_id: str | None = None,
-    session_id: str | None = None,
-    explicit_user_id: str | None = None,
-    explicit_workspace_id: str | None = None,
-) -> IdentityScope:
-    """server 边界唯一身份解析入口 — 一次性冻结 IdentityScope。
+    require_agent: bool,
+    agent_id: str | None,
+    explicit_user_id: str | None,
+    explicit_workspace_id: str | None,
+) -> tuple[str, str]:
+    """解析 user_id 与 agent_id 两项声明坐标（含 workspace 取值校验与冲突检测）。
 
     解析规则（v0.6.2 身份收敛）：
 
@@ -162,11 +169,12 @@ def resolve_request_identity_scope(
        ``main_workspace``，其余值返回 404；全部缺省时解析默认 Workspace。
     3. Agent action（``require_agent=True``，如 Chat）必须显式给出具体
        ``agent_id``，缺失返回 400，不得回退到保留 ``system`` actor；
-       非 Agent action 一律注入 :data:`SYSTEM_AGENT_ID`，表示"没有具体
-       Agent 作为操作来源主体"。
-    4. same-owner 约束由 ``IdentityScope`` 模型校验兜底。
+       非 Agent action 一律使用保留 :data:`SYSTEM_AGENT_ID`，表示"没有
+       具体 Agent 作为操作来源主体"。
 
     应用服务不得再次解析身份；本函数是默认身份回退的唯一合法位置。
+    workspace 只校验取值合法性，不参与返回——调用方统一解析公共默认
+    Workspace。
     """
     user_id = (
         _merge_identity_field(
@@ -188,7 +196,6 @@ def resolve_request_identity_scope(
                 f"Workspace '{workspace_id}' 不存在：公共入口当前只开放 " f"'{MAIN_WORKSPACE_ID}'"
             ),
         )
-
     if require_agent:
         concrete_agent_id = (agent_id or "").strip() if agent_id else None
         if not concrete_agent_id:
@@ -202,6 +209,85 @@ def resolve_request_identity_scope(
         # 不代表任何可选 Agent，也不参与 MemoryAccessPolicy 授权。
         resolved_agent_id = SYSTEM_AGENT_ID
 
+    return user_id, resolved_agent_id
+
+
+@dataclass(frozen=True)
+class RequestIdentityClaims:
+    """认证前的请求身份声明（A1 访问边界返工第 4.1 节）。
+
+    server 在认证前只持有 actor 声明与请求进入的 workspace（不变量 1）；
+    ``IdentityScope`` 在两阶段认证通过之后才由授权点组装，不由入口预先
+    冻结。``session_id`` 只是 ActorIdentity 的兼容字段，随声明进入认证。
+    """
+
+    actor: ActorIdentity
+    workspace: WorkspaceIdentity
+
+
+def resolve_request_identity_claims(
+    selection: RequestIdentitySelection,
+    *,
+    require_agent: bool = False,
+    agent_id: str | None = None,
+    session_id: str | None = None,
+    explicit_user_id: str | None = None,
+    explicit_workspace_id: str | None = None,
+) -> RequestIdentityClaims:
+    """server 边界唯一声明解析入口 — 只产出 actor 声明与请求进入的 workspace。
+
+    身份选择与冲突检测规则见 :func:`_resolve_identity_coordinates`。经
+    认证网关的请求一律使用本函数；声明只作为认证输入，认证通过后经过
+    验证的身份只存在于密封的 context 中，server 不把声明当作已确认
+    的身份继续使用。Agent action（``require_agent=True``）显式给出保留的
+    :data:`SYSTEM_AGENT_ID` 时返回 400：它表示"没有具体 Agent"，不能作为
+    任务进程的执行 Agent（注册入口仍保留同一检查）。
+    """
+    user_id, resolved_agent_id = _resolve_identity_coordinates(
+        selection,
+        require_agent=require_agent,
+        agent_id=agent_id,
+        explicit_user_id=explicit_user_id,
+        explicit_workspace_id=explicit_workspace_id,
+    )
+    if require_agent and resolved_agent_id == SYSTEM_AGENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该操作由具体 Agent 执行，不能使用保留的 system 作为 agent_id",
+        )
+    return RequestIdentityClaims(
+        actor=ActorIdentity(
+            user_id=user_id,
+            agent_id=resolved_agent_id,
+            session_id=session_id,
+        ),
+        workspace=resolve_default_workspace_identity(user_id),
+    )
+
+
+def resolve_request_identity_scope(
+    selection: RequestIdentitySelection,
+    *,
+    require_agent: bool = False,
+    agent_id: str | None = None,
+    session_id: str | None = None,
+    explicit_user_id: str | None = None,
+    explicit_workspace_id: str | None = None,
+) -> IdentityScope:
+    """认证前一次性组装完整 ``IdentityScope``（不变量 1 的已知例外）。
+
+    **只供 ``/ingest``（Import Bus）使用**：被动摄入不在现有系统内、不经
+    认证网关，维持认证前组装 scope 的既有行为；经网关的请求不得使用本
+    函数，应改用 :func:`resolve_request_identity_claims`（A1 访问边界返工
+    第 3 节非目标）。
+    """
+    user_id, resolved_agent_id = _resolve_identity_coordinates(
+        selection,
+        require_agent=require_agent,
+        agent_id=agent_id,
+        explicit_user_id=explicit_user_id,
+        explicit_workspace_id=explicit_workspace_id,
+    )
     return IdentityScope(
         actor_identity=ActorIdentity(
             user_id=user_id,
@@ -212,16 +298,109 @@ def resolve_request_identity_scope(
     )
 
 
-def get_identity_scope(
-    selection: RequestIdentitySelection = Depends(get_identity_selection),
-) -> IdentityScope:
-    """FastAPI Depends 注入 — 非 Agent action 的统一身份解析。
+# ---------------------------------------------------------------------------
+# 统一认证网关接入（A1 访问边界返工第 4.1/4.3 节）
+#
+# server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
+# 每个与 workspace 相关的请求经网关取得 context。请求头中的用户身份不做
+# 证明——这是本地单用户部署的信任假设。认证前 server 只持有声明
+# （:class:`RequestIdentityClaims`），声明只作为认证输入：认证通过后，
+# 经过验证的身份只存在于密封的 context 中，server 不把声明当作已确认
+# 的身份继续使用，也不把声明交给路由处理函数。
+# ---------------------------------------------------------------------------
 
-    供只依赖统一请求头（``x-user-id`` / ``x-workspace-id``）的资源路由
-    使用；body/query 携带身份选择的路由应改用
-    :func:`resolve_request_identity_scope` 做冲突检测后自行解析。
+
+def get_access_gateway() -> ActorAuthenticationGateway:
+    """FastAPI Depends 注入 — 统一认证网关（未装配时显式失败）。"""
+    gateway = get_system().access_gateway
+    if gateway is None:
+        raise RuntimeError("统一认证网关未装配，无法完成请求认证")
+    return gateway
+
+
+def get_server_principal_id() -> str:
+    """FastAPI Depends 注入 — server 自身经网关认证使用的 principal 标识。"""
+    return get_system().config.system.server_principal_id
+
+
+def _request_run_id() -> str:
+    """为请求级 context 生成一次性的运行标识（server 为本次请求生成）。"""
+    return f"request_{uuid4().hex}"
+
+
+async def authenticate_request_access(
+    claims: RequestIdentityClaims,
+    *,
+    gateway: ActorAuthenticationGateway,
+    principal_id: str,
+) -> WorkspaceAccessContext:
+    """以 server 自身 principal 经统一认证网关取得请求级访问 context。
+
+    ``claims`` 是 :func:`resolve_request_identity_claims` 解析的请求身份
+    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识
+    （P-9b/P-9c）。网关认证失败（未登记 principal、adapter 不匹配、未获
+    准入）以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
     """
-    return resolve_request_identity_scope(selection)
+    return await gateway.authenticate(
+        adapter=HTTP_ADAPTER,
+        principal=CallerPrincipal(principal_id),
+        actor=claims.actor,
+        workspace=claims.workspace,
+        binding=RunBinding.for_request(_request_run_id()),
+    )
+
+
+@dataclass(frozen=True)
+class RequestAccess:
+    """一次管理员请求的请求级访问凭据与目标 workspace。
+
+    声明只作为认证输入：路由处理函数只取得 ``access`` 与
+    ``target_workspace``（这次操作的参数，当前取请求进入的 workspace），
+    不接触声明、认证后的身份或任何预先组装的 ``IdentityScope``（A1 访问
+    边界返工第 4.1/4.3 节）。
+    """
+
+    access: WorkspaceAccessContext
+    target_workspace: WorkspaceIdentity
+
+
+@asynccontextmanager
+async def request_access_for_claims(
+    claims: RequestIdentityClaims,
+    *,
+    gateway: ActorAuthenticationGateway,
+    principal_id: str,
+) -> AsyncIterator[RequestAccess]:
+    """以给定声明取得请求级访问凭据；退出时使 context 失效。
+
+    供身份解析带 body/query 冲突检测的路由（topics、chat/stop）与
+    :func:`get_request_access` 共用：取得 context、以
+    :class:`RequestAccess` 交出凭据与目标 workspace，声明不越过认证边界。
+    """
+    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
+    try:
+        yield RequestAccess(access=access, target_workspace=claims.workspace)
+    finally:
+        gateway.invalidate_context(access)
+
+
+async def get_request_access(
+    selection: RequestIdentitySelection = Depends(get_identity_selection),
+    gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
+    principal_id: str = Depends(get_server_principal_id),
+) -> AsyncIterator[RequestAccess]:
+    """FastAPI yield 依赖 — 管理员请求的请求级访问凭据与目标 workspace。
+
+    以 (user, ``system``) 声明经网关认证取得 context，一次请求一个；
+    请求结束（含失败）时失效（A1 访问边界返工第 4.8 节）。供 memories、
+    agents、memory-tasks、workspace assets 等管理路由使用；身份解析带
+    body/query 冲突检测的路由改用 :func:`request_access_for_claims`。
+    """
+    claims = resolve_request_identity_claims(selection)
+    async with request_access_for_claims(
+        claims, gateway=gateway, principal_id=principal_id
+    ) as request_access:
+        yield request_access
 
 
 def init_websocket_log_broadcasting(

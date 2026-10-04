@@ -5,8 +5,9 @@ generation engine 决定生成、更新、合并或丢弃；**不映射为管理
 不由调用方构造内部任务投影**。Alice 的 settlement coordinator（WRX-5）
 与计划 B 的外部 adapter 都经本 API 提交。
 
-本 API 不在 A1 第 6 节兼容清单内：缺少经统一认证网关签发的 access 一律
-拒绝，不进入裸 scope 受信适配。
+本路由目前没有生产调用方，operation 授权（``memory_intent.submit``）在
+workspace 能力层出现对应方法时进行（总 Idea 15.6，A1 访问边界返工第
+4.6 节）；本层只接收调用方传入的 ``IdentityScope``。
 
 幂等语义：``MemoryIntent.intent_id`` 是幂等键——``pending_alias`` 由
 ``intent_id`` 确定性派生，同一 intent 携带相同载荷重试命中 controller
@@ -22,17 +23,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from hivememory.core.access import WorkspaceOperation
+from hivememory.core.models import require_identity_scope
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.patchouli.application.access_consumption import required_scope
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext, WorkspaceAccessVerifier
     from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
 
@@ -104,26 +103,19 @@ class MemoryIntentSubmissionResult:
 class MemoryIntentSubmissionService:
     """经 Patchouli 生成提交链的公开意图提交 API（``memory_intent.submit``）。"""
 
-    def __init__(self, *, bus: PatchouliBus, access_guard: WorkspaceAccessVerifier) -> None:
+    def __init__(self, *, bus: PatchouliBus) -> None:
         self._bus = bus
-        self._access_guard = access_guard
 
     async def submit_memory_intent(
         self,
         *,
-        access: WorkspaceAccessContext,
         intent: MemoryIntent,
         identity_scope: IdentityScope | None = None,
     ) -> MemoryIntentSubmissionResult:
         """
         提交记忆意图；结果由 Patchouli 生成链决定并经任务观察 API 查询。
         """
-        scope = required_scope(
-            access,
-            WorkspaceOperation.MEMORY_INTENT_SUBMIT,
-            identity_scope,
-            access_guard=self._access_guard,
-        )
+        scope = require_identity_scope(identity_scope)
 
         task = self._build_materialize_task(intent, scope)
         accepted = await self._bus.request(

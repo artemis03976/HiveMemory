@@ -97,7 +97,7 @@ def build_gateway_workflow(
         if context_provider is None:
             raise RecoverableGatewayError("Gateway Context Provider 未装配")
         return await context_provider.prepare_candidate_topics(
-            identity_scope=selected.identity_scope
+            identity_scope=selected.identity_scope,
         )
 
     async def invoke_topic_router(
@@ -222,7 +222,9 @@ def _resolve_entry_flow_end(output: InterceptorResult | None) -> str | None:
 def _select_candidate_topics_input(
     snapshot: GatewayStateSnapshot,
 ) -> CandidateTopicsInput:
-    return CandidateTopicsInput(identity_scope=snapshot.identity_scope)
+    return CandidateTopicsInput(
+        identity_scope=snapshot.identity_scope,
+    )
 
 
 def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingInput:

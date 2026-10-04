@@ -12,13 +12,15 @@ code_paths:
   - src/hivememory/system/services/passive/exceptions.py
   - src/hivememory/components/bus/async_bus.py
   - src/hivememory/system/access/
-  - src/hivememory/workspace/access.py
+  - src/hivememory/workspace/authentication.py
+  - src/hivememory/workspace/authorization.py
+  - src/hivememory/server/app.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 跨边界错误模型
@@ -155,15 +157,14 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 ### 4.4 Workspace 与访问边界错误
 
-Workspace 错误在资源所有者、访问边界或身份交接边界产生，不能由 RuntimeEvent 或 HTTP 层伪装成空结果。缺少作用域、actor 与 owner 不一致、或资源不属于请求 Workspace 时，应分别保留稳定机器码；WorkspaceAsset 的运行时状态错误同样由其 Store 直接表达：
+Workspace 错误在资源所有者、访问边界或身份交接边界产生，不能由 RuntimeEvent 或 HTTP 层伪装成空结果。缺少作用域、访问被拒绝、或资源不属于请求 Workspace 时，应分别保留稳定机器码；WorkspaceAsset 的运行时状态错误同样由其 Store 直接表达：
 
 | Code | 语义 |
 |:---|:---|
-| `workspace.scope_required` | 缺少完整 `IdentityScope`，或访问上下文缺失、伪造、未由本实例签发、过期或实例已关闭（`details.reason` 区分：`context_not_issued`、`context_expired`、`authentication_gateway_closed` 等） |
-| `workspace.owner_mismatch` | actor 用户与 Workspace owner 不一致 |
-| `workspace.mismatch` | 资源与请求 Workspace 不一致；请求 DTO scope 与可信访问上下文冲突时同样使用 |
+| `workspace.scope_required` | 缺少完整 `IdentityScope`，或访问 context 无效：传入的不是访问 context，或 context 已撤销（`reason=context_not_issued`），或授权时准入记录已不存在（`reason=actor_not_admitted`） |
+| `workspace.mismatch` | 资源与请求 Workspace 不一致，例如 prepare 返回的 scope 与授权组装的 scope 不一致 |
 | `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`actor_not_allowed_for_principal`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
-| `workspace.operation_denied` | 行为授权失败：该 Actor 在此 Workspace 的白名单不含方法所需 operation（`reason=operation_not_allowed`） |
+| `workspace.operation_denied` | 第 3 阶段操作授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`） |
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
 | `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
 | `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
@@ -175,7 +176,26 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | `workspace.asset.stale_result` | revision 或 operation token 已过期 |
 | `workspace.asset.operation_conflict` | 相同幂等操作携带了不一致输入 |
 
-访问边界错误的阶段语义（自 v0.7.0 A1 起）：接入未登记/禁用、adapter 不匹配、身份解析不允许是第一层认证失败；W0 owner 约束与缺失 Workspace Actor 访问记录是准入失败——两者均为 `AdmissionDeniedError`。缺少行为许可是 `OperationDeniedError`，属于授权失败而非身份认证失败；空白名单可进入但所有资源动作被拒绝。context 缺失、伪造、复制重建、跨实例、过期或网关关闭使用 `ScopeRequiredError` 并以稳定 reason 细分。未知 operation 与未绑定公共方法默认拒绝。拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
+访问边界错误按两阶段认证与两阶段授权的阶段区分（模型见[Workspace 架构](../architecture/workspace.md)第 4 节）：
+
+| 阶段与情形 | 错误 | `details.reason` | HTTP |
+|:---|:---|:---|:---|
+| 第 1 阶段：接入未登记或已禁用（不区分，避免泄漏配置） | `AdmissionDeniedError` | `unknown_principal` | 403 |
+| 第 1 阶段：adapter 不匹配 | `AdmissionDeniedError` | `adapter_mismatch` | 403 |
+| 第 1 阶段：principal 的身份解析规则不允许该用户 | `AdmissionDeniedError` | `actor_not_allowed_for_principal` | 403 |
+| 第 2 阶段：actor 用户不是要进入的 Workspace 的 owner | `AdmissionDeniedError` | `actor_not_owner` | 403 |
+| 第 2 阶段：准入记录缺失或已禁用 | `AdmissionDeniedError` | `actor_not_admitted` | 403 |
+| 认证网关已关闭（System 停止中） | `AdmissionDeniedError` | `authentication_gateway_closed` | 503 |
+| 第 3 阶段：目标 Workspace 不等于驻留 Workspace | `OperationDeniedError` | `target_workspace_not_resident` | 403 |
+| 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
+| 第 3 阶段：白名单不含该 operation | `OperationDeniedError` | `operation_not_allowed` | 403 |
+| 凭据无效：不是访问 context，或已撤销；授权时准入记录已不存在 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
+| 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
+
+- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有资源动作都被拒绝。未知 operation 与未绑定的公共方法默认拒绝。
+- 访问 context 没有固定有效期，不存在“过期”拒绝；认证网关关闭只拒绝新认证，已签发的 context 照常可用，直到被撤销。
+- HTTP 映射由 server 的异常处理器统一完成（`server/app.py`），响应体包含稳定机器码 `error`、`detail` 与 `reason`，不暴露接入凭据。
+- 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
 

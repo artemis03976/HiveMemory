@@ -17,7 +17,6 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hivememory.core.constants import DEFAULT_AGENT_ID, DEFAULT_TEAM_ID, DEFAULT_USER_ID
-from hivememory.core.errors import OwnerMismatchError
 
 
 def _validate_non_empty(value: str, field_name: str) -> str:
@@ -85,26 +84,21 @@ class WorkspaceIdentity(BaseModel):
 
 
 class IdentityScope(BaseModel):
-    """一次顶层操作冻结的执行者与 Workspace 访问硬边界。
+    """一次顶层操作冻结的执行者与目标 Workspace（Idea 前提第 1 条）。
 
-    只回答两个问题：谁在执行（``actor_identity``）、正在访问哪个资源归属域
-    （``workspace_identity``）。不携带 interaction/generation/agent_run/frame/
-    request/trace 等关联 ID，也不缓存授权结果或 Workspace 当前状态。
+    只回答两个问题：谁在执行（``actor_identity``）、这次操作作用于哪个
+    资源归属域（``workspace_identity``）。它由授权点在操作授权通过后组装，
+    向下流动到资源 owner、引擎与存储；不携带 interaction/generation/
+    agent_run/frame/request/trace 等关联 ID，也不缓存授权结果或 Workspace
+    当前状态。
+
+    身份类型本身不承担授权规则（不变量 6）："actor 用户等于 workspace
+    owner"等 owner 约束属于两阶段认证的第 2 阶段与两阶段授权的第 3 阶段，
+    由认证网关（准入）与操作授权者（操作授权）检查，不在本模型构造时校验。
     """
 
     actor_identity: ActorIdentity
     workspace_identity: WorkspaceIdentity
-
-    @model_validator(mode="after")
-    def _require_same_owner(self) -> Self:
-        if self.actor_identity.user_id != self.workspace_identity.owner_user_id:
-            raise OwnerMismatchError(
-                details={
-                    "actor_user_id": self.actor_identity.user_id,
-                    "owner_user_id": self.workspace_identity.owner_user_id,
-                }
-            )
-        return self
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

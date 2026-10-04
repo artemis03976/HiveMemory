@@ -66,6 +66,11 @@ class PatchouliService:
 
     prepare 只做 Topic 与检索：Profile 解析、附件租借与记忆/附件编译由
     chat 任务进程在 CPU 分配时完成，不再出现在 Patchouli 公开路由上。
+
+    访问边界（A1 访问边界返工第 4.6 节）：本门面是授权点以下的资源
+    owner，阶段路由只接收任务进程在阶段授权后组装的 ``IdentityScope``，
+    不接收访问 context，也不做 operation 检查；资源归属仍由本层与领域
+    实现独立校验。
     """
 
     def __init__(
@@ -99,7 +104,8 @@ class PatchouliService:
         返回的 PreparedAgentRun 携带话题准备结果与检索到的原始记忆原子；
         Profile 解析、附件租借与编译由任务进程在 CPU 分配时完成，用户消息
         与 Gateway 决定也由进程持有。prepare 失败时只清理本轮可能预创建的
-        空话题。
+        空话题。``identity_scope`` 是任务进程完成 ``resource.search`` 阶段
+        授权后组装的可信 scope。
         """
         identity_scope = require_identity_scope(identity_scope)
         real_topic_id: str | None = None
@@ -157,7 +163,9 @@ class PatchouliService:
 
         ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
         原样提交，不改写其内容。物化任务按 ``payload.materialize_tasks`` 派发；附件租借由进程持有并随进程关闭
-        释放，finalize 不负责释放。
+        释放，finalize 不负责释放。``interaction.submit`` 授权已在任务进程
+        进入 Actor 执行前检查，身份坐标取自 prepare 冻结在 prepared_run 的
+        可信 scope。
         """
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
         if continuation is None:
@@ -378,6 +386,8 @@ class PatchouliService:
         """清理已 prepare 但未 finalize 的预创建空话题。
 
         附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不再负责。
+        cleanup 不做阶段 operation 检查（只补偿本进程 prepare 的结果），
+        身份坐标取自 prepare 冻结在 prepared_run 的可信 scope。
         """
         if not prepared_run.is_new_topic:
             return False

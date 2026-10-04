@@ -3,6 +3,10 @@
 事件发生时机由进程编排显式决定；本模块只把进程记录的阶段与终态投影为
 可观测事件，不修改进程记录。scope、关联上下文、payload 安全转换与
 best-effort 边界统一由 :class:`RuntimeEventPublisher` 负责。
+
+:class:`BoundProcessEvents` 只持有绑定了观测标签的发布器，不回指进程
+记录——发布时需要的状态（phase/outcome/stop_reason）由调用方显式传入，
+避免事件发布器与进程记录互相引用。
 """
 
 from __future__ import annotations
@@ -46,24 +50,39 @@ class TaskProcessEventEmitter:
 
     def for_process(
         self,
-        record: ProcessRecord,
         *,
+        process_id: str,
+        workspace_id: str,
+        agent_id: str,
         trace_id: str | None = None,
     ) -> BoundProcessEvents:
-        """绑定一次进程的稳定关联字段（身份坐标取自进程创建时冻结的 scope）。"""
+        """绑定一次进程的稳定关联字段。
+
+        ``workspace_id`` / ``agent_id`` 是观测标签（字符串，不等于授权或
+        分区）：由注册入口在创建进程时用通过认证的注册声明绑定一次，此后
+        不再改变（A1 访问边界返工第 4.4 节，I-8 选项 C）。
+        """
         return BoundProcessEvents(
-            record,
             self._publisher.bind(
                 task_type="foreground",
                 trace_id=trace_id,
-                process_id=record.process_id,
-                workspace_id=record.identity_scope.workspace_identity.workspace_id,
-                agent_id=record.identity_scope.actor_identity.agent_id,
+                process_id=process_id,
+                workspace_id=workspace_id,
+                agent_id=agent_id,
             ),
         )
 
-    def cancel_requested(self, result: CancelResult, *, workspace_id: str) -> None:
-        """停止请求的即时判定；进程不存在（含跨 scope）时同样发布。"""
+    def cancel_requested(
+        self,
+        result: CancelResult,
+        *,
+        workspace_id: str | None = None,
+    ) -> None:
+        """停止请求的即时判定；进程不存在或不可控时同样发布。
+
+        ``workspace_id`` 是观测标签：进程存在时取注册时绑定的标签，否则
+        可传请求方 context 的驻留 workspace 摘要（经认证网关的诊断查询）。
+        """
         self._publisher.bind(
             process_id=result.process_id,
             workspace_id=workspace_id,
@@ -76,47 +95,67 @@ class TaskProcessEventEmitter:
 
 
 class BoundProcessEvents:
-    """绑定一次进程的 ``chat.run.*`` 发布；status/reason 在发布时读取进程记录。"""
+    """绑定一次进程的 ``chat.run.*`` 发布；不回指进程记录。
 
-    def __init__(self, record: ProcessRecord, publisher: RuntimeEventPublisher) -> None:
-        self._record = record
+    发布时的进程状态（status/reason）由调用方显式传入：本类只经注册入口
+    写入进程记录的 ``events`` 字段、由进程编排与控制面读取，二者单向
+    依赖，不做互相引用。
+    """
+
+    def __init__(self, publisher: RuntimeEventPublisher) -> None:
         self._publisher = publisher
 
     def bind_topic(self, topic_id: str) -> None:
         """prepare 返回后，此后的事件都关联本轮 Topic。"""
         self._publisher = self._publisher.bind(topic_id=topic_id)
 
-    def created(self) -> None:
-        self._emit(RuntimeEventType.CHAT_RUN_CREATED)
+    def created(self, record: ProcessRecord) -> None:
+        self._emit(record, RuntimeEventType.CHAT_RUN_CREATED)
 
-    def status(self) -> None:
-        self._emit(RuntimeEventType.CHAT_RUN_STATUS)
+    def cancel_requested(self, result: CancelResult) -> None:
+        """停止请求的即时判定（经进程绑定的稳定关联字段发布）。"""
+        self._publisher.emit(
+            RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
+            status=result.status,
+            reason=result.reason,
+            data={"cancelled": result.cancelled},
+        )
 
-    def command_completed(self, *, command_id: str) -> None:
-        self._emit(RuntimeEventType.CHAT_RUN_COMPLETED, data={"command_id": command_id})
+    def status(self, record: ProcessRecord) -> None:
+        self._emit(record, RuntimeEventType.CHAT_RUN_STATUS)
 
-    def completed(self, *, memory_task_ids: list[str]) -> None:
+    def command_completed(self, record: ProcessRecord, *, command_id: str) -> None:
         self._emit(
+            record,
+            RuntimeEventType.CHAT_RUN_COMPLETED,
+            data={"command_id": command_id},
+        )
+
+    def completed(self, record: ProcessRecord, *, memory_task_ids: list[str]) -> None:
+        self._emit(
+            record,
             RuntimeEventType.CHAT_RUN_COMPLETED,
             data={"memory_task_ids": memory_task_ids},
         )
 
-    def cancelled(self, *, phase: ProcessPhase | None = None) -> None:
+    def cancelled(self, record: ProcessRecord, *, phase: ProcessPhase | None = None) -> None:
         """进程被取消；``phase`` 是停止请求生效的阶段，Actor 自行报告取消时为空。"""
         self._emit(
+            record,
             RuntimeEventType.CHAT_RUN_CANCELLED,
             data={"phase": phase.value} if phase is not None else None,
         )
 
-    def closed_before_terminal(self) -> None:
+    def closed_before_terminal(self, record: ProcessRecord) -> None:
         """交付方在进程发布终态前关闭（如客户端断流），按取消收口。"""
         self._emit(
+            record,
             RuntimeEventType.CHAT_RUN_CANCELLED,
             message="Task process stream closed before terminal event.",
-            data={"close_reason": self._record.stop_reason or "stream_closed"},
+            data={"close_reason": record.stop_reason or "stream_closed"},
         )
 
-    def failed(self, error: Exception | None = None) -> None:
+    def failed(self, record: ProcessRecord, error: Exception | None = None) -> None:
         """进程失败；``error`` 为空表示 Actor 自行报告失败。
 
         公共事件只携带 Workspace 领域错误的安全错误码，不写入异常正文。
@@ -127,10 +166,16 @@ class BoundProcessEvents:
             message = error.code
         else:
             message = "Task process failed."
-        self._emit(RuntimeEventType.CHAT_RUN_FAILED, severity="error", message=message)
+        self._emit(
+            record,
+            RuntimeEventType.CHAT_RUN_FAILED,
+            severity="error",
+            message=message,
+        )
 
     def _emit(
         self,
+        record: ProcessRecord,
         event_type: RuntimeEventType,
         *,
         severity: Severity = "info",
@@ -139,8 +184,8 @@ class BoundProcessEvents:
     ) -> None:
         self._publisher.emit(
             event_type,
-            status=_event_status(self._record),
-            reason=self._record.stop_reason,
+            status=_event_status(record),
+            reason=record.stop_reason,
             severity=severity,
             message=message,
             data=data,

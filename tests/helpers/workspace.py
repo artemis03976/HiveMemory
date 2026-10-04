@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from hivememory.core.access import (
     CallerPrincipal,
+    RunBinding,
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
@@ -22,11 +23,14 @@ from hivememory.system.access import (
     SystemPrincipalAuthenticator,
 )
 from hivememory.workspace import (
-    WorkspaceAccessGuard,
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
 )
-from hivememory.workspace.authentication import ActorAuthenticationGateway
+from hivememory.workspace.authentication import (
+    ActorAuthenticationGateway,
+    WorkspaceAuthenticator,
+)
+from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
 def make_workspace_identity(
@@ -119,14 +123,16 @@ def make_actor_access_record(
     owner_user_id: str = "test_user",
     workspace_id: str = "main_workspace",
     user_id: str | None = None,
-    agent_id: str = "test_agent",
+    agent_id: str | None = "test_agent",
     enabled: bool = True,
     allowed_operations: Iterable[WorkspaceOperation] | None = None,
 ) -> WorkspaceActorAccessRecord:
     """构造 Workspace Actor 访问记录。
 
-    ``allowed_operations`` 缺省授予全部 operation（测试便利，不对应任何
-    生产行为）；显式传 ``frozenset()`` 表达"可进入但无资源操作"。
+    ``agent_id`` 传 ``None`` 构造用户级记录（覆盖该用户的所有具体 Agent，
+    不覆盖保留 ``system``）。``allowed_operations`` 缺省授予全部 operation
+    （测试便利，不对应任何生产行为）；显式传 ``frozenset()`` 表达"可进入
+    但无资源操作"。
     """
     return WorkspaceActorAccessRecord(
         owner_user_id=owner_user_id,
@@ -142,10 +148,17 @@ def make_actor_access_record(
 
 @dataclass
 class AccessTestComposition:
-    """一次性装配的网关 + 守卫组合，供各层测试显式认证。"""
+    """一次性装配的认证与授权两侧组合，供各层测试显式认证与授权。
+
+    ``gateway`` / ``authenticator`` 是认证一侧（准入、签发、撤销、诊断），
+    ``authorizer`` 是操作授权者（第 3 阶段授权、进程控制授权、CPU 执行
+    身份）；两者与生产装配同构：互不依赖，都只读同一份访问登记，授权者
+    读取 context 密封的授予内容。
+    """
 
     gateway: ActorAuthenticationGateway
-    guard: WorkspaceAccessGuard
+    authenticator: WorkspaceAuthenticator
+    authorizer: WorkspaceOperationAuthorizer
     principal: CallerPrincipal
     default_workspace: WorkspaceIdentity
 
@@ -157,14 +170,20 @@ class AccessTestComposition:
         workspace: WorkspaceIdentity | None = None,
         adapter: str = "local",
         principal_id: str | None = None,
+        binding: RunBinding | None = None,
     ) -> WorkspaceAccessContext:
-        """按组合内的默认坐标完成两项认证并返回访问上下文。"""
+        """按组合内的默认坐标完成两项认证并返回访问上下文。
+
+        ``binding`` 缺省为测试请求级运行绑定；任务进程测试应显式传
+        ``RunBinding.for_task_process(process_id)``。
+        """
         target_user = user_id or (self.default_workspace.owner_user_id)
         return await self.gateway.authenticate(
             adapter=adapter,
             principal=CallerPrincipal(principal_id or self.principal.principal_id),
             actor=ActorIdentity(user_id=target_user, agent_id=agent_id),
             workspace=workspace or self.default_workspace,
+            binding=binding or RunBinding.for_request("test_request"),
         )
 
 
@@ -173,13 +192,13 @@ def make_access_composition(
     *,
     principal_id: str = "local-process:test",
     adapters: tuple[str, ...] = ("local",),
-    context_ttl_seconds: float | None = None,
-    clock=None,
     default_workspace: WorkspaceIdentity | None = None,
 ) -> AccessTestComposition:
-    """构造 System 接入登记 + Workspace Actor 注册表 + 网关 + 守卫。
+    """构造 System 接入登记 + Workspace Actor 注册表 + 认证网关 + 操作授权者。
 
-    ``clock`` 注入可控时钟以验证 TTL；``None`` 使用真实单调时钟。
+    context 不设固定有效期，只随进程关闭、请求结束与撤销全部失效；
+    需要验证单个 context 失效时经组合的网关调用
+    ``gateway.invalidate_context(context)``。
     """
     principal = CallerPrincipal(principal_id)
     system_registry = SystemActorAccessRegistry(
@@ -191,18 +210,16 @@ def make_access_composition(
         ]
     )
     workspace_registry = WorkspaceActorAccessRegistry(records)
-    guard = WorkspaceAccessGuard(
-        workspace_registry,
-        context_ttl_seconds=context_ttl_seconds,
-        **({"clock": clock} if clock is not None else {}),
-    )
+    authenticator = WorkspaceAuthenticator(workspace_registry)
+    authorizer = WorkspaceOperationAuthorizer(workspace_registry)
     gateway = ActorAuthenticationGateway(
         principals=SystemPrincipalAuthenticator(system_registry),
-        workspace_access=guard,
+        authenticator=authenticator,
     )
     return AccessTestComposition(
         gateway=gateway,
-        guard=guard,
+        authenticator=authenticator,
+        authorizer=authorizer,
         principal=principal,
         default_workspace=default_workspace
         or make_workspace_identity(
@@ -222,3 +239,65 @@ def make_workspace_runtime(global_bus=None, *, atom_capacity: int = 16, profile_
         atom_capacity=atom_capacity,
         profile_capacity=profile_capacity,
     )
+
+
+async def make_process_access(
+    *,
+    user_id: str = "u1",
+    agent_id: str = "omni_doll",
+    workspace_id: str = "main_workspace",
+    process_id: str = "process_test",
+) -> tuple[
+    WorkspaceOperationAuthorizer,
+    ActorAuthenticationGateway,
+    WorkspaceAccessContext,
+    ActorIdentity,
+    WorkspaceIdentity,
+]:
+    """任务进程测试的 (authorizer, gateway, access, actor, workspace) 组合。
+
+    进程持有的 access 由注入服务的同一组合签发，与生产装配一致：认证
+    一侧与操作授权者读取同一份访问登记。测试显式构造该组合：context 以 ``for_task_process(process_id)`` 绑定签发；返回
+    的 actor/workspace 声明供 ``register_process`` 使用。记录授予全部
+    operation（测试便利），阶段授权按阶段语义逐项检查。
+    """
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id=user_id, agent_id=agent_id)]
+    )
+    actor = ActorIdentity(user_id=user_id, agent_id=agent_id)
+    workspace = make_workspace_identity(owner_user_id=user_id, workspace_id=workspace_id)
+    context = await composition.gateway.authenticate(
+        adapter="local",
+        principal=composition.principal,
+        actor=actor,
+        workspace=workspace,
+        binding=RunBinding.for_task_process(process_id),
+    )
+    return composition.authorizer, composition.gateway, context, actor, workspace
+
+
+def make_server_access_overrides(*, users: list[str] | None = None):
+    """路由测试的访问依赖覆盖：真实网关组合替代 ``deps.get_system``。
+
+    以用户级记录（覆盖该用户所有具体 Agent）与保留 ``system`` 精确记录
+    登记指定用户（缺省 default），adapter 为 ``http``，与生产默认登记
+    同构。返回 ``(overrides, composition)``，``overrides`` 直接并入
+    ``app.dependency_overrides``。
+    """
+    from hivememory.server import deps
+
+    users = users or ["default"]
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id=user, agent_id=None) for user in users]
+        + [
+            make_actor_access_record(owner_user_id=user, agent_id=SYSTEM_AGENT_ID) for user in users
+        ],
+        adapters=("http",),
+    )
+    overrides = {
+        deps.get_access_gateway: lambda: composition.gateway,
+        # server 自身 principal 必须与组合内的接入登记一致，否则按
+        # unknown_principal 拒绝。
+        deps.get_server_principal_id: lambda: composition.principal.principal_id,
+    }
+    return overrides, composition

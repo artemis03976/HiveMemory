@@ -3,6 +3,9 @@
 被测对象：builtin 结果不进缓存、命中按条目随存的源原子 policy 对每个 Actor
 逐次授权且不回源、交付副本隔离，以及冷读的代次守护。backing 以内存替身
 实现（被测单元边界之外的 Patchouli ``GET_AGENT_PROFILE``）。
+
+resolver 与 backing 位于授权点以下（A1 访问边界返工第 4.1 节）：只流动
+授权点组装的可信 ``IdentityScope``，不接收访问 context。
 """
 
 from __future__ import annotations
@@ -53,7 +56,7 @@ class _FakeProfileBacking:
         self.calls = 0
         self.on_fetch: Callable[[], None] | None = None
 
-    async def get_agent_profile(self, agent_alias, *, scope, access):
+    async def get_agent_profile(self, agent_alias, *, scope):
         self.calls += 1
         if self.on_fetch is not None:
             self.on_fetch()
@@ -78,8 +81,8 @@ async def test_builtin_profile_is_resolved_by_backing_each_time_and_not_cached()
     backing = _FakeProfileBacking()
     resolver, _, cache = _resolver(backing)
 
-    first = await resolver.get("default", scope=A1, access=None)
-    second = await resolver.get(None, scope=A1, access=None)
+    first = await resolver.get("default", scope=A1)
+    second = await resolver.get(None, scope=A1)
 
     assert first == OMNI_DOLL_PROFILE
     assert second == OMNI_DOLL_PROFILE
@@ -96,11 +99,11 @@ async def test_cached_profile_is_authorized_per_actor_by_source_policy():
     backing = _FakeProfileBacking()
     backing.profiles["private_doll"] = _resolved("private_doll", private_to="a1")
     resolver, _, _ = _resolver(backing)
-    await resolver.get("private_doll", scope=A1, access=None)
+    await resolver.get("private_doll", scope=A1)
 
     with pytest.raises(AliasNotFoundError):
-        await resolver.get("private_doll", scope=A2, access=None)
-    owner = await resolver.get("private_doll", scope=A1, access=None)
+        await resolver.get("private_doll", scope=A2)
+    owner = await resolver.get("private_doll", scope=A1)
 
     assert (owner.agent_id, backing.calls) == ("private_doll", 1)
 
@@ -112,9 +115,9 @@ async def test_hit_delivers_isolated_profile_copy():
     backing.profiles["coder_doll"] = _resolved("coder_doll", persona="original")
     resolver, _, _ = _resolver(backing)
 
-    first = await resolver.get("coder_doll", scope=A1, access=None)
+    first = await resolver.get("coder_doll", scope=A1)
     first.persona = "mutated"
-    again = await resolver.get("coder_doll", scope=A1, access=None)
+    again = await resolver.get("coder_doll", scope=A1)
 
     assert (again.persona, backing.calls) == ("original", 1)
 
@@ -132,7 +135,7 @@ async def test_profile_read_during_workspace_change_is_retried_before_caching():
         epochs.advance(MAIN)
 
     backing.on_fetch = concurrent_update
-    result = await resolver.get("coder_doll", scope=A1, access=None)
-    cached = await resolver.get("coder_doll", scope=A1, access=None)
+    result = await resolver.get("coder_doll", scope=A1)
+    cached = await resolver.get("coder_doll", scope=A1)
 
     assert (result.persona, cached.persona, backing.calls) == ("v2", "v2", 2)
