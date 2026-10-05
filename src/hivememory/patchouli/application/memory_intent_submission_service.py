@@ -23,7 +23,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from hivememory.core.models import ActorIdentity, WorkspaceIdentity, require_identity_scope
+from hivememory.core.models import (
+    ActorIdentity,
+    IdentityScope,
+    WorkspaceIdentity,
+    require_identity_scope,
+)
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
     UpdateFocus,
@@ -32,7 +37,6 @@ from hivememory.core.models.pending import (
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 
 if TYPE_CHECKING:
-    from hivememory.core.models import IdentityScope
     from hivememory.patchouli.runtime.bus import PatchouliBus
 
 

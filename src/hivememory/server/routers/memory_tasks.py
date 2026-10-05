@@ -41,8 +41,6 @@ async def get_memory_task(
     except ResourceNotFoundError as exc:
         # 资源 owner 将不存在与越域统一隐藏；传输层保持同一 404 响应。
         raise HTTPException(status_code=404, detail="task not found") from exc
-    if memory_task is None:
-        raise HTTPException(status_code=404, detail="task not found")
     return MemoryTaskResponse.from_domain(memory_task)
 
 
@@ -69,6 +67,4 @@ async def cancel_memory_task(
     except ResourceNotFoundError as exc:
         # 取消前校验和取消后投影都可能报告 not found，不暴露其他 Workspace。
         raise HTTPException(status_code=404, detail="task not found") from exc
-    if memory_task is None:
-        raise HTTPException(status_code=404, detail="task not found")
     return MemoryTaskResponse.from_domain(memory_task, reason="user_requested")

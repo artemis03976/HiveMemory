@@ -41,11 +41,11 @@ class MemoryTaskManagementService:
         task_id: str,
         *,
         identity_scope: IdentityScope,
-    ) -> MemoryGenerationTask | None:
+    ) -> MemoryGenerationTask:
+        """读取本 Workspace 的任务；不存在与越域统一抛出 ``ResourceNotFoundError``。"""
         scope = require_identity_scope(identity_scope)
         task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
-        self._assert_task_in_workspace(scope.workspace_identity, task, task_id)
-        return task
+        return self._require_task_in_workspace(scope.workspace_identity, task, task_id)
 
     async def cancel_memory_task(
         self,
@@ -57,17 +57,17 @@ class MemoryTaskManagementService:
         # 不能取消其他 Workspace 的任务，也不暴露其存在。
         scope = require_identity_scope(identity_scope)
         task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)
-        self._assert_task_in_workspace(scope.workspace_identity, task, task_id)
+        self._require_task_in_workspace(scope.workspace_identity, task, task_id)
         return await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_CANCEL, task_id)
 
     # ---- 内部辅助 ----
 
-    def _assert_task_in_workspace(
+    def _require_task_in_workspace(
         self,
         belong_to: WorkspaceIdentity,
         task: MemoryGenerationTask | None,
         task_id: str,
-    ) -> None:
+    ) -> MemoryGenerationTask:
         """任务归属校验：跨 Workspace 与不存在统一 not found，不泄漏存在性。
 
         ``belong_to`` 在公开边界从授权 scope 拆出；本断言只做资源归属投影
@@ -75,6 +75,7 @@ class MemoryTaskManagementService:
         """
         if task is None or task.belong_to != belong_to:
             raise ResourceNotFoundError(details={"task_id": task_id})
+        return task
 
 
 __all__ = ["MemoryTaskManagementService"]

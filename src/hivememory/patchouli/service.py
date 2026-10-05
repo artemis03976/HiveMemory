@@ -406,6 +406,14 @@ class PatchouliService:
         """
         scope = require_identity_scope(identity_scope)
         if prepared_run.belong_to != scope.workspace_identity:
+            # 与 finalize 的同一条件对应：finalize 拒绝提交，cleanup 不越域补偿，但须留下诊断。
+            logger.warning(
+                "prepared run 的归属与清理授权的 Workspace 不一致，跳过清理: "
+                "interaction_id=%s, prepared_workspace=%s, scope_workspace=%s",
+                prepared_run.interaction_id,
+                prepared_run.belong_to.workspace_id,
+                scope.workspace_identity.workspace_id,
+            )
             return False
         if not prepared_run.is_new_topic:
             return False

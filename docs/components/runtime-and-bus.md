@@ -39,8 +39,20 @@ last_reviewed: 2026-10-04
 
 - `register(route, handler)`：一个 route 对应一个 handler，重复注册覆盖并记录 warning；
 - `unregister(route)`：移除 handler，不存在时 no-op；
-- `request(route, *args, **kwargs)`：调用并等待结果，未注册 route 抛 `KeyError`；
+- `request(route, *args, **kwargs)`：调用并等待结果，未注册 route 抛 `KeyError`；调用 handler 前先做参数检查，不符时抛 `RouteArgumentError`（`TypeError` 的子类）；
+- `list_unresolved_routes()`：列出 handler 类型标注无法在运行时解析、只按签名检查参数的 route；
 - 当前实现兼容 awaitable 和立即返回值，但新 handler 应保持 async 形态。
+
+### 参数检查
+
+总线以 `handler(*args, **kwargs)` 直接调用，调用点与 handler 之间没有静态类型约束：关键字名称不符会在调用时以 `TypeError` 暴露，但按位置传入错误类型的值不会报错，可能被 handler 当作字典键或比较对象静默使用。检查器（`components/bus/arguments.py`）因此在 `register` 时解析一次 handler 的签名与类型标注，在每次 `request` 时：
+
+- 按签名绑定参数，名称或数量不符时以 `RouteArgumentError` 拒绝，错误信息带 route 名；
+- 对标注为具体类的参数做 `isinstance` 检查，包括 `X | None` 与类的联合；`float` 按数值塔接受 `int`；泛型只检查容器本身，例如 `list[X]` 只检查 `list`。
+
+检查只校验、不转换：参数原样交给 handler，不复制容器，也不把字典转换成模型。`Any`、TypeVar、Protocol、`Literal` 与 `Callable` 等无法用 `isinstance` 表达的标注不做类型检查；mock、`functools.partial` 等非函数 handler 原样放行。标注引用了只在 `TYPE_CHECKING` 下导入的名称时，注册照常完成并记录 warning，该 route 降级为只检查签名，并出现在 `list_unresolved_routes()` 中；handler 模块应在运行时导入参数标注用到的类型。
+
+检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。它只在请求实际发生时生效，不替代调用点的静态检查；以类型化 route 与 mypy 检查全部调用点的方案见 [全局路由签名一致性 Todo](../todo/global-route-signature-consistency-check.md)。Pub/Sub 的订阅者不做参数检查。
 
 ### Pub/Sub
 
@@ -245,6 +257,8 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 ## 9. 验证入口
 
 - `tests/unit/components/bus/test_async_bus.py`
+- `tests/unit/components/bus/test_route_arguments.py`
+- `tests/integration/patchouli/test_bus_route_arguments.py`
 - `tests/unit/components/scheduler/test_async_scheduler.py`
 - `tests/unit/components/work_queue/`
 - `tests/unit/infrastructure/work_queue/`

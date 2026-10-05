@@ -211,7 +211,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | Todo | 排期方式 | 范围约束 |
 |:---|:---|:---|
 | [MTP 缓存作用域重验（归档）](./archive/todo/mtp-cache-scope-revalidation.md) | Completed / Archived；保留为 v0.7.0 回归基线 | 已修复的 L0/L1/L2 隔离语义不重排为待开发功能 |
-| [全局路由签名校验](./todo/global-route-signature-consistency-check.md) | v0.7.0 契约迁移时纳入质量切片 | 检测参数不匹配；不重做路由系统 |
+| [总线路由类型化与静态签名检查](./todo/global-route-signature-consistency-check.md) | 运行时参数检查已落地（2026-10-04）；类型化 route 随 mypy 错误修复分支完成 | 以类型化 route 与 mypy 门禁检查全部调用点；不改变总线调用语义 |
 | [Alice 健康探针](./todo/alice-health-probes.md) | v0.7.0 生命周期切片 | 反映执行器实际就绪/故障；不令资源 readiness 依赖 Alice 在线 |
 | [RuntimeEvent 生产端迁移](./todo/runtime-event-producer-migration.md) | v0.7.0/1 按受影响生产域迁移 | 保持事件只做观测，不以事件投递成功控制业务状态 |
 | [前端身份所有权](./todo/frontend-identity-ownership.md) | 前端可靠性优先项 | 不把固定 main_workspace 选择冒充认证或 Workspace 管理 |

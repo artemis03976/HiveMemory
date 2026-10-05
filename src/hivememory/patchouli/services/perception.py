@@ -239,8 +239,7 @@ class PerceptionFamiliar:
         admission 失败抛出 :class:`TopicSettleAdmissionError`（话题内容保留
         可重试）；目标正忙是瞬态冲突，保持 :class:`TopicBusyError` 语义。
         """
-        workspace = belong_to
-        scope_key = (workspace.owner_user_id, workspace.workspace_id)
+        scope_key = (belong_to.owner_user_id, belong_to.workspace_id)
         target_id = topic_id or self._last_active_topic_ids.get(scope_key)
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
@@ -468,13 +467,11 @@ class PerceptionFamiliar:
 
     def _remember_active_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """记录 Workspace 最近活跃话题，供缺省 manual settle 寻址。"""
-        workspace = belong_to
-        self._last_active_topic_ids[(workspace.owner_user_id, workspace.workspace_id)] = topic_id
+        self._last_active_topic_ids[(belong_to.owner_user_id, belong_to.workspace_id)] = topic_id
 
     def _forget_active_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """话题生命周期结束时清理最近活跃记录。"""
-        workspace = belong_to
-        scope_key = (workspace.owner_user_id, workspace.workspace_id)
+        scope_key = (belong_to.owner_user_id, belong_to.workspace_id)
         if self._last_active_topic_ids.get(scope_key) == topic_id:
             self._last_active_topic_ids.pop(scope_key, None)
 

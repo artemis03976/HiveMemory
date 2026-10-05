@@ -66,8 +66,7 @@ class TopicWorkingSet:
 
     def needs_eviction(self, belong_to: WorkspaceIdentity) -> bool:
         """判断该 Workspace 的驻留话题数是否已达容量上限。"""
-        workspace = belong_to
-        resident_count = sum(1 for key in self._resident if key[0] == workspace)
+        resident_count = sum(1 for key in self._resident if key[0] == belong_to)
         return resident_count >= self._max_resident
 
     def remove(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
@@ -89,9 +88,8 @@ class TopicWorkingSet:
 
         ``exclude`` 供调用方在候选失效后改选；返回 ``None`` 表示没有可驱逐候选。
         """
-        workspace = belong_to
         for candidate_workspace, topic_id in self._resident:
-            if candidate_workspace != workspace or topic_id in exclude:
+            if candidate_workspace != belong_to or topic_id in exclude:
                 continue
             if (candidate_workspace, topic_id) in self._leases:
                 continue  # 跳过正被占用的驻留话题

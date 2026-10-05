@@ -13,19 +13,15 @@ workspace 能力层出现对应方法时进行（总 Idea 15.6，A1 访问边界
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from hivememory.core.models import require_identity_scope
+from hivememory.core.models import IdentityScope, require_identity_scope
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.control.interaction_submission import (
     InteractionOrigin,
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-
-if TYPE_CHECKING:
-    from hivememory.core.models import IdentityScope
-    from hivememory.core.protocol.models import InteractionPayload
 
 
 @dataclass(frozen=True)
