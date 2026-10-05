@@ -9,7 +9,9 @@ from hivememory.core.models import (
     MemoryType,
     require_identity_scope,
 )
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.utils.uuid import normalize_uuid
 
@@ -37,7 +39,7 @@ class MemoryManagementService:
 
     async def create_memory(
         self,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         atom: MemoryAtom | None = None,
     ) -> MemoryAtom:
         if atom is None:
@@ -47,14 +49,14 @@ class MemoryManagementService:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
-            scope,
+            scope.workspace_identity,
             atom,
         )
 
     async def list_memories(
         self,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         query: str | None = None,
         filters: dict[str, str] | None = None,
         limit: int = 20,
@@ -65,7 +67,8 @@ class MemoryManagementService:
         excluded = set(exclude_types or [])
         atoms = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
             query=query,
             filters=filters,
             limit=limit,
@@ -87,14 +90,15 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
         scope = require_identity_scope(identity_scope)
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
             normalize_uuid(memory_id),
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
             # owner-management 语义（D4），同 list_memories。
             enforce_actor_visibility=False,
         )
@@ -106,7 +110,7 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -114,11 +118,12 @@ class MemoryManagementService:
         tags: list[str] | None = None,
         agent_config: dict | None = None,
     ) -> MemoryAtom | None:
+        """管理操作已在能力层授权；内部编辑只按目标归属定位记忆。"""
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_UPDATE,
             normalize_uuid(memory_id),
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
             title=title,
             summary=summary,
             content=content,
@@ -131,12 +136,12 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
     ) -> bool:
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_DELETE,
-            scope,
+            scope.workspace_identity,
             normalize_uuid(memory_id),
         )
 
@@ -144,7 +149,7 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         positive: bool,
         source: str,
     ):
@@ -152,7 +157,7 @@ class MemoryManagementService:
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
             normalize_uuid(memory_id),
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
             positive=positive,
             source=source,
         )
@@ -163,7 +168,7 @@ class MemoryManagementService:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
         """Actor-visible 的 canonical UUID 点读 backing（能力层授权 ``resource.read``）。
@@ -175,7 +180,8 @@ class MemoryManagementService:
         atom = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_GET,
             normalize_uuid(memory_id),
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
             enforce_actor_visibility=True,
         )
         if atom is not None and refresh_vitality:
@@ -191,22 +197,33 @@ class MemoryManagementService:
         检索请求自带 ``identity_scope``（授权点组装后冻结在请求内），不
         接收单独的 scope 参数。
         """
+        scope = require_identity_scope(request.identity_scope)
+        # 公开输入只在边界持有 scope，本地路由与引擎接收独立的归属和发起者。
+        query = RetrievalQuery(
+            semantic_query=request.semantic_query,
+            keywords=request.keywords or [],
+            filters=request.filters or QueryFilters(),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+        )
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
-            request,
+            query,
+            top_k=request.top_k,
         )
 
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
     ) -> list[MemoryAtom]:
         """alias 批量读取 backing（能力层授权 ``resource.read``），只含实际可读的完整原子。"""
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             aliases,
-            scope,
+            scope.workspace_identity,
+            from_actor=scope.actor_identity,
         )
 
     @staticmethod

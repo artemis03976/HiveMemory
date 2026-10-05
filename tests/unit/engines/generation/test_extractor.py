@@ -63,7 +63,7 @@ class TestLLMMemoryExtractor:
         self.mock_service.complete_with_retry.return_value = json_output
 
         transcript = "User: Hi\nAssistant: Hello"
-        metadata = {"user_id": "u1", "session_id": "s1"}
+        metadata = {"user_id": "u1"}
         self.extractor.extract(transcript, metadata)
 
         _, kwargs = self.mock_service.complete_with_retry.call_args
@@ -179,7 +179,7 @@ class TestLLMMemoryExtractor:
         self.mock_service.complete_with_retry.return_value = json_output
 
         transcript = "User: Hi\nAssistant: Hello"
-        metadata = {"user_id": "u1", "session_id": "s1"}
+        metadata = {"user_id": "u1"}
 
         draft = self.extractor.extract(transcript, metadata)
 

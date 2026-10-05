@@ -40,7 +40,7 @@ last_reviewed: 2026-10-04
 4. 不把内部 execution state、fallback 原因和观测事件直接返回给外部客户端；
 5. 对取消、失败和 cleanup 保持与 Contracts 一致的终态。
 
-身份与访问的交接遵循两阶段认证与两阶段授权（[Workspace 架构](../architecture/workspace.md)第 4 节）：server 在 `server/deps.py` 用 `resolve_request_identity_claims` 把用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）解析为身份声明，交给统一认证网关取得访问 context——chat 由任务进程的注册入口认证，管理操作与取消取得绑定本次请求的请求级 context。应用服务不解析身份，也不执行默认解析；非 Agent action 的声明使用保留 `system` actor，只标记"没有具体 Agent 作为操作来源主体"。后台 task、retry 和 finalize 不重新读取进程当前 Workspace；它们使用自身 DTO 中保存的 scope，在最终访问 Workspace-owned 资源时由领域所有者校验。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
+身份与访问的交接遵循两阶段认证与两阶段授权（[Workspace 架构](../architecture/workspace.md)第 4 节）：server 在 `server/deps.py` 用 `resolve_request_identity_claims` 把用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）解析为身份声明，交给统一认证网关取得访问 context：chat 由任务进程的注册入口认证，管理操作与取消取得绑定本次请求的请求级 context。应用服务不解析身份，也不执行默认解析；非 Agent action 的声明使用保留 `system` actor，只标记"没有具体 Agent 作为操作来源主体"。`IdentityScope` 只用于一次操作到公开资源边界的调用；Patchouli 在该边界拆出 `belong_to` 与 `from_actor`，后台 task 和 retry 使用这些独立字段，由领域所有者校验归属与可见性。finalize 的 scope 来自调用前的阶段授权，不从 prepare 结果或当前 Workspace 推导。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
 应用服务可以保存一次用例的短期控制状态，例如任务进程编排的进程表，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
@@ -103,12 +103,12 @@ TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(pr
   -> CPU 分配：附件租借与编译（asset.acquire）、记忆编译、组装 CPUInputManifest
   -> 进入 Actor 前检查 interaction.submit
   -> Actor 执行：CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
-  -> completed: 封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
-  -> cancelled/failed: Patchouli cleanup_prepared_agent_run（不做阶段授权）
+  -> completed: 封口交互记录（InteractionPayload）-> interaction.submit 再授权 -> Patchouli finalize_agent_run
+  -> cancelled/failed: resource.search 再授权 -> Patchouli cleanup_prepared_agent_run
   -> 关闭：TaskProcessRunner.close(process) 经 CPUAllocator 释放附件租借；注册入口撤销 context、从进程表注销
 ```
 
-每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_operation`，把返回的 `IdentityScope` 传给对应路由；某一阶段缺少 operation 时在该阶段失败，不产生后续副作用。`interaction.submit` 提前到进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒。CPU 输入清单中的 `IdentityScope` 由操作授权者的过渡方法 `cpu_execution_identity` 组装（[Workspace 架构](../architecture/workspace.md)第 4.4 节）。
+每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_operation`，把返回的 `IdentityScope` 传给对应路由；某一阶段缺少 operation 时在该阶段失败，不产生后续副作用。进入 Actor 前检查 `interaction.submit`，用于提前拒绝；紧接 finalize 前再次检查同一 operation，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用。CPU 输入清单中的 `IdentityScope` 由操作授权者的过渡方法 `cpu_execution_identity` 组装（[Workspace 架构](../architecture/workspace.md)第 4.4 节）。
 
 CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
@@ -118,7 +118,7 @@ Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare �
 
 进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用与 Actor 执行期间打开的 CPU 输出流；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
 
-进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集再做身份校验，校验失败时仍会交回 cleanup，以补偿 prepare 可能预建的 Topic。
+进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、以 `resource.search` 再授权后请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
 
 Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
@@ -194,7 +194,7 @@ process_id
 
 ### 5.2 Task、Topic 与 Readiness
 
-`MemoryTaskApplicationService` 授权后转发 task list/get/cancel（观察绑定 `task.observe`、取消绑定 `management.task`），任务归属由 Patchouli 按 `IdentityScope` 投影判断；它不从 Patchouli task 对象推导第二套状态机。
+`MemoryTaskApplicationService` 授权后转发 task list/get/cancel（观察绑定 `task.observe`、取消绑定 `management.task`），Patchouli 将公共 scope 的目标 Workspace 与任务的 `belong_to` 比对；不存在与越域任务统一隐藏，HTTP 查询和取消都映射为同一 404。能力层不从 Patchouli task 对象推导第二套状态机。
 
 `TopicApplicationService` 提供活跃话题列表、手动 settle 和 evict 入口，三者都绑定 `management.topic`（管理用例的 actor 为保留 `system`，它的白名单不含 `resource.read`）；授权后以返回的 `IdentityScope` 通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
 

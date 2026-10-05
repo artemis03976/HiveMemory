@@ -275,7 +275,8 @@ async def test_engine_create_uses_generator_disambiguated_alias():
 
     outcomes = await engine.process(
         GenerationRequest(context=GenerationContext(), write_focus=WriteFocus(content="内容")),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
     )
 
     assert [outcome.duplicate_decision for outcome in outcomes] == [DuplicateDecision.CREATE]

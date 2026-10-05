@@ -26,7 +26,7 @@ last_reviewed: 2026-10-04
 
 因此，公共模型倾向于使用 frozen、Pydantic 或依赖中立的 dataclass。不可变并不只是编码偏好，它要求上游先形成完整决定，再交给下游只读消费；依赖中立则阻止某个领域对象沿模型引用把存储、Runtime 或 Controller 一并泄漏出去。本文既记录字段和终态，也记录这些形态背后的所有权理由。
 
-跨边界的身份坐标统一使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装，是进入公开路由的唯一身份输入；交互与后台任务的领域载体同样以它保存作用域。领域所有者在最终读写处校验 scope；共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。完整的资源归属模型见[Workspace 架构](../architecture/workspace.md)，本文只记录各契约需要携带和验证的部分。
+公开操作的身份输入统一使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装。Patchouli 在公共边界拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部服务、引擎、存储、交互记录和后台任务独立携带所需身份，不保留或重建 scope。领域所有者在最终读写处先检查 Workspace 归属，再按资源 policy 检查发起者；资源来源不参与授权。共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。WorkspaceAsset 旧端口与 Alice/CPU 直接操作的当前例外见[Workspace 架构](../architecture/workspace.md#10-当前边界与限制)。
 
 ## 1. 生命周期契约
 
@@ -115,7 +115,7 @@ prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备�
 
 | 字段 | 内容 |
 |:---|:---|
-| `identity_scope`、`interaction_id` | 由 prepare 入参冻结；`IdentityScope` 是唯一身份来源 |
+| `belong_to`、`interaction_id` | 冻结 prepare 的资源归属与交互关联；不保留 scope 或发起者 |
 | `topic_id`、`is_new_topic` | 本轮真实话题与是否由 prepare 新建 |
 | `topic_context`、`pool_topics` | 话题上下文与话题池快照 |
 | `retrieval_result` | 未编译的检索结果（`RetrievalResponse`） |
@@ -131,6 +131,8 @@ prepare 的意义在于：由 Patchouli 在交出控制权前确认真实话题�
 finalize_agent_run(
     prepared_run: PreparedAgentRun,
     payload: InteractionPayload,
+    *,
+    identity_scope: IdentityScope,
 ) -> list[MemoryGenerationTask]
 ```
 
@@ -148,21 +150,26 @@ finalize_agent_run(
 
 Finalize：
 
-1. 将 payload 原样提交到目标话题，不改写其内容；
-2. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
-3. 记录预检索命中。
+1. 验证当次阶段 scope，确认其目标 Workspace 等于 `prepared_run.belong_to`；不一致时在交互接纳前抛 `WorkspaceMismatchError`；
+2. 用 prepared 的归属与当次 scope 的发起者构造 `InteractionSubmission`，将 payload 原样提交到目标话题，不改写其内容；
+3. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
+4. 记录预检索命中。
 
-任务进程只对 `status == completed` 的执行结果封口并调用 finalize。Finalize 已成功后不能再 cleanup。
+任务进程只对 `status == completed` 的执行结果封口并调用 finalize。`interaction.submit` 在进入 Actor 执行前预检，在调用 finalize 前再次授权，不能从 prepared 取回旧 scope。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
 
 finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不会默认进入长期知识。
 
 ### 3.3 CleanupPreparedAgentRun
 
 ```python
-cleanup_prepared_agent_run(prepared_run: PreparedAgentRun) -> bool
+cleanup_prepared_agent_run(
+    prepared_run: PreparedAgentRun,
+    *,
+    identity_scope: IdentityScope,
+) -> bool
 ```
 
-Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。已有话题或已经产生内容的话题不应被删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
+Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。任务进程调用前重新以 `resource.search` 授权；拒绝时记录警告并继续关闭。Patchouli 校验当次 scope 与 prepared 的资源归属，越域时返回 `False`，不触发删除；已有话题、已有内容或已被 finalization continuation/submission queue 接管的话题同样不删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
 
 它不是 rollback，也不承诺撤销整个 prepare 之后发生的一切。跨子系统没有一项可以原子回滚的数据库事务；cleanup 只补偿明确由 prepare 创建、且仍可安全判断为空的临时副作用。将它描述为回滚会诱使调用方删除已经存在或已被其他流程使用的长期状态。
 
@@ -170,19 +177,21 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附
 
 | 能力组 | 当前公开行为 |
 |:---|:---|
-| Interaction | 提交 `InteractionPayload` 到指定或新话题；进入 submission lane 时由 `InteractionSubmission.identity_scope` 携带作用域 |
+| Interaction | 提交 `InteractionPayload` 到指定或新话题；进入 submission lane 时由 `InteractionSubmission.belong_to/from_actor` 独立携带归属与发起者 |
 | Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases；create/update 在提交边界生成完整版本记录（无历史不成功），无变化的编辑不创建版本 |
-| Memory Task | list/get/cancel |
+| Memory Task | 携带 `IdentityScope` 的 list/get/cancel；按 task 的 `belong_to` 检查归属，get/cancel 对越域与不存在统一抛 `ResourceNotFoundError` |
 | Agent Profile | 携带 `IdentityScope` 的 create/list/get |
 | Topic | 携带 `IdentityScope` 的 list active、topic data、manual settle、evict；Patchouli owner 拒绝越域 topic |
 | Citation | 记录 MTP READ/RUN 等来源的记忆引用 |
 | Readiness | 模型 warmup 与 ready 查询 |
 
-Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节），任务归属按 `IdentityScope` 投影判断，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；`IdentityScope` 用于确认访问归属，不构造另一套局部 ID 命名空间。
+Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节）。任务快照的 `belong_to` 必须等于 scope 的目标 Workspace，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；scope 在公共边界拆分，内部以 `belong_to + topic_id` 检查归属，不构造另一套局部 ID 命名空间。
+
+`MemoryGenerationTaskSpec`、只读快照 `MemoryGenerationTask` 与跨子系统请求 `PendingAtomMaterializeTask` 均独立保存必需的 `belong_to`、`from_actor`。WRITE/UPDATE 保留提交 Agent；手动、idle、LRU 和 shutdown SETTLE 统一使用 `system_actor_for_workspace(belong_to)`（owner 用户、保留的 system、无 Team），参与内容的 Agent 只记入贡献者，结算查重只看到本 Workspace 的 PUBLIC 记忆。`TopicMaterializeTask` 与 Topic lease 只保存资源归属，不保留最近访问者。
 
 ### 3.5 访问 context 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）只接收 `IdentityScope`，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成——workspace 能力层与任务进程的阶段检查先经 `WorkspaceOperationAuthorizer.authorize_operation(access, operation, target_workspace)` 授权，再把返回的 `IdentityScope` 交给 Patchouli 路由（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成——workspace 能力层与任务进程的阶段检查先经 `WorkspaceOperationAuthorizer.authorize_operation(access, operation, target_workspace)` 授权，再把返回的 `IdentityScope` 交给紧随的 Patchouli 路由；finalize 与 cleanup 分别绑定 `interaction.submit` 和 `resource.search`，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
@@ -295,7 +304,7 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 
 Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
 
-`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：`identity_scope` 是唯一身份来源，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不重复嵌入 scope。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
+`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不嵌入操作 scope。Interaction codec v3 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。apply journal 的摘要使用归属与包含 actor 的 TurnRecord，继续校验重放内容一致性。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
 `InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 

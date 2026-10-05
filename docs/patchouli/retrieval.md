@@ -13,14 +13,14 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-02
+last_reviewed: 2026-10-04
 ---
 
 # 记忆检索
 
 Retrieval 的职责是从当前可检索书库中找出候选记忆，而不是把候选直接写进 prompt，也不是替 Agent 判断哪条事实最终正确。它返回 `MemoryAtom[]` 与搜索元信息；MemoryCompiler 再根据主动 chat、MTP READ、子 Agent 共享或 embedding 等用途编译文本视图。
 
-每个 `RetrievalRequest` 必须携带 `IdentityScope`。Retrieval 将其作为 Workspace hard boundary 传给 MemoryLibrary，先限定请求 Workspace 的资源归属，再应用记忆自身的 actor read policy；检索文档不复制完整 Workspace 模型，身份坐标与资源寻址以[Workspace 架构](../architecture/workspace.md)为准。
+每个公共 `RetrievalRequest` 必须携带授权点组装的 `IdentityScope`。Patchouli 在公共应用服务边界把它转换为内部 `RetrievalQuery`，独立保存 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`；Familiar、Engine、Retriever 和 MemoryLibrary 不再传递 scope。读取先限定请求 Workspace 的资源归属，再应用记忆自身的 actor read policy；身份坐标与资源寻址以[Workspace 架构](../architecture/workspace.md)为准。
 
 这个分离修正了旧设计中的一个根本混淆：检索器应该优化“找什么、排多高”，编译器应该决定“给谁看、展示多少、用何种语言”。若 Retrieval 同时持有 renderer，任何 prompt 变化都会污染排序接口，其他消费者也只能重复实现一套记忆格式。
 
@@ -28,9 +28,9 @@ Retrieval 的职责是从当前可检索书库中找出候选记忆，而不是�
 
 ```text
 RetrievalRequest
+  -> MemoryManagementService（公共 owner 边界拆分 scope）
+       -> RetrievalQuery(belong_to, from_actor, business filters)
   -> RetrievalFamiliar
-       -> QueryFilters(business filters) + IdentityScope hard boundary
-       -> RetrievalQuery
   -> RetrievalEngine
   -> Dense / Sparse / Hybrid Retriever
        -> Qdrant MidTermMemoryStore.search
@@ -53,7 +53,7 @@ RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` �
 
 ### 2.2 中期记忆读取
 
-中期读取包括 UUID、alias、scroll/list 和相关性搜索。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存。只有未指定 Profile 时才允许使用内置 `OMNI_DOLL_PROFILE` fallback；`default` / `omni_doll` 是对该内置 Profile 的直接选择。显式自定义 alias 必须携带 `IdentityScope`，并先通过 Workspace ownership hard filter，再执行 Workspace 内的 PUBLIC / TEAM / PRIVATE actor policy；缺失、越权、类型不符、配置无效或存储失败都显式返回对应结构化错误。
+中期读取包括 UUID、alias、scroll/list 和相关性搜索，内部方法显式接收归属与发起者。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存。只有未指定 Profile 时才允许使用内置 `OMNI_DOLL_PROFILE` fallback；`default` / `omni_doll` 是对该内置 Profile 的直接选择。显式自定义 alias 在公共边界必须携带 `IdentityScope`，拆分后先通过 Workspace ownership hard filter，再执行 Workspace 内的 PUBLIC / TEAM / PRIVATE actor policy；缺失、越权、类型不符、配置无效或存储失败都显式返回对应结构化错误。
 
 ### 2.3 长期归档读取
 
@@ -61,9 +61,11 @@ Familiar 可查询 archive records 或检查 `is_archived`，但普通检索只�
 
 ## 3. 身份与可见性过滤
 
-RetrievalFamiliar 总是从 `RetrievalRequest.identity_scope` 构造安全基线，调用方 filters 只能补充 memory type、source agent 与 min confidence 等业务维度，不能替换身份或 Workspace 边界。
+安全基线在公共 owner 边界从 `RetrievalRequest.identity_scope` 拆出；prepare 等内部编排直接用已经拆分的归属与发起者构造查询。调用方 filters 只能补充 memory type、source agent 与 min confidence 等业务维度，不能替换身份或 Workspace 边界。
 
 Qdrant 当前先要求记忆的 `workspace_identity` 与请求 Workspace 完全匹配；归属只由 canonical owner/workspace 投影字段表达，对旧 main-workspace 记录的受控兼容分支已随存量迁移完成删除（不再存在 `meta.user_id` OR 分支与 legacy visibility 分支）。通过 ownership hard filter 后，再按记忆的 actor read policy 选择：`PUBLIC` 对 Workspace 内所有已获准执行者可读，`TEAM` 仅目标 team 可读，`PRIVATE` 仅目标 agent 可读。因而 `PUBLIC` 也不表示跨 Workspace 或跨用户公开。
+
+QdrantStorageAdapter 对 UUID、alias、scroll 与 search 返回的每个原子重验归属与读取策略，不能仅信任向量服务的过滤结果。`enforce_actor_visibility=False` 只用于已经授权的管理读取，预过滤与返回校验均跳过 actor policy，Workspace hard boundary 和业务过滤仍生效；Agent 检索与 Profile 解析不使用该开关。来源字段和贡献者筛选只是业务过滤，不构成读取授权。
 
 当前 converter 尚未把 `tags` 与 `time_range` 转为 Qdrant 条件；它们出现在模型中，但不是已经生效的过滤能力。文档和 API 不能仅因字段存在就宣称完整支持。
 
@@ -129,10 +131,10 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 - `tags`、`time_range` 尚未转换为 Qdrant filters；
 - Gateway keywords 尚未进入独立 sparse query；
 - Hybrid 子 retriever 虽有 enabled 开关，但关闭单路后当前 Hybrid 调用仍假定对象存在，非默认组合需要补齐 NoOp/分支处理；
-- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；
+- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；启用 reranker 时 Hybrid 不应用分数阈值（与代码注释相反），默认配置下 `RetrievalEngine` 的 0.75 默认阈值实际不生效，见 [Todo](../todo/retrieval-hybrid-threshold-with-reranker.md)；
 - 普通异常可能被投影为空结果，调用方只能通过观测区分；
 - 普通检索不搜索长期 archive，也不自动 revive；
 - 当前 retrieval response 主要暴露 atoms，`SearchResult.match_reason` 等解释元信息没有完整进入公共响应；
-- Workspace ownership hard filter 已由 Memory store/adapter 统一执行；Generation 的 dedup search 已沿同一 `IdentityScope` 调用链受该边界约束，但 Retrieval 的 actor policy 与多种 threshold 口径仍需继续收敛（legacy record 兼容已随存量迁移删除）。
+- Workspace ownership hard filter 与 actor policy 已由 Memory store/adapter 统一执行；Generation 的 dedup search 同样独立传入归属与发起者，SETTLE 使用无 Team 的保留 system actor，只能查重本域 PUBLIC 记忆；多种 threshold 口径仍需继续收敛（legacy record 兼容已随存量迁移删除）。
 
 修复这些缺口时应优先保持身份硬过滤和 Retrieval/Compiler 解耦，不能为了快速接入一个新字段而把 prompt 或跨系统状态重新塞回 retriever。

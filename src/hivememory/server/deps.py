@@ -99,8 +99,8 @@ def get_workspace_asset_service() -> WorkspaceAssetApplicationService:
 class RequestIdentitySelection:
     """用户导向身份选择 — 从统一请求头提取的顶层身份上下文。
 
-    基础选择为 ``user_id + workspace_id``；Agent 选择（``agent_id``）与
-    ``session_id`` 只由具体请求的 body/query 提供，不放在公共请求头里。
+    基础选择为 ``user_id + workspace_id``；Agent 选择（``agent_id``）
+    由具体请求的 body/query 提供。外部会话字段不参与身份选择。
     ``workspace_id`` 为 ``None`` 表示请求未显式选择 Workspace，由解析器
     在唯一回退点解析到公共默认 Workspace。
     """
@@ -218,7 +218,7 @@ class RequestIdentityClaims:
 
     server 在认证前只持有 actor 声明与请求进入的 workspace（不变量 1）；
     ``IdentityScope`` 在两阶段认证通过之后才由授权点组装，不由入口预先
-    冻结。``session_id`` 只是 ActorIdentity 的兼容字段，随声明进入认证。
+    冻结。外部会话信息不属于 ActorIdentity，也不进入认证声明。
     """
 
     actor: ActorIdentity
@@ -230,7 +230,6 @@ def resolve_request_identity_claims(
     *,
     require_agent: bool = False,
     agent_id: str | None = None,
-    session_id: str | None = None,
     explicit_user_id: str | None = None,
     explicit_workspace_id: str | None = None,
 ) -> RequestIdentityClaims:
@@ -259,7 +258,6 @@ def resolve_request_identity_claims(
         actor=ActorIdentity(
             user_id=user_id,
             agent_id=resolved_agent_id,
-            session_id=session_id,
         ),
         workspace=resolve_default_workspace_identity(user_id),
     )
@@ -270,7 +268,6 @@ def resolve_request_identity_scope(
     *,
     require_agent: bool = False,
     agent_id: str | None = None,
-    session_id: str | None = None,
     explicit_user_id: str | None = None,
     explicit_workspace_id: str | None = None,
 ) -> IdentityScope:
@@ -292,7 +289,6 @@ def resolve_request_identity_scope(
         actor_identity=ActorIdentity(
             user_id=user_id,
             agent_id=resolved_agent_id,
-            session_id=session_id,
         ),
         workspace_identity=resolve_default_workspace_identity(user_id),
     )

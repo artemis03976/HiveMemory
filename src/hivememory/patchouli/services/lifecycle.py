@@ -12,9 +12,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.core.models import (
-    IdentityScope,
     MemoryAtom,
-    require_identity_scope,
+    WorkspaceIdentity,
 )
 from hivememory.utils.uuid import normalize_uuid
 
@@ -70,12 +69,12 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         source: str = "system",
     ) -> Any:
         """记录一次命中事件。"""
         return await self.lifecycle_engine.record_hit(
-            require_identity_scope(identity_scope),
+            belong_to,
             normalize_uuid(memory_id),
             source=source,
         )
@@ -84,12 +83,12 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         source: str = "system",
     ) -> Any:
         """记录一次引用事件。"""
         return await self.lifecycle_engine.record_citation(
-            require_identity_scope(identity_scope),
+            belong_to,
             normalize_uuid(memory_id),
             source=source,
         )
@@ -98,13 +97,13 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         positive: bool,
         source: str = "user",
     ) -> Any:
         """记录用户反馈事件。"""
         return await self.lifecycle_engine.record_feedback(
-            require_identity_scope(identity_scope),
+            belong_to,
             normalize_uuid(memory_id),
             positive=positive,
             source=source,
@@ -114,11 +113,11 @@ class LifecycleFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> None:
         """从长期存储复活记忆到中期存储。"""
         await self._memory_library.revive(
-            require_identity_scope(identity_scope),
+            belong_to,
             normalize_uuid(memory_id),
         )
 

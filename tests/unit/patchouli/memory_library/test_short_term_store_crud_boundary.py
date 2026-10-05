@@ -48,9 +48,9 @@ def test_store_enforces_workspace_boundary_and_global_topic_identity():
     store = ShortTermMemoryStore()
     first_scope = make_identity_scope(user_id="u1", workspace_id="workspace-a")
     second_scope = make_identity_scope(user_id="u2", workspace_id="workspace-b")
-    topic = store.create(first_scope, topic_id="globally-unique")
+    topic = store.create(first_scope.workspace_identity, topic_id="globally-unique")
 
-    assert store.get(second_scope, topic.topic_id) is None
+    assert store.get(second_scope.workspace_identity, topic.topic_id) is None
     with pytest.raises(ValueError, match="another Workspace"):
         store.put(topic.model_copy(update={"workspace_identity": second_scope.workspace_identity}))
 
@@ -59,10 +59,10 @@ def test_store_enforces_workspace_boundary_and_global_topic_identity():
 def test_get_returns_frozen_snapshot_and_put_supports_write_back():
     store = ShortTermMemoryStore()
     scope = make_identity_scope()
-    topic = store.create(scope, topic_title="新建话题")
+    topic = store.create(scope.workspace_identity, topic_title="新建话题")
     store.put(_topic_with_block(topic, scope))
 
-    snapshot = store.get(scope, topic.topic_id)
+    snapshot = store.get(scope.workspace_identity, topic.topic_id)
     assert snapshot is not None
     assert snapshot.block_count == 1
     # frozen 模型：读取方无法原地修改，必须提交新快照
@@ -70,7 +70,7 @@ def test_get_returns_frozen_snapshot_and_put_supports_write_back():
         snapshot.topic_title = "mutated"
 
     store.put(snapshot.model_copy(update={"topic_title": "updated"}))
-    assert store.get(scope, topic.topic_id).topic_title == "updated"
+    assert store.get(scope.workspace_identity, topic.topic_id).topic_title == "updated"
 
 
 @pytest.mark.unit
@@ -78,10 +78,12 @@ def test_create_applies_default_title_and_explicit_title():
     store = ShortTermMemoryStore()
     scope = make_identity_scope()
 
-    default_topic = store.create(scope)
-    titled_topic = store.create(scope, topic_title="Session", topic_summary="sum")
+    default_topic = store.create(scope.workspace_identity)
+    titled_topic = store.create(
+        scope.workspace_identity, topic_title="Session", topic_summary="sum"
+    )
 
     assert default_topic.topic_title == "新建话题"
     assert titled_topic.topic_title == "Session"
     assert titled_topic.topic_summary == "sum"
-    assert store.count(scope) == 2
+    assert store.count(scope.workspace_identity) == 2

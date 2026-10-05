@@ -92,7 +92,8 @@ class DenseRetriever(BaseMemoryRetriever):
 
         try:
             raw_results = await self.mid_term.search(
-                query.identity_scope,
+                query.belong_to,
+                from_actor=query.from_actor,
                 query=search_text,
                 top_k=top_k,
                 filters=query.filters,
@@ -215,7 +216,8 @@ class SparseRetriever(BaseMemoryRetriever):
 
         try:
             raw_results = await self.mid_term.search(
-                query.identity_scope,
+                query.belong_to,
+                from_actor=query.from_actor,
                 query=search_text,
                 top_k=top_k,
                 filters=query.filters,

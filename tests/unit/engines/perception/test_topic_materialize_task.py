@@ -1,6 +1,6 @@
 """TopicMaterializeTask.from_topic_data() 转换边界单元测试。
 
-字段映射、Workspace/执行者作用域传递、binding 快照、worth_saving 过滤和
+字段映射、Workspace 归属传递、binding 快照、worth_saving 过滤和
 no-material 判断统一由该类方法负责；服务与调用方不得重复拼装。
 """
 
@@ -48,21 +48,20 @@ class TestFromTopicData:
         topic = _topic_data(scope, blocks=(_block("q1"),))
 
         task = TopicMaterializeTask.from_topic_data(
-            topic, identity_scope=scope, reason=TriggerReason.MANUAL_SETTLE
+            topic, belong_to=scope.workspace_identity, reason=TriggerReason.MANUAL_SETTLE
         )
 
         assert task is not None
         assert task.topic_id == "topic-1"
-        assert task.identity_scope is scope
-        assert task.workspace_identity == scope.workspace_identity
+        assert task.belong_to == scope.workspace_identity
         assert task.topic_title == "标题"
         assert task.topic_summary == "展示摘要"
         assert task.state_summary == ""
         assert task.reason is TriggerReason.MANUAL_SETTLE
         assert [b.turn.user_query for b in task.blocks] == ["q1"]
 
-    def test_identity_scope_passed_through_not_derived(self):
-        """执行者作用域来自调用方显式传入，而不是从 block 内容推导。
+    def test_workspace_belongs_to_explicit_owner_not_block_actor(self):
+        """归属来自调用方显式传入，而不是从 block 内容推导。
 
         历史 ``_build_settle_payload`` 会取最后一个 worth-saving block 的身份
         拼装作用域；该行为已删除，此测试防止回归。
@@ -72,12 +71,11 @@ class TestFromTopicData:
         topic = _topic_data(scope, blocks=(_block("q", user_id="someone_else"),))
 
         task = TopicMaterializeTask.from_topic_data(
-            topic, identity_scope=scope, reason=TriggerReason.IDLE_TIMEOUT
+            topic, belong_to=scope.workspace_identity, reason=TriggerReason.IDLE_TIMEOUT
         )
 
-        assert task.identity_scope == scope
-        assert task.identity_scope.actor_identity.user_id == "owner"
-        assert task.workspace_identity == scope.workspace_identity
+        assert task.belong_to == scope.workspace_identity
+        assert task.belong_to.owner_user_id == "owner"
 
     def test_worth_saving_false_blocks_are_filtered(self):
         scope = _identity_scope()
@@ -90,7 +88,7 @@ class TestFromTopicData:
         )
 
         task = TopicMaterializeTask.from_topic_data(
-            topic, identity_scope=scope, reason=TriggerReason.SHUTDOWN
+            topic, belong_to=scope.workspace_identity, reason=TriggerReason.SHUTDOWN
         )
 
         assert [b.turn.user_query for b in task.blocks] == ["keep"]
@@ -101,7 +99,7 @@ class TestFromTopicData:
 
         assert (
             TopicMaterializeTask.from_topic_data(
-                topic, identity_scope=scope, reason=TriggerReason.MANUAL_SETTLE
+                topic, belong_to=scope.workspace_identity, reason=TriggerReason.MANUAL_SETTLE
             )
             is None
         )
@@ -112,7 +110,7 @@ class TestFromTopicData:
 
         assert (
             TopicMaterializeTask.from_topic_data(
-                topic, identity_scope=scope, reason=TriggerReason.IDLE_TIMEOUT
+                topic, belong_to=scope.workspace_identity, reason=TriggerReason.IDLE_TIMEOUT
             )
             is None
         )
@@ -128,7 +126,7 @@ class TestFromTopicData:
 
         assert (
             TopicMaterializeTask.from_topic_data(
-                topic, identity_scope=scope, reason=TriggerReason.SHUTDOWN
+                topic, belong_to=scope.workspace_identity, reason=TriggerReason.SHUTDOWN
             )
             is None
         )
@@ -145,7 +143,7 @@ class TestFromTopicData:
         topic = _topic_data(scope, blocks=(_block("q"),), bindings=(binding,))
 
         task = TopicMaterializeTask.from_topic_data(
-            topic, identity_scope=scope, reason=TriggerReason.LRU_EVICTION
+            topic, belong_to=scope.workspace_identity, reason=TriggerReason.LRU_EVICTION
         )
 
         assert task.asset_bindings == (binding,)
@@ -155,7 +153,7 @@ class TestFromTopicData:
         topic = _topic_data(scope, blocks=(_block("q"),), state_summary="折叠历史")
 
         task = TopicMaterializeTask.from_topic_data(
-            topic, identity_scope=scope, reason=TriggerReason.IDLE_TIMEOUT
+            topic, belong_to=scope.workspace_identity, reason=TriggerReason.IDLE_TIMEOUT
         )
 
         assert task.state_summary == "折叠历史"

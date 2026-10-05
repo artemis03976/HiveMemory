@@ -147,45 +147,6 @@ async def test_same_workspace_different_team_caches_separately():
 
 
 @pytest.mark.asyncio
-async def test_session_id_does_not_fragment_cache():
-    """session_id 是兼容字段，不参与 cache key，不造成按会话碎片化。"""
-
-    class _ProfileBus:
-        def __init__(self) -> None:
-            self.load_count = 0
-
-        async def request(self, _route, alias, *, identity_scope):
-            del identity_scope
-            self.load_count += 1
-            return _loaded(AgentProfile(persona=f"{alias}:load-{self.load_count}"))
-
-    bus = _ProfileBus()
-    resolver = _resolver(bus)
-    with_session = make_identity_scope(
-        actor_identity=ActorIdentity(
-            user_id="u1",
-            agent_id="omni_doll",
-            session_id="sess-1",
-        ),
-        workspace_id="main_workspace",
-    )
-    other_session = make_identity_scope(
-        actor_identity=ActorIdentity(
-            user_id="u1",
-            agent_id="omni_doll",
-            session_id="sess-2",
-        ),
-        workspace_id="main_workspace",
-    )
-
-    first = await resolver.resolve("coder_doll", identity_scope=with_session)
-    second = await resolver.resolve("coder_doll", identity_scope=other_session)
-
-    assert second is first
-    assert bus.load_count == 1
-
-
-@pytest.mark.asyncio
 async def test_missing_profile_failure_is_not_cached():
     """Profile 缺失错误不进入缓存，同一坐标随后可重新加载并缓存。"""
     loads: list[ResolvedAgentProfile | None] = [None]

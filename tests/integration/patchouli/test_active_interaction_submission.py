@@ -73,12 +73,12 @@ def _prepared(
     is_new: bool = False,
     memories: list[MemoryAtom] | None = None,
 ) -> PreparedAgentRun:
-    identity = ActorIdentity(user_id="u1", agent_id="a1", session_id="session-1")
+    identity = ActorIdentity(user_id="u1", agent_id="a1")
     identity_scope = make_identity_scope(
         actor_identity=identity,
     )
     return PreparedAgentRun(
-        identity_scope=identity_scope,
+        belong_to=(identity_scope).workspace_identity,
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=is_new,
@@ -93,7 +93,8 @@ def _write_task() -> PendingAtomMaterializeTask:
         pending_alias="draft_active",
         intent_id="intent_active",
         source_verb="WRITE",
-        identity_scope=make_memory_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=(make_memory_identity_scope(user_id="u1", agent_id="a1")).workspace_identity,
+        from_actor=(make_memory_identity_scope(user_id="u1", agent_id="a1")).actor_identity,
         focus=WriteFocus(content="remember this"),
     )
 
@@ -120,7 +121,9 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def apply(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         calls.append("apply_started")
         apply_started.set()
         await release_apply.wait()
@@ -143,7 +146,11 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         submit_spy = AsyncMock(wraps=queue.submit)
         queue.submit = submit_spy
         await queue.start()
-        finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, payload))
+        finalize_task = asyncio.create_task(
+            service.finalize_agent_run(
+                prepared, payload, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+            )
+        )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
         assert calls == ["apply_started"]
 
@@ -155,7 +162,10 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         # finalize 把收到的 payload 原样提交给交互提交队列。
         assert submission.payload is payload
         assert submission.origin == "active_chat"
-        assert submission.identity_scope == prepared.identity_scope
+        assert submission.belong_to == prepared.belong_to
+        assert (
+            submission.from_actor == make_identity_scope(user_id="u1", agent_id="a1").actor_identity
+        )
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply", "materialize"]
@@ -163,7 +173,9 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         assert dispatched_tasks == payload.materialize_tasks
 
         # 重复 finalize 复用原 work，interaction apply 不会再次执行。
-        await service.finalize_agent_run(prepared, payload)
+        await service.finalize_agent_run(
+            prepared, payload, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+        )
         assert calls.count("apply_started") == 1
         # finalize 可重新 dispatch；真正的幂等复用由下游 intent_id 边界保证。
         assert calls.count("materialize") == 2
@@ -199,6 +211,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
             service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
+                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
         )
 
@@ -215,7 +228,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
 
     record_hit_mock.assert_awaited_once_with(
         memory.id,
-        identity_scope=prepared.identity_scope,
+        belong_to=prepared.belong_to,
         source="retrieval.finalize",
     )
 
@@ -242,6 +255,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
                 _sealed_payload(
                     materialize_tasks=[_write_task()],
                 ),
+                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
     finally:
         await queue.stop()
@@ -252,8 +266,8 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
     materialize.assert_not_awaited()
     record_hit.assert_not_awaited()
     discard.assert_awaited_once_with(
-        "topic-1",
-        identity_scope=prepared.identity_scope,
+        topic_id="topic-1",
+        belong_to=prepared.belong_to,
     )
 
 
@@ -264,7 +278,13 @@ async def test_queue_shutdown_returns_explicit_active_finalize_error() -> None:
     service = PatchouliService(PatchouliBus(), interaction_queue=queue)
     prepared = _prepared()
 
-    finalize_task = asyncio.create_task(service.finalize_agent_run(prepared, _sealed_payload()))
+    finalize_task = asyncio.create_task(
+        service.finalize_agent_run(
+            prepared,
+            _sealed_payload(),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        )
+    )
     for _ in range(20):
         if await queue.is_accepted(prepared.interaction_id):
             break
@@ -294,10 +314,18 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
 
     await queue.submit(
         InteractionSubmission(
-            identity_scope=make_identity_scope(
-                user_id="u1",
-                agent_id="a1",
-            ),
+            belong_to=(
+                make_identity_scope(
+                    user_id="u1",
+                    agent_id="a1",
+                )
+            ).workspace_identity,
+            from_actor=(
+                make_identity_scope(
+                    user_id="u1",
+                    agent_id="a1",
+                )
+            ).actor_identity,
             interaction_id="passive-pending",
             payload=InteractionPayload(
                 user_message="passive question",
@@ -317,6 +345,7 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
                 _sealed_payload(
                     materialize_tasks=[_write_task()],
                 ),
+                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
 
         assert exc_info.value.stage == "interaction_admission"
@@ -324,10 +353,15 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         materialize.assert_not_awaited()
         apply.assert_not_awaited()
 
-        assert await service.cleanup_prepared_agent_run(prepared) is True
+        assert (
+            await service.cleanup_prepared_agent_run(
+                prepared, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+            )
+            is True
+        )
         discard.assert_awaited_once_with(
-            prepared.topic_id,
-            identity_scope=prepared.identity_scope,
+            topic_id=prepared.topic_id,
+            belong_to=prepared.belong_to,
         )
     finally:
         await queue.stop()
@@ -338,7 +372,9 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def apply(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         apply_started.set()
         await release_apply.wait()
         return target_topic_id
@@ -362,6 +398,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
                 _sealed_payload(
                     materialize_tasks=[_write_task()],
                 ),
+                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -369,7 +406,12 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         with pytest.raises(asyncio.CancelledError):
             await finalize_task
 
-        assert await service.cleanup_prepared_agent_run(prepared) is False
+        assert (
+            await service.cleanup_prepared_agent_run(
+                prepared, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+            )
+            is False
+        )
         discard.assert_not_awaited()
 
         release_apply.set()
@@ -389,7 +431,9 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
     apply_started = asyncio.Event()
     release_apply = asyncio.Event()
 
-    async def apply(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def apply(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         apply_started.set()
         await release_apply.wait()
         raise ConnectionError("interaction store unavailable")
@@ -407,6 +451,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
             service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
+                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -414,7 +459,12 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
         with pytest.raises(asyncio.CancelledError):
             await finalize_task
 
-        assert await service.cleanup_prepared_agent_run(prepared) is False
+        assert (
+            await service.cleanup_prepared_agent_run(
+                prepared, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+            )
+            is False
+        )
 
         release_apply.set()
         await service.drain_active_finalizations()
@@ -423,8 +473,8 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
         await queue.stop()
 
     discard.assert_awaited_once_with(
-        prepared.topic_id,
-        identity_scope=prepared.identity_scope,
+        topic_id=prepared.topic_id,
+        belong_to=prepared.belong_to,
     )
 
 
@@ -454,6 +504,7 @@ async def test_post_apply_materialization_failure_isolated_from_chat() -> None:
             _sealed_payload(
                 materialize_tasks=[_write_task()],
             ),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         )
     finally:
         await queue.stop()
@@ -486,6 +537,7 @@ async def test_pending_atom_failure_publish_does_not_reopen_chat_outcome() -> No
             _sealed_payload(
                 materialize_tasks=[_write_task()],
             ),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         )
     finally:
         await queue.stop()
@@ -509,6 +561,7 @@ async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
         result = await service.finalize_agent_run(
             _prepared(memories=[_memory()]),
             _sealed_payload(),
+            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
         )
         await service.drain_active_finalizations()
     finally:

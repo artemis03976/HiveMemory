@@ -12,7 +12,7 @@ HiveMemory - 帕秋莉感知引擎 (Perception Engine / MMU 算法层)
 
 核心组件:
     - MemoryPerceptionEngine: 无状态摄入算法引擎（纯函数）
-    - TriggerReason / FlushEvent / TopicMaterializeTask: 触发与交接协议模型
+    - TriggerReason / TopicMaterializeTask: 触发与交接协议模型
     - BaseRelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
 
 参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
@@ -25,7 +25,6 @@ from hivememory.engines.perception.memory_perception_engine import (
     MemoryPerceptionEngine,
 )
 from hivememory.engines.perception.models import (
-    FlushEvent,
     LogicalBlock,
     TopicMaterializeTask,
     TraceItem,
@@ -45,7 +44,6 @@ __all__ = [
     # 数据模型
     "TraceItem",
     "LogicalBlock",
-    "FlushEvent",
     "TriggerReason",
     "TopicMaterializeTask",
     # 接力控制器 / Page Folding 摘要生成器

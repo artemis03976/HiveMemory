@@ -22,7 +22,12 @@ class WorkPayloadCodec[PayloadT](Protocol):
     """在业务 DTO 与指定版本 JSON value 之间进行双向投影。"""
 
     kind: str
-    schema_version: int
+
+    @property
+    def schema_version(self) -> int | str:
+        """版本按原值匹配；小版本使用字符串，避免浮点编号丢失精度。"""
+
+        ...
 
     def encode(self, payload: PayloadT) -> object:
         """把业务输入投影为仅包含 JSON 基础类型的值。"""
@@ -62,6 +67,17 @@ def validate_payload_bytes(payload: object) -> None:
         raise TypeError("work payload must be bytes")
 
 
+def validate_schema_version(schema_version: object) -> None:
+    """兼容正整数与非空字符串版本，不隐式转换或合并不同编号。"""
+    if isinstance(schema_version, bool) or not isinstance(schema_version, (int, str)):
+        raise TypeError("schema_version must be an integer or a non-blank string")
+    if isinstance(schema_version, int):
+        if schema_version < 1:
+            raise ValueError("schema_version must be at least 1")
+    elif not schema_version.strip():
+        raise ValueError("schema_version must not be blank")
+
+
 def decode_canonical_json(payload: bytes) -> JsonValue:
     """解析 UTF-8 JSON bytes，每次调用都返回新的容器对象。
 
@@ -85,7 +101,7 @@ class WorkPayloadCodecRegistry:
     """按 ``kind + schema_version`` 注册并调用业务 payload codec。"""
 
     def __init__(self) -> None:
-        self._codecs: dict[tuple[str, int], WorkPayloadCodec[Any]] = {}
+        self._codecs: dict[tuple[str, int | str], WorkPayloadCodec[Any]] = {}
 
     def register(self, codec: WorkPayloadCodec[Any]) -> None:
         """注册一个版本化 codec；同一契约键不允许覆盖。"""
@@ -94,10 +110,7 @@ class WorkPayloadCodecRegistry:
         schema_version = codec.schema_version
         if not isinstance(kind, str) or not kind.strip():
             raise ValueError("payload codec kind must not be blank")
-        if not isinstance(schema_version, int) or isinstance(schema_version, bool):
-            raise TypeError("payload codec schema_version must be an integer")
-        if schema_version < 1:
-            raise ValueError("payload codec schema_version must be at least 1")
+        validate_schema_version(schema_version)
 
         key = (kind, schema_version)
         if key in self._codecs:
@@ -106,12 +119,12 @@ class WorkPayloadCodecRegistry:
             )
         self._codecs[key] = codec
 
-    def require(self, kind: str, schema_version: int) -> None:
+    def require(self, kind: str, schema_version: int | str) -> None:
         """确认 work item 对应的 codec 已在当前 runtime 注册。"""
 
         self._codec_for(kind, schema_version)
 
-    def encode(self, kind: str, schema_version: int, payload: object) -> bytes:
+    def encode(self, kind: str, schema_version: int | str, payload: object) -> bytes:
         """通过业务 codec 创建稳定且与源对象脱钩的 JSON bytes。"""
 
         codec = self._codec_for(kind, schema_version)
@@ -120,7 +133,7 @@ class WorkPayloadCodecRegistry:
         except Exception as error:
             raise WorkPayloadEncodeError(kind, schema_version) from error
 
-    def decode(self, kind: str, schema_version: int, payload: bytes) -> Any:
+    def decode(self, kind: str, schema_version: int | str, payload: bytes) -> Any:
         """为单次 handler attempt 解码一份新的业务 payload。"""
 
         codec = self._codec_for(kind, schema_version)
@@ -129,7 +142,8 @@ class WorkPayloadCodecRegistry:
         except Exception as error:
             raise WorkPayloadDecodeError(kind, schema_version) from error
 
-    def _codec_for(self, kind: str, schema_version: int) -> WorkPayloadCodec[Any]:
+    def _codec_for(self, kind: str, schema_version: int | str) -> WorkPayloadCodec[Any]:
+        validate_schema_version(schema_version)
         codec = self._codecs.get((kind, schema_version))
         if codec is None:
             raise UnknownWorkPayloadCodecError(kind, schema_version)
@@ -144,4 +158,5 @@ __all__ = [
     "decode_canonical_json",
     "encode_canonical_json",
     "validate_payload_bytes",
+    "validate_schema_version",
 ]

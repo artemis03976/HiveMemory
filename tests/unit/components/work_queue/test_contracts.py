@@ -14,6 +14,7 @@ from hivememory.components.work_queue import (
     FailureAction,
     FailureDecision,
     QueuePolicy,
+    WorkExecutionContext,
     WorkItem,
     WorkRecord,
     WorkState,
@@ -108,6 +109,43 @@ def test_work_record_keeps_runtime_state_outside_work_item() -> None:
 
     assert record.work_id == item.work_id
     assert record.lane == item.lane
+
+
+@pytest.mark.parametrize("schema_version", ["1.1", "1.10"])
+def test_work_envelope_and_execution_context_preserve_string_schema_version(
+    schema_version: str,
+) -> None:
+    """工作信封到执行上下文保持小版本原值，不将版本编号转换成浮点数。"""
+    item = WorkItem(
+        work_id="minor-version-work",
+        lane="example",
+        kind="example",
+        schema_version=schema_version,
+        payload=b"{}",
+    )
+    context = WorkExecutionContext(
+        work_id=item.work_id,
+        lane=item.lane,
+        kind=item.kind,
+        schema_version=item.schema_version,
+        attempt_count=1,
+    )
+
+    assert item.schema_version == schema_version
+    assert context.schema_version == schema_version
+
+
+@pytest.mark.parametrize("schema_version", ["", " "])
+def test_work_item_rejects_blank_string_schema_version(schema_version: str) -> None:
+    """字符串版本仍须有明确编号，空白不能成为 codec 的选择依据。"""
+    with pytest.raises(ValueError, match="schema_version"):
+        WorkItem(
+            work_id="blank-version-work",
+            lane="example",
+            kind="example",
+            schema_version=schema_version,
+            payload=b"{}",
+        )
 
 
 @pytest.mark.parametrize(

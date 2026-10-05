@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-04
 ---
 
 # 记忆生成
@@ -23,7 +23,7 @@ last_reviewed: 2026-09-30
 
 当前设计因此保留三种生成模式，并把“构造任务”“执行生成”“写 artifacts 和持久化”“发布任务/settlement 终态”拆成不同层。生成不再是 Perception 的一个回调，也不再由一个 LibrarianCore 同时管理计算与后台任务。
 
-每个 `MemoryGenerationTaskSpec` 都携带创建任务时冻结的 `IdentityScope` 和 `topic_id`；Generation 只在该作用域内读取、去重和写入 Memory，不从进程当前上下文重新推导 Workspace。WorkspaceAsset 仍由 System 所有，Generation 只接收 settlement 交接中已经冻结的资产绑定事实，不拥有资产状态机。
+每个 `MemoryGenerationTaskSpec` 都独立携带创建任务时冻结的 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 和 `topic_id`；任务快照沿用相同字段，不保存 `IdentityScope` 或访问 context。Generation 先限定资源归属，再按发起者读取策略查重，不从进程当前上下文重新推导 Workspace 或权限。WorkspaceAsset 不属于 Generation，生成链只接收 settlement 交接中已经冻结的资产绑定事实；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)。
 
 提取阶段选择 LLM 而不是固定规则，是因为“是否值得长期保存”以及如何把自然语言重组为 title、summary、content 与 tags，本质上依赖跨表达方式的语义判断；只靠关键词或消息计数会把调用方措辞固化成记忆结构。代价是延迟、成本与非确定性，因此它被放在后台冷路径，并为显式 WRITE 保留确定性的 fallback；LLM 可以提出记忆草稿，但不能独自决定任务终态、持久化成功或用户承诺。
 
@@ -79,7 +79,11 @@ GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生�
 
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内。它仍作为 Patchouli 后台 memory task 执行。
 
-四种 settle 入口（manual / idle / LRU / shutdown）共享同一来源裁定：结算没有具体 Agent 作为操作来源主体，新建 Memory 的 `source_agent_id` 写入保留 `SYSTEM_AGENT_ID`（creation intent 为 `SYSTEM`），实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。版本更新（dedup 合并、Mode C）保留已有 `meta.provenance` 的来源主体字段，并把本次生成的贡献者并入已有集合，合并结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
+四种 settle 入口（manual / idle / LRU / shutdown）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或驱逐触发者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 查重限定为本 Workspace 的 PUBLIC 记忆，避免后台结算触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
+
+Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。WRITE/UPDATE 保留物化意图的 `from_actor`，按该 actor 的普通 PUBLIC/TEAM/PRIVATE 可见性读取，不能沿用 SETTLE 的 system 身份。版本更新（dedup 合并、Mode C）保留已有 `meta.provenance` 的来源主体字段，并把本次生成的贡献者并入已有集合，合并结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
+
+四种触发的发起者、SETTLE/WRITE 查重可见性与完整空闲结算持久化由[结算身份集成测试](../../tests/integration/patchouli/test_settlement_identity.py)验证。
 
 ### 3.2 Mode B：主动 WRITE
 
@@ -123,7 +127,7 @@ MemoryGenerationFamiliar 执行：
 4. 执行 MidTerm `upsert(atom, recompute_vectors=<embedding 输入是否变化>)`；TOUCH 走受限 `patch_payload`；
 5. 把 outcome 投影为 `MemoryGenerationResult` 与可选 PendingAtomSettlement，并通知变更。
 
-`InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。当前 Generation/Artifact 链只把结构化交互和记忆版本写入各自 Artifact，尚未在这条链路中读取或持久化 WorkspaceAsset 内容。
+`InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。CREATE/UPDATE 持久化后，Familiar 通过注入的 `WorkspaceAssetMaterializationReaderPort`，按归属与 `asset_ref` 租借 READY representation、创建独立 DocumentArtifact 并释放租借；失败按 best-effort 跳过，不回滚已提交的 Memory。该端口不携带 actor 或 scope，Store 的既有访问接口适配由组合根承担；详情见[Artifacts 与来源追踪](./artifacts.md)。
 
 **版本记录是提交成功的前置条件**：版本存储关闭（NoOp builder）或构建失败时任务直接失败，不发布无历史的新 canonical；canonical upsert 失败同样使任务失败，已写入的版本记录保留为孤立 Artifact。`recompute_vectors` 由提交前后 embedding 输入（index 的 title/memory_type/tags/summary）对比决定，仅 `payload.agent_config` 等非 embedding 变化不重算向量。详见[Artifacts 与来源追踪](./artifacts.md)。
 
@@ -151,6 +155,8 @@ spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 re
 ```text
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 ```
+
+私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.1"`，`spec` 独立编码归属与发起者，只注册当前版本。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`；版本化载荷用于进程内冻结和一致性校验，不代表已有持久化队列或旧任务迁移能力。
 
 `WorkRecord` 是执行状态的唯一真相源，Queue 的 `TaskHandle` 提供 snapshot/wait/cancel；
 TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。
@@ -201,7 +207,7 @@ continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不�
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；
 - 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；
-- Mode A/B 去重仍只取 dense top-1；检索调用链携带 `IdentityScope`，由 Memory store 的 Workspace ownership hard filter 约束候选范围，其他去重策略限制仍待收敛；
+- Mode A/B 去重仍只取 dense top-1；检索调用链独立携带归属与发起者，Memory store/adapter 先强制 Workspace ownership hard filter，再重验 actor policy；其他去重策略限制仍待收敛；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。

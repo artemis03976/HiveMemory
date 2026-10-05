@@ -1,7 +1,8 @@
-"""Memory Task 路由 — GET/DELETE /api/v1/memory-tasks"""
+"""Memory Task 路由 — 查询与取消 /api/v1/memory-tasks。"""
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.server.deps import RequestAccess, get_memory_task_service, get_request_access
 from hivememory.server.models.memory_task import MemoryTaskListResponse, MemoryTaskResponse
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
@@ -31,13 +32,15 @@ async def get_memory_task(
     request_access: RequestAccess = Depends(get_request_access),
 ) -> MemoryTaskResponse:
     """读取单个记忆生成任务（观察绑定 ``task.observe``）。"""
-    memory_task = await service.get_memory_task(
-        task_id,
-        target_workspace=request_access.target_workspace,
-        access=request_access.access,
-    )
-    if memory_task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    try:
+        memory_task = await service.get_memory_task(
+            task_id,
+            target_workspace=request_access.target_workspace,
+            access=request_access.access,
+        )
+    except ResourceNotFoundError as exc:
+        # 资源 owner 将不存在与越域统一隐藏；传输层保持同一 404 响应。
+        raise HTTPException(status_code=404, detail="task not found") from exc
     return MemoryTaskResponse.from_domain(memory_task)
 
 
@@ -48,18 +51,20 @@ async def cancel_memory_task(
     request_access: RequestAccess = Depends(get_request_access),
 ) -> MemoryTaskResponse:
     """取消记忆生成任务（取消绑定 ``management.task``，观察不授予取消）。"""
-    ok = await service.cancel_memory_task(
-        task_id,
-        target_workspace=request_access.target_workspace,
-        access=request_access.access,
-    )
-    if not ok:
-        raise HTTPException(status_code=404, detail="task not found")
-    memory_task = await service.get_memory_task(
-        task_id,
-        target_workspace=request_access.target_workspace,
-        access=request_access.access,
-    )
-    if memory_task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    try:
+        ok = await service.cancel_memory_task(
+            task_id,
+            target_workspace=request_access.target_workspace,
+            access=request_access.access,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="task not found")
+        memory_task = await service.get_memory_task(
+            task_id,
+            target_workspace=request_access.target_workspace,
+            access=request_access.access,
+        )
+    except ResourceNotFoundError as exc:
+        # 取消前校验和取消后投影都可能报告 not found，不暴露其他 Workspace。
+        raise HTTPException(status_code=404, detail="task not found") from exc
     return MemoryTaskResponse.from_domain(memory_task, reason="user_requested")

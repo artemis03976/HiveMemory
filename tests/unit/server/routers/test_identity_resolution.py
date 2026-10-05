@@ -56,15 +56,18 @@ class TestResolveRequestIdentityClaims:
         assert claims.actor.user_id == "default"
         assert claims.workspace.workspace_id == "main_workspace"
 
-    def test_session_id_travels_with_actor_claims(self):
+    def test_agent_claims_contain_only_actor_coordinates(self):
+        """声明解析只保留 actor 坐标，外部会话不属于身份或认证输入。"""
         claims = resolve_request_identity_claims(
             RequestIdentitySelection(user_id="u1", workspace_id=None),
             require_agent=True,
             agent_id="omni_doll",
-            session_id="session-1",
         )
-        assert claims.actor.agent_id == "omni_doll"
-        assert claims.actor.session_id == "session-1"
+        assert claims.actor.model_dump() == {
+            "user_id": "u1",
+            "agent_id": "omni_doll",
+            "team_id": None,
+        }
 
     def test_claims_resolution_does_not_assemble_identity_scope(self):
         """不变量 1：认证前的声明解析不产出 IdentityScope。"""

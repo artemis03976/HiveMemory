@@ -648,7 +648,7 @@ Import Bus 已排除在现有系统之外（5.8），本问题随其独立演进
 
 ## 12. 第三部分前提（owner 提出）
 
-> 2026-10-03：认证与授权流程中流动的身份数据（actor 身份、访问 context、`IdentityScope` 与资源身份）独立为[身份与访问体系 Idea](./identity-and-access-model.md)。本部分继续讨论流程本身；两者冲突时，身份数据的界定以该 Idea 为准。
+> 2026-10-03：认证与授权流程中流动的身份数据（actor 身份、访问 context、`IdentityScope` 与资源身份；2026-10-04 起资源一侧改为资源归属，见该 Idea I-6）独立为[身份与访问体系 Idea](./identity-and-access-model.md)。本部分继续讨论流程本身；两者冲突时，身份数据的界定以该 Idea 为准。
 
 1. 前两部分的架构流向问题解决后，workspace 将成为唯一的集中交互能力提供者，system 的 server 层也只是它的消费者。System 层面的 API 除外，见 15.3。
 2. 借由唯一的任务请求注册入口进行两阶段身份认证：

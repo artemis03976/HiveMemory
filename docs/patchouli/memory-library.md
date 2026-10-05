@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-04
 ---
 
 # MemoryLibrary 与存储层
@@ -38,7 +38,7 @@ MemoryLibrary
 
 短期存储保存 Topic 记录，是纯 CRUD 的存储事实封装：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算与最近模型名。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
 
-`topic_id` 是领域上的全局唯一身份；调用方通过 `IdentityScope + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。写入同一 `topic_id` 到另一 Workspace 会被 adapter 以全局唯一性检查拒绝。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
+`topic_id` 是领域上的全局唯一身份；内部调用方通过 `belong_to: WorkspaceIdentity + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。公共 owner 边界从授权 scope 拆出归属，短期 Store 不接收 actor 或 `IdentityScope`。写入同一 `topic_id` 到另一 Workspace 会被 adapter 以全局唯一性检查拒绝。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
 
 感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
 
@@ -49,6 +49,10 @@ MemoryLibrary
 ### 1.2 中期：当前可检索书库
 
 中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
+
+Actor 读取（UUID、alias、scroll 与 search）独立接收 `belong_to` 和必填 `from_actor`，先检查资源归属，再应用 `MemoryAccessPolicy`。Qdrant 条件只是预过滤，adapter 在返回对象前再次校验归属与 actor 可见性；管理读取可以显式关闭 actor policy，但不能关闭归属校验。已获管理授权的内容编辑、删除、生命周期 patch 与按复合键读取只按资源归属定位，不把来源 Agent 当作授权条件，也不在 Store 内重组 `IdentityScope`。
+
+管理编辑 PRIVATE 记忆的真实公开/本地路由与存储协作见[编辑路由集成测试](../../tests/integration/patchouli/test_memory_management_edit_route.py)；归属和 actor 可见性回归见[Workspace 隔离集成测试](../../tests/integration/patchouli/test_memory_workspace_isolation.py)。
 
 持久化 payload 的读取统一经 `decode_memory_payload` 规范化，只接受 Memory schema `"2.1"`（其他版本 fail closed；整数 `2` 的兼容解码分支已随 2026-09-23 全量迁移完成而删除，迁移执行记录见[归档 Plan](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)附录 B.5）。
 
@@ -70,6 +74,8 @@ ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文
 
 详细模型与一致性边界见[Artifacts 与来源追踪](./artifacts.md)。
 
+Artifact 的 get、exists、list 与 verify 只接收 `belong_to`；ref 中的归属、索引与文件内归属必须一致。归属不能从 turn actor 或 provenance 推导，历史 actor 中的 session 字段也不影响资源寻址。
+
 ## 2. 状态转移
 
 ### 2.1 短期到中期
@@ -90,10 +96,10 @@ TopicData 快照
 ### 2.2 中期到长期：archive
 
 ```text
-mid_term.get(memory_id)
+mid_term.get_by_key(WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id))
   -> append ARCHIVED event
   -> long_term.persist(memory)
-  -> mid_term.delete(memory_id)
+  -> mid_term.delete(belong_to, memory_id)
 ```
 
 Lifecycle 的 garbage collector 只筛选候选并调用 `MemoryLibrary.archive()`，不会直接操作两个 store。若中期不存在目标，archive 抛出 `ValueError`。
@@ -101,10 +107,10 @@ Lifecycle 的 garbage collector 只筛选候选并调用 `MemoryLibrary.archive(
 ### 2.3 长期到中期：revive
 
 ```text
-long_term.load(memory_id)
+long_term.load(belong_to, memory_id)
   -> append REVIVED event
   -> mid_term.upsert(memory, recompute_vectors=True)
-  -> long_term.remove(memory_id)
+  -> long_term.remove(belong_to, memory_id)
 ```
 
 Revive 当前由 Patchouli local route 暴露给内部用例。它是显式状态转移，不是普通 Retrieval 的自动 cache miss 行为；搜索不到某条记忆时，系统不会自动扫描冷藏库并复活。

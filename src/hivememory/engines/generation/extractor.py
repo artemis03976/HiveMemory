@@ -131,7 +131,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
         Args:
             transcript: 格式化的对话文本
-            metadata: 模式相关的生成元信息（身份归属一律由 IdentityScope
+            metadata: 模式相关的生成元信息（身份归属一律由 WorkspaceIdentity
                 承载，不在此传递），实际调用包含:
                 - mode: 生成模式（"write" / "update"）
                 - write_content / write_reason: Mode B WRITE 指令内容与理由

@@ -12,7 +12,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from enum import StrEnum
 
-from hivememory.core.models import IdentityScope, LogicalBlock, WorkspaceAssetRef
+from hivememory.core.models import LogicalBlock, WorkspaceAssetRef, WorkspaceIdentity
 from hivememory.engines.perception.models import TopicMaterializeTask
 
 
@@ -20,7 +20,7 @@ def compute_apply_digest(
     block: LogicalBlock,
     asset_refs: tuple[WorkspaceAssetRef, ...],
     model_used: str | None,
-    identity_scope: IdentityScope,
+    belong_to: WorkspaceIdentity,
 ) -> str:
     """计算一次 Interaction apply 的稳定输入摘要。
 
@@ -35,7 +35,7 @@ def compute_apply_digest(
     canonical = {
         # Workspace 是 Store apply 的寻址边界；只依赖 block 内的 actor identity
         # 会把同一 interaction 在不同 Workspace 的提交误判为等价 retry。
-        "identity_scope": identity_scope.model_dump(mode="json"),
+        "belong_to": belong_to.model_dump(mode="json"),
         "turn": turn_dump,
         "total_tokens": block.total_tokens,
         "worth_saving": block.worth_saving,

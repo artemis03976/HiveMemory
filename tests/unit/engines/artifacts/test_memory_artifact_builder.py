@@ -84,8 +84,8 @@ async def test_build_for_create_persists_scoped_artifacts_and_links_initial_vers
     )
 
     assert isinstance(bundle, MemoryCreationBundle)
-    version = await store.get(identity_scope, bundle.initial_version_ref)
-    creation = await store.get(identity_scope, bundle.creation_ref)
+    version = await store.get(identity_scope.workspace_identity, bundle.initial_version_ref)
+    creation = await store.get(identity_scope.workspace_identity, bundle.creation_ref)
     assert version["artifact_type"] == ArtifactType.MEMORY_VERSION.value
     assert creation["artifact_type"] == ArtifactType.MEMORY_CREATION.value
     assert version["schema_version"] == "2"
@@ -128,7 +128,7 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
         changelog="Updated reason",
     )
 
-    data = await store.get(identity_scope, ref)
+    data = await store.get(identity_scope.workspace_identity, ref)
     assert data["artifact_type"] == ArtifactType.MEMORY_VERSION.value
     assert data["version_number"] == 3
     assert data["update_source"] == "MERGE"
@@ -159,8 +159,8 @@ async def test_build_for_create_allows_reserved_system_source_for_settlement(sto
         source_artifact_refs=[],
     )
 
-    version = await store.get(identity_scope, bundle.initial_version_ref)
-    creation = await store.get(identity_scope, bundle.creation_ref)
+    version = await store.get(identity_scope.workspace_identity, bundle.initial_version_ref)
+    creation = await store.get(identity_scope.workspace_identity, bundle.creation_ref)
     assert version["provenance"]["source_agent_id"] == SYSTEM_AGENT_ID
     assert creation["provenance"]["source_agent_id"] == SYSTEM_AGENT_ID
     assert version["provenance"]["contributing_agent_ids"] == []
@@ -193,4 +193,4 @@ async def test_builder_rejects_source_ref_from_another_workspace(store, identity
             source_artifact_refs=[source],
         )
 
-    assert await store.list_by_memory(identity_scope, str(atom.id)) == []
+    assert await store.list_by_memory(identity_scope.workspace_identity, str(atom.id)) == []

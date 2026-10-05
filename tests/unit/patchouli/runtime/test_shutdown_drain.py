@@ -12,6 +12,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
     summarize_shutdown_drain_perception,
     summarize_shutdown_drain_result,
 )
+from tests.helpers.workspace import make_identity_scope
 
 
 def test_summarize_shutdown_drain_result_uses_counts_only():
@@ -28,6 +29,8 @@ def test_summarize_shutdown_drain_result_uses_counts_only():
                 label="timeout",
                 source=MemoryGenerationSource.WRITE,
                 status=MemoryGenerationTaskStatus.RUNNING,
+                belong_to=make_identity_scope().workspace_identity,
+                from_actor=make_identity_scope().actor_identity,
             )
         ]
     )

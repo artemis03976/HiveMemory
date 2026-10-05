@@ -2,19 +2,56 @@
 
 import pytest
 
+from hivememory.core.models import LogicalBlock, TurnRecord
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
     InteractionApplyStage,
+    compute_apply_digest,
 )
 from tests.helpers.memory import make_memory_identity_scope
+
+
+def test_apply_digest_ignores_retry_generated_ids_and_timestamps() -> None:
+    """重试时重建的随机标识与时间不应被误判为不同交互。"""
+    scope = make_memory_identity_scope()
+    first = LogicalBlock(
+        turn=TurnRecord(identity=scope.actor_identity, user_query="same question"),
+        total_tokens=4,
+        created_at=1000.0,
+    )
+    retry = LogicalBlock(
+        turn=TurnRecord(identity=scope.actor_identity, user_query="same question"),
+        total_tokens=4,
+        created_at=2000.0,
+    )
+
+    assert first.block_id != retry.block_id
+    assert first.turn.turn_id != retry.turn.turn_id
+    assert compute_apply_digest(
+        first, (), "model-1", scope.workspace_identity
+    ) == compute_apply_digest(retry, (), "model-1", scope.workspace_identity)
+
+
+def test_apply_digest_distinguishes_workspaces_with_identical_turn_content() -> None:
+    """同一 Actor 与内容不能令不同 Workspace 的提交共享幂等摘要。"""
+    main = make_memory_identity_scope()
+    isolated = make_memory_identity_scope(workspace_id="isolation_workspace")
+    block = LogicalBlock(
+        turn=TurnRecord(identity=main.actor_identity, user_query="same question"),
+        total_tokens=4,
+    )
+
+    assert compute_apply_digest(
+        block, (), "model-1", main.workspace_identity
+    ) != compute_apply_digest(block, (), "model-1", isolated.workspace_identity)
 
 
 def test_journal_records_all_apply_stages() -> None:
     journal = InMemoryInteractionApplyJournal()
     settlement = TopicMaterializeTask(
         topic_id="topic-1",
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
     )
 
     journal.record_interaction_applied("interaction-1", "topic-1", "digest-1")

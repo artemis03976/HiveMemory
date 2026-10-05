@@ -2,7 +2,7 @@
 过滤器适配器模块
 
 职责:
-    将 QueryFilters 与 IdentityScope 转换为不同存储系统的过滤条件格式。
+    将 QueryFilters、资源归属与发起者转换为不同存储系统的过滤条件格式。
     先落实 Workspace 所有权边界，再落实记忆的 actor 读取策略。
 """
 
@@ -16,9 +16,8 @@ from qdrant_client.models import (
 )
 
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     WorkspaceIdentity,
-    require_identity_scope,
 )
 
 if TYPE_CHECKING:
@@ -36,13 +35,19 @@ class FilterConverter(ABC):
     def convert(
         self,
         filters: "QueryFilters",
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
     ) -> Any:
         """
         将 QueryFilters 转换为目标格式
 
         Args:
             filters: 查询过滤器数据模型
+            belong_to: 本次查询的资源归属，始终作为硬边界
+            from_actor: 本次读取策略的发起者
+            enforce_actor_visibility: 管理读取可跳过 actor 策略，仍检查归属
 
         Returns:
             目标存储系统的过滤条件格式
@@ -60,7 +65,10 @@ class QdrantFilterConverter(FilterConverter):
     def convert(
         self,
         filters: "QueryFilters",
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
     ) -> Filter:
         """
         转换为 Qdrant Filter 对象
@@ -73,13 +81,16 @@ class QdrantFilterConverter(FilterConverter):
 
         Args:
             filters: 查询过滤器数据模型
+            belong_to: 本次查询的资源归属，始终作为硬边界
+            from_actor: 本次读取策略的发起者
+            enforce_actor_visibility: 管理读取可跳过 actor 策略，仍检查归属
 
         Returns:
             qdrant_client.models.Filter 实例
         """
-        identity_scope = require_identity_scope(identity_scope)
-        must_conditions: list[Any] = [self._ownership_filter(identity_scope)]
-        must_conditions.append(self._read_policy_filter(identity_scope))
+        must_conditions: list[Any] = [self.workspace_filter(belong_to)]
+        if enforce_actor_visibility:
+            must_conditions.append(self._read_policy_filter(from_actor))
 
         # ---- 业务过滤维度 ----
         if filters.memory_type is not None:
@@ -124,11 +135,6 @@ class QdrantFilterConverter(FilterConverter):
             ]
         )
 
-    @classmethod
-    def _ownership_filter(cls, identity_scope: IdentityScope) -> Filter:
-        """Workspace 所有权 hard boundary；归属只由 canonical 投影字段表达。"""
-        return cls.workspace_filter(identity_scope.workspace_identity)
-
     @staticmethod
     def workspace_filter(workspace: WorkspaceIdentity) -> Filter:
         """只含 Workspace 所有权 hard boundary、不叠加 actor 读取策略的过滤条件。
@@ -155,8 +161,7 @@ class QdrantFilterConverter(FilterConverter):
         )
 
     @staticmethod
-    def _read_policy_filter(identity_scope: IdentityScope) -> Filter:
-        actor = identity_scope.actor_identity
+    def _read_policy_filter(actor: ActorIdentity) -> Filter:
         branches = [
             Filter(
                 must=[

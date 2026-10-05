@@ -233,14 +233,15 @@ def _memory_task(scope, *, task_id: str) -> MemoryGenerationTask:
         source=MemoryGenerationSource.WRITE,
         status=MemoryGenerationTaskStatus.COMPLETED,
         canonical_alias="memory_alias",
-        identity_scope=scope,
+        belong_to=(scope).workspace_identity,
+        from_actor=(scope).actor_identity,
     )
 
 
 def _prepared_run(scope) -> PreparedAgentRun:
     """prepare 替身：按收到的授权 scope 构造真实 PreparedAgentRun。"""
     return PreparedAgentRun(
-        identity_scope=scope,
+        belong_to=(scope).workspace_identity,
         interaction_id="interaction-published",
         topic_id="topic-1",
         is_new_topic=True,

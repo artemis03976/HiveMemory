@@ -133,7 +133,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_hit(self):
         mid = uuid4()
-        await self.engine.record_hit(_identity_scope(), mid, source="retrieval")
+        await self.engine.record_hit(_identity_scope().workspace_identity, mid, source="retrieval")
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.HIT
@@ -143,7 +143,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_citation(self):
         mid = uuid4()
-        await self.engine.record_citation(_identity_scope(), mid, source="agent")
+        await self.engine.record_citation(_identity_scope().workspace_identity, mid, source="agent")
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.CITATION
@@ -153,7 +153,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_feedback_positive(self):
         mid = uuid4()
-        await self.engine.record_feedback(_identity_scope(), mid, positive=True)
+        await self.engine.record_feedback(_identity_scope().workspace_identity, mid, positive=True)
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.FEEDBACK_POSITIVE
@@ -161,7 +161,7 @@ class TestLifecycleEngineEvents:
     @pytest.mark.asyncio
     async def test_record_feedback_negative(self):
         mid = uuid4()
-        await self.engine.record_feedback(_identity_scope(), mid, positive=False)
+        await self.engine.record_feedback(_identity_scope().workspace_identity, mid, positive=False)
 
         event = self.mock_reinforcement.reinforce.call_args[0][2]
         assert event.event_type == EventType.FEEDBACK_NEGATIVE
@@ -172,10 +172,10 @@ class TestLifecycleEngineEvents:
         event = MemoryEvent(event_type=EventType.HIT, memory_id=mid, source="test")
 
         identity_scope = _identity_scope()
-        await self.engine.record_event(identity_scope, event)
+        await self.engine.record_event(identity_scope.workspace_identity, event)
 
         self.mock_reinforcement.reinforce.assert_called_once_with(
-            identity_scope,
+            identity_scope.workspace_identity,
             mid,
             event,
         )

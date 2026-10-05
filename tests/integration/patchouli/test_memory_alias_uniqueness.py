@@ -121,8 +121,13 @@ async def test_duplicate_alias_in_same_workspace_is_rejected_without_write(qdran
         await store.upsert(second)
 
     assert exc_info.value.details["conflicting_memory_id"] == str(first.id)
-    assert await store.get(scope, second.id) is None
-    resolved = await store.get_by_alias(scope, "fact_shared")
+    assert (
+        await store.get(scope.workspace_identity, second.id, from_actor=scope.actor_identity)
+        is None
+    )
+    resolved = await store.get_by_alias(
+        scope.workspace_identity, "fact_shared", from_actor=scope.actor_identity
+    )
     assert resolved.id == first.id
 
 
@@ -160,8 +165,14 @@ async def test_alias_ownership_follows_current_canonical_record(qdrant_mid_term)
     successor = _memory(scope, alias="fact_old", content="successor")
     await store.upsert(successor)
 
-    assert (await store.get_by_alias(scope, "fact_old")).id == successor.id
-    renamed = await store.get_by_alias(scope, "fact_new")
+    assert (
+        await store.get_by_alias(
+            scope.workspace_identity, "fact_old", from_actor=scope.actor_identity
+        )
+    ).id == successor.id
+    renamed = await store.get_by_alias(
+        scope.workspace_identity, "fact_new", from_actor=scope.actor_identity
+    )
     assert (renamed.id, renamed.payload.content) == (memory.id, "v2")
 
 
@@ -179,17 +190,24 @@ async def test_revive_fails_when_alias_was_taken_during_archive(qdrant_mid_term,
     )
     archived = _memory(scope, alias="fact_revived", content="archived")
     await store.upsert(archived)
-    key = WorkspaceMemoryKey.from_identity_scope(scope, archived.id)
+    key = WorkspaceMemoryKey(workspace_identity=scope.workspace_identity, memory_id=archived.id)
     await library.archive(key)
     newcomer = _memory(scope, alias="fact_revived", content="newcomer")
     await store.upsert(newcomer)
 
     with pytest.raises(MemoryAliasConflictError):
-        await library.revive(scope, archived.id)
+        await library.revive(scope.workspace_identity, archived.id)
 
     assert await library.long_term.is_archived(key) is True
-    assert await store.get(scope, archived.id) is None
-    assert (await store.get_by_alias(scope, "fact_revived")).id == newcomer.id
+    assert (
+        await store.get(scope.workspace_identity, archived.id, from_actor=scope.actor_identity)
+        is None
+    )
+    assert (
+        await store.get_by_alias(
+            scope.workspace_identity, "fact_revived", from_actor=scope.actor_identity
+        )
+    ).id == newcomer.id
 
 
 @pytest.mark.asyncio
@@ -201,7 +219,9 @@ async def test_exact_alias_lookup_fails_closed_on_existing_duplicates(qdrant_mid
     await qdrant.upsert_memory(_memory(scope, alias="fact_legacy"), use_sparse=False)
 
     with pytest.raises(MemoryAliasConflictError) as exc_info:
-        await store.get_by_alias(scope, "fact_legacy")
+        await store.get_by_alias(
+            scope.workspace_identity, "fact_legacy", from_actor=scope.actor_identity
+        )
 
     assert exc_info.value.details["reason"] == "ambiguous_alias"
 
@@ -219,7 +239,9 @@ async def test_alias_batch_read_propagates_ambiguity_instead_of_empty_result(qdr
     )
 
     with pytest.raises(MemoryAliasConflictError):
-        await familiar.retrieve_by_aliases(["fact_legacy"], scope)
+        await familiar.retrieve_by_aliases(
+            ["fact_legacy"], scope.workspace_identity, from_actor=scope.actor_identity
+        )
 
 
 class _UnusedGenerationEngine:
@@ -256,10 +278,13 @@ async def test_external_create_conflict_fails_before_version_artifact(qdrant_mid
     duplicate = _memory(scope, alias="fact_manual")
 
     with pytest.raises(MemoryAliasConflictError):
-        await familiar.create_external_memory(scope, duplicate)
+        await familiar.create_external_memory(scope.workspace_identity, duplicate)
 
-    assert await artifact_store.list_by_memory(scope, str(duplicate.id)) == []
-    assert await store.get(scope, duplicate.id) is None
+    assert await artifact_store.list_by_memory(scope.workspace_identity, str(duplicate.id)) == []
+    assert (
+        await store.get(scope.workspace_identity, duplicate.id, from_actor=scope.actor_identity)
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -279,7 +304,11 @@ async def test_external_content_edit_on_duplicated_alias_fails_before_version_ar
     familiar = _familiar(store, artifact_store)
 
     with pytest.raises(MemoryAliasConflictError):
-        await familiar.update_external_memory(edited.id, identity_scope=scope, content="v2")
+        await familiar.update_external_memory(
+            edited.id, belong_to=scope.workspace_identity, content="v2"
+        )
 
-    assert await artifact_store.list_by_memory(scope, str(edited.id)) == []
-    assert (await store.get(scope, edited.id)).payload.content == "v1"
+    assert await artifact_store.list_by_memory(scope.workspace_identity, str(edited.id)) == []
+    assert (
+        await store.get(scope.workspace_identity, edited.id, from_actor=scope.actor_identity)
+    ).payload.content == "v1"

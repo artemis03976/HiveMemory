@@ -116,7 +116,8 @@ def _make_outcome(
 
 def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_interaction_input=True):
     spec = MemoryGenerationTaskSpec(
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
         topic_id=topic_id,
         label="test",
         source=source,
@@ -289,7 +290,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_identity_scope(),
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -305,7 +307,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         # 提交边界 now 注入引擎，保证内容日期与提交字段同源
         gen_engine.process.assert_awaited_once_with(
             request,
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             now=FIXED_NOW,
         )
 
@@ -328,7 +331,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_identity_scope(),
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -360,7 +364,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_identity_scope(),
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -400,7 +405,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_identity_scope(),
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -430,7 +436,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_identity_scope(),
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -463,7 +470,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -479,7 +487,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         mid_term.patch_payload.assert_awaited_once()
         key, patch = mid_term.patch_payload.await_args.args
         assert key.memory_id == atom.id
-        assert key.workspace_identity == spec.identity_scope.workspace_identity
+        assert key.workspace_identity == spec.belong_to
         assert patch == {
             "meta.lifecycle.access_count": 4,
             "meta.lifecycle.last_accessed_at": FIXED_NOW,
@@ -506,7 +514,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -538,7 +547,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -575,7 +585,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=make_memory_identity_scope(),
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -610,7 +621,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -648,7 +660,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         spec = _make_spec()
         spec = MemoryGenerationTaskSpec(
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             topic_id=spec.topic_id,
             label=spec.label,
             source=spec.source,
@@ -751,7 +764,9 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
+        result = await familiar._capture_interaction_artifact(
+            input_data, _identity_scope().workspace_identity
+        )
 
         assert result is None
 
@@ -767,7 +782,9 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
+        result = await familiar._capture_interaction_artifact(
+            input_data, _identity_scope().workspace_identity
+        )
 
         assert result is None
         artifact_engine.interaction.build_and_store.assert_not_called()
@@ -789,7 +806,9 @@ class TestMemoryGenerationFamiliarArtifacts:
             blocks=(LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a")),),
         )
 
-        result = await familiar._capture_interaction_artifact(input_data, _identity_scope())
+        result = await familiar._capture_interaction_artifact(
+            input_data, _identity_scope().workspace_identity
+        )
 
         assert result is None
 
@@ -973,7 +992,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             artifact_engine=artifact_engine,
         )
 
-        result = await familiar.create_external_memory(_identity_scope(), atom)
+        result = await familiar.create_external_memory(_identity_scope().workspace_identity, atom)
 
         assert result is atom
         artifact_engine.memory.build_for_create.assert_awaited_once()
@@ -1012,7 +1031,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         result = await familiar.update_external_memory(
             atom.id,
-            identity_scope=_identity_scope(),
+            belong_to=_identity_scope().workspace_identity,
             title="Updated",
             summary="Updated summary",
             content="Updated content",
@@ -1066,7 +1085,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         await familiar.update_external_memory(
             atom.id,
-            identity_scope=_identity_scope(),
+            belong_to=_identity_scope().workspace_identity,
             agent_config={"mode": "only-config"},
         )
 
@@ -1081,7 +1100,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         result = await familiar.update_external_memory(
             uuid4(),
-            identity_scope=_identity_scope(),
+            belong_to=_identity_scope().workspace_identity,
             title="Updated",
         )
 

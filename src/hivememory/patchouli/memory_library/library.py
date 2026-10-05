@@ -18,11 +18,10 @@ import logging
 from uuid import UUID
 
 from hivememory.core.models import (
-    IdentityScope,
     MemoryEventLog,
     MemoryEventType,
+    WorkspaceIdentity,
     WorkspaceMemoryKey,
-    require_identity_scope,
 )
 from hivememory.patchouli.memory_library.models import (
     StorageHealthComponent,
@@ -81,7 +80,7 @@ class MemoryLibrary:
 
     async def revive(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
     ) -> None:
         """
@@ -89,7 +88,7 @@ class MemoryLibrary:
 
         流程: LongTermStore.load() → MidTermStore.upsert() → LongTermStore.remove()
         """
-        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         memory = await self.long_term.load(key)
         memory.payload.artifacts.events.append(MemoryEventLog(event_type=MemoryEventType.REVIVED))
         # 复活重建必要索引：完整原子提交且重算向量，不视为内容修订。
@@ -99,12 +98,11 @@ class MemoryLibrary:
 
     async def delete(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
     ) -> bool:
         """删除中期记忆（供公共路由绑定）。"""
-        identity_scope = require_identity_scope(identity_scope)
-        deleted = await self.mid_term.delete(identity_scope, memory_id)
+        deleted = await self.mid_term.delete(belong_to, memory_id)
         return deleted
 
     async def check_storage_health(self) -> StorageHealthReport:

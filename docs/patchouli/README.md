@@ -18,14 +18,16 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # Patchouli
 
 Patchouli 是 HiveMemory 的记忆与知识子系统。若说 Gateway 决定一条输入应当如何进入系统，Alice 决定一次 Agent run 如何执行，那么 Patchouli 回答的就是另一组更缓慢、也更需要保持连续性的问题：哪些交互应形成长期资产，一条记忆如何被检索和使用，它在被修订、强化、衰减与归档时由谁维护真相。
 
-Patchouli 的 Topic、Memory、Artifact 领域事实都在调用方交接的 `IdentityScope` 下解释，最终由各自的 Store 校验 Workspace 归属。Patchouli 不拥有 System 的 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace 架构](../architecture/workspace.md)，本文只描述 Patchouli 自己的领域责任。
+Patchouli 在公共边界接收授权点组装的 `IdentityScope`，随即拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`。内部领域服务、存储和后台任务分别携带需要的身份字段，不继续传递或重组 scope；Topic、Memory、Artifact 的 Workspace 归属最终由各自的 Store 校验，Memory 读取再检查资源自身的 actor policy。来源与贡献者只表达 provenance，不参与授权。
+
+Patchouli 不拥有 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace 架构](../architecture/workspace.md)；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)，本文只描述 Patchouli 自己的领域责任。
 
 项目借用“帕秋莉大图书馆”的形象，不是为了把所有记忆逻辑集中进一个万能馆长，而是为了强调知识所有权必须稳定。检索使魔可以找书，感知层可以整理尚未成册的交互，生成链可以提出新书或修订稿，生命周期能力可以决定何时移入冷藏库；但所有会改变长期记忆事实的路径，最终都必须回到 Patchouli 自己的存储、任务和版本边界内完成。
 
@@ -52,7 +54,7 @@ Patchouli 不负责：
 
 - 解释原始入口消息、识别系统命令或形成 `GatewayDecision`；
 - 运行 Agent loop、控制模型生成、执行工具或编排子 Agent；
-- 拥有 System 的 chat/passive ingress 用例、全局维护时钟或跨系统取消；
+- 拥有 workspace 的 chat 任务进程、System 的 passive ingress 用例、全局维护时钟或跨系统取消；
 - 解析执行所用的 Agent Profile、持有附件租借、编译附件或为执行者组装运行上下文（这些属于 workspace 任务进程的 CPU 分配）；
 - 把检索结果无条件解释为正确事实；
 - 把 `WRITE` / `UPDATE` 的即时 ACK 当作正式记忆已经持久化；
@@ -106,6 +108,8 @@ GatewayDecision
 
 Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、不接触附件，也不运行 Alice；`PreparedAgentRun` 位于 `patchouli.contracts.prepare`，由任务进程读取并交回 finalize/cleanup。Finalize 接收任务进程封口的 `InteractionPayload` 并原样提交，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内并行执行 MTP 物化接纳与 best-effort retrieval HIT，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，任务进程会调用 cleanup 删除仍为空的话题。
 
+`PreparedAgentRun` 只保存资源归属与准备结果，不保存阶段授权 scope。任务进程在 prepare、finalize 与 cleanup 调用前分别从仍有效的访问 context 授权并组装 scope；finalize 和 cleanup 会核对准备结果的归属，拒绝越域交接。进入提交队列后的交互记录独立携带归属与本轮发起者，取消调用方等待不会让后台 continuation 重新依赖访问 context。
+
 `WRITE` / `UPDATE` 的 ACK 只代表 Alice 已登记一个 PendingAtom。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 把 pending alias 投影为 canonical alias/UUID 或 discard/failure/cancel 终态。
 
 ### 3.2 被动摄入与话题结算
@@ -124,6 +128,8 @@ System Passive Ingress
 ```
 
 Patchouli 不为被动入口重新运行 Alice，也不重新分析 Gateway。完整入口语义见[被动摄入](../system/passive-ingress.md)，感知内部设计见[感知与短期话题](./perception.md)。
+
+四种话题结算统一由所属 Workspace 的保留 `system` actor 发起（`user_id` 为 owner、`team_id=None`），不继承最后访问者或驱逐触发者的读取权限。参与交互的 Agent 保留在 turn identity 与贡献者集合中；生成查重因此只消费本 Workspace 的 PUBLIC 记忆，主动 WRITE/UPDATE 则保留提交 actor 的可见性。
 
 ### 3.3 检索与上下文编译
 
@@ -180,7 +186,7 @@ Patchouli 向全局调度器注册两个业务任务：
 
 - 记忆生成任务和终态 registry 都是进程内状态，默认只保留最近 50 个终态任务；进程重启后不能恢复，也不是持久化 Job Queue；
 - 短期话题默认只在内存中，关闭依赖 shutdown drain 尽力结算；异常退出仍可能丢失未结算 blocks；
-- Artifact 是可选旁路，写入失败目前不会阻止 `MemoryAtom` 持久化，因此“记忆存在”不保证“来源链完整”；
+- Interaction/Document Artifact 是可选来源旁路，失败不阻断内容提交；Memory Creation/Version Artifact 是内容提交的强制前置条件，但与 canonical 写入仍非原子事务，后续写入失败可能留下孤立历史记录；
 - 中期与长期存储的 archive/revive 是顺序 I/O，不具备跨存储事务；
 - Perception 的 token overflow 目前只形成摘要并折叠旧前缀，不生成长期记忆；
 - Retrieval 与 MemoryCompiler 已经解耦，但若干过滤字段、预算口径和保留 target 仍存在实现缺口，详见各模块文档；

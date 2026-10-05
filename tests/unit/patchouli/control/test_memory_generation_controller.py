@@ -48,7 +48,8 @@ def _spec(
     pending_alias=None,
 ):
     return MemoryGenerationTaskSpec(
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
         topic_id=topic_id,
         label=label,
         source=source,

@@ -6,7 +6,6 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
     Artifacts,
@@ -147,12 +146,10 @@ def test_identity_scope_keeps_cross_owner_coordinates_for_authorization() -> Non
     assert scope.workspace_identity == target
 
 
-def test_memory_key_construction_rejects_missing_scope() -> None:
-    """防止 WorkspaceMemoryKey.from_identity_scope 对缺失作用域退回 AttributeError。"""
-    with pytest.raises(ScopeRequiredError) as caught:
-        WorkspaceMemoryKey.from_identity_scope(None, uuid4())
-
-    assert caught.value.code == "workspace.scope_required"
+def test_memory_key_construction_rejects_missing_workspace() -> None:
+    """记忆键必须显式携带资源归属，不能隐式回退默认 Workspace。"""
+    with pytest.raises(ValidationError, match="workspace_identity"):
+        WorkspaceMemoryKey(memory_id=uuid4())
 
 
 def test_access_policy_assignment_revalidates_invariants() -> None:

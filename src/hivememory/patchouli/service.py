@@ -11,7 +11,13 @@ from hivememory.components.work_queue import (
     WorkQueueStoppedError,
     WorkState,
 )
-from hivememory.core.models import IdentityScope, require_identity_scope
+from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.models import (
+    ActorIdentity,
+    IdentityScope,
+    WorkspaceIdentity,
+    require_identity_scope,
+)
 from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -19,9 +25,9 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.core.protocol.models import (
     InteractionPayload,
-    RetrievalRequest,
     RetrievalResponse,
 )
+from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
@@ -108,6 +114,7 @@ class PatchouliService:
         授权后组装的可信 scope。
         """
         identity_scope = require_identity_scope(identity_scope)
+        belong_to = identity_scope.workspace_identity
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
 
@@ -117,27 +124,28 @@ class PatchouliService:
                 target_topic_id=gateway_decision.target_topic_id,
                 new_topic_title=gateway_decision.new_topic_title,
                 new_topic_summary=gateway_decision.new_topic_summary,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
             )
             pool_topics = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
                 include_empty=True,
             )
             topic_context = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_GET,
                 real_topic_id,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
             )
 
             retrieval_result = await self.retrieve_for_decision(
                 gateway_decision,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
+                from_actor=identity_scope.actor_identity,
                 enable_retrieval=enable_memory_retrieval,
             )
 
             return PreparedAgentRun(
-                identity_scope=identity_scope,
+                belong_to=belong_to,
                 interaction_id=interaction_id,
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
@@ -151,26 +159,31 @@ class PatchouliService:
         except Exception:
             # prepare 失败：沿既有路径清理可能预创建的空话题。
             if is_new and real_topic_id:
-                await self._cleanup_empty_topic_if_needed(identity_scope, real_topic_id)
+                await self._cleanup_empty_topic_if_needed(belong_to, real_topic_id)
             raise
 
     async def finalize_agent_run(
         self,
         prepared_run: PreparedAgentRun,
         payload: InteractionPayload,
+        *,
+        identity_scope: IdentityScope,
     ) -> list[MemoryGenerationTask]:
         """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
 
         ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
         原样提交，不改写其内容。物化任务按 ``payload.materialize_tasks`` 派发；附件租借由进程持有并随进程关闭
-        释放，finalize 不负责释放。``interaction.submit`` 授权已在任务进程
-        进入 Actor 执行前检查，身份坐标取自 prepare 冻结在 prepared_run 的
-        可信 scope。
+        释放，finalize 不负责释放。``identity_scope`` 来自调用前的
+        ``interaction.submit`` 阶段授权；公共边界拆分后，后台 continuation
+        只携带归属与本次提交的发起者。
         """
+        scope = require_identity_scope(identity_scope)
+        if prepared_run.belong_to != scope.workspace_identity:
+            raise WorkspaceMismatchError(details={"interaction_id": prepared_run.interaction_id})
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
         if continuation is None:
             continuation = asyncio.create_task(
-                self._continue_active_finalization(prepared_run, payload),
+                self._continue_active_finalization(prepared_run, payload, scope.actor_identity),
                 name=f"active_finalize_{prepared_run.interaction_id[:8]}",
             )
             self._active_finalizations[prepared_run.interaction_id] = continuation
@@ -192,9 +205,10 @@ class PatchouliService:
         self,
         prepared_run: PreparedAgentRun,
         payload: InteractionPayload,
+        from_actor: ActorIdentity,
     ) -> list[MemoryGenerationTask]:
         try:
-            receipt = await self._admit_active_interaction(prepared_run, payload)
+            receipt = await self._admit_active_interaction(prepared_run, payload, from_actor)
             await self._wait_active_interaction(prepared_run, receipt)
         except ActiveInteractionFinalizationError as error:
             if prepared_run.is_new_topic and (
@@ -202,7 +216,7 @@ class PatchouliService:
                 or prepared_run.interaction_id in self._detached_finalizations
             ):
                 await self._cleanup_empty_topic_if_needed(
-                    prepared_run.identity_scope,
+                    prepared_run.belong_to,
                     prepared_run.topic_id,
                 )
             raise
@@ -222,20 +236,19 @@ class PatchouliService:
         self,
         prepared_run: PreparedAgentRun,
         payload: InteractionPayload,
+        from_actor: ActorIdentity,
     ) -> InteractionSubmissionReceipt:
         topic_id = prepared_run.topic_id
         correlation = {
             "topic_id": topic_id,
-            "agent_id": prepared_run.agent_id,
+            "agent_id": from_actor.agent_id,
         }
-        prepared_actor = prepared_run.identity_scope.actor_identity
-        if prepared_actor.session_id:
-            correlation["session_id"] = prepared_actor.session_id
 
         try:
             receipt = await self._interaction_queue.submit(
                 InteractionSubmission(
-                    identity_scope=prepared_run.identity_scope,
+                    belong_to=prepared_run.belong_to,
+                    from_actor=from_actor,
                     interaction_id=prepared_run.interaction_id,
                     payload=payload,
                     requested_topic_id=topic_id,
@@ -314,7 +327,7 @@ class PatchouliService:
                 PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
                 tasks,
                 topic_id=prepared_run.topic_id,
-                identity_scope=prepared_run.identity_scope,
+                belong_to=prepared_run.belong_to,
             )
         except Exception as error:
             logger.warning(
@@ -375,20 +388,33 @@ class PatchouliService:
         return await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_CITATION,
             normalized_id,
-            identity_scope=require_identity_scope(identity_scope),
+            belong_to=require_identity_scope(identity_scope).workspace_identity,
             source=source,
         )
 
     async def cleanup_prepared_agent_run(
         self,
         prepared_run: PreparedAgentRun,
+        *,
+        identity_scope: IdentityScope,
     ) -> bool:
         """清理已 prepare 但未 finalize 的预创建空话题。
 
         附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不再负责。
-        cleanup 不做阶段 operation 检查（只补偿本进程 prepare 的结果），
-        身份坐标取自 prepare 冻结在 prepared_run 的可信 scope。
+        调用方以 prepare 所绑定的 ``resource.search`` 再次授权。本边界
+        校验待清理结果的归属，越域结果不会进入补偿流程。
         """
+        scope = require_identity_scope(identity_scope)
+        if prepared_run.belong_to != scope.workspace_identity:
+            # 与 finalize 的同一条件对应：finalize 拒绝提交，cleanup 不越域补偿，但须留下诊断。
+            logger.warning(
+                "prepared run 的归属与清理授权的 Workspace 不一致，跳过清理: "
+                "interaction_id=%s, prepared_workspace=%s, scope_workspace=%s",
+                prepared_run.interaction_id,
+                prepared_run.belong_to.workspace_id,
+                scope.workspace_identity.workspace_id,
+            )
+            return False
         if not prepared_run.is_new_topic:
             return False
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
@@ -405,7 +431,7 @@ class PatchouliService:
             )
             return False
         return await self._cleanup_empty_topic_if_needed(
-            prepared_run.identity_scope,
+            prepared_run.belong_to,
             prepared_run.topic_id,
         )
 
@@ -413,7 +439,8 @@ class PatchouliService:
         self,
         decision: GatewayDecision,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
         enable_retrieval: bool = True,
     ) -> RetrievalResponse:
         """按 GatewayDecision 派生 Patchouli 检索请求。
@@ -422,8 +449,6 @@ class PatchouliService:
         envelope，由本 adapter 构造并测量调用耗时（A2 §2.4，A6 切换）。
         """
 
-        identity_scope = require_identity_scope(identity_scope)
-
         if (
             not enable_retrieval
             or decision.retrieval_plan.mode == RetrievalMode.SKIP
@@ -431,16 +456,17 @@ class PatchouliService:
         ):
             return RetrievalResponse()
 
-        retrieval_request = RetrievalRequest(
+        query = RetrievalQuery(
             semantic_query=decision.rewritten_query,
             keywords=list(decision.search_keywords),
-            identity_scope=identity_scope,
-            top_k=decision.retrieval_plan.top_k,
+            belong_to=belong_to,
+            from_actor=from_actor,
         )
         started_at = time.monotonic()
         memories = await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
-            retrieval_request,
+            query,
+            top_k=decision.retrieval_plan.top_k,
         )
         return RetrievalResponse.from_memories(
             memories,
@@ -462,7 +488,7 @@ class PatchouliService:
                 await self._local_bus.request(
                     PatchouliLocalRoutes.MEMORY_RECORD_HIT,
                     memory_id,
-                    identity_scope=prepared_run.identity_scope,
+                    belong_to=prepared_run.belong_to,
                     source="retrieval.finalize",
                 )
             except Exception:
@@ -474,14 +500,14 @@ class PatchouliService:
 
     async def _cleanup_empty_topic_if_needed(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         topic_id: str,
     ) -> bool:
         try:
             cleaned = await self._local_bus.request(
                 PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
-                topic_id,
-                identity_scope=identity_scope,
+                topic_id=topic_id,
+                belong_to=belong_to,
             )
             if cleaned:
                 logger.info("已清理预创建的空话题: %s", topic_id)

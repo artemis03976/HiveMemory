@@ -45,52 +45,55 @@ class TestLruOrder:
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-1")
         clock.advance(10)
-        ws.touch(scope, "topic-2")
+        ws.touch(scope.workspace_identity, "topic-2")
 
-        assert ws.select_lru_candidate(scope) == "topic-1"
+        assert ws.select_lru_candidate(scope.workspace_identity) == "topic-1"
 
     def test_retouch_moves_topic_to_lru_tail(self):
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-1")
         clock.advance(10)
-        ws.touch(scope, "topic-2")
+        ws.touch(scope.workspace_identity, "topic-2")
         clock.advance(10)
-        ws.touch(scope, "topic-1")  # 重新访问后 topic-1 不再是最旧
+        ws.touch(scope.workspace_identity, "topic-1")  # 重新访问后 topic-1 不再是最旧
 
-        assert ws.select_lru_candidate(scope) == "topic-2"
+        assert ws.select_lru_candidate(scope.workspace_identity) == "topic-2"
 
     def test_select_ignores_other_workspaces(self):
         ws, _ = _make_working_set()
         scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
         scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
 
-        ws.touch(scope_a, "topic-a1")
-        ws.touch(scope_b, "topic-b1")
+        ws.touch(scope_a.workspace_identity, "topic-a1")
+        ws.touch(scope_b.workspace_identity, "topic-b1")
 
-        assert ws.select_lru_candidate(scope_a) == "topic-a1"
-        assert ws.select_lru_candidate(scope_b) == "topic-b1"
+        assert ws.select_lru_candidate(scope_a.workspace_identity) == "topic-a1"
+        assert ws.select_lru_candidate(scope_b.workspace_identity) == "topic-b1"
         # 无任何驻留话题的 Workspace 没有候选
         scope_c = _identity_scope(user_id="u3", workspace_id="ws_c")
-        assert ws.select_lru_candidate(scope_c) is None
+        assert ws.select_lru_candidate(scope_c.workspace_identity) is None
 
     def test_select_returns_none_for_empty_working_set(self):
         ws, _ = _make_working_set()
 
-        assert ws.select_lru_candidate(_identity_scope()) is None
+        assert ws.select_lru_candidate(_identity_scope().workspace_identity) is None
 
     def test_select_respects_exclude(self):
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
-        ws.touch(scope, "topic-2")
+        ws.touch(scope.workspace_identity, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-2")
 
-        assert ws.select_lru_candidate(scope, exclude={"topic-1"}) == "topic-2"
-        assert ws.select_lru_candidate(scope, exclude={"topic-1", "topic-2"}) is None
+        assert ws.select_lru_candidate(scope.workspace_identity, exclude={"topic-1"}) == "topic-2"
+        assert (
+            ws.select_lru_candidate(scope.workspace_identity, exclude={"topic-1", "topic-2"})
+            is None
+        )
 
 
 # ========== 占用权（lease） ==========
@@ -101,53 +104,55 @@ class TestLease:
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
-        lease = ws.acquire(scope, "topic-1")
+        lease = ws.acquire(scope.workspace_identity, "topic-1")
         assert lease is not None
-        assert ws.acquire(scope, "topic-1") is None  # 占用期间互斥
+        assert ws.acquire(scope.workspace_identity, "topic-1") is None  # 占用期间互斥
 
         ws.release(lease)
-        assert ws.acquire(scope, "topic-1") is not None  # 释放后可再次获取
+        assert ws.acquire(scope.workspace_identity, "topic-1") is not None  # 释放后可再次获取
 
     def test_acquire_is_exclusive_across_actor_scopes_in_same_workspace(self):
         ws, _ = _make_working_set()
         scope_agent_a = _identity_scope(user_id="u1", agent_id="agent-a")
         scope_agent_b = _identity_scope(user_id="u1", agent_id="agent-b")
 
-        assert ws.acquire(scope_agent_a, "topic-1") is not None
+        assert ws.acquire(scope_agent_a.workspace_identity, "topic-1") is not None
         # 同一 Workspace 内不同执行者作用域指向同一个话题，必须互斥
-        assert ws.acquire(scope_agent_b, "topic-1") is None
+        assert ws.acquire(scope_agent_b.workspace_identity, "topic-1") is None
 
     def test_acquire_allows_non_resident_topic(self):
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
         # 新创建的话题在被 touch 前也必须可以占用（apply_interaction 主线路径）
-        assert ws.acquire(scope, "brand-new-topic") is not None
+        assert ws.acquire(scope.workspace_identity, "brand-new-topic") is not None
 
     def test_select_skips_leased_topic_and_recovers_after_release(self):
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
-        ws.touch(scope, "topic-2")
+        ws.touch(scope.workspace_identity, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-2")
 
-        lease = ws.acquire(scope, "topic-1")
-        assert ws.select_lru_candidate(scope) == "topic-2"  # topic-1 被占用，跳过
+        lease = ws.acquire(scope.workspace_identity, "topic-1")
+        assert (
+            ws.select_lru_candidate(scope.workspace_identity) == "topic-2"
+        )  # topic-1 被占用，跳过
 
         ws.release(lease)
-        assert ws.select_lru_candidate(scope) == "topic-1"  # 释放后恢复候选资格
+        assert ws.select_lru_candidate(scope.workspace_identity) == "topic-1"  # 释放后恢复候选资格
 
     def test_release_ignores_stale_token(self):
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
-        first = ws.acquire(scope, "topic-1")
+        first = ws.acquire(scope.workspace_identity, "topic-1")
         ws.release(first)
-        second = ws.acquire(scope, "topic-1")
+        second = ws.acquire(scope.workspace_identity, "topic-1")
         ws.release(first)  # 重复释放过期令牌，不得清掉后来者的租约
 
         assert second is not None
-        assert ws.acquire(scope, "topic-1") is None
+        assert ws.acquire(scope.workspace_identity, "topic-1") is None
 
 
 # ========== 容量判断 ==========
@@ -158,22 +163,22 @@ class TestCapacity:
         ws, _ = _make_working_set(max_resident=2)
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
-        assert ws.needs_eviction(scope) is False
+        ws.touch(scope.workspace_identity, "topic-1")
+        assert ws.needs_eviction(scope.workspace_identity) is False
 
-        ws.touch(scope, "topic-2")
-        assert ws.needs_eviction(scope) is True
+        ws.touch(scope.workspace_identity, "topic-2")
+        assert ws.needs_eviction(scope.workspace_identity) is True
 
     def test_needs_eviction_is_isolated_per_workspace(self):
         ws, _ = _make_working_set(max_resident=2)
         scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
         scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
 
-        ws.touch(scope_a, "topic-a1")
-        ws.touch(scope_a, "topic-a2")
+        ws.touch(scope_a.workspace_identity, "topic-a1")
+        ws.touch(scope_a.workspace_identity, "topic-a2")
 
-        assert ws.needs_eviction(scope_a) is True
-        assert ws.needs_eviction(scope_b) is False  # 其他 Workspace 不受影响
+        assert ws.needs_eviction(scope_a.workspace_identity) is True
+        assert ws.needs_eviction(scope_b.workspace_identity) is False  # 其他 Workspace 不受影响
 
     def test_init_rejects_invalid_capacity(self):
         with pytest.raises(ValueError, match="max_resident"):
@@ -188,14 +193,14 @@ class TestCandidateQueries:
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-1")
         clock.advance(150)
-        ws.touch(scope, "topic-2")
+        ws.touch(scope.workspace_identity, "topic-2")
 
         candidates = ws.list_idle_candidates(timeout_seconds=100)
         assert [topic_id for _, topic_id in candidates] == ["topic-1"]
-        # 返回的 scope 保持最后访问时冻结的执行作用域
-        assert candidates[0][0].workspace_identity.workspace_id == "main_workspace"
+        # 返回的坐标只携带归属，后台维护无需保存访问者。
+        assert candidates[0][0].workspace_id == "main_workspace"
 
         clock.advance(100)  # topic-2 恰好达到超时阈值，仍未空闲（与 is_idle 的严格大于一致）
         assert [topic_id for _, topic_id in ws.list_idle_candidates(timeout_seconds=100)] == [
@@ -206,12 +211,12 @@ class TestCandidateQueries:
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-1")
         clock.advance(50)
-        ws.touch(scope, "topic-2")
+        ws.touch(scope.workspace_identity, "topic-2")
         clock.advance(200)  # 两个话题均已超时
 
-        ws.acquire(scope, "topic-1")
+        ws.acquire(scope.workspace_identity, "topic-1")
 
         assert [topic_id for _, topic_id in ws.list_idle_candidates(timeout_seconds=100)] == [
             "topic-2"
@@ -222,7 +227,7 @@ class TestCandidateQueries:
         scope = _identity_scope()
 
         touched_at = clock.now
-        ws.touch(scope, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-1")
         clock.advance(200)
 
         # 显式 now 早于真实流逝时间时不得误判为空闲
@@ -237,31 +242,30 @@ class TestCandidateQueries:
         scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
         scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
 
-        ws.touch(scope_a, "topic-a1")
-        ws.touch(scope_b, "topic-b1")
+        ws.touch(scope_a.workspace_identity, "topic-a1")
+        ws.touch(scope_b.workspace_identity, "topic-b1")
         clock.advance(500)
 
         candidates = ws.list_idle_candidates(timeout_seconds=100)
-        assert {
-            (scope.workspace_identity.workspace_id, topic_id) for scope, topic_id in candidates
-        } == {
+        assert {(belong_to.workspace_id, topic_id) for belong_to, topic_id in candidates} == {
             ("ws_a", "topic-a1"),
             ("ws_b", "topic-b1"),
         }
 
-    def test_candidates_reflect_last_touch_scope(self):
+    def test_candidates_keep_workspace_after_different_actors_touch(self):
+        """不同执行者访问同一话题时，维护候选仍只携带归属。"""
         ws, clock = _make_working_set()
         scope_agent_a = _identity_scope(user_id="u1", agent_id="agent-a")
         scope_agent_b = _identity_scope(user_id="u1", agent_id="agent-b")
 
-        ws.touch(scope_agent_a, "topic-1")
-        ws.touch(scope_agent_b, "topic-1")  # 最后访问的执行作用域生效
+        ws.touch(scope_agent_a.workspace_identity, "topic-1")
+        ws.touch(scope_agent_b.workspace_identity, "topic-1")
         clock.advance(10)
 
-        ((idle_scope, _),) = ws.list_idle_candidates(timeout_seconds=5)
-        assert idle_scope.actor_identity.agent_id == "agent-b"
-        ((shutdown_scope, _),) = ws.list_shutdown_candidates()
-        assert shutdown_scope.actor_identity.agent_id == "agent-b"
+        assert ws.list_idle_candidates(timeout_seconds=5) == [
+            (scope_agent_a.workspace_identity, "topic-1")
+        ]
+        assert ws.list_shutdown_candidates() == [(scope_agent_a.workspace_identity, "topic-1")]
 
     def test_idle_candidates_on_empty_working_set(self):
         ws, _ = _make_working_set()
@@ -273,14 +277,12 @@ class TestCandidateQueries:
         scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
         scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
 
-        ws.touch(scope_a, "topic-a1")
-        ws.touch(scope_b, "topic-b1")
-        ws.acquire(scope_a, "topic-a1")  # 被占用的话题同样在 shutdown 清理范围内
+        ws.touch(scope_a.workspace_identity, "topic-a1")
+        ws.touch(scope_b.workspace_identity, "topic-b1")
+        ws.acquire(scope_a.workspace_identity, "topic-a1")  # 被占用的话题同样在 shutdown 清理范围内
 
         candidates = ws.list_shutdown_candidates()
-        assert {
-            (scope.workspace_identity.workspace_id, topic_id) for scope, topic_id in candidates
-        } == {
+        assert {(belong_to.workspace_id, topic_id) for belong_to, topic_id in candidates} == {
             ("ws_a", "topic-a1"),
             ("ws_b", "topic-b1"),
         }
@@ -294,16 +296,16 @@ class TestRemoval:
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
-        ws.touch(scope, "topic-1")
-        ws.acquire(scope, "topic-1")
-        ws.remove(scope, "topic-1")
+        ws.touch(scope.workspace_identity, "topic-1")
+        ws.acquire(scope.workspace_identity, "topic-1")
+        ws.remove(scope.workspace_identity, "topic-1")
 
         assert ws.list_shutdown_candidates() == []  # 驻留已移除
-        assert ws.acquire(scope, "topic-1") is None  # lease 不随 remove 清理
+        assert ws.acquire(scope.workspace_identity, "topic-1") is None  # lease 不随 remove 清理
 
     def test_remove_unknown_topic_is_silent(self):
         ws, _ = _make_working_set()
 
-        ws.remove(_identity_scope(), "missing")
+        ws.remove(_identity_scope().workspace_identity, "missing")
 
         assert ws.list_shutdown_candidates() == []

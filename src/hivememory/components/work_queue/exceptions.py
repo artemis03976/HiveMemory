@@ -47,7 +47,7 @@ class DuplicateWorkPayloadCodecError(WorkPayloadCodecError):
 class UnknownWorkPayloadCodecError(WorkPayloadCodecError):
     """work item 指向未注册的 payload codec。"""
 
-    def __init__(self, kind: str, schema_version: int) -> None:
+    def __init__(self, kind: str, schema_version: int | str) -> None:
         self.kind = kind
         self.schema_version = schema_version
         super().__init__(
@@ -58,7 +58,7 @@ class UnknownWorkPayloadCodecError(WorkPayloadCodecError):
 class WorkPayloadEncodeError(WorkPayloadCodecError):
     """业务 payload 无法编码为稳定 JSON bytes。"""
 
-    def __init__(self, kind: str, schema_version: int) -> None:
+    def __init__(self, kind: str, schema_version: int | str) -> None:
         self.kind = kind
         self.schema_version = schema_version
         super().__init__(
@@ -69,7 +69,7 @@ class WorkPayloadEncodeError(WorkPayloadCodecError):
 class WorkPayloadDecodeError(WorkPayloadCodecError):
     """JSON bytes 无法恢复为业务 payload。"""
 
-    def __init__(self, kind: str, schema_version: int) -> None:
+    def __init__(self, kind: str, schema_version: int | str) -> None:
         self.kind = kind
         self.schema_version = schema_version
         super().__init__(

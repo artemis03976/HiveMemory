@@ -85,7 +85,11 @@ def test_builtin_alias_returns_builtin_profile_without_source():
     scope = make_identity_scope()
 
     for alias in ("default", "omni_doll", ""):
-        resolved = _run(familiar.get_agent_profile(alias, identity_scope=scope))
+        resolved = _run(
+            familiar.get_agent_profile(
+                alias, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+            )
+        )
         assert resolved.profile == OMNI_DOLL_PROFILE
         assert (resolved.is_builtin, resolved.access_policy, resolved.profile.agent_id) == (
             True,
@@ -106,7 +110,11 @@ def test_atom_profile_carries_alias_identity_and_source_policy():
     familiar = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(atom))
     scope = make_identity_scope(user_id="u1", agent_id="a1")
 
-    resolved = _run(familiar.get_agent_profile(PROFILE_ALIAS, identity_scope=scope))
+    resolved = _run(
+        familiar.get_agent_profile(
+            PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+        )
+    )
 
     assert resolved.profile.agent_id == PROFILE_ALIAS
     assert resolved.access_policy.visibility == MemoryVisibility.PRIVATE
@@ -120,10 +128,18 @@ def test_resolved_profile_is_isolated_from_stored_atom():
     familiar = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(atom))
     scope = make_identity_scope(user_id="u1", agent_id="a1")
 
-    first = _run(familiar.get_agent_profile(PROFILE_ALIAS, identity_scope=scope))
+    first = _run(
+        familiar.get_agent_profile(
+            PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+        )
+    )
     first.profile.model_name = "mutated"
     first.access_policy.target_agent_id = "someone_else"
-    again = _run(familiar.get_agent_profile(PROFILE_ALIAS, identity_scope=scope))
+    again = _run(
+        familiar.get_agent_profile(
+            PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+        )
+    )
 
     assert again.profile.model_name == "gpt-test"
     assert again.access_policy.target_agent_id == "a1"
@@ -135,7 +151,11 @@ def test_resolution_failure_semantics_are_explicit():
 
     missing = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(None))
     with pytest.raises(AliasNotFoundError):
-        _run(missing.get_agent_profile("ghost", identity_scope=scope))
+        _run(
+            missing.get_agent_profile(
+                "ghost", belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+            )
+        )
 
     fact_atom = _profile_atom()[1].model_copy(
         update={
@@ -150,9 +170,17 @@ def test_resolution_failure_semantics_are_explicit():
     )
     wrong_type = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(fact_atom))
     with pytest.raises(MemoryTypeMismatchError):
-        _run(wrong_type.get_agent_profile(PROFILE_ALIAS, identity_scope=scope))
+        _run(
+            wrong_type.get_agent_profile(
+                PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+            )
+        )
 
     broken = _profile_atom(agent_config=None)[1]
     invalid = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(broken))
     with pytest.raises(InvalidArgumentError):
-        _run(invalid.get_agent_profile(PROFILE_ALIAS, identity_scope=scope))
+        _run(
+            invalid.get_agent_profile(
+                PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
+            )
+        )

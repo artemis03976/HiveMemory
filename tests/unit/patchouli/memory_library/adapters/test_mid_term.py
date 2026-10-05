@@ -84,11 +84,24 @@ async def test_management_read_returns_private_memory_within_owning_workspace() 
     reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_SingleMemoryStore(private_memory))
 
-    memories = await adapter.scroll(reader_access, enforce_actor_visibility=False)
-    hits = await adapter.search(
-        reader_access, query="private", top_k=1, enforce_actor_visibility=False
+    memories = await adapter.scroll(
+        reader_access.workspace_identity,
+        from_actor=reader_access.actor_identity,
+        enforce_actor_visibility=False,
     )
-    fetched = await adapter.get(reader_access, private_memory.id, enforce_actor_visibility=False)
+    hits = await adapter.search(
+        reader_access.workspace_identity,
+        from_actor=reader_access.actor_identity,
+        query="private",
+        top_k=1,
+        enforce_actor_visibility=False,
+    )
+    fetched = await adapter.get(
+        reader_access.workspace_identity,
+        private_memory.id,
+        from_actor=reader_access.actor_identity,
+        enforce_actor_visibility=False,
+    )
 
     assert memories == [private_memory]
     assert [hit["memory"] for hit in hits] == [private_memory]
@@ -103,11 +116,19 @@ async def test_management_read_still_rejects_cross_workspace_memory() -> None:
     )
     adapter = QdrantStorageAdapter(_SingleMemoryStore(_private_memory()))
 
-    assert await adapter.scroll(other_workspace_access, enforce_actor_visibility=False) == []
+    assert (
+        await adapter.scroll(
+            other_workspace_access.workspace_identity,
+            from_actor=other_workspace_access.actor_identity,
+            enforce_actor_visibility=False,
+        )
+        == []
+    )
     assert (
         await adapter.get(
-            other_workspace_access,
+            other_workspace_access.workspace_identity,
             _private_memory().id,
+            from_actor=other_workspace_access.actor_identity,
             enforce_actor_visibility=False,
         )
         is None
@@ -138,9 +159,12 @@ async def test_internal_key_read_and_delete_reject_foreign_workspace_memory() ->
     foreign = make_identity_scope(user_id="u1", agent_id="owner-agent", workspace_id="other")
 
     assert (
-        await adapter.get_by_key(WorkspaceMemoryKey.from_identity_scope(foreign, memory.id)) is None
+        await adapter.get_by_key(
+            WorkspaceMemoryKey(workspace_identity=foreign.workspace_identity, memory_id=memory.id)
+        )
+        is None
     )
-    assert await adapter.delete(foreign, memory.id) is False
+    assert await adapter.delete(foreign.workspace_identity, memory.id) is False
     assert store.deleted == []
 
 
@@ -150,7 +174,12 @@ async def test_search_discards_private_hit_not_authorized_for_actor() -> None:
     reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_LeakySearchStore(_private_memory()))
 
-    hits = await adapter.search(reader_access, query="private", top_k=1)
+    hits = await adapter.search(
+        reader_access.workspace_identity,
+        from_actor=reader_access.actor_identity,
+        query="private",
+        top_k=1,
+    )
 
     assert hits == []
 
@@ -161,7 +190,9 @@ async def test_scroll_discards_private_memory_not_authorized_for_actor() -> None
     reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_LeakySearchStore(_private_memory()))
 
-    memories = await adapter.scroll(reader_access)
+    memories = await adapter.scroll(
+        reader_access.workspace_identity, from_actor=reader_access.actor_identity
+    )
 
     assert memories == []
 

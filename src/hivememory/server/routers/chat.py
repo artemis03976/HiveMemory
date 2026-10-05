@@ -101,7 +101,6 @@ async def chat(
         selection,
         require_agent=True,
         agent_id=body.agent_id,
-        session_id=body.session_id,
     )
     # 注册（认证、创建、登记）在流式响应开始之前完成；认证失败直接上抛。
     handle = await service.register_process(

@@ -16,12 +16,11 @@ from uuid import UUID, uuid4
 
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     MemoryAtom,
     TopicData,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
-    require_identity_scope,
 )
 from hivememory.core.models.artifact import ArtifactRef
 from hivememory.engines.lifecycle.models import ArchiveRecord
@@ -56,11 +55,10 @@ class ShortTermMemoryStore:
         # 只保护 Port 读写的原子性；工作集与生命周期决策不在本模块。
         self._lock = threading.RLock()
 
-    def get(self, identity_scope: IdentityScope, topic_id: str) -> TopicData | None:
+    def get(self, belong_to: WorkspaceIdentity, topic_id: str) -> TopicData | None:
         """读取不可变业务快照；访问追踪在 WorkingSet，不在此处。"""
-        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            return self._port.get(identity_scope.workspace_identity, topic_id)
+            return self._port.get(belong_to, topic_id)
 
     def put(self, topic: TopicData) -> None:
         """写入或替换话题快照；全局 ID 唯一性检查在 Port 内部。"""
@@ -71,17 +69,16 @@ class ShortTermMemoryStore:
 
     def create(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         topic_title: str = "新建话题",
         topic_summary: str = "",
         *,
         topic_id: str | None = None,
     ) -> TopicData:
         """创建新话题并返回初始快照。"""
-        identity_scope = require_identity_scope(identity_scope)
         topic = TopicData(
             topic_id=topic_id or str(uuid4()),
-            workspace_identity=identity_scope.workspace_identity,
+            workspace_identity=belong_to,
             topic_title=topic_title,
             topic_summary=topic_summary,
             last_update=datetime.now().timestamp(),
@@ -89,22 +86,20 @@ class ShortTermMemoryStore:
         self.put(topic)
         return topic
 
-    def delete(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+    def delete(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
         """删除话题；是否允许删除（占用检查）由调用方持有 lease 判断。"""
-        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            return self._port.delete(identity_scope.workspace_identity, topic_id)
+            return self._port.delete(belong_to, topic_id)
 
     def list_by_workspace(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         *,
         include_empty: bool = True,
     ) -> list[TopicData]:
         """列出 Workspace 内的话题快照。"""
-        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            topics = self._port.list_by_workspace(identity_scope.workspace_identity)
+            topics = self._port.list_by_workspace(belong_to)
             if not include_empty:
                 topics = [topic for topic in topics if topic.has_content]
             return topics
@@ -114,11 +109,10 @@ class ShortTermMemoryStore:
         with self._lock:
             return self._port.list_all()
 
-    def count(self, identity_scope: IdentityScope) -> int:
+    def count(self, belong_to: WorkspaceIdentity) -> int:
         """统计 Workspace 内话题数量。"""
-        identity_scope = require_identity_scope(identity_scope)
         with self._lock:
-            return self._port.count(identity_scope.workspace_identity)
+            return self._port.count(belong_to)
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()
@@ -193,27 +187,31 @@ class MidTermMemoryStore:
 
     async def get(
         self,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
         return await self._primary.get(
-            require_identity_scope(scope),
+            belong_to,
             memory_id,
+            from_actor=from_actor,
             enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def get_by_alias(
         self,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         alias: str,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
         return await self._primary.get_by_alias(
-            require_identity_scope(scope),
+            belong_to,
             alias,
+            from_actor=from_actor,
             enforce_actor_visibility=enforce_actor_visibility,
         )
 
@@ -234,11 +232,10 @@ class MidTermMemoryStore:
             await secondary.patch_payload(key, patch)
         return result
 
-    async def delete(self, identity_scope: IdentityScope, memory_id: UUID) -> bool:
-        identity_scope = require_identity_scope(identity_scope)
-        result = await self._primary.delete(identity_scope, memory_id)
+    async def delete(self, belong_to: WorkspaceIdentity, memory_id: UUID) -> bool:
+        result = await self._primary.delete(belong_to, memory_id)
         for secondary in self._secondary:
-            await secondary.delete(identity_scope, memory_id)
+            await secondary.delete(belong_to, memory_id)
         return result
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
@@ -249,37 +246,41 @@ class MidTermMemoryStore:
 
     async def search(
         self,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         query: str,
         top_k: int,
         filters=None,
         mode: str = "dense",
         score_threshold: float = 0.0,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ):
         return await self._primary.search(
-            require_identity_scope(scope),
+            belong_to,
             query,
             top_k,
             filters=filters,
             mode=mode,
             score_threshold=score_threshold,
+            from_actor=from_actor,
             enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def scroll(
         self,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         filters=None,
         limit: int = 100,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]:
         return await self._primary.scroll(
-            require_identity_scope(scope),
+            belong_to,
             filters,
             limit,
+            from_actor=from_actor,
             enforce_actor_visibility=enforce_actor_visibility,
         )
 
@@ -340,26 +341,26 @@ class ArtifactStore:
     async def put(self, artifact) -> ArtifactRef:
         return await self._port.put(artifact)
 
-    async def get(self, identity_scope: IdentityScope, ref_or_id) -> dict:
-        return await self._port.get(require_identity_scope(identity_scope), ref_or_id)
+    async def get(self, belong_to: WorkspaceIdentity, ref_or_id) -> dict:
+        return await self._port.get(belong_to, ref_or_id)
 
-    async def exists(self, identity_scope: IdentityScope, artifact_id: str) -> bool:
-        return await self._port.exists(require_identity_scope(identity_scope), artifact_id)
+    async def exists(self, belong_to: WorkspaceIdentity, artifact_id: str) -> bool:
+        return await self._port.exists(belong_to, artifact_id)
 
     async def list_by_memory(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: str,
         artifact_type=None,
     ) -> list:
         return await self._port.list_by_memory(
-            require_identity_scope(identity_scope),
+            belong_to,
             memory_id,
             artifact_type,
         )
 
-    async def verify(self, identity_scope: IdentityScope, ref) -> ArtifactIntegrityResult:
-        return await self._port.verify(require_identity_scope(identity_scope), ref)
+    async def verify(self, belong_to: WorkspaceIdentity, ref) -> ArtifactIntegrityResult:
+        return await self._port.verify(belong_to, ref)
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()

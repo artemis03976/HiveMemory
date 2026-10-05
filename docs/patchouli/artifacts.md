@@ -14,7 +14,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/system/attachments.md
-last_reviewed: 2026-09-24
+last_reviewed: 2026-10-04
 ---
 
 # Artifacts 与来源追踪
@@ -48,7 +48,7 @@ Chat 附件的来源 promotion 已接入本链路（见[Chat 附件链路](../sy
 
 InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary` 和多个 `InteractionTurnSnapshot`。每个 turn 从 `LogicalBlock.turn` 冻结得到，包括：
 
-- user/agent/team 三轴的 `actor_identity`；
+- user/agent/team 三轴的 `actor_identity`（不保存 session）；
 - 原始与重写后的用户问题；
 - assistant final text；
 - `turn_events`、`actions` 与 `semantic_traces` 的 dict 快照。
@@ -88,6 +88,8 @@ MemoryCreationArtifact（schema `"2"`）是一条记忆的 genesis record，记�
 
 Artifact 是 Workspace 资产，归属只由 `workspace_identity` 表达，不存在 Agent owner 字段。来源 provenance 按类型定义：InteractionArtifact 以 block 内 `actor_identity` 记录来源；MemoryCreation/VersionArtifact 复用 core 的 `MemoryProvenance`，记录与 MemoryAtom 一致的 `source_agent_id`（操作来源，允许保留 `system` 表示"没有具体 Agent 作为操作来源主体"）与 `contributing_agent_ids`（实际贡献内容的 Agent 集合，去重、保持首次出现顺序、不含 `system`）。这些字段只记录 provenance 事实，不参与读取授权；DocumentArtifact 等其他类型的来源粒度按其生产入口单独裁定。
 
+Artifact builder、Store 与文件 adapter 内部只传资源归属，不接收或重组 `IdentityScope`。InteractionArtifact 的 turn actor 保留原始参与者；SETTLE 的 system 发起者影响生成任务与新记忆 provenance，不会把交互证据中的参与者替换为 system。
+
 ## 3. 生成链中的写入顺序
 
 MemoryGenerationFamiliar 当前执行：
@@ -116,6 +118,10 @@ CREATE 会挂载 v1、creation 和 interaction refs，并追加 CREATED event；
 目录段为 owner 与 Workspace 标识的摘要，文件名为 artifact_id 摘要；存储位置不含明文身份，归属由 `workspace_identity` 字段与索引共同校验。
 
 写入时先把 `content_hash` 置空并计算规范 JSON 的 SHA-256，再把 hash 写回文件，同时返回携带 URI 与 sha256 的 `ArtifactRef`。读取会验证文件内 hash；通过 ref 读取时还会验证 ref hash。`verify()` 可独立返回 stored/actual hash 比较结果。
+
+完整性校验以从文件解析的原始 JSON 为输入，在恢复领域模型之前进行，不用忽略未知字段后的模型投影重新计算 hash。历史 InteractionArtifact 中 `actor_identity.session_id` 可以只读兼容：恢复 `ActorIdentity` 时忽略该旧字段，原文件与原 hash 保持不变；新写入不再包含 session。此兼容不允许缺失 Workspace 归属，也不放宽队列 codec 对当前 canonical 布局的校验。
+
+原始旧 JSON 的固定 hash、只读模型恢复与文件不改写由 [ArtifactStore 回归测试](../../tests/unit/engines/artifacts/test_artifact_store.py)验证。
 
 写入时持久化 artifact 索引（`.artifact_index.json`）支撑 `list_by_memory()`；同一 `(workspace, artifact_id)` 已存在且规范内容不同时，`put()` 直接拒绝（append-only 硬校验），内容相同则幂等返回既有 ref。Artifact 的“不可变”由该 append-only 校验、随机 artifact id、版本模型与只追加调用方式共同保证。
 

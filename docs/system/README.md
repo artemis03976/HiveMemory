@@ -17,7 +17,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/README.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-10-04
 ---
 
 # System
@@ -26,7 +26,7 @@ last_reviewed: 2026-09-28
 
 System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实现一遍，而是装配所有组件、决定它们如何启动和收尾，并通过门面把服务交给入口。它是依赖图的顶点：除入口外不被任何包导入。System 拥有根配置的加载与分段注入、模型/Provider 注册表、调用来源接入登记与 Principal authentication，以及被动摄入这一系统级能力；总线、维护调度器、work queue 与观测旁路的机制实现位于 `components` 包，System 负责装配这些实例并管理其启停。资源能力（`workspace.capability`）与任务进程表及 chat 任务进程编排（`workspace.process`）同样由 System 装配并经门面交给入口，但不属于 System。
 
-Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 System 复制出的独立运行时。System 负责在入口和后台交接中保留 `IdentityScope`，并装配、在关闭时最后清理进程级唯一的 `WorkspaceAssetStore`（属于 workspace）；Topic、Memory 和 Artifact 的领域语义仍由 Patchouli 所有。详见 [Workspace 架构](../architecture/workspace.md)。
+Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 System 复制出的独立运行时。操作授权产生的 `IdentityScope` 只交到公开资源边界，Patchouli 内部与后台交接使用独立的归属和发起者字段。System 装配、在关闭时最后清理进程级唯一的 `WorkspaceAssetStore`（属于 workspace）；Topic、Memory 和 Artifact 的领域语义仍由 Patchouli 所有。详见 [Workspace 架构](../architecture/workspace.md)。
 
 当前设计文档：
 

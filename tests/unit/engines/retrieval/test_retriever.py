@@ -91,7 +91,11 @@ class TestDenseRetriever:
             ]
         )
 
-        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
+        query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=_make_identity_scope().workspace_identity,
+            from_actor=_make_identity_scope().actor_identity,
+        )
         results = await self.retriever.retrieve(query, top_k=2)
 
         assert len(results) == 2
@@ -107,14 +111,16 @@ class TestDenseRetriever:
         query = RetrievalQuery(
             semantic_query="test",
             filters=filters,
-            identity_scope=_make_identity_scope(),
+            belong_to=_make_identity_scope().workspace_identity,
+            from_actor=_make_identity_scope().actor_identity,
         )
 
         await self.retriever.retrieve(query)
 
-        # 过滤条件属于业务查询；授权作用域由独立 IdentityScope 传递。
+        # 业务过滤与归属、读取策略主体分别传递。
         call_args = self.mock_storage.search.call_args
-        assert call_args.args[0] == query.identity_scope
+        assert call_args.args[0] == query.belong_to
+        assert call_args.kwargs["from_actor"] == query.from_actor
         assert call_args.kwargs["filters"] == filters
 
     @pytest.mark.asyncio
@@ -134,7 +140,11 @@ class TestDenseRetriever:
             ]
         )
 
-        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
+        query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=_make_identity_scope().workspace_identity,
+            from_actor=_make_identity_scope().actor_identity,
+        )
         results = await self.retriever.retrieve(query)
 
         # M1 虽然原始分低，但因为 M2 时间久远衰减，M1 应该排在前面
@@ -161,7 +171,8 @@ class TestDenseRetriever:
             semantic_query="test",
             keywords=["t1"],
             filters={},
-            identity_scope=_make_identity_scope(),
+            belong_to=_make_identity_scope().workspace_identity,
+            from_actor=_make_identity_scope().actor_identity,
         )
         results = await self.retriever.retrieve(query)
 
@@ -175,7 +186,11 @@ class TestDenseRetriever:
         self.memory1.meta.lifecycle.decay_anchor_at = anchor
         self.mock_storage.search = AsyncMock(return_value=[{"memory": self.memory1, "score": 0.9}])
 
-        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
+        query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=_make_identity_scope().workspace_identity,
+            from_actor=_make_identity_scope().actor_identity,
+        )
         results = await self.retriever.retrieve(query)
 
         # 1 天前的记忆几乎无衰减，分数接近原始值
@@ -241,7 +256,11 @@ class TestHybridRetriever:
             return_value=SearchResults(results=[SearchResult(memory=self.memory2, score=0.85)])
         )
 
-        query = RetrievalQuery(semantic_query="test", identity_scope=_make_identity_scope())
+        query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=_make_identity_scope().workspace_identity,
+            from_actor=_make_identity_scope().actor_identity,
+        )
         results = await self.searcher.retrieve(query, top_k=2)
 
         # 两个检索通道的结果经真实 RRF 融合后都被保留

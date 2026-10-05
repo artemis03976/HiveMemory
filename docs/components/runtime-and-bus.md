@@ -22,14 +22,14 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-09-28
+last_reviewed: 2026-10-04
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
 
 共享运行时设施解决的是“如何让多个所有者交接”，不是“把所有行为放进一个中央控制器”。它们的机制实现位于 `components` 包（依赖层级在各子系统之下，只依赖 core），实例由 System 组合根创建并管理启停。GlobalSystemBus 负责跨子系统 public route，GlobalMaintenanceScheduler 负责系统级维护 tick，Local Work Queue Runtime 负责已接纳进程内工作的机械生命周期，RuntimeEventSink 负责观测旁路（语义见[运行时事件与可观测性](./observability.md)）。前台 chat 用例的阶段与停止控制不属于本包，见第 4 节。
 
-这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。领域 payload 可以携带不可变的 `IdentityScope`，供真正的资源所有者在最终边界校验；GlobalSystemBus、scheduler、work queue、registry 和 EventBus 本身仍是进程级共享底座，不按 Workspace 建立命名域。
+这些组件共享进程和 event loop，但不共享业务状态。把它们混成一个大总线会让观测、维护和业务 RPC 互相影响，也会让任何订阅者都看起来像新的状态所有者。公开操作的 route 参数可以携带不可变的 `IdentityScope`，由资源 owner 在入口拆为归属与发起者；交互记录与后台 payload 只保存这些独立字段。GlobalSystemBus、scheduler、work queue、registry 和 EventBus 本身仍是进程级共享底座，不按 Workspace 建立命名域。
 
 ## 1. GlobalSystemBus
 
@@ -39,8 +39,20 @@ last_reviewed: 2026-09-28
 
 - `register(route, handler)`：一个 route 对应一个 handler，重复注册覆盖并记录 warning；
 - `unregister(route)`：移除 handler，不存在时 no-op；
-- `request(route, *args, **kwargs)`：调用并等待结果，未注册 route 抛 `KeyError`；
+- `request(route, *args, **kwargs)`：调用并等待结果，未注册 route 抛 `KeyError`；调用 handler 前先做参数检查，不符时抛 `RouteArgumentError`（`TypeError` 的子类）；
+- `list_unresolved_routes()`：列出 handler 类型标注无法在运行时解析、只按签名检查参数的 route；
 - 当前实现兼容 awaitable 和立即返回值，但新 handler 应保持 async 形态。
+
+### 参数检查
+
+总线以 `handler(*args, **kwargs)` 直接调用，调用点与 handler 之间没有静态类型约束：关键字名称不符会在调用时以 `TypeError` 暴露，但按位置传入错误类型的值不会报错，可能被 handler 当作字典键或比较对象静默使用。检查器（`components/bus/arguments.py`）因此在 `register` 时解析一次 handler 的签名与类型标注，在每次 `request` 时：
+
+- 按签名绑定参数，名称或数量不符时以 `RouteArgumentError` 拒绝，错误信息带 route 名；
+- 对标注为具体类的参数做 `isinstance` 检查，包括 `X | None` 与类的联合；`float` 按数值塔接受 `int`；泛型只检查容器本身，例如 `list[X]` 只检查 `list`。
+
+检查只校验、不转换：参数原样交给 handler，不复制容器，也不把字典转换成模型。`Any`、TypeVar、Protocol、`Literal` 与 `Callable` 等无法用 `isinstance` 表达的标注不做类型检查；mock、`functools.partial` 等非函数 handler 原样放行。标注引用了只在 `TYPE_CHECKING` 下导入的名称时，注册照常完成并记录 warning，该 route 降级为只检查签名，并出现在 `list_unresolved_routes()` 中；handler 模块应在运行时导入参数标注用到的类型。
+
+检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。它只在请求实际发生时生效，不替代调用点的静态检查；以类型化 route 与 mypy 检查全部调用点的方案见 [全局路由签名一致性 Todo](../todo/global-route-signature-consistency-check.md)。Pub/Sub 的订阅者不做参数检查。
 
 ### Pub/Sub
 
@@ -51,7 +63,7 @@ last_reviewed: 2026-09-28
 
 RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
 
-Workspace 不会改变 route 的全局注册语义。应用服务在入口解析 `main_workspace` 或接收显式内部 scope，随后把它作为 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。
+Workspace 不会改变 route 的全局注册语义。身份声明经认证形成访问 context，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。Import Bus 的认证前 scope 是已知例外，见[Workspace 架构](../architecture/workspace.md)。
 
 ## 2. GlobalMaintenanceScheduler
 
@@ -119,6 +131,9 @@ RuntimeEvent；`infrastructure/work_queue` 只提供存储与唤醒机制；Patc
 JSON bytes，以及可选 ordering/correlation/idempotency key。业务 DTO 必须先经 versioned codec 投影，
 不能把可变对象或 coroutine closure 直接交给 Store。
 
+`schema_version` 支持正整数（不含 bool）或非空字符串；codec registry 按 `kind + schema_version`
+的原值精确匹配，不隐式转换类型。整数 `1` 与字符串 `"1"` 是不同的契约键，版本字符串不作为浮点数解释。
+
 `WorkRecord` 是执行状态真相，状态机为：
 
 ```text
@@ -183,7 +198,7 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 
 ### 3.6 Workspace 与共享运行时
 
-`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过自己的 scope 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。Alice 执行路径的派生缓存（L1 atom cache、profile cache）由 AliceRuntime 持有，并在 `AliceSystem.stop()` 自行清空，不属于 System 运行时基础设施。
+`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。Alice 执行路径的派生缓存（L1 atom cache、profile cache）由 AliceRuntime 持有，并在 `AliceSystem.stop()` 自行清空，不属于 System 运行时基础设施。
 
 同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
 
@@ -242,6 +257,8 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 ## 9. 验证入口
 
 - `tests/unit/components/bus/test_async_bus.py`
+- `tests/unit/components/bus/test_route_arguments.py`
+- `tests/integration/patchouli/test_bus_route_arguments.py`
 - `tests/unit/components/scheduler/test_async_scheduler.py`
 - `tests/unit/components/work_queue/`
 - `tests/unit/infrastructure/work_queue/`

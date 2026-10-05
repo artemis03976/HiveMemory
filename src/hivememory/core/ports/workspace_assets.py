@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from hivememory.core.models.identity import IdentityScope
+from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     AssetRepresentationKind,
     AssetSafeError,
@@ -36,6 +36,20 @@ class WorkspaceAssetReaderPort(Protocol):
     def acquire_ready_representation(
         self,
         identity_scope: IdentityScope,
+        asset_ref: WorkspaceAssetRef,
+        preference: RepresentationPreference | None = None,
+    ) -> RepresentationLease: ...
+
+    def release_representation_lease(self, lease_id: str) -> bool: ...
+
+
+@runtime_checkable
+class WorkspaceAssetMaterializationReaderPort(Protocol):
+    """记忆物化使用的归属读取端口，不让后台任务携带操作 scope。"""
+
+    def acquire_ready_representation(
+        self,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         preference: RepresentationPreference | None = None,
     ) -> RepresentationLease: ...
@@ -122,4 +136,8 @@ class WorkspaceAssetCommandPort(Protocol):
     ) -> WorkspaceAsset: ...
 
 
-__all__ = ["WorkspaceAssetCommandPort", "WorkspaceAssetReaderPort"]
+__all__ = [
+    "WorkspaceAssetCommandPort",
+    "WorkspaceAssetReaderPort",
+    "WorkspaceAssetMaterializationReaderPort",
+]

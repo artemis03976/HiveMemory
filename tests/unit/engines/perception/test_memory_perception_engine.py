@@ -87,7 +87,7 @@ class TestBuildBlock:
         turn_event = _turn_event()
 
         block = engine.build_block(
-            _payload("hello", "clean reply", turn_events=[turn_event]), _scope()
+            _payload("hello", "clean reply", turn_events=[turn_event]), _scope().actor_identity
         )
 
         assert block.assistant_final_text == "clean reply"
@@ -127,7 +127,7 @@ class TestBuildBlock:
             ],
         )
 
-        block = engine.build_block(payload, _scope())
+        block = engine.build_block(payload, _scope().actor_identity)
 
         assert len(block.actions) == 1
         assert block.actions[0].action_id == "a1"
@@ -142,7 +142,7 @@ class TestBuildBlock:
         )
         payload = _payload("hello", "clean", traces=[TraceItem(action="SEARCH", query="my query")])
 
-        block = engine.build_block(payload, _scope())
+        block = engine.build_block(payload, _scope().actor_identity)
 
         assert [trace.action for trace in block.semantic_traces] == ["SEARCH"]
 
@@ -151,7 +151,7 @@ class TestBuildBlock:
             config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
-        block = engine.build_block(_payload("hello", "clean"), _scope())
+        block = engine.build_block(_payload("hello", "clean"), _scope().actor_identity)
 
         assert block.semantic_traces == ()
 
@@ -160,7 +160,7 @@ class TestBuildBlock:
             config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
-        block = engine.build_block(_payload("hello", ""), _scope())
+        block = engine.build_block(_payload("hello", ""), _scope().actor_identity)
 
         assert block.assistant_final_text == ""
 
@@ -174,7 +174,9 @@ class TestTokenEstimation:
             config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
 
-        block = engine.build_block(_payload("What is Python?", "Python is a language"), _scope())
+        block = engine.build_block(
+            _payload("What is Python?", "Python is a language"), _scope().actor_identity
+        )
 
         assert block.total_tokens > 0
 
@@ -192,9 +194,9 @@ class TestTokenEstimation:
                     TraceItem(action="READ", target="my_notes_alias"),
                 ],
             ),
-            _scope(),
+            _scope().actor_identity,
         )
-        without_traces = engine.build_block(_payload("q", "a"), _scope())
+        without_traces = engine.build_block(_payload("q", "a"), _scope().actor_identity)
 
         assert with_traces.total_tokens > without_traces.total_tokens
 

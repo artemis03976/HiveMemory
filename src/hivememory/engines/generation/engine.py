@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -29,6 +29,7 @@ from hivememory.core.models import (
     MetaData,
     PayloadLayer,
     UpdateFocus,
+    WorkspaceIdentity,
     WriteFocus,
 )
 from hivememory.core.models.provenance import (
@@ -98,7 +99,8 @@ class MemoryGenerationEngine:
         self,
         request: GenerationRequest,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
         now: datetime | None = None,
     ) -> list[GenerationOutcome]:
         """
@@ -118,7 +120,8 @@ class MemoryGenerationEngine:
 
         Args:
             request: GenerationRequest 对象
-            identity_scope: 唯一的身份/ownership 来源
+            belong_to: 记忆的 Workspace 归属
+            from_actor: 本次生成的发起者，也是查重时的可见性主体
 
         Returns:
             List[GenerationOutcome]: 结构化生成结果列表
@@ -132,17 +135,24 @@ class MemoryGenerationEngine:
 
         # 路由到对应模式
         if request.is_update:
-            return await self._process_mode_c(request, identity_scope, now=commit_now)
+            return await self._process_mode_c(
+                request, belong_to, from_actor=from_actor, now=commit_now
+            )
         elif request.is_write:
-            return await self._process_mode_b(request, identity_scope, now=commit_now)
+            return await self._process_mode_b(
+                request, belong_to, from_actor=from_actor, now=commit_now
+            )
         else:
-            return await self._process_mode_a(request, identity_scope, now=commit_now)
+            return await self._process_mode_a(
+                request, belong_to, from_actor=from_actor, now=commit_now
+            )
 
     async def _process_mode_a(
         self,
         request: GenerationRequest,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         *,
+        from_actor: ActorIdentity,
         now: datetime,
     ) -> list[GenerationOutcome]:
         """
@@ -168,16 +178,18 @@ class MemoryGenerationEngine:
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
         return await self._dedup_and_resolve(
             draft,
-            identity_scope,
+            belong_to,
             system_settlement_provenance(request.context),
+            from_actor=from_actor,
             now=now,
         )
 
     async def _process_mode_b(
         self,
         request: GenerationRequest,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         *,
+        from_actor: ActorIdentity,
         now: datetime,
     ) -> list[GenerationOutcome]:
         """
@@ -211,8 +223,9 @@ class MemoryGenerationEngine:
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
         return await self._dedup_and_resolve(
             draft,
-            identity_scope,
-            provenance_from_actor(identity_scope, request.context),
+            belong_to,
+            provenance_from_actor(from_actor, request.context),
+            from_actor=from_actor,
             now=now,
         )
 
@@ -238,8 +251,9 @@ class MemoryGenerationEngine:
     async def _process_mode_c(
         self,
         request: GenerationRequest,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         *,
+        from_actor: ActorIdentity,
         now: datetime,
     ) -> list[GenerationOutcome]:
         """
@@ -256,12 +270,12 @@ class MemoryGenerationEngine:
         if existing is None:
             logger.error("[Mode C] existing_memory 未注入，无法执行 UPDATE")
             return []
-        if existing.workspace_identity != identity_scope.workspace_identity:
+        if existing.workspace_identity != belong_to:
             raise WorkspaceMismatchError(
                 details={
                     "memory_id": str(existing.id),
                     "memory_workspace_id": existing.workspace_identity.workspace_id,
-                    "request_workspace_id": identity_scope.workspace_identity.workspace_id,
+                    "request_workspace_id": belong_to.workspace_id,
                 }
             )
 
@@ -296,7 +310,7 @@ class MemoryGenerationEngine:
         return self._apply_update(
             existing,
             merge_result,
-            provenance=provenance_from_actor(identity_scope, request.context),
+            provenance=provenance_from_actor(from_actor, request.context),
         )
 
     def _build_update_fallback(
@@ -389,9 +403,10 @@ class MemoryGenerationEngine:
     async def _dedup_and_resolve(
         self,
         draft: ExtractedMemoryDraft,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         provenance: MemoryProvenance,
         *,
+        from_actor: ActorIdentity,
         now: datetime,
     ) -> list[GenerationOutcome]:
         """
@@ -399,16 +414,17 @@ class MemoryGenerationEngine:
 
         Args:
             draft: 提取的草稿
-            identity_scope: 已验证的 Workspace ownership 来源
+            belong_to: 已验证的 Workspace ownership 来源
             provenance: 本次生成的来源裁定（操作来源主体与内容贡献者）
         """
         query_text = f"{draft.title} {draft.summary}"
         candidates = await self._mid_term.search(
-            identity_scope,
+            belong_to,
             query=query_text,
             top_k=1,
             filters=None,
             mode="dense",
+            from_actor=from_actor,
         )
 
         decision, existing_memory = self.deduplicator.check_duplicate(draft, candidates)
@@ -448,12 +464,12 @@ class MemoryGenerationEngine:
 
             # 构建 Workspace 内唯一的 MTP 别名 (Section 2.3；A2 §8 D-4 第一层)
             alias = await self._alias_generator.generate(
-                workspace_identity=identity_scope.workspace_identity,
+                workspace_identity=belong_to,
                 memory_type=draft.memory_type,
                 alias_suffix=draft.alias_suffix,
                 title=draft.title,
             )
-            memory = self._draft_to_memory(draft, identity_scope, provenance, alias=alias, now=now)
+            memory = self._draft_to_memory(draft, belong_to, provenance, alias=alias, now=now)
 
             return [
                 GenerationOutcome(
@@ -512,7 +528,7 @@ class MemoryGenerationEngine:
     def _draft_to_memory(
         self,
         draft: ExtractedMemoryDraft,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         provenance: MemoryProvenance,
         *,
         alias: str | None,
@@ -523,7 +539,7 @@ class MemoryGenerationEngine:
 
         Args:
             draft: 提取的草稿
-            identity_scope: 已验证的 Workspace ownership 来源
+            belong_to: 已验证的 Workspace ownership 来源
             provenance: 本次生成的来源裁定；来源字段只记录 provenance，
                 不参与读取授权
             alias: 已由 ``AliasGenerator`` 确认 Workspace 内空闲的别名
@@ -533,7 +549,7 @@ class MemoryGenerationEngine:
 
         Examples:
             >>> memory = engine._draft_to_memory(
-            ...     draft, identity_scope, provenance, alias="code_quicksort", now=now
+            ...     draft, belong_to, provenance, alias="code_quicksort", now=now
             ... )
             >>> memory.index.title
             "Python 快排算法"
@@ -548,7 +564,7 @@ class MemoryGenerationEngine:
         # 创建时点 = 提交边界 now（Familiar 传入）：created/updated/decay 同值。
         return MemoryAtom(
             meta=MetaData(
-                workspace_identity=identity_scope.workspace_identity,
+                workspace_identity=belong_to,
                 provenance=provenance,
                 access_policy=MemoryAccessPolicy.public(),
                 created_at=now,

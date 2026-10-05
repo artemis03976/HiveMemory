@@ -16,10 +16,11 @@ from hivememory.components.work_queue import (
     WorkState,
 )
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     LogicalBlock,
     PendingAtomSettlement,
     TopicAssetBinding,
+    WorkspaceIdentity,
 )
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.contracts.memory_tasks import (
@@ -55,12 +56,12 @@ class InteractionArtifactInput:
 class MemoryGenerationTaskSpec:
     """记忆生成控制面与数据面共享的规范化输入。
 
-    ``identity_scope`` 是唯一的身份/ownership 来源；GenerationRequest 不再携带权限字段。
-    完整 Actor/Workspace 归属由 identity_scope 表达；来源记录由 Patchouli
-    内部生成链维护，不在任务规范中重复保存。
+    ``belong_to`` 与 ``from_actor`` 分别保存归属与发起者；来源记录由
+    Patchouli 内部生成链维护，不在任务规范中重复保存。
     """
 
-    identity_scope: IdentityScope
+    belong_to: WorkspaceIdentity
+    from_actor: ActorIdentity
     topic_id: str
     label: str
     source: MemoryGenerationSource
@@ -98,7 +99,8 @@ def memory_task_from_spec(
         label=spec.label,
         source=spec.source,
         pending_alias=spec.pending_alias,
-        identity_scope=spec.identity_scope,
+        belong_to=spec.belong_to,
+        from_actor=spec.from_actor,
         created_at=created_at,
     )
 

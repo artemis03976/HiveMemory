@@ -108,7 +108,9 @@ class TestMemoryLibraryArchiveRevive:
     async def test_archive_raises_when_memory_not_found(self):
         self.mock_mid_term.get_by_key = AsyncMock(return_value=None)
         identity_scope = make_identity_scope(user_id="u1")
-        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, uuid4())
+        key = WorkspaceMemoryKey(
+            workspace_identity=identity_scope.workspace_identity, memory_id=uuid4()
+        )
 
         with pytest.raises(ValueError, match="not found"):
             await self.library.archive(key)
@@ -120,9 +122,11 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_mid_term.upsert = AsyncMock()
         self.mock_long_term.remove = AsyncMock()
         identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory.id)
+        key = WorkspaceMemoryKey(
+            workspace_identity=identity_scope.workspace_identity, memory_id=memory.id
+        )
 
-        await self.library.revive(identity_scope, memory.id)
+        await self.library.revive(identity_scope.workspace_identity, memory.id)
 
         self.mock_long_term.load.assert_awaited_once_with(key)
         # MVL-2: 复活重建必要索引，完整原子提交且重算向量
@@ -136,10 +140,12 @@ class TestMemoryLibraryArchiveRevive:
         identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
         memory_id = uuid4()
 
-        deleted = await self.library.delete(identity_scope, memory_id)
+        deleted = await self.library.delete(identity_scope.workspace_identity, memory_id)
 
         assert deleted is True
-        self.mock_mid_term.delete.assert_awaited_once_with(identity_scope, memory_id)
+        self.mock_mid_term.delete.assert_awaited_once_with(
+            identity_scope.workspace_identity, memory_id
+        )
 
     @pytest.mark.asyncio
     async def test_delete_missing_memory_returns_false(self):
@@ -147,10 +153,12 @@ class TestMemoryLibraryArchiveRevive:
         identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
         memory_id = uuid4()
 
-        deleted = await self.library.delete(identity_scope, memory_id)
+        deleted = await self.library.delete(identity_scope.workspace_identity, memory_id)
 
         assert deleted is False
-        self.mock_mid_term.delete.assert_awaited_once_with(identity_scope, memory_id)
+        self.mock_mid_term.delete.assert_awaited_once_with(
+            identity_scope.workspace_identity, memory_id
+        )
 
 
 class TestMemoryLibraryStorageHealth:

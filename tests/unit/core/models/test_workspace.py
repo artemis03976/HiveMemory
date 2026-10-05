@@ -138,7 +138,11 @@ def test_workspace_topic_key_round_trip_keeps_owner_and_workspace():
         ActorIdentity(user_id="user-a"),
         ISOLATION_WORKSPACE_ID,
     )
-    original = WorkspaceTopicKey.from_identity_scope(scope, "topic-a")
+    original = WorkspaceTopicKey(
+        owner_user_id=scope.workspace_identity.owner_user_id,
+        workspace_id=scope.workspace_identity.workspace_id,
+        topic_id="topic-a",
+    )
 
     restored = WorkspaceTopicKey.model_validate_json(original.model_dump_json())
 
@@ -157,12 +161,10 @@ def test_internal_boundary_rejects_missing_scope_with_stable_code():
     assert caught.value.code == "workspace.scope_required"
 
 
-def test_topic_key_construction_rejects_missing_scope_with_stable_code():
-    """防止 from_identity_scope 对缺失作用域退回 AttributeError 或静默构造。"""
-    with pytest.raises(ScopeRequiredError) as caught:
-        WorkspaceTopicKey.from_identity_scope(None, "topic-a")
-
-    assert caught.value.code == "workspace.scope_required"
+def test_topic_key_construction_rejects_missing_workspace():
+    """资源键必须显式声明归属，缺失 Workspace 不能回退公共资源域。"""
+    with pytest.raises(ValidationError, match="workspace_id"):
+        WorkspaceTopicKey(owner_user_id="user-a", topic_id="topic-a")
 
 
 @pytest.mark.parametrize(

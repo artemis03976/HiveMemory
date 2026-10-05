@@ -55,7 +55,7 @@ async def test_create_agent_profile_forces_profile_type_and_requests_memory_crea
     assert result is atom
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_CREATE,
-        identity_scope,
+        identity_scope.workspace_identity,
         atom,
     )
 
@@ -96,7 +96,8 @@ async def test_list_agent_profiles_uses_agent_profile_filter(bus):
 
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_LIST,
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         filters={"index.memory_type": "AGENT_PROFILE"},
         limit=100,
     )
@@ -112,5 +113,6 @@ async def test_get_agent_profile_forwards_alias_and_scope_to_local_route(bus):
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.GET_AGENT_PROFILE,
         "worker",
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
     )

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
+from hivememory.core.models import TopicData, TopicSnapshot, WorkspaceIdentity
 from hivememory.core.protocol.models import RetrievalResponse
 
 
@@ -20,10 +20,11 @@ class PreparedAgentRun:
     解析、附件租借与记忆/附件编译由 chat 任务进程在 CPU 分配时完成；用户
     消息与 Gateway 决定由进程自己持有，不经此回传。``topic_context`` 与
     ``pool_topics`` 在 ConversationSession 一批之前暂时保留。它不进入任何
-    序列化载荷。
+    序列化载荷。句柄只保存 Workspace 归属；finalize/cleanup 的发起者由
+    调用时的阶段授权提供，不复用 prepare 时的执行者。
     """
 
-    identity_scope: IdentityScope
+    belong_to: WorkspaceIdentity
     interaction_id: str
     topic_id: str
     is_new_topic: bool
@@ -31,10 +32,6 @@ class PreparedAgentRun:
     pool_topics: list[TopicSnapshot] = field(default_factory=list)
     retrieval_result: RetrievalResponse = field(default_factory=RetrievalResponse)
     storage_available: bool = True
-
-    @property
-    def agent_id(self) -> str:
-        return self.identity_scope.actor_identity.agent_id
 
 
 __all__ = ["PreparedAgentRun"]

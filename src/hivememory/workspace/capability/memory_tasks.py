@@ -63,8 +63,11 @@ class MemoryTaskApplicationService:
         *,
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
-    ) -> MemoryGenerationTask | None:
-        """读取单个记忆生成任务（``task.observe``）。"""
+    ) -> MemoryGenerationTask:
+        """读取单个记忆生成任务（``task.observe``）。
+
+        不存在与越域由资源 owner 统一以 ``ResourceNotFoundError`` 拒绝，不返回 ``None``。
+        """
         scope = self._authorize(access, WorkspaceOperation.TASK_OBSERVE, target_workspace)
         return await self._global_bus.request(
             GlobalRoutes.PATCHOULI_MEMORY_TASK_GET,

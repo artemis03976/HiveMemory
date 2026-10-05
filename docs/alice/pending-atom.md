@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # PendingAtom：运行时写缓冲与物化交接
@@ -55,7 +55,7 @@ Alice 不自行决定一个 WRITE 应被创建、合并、触碰还是丢弃，�
 - `pending_alias`：Agent 可见的临时句柄；
 - `intent_id`：Alice 与 Patchouli 之间的系统关联键；
 - `source_verb`：区分 `WRITE` 与 `UPDATE`；
-- `runtime_scope.identity_scope`：物化时继续使用的完整调用方 `IdentityScope`；`identity` 仅是 `actor_identity` 的兼容投影，不是第二份 Workspace 事实；
+- `runtime_scope.identity_scope`：Alice 本次 run/frame 持有的完整调用方 `IdentityScope`；投影物化任务时拆为归属与发起者，不把 scope 交给 Patchouli 后台任务；`identity` 仅是 `actor_identity` 的兼容投影，不是第二份 Workspace 事实；
 - `runtime_scope`：`run_id`、`frame_id` 与动作坐标；不保存父帧和深度拓扑；
 - `status` 与可选 `settlement`：当前生命周期及其结算视图。
 
@@ -66,6 +66,8 @@ pending alias 服务于运行时可读性，`intent_id` 服务于异步关联。
 caller 与 callee frame 共享同一个 `run_id`，但拥有不同 `frame_id`；调用关系由 Alice 的 `CallRecord(caller_frame_id, action_id)` 保存，不再写入 `RuntimeScope` 的 `parent_frame_id` 或 `depth`。这样，被调用 Agent 创建的 PendingAtom 无需在 CALL 返回后复制或合并，根 run 收尾时可以按共同 `run_id` 一次性认领；`finalize_frame()` 则为当前 CALL 投影 `FrameProducts.artifact_aliases`。
 
 这是一种运行时关联，不是持久化 provenance。正式记忆的来源仍由 Patchouli 在生成与落库阶段整理。
+
+RuntimeScope 仍保留 run/frame 的身份组合，PendingAtomRuntime 的作用域与命中规则沿用现有语义；此次拆分发生在出境的物化任务投影，不迁移 Alice 的运行时 scope。`ActorIdentity` 只含 user/agent/team，session 等关联坐标不能参与身份相等、读取策略或授权记录命中；旧 JSON 中的 actor session 字段在模型恢复时忽略。
 
 ## 3. 状态机
 
@@ -159,7 +161,7 @@ WRITE / UPDATE
   -> AliceRuntime updates the process-local view
 ```
 
-`PendingAtomMaterializeTask` 是冻结投影，只携带 `pending_alias`、`intent_id`、`source_verb`、`identity_scope` 与 `focus`。它故意不把 Alice store 或可变状态暴露给 Patchouli。相反，`PendingAtomSettlement` 携带 resolution 与可选 canonical 引用，构成请求/应答对偶。
+`PendingAtomMaterializeTask` 是冻结投影，只携带 `pending_alias`、`intent_id`、`source_verb`、`belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与 `focus`；两个身份字段从 PendingAtom 的 runtime scope 分别投影，不再携带 `IdentityScope`。它故意不把 Alice store、访问 context 或可变状态暴露给 Patchouli。Patchouli 会校验物化意图归属与本轮提交目标一致，后台 WRITE/UPDATE 保留意图发起者的读取策略。相反，`PendingAtomSettlement` 携带 resolution 与可选 canonical 引用，构成请求/应答对偶。
 
 当前 resolution 有五种：
 

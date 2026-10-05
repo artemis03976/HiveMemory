@@ -72,20 +72,21 @@ class _InMemoryMidTermPort:
             memory_id=memory.id,
         )
 
-    def _make_key(self, identity_scope: IdentityScope, memory_id) -> WorkspaceMemoryKey:
+    def _make_key(self, belong_to, memory_id) -> WorkspaceMemoryKey:
         return WorkspaceMemoryKey(
-            workspace_identity=identity_scope.workspace_identity,
+            workspace_identity=belong_to,
             memory_id=memory_id,
         )
 
     async def get(
         self,
-        identity_scope: IdentityScope,
+        belong_to,
         memory_id: UUID,
         *,
+        from_actor=None,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
-        return self._atoms.get(self._make_key(identity_scope, memory_id))
+        return self._atoms.get(self._make_key(belong_to, memory_id))
 
     async def get_by_alias(
         self,
@@ -160,7 +161,7 @@ class _StubGenerationEngine:
         self._outcomes = outcomes
         self.received_now: datetime | None = None
 
-    async def process(self, request, *, identity_scope, now=None):
+    async def process(self, request, *, belong_to, from_actor, now=None):
         self.received_now = now
         return self._outcomes
 
@@ -211,7 +212,8 @@ def _update_outcome(before: MemoryAtom, new_content: str) -> GenerationOutcome:
 
 def _spec(identity_scope: IdentityScope) -> MemoryGenerationTaskSpec:
     return MemoryGenerationTaskSpec(
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         topic_id="t1",
         label="history-test",
         source=MemoryGenerationSource.WRITE,
@@ -269,7 +271,7 @@ async def test_update_snapshot_captures_versioned_atom_before_own_refs(tmp_path)
 
     # 读取版本记录本体（经 ArtifactStore 公共读取路径）。
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
-    version_data = await store.get(identity_scope, version_ref)
+    version_data = await store.get(identity_scope.workspace_identity, version_ref)
     assert version_data["version_number"] == 2
     assert version_data["snapshot_after"]["meta"]["version"] == 2
     assert version_data["snapshot_after"]["payload"]["content"] == "v2 content"
@@ -311,7 +313,7 @@ async def test_canonical_publish_failure_leaves_orphan_version_not_head(tmp_path
     # 已写入的版本记录保留为孤立记录：可被 Artifact 存储列出，但不被
     # canonical 引用（不是已提交版本）。
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
-    orphan_refs = await store.list_by_memory(identity_scope, str(before.id))
+    orphan_refs = await store.list_by_memory(identity_scope.workspace_identity, str(before.id))
     assert orphan_refs, "已写入的版本记录应保留为孤立 Artifact"
     assert all(
         ref.artifact_id not in {r.artifact_id for r in canonical.payload.artifacts.refs}
@@ -385,7 +387,7 @@ async def test_history_immutable_after_post_commit_mutation(tmp_path):
     canonical.meta.lifecycle.vitality_score = 1.0
 
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
-    version_data = await store.get(identity_scope, version_ref)
+    version_data = await store.get(identity_scope.workspace_identity, version_ref)
     assert version_data["snapshot_after"]["payload"]["content"] == "v2 content"
     assert version_data["snapshot_after"]["index"]["title"] == "History memory"
     assert version_data["snapshot_after"]["meta"]["lifecycle"]["vitality_score"] != 1.0
@@ -424,7 +426,7 @@ async def test_update_external_without_changes_does_not_bump_version(tmp_path):
     familiar, mid_term = _familiar([], _artifact_engine(tmp_path), mid_term)
     result = await familiar.update_external_memory(
         before.id,
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
         title=None,
         summary=None,
         content=None,
@@ -435,7 +437,7 @@ async def test_update_external_without_changes_does_not_bump_version(tmp_path):
     # 传入与当前值完全相同的值同样视为无变化（§3.2 值相等语义）。
     result = await familiar.update_external_memory(
         before.id,
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
         title="History memory",
         content="stable content",
         tags=["t1"],
@@ -469,7 +471,8 @@ async def test_two_workspace_commits_do_not_cross_talk(tmp_path):
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
     await familiar.execute(
         MemoryGenerationTaskSpec(
-            identity_scope=main_scope,
+            belong_to=main_scope.workspace_identity,
+            from_actor=main_scope.actor_identity,
             topic_id="t1",
             label="history-test",
             source=MemoryGenerationSource.WRITE,
@@ -478,8 +481,8 @@ async def test_two_workspace_commits_do_not_cross_talk(tmp_path):
         )
     )
 
-    updated = await mid_term.get(main_scope, shared_id)
-    untouched = await mid_term.get(iso_scope, shared_id)
+    updated = await mid_term.get(main_scope.workspace_identity, shared_id)
+    untouched = await mid_term.get(iso_scope.workspace_identity, shared_id)
 
     # main 的修订只落在 main：版本推进、内容更新；isolation 原样保留。
     assert updated.meta.version == 2
@@ -503,7 +506,7 @@ async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path))
     await familiar.execute(_spec(owner_scope))
 
-    canonical = await mid_term.get(owner_scope, outcome.atom.id)
+    canonical = await mid_term.get(owner_scope.workspace_identity, outcome.atom.id)
     # 提交后策略收紧为 PRIVATE：仅 a1 可读。
     canonical.meta.access_policy = MemoryAccessPolicy(
         visibility=MemoryVisibility.PRIVATE,
@@ -514,7 +517,7 @@ async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
     versioned = [
         e for e in canonical.payload.artifacts.events if e.event_type == MemoryEventType.VERSIONED
     ][0]
-    version_data = await store.get(owner_scope, versioned.artifact_refs[0])
+    version_data = await store.get(owner_scope.workspace_identity, versioned.artifact_refs[0])
     assert (
         version_data["snapshot_after"]["meta"]["access_policy"]["visibility"] == "PUBLIC"
     ), "历史快照应保留提交时点的策略事实"

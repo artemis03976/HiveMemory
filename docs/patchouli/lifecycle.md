@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-09-24
+last_reviewed: 2026-10-04
 ---
 
 # 记忆生命周期
@@ -37,6 +37,8 @@ LifecycleFamiliar
 - GarbageCollector 筛选候选，跨层搬运只调用 MemoryLibrary。
 
 全局调度器只决定 gardening 何时运行，不拥有生命力公式或 archive 规则。
+
+公共 citation、feedback 与管理入口在 owner 边界从授权 `IdentityScope` 拆出归属；Lifecycle 内部的强化、patch、archive 与 revive 只接收 `belong_to: WorkspaceIdentity` 或对应复合键，不传递 scope，也不借来源 Agent 推导权限。资源归属始终校验；这些已获授权的状态变更不再按某个 actor 的读取策略筛选目标，避免 PRIVATE/TEAM 记忆的维护随最后访问者而改变。Gardening 是跨 Workspace 的可信维护遍历，不对外提供 actor 读取视图。
 
 ## 2. 生命力模型
 

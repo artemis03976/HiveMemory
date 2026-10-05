@@ -12,18 +12,14 @@ Memory 相关 Artifact（memory_creation / memory_version）自 schema "2" 起�
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.provenance import MemoryProvenance
-from hivememory.core.models.workspace import (
-    IdentityScope,
-    WorkspaceIdentity,
-    require_identity_scope,
-)
+from hivememory.core.models.workspace import WorkspaceIdentity
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
@@ -123,19 +119,6 @@ class WorkspaceArtifactKey(BaseModel):
 
     workspace_identity: WorkspaceIdentity
     artifact_id: str = Field(min_length=1)
-
-    @classmethod
-    def from_identity_scope(
-        cls,
-        identity_scope: IdentityScope,
-        artifact_id: str,
-    ) -> Self:
-        """从完整访问作用域构造 Artifact 复合键；缺失/错误类型作用域在边界内拒绝。"""
-        identity_scope = require_identity_scope(identity_scope)
-        return cls(
-            workspace_identity=identity_scope.workspace_identity,
-            artifact_id=artifact_id,
-        )
 
     model_config = ConfigDict(frozen=True)
 

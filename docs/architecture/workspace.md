@@ -21,6 +21,7 @@ code_paths:
   - src/hivememory/workspace/process/
   - src/hivememory/workspace/contracts/
   - src/hivememory/system/assembler.py
+  - src/hivememory/system/services/asset_materialization_reader.py
   - src/hivememory/system/system.py
   - src/hivememory/patchouli/memory_library/stores.py
   - src/hivememory/patchouli/system.py
@@ -55,7 +56,7 @@ Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspac
 
 ## 1. 为什么建立 Workspace：初步的“ME 网络”边界
 
-HiveMemory 引入 Workspace，不是为了给现有对象再增加一个筛选字段，而是为了回答同一个问题的三个部分：谁在执行、资源归属于哪个稳定边界、一次后台或重试操作应当沿用哪一份身份事实。只有把这三部分放进同一个不可变坐标系，Topic、Memory、Artifact、WorkspaceAsset 以及它们的 binding/ref 生命周期才不会在共享进程运行时中相互串台。
+HiveMemory 引入 Workspace，不是为了给现有对象再增加一个筛选字段，而是为了回答同一个问题的三个部分：谁在执行、资源归属于哪个稳定边界、一次后台或重试操作应当沿用哪一份身份事实。操作、记录与后台任务分别携带符合其寿命的身份数据，Topic、Memory、Artifact、WorkspaceAsset 以及它们的 binding/ref 生命周期才能在共享进程运行时中保持稳定归属。
 
 Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）由 System 持有并在最终寻址处校验；执行路径的派生视图缓存由执行子系统（Alice）持有并按派生源坐标键控。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
 
@@ -63,7 +64,7 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 
 1. `WorkspaceIdentity` 与 `IdentityScope` 提供网络入口和资源归属坐标；
 2. Topic、Memory、Artifact、WorkspaceAsset 是当前已落地的 Workspace-owned 资源节点，各自 Store 在最终读写处执行 hard boundary；
-3. settle、generation、artifact 和后台 retry 是跨节点交接，领域载体保留同一 scope，不从进程当前 Workspace 重新推断；
+3. settle、generation、artifact 和后台 retry 是跨节点交接，领域载体独立保留资源归属与需要的发起者，不从进程当前 Workspace 重新推断；
 4. 共享 System runtime 是网络的公共骨架，但不因此变成某个 Workspace 的私有命名域。
 
 这与[《AE2 与 HiveMemory 的架构同构性》](../ideas/ae2-hivememory-architecture-analogy.md)形成正式的“当前事实—高阶设想”联系：Idea 文档解释 AE2 的网络、接口和子网为何能成为审查 HiveMemory 所有权、能力和执行边界的语言；本文只承接其中已经落地的 Workspace 资源边界，并把它标记为未来主网/子网体系的最小基础。完整的主网/子网拓扑、具有独立能力边界的子 Workspace、显式 Mount/Bridge、Capability Contract、独立工具与执行环境、配额/队列以及可恢复的子网生命周期尚未形成当前实现，仍以该 Idea 及后续独立 Plan 为准。
@@ -72,7 +73,7 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 |:---|:---|:---|
 | 网络身份与资源寻址 | `IdentityScope`、Workspace 复合资源键、`main_workspace` 与内部隔离 seam | 用户可见的 Workspace 创建、切换和发现协议 |
 | 网络存储与事实 | Topic、Memory、Artifact、WorkspaceAsset 的所有权和生命周期边界 | 跨 Workspace 的 Mount、Bridge、导入/导出及版本一致性 |
-| 执行与结果回流 | Interaction、settlement、generation task 携带原始 scope，结果回到 Patchouli 边界 | 可持久化 Job Graph、子网内部执行器、恢复和 backpressure |
+| 执行与结果回流 | Interaction、settlement、generation task 独立携带资源归属与需要的发起者，结果回到 Patchouli 边界 | 可持久化 Job Graph、子网内部执行器、恢复和 backpressure |
 | 能力封装 | MTP、公开 Route 和窄 Asset port 提供现有交接基础 | 面向主网稳定暴露的 Capability Subnet 与版本化能力契约 |
 
 因此，Workspace 当前应被理解为“初步 ME 网络边界”。后续若扩展 Workspace，必须先在 Idea/Plan 中明确所有权、Mount、能力和失败语义，再根据实际落地结果更新本文。
@@ -91,6 +92,7 @@ flowchart TB
     BUS["GlobalSystemBus"]
     GW["Gateway\n入口决策"]
     PA["Patchouli\nTopic / Memory / Artifact"]
+    IDENTITY["资源归属 + 发起者\nbelong_to / from_actor"]
     AL["Alice\nAgent run / MTP"]
     TOPIC["Patchouli Topic Store"]
     ASSET["WorkspaceAssetStore\nworkspace.assets；进程级唯一"]
@@ -100,14 +102,14 @@ flowchart TB
     BUS --> GW
     BUS --> PA
     BUS --> AL
-    PA --> TOPIC
+    PA --> IDENTITY --> TOPIC
     APP --> ASSET
-    SCOPE -. "最终资源边界重新校验" .-> TOPIC
+    IDENTITY -. "最终资源边界重新校验" .-> TOPIC
     SCOPE -. "最终资源边界重新校验" .-> ASSET
-    SCOPE -. "领域 payload 中传递；不建立分区" .-> SHARED
+    IDENTITY -. "记录与后台 payload；不建立分区" .-> SHARED
 ```
 
-Workspace 只在资源所有者需要它的地方生效。共享组件收到领域 payload 中的 `IdentityScope` 时，把它作为调用所需的不可变事实传递，不因此自动产生 Workspace 命名域、缓存副本或独立调度分区；Alice 的两个派生视图缓存按派生源坐标键控，属于其执行路径的私有运行时状态（见 [Alice](../alice/README.md)）。
+Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边界把 `IdentityScope` 拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部不再传递或重新组装 scope。全局总线的公开 route 参数仍可携带操作 scope；共享队列运输的记录与后台 payload 使用独立身份字段，两者都不因此自动产生 Workspace 命名域、缓存副本或独立调度分区。Alice 的两个派生视图缓存按派生源坐标键控，属于其执行路径的私有运行时状态（见 [Alice](../alice/README.md)）。WorkspaceAsset 的旧端口例外见第 10 节。
 
 ## 3. 身份坐标
 
@@ -119,7 +121,7 @@ Workspace 只在资源所有者需要它的地方生效。共享组件收到领�
 | `WorkspaceIdentity` | 资源归属于哪个用户和 Workspace：`owner_user_id`、`workspace_key`、`workspace_id`。W0 要求 key 与 ID 相同且非空。 | 不表示登录 session、grant 或永久 capability。 |
 | `IdentityScope` | 一次操作的发起者与目标 Workspace，由 `ActorIdentity + WorkspaceIdentity` 组成；由授权点在操作授权通过后组装（第 4 节）。 | 不携带 `interaction_id`、generation、run、frame、request 或 trace 等关联 ID；不校验 owner 规则（owner 约束属于第 4 节的第 2、3 阶段）；不表示 actor 驻留在哪里（那是访问 context 的内容）。 |
 
-`interaction_id`、`topic_id`、`memory_id`、`artifact_id` 和 work/task ID 仍由各自领域载体持有。这样可以避免把一个局部关联 ID 误当成公共身份，或在队列、缓存中派生出第二套 scope 模型。
+`interaction_id`、`topic_id`、`memory_id`、`artifact_id` 和 work/task ID 仍由各自领域载体持有。`ActorIdentity` 不含 `session_id`；Chat 请求体继续接受该兼容字段，但身份构造与 finalize 关联均不使用它。这样可以避免把局部关联 ID 误当成公共身份，或在队列、缓存中派生出第二套 scope 模型。
 
 ### 3.2 默认入口和内部 seam
 
@@ -131,7 +133,7 @@ HTTP 层的用户导向身份选择（`user_id + workspace_id`）由统一请求
 
 声明只作为认证输入：server 把它交给统一认证网关，认证通过后经过验证的身份只存在于访问 context 中，server 不把声明当作已确认的身份继续使用，也不交给路由处理函数（第 4.4 节）。W0 不提供 Workspace 创建或切换产品入口。`isolation_workspace` 仅由内部服务和隔离测试显式构造（`build_internal_identity_scope`），用于验证同一用户和 Agent 在两个资源域中的访问不会串扰。
 
-下游不能读取进程级 `current_workspace`，也不能在 retry 时重新执行默认解析；后台任务必须从自己的领域 payload 恢复原始 scope，并在最终访问 Workspace-owned 资源时重新执行归属检查（第 8.2 节）。
+下游不能读取进程级 `current_workspace`，也不能在 retry 时重新执行默认解析；后台任务必须从自己的领域 payload 分别恢复资源归属与发起者，并在最终访问 Workspace-owned 资源时重新执行归属检查（第 8.2 节）。
 
 被动摄入 `/ingest` 是唯一的例外：它不经统一认证网关，仍由 `resolve_request_identity_scope` 在认证前一次性组装 `IdentityScope`。Import Bus 不在现有系统的认证范围内，这是第 4.1 节不变量 1 的已知例外（第 10 节）。
 
@@ -158,10 +160,11 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 |:---|:---|:---|:---|:---|
 | `ActorIdentity` | 谁将要执行接下来的任务 | 认证前只是声明；第 1 阶段通过后成为已验证的身份 | 长期 | 任何地方 |
 | 访问 context（`WorkspaceAccessContext`） | 这个 actor 驻留在哪个 Workspace、经由哪个来源接入、属于哪一次运行 | 第 2 阶段通过时签发 | 只在本次运行内：一个任务进程或一次请求 | 本次运行的持有者，以及授权点 |
-| `IdentityScope` | 这一次操作由谁发起、作用于哪个 Workspace | 每次操作授权时组装 | 只在这一次操作的调用链内 | 授权点以下：资源 owner、引擎、存储 |
-| 资源身份 | 资源属于哪个 Workspace、由谁产生 | 资源创建时写入 | 随资源持久保存 | 资源本身及其记录 |
+| `IdentityScope` | 这一次操作由谁发起、作用于哪个 Workspace | 每次操作授权时组装 | 只在这一次操作的调用链内 | 授权点、资源 owner 的公共边界与 Gateway |
+| `belong_to: WorkspaceIdentity` | 资源、记录或任务属于哪个 Workspace | 公共边界拆分，或资源创建时写入 | 随资源、记录或任务保存 | Patchouli 内部、引擎、存储及领域载体 |
+| `from_actor: ActorIdentity` 与来源记录 | 操作或生成由谁发起、哪些 Agent 贡献内容 | 公共边界拆分，或生成链明确构造 | 随记录或需要它的任务保存 | 领域调用与来源记录；不代替资源归属 |
 
-资源被创建时，归属取自操作的目标 Workspace，来源取自操作的发起者；此后资源身份就是独立的数据，资源授权比对的是 `IdentityScope` 与资源身份（第 5 节）。
+资源被创建时，归属取自操作的目标 Workspace，来源取自操作的发起者；此后归属与来源就是独立的数据。资源 owner 先比对目标 Workspace 与资源归属，再按 policy 判断发起者是否可见，资源的来源字段不参与授权（第 5 节）。
 
 各层持有的身份数据：
 
@@ -169,19 +172,20 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 |:---|:---|:---|
 | server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；管理操作的请求级 context 与目标 Workspace；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；认证后的身份；进程记录及其中的 context |
 | 授权点：注册入口、能力层、任务进程的阶段检查 | 访问 context、操作授权者（注册入口作为进程 context 的运行持有者，另持认证网关） | 调用方另行传入的 `IdentityScope` |
-| 授权点以下：Gateway、Patchouli、引擎、存储 | 授权点组装后传入的 `IdentityScope` | 访问 context、认证网关、操作授权者 |
+| Gateway 与 Patchouli 公共边界 | 授权点组装后传入的 `IdentityScope`；Patchouli 立即拆分归属与发起者 | 访问 context、认证网关、操作授权者 |
+| Patchouli 内部、引擎、存储 | 独立的 `WorkspaceIdentity` 与需要时的 `ActorIdentity` | `IdentityScope`、访问 context、认证网关、操作授权者 |
 | 进程记录 | 访问 context 与进程元数据 | 身份字段 |
 
 必须持续成立的不变量：
 
 1. 第 3 阶段之前不存在 `IdentityScope`：入口在认证前只持有 actor 声明与请求进入的 Workspace（`/ingest` 是已知例外，第 3.2 节）。
 2. 访问 context 只出现在本次运行的持有者和授权点；不进入资源 owner、Gateway、引擎或存储，不写入任何记录、事件、交互记录或 DTO。
-3. 运行结束后不再读取访问 context。运行结束后的需求（交互记录、后台任务）使用 actor 身份或资源身份。
-4. 授权点只接收访问 context 与目标 Workspace，`IdentityScope` 只由操作授权者组装，不由调用方另行传入；授权点以下只接收 `IdentityScope`。没有函数同时接收 `identity_scope` 与 `access`（`/ingest` 除外）。
-5. 资源 owner 用 `IdentityScope` 与资源身份做资源授权。
+3. 运行结束后不再读取访问 context。交互记录与后台任务独立保存资源归属和需要的发起者，不保存操作 scope。
+4. 授权点只接收访问 context 与目标 Workspace，`IdentityScope` 只由操作授权者组装，不由调用方另行传入；公共 route 接收 scope，Patchouli 公共边界以下只接收拆分后的归属与发起者。没有函数同时接收 `identity_scope` 与 `access`（`/ingest` 除外）。
+5. 资源 owner 先校验目标 Workspace 等于资源归属，再按资源 policy 检查发起者；管理视角也不跳过 Workspace 硬边界，资源来源不能充当权限依据。
 6. 授权规则不是身份类型的约束：“actor 用户等于 Workspace owner”属于第 2、3 阶段，`IdentityScope` 不校验它。
 
-不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、组合根与 server 导入；能力层、任务进程的执行器 `TaskProcessRunner` 与 CPU 分配不导入认证一侧；Gateway、Patchouli 不导入两者。
+不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、组合根与 server 导入；能力层、任务进程的执行器 `TaskProcessRunner` 与 CPU 分配不导入认证一侧；Gateway、Patchouli 不导入两者。身份拆分边界测试另限定 Patchouli 的 scope 引用只能出现在公共 handler，五个引擎与记录/任务模型不保留 scope。
 
 ### 4.2 两类访问登记
 
@@ -261,10 +265,10 @@ context 是**密封的**凭据：
 | operation | 绑定的授权点（授权失败时不触达资源后端） |
 |:---|:---|
 | `resource.read` | 能力层的 Actor 可见 Memory 点读与 alias 读取；任务进程的 Gateway 话题读取与结算后的话题池读取 |
-| `resource.search` | 能力层的语义检索；任务进程的 prepare（话题与检索） |
+| `resource.search` | 能力层的语义检索；任务进程的 prepare（话题与检索）与 cleanup 补偿 |
 | `profile.read` | 能力层的 Agent Profile 读取；任务进程 CPU 分配中的 Profile 解析 |
 | `asset.acquire` | 任务进程 CPU 分配中的附件租借；不授权上传 |
-| `interaction.submit` | 任务进程的 finalize（提交交互记录）：在进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒 |
+| `interaction.submit` | 任务进程的 finalize（提交交互记录）：进入 Actor 执行前预检，调用 finalize 前再次授权 |
 | `memory_intent.submit` | 目录项；当前没有绑定的授权点 |
 | `task.observe` | 能力层的生成任务 list/get（观察不授予取消） |
 | `management.memory` | 能力层的 Memory 管理 create/list/get/update/delete/feedback；Agent Profile 的管理创建与列表 |
@@ -275,7 +279,7 @@ context 是**密封的**凭据：
 **授权点**：
 
 - **能力层**（`workspace/capability/`）：方法只接收访问 context、目标 Workspace 与业务参数，先调用 `authorize_operation`，再用返回的 `IdentityScope` 构造领域对象并调用 Patchouli，不向下传 context。附件上传只使用授权返回的 scope，调用方不能另传 scope；检索请求由能力层用授权返回的 scope 构造。
-- **任务进程的阶段检查**：阶段调用是进程自身的编排而非 actor 的主动操作，每次阶段调用前以任务参数中的目标 Workspace 授权，再把返回的 `IdentityScope` 传给对应路由；cleanup 不检查，只补偿本进程 prepare 的结果。
+- **任务进程的阶段检查**：阶段调用是进程自身的编排而非 actor 的主动操作，每次阶段调用前以任务参数中的目标 Workspace 授权，再把返回的 `IdentityScope` 传给对应路由。`PreparedAgentRun` 只冻结 prepare 的 `belong_to`；finalize 使用当次 `interaction.submit` 授权所得发起者，归属不一致时在接纳交互前抛 `WorkspaceMismatchError`。cleanup 重新授权 `resource.search`，拒绝时记录警告并完成进程关闭；资源 owner 对越域 prepared 返回 `False`，不执行删除。
 - **注册入口**：注册时完成两阶段认证；取消与状态查询经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
 
 能力层的读取分为两族，对应两种视角：
@@ -311,12 +315,12 @@ Workspace 资源的最终寻址同时包含 WorkspaceIdentity 和资源 ID。复
 
 | 资源 | 当前寻址结构 | 主要所有者 |
 |:---|:---|:---|
-| Topic | `IdentityScope + topic_id`（adapter 内部为 `WorkspaceTopicKey`） | Patchouli Perception / `ShortTermMemoryStore` |
+| Topic | 公共边界为 `IdentityScope + topic_id`；内部为 `belong_to + topic_id`（adapter 内部为 `WorkspaceTopicKey`） | Patchouli Perception / `ShortTermMemoryStore` |
 | Memory | `WorkspaceMemoryKey(workspace_identity, memory_id)` | Patchouli `MidTermMemoryStore` / 长期存储 |
 | Artifact | `WorkspaceArtifactKey(workspace_identity, artifact_id)`；`ArtifactRef` 同时带 WorkspaceIdentity | Patchouli `ArtifactStore` 及其适配器 |
 | WorkspaceAsset | `WorkspaceAssetKey(workspace_identity, asset_id)`；外部使用当前 Store 的 opaque `WorkspaceAssetRef` | workspace 持有的 `WorkspaceAssetStore`（组合根装配） |
 
-`topic_id` 在领域上是全局唯一身份。正常创建路径由统一流程生成新的 UUID，两个 Workspace 可以使用相同标题，但不能把同一个 `topic_id` 作为两个合法 Topic 并存。调用方以 `IdentityScope + topic_id` 访问；`WorkspaceTopicKey` 仅由短期 adapter 在内部构造，用于归属校验和物理索引。
+`topic_id` 在领域上是全局唯一身份。正常创建路径由统一流程生成新的 UUID，两个 Workspace 可以使用相同标题，但不能把同一个 `topic_id` 作为两个合法 Topic 并存。公共调用方以 `IdentityScope + topic_id` 访问，Patchouli 内部只传 `belong_to + topic_id`；`WorkspaceTopicKey` 仅由短期 adapter 在内部构造，用于归属校验和物理索引。
 
 ### 5.2 Memory 的归属
 
@@ -324,7 +328,7 @@ Memory 在 `MetaData.workspace_identity` 中保存唯一持久化归属；读取
 
 ### 5.3 共享基础设施与派生缓存的键控规则
 
-work queue、ordering/idempotency key、task/run registry、scheduler、runtime container 和 EventBus 维持进程级共享语义。领域 TaskSpec 可以携带唯一的 `IdentityScope`，但通用 WorkItem、WorkRecord 和 RuntimeEvent infrastructure 不把它解释为资源分区字段。`RuntimeEvent.workspace_id` 只是可选观测标签，不参与路由、订阅、sequence、授权或缓存分组。
+work queue、ordering/idempotency key、task/run registry、scheduler、runtime container 和 EventBus 维持进程级共享语义。领域 TaskSpec 独立携带 `belong_to` 与需要的 `from_actor`，通用 WorkItem、WorkRecord 和 RuntimeEvent infrastructure 不解释这些身份字段。`RuntimeEvent.workspace_id` 只是可选观测标签，不参与路由、订阅、sequence、授权或缓存分组。
 
 缓存按所有权适用两条键控规则：
 
@@ -361,7 +365,7 @@ WorkspaceAsset 不保存 `visibility`、`created_by_agent_id`、`created_by_team
 
 Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic 所有者之间不使用共同控制器、两阶段提交或额外协调器；binding 随所属 Topic 的 settle/evict 生命周期完成清理。Topic buffer 的结构、并发保护、compact/settle/evict 矩阵和 shutdown 批处理属于[Perception 与短期话题](../patchouli/perception.md)及 [MemoryLibrary](../patchouli/memory-library.md)，不在本文重复定义。
 
-## 8. Scope 传播与跨边界交接
+## 8. 操作身份与资源归属交接
 
 ### 8.1 主动和被动入口
 
@@ -373,15 +377,20 @@ Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic �
   -> 统一认证网关：第 1、2 阶段，签发绑定本次运行的访问 context
        chat：由注册入口认证并创建任务进程；管理操作与取消：请求级 context
   -> 授权点：第 3 阶段，组装 IdentityScope（能力层 / 任务进程的阶段检查）
-  -> public route / 领域所有者（只接收 IdentityScope）
-  -> 在 Workspace-owned 资源边界校验 scope 与资源身份
+  -> public route / 资源 owner 公共边界（接收 IdentityScope）
+  -> Patchouli 拆为 belong_to / from_actor，内部独立传递
+  -> 在 Workspace-owned 资源边界校验归属与 actor policy
 ```
 
 主动 Chat 是 Agent action，必须携带具体 `agent_id`；注册入口完成认证并立即创建进程，进程的阶段调用以注册时通过认证的 Workspace 为目标授权（[应用服务](../system/application-services.md)第 3、4 节）。`/chat/stop` 不是 Agent action：server 以 `(user, system)` 声明取得请求级 context，注册入口经进程控制授权比对请求方与进程记录的驻留坐标。被动接入 `/ingest` 不经网关，在最外层组装 `IdentityScope`（第 3.2 节），被动接入的 `agent_id` 参与外部会话分桶命名；Passive ingress 按自己的外部会话键缓冲并提交 Patchouli Interaction，但不因此建立第二套 Workspace 资源状态。下游不使用进程当前 Workspace 推断资源归属。
 
 ### 8.2 后台任务和重试
 
-`InteractionSubmission`、`MemoryGenerationTaskSpec` 等领域 DTO 各自保存一份完整 `IdentityScope`，并携带所需的 interaction、intent、topic 或 task ID。codec 负责 scope 的完整 round-trip；Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 恢复原 scope 和领域 ID，再到真正的 Workspace-owned resource 边界执行授权；它不重跑默认 resolver、不读取进程当前 Workspace，也不改变身份坐标。队列的状态机和重试策略见[运行时机制：总线、调度器与 Work Queue](../components/runtime-and-bus.md)。
+`InteractionSubmission`、`MemoryGenerationTaskSpec`、`MemoryGenerationTask` 与 `PendingAtomMaterializeTask` 独立保存必需的 `belong_to` 和 `from_actor`，并携带所需的 interaction、intent、topic 或 task ID；`PreparedAgentRun`、`TopicMaterializeTask` 和 Topic working set 的 lease 只保存归属。Topic working set 的驻留记录为 `(WorkspaceIdentity, topic_id) → 最近访问时间`，idle/LRU/shutdown 候选只返回归属与 Topic ID，不保存最近访问者。
+
+Interaction codec 为 v3，generation codec 的 `schema_version` 为字符串 `"1.1"`，分别完整编码归属与发起者；当前队列是进程内队列，未注册旧 codec。Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 分别恢复身份与领域 ID，再到真正的 Workspace-owned resource 边界执行检查；它不重跑默认 resolver、不读取进程当前 Workspace，也不重新组装 scope。任务 list/get/cancel 以 task 的 `belong_to` 检查目标 Workspace，越域与不存在统一按 not found 处理。
+
+手动、idle、LRU 与 shutdown 结算都由 coordinator 创建 SETTLE 生成任务，发起者统一为 `system_actor_for_workspace(belong_to)`（Workspace owner 用户、保留的 `system`、无 Team）。参与内容的 Agent 只进入贡献者集合；结算查重按这个 system actor 的普通读取规则只看到本 Workspace 的 PUBLIC 记忆。WRITE/UPDATE 则保留提交 Agent 的可见性与来源。队列的状态机和重试策略见[运行时机制：总线、调度器与 Work Queue](../components/runtime-and-bus.md)。
 
 ## 9. System 生命周期与 shutdown
 
@@ -429,7 +438,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单，不能按 Agent 区分权限；
 - Alice 的 MTP 读取（语义检索、alias 批读）、Profile 解析与引用记录仍以 `IdentityScope` 直接请求 Patchouli 公开路由，不经能力层，这些调用没有操作授权；CPU 输入清单的 `IdentityScope` 由过渡方法 `cpu_execution_identity` 组装（第 4.4 节）。Patchouli 的交互提交与主动记忆意图提交路由同样只接收 `IdentityScope`、不做操作授权，目前没有生产调用方；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
-- 交互提交、生成任务等记录与后台任务仍以完整 `IdentityScope` 表示资源归属与来源（第 8.2 节），尚未区分资源身份；
+- WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
 - 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；System 停止流程不排空任务进程表，任务进程由注册入口在交付结束时关闭；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
 - Alice 的 L1 atom cache 与 profile cache 是执行路径的派生视图：不跨重启恢复，`AliceSystem.stop()` 时清空；profile cache 没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能 stale；
@@ -452,6 +461,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - 能力层与读取视图：[`workspace/capability/`](../../src/hivememory/workspace/capability/)、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
 - Alice 派生缓存：[`KoakumaAtomCache`](../../src/hivememory/agent_runtime/aliases/cache.py)（端口见 [`AtomCachePort`](../../src/hivememory/agent_runtime/aliases/ports.py)）、[`AgentProfileCache`](../../src/hivememory/alice/runtime/profile_cache.py)；消费侧 resolver 见 [`RuntimeAliasResolver`](../../src/hivememory/agent_runtime/aliases/resolver.py) 与 [`AgentProfileResolver`](../../src/hivememory/alice/runtime/profile_resolver.py)；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；
+- [`AssetMaterializationReader`](../../src/hivememory/system/services/asset_materialization_reader.py)（WorkspaceAsset 旧身份端口的临时物化适配器）；
 - [`TopicAssetBinding`](../../src/hivememory/core/models/workspace_asset.py)、[`ShortTermMemoryStore`](../../src/hivememory/patchouli/memory_library/stores.py) 和 [`PerceptionFamiliar`](../../src/hivememory/patchouli/services/perception.py)。
 
 代表性行为测试：

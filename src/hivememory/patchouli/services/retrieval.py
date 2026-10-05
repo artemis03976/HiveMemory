@@ -16,15 +16,15 @@ from uuid import UUID
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
+    ActorIdentity,
     AgentProfile,
-    IdentityScope,
     MemoryAtom,
     MemoryType,
     ResolvedAgentProfile,
     TopicData,
     TopicSnapshot,
+    WorkspaceIdentity,
     WorkspaceMemoryKey,
-    require_identity_scope,
 )
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.exceptions import (
@@ -32,7 +32,6 @@ from hivememory.core.mtp.exceptions import (
     InvalidArgumentError,
     MemoryTypeMismatchError,
 )
-from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -54,7 +53,7 @@ class RetrievalFamiliar:
         - 本地计算密集
 
     职责：
-        1. 接收业务请求 (RetrievalRequest)
+        1. 接收公共边界转换后的内部检索查询 (RetrievalQuery)
         2. 根据 user_id 创建过滤条件 (乐观检索策略)
         3. 调用 RetrievalEngine 进行数据检索
         4. 处理副作用 (如统计更新)
@@ -88,21 +87,20 @@ class RetrievalFamiliar:
         self,
         topic_id: str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> TopicData | None:
         """
         读取短期话题上下文（纯读，无访问追踪副作用）。
         """
-        require_identity_scope(identity_scope)
         return self._memory_library.short_term.get(
-            identity_scope,
+            belong_to,
             topic_id,
         )
 
     def list_active_topics(
         self,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         include_empty: bool = False,
         sort_by_recency: bool = True,
     ) -> tuple[TopicSnapshot, ...]:
@@ -112,9 +110,8 @@ class RetrievalFamiliar:
         默认排除空话题，供 Gateway 路由决策使用；include_empty=True
         时可承接前端话题池展示。按 ``last_update``（最近写入）倒序排列。
         """
-        identity_scope = require_identity_scope(identity_scope)
         topics = self._memory_library.short_term.list_by_workspace(
-            identity_scope,
+            belong_to,
             include_empty=include_empty,
         )
         if not include_empty:
@@ -129,7 +126,8 @@ class RetrievalFamiliar:
         self,
         memory_id: UUID | str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
         """
@@ -141,15 +139,17 @@ class RetrievalFamiliar:
         """
         normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
         return await self._memory_library.mid_term.get(
-            require_identity_scope(identity_scope),
+            belong_to,
             normalized_id,
+            from_actor=from_actor,
             enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def list_memories(
         self,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
         query: str | None = None,
         filters: dict[str, Any] | None = None,
         limit: int = 20,
@@ -162,20 +162,21 @@ class RetrievalFamiliar:
         （D4）：ownership hard boundary 仍生效，跳过 Workspace 内 actor
         可见性过滤；Agent retrieval 不得使用该开关。
         """
-        identity_scope = require_identity_scope(identity_scope)
         query_filters = self._build_business_filters(filters)
         if query:
             results = await self._memory_library.mid_term.search(
-                identity_scope,
+                belong_to,
                 query=query,
                 top_k=limit,
                 filters=query_filters,
+                from_actor=from_actor,
                 enforce_actor_visibility=enforce_actor_visibility,
             )
             return [result["memory"] for result in results if "memory" in result]
         return await self._memory_library.mid_term.scroll(
-            identity_scope,
+            belong_to,
             filters=query_filters,
+            from_actor=from_actor,
             limit=limit,
             enforce_actor_visibility=enforce_actor_visibility,
         )
@@ -184,7 +185,8 @@ class RetrievalFamiliar:
         self,
         agent_alias: str | None,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
     ) -> ResolvedAgentProfile:
         """
         Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析
@@ -196,14 +198,14 @@ class RetrievalFamiliar:
         结果返回，供 workspace Profile 解析缓存做命中授权与失效对账；可见性
         校验在此处独立成立（纵深防御）。
         """
-        identity_scope = require_identity_scope(identity_scope)
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
             return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
 
         atom = await self._memory_library.mid_term.get_by_alias(
-            identity_scope,
+            belong_to,
             normalized_alias,
+            from_actor=from_actor,
         )
         if atom is None:
             raise AliasNotFoundError(
@@ -229,56 +231,40 @@ class RetrievalFamiliar:
             source_version=atom.meta.version,
         )
 
-    async def retrieve(self, request: RetrievalRequest) -> list[MemoryAtom]:
+    async def retrieve(self, query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
         """
         语义检索相关记忆，按领域排序返回完整原子列表（A2 §2.1）。
 
         检索失败（存储不可用、引擎异常）按原错误传播，不伪装为空列表；
         耗时等诊断信息只进入日志，由调用侧 adapter 自行测量。
         """
-        query_filters = QueryFilters()
-
-        # 合并 MTP filter (如果有)
-        if request.filters is not None:
-            if request.filters.memory_type is not None:
-                query_filters.memory_type = request.filters.memory_type
-            if request.filters.tags:
-                query_filters.tags = request.filters.tags
-            if request.filters.min_confidence > 0:
-                query_filters.min_confidence = request.filters.min_confidence
-
-        query = RetrievalQuery(
-            semantic_query=request.semantic_query,
-            keywords=request.keywords or [],
-            filters=query_filters,
-            identity_scope=request.identity_scope,
-        )
-
         engine_result = await self.engine.retrieve(
             query=query,
-            top_k=request.top_k,
+            top_k=top_k,
         )
 
         logger.info(
-            f"检索完成: query='{request.semantic_query[:20]}...', "
-            f"filters={query_filters}, "
+            f"检索完成: query='{query.semantic_query[:20]}...', "
+            f"filters={query.filters}, "
             f"使魔取回了 {engine_result.memories_count} 条记忆, "
             f"latency={engine_result.latency_ms:.1f}ms"
         )
         return list(engine_result.memories)
 
-    async def retrieve_async(self, request: RetrievalRequest) -> list[MemoryAtom]:
+    async def retrieve_async(self, query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
         """
         异步总线入口：只执行检索与活跃度刷新。
         """
-        memories = await self.retrieve(request)
+        memories = await self.retrieve(query, top_k=top_k)
         await self._refresh_vitality_for_memories(memories)
         return memories
 
     async def retrieve_by_aliases(
         self,
         aliases: list[str],
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
     ) -> list[MemoryAtom]:
         """
         精确按 alias 取回实际可读的完整原子（A2 §2.1）。
@@ -288,7 +274,6 @@ class RetrievalFamiliar:
         不可用与 alias 多义（``MemoryAliasConflictError``）按原错误传播，
         不伪装为空列表。
         """
-        identity_scope = require_identity_scope(identity_scope)
         memories: list[MemoryAtom] = []
         seen_aliases: set[str] = set()
         for alias in aliases:
@@ -298,8 +283,9 @@ class RetrievalFamiliar:
             seen_aliases.add(normalized)
 
             atom = await self._memory_library.mid_term.get_by_alias(
-                identity_scope,
+                belong_to,
                 normalized,
+                from_actor=from_actor,
             )
             if atom is None:
                 logger.debug(f"Alias not found during alias retrieval: {normalized}")
@@ -310,18 +296,20 @@ class RetrievalFamiliar:
     async def retrieve_by_aliases_async(
         self,
         aliases: list[str],
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
     ) -> list[MemoryAtom]:
         """
         精确别名检索的异步总线入口。
         """
-        memories = await self.retrieve_by_aliases(aliases, identity_scope)
+        memories = await self.retrieve_by_aliases(aliases, belong_to, from_actor=from_actor)
         await self._refresh_vitality_for_memories(memories)
         return memories
 
     async def update_access_stats(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memories: list[MemoryAtom],
     ) -> None:
         """
@@ -329,14 +317,13 @@ class RetrievalFamiliar:
 
         当记忆被成功使用时调用，增加访问计数
         """
-        identity_scope = require_identity_scope(identity_scope)
         now = utc_now()
         for memory in memories:
             try:
                 # 受限局部更新：只推进访问计数与最近访问时间（A2-P §4.1）。
                 await self._memory_library.mid_term.patch_payload(
                     WorkspaceMemoryKey(
-                        workspace_identity=identity_scope.workspace_identity,
+                        workspace_identity=belong_to,
                         memory_id=memory.id,
                     ),
                     {

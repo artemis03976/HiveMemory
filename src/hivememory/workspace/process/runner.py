@@ -31,7 +31,7 @@ from hivememory.components.trace_context import (
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
@@ -116,17 +116,17 @@ async def _run_interruptible(
         control.unbind_phase(task)
 
 
-def _require_prepared_scope(
+def _require_prepared_workspace(
     prepared: PreparedAgentRun,
-    identity_scope: IdentityScope,
+    belong_to: WorkspaceIdentity,
 ) -> None:
-    """拒绝 prepare 返回与授权组装的 scope 不一致的请求。"""
-    if prepared.identity_scope != identity_scope:
+    """拒绝 prepare 返回与任务目标 Workspace 不一致的结果。"""
+    if prepared.belong_to != belong_to:
         raise WorkspaceMismatchError(
-            "PreparedAgentRun 与进程记录的身份作用域不一致",
+            "PreparedAgentRun 与任务目标 Workspace 不一致",
             details={
-                "requested_workspace": identity_scope.workspace_identity.workspace_id,
-                "prepared_workspace": prepared.identity_scope.workspace_identity.workspace_id,
+                "requested_workspace": belong_to.workspace_id,
+                "prepared_workspace": prepared.belong_to.workspace_id,
             },
         )
 
@@ -290,6 +290,8 @@ class TaskProcessRunner:
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
+                # scope 只用于紧随的阶段调用，不在工作集中冻结等待 finalize。
+                identity_scope=self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT),
             )
             # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
             working_set.hand_off_prepared()
@@ -353,11 +355,11 @@ class TaskProcessRunner:
             gateway_decision=decision,
             enable_memory_retrieval=request.enable_memory_retrieval,
         )
-        # 先写入工作集再校验：scope 不一致时关闭流程仍需把它交回 cleanup，
-        # 以补偿 prepare 可能已经预建的 Topic。
+        # 先写入工作集再校验：关闭流程仍按本进程目标授权；资源 owner
+        # 拒绝清理越域结果，避免补偿路径删除其他 Workspace 的话题。
         working_set.prepared = prepared
         record.events.bind_topic(prepared.topic_id)
-        _require_prepared_scope(prepared, prepare_scope)
+        _require_prepared_workspace(prepared, request.target_workspace)
 
         # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
         manifest = self._allocator.allocate(
@@ -425,6 +427,8 @@ class TaskProcessRunner:
                 await self._bus.request(
                     GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
                     prepared_run=prepared,
+                    # 补偿 prepare 使用同一 operation，context 此时尚未失效。
+                    identity_scope=self._authorize(process, WorkspaceOperation.RESOURCE_SEARCH),
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)

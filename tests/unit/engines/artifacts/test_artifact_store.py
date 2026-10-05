@@ -11,7 +11,6 @@ from hivememory.config.patchouli import (
     ArtifactComponentConfig,
     ArtifactConfig,
 )
-from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
     MemoryCreationArtifact,
@@ -19,7 +18,7 @@ from hivememory.core.models import (
     MemoryEventType,
     WorkspaceIdentity,
 )
-from hivememory.core.models.artifact import ArtifactRef, InteractionArtifact
+from hivememory.core.models.artifact import ArtifactRef, ArtifactType, InteractionArtifact
 from hivememory.core.models.memory import Artifacts
 from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.engines.artifacts.document import (
@@ -70,7 +69,7 @@ async def test_put_and_get_roundtrip_uses_workspace_scoped_ref(store):
     identity_scope = _identity_scope()
     ref = await store.put(_make_artifact(identity_scope.workspace_identity))
 
-    data = await store.get(identity_scope, ref)
+    data = await store.get(identity_scope.workspace_identity, ref)
 
     assert data["artifact_id"] == "test-id"
     assert data["topic_id"] == "topic-1"
@@ -79,9 +78,10 @@ async def test_put_and_get_roundtrip_uses_workspace_scoped_ref(store):
 
 
 @pytest.mark.asyncio
-async def test_artifact_reads_require_a_complete_identity_scope(store):
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
-        await store.get(None, "test-id")
+async def test_artifact_reads_require_workspace_ownership(store):
+    """Artifact 内部读取必须显式提供归属，缺参在调用边界拒绝。"""
+    with pytest.raises(TypeError, match="belong_to"):
+        await store.get(ref_or_id="test-id")
 
 
 @pytest.mark.asyncio
@@ -91,8 +91,8 @@ async def test_same_artifact_id_is_independent_between_workspaces(store):
     await store.put(_make_artifact(main.workspace_identity, topic_id="main-topic"))
     await store.put(_make_artifact(isolated.workspace_identity, topic_id="isolated-topic"))
 
-    main_data = await store.get(main, "test-id")
-    isolated_data = await store.get(isolated, "test-id")
+    main_data = await store.get(main.workspace_identity, "test-id")
+    isolated_data = await store.get(isolated.workspace_identity, "test-id")
 
     assert main_data["topic_id"] == "main-topic"
     assert isolated_data["topic_id"] == "isolated-topic"
@@ -105,8 +105,8 @@ async def test_same_artifact_id_is_independent_between_owners(store):
     await store.put(_make_artifact(first.workspace_identity, topic_id="u1-topic"))
     await store.put(_make_artifact(second.workspace_identity, topic_id="u2-topic"))
 
-    assert (await store.get(first, "test-id"))["topic_id"] == "u1-topic"
-    assert (await store.get(second, "test-id"))["topic_id"] == "u2-topic"
+    assert (await store.get(first.workspace_identity, "test-id"))["topic_id"] == "u1-topic"
+    assert (await store.get(second.workspace_identity, "test-id"))["topic_id"] == "u2-topic"
 
 
 @pytest.mark.asyncio
@@ -116,9 +116,9 @@ async def test_cross_workspace_ref_is_projected_as_not_found(store):
     ref = await store.put(_make_artifact(main.workspace_identity))
 
     with pytest.raises(FileNotFoundError, match="artifact not found"):
-        await store.get(isolated, ref)
-    assert await store.exists(isolated, ref.artifact_id) is False
-    assert (await store.verify(isolated, ref)).ok is False
+        await store.get(isolated.workspace_identity, ref)
+    assert await store.exists(isolated.workspace_identity, ref.artifact_id) is False
+    assert (await store.verify(isolated.workspace_identity, ref)).ok is False
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_ref_uri_never_selects_a_different_physical_file(store, tmp_path):
     isolated_ref = await store.put(_make_artifact(isolated.workspace_identity, topic_id="isolated"))
     forged = main_ref.model_copy(update={"uri": isolated_ref.uri})
 
-    data = await store.get(main, forged)
+    data = await store.get(main.workspace_identity, forged)
 
     assert data["topic_id"] == "main"
     assert str(tmp_path) in main_ref.uri
@@ -154,7 +154,7 @@ async def test_same_content_replay_is_idempotent(store):
 
     assert replay.artifact_id == first.artifact_id
     assert replay.sha256 == first.sha256
-    assert await store.exists(identity_scope, first.artifact_id)
+    assert await store.exists(identity_scope.workspace_identity, first.artifact_id)
 
 
 @pytest.mark.asyncio
@@ -174,7 +174,7 @@ async def test_list_by_memory_is_workspace_scoped(store):
             )
         )
 
-    refs = await store.list_by_memory(main, "memory-1")
+    refs = await store.list_by_memory(main.workspace_identity, "memory-1")
 
     assert [ref.artifact_id for ref in refs] == ["main-artifact"]
     assert refs[0].workspace_identity == main.workspace_identity
@@ -190,8 +190,47 @@ async def test_tampered_content_fails_get_and_verify(store):
     path.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
     with pytest.raises(ValueError, match="hash mismatch"):
-        await store.get(identity_scope, ref)
-    assert (await store.verify(identity_scope, ref)).ok is False
+        await store.get(identity_scope.workspace_identity, ref)
+    assert (await store.verify(identity_scope.workspace_identity, ref)).ok is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_actor_session_id_is_ignored_without_changing_artifact_hash(tmp_path):
+    """旧身份字段只在模型解释时忽略，存储校验仍使用原始 JSON 内容。"""
+    original_hash = "0a2fde58e01d8fc78dda223624b7ea63c49ad0fe208500d879adc63f7df89d3b"
+    payload = (
+        '{"artifact_id":"legacy-session","artifact_type":"interaction",'
+        '"created_at":"2026-06-14T12:00:00+00:00","workspace_identity":'
+        '{"owner_user_id":"u1","workspace_key":"main_workspace","workspace_id":"main_workspace"},'
+        '"topic_id":"legacy-topic","captured_at":"2026-06-14T12:00:00+00:00",'
+        '"turns":[{"block_id":"block-1","turn_id":"turn-1","actor_identity":'
+        '{"user_id":"u1","agent_id":"agent-1","team_id":null,"session_id":"old-session"},'
+        '"user_query":"legacy question"}],"content_hash":"' + original_hash + '"}'
+    )
+    path = tmp_path / "legacy-session.json"
+    path.write_text(payload, encoding="utf-8")
+    belong_to = _identity_scope().workspace_identity
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
+    ref = ArtifactRef(
+        artifact_id="legacy-session",
+        artifact_type=ArtifactType.INTERACTION,
+        workspace_identity=belong_to,
+        sha256=original_hash,
+    )
+
+    raw = await store.get(belong_to, ref)
+    artifact = InteractionArtifact.model_validate(raw)
+    integrity = await store.verify(belong_to, ref)
+
+    assert artifact.turns[0].actor_identity.model_dump() == {
+        "user_id": "u1",
+        "agent_id": "agent-1",
+        "team_id": None,
+    }
+    assert integrity.ok is True
+    assert integrity.actual_hash == original_hash
+    assert raw["turns"][0]["actor_identity"]["session_id"] == "old-session"
+    assert path.read_text(encoding="utf-8") == payload
 
 
 def _write_legacy_artifact(root: Path, *, artifact_id: str, owner_user_id: str) -> None:
@@ -227,9 +266,9 @@ async def test_legacy_owner_only_record_is_no_longer_interpreted(tmp_path):
     isolated = _identity_scope(user_id="u1", workspace_id="isolation_workspace")
 
     with pytest.raises(FileNotFoundError, match="artifact not found"):
-        await store.get(main, "legacy-1")
-    assert await store.exists(main, "legacy-1") is False
-    assert await store.exists(isolated, "legacy-1") is False
+        await store.get(main.workspace_identity, "legacy-1")
+    assert await store.exists(main.workspace_identity, "legacy-1") is False
+    assert await store.exists(isolated.workspace_identity, "legacy-1") is False
 
 
 @pytest.mark.asyncio
@@ -251,7 +290,7 @@ async def test_partial_workspace_legacy_record_is_rejected(tmp_path):
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path)))
 
     with pytest.raises(FileNotFoundError, match="artifact not found"):
-        await store.get(_identity_scope(user_id="u1"), "partial-1")
+        await store.get(_identity_scope(user_id="u1").workspace_identity, "partial-1")
 
 
 def test_old_artifacts_payload_ignores_removed_legacy_fields():
@@ -289,7 +328,7 @@ async def test_artifact_builder_and_engine_preserve_workspace(tmp_path):
     )
 
     assert ref is not None
-    stored = await store.get(identity_scope, ref)
+    stored = await store.get(identity_scope.workspace_identity, ref)
     assert stored["workspace_identity"] == identity_scope.workspace_identity.model_dump()
 
 
@@ -360,7 +399,7 @@ async def test_noop_artifact_engine_returns_empty_results():
     interaction_ref = await engine.interaction.build_and_store(
         topic_id="topic-1",
         blocks=[],
-        identity_scope=context,
+        belong_to=context.workspace_identity,
     )
     memory_bundle = await engine.memory.build_for_create(
         memory=object(),

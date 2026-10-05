@@ -309,7 +309,11 @@ class TestEngineWithGenerationContext:
             turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())],
         )
         req = _request(context=ctx)
-        await engine.process(req, identity_scope=make_memory_identity_scope())
+        await engine.process(
+            req,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
         extractor.extract.assert_called_once()
         transcript = extractor.extract.call_args[1]["transcript"]
         assert "[Turn 1]" in transcript
@@ -321,7 +325,11 @@ class TestEngineWithGenerationContext:
         """context 为空时跳过 extractor"""
         engine, extractor, _ = self._make_engine()
         req = _request(context=GenerationContext())  # 无 turns
-        result = await engine.process(req, identity_scope=make_memory_identity_scope())
+        result = await engine.process(
+            req,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -330,7 +338,11 @@ class TestEngineWithGenerationContext:
         """无上下文且无 focus 时直接跳过"""
         engine, extractor, _ = self._make_engine()
         req = _request()
-        result = await engine.process(req, identity_scope=make_memory_identity_scope())
+        result = await engine.process(
+            req,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
         assert result == []
         extractor.extract.assert_not_called()
 
@@ -359,7 +371,11 @@ class TestEngineWithGenerationContext:
         )
         focus = WriteFocus(content="content to write")
         req = _request(context=ctx, write_focus=focus)
-        await engine.process(req, identity_scope=make_memory_identity_scope())
+        await engine.process(
+            req,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         extractor.extract.assert_called_once()
         call_kwargs = extractor.extract.call_args[1]

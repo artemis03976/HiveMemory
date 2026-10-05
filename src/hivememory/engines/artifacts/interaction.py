@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 
 from hivememory.config.patchouli import ArtifactComponentConfig
-from hivememory.core.models import IdentityScope, LogicalBlock
+from hivememory.core.models import LogicalBlock, WorkspaceIdentity
 from hivememory.core.models.artifact import (
     ArtifactRef,
     InteractionArtifact,
@@ -32,10 +32,11 @@ class InteractionArtifactBuilder:
         topic_title: str = "",
         topic_summary: str = "",
         blocks: Sequence[LogicalBlock],
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> ArtifactRef | None:
+        """以资源归属保存交互，内容参与者身份保留在各轮快照中。"""
         artifact = InteractionArtifact(
-            workspace_identity=identity_scope.workspace_identity,
+            workspace_identity=belong_to,
             topic_id=topic_id,
             topic_title=topic_title,
             topic_summary=topic_summary,
@@ -53,7 +54,7 @@ class NoOpInteractionArtifactBuilder:
         topic_title: str = "",
         topic_summary: str = "",
         blocks: Sequence[LogicalBlock],
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> ArtifactRef | None:
         return None
 

@@ -21,7 +21,13 @@ from hivememory.components.work_queue import (
     WorkQueueShutdownSummary,
     adapt_queue_task,
 )
-from hivememory.core.models import IdentityScope, LogicalBlock, MemoryAtom, TopicAssetBinding
+from hivememory.core.models import (
+    ActorIdentity,
+    LogicalBlock,
+    MemoryAtom,
+    TopicAssetBinding,
+    WorkspaceIdentity,
+)
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from hivememory.patchouli.control.memory_generation.models import (
@@ -98,14 +104,14 @@ def _require_exact_keys(
 
 
 class _MemoryGenerationWorkAdapter:
-    """Memory Generation 私有工作信封 v1 的队列适配器。
+    """Memory Generation 私有工作信封 1.1 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。
     """
 
     kind = "patchouli.memory_generation"
-    schema_version = 1
+    schema_version = "1.1"
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
@@ -133,7 +139,8 @@ class _MemoryGenerationWorkAdapter:
         return {
             "task_id": work.task_id,
             "spec": {
-                "identity_scope": spec.identity_scope.model_dump(mode="json"),
+                "belong_to": spec.belong_to.model_dump(mode="json"),
+                "from_actor": spec.from_actor.model_dump(mode="json"),
                 "topic_id": spec.topic_id,
                 "label": spec.label,
                 "source": spec.source.value,
@@ -160,7 +167,8 @@ class _MemoryGenerationWorkAdapter:
         _require_exact_keys(
             raw_spec,
             expected={
-                "identity_scope",
+                "belong_to",
+                "from_actor",
                 "topic_id",
                 "label",
                 "source",
@@ -172,11 +180,14 @@ class _MemoryGenerationWorkAdapter:
             field_name="memory generation payload.spec",
         )
         raw_request = raw_spec.get("request")
-        raw_scope = raw_spec.get("identity_scope")
+        raw_scope = raw_spec.get("belong_to")
+        raw_actor = raw_spec.get("from_actor")
         if not isinstance(raw_request, dict):
             raise TypeError("memory generation payload.spec.request must be an object")
         if not isinstance(raw_scope, dict):
-            raise TypeError("memory generation payload.spec.identity_scope must be an object")
+            raise TypeError("memory generation payload.spec.belong_to must be an object")
+        if not isinstance(raw_actor, dict):
+            raise TypeError("memory generation payload.spec.from_actor must be an object")
 
         request_data = dict(raw_request)
         existing_memory = request_data.get("existing_memory")
@@ -190,7 +201,8 @@ class _MemoryGenerationWorkAdapter:
         work = _MemoryGenerationWork(
             task_id=_require_text(payload.get("task_id"), field_name="task_id"),
             spec=MemoryGenerationTaskSpec(
-                identity_scope=IdentityScope.model_validate(raw_scope),
+                belong_to=WorkspaceIdentity.model_validate(raw_scope),
+                from_actor=ActorIdentity.model_validate(raw_actor),
                 topic_id=_require_text(
                     raw_spec.get("topic_id"),
                     field_name="topic_id",

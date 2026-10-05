@@ -20,14 +20,14 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 数据模型与可变性边界
 
 HiveMemory 的数据模型首先服务于一个长期目标：把记忆从对话日志中的片段变成可以检索、阅读、演化和追溯的知识资产。这个目标既要求模型表达语义，也要求系统知道谁有权修改一份状态、何时形成稳定快照，以及跨子系统传递的对象是否仍会被原所有者改写。
 
-因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。Workspace 的身份坐标遵循同一原则：`WorkspaceIdentity` 与 `IdentityScope` 是不可变值对象，资源实体仍由各自领域 Store 所有，具体归属与寻址规则见 [Workspace 架构](./workspace.md)。
+因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。Workspace 的身份坐标遵循同一原则：`ActorIdentity`、`WorkspaceIdentity` 与 `IdentityScope` 是不可变值对象；操作 scope 只到资源 owner 的公共边界，记录与任务独立保存归属和需要的发起者。资源实体仍由各自领域 Store 所有，具体归属与寻址规则见 [Workspace 架构](./workspace.md)。
 
 本文描述当前已经成立的边界，并记录仍然存在的引用泄漏与冻结深度问题。后续规范化工作见[数据模型可变性治理](../governance/data-model/mutability.md)。
 
@@ -88,15 +88,15 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.1 Workspace 坐标与资源键
 
-短期 Topic 的复合键仅在 adapter 内部使用；上层通过 `IdentityScope + topic_id` 访问。
+短期 Topic 的复合键仅在 adapter 内部使用；公共 route 通过 `IdentityScope + topic_id` 访问，Patchouli 内部与 Store/Perception 契约使用 `belong_to: WorkspaceIdentity + topic_id`。
 
 `IdentityScope` 只表达一次操作中的 actor 和 Workspace 事实，不把请求、任务或 trace 状态塞入公共身份模型。Topic、Memory、Artifact 和 WorkspaceAsset 的资源访问在相应领域边界组合 WorkspaceIdentity 与资源 ID；其中 `topic_id` 仍按全局唯一身份生成和校验，Workspace 归属由底层存储边界校验。物理复合键本身不复制实体，也不改变由 Patchouli 或 System Store 负责的生命周期。
 
-`WorkspaceAssetStore` 是 System 进程内唯一的 working set，资产的 opaque ref、representation 与 lease 只在该 Store 的生命周期内有效。它不属于通用缓存、队列或事件对象图；关闭时由 System 在 Patchouli drain 完成后清空。共享 runtime 传递 scope 时只携带领域 payload，不因模型中有 Workspace 字段而自动形成一套按 Workspace 分区的可变状态。
+`WorkspaceAssetStore` 是 workspace 的进程内唯一 working set，由 System 装配；资产的 opaque ref、representation 与 lease 只在该 Store 的生命周期内有效。它不属于通用缓存、队列或事件对象图；关闭时由 System 在 Patchouli drain 完成后清空。其旧 scope 端口是当前迁移例外（见 [Workspace 架构](./workspace.md#10-当前边界与限制)）。共享 runtime 的记录与后台工作 payload 携带独立身份字段，公开 route 参数仍可携带操作 scope；两者都不因模型中有 Workspace 字段而自动形成一套按 Workspace 分区的可变状态。
 
 ### 4.2 Gateway 请求状态
 
-短期 Topic 的 `WorkspaceTopicKey` 不属于公共领域模型或 Store/Perception 契约；这些边界统一使用 `IdentityScope + topic_id`，复合键只由 adapter 构造。
+短期 Topic 的 `WorkspaceTopicKey` 不属于公共领域模型或 Store/Perception 契约；这些内部边界统一使用 `belong_to + topic_id`，复合键只由 adapter 构造。
 
 `GatewayExecutionState` 是有意可变的请求级状态，仅由 `GatewayWorkflow` 创建和持有。Step 通过 `GatewayStepResult` 提交更新，由 workflow 校验字段、提交顺序和 finalize 边界；最终只投影为公共 `GatewayProcessResult`，不把内部 state、fallback 细节或 snapshot 暴露给下游。
 
@@ -120,11 +120,25 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 
 ### 4.6 身份收敛与读侧兼容投影收口
 
-v0.6.2 身份收敛后，领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`，跨边界传递使用 `IdentityScope`；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
+领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`。公开操作以 `IdentityScope` 进入资源 owner，Patchouli 在公共边界将其拆为 `belong_to` 与 `from_actor`，内部服务、五个引擎和存储不再接收或重建 scope；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
+
+| 载体 | 保存的身份事实 | 寿命与用途 |
+|:---|:---|:---|
+| `ActorIdentity` | `user_id`、`agent_id`、可选 `team_id` | 不含 session 或运行关联 ID |
+| `IdentityScope` | 操作发起者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
+| `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次阶段授权的 scope |
+| `InteractionSubmission` | 必需的 `belong_to`、`from_actor` | 交互提交与重试；内容由 payload 保存 |
+| `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |
+| `PendingAtomMaterializeTask` | 必需的 `belong_to`、`from_actor` | WRITE/UPDATE 从 Alice 向 Patchouli 交接的只读请求 |
+| `TopicMaterializeTask` / Topic lease | `belong_to` | 结算与占用；不保存最近访问者 |
+
+手动与后台 SETTLE 的发起者统一由 `system_actor_for_workspace()` 构造：Workspace owner 用户、`agent_id="system"`、`team_id=None`。参与内容的 Agent 只记入贡献者；WRITE/UPDATE 保留提交 Agent 的身份。资源授权只使用目标归属与当次发起者的 policy，不使用资源来源或贡献者字段。
 
 当前已经落地的事实：
 
 - `InteractionTurnSnapshot` 的执行者身份由单一 `actor_identity: ActorIdentity` 承载，不再平铺 `user_id/agent_id/team_id` 三元组；旧平铺 JSON 的读取升级分支已随 V1 存量数据迁移完成而删除，缺 `actor_identity` 的记录反序列化 fail closed，历史记录只能通过迁移工具的 canonical replacement 访问。
+- `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体继续接受 `session_id` 兼容字段，但不使用它构造身份或关联 finalize。
+- Interaction submission codec 为 v3，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
 - V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
 - 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 因无消费者而删除；剩余的 `.identity` 只读派生 property（`ExecutionFrame`、`MTPExecutionContext`）统一标注"只读派生，新代码走 `identity_scope`"。
 - `PassiveConversationKey` 等 shared infra 命名键保留从 `IdentityScope.actor_identity` 平铺的三元组，仅作 buffer/gate/ordering 的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。

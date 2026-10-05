@@ -61,7 +61,7 @@ class LogicalBlock(BaseModel):
 
     @property
     def identity(self):
-        """只读派生自 ``turn.identity``；权限与边界判定一律以 IdentityScope 为准。"""
+        """只读派生的内容来源；资源授权使用归属与本次操作的发起者。"""
         return self.turn.identity
 
     @property
@@ -95,7 +95,7 @@ class TopicData(BaseModel):
     只承载内容事实（blocks、摘要、bindings、tokens）；执行占用不建模为
     记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。
     不携带话题级 Agent 身份：来源 provenance 由每个 block 的
-    ``turn.identity`` 记录，运行时授权一律以 ``IdentityScope`` 为准。
+    ``turn.identity`` 记录，资源授权使用归属与本次操作的发起者。
     """
 
     topic_id: str

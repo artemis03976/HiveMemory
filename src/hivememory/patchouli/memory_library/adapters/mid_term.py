@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     MemoryAtom,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
@@ -110,30 +110,37 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def get(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
         atom = await self.get_by_key(
-            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+            WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         )
-        if atom is None or not _readable(atom, identity_scope, enforce_actor_visibility):
+        if atom is None or not _readable(atom, belong_to, from_actor, enforce_actor_visibility):
             return None
         return atom
 
     async def get_by_alias(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         alias: str,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None:
         atom = await self._store.get_memory_by_alias(
             alias,
-            query_filter=self._filter_converter.convert(QueryFilters(), identity_scope),
+            query_filter=self._filter_converter.convert(
+                QueryFilters(),
+                belong_to,
+                from_actor=from_actor,
+                enforce_actor_visibility=enforce_actor_visibility,
+            ),
         )
-        if atom is None or not _readable(atom, identity_scope, enforce_actor_visibility):
+        if atom is None or not _readable(atom, belong_to, from_actor, enforce_actor_visibility):
             return None
         return atom
 
@@ -160,10 +167,10 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def delete(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
     ) -> bool:
-        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         if await self.get_by_key(key) is None:
             return False
         return await self.delete_by_key(key)
@@ -173,45 +180,57 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
     async def search(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         query: str,
         top_k: int,
         filters: QueryFilters | None = None,
         mode: str = "dense",
         score_threshold: float = 0.0,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> list[dict[str, Any]]:
         hits = await self._store.search_memories(
             query_text=query,
             top_k=top_k,
             score_threshold=score_threshold,
-            filters=self._filter_converter.convert(filters or QueryFilters(), identity_scope),
+            filters=self._filter_converter.convert(
+                filters or QueryFilters(),
+                belong_to,
+                from_actor=from_actor,
+                enforce_actor_visibility=enforce_actor_visibility,
+            ),
             mode=mode,
         )
         # 存储预过滤不是授权事实；命中返回前仍以 canonical Memory 重验策略。
         return [
             hit
             for hit in hits
-            if _readable(hit["memory"], identity_scope, enforce_actor_visibility)
+            if _readable(hit["memory"], belong_to, from_actor, enforce_actor_visibility)
         ]
 
     async def scroll(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         filters: QueryFilters | None = None,
         limit: int = 100,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]:
         memories = await self._store.get_all_memories(
-            filters=self._filter_converter.convert(filters or QueryFilters(), identity_scope),
+            filters=self._filter_converter.convert(
+                filters or QueryFilters(),
+                belong_to,
+                from_actor=from_actor,
+                enforce_actor_visibility=enforce_actor_visibility,
+            ),
             limit=limit,
         )
         return [
             memory
             for memory in memories
-            if _readable(memory, identity_scope, enforce_actor_visibility)
+            if _readable(memory, belong_to, from_actor, enforce_actor_visibility)
         ]
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
@@ -231,14 +250,15 @@ class QdrantStorageAdapter(MidTermStoragePort):
 
 def _readable(
     memory: MemoryAtom,
-    identity_scope: IdentityScope,
+    belong_to: WorkspaceIdentity,
+    from_actor: ActorIdentity,
     enforce_actor_visibility: bool,
 ) -> bool:
     """Workspace ownership 硬边界 + actor 读取策略（中期存储唯一的授权重验点）。"""
     return memory_is_readable(
         memory,
-        workspace_identity=identity_scope.workspace_identity,
-        actor_identity=identity_scope.actor_identity,
+        workspace_identity=belong_to,
+        actor_identity=from_actor,
         enforce_actor_visibility=enforce_actor_visibility,
     )
 

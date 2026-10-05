@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.models import (
     ActionReducer,
-    IdentityScope,
+    ActorIdentity,
     LogicalBlock,
     TurnRecord,
 )
@@ -47,7 +47,7 @@ class MemoryPerceptionEngine:
     def build_block(
         self,
         payload: InteractionPayload,
-        identity_scope: IdentityScope,
+        from_actor: ActorIdentity,
     ) -> LogicalBlock:
         """纯函数：把一份交互载荷归并为本轮不可变逻辑块。
 
@@ -56,7 +56,7 @@ class MemoryPerceptionEngine:
         """
         actions = ActionReducer.reduce(payload.turn_events)
         turn = TurnRecord(
-            identity=identity_scope.actor_identity,
+            identity=from_actor,
             user_query=payload.user_message,
             rewritten_query=payload.rewritten_query,
             assistant_final_text=payload.assistant_final_text or "",

@@ -36,6 +36,8 @@ def _task_snapshot(**updates):
         "topic_id": "t1",
         "label": "t1",
         "source": MemoryGenerationSource.SETTLE,
+        "belong_to": make_memory_identity_scope().workspace_identity,
+        "from_actor": make_memory_identity_scope().actor_identity,
     }
     values.update(updates)
     return MemoryGenerationTask(**values)
@@ -43,7 +45,8 @@ def _task_snapshot(**updates):
 
 def _spec():
     return MemoryGenerationTaskSpec(
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
         topic_id="t1",
         label="task",
         source=MemoryGenerationSource.WRITE,
@@ -145,7 +148,8 @@ def test_memory_generation_task_hides_queue_terminal_before_finalize():
 
 def test_memory_generation_task_projects_result_and_cancel_metadata():
     spec = MemoryGenerationTaskSpec(
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
         topic_id="t1",
         label="task",
         source=MemoryGenerationSource.WRITE,

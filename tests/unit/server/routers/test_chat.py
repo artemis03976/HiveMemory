@@ -117,6 +117,28 @@ async def test_cancel_and_join_preserves_owner_cancellation() -> None:
 
 
 class TestChatRegistration:
+    def test_session_id_is_accepted_without_entering_actor_claims(self):
+        """旧客户端可以继续发送 session_id，但它不进入进程注册的 actor 声明。"""
+        service = _wired_chat_service(
+            lambda *args, **kwargs: _simple_stream({"event": "done", "data": {"final_text": "ok"}})
+        )
+        app, _ = _create_test_app(service)
+
+        response = TestClient(app).post(
+            "/api/v1/chat",
+            headers={"x-user-id": "user-a"},
+            json={"message": "hello", "agent_id": "test_agent", "session_id": "old-session"},
+        )
+
+        assert response.status_code == 200
+        assert _parse_sse_events(response.text) == [{"event": "done", "data": {"final_text": "ok"}}]
+        # 注册载荷是该入口的出站契约；与 HTTP 终态一起验证，避免仅断言 mock 调用。
+        assert service.register_process.call_args.kwargs["actor"].model_dump() == {
+            "user_id": "user-a",
+            "agent_id": "test_agent",
+            "team_id": None,
+        }
+
     def test_register_failure_returns_403_and_never_runs(self):
         """注册认证失败直接上抛：HTTP 403，不创建进程也不运行。"""
         mock_service = MagicMock()

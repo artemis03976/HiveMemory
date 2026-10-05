@@ -272,9 +272,28 @@ def test_assemble_wires_single_store_across_consumers() -> None:
     system = SystemAssembler(HiveMemoryConfig(runtime_events={"enabled": False})).assemble()
 
     store = system._workspace_asset_store
-    # Patchouli 读取端、上传服务命令端与附件解析服务拿到的都是组合根持有的
-    # 同一份 Store，不存在第二个 Store 实例或按 Workspace 复制的运行时。
-    assert system._patchouli.runtime._workspace_asset_reader is store
+    # Patchouli 的归属读取适配器应租借原 Store 的表示，没有第二份资产工作集。
+    scope = _scope()
+    handle = store.register_uploaded_asset(
+        scope,
+        WorkspaceAssetMetadata(
+            kind="image",
+            display_name="shared.png",
+            media_type="image/png",
+            size_bytes=6,
+            required_representation_kind=AssetRepresentationKind.RAW,
+        ),
+        "shared-upload",
+        raw_content_object=b"shared",
+        raw_content_hash="shared-hash",
+        raw_producer="test",
+        raw_producer_version="1",
+    ).handle
+    reader = system._patchouli.runtime._workspace_asset_reader
+    lease = reader.acquire_ready_representation(scope.workspace_identity, handle.asset_ref)
+    assert lease.representation.content_object == b"shared"
+    assert store.release_representation_lease(lease.lease_id) is True
+    assert reader.release_representation_lease(lease.lease_id) is False
     assert system._workspace_asset_service._store is store
     assert system._workspace_asset_service._parse_service._store is store
 

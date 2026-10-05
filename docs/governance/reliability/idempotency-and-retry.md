@@ -17,7 +17,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-10-04
 ---
 
 # 跨子系统幂等性与重试治理
@@ -31,7 +31,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | 操作 | 当前已有基础 | 当前缺口 |
 |:---|:---|:---|
 | Passive ingress | `source + external_event_id` 进程内去重，重复事件可忽略 | dedup 记录不耐久；重启后可能再次接受；submit apply 的跨进程幂等仍需定义 |
-| Interaction submission | Active/Passive 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id` | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
+| Interaction submission | Active/Passive 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；apply journal 按 Workspace、interaction 与目标 Topic 判断重放或冲突 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
 | Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
 | PendingAtom settlement | `intent_id` 与 alias 反查，settlement 会校验 intent | store 进程内，resolution 与重复 settlement 缺少耐久唯一约束和跨重启 replay |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
@@ -39,7 +39,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | archive/revive | MemoryLibrary 编排跨层搬运，GC 会检查已归档 | 中间失败可能产生重复副本；重复 archive/revive 的返回语义未形成公共规则 |
 | Retrieval HIT | finalize 内有单批 `seen` 去重和 best-effort 记录入口 | 有意不提供跨 finalize 去重、retry 或耐久 event key；允许少量遗漏或重复 |
 | CITATION/feedback | 生命周期事件入口已经存在 | 若未来被提升为必须恢复的用户事实，再为其定义稳定身份与重复语义 |
-| Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`，Interaction 与 Memory Generation payload 同时携带完整 `IdentityScope`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；lane、ordering、registry 与 idempotency key 不因 Workspace 自动分区，必须由业务 consumer 在资源 owner 边界解释 scope；当前契约不含 lease，通用 key 也不能替代各领域对重复副作用的解释 |
+| Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`；Interaction 与 Memory Generation payload 独立保存 `belong_to` 与 `from_actor`，不保存 `IdentityScope`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；lane、ordering、registry 与 idempotency key 不因 Workspace 自动分区，业务 consumer 必须检查资源归属与适用的 actor policy；当前契约不含 lease，通用 key 不能替代领域对重复副作用的解释 |
 
 当前唯一较完整的例子是 Passive ingress 的 external event dedup。它不能被直接推广为所有业务的“全局去重表”：不同操作的重复输入可能代表重试、同一意图的新版本、合法的再次引用或必须拒绝的冲突。
 
@@ -79,14 +79,16 @@ at-least-once delivery
 
 ### 2.4 Key 必须包含正确的作用域
 
-幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。这里的作用域由业务操作定义：`IdentityScope` 随 payload 传播并在 consumer 边界校验，但共享 Work Queue、registry 和 cache 不会因为携带 scope 就自动按 Workspace 分区。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
+幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。这里的作用域由业务操作定义：操作 scope 只到公开资源边界，后台 payload 独立保存归属与发起者；共享 Work Queue、registry 和 cache 不因携带这些字段就自动按 Workspace 分区。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
+
+Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor 已在 turn 中。摘要排除随机 turn/block 标识与 block 创建、binding 绑定时点，使等价重试得到相同摘要，不同 Workspace 得到不同摘要。代码与回归见 [apply journal](../../../src/hivememory/patchouli/control/interaction_apply_journal.py) 和 [摘要测试](../../../tests/unit/patchouli/control/test_interaction_apply_journal.py)。Interaction Submission codec 为 v3，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
 
 ## 3. 初步幂等键目录
 
 | 业务操作 | 候选稳定 key | 重复语义 |
 |:---|:---|:---|
 | Passive external event | `source + external_event_id` | 返回 duplicate ignored，不重复追加 turn |
-| Interaction apply | `interaction_id + target_topic_id` | 返回已应用结果或原始失败状态，不重复创建 block |
+| Interaction apply | 当前 journal 以 `interaction_id` 索引；记录同时校验 `target_topic_id` 与包含 `belong_to` 的 canonical 摘要 | 等价重放返回已应用结果，不重复创建 block；目标或事实摘要冲突显式拒绝，不把跨 Workspace 输入合并为等价重试 |
 | Memory generation | `generation_intent_id` / `pending intent_id` + schema version | 返回原 task/settlement，不能重复 CREATE/UPDATE |
 | PendingAtom settlement | `intent_id + settlement_version` | 第一次终态胜出，后续同结果 no-op，冲突终态显式拒绝 |
 | MemoryAtom update | `memory_id + expected_version + operation_id` | 同一 operation 重放返回原 version；不同版本冲突进入 retry/merge |

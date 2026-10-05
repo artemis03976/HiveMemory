@@ -38,6 +38,7 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
+from hivememory.system.services.asset_materialization_reader import AssetMaterializationReader
 from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway, WorkspaceAuthenticator
@@ -329,7 +330,7 @@ class SystemAssembler:
             runtime_events=runtime.event_sink.scoped("patchouli"),
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
             # Patchouli runtime：供 Artifact promotion 在生成时自行取得内容。
-            workspace_asset_reader=runtime.workspace_asset_store,
+            workspace_asset_reader=AssetMaterializationReader(runtime.workspace_asset_store),
             # Patchouli 是授权点以下的资源 owner：不注入共享操作授权，
             # 公开路由只接收授权点组装的 IdentityScope（A1 访问边界返工 4.6）。
             shared_config=self._config.shared,

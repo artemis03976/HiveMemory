@@ -3,14 +3,13 @@
 被测对象：application 层公开用例的身份边界（A1 访问边界返工第 4.6 节）：
 - 本层是授权点以下的资源 owner：公开方法不再接收 ``access`` 参数，构造
   函数不再接收 ``access_guard``；
-- ``identity_scope`` 缺失或类型错误经 ``require_identity_scope`` 以
-  ``ScopeRequiredError`` 拒绝，不触达资源后端；
+- ``identity_scope`` 必填，类型错误经 ``require_identity_scope`` 拒绝，不触达资源后端；
 - 资源归属校验保留：atom 的 Workspace 归属与 scope 不一致按
   ``WorkspaceMismatchError`` 拒绝；
 - 管理 GET 固定 owner-management 语义（不做 Agent 可见性过滤），
   ``read_memory`` 强制 Actor 可见性；
 - ``retrieve`` 只接收请求，scope 完全来自 ``RetrievalRequest.identity_scope``；
-- ``retrieve_by_aliases`` 以 (aliases, scope) 请求局部路由。
+- ``retrieve_by_aliases`` 拆出归属与发起者，交给局部路由执行资源授权。
 local bus 为记录型假总线（边界外协作者）。
 """
 
@@ -119,7 +118,7 @@ def test_public_methods_no_longer_accept_access_parameter(invoke):
         invoke(service, object())
 
 
-# ---- identity_scope 缺失 / 错类型经 require_identity_scope 拒绝 ----
+# ---- 必填签名拒绝缺省，require_identity_scope 拒绝错误类型 ----
 
 
 @pytest.mark.parametrize(
@@ -147,12 +146,12 @@ def test_public_methods_no_longer_accept_access_parameter(invoke):
         "create_memory",
     ],
 )
-def test_missing_identity_scope_rejected_as_scope_required(invoke):
-    """identity_scope 缺失按 ScopeRequiredError 拒绝，且不触达资源后端。"""
+def test_missing_identity_scope_rejected_as_required_argument(invoke):
+    """identity_scope 缺失由必填签名拒绝，且不触达资源后端。"""
     bus = RecordingBus()
     service = MemoryManagementService(bus=bus)
 
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+    with pytest.raises(TypeError, match="identity_scope"):
         _run(invoke(service))
     assert bus.calls == []
 
@@ -187,7 +186,7 @@ def test_create_memory_rejects_atom_from_foreign_workspace():
 
 
 def test_create_memory_forwards_scope_and_atom_to_memory_create():
-    """归属一致的 create_memory 以 (scope, atom) 请求 MEMORY_CREATE。"""
+    """归属一致的 create_memory 以 (belong_to, atom) 请求 MEMORY_CREATE。"""
     response = object()
     bus = RecordingBus(response=response)
     service = MemoryManagementService(bus=bus)
@@ -199,7 +198,7 @@ def test_create_memory_forwards_scope_and_atom_to_memory_create():
     assert result is response
     route, call = bus.calls[0]
     assert route == PatchouliLocalRoutes.MEMORY_CREATE
-    assert call["args"] == (scope, atom)
+    assert call["args"] == (scope.workspace_identity, atom)
 
 
 # ---- 管理读取与 Actor 可见读取的语义区分 ----
@@ -215,7 +214,8 @@ def test_management_get_forwards_trusted_scope_without_actor_visibility_filter()
 
     route, call = bus.calls[0]
     assert route == PatchouliLocalRoutes.MEMORY_GET
-    assert call["kwargs"]["identity_scope"] == scope
+    assert call["kwargs"]["belong_to"] == scope.workspace_identity
+    assert call["kwargs"]["from_actor"] == scope.actor_identity
     # owner-management 语义（D4）：管理读取不做 Agent 可见性过滤
     assert call["kwargs"]["enforce_actor_visibility"] is False
 
@@ -230,15 +230,16 @@ def test_read_memory_enforces_actor_visibility():
 
     route, call = bus.calls[0]
     assert route == PatchouliLocalRoutes.MEMORY_GET
-    assert call["kwargs"]["identity_scope"] == scope
+    assert call["kwargs"]["belong_to"] == scope.workspace_identity
+    assert call["kwargs"]["from_actor"] == scope.actor_identity
     assert call["kwargs"]["enforce_actor_visibility"] is True
 
 
 # ---- 检索 backing：scope 完全来自请求 ----
 
 
-def test_retrieve_forwards_request_verbatim_with_scope_frozen_inside():
-    """retrieve 只接收请求并原样转发：scope 由授权点冻结在 RetrievalRequest 内。"""
+def test_retrieve_splits_public_scope_into_internal_query():
+    """公开请求在边界转换；本地检索只接收归属与可见性主体。"""
     response = [object()]
     bus = RecordingBus(response=response)
     service = MemoryManagementService(bus=bus)
@@ -249,12 +250,15 @@ def test_retrieve_forwards_request_verbatim_with_scope_frozen_inside():
     assert result is response
     route, call = bus.calls[0]
     assert route == PatchouliLocalRoutes.MEMORY_RETRIEVE
-    assert call["args"] == (request,)
-    assert call["kwargs"] == {}
+    query = call["args"][0]
+    assert query.semantic_query == "query"
+    assert query.belong_to == request.identity_scope.workspace_identity
+    assert query.from_actor == request.identity_scope.actor_identity
+    assert call["kwargs"] == {"top_k": 5}
 
 
 def test_retrieve_by_aliases_forwards_aliases_and_scope():
-    """alias 批量读取以 (aliases, scope) 请求 MEMORY_RETRIEVE_BY_ALIASES。"""
+    """alias 批量读取按归属定位资源，并独立传入可见性主体。"""
     bus = RecordingBus(response=[])
     service = MemoryManagementService(bus=bus)
     scope = _scope()
@@ -264,4 +268,5 @@ def test_retrieve_by_aliases_forwards_aliases_and_scope():
     assert result == []
     route, call = bus.calls[0]
     assert route == PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES
-    assert call["args"] == (["fact_a"], scope)
+    assert call["args"] == (["fact_a"], scope.workspace_identity)
+    assert call["kwargs"] == {"from_actor": scope.actor_identity}

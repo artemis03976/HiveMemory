@@ -20,6 +20,7 @@ from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AssetNotReadyError,
+    OperationDeniedError,
     ScopeRequiredError,
     WorkspaceDomainError,
 )
@@ -233,7 +234,7 @@ def _scoped_prepared_route(
         **_kwargs,
     ):
         return PreparedAgentRun(
-            identity_scope=identity_scope,
+            belong_to=(identity_scope).workspace_identity,
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
@@ -569,10 +570,14 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
         captured["topic_pool"] = kwargs
         return []
 
+    async def finalize(**kwargs):
+        captured["finalize"] = kwargs
+        return []
+
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topic_list)
 
     service, composition = await _service(bus)
@@ -583,9 +588,104 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
     assert captured["gateway"]["identity_scope"] == _expected_scope()
     assert "access" not in captured["prepare"]
     assert captured["prepare"]["identity_scope"] == _expected_scope()
+    assert captured["finalize"]["identity_scope"] == _expected_scope()
+    assert "access" not in captured["finalize"]
     # 结算后的话题池读取同样只收到授权返回的 scope（不取自 prepared_run）。
     assert "access" not in captured["topic_pool"]
     assert captured["topic_pool"]["identity_scope"] == _expected_scope()
+
+
+class _DenyRepeatedOperation:
+    """授权点外部替身：指定 operation 第二次授权时拒绝，其他检查用真实授权者。"""
+
+    def __init__(self, delegate, operation: WorkspaceOperation):
+        self._delegate = delegate
+        self._operation = operation
+        self._count = 0
+
+    def authorize_operation(self, access, operation, target_workspace):
+        if operation == self._operation:
+            self._count += 1
+            if self._count == 2:
+                raise OperationDeniedError(details={"operation": operation.value})
+        return self._delegate.authorize_operation(access, operation, target_workspace)
+
+    def cpu_execution_identity(self, access, target_workspace):
+        return self._delegate.cpu_execution_identity(access, target_workspace)
+
+    def authorize_process_control(self, requestor, record_access):
+        return self._delegate.authorize_process_control(requestor, record_access)
+
+
+@pytest.mark.asyncio
+async def test_finalize_reauthorizes_and_denial_closes_completed_cpu_process() -> None:
+    """Actor 完成后重新授权被拒绝：不提交交互，进程失败并用目标归属补偿 prepare。"""
+    bus = GlobalSystemBus()
+    finalized = []
+    cleaned = []
+    cpu = ScriptedCPU(result=make_cpu_result())
+    composition = _composition()
+
+    async def finalize(**kwargs):
+        finalized.append(kwargs)
+        return []
+
+    async def cleanup(*, prepared_run, identity_scope):
+        cleaned.append((prepared_run.belong_to, identity_scope.workspace_identity))
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    _register_profile(bus)
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    service = make_task_process_service(
+        bus,
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        operation_authorizer=_DenyRepeatedOperation(
+            composition.authorizer, WorkspaceOperation.INTERACTION_SUBMIT
+        ),
+    )
+    issued = _capture_issued_contexts(composition)
+    with pytest.raises(OperationDeniedError) as error:
+        await _run_once(composition, service, "问题", process_id="process-finalize-denied")
+
+    assert error.value.details == {"operation": "interaction.submit"}
+    assert len(cpu.calls) == 1
+    assert finalized == []
+    assert cleaned == [(_workspace(), _workspace())]
+    assert composition.gateway.describe_context(issued[0]) is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_authorization_denial_skips_route_and_still_closes_process(caplog) -> None:
+    """cleanup 的 resource.search 再授权失败只记录警告，进程注销与 context 失效照常。"""
+    bus = GlobalSystemBus()
+    cleaned = []
+    composition = _composition()
+
+    async def cleanup(**kwargs):
+        cleaned.append(kwargs)
+
+    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    _register_profile(bus)
+    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    service = make_task_process_service(
+        bus,
+        cpu=ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED.value)),
+        access_gateway=composition.gateway,
+        operation_authorizer=_DenyRepeatedOperation(
+            composition.authorizer, WorkspaceOperation.RESOURCE_SEARCH
+        ),
+    )
+    issued = _capture_issued_contexts(composition)
+    result = await _run_once(composition, service, "问题", process_id="process-cleanup-denied")
+
+    assert result.execution_result.status == "failed"
+    assert cleaned == []
+    assert "清理 prepared run 失败" in caplog.text
+    assert composition.gateway.describe_context(issued[0]) is None
 
 
 @pytest.mark.asyncio
@@ -642,10 +742,12 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
 
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
-    # cleanup 只补偿本进程 prepare 的结果：不做阶段 operation 检查，也不接收凭据。
+    # cleanup 只补偿本进程 prepare 的结果，scope 来自关闭前 resource.search 再授权。
     # 注：交付收口会经 close_process 再次 close，cleanup 补偿当前会重复发布
     # （疑似生产缺陷，见迁移报告），这里固定补偿以本进程 prepared_run 发生。
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"])
+    cleanup.assert_any_await(
+        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+    )
 
 
 @pytest.mark.asyncio
@@ -672,7 +774,9 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
 
     assert result.execution_result.status == CPUExecutionStatus.FAILED.value
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"])
+    cleanup.assert_any_await(
+        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+    )
 
 
 @pytest.mark.asyncio
@@ -700,7 +804,9 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == CPUExecutionStatus.FAILED.value
     assert events[-1]["data"]["stopped"] is True
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"])
+    cleanup.assert_any_await(
+        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+    )
 
 
 @pytest.mark.asyncio
@@ -750,7 +856,9 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"])
+    cleanup.assert_any_await(
+        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+    )
 
 
 @pytest.mark.asyncio
@@ -786,7 +894,9 @@ async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() ->
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"])
+    cleanup.assert_any_await(
+        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+    )
 
 
 async def _collect_stream(stream) -> list[dict]:
@@ -898,7 +1008,9 @@ async def test_attachment_selection_without_reader_fails_allocation() -> None:
         )
 
     assert cpu.calls == []
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"])
+    cleanup.assert_any_await(
+        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+    )
 
 
 @pytest.mark.asyncio

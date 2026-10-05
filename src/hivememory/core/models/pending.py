@@ -20,7 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.models.identity import ActorIdentity
+from hivememory.core.models.identity import ActorIdentity, WorkspaceIdentity
 from hivememory.core.models.workspace import IdentityScope
 
 # ===========================================================================
@@ -201,13 +201,14 @@ class PendingAtomMaterializeTask(BaseModel):
     字段下游流向（不相交）：
         pending_alias / intent_id / source_verb → patchouli 组装 Settlement、分发 mode b/c
         focus   → engine._process_mode_b/c 的提取/合并
-          identity_scope → GenerationRequest 的 owner/provenance 输入载体
+        belong_to / from_actor → 生成任务的资源归属与发起者，独立携带
     """
 
     pending_alias: str
     intent_id: str
     source_verb: Literal["WRITE", "UPDATE"]
-    identity_scope: IdentityScope
+    belong_to: WorkspaceIdentity
+    from_actor: ActorIdentity
     focus: WriteFocus | UpdateFocus
     model_config = ConfigDict(frozen=True)
 
@@ -217,7 +218,8 @@ class PendingAtomMaterializeTask(BaseModel):
             pending_alias=pa.pending_alias,
             intent_id=pa.intent_id,
             source_verb=pa.source_verb,
-            identity_scope=pa.runtime_scope.identity_scope,
+            belong_to=pa.runtime_scope.identity_scope.workspace_identity,
+            from_actor=pa.runtime_scope.identity_scope.actor_identity,
             focus=pa.focus,
         )
 

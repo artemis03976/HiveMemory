@@ -94,7 +94,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
         interaction_queue=_SubmissionQueueRecorder(submitted),
         gateway_request_timeout_ms=123,
     )
-    identity = ActorIdentity(user_id="u1", session_id="s1")
+    identity = ActorIdentity(user_id="u1")
 
     outcome = await ingressor.route_event(_event("user", "被动原问题"), identity)
 
@@ -114,7 +114,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     submission = submitted[0]
     assert submission.requested_topic_id == "topic-passive"
     assert submission.correlation["seal_reason"] == "manual_flush"
-    assert submission.identity_scope.workspace_identity.workspace_id == ("main_workspace")
+    assert submission.belong_to.workspace_id == "main_workspace"
 
 
 @pytest.mark.asyncio
@@ -151,9 +151,8 @@ async def test_scoped_passive_seam_keeps_workspace_only_in_payload() -> None:
     assert len(submitted) == 1
     submission = submitted[0]
     assert submission.ordering_key == "unit_test/conv-1@u1:test_agent:<no-team>"
-    assert submission.identity_scope.workspace_identity == (identity_scope.workspace_identity)
-    assert submission.identity_scope.actor_identity == (identity_scope.actor_identity)
-    assert submission.identity_scope == identity_scope
+    assert submission.belong_to == identity_scope.workspace_identity
+    assert submission.from_actor == identity_scope.actor_identity
     assert submission.payload.rewritten_query == "被动原问题"
     assert submission.payload.worth_saving is True
 

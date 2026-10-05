@@ -43,7 +43,8 @@ def _make_query(text="测试查询") -> RetrievalQuery:
         semantic_query=text,
         keywords=[],
         filters=QueryFilters(),
-        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
     )
 
 

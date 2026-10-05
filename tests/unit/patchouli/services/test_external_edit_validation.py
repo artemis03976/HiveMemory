@@ -31,7 +31,7 @@ async def _setup(tmp_path, *, memory_type: MemoryType = MemoryType.FACT):
 
 async def _version_artifacts(tmp_path, identity_scope, memory_id) -> list:
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
-    return await store.list_by_memory(identity_scope, str(memory_id))
+    return await store.list_by_memory(identity_scope.workspace_identity, str(memory_id))
 
 
 @pytest.mark.asyncio
@@ -52,7 +52,9 @@ async def test_invalid_edit_is_rejected_without_commit(tmp_path, edit, field):
     upserts_before = len(mid_term.upsert_calls)
 
     with pytest.raises(InvalidMemoryFieldError, match=field):
-        await familiar.update_external_memory(atom.id, identity_scope=identity_scope, **edit)
+        await familiar.update_external_memory(
+            atom.id, belong_to=identity_scope.workspace_identity, **edit
+        )
 
     assert len(mid_term.upsert_calls) == upserts_before
     assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
@@ -64,7 +66,7 @@ async def test_clearing_summary_is_a_valid_content_edit(tmp_path):
     identity_scope, atom, familiar, mid_term = await _setup(tmp_path)
 
     result = await familiar.update_external_memory(
-        atom.id, identity_scope=identity_scope, summary=""
+        atom.id, belong_to=identity_scope.workspace_identity, summary=""
     )
 
     assert result is not None
@@ -81,7 +83,7 @@ async def test_edit_equal_after_normalization_creates_no_version(tmp_path):
 
     result = await familiar.update_external_memory(
         atom.id,
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
         title=f"  {atom.index.title} ",
         tags=["T1", "t1 "],
     )
@@ -101,7 +103,9 @@ async def test_clearing_agent_profile_alias_is_rejected(tmp_path):
     upserts_before = len(mid_term.upsert_calls)
 
     with pytest.raises(InvalidMemoryFieldError, match="alias"):
-        await familiar.update_external_memory(atom.id, identity_scope=identity_scope, alias="  ")
+        await familiar.update_external_memory(
+            atom.id, belong_to=identity_scope.workspace_identity, alias="  "
+        )
 
     assert len(mid_term.upsert_calls) == upserts_before
     assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
@@ -112,7 +116,9 @@ async def test_clearing_alias_of_regular_memory_is_allowed(tmp_path):
     """普通记忆的 alias 可选：清空后按未设置提交新版本。"""
     identity_scope, atom, familiar, mid_term = await _setup(tmp_path)
 
-    result = await familiar.update_external_memory(atom.id, identity_scope=identity_scope, alias="")
+    result = await familiar.update_external_memory(
+        atom.id, belong_to=identity_scope.workspace_identity, alias=""
+    )
 
     assert result is not None
     assert result.index.alias is None

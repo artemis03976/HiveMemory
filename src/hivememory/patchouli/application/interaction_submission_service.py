@@ -13,19 +13,15 @@ workspace 能力层出现对应方法时进行（总 Idea 15.6，A1 访问边界
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from hivememory.core.models import require_identity_scope
+from hivememory.core.models import IdentityScope, require_identity_scope
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.control.interaction_submission import (
     InteractionOrigin,
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-
-if TYPE_CHECKING:
-    from hivememory.core.models import IdentityScope
-    from hivememory.core.protocol.models import InteractionPayload
 
 
 @dataclass(frozen=True)
@@ -46,7 +42,7 @@ class InteractionSubmissionService:
     async def submit_interaction(
         self,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         payload: InteractionPayload,
         requested_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
@@ -65,7 +61,8 @@ class InteractionSubmissionService:
         # 调用方显式提供稳定 interaction_id，由队列按其幂等去重。
         resolved_interaction_id = interaction_id or f"interaction_{uuid4().hex[:12]}"
         submission = InteractionSubmission(
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
             interaction_id=resolved_interaction_id,
             payload=payload,
             requested_topic_id=requested_topic_id,

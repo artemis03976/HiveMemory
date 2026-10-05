@@ -9,7 +9,7 @@
 
 - 只保存授权配置，不保存 Memory 可见性，不执行 Patchouli 业务；
 - 键使用完整 Workspace 归属坐标（``owner_user_id + workspace_id``）与
-  Actor 的 ``user_id + agent_id``；``session_id``、run/frame 和调用协议
+  Actor 的 ``user_id + agent_id``；外部会话、run/frame 和调用协议
   不进入权限键；
 - ``team_id`` 由可信身份关系提供给资源 policy，不进入本注册表；
 - 首版为进程内不可变本地配置（``configs/workspace_actors.yaml``），
