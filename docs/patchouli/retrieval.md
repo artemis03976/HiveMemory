@@ -131,7 +131,7 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 - `tags`、`time_range` 尚未转换为 Qdrant filters；
 - Gateway keywords 尚未进入独立 sparse query；
 - Hybrid 子 retriever 虽有 enabled 开关，但关闭单路后当前 Hybrid 调用仍假定对象存在，非默认组合需要补齐 NoOp/分支处理；
-- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；
+- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；启用 reranker 时 Hybrid 不应用分数阈值（与代码注释相反），默认配置下 `RetrievalEngine` 的 0.75 默认阈值实际不生效，见 [Todo](../todo/retrieval-hybrid-threshold-with-reranker.md)；
 - 普通异常可能被投影为空结果，调用方只能通过观测区分；
 - 普通检索不搜索长期 archive，也不自动 revive；
 - 当前 retrieval response 主要暴露 atoms，`SearchResult.match_reason` 等解释元信息没有完整进入公共响应；
