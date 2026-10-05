@@ -147,7 +147,7 @@ class _LegacyArchiverFixture:
     async def resurrect(self, memory_id: UUID) -> MemoryAtom:
         key = self._memory_key(memory_id)
         memory = await self._library.long_term.load(key)
-        await self._library.revive(self._identity_scope(), memory_id)
+        await self._library.revive(self._identity_scope().workspace_identity, memory_id)
         return memory
 
     async def is_archived(self, memory_id: UUID) -> bool:
@@ -159,7 +159,9 @@ class _LegacyArchiverFixture:
 
     @classmethod
     def _memory_key(cls, memory_id: UUID) -> WorkspaceMemoryKey:
-        return WorkspaceMemoryKey.from_identity_scope(cls._identity_scope(), memory_id)
+        return WorkspaceMemoryKey(
+            workspace_identity=cls._identity_scope().workspace_identity, memory_id=memory_id
+        )
 
     async def get_archive_record(self, memory_id: UUID) -> ArchiveRecord | None:
         records = await self._library.long_term.query(limit=100)
@@ -524,7 +526,7 @@ class TestReinforcement:
             source="test_retrieval_hit",
         )
         result = await reinforcement_engine.reinforce(
-            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent").workspace_identity,
             memory.id,
             event,
         )
@@ -609,7 +611,7 @@ class TestReinforcement:
             source="test",
         )
         result = await reinforcement_engine.reinforce(
-            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent").workspace_identity,
             memory.id,
             event,
         )
@@ -675,7 +677,7 @@ class TestReinforcement:
             source="test",
         )
         result = await reinforcement_engine.reinforce(
-            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent").workspace_identity,
             old_memory.id,
             event,
         )
@@ -748,7 +750,7 @@ class TestReinforcement:
             source="user",
         )
         result = await reinforcement_engine.reinforce(
-            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent").workspace_identity,
             memory.id,
             event,
         )
@@ -813,7 +815,7 @@ class TestReinforcement:
             source="user",
         )
         result = await reinforcement_engine.reinforce(
-            make_identity_scope(user_id="test_user", agent_id="test_agent"),
+            make_identity_scope(user_id="test_user", agent_id="test_agent").workspace_identity,
             memory.id,
             event,
         )

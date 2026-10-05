@@ -93,7 +93,7 @@ def test_remove_before_acquire_establishes_no_binding():
     scope = make_identity_scope(user_id="u1")
     asset, ref = _make_ready_asset(asset_store, scope)
 
-    topic = store.create(scope)
+    topic = store.create(scope.workspace_identity)
     asset_store.remove_asset(scope, ref)
 
     # remove 后 acquire 失败 -> 本轮没有使用事实，也就无从建立 binding。
@@ -101,7 +101,7 @@ def test_remove_before_acquire_establishes_no_binding():
         asset_store.acquire_ready_representation(scope, ref)
 
     assert asset.asset_id
-    assert store.get(scope, topic.topic_id).bindings == ()
+    assert store.get(scope.workspace_identity, topic.topic_id).bindings == ()
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
     scope = make_identity_scope(user_id="u1")
     asset, ref = _make_ready_asset(asset_store, scope)
 
-    topic = store.create(scope)
+    topic = store.create(scope.workspace_identity)
 
     # acquire 先于 remove：已有 lease 可完成本轮使用。
     lease = asset_store.acquire_ready_representation(scope, ref)
@@ -123,13 +123,14 @@ async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
     # 成功 Interaction 在 remove 后提交 binding：记录 remove 前已发生的真实使用。
     await familiar.apply_interaction(
         _payload(),
-        identity_scope=scope,
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
         target_topic_id=topic.topic_id,
         interaction_id="i1",
         asset_refs=(ref,),
     )
 
-    bindings = store.get(scope, topic.topic_id).bindings
+    bindings = store.get(scope.workspace_identity, topic.topic_id).bindings
     assert len(bindings) == 1
     assert bindings[0].asset_id == asset.asset_id
 
@@ -145,12 +146,13 @@ async def test_commit_before_remove_preserves_binding():
     scope = make_identity_scope(user_id="u1")
     asset, ref = _make_ready_asset(asset_store, scope)
 
-    topic = store.create(scope)
+    topic = store.create(scope.workspace_identity)
 
     lease = asset_store.acquire_ready_representation(scope, ref)
     await familiar.apply_interaction(
         _payload(),
-        identity_scope=scope,
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
         target_topic_id=topic.topic_id,
         interaction_id="i1",
         asset_refs=(ref,),
@@ -159,6 +161,6 @@ async def test_commit_before_remove_preserves_binding():
     asset_store.remove_asset(scope, ref)
 
     # remove 只终止后续可用性，不改写历史使用事实。
-    bindings = store.get(scope, topic.topic_id).bindings
+    bindings = store.get(scope.workspace_identity, topic.topic_id).bindings
     assert len(bindings) == 1
     assert lease.asset_ref.token == ref.token

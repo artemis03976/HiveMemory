@@ -46,11 +46,11 @@ class _RecordingPort(MidTermStoragePort):
     async def list_alias_holders(self, workspace_identity, alias, *, limit):
         return list(self.alias_holders.get(alias, []))[:limit]
 
-    async def get(self, identity_scope, memory_id, *, enforce_actor_visibility=True):
+    async def get(self, belong_to, memory_id, *, from_actor, enforce_actor_visibility=True):
         self.enforce_seen.append(enforce_actor_visibility)
         return None
 
-    async def get_by_alias(self, identity_scope, alias, *, enforce_actor_visibility=True):
+    async def get_by_alias(self, belong_to, alias, *, from_actor, enforce_actor_visibility=True):
         self.enforce_seen.append(enforce_actor_visibility)
         return None
 
@@ -80,6 +80,7 @@ class _RecordingPort(MidTermStoragePort):
         mode="dense",
         score_threshold=0.0,
         *,
+        from_actor,
         enforce_actor_visibility=True,
     ):
         self.enforce_seen.append(enforce_actor_visibility)
@@ -91,6 +92,7 @@ class _RecordingPort(MidTermStoragePort):
         filters=None,
         limit=100,
         *,
+        from_actor,
         enforce_actor_visibility=True,
     ):
         self.enforce_seen.append(enforce_actor_visibility)
@@ -141,8 +143,22 @@ def test_store_forwards_enforce_flag_for_point_read():
     store = MidTermMemoryStore(port)
     scope = make_identity_scope()
 
-    asyncio.run(store.get(scope, uuid4(), enforce_actor_visibility=False))
-    asyncio.run(store.get_by_alias(scope, "alias", enforce_actor_visibility=False))
+    asyncio.run(
+        store.get(
+            scope.workspace_identity,
+            uuid4(),
+            from_actor=scope.actor_identity,
+            enforce_actor_visibility=False,
+        )
+    )
+    asyncio.run(
+        store.get_by_alias(
+            scope.workspace_identity,
+            "alias",
+            from_actor=scope.actor_identity,
+            enforce_actor_visibility=False,
+        )
+    )
 
     assert port.enforce_seen == [False, False]
 
@@ -153,8 +169,23 @@ def test_store_forwards_enforce_flag_for_search_and_scroll():
     store = MidTermMemoryStore(port)
     scope = make_identity_scope()
 
-    asyncio.run(store.search(scope, "query", top_k=5, enforce_actor_visibility=False))
-    asyncio.run(store.scroll(scope, limit=10, enforce_actor_visibility=False))
+    asyncio.run(
+        store.search(
+            scope.workspace_identity,
+            "query",
+            from_actor=scope.actor_identity,
+            top_k=5,
+            enforce_actor_visibility=False,
+        )
+    )
+    asyncio.run(
+        store.scroll(
+            scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            limit=10,
+            enforce_actor_visibility=False,
+        )
+    )
 
     assert port.enforce_seen == [False, False]
 
@@ -167,7 +198,7 @@ def test_store_forwards_patch_payload_to_primary_and_secondary():
     store = MidTermMemoryStore(primary, secondary=[secondary])
     scope = make_identity_scope()
     memory_id = uuid4()
-    key = WorkspaceMemoryKey.from_identity_scope(scope, memory_id)
+    key = WorkspaceMemoryKey(workspace_identity=scope.workspace_identity, memory_id=memory_id)
     patch = {
         "meta.lifecycle.access_count": 4,
         "meta.lifecycle.last_accessed_at": utc_now(),
@@ -188,7 +219,7 @@ def test_store_propagates_secondary_failure_for_upsert_and_patch():
     store = MidTermMemoryStore(primary, secondary=[secondary])
     memory = _memory_atom()
     scope = make_identity_scope()
-    key = WorkspaceMemoryKey.from_identity_scope(scope, memory.id)
+    key = WorkspaceMemoryKey(workspace_identity=scope.workspace_identity, memory_id=memory.id)
     patch = {"meta.lifecycle.access_count": 1}
 
     with pytest.raises(RuntimeError, match="secondary down"):
@@ -248,7 +279,13 @@ def test_retrieval_familiar_get_memory_does_not_raise_type_error():
         engine=object(), memory_library=type("_Lib", (), {"mid_term": MidTermMemoryStore(port)})()
     )
 
-    result = asyncio.run(familiar.get_memory(uuid4(), identity_scope=make_identity_scope()))
+    result = asyncio.run(
+        familiar.get_memory(
+            uuid4(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
+        )
+    )
 
     assert result is None
     assert port.enforce_seen == [True]
@@ -262,7 +299,11 @@ def test_retrieval_familiar_list_memories_scroll_does_not_raise_type_error():
     )
 
     result = asyncio.run(
-        familiar.list_memories(identity_scope=make_identity_scope(), enforce_actor_visibility=False)
+        familiar.list_memories(
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
+            enforce_actor_visibility=False,
+        )
     )
 
     assert result == []

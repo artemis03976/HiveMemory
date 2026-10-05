@@ -27,7 +27,13 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
-from hivememory.core.models import ActorIdentity, LogicalBlock, TurnEvent, TurnRecord
+from hivememory.core.models import (
+    ActorIdentity,
+    LogicalBlock,
+    TurnEvent,
+    TurnRecord,
+    system_actor_for_workspace,
+)
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TriggerReason
@@ -124,6 +130,8 @@ def _accept_settlement_task(route, payload):
         topic_id=payload.topic_id,
         label=payload.topic_id,
         source=MemoryGenerationSource.SETTLE,
+        belong_to=payload.belong_to,
+        from_actor=system_actor_for_workspace(payload.belong_to),
     )
 
 
@@ -133,16 +141,17 @@ async def test_idle_flush_swaps_out_topic():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
-    assert len(store.list_by_workspace(identity_scope)) == 1
+    assert len(store.list_by_workspace(identity_scope.workspace_identity)) == 1
 
     clock.advance(100)
     flushed = await familiar.scan_idle_buffers_once()
 
     assert len(flushed) == 1
-    assert store.list_by_workspace(identity_scope) == []
+    assert store.list_by_workspace(identity_scope.workspace_identity) == []
     route, settlement = bus.request.await_args.args
     assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
     assert settlement.reason == TriggerReason.IDLE_TIMEOUT
@@ -152,8 +161,10 @@ async def test_idle_flush_swaps_out_topic():
 async def test_idle_flush_skips_empty_settlement_submission():
     familiar, store, _, clock, bus = _make_real_familiar(idle_timeout_seconds=1)
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    assert store.get(identity_scope, topic_id) is not None
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    assert store.get(identity_scope.workspace_identity, topic_id) is not None
 
     clock.advance(100)
     flushed = await familiar.scan_idle_buffers_once()
@@ -161,7 +172,7 @@ async def test_idle_flush_skips_empty_settlement_submission():
     assert flushed == [topic_id]
     # 真正空 Topic：不提交 settlement，但生命周期正常结束
     bus.request.assert_not_awaited()
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
 
 
 @pytest.mark.asyncio
@@ -169,14 +180,16 @@ async def test_idle_scan_skips_topic_that_becomes_busy_before_settlement():
     """维护快照之后被占用（lease）的 Topic 留给下一轮扫描。"""
     familiar, store, working_set, clock, bus = _make_real_familiar(idle_timeout_seconds=1)
     identity_scope = make_identity_scope(user_id="u-busy", agent_id="a-busy")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    assert working_set.acquire(identity_scope, topic_id) is not None
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    assert working_set.acquire(identity_scope.workspace_identity, topic_id) is not None
 
     clock.advance(100)
     flushed = await familiar.scan_idle_buffers_once()
 
     assert flushed == []
-    remaining = store.get(identity_scope, topic_id)
+    remaining = store.get(identity_scope.workspace_identity, topic_id)
     assert remaining is not None
     bus.request.assert_not_awaited()
 
@@ -189,26 +202,50 @@ async def test_idle_flush_frees_slot():
     )
     await familiar.apply_interaction(
         _make_payload("q1", "a1"),
-        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         target_topic_id="NEW_TOPIC",
     )
     await familiar.apply_interaction(
         _make_payload("q2", "a2"),
-        identity_scope=make_identity_scope(user_id="u2", agent_id="a2"),
+        belong_to=make_identity_scope(user_id="u2", agent_id="a2").workspace_identity,
+        from_actor=make_identity_scope(user_id="u2", agent_id="a2").actor_identity,
         target_topic_id="NEW_TOPIC",
     )
-    assert len(store.list_by_workspace(make_identity_scope(user_id="u1", agent_id="a1"))) == 1
-    assert len(store.list_by_workspace(make_identity_scope(user_id="u2", agent_id="a2"))) == 1
+    assert (
+        len(
+            store.list_by_workspace(
+                make_identity_scope(user_id="u1", agent_id="a1").workspace_identity
+            )
+        )
+        == 1
+    )
+    assert (
+        len(
+            store.list_by_workspace(
+                make_identity_scope(user_id="u2", agent_id="a2").workspace_identity
+            )
+        )
+        == 1
+    )
 
     clock.advance(100)
     assert len(await familiar.scan_idle_buffers_once()) == 2
 
     await familiar.apply_interaction(
         _make_payload("q3", "a3"),
-        identity_scope=make_identity_scope(user_id="u3", agent_id="a3"),
+        belong_to=make_identity_scope(user_id="u3", agent_id="a3").workspace_identity,
+        from_actor=make_identity_scope(user_id="u3", agent_id="a3").actor_identity,
         target_topic_id="NEW_TOPIC",
     )
-    assert len(store.list_by_workspace(make_identity_scope(user_id="u3", agent_id="a3"))) == 1
+    assert (
+        len(
+            store.list_by_workspace(
+                make_identity_scope(user_id="u3", agent_id="a3").workspace_identity
+            )
+        )
+        == 1
+    )
 
 
 @pytest.mark.asyncio
@@ -216,23 +253,28 @@ async def test_lru_reselects_another_topic_when_first_candidate_becomes_busy():
     """LRU 候选被占用时改选其他话题，不能导致超额创建或误报驱逐成功。"""
     familiar, store, working_set, clock, bus = _make_real_familiar(max_resident_topics=2)
     identity_scope = make_identity_scope(user_id="u-lru", agent_id="a-lru")
-    first_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
+    first_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
     clock.advance(10)
-    second_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
+    second_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
     clock.advance(10)
     # 占住最久未访问的候选，迫使驱逐改选
-    lease = working_set.acquire(identity_scope, first_id)
+    lease = working_set.acquire(identity_scope.workspace_identity, first_id)
     assert lease is not None
 
     new_id = await familiar.apply_interaction(
         _make_payload("new question", "new answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
 
-    resident = store.list_by_workspace(identity_scope)
+    resident = store.list_by_workspace(identity_scope.workspace_identity)
     assert {topic.topic_id for topic in resident} == {first_id, new_id}
-    assert store.get(identity_scope, second_id) is None
+    assert store.get(identity_scope.workspace_identity, second_id) is None
     # 空话题结算不产生材料，不触发生成 admission
     bus.request.assert_not_awaited()
     working_set.release(lease)
@@ -256,7 +298,8 @@ async def test_interaction_retry_rejects_same_content_from_another_workspace():
 
     topic_id = await familiar.apply_interaction(
         payload,
-        identity_scope=main_scope,
+        belong_to=main_scope.workspace_identity,
+        from_actor=main_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
         interaction_id="interaction-shared",
     )
@@ -264,15 +307,16 @@ async def test_interaction_retry_rejects_same_content_from_another_workspace():
     with pytest.raises(ValueError, match="different input"):
         await familiar.apply_interaction(
             payload,
-            identity_scope=isolated_scope,
+            belong_to=isolated_scope.workspace_identity,
+            from_actor=isolated_scope.actor_identity,
             target_topic_id="NEW_TOPIC",
             interaction_id="interaction-shared",
         )
 
-    original = store.get(main_scope, topic_id)
+    original = store.get(main_scope.workspace_identity, topic_id)
     assert original is not None
     assert [block.user_query for block in original.blocks] == ["same question"]
-    assert store.list_by_workspace(isolated_scope) == []
+    assert store.list_by_workspace(isolated_scope.workspace_identity) == []
 
 
 @pytest.mark.asyncio
@@ -280,12 +324,14 @@ async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     familiar, store, _, _, bus = _make_real_familiar(max_resident_topics=4)
     await familiar.apply_interaction(
         _make_payload("q1", "a1"),
-        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         target_topic_id="NEW_TOPIC",
     )
     await familiar.apply_interaction(
         _make_payload("q2", "a2"),
-        identity_scope=make_identity_scope(user_id="u2", agent_id="a2"),
+        belong_to=make_identity_scope(user_id="u2", agent_id="a2").workspace_identity,
+        from_actor=make_identity_scope(user_id="u2", agent_id="a2").actor_identity,
         target_topic_id="NEW_TOPIC",
     )
     bus.request.side_effect = _accept_settlement_task
@@ -295,8 +341,14 @@ async def test_shutdown_flush_settles_and_swaps_out_all_topics():
     assert len(result.settled_topic_ids) == 2
     assert result.generation_skipped_topic_ids == ()
     assert result.resident_block_count == 2
-    assert store.list_by_workspace(make_identity_scope(user_id="u1", agent_id="a1")) == []
-    assert store.list_by_workspace(make_identity_scope(user_id="u2", agent_id="a2")) == []
+    assert (
+        store.list_by_workspace(make_identity_scope(user_id="u1", agent_id="a1").workspace_identity)
+        == []
+    )
+    assert (
+        store.list_by_workspace(make_identity_scope(user_id="u2", agent_id="a2").workspace_identity)
+        == []
+    )
     assert bus.request.await_count == 2
     for call in bus.request.await_args_list:
         assert call.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
@@ -308,14 +360,16 @@ async def test_shutdown_reports_busy_topic_in_failed_ids_without_generation():
     """drain 后仍被占用的话题属于关闭顺序缺陷，隔离记录为 failed。"""
     familiar, store, working_set, _, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u-busy", agent_id="a-busy")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    assert working_set.acquire(identity_scope, topic_id) is not None
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    assert working_set.acquire(identity_scope.workspace_identity, topic_id) is not None
 
     result = await familiar.flush_all_for_shutdown()
 
     assert result.failed_topic_ids == (topic_id,)
     assert result.settled_topic_ids == ()
-    remaining = store.get(identity_scope, topic_id)
+    remaining = store.get(identity_scope.workspace_identity, topic_id)
     assert remaining is not None
     bus.request.assert_not_awaited()
 
@@ -336,11 +390,12 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
                 f"question-{i}-" * 80,
                 f"answer-{i}",
             ),
-            identity_scope=identity_scope,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
             target_topic_id=topic_id,
         )
 
-    before_shutdown = store.get(identity_scope, topic_id)
+    before_shutdown = store.get(identity_scope.workspace_identity, topic_id)
     assert before_shutdown is not None
     assert before_shutdown.state_summary == "folded:1|folded:1"
     assert [block.user_query for block in before_shutdown.blocks] == ["question-2-" * 80]
@@ -352,7 +407,7 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
     assert result.settled_topic_ids == (topic_id,)
     assert result.generation_skipped_topic_ids == ()
     assert result.resident_block_count == 1
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
     bus.request.assert_awaited_once()
     route, settlement = bus.request.await_args.args
     assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
@@ -368,11 +423,13 @@ async def test_shutdown_after_folding_settles_summary_and_retained_block():
 async def test_summary_only_topic_stays_in_non_empty_active_list():
     familiar, store, _, _, _ = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    topic = store.get(identity_scope, topic_id)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    topic = store.get(identity_scope.workspace_identity, topic_id)
     store.put(topic.model_copy(update={"state_summary": "已经折叠的历史内容"}))
 
-    topics = store.list_by_workspace(identity_scope, include_empty=False)
+    topics = store.list_by_workspace(identity_scope.workspace_identity, include_empty=False)
 
     assert [t.topic_id for t in topics] == [topic_id]
     assert topics[0].blocks == ()
@@ -383,26 +440,30 @@ async def test_summary_only_topic_stays_in_non_empty_active_list():
 async def test_discard_if_empty_keeps_summary_only_topic():
     familiar, store, _, _, _ = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    topic = store.get(identity_scope, topic_id)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    topic = store.get(identity_scope.workspace_identity, topic_id)
     store.put(topic.model_copy(update={"state_summary": "折叠历史"}))
 
-    discarded = familiar.discard_if_empty(identity_scope, topic_id)
+    discarded = familiar.discard_if_empty(identity_scope.workspace_identity, topic_id)
 
     assert discarded is False
-    assert store.get(identity_scope, topic_id) is not None
+    assert store.get(identity_scope.workspace_identity, topic_id) is not None
 
 
 @pytest.mark.asyncio
 async def test_discard_if_empty_evicts_truly_empty_topic():
     familiar, store, _, _, _ = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
 
-    discarded = familiar.discard_if_empty(identity_scope, topic_id)
+    discarded = familiar.discard_if_empty(identity_scope.workspace_identity, topic_id)
 
     assert discarded is True
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
 
 
 # ========== 真正空 Topic 仍正常结束生命周期 ==========
@@ -412,13 +473,15 @@ async def test_discard_if_empty_evicts_truly_empty_topic():
 async def test_shutdown_evicts_truly_empty_topic_and_marks_generation_skip():
     familiar, store, _, _, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
 
     result = await familiar.flush_all_for_shutdown()
 
     assert topic_id in result.settled_topic_ids
     assert result.generation_skipped_topic_ids == (topic_id,)
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
     bus.request.assert_not_awaited()
 
 
@@ -429,7 +492,8 @@ async def test_shutdown_marks_generation_skip_when_submission_builds_no_task():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
 
@@ -437,7 +501,7 @@ async def test_shutdown_marks_generation_skip_when_submission_builds_no_task():
 
     assert result.settled_topic_ids == (topic_id,)
     assert result.generation_skipped_topic_ids == (topic_id,)
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
 
 
 @pytest.mark.asyncio
@@ -447,7 +511,8 @@ async def test_shutdown_isolates_admission_failure_in_failed_ids():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
     bus.request.side_effect = RuntimeError("generation admission failed")
@@ -457,7 +522,7 @@ async def test_shutdown_isolates_admission_failure_in_failed_ids():
     assert result.failed_topic_ids == (topic_id,)
     assert result.settled_topic_ids == ()
     # admission 失败：话题内容保留，可重试
-    assert store.get(identity_scope, topic_id) is not None
+    assert store.get(identity_scope.workspace_identity, topic_id) is not None
 
 
 @pytest.mark.asyncio
@@ -465,8 +530,10 @@ async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it():
     """全部 blocks 被过滤时不能因为 block_count 非零而漏报 skip。"""
     familiar, store, _, _, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    topic = store.get(identity_scope, topic_id)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    topic = store.get(identity_scope.workspace_identity, topic_id)
     store.put(
         topic.model_copy(
             update={
@@ -485,7 +552,7 @@ async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it():
     assert result.settled_topic_ids == (topic_id,)
     assert result.generation_skipped_topic_ids == (topic_id,)
     assert result.resident_block_count == 1
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
     bus.request.assert_not_awaited()
 
 
@@ -493,14 +560,16 @@ async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it():
 async def test_manual_settle_evicts_truly_empty_topic():
     familiar, store, _, _, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
 
-    result = await familiar.manual_settle_topic(identity_scope, topic_id)
+    result = await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
 
     assert result.topic_id == topic_id
     assert result.generation_submitted is False
     assert result.generation_task_id is None
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
     bus.request.assert_not_awaited()
 
 
@@ -513,7 +582,8 @@ async def test_manual_settle_admits_generation_task_before_evicting():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
     accepted = MemoryGenerationTask(
@@ -521,17 +591,19 @@ async def test_manual_settle_admits_generation_task_before_evicting():
         topic_id=topic_id,
         label=topic_id,
         source=MemoryGenerationSource.SETTLE,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=system_actor_for_workspace(identity_scope.workspace_identity),
     )
     bus.request = AsyncMock(return_value=accepted)
 
-    result = await familiar.manual_settle_topic(identity_scope, topic_id)
+    result = await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
 
     assert result.topic_id == topic_id
     assert result.generation_task_id == "memtask-1"
     assert result.generation_submitted is True
     assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
     # 接纳成功后 Topic 才从池中移除
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
 
 
 @pytest.mark.asyncio
@@ -540,25 +612,26 @@ async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_ret
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
-    before = store.get(identity_scope, topic_id)
+    before = store.get(identity_scope.workspace_identity, topic_id)
     bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
 
     with pytest.raises(TopicSettleAdmissionError, match="可重试"):
-        await familiar.manual_settle_topic(identity_scope, topic_id)
+        await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
 
-    after = store.get(identity_scope, topic_id)
+    after = store.get(identity_scope.workspace_identity, topic_id)
     assert after is not None
     assert [b.user_query for b in after.blocks] == [b.user_query for b in before.blocks]
     assert after.state_summary == before.state_summary
 
     # 修复 admission 后可再次重试并成功结束生命周期
     bus.request = AsyncMock(return_value=None)
-    result = await familiar.manual_settle_topic(identity_scope, topic_id)
+    result = await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
     assert result.topic_id == topic_id
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
 
 
 @pytest.mark.asyncio
@@ -566,8 +639,10 @@ async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
     """blocks 均被 worth_saving=False 过滤：无任务但生命周期仍正常结束。"""
     familiar, store, _, _, bus = _make_real_familiar()
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, identity_scope)
-    topic = store.get(identity_scope, topic_id)
+    topic_id = await familiar.prepare_topic(
+        "NEW_TOPIC", None, None, identity_scope.workspace_identity
+    )
+    topic = store.get(identity_scope.workspace_identity, topic_id)
     store.put(
         topic.model_copy(
             update={
@@ -581,11 +656,11 @@ async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
         )
     )
 
-    result = await familiar.manual_settle_topic(identity_scope, topic_id)
+    result = await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
 
     assert result.topic_id == topic_id
     assert result.generation_submitted is False
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
     bus.request.assert_not_awaited()
 
 
@@ -598,15 +673,16 @@ async def test_manual_delete_evicts_without_generation_task():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
 
-    removed = await familiar.evict_topic(identity_scope, topic_id)
+    removed = await familiar.evict_topic(identity_scope.workspace_identity, topic_id)
 
     assert removed.topic_id == topic_id
     assert removed.removed is True
-    assert store.get(identity_scope, topic_id) is None
+    assert store.get(identity_scope.workspace_identity, topic_id) is None
     bus.request.assert_not_awaited()
 
 
@@ -617,16 +693,17 @@ async def test_manual_delete_reports_busy_topic_without_removing_it():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("question", "answer"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
-    lease = working_set.acquire(identity_scope, topic_id)
+    lease = working_set.acquire(identity_scope.workspace_identity, topic_id)
     assert lease is not None
 
-    result = await familiar.evict_topic(identity_scope, topic_id)
+    result = await familiar.evict_topic(identity_scope.workspace_identity, topic_id)
 
     assert result.removed is False
-    assert store.get(identity_scope, topic_id) is not None
+    assert store.get(identity_scope.workspace_identity, topic_id) is not None
     bus.request.assert_not_awaited()
     working_set.release(lease)
 
@@ -644,11 +721,12 @@ async def test_token_overflow_compact_trims_prefix_and_keeps_topic():
     for i in range(3):
         topic_id = await familiar.apply_interaction(
             _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
-            identity_scope=identity_scope,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
             target_topic_id=topic_id,
         )
 
-    data = store.get(identity_scope, topic_id)
+    data = store.get(identity_scope.workspace_identity, topic_id)
     assert data is not None
     assert data.state_summary == "folded:1|folded:1"
     assert [b.user_query for b in data.blocks] == ["question-2-" * 80]
@@ -664,10 +742,11 @@ async def test_compact_is_noop_when_blocks_not_exceeding_retain():
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
         _make_payload("q", "a"),
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
 
-    data = store.get(identity_scope, topic_id)
+    data = store.get(identity_scope.workspace_identity, topic_id)
     assert data.state_summary == ""
     assert len(data.blocks) == 1

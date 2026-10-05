@@ -16,13 +16,12 @@ from hivememory.core.errors import (
     WorkspaceMismatchError,
 )
 from hivememory.core.models import (
-    IdentityScope,
     MemoryAtom,
     MemoryType,
     PendingAtomResolution,
     PendingAtomSettlement,
+    WorkspaceIdentity,
     WorkspaceMemoryKey,
-    require_identity_scope,
 )
 from hivememory.core.models.artifact import (
     ArtifactRef,
@@ -31,7 +30,7 @@ from hivememory.core.models.artifact import (
     snapshot_memory_atom,
 )
 from hivememory.core.models.workspace_asset import TopicAssetBinding
-from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
+from hivememory.core.ports.workspace_assets import WorkspaceAssetMaterializationReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -63,7 +62,7 @@ class MemoryGenerationFamiliar:
         generation_engine: MemoryGenerationEngine,
         memory_library: MemoryLibrary,
         artifact_engine: ArtifactEngine | None = None,
-        asset_reader: WorkspaceAssetReaderPort | None = None,
+        asset_reader: WorkspaceAssetMaterializationReaderPort | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         from hivememory.engines.artifacts.engine import ArtifactEngine
@@ -129,7 +128,7 @@ class MemoryGenerationFamiliar:
         """
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
-            spec.identity_scope,
+            spec.belong_to,
         )
         return await self._run_generation(
             spec,
@@ -138,14 +137,13 @@ class MemoryGenerationFamiliar:
 
     async def create_external_memory(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         atom: MemoryAtom,
     ) -> MemoryAtom:
         """
         对外部创建的记忆原子进行持久化处理。
         """
-        identity_scope = require_identity_scope(identity_scope)
-        if atom.workspace_identity != identity_scope.workspace_identity:
+        if atom.workspace_identity != belong_to:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         commit_now = require_utc(self._now())
         # 提交边界决定创建时点：created/updated/decay 同值（M0.1）。
@@ -169,7 +167,7 @@ class MemoryGenerationFamiliar:
         self,
         memory_id: UUID,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         title: str | None = None,
         summary: str | None = None,
         content: str | None = None,
@@ -180,9 +178,8 @@ class MemoryGenerationFamiliar:
         """
         对外部手动的记忆编辑进行持久化处理。
         """
-        identity_scope = require_identity_scope(identity_scope)
         atom = await self._mid_term.get_by_key(
-            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+            WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         )
         if atom is None:
             return None
@@ -279,7 +276,8 @@ class MemoryGenerationFamiliar:
         # Step 1：纯计算，GenerationEngine 不负责持久化与版本分配。
         outcomes = await self._generation_engine.process(
             spec.request,
-            identity_scope=spec.identity_scope,
+            belong_to=spec.belong_to,
+            from_actor=spec.from_actor,
             now=commit_now,
         )
 
@@ -292,7 +290,7 @@ class MemoryGenerationFamiliar:
                 continue
             await self._commit_outcome(
                 outcome,
-                identity_scope=spec.identity_scope,
+                belong_to=spec.belong_to,
                 now=commit_now,
                 interaction_ref=interaction_ref,
                 gen_context=spec.request.context,
@@ -312,7 +310,7 @@ class MemoryGenerationFamiliar:
             )
             await self._promote_attachment_bindings(
                 bindings,
-                identity_scope=spec.identity_scope,
+                belong_to=spec.belong_to,
             )
 
         # 只有 artifact 与持久化均完成后，才把 Engine outcome 收缩为跨域事实；
@@ -323,7 +321,7 @@ class MemoryGenerationFamiliar:
         self,
         bindings: tuple[TopicAssetBinding, ...],
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> None:
         """沿 binding.asset_ref 提升附件 DocumentArtifact（best-effort）。
 
@@ -339,7 +337,7 @@ class MemoryGenerationFamiliar:
             try:
                 await self._promote_single_binding(
                     binding,
-                    identity_scope=identity_scope,
+                    belong_to=belong_to,
                 )
             except WorkspaceDomainError as exc:
                 logger.warning(
@@ -359,12 +357,12 @@ class MemoryGenerationFamiliar:
         self,
         binding: TopicAssetBinding,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> None:
         if self._asset_reader is None:
             return
         lease = self._asset_reader.acquire_ready_representation(
-            identity_scope,
+            belong_to,
             binding.asset_ref,
         )
         try:
@@ -389,7 +387,7 @@ class MemoryGenerationFamiliar:
                 source_uri=source_uri,
                 content_hash=representation.content_hash,
                 retrieved_at=datetime.now(UTC),
-                workspace_identity=identity_scope.workspace_identity,
+                workspace_identity=belong_to,
                 mime_type=mime_type,
                 title=f"attachment:{binding.asset_id}",
             )
@@ -453,7 +451,7 @@ class MemoryGenerationFamiliar:
     async def _capture_interaction_artifact(
         self,
         interaction_input: InteractionArtifactInput | None,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> ArtifactRef | None:
         """
         构建原始交互 artifact。
@@ -468,7 +466,7 @@ class MemoryGenerationFamiliar:
                 topic_title=interaction_input.topic_title,
                 topic_summary=interaction_input.topic_summary,
                 blocks=interaction_input.blocks,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
             )
         except Exception:
             logger.warning("Failed to build interaction artifact", exc_info=True)
@@ -478,7 +476,7 @@ class MemoryGenerationFamiliar:
         self,
         outcome: GenerationOutcome,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         now: datetime,
         interaction_ref: ArtifactRef | None,
         gen_context: GenerationContext,
@@ -499,7 +497,7 @@ class MemoryGenerationFamiliar:
 
         if decision == DuplicateDecision.TOUCH:
             key = WorkspaceMemoryKey(
-                workspace_identity=identity_scope.workspace_identity,
+                workspace_identity=belong_to,
                 memory_id=atom.id,
             )
             patched = await self._mid_term.patch_payload(

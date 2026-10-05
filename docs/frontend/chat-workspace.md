@@ -18,7 +18,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # Chat 工作区
@@ -45,11 +45,11 @@ OmniInput 在发送前组装：
 - `enable_memory_retrieval`；
 - 可选的模型注册表 ID，以及 temperature、top_p、max_tokens 单轮覆盖。
 
-用户导向基础选择（`user_id + workspace_id`）不在请求体中重复传递：`services/identity.ts` 统一以请求头 `x-user-id`/`x-workspace-id` 携带，由后端在 server 边界一次性冻结为 `IdentityScope`。
+用户导向基础选择（`user_id + workspace_id`）不在请求体中重复传递：`services/identity.ts` 统一以请求头 `x-user-id`/`x-workspace-id` 携带。server 解析身份声明，任务进程的注册入口经认证网关取得访问 context，各阶段授权时才组装 `IdentityScope`。请求体中的 `session_id` 仍可接受，但不进入身份，当前后端不使用它。
 
 `@` 菜单和 Agent 胶囊只改变本轮使用的 Agent，输入中的 `@name` 会在选中后被移除，不作为文本 mention 发送。持久化的 Agent ID 若不再存在，前端回退到 `omni_doll`。
 
-请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 `process_id` 事件后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `process_id`，身份校验与取消使用的 scope 由后端经进程表复用创建该进程时冻结的原始身份坐标，前端当前选择不参与构造。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
+请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 `process_id` 事件后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `process_id`，身份选择仍来自统一请求头。后端以请求级 context 经进程控制授权，比对请求方与进程记录的驻留坐标；不可控与不存在都按 not found 处理。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
 
 ## 3. SSE 事件投影
 

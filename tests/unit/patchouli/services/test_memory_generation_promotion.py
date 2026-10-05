@@ -30,6 +30,7 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationSource
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+from hivememory.system.services.asset_materialization_reader import AssetMaterializationReader
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -150,7 +151,7 @@ class _StubGenerationEngine:
     def __init__(self, decisions: list[DuplicateDecision]) -> None:
         self._decisions = decisions
 
-    async def process(self, _request, *, identity_scope, now=None):
+    async def process(self, _request, *, belong_to, from_actor, now=None):
         from hivememory.engines.generation.models import GenerationOutcome
 
         outcomes = []
@@ -159,8 +160,8 @@ class _StubGenerationEngine:
             if decision != DuplicateDecision.DISCARD:
                 atom = MemoryAtom(
                     meta=make_memory_metadata(
-                        source_agent_id=identity_scope.actor_identity.agent_id,
-                        user_id=identity_scope.workspace_identity.owner_user_id,
+                        source_agent_id=from_actor.agent_id,
+                        user_id=belong_to.owner_user_id,
                     ),
                     index=IndexLayer(
                         title="generation target",
@@ -218,7 +219,7 @@ def _familiar(
         generation_engine=_StubGenerationEngine(decisions),
         memory_library=SimpleNamespace(mid_term=_StubMidTerm()),
         artifact_engine=_StubArtifactEngine(document_builder),
-        asset_reader=store,
+        asset_reader=AssetMaterializationReader(store),
     )
 
 
@@ -247,7 +248,8 @@ def test_handler_projects_used_attachments_into_binding_coordinates() -> None:
     )
     submission = SimpleNamespace(
         payload=payload,
-        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         requested_topic_id="topic-1",
         interaction_id="interaction-1",
     )
@@ -276,7 +278,7 @@ async def test_promotion_runs_on_create_and_pins_frozen_source_mapping() -> None
     scope = _scope()
     binding = _binding(store, ref)
 
-    await familiar._promote_attachment_bindings((binding,), identity_scope=scope)
+    await familiar._promote_attachment_bindings((binding,), belong_to=scope.workspace_identity)
 
     assert len(builder.calls) == 1
     call = builder.calls[0]
@@ -314,7 +316,8 @@ async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None
     )
     binding = _binding(store, ref)
     spec = SimpleNamespace(
-        identity_scope=_scope(),
+        belong_to=_scope().workspace_identity,
+        from_actor=_scope().actor_identity,
         interaction_input=SimpleNamespace(asset_bindings=(binding,)),
         request=SimpleNamespace(context=GenerationContext()),
         source=MemoryGenerationSource.SETTLE,
@@ -330,7 +333,7 @@ async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None
     assert familiar._mid_term.upsert_calls == []
     assert len(familiar._mid_term.patch_calls) == 1
     patch_key, patch_fields = familiar._mid_term.patch_calls[0]
-    assert patch_key.workspace_identity == spec.identity_scope.workspace_identity
+    assert patch_key.workspace_identity == spec.belong_to
     assert set(patch_fields) == {
         "meta.lifecycle.access_count",
         "meta.lifecycle.last_accessed_at",
@@ -356,7 +359,7 @@ async def test_promotion_degrades_when_ref_removed() -> None:
     binding = _binding(store, ref)
 
     # 不抛错：按 best-effort 降级，不写入 artifact。
-    await familiar._promote_attachment_bindings((binding,), identity_scope=_scope())
+    await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)
     assert builder.calls == []
 
 
@@ -370,7 +373,7 @@ async def test_promotion_degrades_when_store_closed() -> None:
     binding = _binding(store, ref)
     store.close_and_clear()
 
-    await familiar._promote_attachment_bindings((binding,), identity_scope=_scope())
+    await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)
     assert builder.calls == []
 
 
@@ -383,7 +386,7 @@ async def test_promotion_write_failure_is_best_effort_and_releases_lease() -> No
     familiar = _familiar(store, builder, [DuplicateDecision.CREATE])
     binding = _binding(store, ref)
 
-    await familiar._promote_attachment_bindings((binding,), identity_scope=_scope())
+    await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)
 
     assert len(builder.calls) == 1  # 写入被尝试过
     assert store.close_and_clear().leases_cleared == 0  # lease 仍被释放

@@ -195,7 +195,7 @@ def _prepare_route(
         if gate is not None:
             await gate.wait()
         return PreparedAgentRun(
-            identity_scope=identity_scope,
+            belong_to=(identity_scope).workspace_identity,
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
@@ -1039,7 +1039,7 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
 def _scoped_prepared(kwargs: dict[str, Any]) -> PreparedAgentRun:
     """按总线 kwargs 构造真实 PreparedAgentRun（无检索结果）。"""
     return PreparedAgentRun(
-        identity_scope=kwargs["identity_scope"],
+        belong_to=(kwargs["identity_scope"]).workspace_identity,
         interaction_id=kwargs["interaction_id"],
         topic_id="topic-1",
         is_new_topic=False,

@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceMemoryKey
+from hivememory.core.models import MemoryAtom, WorkspaceIdentity, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -78,18 +78,19 @@ class MemoryLifecycleEngine:
 
     async def record_event(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         event: MemoryEvent,
     ) -> ReinforcementResult:
+        """按资源归属强化记忆；调用方已完成操作授权，不再传入发起者。"""
         return await self.reinforcement_engine.reinforce(
-            identity_scope,
+            belong_to,
             event.memory_id,
             event,
         )
 
     async def record_hit(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         source: str = "system",
     ) -> ReinforcementResult:
@@ -98,11 +99,11 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source,
         )
-        return await self.record_event(identity_scope, event)
+        return await self.record_event(belong_to, event)
 
     async def record_citation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         source: str = "system",
     ) -> ReinforcementResult:
@@ -111,18 +112,18 @@ class MemoryLifecycleEngine:
             memory_id=memory_id,
             source=source,
         )
-        return await self.record_event(identity_scope, event)
+        return await self.record_event(belong_to, event)
 
     async def record_feedback(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         positive: bool,
         source: str = "user",
     ) -> ReinforcementResult:
         event_type = EventType.FEEDBACK_POSITIVE if positive else EventType.FEEDBACK_NEGATIVE
         event = MemoryEvent(event_type=event_type, memory_id=memory_id, source=source)
-        return await self.record_event(identity_scope, event)
+        return await self.record_event(belong_to, event)
 
     async def run_garbage_collection(self, force: bool = False) -> int:
         all_memories = await self._mid_term.list_all_for_maintenance(limit=10000)

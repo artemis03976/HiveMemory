@@ -28,7 +28,9 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., description="用户消息")
     agent_id: str = Field(..., description="执行本次对话的具体 Agent ID")
-    session_id: str | None = Field(default=None, description="会话 ID")
+    session_id: str | None = Field(
+        default=None, description="外部会话 ID（兼容接收，当前不使用且不参与身份）"
+    )
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
     generation_options: GenerationOptions | None = Field(
         default=None, description="本次请求的生成参数覆盖"

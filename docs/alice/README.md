@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # Alice
@@ -93,7 +93,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-自定义 Profile 必须携带调用方的 `IdentityScope` 交由 Patchouli 解析。Patchouli 在 Workspace-owned Profile 的最终边界检查 actor 与 Workspace 归属，再检查 PUBLIC / WORKSPACE / PRIVATE 可见性、MemoryType 与 `agent_config`；Profile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区，同一 Actor 在不同 Workspace 的同名 profile 各自缓存，`session_id` 不参与 key。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+自定义 Profile 必须携带调用方的 `IdentityScope` 交由 Patchouli 公开边界解析。Patchouli 拆出归属与发起者，先检查 Workspace 归属，再检查 PUBLIC / TEAM / PRIVATE 可见性、MemoryType 与 `agent_config`；Profile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区，同一 Actor 在不同 Workspace 的同名 profile 各自缓存。actor 身份只含 user、agent 与 team，不含外部会话 ID。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -177,7 +177,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 
 ## 9. 当前限制与设计张力
 
-- AgentProfile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区（32 项 LRU，`session_id` 不参与 key）；它仍没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能对进程不可见；
+- AgentProfile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区（32 项 LRU）；它仍没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能对进程不可见；
 - `ExecutionFrame.identity` 只是从 `runtime_scope.identity_scope.actor_identity` 派生的兼容投影；子帧继承父帧的完整 `IdentityScope`。`AgentProfile` 又不携带解析 alias，因此部分子帧流事件和 PendingAtom provenance 会记录父 Agent，而不是实际 CALL 目标；
 - PendingAtomRuntime 与 KoakumaAtomCache 都由 AliceRuntime 进程级持有；L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区。L0 pending 命中与 L1 atom 命中都会在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不可见处理（回归入口见 [MTP cache scope revalidation 归档记录](../archive/todo/mtp-cache-scope-revalidation.md)）；
 - 每次 run 的 frame registry 与 CallRecord 由独立 `RunSession` 持有，stream sequence 由流式输出端口持有；`RunExecutor` 用协程递归表达 CALL 的挂起与重入，不维护单活动 frame 状态机；Chat application 在更上层拥有可取消阶段 task。

@@ -59,7 +59,8 @@ def _submission(
     payload: InteractionPayload | None = None,
 ) -> InteractionSubmission:
     return InteractionSubmission(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         interaction_id=interaction_id,
         payload=payload or _payload(message or interaction_id),
         requested_topic_id="NEW_TOPIC",
@@ -74,9 +75,11 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     attempts: list[InteractionPayload] = []
     attempt_scopes = []
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def submit(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         attempts.append(payload)
-        attempt_scopes.append(identity_scope)
+        attempt_scopes.append(belong_to)
         if len(attempts) == 1:
             payload.user_message = "attempt-local-mutation"
             payload.turn_events.clear()
@@ -109,7 +112,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     assert attempts[0] is not attempts[1]
     assert attempts[1].user_message == "original"
     assert len(attempts[1].turn_events) == 1
-    assert attempt_scopes == [submission.identity_scope, submission.identity_scope]
+    assert attempt_scopes == [submission.belong_to, submission.belong_to]
     assert attempt_scopes[0] is not attempt_scopes[1]
 
 
@@ -118,7 +121,9 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
     calls: list[str] = []
     first_attempt = 0
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def submit(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         nonlocal first_attempt
         calls.append(payload.user_message)
         if payload.user_message == "first":
@@ -147,7 +152,9 @@ async def test_different_ordering_keys_can_execute_concurrently() -> None:
     second_started = asyncio.Event()
     release = asyncio.Event()
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def submit(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         if payload.user_message == "first":
             first_started.set()
         else:
@@ -237,19 +244,20 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     assert outcome.state == WorkState.SUCCEEDED
     assert outcome.topic_id is not None
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic = store.get(identity_scope, outcome.topic_id)
+    topic = store.get(identity_scope.workspace_identity, outcome.topic_id)
     assert topic is not None
     assert topic.block_count == 1
     # 行为断言：缺省 manual settle 命中的正是本次写入的最近活跃话题
-    settle_result = await familiar.manual_settle_topic(identity_scope)
+    settle_result = await familiar.manual_settle_topic(identity_scope.workspace_identity)
     assert settle_result.topic_id == outcome.topic_id
-    assert store.get(identity_scope, outcome.topic_id) is None
+    assert store.get(identity_scope.workspace_identity, outcome.topic_id) is None
 
     # retry 已全部完成（COMPLETED），幂等返回同一话题且不重复写块
     replayed_topic = await asyncio.wait_for(
         familiar.apply_interaction(
             _payload("interaction-ambiguous"),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+            belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+            from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
             target_topic_id=outcome.topic_id,
             interaction_id="interaction-ambiguous",
         ),
@@ -280,7 +288,9 @@ async def test_unclassified_failure_is_not_retried() -> None:
 async def test_handler_timeout_is_not_retried() -> None:
     attempts = 0
 
-    async def submit(payload, *, identity_scope, target_topic_id, interaction_id, asset_refs=()):
+    async def submit(
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+    ):
         nonlocal attempts
         attempts += 1
         await asyncio.Event().wait()
@@ -331,11 +341,15 @@ async def test_retry_resumes_pending_compact_without_duplicating_block() -> None
     )
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.apply_interaction(
-        _payload("first"), identity_scope=identity_scope, interaction_id="i-first"
+        _payload("first"),
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
+        interaction_id="i-first",
     )
     queue = InteractionSubmissionQueue(familiar.apply_interaction)
     submission = InteractionSubmission(
-        identity_scope=identity_scope,
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
         interaction_id="interaction-settlement",
         payload=_payload("second"),
         requested_topic_id=topic_id,
@@ -355,7 +369,7 @@ async def test_retry_resumes_pending_compact_without_duplicating_block() -> None
     # compact 完成，不重复写块。
     assert outcome is not None
     assert outcome.state == WorkState.SUCCEEDED
-    topic = store.get(identity_scope, topic_id)
+    topic = store.get(identity_scope.workspace_identity, topic_id)
     assert topic is not None
     assert topic.block_count == 1  # 折叠保留最近 1 块
     assert topic.state_summary == "folded-summary"
@@ -381,13 +395,15 @@ async def test_disabled_perception_does_not_require_apply_journal_entry() -> Non
 
     topic_id = await familiar.apply_interaction(
         _payload(),
-        identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         interaction_id="interaction-disabled",
     )
     replayed_topic_id = await asyncio.wait_for(
         familiar.apply_interaction(
             _payload(),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+            belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+            from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
             interaction_id="interaction-disabled",
         ),
         timeout=1,
@@ -457,11 +473,11 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
     first = _submission("interaction-shared")
     different_scope = replace(
         first,
-        identity_scope=make_identity_scope(
+        belong_to=make_identity_scope(
             user_id="u1",
             agent_id="a1",
             workspace_id="isolation_workspace",
-        ),
+        ).workspace_identity,
     )
 
     try:

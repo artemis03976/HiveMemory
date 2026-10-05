@@ -8,7 +8,7 @@ HiveMemory - Retrieval 模块数据模型
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import IdentityScope, MemoryAtom
+from hivememory.core.models import ActorIdentity, MemoryAtom, WorkspaceIdentity
 from hivememory.core.models.query import QueryFilters
 
 
@@ -25,7 +25,8 @@ class RetrievalQuery(BaseModel):
     semantic_query: str  # 用于向量检索的语义查询
     keywords: list[str] = Field(default_factory=list)  # 提取的关键词
     filters: QueryFilters = Field(default_factory=QueryFilters)  # 过滤条件
-    identity_scope: IdentityScope  # Workspace 硬边界
+    belong_to: WorkspaceIdentity  # 资源归属的 Workspace 硬边界
+    from_actor: ActorIdentity  # 本次检索的可见性主体
 
     def get_search_text(self) -> str:
         """

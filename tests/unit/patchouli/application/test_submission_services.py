@@ -7,8 +7,7 @@
 - ``submit_interaction`` 经真实内存队列接纳并返回收据投影；
 - ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
   确定性 alias 支持重试幂等；
-- ``identity_scope`` 缺失经 ``require_identity_scope`` 按 ``ScopeRequiredError``
-  拒绝。
+- ``identity_scope`` 缺失由必填签名拒绝；接纳后只携带独立归属与发起者。
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ import asyncio
 
 import pytest
 
-from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import IdentityScope
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.core.protocol.models import InteractionPayload
@@ -57,7 +55,7 @@ def test_submit_interaction_accepts_scope_and_returns_receipt():
     applied = []
 
     async def _apply(
-        payload, *, identity_scope, target_topic_id, interaction_id=None, asset_refs=()
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id=None, asset_refs=()
     ):
         applied.append(interaction_id)
         return target_topic_id
@@ -82,7 +80,7 @@ def test_submit_interaction_accepts_scope_and_returns_receipt():
 
 
 def test_submit_interaction_without_identity_scope_rejected():
-    """identity_scope 缺失按 ScopeRequiredError 拒绝，不进入队列。"""
+    """identity_scope 缺失由必填签名拒绝，不进入队列。"""
     applied = []
 
     async def _apply(payload, **kwargs):
@@ -93,7 +91,7 @@ def test_submit_interaction_without_identity_scope_rejected():
         interaction_queue=InteractionSubmissionQueue(_apply),
     )
 
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+    with pytest.raises(TypeError, match="identity_scope"):
         _run(service.submit_interaction(payload=_payload()))
     assert applied == []
 
@@ -127,7 +125,7 @@ def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
     bus = PatchouliBus()
     captured = {}
 
-    async def _submit_active(tasks, topic_id, *, identity_scope):
+    async def _submit_active(tasks, topic_id, *, belong_to):
         captured["task"] = tasks[0]
         captured["topic_id"] = topic_id
         return []
@@ -153,7 +151,8 @@ def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
     assert task.source_verb == "WRITE"
     assert isinstance(task.focus, WriteFocus)
     assert task.focus.content == "remember this"
-    assert task.identity_scope == scope
+    assert task.belong_to == scope.workspace_identity
+    assert task.from_actor == scope.actor_identity
     assert captured["topic_id"] == "topic_1"
 
 
@@ -162,7 +161,7 @@ def test_submit_memory_intent_update_maps_update_focus():
     bus = PatchouliBus()
     captured = {}
 
-    async def _submit_active(tasks, topic_id, *, identity_scope):
+    async def _submit_active(tasks, topic_id, *, belong_to):
         captured["task"] = tasks[0]
         return []
 
@@ -194,7 +193,7 @@ def test_same_intent_id_derives_identical_pending_alias():
     bus = PatchouliBus()
     aliases: list[str] = []
 
-    async def _submit_active(tasks, topic_id, *, identity_scope):
+    async def _submit_active(tasks, topic_id, *, belong_to):
         aliases.append(tasks[0].pending_alias)
         return []
 
@@ -216,18 +215,18 @@ def test_same_intent_id_derives_identical_pending_alias():
 
 
 def test_submit_memory_intent_requires_identity_scope():
-    """identity_scope 缺失按 ScopeRequiredError 拒绝，不进入生成提交链。"""
+    """identity_scope 缺失由必填签名拒绝，不进入生成提交链。"""
     bus = PatchouliBus()
     submitted: list = []
 
-    async def _submit_active(tasks, topic_id, *, identity_scope):
+    async def _submit_active(tasks, topic_id, *, belong_to):
         submitted.append(tasks)
         return []
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)
 
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+    with pytest.raises(TypeError, match="identity_scope"):
         _run(
             service.submit_memory_intent(
                 intent=MemoryIntent(kind="write", topic_id="topic_1", content="x"),

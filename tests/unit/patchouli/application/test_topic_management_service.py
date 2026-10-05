@@ -4,10 +4,9 @@
 - 本层是授权点以下的资源 owner：公开方法不接收 ``access`` 参数，构造函数
   不接收 ``access_guard``；``resource.read`` / ``management.topic`` 的行为
   授权在 workspace 能力层与任务进程阶段检查完成；
-- ``identity_scope`` 缺失经 ``require_identity_scope`` 按 ``ScopeRequiredError``
-  拒绝，不触达资源后端；
+- ``identity_scope`` 缺失由必填签名拒绝，不触达资源后端；
 - ``get_topic_data`` 隐藏越域话题，不泄漏可见性；
-- settle/evict 的路由契约保持（scope 定位传参）。
+- settle/evict 在公共边界拆出归属，再传给内部路由。
 local bus 为记录型假总线（边界外协作者）。
 """
 
@@ -17,7 +16,6 @@ import asyncio
 
 import pytest
 
-from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import IdentityScope, TopicData
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -47,7 +45,7 @@ def _scope(workspace_id: str = MAIN.workspace_id) -> IdentityScope:
 
 
 def test_list_active_topics_forwards_scope_to_local_route():
-    """列表以调用方 scope 请求 TOPIC_LIST_ACTIVE，并保持 list → tuple 转换。"""
+    """列表以 scope 的归属请求 TOPIC_LIST_ACTIVE，并保持 list → tuple 转换。"""
     bus = RecordingBus({PatchouliLocalRoutes.TOPIC_LIST_ACTIVE: ["snapshot"]})
     scope = _scope()
 
@@ -56,7 +54,7 @@ def test_list_active_topics_forwards_scope_to_local_route():
     assert result == ("snapshot",)
     route, _, kwargs = bus.calls[0]
     assert route == PatchouliLocalRoutes.TOPIC_LIST_ACTIVE
-    assert kwargs["identity_scope"] == scope
+    assert kwargs["belong_to"] == scope.workspace_identity
 
 
 def test_list_active_topics_forwards_include_empty_flag():
@@ -115,7 +113,7 @@ def test_get_topic_data_reads_with_scope_and_hides_foreign_workspace():
 
 
 def test_settle_and_evict_forward_scope_to_local_routes():
-    """settle/evict 以 (scope, topic_id) 请求既有路由，返回业务结果。"""
+    """settle/evict 以 (belong_to, topic_id) 请求既有路由，返回业务结果。"""
     bus = RecordingBus(
         {
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE: "settle-result",
@@ -129,8 +127,14 @@ def test_settle_and_evict_forward_scope_to_local_routes():
     evict = _run(service.evict_topic(identity_scope=scope, topic_id="t_evict"))
     assert settle == "settle-result"
     assert evict == "evict-result"
-    assert bus.calls[0][:2] == (PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, (scope, "t_settle"))
-    assert bus.calls[1][:2] == (PatchouliLocalRoutes.TOPIC_EVICT, (scope, "t_evict"))
+    assert bus.calls[0][:2] == (
+        PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
+        (scope.workspace_identity, "t_settle"),
+    )
+    assert bus.calls[1][:2] == (
+        PatchouliLocalRoutes.TOPIC_EVICT,
+        (scope.workspace_identity, "t_evict"),
+    )
 
 
 def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
@@ -156,11 +160,11 @@ def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
     ],
     ids=["list_active_topics", "get_topic_data", "settle_topic", "evict_topic"],
 )
-def test_missing_identity_scope_rejected_as_scope_required(invoke):
-    """identity_scope 缺失按 ScopeRequiredError 拒绝，且不触达资源后端。"""
+def test_missing_identity_scope_rejected_as_required_argument(invoke):
+    """identity_scope 缺失由必填签名拒绝，且不触达资源后端。"""
     bus = RecordingBus()
     service = TopicManagementService(bus=bus)
 
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+    with pytest.raises(TypeError, match="identity_scope"):
         _run(invoke(service))
     assert bus.calls == []

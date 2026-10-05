@@ -82,6 +82,8 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    resolve_default_workspace_identity,
+    system_actor_for_workspace,
 )
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 
@@ -93,13 +95,15 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
-    MemoryProvenance,
     MergeResult,
+    system_settlement_provenance,
 )
 
 # 基础设施
 from hivememory.infrastructure.llm.litellm_service import get_librarian_llm_service
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
+from hivememory.patchouli.memory_library import MidTermMemoryStore
+from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 
 # 导入 conftest 中的辅助函数
 from tests.conftest import print_test_result
@@ -149,11 +153,13 @@ def setup_test_env() -> MemoryGenerationEngine:
     llm_service = get_librarian_llm_service(config=llm_config)
 
     # 2. 创建 QdrantMemoryStore（使用测试集合）
-    qdrant_config = app_config.qdrant.model_copy(update={"collection_name": _test_collection_name})
+    qdrant_config = app_config.patchouli.storage.model_copy(
+        update={"collection_name": _test_collection_name}
+    )
     console.print(f"[dim]Qdrant 集合: {qdrant_config.collection_name}[/dim]")
     _shared_storage = QdrantMemoryStore(
         qdrant_config=qdrant_config,
-        embedding_config=app_config.embedding.default,
+        embedding_config=app_config.shared.embedding.default,
     )
 
     # 确保测试集合存在
@@ -161,20 +167,17 @@ def setup_test_env() -> MemoryGenerationEngine:
 
     # 3. 创建 LLMMemoryExtractor
     _shared_extractor = LLMMemoryExtractor(
-        config=app_config.generation.extractor,
+        config=app_config.patchouli.generation.extractor,
         llm_service=llm_service,
     )
 
     # 4. 创建 MemoryDeduplicator
-    dedup_config = app_config.generation.deduplicator
-    _shared_deduplicator = MemoryDeduplicator(
-        storage=_shared_storage,
-        config=dedup_config,
-    )
+    dedup_config = app_config.patchouli.generation.deduplicator
+    _shared_deduplicator = MemoryDeduplicator(config=dedup_config)
 
     # 5. 创建 MemoryGenerationEngine
     _shared_engine = MemoryGenerationEngine(
-        storage=_shared_storage,
+        mid_term=MidTermMemoryStore(QdrantStorageAdapter(_shared_storage)),
         extractor=_shared_extractor,
         deduplicator=_shared_deduplicator,
     )
@@ -238,7 +241,6 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
     return ActorIdentity(
         user_id=f"{prefix}_user_{uuid.uuid4().hex[:8]}",
         agent_id=f"{prefix}_agent",
-        session_id=f"{prefix}_session_{uuid.uuid4().hex[:8]}",
     )
 
 
@@ -283,7 +285,6 @@ def create_memory_from_data(data: dict[str, Any], identity: ActorIdentity) -> Me
         meta=make_memory_metadata(
             source_agent_id=identity.agent_id,
             user_id=identity.user_id,
-            session_id=identity.session_id,
             confidence_score=data.get("confidence_score", 0.8),
         ),
         index=IndexLayer(
@@ -308,6 +309,20 @@ def create_draft_from_data(data: dict[str, Any]) -> ExtractedMemoryDraft:
         content=data["content"],
         confidence_score=data.get("confidence_score", 0.8),
         has_value=data.get("has_value", True),
+    )
+
+
+def search_dedup_candidates(draft: ExtractedMemoryDraft, actor: ActorIdentity) -> list[dict]:
+    """通过真实中期库查询候选，按归属与本次生成的发起者落实可见性。"""
+    belong_to = resolve_default_workspace_identity(actor.user_id)
+    store = MidTermMemoryStore(QdrantStorageAdapter(get_shared_storage()))
+    return asyncio.run(
+        store.search(
+            belong_to,
+            query=f"{draft.title} {draft.summary}",
+            top_k=1,
+            from_actor=system_actor_for_workspace(belong_to),
+        )
     )
 
 
@@ -348,7 +363,6 @@ class TestMemoryExtraction:
             metadata={
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
-                "session_id": self.identity.session_id,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
@@ -402,7 +416,6 @@ class TestMemoryExtraction:
             metadata={
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
-                "session_id": self.identity.session_id,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
@@ -440,7 +453,6 @@ class TestMemoryExtraction:
             metadata={
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
-                "session_id": self.identity.session_id,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
@@ -500,7 +512,6 @@ class TestMemoryExtraction:
             metadata={
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
-                "session_id": self.identity.session_id,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
@@ -569,7 +580,9 @@ class TestDeduplicationLogic:
         draft = create_draft_from_data(test_case["draft_data"])
 
         # 调用查重
-        decision, found_memory = self.deduplicator.check_duplicate(draft)
+        decision, found_memory = self.deduplicator.check_duplicate(
+            draft, search_dedup_candidates(draft, self.identity)
+        )
 
         # 验证结果
         expected_decision = test_case["expected_decision"]
@@ -604,7 +617,9 @@ class TestDeduplicationLogic:
         draft = create_draft_from_data(test_case["draft_data"])
 
         # 调用查重
-        decision, found_memory = self.deduplicator.check_duplicate(draft)
+        decision, found_memory = self.deduplicator.check_duplicate(
+            draft, search_dedup_candidates(draft, self.identity)
+        )
 
         # 验证结果
         expected_decision = test_case["expected_decision"]
@@ -640,7 +655,9 @@ class TestDeduplicationLogic:
         draft = create_draft_from_data(test_case["draft_data"])
 
         # 调用查重
-        decision, found_memory = self.deduplicator.check_duplicate(draft)
+        decision, found_memory = self.deduplicator.check_duplicate(
+            draft, search_dedup_candidates(draft, self.identity)
+        )
 
         # 验证结果
         expected_decision = test_case["expected_decision"]
@@ -691,7 +708,6 @@ class TestMemoryMerger:
             meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
-                session_id=self.identity.session_id,
                 confidence_score=existing_data["confidence_score"],
             ),
             index=IndexLayer(
@@ -715,7 +731,7 @@ class TestMemoryMerger:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
             dedup_draft=new_draft,
         )
         merged = result[0].atom
@@ -745,7 +761,6 @@ class TestMemoryMerger:
             meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
-                session_id=self.identity.session_id,
                 confidence_score=existing_data["confidence_score"],
             ),
             index=IndexLayer(
@@ -769,7 +784,7 @@ class TestMemoryMerger:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
             dedup_draft=new_draft,
         )[0].atom
 
@@ -811,7 +826,6 @@ class TestMemoryMerger:
             meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
-                session_id=self.identity.session_id,
                 confidence_score=existing_data["confidence_score"],
             ),
             index=IndexLayer(
@@ -835,7 +849,7 @@ class TestMemoryMerger:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
             dedup_draft=new_draft,
         )[0].atom
 
@@ -886,7 +900,6 @@ class TestSchemaValidation:
             metadata={
                 "user_id": self.identity.user_id,
                 "agent_id": self.identity.agent_id,
-                "session_id": self.identity.session_id,
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
@@ -939,7 +952,6 @@ class TestSchemaValidation:
             meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
-                session_id=self.identity.session_id,
                 confidence_score=old_confidence,
             ),
             index=IndexLayer(
@@ -971,7 +983,7 @@ class TestSchemaValidation:
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
-            provenance=MemoryProvenance.system_settlement(GenerationContext()),
+            provenance=system_settlement_provenance(GenerationContext()),
             dedup_draft=new_draft,
         )[0].atom
 
@@ -1010,7 +1022,6 @@ class TestSchemaValidation:
             meta=make_memory_metadata(
                 source_agent_id=self.identity.agent_id,
                 user_id=self.identity.user_id,
-                session_id=self.identity.session_id,
                 confidence_score=draft.confidence_score,
             ),
             index=IndexLayer(
@@ -1080,7 +1091,15 @@ class TestEndToEndFlow:
 
         # 调用引擎处理
         context = create_generation_context(test_case["messages"], self.identity)
-        memories = asyncio.run(self.engine.process(GenerationRequest(context=context)))
+        memories = asyncio.run(
+            self.engine.process(
+                GenerationRequest(context=context),
+                belong_to=resolve_default_workspace_identity(self.identity.user_id),
+                from_actor=system_actor_for_workspace(
+                    resolve_default_workspace_identity(self.identity.user_id)
+                ),
+            )
+        )
 
         # 验证结果
         success = len(memories) > 0
@@ -1090,7 +1109,7 @@ class TestEndToEndFlow:
         console.print(f"    [dim]生成记忆数: {len(memories)}[/dim]")
 
         if memories:
-            memory = memories[0]
+            memory = memories[0].atom
             console.print(f"    [dim]记忆标题: {memory.index.title}[/dim]")
             console.print(f"    [dim]记忆类型: {memory.index.memory_type}[/dim]")
             console.print(f"    [dim]记忆ID: {memory.id}[/dim]")
@@ -1109,7 +1128,15 @@ class TestEndToEndFlow:
 
         # 调用引擎处理
         context = create_generation_context(test_case["messages"], self.identity)
-        memories = asyncio.run(self.engine.process(GenerationRequest(context=context)))
+        memories = asyncio.run(
+            self.engine.process(
+                GenerationRequest(context=context),
+                belong_to=resolve_default_workspace_identity(self.identity.user_id),
+                from_actor=system_actor_for_workspace(
+                    resolve_default_workspace_identity(self.identity.user_id)
+                ),
+            )
+        )
 
         # 验证结果：噪音对话不应产生记忆
         success = len(memories) == 0

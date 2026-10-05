@@ -121,7 +121,7 @@ async def _prepare_route(
     **_kwargs,
 ):
     return PreparedAgentRun(
-        identity_scope=identity_scope,
+        belong_to=(identity_scope).workspace_identity,
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=False,

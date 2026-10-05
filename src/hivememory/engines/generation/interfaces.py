@@ -47,7 +47,7 @@ class BaseMemoryExtractor(ABC):
         Args:
             transcript: 格式化的对话文本
             metadata: 模式相关的生成元信息 (mode / write_content 等)；
-                身份归属一律由 IdentityScope 承载，不在此传递
+                身份归属一律由 WorkspaceIdentity 承载，不在此传递
 
         Returns:
             ExtractedMemoryDraft: 提取的记忆草稿，失败时返回 None
@@ -59,7 +59,7 @@ class BaseMemoryExtractor(ABC):
             >>> extractor = LLMMemoryExtractor(llm_config)
             >>> draft = extractor.extract(
             ...     transcript="User: 如何解析日期?\nAssistant: 使用 datetime...",
-            ...     metadata={"user_id": "user123", "session_id": "sess456"}
+            ...     metadata={"mode": "B", "write_content": "待写入的记忆内容"}
             ... )
             >>> print(draft.title)
             "Python 日期解析方法"

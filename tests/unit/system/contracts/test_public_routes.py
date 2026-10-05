@@ -388,10 +388,11 @@ class TestChatHandoffContractShapes:
             "agent_profile",
             "user_message",
             "gateway_decision",
+            "identity_scope",
         ):
             assert removed not in fields
         for kept in (
-            "identity_scope",
+            "belong_to",
             "interaction_id",
             "topic_id",
             "is_new_topic",
@@ -412,12 +413,12 @@ class TestChatHandoffContractShapes:
         finalize_hints = typing.get_type_hints(PatchouliService.finalize_agent_run)
         assert finalize_hints["payload"] is InteractionPayload
         finalize_params = inspect.signature(PatchouliService.finalize_agent_run).parameters
-        assert set(finalize_params) == {"self", "prepared_run", "payload"}
+        assert set(finalize_params) == {"self", "prepared_run", "payload", "identity_scope"}
 
         cleanup_params = inspect.signature(
             PatchouliService.cleanup_prepared_agent_run,
         ).parameters
-        assert set(cleanup_params) == {"self", "prepared_run"}
+        assert set(cleanup_params) == {"self", "prepared_run", "identity_scope"}
 
     def test_alice_run_routes_receive_cpu_input_manifest(self):
         """Alice 统一执行入口以 CPUInputManifest 为输入；AgentRunContext 仅内部使用。"""

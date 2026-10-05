@@ -27,6 +27,9 @@ from hivememory.core.mtp.exceptions import (
     InvalidArgumentError,
     MemoryTypeMismatchError,
 )
+from hivememory.patchouli.application.agent_profile_management_service import (
+    AgentProfileManagementService,
+)
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.memory import make_memory_metadata
@@ -155,11 +158,13 @@ class TestProfileLoadingErrors:
     async def test_unset_alias_uses_omni_doll_profile(self):
         """未指定 agent 时使用 Omni-Doll（不触发存储查询）。"""
         service, get_by_alias = _make_retrieval_familiar()
+        scope = make_identity_scope(user_id="u1")
 
         for alias in (None, "", "  "):
             resolved = await service.get_agent_profile(
                 alias,
-                identity_scope=make_identity_scope(user_id="u1"),
+                belong_to=scope.workspace_identity,
+                from_actor=scope.actor_identity,
             )
             assert resolved.profile == OMNI_DOLL_PROFILE
 
@@ -168,11 +173,13 @@ class TestProfileLoadingErrors:
     async def test_default_and_omni_doll_aliases_use_omni_doll_profile(self):
         """显式选择 default / omni_doll 时使用 Omni-Doll。"""
         service, get_by_alias = _make_retrieval_familiar()
+        scope = make_identity_scope(user_id="u1")
 
         for alias in ("default", "omni_doll"):
             resolved = await service.get_agent_profile(
                 alias,
-                identity_scope=make_identity_scope(user_id="u1"),
+                belong_to=scope.workspace_identity,
+                from_actor=scope.actor_identity,
             )
             assert resolved.profile == OMNI_DOLL_PROFILE
 
@@ -182,18 +189,21 @@ class TestProfileLoadingErrors:
         """自定义 alias 缺失时必须显式失败，不能回退到 Omni-Doll。"""
         service, get_by_alias = _make_retrieval_familiar()
         get_by_alias.return_value = None
+        scope = make_identity_scope(user_id="u1")
 
         with pytest.raises(AliasNotFoundError) as exc_info:
             await service.get_agent_profile(
                 "nonexistent_agent",
-                identity_scope=make_identity_scope(user_id="u1"),
+                belong_to=scope.workspace_identity,
+                from_actor=scope.actor_identity,
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
 
     async def test_custom_alias_without_scope_is_denied(self):
-        """自定义 alias 且无 scope 时拒绝（不触发存储查询）。"""
-        service, get_by_alias = _make_retrieval_familiar()
+        """scope 校验位于公开处理者，缺少 scope 时不进入内部 Profile 解析。"""
+        bus = AsyncMock()
+        service = AgentProfileManagementService(bus=bus)
 
         with pytest.raises(ScopeRequiredError):
             await service.get_agent_profile(
@@ -201,11 +211,12 @@ class TestProfileLoadingErrors:
                 identity_scope=None,  # type: ignore[arg-type]
             )
 
-        get_by_alias.assert_not_awaited()
+        bus.request.assert_not_awaited()
 
     async def test_wrong_memory_type_fails_explicitly(self):
         """alias 指向非 AGENT_PROFILE 记忆时显式失败，不回退。"""
         service, get_by_alias = _make_retrieval_familiar()
+        scope = make_identity_scope(user_id="u1")
         get_by_alias.return_value = MemoryAtom(
             meta=make_memory_metadata(user_id="u1", source_agent_id="system"),
             index=IndexLayer(
@@ -220,7 +231,8 @@ class TestProfileLoadingErrors:
         with pytest.raises(MemoryTypeMismatchError) as exc_info:
             await service.get_agent_profile(
                 "custom",
-                identity_scope=make_identity_scope(user_id="u1"),
+                belong_to=scope.workspace_identity,
+                from_actor=scope.actor_identity,
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_type_mismatch"
@@ -228,6 +240,7 @@ class TestProfileLoadingErrors:
     async def test_malformed_profile_fails_explicitly(self):
         """AGENT_PROFILE 但 artifacts 损坏（from_atom 解析失败）时显式失败，不回退。"""
         service, get_by_alias = _make_retrieval_familiar()
+        scope = make_identity_scope(user_id="u1")
         get_by_alias.return_value = MemoryAtom(
             id=uuid4(),
             meta=make_memory_metadata(user_id="u1", source_agent_id="system"),
@@ -244,7 +257,8 @@ class TestProfileLoadingErrors:
         with pytest.raises(InvalidArgumentError) as exc_info:
             await service.get_agent_profile(
                 "broken",
-                identity_scope=make_identity_scope(user_id="u1"),
+                belong_to=scope.workspace_identity,
+                from_actor=scope.actor_identity,
             )
 
         assert exc_info.value.message_key == "mtp.call.profile_invalid"
@@ -253,10 +267,12 @@ class TestProfileLoadingErrors:
         """合法自定义 alias 返回真实解析的 AgentProfile。"""
         service, get_by_alias = _make_retrieval_familiar()
         get_by_alias.return_value = _make_profile_atom("coder_doll", ["READ", "RUN"], ["sys_clock"])
+        scope = make_identity_scope(user_id="system")
 
         resolved = await service.get_agent_profile(
             "coder_doll",
-            identity_scope=make_identity_scope(user_id="system"),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
         )
 
         profile = resolved.profile

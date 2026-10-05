@@ -64,10 +64,14 @@ def sample_query():
     """创建测试用的 RetrievalQuery"""
     return RetrievalQuery(
         semantic_query="测试查询",
-        identity_scope=make_identity_scope(
+        belong_to=make_identity_scope(
             user_id="test_user",
             agent_id="test_agent",
-        ),
+        ).workspace_identity,
+        from_actor=make_identity_scope(
+            user_id="test_user",
+            agent_id="test_agent",
+        ).actor_identity,
     )
 
 

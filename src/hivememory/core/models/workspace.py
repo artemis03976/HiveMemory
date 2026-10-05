@@ -1,6 +1,6 @@
 """Workspace 资源键、默认作用域解析与严格作用域校验。"""
 
-from typing import Any, Self
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -30,21 +30,6 @@ class WorkspaceTopicKey(BaseModel):
     @classmethod
     def _require_non_empty(cls, value: str, info: Any) -> str:
         return _validate_non_empty(value, info.field_name)
-
-    @classmethod
-    def from_identity_scope(
-        cls,
-        identity_scope: IdentityScope,
-        topic_id: str,
-    ) -> Self:
-        """从完整访问作用域构造 Topic 复合键；缺失/错误类型作用域在边界内拒绝。"""
-        identity_scope = require_identity_scope(identity_scope)
-        workspace = identity_scope.workspace_identity
-        return cls(
-            owner_user_id=workspace.owner_user_id,
-            workspace_id=workspace.workspace_id,
-            topic_id=topic_id,
-        )
 
     model_config = ConfigDict(frozen=True)
 

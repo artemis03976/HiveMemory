@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 
 
 class MemoryGenerationTaskStatus(str, Enum):
@@ -67,6 +67,8 @@ class MemoryGenerationTask:
     topic_id: str
     label: str
     source: MemoryGenerationSource
+    from_actor: ActorIdentity
+    belong_to: WorkspaceIdentity
     pending_alias: str | None = None
     status: MemoryGenerationTaskStatus = MemoryGenerationTaskStatus.PENDING
     canonical_alias: str | None = None
@@ -76,9 +78,6 @@ class MemoryGenerationTask:
     finished_at: datetime | None = None
     cancel_requested: bool = False
     cancel_reason: str | None = None
-    # 任务归属投影（父计划 5.6.4）：查询侧据此拒绝跨 scope/无归属的
-    # 观察请求；legacy 快照允许为 None，查询侧必须 fail closed。
-    identity_scope: IdentityScope | None = None
 
     def as_failed(
         self,

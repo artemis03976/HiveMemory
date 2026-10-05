@@ -60,10 +60,10 @@ class TestLifecycleFamiliar:
 
         await familiar.record_hit(
             str_id,
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+            belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
         )
 
         call_args = lifecycle.record_hit.call_args
-        assert call_args[0][0].workspace_identity.workspace_id == "main_workspace"
+        assert call_args[0][0].workspace_id == "main_workspace"
         assert isinstance(call_args[0][1], UUID)
         assert str(call_args[0][1]) == str_id

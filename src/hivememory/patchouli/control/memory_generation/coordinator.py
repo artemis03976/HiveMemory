@@ -8,9 +8,9 @@ from uuid import UUID
 
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
-    IdentityScope,
     LogicalBlock,
-    require_identity_scope,
+    WorkspaceIdentity,
+    system_actor_for_workspace,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
@@ -47,7 +47,7 @@ class MemoryGenerationCoordinator:
         self._transcript_builder = GenerationTranscriptBuilder()
 
     async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:
-        """将感知层 TopicMaterializeTask 转为 SETTLEMENT 任务规范。"""
+        """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。"""
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
             state_summary=payload.state_summary,
@@ -57,7 +57,8 @@ class MemoryGenerationCoordinator:
             return None
 
         spec = MemoryGenerationTaskSpec(
-            identity_scope=payload.identity_scope,
+            belong_to=payload.belong_to,
+            from_actor=system_actor_for_workspace(payload.belong_to),
             topic_id=payload.topic_id,
             label=payload.topic_id,
             source=MemoryGenerationSource.SETTLE,
@@ -82,19 +83,18 @@ class MemoryGenerationCoordinator:
         tasks: list[PendingAtomMaterializeTask],
         topic_id: str,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> list[MemoryGenerationTask]:
         """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。
-        来源记录由 Patchouli 生成链内部维护；任务只携带 identity_scope。
+        来源记录由 Patchouli 生成链内部维护；任务独立携带归属与发起者。
         """
         if not tasks:
             return []
-        identity_scope = require_identity_scope(identity_scope)
 
         topic_data = await self._bus.request(
             PatchouliLocalRoutes.TOPIC_GET,
             topic_id,
-            identity_scope=identity_scope,
+            belong_to=belong_to,
         )
         blocks = topic_data.recent_blocks(5) if topic_data is not None else []
         state_summary = topic_data.state_summary if topic_data is not None else ""
@@ -117,7 +117,7 @@ class MemoryGenerationCoordinator:
                     topic_id=topic_id,
                     gen_context=gen_context,
                     interaction_input=interaction_input,
-                    identity_scope=identity_scope,
+                    belong_to=belong_to,
                 )
                 for task in tasks
             ]
@@ -158,7 +158,7 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         gen_context,
         interaction_input: InteractionArtifactInput | None,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> MemoryGenerationTaskSpec | None:
         try:
             return await self._build_active_spec(
@@ -166,7 +166,7 @@ class MemoryGenerationCoordinator:
                 topic_id=topic_id,
                 gen_context=gen_context,
                 interaction_input=interaction_input,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
             )
         except SpecBuildError as exc:
             logger.error(
@@ -190,9 +190,9 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         gen_context,
         interaction_input: InteractionArtifactInput | None,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> MemoryGenerationTaskSpec:
-        if task.identity_scope.workspace_identity != identity_scope.workspace_identity:
+        if task.belong_to != belong_to:
             raise WorkspaceMismatchError(details={"pending_alias": task.pending_alias})
         source = MemoryGenerationSource(task.source_verb)
         focus = task.focus
@@ -216,7 +216,8 @@ class MemoryGenerationCoordinator:
             existing = await self._bus.request(
                 PatchouliLocalRoutes.MEMORY_GET,
                 base_uuid,
-                identity_scope=identity_scope,
+                belong_to=belong_to,
+                from_actor=task.from_actor,
             )
             if existing is None:
                 logger.error(f"UPDATE target memory not found: {focus.base_uuid}")
@@ -230,7 +231,8 @@ class MemoryGenerationCoordinator:
             raise ValueError(f"Unsupported active generation source: {source}")
 
         return MemoryGenerationTaskSpec(
-            identity_scope=task.identity_scope,
+            belong_to=task.belong_to,
+            from_actor=task.from_actor,
             topic_id=topic_id,
             label=task.pending_alias,
             source=source,

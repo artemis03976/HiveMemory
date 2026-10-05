@@ -3,9 +3,8 @@
 被测对象（A1 访问边界返工第 4.5/4.6 节）：
 - 本层是授权点以下的资源 owner：``task.observe`` / ``management.task`` 的
   行为授权已上移 workspace 能力层，公开方法不接收 ``access`` 参数；
-- 任务必须携带归属投影且属于 scope 的 Workspace：跨 Workspace、无归属
-  （legacy）与不存在统一按 not found 拒绝，不泄漏其他 Workspace 的任务
-  存在性；
+- 任务必须携带归属投影且属于 scope 的 Workspace：跨 Workspace 与不存在
+  统一按 not found 拒绝，不泄漏其他 Workspace 的任务存在性；
 - 列表按 scope 的 Workspace 过滤。
 """
 
@@ -15,7 +14,7 @@ import asyncio
 
 import pytest
 
-from hivememory.core.errors import ResourceNotFoundError, ScopeRequiredError
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import IdentityScope
 from hivememory.patchouli.application import MemoryTaskManagementService
 from hivememory.patchouli.control.memory_generation.models import (
@@ -49,7 +48,12 @@ class FakeTaskBus:
         raise AssertionError(f"unexpected route: {route}")
 
 
-def _task(task_id="active:i1", workspace=MAIN, *, scoped=True):
+def _task(task_id="active:i1", workspace=MAIN):
+    scope = make_identity_scope(
+        user_id=workspace.owner_user_id,
+        agent_id="a1",
+        workspace_id=workspace.workspace_id,
+    )
     return MemoryGenerationTask(
         task_id=task_id,
         topic_id="topic_1",
@@ -57,15 +61,8 @@ def _task(task_id="active:i1", workspace=MAIN, *, scoped=True):
         source=MemoryGenerationSource.WRITE,
         pending_alias="draft_x_0001",
         status=MemoryGenerationTaskStatus.PENDING,
-        identity_scope=(
-            make_identity_scope(
-                user_id=workspace.owner_user_id,
-                agent_id="a1",
-                workspace_id=workspace.workspace_id,
-            )
-            if scoped
-            else None
-        ),
+        belong_to=workspace,
+        from_actor=scope.actor_identity,
     )
 
 
@@ -89,23 +86,18 @@ def test_get_memory_task_returns_task_in_own_workspace():
     result = _run(service.get_memory_task(task.task_id, identity_scope=_scope()))
 
     assert result is task
-    assert result.identity_scope is not None
-    assert result.identity_scope.workspace_identity == MAIN
+    assert result.belong_to == MAIN
 
 
-def test_get_memory_task_hides_cross_workspace_unscoped_and_missing_as_not_found():
-    """跨 Workspace、无归属（legacy）与不存在统一 not found，不泄漏存在性。"""
+def test_get_memory_task_hides_cross_workspace_and_missing_as_not_found():
+    """跨 Workspace 与不存在统一 not found，不泄漏存在性。"""
     foreign = _task(workspace=OTHER)
-    legacy = _task(task_id="active:legacy", scoped=False)
-    service = MemoryTaskManagementService(bus=FakeTaskBus([foreign, legacy]))
+    service = MemoryTaskManagementService(bus=FakeTaskBus([foreign]))
 
     scope = _scope()
     with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found") as excinfo:
         _run(service.get_memory_task(foreign.task_id, identity_scope=scope))
     assert excinfo.value.details == {"task_id": foreign.task_id}
-
-    with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found"):
-        _run(service.get_memory_task(legacy.task_id, identity_scope=scope))
 
     with pytest.raises(ResourceNotFoundError, match="workspace.resource.not_found") as excinfo:
         _run(service.get_memory_task("active:ghost", identity_scope=scope))
@@ -143,11 +135,10 @@ def test_cancel_memory_task_rejects_cross_workspace_as_not_found():
 
 
 def test_list_memory_tasks_filters_to_own_workspace():
-    """列表按 scope 的 Workspace 过滤；无归属（legacy）任务不可见。"""
+    """列表按 scope 的 Workspace 过滤，不泄漏其他归属的任务。"""
     own = _task()
     foreign = _task(task_id="active:i2", workspace=OTHER)
-    legacy = _task(task_id="active:legacy", scoped=False)
-    bus = FakeTaskBus([own, foreign, legacy])
+    bus = FakeTaskBus([own, foreign])
 
     filtered = _run(MemoryTaskManagementService(bus=bus).list_memory_tasks(identity_scope=_scope()))
     assert [t.task_id for t in filtered] == [own.task_id]
@@ -180,11 +171,11 @@ def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
     ],
     ids=["list_memory_tasks", "get_memory_task", "cancel_memory_task"],
 )
-def test_missing_identity_scope_rejected_as_scope_required(invoke):
-    """identity_scope 缺失按 ScopeRequiredError 拒绝，且不触达任务控制面。"""
+def test_missing_identity_scope_rejected_as_required_argument(invoke):
+    """identity_scope 缺失由必填签名拒绝，且不触达任务控制面。"""
     bus = FakeTaskBus([])
     service = MemoryTaskManagementService(bus=bus)
 
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+    with pytest.raises(TypeError, match="identity_scope"):
         _run(invoke(service))
     assert bus.requested == []

@@ -14,7 +14,10 @@ from enum import Enum
 from types import MappingProxyType
 
 from hivememory.components.work_queue.cancellation import WorkCancellationToken
-from hivememory.components.work_queue.payloads import validate_payload_bytes
+from hivememory.components.work_queue.payloads import (
+    validate_payload_bytes,
+    validate_schema_version,
+)
 
 
 class WorkState(str, Enum):
@@ -83,7 +86,7 @@ class WorkItem:
     work_id: str
     lane: str
     kind: str
-    schema_version: int
+    schema_version: int | str
     payload: bytes = field(repr=False)
     ordering_key: str | None = None
     correlation_id: str | None = None
@@ -93,10 +96,7 @@ class WorkItem:
         _require_non_blank(self.work_id, field_name="work_id")
         _require_non_blank(self.lane, field_name="lane")
         _require_non_blank(self.kind, field_name="kind")
-        if not isinstance(self.schema_version, int) or isinstance(self.schema_version, bool):
-            raise TypeError("schema_version must be an integer")
-        if self.schema_version < 1:
-            raise ValueError("schema_version must be at least 1")
+        validate_schema_version(self.schema_version)
         validate_payload_bytes(self.payload)
         for field_name in ("ordering_key", "correlation_id", "idempotency_key"):
             value = getattr(self, field_name)
@@ -149,7 +149,7 @@ class WorkExecutionContext:
     work_id: str
     lane: str
     kind: str
-    schema_version: int
+    schema_version: int | str
     attempt_count: int
     correlation_id: str | None = None
     idempotency_key: str | None = None
@@ -159,8 +159,7 @@ class WorkExecutionContext:
         _require_non_blank(self.work_id, field_name="work_id")
         _require_non_blank(self.lane, field_name="lane")
         _require_non_blank(self.kind, field_name="kind")
-        if self.schema_version < 1:
-            raise ValueError("schema_version must be at least 1")
+        validate_schema_version(self.schema_version)
         if self.attempt_count < 1:
             raise ValueError("attempt_count must be at least 1")
 

@@ -95,17 +95,19 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     async def submit_with_one_transient_failure(
         payload,
         *,
-        identity_scope,
+        belong_to,
+        from_actor,
         target_topic_id,
         interaction_id,
         asset_refs=(),
     ):
-        attempts.append((len(attempts) + 1, identity_scope))
+        attempts.append((len(attempts) + 1, belong_to))
         if len(attempts) == 1:
             raise TransientInteractionSubmissionError("retry once")
         return await familiar.apply_interaction(
             payload,
-            identity_scope=identity_scope,
+            belong_to=belong_to,
+            from_actor=from_actor,
             target_topic_id=target_topic_id,
             interaction_id=interaction_id,
         )
@@ -115,7 +117,8 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
         policy=_queue_policy(),
     )
     submission = InteractionSubmission(
-        identity_scope=scope,
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
         interaction_id="interaction-workspace-retry",
         payload=_payload(),
         requested_topic_id="NEW_TOPIC",
@@ -134,9 +137,9 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     assert outcome.state is WorkState.SUCCEEDED
     assert isinstance(outcome.topic_id, str)
     assert [attempt for attempt, _ in attempts] == [1, 2]
-    assert all(attempt_scope == scope for _, attempt_scope in attempts)
+    assert [attempt_scope for _, attempt_scope in attempts] == [scope.workspace_identity] * 2
 
-    stored = store.get(scope, outcome.topic_id)
+    stored = store.get(scope.workspace_identity, outcome.topic_id)
     assert stored.topic_id == outcome.topic_id
     assert [block.user_query for block in stored.blocks] == ["retry question"]
-    assert store.list_by_workspace(other_scope) == []
+    assert store.list_by_workspace(other_scope.workspace_identity) == []

@@ -47,7 +47,7 @@ class AgentProfileCache:
     key 为 ``(WorkspaceIdentity, user_id, agent_id, team_id, alias)``：同一
     Actor 在不同 Workspace 使用同名但内容不同的 profile 各自缓存，同
     Workspace 内不同 Actor 的 private/team profile 互不复用。
-    ``session_id`` 是兼容字段，不参与 key，不造成按会话的缓存碎片化。
+    Actor 的三元组与资源归属共同决定缓存键，运行与外部会话坐标不进入身份。
 
     容量保持既有 LRU 语义（默认 32），附带命中/未命中/淘汰统计。
     已知限制：本轮没有 profile mutation 失效事件与 TTL，Profile 更新后
@@ -91,7 +91,7 @@ class AgentProfileCache:
         actor_identity: ActorIdentity,
         alias: str,
     ) -> tuple[WorkspaceIdentity, str, str, str | None, str]:
-        """构造 cache key：Actor 只投影 (user, agent, team)，剔除 session_id。"""
+        """构造 cache key：Actor 投影 (user, agent, team)，独立携带资源归属。"""
         workspace = cls._require_workspace_identity(workspace_identity)
         actor = cls._require_actor_identity(actor_identity)
         return (

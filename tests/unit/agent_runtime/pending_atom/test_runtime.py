@@ -214,6 +214,33 @@ def _make_settlement(
 
 
 class TestPendingAtomRuntimeSnapshot:
+    def test_materialization_projection_separates_runtime_actor_and_workspace(self, runtime):
+        """物化交接从运行 scope 拆出归属与发起者，不使用 PendingAtom 的兼容投影。"""
+        actor = ActorIdentity(user_id="u1", agent_id="agent-a", team_id="team-a")
+        atom = runtime.register_write(
+            content="draft",
+            title="Draft",
+            reason=None,
+            identity=ActorIdentity(user_id="legacy", agent_id="legacy-agent"),
+            runtime_scope=make_runtime_scope(
+                actor_identity=actor,
+                workspace_id="isolation_workspace",
+            ),
+        )
+
+        tasks = runtime.claim_for_materialization([atom.pending_alias])
+
+        assert len(tasks) == 1
+        task = tasks[0]
+        assert task.from_actor == actor
+        assert task.belong_to.model_dump() == {
+            "owner_user_id": "u1",
+            "workspace_key": "isolation_workspace",
+            "workspace_id": "isolation_workspace",
+        }
+        assert "identity_scope" not in task.model_dump()
+        assert runtime.snapshot(atom.pending_alias).status is PendingAtomStatus.MATERIALIZING
+
     def test_snapshot_unknown_alias_returns_none(self, runtime):
         assert runtime.snapshot("nonexistent") is None
 

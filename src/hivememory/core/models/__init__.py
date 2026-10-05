@@ -24,6 +24,7 @@ from .artifact import (
     WorkspaceArtifactKey,
     validate_memory_atom_snapshot,
 )
+from .identity import system_actor_for_workspace
 from .immutable import FrozenDict, freeze_mapping, freeze_value
 from .interaction import (
     ActionReducer,
@@ -173,6 +174,7 @@ __all__ = [
     "ISOLATION_WORKSPACE_ID",
     "WorkspaceIdentity",
     "IdentityScope",
+    "system_actor_for_workspace",
     "WorkspaceTopicKey",
     "resolve_default_workspace_identity",
     "resolve_default_identity_scope",

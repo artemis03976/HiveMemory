@@ -54,13 +54,13 @@ last_reviewed: 2026-10-04
 
 ### 2.1 Workspace 是跨边界的归属坐标
 
-`IdentityScope` 是一次操作携带的不可变 `ActorIdentity + WorkspaceIdentity`。它沿着应用服务、公开 route、interaction 和后台 task 传播，并在 Workspace-owned 资源的最终读写处再次校验；它不把 Gateway、Patchouli、Alice 或共享 runtime 复制成按 Workspace 分区的实例。
+`IdentityScope` 是一次操作携带的不可变 `ActorIdentity + WorkspaceIdentity`。它由授权点传到资源 owner 的公共边界与 Gateway，只在该操作的调用链内使用。Patchouli 在公共边界拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`，内部调用、引擎、存储、记录和后台任务分别携带所需字段，不继续传递或重建 scope；它不把 Gateway、Patchouli、Alice 或共享 runtime 复制成按 Workspace 分区的实例。
 
-当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore`（`workspace.assets`）是进程级唯一的运行时 working set，由组合根装配并在关闭时最后清空。Topic 的 `topic_id` 在领域上全局唯一，调用方通过 `IdentityScope + topic_id` 访问，`WorkspaceTopicKey` 只在短期 adapter 内部将 owner/workspace 坐标与 ID 组合起来进行归属校验和物理索引。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
+当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore`（`workspace.assets`）是进程级唯一的运行时 working set，由组合根装配并在关闭时最后清空。Topic 的 `topic_id` 在领域上全局唯一，公共调用方通过 `IdentityScope + topic_id` 访问，内部使用 `belong_to + topic_id`；`WorkspaceTopicKey` 只在短期 adapter 内部将 owner/workspace 坐标与 ID 组合起来进行归属校验和物理索引。WorkspaceAssetStore 的旧身份端口与 System 兼容适配器是当前迁移例外（见 [Workspace 架构](./workspace.md#10-当前边界与限制)）。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点（能力层、任务进程的阶段检查）完成，授权点以下只流动授权组装的 `IdentityScope`；资源 owner 再独立执行资源规则，Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[Workspace 架构](./workspace.md)第 4 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点（能力层、任务进程的阶段检查）完成，再将组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[Workspace 架构](./workspace.md)第 4 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 
@@ -142,9 +142,9 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 `prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
-`finalize_agent_run` 接收 `PreparedAgentRun` 与任务进程封口的 `InteractionPayload`，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
+`PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload` 和当次 `interaction.submit` 阶段授权的 `IdentityScope`；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以当次 scope 的发起者创建 submission，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
-如果任务进程未能完成 finalize，只能调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。
+如果任务进程未能完成 finalize，只能重新以 `resource.search` 授权并调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。cleanup 对越域 prepared 返回 `False`；阶段授权被拒时，任务进程记录警告并继续关闭。已被 finalization continuation 或 submission queue 接管的交互不再由调用方 cleanup。
 
 prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）。这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
 
@@ -190,15 +190,17 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 |:---|:---|:---|
 | `GatewayExecutionState` | Gateway | 不公开；只投影 `GatewayProcessResult` |
 | `GatewayDecision` | Gateway 形成，调用链只读消费 | frozen 公共模型 |
-| `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass；任务进程读取话题与检索结果，并交回 finalize/cleanup |
+| `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass，只保留 `belong_to`；任务进程读取话题与检索结果，并携当次阶段 scope 交回 finalize/cleanup |
 | `CPUInputManifest` | workspace 任务进程组装，CPU 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
 | `CPUPort` | workspace 定义，CPU 实现（当前为 Alice 的 `AliceCPU`），组合根注入任务进程 | `workspace.contracts` 中的协议；任务进程只经它调用 CPU |
 | `AgentRunContext` | Alice 由输入清单转换，供提示词组装 | Pydantic 模型，不出现在 Patchouli 路由上 |
 | `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
 | `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
+| `InteractionSubmission` / `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | Patchouli | 独立保存必需的 `belong_to` 与 `from_actor`；scope 不进入记录或队列 |
+| `PendingAtomMaterializeTask` | Alice 投影，Patchouli 消费 | 只读请求独立保存 `belong_to` 与 `from_actor`，不交接 Alice 的运行时 scope |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
 | `WorkspaceAsset` working set | Workspace（组合根装配） | `core.ports.workspace_assets` 窄化端口、`WorkspaceAssetRef` 与 lease |
-| `WorkspaceIdentity` / `IdentityScope` | Core value object；由入口和各领域所有者携带 | 不可变公共模型，不构成独立运行时状态 |
+| `WorkspaceIdentity` / `ActorIdentity` / `IdentityScope` | Core value object；授权点组装操作 scope，资源 owner 拆分归属与发起者 | 不可变公共模型，不构成独立运行时状态；scope 不随记录或后台任务保存 |
 | PendingAtom 运行时状态 | Alice | 结算事件从 Patchouli 回传 |
 | 任务进程控制（chat run 的 phase/outcome/stop reason/active_task） | Workspace 任务进程表（`workspace.process`） | 编排内部状态与 RuntimeEvent 投影 |
 | passive run 控制 | System | 应用服务内部状态与 RuntimeEvent 投影 |

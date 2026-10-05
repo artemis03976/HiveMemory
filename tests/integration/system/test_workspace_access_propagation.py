@@ -140,8 +140,8 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     async def prepare(*, identity_scope, **_kwargs):
         return _prepared(identity_scope)
 
-    async def finalize(*, prepared_run, **_kwargs):
-        finalized_contexts.append(prepared_run.identity_scope)
+    async def finalize(*, prepared_run, identity_scope, **_kwargs):
+        finalized_contexts.append(identity_scope)
         return []
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
@@ -217,8 +217,8 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
     async def prepare(**_kwargs):
         return _prepared(drifted)
 
-    async def cleanup(*, prepared_run):
-        cleaned.append(prepared_run.identity_scope)
+    async def cleanup(*, prepared_run, identity_scope):
+        cleaned.append((prepared_run.belong_to, identity_scope.workspace_identity))
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
@@ -233,10 +233,15 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
         process_id="process-drifted",
         message="question",
     )
-    with pytest.raises(WorkspaceMismatchError, match="身份作用域不一致"):
+    with pytest.raises(WorkspaceMismatchError, match="任务目标 Workspace 不一致"):
         await service.run_process(process, stream=False)
 
-    assert cleaned == [drifted]
+    assert cleaned == [
+        (
+            drifted.workspace_identity,
+            make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace"),
+        )
+    ]
 
 
 @pytest.mark.asyncio

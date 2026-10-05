@@ -30,7 +30,9 @@ def _identity_scope(user_id: str = "user1", agent_id: str = "agent1"):
 
 
 def _alias_filter(identity_scope):
-    return QdrantFilterConverter().convert(QueryFilters(), identity_scope)
+    return QdrantFilterConverter().convert(
+        QueryFilters(), identity_scope.workspace_identity, from_actor=identity_scope.actor_identity
+    )
 
 
 class TestQdrantMemoryStore:

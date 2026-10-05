@@ -38,7 +38,9 @@ class QueueTaskAdapter(Protocol[TaskT]):
     """
 
     kind: str
-    schema_version: int
+
+    @property
+    def schema_version(self) -> int | str: ...
 
     def identity(self, task: TaskT) -> QueueTaskIdentity: ...
 

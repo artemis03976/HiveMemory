@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 被动对话摄入
@@ -26,7 +26,7 @@ Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 har
 
 ## 1. 外部事件与会话身份
 
-`PassiveIngressService.ingest_event()` 在进入 `PassiveMessageIngressor.route_event()` 时为当前用户一次性解析默认 `main_workspace`，得到不可变的 `IdentityScope`；内部 walking skeleton 才使用显式 `route_event_scoped()` 传入隔离测试或服务交接所需的 scope。retry 和 shutdown drain 继续使用缓冲 turn 中保存的原始 scope，不重新解析进程当前 Workspace。
+`/ingest` 由 server 的 `resolve_request_identity_scope` 在认证前组装 `IdentityScope`，`PassiveIngressService.ingest_event()` 原样交给 `route_event_scoped()`；这是 Import Bus 不经统一认证网关的既有例外。`PassiveMessageIngressor.route_event()` 是接收 actor、解析默认 Workspace 的便捷入口，应用服务不经此入口。缓冲 turn 仍保留原 scope，提交到 Patchouli 时拆为 `belong_to` 与 `from_actor`；队列重试只使用这两个独立字段，不重新解析进程当前 Workspace。
 
 `PassiveIngressEvent` 的主要字段包括：
 
@@ -90,7 +90,7 @@ queue admission 失败会直接向调用方施加背压：
 
 admission 成功只表示 work 已由通用队列接受，不表示 Patchouli apply 已完成。之后的 FIFO、retry、capacity、幂等 apply、dead letter 和通用 `WORK_*` 观测都由 Work Queue Runtime 负责。同一会话使用 `PassiveConversationKey.ordering_key` 保证提交顺序。
 
-完整 turn 始终保留为 `InteractionPayload` 原始交互事实；Gateway 的 `memory_write_signal` 只是写入预判，不能用来删除外部经历。Submission DTO 携带完整 `IdentityScope`，Work Queue 只保存编码后的 payload，不按 Workspace 建立额外 lane 或分区。
+完整 turn 始终保留为 `InteractionPayload` 原始交互事实；Gateway 的 `memory_write_signal` 只是写入预判，不能用来删除外部经历。Submission DTO 以 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity` 分别携带归属和本轮发起者，感知据此写入 `TurnRecord.identity`。Work Queue 只保存编码后的 payload，不按 Workspace 建立额外 lane 或分区。
 
 ## 4. 维护与关闭
 

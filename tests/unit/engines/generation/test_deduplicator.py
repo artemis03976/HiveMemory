@@ -44,7 +44,6 @@ class TestMemoryDeduplicator:
             meta=make_memory_metadata(
                 source_agent_id="agent1",
                 user_id="user1",
-                session_id="session1",
                 confidence_score=0.8,
             ),
             index=IndexLayer(

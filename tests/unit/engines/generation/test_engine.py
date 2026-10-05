@@ -117,7 +117,6 @@ def _make_memory(title="已有记忆") -> MemoryAtom:
         meta=make_memory_metadata(
             source_agent_id="a1",
             user_id="u1",
-            session_id="s1",
         ),
         index=IndexLayer(
             title=title,
@@ -150,7 +149,11 @@ class TestGenerationEngineRouting:
     async def test_empty_messages_no_focus_returns_empty(self):
         """空消息且无 focus 时早返回"""
         request = GenerationRequest()
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
         assert result == []
         self.mock_extractor.extract.assert_not_called()
 
@@ -164,7 +167,11 @@ class TestGenerationEngineRouting:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         self.mock_extractor.extract.assert_called_once()
         assert len(result) == 1
@@ -179,7 +186,11 @@ class TestGenerationEngineRouting:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         call_kwargs = self.mock_extractor.extract.call_args
         assert call_kwargs[1]["metadata"]["mode"] == "write"
@@ -204,7 +215,11 @@ class TestGenerationEngineRouting:
             update_focus=uf,
             existing_memory=existing,
         )
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         self.mock_extractor.merge.assert_called_once()
         assert len(result) == 1
@@ -237,7 +252,11 @@ class TestGenerationEngineModeA:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
@@ -251,7 +270,11 @@ class TestGenerationEngineModeA:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
         request = GenerationRequest(context=_make_context_with_agents(["a1"]))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         atom = result[0].atom
         assert atom.meta.provenance.source_agent_id == "system"
@@ -266,7 +289,11 @@ class TestGenerationEngineModeA:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
         request = GenerationRequest(context=_make_context_with_agents(["b2", "a1", "b2", "system"]))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert result[0].atom.meta.provenance.contributing_agent_ids == ("b2", "a1")
 
@@ -293,7 +320,11 @@ class TestGenerationEngineModeA:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
 
         request = GenerationRequest(context=_make_context_with_agents(["b2", "a1"]))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         atom = result[0].atom
         assert atom is existing
@@ -308,7 +339,11 @@ class TestGenerationEngineModeA:
         self.mock_extractor.extract.return_value = draft
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert result == []
         self.mock_deduplicator.check_duplicate.assert_not_called()
@@ -320,7 +355,11 @@ class TestGenerationEngineModeA:
         self.mock_extractor.extract.return_value = None
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert result == []
 
@@ -328,7 +367,11 @@ class TestGenerationEngineModeA:
     async def test_mode_a_empty_messages(self):
         """Mode A 空消息列表返回空"""
         request = GenerationRequest()
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
         assert result == []
 
 
@@ -359,7 +402,11 @@ class TestGenerationEngineModeB:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert len(result) == 1
 
@@ -376,7 +423,11 @@ class TestGenerationEngineModeB:
             context=_make_context_with_agents(["b2"]),
             write_focus=focus,
         )
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         atom = result[0].atom
         assert atom.meta.provenance.source_agent_id == "a1"
@@ -392,7 +443,11 @@ class TestGenerationEngineModeB:
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         atom = result[0].atom
         assert atom.meta.provenance.source_agent_id == "a1"
@@ -407,7 +462,11 @@ class TestGenerationEngineModeB:
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         # fallback 应保证内容不丢失
         assert len(result) == 1
@@ -474,7 +533,11 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request()
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "合并后内容"
@@ -510,7 +573,11 @@ class TestGenerationEngineModeC:
             update_focus=uf,
             existing_memory=existing,
         )
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         atom = result[0].atom
         assert atom.meta.provenance.source_agent_id == "creator"
@@ -525,7 +592,11 @@ class TestGenerationEngineModeC:
             base_alias="fact_test",
         )
         request = GenerationRequest(context=GenerationContext(), update_focus=uf)
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert result == []
         self.mock_extractor.merge.assert_not_called()
@@ -537,7 +608,11 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(content="追加内容")
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert len(result) == 1
         assert "追加内容" in result[0].atom.payload.content
@@ -550,7 +625,11 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(existing=existing, content=None)
-        result = await self.engine.process(request, identity_scope=make_memory_identity_scope())
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "旧内容"
@@ -646,8 +725,9 @@ class TestGenerationEngineDedup:
 
         result = await self.engine._dedup_and_resolve(
             draft,
-            make_memory_identity_scope(),
+            make_memory_identity_scope().workspace_identity,
             system_settlement_provenance(GenerationContext()),
+            from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
         )
 
@@ -681,8 +761,9 @@ class TestGenerationEngineDedup:
 
         result = await self.engine._dedup_and_resolve(
             draft,
-            make_memory_identity_scope(),
+            make_memory_identity_scope().workspace_identity,
             system_settlement_provenance(GenerationContext()),
+            from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
         )
 
@@ -712,8 +793,9 @@ class TestGenerationEngineDedup:
 
         result = await self.engine._dedup_and_resolve(
             draft,
-            make_memory_identity_scope(),
+            make_memory_identity_scope().workspace_identity,
             system_settlement_provenance(GenerationContext()),
+            from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
         )
 
@@ -736,8 +818,9 @@ class TestGenerationEngineDedup:
 
         result = await self.engine._dedup_and_resolve(
             ExtractedMemoryDraft(**draft),
-            make_memory_identity_scope(),
+            make_memory_identity_scope().workspace_identity,
             system_settlement_provenance(GenerationContext()),
+            from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
         )
 
@@ -752,8 +835,9 @@ class TestGenerationEngineDedup:
 
         result = await self.engine._dedup_and_resolve(
             draft,
-            make_memory_identity_scope(),
+            make_memory_identity_scope().workspace_identity,
             system_settlement_provenance(GenerationContext()),
+            from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
         )
 
@@ -791,10 +875,16 @@ class TestGenerationEngineHelpers:
         """草稿按 provenance 裁定来源字段，创建时点使用传入 now"""
         draft = _make_draft(title="测试标题")
         identity_scope = make_memory_identity_scope()
-        provenance = provenance_from_actor(identity_scope, _make_context_with_agents(["a1"]))
+        provenance = provenance_from_actor(
+            identity_scope.actor_identity, _make_context_with_agents(["a1"])
+        )
 
         memory = self.engine._draft_to_memory(
-            draft, identity_scope, provenance, alias="fact_test_alias", now=FIXED_NOW
+            draft,
+            identity_scope.workspace_identity,
+            provenance,
+            alias="fact_test_alias",
+            now=FIXED_NOW,
         )
 
         assert memory.index.title == "测试标题"
@@ -815,7 +905,7 @@ class TestGenerationEngineHelpers:
 
         memory = self.engine._draft_to_memory(
             draft,
-            identity_scope,
+            identity_scope.workspace_identity,
             system_settlement_provenance(GenerationContext()),
             alias=None,
             now=FIXED_NOW,

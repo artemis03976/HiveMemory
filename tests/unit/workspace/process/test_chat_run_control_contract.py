@@ -176,7 +176,7 @@ def _bus_until_finalize() -> GlobalSystemBus:
 
     async def prepare(*, identity_scope, interaction_id, **_kwargs):
         return PreparedAgentRun(
-            identity_scope=identity_scope,
+            belong_to=(identity_scope).workspace_identity,
             interaction_id=interaction_id,
             topic_id="topic-control",
             is_new_topic=False,

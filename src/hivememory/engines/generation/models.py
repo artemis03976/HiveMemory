@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field, model_validator
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
-    IdentityScope,
     UpdateFocus,
     WriteFocus,
 )
@@ -154,7 +153,7 @@ class GenerationContext(BaseModel):
 
 
 def provenance_from_actor(
-    identity_scope: IdentityScope,
+    from_actor: ActorIdentity,
     context: GenerationContext,
 ) -> MemoryProvenance:
     """主动模式（WRITE/UPDATE）的来源裁定：以执行 actor 为操作来源。
@@ -163,12 +162,11 @@ def provenance_from_actor(
     发起 Agent 产出——再合并上下文轮次的贡献者。上下文相关的构造逻辑
     留在 generation 层；``MemoryProvenance`` 数据定义已上移 core.models。
     """
-    actor = identity_scope.actor_identity
     return MemoryProvenance(
-        source_agent_id=actor.agent_id,
-        source_team_id=actor.team_id,
+        source_agent_id=from_actor.agent_id,
+        source_team_id=from_actor.team_id,
         contributing_agent_ids=normalize_contributing_agent_ids(
-            [actor.agent_id, *_turn_agent_ids(context)]
+            [from_actor.agent_id, *_turn_agent_ids(context)]
         ),
     )
 
@@ -200,7 +198,7 @@ class GenerationRequest(BaseModel):
     Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
 
     本协议不携带任何身份/ownership 字段；Memory ownership 由调用方通过
-    ``MemoryGenerationTaskSpec.identity_scope`` 传入。
+    ``MemoryGenerationTaskSpec.belong_to`` 传入。
     """
 
     context: GenerationContext = Field(

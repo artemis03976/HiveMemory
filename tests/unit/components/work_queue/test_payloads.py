@@ -108,6 +108,42 @@ def test_registry_rejects_duplicate_and_unknown_codec_versions() -> None:
         registry.decode("unknown", 1, b"{}")
 
 
+def test_registry_keeps_string_minor_versions_distinct_from_integer_versions() -> None:
+    """小版本按原始字符串匹配，1.10 不得被浮点转换合并为 1.1。"""
+
+    class MinorVersionCodec(_SubmissionCodec):
+        schema_version = "1.1"
+
+    class LaterMinorVersionCodec(_SubmissionCodec):
+        schema_version = "1.10"
+
+    registry = _registry()
+    registry.register(MinorVersionCodec())
+    registry.register(LaterMinorVersionCodec())
+    source = _Submission("interaction-minor", ["created"])
+    payload = registry.encode("test.submission", "1.1", source)
+
+    assert registry.decode("test.submission", "1.1", payload) == source
+    assert registry.decode("test.submission", "1.10", payload) == source
+    registry.require("test.submission", 1)
+    with pytest.raises(UnknownWorkPayloadCodecError, match="schema version 1 is not registered"):
+        registry.require("test.submission", "1")
+    with pytest.raises(DuplicateWorkPayloadCodecError, match="schema version 1.1"):
+        registry.register(MinorVersionCodec())
+
+
+@pytest.mark.parametrize("schema_version", [True, 1.1])
+def test_registry_rejects_numeric_values_that_are_not_integer_versions(schema_version) -> None:
+    """bool 与浮点数不能成为版本键，避免与已有整数或小版本发生混淆。"""
+    codec = _SubmissionCodec()
+    codec.schema_version = schema_version
+
+    with pytest.raises(TypeError, match="schema_version"):
+        WorkPayloadCodecRegistry().register(codec)
+    with pytest.raises(TypeError, match="schema_version"):
+        _registry().require("test.submission", schema_version)
+
+
 def test_registry_wraps_unsupported_business_values_as_safe_encode_error() -> None:
     registry = _registry()
     source = _Submission(interaction_id="interaction-1", events=[])

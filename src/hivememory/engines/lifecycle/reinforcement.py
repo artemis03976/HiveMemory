@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.config.patchouli import ReinforcementEngineConfig
-from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceMemoryKey
+from hivememory.core.models import MemoryAtom, WorkspaceIdentity, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.models import (
     EventType,
     MemoryEvent,
@@ -85,7 +85,7 @@ class DynamicReinforcementEngine:
 
     async def reinforce(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         event: MemoryEvent,
     ) -> ReinforcementResult:
@@ -104,7 +104,7 @@ class DynamicReinforcementEngine:
         """
         # 从存储获取当前记忆
         memory = await self._mid_term.get_by_key(
-            WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+            WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         )
         if memory is None:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
@@ -153,7 +153,7 @@ class DynamicReinforcementEngine:
             patch["meta.lifecycle.decay_anchor_at"] = memory.meta.lifecycle.decay_anchor_at
         if event.event_type == EventType.FEEDBACK_NEGATIVE:
             patch["meta.lifecycle.confidence_score"] = memory.meta.lifecycle.confidence_score
-        key = WorkspaceMemoryKey.from_identity_scope(identity_scope, memory_id)
+        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         await self._mid_term.patch_payload(key, patch)
 
         # 创建结果

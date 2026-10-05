@@ -98,10 +98,16 @@ async def test_same_uuid_and_alias_are_independent_between_workspaces(memory_sto
         )
     )
 
-    main_by_id = await store.get(main, shared_id)
-    isolation_by_id = await store.get(isolation, shared_id)
-    main_by_alias = await store.get_by_alias(main, "fact_collision")
-    isolation_by_alias = await store.get_by_alias(isolation, "fact_collision")
+    main_by_id = await store.get(main.workspace_identity, shared_id, from_actor=main.actor_identity)
+    isolation_by_id = await store.get(
+        isolation.workspace_identity, shared_id, from_actor=isolation.actor_identity
+    )
+    main_by_alias = await store.get_by_alias(
+        main.workspace_identity, "fact_collision", from_actor=main.actor_identity
+    )
+    isolation_by_alias = await store.get_by_alias(
+        isolation.workspace_identity, "fact_collision", from_actor=isolation.actor_identity
+    )
 
     assert main_by_id.payload.content == "main content"
     assert isolation_by_id.payload.content == "isolation content"
@@ -118,5 +124,15 @@ async def test_public_memory_is_not_visible_from_another_workspace(memory_store)
     memory_id = uuid4()
     await store.upsert(_memory(main, memory_id=memory_id, content="main only", alias="fact_public"))
 
-    assert await store.get(isolation, memory_id) is None
-    assert await store.get_by_alias(isolation, "fact_public") is None
+    assert (
+        await store.get(
+            isolation.workspace_identity, memory_id, from_actor=isolation.actor_identity
+        )
+        is None
+    )
+    assert (
+        await store.get_by_alias(
+            isolation.workspace_identity, "fact_public", from_actor=isolation.actor_identity
+        )
+        is None
+    )

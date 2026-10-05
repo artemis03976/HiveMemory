@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 from uuid import uuid4
 
-from hivememory.core.models import require_identity_scope
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity, require_identity_scope
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
     UpdateFocus,
@@ -110,19 +110,19 @@ class MemoryIntentSubmissionService:
         self,
         *,
         intent: MemoryIntent,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
     ) -> MemoryIntentSubmissionResult:
         """
         提交记忆意图；结果由 Patchouli 生成链决定并经任务观察 API 查询。
         """
         scope = require_identity_scope(identity_scope)
 
-        task = self._build_materialize_task(intent, scope)
+        task = self._build_materialize_task(intent, scope.workspace_identity, scope.actor_identity)
         accepted = await self._bus.request(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
             tasks=[task],
             topic_id=intent.topic_id,
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
         )
         tasks = list(accepted or [])
         if not tasks:
@@ -144,7 +144,8 @@ class MemoryIntentSubmissionService:
     @staticmethod
     def _build_materialize_task(
         intent: MemoryIntent,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
     ) -> PendingAtomMaterializeTask:
         """把中立意图转换为内部生成任务投影（本 API 的内部实现细节）。"""
         resolved_intent_id = intent.intent_id or f"intent_{uuid4().hex[:12]}"
@@ -172,7 +173,8 @@ class MemoryIntentSubmissionService:
             pending_alias=pending_alias,
             intent_id=resolved_intent_id,
             source_verb=source_verb,
-            identity_scope=scope,
+            belong_to=belong_to,
+            from_actor=from_actor,
             focus=focus,
         )
 

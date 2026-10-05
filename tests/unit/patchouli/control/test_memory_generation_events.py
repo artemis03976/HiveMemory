@@ -14,6 +14,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
+from tests.helpers.workspace import make_identity_scope
 
 
 def _snapshot(
@@ -25,6 +26,8 @@ def _snapshot(
         topic_id="topic-1",
         label="memory-1",
         source=MemoryGenerationSource.WRITE,
+        belong_to=make_identity_scope().workspace_identity,
+        from_actor=make_identity_scope().actor_identity,
         pending_alias="pending-1",
         status=status,
         canonical_alias=(

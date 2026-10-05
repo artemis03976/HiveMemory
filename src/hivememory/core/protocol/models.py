@@ -223,8 +223,8 @@ class InteractionPayload(BaseModel):
         turn_events: 结构化轮次事件列表
 
     Note:
-        P2.5 起不再内嵌 ``identity_scope``；身份坐标由 ``InteractionSubmission``
-        的 ``identity_scope`` 单独承载，避免 payload 成为第二份身份事实。
+        不内嵌身份；归属与发起者由 ``InteractionSubmission`` 的
+        ``belong_to``、``from_actor`` 独立承载，避免 payload 成为第二份身份事实。
     """
 
     user_message: str = Field(..., description="原始用户消息")

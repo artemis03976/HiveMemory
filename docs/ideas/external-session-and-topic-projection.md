@@ -15,7 +15,7 @@ related_docs:
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -106,7 +106,7 @@ Session 是由用户或调用软件控制的会话总容器，维护稳定来源
 
 `ordered_interaction_refs` 指向本地保留的封口 `InteractionPayload`，表达逻辑顺序，不要求把全部历史装进一个无限增长对象。Session 记录与封口内容共同构成本地接收历史；内容的存放位置、分页、保留范围和容量待定（第 8 节），不能用内部 queue 或 apply journal 代替历史存储。进程内首版只承诺实际保存窗口，容量不足必须显式拒绝/报告，不能静默丢事件。会话资源不能当派生 cache 随便淘汰；删除/关闭 Session 不默认级联删除已形成的 Topic 或 Memory，provenance 引用过期时明确不可回查。route cursor 仅为可重建的路由投影，不决定既有交互的来源或内容。
 
-Session 不在事务上拥有 Topic，也不把 `session_id` 继续塞进 `ActorIdentity` 作为身份事实。交互输入直接携带本地 `session_id`，结合 A1 的可信访问范围定位并校验 Session；现有 `ActorIdentity.session_id` 仅做兼容读取，最终迁移由契约和代码一起完成，不要求增加 SessionRef/InteractionContext 两层包装。不同来源相同 external_conversation_id 不合并；受信 source namespace 与 Workspace、用户的映射构成 Session 定位坐标，消息声称的 speaker 不授予 Session 访问权。
+Session 不在事务上拥有 Topic，也不把 `session_id` 塞进 `ActorIdentity` 作为身份事实。候选交互输入直接携带本地 `session_id`，结合 A1 的可信访问范围定位并校验 Session，不要求增加 SessionRef/InteractionContext 两层包装。2026-10-04 身份第二批已移除 actor 的 `session_id`；旧交互 Artifact 只读兼容额外键并保留原始 hash 校验，HTTP chat 请求体仍接受该字段但当前不使用，见[第二批归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)。不同来源相同 external_conversation_id 不合并；受信 source namespace 与 Workspace、用户的映射构成 Session 定位坐标，消息声称的 speaker 不授予 Session 访问权。
 
 2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建（2026-09-28：任务进程在交互被提交队列接纳后即结束，不再等待 applied，见[任务进程 Idea](./task-process-table-and-registration-entry.md#q-1-进程何时关闭) Q-1）；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
 
@@ -336,7 +336,7 @@ RelayController 的新边界是 Topic working set 的折叠器：管理 Topic �
 
 1. TurnEvent 新增 kind、来源/时间、外部调用关联和多模态引用的字段；ActionReducer 的可靠关联规则；Payload 文本/trace 的派生与兼容限制。第 2 节的候选设计复用现有模型，不另建 Segment/Part 双模型。
 2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）、最小创建/读取/封口/关闭能力与 A1 operation、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
-3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；移除 identity.session_id 对 equality/hash/cache key 的影响（2026-10-04：`ActorIdentity.session_id` 随身份与访问体系第二批移除，见[身份与访问体系 Idea](./identity-and-access-model.md#i-7-actoridentitysession_id) I-7）。speaker、来源与调用主体分别处理。
+3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；actor 会话字段对 equality/hash/cache key 的影响已于 2026-10-04 随[身份第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)移除，HTTP 请求体中会话字段的未来语义仍由本方向处理。speaker、来源与调用主体分别处理。
 4. 无 session 的旧 Alice/单次交互如何映射为明确的临时 Session，不能静默合并全用户历史；主动意图仍可无 Session。旧 Topic 只保存可证来源，不能编造完整 Session。
 5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例（2026-09-28：controller 模式下 `interaction_id` 始终取 `process_id` 的值，见任务进程 Idea Q-16）。
 6. 封口信号、completion outcome、partial/cancel/failed、迟到/重复/sequence 缺口策略；Session 与 Topic 两种序列化约束；开放段容量和无 user 事件的接收规则。

@@ -15,7 +15,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.errors import OperationDeniedError
+from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -28,6 +28,7 @@ from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationSe
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
+    make_identity_scope,
     make_server_access_overrides,
 )
 
@@ -60,6 +61,8 @@ def _memory_task(*, cancelled: bool = False):
         started_at=datetime(2026, 1, 1, tzinfo=UTC),
         cancel_requested=cancelled,
         cancel_reason="user_requested" if cancelled else None,
+        belong_to=make_identity_scope().workspace_identity,
+        from_actor=make_identity_scope().actor_identity,
     )
 
 
@@ -152,6 +155,21 @@ def test_cancel_memory_task_does_not_accept_delete():
 
     assert response.status_code == 405
     service.cancel_memory_task.assert_not_called()
+
+
+def test_cancel_memory_task_missing_projection_returns_404():
+    """取消已接纳后投影消失，资源 owner 的 not found 仍映射为同一 404。"""
+    service = MagicMock()
+    service.cancel_memory_task = AsyncMock(return_value=True)
+    service.get_memory_task = AsyncMock(
+        side_effect=ResourceNotFoundError(details={"task_id": "task_1"})
+    )
+    client = TestClient(_create_test_app(service))
+
+    response = client.post("/api/v1/memory-tasks/task_1/cancel")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "task not found"}
 
 
 def test_list_memory_tasks_without_operation_allowance_returns_403():

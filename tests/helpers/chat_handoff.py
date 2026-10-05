@@ -56,7 +56,7 @@ def make_prepared_run(
 ) -> PreparedAgentRun:
     """构造精简后的 PreparedAgentRun（只含 Topic 与检索结果）。"""
     return PreparedAgentRun(
-        identity_scope=identity_scope or make_identity_scope(),
+        belong_to=(identity_scope or make_identity_scope()).workspace_identity,
         interaction_id=interaction_id,
         topic_id=topic_id,
         is_new_topic=is_new_topic,
@@ -151,10 +151,12 @@ def make_write_materialize_task(
     intent_id: str = "intent_test",
 ) -> PendingAtomMaterializeTask:
     """构造一条 WRITE 意图的物化任务（提交者为 u1/omni_doll）。"""
+    scope = make_memory_identity_scope(user_id="u1", agent_id="omni_doll")
     return PendingAtomMaterializeTask(
         pending_alias=pending_alias,
         intent_id=intent_id,
         source_verb="WRITE",
-        identity_scope=make_memory_identity_scope(user_id="u1", agent_id="omni_doll"),
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
         focus=WriteFocus(content="记住这一点"),
     )

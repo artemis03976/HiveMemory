@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     MemoryAtom,
     TopicData,
     WorkspaceIdentity,
@@ -85,7 +85,7 @@ class MidTermStoragePort(ABC):
     中期存储 Port — 以 MemoryAtom 为边界的向量库操作。
 
     授权重验在 Port 实现内完成，存储预过滤不是授权事实：
-        - 带 ``IdentityScope`` 的读取（get/get_by_alias/search/scroll）校验
+        - 归属与发起者分别传入的读取（get/get_by_alias/search/scroll）校验
           Workspace ownership 与 actor 读取策略；``enforce_actor_visibility=False``
           仅供管理读取跳过 actor 策略，ownership 仍然生效；
         - 按 ``WorkspaceMemoryKey`` 的读取与删除是内部可信路径（编辑、强化、
@@ -105,18 +105,20 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def get(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None: ...
 
     @abstractmethod
     async def get_by_alias(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         alias: str,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> MemoryAtom | None: ...
 
@@ -155,7 +157,7 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def delete(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: UUID,
     ) -> bool: ...
 
@@ -165,23 +167,25 @@ class MidTermStoragePort(ABC):
     @abstractmethod
     async def search(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         query: str,
         top_k: int,
         filters: QueryFilters | None = None,
         mode: str = "dense",
         score_threshold: float = 0.0,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> list[dict[str, Any]]: ...
 
     @abstractmethod
     async def scroll(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         filters: QueryFilters | None = None,
         limit: int = 100,
         *,
+        from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
     ) -> list[MemoryAtom]: ...
 
@@ -247,21 +251,21 @@ class ArtifactStoragePort(ABC):
     @abstractmethod
     async def get(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         ref_or_id: ArtifactRef | str,
     ) -> dict[str, Any]: ...
 
     @abstractmethod
     async def exists(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         artifact_id: str,
     ) -> bool: ...
 
     @abstractmethod
     async def list_by_memory(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         memory_id: str,
         artifact_type: ArtifactType | None = None,
     ) -> list[ArtifactRef]: ...
@@ -269,7 +273,7 @@ class ArtifactStoragePort(ABC):
     @abstractmethod
     async def verify(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         ref: ArtifactRef,
     ) -> ArtifactIntegrityResult: ...
 

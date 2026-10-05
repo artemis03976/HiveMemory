@@ -31,7 +31,7 @@ class AgentProfileManagementService:
 
     async def create_agent_profile(
         self,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         atom: MemoryAtom | None = None,
     ) -> MemoryAtom:
         if atom is None:
@@ -42,7 +42,7 @@ class AgentProfileManagementService:
         atom.index.memory_type = MemoryType.AGENT_PROFILE
         await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
-            scope,
+            scope.workspace_identity,
             atom,
         )
         return atom
@@ -50,13 +50,14 @@ class AgentProfileManagementService:
     async def list_agent_profiles(
         self,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
         limit: int = 100,
     ) -> list[MemoryAtom]:
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=limit,
         )
@@ -65,12 +66,13 @@ class AgentProfileManagementService:
         self,
         agent_alias: str | None,
         *,
-        identity_scope: IdentityScope | None = None,
+        identity_scope: IdentityScope,
     ) -> ResolvedAgentProfile:
         """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。"""
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             agent_alias,
-            identity_scope=scope,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
         )

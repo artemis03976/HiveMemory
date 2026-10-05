@@ -13,7 +13,7 @@ related_contracts:
   - docs/system/passive-ingress.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-04
 ---
 
 # 感知与短期话题
@@ -28,7 +28,7 @@ Perception 负责把一轮已经发生的交互转化为 Patchouli 可以持续�
 
 一轮交互的内容真相由 `core.models.TurnRecord` 表达，包括：
 
-- identity、原始 user query 与 rewritten query；
+- 不含 session 的 `ActorIdentity`、原始 user query 与 rewritten query；
 - assistant final text；
 - 有序 `TurnEvent[]`；
 - 由事件归并的 `AgentAction[]`；
@@ -52,7 +52,11 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 
 ## 2. 结构化摄入
 
-`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存 Workspace 身份；主动和被动入口在进入提交队列时由外层 `InteractionSubmission.identity_scope` 携带唯一的 `IdentityScope`。
+`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存本轮 Workspace 身份；主动和被动入口在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。物化意图中的归属也必须与提交目标一致。
+
+`InteractionSubmissionCodec` 当前为 v3，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
+
+当前布局与幂等拒绝的回归入口为 [InteractionSubmission v3 测试](../../tests/unit/patchouli/control/test_interaction_submission_v3.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
 
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
@@ -109,7 +113,7 @@ settle / compact / evict 是三个概念独立的具名用例，由 `PerceptionF
 
 历史上曾由 `TriggerManager`/`TRIGGER_PLANS` 决策矩阵与记录字段状态机（`BufferState`）承担这些流程，现已删除：占用权建模为 WorkingSet 的 lease，而不是记录状态，补偿校验随之消失。
 
-`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照，除 Topic 内容和 `state_summary` 外还携带原始 `identity_scope` 与本轮已确认的 `asset_bindings`。进入队列后，重试和后续处理只能使用这份交接事实，不能从当前进程状态重新推导 Workspace 或资产关系。
+`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照，除 Topic 内容和 `state_summary` 外只携带 `belong_to` 与本轮已确认的 `asset_bindings`，不携带触发结算的 actor 或 `IdentityScope`。Coordinator 为 manual、idle、LRU、shutdown 统一构造所属 Workspace 的 `system` 发起者，实际参与 Agent 从 turn identity 聚合为贡献者；结算查重只能读取本 Workspace 的 PUBLIC 记忆。进入队列后，后续处理使用冻结的交接事实，不能从当前进程状态重新推导 Workspace、读取权限或资产关系。
 
 手动用例互不混杂：`manual_settle_topic` 只结算并在结算材料被可靠接纳后删除话题；token 溢出 compact 只压缩工作集，不结算、不驱逐（当前没有公开的手动 compact 入口，`MANUAL_COMPACT` 仅作为 provenance 保留）；`evict_topic` 只驱逐、不生成记忆。manual settle 的提交顺序固定为冻结 settlement payload → generation admission 成功 → 删除；admission 失败抛出受控错误且 Topic、blocks 与 state_summary 保持完整可重试。无任务（真正空 Topic 或 blocks 均被过滤）时 settle 仍按契约结束生命周期并返回成功，以 `generation_submitted` 表达是否建立后台任务。
 

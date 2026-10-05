@@ -2,7 +2,6 @@
 HiveMemory 感知层数据模型
 
 - TriggerReason: 统一触发原因枚举（历史命名 ``FlushReason`` 已收敛）
-- FlushEvent: 触发事件载体（统一输入协议）
 - LogicalBlock: 逻辑原子块（最小语义单元）
 - TopicMaterializeTask: 感知层 → 生成层的话题结算传输包
 
@@ -17,14 +16,12 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
-    IdentityScope,
     LogicalBlock,
     TopicAssetBinding,
     TopicData,
     TraceItem,
     TurnEvent,
     WorkspaceIdentity,
-    require_identity_scope,
 )
 
 # ============ 枚举定义 ============
@@ -48,22 +45,6 @@ class TriggerReason(str, Enum):
     MANUAL_DELETE = "manual_delete"  # 用户手动删除：丢弃 Topic，不写记忆
 
 
-# ============ 触发事件 ============
-
-
-class FlushEvent(BaseModel):
-    """
-    话题触发事件载体。
-
-    事件只携带触发目标与原因；``reason`` 仅作为 provenance 标签传递，
-    settle / compact / evict 由 PerceptionFamiliar 的具名用例编排。
-    """
-
-    identity_scope: IdentityScope
-    topic_id: str
-    reason: TriggerReason
-
-
 # ============ 话题结算载荷 (Perception -> Generation) ============
 
 
@@ -76,7 +57,7 @@ class TopicMaterializeTask(BaseModel):
     """
 
     topic_id: str = Field(..., description="话题 ID")
-    identity_scope: IdentityScope
+    belong_to: WorkspaceIdentity
     topic_title: str = Field(default="", description="话题标题")
     topic_summary: str = Field(default="", description="话题展示摘要")
 
@@ -106,16 +87,14 @@ class TopicMaterializeTask(BaseModel):
         cls,
         topic_data: TopicData,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         reason: TriggerReason,
     ) -> TopicMaterializeTask | None:
         """从冻结 TopicData 构造生成交接任务；无可保存 block 时返回 None。
 
-        TopicData 只保存 Workspace 归属，不保存本次执行者身份，因此
-        ``identity_scope`` 必须由调用方显式传入。字段映射、``worth_saving``
+        ``belong_to`` 必须由调用方显式传入。字段映射、``worth_saving``
         过滤和 no-material 判断集中在此，服务与调用方不得重复拼装。
         """
-        identity_scope = require_identity_scope(identity_scope)
         # 结算任务只携带值得保存的 block。
         blocks = tuple(block for block in topic_data.blocks if block.worth_saving is not False)
         if not blocks:
@@ -123,7 +102,7 @@ class TopicMaterializeTask(BaseModel):
 
         return cls(
             topic_id=topic_data.topic_id,
-            identity_scope=identity_scope,
+            belong_to=belong_to,
             topic_title=topic_data.topic_title,
             topic_summary=topic_data.topic_summary,
             blocks=blocks,
@@ -132,14 +111,8 @@ class TopicMaterializeTask(BaseModel):
             reason=reason,
         )
 
-    @property
-    def workspace_identity(self) -> WorkspaceIdentity:
-        """返回生成输入中唯一的 Workspace ownership。"""
-        return self.identity_scope.workspace_identity
-
 
 __all__ = [
-    "FlushEvent",
     "TraceItem",
     "TriggerReason",
     "TurnEvent",

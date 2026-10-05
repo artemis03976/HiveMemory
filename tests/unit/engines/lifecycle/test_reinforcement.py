@@ -76,8 +76,8 @@ class TestDynamicReinforcementEngine:
             self.mock_mid_term.patch_payload.call_count == 1
         ), "reinforce 应恰好提交一次 patch_payload（不再整原子 upsert）"
         args = self.mock_mid_term.patch_payload.call_args[0]
-        expected_key = WorkspaceMemoryKey.from_identity_scope(
-            _identity_scope(), self.test_memory.id
+        expected_key = WorkspaceMemoryKey(
+            workspace_identity=_identity_scope().workspace_identity, memory_id=self.test_memory.id
         )
         assert args[0] == expected_key, "patch_payload 应使用 identity_scope + memory_id 构造的键"
         return args[1]
@@ -93,7 +93,9 @@ class TestDynamicReinforcementEngine:
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
-        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        result = await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         assert result.event_type == EventType.HIT
         assert result.previous_vitality == 50.0
@@ -124,7 +126,9 @@ class TestDynamicReinforcementEngine:
             event_type=EventType.CITATION, memory_id=self.test_memory.id, source="test"
         )
 
-        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        result = await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         assert result.event_type == EventType.CITATION
 
@@ -144,7 +148,9 @@ class TestDynamicReinforcementEngine:
             event_type=EventType.FEEDBACK_NEGATIVE, memory_id=self.test_memory.id, source="user"
         )
 
-        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        result = await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         assert result.event_type == EventType.FEEDBACK_NEGATIVE
         assert result.new_confidence < result.previous_confidence
@@ -161,7 +167,9 @@ class TestDynamicReinforcementEngine:
             event_type=EventType.FEEDBACK_POSITIVE, memory_id=self.test_memory.id, source="user"
         )
 
-        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        result = await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         assert result.event_type == EventType.FEEDBACK_POSITIVE
         assert result.new_vitality > result.previous_vitality
@@ -178,7 +186,9 @@ class TestDynamicReinforcementEngine:
             source="user",
         )
 
-        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        result = await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         # 新契约: 最终分数即 calculator 重算结果，不再 +adjustment
         assert result.new_vitality == 80.0
@@ -203,7 +213,9 @@ class TestDynamicReinforcementEngine:
             source="user",
         )
 
-        result = await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        result = await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         # _clamp_vitality 应将 150 限制到 100
         assert result.new_vitality == 100.0
@@ -216,7 +228,7 @@ class TestDynamicReinforcementEngine:
         event = MemoryEvent(event_type=EventType.HIT, memory_id=uuid4(), source="test")
 
         with pytest.raises(ValueError):
-            await self.engine.reinforce(_identity_scope(), uuid4(), event)
+            await self.engine.reinforce(_identity_scope().workspace_identity, uuid4(), event)
 
     @pytest.mark.asyncio
     async def test_access_count_increments(self):
@@ -228,7 +240,9 @@ class TestDynamicReinforcementEngine:
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
-        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         # 获取更新的记忆
         patch = self._submitted_patch()
@@ -244,7 +258,9 @@ class TestDynamicReinforcementEngine:
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
-        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         # 获取更新的记忆
         patch = self._submitted_patch()
@@ -258,7 +274,9 @@ class TestDynamicReinforcementEngine:
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
-        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
 
         history = self.engine.get_event_history()
         assert len(history) == 1
@@ -312,8 +330,8 @@ class TestDynamicReinforcementEngine:
         event1 = MemoryEvent(event_type=EventType.HIT, memory_id=memory1_id, source="test")
         event2 = MemoryEvent(event_type=EventType.HIT, memory_id=memory2_id, source="test")
 
-        await self.engine.reinforce(_identity_scope(), memory1_id, event1)
-        await self.engine.reinforce(_identity_scope(), memory2_id, event2)
+        await self.engine.reinforce(_identity_scope().workspace_identity, memory1_id, event1)
+        await self.engine.reinforce(_identity_scope().workspace_identity, memory2_id, event2)
 
         # 过滤 memory1 的事件
         history = self.engine.get_event_history(memory_id=memory1_id)
@@ -328,7 +346,9 @@ class TestDynamicReinforcementEngine:
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
 
-        await self.engine.reinforce(_identity_scope(), self.test_memory.id, event)
+        await self.engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
         assert len(self.engine.get_event_history()) == 1
 
         self.engine.clear_history()
@@ -346,7 +366,7 @@ class TestDynamicReinforcementEngine:
                 event_type=EventType.HIT, memory_id=self.test_memory.id, source=f"test{i}"
             )
             await self.engine.reinforce(
-                _identity_scope(),
+                _identity_scope().workspace_identity,
                 self.test_memory.id,
                 event,
             )

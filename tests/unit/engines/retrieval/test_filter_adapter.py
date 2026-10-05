@@ -5,17 +5,24 @@ from typing import Any
 import pytest
 from qdrant_client.models import FieldCondition, Filter, IsEmptyCondition
 
-from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import ActorIdentity, MemoryType, build_internal_identity_scope
+from hivememory.core.models import (
+    ActorIdentity,
+    MemoryType,
+    WorkspaceIdentity,
+    system_actor_for_workspace,
+)
 from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
 
 
-def _identity_scope(workspace_id: str = "main_workspace"):
-    return build_internal_identity_scope(
-        ActorIdentity(user_id="u1", agent_id="agent-a", team_id="team-a"),
-        workspace_id,
+def _workspace(workspace_id: str = "main_workspace") -> WorkspaceIdentity:
+    return WorkspaceIdentity(
+        owner_user_id="u1", workspace_key=workspace_id, workspace_id=workspace_id
     )
+
+
+def _actor() -> ActorIdentity:
+    return ActorIdentity(user_id="u1", agent_id="agent-a", team_id="team-a")
 
 
 def _field_values(condition: Any) -> dict[str, set[Any]]:
@@ -51,7 +58,7 @@ def _empty_fields(condition: Any) -> set[str]:
 
 def test_main_workspace_ownership_filter_has_no_legacy_branch() -> None:
     """捕获 main 查询仍保留 meta.user_id legacy OR 分支或 IsEmpty 守卫的缺陷。"""
-    result = QdrantFilterConverter().convert(QueryFilters(), _identity_scope())
+    result = QdrantFilterConverter().convert(QueryFilters(), _workspace(), from_actor=_actor())
     values = _field_values(result)
 
     assert values["meta.owner_user_id"] == {"u1"}
@@ -65,7 +72,8 @@ def test_isolation_workspace_filter_scoped_to_its_own_workspace() -> None:
     """捕获第二 Workspace 查询越界读取其他 Workspace 记录的缺陷。"""
     result = QdrantFilterConverter().convert(
         QueryFilters(),
-        _identity_scope("isolation_workspace"),
+        _workspace("isolation_workspace"),
+        from_actor=_actor(),
     )
     values = _field_values(result)
 
@@ -77,7 +85,7 @@ def test_isolation_workspace_filter_scoped_to_its_own_workspace() -> None:
 
 def test_v2_actor_policy_targets_are_distinct_from_provenance() -> None:
     """捕获 PRIVATE/TEAM 继续用 source 字段充当 v2 ACL 的缺陷。"""
-    result = QdrantFilterConverter().convert(QueryFilters(), _identity_scope())
+    result = QdrantFilterConverter().convert(QueryFilters(), _workspace(), from_actor=_actor())
     values = _field_values(result)
 
     assert values["meta.access_policy.target_agent_id"] == {"agent-a"}
@@ -92,7 +100,8 @@ def test_business_filters_are_added_without_replacing_hard_boundary() -> None:
     """捕获 memory_type/min_confidence 覆盖 owner/workspace must 条件的缺陷。"""
     result = QdrantFilterConverter().convert(
         QueryFilters(memory_type=MemoryType.FACT, min_confidence=0.7),
-        _identity_scope("isolation_workspace"),
+        _workspace("isolation_workspace"),
+        from_actor=_actor(),
     )
     values = _field_values(result)
 
@@ -115,7 +124,8 @@ def test_source_agent_filter_matches_contributors_and_source_branches() -> None:
     """
     result = QdrantFilterConverter().convert(
         QueryFilters(source_agent_id="agent-a"),
-        _identity_scope("isolation_workspace"),
+        _workspace("isolation_workspace"),
+        from_actor=_actor(),
     )
 
     values = _field_values(result)
@@ -124,7 +134,36 @@ def test_source_agent_filter_matches_contributors_and_source_branches() -> None:
     assert values["meta.workspace_id"] == {"isolation_workspace"}
 
 
-def test_filter_converter_rejects_missing_identity_scope() -> None:
-    """捕获检索内部边界在 scope 缺失时退回无过滤查询的缺陷。"""
-    with pytest.raises(ScopeRequiredError):
-        QdrantFilterConverter().convert(QueryFilters(), None)  # type: ignore[arg-type]
+def test_filter_converter_requires_actor_for_visibility_query() -> None:
+    """检索必须明确传入发起者，不能因缺失主体退回无策略查询。"""
+    with pytest.raises(TypeError, match="from_actor"):
+        QdrantFilterConverter().convert(QueryFilters(), _workspace())  # type: ignore[call-arg]
+
+
+def test_management_filter_keeps_ownership_and_business_filters() -> None:
+    """管理读取跳过 actor 策略，仍保留 Workspace 与业务筛选。"""
+    result = QdrantFilterConverter().convert(
+        QueryFilters(memory_type=MemoryType.FACT),
+        _workspace("isolation_workspace"),
+        from_actor=_actor(),
+        enforce_actor_visibility=False,
+    )
+    values = _field_values(result)
+
+    assert values["meta.owner_user_id"] == {"u1"}
+    assert values["meta.workspace_id"] == {"isolation_workspace"}
+    assert values["index.memory_type"] == {"FACT"}
+    assert "meta.access_policy.visibility" not in values
+
+
+def test_system_actor_filter_has_no_team_visibility() -> None:
+    """system 无团队策略；PRIVATE 的 system target 另由领域模型禁止。"""
+    workspace = _workspace()
+    result = QdrantFilterConverter().convert(
+        QueryFilters(), workspace, from_actor=system_actor_for_workspace(workspace)
+    )
+    values = _field_values(result)
+
+    assert values["meta.access_policy.visibility"] == {"PUBLIC", "PRIVATE"}
+    assert values["meta.access_policy.target_agent_id"] == {"system"}
+    assert "meta.access_policy.target_team_id" not in values

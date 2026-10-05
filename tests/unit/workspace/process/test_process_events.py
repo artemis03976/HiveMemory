@@ -80,7 +80,7 @@ def _decision_outcome() -> GatewayDecisionOutcome:
 
 async def _prepare(*, identity_scope, interaction_id, **_kwargs):
     return PreparedAgentRun(
-        identity_scope=identity_scope,
+        belong_to=(identity_scope).workspace_identity,
         interaction_id=interaction_id,
         topic_id=_TOPIC_ID,
         is_new_topic=False,

@@ -17,6 +17,7 @@ from hivememory.patchouli.memory_library.models import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
+from tests.helpers.workspace import make_identity_scope
 
 
 def _memory_task(
@@ -29,6 +30,8 @@ def _memory_task(
         label=task_id,
         source=MemoryGenerationSource.WRITE,
         status=status,
+        belong_to=make_identity_scope().workspace_identity,
+        from_actor=make_identity_scope().actor_identity,
     )
 
 

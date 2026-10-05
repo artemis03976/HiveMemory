@@ -21,7 +21,8 @@ code_paths:
 related_docs:
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
-  - docs/plans/v0.7.0-identity-access-batch-2.md
+  - docs/archive/plans/v0.7.0-identity-access-batch-2.md
+  - docs/todo/workspace-asset-ownership-identity-split.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -32,8 +33,8 @@ last_reviewed: 2026-10-04
 
 # 身份与访问体系
 
-**文档状态**：Idea，未形成实施承诺；第一批已实施，第二批已建立计划（[v0.7.0 第二批](../plans/v0.7.0-identity-access-batch-2.md)），尚未实施
-**记录日期**：2026-10-03；2026-10-04 按“已完成 / 未完成”重新整理，同日记录 I-6、I-6a、I-7、I-11 的决定，按 I-6 把资源一侧的概念改为“资源归属”，并把第二批扩大为 Patchouli 全系统的重构
+**文档状态**：Idea，保留决定理由与分批讨论；第一、二批均已实施归档。第二批在 2026-10-04 形成经测试与审查的本地未提交阶段基线，见[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；不表示 v0.7.0 已合并或发布。
+**记录日期**：2026-10-03；2026-10-04 记录 I-6、I-6a、I-7、I-11 的决定，并按第二批最终代码更新现状。WorkspaceAsset 内部拆分明确暂缓，见 [Todo](../todo/workspace-asset-ownership-identity-split.md)。
 
 ## 0. 文档性质
 
@@ -41,8 +42,8 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 
 - **与总 Idea 第三部分的分工**：[总 Idea](./workspace-network-task-process-architecture.md)第三部分讨论认证与授权的流程（两阶段认证、能力层操作授权、管理员直接通道、P-1–P-10）；本文界定在这些流程中流动的身份数据：actor 身份、访问 context、`IdentityScope` 与资源归属分别是什么、在哪里产生、可以流向哪里。两者冲突时，身份数据的界定以本文为准。
 - **阅读方式**：
-  - 第 1–5 节是身份模型（owner 于 2026-10-03 确认），已随第一批实施，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节；其中资源一侧与资源 owner 内部的界定（第 2 节、第 3 节的第 4 阶段、不变量 3、4、5、7）于 2026-10-04 随 I-6、I-11 修订，尚未实施；
-  - 第 6 节是第一批之后、与第二批相关的现状；
+  - 第 1–5 节保留身份模型的决定背景，当前事实由 [Workspace 架构](../architecture/workspace.md)第 4 节维护；资源归属与发起者拆分已随第二批落地，资产暂缓边界另行跟踪；
+  - 第 6 节是第二批收尾后的现状摘要，只为解释下文决定提供背景，详细事实以当前设计文档、代码和测试为准；
   - 第 7 节是问题：7.1 是已完成的问题，按“问题—实际设计”叙述，注明决定日期与实施状态；7.2 是未完成的问题，只列选项及其影响，选项顺序不代表倾向；
   - 第 8 节是分批。
 - **2026-10-04 的整理**：问题编号 I-1–I-10 不变。原先在决定之后陆续追加的补充（I-1 的机制修订、I-8 的两次补充、I-10 的补充）已并入各问题的最终设计，被取代的中间方案只在各问题的“演进”中简述；第一批实施前的代码快照（原第 6 节）已删除。整理前的最后版本见 commit `2daa332`。
@@ -131,55 +132,41 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 
 以上内容在签发时密封在 context 内，context 没有公开字段（I-1）；运行绑定在签发时写入（I-3）。
 
-## 6. 现状事实（代码核对，2026-10-04，第一批实施之后）
+## 6. 现状摘要（2026-10-04，第二批最终代码）
 
-第一批落地的部分（访问 context、认证与授权的划分、注册入口、进程记录与句柄）是当前事实，见 [Workspace 架构](../architecture/workspace.md)第 4 节与 [System 应用服务](../system/application-services.md)第 3、4 节，本节不重复。以下是与第二批相关的现状。
+认证、授权和资源边界的权威事实见 [Workspace 架构](../architecture/workspace.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。第一批之后的原调查快照保留在[第二批归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)第 4 节，以下仅记录与本 Idea 的决定相关的变化。
 
-### 6.1 仍以 `IdentityScope` 作为字段的类
+### 6.1 各类的身份形态
 
-`src/` 中有 17 个类把 `IdentityScope` 作为类字段保存（2026-10-04 复核，此前记为 18 个）。按第 2 节分类（分析）：
-
-| 实际角色 | 对应第 2 节的概念 | 类 |
+| 实际角色 | 当前形态 | 类 |
 |:---|:---|:---|
-| 运行自身的身份 | 一次运行（Alice run、CPU 执行）的执行身份 | `RuntimeScope`、`AgentRunContext`、`CPUInputManifest`（由过渡方法组装，I-9） |
-| 一次操作的发起者与目标 | `IdentityScope` | `RetrievalRequest`、`RetrievalQuery`、`GatewayExecutionState`、`GatewayStateSnapshot`、`CandidateTopicsInput`、`RoutedTopicInput` |
-| 记录与后台任务的归属和发起者 | 归属与发起者（两个独立字段） | `PreparedAgentRun`、`InteractionSubmission`、`FlushEvent`、`TopicMaterializeTask`、`MemoryGenerationTask`、`MemoryGenerationTaskSpec`、`PendingAtomMaterializeTask`、`LeaseToken` |
+| 运行自身的身份 | 保留 Alice/CPU 过渡执行 scope（I-9），不属于第二批 | `RuntimeScope`、`AgentRunContext`、`CPUInputManifest` |
+| 一次操作的发起者与目标 | 公开输入与 Gateway 一次处理状态仍使用 `IdentityScope`；Patchouli 内部查询拆为归属与发起者 | `RetrievalRequest`、Gateway 的执行/快照/话题输入；内部 `RetrievalQuery` 为 `belong_to` 与 `from_actor` |
+| 记录与后台任务的归属和发起者 | `InteractionSubmission`、`MemoryGenerationTask`、`MemoryGenerationTaskSpec`、`PendingAtomMaterializeTask` 独立保存 `belong_to` 与 `from_actor`；其余只保存归属 | `PreparedAgentRun`、`TopicMaterializeTask`、`LeaseToken` 为 `belong_to`；无生产调用方的 `FlushEvent` 已删除 |
 
-第三类是第二批的直接对象：这些记录与任务在产生它们的那次操作结束之后仍然存在，保存的却是“一次操作”的身份。第二批同时重构 Patchouli 内部对 `IdentityScope` 的使用（6.5，I-6）；第二类中由 Patchouli 内部使用的类（如 `RetrievalQuery`）随之按 I-6 重新审视（分析）。
+第三类曾保存“一次操作”的完整 scope，第二批已将其拆分。`TopicWorkingSet` 的驻留表只保存 Workspace/Topic 键与访问时间，不冻结最后访问者；结算发起者由协调器统一给出（6.7）。字段与边界守护见 [架构回归](../../tests/unit/architecture/test_resource_identity_boundaries.py)。
 
 ### 6.2 Patchouli 应用服务的签名
 
-Patchouli 的公开路由已只接收 `IdentityScope`（第一批），但 `patchouli/application/` 中仍有 20 个方法的签名写作 `identity_scope: IdentityScope | None = None`，运行时由 `require_identity_scope` 拒绝缺省值。这是去掉 `access` 参数后留下的签名形状，行为上已是必填。
+公开路由的处理者仍接收必填 `identity_scope: IdentityScope`，入口校验后拆出归属与发起者，不再用可空默认值暗示可省略。`RetrievalRequest` 只在公开边界转换为内部 `RetrievalQuery`。详细契约见[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ### 6.3 `ActorIdentity.session_id`
 
-`ActorIdentity` 仍带兼容字段 `session_id`（`core/models/identity.py`），[外部会话 Idea](./external-session-and-topic-projection.md) 第 8 节第 3 项已记录。
+`ActorIdentity` 已只保留 `user_id`、`agent_id`、`team_id`。server 不再将会话标识放入 actor 声明，finalize 的关联字段不再写入它；`ChatRequest.session_id` 仍可接受，但当前不使用，其未来语义归[外部会话 Idea](./external-session-and-topic-projection.md)。
 
-- 写入方只有 server 的请求身份解析（[`server/deps.py`](../../src/hivememory/server/deps.py)）：chat 请求体中的 `session_id` 随 actor 声明进入认证；
-- 读取方只有 Patchouli 门面的 finalize（[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)）：把它写入交互提交的关联字段；
-- `ActorIdentity` 是 frozen 的 Pydantic 模型，`session_id` 参与相等判断与 hash。写入意图的回读按整个 `IdentityScope` 相等判断可见性（[`agent_runtime/aliases/resolver.py`](../../src/hivememory/agent_runtime/aliases/resolver.py)），`session_id` 也参与这一比较；
-- 感知把完整的 `ActorIdentity` 写入 `TurnRecord.identity`，随 Topic 保存，并作为 `InteractionTurnSnapshot.actor_identity` 写入交互 Artifact；`ActorIdentity` 没有禁止额外字段。
-
-按 I-7，第二批移除该字段。
+历史交互 Artifact 中的额外 `session_id` 键由模型读取时忽略，完整性 hash 仍基于原始 JSON 验证，不改写旧文件。写入意图回读仍按整个 `RuntimeScope.identity_scope` 比较，这是[写入意图迁移 Idea](./pending-intent-migration.md)的范围；该比较已不受会话标识影响。
 
 ### 6.4 治理规则
 
-AGENTS.md 第 3 节原先写有“`IdentityScope`（Actor + Workspace）必须沿应用服务、公共 route、Interaction 和后台任务传播，并在资源 owner 处再次校验”。这条规则把 `IdentityScope` 用于交互记录与后台任务，对应 6.1 的第三类。
+AGENTS.md 原规则要求 scope 随交互和后台任务传播，第二批已改为：操作 scope 只沿一次调用进入公共资源边界；资源 owner 内部、记录和任务分开携带归属与必要的发起者；资源授权先看归属再看 policy，来源不参与。Patchouli 与五个引擎包已满足该规则。
 
-2026-10-04 经 owner 同意，在第二批的实施分支 `refactor/identity-access-batch-2` 上改写为三条规则：身份数据按形态区分，`IdentityScope` 只由授权点组装、只在一次操作的调用链内到达资源 owner 与 Gateway；资源 owner 在公共边界拆为归属与发起者，记录与后台任务以独立字段携带，非主动生成路径的发起者是 `system`；资源授权先校验归属、再按 policy 判断发起者的可见性，来源字段不参与授权。改写后的规则是第二批代码须满足的约束，在第二批完成前与代码存在差异（6.1、6.5、6.7）。
+明确保留的非目标是 Alice/CPU 的执行 scope 与 Import Bus `/ingest`。用户将 WorkspaceAssetStore 调整排除在本批，Store/解析旧 scope 接口和 System `AssetMaterializationReader` 的一次租借桥接已在 AGENTS.md 登记，后续由 [WorkspaceAsset Todo](../todo/workspace-asset-ownership-identity-split.md) 承接。
 
-### 6.5 Patchouli 与引擎内部对 `IdentityScope` 的使用
+### 6.5 Patchouli 与引擎内部的输入
 
-`patchouli/` 与 `engines/` 中，从 `IdentityScope` 读取 actor 的地方只有 6 处，分为两类：
+只使用归属的内部操作接收 `belong_to`；需要资源可见性的读取另外接收 `from_actor`。MemoryLibrary 冷读与检索在 adapter 边界检查归属与 policy，后台生成查重以任务的 `from_actor` 为主体。来源记录仍由生成链维护，感知以 `from_actor` 写入 `TurnRecord.identity`；来源与 actor 字段不互相代替。
 
-| 类别 | actor 的角色 | 位置 |
-|:---|:---|:---|
-| 第 4 阶段的读取授权 | 操作的发起者，按资源 policy 判断可见性 | 中期库冷读的可见性判断（[`memory_library/adapters/mid_term.py`](../../src/hivememory/patchouli/memory_library/adapters/mid_term.py) 的 `_readable`）；检索的可见性过滤（[`engines/retrieval/filter_adapter.py`](../../src/hivememory/engines/retrieval/filter_adapter.py)） |
-| 来源记录 | 写入资源的来源字段或交互的关联字段，是历史信息，不约束访问 | 生成的 `provenance_from_actor`（[`engines/generation/models.py`](../../src/hivememory/engines/generation/models.py)，只取 `agent_id`、`team_id` 写入 `MemoryProvenance`）；感知写入 `TurnRecord.identity`（[`engines/perception/memory_perception_engine.py`](../../src/hivememory/engines/perception/memory_perception_engine.py)）；`PreparedAgentRun.agent_id`；finalize 写入关联字段的 `session_id`（6.3） |
-
-第一类中的中期库检索也被后台生成的查重调用，此时发起者取自任务携带的 `IdentityScope`（6.7）。
-
-其余读取只使用 workspace 归属，例如：`MemoryAtom` 与 Artifact 的 `from_identity_scope` 只取 `WorkspaceIdentity`；记忆任务的观察检查只比对 workspace（[`patchouli/application/memory_task_management_service.py`](../../src/hivememory/patchouli/application/memory_task_management_service.py)）；`memory_library` 的端口、store 与 adapter、lifecycle 等内部方法接收 `IdentityScope`，除上述冷读授权外只使用其中的 workspace。
+finalize 紧前重新执行 `interaction.submit` 授权，cleanup 以 `resource.search` 授权后调用；公开路由显式接收这次授权得到的 scope，`PreparedAgentRun` 只保存归属并校验与目标一致。阶段与关闭失败语义见 [System 应用服务](../system/application-services.md)。
 
 ### 6.6 资源授权的现状
 
@@ -192,26 +179,17 @@ AGENTS.md 第 3 节原先写有“`IdentityScope`（Actor + Workspace）必须�
 
 ### 6.7 非主动生成路径的发起者
 
-PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记忆溯源 Todo](../archive/todo/memory-provenance-vs-authorship.md)）把 SETTLE 的来源字段统一为 `system`：记忆的 `source_agent_id` 取 `SYSTEM_AGENT_ID`（`system_settlement_provenance`），参与内容的 agent 从 block 身份聚合进 `contributing_agent_ids`。该 Todo 的“结算来源的当前偏差”同时记录了结算沿用话题最后一次 touch 时冻结的 `IdentityScope`，这一部分没有修改：SETTLE 任务的发起者仍不是 `system`。
+PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记忆溯源 Todo](../archive/todo/memory-provenance-vs-authorship.md)）统一了 SETTLE 来源字段，但仍沿用最后访问者或 LRU 触发者做查重，可能将 PUBLIC 结算内容并入 PRIVATE/TEAM 记忆。第二批补完了发起者边界。
 
-- 结算任务规范直接沿用 `TopicMaterializeTask` 携带的 `IdentityScope`（[`patchouli/control/memory_generation/coordinator.py`](../../src/hivememory/patchouli/control/memory_generation/coordinator.py) 的 `submit_settlement`）；`TopicData` 只保存归属，不保存执行者。
-- 四种触发的发起者：
+`submit_settlement` 现在只从 `TopicMaterializeTask.belong_to` 取得归属，调用 `system_actor_for_workspace` 构造任务的 `from_actor`：owner 用户、`agent_id="system"`、`team_id=None`。手动、空闲、LRU 与关闭四种触发相同，查重按普通 policy 只读取 PUBLIC。WRITE/UPDATE 继续使用写入意图提交者。
 
-  | 触发 | 发起者 |
-  |:---|:---|
-  | 手动结算 | HTTP 管理路由经能力层授权得到的 `system` |
-  | 空闲超时、关闭 | 话题最后一次被访问时冻结的 scope（[`patchouli/services/topic_working_set.py`](../../src/hivememory/patchouli/services/topic_working_set.py) 的 `list_idle_candidates`、`list_shutdown_candidates`） |
-  | LRU 驱逐 | 触发驱逐的调用方的 scope，来自另一个话题的请求（[`patchouli/services/perception.py`](../../src/hivememory/patchouli/services/perception.py) 的 `_maybe_evict_lru`） |
-
-- 结算路径上，这个发起者只被查重使用：生成在查重时检索中期库（[`engines/generation/engine.py`](../../src/hivememory/engines/generation/engine.py) 的 `_dedup_and_resolve`），按发起者的可见性过滤（`enforce_actor_visibility` 为默认值 `True`）；交互 Artifact 的来源取自 block 身份，记忆的来源字段已是 `system`。
-- 后果：非主动路径生成的新记忆都是 PUBLIC，但查重可能命中最后访问的 agent 可见的 PRIVATE 或 TEAM 记忆。判为 UPDATE 时，`_apply_update` 就地修改已有记忆并保留其 policy，结算内容进入非 PUBLIC 的记忆；判为 TOUCH 时，结算内容不产生 PUBLIC 记忆。
-- 以 `system` 为发起者时，查重只看得到 PUBLIC 记忆：policy 拒绝把 `system` 作为 PRIVATE 的 target（`MemoryAccessPolicy` 的校验），管理路由组装的 `system` actor 的 `team_id` 为 `None`。
+来源与贡献者仍沿用 PR #96 的规则，资源来源不参与授权。四触发、受限查重与完整空闲物化链证据见 [SETTLE 集成回归](../../tests/integration/patchouli/test_settlement_identity.py)，当前行为见 [Patchouli 生成](../patchouli/generation.md)。
 
 ## 7. 问题
 
 ### 7.1 已完成的问题
 
-以下问题均已由 owner 决定。I-1–I-5、I-8–I-10 已随第一批（[A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)，2026-10-04 归档）实施，其中 I-9 是过渡设计，随 Alice 的能力层调用迁移删除；I-6、I-6a、I-7、I-11 于 2026-10-04 决定，随第二批实施。
+以下问题均已由 owner 决定。I-1–I-5、I-8–I-10 已随第一批（[A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)，2026-10-04 归档）实施，其中 I-9 是过渡设计，随 Alice 的能力层调用迁移删除；I-6、I-6a、I-7、I-11 于 2026-10-04 随第二批实施归档。下文“问题”保留决定前的背景，不代表该问题仍存在。
 
 #### I-1 访问 context 的对外形态
 
@@ -270,16 +248,16 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 #### I-6 资源身份的表达
 
-**状态**：已完成。2026-10-04 决定，同日两次修订；随第二批实施，尚未实施。发起者的形态见 I-6a，非主动生成路径的发起者见 I-11。
+**状态**：已完成。2026-10-04 决定，同日两次修订；第二批已实施归档，资产旧接口暂缓边界见 6.4。发起者的形态见 I-6a，非主动生成路径的发起者见 I-11。
 
-**问题**：6.1 第三类的记录与后台任务保存的是一次操作的 `IdentityScope`，而它们的寿命长于那次操作。问题的核心是 `IdentityScope` 的滥用，而不是它与访问 context 的混淆：`IdentityScope` 携带操作的发起者与目标 workspace，Patchouli 内部用不到这么多（6.5）。
+**问题**：第一批之后，6.1 第三类的记录与后台任务保存的是一次操作的 `IdentityScope`，而它们的寿命长于那次操作。问题的核心是 `IdentityScope` 的滥用，而不是它与访问 context 的混淆：归属与发起者性质不同，Patchouli 内部无需把两者组合为操作 scope。
 
 **设计**：
 
 - **没有“资源身份”的概念，只有资源归属**（`WorkspaceIdentity`）。资源授权（第 4 阶段）先比对归属，再按资源 policy 判断发起者的可见性；policy 是资源的授权数据，不是身份（第 2、3 节）。
 - **发起者与归属分开携带**：归属回答资源（以及记录、任务）属于哪个 workspace，发起者回答一次操作（包括延后执行的后台任务）由谁发起。两者性质不同，不组合成 `IdentityScope` 携带。
 - **Patchouli 全系统重构**：Patchouli 的公开路由仍只接收 `IdentityScope`（第一批）；进入 Patchouli 之后拆为归属与发起者。内部的应用服务、控制面、服务、记忆库端口与存储，以及它驱动的 engines，不再传递或组装 `IdentityScope`：只用到归属的方法只接收 `WorkspaceIdentity`，需要可见性判断的读取另外接收发起者（不变量 4）。
-- **记录与后台任务**不再保存 `IdentityScope`，以独立字段携带归属与（需要时）发起者。`MemoryGenerationTask` 拆出 `from_actor: ActorIdentity` 与 `belong_to: WorkspaceIdentity`（owner 指定）；其余类按同样方式拆分，字段名与是否需要发起者在计划中逐个确定。
+- **记录与后台任务**不再保存 `IdentityScope`，以独立字段携带归属与（需要时）发起者。`MemoryGenerationTask` 拆出 `from_actor: ActorIdentity` 与 `belong_to: WorkspaceIdentity`（owner 指定）；各类最终形态见 6.1 和[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)第 5.2 节。
 - **资源上的来源字段**（`MemoryProvenance` 与贡献者集合）是历史信息，不约束访问（不变量 7），与后台任务的发起者是两回事（第 2 节）。
 
 **依据**（owner，2026-10-04）：“资源属于哪个 workspace、由谁产生”本身没错，但“由谁产生”对资源访问不构成约束，与 `WorkspaceIdentity` 组合在一起并没有对等的作用。所谓资源身份只用于资源授权，真要构造一个，应当是 `WorkspaceIdentity` 加资源 policy；而 policy 显然不是身份，所以只有资源归属的概念。资源授权的过程也说明这一点：先看资源归属是否等于 `IdentityScope` 的目标 workspace，再看 policy 是否允许发起者。
@@ -306,7 +284,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 #### I-6a 发起者的形态
 
-**状态**：已完成。2026-10-04 决定；随第二批实施，尚未实施。
+**状态**：已完成。2026-10-04 决定；第二批已实施归档。
 
 **问题**：记录与后台任务单独携带 actor 时，携带完整的 `ActorIdentity`，还是只携带消费方用到的字段？现有消费方（6.5）：生成只取 `agent_id`、`team_id` 写入 `MemoryProvenance`；查重的可见性判断比较 `agent_id` 与 `team_id`；感知把完整的 `ActorIdentity` 写入 `TurnRecord`，并随交互 Artifact 保存。
 
@@ -316,17 +294,17 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 #### I-7 `ActorIdentity.session_id`
 
-**状态**：已完成。2026-10-04 决定；随第二批实施，尚未实施。
+**状态**：已完成。2026-10-04 决定；第二批已实施归档。
 
-**问题**：兼容字段 `session_id` 仍在 `ActorIdentity` 中（6.3），会参与身份的相等性与 hash；会话的承载已决定由 ConversationSession 负责（任务进程 Idea Q-9）。原选项：去掉兼容字段；保留但不参与相等性与缓存键；随 ConversationSession 方向一并处理。
+**问题**：第一批之后，兼容字段 `session_id` 仍在 `ActorIdentity` 中，会参与身份的相等性与 hash；会话的承载已决定由 ConversationSession 负责（任务进程 Idea Q-9）。原选项：去掉兼容字段；保留但不参与相等性与缓存键；随 ConversationSession 方向一并处理。
 
 **设计**：在第二批的计划中从 `ActorIdentity` 移除 `session_id`，身份只表达 actor；不等待外部会话方向。这承接[外部会话 Idea](./external-session-and-topic-projection.md) 第 8 节第 3 项中“移除 identity.session_id 对 equality/hash/cache key 的影响”。
 
 **影响**（分析，代码依据见 6.3）：
 
-- 请求体中的 `session_id` 不再进入身份；交互提交的关联字段是否保留 `session_id`、经由什么途径传递，在计划中确定；chat 请求体中 `session_id` 字段本身的语义仍归外部会话方向；
+- 请求体中的 `session_id` 不再进入身份，finalize 不再写入该关联字段；chat 请求体字段本身的语义仍归外部会话方向；
 - 写入意图的回读比较不再受 `session_id` 影响；
-- 已保存的 Topic 与交互 Artifact 中可能带有 `session_id` 键，移除字段后需要确认读取旧数据时该键被忽略。
+- 已保存的交互 Artifact 中可能带有 `session_id` 键，旧数据读取忽略额外键且保留原始完整性校验，已由回归验证。
 
 #### I-8 进程记录如何持有身份
 
@@ -389,7 +367,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 #### I-11 非主动生成路径的发起者
 
-**状态**：已完成。2026-10-04 决定；随第二批实施，尚未实施。补完 PR #96 未改完的部分（6.7）。
+**状态**：已完成。2026-10-04 决定；第二批已实施归档，补完 PR #96 未改完的发起者边界（6.7）。
 
 **问题**：SETTLE（手动、空闲超时、LRU、关闭四种触发）的记忆来源字段已在 PR #96 统一为 `system`，但结算任务的发起者仍沿用话题最后一次访问或触发驱逐的 actor；查重按这个 actor 的可见性进行，可能把结算内容并入非 PUBLIC 的记忆（6.7）。
 
@@ -414,7 +392,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | 批次 | 范围 | 状态 |
 |:---|:---|:---|
 | 第一批 | workspace 边界：入口在认证前只持有声明；访问 context 为密封凭据并暂存 principal（I-1、I-2）；注册入口完成认证、签发即绑定、先注册后运行（I-3）；授权点显式接收目标 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；进程记录只持有 context、进程句柄与唯一的取消方法（I-8）；CPU 过渡身份（I-9）；认证一侧与操作授权者分开且互不依赖（I-10）；资源 owner 与 Gateway 只接收 `IdentityScope` | 已完成：随 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)实施，2026-10-04 归档；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |
-| 第二批 | Patchouli 全系统重构：公开路由仍接收 `IdentityScope`，内部拆为归属与发起者，不再传递或组装 `IdentityScope`（6.5，I-6）；记录与后台任务不再保存 `IdentityScope`，以独立字段携带归属与发起者，如 `MemoryGenerationTask` 的 `from_actor` 与 `belong_to`（6.1 第三类，I-6、I-6a）；非主动生成路径以 `system` 为发起者（I-11）；从 `ActorIdentity` 移除 `session_id`（I-7）；收紧 Patchouli 应用服务的签名（6.2）；修订 AGENTS.md 第 3 节的相应规则（6.4） | 计划已建立：[v0.7.0 身份与访问体系第二批](../plans/v0.7.0-identity-access-batch-2.md)（2026-10-04），尚未实施；AGENTS.md 已在实施分支上修订 |
+| 第二批 | Patchouli 全系统归属与发起者拆分（I-6、I-6a）；SETTLE 统一 system 发起者（I-11）；移除 actor 的会话字段（I-7）；finalize/cleanup 阶段授权与公开签名收紧 | 已完成：[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)（2026-10-04，本地未提交阶段基线）；WorkspaceAsset 内部接口明确暂缓，由 [Todo](../todo/workspace-asset-ownership-identity-split.md) 跟踪 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
 第一批使总 Idea 中两项早先的决定失去前提：“放行分支分两步去掉”与“两个提交路由的检查暂留在 Patchouli”。资源 owner 不再接收访问 context 后，这两项按最终设计记录在总 Idea 15.8。
@@ -425,16 +403,16 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 |:---|:---|
 | [总 Idea](./workspace-network-task-process-architecture.md)第三部分 | 认证与授权的流程与待决问题（P-1、P-4a、P-9 等）在那里；本文界定其中流动的身份数据 |
 | [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)（已归档） | 第一批的实施计划 |
-| [v0.7.0 身份与访问体系第二批](../plans/v0.7.0-identity-access-batch-2.md) | 第二批的实施计划 |
+| [v0.7.0 身份与访问体系第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)（已归档） | 第二批的实施历史与本地验收证据 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Q-3a 决定访问 context 进入进程记录，与不变量 3 一致；进程记录如何持有身份见 I-8；认证与进程创建的顺序见 I-3 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | principal 与 adapter 的登记（I-2）；plugin 模式下不建进程的访问同样遵循本文的边界 |
 | [外部会话 Idea](./external-session-and-topic-projection.md) | `ActorIdentity.session_id` 随第二批移除（I-7），承接该文第 8 节第 3 项；chat 请求体中 `session_id` 的语义仍归该文 |
 | [写入意图迁移 Idea](./pending-intent-migration.md) | `PendingAtomMaterializeTask` 属于第二批的范围（6.1）；写入意图回读的可见范围由该文决定，落库前对全 workspace 可回读，与 I-6 一致 |
 | [已归档的记忆溯源 Todo](../archive/todo/memory-provenance-vs-authorship.md) | PR #96 把 SETTLE 的来源字段统一为 `system`；结算任务的发起者未随之修改，由 I-11 补完 |
-| [Workspace 架构](../architecture/workspace.md)第 4 节 | 第一批的当前事实；第二批完成后按最终代码更新 |
+| [Workspace 架构](../architecture/workspace.md)第 4 节 | 第一、二批的当前事实；本文保留决定理由 |
 
 ## 10. 形成计划的条件
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)与[文档治理规范](../DOCUMENTATION.md)第 8.3 节；
 - 第一批已完成；
-- 第二批：I-6、I-6a、I-7、I-11 已决定（2026-10-04）；AGENTS.md 第 3 节已经 owner 同意，在实施分支上修订（6.4）；计划已建立（[v0.7.0 第二批](../plans/v0.7.0-identity-access-batch-2.md)）。
+- 第二批已实施归档，I-6、I-6a、I-7、I-11 的当前事实由架构、契约与 Patchouli 文档维护；暂缓的 WorkspaceAsset 接口拆分由 [Todo](../todo/workspace-asset-ownership-identity-split.md) 跟踪，后续扩展若超出其范围再形成独立计划。

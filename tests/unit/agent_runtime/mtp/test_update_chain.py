@@ -51,7 +51,7 @@ FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 
 @pytest.fixture
 def identity() -> ActorIdentity:
-    return ActorIdentity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+    return ActorIdentity(user_id="test_user", agent_id="test_agent")
 
 
 @pytest.fixture
@@ -96,7 +96,6 @@ def existing_memory(identity) -> MemoryAtom:
         meta=make_memory_metadata(
             user_id=identity.user_id,
             source_agent_id=identity.agent_id,
-            session_id=None,  # session_id 仅为兼容字段，不参与当前身份作用域传播
             confidence_score=0.85,
             version=1,
         ),
@@ -162,7 +161,11 @@ class TestModeCMergePrompt:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = await engine.process(request=request, identity_scope=identity_scope)
+        result = await engine.process(
+            request=request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         # merge() 被调用，extract() 不被调用（Mode C 路由契约）
         mock_extractor.merge.assert_called_once()
@@ -199,7 +202,11 @@ class TestModeCMergePrompt:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = await engine.process(request=request, identity_scope=identity_scope)
+        result = await engine.process(
+            request=request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "新内容"
@@ -235,7 +242,11 @@ class TestModeCFallback:
             update_focus=uf,
             existing_memory=existing_memory,
         )
-        result = await engine.process(request=request, identity_scope=identity_scope)
+        result = await engine.process(
+            request=request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         # fallback 应该保底入库
         assert len(result) == 1
@@ -303,7 +314,11 @@ class TestModeCFallback:
         # 不注入 existing_memory (默认 None)
 
         request = GenerationRequest(update_focus=uf)
-        result = await engine.process(request=request, identity_scope=identity_scope)
+        result = await engine.process(
+            request=request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         assert result == []
         mock_extractor.merge.assert_not_called()

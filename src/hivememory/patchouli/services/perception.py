@@ -19,10 +19,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hivememory.core.models import (
-    IdentityScope,
+    ActorIdentity,
     WorkspaceAssetRef,
+    WorkspaceIdentity,
     merge_interaction_into_topic,
-    require_identity_scope,
 )
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -77,7 +77,8 @@ class PerceptionFamiliar:
         self,
         payload: InteractionPayload,
         *,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
         target_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
         asset_refs: tuple[WorkspaceAssetRef, ...] = (),
@@ -87,7 +88,6 @@ class PerceptionFamiliar:
         retry 依据 journal 阶段幂等续跑（COMPLETED 直接返回；APPLIED 补跑
         compact），不重复写入 block；等价性校验在取得占用权之前完成。
         """
-        identity_scope = require_identity_scope(identity_scope)
         if self._engine is None:  # 感知关闭：无任何存储与 journal 副作用
             return target_topic_id
         if not payload.turn_events:
@@ -101,32 +101,32 @@ class PerceptionFamiliar:
 
         # retry 已有 apply journal 时不能驱逐刚刚写入的目标话题。
         if apply_record is None:
-            await self._maybe_evict_lru(identity_scope, target_topic_id)
+            await self._maybe_evict_lru(belong_to, target_topic_id)
         # retry 路由回已记录的话题；首次 apply 确保目标存在。
         topic_id = (
             apply_record.topic_id
             if apply_record is not None
-            else self._ensure_topic(identity_scope, target_topic_id)
+            else self._ensure_topic(belong_to, target_topic_id)
         )
 
         # block 构造与 digest 是纯计算；retry 等价性校验在取得占用权之前完成。
-        block = self._engine.build_block(payload, identity_scope)
-        digest = compute_apply_digest(block, asset_refs, payload.model_used, identity_scope)
+        block = self._engine.build_block(payload, from_actor)
+        digest = compute_apply_digest(block, asset_refs, payload.model_used, belong_to)
         if apply_record is not None:
             if apply_record.input_digest != digest:
                 raise ValueError(
                     f"interaction '{interaction_id}' was already applied with different input"
                 )
             if apply_record.stage is InteractionApplyStage.COMPLETED:
-                self._refresh_residency(identity_scope, topic_id)
+                self._refresh_residency(belong_to, topic_id)
                 return topic_id
 
-        lease = self._working_set.acquire(identity_scope, topic_id)
+        lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             raise TopicBusyError(f"topic '{topic_id}' 正忙，无法原子摄入 interaction，可稍后重试")
         try:
             if apply_record is None:
-                topic = self._store.get(identity_scope, topic_id)
+                topic = self._store.get(belong_to, topic_id)
                 if topic is None:
                     raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
                 self._store.put(
@@ -144,7 +144,7 @@ class PerceptionFamiliar:
                 or apply_record.stage is InteractionApplyStage.INTERACTION_APPLIED
             ):
                 # 后置本地义务：token 溢出 compact；LOCAL_COMPLETED 之后不再重复执行。
-                await self._compact_topic_if_needed(identity_scope, topic_id)
+                await self._compact_topic_if_needed(belong_to, topic_id)
         finally:
             self._working_set.release(lease)
 
@@ -152,7 +152,7 @@ class PerceptionFamiliar:
             self._interaction_journal.record_local_completed(interaction_id, topic_id, None)
             self._interaction_journal.complete(interaction_id, topic_id)
 
-        self._refresh_residency(identity_scope, topic_id)
+        self._refresh_residency(belong_to, topic_id)
         return topic_id
 
     async def prepare_topic(
@@ -160,28 +160,27 @@ class PerceptionFamiliar:
         target_topic_id: str,
         new_topic_title: str | None,
         new_topic_summary: str | None,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> str:
         """确保目标短期话题存在（必要时先执行 LRU 驱逐），返回真实 topic_id。"""
-        identity_scope = require_identity_scope(identity_scope)
         if self._engine is None:  # 感知关闭：不创建话题
-            self._refresh_residency(identity_scope, target_topic_id)
+            self._refresh_residency(belong_to, target_topic_id)
             return target_topic_id
-        await self._maybe_evict_lru(identity_scope, target_topic_id)
+        await self._maybe_evict_lru(belong_to, target_topic_id)
         topic_id = self._ensure_topic(
-            identity_scope,
+            belong_to,
             target_topic_id,
             topic_title=new_topic_title,
             topic_summary=new_topic_summary,
         )
-        self._refresh_residency(identity_scope, topic_id)
+        self._refresh_residency(belong_to, topic_id)
         return topic_id
 
     # ========== 统一 settle 协议 ==========
 
     async def _settle_topic(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         topic_id: str,
         *,
         reason: TriggerReason,
@@ -193,22 +192,20 @@ class PerceptionFamiliar:
         失败时话题原样保留可重试，无需 abort——记录从未被改动。
         返回 (生命周期是否结束, 已接纳 task 或 None)。
         """
-        lease = self._working_set.acquire(identity_scope, topic_id)
+        lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             raise TopicBusyError(f"topic '{topic_id}' 正忙，无法开始结算")
         try:
-            topic = self._store.get(identity_scope, topic_id)
+            topic = self._store.get(belong_to, topic_id)
             if topic is None:
-                self._working_set.remove(identity_scope, topic_id)  # 清理陈旧驻留条目
+                self._working_set.remove(belong_to, topic_id)  # 清理陈旧驻留条目
                 return False, None
             # 冻结材料：字段转换、worth_saving 过滤与 no-material 判断收口在数据模型内。
-            task = TopicMaterializeTask.from_topic_data(
-                topic, identity_scope=identity_scope, reason=reason
-            )
+            task = TopicMaterializeTask.from_topic_data(topic, belong_to=belong_to, reason=reason)
             if task is None:  # 无可保存材料：正常结束生命周期，不触发生成
-                self._store.delete(identity_scope, topic_id)
-                self._working_set.remove(identity_scope, topic_id)
-                self._forget_active_topic(identity_scope, topic_id)
+                self._store.delete(belong_to, topic_id)
+                self._working_set.remove(belong_to, topic_id)
+                self._forget_active_topic(belong_to, topic_id)
                 return True, None
 
             # admission：lease 持有期间等待 Generation queue 接纳。
@@ -227,32 +224,31 @@ class PerceptionFamiliar:
                 )
                 return False, None
 
-            self._store.delete(identity_scope, topic_id)
-            self._working_set.remove(identity_scope, topic_id)
-            self._forget_active_topic(identity_scope, topic_id)
+            self._store.delete(belong_to, topic_id)
+            self._working_set.remove(belong_to, topic_id)
+            self._forget_active_topic(belong_to, topic_id)
             return True, generation_task
         finally:
             self._working_set.release(lease)
 
     async def manual_settle_topic(
-        self, identity_scope: IdentityScope, topic_id: str | None = None
+        self, belong_to: WorkspaceIdentity, topic_id: str | None = None
     ) -> TopicSettleResult:
         """手动结算指定话题（缺省为最近活跃话题）。
 
         admission 失败抛出 :class:`TopicSettleAdmissionError`（话题内容保留
         可重试）；目标正忙是瞬态冲突，保持 :class:`TopicBusyError` 语义。
         """
-        identity_scope = require_identity_scope(identity_scope)
-        workspace = identity_scope.workspace_identity
+        workspace = belong_to
         scope_key = (workspace.owner_user_id, workspace.workspace_id)
         target_id = topic_id or self._last_active_topic_ids.get(scope_key)
         if not target_id:
             raise ValueError("未指定 topic_id 且无活跃话题")
-        if self._store.get(identity_scope, target_id) is None:
+        if self._store.get(belong_to, target_id) is None:
             raise KeyError(f"话题 {target_id} 不存在")
         try:
             completed, task = await self._settle_topic(
-                identity_scope,
+                belong_to,
                 target_id,
                 reason=TriggerReason.MANUAL_SETTLE,
                 raise_on_admission_failure=True,
@@ -271,13 +267,13 @@ class PerceptionFamiliar:
 
     # ========== Compact（页面折叠） ==========
 
-    async def _compact_topic_if_needed(self, identity_scope: IdentityScope, topic_id: str) -> None:
+    async def _compact_topic_if_needed(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """token 溢出时执行 compact：生成折叠摘要并写回保留的近期 blocks。
 
         调用方必须已持有该话题的 lease：Relay 摘要生成期间其他调用无法取
         得同一话题的占用权，因此写回不再需要旧的 expected_state 补偿校验。
         """
-        topic = self._store.get(identity_scope, topic_id)
+        topic = self._store.get(belong_to, topic_id)
         if topic is None or topic.is_empty or not self._engine.should_compact(topic.total_tokens):
             return
         logger.info("Token 溢出，触发 Page Folding: topic_id=%s", topic_id)
@@ -302,26 +298,26 @@ class PerceptionFamiliar:
 
     # ========== LRU / 驱逐 ==========
 
-    async def _maybe_evict_lru(self, identity_scope: IdentityScope, target_topic_id: str) -> None:
+    async def _maybe_evict_lru(self, belong_to: WorkspaceIdentity, target_topic_id: str) -> None:
         """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。
 
         已有话题无需驱逐；未知目标必须直接拒绝。容量与候选由 WorkingSet
         决定；候选正被占用时改选其他话题。
         """
         if target_topic_id != "NEW_TOPIC":
-            if self._store.get(identity_scope, target_topic_id) is None:
+            if self._store.get(belong_to, target_topic_id) is None:
                 raise KeyError(f"topic '{target_topic_id}' does not exist in requested Workspace")
             return
-        if not self._working_set.needs_eviction(identity_scope):
+        if not self._working_set.needs_eviction(belong_to):
             return
         attempted: set[str] = set()
-        while self._working_set.needs_eviction(identity_scope):
-            lru_topic_id = self._working_set.select_lru_candidate(identity_scope, exclude=attempted)
+        while self._working_set.needs_eviction(belong_to):
+            lru_topic_id = self._working_set.select_lru_candidate(belong_to, exclude=attempted)
             if lru_topic_id is None:  # 池满但全部候选正被占用，无法安全驱逐
                 raise TopicBusyError("LRU 驱逐无可占用候选，稍后重试")
             try:
                 completed, _ = await self._settle_topic(
-                    identity_scope,
+                    belong_to,
                     lru_topic_id,
                     reason=TriggerReason.LRU_EVICTION,
                     raise_on_admission_failure=True,
@@ -334,36 +330,32 @@ class PerceptionFamiliar:
                 continue
             return  # admission 成功或无材料完成后 Topic 已删除，容量释放
 
-    async def evict_topic(
-        self, identity_scope: IdentityScope, topic_id: str
-    ) -> TopicEvictionResult:
+    async def evict_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> TopicEvictionResult:
         """从活跃话题池中驱逐话题，不触发结算；正被占用时报 ``removed=False``。"""
-        identity_scope = require_identity_scope(identity_scope)
-        lease = self._working_set.acquire(identity_scope, topic_id)
+        lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             return TopicEvictionResult(topic_id=topic_id, removed=False)
         try:
-            removed = self._store.delete(identity_scope, topic_id)
+            removed = self._store.delete(belong_to, topic_id)
             if removed:
-                self._working_set.remove(identity_scope, topic_id)
-                self._forget_active_topic(identity_scope, topic_id)
+                self._working_set.remove(belong_to, topic_id)
+                self._forget_active_topic(belong_to, topic_id)
             return TopicEvictionResult(topic_id=topic_id, removed=removed)
         finally:
             self._working_set.release(lease)
 
-    def discard_if_empty(self, identity_scope: IdentityScope, topic_id: str) -> bool:
+    def discard_if_empty(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
         """话题真正为空（无 blocks 且无非空白折叠摘要）时清理并返回 True。"""
-        identity_scope = require_identity_scope(identity_scope)
-        lease = self._working_set.acquire(identity_scope, topic_id)
+        lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:  # 正被占用（可能正在写入首块），留给后续维护判断
             return False
         try:
-            topic = self._store.get(identity_scope, topic_id)
+            topic = self._store.get(belong_to, topic_id)
             if topic is None or not topic.is_empty:
                 return False
-            removed = self._store.delete(identity_scope, topic_id)
+            removed = self._store.delete(belong_to, topic_id)
             if removed:
-                self._working_set.remove(identity_scope, topic_id)
+                self._working_set.remove(belong_to, topic_id)
             return removed
         finally:
             self._working_set.release(lease)
@@ -373,13 +365,13 @@ class PerceptionFamiliar:
     async def scan_idle_buffers_once(self) -> list[str]:
         """扫描并 settle 空闲超时话题；候选由 WorkingSet 提供。"""
         flushed: list[str] = []
-        for identity_scope, topic_id in self._working_set.list_idle_candidates(
+        for belong_to, topic_id in self._working_set.list_idle_candidates(
             self._idle_timeout_seconds
         ):
             logger.info("检测到空闲话题: topic_id=%s", topic_id)
             try:
                 completed, _ = await self._settle_topic(
-                    identity_scope,
+                    belong_to,
                     topic_id,
                     reason=TriggerReason.IDLE_TIMEOUT,
                     raise_on_admission_failure=False,
@@ -398,18 +390,18 @@ class PerceptionFamiliar:
         """
         candidates = self._working_set.list_shutdown_candidates()
         resident_block_count = 0
-        for identity_scope, topic_id in candidates:
-            topic = self._store.get(identity_scope, topic_id)
+        for belong_to, topic_id in candidates:
+            topic = self._store.get(belong_to, topic_id)
             if topic is not None:
                 resident_block_count += topic.block_count
 
         settled: list[str] = []
         generation_skipped: list[str] = []
         failed: list[str] = []
-        for identity_scope, topic_id in candidates:
+        for belong_to, topic_id in candidates:
             try:
                 completed, task = await self._settle_topic(
-                    identity_scope,
+                    belong_to,
                     topic_id,
                     reason=TriggerReason.SHUTDOWN,
                     raise_on_admission_failure=True,
@@ -442,7 +434,7 @@ class PerceptionFamiliar:
 
     def _ensure_topic(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         target_topic_id: str,
         *,
         topic_title: str | None = None,
@@ -451,37 +443,37 @@ class PerceptionFamiliar:
         """确保目标话题存在并返回真实 topic_id；未知目标显式拒绝。"""
         if target_topic_id == "NEW_TOPIC":
             topic = self._store.create(
-                identity_scope,
+                belong_to,
                 topic_title=topic_title or "新建话题",
                 topic_summary=topic_summary or "",
             )
             # 创建即入池：避免 Store 有记录而 WorkingSet 不可见的孤儿窗口。
-            self._working_set.touch(identity_scope, topic.topic_id)
+            self._working_set.touch(belong_to, topic.topic_id)
             return topic.topic_id
-        if self._store.get(identity_scope, target_topic_id) is None:
+        if self._store.get(belong_to, target_topic_id) is None:
             raise KeyError(f"topic '{target_topic_id}' does not exist in requested Workspace")
         return target_topic_id
 
-    def _refresh_residency(self, identity_scope: IdentityScope, topic_id: str) -> None:
+    def _refresh_residency(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """更新驻留与活跃记录；话题已不存在时不复活陈旧条目。
 
         retry 的失败窗口内话题可能已被 settle 删除，此时以 Store 为准清理
         活跃记录，避免 idle/LRU 扫描空转或缺省 manual settle 寻址到死话题。
         """
-        if self._store.get(identity_scope, topic_id) is None:
-            self._forget_active_topic(identity_scope, topic_id)
+        if self._store.get(belong_to, topic_id) is None:
+            self._forget_active_topic(belong_to, topic_id)
             return
-        self._working_set.touch(identity_scope, topic_id)
-        self._remember_active_topic(identity_scope, topic_id)
+        self._working_set.touch(belong_to, topic_id)
+        self._remember_active_topic(belong_to, topic_id)
 
-    def _remember_active_topic(self, identity_scope: IdentityScope, topic_id: str) -> None:
+    def _remember_active_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """记录 Workspace 最近活跃话题，供缺省 manual settle 寻址。"""
-        workspace = identity_scope.workspace_identity
+        workspace = belong_to
         self._last_active_topic_ids[(workspace.owner_user_id, workspace.workspace_id)] = topic_id
 
-    def _forget_active_topic(self, identity_scope: IdentityScope, topic_id: str) -> None:
+    def _forget_active_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """话题生命周期结束时清理最近活跃记录。"""
-        workspace = identity_scope.workspace_identity
+        workspace = belong_to
         scope_key = (workspace.owner_user_id, workspace.workspace_id)
         if self._last_active_topic_ids.get(scope_key) == topic_id:
             self._last_active_topic_ids.pop(scope_key, None)

@@ -12,6 +12,7 @@ import pytest
 
 from hivememory.components.work_queue import (
     QueuePolicy,
+    UnknownWorkPayloadCodecError,
     WorkPayloadCodecRegistry,
     WorkPayloadDecodeError,
     WorkState,
@@ -69,7 +70,8 @@ def _spec(
     pending_alias: str | None = None,
 ) -> MemoryGenerationTaskSpec:
     return MemoryGenerationTaskSpec(
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
         topic_id=topic_id,
         label=label,
         source=MemoryGenerationSource.WRITE,
@@ -104,7 +106,8 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     atom = _memory_atom()
     block = LogicalBlock(turn=TurnRecord(user_query="question", assistant_final_text="answer"))
     spec = MemoryGenerationTaskSpec(
-        identity_scope=make_memory_identity_scope(),
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
         topic_id="topic-codec",
         label="codec",
         source=MemoryGenerationSource.UPDATE,
@@ -127,7 +130,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
 
     payload_bytes = codecs.encode(
         _MemoryGenerationWorkAdapter.kind,
-        _MemoryGenerationWorkAdapter.schema_version,
+        "1.1",
         work,
     )
 
@@ -135,19 +138,19 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     atom.payload.content = "external mutation"
     first = codecs.decode(
         _MemoryGenerationWorkAdapter.kind,
-        _MemoryGenerationWorkAdapter.schema_version,
+        "1.1",
         payload_bytes,
     )
     second = codecs.decode(
         _MemoryGenerationWorkAdapter.kind,
-        _MemoryGenerationWorkAdapter.schema_version,
+        "1.1",
         payload_bytes,
     )
 
     assert first.task_id == "task-codec"
-    assert first.spec.identity_scope == spec.identity_scope
-    assert first.spec.identity_scope is not spec.identity_scope
-    assert first.spec.identity_scope is not second.spec.identity_scope
+    assert first.spec.belong_to == spec.belong_to
+    assert first.spec.belong_to is not spec.belong_to
+    assert first.spec.belong_to is not second.spec.belong_to
     assert first.spec.request.context.state_summary == "original summary"
     assert isinstance(first.spec.request.existing_memory, MemoryAtom)
     assert first.spec.request.existing_memory.payload.content == "original content"
@@ -155,6 +158,26 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
     first.spec.request.context.state_summary = "attempt-local mutation"
     assert second.spec.request.context.state_summary == "original summary"
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_v1_1_registry_rejects_previous_memory_generation_versions(schema_version: int) -> None:
+    """队列只接受 1.1，旧 scope 信封与此前编号不得被误解码为新任务。"""
+    registry = WorkPayloadCodecRegistry()
+    adapter = _MemoryGenerationWorkAdapter()
+    registry.register(adapter)
+    payload = encode_canonical_json(
+        {
+            "task_id": "legacy",
+            "spec": {"identity_scope": make_memory_identity_scope().model_dump(mode="json")},
+        }
+    )
+
+    with pytest.raises(
+        UnknownWorkPayloadCodecError,
+        match=f"schema version {schema_version} is not registered",
+    ):
+        registry.decode(adapter.kind, schema_version, payload)
 
 
 def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
@@ -191,7 +214,7 @@ async def test_queue_identity_does_not_partition_by_payload_scope() -> None:
     main_spec = _spec(intent_id="intent-shared", pending_alias="draft-shared")
     isolated_spec = replace(
         main_spec,
-        identity_scope=make_memory_identity_scope(workspace_id="isolation_workspace"),
+        belong_to=make_memory_identity_scope(workspace_id="isolation_workspace").workspace_identity,
     )
 
     try:

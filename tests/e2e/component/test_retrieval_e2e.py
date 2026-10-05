@@ -75,6 +75,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    resolve_default_workspace_identity,
 )
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
@@ -108,6 +109,7 @@ _shared_reranker_service: FastEmbedRerankerService | None = None
 _shared_engine: RetrievalEngine | None = None
 _test_collection_name: str = "hivememory_retrieval_test"
 _golden_memories_injected: bool = False
+_golden_identity: ActorIdentity | None = None
 
 
 # ========== 测试环境初始化 ==========
@@ -130,11 +132,13 @@ def setup_test_env() -> RetrievalEngine:
     app_config = load_app_config()
 
     # 1. 创建 QdrantMemoryStore（使用测试集合）
-    qdrant_config = app_config.qdrant.model_copy(update={"collection_name": _test_collection_name})
+    qdrant_config = app_config.patchouli.storage.model_copy(
+        update={"collection_name": _test_collection_name}
+    )
     console.print(f"[dim]Qdrant 集合: {qdrant_config.collection_name}[/dim]")
     _shared_storage = QdrantMemoryStore(
         qdrant_config=qdrant_config,
-        embedding_config=app_config.embedding.default,
+        embedding_config=app_config.shared.embedding.default,
     )
 
     # 确保测试集合存在
@@ -142,7 +146,7 @@ def setup_test_env() -> RetrievalEngine:
     _shared_mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(_shared_storage))
 
     # 2. 创建 Reranker 服务
-    retriever_config = app_config.retrieval.retriever
+    retriever_config = app_config.patchouli.retrieval.retriever
     reranker_config = retriever_config.reranker
     console.print(f"[dim]Reranker 模型: {reranker_config.model_name}[/dim]")
     _shared_reranker_service = FastEmbedRerankerService(config=reranker_config)
@@ -198,12 +202,13 @@ def get_shared_reranker_service() -> FastEmbedRerankerService:
 
 def reset_test_env() -> None:
     """重置测试环境，清空测试集合中的数据"""
-    global _shared_storage, _golden_memories_injected
+    global _shared_storage, _golden_memories_injected, _golden_identity
 
     if _shared_storage is not None:
         try:
             asyncio.run(_shared_storage.create_collection(recreate=True))
             _golden_memories_injected = False
+            _golden_identity = None
             console.print("[dim]测试集合已重置[/dim]")
         except Exception as e:
             console.print(f"[yellow]重置测试集合失败: {e}[/yellow]")
@@ -211,7 +216,7 @@ def reset_test_env() -> None:
 
 def inject_golden_memories() -> None:
     """注入 Golden Memories 测试数据"""
-    global _golden_memories_injected
+    global _golden_memories_injected, _golden_identity
 
     if _golden_memories_injected:
         return
@@ -226,6 +231,7 @@ def inject_golden_memories() -> None:
         asyncio.run(storage.upsert_memory(memory))
 
     _golden_memories_injected = True
+    _golden_identity = identity
     console.print("[green]Golden Memories 注入完成[/green]")
 
 
@@ -234,7 +240,20 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
     return ActorIdentity(
         user_id=f"{prefix}_user_{uuid.uuid4().hex[:8]}",
         agent_id=f"{prefix}_agent",
-        session_id=f"{prefix}_session_{uuid.uuid4().hex[:8]}",
+    )
+
+
+def create_retrieval_query(
+    semantic_query: str, keywords: list[str] | None = None
+) -> RetrievalQuery:
+    """在已注入 Golden Memory 的同一归属内，以独立发起者执行检索。"""
+    if _golden_identity is None:
+        raise RuntimeError("Golden Memories must be injected before retrieval")
+    return RetrievalQuery(
+        semantic_query=semantic_query,
+        keywords=keywords or [],
+        belong_to=resolve_default_workspace_identity(_golden_identity.user_id),
+        from_actor=_golden_identity,
     )
 
 
@@ -250,7 +269,6 @@ def create_memory_from_data(data: dict[str, Any], identity: ActorIdentity) -> Me
         meta=make_memory_metadata(
             source_agent_id=identity.agent_id,
             user_id=identity.user_id,
-            session_id=identity.session_id,
             confidence_score=data.get("confidence_score", 0.8),
         ),
         index=IndexLayer(
@@ -295,7 +313,7 @@ class TestHybridSearch:
         assert test_case["id"] == "RET-HYB-001"
 
         # 构建查询
-        query = RetrievalQuery(semantic_query=test_case["query"])
+        query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
         results = asyncio.run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
@@ -339,7 +357,7 @@ class TestHybridSearch:
         assert test_case["id"] == "RET-HYB-002"
 
         # 构建查询
-        query = RetrievalQuery(
+        query = create_retrieval_query(
             semantic_query=test_case["query"],
             keywords=["X-1024"],
         )
@@ -384,7 +402,7 @@ class TestHybridSearch:
         assert test_case["id"] == "RET-HYB-003"
 
         # 构建查询
-        query = RetrievalQuery(semantic_query=test_case["query"])
+        query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
         results = self.retriever.retrieve(query, top_k=5, score_threshold=0.0)
@@ -452,7 +470,7 @@ class TestReranking:
         assert test_case["id"] == "RET-RNK-001"
 
         # 构建查询
-        query = RetrievalQuery(semantic_query=test_case["query"])
+        query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索（包含 Rerank）
         results = asyncio.run(self.retriever.retrieve(query, top_k=10, score_threshold=0.0))
@@ -497,7 +515,7 @@ class TestReranking:
         assert test_case["id"] == "RET-RNK-002"
 
         # 构建查询（完全无关的查询）
-        query = RetrievalQuery(semantic_query=test_case["query"])
+        query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
         score_threshold = test_case.get("score_threshold", 0.5)
@@ -733,7 +751,7 @@ class TestEndToEndFlow:
         - 返回结果包含记忆，Agent 可读上下文由 MemoryCompiler 编译
         """
         # 构建查询
-        query = RetrievalQuery(semantic_query="水果的营养价值")
+        query = create_retrieval_query(semantic_query="水果的营养价值")
 
         # 执行完整检索流程
         result = asyncio.run(
@@ -781,7 +799,7 @@ class TestEndToEndFlow:
         - 不抛出异常
         """
         # 构建一个极不可能匹配的查询
-        query = RetrievalQuery(semantic_query="xyzzy12345_不存在的查询_abcde67890")
+        query = create_retrieval_query(semantic_query="xyzzy12345_不存在的查询_abcde67890")
 
         # 执行检索
         result = asyncio.run(
@@ -809,7 +827,7 @@ class TestEndToEndFlow:
         - 输出包含 memory_context 和相关记忆区块
         """
         # 构建查询
-        query = RetrievalQuery(semantic_query="Python 代码实现")
+        query = create_retrieval_query(semantic_query="Python 代码实现")
 
         # 执行检索
         result = asyncio.run(
@@ -873,7 +891,7 @@ class TestEndToEndFlow:
         query_count = 0
 
         for query_text, expected_ids in test_queries:
-            query = RetrievalQuery(semantic_query=query_text)
+            query = create_retrieval_query(semantic_query=query_text)
             result = asyncio.run(self.engine.retrieve(query=query, top_k=5, score_threshold=0.0))
 
             result_ids = [str(m.id) for m in result.memories]

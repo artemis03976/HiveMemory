@@ -120,7 +120,8 @@ class PassiveMessageIngressor:
         payload, target_topic = prepared
         await self._interaction_queue.submit(
             InteractionSubmission(
-                identity_scope=identity_scope,
+                belong_to=identity_scope.workspace_identity,
+                from_actor=identity_scope.actor_identity,
                 interaction_id=interaction_id,
                 payload=payload,
                 requested_topic_id=target_topic or "NEW_TOPIC",

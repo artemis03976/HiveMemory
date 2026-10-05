@@ -40,7 +40,7 @@ from tests.helpers.memory import make_memory_identity_scope
 
 @pytest.fixture
 def identity() -> ActorIdentity:
-    return ActorIdentity(user_id="test_user", agent_id="test_agent", session_id="test_session")
+    return ActorIdentity(user_id="test_user", agent_id="test_agent")
 
 
 @pytest.fixture
@@ -119,7 +119,11 @@ class TestModeBExtraction:
             write_focus=focus,
         )
 
-        result = await engine.process(request=request, identity_scope=identity_scope)
+        result = await engine.process(
+            request=request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         # 验证 extractor 被调用时 metadata 包含 mode=write
         call_args = mock_extractor.extract.call_args
@@ -155,7 +159,11 @@ class TestModeBExtraction:
         request = GenerationRequest(
             context=sample_context,
         )
-        await engine.process(request, identity_scope=identity_scope)
+        await engine.process(
+            request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         call_args = mock_extractor.extract.call_args
         metadata = call_args[1]["metadata"] if "metadata" in call_args[1] else call_args[0][1]
@@ -192,7 +200,11 @@ class TestModeBFallback:
             write_focus=focus,
         )
 
-        result = await engine.process(request=request, identity_scope=identity_scope)
+        result = await engine.process(
+            request=request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
 
         # fallback 应该保底生成 atom
         assert len(result) == 1
@@ -262,7 +274,11 @@ class TestEngineUnifiedAPI:
         request = GenerationRequest(
             context=sample_context,
         )
-        result = await engine.process(request, identity_scope=identity_scope)
+        result = await engine.process(
+            request,
+            belong_to=identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+        )
         assert result == []
         mock_extractor.extract.assert_called_once()
 
@@ -273,7 +289,10 @@ class TestEngineUnifiedAPI:
             extractor=MagicMock(),
             deduplicator=AsyncMock(),
         )
+        scope = make_memory_identity_scope()
         result = await engine.process(
-            GenerationRequest(), identity_scope=make_memory_identity_scope()
+            GenerationRequest(),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
         )
         assert result == []

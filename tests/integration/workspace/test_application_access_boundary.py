@@ -251,7 +251,7 @@ async def wired():
     )
 
     async def _apply(
-        payload, *, identity_scope, target_topic_id, interaction_id=None, asset_refs=()
+        payload, *, belong_to, from_actor, target_topic_id, interaction_id=None, asset_refs=()
     ):
         return target_topic_id
 
@@ -622,12 +622,13 @@ async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
     record = await wired.queue.runtime.get(receipt.work_id)
     persisted = json.loads(record.item.payload)
     assert persisted["correlation"] == {}
-    assert persisted["identity_scope"] == scope.model_dump(mode="json")
+    assert persisted["belong_to"] == scope.workspace_identity.model_dump(mode="json")
+    assert persisted["from_actor"] == scope.actor_identity.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
 async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_close(wired):
-    """失效 context 不能再授权新工作；已接纳交互只携带 scope，停止后仍可应用。
+    """失效 context 不能再授权新工作；已接纳交互携带独立身份字段，停止后仍可应用。
 
     System 停止顺序（A1 访问边界返工第 4.8 节）：网关先关闭（拒绝新
     认证），任务进程收尾后撤销全部已签发 context（之后授权按
@@ -680,7 +681,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
         wired.access.authorizer.authorize_operation(renewed, INTERACT, MAIN)
     assert closed_error.value.details["reason"] == "context_not_issued"
 
-    # 已接纳的交互只携带 scope：网关关闭与撤销全部 context 不影响其应用。
+    # 已接纳的交互只携带归属与发起者：网关关闭与撤销 context 不影响其应用。
     await wired.queue.start()
     outcome = await wired.queue.wait(first.interaction_id, timeout=2)
     assert outcome.state.value == "succeeded"
@@ -710,16 +711,16 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
     final = await wired.controller.wait_task(submission.task_id)
     assert final.status.value == "completed"
 
-    # 任务归属按权威 identity_scope 投影判断：提交者自己的观察 context 可见
+    # 任务按权威 belong_to 判断归属：提交者自己的观察 context 可见
     observe_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     result = await wired.system_tasks.get_memory_task(
         submission.task_id, target_workspace=MAIN, access=observe_context
     )
     assert result.status.value == "completed"
     assert result.canonical_alias == "memory_alias"
-    assert result.identity_scope == wired.access.authorizer.authorize_operation(
-        intent_context, INTENT, MAIN
-    )
+    authorized = wired.access.authorizer.authorize_operation(intent_context, INTENT, MAIN)
+    assert result.belong_to == authorized.workspace_identity
+    assert result.from_actor == authorized.actor_identity
 
     # OTHER Workspace 的观察 Actor：归属不一致统一 not found，不泄漏存在性
     other_context = await _other_observe_context(wired)

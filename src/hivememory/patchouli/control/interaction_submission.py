@@ -27,7 +27,7 @@ from hivememory.components.work_queue import (
     WorkRecord,
     WorkState,
 )
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
 from hivememory.patchouli.errors import TopicBusyError
@@ -61,11 +61,12 @@ def _require_exact_keys(
 class InteractionSubmission:
     """进入 Patchouli 摄入队列的一次交互提交快照。
 
-    ``identity_scope`` 是唯一身份来源；``payload`` 只承载内容与生成意图，
-    不再内嵌第二份身份事实。
+    ``belong_to`` 与 ``from_actor`` 分别承载归属与本轮发起者；
+    ``payload`` 只承载内容与生成意图，不内嵌身份事实。
     """
 
-    identity_scope: IdentityScope
+    belong_to: WorkspaceIdentity
+    from_actor: ActorIdentity
     interaction_id: str
     payload: InteractionPayload
     requested_topic_id: str
@@ -74,8 +75,10 @@ class InteractionSubmission:
     correlation: Mapping[str, str]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.identity_scope, IdentityScope):
-            raise TypeError("identity_scope must be an IdentityScope")
+        if not isinstance(self.belong_to, WorkspaceIdentity):
+            raise TypeError("belong_to must be a WorkspaceIdentity")
+        if not isinstance(self.from_actor, ActorIdentity):
+            raise TypeError("from_actor must be an ActorIdentity")
         _require_text(self.interaction_id, field_name="interaction_id")
         _require_text(self.requested_topic_id, field_name="requested_topic_id")
         _require_text(self.ordering_key, field_name="ordering_key")
@@ -92,21 +95,17 @@ class InteractionSubmission:
 
 
 class InteractionSubmissionCodec:
-    """InteractionSubmission 的 v2 canonical JSON codec。
-
-    v2 相对 v1 的变化是 ``payload.used_attachments``：W1-E 实际进入上下文
-    的附件使用引用快照（计划 9.5 节）。exact-key 约束在 envelope 层不变；
-    payload 新键随 schema version 提升生效，禁止写回 v1 payload。
-    """
+    """InteractionSubmission 的 v3 canonical JSON codec，独立编码归属与发起者。"""
 
     kind = "patchouli.interaction_submission"
-    schema_version = 2
+    schema_version = 3
 
     def encode(self, submission: InteractionSubmission) -> object:
         if not isinstance(submission, InteractionSubmission):
             raise TypeError("interaction submission payload has an unexpected type")
         return {
-            "identity_scope": submission.identity_scope.model_dump(mode="json"),
+            "belong_to": submission.belong_to.model_dump(mode="json"),
+            "from_actor": submission.from_actor.model_dump(mode="json"),
             "interaction_id": submission.interaction_id,
             "payload": submission.payload.model_dump(mode="json"),
             "requested_topic_id": submission.requested_topic_id,
@@ -121,7 +120,8 @@ class InteractionSubmissionCodec:
         _require_exact_keys(
             payload,
             expected={
-                "identity_scope",
+                "belong_to",
+                "from_actor",
                 "interaction_id",
                 "payload",
                 "requested_topic_id",
@@ -132,16 +132,20 @@ class InteractionSubmissionCodec:
             field_name="interaction submission payload",
         )
         raw_payload = payload.get("payload")
-        raw_scope = payload.get("identity_scope")
+        raw_scope = payload.get("belong_to")
+        raw_actor = payload.get("from_actor")
         correlation = payload.get("correlation")
         if not isinstance(raw_payload, dict):
             raise TypeError("interaction submission payload.payload must be an object")
         if not isinstance(raw_scope, dict):
-            raise TypeError("interaction submission payload.identity_scope must be an object")
+            raise TypeError("interaction submission payload.belong_to must be an object")
+        if not isinstance(raw_actor, dict):
+            raise TypeError("interaction submission payload.from_actor must be an object")
         if not isinstance(correlation, dict):
             raise TypeError("interaction submission payload.correlation must be an object")
         submission = InteractionSubmission(
-            identity_scope=IdentityScope.model_validate(raw_scope),
+            belong_to=WorkspaceIdentity.model_validate(raw_scope),
+            from_actor=ActorIdentity.model_validate(raw_actor),
             interaction_id=payload["interaction_id"],
             payload=InteractionPayload.model_validate(raw_payload),
             requested_topic_id=payload["requested_topic_id"],
@@ -151,73 +155,6 @@ class InteractionSubmissionCodec:
         )
         # 部分嵌套 Pydantic DTO 为兼容历史入口会忽略额外字段；codec 边界必须
         # 重新编码完整领域对象并要求规范等值，防止任何层级的篡改被静默吞掉。
-        if self.encode(submission) != payload:
-            raise ValueError("interaction submission payload is not canonical")
-        return submission
-
-
-class InteractionSubmissionV1Codec:
-    """InteractionSubmission 的 v1 只读兼容 codec。
-
-    仅用于解码 schema v2 引入附件使用键之前写入的存量 work item（进程内
-    队列，不跨重启）；不得用本 codec 编码新提交——禁止在 v1 payload 中
-    携带附件使用键（计划 9.5 节）。
-    """
-
-    kind = "patchouli.interaction_submission"
-    schema_version = 1
-
-    def encode(self, submission: InteractionSubmission) -> object:
-        if not isinstance(submission, InteractionSubmission):
-            raise TypeError("interaction submission payload has an unexpected type")
-        return {
-            "identity_scope": submission.identity_scope.model_dump(mode="json"),
-            "interaction_id": submission.interaction_id,
-            # v1 payload 不含 W1-E 引入的附件使用键。
-            "payload": submission.payload.model_dump(
-                mode="json",
-                exclude={"used_attachments"},
-            ),
-            "requested_topic_id": submission.requested_topic_id,
-            "ordering_key": submission.ordering_key,
-            "origin": submission.origin,
-            "correlation": dict(submission.correlation),
-        }
-
-    def decode(self, payload: object) -> InteractionSubmission:
-        if not isinstance(payload, dict):
-            raise TypeError("interaction submission payload must be an object")
-        _require_exact_keys(
-            payload,
-            expected={
-                "identity_scope",
-                "interaction_id",
-                "payload",
-                "requested_topic_id",
-                "ordering_key",
-                "origin",
-                "correlation",
-            },
-            field_name="interaction submission payload",
-        )
-        raw_payload = payload.get("payload")
-        if not isinstance(raw_payload, dict):
-            raise TypeError("interaction submission payload.payload must be an object")
-        raw_scope = payload.get("identity_scope")
-        if not isinstance(raw_scope, dict):
-            raise TypeError("interaction submission payload.identity_scope must be an object")
-        correlation = payload.get("correlation")
-        if not isinstance(correlation, dict):
-            raise TypeError("interaction submission payload.correlation must be an object")
-        submission = InteractionSubmission(
-            identity_scope=IdentityScope.model_validate(raw_scope),
-            interaction_id=payload["interaction_id"],
-            payload=InteractionPayload.model_validate(raw_payload),
-            requested_topic_id=payload["requested_topic_id"],
-            ordering_key=payload["ordering_key"],
-            origin=payload["origin"],
-            correlation=correlation,
-        )
         if self.encode(submission) != payload:
             raise ValueError("interaction submission payload is not canonical")
         return submission
@@ -283,7 +220,8 @@ class InteractionSubmissionHandler(
         asset_refs = tuple(payload.payload.used_attachments)
         topic_id = await self._apply_interaction(
             payload.payload,
-            identity_scope=payload.identity_scope,
+            belong_to=payload.belong_to,
+            from_actor=payload.from_actor,
             target_topic_id=payload.requested_topic_id,
             interaction_id=payload.interaction_id,
             asset_refs=asset_refs,
@@ -334,9 +272,8 @@ class InteractionSubmissionQueue:
         policy: QueuePolicy | None = None,
     ) -> None:
         self._codecs = WorkPayloadCodecRegistry()
-        # v2 为唯一写入口；v1 只读兼容存量 work item 的解码。
+        # 队列只驻留于进程内，重启后无需保留旧载荷版本。
         self._codecs.register(InteractionSubmissionCodec())
-        self._codecs.register(InteractionSubmissionV1Codec())
         lane_policy = policy or QueuePolicy(
             capacity=256,
             max_concurrency=4,
@@ -578,6 +515,5 @@ __all__ = [
     "InteractionSubmissionQueue",
     "InteractionSubmissionReceipt",
     "InteractionSubmissionResult",
-    "InteractionSubmissionV1Codec",
     "TransientInteractionSubmissionError",
 ]
