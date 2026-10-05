@@ -33,7 +33,7 @@ last_reviewed: 2026-10-04
 
 # 身份与访问体系
 
-**文档状态**：Idea，保留决定理由与分批讨论；第一、二批均已实施归档。第二批在 2026-10-04 形成经测试与审查的本地未提交阶段基线，见[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；不表示 v0.7.0 已合并或发布。
+**文档状态**：Idea，保留决定理由与分批讨论；第一、二批均已实施归档。第二批于 2026-10-04 经测试与审查后提交至分支 `refactor/identity-access-batch-2`（实现 commit `b2c7aee`），见[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；尚未合并，也不表示 v0.7.0 已发布。
 **记录日期**：2026-10-03；2026-10-04 记录 I-6、I-6a、I-7、I-11 的决定，并按第二批最终代码更新现状。WorkspaceAsset 内部拆分明确暂缓，见 [Todo](../todo/workspace-asset-ownership-identity-split.md)。
 
 ## 0. 文档性质
@@ -392,7 +392,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | 批次 | 范围 | 状态 |
 |:---|:---|:---|
 | 第一批 | workspace 边界：入口在认证前只持有声明；访问 context 为密封凭据并暂存 principal（I-1、I-2）；注册入口完成认证、签发即绑定、先注册后运行（I-3）；授权点显式接收目标 workspace（I-4）；owner 校验移到第 2、3 阶段（I-5）；进程记录只持有 context、进程句柄与唯一的取消方法（I-8）；CPU 过渡身份（I-9）；认证一侧与操作授权者分开且互不依赖（I-10）；资源 owner 与 Gateway 只接收 `IdentityScope` | 已完成：随 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)实施，2026-10-04 归档；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |
-| 第二批 | Patchouli 全系统归属与发起者拆分（I-6、I-6a）；SETTLE 统一 system 发起者（I-11）；移除 actor 的会话字段（I-7）；finalize/cleanup 阶段授权与公开签名收紧 | 已完成：[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)（2026-10-04，本地未提交阶段基线）；WorkspaceAsset 内部接口明确暂缓，由 [Todo](../todo/workspace-asset-ownership-identity-split.md) 跟踪 |
+| 第二批 | Patchouli 全系统归属与发起者拆分（I-6、I-6a）；SETTLE 统一 system 发起者（I-11）；移除 actor 的会话字段（I-7）；finalize/cleanup 阶段授权与公开签名收紧 | 已完成：[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)（2026-10-04，已提交至实施分支，尚未合并）；WorkspaceAsset 内部接口明确暂缓，由 [Todo](../todo/workspace-asset-ownership-identity-split.md) 跟踪 |
 | 不在 v0.7.0 | 资源的受限穿透访问（跨 workspace 的授权模型） | 模型在第 3 阶段的目标 T 处预留 |
 
 第一批使总 Idea 中两项早先的决定失去前提：“放行分支分两步去掉”与“两个提交路由的检查暂留在 Patchouli”。资源 owner 不再接收访问 context 后，这两项按最终设计记录在总 Idea 15.8。
