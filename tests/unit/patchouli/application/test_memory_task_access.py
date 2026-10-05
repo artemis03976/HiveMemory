@@ -5,7 +5,8 @@
   行为授权已上移 workspace 能力层，公开方法不接收 ``access`` 参数；
 - 任务必须携带归属投影且属于 scope 的 Workspace：跨 Workspace 与不存在
   统一按 not found 拒绝，不泄漏其他 Workspace 的任务存在性；
-- 列表按 scope 的 Workspace 过滤。
+- 列表按 scope 的 Workspace 过滤；
+- 显式传入 None 或非 ``IdentityScope`` 时以 ``ScopeRequiredError`` 拒绝，不触达任务控制面。
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import asyncio
 
 import pytest
 
-from hivememory.core.errors import ResourceNotFoundError
+from hivememory.core.errors import ResourceNotFoundError, ScopeRequiredError
 from hivememory.core.models import IdentityScope
 from hivememory.patchouli.application import MemoryTaskManagementService
 from hivememory.patchouli.control.memory_generation.models import (
@@ -179,3 +180,28 @@ def test_missing_identity_scope_rejected_as_required_argument(invoke):
     with pytest.raises(TypeError, match="identity_scope"):
         _run(invoke(service))
     assert bus.requested == []
+
+
+@pytest.mark.parametrize(
+    "bad_scope",
+    [None, MAIN],
+    ids=["none", "workspace_identity"],
+)
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        lambda svc, scope: svc.list_memory_tasks(identity_scope=scope),
+        lambda svc, scope: svc.get_memory_task("active:i1", identity_scope=scope),
+        lambda svc, scope: svc.cancel_memory_task("active:i1", identity_scope=scope),
+    ],
+    ids=["list_memory_tasks", "get_memory_task", "cancel_memory_task"],
+)
+def test_non_scope_identity_rejected_before_reaching_task_control(invoke, bad_scope):
+    """显式传入 None 或非 IdentityScope 时按 ScopeRequiredError 拒绝，且不触达任务控制面。"""
+    bus = FakeTaskBus([_task()])
+    service = MemoryTaskManagementService(bus=bus)
+
+    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+        _run(invoke(service, bad_scope))
+    assert bus.requested == []
+    assert bus.cancelled == []
