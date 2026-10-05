@@ -110,6 +110,55 @@ _shared_engine: RetrievalEngine | None = None
 _test_collection_name: str = "hivememory_retrieval_test"
 _golden_memories_injected: bool = False
 _golden_identity: ActorIdentity | None = None
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+# ========== 事件循环 ==========
+#
+# 本模块的测试是同步函数，共享的 QdrantMemoryStore 持有 AsyncQdrantClient，它绑定在
+# 首次使用它的事件循环上。逐次 ``asyncio.run`` 会为每次调用新建并关闭事件循环，第二次
+# 调用起便以 "Event loop is closed" 失败。因此模块内的全部异步调用都经 ``_run`` 在同一个
+# 事件循环中执行。
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    """返回模块共享的事件循环；首次调用时创建并设为当前循环（客户端在循环外构造）。"""
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
+
+def _run(coro: Any) -> Any:
+    """在模块共享的事件循环中执行协程。"""
+    return _get_loop().run_until_complete(coro)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _shared_event_loop():
+    """先于共享存储创建事件循环；模块结束时关闭 Qdrant 客户端与循环并清空共享状态。"""
+    global _loop, _shared_storage, _shared_mid_term, _shared_retriever
+    global _shared_reranker_service, _shared_engine, _golden_memories_injected, _golden_identity
+
+    _get_loop()
+    try:
+        yield
+    finally:
+        loop = _loop
+        if loop is not None and not loop.is_closed():
+            if _shared_storage is not None:
+                loop.run_until_complete(_shared_storage.client.close())
+            loop.close()
+        asyncio.set_event_loop(None)
+        _loop = None
+        _shared_storage = None
+        _shared_mid_term = None
+        _shared_retriever = None
+        _shared_reranker_service = None
+        _shared_engine = None
+        _golden_memories_injected = False
+        _golden_identity = None
 
 
 # ========== 测试环境初始化 ==========
@@ -142,7 +191,7 @@ def setup_test_env() -> RetrievalEngine:
     )
 
     # 确保测试集合存在
-    asyncio.run(_shared_storage.create_collection(recreate=False))
+    _run(_shared_storage.create_collection(recreate=False))
     _shared_mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(_shared_storage))
 
     # 2. 创建 Reranker 服务
@@ -206,7 +255,7 @@ def reset_test_env() -> None:
 
     if _shared_storage is not None:
         try:
-            asyncio.run(_shared_storage.create_collection(recreate=True))
+            _run(_shared_storage.create_collection(recreate=True))
             _golden_memories_injected = False
             _golden_identity = None
             console.print("[dim]测试集合已重置[/dim]")
@@ -228,7 +277,7 @@ def inject_golden_memories() -> None:
 
     for data in GOLDEN_MEMORIES:
         memory = create_memory_from_data(data, identity)
-        asyncio.run(storage.upsert_memory(memory))
+        _run(storage.upsert_memory(memory))
 
     _golden_memories_injected = True
     _golden_identity = identity
@@ -316,7 +365,7 @@ class TestHybridSearch:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
-        results = asyncio.run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
+        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -363,7 +412,7 @@ class TestHybridSearch:
         )
 
         # 执行检索
-        results = asyncio.run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
+        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -405,7 +454,7 @@ class TestHybridSearch:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
-        results = self.retriever.retrieve(query, top_k=5, score_threshold=0.0)
+        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -473,7 +522,7 @@ class TestReranking:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索（包含 Rerank）
-        results = asyncio.run(self.retriever.retrieve(query, top_k=10, score_threshold=0.0))
+        results = _run(self.retriever.retrieve(query, top_k=10, score_threshold=0.0))
 
         # 验证结果
         expected_top1 = test_case.get("expected_top1_after_rerank")
@@ -519,9 +568,7 @@ class TestReranking:
 
         # 执行检索
         score_threshold = test_case.get("score_threshold", 0.5)
-        results = asyncio.run(
-            self.retriever.retrieve(query, top_k=5, score_threshold=score_threshold)
-        )
+        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=score_threshold))
 
         # 验证结果：应该返回空或低分结果
         if test_case.get("expected_empty_or_low_score"):
@@ -754,7 +801,7 @@ class TestEndToEndFlow:
         query = create_retrieval_query(semantic_query="水果的营养价值")
 
         # 执行完整检索流程
-        result = asyncio.run(
+        result = _run(
             self.engine.retrieve(
                 query=query,
                 top_k=5,
@@ -802,7 +849,7 @@ class TestEndToEndFlow:
         query = create_retrieval_query(semantic_query="xyzzy12345_不存在的查询_abcde67890")
 
         # 执行检索
-        result = asyncio.run(
+        result = _run(
             self.engine.retrieve(
                 query=query,
                 top_k=5,
@@ -830,7 +877,7 @@ class TestEndToEndFlow:
         query = create_retrieval_query(semantic_query="Python 代码实现")
 
         # 执行检索
-        result = asyncio.run(
+        result = _run(
             self.engine.retrieve(
                 query=query,
                 top_k=3,
@@ -892,7 +939,7 @@ class TestEndToEndFlow:
 
         for query_text, expected_ids in test_queries:
             query = create_retrieval_query(semantic_query=query_text)
-            result = asyncio.run(self.engine.retrieve(query=query, top_k=5, score_threshold=0.0))
+            result = _run(self.engine.retrieve(query=query, top_k=5, score_threshold=0.0))
 
             result_ids = [str(m.id) for m in result.memories]
 
