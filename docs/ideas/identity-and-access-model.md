@@ -28,7 +28,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-06
 ---
 
 # 身份与访问体系
@@ -385,6 +385,8 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 暂无。第二批的前置决定均已作出（2026-10-04）。
 
+2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，在[总 Idea](./workspace-network-task-process-architecture.md#t-2-执行线程的访问-context) 第四部分 T-2 讨论，执行线程身份的确定方式见 T-1。问题只在总 Idea 维护；结论会修订本文第 2 节“每份 context 只属于一个 actor 和一次运行”中运行的粒度，以及 I-8“进程记录只持有访问 context”，I-9 的删除依赖该部分的 T-4。
+
 ## 8. 分批
 
 owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留，逐步分批修正项目中的使用点。2026-10-04 决定：收紧不再局限于顶层，第二批直接重构 Patchouli 全系统（I-6），同时补完非主动生成路径的发起者（I-11）并移除 `ActorIdentity.session_id`（I-7）。
@@ -402,6 +404,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | 文档 | 关系 |
 |:---|:---|
 | [总 Idea](./workspace-network-task-process-architecture.md)第三部分 | 认证与授权的流程与待决问题（P-1、P-4a、P-9 等）在那里；本文界定其中流动的身份数据 |
+| [总 Idea](./workspace-network-task-process-architecture.md)第四部分 | 执行单元（CPU）与执行线程（actor）的分层；T-1、T-2 涉及本文第 2 节、I-1 与 I-8，T-4 涉及 I-9 |
 | [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)（已归档） | 第一批的实施计划 |
 | [v0.7.0 身份与访问体系第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)（已归档） | 第二批的实施历史与本地验收证据 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Q-3a 决定访问 context 进入进程记录，与不变量 3 一致；进程记录如何持有身份见 I-8；认证与进程创建的顺序见 I-3 |
