@@ -11,7 +11,9 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/alice/pending-atom.md
-last_reviewed: 2026-09-28
+  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/execution-unit-thread-and-environment.md
+last_reviewed: 2026-10-06
 ---
 
 # 写入意图（PendingAtom）体系的迁移
@@ -79,6 +81,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 - `WriteFocus` 目前只有 content、reason、title，不携带目标 policy；将来 WRITE 若能声明 policy，需要重新审视“pending 不设 policy”；
 - 兼容期不回收句柄，意味着进程内的登记会一直增长到重启；
 - 取消语义的变化在实施完成后，需要按晋升门禁同步到 AGENTS.md 第 4 节与相关契约。
+- （2026-10-06）本方向与 Alice 的能力层调用迁移都涉及 resolver 的迁出。owner 已决定第 1 步先于 Alice 的能力层调用迁移完成：登记与 L0 先进入 workspace，resolver 由 Alice 迁移整体迁出（[总 Idea](./workspace-network-task-process-architecture.md#1511-写入意图迁移第-1-步先于-alice-的能力层调用迁移p-11) 15.11）。影响（分析）：第 1 步中 Alice 的写入意图提交与 pending 读回要经能力层，至少主线程的回调通道（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-4-进程与执行单元之间的回调通道) T-4）需要在第 1 步的计划之前决定；pending 读回若经 workspace 的原子缓存跟随结算后的 canonical 引用，还需要读取缓存失效在前。能力层如何提供 pending 与结算状态的解析结果，见总 Idea P-12a，第 4.1 节的候选设计是其中一个选项；结算后的缓存维护由谁承担，见总 Idea P-11a。
 
 ## 1. 目标边界
 

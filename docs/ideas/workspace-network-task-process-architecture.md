@@ -811,7 +811,7 @@ sequenceDiagram
 
 ### 15.4 Agent Profile 的权限并入 operation 控制（P-2、P-10）
 
-**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属；随 Alice 的能力层调用迁移实施，尚未实施。P-10a 见第 16 节。
+**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划；尚未实施，计划尚未建立。P-10a 见第 16 节。
 
 **问题**：两套权限并存：A1 的 operation 白名单与 Agent Profile 的 `allowed_mtp_verbs`、`allowed_sys_tools`（13.2）。后者的语义绑定 MTP 与系统工具体系，对不经 MTP 的外部 Actor（MCP、外部协议）没有定义含义（P-10，原记录于 AgentProfile 模型演进 Todo，2026-09-27 归档）。
 
@@ -821,12 +821,15 @@ sequenceDiagram
 - 授权依据来自能力层的 operation 控制，而不是 Profile 原子；持有 `management.memory` 不再能借修改 Profile 影响授权；
 - 执行类操作（RUN、CALL、系统工具）的授权进入 operation 目录；执行本身是否经能力层、与 v0.7.1 执行基座的边界，见 P-3；
 - 归属（2026-10-02）：属于 Alice 的能力层调用迁移计划（15.5），不在 A1 返工内。
+- 归属（2026-10-06，取代上一条）：单独作为一个计划实现，不随 Alice 的能力层调用迁移实施。与 Alice 迁移的先后未定。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
+**拆分后的过渡状态**（分析，2026-10-06）：若 Alice 的能力层调用迁移先完成，在本计划实施之前，Alice 的 MTP 调用由能力层按访问登记的白名单授权，同时 Alice 仍按 Profile 的 `allowed_mtp_verbs`（`FrameExecutionPolicy`）与 `allowed_sys_tools`（提示词组装与系统工具执行）检查，即上段取舍所说的两处检查暂时并存。
+
 ### 15.5 Alice 的能力层调用迁移
 
-**状态**：已完成（方向与排期）。2026-10-02 决定；单独建立计划，尚未开始；前驱 A1 返工已完成。
+**状态**：已完成（方向与排期）。2026-10-02 决定；2026-10-06 重新划分为几个按先后实施的方向（见下文“重新划分”），均尚未开始；前驱 A1 返工已完成。
 
 **问题**：前提第 4 条要求 actor 的主动操作都导向能力层，Alice 还没有做到（13.5）。MTP 与能力层的参数信息不对等：MTP 的调用只带 `IdentityScope`，能力层要求访问 context，而生产入口要到 A1 返工才从认证网关取得 context。
 
@@ -834,17 +837,32 @@ sequenceDiagram
 
 迁移涉及的内容（分析，汇总自本文与相关 Idea）：
 
-- Alice 直接调用的四个方法（`retrieve`、`retrieve_by_aliases`、`get_agent_profile`、`record_memory_citation`）改经能力层，能力层需要补上引用记录的方法；
-- Profile 权限并入 operation 控制（15.4）；
+- Alice 直接调用的四个方法（`retrieve`、`retrieve_by_aliases`、`get_agent_profile`、`record_memory_citation`）改经能力层，能力层需要补上的接口见 P-12；
+- Profile 权限并入 operation 控制（15.4）：2026-10-06 移出，单独建立计划，不在本迁移内；
+- 与写入意图迁移在 resolver、pending 解析与缓存维护上的边界与先后，见 P-11；
 - CPU 过渡身份 `cpu_execution_identity` 随之删除（[身份与访问体系 Idea](./identity-and-access-model.md) I-9）；
 - 任务进程的 Profile 解析改经能力层（任务进程 Idea 1.2）；
 - Alice 自有的 resolver 与读取缓存迁出（D-9）；
 - 两种读取视角的入口形式（P-9f）在 actor 可见读取接入生产时需要确定；
-- （2026-10-06）发起者的补全：Alice 的父 agent 与 CALL 派生的子 agent 分别是主线程与子线程（第四部分前提 3），迁移需要为 Alice 给出 T-1（线程身份的确定方式）、T-2（线程的访问 context）与 T-4（回调通道）的一种实现，子线程的权限取决于 T-3；`cpu_execution_identity` 的删除依赖 T-4。
+- （2026-10-06）发起者的补全：Alice 的父 agent 与 CALL 派生的子 agent 分别是主线程与子线程（第四部分前提 3），迁移需要实现 T-1（子线程的身份在派生时确定，派生到达进程）与 T-2（每个线程一份访问 context）的决定，并给出 T-1a（派生到达进程的途径）、T-1b（后续调用与线程的对应）与 T-4（回调通道）的一种实现，子线程的权限取决于 T-3；`cpu_execution_identity` 的删除依赖 T-4。这些内容在下文“重新划分”中分属写入意图迁移第 1 步、收窄后的 Alice 能力层调用迁移与执行线程层。
 
 前置条件（分析，2026-10-03）：workspace 读取缓存的失效机制需要先接上（13.6，6.3）。否则 actor 可见读取接入生产后，管理写入之后 agent 会从缓存读到旧内容。
 
-前置条件（分析，2026-10-06）：第四部分的 T-1–T-4 需要在建立计划前决定。它们决定 Alice 的工具调用经哪一层补全发起者、以哪份 context 授权，计划无法绕开；外部 Actor 的 controller 模式（v0.7.1）会沿用同一结构（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-5、E-6）。
+前置条件（分析，2026-10-06）：第四部分的 T-1a、T-1b、T-3、T-4 需要在相应计划建立前决定（T-1、T-2 已于同日决定）；外部 Actor 的 controller 模式会沿用同一结构（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-5、E-6）。
+
+**重新划分**（2026-10-06）：owner 指出内容与问题再次膨胀，提出重新划分计划，并决定写入意图迁移的第 1 步在前（15.11）；划分方式按讨论中的建议记录如下。上面清单中的内容分属以下方向，各自建立计划，计划之间只有先后（[文档治理规范](../DOCUMENTATION.md)第 8.3 节）：
+
+| 方向 | 内容 | 建立计划前要定的问题 |
+|:---|:---|:---|
+| Workspace 读取缓存失效 | canonical 变更事件与订阅者纪律（7.1.3）；任务进程的 Profile 解析改经能力层，作为第一个生产调用方 | 6.3 的细则 |
+| 写入意图迁移·第 1 步（[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 执行单元 Idea T-4（至少主线程的回调通道）；P-12a 中 pending 的部分；写入意图迁移 Idea 的开放项 |
+| Alice 的能力层调用迁移（收窄后） | MTP 操作适配器；其余读取与引用记录改经能力层（P-12）；删除 `cpu_execution_identity`、Alice 自有的 resolver 与读取缓存；D-9 遗留 | P-12、P-9f、P-11a；T-4 中第 1 步未决定的部分 |
+| 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3 |
+| Agent Profile 的权限并入 operation 控制 | 已于同日拆出（15.4） | operation 与 MTP 动词、系统工具的粒度；默认登记；权限的编辑位置 |
+
+- 顺序：读取缓存失效与写入意图迁移第 1 步都在 Alice 的能力层调用迁移之前；两者之间的先后取决于第 1 步是否经 workspace 的原子缓存跟随结算后的 canonical 引用（P-12a）：若是，缓存失效在前。执行线程层在 Alice 的能力层调用迁移之后；它与 Profile 权限计划的先后受执行单元 Idea T-3c 约束。
+- 分析：Alice 的能力层调用迁移完成、执行线程层实施之前，Alice 的子线程共享主线程的访问 context，与外部执行单元的语义相同（外部 Actor Idea E-5），是一个合法的中间状态。
+- 执行环境的选择（执行单元 Idea T-7、T-8）不在 v0.7.0，随后续版本实施，不一定是 v0.7.1（owner，2026-10-06）。
 
 ### 15.6 访问登记与 context 的生命周期
 
@@ -919,6 +937,34 @@ sequenceDiagram
 - **P-7（取消）**（2026-09-28）：只有用户有权取消任务进程，入口是唯一的 HTTP server 入口；取消请求必须带明确的 `process_id`；只有 Gateway 与 Actor 执行两个阶段可以取消（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-15-各阶段取消策略的声明方式) Q-15、Q-16）。
 - **取消不新增 operation**（2026-10-02，P-9c 的一部分）：维持进程服务的 owner 与 workspace 校验。A1 返工中实现为进程控制授权：由操作授权者比对请求方 context 与进程记录 context 的驻留坐标，不匹配时与不存在一样返回 `not_found`；持有进程句柄的入口是进程生命周期的所有者，取消时不经进程控制授权（身份与访问体系 Idea I-8）。
 - **memory-tasks 路由**（2026-10-02，P-9c 的一部分）：补上身份，按 `task.observe` / `management.task` 授权。
+
+### 15.11 写入意图迁移第 1 步先于 Alice 的能力层调用迁移（P-11）
+
+**状态**：已完成。2026-10-06 决定；尚未实施。P-11a（缓存维护的去处）见第 16 节。
+
+**问题**：两个方向都要把 resolver 迁出 Alice，二者的边界与先后如何安排？
+
+**背景**（2026-10-06 核对，决定前）：
+
+- Alice 的 `RuntimeAliasResolver`（[`agent_runtime/aliases/resolver.py`](../../src/hivememory/agent_runtime/aliases/resolver.py)）按 L0 `PendingAtomRuntime`、L1 Alice 自有的原子缓存、L2 Patchouli 冷读的顺序解析，三级在同一个 resolver 内；L0 命中按整个 `IdentityScope` 相等判断可见性。workspace 的 `AliasResolver` 中 L0 尚未接入，恒为未命中（13.6）。
+- Alice 自有缓存的维护也在 Alice 内：结算事件到达后，`AliceRuntime.on_pending_atom_settled` 失效并回填 L1（[`alice/runtime/core.py`](../../src/hivememory/alice/runtime/core.py)）；MTP UPDATE 登记修订时失效原 alias 的 L1 条目；SEARCH 的结果与 prepare 的检索结果会预热 L1。
+- [写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 的第 1 步包括：登记迁出 Alice、对全 workspace 开放的回读、能力层的提交方法、结算事件的接收；同节还写明 Alice 的 alias resolver 与缓存迁移到 workspace 的读取视图（D-9）。两个方向都涉及 resolver 的迁出。
+- [Plans 导航](../plans/README.md)中，写入意图迁移与外部会话方向的先后均可；它与 Alice 的能力层调用迁移的先后没有规定。
+
+**设计**（owner）：写入意图迁移的第 1 步先完成：登记与 L0 先进入 workspace，Alice 的能力层调用迁移时 resolver 整体迁出。
+
+- 理由（owner）：workspace 中已经有计划重构前的部分迁移结果（读取视图、原子缓存与 Profile 缓存、`WorkspaceRuntime`，13.6、D-9），先把这部分做完比较重要；resolver 也只需要迁出一次。
+- 影响（分析）：第 1 步中 Alice 的写入意图提交与 pending 读回要经能力层，而能力层要求访问 context，Alice 不持有它。因此至少主线程的回调通道（执行单元 Idea T-4）要在第 1 步的计划之前决定，Alice 的 MTP 操作适配器也从第 1 步开始建立（先覆盖 WRITE、UPDATE 与 pending 读回）。
+- 影响（分析）：pending 读回若经 workspace 的原子缓存跟随结算后的 canonical 引用，就成为生产中的 actor 可见读取，需要缓存失效在前（15.5 的前置条件）；若 P-12a 选择“能力层只返回 canonical 原子，pending 与结算状态由写入意图的读取方法另行提供”，第 1 步可以不依赖缓存失效。
+
+**取舍**：原选项如下。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 写入意图迁移的第 1 步在前：登记与 L0 先进入 workspace，Alice 迁移时 resolver 整体迁出 | Alice 迁移要等第 1 步完成；第 1 步期间 MTP READ 仍要读回 pending，而登记已在 workspace，这部分读取须经能力层，与 Alice 迁移的范围重叠 |
+| B | Alice 迁移在前，过渡期 L0 留在 Alice | Alice 的 MTP 先查本地的 `PendingAtomRuntime`，未命中再经能力层读取 canonical；过渡期 pending 解析与 canonical 解析分处两地，写入意图迁移时再移除 Alice 的 L0 |
+| C | 调整两份计划的范围，由其中一份承担 resolver 的整体迁出（含 L0） | 承担方的范围变大；另一份计划以它为前驱 |
+| D | 其他 | —— |
 
 ## 16. 第三部分未完成的问题
 
@@ -1004,6 +1050,24 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 - **P-10a 外部 Actor 应用 Profile 的结果是否需要字段或伴随契约承载**（已应用、部分支持、拒绝）：需要 / 不需要 / 其他。
   - 分析（2026-10-06）：按第四部分前提 9，同一个 Agent Profile 可以在不同执行环境中运行，执行参数（persona、模型、采样参数、语言）在外部 harness 上只能尽力应用。若不承载应用结果，用户无法得知所选 agent 的 persona 或模型是否真正生效；承载时由 CPU 驱动报告，可以随执行结果交回进程，或在 CPU 分配时预先判定（T-7）。
 
+### P-11 Alice 的能力层调用迁移与写入意图迁移的边界与先后
+
+主问题（先后）已完成，见 15.11；背景与原选项也在该处。
+
+- **P-11a 缓存维护的去处**：resolver 迁出后，结算后的回填、UPDATE 时的失效与检索预热由谁承担：workspace 订阅结算事件 / 由 canonical 变更事件覆盖（7.1.3、6.3） / 其他。与缓存失效这一前置条件（15.5）一并考虑。
+
+### P-12 能力层为 MTP 补齐的接口
+
+**背景**：按[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4（2026-10-06），操作适配器把操作请求归一化为能力层已有方法的调用；能力层缺少对应方法时扩展能力层，而不是在操作适配器中实现领域语义。MTP 的操作适配器尚不存在（[执行单元 Idea](./execution-unit-thread-and-environment.md#22-代码现状2026-10-06-核对) 2.2）；对照 Alice 现有的调用，能力层缺两类接口。
+
+- **P-12a MTP 的引用解析结果**：Alice 的 resolver 返回 `ResolveResult`，区分 pending、redirect、discarded、failed、expired、atom 与 not_found 七种结果。MTP READ 按种类编译输出；UPDATE 拒绝 pending、要求正式原子；RUN 只执行 `CODE_SNIPPET`，对 redirect 给出警告；CALL 的 `context_refs` 也经它解析。能力层的 `retrieve_by_aliases` 只返回实际可读的原子列表，`read` 返回原子或 `None`。
+  - 选项：能力层提供与 `ResolveResult` 语义等价的中立解析结果（[写入意图迁移 Idea](./pending-intent-migration.md#41-共同引用读取与-alias-resolver-归属) 4.1 的候选设计） / 能力层只返回 canonical 原子，pending 与结算状态由写入意图的读取方法另行提供 / 其他。
+  - 影响：中立结果类型放在哪里，决定 `engines/memory_compiler` 对 `agent_runtime.aliases` 的已知向上导入（第 10 节）如何处理；与 P-11 相互约束，取决于 pending 结果由哪一侧提供。
+- **P-12b 引用记录**：Alice 在 MTP READ（来源 `mtp.read`）与 RUN（`mtp.run`）交付原子后，调用 Patchouli 的 `record_memory_citation`，由 Patchouli 的生命周期服务记录一次引用事件；调用失败只记日志。能力层没有对应方法（13.5）。
+  - 所需 operation：归入 `resource.read`（引用随读取发生） / 新增 operation / 由能力层的读取方法在交付时记录，不单独暴露 / 其他；
+  - 失败语义：保持只记日志 / 显式失败 / 其他。
+- 分析：错误映射（例如把 workspace 一侧的 `ResourceUnavailableError` 映射为 MTP 的错误）属于操作适配器的职责（外部 Actor Idea 3.4），不需要能力层新增接口。
+
 ### 与前两部分问题的关联
 
 表中 Q-1–Q-10 位于[任务进程 Idea](./task-process-table-and-registration-entry.md)。
@@ -1018,6 +1082,8 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 | P-9a | D-8a；任务进程 Idea 前提第 3 条；[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 1.1（plugin 模式） |
 | P-9c、P-9f | Alice 的能力层调用迁移（actor 可见读取接入生产，15.5）；[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md) |
 | P-9d | 任务进程 Idea 前提 |
+| P-11 | [写入意图迁移 Idea](./pending-intent-migration.md) 0.1、4.1；15.5（缓存失效前置条件）；6.3、7.1.3；D-9 |
+| P-12 | 外部 Actor Idea 3.4；写入意图迁移 Idea 4.1；P-9f；第 10 节 engines 的既有向上导入 |
 
 ## 17. 第四部分：执行单元、执行线程与执行环境（已拆出）
 
