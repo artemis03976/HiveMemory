@@ -67,6 +67,12 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 
 **结算后的句柄**：结算后 PendingAtom 句柄的生命周期需要重新设计。这一项不阻塞现有计划；兼容期内暂不回收句柄。
 
+**第 1 步的补充决定**（owner，2026-10-06，建立计划前接受的默认决定 W4、W5）：
+
+- **W4 未以 completed 结束的进程**：第 1 步沿用现状，进程关闭时取消本进程仍为 PENDING 的意图；本节“取消与失败：不再丢弃”随第 2 步与实时派发一起实施。第 1 步仍只在 finalize 时派发物化，不取消的意图将永远不被派发。
+- **W5 operation 与默认登记**：提交（WRITE、UPDATE）绑定 `memory_intent.submit`，读回绑定 `resource.read`；默认的用户级访问登记加入 `memory_intent.submit`。
+- 第 1 步与读取缓存失效、Alice 引用解析的整体迁出合为一份计划：[v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](../plans/v0.7.0-intent-registry-and-read-cache.md)（总 Idea 15.11 的补充）。
+
 **分两步实施**：
 
 1. 登记迁出 Alice：登记移到 workspace、对全 workspace 开放的回读、能力层的提交方法、生命周期与进程解耦、结算事件的接收；

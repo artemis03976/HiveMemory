@@ -861,6 +861,7 @@ sequenceDiagram
 | Agent Profile 的权限并入 operation 控制 | 已于同日拆出（15.4） | operation 与 MTP 动词、系统工具的粒度；默认登记；权限的编辑位置 |
 
 - 顺序：读取缓存失效与写入意图迁移第 1 步都在 Alice 的能力层调用迁移之前；两者之间的先后取决于第 1 步是否经 workspace 的原子缓存跟随结算后的 canonical 引用（P-12a）：若是，缓存失效在前。执行线程层在 Alice 的能力层调用迁移之后；它与 Profile 权限计划的先后受执行单元 Idea T-3c 约束。
+- （owner，2026-10-06）读取缓存失效与写入意图迁移第 1 步合为[同一份计划](../plans/v0.7.0-intent-registry-and-read-cache.md)，Alice 的引用解析也在该计划中整体迁到 workspace，避免 pending 与正式记忆分处两地解析的过渡状态；收窄后的 Alice 能力层调用迁移相应只剩 SEARCH、引用记录、`cpu_execution_identity` 的删除与 D-9 中尚未处理的遗留。
 - 分析：Alice 的能力层调用迁移完成、执行线程层实施之前，Alice 的子线程共享主线程的访问 context，与外部执行单元的语义相同（外部 Actor Idea E-5），是一个合法的中间状态。
 - 执行环境的选择（执行单元 Idea T-7、T-8）不在 v0.7.0，随后续版本实施，不一定是 v0.7.1（owner，2026-10-06）。
 
@@ -956,6 +957,8 @@ sequenceDiagram
 - 理由（owner）：workspace 中已经有计划重构前的部分迁移结果（读取视图、原子缓存与 Profile 缓存、`WorkspaceRuntime`，13.6、D-9），先把这部分做完比较重要；resolver 也只需要迁出一次。
 - 影响（分析）：第 1 步中 Alice 的写入意图提交与 pending 读回要经能力层，而能力层要求访问 context，Alice 不持有它。因此至少主线程的回调通道（执行单元 Idea T-4）要在第 1 步的计划之前决定，Alice 的 MTP 操作适配器也从第 1 步开始建立（先覆盖 WRITE、UPDATE 与 pending 读回）。
 - 影响（分析）：pending 读回若经 workspace 的原子缓存跟随结算后的 canonical 引用，就成为生产中的 actor 可见读取，需要缓存失效在前（15.5 的前置条件）；若 P-12a 选择“能力层只返回 canonical 原子，pending 与结算状态由写入意图的读取方法另行提供”，第 1 步可以不依赖缓存失效。
+
+**补充**（owner，2026-10-06）：建立第 1 步的计划前，owner 接受了五项默认决定（W1–W5），并把 W1 改为与读取缓存失效同批完成：缓存失效按 7.1.3 的全局总线事件订阅实现，不处理重试与未送达；resolver 因此在同一份计划中整体迁出，上文“Alice 的能力层调用迁移时 resolver 整体迁出”改由该计划承担。计划见 [v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](../plans/v0.7.0-intent-registry-and-read-cache.md)。
 
 **取舍**：原选项如下。
 
@@ -1055,6 +1058,7 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 主问题（先后）已完成，见 15.11；背景与原选项也在该处。
 
 - **P-11a 缓存维护的去处**：resolver 迁出后，结算后的回填、UPDATE 时的失效与检索预热由谁承担：workspace 订阅结算事件 / 由 canonical 变更事件覆盖（7.1.3、6.3） / 其他。与缓存失效这一前置条件（15.5）一并考虑。
+  - 2026-10-06：随[写入意图登记与读取缓存失效计划](../plans/v0.7.0-intent-registry-and-read-cache.md)处理：结算后不回填，由 canonical 变更事件失效；UPDATE 登记后失效基础原子；只有能力层的语义检索预热。
 
 ### P-12 能力层为 MTP 补齐的接口
 
@@ -1063,6 +1067,7 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 - **P-12a MTP 的引用解析结果**：Alice 的 resolver 返回 `ResolveResult`，区分 pending、redirect、discarded、failed、expired、atom 与 not_found 七种结果。MTP READ 按种类编译输出；UPDATE 拒绝 pending、要求正式原子；RUN 只执行 `CODE_SNIPPET`，对 redirect 给出警告；CALL 的 `context_refs` 也经它解析。能力层的 `retrieve_by_aliases` 只返回实际可读的原子列表，`read` 返回原子或 `None`。
   - 选项：能力层提供与 `ResolveResult` 语义等价的中立解析结果（[写入意图迁移 Idea](./pending-intent-migration.md#41-共同引用读取与-alias-resolver-归属) 4.1 的候选设计） / 能力层只返回 canonical 原子，pending 与结算状态由写入意图的读取方法另行提供 / 其他。
   - 影响：中立结果类型放在哪里，决定 `engines/memory_compiler` 对 `agent_runtime.aliases` 的已知向上导入（第 10 节）如何处理；与 P-11 相互约束，取决于 pending 结果由哪一侧提供。
+  - 2026-10-06：W1 合并后，能力层在[写入意图登记与读取缓存失效计划](../plans/v0.7.0-intent-registry-and-read-cache.md)中提供与 `ResolveResult` 等价的中立结果（第一项），中立模型移到 core。
 - **P-12b 引用记录**：Alice 在 MTP READ（来源 `mtp.read`）与 RUN（`mtp.run`）交付原子后，调用 Patchouli 的 `record_memory_citation`，由 Patchouli 的生命周期服务记录一次引用事件；调用失败只记日志。能力层没有对应方法（13.5）。
   - 所需 operation：归入 `resource.read`（引用随读取发生） / 新增 operation / 由能力层的读取方法在交付时记录，不单独暴露 / 其他；
   - 失败语义：保持只记日志 / 显式失败 / 其他。
