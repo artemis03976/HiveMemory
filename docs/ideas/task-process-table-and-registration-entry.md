@@ -18,7 +18,8 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/identity-and-access-model.md
-last_reviewed: 2026-10-04
+  - docs/ideas/execution-unit-thread-and-environment.md
+last_reviewed: 2026-10-06
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -50,7 +51,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 | A1 访问边界返工（2026-10-04） | 注册入口完成两阶段认证、先注册后运行；进程记录持有访问 context；进程表登记任务进程；不透明的进程句柄与唯一的取消方法 | [归档计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md) |
 | TaskProcess 容器（2026-10-04） | 四阶段骨架拆为所有进程共用的执行器 `TaskProcessRunner`，`TaskProcess` 只作状态容器；注册入口只持有生命周期依赖 | [归档的 Todo](../archive/todo/task-process-container-ownership.md) |
 
-当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节、[子系统公共契约](../contracts/subsystem-contracts.md)与 [Gateway 全局命令](../gateway/commands.md)。1.2 中尚未实施的部分归其他方向：Topic 按需创建与 cleanup 路由的移除归[外部会话与 Topic 投影](./external-session-and-topic-projection.md)，写入意图的实时提交归[写入意图迁移](./pending-intent-migration.md)，Profile 权限并入 operation 控制归 Alice 的能力层调用迁移（总 Idea 15.4、15.5）。
+当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节、[子系统公共契约](../contracts/subsystem-contracts.md)与 [Gateway 全局命令](../gateway/commands.md)。1.2 中尚未实施的部分归其他方向：Topic 按需创建与 cleanup 路由的移除归[外部会话与 Topic 投影](./external-session-and-topic-projection.md)，写入意图的实时提交归[写入意图迁移](./pending-intent-migration.md)，Profile 权限并入 operation 控制归单独的计划（总 Idea 15.4，2026-10-06 从 Alice 的能力层调用迁移中拆出）。
 
 ## 1. 前提（owner 提出）
 
@@ -80,7 +81,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 | 对象 | 定位 |
 |:---|:---|
-| CALL 派生的子执行单元 | 在父 Agent 的任务进程内执行，不能请求新进程（Q-10） |
+| CALL 派生的子执行线程（2026-10-06 前称子执行单元） | 在父 Agent 的任务进程内执行，不能请求新进程（Q-10）；执行单元（CPU）与执行线程（actor）的分层见[执行单元 Idea](./execution-unit-thread-and-environment.md#1-前提owner-提出) |
 | 管理员直接通道 | 不是请求；性质更接近 CPU，直接执行 operation，不经注册入口、不建进程（总 Idea 15.1） |
 | Patchouli 的记忆任务 | 给后台系统的任务，不暴露给 Agent（Q-7） |
 | plugin 模式下的外部 harness | 对话由外部 harness 管理，不经注册入口；以不建进程的方式经能力层访问（外部 Actor Idea 1.1） |
@@ -97,9 +98,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 |:---|:---|
 | 创建时机与入口 | 已实施：注册入口完成两阶段认证后立即创建进程，入口只管理生命周期（A1 返工、TaskProcess 容器） |
 | 四阶段通用骨架 | 已实施：所有进程共用的执行器 `TaskProcessRunner`（第一批、TaskProcess 容器） |
-| CPU 分配、输入清单与 CPU 端口 | 已实施（第二、四批）；CPU 的选择机制与 actor 对应 CPU 的映射后置 |
+| CPU 分配、输入清单与 CPU 端口 | 已实施（第二、四批）；CPU 的选择机制后置：2026-10-06 决定 agent 与执行环境由用户分别选择，不存在固定的 actor 到 CPU 的映射（执行单元 Idea 前提 9、10，T-7、T-8 待决） |
 | 进程记录与工作集 | 部分实施：进程记录与工作集的现有内容见下文“进程记录与工作集”；请求方式与 CPU 分配未记入进程记录，GatewayDecision 与执行记录未成为工作集槽位 |
-| Patchouli prepare 与结算的拆分 | prepare 退化、进程编译、附件、Profile 解析、交互记录由进程组装已实施（第二、三批）；Topic 按需创建与 Profile 解析回到 prepare 之后未实施（外部会话方向）；Profile 权限并入 operation 控制未实施（Alice 的能力层调用迁移） |
+| Patchouli prepare 与结算的拆分 | prepare 退化、进程编译、附件、Profile 解析、交互记录由进程组装已实施（第二、三批）；Topic 按需创建与 Profile 解析回到 prepare 之后未实施（外部会话方向）；Profile 权限并入 operation 控制未实施（单独的计划，总 Idea 15.4） |
 | v0.7.0 版本目标 | 第 1、2、4 条已达成；第 3 条只剩 Patchouli cleanup 路由，随 Topic 按需创建移除 |
 
 **创建时机与入口**
@@ -119,8 +120,10 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 **CPU 分配与输入清单**
 
 - 进入 Actor 执行阶段前完成 CPU 分配，并同步记录到进程中。
+  - **执行环境的选择**（owner，2026-10-06）：agent 与执行环境解耦，用户在对话开始前分别选择；选择执行环境只能由用户做出，不是 workspace 的能力，倾向由系统层级控制，在 CPU 分配时决定实际使用的 backend（[执行单元 Idea](./execution-unit-thread-and-environment.md#1-前提owner-提出)前提 9、10）。现有的 CPU 分配只准备输入，没有选择 CPU 的步骤；选择的承载、默认值与可用范围见执行单元 Idea T-8，组合的有效性校验见 T-7。
 - 前面阶段的产出作为面向 CPU 的输入清单，让任意 Actor 都能接收。
 - **CPU 端口**（owner，2026-09-30）：进程经对象端口调用 CPU：端口由 workspace 定义（`workspace.contracts`），CPU 实现，组合根注入；不采用总线路由契约。依据是外部 harness 的一份登记派生接入与执行两个侧面（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#12-harness-登记的两个侧面owner2026-09-30) 1.2）：外部 harness 的驱动多数不是子系统，按路由契约接入需要为每种驱动增加路由常量，或在总线后面再建一层分派。v0.7.0 只需要 Alice 接入；CPU 的选择机制与 actor 对应 CPU 的映射后续设计。
+  - **术语**（owner，2026-10-06）：CPU 端口的实现称 CPU 驱动，`AliceCPU` 是 Alice 的 CPU 驱动；执行单元即 CPU 驱动加上它驱动的 harness 实例；harness 的工具调用经操作适配器回到能力层，操作适配器不属于 CPU 驱动（[执行单元 Idea](./execution-unit-thread-and-environment.md#1-前提owner-提出)前提 5–7）。
   - **CPU 端口的输出**（owner，2026-10-01）：CPU 的事件流把终态结果与其余交互事件分开，交互事件原样透传；执行结果去掉 `mtp_iterations` 与 `total_iterations` 两个冗余字段。
   - **Alice 的统一入口**（owner，2026-10-01）：Alice 的流式与非流式两条执行路径合并为一个入口，与注册入口的 `run_process` 一样以参数控制是否流式。
 
@@ -315,7 +318,7 @@ flowchart TB
     G -- "取消 / 失败" --> I["不提交交互记录（Q-14）<br/>已提交的写入意图照常生成"]
     H --> J["进程关闭，释放工作集中的资源<br/>（Q-1）"]
     I --> J
-    F -. "CALL 子 Agent（Q-10）" .-> L["子执行单元<br/>在本进程内执行"]
+    F -. "CALL 子 Agent（Q-10）" .-> L["子执行线程<br/>在本进程内执行"]
 ```
 
 ## 4. 问题
@@ -349,7 +352,7 @@ flowchart TB
 
 - 第一版采用简单实现：PendingAtom 不设 policy，默认对全 workspace 开放；
 - PendingAtom 不参与检索，能拿到其别名的一般只有写入它的 agent，别人几乎无法访问；狭义上能做到“中间产物归进程”；
-- 登记与进程解耦后，plugin 模式（不建进程，经 MCP 提交的写入意图没有所属进程）与 CALL 子执行单元的写入同样适用；
+- 登记与进程解耦后，plugin 模式（不建进程，经 MCP 提交的写入意图没有所属进程）与 CALL 子执行线程的写入同样适用；
 - 结算后句柄的生命周期需要重新设计，兼容期内暂不回收；可见范围放宽与别名强度的分析见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1。
 
 **取舍**：“仅本进程可见”会让后续任务在结算前读不到上一个任务的意图别名，与迁移前在同一 AliceRuntime 内可读不同；“显式声明前驱进程链可见”需要定义前驱的声明、校验与链长。
@@ -417,11 +420,13 @@ flowchart TB
 
 #### Q-10 CALL 子 Agent
 
-**状态**：已完成。2026-09-27 决定；与现状一致（CALL 在父 Agent 的 run 内执行）。子执行单元的认证方式见总 Idea P-5a（未决）。
+**状态**：已完成。2026-09-27 决定；与现状一致（CALL 在父 Agent 的 run 内执行）。子执行线程的认证与授权见执行单元 Idea T-3（原 P-5a，未决）。
 
 **问题**：被调用方有不同的 agent_id、Profile 与 MTP 权限；迁移前子帧与主帧共享 `PendingAtomRuntime`，子帧写入主帧可见；CALL 只能从根 frame 发起。子 Agent 是建子进程，还是共用父进程？
 
 **设计**：CALL 派生的子执行单元在父 Agent 的任务进程内执行，不能请求新进程，即不建子进程。父进程的访问上下文因此需要容纳被调用方的身份与权限，子执行单元的认证方式见总 Idea P-5a。
+
+**术语与后续**（2026-10-06）：按[执行单元 Idea](./execution-unit-thread-and-environment.md#1-前提owner-提出)前提 3，执行单元即 CPU，CALL 派生的子 Agent 是同一执行单元中的子执行线程，上文的“子执行单元”即子执行线程；P-5a 已并入执行单元 Idea T-3。“父进程的访问上下文容纳被调用方的身份”与身份 Idea 第 2 节“一份 context 只属于一个 actor”的协调已于 2026-10-06 决定（执行单元 Idea T-1、T-2）：子线程的身份在派生时由派生调用（MTP CALL 的目标 alias）确定，派生到达进程，进程为子线程另签一份 context 并持有本进程全部线程的 context；外部执行单元不识别子线程，所有 actor 共享主线程的 context（外部 Actor Idea E-5）。
 
 **取舍**：子进程需要定义父子间意图可见性，以及“只有顶层进程可派生子进程”等规则。
 
@@ -512,9 +517,10 @@ flowchart TB
 | 问题 | 位置 | 与本文的关系 |
 |:---|:---|:---|
 | P-1 经网络接入的 Actor 如何证明身份 | 总 Idea [15.2](./workspace-network-task-process-architecture.md#152-每次请求重新校验身份p-1a)、[第 16 节](./workspace-network-task-process-architecture.md#p-1-经网络接入的-actor每次请求如何证明身份) | P-1a 已完成：每次请求重新校验身份；P-1b、P-1c 未决，与 Q-8 相关 |
-| P-2、P-10 Agent Profile 的权限 | 总 Idea 15.4 | 已完成：Profile 的两个 allow 字段演变为能力层的 operation 控制，随 Alice 的能力层调用迁移实施 |
+| P-2、P-10 Agent Profile 的权限 | 总 Idea 15.4 | 已完成：Profile 的两个 allow 字段演变为能力层的 operation 控制；2026-10-06 决定单独建立计划实施，不随 Alice 的能力层调用迁移 |
 | P-4 进程级权限收窄与创建进程的授权 | 总 Idea 15.9、[第 16 节](./workspace-network-task-process-architecture.md#p-4-进程级权限收窄与创建进程的授权) | P-4b 已完成：不开放创建任务进程；P-4a 未决 |
-| P-5 CALL 与触发器的认证 | 总 Idea [第 16 节](./workspace-network-task-process-architecture.md#p-5-call-与触发器的认证) | 未决；P-5a 与 Q-10、P-5b/c 与 Q-6 相关；被动请求只存在于 controller 模式 |
+| P-5 CALL 与触发器的认证 | 总 Idea [第 16 节](./workspace-network-task-process-architecture.md#p-5-call-与触发器的认证) | 未决；P-5a 已并入执行单元 Idea T-3，与 Q-10 相关；P-5b/c 与 Q-6 相关；被动请求只存在于 controller 模式 |
+| T-1–T-6 执行单元与执行线程 | [执行单元 Idea](./execution-unit-thread-and-environment.md#4-已完成的问题) | T-1、T-2 已决定：子线程身份在派生时确定，派生到达进程，每个线程一份 context，满足 Q-10；T-6 已决定（CPU 只指执行单元）。未决：T-1a、T-1b、T-2a、T-3（与 Q-10 相关）、T-4（CPU 端口之外由执行单元回到进程的通道）、T-5 |
 | P-6 进程绑定 context 的失效时点 | 总 Idea 15.6 | 已完成并实施：context 与进程绑定，随进程关闭失效 |
 | P-7 进程控制操作的授权主体 | 总 Idea 15.10、[第 16 节](./workspace-network-task-process-architecture.md#p-7-进程控制操作的授权主体) | 取消已完成并实施（Q-15）；其余控制操作未决 |
 | P-9d 进程的定义 | 总 Idea 第 16 节 | 未决：管理员直接通道（方案 C）与前提第 3 条的关系 |
@@ -529,6 +535,6 @@ flowchart TB
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束；
 - 本方向在 v0.7.0 内的五个批次均已实施归档（第 0 节“实施进度”）；
-- 1.2 中尚未实施的部分分别由外部会话与 Topic 投影、写入意图迁移与 Alice 的能力层调用迁移各自建立计划，依据本文已完成的问题；
+- 1.2 中尚未实施的部分分别由外部会话与 Topic 投影、写入意图迁移、Alice 的能力层调用迁移（Profile 解析改经能力层）与 Profile 权限并入 operation 控制（2026-10-06 拆出）各自建立计划，依据本文已完成的问题；
 - 4.2 的问题都不阻塞 v0.7.0：Q-3b 与 Q-8 随外部 Actor 的 controller 模式（v0.7.1）决定，Q-5a 的剩余部分随命令系统决定，Q-5b 随 Import Bus 决定，Q-7 的剩余部分在需要统一后台任务视图时决定；
 - owner 对问题的决定记录在对应问题下，并注明日期。

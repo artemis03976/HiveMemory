@@ -11,7 +11,9 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/alice/pending-atom.md
-last_reviewed: 2026-09-28
+  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/execution-unit-thread-and-environment.md
+last_reviewed: 2026-10-06
 ---
 
 # 写入意图（PendingAtom）体系的迁移
@@ -65,6 +67,12 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 
 **结算后的句柄**：结算后 PendingAtom 句柄的生命周期需要重新设计。这一项不阻塞现有计划；兼容期内暂不回收句柄。
 
+**第 1 步的补充决定**（owner，2026-10-06，建立计划前接受的默认决定 W4、W5）：
+
+- **W4 未以 completed 结束的进程**：第 1 步沿用现状，进程关闭时取消本进程仍为 PENDING 的意图；本节“取消与失败：不再丢弃”随第 2 步与实时派发一起实施。第 1 步仍只在 finalize 时派发物化，不取消的意图将永远不被派发。
+- **W5 operation 与默认登记**：提交（WRITE、UPDATE）绑定 `memory_intent.submit`，读回绑定 `resource.read`；默认的用户级访问登记加入 `memory_intent.submit`。
+- 第 1 步与读取缓存失效、Alice 引用解析的整体迁出合为一份计划：[v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](../plans/v0.7.0-intent-registry-and-read-cache.md)（总 Idea 15.11 的补充）。
+
 **分两步实施**：
 
 1. 登记迁出 Alice：登记移到 workspace、对全 workspace 开放的回读、能力层的提交方法、生命周期与进程解耦、结算事件的接收；
@@ -79,6 +87,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 - `WriteFocus` 目前只有 content、reason、title，不携带目标 policy；将来 WRITE 若能声明 policy，需要重新审视“pending 不设 policy”；
 - 兼容期不回收句柄，意味着进程内的登记会一直增长到重启；
 - 取消语义的变化在实施完成后，需要按晋升门禁同步到 AGENTS.md 第 4 节与相关契约。
+- （2026-10-06）本方向与 Alice 的能力层调用迁移都涉及 resolver 的迁出。owner 已决定第 1 步先于 Alice 的能力层调用迁移完成：登记与 L0 先进入 workspace，resolver 由 Alice 迁移整体迁出（[总 Idea](./workspace-network-task-process-architecture.md#1511-写入意图迁移第-1-步先于-alice-的能力层调用迁移p-11) 15.11）。影响（分析）：第 1 步中 Alice 的写入意图提交与 pending 读回要经能力层，至少主线程的回调通道（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-4-进程与执行单元之间的回调通道) T-4）需要在第 1 步的计划之前决定；pending 读回若经 workspace 的原子缓存跟随结算后的 canonical 引用，还需要读取缓存失效在前。能力层如何提供 pending 与结算状态的解析结果，见总 Idea P-12a，第 4.1 节的候选设计是其中一个选项；结算后的缓存维护由谁承担，见总 Idea P-11a。
 
 ## 1. 目标边界
 
