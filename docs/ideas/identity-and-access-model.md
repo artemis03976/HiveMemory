@@ -28,6 +28,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
+  - docs/ideas/execution-unit-thread-and-environment.md
 last_reviewed: 2026-10-06
 ---
 
@@ -385,7 +386,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 暂无。第二批的前置决定均已作出（2026-10-04）。
 
-2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，在[总 Idea](./workspace-network-task-process-architecture.md#t-2-执行线程的访问-context) 第四部分 T-2 讨论，执行线程身份的确定方式见 T-1。问题只在总 Idea 维护；结论会修订本文第 2 节“每份 context 只属于一个 actor 和一次运行”中运行的粒度，以及 I-8“进程记录只持有访问 context”，I-9 的删除依赖该部分的 T-4。
+2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，已在[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2 决定：每个执行线程一份 context，子线程的 context 在派生到达进程时签发（T-1）；外部执行单元不识别子线程，所有 actor 共享主线程的 context。本文第 2 节“每份 context 只属于一个 actor 和一次运行”不变，运行的粒度细化到线程；I-8“进程记录只持有访问 context”与 `RunBinding` 在实施时修订（进程记录持有全部线程的 context，运行绑定带上线程标识）。子线程 context 的失效时点（T-2a）仍待决；I-9 的删除依赖该部分的 T-4。问题与决定只在总 Idea 维护。
 
 ## 8. 分批
 
@@ -404,7 +405,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | 文档 | 关系 |
 |:---|:---|
 | [总 Idea](./workspace-network-task-process-architecture.md)第三部分 | 认证与授权的流程与待决问题（P-1、P-4a、P-9 等）在那里；本文界定其中流动的身份数据 |
-| [总 Idea](./workspace-network-task-process-architecture.md)第四部分 | 执行单元（CPU）与执行线程（actor）的分层；T-1、T-2 涉及本文第 2 节、I-1 与 I-8，T-4 涉及 I-9 |
+| [执行单元 Idea](./execution-unit-thread-and-environment.md) | 执行单元（CPU）与执行线程（actor）的分层；T-1、T-2 涉及本文第 2 节、I-1 与 I-8，T-4 涉及 I-9 |
 | [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)（已归档） | 第一批的实施计划 |
 | [v0.7.0 身份与访问体系第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)（已归档） | 第二批的实施历史与本地验收证据 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Q-3a 决定访问 context 进入进程记录，与不变量 3 一致；进程记录如何持有身份见 I-8；认证与进程创建的顺序见 I-3 |

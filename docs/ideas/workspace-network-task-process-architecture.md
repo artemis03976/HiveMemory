@@ -1,5 +1,5 @@
 ---
-title: Workspace 网络与任务进程架构（第一部分：网络拓扑与 Import Bus；第二部分：system 包的边界；第三部分：认证与授权流程；第四部分：执行单元与执行线程）
+title: Workspace 网络与任务进程架构（第一部分：网络拓扑与 Import Bus；第二部分：system 包的边界；第三部分：认证与授权流程；第四部分已拆出）
 status: idea
 horizon: current
 serves_version: v0.7.0
@@ -47,6 +47,7 @@ related_docs:
   - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
   - docs/ideas/identity-and-access-model.md
   - docs/contracts/mtp.md
+  - docs/ideas/execution-unit-thread-and-environment.md
 last_reviewed: 2026-10-06
 ---
 
@@ -65,7 +66,7 @@ last_reviewed: 2026-10-06
 | 第一部分：网络拓扑、迁移与 Import Bus | 第 2 节 | 第 3 节 | 第 4 节 | 第 5 节 | 第 6 节 |
 | 第二部分：system 包的边界 | 第 8 节 | 已删除（实施前状态） | —— | 第 9 节 | 第 10 节 |
 | 第三部分：认证与授权流程 | 第 12 节 | 第 13 节 | 第 14 节 | 第 15 节 | 第 16 节 |
-| 第四部分：执行单元与执行线程 | 第 17 节 | 第 18 节 | 第 19 节 | 第 20 节 | 第 21 节 |
+| 第四部分：执行单元与执行线程 | 2026-10-06 拆出至[执行单元 Idea](./execution-unit-thread-and-environment.md)（第 17 节） | —— | —— | —— | —— |
 
 - **前提**是 owner 在讨论中提出的出发点，不表示已经实现或已经排期；
 - **现状事实**对照代码核对，各节注明核对日期；
@@ -73,6 +74,7 @@ last_reviewed: 2026-10-06
 - **已完成的问题**是 owner 已作出决定的问题，按“问题—实际设计或实现”叙述，每个问题开头注明决定日期与实施状态；“已完成”指设计已定，实施状态单独写明（已实施、部分实施或归属某个尚未开始的方向）；
 - **未完成的问题**只列出选项及其影响，本文不替 owner 作出选择，选项顺序不代表倾向；
 - 任务进程表与唯一注册入口的前提、现状、流程图与问题 Q-1–Q-10、Q-14 已于 2026-09-27 拆出至[任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md)，问题编号不变；本文其余部分提到这些编号时均指该文档；
+- 第四部分（执行单元、执行线程与执行环境：前提 1–10、问题 T-1–T-8）已于 2026-10-06 拆出至[执行单元、执行线程与执行环境](./execution-unit-thread-and-environment.md)，编号不变；本文其余部分提到“第四部分”、其前提或 T 系列问题时均指该文档；
 - **术语**（owner，2026-09-27）：“被动（Passive）”一词保留给被动请求体系，即由条件触发创建任务进程的请求（[任务进程 Idea](./task-process-table-and-registration-entry.md)第 1.1 节）。原先称为“被动输入”的输入链路在本文称 **Import Bus**，最终名称未定，功能可能逐步倾向对话导入；代码标识符与事实文档中的现有名称（Passive Ingress、`PassiveIngressService`、Gateway `PASSIVE_MEMORY`）描述现状，保持不变。
 
 本文不修改任何当前事实文档。现有 v0.7.0 计划与本文的概念对应见第 7 节。
@@ -1000,6 +1002,7 @@ plugin 模式下外部 harness 的访问同样不建进程（[外部 Actor Idea]
 P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，见 15.4。
 
 - **P-10a 外部 Actor 应用 Profile 的结果是否需要字段或伴随契约承载**（已应用、部分支持、拒绝）：需要 / 不需要 / 其他。
+  - 分析（2026-10-06）：按第四部分前提 9，同一个 Agent Profile 可以在不同执行环境中运行，执行参数（persona、模型、采样参数、语言）在外部 harness 上只能尽力应用。若不承载应用结果，用户无法得知所选 agent 的 persona 或模型是否真正生效；承载时由 CPU 驱动报告，可以随执行结果交回进程，或在 CPU 分配时预先判定（T-7）。
 
 ### 与前两部分问题的关联
 
@@ -1008,7 +1011,7 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 | 本部分问题 | 相关问题 |
 |:---|:---|
 | P-1 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-2；D-6（认证网关的归属） |
-| P-3、P-10a | v0.7.1 执行基座；Q-8（外部 CPU 的进程） |
+| P-3、P-10a | v0.7.1 执行基座；Q-8（外部 CPU 的进程）；P-10a 与第四部分前提 9、T-7 |
 | P-4a、P-7 | Q-3（唯一注册入口的职责边界） |
 | P-5a | 并入 T-3（第四部分）；Q-10 |
 | P-5b、P-5c | Q-6 |
@@ -1016,201 +1019,12 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 | P-9c、P-9f | Alice 的能力层调用迁移（actor 可见读取接入生产，15.5）；[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md) |
 | P-9d | 任务进程 Idea 前提 |
 
-## 17. 第四部分前提（owner 提出）
+## 17. 第四部分：执行单元、执行线程与执行环境（已拆出）
 
-> 2026-10-05、2026-10-06：本部分讨论任务进程内“谁在执行、谁发起操作”的分层，以及 CPU 驱动、操作适配器与请求入口的划分，由 Alice 的能力层调用迁移（15.5）的讨论引出。它与第三部分的认证与授权流程、[身份与访问体系 Idea](./identity-and-access-model.md) 中的访问 context 直接相关；身份数据的界定仍以该 Idea 为准。
+2026-10-06 拆出至[执行单元、执行线程与执行环境 Idea](./execution-unit-thread-and-environment.md)（下称执行单元 Idea）：前提 1–10、现状、流程图与问题 T-1–T-8 都在该文维护，编号不变。本文其余部分提到“第四部分”、这些前提或 T 系列问题时，均指该文。
 
-1. （2026-10-05）actor 不感知能力层如何调用：agent 不在工具调用中自报身份；能力层需要的访问 context 不来自 actor，由 actor 之外的某一层提供。
-2. （2026-10-05）一次操作的发起者与目标分开看待：
-   - **发起者**是客观事实，由某一层补全，agent 不在工具调用中声明；
-   - **目标 workspace** 是 agent 的意图：当前由补全的一层给出（第 3 阶段只接受驻留 workspace，见身份 Idea 第 3 节）；实现跨 workspace 的受限穿透访问后，agent 需要能够自己带上操作目标。
-3. （2026-10-06）**执行单元 = CPU**。一个执行单元内部可以包含多个执行者（actor），即**执行线程**：发起任务的 agent 是主线程，CALL 派生的每个子 agent 是一个子线程。
-   - 这修订了第 2.1 节“合成 CPU = 任意 Actor”的映射：最初按 AE2 类比把 CPU 与 actor 画等号；分为执行单元与执行线程两层后，一个 CPU 内可以同时存在多个 actor。
-   - 本文与[任务进程 Idea](./task-process-table-and-registration-entry.md) 此前所说的“CALL 派生的子执行单元”，按本条即子执行线程；两文中的定义处已改称。
-4. （2026-10-06）执行单元认识其全部执行线程的身份：任一执行线程发出的工具调用，由执行单元补上请求的发起人，再交给上一层。
-5. （2026-10-06）CPU 是执行流程中的顶层抽象：任务进程不认识各个 CPU 的形态，只经统一的 CPU 端口调用。CPU 内部可以有多种 backend，即各个 agent harness 的实现（harness 实例）。
-   - CPU 端口的实现称 **CPU 驱动**：把输入清单与控制（开始、取消、关闭）翻译成该 harness 的协议，并把输出翻译回事件流与终态结果。驱动按协议编写，一个驱动可以覆盖支持同一协议的多个 harness（外部 Actor Idea 1.2）。
-   - 一个运行中的执行单元即 CPU 驱动加上它驱动的 harness 实例。现有的 `AliceCPU` 是 Alice 的 CPU 驱动；测试用的 `ScriptedCPU` 是没有真实 harness 的驱动。
-6. （2026-10-06）adapter 称**操作适配器**（operation adapter）：把任意外部操作请求归一化为 workspace 统一能力层 API 的一次调用。例如 MTP READ 与将来经 MCP 提供的记忆读取，都归一化为 `MemoryApplicationService.read`；管理员操作同样经 HTTP 操作适配器归一化，只是因身份与操作意图不同而映射到不同的方法。定义与边界见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4。
-   - 操作适配器属于接入侧面，不在 CPU 驱动之内：plugin 模式只经操作适配器访问能力层，没有进程，也没有驱动。controller 模式下两者如何连接（驱动把绑定进程的操作适配器端点交给 harness，工具调用经它回到 workspace），见 T-4。
-   - 驱动与操作适配器分别对应外部 Actor Idea 1.2 中 harness 登记的执行侧面与接入侧面。
-7. （2026-10-06）HTTP server 承担两个角色：对任务请求，它是**请求入口**，`POST /chat` 进入唯一注册入口、创建任务进程，这不是能力层的操作（P-4b 已决定不设“创建任务”类 operation）；对管理操作，它是 HTTP 操作适配器。
-8. （2026-10-06）“kernel”是早期架构遗留的命名，不再作为概念使用；harness 实例不称 kernel。代码与文档中的剩余使用点见 [kernel 遗留命名清理 Todo](../todo/kernel-legacy-naming.md)。
-
-## 18. 第四部分现状
-
-### 18.1 术语在现有文档中的用法（文档核对，2026-10-06）
-
-前提 3 之前，以下术语在不同文档中跨层使用：
-
-| 术语 | 用法 | 出处 |
-|:---|:---|:---|
-| Actor | 执行系统，等同于 CPU | 第 2.1 节（修订前）、4.1 图（修订前）、7.1.1 “run/frame/MTP 归 Actor（Alice 等）”、[AGENTS.md](../../AGENTS.md) 第 4 节“Actor 执行（经 CPU 端口）” |
-| Actor | 身份：`ActorIdentity`（user、agent、team），访问登记按 (user, agent) 记录 | 身份 Idea 第 2 节；[Workspace 架构](../architecture/workspace.md) |
-| Actor | 一次操作的发起者 | 第 12 节前提 4“actor 的任何主动操作请求都导向能力层”；能力层的“actor 可见读取” |
-| CPU | 执行侧面：CPU 端口的实现，由任务进程驱动 | 任务进程 Idea 1.2；[子系统公共契约](../contracts/subsystem-contracts.md) |
-| CPU | 接入侧面：能力层的调用方，包括管理员直接通道与 plugin 模式的 harness | 第 12 节前提 7 的注；[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 1.2 |
-| 执行者 | CPU 端口的实现 | 子系统公共契约 |
-| 执行者 | “Agent、一次 Chat Run、子 Frame 和后台任务” | [Workspace 架构](../architecture/workspace.md) 第 1 节 |
-| adapter | 入站：把外部协议的请求归一化后调用能力层 | 7.1.6；15.1“HTTP 入口作为 system actor 的 adapter”；外部 Actor Idea 3.4；[`configs/system_principals.yaml`](../../configs/system_principals.yaml) 的 `adapters` 字段 |
-| adapter | 泛指接口转换，与接入无关 | 代码中的 `QdrantStorageAdapter`、`AgentRunStreamAdapter`、`QueueTaskAdapter` 等 |
-| kernel | 早期架构遗留：MTP 的内核工具、提示词中的“memory kernel”、前端的 `stores/kernel/` | 见 [kernel 遗留命名清理 Todo](../todo/kernel-legacy-naming.md) |
-
-按前提 3、5–8 统一后的用语：
-
-| 用语 | 含义 |
-|:---|:---|
-| CPU（执行单元） | 执行流程的顶层抽象；运行时即 CPU 驱动加上它驱动的 harness 实例 |
-| CPU 端口 | 任务进程调用 CPU 的统一接口 |
-| CPU 驱动 | CPU 端口的实现，按协议编写；对应 harness 登记的执行侧面 |
-| harness 实例 | CPU 内部的 backend，即某个 agent harness 的实现 |
-| 执行线程（actor） | 执行单元内的执行者：主线程与 CALL 派生的子线程；对应一个 `ActorIdentity` |
-| 操作适配器 | 把外部操作请求归一化为能力层 API 的一次调用；对应 harness 登记的接入侧面 |
-| 请求入口 | 任务请求进入唯一注册入口的传输入口，例如 HTTP 的 `POST /chat` |
-
-- 按前提 3，Actor 的三种用法合为一层：一个执行线程对应一个 `ActorIdentity`，也是它所发起操作的发起者；CPU 只指执行单元，只有接入侧面的参与者不称 CPU（T-6）。
-- 代码中泛指接口转换的“Adapter”类名不属于操作适配器，不需要随之改名。
-- 事实文档（AGENTS.md、契约、Workspace 架构、Alice 文档）描述的是现有实现，措辞在相关设计实施并晋升时随之统一，不在讨论阶段修改。
-- 例：D-9 写“Alice 作为 CPU 既要实现 CPU 端口，又要调用能力层”，前提 4 写“actor 的主动操作请求导向能力层”，两句的主语按前提 3 分属执行单元与执行线程。
-
-### 18.2 代码现状（2026-10-06 核对）
-
-- **执行单元一侧已有线程表**：Alice 每次 run 的 [`RunSession`](../../src/hivememory/alice/orchestration/run_session.py) 持有 frame 注册表，`register_root_frame` 登记唯一的根 frame（主线程），`register_callee_frame` 连同 `CallRecord` 登记 callee frame（子线程）。
-- **子线程沿用主线程的身份**：callee frame 的 `RuntimeScope` 直接取 caller frame 的 `IdentityScope`（[`call_coordinator.py`](../../src/hivememory/alice/orchestration/sub_agent/call_coordinator.py)），被调用方的 Profile 也以调用方的身份解析（[`call_context_provider.py`](../../src/hivememory/alice/orchestration/sub_agent/call_context_provider.py)）。因此子线程发起的读取、写入意图与引用记录，在授权与记录上都算作主线程的 actor；[Alice 文档](../alice/README.md#9-当前限制与设计张力)第 9 节记录了子帧的 PendingAtom 来源会记成父 Agent。
-- **CPU 驱动**：[`AliceCPU`](../../src/hivememory/alice/application/cpu.py) 经全局总线请求 Alice 的统一执行路由，把 `done` 事件转换为 `CPUExecutionResult`，其余交互事件原样转交。组合根只注入这一个驱动（[`system/assembler.py`](../../src/hivememory/system/assembler.py)），没有选择 CPU 的步骤；`CPUAllocator` 名为“CPU 分配”，实际只为 CPU 准备输入（Profile 解析、附件租借、记忆与附件编译、输入清单），进程记录也不登记所用的 CPU（任务进程 Idea 1.2）。
-- **操作适配器**：唯一的实例是 HTTP（`system_principals.yaml` 中 `adapters: ["http"]`）。MTP 没有操作适配器，Koakuma 直接请求 Patchouli 的公开路由（13.5）；MCP 尚未接入。
-- **任务进程一侧没有线程层**：进程记录只持有一份访问 context（身份 Idea I-8）；context 的运行绑定 `RunBinding`（[`core/access.py`](../../src/hivememory/core/access.py)）只有运行类型（任务进程或请求）与运行标识。
-- **CPU 端口是单向的**：进程调用 `CPUPort.execute`，执行单元交回事件流与唯一的终态结果（[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)）；执行期间执行单元没有回到进程的通道。输入清单携带过渡期的 `IdentityScope`（I-9，由 `cpu_execution_identity` 组装），Alice 用它直接调用 Patchouli（13.5）。
-- **目标 workspace**：授权点显式接收目标 workspace（身份 Idea I-4）；任务进程的阶段调用以任务注册时声明并通过认证的 workspace 为目标（I-8）。[MTP 契约](../contracts/mtp.md#2-执行位置)第 2 节规定 MTP 文本、alias 或进程级缓存都不能自行指定或推导 Workspace，记忆访问的身份只来自当前 frame 的 `RuntimeScope`，两项要求写在同一条中。
-- **Profile 的默认可见性**：管理入口创建的 Agent Profile 使用 `MemoryAccessPolicy.public()`（[`workspace/capability/agent_profiles.py`](../../src/hivememory/workspace/capability/agent_profiles.py)）；`AgentProfile.agent_id` 取自源原子的 `index.alias`。
-
-## 19. 第四部分流程图
-
-实线是现状；虚线依赖第 21 节的未完成问题，标注问题编号。
-
-```mermaid
-flowchart LR
-    subgraph WS["workspace 一侧（控制：谁、能做什么）"]
-        PR["任务进程<br/>进程记录：访问 context、阶段、终态"]
-        TM["主线程的身份<br/>注册时认证的 actor"]
-        TC["子线程的身份<br/>被调用方（T-2、T-3）"]
-        OA["操作适配器<br/>MTP / MCP：归一化为能力层调用"]
-        FILL["补全<br/>线程 → 发起者；默认目标（T-1、T-5）"]
-        CAP["能力层<br/>第 3 阶段：操作授权"]
-    end
-    subgraph EU["执行单元 = CPU（执行：怎么做）"]
-        DRV["CPU 驱动<br/>Alice：AliceCPU"]
-        RUN["harness 实例<br/>Alice：一次 run（RunSession）"]
-        TH0["主线程<br/>根 frame"]
-        TH1["子线程<br/>callee frame"]
-    end
-    PR -- "CPU 端口：execute" --> DRV
-    DRV -- "harness 的协议" --> RUN
-    RUN --- TH0
-    RUN --- TH1
-    PR --- TM
-    PR -.- TC
-    TH0 -. "工具调用 + 线程标记（T-1、T-4）" .-> OA
-    TH1 -. "工具调用 + 线程标记（T-1、T-4）" .-> OA
-    TH0 -. "派生子线程（T-3、T-4）" .-> TC
-    OA -.-> FILL
-    FILL -.-> CAP
-    CAP --> RES["资源 owner<br/>第 4 阶段：资源授权"]
-```
-
-图中操作适配器与补全分开画，表示归一化（对应哪个方法）与补全（谁发起、目标是哪里）是两件事；两者如何组合、操作适配器如何绑定进程，见 T-4c。
-
-分析（2026-10-06）：任务进程与执行单元是同一个任务的两面，前者回答“谁、能做什么”，后者回答“怎么做”；两面在任务与线程两个粒度上对应。
-
-| 粒度 | workspace 一侧 | 执行单元一侧 | 现状 |
-|:---|:---|:---|:---|
-| 任务 | 任务进程：进程记录与工作集 | 一次执行：Alice 的 `RunSession` | 两侧都已实现，经 CPU 端口对接 |
-| 线程 | 线程的身份与访问 context（T-2） | 执行线程：Alice 的 `ExecutionFrame` | 执行单元一侧已实现；workspace 一侧不存在，CPU 端口也没有回调通道（T-4） |
-
-按操作系统的直觉，线程属于进程而不属于 CPU；按两面分开看，线程的执行状态在执行单元内，线程的身份与授权在进程一侧，两种说法并不冲突。
-
-## 20. 第四部分已完成的问题
-
-### T-6 只有接入侧面的参与者是否称 CPU
-
-**状态**：已完成。2026-10-06 决定；属于讨论层面的用语，无需代码实施。
-
-**问题**：前提 3 起 CPU 专指执行单元。第 12 节前提 7 把管理员操作称为“CPU 的一种接入”，并注明此处的“CPU”指能力层的调用方（外部 Actor Idea 1.2 的接入侧面）；4.1 图曾把管理员直接通道与 plugin 模式的 harness 画在 CPU 一栏。它们没有执行单元，只调用能力层。是保留“接入侧面的 CPU”的称谓，还是 CPU 只指执行单元？
-
-**设计**：CPU 只指执行单元（前提 3、5）。只有接入侧面的参与者不称 CPU，它们经操作适配器调用能力层（前提 6）：管理员直接通道是经 HTTP 操作适配器、以请求级 context 发起操作的 actor（保留的 `system`），没有执行单元，也没有进程；plugin 模式的 harness 经 MCP 等操作适配器访问，同样不建进程（外部 Actor Idea 1.1）。第 12 节前提 7 的注、4.1 图与外部 Actor Idea 1.2 已按此修订。
-
-**取舍**：保留“接入侧面的 CPU”会让 CPU 端口的 CPU 与能力层调用方的 CPU 继续同名。
-
-## 21. 第四部分未完成的问题
-
-每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
-
-### T-1 执行线程身份的确定方式
-
-**背景**：前提 4 由执行单元为工具调用补上发起人。执行单元掌握每个线程的执行状态，但“某个线程是哪个 actor”是否以执行单元的标注为准，决定了外部执行单元能否伪造发起人。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 执行单元在工具调用上直接标注发起线程的 actor，上一层照此授权 | 执行单元成为身份的来源。进程内的 Alice 是可信代码，可以成立；外部执行单元可以标注任意 agent，等于自报身份（前提 1），需要另行约束 |
-| B | 派生线程时经过进程：进程登记线程并签发线程句柄，执行单元在工具调用上标注句柄，上一层由句柄得出 actor 与 context | 执行单元仍负责认出“是哪个线程”（前提 4），“是谁”由进程确定，与“身份只在授权点取得”（身份 Idea I-1）一致；需要回调通道（T-4）；进程内的句柄可沿用 I-8 进程句柄的做法，按对象身份判定有效；跨网络见外部 Actor Idea E-5 |
-| C | 进程内的执行单元采用 A，外部执行单元采用 B | 两种机制并存，需要按执行单元区分信任程度 |
-| D | 其他 | —— |
-
-### T-2 执行线程的访问 context
-
-**背景**：身份 Idea 第 2 节规定一份 context 只属于一个 actor 和一次运行；I-8 规定进程记录只持有访问 context；任务进程 Idea Q-10 规定父进程的访问上下文需要容纳被调用方的身份与权限。一个进程内有多个执行线程后，三者需要协调。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 每个执行线程一份 context：主线程使用注册时签发的 context，子线程派生时另签一份，运行绑定在进程之外再带上线程标识；进程记录持有全部线程的 context | context 与 actor 一一对应保持不变；I-8 的“只持有访问 context”与 `RunBinding` 需要修订；第 3 阶段组装的 `IdentityScope` 的发起者就是该线程的 actor |
-| B | 进程只持有主线程的一份 context，授权时由补全的一层另行传入发起线程的 actor | 一份 context 对应多个 actor，身份 Idea 第 2 节需要修订；第 3 阶段需要校验该 actor 属于本进程登记的线程 |
-| C | 其他 | —— |
-
-- **T-2a 子线程 context 的失效时点**：子线程结束时撤销 / 随进程关闭（P-6） / 其他。
-
-本问题的结论会修订身份 Idea 第 2 节与 I-8，见该 Idea 第 7.2 节。
-
-### T-3 派生执行线程的认证与授权（原 P-5a）
-
-**背景**：P-5a 原问题是 CALL 子执行单元以被调用方身份重新做 Workspace authentication（principal 继承自父进程），还是沿用父进程的认证结果（子执行单元使用父 Actor 的白名单，而不是被调用方的访问记录）。按前提 2，子线程所发起操作的发起者是被调用方；剩下的问题是认证与权限从哪里来。现状是子线程沿用主线程的身份（18.2）。
-
-- **T-3a 子线程的 Workspace 认证**：以被调用方重新认证（principal 继承自主线程） / 沿用主线程的认证结果 / 其他。
-- **T-3b 子线程的操作白名单与资源可见性**：按被调用方自己的访问登记与 policy / 按主线程的 / 两者取交集 / 其他。
-- **T-3c 派生本身是否需要授权**：派生方须持有 CALL 类 operation（15.4 已决定执行类操作的授权进入 operation 目录） / 不单独授权 / 其他。
-- 影响（分析，2026-10-06）：被调用方的身份取自 Agent Profile 原子，而管理入口创建的 Profile 默认是 PUBLIC（18.2）。若子线程按被调用方自己的权限读取（T-3b 第一项），且派生不单独授权（T-3c 第二项），任何 agent 都能派生一个公开 Profile 的子线程，读到该 agent 的 PRIVATE 记忆，再经 CALL 的返回值交给主线程。T-3b 与 T-3c 至少需要有一项限制这条路径。
-- 影响（分析）：子线程的 Profile 解析与准入发生在派生时；采用 T-1 的选项 B 时由进程完成，不再只在 Alice 的 `CallContextProvider` 内部完成。
-
-### T-4 进程与执行单元之间的回调通道
-
-**背景**：CPU 端口是单向的（18.2）。执行线程的工具调用（前提 4），以及 T-1 选项 B 的线程派生与结束，都需要执行单元在执行期间回到进程。外部 Actor Idea 1.1 的分析中提到，controller 模式下 HiveMemory 可以向外部 harness 提供绑定进程的操作适配器端点（例如 ACP 创建会话时由客户端提供的 MCP server），属于同一类通道。按前提 6，操作适配器只负责归一化；发起者与默认目标的补全（前提 4、T-1、T-5）需要知道调用属于哪个进程、哪个线程。
-
-- **T-4a 通道交给执行单元的方式**：作为 `execute` 的参数，由 CPU 驱动转交给 harness / 放入输入清单 / 由执行单元在执行开始时向进程取得 / 其他。
-- **T-4b 通道承载的内容**：只承载工具调用 / 同时承载线程的派生与结束 / 其他。
-- **T-4c 操作适配器与进程的绑定方式**：每个进程一个绑定进程的操作适配器实例，调用经它到达时即可确定进程 / 操作适配器不绑定进程，由通道在每次调用时附上进程与线程标记，归一化之后再补全 / 其他。与外部 Actor Idea E-3b（操作适配器的代码位置）相关；管理员与 plugin 模式经同一种操作适配器、按请求认证（T-6），不绑定进程。
-- 影响（分析）：通道建立后，输入清单中过渡用的 `identity_scope` 与 `cpu_execution_identity` 不再需要，随 Alice 的能力层调用迁移删除（15.5、身份 Idea I-9）。
-
-### T-5 目标 workspace 的默认值与表达
-
-**背景**：前提 2；授权点已显式接收目标 workspace（18.2）。
-
-- **T-5a 默认值**：agent 未给出目标时，补全的一层填入任务注册时声明并通过认证的 workspace / 填入 context 的驻留 workspace（当前两者相同） / 其他；子线程是否继承主线程的默认目标。
-- **T-5b 将来的表达形式**（受限穿透访问不在 v0.7.0）：按指令给出目标，一条指令一个目标 / 按引用限定，alias 带上 workspace 限定 / 其他。影响：alias 目前按 (workspace, alias) 分区，跨 workspace 的引用必须带限定；agent 只能给出 workspace key 一类名称，`WorkspaceIdentity` 中的 owner 由补全的一层解析，解析失败与无权访问需要对 agent 表现一致。
-- 影响（分析）：MTP 契约第 2 节把“MTP 文本不能指定 Workspace”与“身份只来自 frame”写在同一条中（18.2）。实现穿透访问时需要拆开：前者随穿透访问放宽，后者（发起者不能由工具调用指定，前提 1、2）长期成立。
-
-### 与其他问题的关联
-
-| 本部分问题 | 相关问题 |
-|:---|:---|
-| T-1 | 身份 Idea I-1、I-8（进程句柄）；外部 Actor Idea E-5 |
-| T-2 | 身份 Idea 第 2 节、I-8；P-6；任务进程 Idea Q-10 |
-| T-3 | P-5a（并入本问题）；15.4、P-3；任务进程 Idea Q-10 |
-| T-4 | 15.5、身份 Idea I-9；外部 Actor Idea 1.1（绑定进程的操作适配器端点）、3.4、E-3b |
-| T-5 | 身份 Idea I-4 与第 3 节（受限穿透访问） |
-
-分析（2026-10-06）：Alice 的能力层调用迁移需要给出 T-1、T-2、T-4 的一种实现，T-3 决定子线程的权限（15.5）；外部 Actor 的 controller 模式（v0.7.1）沿用同一结构，外部执行单元特有的问题见外部 Actor Idea E-5、E-6。
-
-## 22. 后续
+## 18. 后续
 
 - 新架构的后续部分尚待讨论，届时补充到本文或新的 Idea 中；
-- 第 6、10、16、21 节的问题逐项由 owner 决定后，按“问题—实际设计”移入第 5、9、15、20 节，并注明决定日期与实施状态；
+- 第 6、10、16 节的问题逐项由 owner 决定后，按“问题—实际设计”移入第 5、9、15 节，并注明决定日期与实施状态；第四部分的问题在执行单元 Idea 中按同样的方式维护；
 - 进入 Plan 前还需满足 [Ideas 升级规则](./README.md#升级规则)：明确目标与非目标、受影响的所有权与契约、迁移与回滚考虑，并绑定版本。
