@@ -19,7 +19,12 @@ from uuid import UUID
 
 from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
 from hivememory.core.models import IdentityScope, MemoryAtom, ReferenceResolution, WorkspaceIdentity
-from hivememory.core.models.pending import PendingAtom, PendingAtomResolution, PendingAtomStatus
+from hivememory.core.models.pending import (
+    PendingAtom,
+    PendingAtomResolution,
+    PendingAtomStatus,
+    UpdateFocus,
+)
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.intents import WriteIntentRegistry
@@ -86,6 +91,14 @@ class AliasResolver:
         scope: IdentityScope,
     ) -> ReferenceResolution:
         """L0 状态投影；redirect 必须重新经过 canonical 原子的 policy 授权。"""
+        if pending.status in (PendingAtomStatus.CANCELLED, PendingAtomStatus.EXPIRED):
+            # CANCELLED 与遗留 EXPIRED 都按不存在处理；新登记不再产生 EXPIRED。
+            return ReferenceResolution(kind="not_found", requested_alias=requested)
+        if isinstance(pending.focus, UpdateFocus):
+            # UPDATE 意图携带基础原子的修改内容与坐标，可见性跟随基础原子：
+            # 基础对当前 Actor 不可读时，任何状态的意图都与不存在相同。
+            if await self.read(UUID(pending.focus.base_uuid), scope=scope) is None:
+                return ReferenceResolution(kind="not_found", requested_alias=requested)
         settlement = pending.settlement
         if pending.status.is_in_flight:
             return ReferenceResolution(
@@ -124,7 +137,7 @@ class AliasResolver:
                 canonical_alias=settlement.canonical_alias,
                 canonical_uuid=settlement.canonical_uuid,
             )
-        # CANCELLED 与遗留 EXPIRED 都按不存在处理；新登记不再产生 EXPIRED。
+        # SETTLED 但缺少结算载荷的记录没有可交付的终态。
         return ReferenceResolution(kind="not_found", requested_alias=requested)
 
     async def read(

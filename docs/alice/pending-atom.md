@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
@@ -41,7 +41,7 @@ Koakuma 保留协议参数、Profile verb/tool 白名单和错误格式化职责
 
 READ、RUN 的记忆目标、UPDATE 基础和 CALL 的 `context_refs` 均由操作端口进入 workspace 引用解析。端口返回 core 中的 `ReferenceResolution`，由 MemoryCompiler 编译为既有 Agent 可读文本；Alice 不重新实现 L0/L1/L2 或资源授权。
 
-同一 Workspace 的其他 Agent 或后续任务进程能够回读仍在飞行的意图。结算后，旧 alias 可以解析为 canonical redirect；CALL 与 READ 只使用实际可读的 canonical 原子，不把无可读目标的 redirect 交给编译器。不同 Workspace 的意图与不存在相同。
+同一 Workspace 的其他 Agent 或后续任务进程能够回读仍在飞行的意图；UPDATE 意图只对能读取其基础原子的 Agent 可见，否则在任何状态下都与不存在相同。结算后，旧 alias 可以解析为 canonical redirect；CALL 与 READ 只使用实际可读的 canonical 原子，不把无可读目标的 redirect 交给编译器。不同 Workspace 的意图与不存在相同。
 
 SEARCH 和 prepare 结果不再预热 Alice 原子缓存。SEARCH、引用记录和 CALL 目标 Profile 解析仍通过 Alice local bus 请求 Patchouli；CALL Profile 的独立运行时缓存保留，不能把它与 workspace 的 canonical 读取缓存混为一层。
 

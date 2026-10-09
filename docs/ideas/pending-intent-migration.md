@@ -13,7 +13,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 写入意图（PendingAtom）体系的迁移
@@ -65,6 +65,8 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 
 **回读与可见性**：在记忆正式落库之前，PendingAtom 是替代正式记忆的唯一机制，因此直到落库之前，它都必须对后续进程可回读（任务进程 Idea Q-2）。第一版采用简单实现：PendingAtom 不设 policy，默认对全 workspace 开放。PendingAtom 不参与检索，能拿到其别名的一般只有写入它的 agent，狭义上能做到“中间产物归进程”。
 
+- （owner，2026-10-09）UPDATE 意图除外：它携带基础原子的修改内容与坐标，回读跟随基础原子的可读性，读不到基础的 actor 在任何状态下都与不存在相同。起因是第 1 步的 code review 发现其他 actor 能读到私有基础记忆的修改内容。
+
 **结算后的句柄**：结算后 PendingAtom 句柄的生命周期需要重新设计。这一项不阻塞现有计划；兼容期内暂不回收句柄。
 
 **第 1 步的补充决定**（owner，2026-10-06，建立计划前接受的默认决定 W4、W5）：
@@ -93,7 +95,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 
 登记、共同引用解析与读取缓存失效已同批形成稳定基线，实施与验收记录见[归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)。当前事实以[Workspace 架构](../architecture/workspace.md)、[PendingAtom](../alice/pending-atom.md)、[MemoryLibrary](../patchouli/memory-library.md)及[公开路由与事件](../contracts/routes-and-events.md)为准，本文不复制其完整接口。
 
-- workspace `WriteIntentRegistry` 是唯一状态机，PendingAtom 分开保存 `belong_to`、`from_actor` 与 `process_id`，不保存 RuntimeScope；意图在同 Workspace 内可回读，读回及交接任务是独立副本。
+- workspace `WriteIntentRegistry` 是唯一状态机，PendingAtom 分开保存 `belong_to`、`from_actor` 与 `process_id`，不保存 RuntimeScope；意图在同 Workspace 内可回读（UPDATE 意图跟随基础原子的可读性，2026-10-09），读回及交接任务是独立副本。
 - 任务进程把绑定主线程 context/目标的操作通道作为 CPU `execute` 独立参数交给 Alice；WRITE、UPDATE、READ、RUN 资源解析与 CALL 共享引用经过能力层逐次授权。主线程 Profile 解析也已经能力层；SEARCH、引用记录、CALL 目标 Profile 与其 Alice 本地缓存、过渡 `cpu_execution_identity` 尚未迁完。
 - core `ReferenceResolution` 提供七种逐项状态。结算后优先按 UUID 读取 canonical，当前 actor 不可读时不交付目标坐标或含 UPDATE 基础坐标的 Pending 副本；UPDATE 继续只接受正式 atom，不接受结算 redirect。
 - Store 的 canonical 变更事件内联失效 workspace 原子、旧 alias 与来源 Profile 派生项并推进代次；结算只推进 registry，不回填原子，通知无重试、replay 或未送达对账。

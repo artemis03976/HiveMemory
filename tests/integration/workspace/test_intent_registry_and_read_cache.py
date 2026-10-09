@@ -193,10 +193,12 @@ async def chain(tmp_path):
         bridge.unmount()
 
 
-def _atom(alias: str = "canonical", *, profile: bool = False) -> MemoryAtom:
-    """创建可被真实存储与能力层读取的测试原子。"""
+def _atom(
+    alias: str = "canonical", *, profile: bool = False, visibility: str = "PUBLIC"
+) -> MemoryAtom:
+    """创建可被真实存储与能力层读取的测试原子；PRIVATE 只对 writer 可见。"""
     return MemoryAtom(
-        meta=make_memory_metadata(source_agent_id="writer", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="writer", user_id="u1", visibility=visibility),
         index=IndexLayer(
             title="缓存原子",
             summary="验证管理提交后的读取视图",
@@ -330,6 +332,40 @@ async def test_update_rejects_pending_and_missing_bases_without_registering(chai
         chain.runtime.intents.get(pending.pending_alias, WORKSPACE).status
         == PendingAtomStatus.PENDING
     )
+
+
+@pytest.mark.asyncio
+async def test_update_intent_on_private_base_is_indistinguishable_from_missing(chain):
+    """读不到基础的 Actor 既读不到 UPDATE 意图，也不能借 UPDATE 错误类型探知它存在。"""
+    atom = _atom("private_base", visibility="PRIVATE")
+    await chain.store.upsert(atom)
+    pending = await chain.memories.submit_update_intent(
+        "private_base",
+        "revise",
+        "secret revision",
+        process_id="writer_process",
+        target_workspace=WORKSPACE,
+        access=chain.writer,
+    )
+
+    hidden = await chain.memories.resolve_references(
+        [pending.pending_alias], target_workspace=WORKSPACE, access=chain.reader
+    )
+    visible = await chain.memories.resolve_references(
+        [pending.pending_alias], target_workspace=WORKSPACE, access=chain.writer
+    )
+    with pytest.raises(ResourceNotFoundError):
+        await chain.memories.submit_update_intent(
+            pending.pending_alias,
+            "revise again",
+            process_id="reader_process",
+            target_workspace=WORKSPACE,
+            access=chain.reader,
+        )
+
+    assert (hidden[0].kind, hidden[0].pending) == ("not_found", None)
+    assert (visible[0].kind, visible[0].pending.focus.content) == ("pending", "secret revision")
+    assert chain.runtime.intents.size == 1
 
 
 @pytest.mark.asyncio

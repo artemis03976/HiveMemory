@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # Memory Tool Protocol (MTP)
@@ -141,7 +141,7 @@ ACK 表示意图已在 workspace 登记，不表示长期记忆已经持久化�
 
 - TARGET 必须是单 alias；`instruction` 必填，`content` 可选；
 - 目标必须解析为请求方可读的正式 atom；pending 与结算 redirect 句柄不能再次 UPDATE；
-- 注册以原记忆 UUID 为基线的 pending revision；
+- 注册以原记忆 UUID 为基线的 pending revision；pending revision 只对能读取基础原子的 Agent 可回读，读不到基础时在任何状态下都与不存在相同，以它为目标再次 UPDATE 也按不存在拒绝；
 - 使 workspace 共享完整原子缓存中的基础原子及 alias 索引失效，防止后续脏读；
 - 返回 `ack + pending_alias`，实际更新延迟到 Patchouli finalize 后处理。
 
@@ -216,7 +216,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - 记忆访问使用调用方 `IdentityScope`，先执行 Workspace ownership hard boundary，再执行 Workspace 内的 actor 可见性策略，不能绕过任一边界；
 - cancellation 不能被转换成普通 success。
 
-> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图与进程操作通道)、[MTP Runtime](../alice/mtp-runtime.md)。
+> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；UPDATE 意图另按基础原子的 actor policy 判断，读不到基础时与不存在相同；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图与进程操作通道)、[MTP Runtime](../alice/mtp-runtime.md)。
 
 ## 7. 设计矛盾检查
 

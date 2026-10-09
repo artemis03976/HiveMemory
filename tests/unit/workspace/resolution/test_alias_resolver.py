@@ -425,40 +425,99 @@ async def test_reference_results_cover_terminal_states_and_canonical_atom():
     ].atom.payload.content == "content"
 
 
-@pytest.mark.asyncio
-async def test_unreadable_update_redirect_does_not_expose_base_identity():
-    """UPDATE 基础也是隐藏目标，拒绝 redirect 时不能经 pending.focus 泄露。"""
-    backing = _FakeBacking()
-    atom = backing.store(_atom("private_canonical", private_to="a1"))
-    resolver, _, _ = _resolver(backing)
-    pending = resolver.intents.register_update(
+def _update_by_a1(resolver: AliasResolver, base: MemoryAtom):
+    """a1 对基础原子登记 UPDATE；focus 含修改内容与基础坐标。"""
+    return resolver.intents.register_update(
         UpdateFocus(
-            base_alias="private_canonical",
-            base_uuid=str(atom.id),
+            base_alias=base.index.alias,
+            base_uuid=str(base.id),
             instruction="revise",
+            content="secret revision",
         ),
         belong_to=MAIN,
         from_actor=A1.actor_identity,
         process_id="writer_process",
     )
-    resolver.intents.claim_process("writer_process")
-    await resolver.intents.on_settled(
+
+
+async def _leave_pending(intents, pending, base) -> None:
+    """保持 PENDING。"""
+
+
+async def _claim(intents, pending, base) -> None:
+    intents.claim_process("writer_process")
+
+
+async def _fail(intents, pending, base) -> None:
+    intents.claim_process("writer_process")
+    await intents.on_failed(pending_alias=pending.pending_alias)
+
+
+async def _discard(intents, pending, base) -> None:
+    intents.claim_process("writer_process")
+    await intents.on_settled(
+        settlement=PendingAtomSettlement(
+            pending_alias=pending.pending_alias,
+            intent_id=pending.intent_id,
+            resolution=PendingAtomResolution.DISCARDED,
+        )
+    )
+
+
+async def _settle_updated(intents, pending, base) -> None:
+    intents.claim_process("writer_process")
+    await intents.on_settled(
         settlement=PendingAtomSettlement(
             pending_alias=pending.pending_alias,
             intent_id=pending.intent_id,
             resolution=PendingAtomResolution.UPDATED,
-            canonical_alias="private_canonical",
-            canonical_uuid=str(atom.id),
+            canonical_alias=base.index.alias,
+            canonical_uuid=str(base.id),
         )
     )
 
-    result = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
 
-    assert result.kind == "redirect"
-    assert (result.atom, result.pending, result.canonical_alias, result.canonical_uuid) == (
-        None,
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("advance", "visible_kind"),
+    [
+        (_leave_pending, "pending"),
+        (_claim, "pending"),
+        (_fail, "failed"),
+        (_discard, "discarded"),
+        (_settle_updated, "redirect"),
+    ],
+    ids=["pending", "materializing", "failed", "discarded", "updated"],
+)
+async def test_update_intent_on_unreadable_base_is_not_found_in_every_state(advance, visible_kind):
+    """UPDATE 意图的可见性跟随基础原子：读不到基础的 Actor 在任何状态下都得到
+    not_found，拿不到修改内容与基础坐标；能读基础的 Actor 仍得到对应状态。"""
+    backing = _FakeBacking()
+    base = backing.store(_atom("private_base", content="secret v1", private_to="a1"))
+    resolver, _, _ = _resolver(backing)
+    pending = _update_by_a1(resolver, base)
+    await advance(resolver.intents, pending, base)
+
+    hidden = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
+    visible = (await resolver.resolve_references([pending.pending_alias], scope=A1))[0]
+
+    assert (hidden.kind, hidden.pending, hidden.settlement, hidden.atom) == (
+        "not_found",
         None,
         None,
         None,
     )
-    assert (result.settlement.canonical_alias, result.settlement.canonical_uuid) == (None, None)
+    assert (visible.kind, visible.pending.focus.content) == (visible_kind, "secret revision")
+
+
+@pytest.mark.asyncio
+async def test_update_intent_on_readable_base_stays_visible_to_other_actors():
+    """基础对其他 Actor 可读时，UPDATE 意图仍按全 Workspace 回读交付。"""
+    backing = _FakeBacking()
+    base = backing.store(_atom("public_base"))
+    resolver, _, _ = _resolver(backing)
+    pending = _update_by_a1(resolver, base)
+
+    result = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
+
+    assert (result.kind, result.pending.focus.base_uuid) == ("pending", str(base.id))
