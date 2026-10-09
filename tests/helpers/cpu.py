@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +17,7 @@ from hivememory.workspace.contracts import (
     CPUExecutionStatus,
     CPUInputManifest,
     CPUOutput,
+    ProcessOperations,
 )
 
 
@@ -27,6 +28,7 @@ class CPUCall:
     manifest: CPUInputManifest
     generation_options: dict[str, Any] | None
     stream: bool
+    operations: ProcessOperations
 
 
 class ScriptedCPU:
@@ -48,11 +50,13 @@ class ScriptedCPU:
         result: CPUExecutionResult | None = None,
         error: Exception | None = None,
         hang_before_result: bool = False,
+        operation_script: Callable[[ProcessOperations], Awaitable[None]] | None = None,
     ) -> None:
         self._events = list(events or [])
         self._result = result
         self._error = error
         self._hang_before_result = hang_before_result
+        self._operation_script = operation_script
         self.calls: list[CPUCall] = []
         self.closed = False
         #: 挂起点被进入时置位；取消测试据此同步停止请求的注入时机。
@@ -62,6 +66,7 @@ class ScriptedCPU:
         self,
         manifest: CPUInputManifest,
         *,
+        operations: ProcessOperations,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
@@ -70,12 +75,15 @@ class ScriptedCPU:
                 manifest=manifest,
                 generation_options=generation_options,
                 stream=stream,
+                operations=operations,
             )
         )
-        return self._iterate()
+        return self._iterate(operations)
 
-    async def _iterate(self) -> AsyncGenerator[CPUOutput, None]:
+    async def _iterate(self, operations: ProcessOperations) -> AsyncGenerator[CPUOutput, None]:
         try:
+            if self._operation_script is not None:
+                await self._operation_script(operations)
             for event in self._events:
                 yield dict(event)
             if self._hang_before_result:
@@ -95,7 +103,6 @@ def make_cpu_result(
     final_text: str = "完成",
     turn_events: list | None = None,
     model_used: str = "glm-4",
-    materialize_tasks: list | None = None,
 ) -> CPUExecutionResult:
     """构造一条默认完成的 CPU 执行结果，字段可覆盖。"""
     return CPUExecutionResult(
@@ -103,5 +110,4 @@ def make_cpu_result(
         final_text=final_text,
         turn_events=list(turn_events or []),
         model_used=model_used,
-        materialize_tasks=list(materialize_tasks or []),
     )

@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.aliases import ResolveResult
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.alice.orchestration.sub_agent import CallContextProvider
 from hivememory.core.models import (
@@ -14,13 +13,15 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
+from hivememory.core.models.reference import ReferenceResolution
 from hivememory.core.mtp import MTPCallRequest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
 
-def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE) -> ExecutionFrame:
+def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE, operations=None) -> ExecutionFrame:
     return ExecutionFrame(
+        operations=operations,
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=profile,
         working_history=[],
@@ -50,9 +51,13 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=()) -> tuple:
     profile_resolver = MagicMock()
     profile_resolver.resolve = AsyncMock(return_value=profile)
     alias_resolver = MagicMock()
-    alias_resolver.resolve = AsyncMock(side_effect=list(alias_results))
+    alias_resolver.resolve_references = AsyncMock(
+        side_effect=[
+            [result] if not isinstance(result, Exception) else result for result in alias_results
+        ]
+    )
     return (
-        CallContextProvider(profile_resolver, alias_resolver),
+        CallContextProvider(profile_resolver),
         profile_resolver,
         alias_resolver,
     )
@@ -61,7 +66,7 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=()) -> tuple:
 @pytest.mark.asyncio
 async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_refs():
     provider, profile_resolver, alias_resolver = _provider()
-    caller = _frame()
+    caller = _frame(operations=alias_resolver)
 
     context = await provider.provide(
         caller,
@@ -73,18 +78,20 @@ async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_ref
         "helper",
         identity_scope=caller.identity_scope,
     )
-    alias_resolver.resolve.assert_not_awaited()
+    alias_resolver.resolve_references.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_provide_compiles_atom_context_ref_for_callee():
-    resolved = ResolveResult(
+    resolved = ReferenceResolution(
         kind="atom",
         requested_alias="fact_a",
         atom=_atom("Fact A", "context payload"),
     )
     provider, _, alias_resolver = _provider(alias_results=[resolved])
-    caller = _frame(profile=OMNI_DOLL_PROFILE.model_copy(update={"language": "en"}))
+    caller = _frame(
+        operations=alias_resolver, profile=OMNI_DOLL_PROFILE.model_copy(update={"language": "en"})
+    )
 
     context = await provider.provide(
         caller,
@@ -100,22 +107,20 @@ async def test_provide_compiles_atom_context_ref_for_callee():
     assert '<memory alias="' in context.shared_context
     assert "Fact A" in context.shared_context
     assert "context payload" in context.shared_context
-    execution_context = alias_resolver.resolve.await_args.kwargs["context"]
-    assert execution_context.identity == caller.identity
 
 
 @pytest.mark.asyncio
 async def test_provide_compiles_redirected_context_ref_as_canonical_atom():
-    resolved = ResolveResult(
+    resolved = ReferenceResolution(
         kind="redirect",
         requested_alias="draft_ctx_1234",
         canonical_alias="fact_canonical",
         atom=_atom("Canonical Fact", "canonical context"),
     )
-    provider, _, _ = _provider(alias_results=[resolved])
+    provider, _, alias_resolver = _provider(alias_results=[resolved])
 
     context = await provider.provide(
-        _frame(),
+        _frame(operations=alias_resolver),
         MTPCallRequest(
             target_alias="helper",
             task="summarize",
@@ -130,7 +135,7 @@ async def test_provide_compiles_redirected_context_ref_as_canonical_atom():
 
 @pytest.mark.asyncio
 async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
-    resolved = ResolveResult(
+    resolved = ReferenceResolution(
         kind="atom",
         requested_alias="fact_b",
         atom=_atom("Fact B", "usable context"),
@@ -140,7 +145,7 @@ async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
     )
 
     context = await provider.provide(
-        _frame(),
+        _frame(operations=alias_resolver),
         MTPCallRequest(
             target_alias="helper",
             task="summarize",
@@ -150,17 +155,17 @@ async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
 
     assert "Fact B" in context.shared_context
     assert "usable context" in context.shared_context
-    assert alias_resolver.resolve.await_count == 2
+    assert alias_resolver.resolve_references.await_count == 2
 
 
 @pytest.mark.asyncio
 async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
-    provider, _, _ = _provider(
-        alias_results=[ResolveResult(kind="not_found", requested_alias="missing")]
+    provider, _, alias_resolver = _provider(
+        alias_results=[ReferenceResolution(kind="not_found", requested_alias="missing")]
     )
 
     context = await provider.provide(
-        _frame(),
+        _frame(operations=alias_resolver),
         MTPCallRequest(
             target_alias="helper",
             task="summarize",
@@ -179,7 +184,7 @@ async def test_provide_propagates_profile_resolution_failure_before_resolving_re
 
     with pytest.raises(RuntimeError, match="profile unavailable"):
         await provider.provide(
-            _frame(),
+            _frame(operations=alias_resolver),
             MTPCallRequest(
                 target_alias="helper",
                 task="summarize",
@@ -187,4 +192,4 @@ async def test_provide_propagates_profile_resolution_failure_before_resolving_re
             ),
         )
 
-    alias_resolver.resolve.assert_not_awaited()
+    alias_resolver.resolve_references.assert_not_awaited()

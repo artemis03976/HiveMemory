@@ -15,7 +15,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import TurnEvent
-from hivememory.core.models.pending import PendingAtomMaterializeTask
+from hivememory.workspace.contracts.operations import ProcessOperations
 from hivememory.workspace.contracts.process import CPUInputManifest
 
 
@@ -35,8 +35,6 @@ class CPUExecutionResult(BaseModel):
         final_text        → 用户可见回复 / InteractionPayload.assistant_final_text
         turn_events       → 封口归约 MTP 轨迹 → 感知层
         model_used        → 本次 run 实际使用的模型展示名；空字符串表示未解析
-        materialize_tasks → finalize 分发 mode b/c + 组 Settlement
-                            （写入意图实时派发实现前保留）
 
     端口语义：终态结果由 ``execute`` 迭代器恰好产出一次且是最后一项；
     非流式时它是唯一一项。迭代器在没有终态结果时结束属于协议错误，
@@ -52,7 +50,6 @@ class CPUExecutionResult(BaseModel):
         default="",
         description="实际使用的模型展示名，空字符串表示注册表未启用或未解析",
     )
-    materialize_tasks: list[PendingAtomMaterializeTask] = Field(default_factory=list)
 
 
 #: CPU 输出流的单项：交互事件（带 ``event`` 与 ``data`` 的字典，进程原样
@@ -80,6 +77,7 @@ class CPUPort(Protocol):
         self,
         manifest: CPUInputManifest,
         *,
+        operations: ProcessOperations,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]: ...

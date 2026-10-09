@@ -15,6 +15,7 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionResult,
     TransientInteractionSubmissionError,
 )
+from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
 from hivememory.patchouli.control.memory_generation import (
     MemoryGenerationCoordinator,
     MemoryGenerationHandle,
@@ -43,5 +44,6 @@ __all__ = [
     "MemoryGenerationQueue",
     "MemoryGenerationTaskController",
     "MemoryTaskEventEmitter",
+    "MemoryChangePublisher",
     "PendingAtomSettler",
 ]

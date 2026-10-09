@@ -33,8 +33,6 @@ from hivememory.workspace.contracts import CPUInputManifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_identity_scope,
-    make_runtime_scope,
-    make_workspace_identity,
 )
 
 # ========== Alice ==========
@@ -177,11 +175,6 @@ class TestAlicePublicRoutes:
             GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
             request="request",
         )
-        aliases_result = await system.runtime.local_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-            aliases=["a"],
-            identity_scope=identity_scope,
-        )
         profile_result = await system.runtime.local_bus.request(
             GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
             "coder_doll",
@@ -194,181 +187,22 @@ class TestAlicePublicRoutes:
         )
 
         assert result == "retrieved"
-        assert aliases_result == "aliases"
         assert profile_result == "profile"
         assert citation_result == "citation"
         assert received == [
             ("retrieve", "request"),
-            ("aliases", ["a"], identity_scope),
             ("profile", "coder_doll", identity_scope),
             ("citation", "mid", "mtp.read"),
         ]
 
     @pytest.mark.asyncio
-    async def test_alice_unmount_unsubscribes_settlement_event(self):
+    async def test_alice_does_not_subscribe_to_intent_settlement_events(self):
+        """结算投影只由 workspace 登记订阅，Alice 生命周期不注册订阅者。"""
         system = AliceSystem(config=self.config, global_bus=self.global_bus)
         await system.start()
-
-        assert GlobalEvents.PENDING_ATOM_SETTLED in self.global_bus.list_events()
-        assert GlobalEvents.PENDING_ATOM_CANCELLED in self.global_bus.list_events()
-
-        await system.stop()
-
         assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
         assert GlobalEvents.PENDING_ATOM_CANCELLED not in self.global_bus.list_events()
-
-    @pytest.mark.asyncio
-    async def test_cancelled_event_marks_alice_pending_atom_cancelled(self):
-        from hivememory.core.models import ActorIdentity
-        from hivememory.core.models.pending import PendingAtomStatus
-
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
-        await system.start()
-        atom = system.runtime._pending_runtime.register_write(
-            content="draft",
-            title="Draft",
-            reason=None,
-            identity=ActorIdentity(user_id="test_user", agent_id="test_agent"),
-            runtime_scope=make_runtime_scope(run_id="run-1"),
-        )
-
-        await self.global_bus.publish(
-            GlobalEvents.PENDING_ATOM_CANCELLED,
-            pending_alias=atom.pending_alias,
-        )
-
-        assert atom.status == PendingAtomStatus.CANCELLED
-
-    @pytest.mark.asyncio
-    async def test_settlement_refreshes_alice_l1_atom_cache(self):
-        """结算事件以原 scope 查询资源 owner，再刷新对应 Workspace 分区的 L1 cache。"""
-        from hivememory.core.models import ActorIdentity
-
-        stale_atom = _make_memory("fact_canonical", "stale content")
-        fresh_atom = _make_memory("fact_canonical", "fresh content")
-        refresh_requests = []
-
-        async def retrieve_by_aliases(*, aliases, identity_scope):
-            refresh_requests.append((aliases, identity_scope))
-            # alias 批量读取路由返回完整原子列表（A2 §2.1）。
-            return [fresh_atom]
-
-        self.global_bus.register(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-            retrieve_by_aliases,
-        )
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
-        await system.start()
-        identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
-        identity_scope = make_identity_scope(actor_identity=identity)
-        pending_runtime = system.runtime.alias_resolver.pending_runtime
-        pending = pending_runtime.register_write(
-            content="draft",
-            title="Draft",
-            reason=None,
-            identity=identity,
-            runtime_scope=make_runtime_scope(actor_identity=identity, run_id="run-1"),
-        )
-        pending_runtime.start_materializing(pending.pending_alias)
-        system.runtime.atom_cache.ingest_atom(
-            stale_atom,
-            workspace_identity=make_workspace_identity(),
-        )
-
-        settlement = PendingAtomSettlement(
-            pending_alias=pending.pending_alias,
-            intent_id=pending.intent_id,
-            resolution=PendingAtomResolution.CREATED,
-            canonical_alias="fact_canonical",
-            canonical_uuid=str(fresh_atom.id),
-        )
-
-        await self.global_bus.publish(
-            GlobalEvents.PENDING_ATOM_SETTLED,
-            settlement=settlement,
-        )
-
-        assert refresh_requests == [(["fact_canonical"], identity_scope)]
-        # settlement 以原 PendingAtom scope 刷新对应 Workspace 分区。
-        assert (
-            system.runtime.atom_cache.get_atom_by_alias(
-                "fact_canonical",
-                workspace_identity=make_workspace_identity(),
-            )
-            is fresh_atom
-        )
-        assert (
-            system.runtime.atom_cache.get_atom_by_uuid(
-                str(stale_atom.id),
-            )
-            is None
-        )
-
-    @pytest.mark.asyncio
-    async def test_settlement_refresh_scopes_to_pending_original_workspace(self):
-        """结算刷新必须写入 PendingAtom 原始 Workspace 分区，不落默认 Workspace。"""
-        from hivememory.core.models import ActorIdentity
-
-        fresh_atom = _make_memory("fact_canonical", "fresh content")
-        refresh_requests = []
-
-        async def retrieve_by_aliases(*, aliases, identity_scope):
-            refresh_requests.append((aliases, identity_scope))
-            # alias 批量读取路由返回完整原子列表（A2 §2.1）。
-            return [fresh_atom]
-
-        self.global_bus.register(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-            retrieve_by_aliases,
-        )
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
-        await system.start()
-        identity = ActorIdentity(user_id="test_user", agent_id="test_agent")
-        pending_runtime = system.runtime.alias_resolver.pending_runtime
-        pending = pending_runtime.register_write(
-            content="draft",
-            title="Draft",
-            reason=None,
-            identity=identity,
-            runtime_scope=make_runtime_scope(
-                actor_identity=identity,
-                run_id="run-iso",
-                workspace_id="isolation_workspace",
-            ),
-        )
-        pending_runtime.start_materializing(pending.pending_alias)
-
-        settlement = PendingAtomSettlement(
-            pending_alias=pending.pending_alias,
-            intent_id=pending.intent_id,
-            resolution=PendingAtomResolution.CREATED,
-            canonical_alias="fact_canonical",
-            canonical_uuid=str(fresh_atom.id),
-        )
-        await self.global_bus.publish(
-            GlobalEvents.PENDING_ATOM_SETTLED,
-            settlement=settlement,
-        )
-
-        isolation = make_workspace_identity(workspace_id="isolation_workspace")
-        main = make_workspace_identity()
-        # L2 查询与回填都使用 PendingAtom 原始 isolation scope。
-        assert refresh_requests[0][1].workspace_identity == isolation
-        assert (
-            system.runtime.atom_cache.get_atom_by_alias(
-                "fact_canonical",
-                workspace_identity=isolation,
-            )
-            is fresh_atom
-        )
-        # 默认 Workspace 分区不得被写入。
-        assert (
-            system.runtime.atom_cache.get_atom_by_alias(
-                "fact_canonical",
-                workspace_identity=main,
-            )
-            is None
-        )
+        await system.stop()
 
 
 # ========== Patchouli（轻量级 — 完整集成在 test_bootstrap 中测试） ==========

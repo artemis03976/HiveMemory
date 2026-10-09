@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -210,6 +211,10 @@ class PatchouliBridge:
 
     def _register_local_event_bridges(self) -> None:
         self._local_bus.subscribe(
+            PatchouliLocalEvents.MEMORY_CHANGED,
+            self._forward_memory_changed,
+        )
+        self._local_bus.subscribe(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             self._forward_pending_atom_settled,
         )
@@ -224,6 +229,10 @@ class PatchouliBridge:
 
     def _unregister_local_event_bridges(self) -> None:
         self._local_bus.unsubscribe(
+            PatchouliLocalEvents.MEMORY_CHANGED,
+            self._forward_memory_changed,
+        )
+        self._local_bus.unsubscribe(
             PatchouliLocalEvents.PENDING_ATOM_SETTLED,
             self._forward_pending_atom_settled,
         )
@@ -235,6 +244,12 @@ class PatchouliBridge:
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             self._forward_pending_atom_cancelled,
         )
+
+    async def _forward_memory_changed(self, *, payload: MemoryChangeEvent) -> None:
+        """内联转发失效通知，不回填或解释 canonical 内容。"""
+        if self._global_bus is None:
+            return
+        await self._global_bus.publish(GlobalEvents.PATCHOULI_MEMORY_CHANGED, payload=payload)
 
     async def _forward_pending_atom_settled(self, *, settlement) -> None:
         if self._global_bus is None:

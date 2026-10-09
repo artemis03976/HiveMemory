@@ -24,7 +24,7 @@ from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_i
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
 from hivememory.i18n import set_default_language
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.fixture(autouse=True)
@@ -334,7 +334,8 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
             focus=WriteFocus(content="Hello world", title="Test Write"),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
 
     @pytest.fixture
@@ -352,7 +353,8 @@ class TestPendingAtomCompilation:
                 instruction="Update the API endpoint",
                 content="New content here",
             ),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
 
     def test_pending_mtp_read_draft(self, compiler, write_pending):
@@ -409,7 +411,8 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.SETTLED,
             source_verb="WRITE",
             focus=WriteFocus(content="Hello", title="T"),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
         atom.settlement = PendingAtomSettlement(
             pending_alias="draft_settled",
@@ -436,7 +439,8 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.FAILED,
             source_verb="WRITE",
             focus=WriteFocus(content="X"),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
         atom.settlement = PendingAtomSettlement(
             pending_alias="draft_failed",
@@ -456,7 +460,8 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.CANCELLED,
             source_verb="WRITE",
             focus=WriteFocus(content="X"),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
 
     @pytest.fixture
@@ -469,7 +474,8 @@ class TestPendingAtomCompilation:
             status=PendingAtomStatus.EXPIRED,
             source_verb="WRITE",
             focus=WriteFocus(content="X"),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
 
     def test_settled_mtp_read_shows_canonical(self, compiler, settled_pending):
@@ -520,14 +526,14 @@ class TestPendingAtomCompilation:
         assert "reclaimed" in artifact.text.lower()
 
 
-class TestResolveResultCompilation:
-    """测试 ResolveResult 编译。"""
+class TestReferenceResolutionCompilation:
+    """测试 ReferenceResolution 编译。"""
 
     @pytest.fixture
     def atom_resolve(self, sample_atom):
-        from hivememory.agent_runtime.aliases import ResolveResult
+        from hivememory.core.models.reference import ReferenceResolution
 
-        return ResolveResult(
+        return ReferenceResolution(
             kind="atom",
             requested_alias="fact_api",
             atom=sample_atom,
@@ -535,13 +541,13 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def redirect_resolve(self, sample_atom):
-        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import (
             PendingAtomResolution,
             PendingAtomSettlement,
         )
+        from hivememory.core.models.reference import ReferenceResolution
 
-        return ResolveResult(
+        return ReferenceResolution(
             kind="redirect",
             requested_alias="draft_old",
             canonical_alias="fact_api",
@@ -556,13 +562,13 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def discarded_resolve(self):
-        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import (
             PendingAtomResolution,
             PendingAtomSettlement,
         )
+        from hivememory.core.models.reference import ReferenceResolution
 
-        return ResolveResult(
+        return ReferenceResolution(
             kind="discarded",
             requested_alias="draft_bad",
             settlement=PendingAtomSettlement(
@@ -576,13 +582,13 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def failed_resolve(self):
-        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import (
             PendingAtomResolution,
             PendingAtomSettlement,
         )
+        from hivememory.core.models.reference import ReferenceResolution
 
-        return ResolveResult(
+        return ReferenceResolution(
             kind="failed",
             requested_alias="draft_failed",
             settlement=PendingAtomSettlement(
@@ -595,14 +601,14 @@ class TestResolveResultCompilation:
 
     @pytest.fixture
     def expired_resolve(self):
-        from hivememory.agent_runtime.aliases import ResolveResult
+        from hivememory.core.models.reference import ReferenceResolution
 
-        return ResolveResult(kind="expired", requested_alias="draft_expired")
+        return ReferenceResolution(kind="expired", requested_alias="draft_expired")
 
     @pytest.fixture
     def pending_resolve(self):
-        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
+        from hivememory.core.models.reference import ReferenceResolution
 
         pending = PendingAtom(
             pending_alias="draft_002",
@@ -610,9 +616,10 @@ class TestResolveResultCompilation:
             status=PendingAtomStatus.PENDING,
             source_verb="WRITE",
             focus=WriteFocus(content="Pending content", title="Pending"),
-            runtime_scope=make_runtime_scope(),
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
         )
-        return ResolveResult(
+        return ReferenceResolution(
             kind="pending",
             requested_alias="draft_002",
             pending=pending,
@@ -653,6 +660,20 @@ class TestResolveResultCompilation:
         assert "\u6d88\u606f\uff1a\u65e0" in artifact.text
         assert "\u539f\u56e0\uff1a\u65e0" in artifact.text
 
+    def test_failed_without_settlement_keeps_failed_response(self, compiler):
+        """只有 alias 的失败事件仍应渲染 failed，不能被当作 expired。"""
+        from hivememory.core.models.reference import ReferenceResolution
+
+        artifact = compiler.compile(
+            ReferenceResolution(kind="failed", requested_alias="draft_failed"),
+            MemoryCompileTarget.MTP_READ,
+            MemoryCompileOptions(language="en"),
+        )
+
+        assert artifact.status == "failed"
+        assert "expired" not in artifact.text.lower()
+        assert "draft_failed" in artifact.text
+
     def test_expired_mtp_read(self, compiler, expired_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_expired")
         artifact = compiler.compile(expired_resolve, MemoryCompileTarget.MTP_READ, opts)
@@ -675,9 +696,9 @@ class TestResolveResultCompilation:
         assert "Pending content" in artifact.text
 
     def test_not_found_raises(self, compiler):
-        from hivememory.agent_runtime.aliases import ResolveResult
+        from hivememory.core.models.reference import ReferenceResolution
 
-        resolve = ResolveResult(kind="not_found", requested_alias="missing")
+        resolve = ReferenceResolution(kind="not_found", requested_alias="missing")
         with pytest.raises(ValueError, match="not_found"):
             compiler.compile(resolve, MemoryCompileTarget.MTP_READ)
 

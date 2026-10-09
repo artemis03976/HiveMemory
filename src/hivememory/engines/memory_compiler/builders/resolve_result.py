@@ -1,4 +1,4 @@
-"""ResolveResult → MemoryUnitIR builder.
+"""ReferenceResolution → MemoryUnitIR builder.
 
 只处理两条需要 IR 的路径：
 - redirect: SETTLED + canonical alias/uuid，需携带预取的 canonical atom 内容
@@ -18,13 +18,13 @@ from hivememory.engines.memory_compiler.ir import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.aliases import ResolveResult
+    from hivememory.core.models.reference import ReferenceResolution
 
 _TERMINAL_KINDS = {"discarded", "failed", "expired"}
 
 
-def build_resolve_result_ir(resolve_result: ResolveResult) -> MemoryUnitIR:
-    """只为 redirect 或终态的 ResolveResult kind 构建 IR。"""
+def build_resolve_result_ir(resolve_result: ReferenceResolution) -> MemoryUnitIR:
+    """只为 redirect 或终态的 ReferenceResolution kind 构建 IR。"""
     kind = resolve_result.kind
     settlement = resolve_result.settlement
 
@@ -55,6 +55,7 @@ def build_resolve_result_ir(resolve_result: ResolveResult) -> MemoryUnitIR:
         ),
         content=MemoryContentIR(),
         status=MemoryStatusIR(
+            source_state=kind,
             is_terminal=True,
             is_discarded=kind == "discarded",
             message=settlement.message if settlement else None,

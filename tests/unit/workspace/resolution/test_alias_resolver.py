@@ -24,7 +24,11 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    UpdateFocus,
     WorkspaceIdentity,
+    WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
@@ -320,3 +324,141 @@ async def test_read_in_flight_at_close_returns_result_without_backfill():
     result = await resolver.read(atom.id, scope=A1)
 
     assert (result.id, cache.size) == (atom.id, 0)
+
+
+def _pending(resolver: AliasResolver, process_id: str = "writer_process"):
+    """在 resolver 持有的共享登记中创建 WRITE 意图。"""
+    return resolver.intents.register_write(
+        WriteFocus(content="shared pending content"),
+        belong_to=MAIN,
+        from_actor=A1.actor_identity,
+        process_id=process_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reference_read_preserves_order_duplicates_and_workspace_visibility():
+    """L0 同 Workspace 可回读，逐项结果保留重复项与缺失项。"""
+    backing = _FakeBacking()
+    resolver, _, _ = _resolver(backing)
+    pending = _pending(resolver)
+    foreign = make_identity_scope(user_id="u1", workspace_id="other_workspace")
+
+    own = await resolver.resolve_references(
+        [pending.pending_alias, "missing", pending.pending_alias], scope=A2
+    )
+    denied = await resolver.resolve_references([pending.pending_alias], scope=foreign)
+
+    assert [result.kind for result in own] == ["pending", "not_found", "pending"]
+    assert own[0].pending.focus.content == "shared pending content"
+    assert (denied[0].kind, denied[0].pending) == ("not_found", None)
+    own[0].pending.focus = WriteFocus(content="caller changed")
+    assert own[2].pending.focus.content == "shared pending content"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("private_to", [None, "a1"])
+async def test_settled_reference_redirect_authorizes_and_redacts_nested_target(private_to):
+    """redirect 逐次校验 canonical policy，不可读时顶层与嵌套引用均被清空。"""
+    backing = _FakeBacking()
+    atom = backing.store(_atom("canonical", private_to=private_to))
+    resolver, _, _ = _resolver(backing)
+    pending = _pending(resolver)
+    resolver.intents.claim_process("writer_process")
+    await resolver.intents.on_settled(
+        settlement=PendingAtomSettlement(
+            pending_alias=pending.pending_alias,
+            intent_id=pending.intent_id,
+            resolution=PendingAtomResolution.CREATED,
+            canonical_alias="canonical",
+            canonical_uuid=str(atom.id),
+        )
+    )
+
+    result = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
+
+    assert result.kind == "redirect"
+    expected_alias = None if private_to else "canonical"
+    expected_uuid = None if private_to else str(atom.id)
+    assert (result.canonical_alias, result.canonical_uuid) == (expected_alias, expected_uuid)
+    assert (result.settlement.canonical_alias, result.settlement.canonical_uuid) == (
+        expected_alias,
+        expected_uuid,
+    )
+    assert (result.pending is None) == (private_to is not None)
+    assert (result.atom.id if result.atom else None) == (None if private_to else atom.id)
+    # 拒绝视图的脱敏不能污染登记，原发起者随后仍能看到合法目标。
+    owner = (await resolver.resolve_references([pending.pending_alias], scope=A1))[0]
+    assert (owner.atom.id, owner.canonical_uuid) == (atom.id, str(atom.id))
+
+
+@pytest.mark.asyncio
+async def test_reference_results_cover_terminal_states_and_canonical_atom():
+    """状态投影区分 discarded、failed 与 atom，取消按不存在交付。"""
+    backing = _FakeBacking()
+    atom = backing.store(_atom("canonical"))
+    resolver, _, _ = _resolver(backing)
+    discarded = _pending(resolver)
+    failed = _pending(resolver)
+    cancelled = _pending(resolver)
+    resolver.intents.claim_process("writer_process")
+    await resolver.intents.on_settled(
+        settlement=PendingAtomSettlement(
+            pending_alias=discarded.pending_alias,
+            intent_id=discarded.intent_id,
+            resolution=PendingAtomResolution.DISCARDED,
+        )
+    )
+    await resolver.intents.on_failed(pending_alias=failed.pending_alias)
+    await resolver.intents.on_cancelled(pending_alias=cancelled.pending_alias)
+
+    results = await resolver.resolve_references(
+        [discarded.pending_alias, failed.pending_alias, cancelled.pending_alias, "canonical"],
+        scope=A2,
+    )
+
+    assert [result.kind for result in results] == ["discarded", "failed", "not_found", "atom"]
+    results[-1].atom.payload.content = "caller changed"
+    assert (await resolver.resolve_references(["canonical"], scope=A2))[0].atom.id == atom.id
+    assert (await resolver.resolve_references(["canonical"], scope=A2))[
+        0
+    ].atom.payload.content == "content"
+
+
+@pytest.mark.asyncio
+async def test_unreadable_update_redirect_does_not_expose_base_identity():
+    """UPDATE 基础也是隐藏目标，拒绝 redirect 时不能经 pending.focus 泄露。"""
+    backing = _FakeBacking()
+    atom = backing.store(_atom("private_canonical", private_to="a1"))
+    resolver, _, _ = _resolver(backing)
+    pending = resolver.intents.register_update(
+        UpdateFocus(
+            base_alias="private_canonical",
+            base_uuid=str(atom.id),
+            instruction="revise",
+        ),
+        belong_to=MAIN,
+        from_actor=A1.actor_identity,
+        process_id="writer_process",
+    )
+    resolver.intents.claim_process("writer_process")
+    await resolver.intents.on_settled(
+        settlement=PendingAtomSettlement(
+            pending_alias=pending.pending_alias,
+            intent_id=pending.intent_id,
+            resolution=PendingAtomResolution.UPDATED,
+            canonical_alias="private_canonical",
+            canonical_uuid=str(atom.id),
+        )
+    )
+
+    result = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
+
+    assert result.kind == "redirect"
+    assert (result.atom, result.pending, result.canonical_alias, result.canonical_uuid) == (
+        None,
+        None,
+        None,
+        None,
+    )
+    assert (result.settlement.canonical_alias, result.settlement.canonical_uuid) == (None, None)

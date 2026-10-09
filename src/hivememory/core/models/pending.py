@@ -1,11 +1,8 @@
 """
 HiveMemory 核心数据模型 - Pending / Settlement 领域
 
-PendingAtom 与其结算视图 PendingAtomSettlement 是 ``engines/`` 与 ``alice/`` 之间
-的跨域共享物。把它们及其周边类型（状态枚举、Focus、RuntimeScope）统一上移到 core，
-消除 ``engines → alice`` / ``alice → engines`` 的子系统层级倒挂。
-
-迁移依据: docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2
+PendingAtom 由 workspace 的写入意图登记拥有，结算视图供生成引擎与登记共同使用。
+状态枚举、Focus 与 Alice 仍使用的 RuntimeScope 均为依赖中立的跨域模型。
 
 新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
 ``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
@@ -115,7 +112,7 @@ class InvalidStateTransition(RuntimeError):  # noqa: N818
 class WriteFocus(BaseModel):
     """WRITE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
-    关联键（pending_alias / intent_id / identity）由 PendingAtom 持有，
+    关联键（pending_alias / intent_id / belong_to / from_actor）由 PendingAtom 持有，
     通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
     """
 
@@ -128,7 +125,7 @@ class WriteFocus(BaseModel):
 class UpdateFocus(BaseModel):
     """UPDATE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
-    关联键（pending_alias / intent_id / identity）由 PendingAtom 持有，
+    关联键（pending_alias / intent_id / belong_to / from_actor）由 PendingAtom 持有，
     通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
     """
 
@@ -168,7 +165,7 @@ class PendingAtomSettlement(BaseModel):
     """
     Pending intent 的结算视图。
 
-    由 GenerationEngine 在生成完成后产出，通过 GlobalSystemBus 回填到 AliceRuntime。
+    由 GenerationEngine 在生成完成后产出，通过 GlobalSystemBus 回填到 workspace 登记。
     只有 MTP WRITE/UPDATE 触发的主动写入链路（携带 intent_id）才会生成 settlement。
 
     Note:
@@ -195,7 +192,7 @@ class PendingAtomSettlement(BaseModel):
 class PendingAtomMaterializeTask(BaseModel):
     """跨子系统的不可变物化请求。
 
-    Alice 编排层在 run 结束时从 PendingAtomRuntime 投影产出，进入 finalize 后
+    workspace 任务进程在 completed 收尾时从写入意图登记投影产出，进入 finalize 后
     patchouli 解析。与 PendingAtomSettlement 构成请求/应答对偶。
 
     字段下游流向（不相交）：
@@ -214,13 +211,14 @@ class PendingAtomMaterializeTask(BaseModel):
 
     @classmethod
     def from_pending_atom(cls, pa: PendingAtom) -> PendingAtomMaterializeTask:
+        """从登记记录投影物化任务，归属与发起者独立携带。"""
         return cls(
             pending_alias=pa.pending_alias,
             intent_id=pa.intent_id,
             source_verb=pa.source_verb,
-            belong_to=pa.runtime_scope.identity_scope.workspace_identity,
-            from_actor=pa.runtime_scope.identity_scope.actor_identity,
-            focus=pa.focus,
+            belong_to=pa.belong_to,
+            from_actor=pa.from_actor,
+            focus=pa.focus.model_copy(deep=True),
         )
 
 
@@ -229,7 +227,7 @@ class PendingAtom(BaseModel):
     运行时待物化记忆句柄。
 
     不是正式 MemoryAtom，不承诺最终落库。
-    在其生命周期内，Agent 可通过 pending_alias 读取本次写入意图的内容。
+    同一 Workspace 的 Agent 可通过 pending_alias 回读，进程关联不参与授权。
     """
 
     pending_alias: str
@@ -238,8 +236,9 @@ class PendingAtom(BaseModel):
     source_verb: Literal["WRITE", "UPDATE"]
 
     focus: WriteFocus | UpdateFocus
-    identity: ActorIdentity = Field(default_factory=ActorIdentity)
-    runtime_scope: RuntimeScope
+    belong_to: WorkspaceIdentity
+    from_actor: ActorIdentity
+    process_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
 
     # Phase 2：结算跟踪
@@ -255,7 +254,7 @@ class PendingAtomSnapshot(BaseModel):
     """
     PendingAtom 的运行期视图。
 
-    作为 PendingAtomRuntime 对外暴露的统一查询结构，以强类型携带
+    作为写入意图的状态投影，以强类型携带
     (status, resolution, canonical_*) 四元组。所有外部消费者
     （compiler / resolver / 视图层）都应以此为输入，而不是自己解析旧字符串。
 

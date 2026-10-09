@@ -181,6 +181,7 @@ class CallCoordinator:
                     messages=messages,
                     topic_id=None,
                     execution_policy=policy,
+                    operations=caller_frame.operations,
                 )
             )
         except Exception as error:

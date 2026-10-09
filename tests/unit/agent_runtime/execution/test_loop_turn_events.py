@@ -396,7 +396,6 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     profile_resolver = MagicMock()
     profile_resolver.resolve = AsyncMock(return_value=OMNI_DOLL_PROFILE)
-    alias_resolver = MagicMock()
 
     agent_runtime = AgentRuntime(
         mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor
@@ -408,7 +407,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     ]
     coordinator = CallCoordinator(
         agent_runtime,
-        CallContextProvider(profile_resolver, alias_resolver),
+        CallContextProvider(profile_resolver),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )

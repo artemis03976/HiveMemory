@@ -15,7 +15,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 from .conftest import (
     make_koakuma_runtime,
@@ -48,6 +48,9 @@ def sample_memory(identity) -> MemoryAtom:
     )
 
 
+MAIN = make_workspace_identity()
+
+
 async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
     return await koakuma.intercept_and_execute(
         normalize_worker_agent_mtp_output(assistant_text),
@@ -78,12 +81,12 @@ class TestKoakumaWriteE2E:
         assert result is not None
         assert result.success
 
-        pending = write_koakuma.pending_runtime.get(result.pending_alias)
+        pending = write_koakuma.registry.get(result.pending_alias, MAIN)
         assert pending is not None
         focus = pending.focus
         assert focus.content == "端口从 8080 改为 9090"
         assert focus.reason == "修复 CORS"
-        assert pending.identity.user_id == "test_user"
+        assert pending.from_actor.user_id == "test_user"
 
     @pytest.mark.asyncio
     async def test_write_with_title(self, write_koakuma):
@@ -93,7 +96,7 @@ class TestKoakumaWriteE2E:
         )
 
         assert result is not None
-        pending = write_koakuma.pending_runtime.get(result.pending_alias)
+        pending = write_koakuma.registry.get(result.pending_alias, MAIN)
         assert pending is not None
         focus = pending.focus
         assert focus.title == "Fix CORS"
@@ -139,8 +142,7 @@ class TestKoakumaWriteE2E:
 
         assert result is not None
         assert result.success
-        pending = koakuma.pending_runtime.get(result.pending_alias)
+        pending = koakuma.registry.get(result.pending_alias, MAIN)
         assert pending is not None
         assert pending.focus.content == "test"
-        assert pending.runtime_scope.run_id == "run_write_test"
-        assert pending.runtime_scope.frame_id == "frame_main_write"
+        assert pending.process_id == "run_write_test"

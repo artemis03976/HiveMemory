@@ -10,26 +10,14 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.output import NullFrameOutputSink
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    ActorIdentity,
-    PendingAtomStatus,
     TurnEvent,
 )
 from tests.helpers.workspace import make_runtime_scope
-
-
-def _runtime_with_pending(pending_runtime: PendingAtomRuntime) -> AgentRuntime:
-    return AgentRuntime(
-        mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
-        loop_executor=MagicMock(),
-        pending_runtime=pending_runtime,
-    )
 
 
 def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFrame:
@@ -104,18 +92,14 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
     loop_executor.execute_frame.assert_not_awaited()
 
 
-def test_finalize_completed_frame_projects_pending_and_update_aliases():
-    pending_runtime = PendingAtomRuntime()
-    runtime = _runtime_with_pending(pending_runtime)
-    frame = _frame()
-    atom = pending_runtime.register_write(
-        content="draft",
-        title="Draft",
-        reason=None,
-        identity=frame.identity,
-        runtime_scope=frame.runtime_scope,
+def test_finalize_completed_frame_projects_only_acknowledged_aliases():
+    """成功子帧只返回收到 ACK 的句柄，不把 UPDATE 基础 alias 当作新产物。"""
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=MagicMock()
     )
-    frame.add_harvested_alias("draft_existing")
+    frame = _frame()
+    frame.add_harvested_alias("draft_accepted_1234")
+    frame.add_harvested_alias("rev_fact_base_1234")
     frame.progress.turn_events.append(
         TurnEvent(
             kind="tool_call",
@@ -123,108 +107,23 @@ def test_finalize_completed_frame_projects_pending_and_update_aliases():
             role="assistant",
             content="update",
             tool_kind="UPDATE",
-            target="fact_existing",
+            target="fact_base",
         )
     )
-
     products = runtime.finalize_frame(
-        frame,
-        FrameExecutionResult(status=FrameExecutionStatus.COMPLETED),
+        frame, FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
     )
+    assert products.artifact_aliases == ("draft_accepted_1234", "rev_fact_base_1234")
 
-    assert products.artifact_aliases == (
-        "draft_existing",
-        atom.pending_alias,
-        "fact_existing",
+
+def test_finalize_unsuccessful_frame_does_not_harvest_aliases():
+    """失败子帧不把部分完成的产物回填 caller，登记状态由进程负责。"""
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=MagicMock()
     )
-    assert frame.harvested_aliases == list(products.artifact_aliases)
-    assert atom.status == PendingAtomStatus.PENDING
-
-
-def test_finalize_unsuccessful_frame_cancels_atoms_without_products():
-    pending_runtime = PendingAtomRuntime()
-    runtime = _runtime_with_pending(pending_runtime)
     frame = _frame()
-    atom = pending_runtime.register_write(
-        content="draft",
-        title="Draft",
-        reason=None,
-        identity=frame.identity,
-        runtime_scope=frame.runtime_scope,
-    )
-
+    frame.add_harvested_alias("draft_partial_1234")
     products = runtime.finalize_frame(
-        frame,
-        FrameExecutionResult(status=FrameExecutionStatus.FAILED),
+        frame, FrameExecutionResult(status=FrameExecutionStatus.FAILED)
     )
-
     assert products.artifact_aliases == ()
-    assert atom.status == PendingAtomStatus.CANCELLED
-
-
-def test_finalize_completed_run_claims_tasks_and_advances_retention_epoch():
-    pending_runtime = PendingAtomRuntime()
-    runtime = _runtime_with_pending(pending_runtime)
-    identity = ActorIdentity(user_id="user-1", agent_id="omni_doll")
-    old_atom = pending_runtime.register_write(
-        content="old",
-        title="Old",
-        reason=None,
-        identity=identity,
-        runtime_scope=make_runtime_scope(run_id="run-old", frame_id="frame-old"),
-    )
-    pending_runtime.cancel(old_atom.pending_alias)
-    current_atom = pending_runtime.register_write(
-        content="current",
-        title="Current",
-        reason=None,
-        identity=identity,
-        runtime_scope=make_runtime_scope(run_id="run-current", frame_id="frame-current"),
-    )
-
-    products = runtime.finalize_run(
-        "run-current",
-        FrameExecutionResult(status=FrameExecutionStatus.COMPLETED),
-    )
-
-    assert [task.pending_alias for task in products.materialize_tasks] == [
-        current_atom.pending_alias
-    ]
-    assert current_atom.status == PendingAtomStatus.MATERIALIZING
-    assert old_atom.status == PendingAtomStatus.EXPIRED
-
-    runtime.finalize_run(
-        "run-next",
-        FrameExecutionResult(status=FrameExecutionStatus.COMPLETED),
-    )
-    assert pending_runtime.get(old_atom.pending_alias) is None
-
-
-def test_finalize_unsuccessful_run_does_not_advance_retention_epoch():
-    pending_runtime = PendingAtomRuntime()
-    runtime = _runtime_with_pending(pending_runtime)
-    identity = ActorIdentity(user_id="user-1", agent_id="omni_doll")
-    old_atom = pending_runtime.register_write(
-        content="old",
-        title="Old",
-        reason=None,
-        identity=identity,
-        runtime_scope=make_runtime_scope(run_id="run-old", frame_id="frame-old"),
-    )
-    pending_runtime.cancel(old_atom.pending_alias)
-    current_atom = pending_runtime.register_write(
-        content="current",
-        title="Current",
-        reason=None,
-        identity=identity,
-        runtime_scope=make_runtime_scope(run_id="run-current", frame_id="frame-current"),
-    )
-
-    products = runtime.finalize_run(
-        "run-current",
-        FrameExecutionResult(status=FrameExecutionStatus.CANCELLED),
-    )
-
-    assert products.materialize_tasks == ()
-    assert current_atom.status == PendingAtomStatus.CANCELLED
-    assert old_atom.status == PendingAtomStatus.CANCELLED

@@ -4,7 +4,6 @@ import ast
 import inspect
 from pathlib import Path
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
@@ -82,7 +81,6 @@ def test_alice_runtime_owns_derived_caches() -> None:
     config = HiveMemoryConfig()
     runtime = AliceRuntime(config.alice, config.memory_compiler)
 
-    assert isinstance(runtime.atom_cache, KoakumaAtomCache)
     assert isinstance(runtime._profile_cache, AgentProfileCache)
 
 

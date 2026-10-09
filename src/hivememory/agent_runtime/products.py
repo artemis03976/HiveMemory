@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.core.models.pending import PendingAtomMaterializeTask
-
 
 @dataclass(frozen=True)
 class FrameProducts:
@@ -12,11 +10,4 @@ class FrameProducts:
     artifact_aliases: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
-class RuntimeProducts:
-    """根 run 终态后交给 Patchouli 的物化任务投影。"""
-
-    materialize_tasks: tuple[PendingAtomMaterializeTask, ...] = ()
-
-
-__all__ = ["FrameProducts", "RuntimeProducts"]
+__all__ = ["FrameProducts"]

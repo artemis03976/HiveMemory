@@ -52,6 +52,7 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
 )
+from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTaskStatus
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -336,7 +337,10 @@ class PatchouliRuntime:
         )
 
         short_term = ShortTermMemoryStore()
-        mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(self.storage))
+        mid_term = MidTermMemoryStore(
+            primary=QdrantStorageAdapter(self.storage),
+            change_publisher=MemoryChangePublisher(self._local_bus),
+        )
 
         archiver_config = self._patchouli_config.lifecycle.archiver
         long_term = LongTermMemoryStore(

@@ -346,44 +346,18 @@ class TestSearchResultRendering:
 # ========== Test 4：Alias 注册 ==========
 
 
-class TestSearchAliasRegistration:
-    """SEARCH 后别名注册到 KoakumaAtomCache"""
+class TestSearchReferences:
+    """SEARCH 返回的 alias 可在后续经 workspace 操作端口冷读。"""
 
-    def test_aliases_registered_after_search(self, koakuma):
-        mem = _make_memory(alias="fact_api_spec")
-        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-
-        _execute_mtp(koakuma, '⟪ SEARCH | * | query="api spec" ⟫')
-
-        assert koakuma.atom_cache.has_alias("fact_api_spec", workspace_identity=MAIN)
-        atom = koakuma.atom_cache.get_atom_by_alias("fact_api_spec", workspace_identity=MAIN)
-        assert atom is not None
-        assert str(atom.id) == str(mem.id)
-
-    def test_multiple_aliases_registered(self, koakuma):
-        mems = [
-            _make_memory(alias="fact_a"),
-            _make_memory(alias="fact_b"),
-        ]
-        koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response(mems)
-
-        _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫')
-
-        assert koakuma.atom_cache.has_alias("fact_a", workspace_identity=MAIN)
-        assert koakuma.atom_cache.has_alias("fact_b", workspace_identity=MAIN)
-
-    def test_registered_alias_resolvable_by_read(self, koakuma):
-        """SEARCH 注册的 alias 可被 READ 解析"""
+    def test_search_reference_resolves_by_read(self, koakuma):
         mem = _make_memory(alias="fact_api", content="API documentation content")
         koakuma._bus._mock_retrieval.retrieve.return_value = _make_retrieval_response([mem])
-        koakuma._bus._mock_storage.get_memory.return_value = mem
-
-        # SEARCH 注册 alias
-        _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
-
-        # READ 使用注册的 alias
+        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
+        search = _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
+        assert "fact_api" in search.response_content
+        assert koakuma.harness.runtime.stats()["atom_size"] == 0
         result = _execute_mtp(koakuma, "⟪ READ | fact_api | ⟫")
-        assert result.success
+        assert result.response_status == "success"
         assert "API documentation content" in result.response_content
 
 

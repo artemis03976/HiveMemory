@@ -1,24 +1,30 @@
 """WorkspaceRuntime：workspace 读取能力与派生缓存的进程内聚合（A2 §1 / 宪章 §3）。
 
 由 System 组合根装配并持有，延续 ``WorkspaceAssetStore`` 的既有归属事实。
-聚合失效代次、完整原子缓存、Profile 解析缓存与两个 resolver；L2 冷读端口
-（``CanonicalReadBackend``）由组合根注入，本模块不导入总线或 Patchouli 实现。
+聚合写入意图登记、失效代次、双缓存与 resolver；L2 冷读端口由组合根注入。
+结算与 canonical 变更订阅由组合根在接受请求前装配，不导入 Patchouli 实现。
 
 独立工作（宪章 §4.3）：库不可达时 L1 命中与交付授权照常，L2 冷读显式失败，
-不以过期条目伪装新鲜成功。canonical 变更事件的订阅由 A2-2 接入。
+不以过期条目伪装新鲜成功。canonical 变更事件内联失效双缓存并推进代次。
 """
 
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
+from hivememory.workspace.cache.invalidation import CacheInvalidator
 from hivememory.workspace.cache.profile import ProfileCache
+from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.resolution.alias import AliasResolver
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
 from hivememory.workspace.resolution.profile import ProfileResolver
+
+if TYPE_CHECKING:
+    from hivememory.components.bus.async_bus import AsyncSystemBus
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +44,36 @@ class WorkspaceRuntime:
         self._guard = ColdReadGuard(self._epochs, max_stale_retries=max_stale_retries)
         self._atom_cache = AtomCache(atom_capacity)
         self._profile_cache = ProfileCache(profile_capacity)
+        self._intents = WriteIntentRegistry()
+        self._invalidator = CacheInvalidator(
+            atom_cache=self._atom_cache, profile_cache=self._profile_cache, epochs=self._epochs
+        )
         self._aliases = AliasResolver(
             cache=self._atom_cache,
             guard=self._guard,
             backing=backing,
+            intents=self._intents,
         )
         self._profiles = ProfileResolver(
             cache=self._profile_cache,
             guard=self._guard,
             backing=backing,
         )
+
+    @property
+    def intents(self) -> WriteIntentRegistry:
+        """写入意图的唯一状态登记，供能力层提交与任务进程收尾。"""
+        return self._intents
+
+    def subscribe(self, bus: AsyncSystemBus) -> None:
+        """在接受请求前接上 canonical 失效与写入意图结算。"""
+        self._invalidator.subscribe(bus)
+        self._intents.subscribe(bus)
+
+    def unsubscribe(self) -> None:
+        """关闭时解除两个订阅，不回收已经登记的句柄。"""
+        self._invalidator.unsubscribe()
+        self._intents.unsubscribe()
 
     @property
     def aliases(self) -> AliasResolver:
@@ -71,6 +97,7 @@ class WorkspaceRuntime:
         """
         if self._guard.is_closed:
             return 0, 0
+        self.unsubscribe()
         self._guard.close()
         atoms = self._atom_cache.clear()
         profiles = self._profile_cache.clear()

@@ -198,8 +198,6 @@ async def test_run_executor_cleans_active_call_when_stream_consumer_closes():
 
     assert coordinator.cancel_calls == 1
     assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"
-    finalize_run.assert_called_once()
-    assert finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -239,4 +237,3 @@ async def test_run_executor_cancels_record_during_call_preparation_await():
 
     assert coordinator.cancel_calls == 1
     assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"
-    finalize_run.assert_called_once()

@@ -1,7 +1,7 @@
 """Alice 跨系统总线桥接。
 
 负责把 Alice 本地能力桥接到系统级总线：注册公开路由、在本地总线上代理
-Patchouli 公开能力、订阅 PendingAtom 结算事件（见 docs/alice/orchestration.md §1）。
+Patchouli 公开能力（见 docs/alice/orchestration.md §1）。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.runtime.bus import AliceBus
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.contracts.routes import GlobalRoutes
 
 if TYPE_CHECKING:
@@ -34,13 +33,11 @@ class AliceBridge:
     职责：
         - 公开路由：将 Alice 的统一执行入口 run_agent 挂载到全局总线
         - 路由代理：在本地总线上挂载 Patchouli 公开路由代理（本地请求转发到全局总线）
-        - 事件桥接：订阅全局 PendingAtom 事件并转发给运行时处理器
     """
 
     #: 本地总线上代理的 Patchouli 公开路由
     _PROXY_ROUTES = (
         GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
-        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
         GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
         GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
     )
@@ -61,7 +58,6 @@ class AliceBridge:
         self._global_bus = global_bus
         self._public_routes_registered = False
         self._route_proxies_registered = False
-        self._global_events_registered = False
 
     @property
     def public_routes_registered(self) -> bool:
@@ -75,10 +71,6 @@ class AliceBridge:
             self._register_route_proxies()
             self._route_proxies_registered = True
 
-        if not self._global_events_registered:
-            self._register_global_event_bridges()
-            self._global_events_registered = True
-
         if not self._public_routes_registered:
             self._register_public_routes()
             self._public_routes_registered = True
@@ -90,10 +82,6 @@ class AliceBridge:
         if self._public_routes_registered:
             self._unregister_public_routes()
             self._public_routes_registered = False
-
-        if self._global_events_registered:
-            self._unregister_global_event_bridges()
-            self._global_events_registered = False
 
         if self._route_proxies_registered:
             self._unregister_route_proxies()
@@ -138,36 +126,6 @@ class AliceBridge:
             return await self._global_bus.request(route, *args, **kwargs)
 
         return _proxy
-
-    # ========== 全局事件桥接（全局总线 → 运行时） ==========
-
-    def _global_event_bindings(self) -> list[tuple[str, Any]]:
-        return [
-            (
-                GlobalEvents.PENDING_ATOM_SETTLED,
-                self._runtime.on_pending_atom_settled,
-            ),
-            (
-                GlobalEvents.PENDING_ATOM_FAILED,
-                self._runtime.on_pending_atom_failed,
-            ),
-            (
-                GlobalEvents.PENDING_ATOM_CANCELLED,
-                self._runtime.on_pending_atom_cancelled,
-            ),
-        ]
-
-    def _register_global_event_bridges(self) -> None:
-        if self._global_bus is None:
-            return
-        for event, handler in self._global_event_bindings():
-            self._global_bus.subscribe(event, handler)
-
-    def _unregister_global_event_bridges(self) -> None:
-        if self._global_bus is None:
-            return
-        for event, handler in self._global_event_bindings():
-            self._global_bus.unsubscribe(event, handler)
 
 
 __all__ = ["AliceBridge", "AlicePublicApi"]

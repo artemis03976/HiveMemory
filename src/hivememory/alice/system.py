@@ -62,7 +62,6 @@ class AliceSystem(SubsystemProtocol):
         prompt_assembler = AgentPromptAssembler(config.koakuma)
         call_context_provider = CallContextProvider(
             self._runtime.profile_resolver,
-            self._runtime.alias_resolver,
         )
         call_coordinator = CallCoordinator(
             self._runtime.agent_runtime,
@@ -75,7 +74,6 @@ class AliceSystem(SubsystemProtocol):
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
-            atom_cache=self._runtime.atom_cache,
             stream_adapter=AgentRunStreamAdapter(),
             agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
         )

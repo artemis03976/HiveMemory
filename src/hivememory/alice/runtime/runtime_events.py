@@ -18,7 +18,6 @@ class AgentRunStats:
 
     mtp_iterations: int
     total_iterations: int
-    materialize_task_count: int
 
 
 class AgentRunEventEmitter:
@@ -105,7 +104,6 @@ class BoundAgentRunEvents:
         return {
             "mtp_iterations": stats.mtp_iterations,
             "total_iterations": stats.total_iterations,
-            "materialize_task_count": stats.materialize_task_count,
         }
 
 

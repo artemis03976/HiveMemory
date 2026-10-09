@@ -6,17 +6,12 @@ AliceSystem 集成测试 — 真实 System + GlobalSystemBus 协作
 路由挂载与卸载副作用。
 """
 
-from uuid import uuid4
-
 import pytest
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_workspace_identity
 
 
 @pytest.mark.asyncio
@@ -34,33 +29,23 @@ async def test_start_registers_public_routes_and_stop_unregisters():
 
 
 @pytest.mark.asyncio
-async def test_stop_clears_runtime_derived_caches():
-    """AliceSystem.stop 在 bridge 卸载后清空执行路径派生 cache（ADR-0005）。"""
-    system = AliceSystem(config=HiveMemoryConfig().alice)
-    atom = MemoryAtom(
-        id=uuid4(),
-        meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
-        index=IndexLayer(
-            title="Stop Memory",
-            summary="Stop summary",
-            memory_type=MemoryType.FACT,
-            alias="fact_stop",
-        ),
-        payload=PayloadLayer(content="stop"),
-    )
-    system.runtime.atom_cache.ingest_atom(
-        atom,
-        workspace_identity=make_workspace_identity(),
-    )
+async def test_stop_clears_runtime_profile_cache():
+    """停止后由 Alice 清理保留的 CALL Profile 派生缓存。"""
+    from hivememory.core.contracts.routes import GlobalRoutes
+    from hivememory.core.models import AgentProfile, ResolvedAgentProfile
+    from tests.helpers.workspace import make_identity_scope
 
+    bus = GlobalSystemBus()
+
+    async def load_profile(_alias, *, identity_scope):
+        return ResolvedAgentProfile(profile=AgentProfile(persona="缓存的 Profile"))
+
+    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, load_profile)
+    system = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus)
     await system.start()
-    await system.stop()
-
-    assert (
-        system.runtime.atom_cache.get_atom_by_alias(
-            "fact_stop",
-            workspace_identity=make_workspace_identity(),
-        )
-        is None
+    profile = await system.runtime.profile_resolver.resolve(
+        "coder", identity_scope=make_identity_scope()
     )
-    assert system.runtime.atom_cache.get_atom_by_uuid(str(atom.id)) is None
+    assert profile.persona == "缓存的 Profile"
+    await system.stop()
+    assert system.runtime.clear_derived_caches() == 0

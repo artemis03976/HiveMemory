@@ -211,7 +211,6 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
     assert complete == ResumeCaller()
     runtime.finalize_frame.assert_called_once()
     runtime.apply_call_response.assert_called_once()
-    runtime.finalize_run.assert_not_called()
     assert record.status == CallRecordStatus.APPLIED
 
 
@@ -274,7 +273,6 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     assert response.reply == "done"
     assert response.artifact_aliases == ["draft-child"]
     runtime.finalize_frame.assert_called_once_with(child, child_result)
-    runtime.finalize_run.assert_not_called()
     runtime.run_frame.assert_not_awaited()
     assert session.frames["frame-child"] is child
     assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED

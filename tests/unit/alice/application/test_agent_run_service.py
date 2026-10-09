@@ -75,7 +75,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        CallContextProvider(runtime.profile_resolver, runtime.alias_resolver),
+        CallContextProvider(runtime.profile_resolver),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )
@@ -84,7 +84,6 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         call_coordinator=coordinator,
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
-        atom_cache=runtime.atom_cache,
         stream_adapter=AgentRunStreamAdapter(),
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
@@ -109,7 +108,7 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
         return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent(manifest, stream=True):
+            async for _ in service.run_agent(manifest, stream=True, operations=MagicMock()):
                 pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED

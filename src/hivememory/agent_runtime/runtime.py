@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Any
 from hivememory.agent_runtime.execution import AgentLoopExecutor, WorkerAgentService
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import FrameOutputSink
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
-from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
+from hivememory.agent_runtime.products import FrameProducts
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
@@ -25,7 +24,7 @@ class AgentRuntime:
     """单 Agent 运行时门面。
 
     封装执行引擎（loop_executor + worker_agent + mtp_executor）与
-    PendingAtomRuntime，对外提供 "跑一个 frame" 和 "收割 Task" 的 API。
+    对外提供 "跑一个 frame" 与 "收割成功子帧产物" 的 API。
     类比 patchouli 的 LibrarianCore——把底层引擎组件收拢成一个聚合，
     编排层（AliceRuntime / RunExecutor）只拿这个门面操作，不直接接触引擎细节。
 
@@ -37,11 +36,9 @@ class AgentRuntime:
         *,
         mtp_executor: MTPExecutor,
         runtime_config: AgentRuntimeConfig,
-        pending_runtime: PendingAtomRuntime | None = None,
         loop_executor: AgentLoopExecutor | None = None,
         model_registry: ModelResolver | None = None,
     ) -> None:
-        self._pending_runtime = pending_runtime or PendingAtomRuntime()
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
         # 若未提供，generation_options 中必须已包含 model，否则 WorkerAgentService 会报错。
         self._model_registry = model_registry
@@ -227,54 +224,15 @@ class AgentRuntime:
         )
         return resolved
 
-    def mark_task_failed(self, pending_alias: str) -> None:
-        """将 MATERIALIZING 的 atom 迁移到 FAILED（由 patchouli FAILED 事件触发）。"""
-        self._pending_runtime.mark_failed(pending_alias)
-
-    def mark_task_cancelled(self, pending_alias: str) -> None:
-        """将 in-flight atom 迁移到 CANCELLED（由 patchouli CANCELLED 事件触发）。"""
-        self._pending_runtime.cancel(pending_alias)
-
     def finalize_frame(
         self,
         frame: ExecutionFrame,
         result: FrameExecutionResult,
     ) -> FrameProducts:
-        """收割成功子帧的产物 alias；失败/取消的子帧则清理其 PendingAtom。"""
-        frame_id = frame.runtime_scope.frame_id
+        """只收割成功子帧收到 ACK 的 alias，意图状态由任务进程收尾。"""
         if result.status != FrameExecutionStatus.COMPLETED:
-            self._pending_runtime.cancel_frame(frame_id)
             return FrameProducts()
-
-        aliases = list(frame.harvested_aliases)
-        for alias in self._pending_runtime.aliases_by_frame(frame_id):
-            if alias and alias not in aliases:
-                aliases.append(alias)
-
-        from hivememory.core.mtp.models import MTPVerb
-
-        for event in frame.progress.turn_events:
-            if event.kind == "tool_call" and event.tool_kind == MTPVerb.UPDATE.value:
-                if event.target and event.target not in aliases:
-                    aliases.append(event.target)
-        for alias in aliases:
-            frame.add_harvested_alias(alias)
-        return FrameProducts(artifact_aliases=tuple(aliases))
-
-    def finalize_run(
-        self,
-        run_id: str,
-        result: FrameExecutionResult,
-    ) -> RuntimeProducts:
-        """收尾一个根 run：认领物化任务，或取消未结算的 PendingAtom。"""
-        if result.status != FrameExecutionStatus.COMPLETED:
-            self._pending_runtime.cancel_run(run_id)
-            return RuntimeProducts()
-
-        aliases = self._pending_runtime.pending_aliases_by_run(run_id)
-        tasks = self._pending_runtime.claim_for_materialization(aliases)
-        self._pending_runtime.evict_by_run(run_id)
-        return RuntimeProducts(materialize_tasks=tuple(tasks))
+        return FrameProducts(artifact_aliases=tuple(frame.harvested_aliases))
 
     def health(self) -> dict[str, Any]:
         """返回运行时的静态健康状态（依赖的活跃性由业务层探测）。"""

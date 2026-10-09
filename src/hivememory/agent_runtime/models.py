@@ -1,8 +1,7 @@
 """Alice 单 Agent 执行层的运行时数据模型。
 
-PendingAtom / PendingAtomStatus / RuntimeScope 已上移到 ``core/models/pending.py``
-（见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2），新代码请从 ``hivememory.core.models``
-导入。本模块保留 agent_runtime 自己的执行壳：
+PendingAtom / PendingAtomStatus / RuntimeScope 由 ``hivememory.core.models`` 提供，
+写入意图登记由 workspace 持有。本模块保留 agent_runtime 自己的执行壳：
 ``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``，
 以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``
 （见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1 / §3.1bis）。
@@ -12,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
@@ -23,6 +22,9 @@ from hivememory.core.models import (
     TurnEvent,
 )
 from hivememory.core.mtp.models import MTPCallRequest
+
+if TYPE_CHECKING:
+    from hivememory.workspace.contracts import ProcessOperations
 
 
 @dataclass
@@ -59,6 +61,9 @@ class ExecutionFrame:
     working_history: list[dict[str, str]]
     topic_id: str | None
     execution_policy: FrameExecutionPolicy = field(default_factory=FrameExecutionPolicy)
+
+    # 本进程的操作端口由 root 与 CALL 子帧共享，授权 context 仍由进程持有。
+    operations: ProcessOperations | None = None
 
     harvested_aliases: list[str] = field(default_factory=list)
 
@@ -100,6 +105,7 @@ class MTPExecutionContext:
     """单条 MTP 指令执行时的身份、权限与运行坐标上下文。"""
 
     runtime_scope: RuntimeScope
+    operations: ProcessOperations | None = None
     agent_profile: Any = None
     execution_policy: FrameExecutionPolicy | None = None
     language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生

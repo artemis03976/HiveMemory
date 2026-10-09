@@ -108,7 +108,7 @@ async def _register(service, composition, *, workspace, process_id: str, message
 class _WorkspaceEchoCPU:
     """按清单回显 workspace_id 的最小 CPU 实现：验证并发 run 的上下文隔离。"""
 
-    def execute(self, manifest, *, generation_options=None, stream=False):
+    def execute(self, manifest, *, operations, generation_options=None, stream=False):
         async def _run():
             yield CPUExecutionResult(
                 final_text=manifest.identity_scope.workspace_identity.workspace_id,
