@@ -9,6 +9,10 @@ HiveMemory 测试共享 Fixtures
 
 import os
 
+# Qdrant/FastEmbed 导入时会初始化 ONNX Runtime 的原生遥测；必须在收集前
+# 禁用，避免其 SDK 把内存缓存的会话旁文件写成工作目录里的 :memory:.ses。
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
+
 # 添加项目根目录到路径
 import sys
 from pathlib import Path
