@@ -49,7 +49,7 @@ related_docs:
   - docs/ideas/identity-and-access-model.md
   - docs/contracts/mtp.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # Workspace 网络与任务进程架构
@@ -520,6 +520,8 @@ canonical 变更事件与 workspace 读取缓存的失效直接相关，是 Alic
 
 能力层由原 `system/application` 的资源能力部分改造而成，不新建中间层：拥有平面状态（resolver、双缓存、边界授权、lease）或组合多个领域步骤的方法构成能力实现；向单个 backing 领域操作的无状态委托可以保持薄转发，条件是转发前已在能力边界完成 operation 授权，且转发目标是一个完整的领域操作而不是裸机制（如 `patch_payload`）。现状：资源能力位于 `workspace/capability`，任务进程的编排位于 `workspace/process`（第 9 节 D-9）。
 
+（2026-10-09）CPU 一侧的入口形态见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9：操作适配器只产出操作请求，CPU 附上线程的执行凭据后经 workspace 的单一操作入口提交；仍是 in-process，不新开总线路由。
+
 adapter 现称操作适配器，定义见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4（2026-10-06 以归一化定义取代原五条判据）；operation 授权的检查点迁移见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)与第三部分前提第 5 条。
 
 #### 7.1.7 库外模式的断开测试
@@ -825,6 +827,7 @@ sequenceDiagram
 - 执行类操作（RUN、CALL、系统工具）的授权进入 operation 目录；执行本身是否经能力层、与 v0.7.1 执行基座的边界，见 P-3；
 - 归属（2026-10-02）：属于 Alice 的能力层调用迁移计划（15.5），不在 A1 返工内。
 - 归属（2026-10-06，取代上一条）：单独作为一个计划实现，不随 Alice 的能力层调用迁移实施。与 Alice 迁移的先后未定。
+- （owner，2026-10-09）白名单的重构以[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9 的操作列表为基础：对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套列表。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
@@ -859,7 +862,7 @@ sequenceDiagram
 |:---|:---|:---|
 | Workspace 读取缓存失效（2026-10-07 已实施） | canonical 变更事件与订阅者纪律（7.1.3）；任务进程主线程 Profile 解析改经能力层 | 本批归档记录见 15.11 |
 | 写入意图迁移·第 1 步（2026-10-07 已实施，[写入意图迁移 Idea](./pending-intent-migration.md#02-第-1-步实施结果与剩余方向2026-10-07) 0.2） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；其余开放项留给第 2 步 |
-| Alice 的能力层调用迁移（收窄后） | SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分 |
+| Alice 的能力层调用迁移（收窄后） | 先以操作请求与 workspace 的单一操作入口取代第 1 步的进程操作通道（执行单元 Idea T-9）；SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分；T-9 已于 2026-10-09 决定，其余细节留给计划 |
 | 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3 |
 | Agent Profile 的权限并入 operation 控制 | 已于同日拆出（15.4） | operation 与 MTP 动词、系统工具的粒度；默认登记；权限的编辑位置 |
 
