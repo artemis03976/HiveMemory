@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/workspace/process/
   - src/hivememory/alice/runtime/core.py
   - src/hivememory/agent_runtime/runtime.py
-  - src/hivememory/agent_runtime/pending_atom/runtime.py
+  - src/hivememory/workspace/intents/
 related_docs:
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-07
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -211,7 +211,7 @@ flowchart LR
 
 ### 2.2 写入意图的寿命
 
-本节内容至今未变，写入意图迁移实施后改变。
+以下是迁移前的寿命快照，2026-10-07 已由 workspace 登记与按进程认领/取消取代；旧 Alice 运行时已删除，不再按后续 run 回收终态。实施追溯见[写入意图登记与读取缓存失效归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)，当前行为见 [Workspace 架构](../architecture/workspace.md#54-写入意图与进程操作通道)。
 
 - 每个 AliceRuntime 只创建一个 `PendingAtomRuntime` 实例（[`alice/runtime/core.py`](../../src/hivememory/alice/runtime/core.py)），主帧与子帧共享；
 - 任何一个根 run 以 COMPLETED 收尾时，[`AgentRuntime.finalize_run`](../../src/hivememory/agent_runtime/runtime.py) 都会调用 `evict_by_run`：删除上一次已标为 EXPIRED 的意图，并把**其他** run 中已离开 in-flight 的意图标为 EXPIRED；非 COMPLETED 的 run 调用 `cancel_run`；

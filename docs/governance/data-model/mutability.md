@@ -14,7 +14,7 @@ related_docs:
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
   - docs/governance/baselines/identity-s0-threat-model-inventory.md
-last_reviewed: 2026-08-07
+last_reviewed: 2026-10-07
 ---
 
 # 数据模型可变性治理
@@ -46,13 +46,15 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 
 ## 4. 当前缺口
 
-1. MemoryAtom 及其嵌套层允许多个调用点直接修改；
-2. PendingAtom 的状态迁移虽有 Runtime 所有者，但字段写权限未完全收口；
+1. MemoryAtom 及其嵌套层仍是可变模型；workspace 原子/Profile 缓存的保存和读取交付独立深副本，但其他领域调用点的合法更新入口尚未统一；
+2. PendingAtom 状态迁移已收敛到 workspace `WriteIntentRegistry`，登记、读取与认领任务均隔离持有副本；这不是对全部公共 DTO 的递归不可变保证；
 3. `RetrievalResponse`、`AgentRunContext/Result` 等公共 DTO 仍包含可变容器；
 4. 多个 frozen 应用服务 outcome 只冻结外壳；
 5. `FrozenDict` 不处理任意自定义对象，`MappingProxyType` 只冻结顶层；
 6. `model_copy(update=...)` 的业务使用缺少统一验证边界；
-7. 测试尚未系统覆盖实体引用泄漏、快照脱钩和嵌套可变字段。
+7. workspace registry、原子/Profile 缓存已有持有副本与交付副本的回归；全项目实体引用泄漏、快照脱钩和嵌套可变字段尚未系统覆盖。
+
+2026-10-07 的读取边界以 core `ReferenceResolution` 表达 pending、canonical 与终态，不再向 MemoryCompiler 输出 Alice 私有解析模型。该结果及其资源值保持可变 DTO 形态，隔离依靠 owner 交付独立副本；`MemoryChangeEvent` 是仅含归属、UUID 与 operation 的 frozen 事件，不传播 MemoryAtom。实现证据见[registry 单元测试](../../../tests/unit/workspace/intents/test_registry.py)、[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)与[意图/读取缓存集成测试](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。这些局部边界收口不代表以下 Phase II–VI 已整体完成。
 
 ## 5. 未排期治理工作包
 
@@ -91,7 +93,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 - 先决定 MemoryAtom 采用受控可变聚合还是版本化不可变聚合，再修改实现；
 - 收敛 meta、index、payload、artifacts、relations 的合法更新入口；
 - Repository/MemoryLibrary 不向调用方返回可任意修改的内部实例；
-- PendingAtom 状态变化统一通过 Runtime 命令或领域方法；
+- 已完成（2026-10-07）：PendingAtom 状态变化由 workspace registry 的登记、认领、进程取消与结算处理推进，外部读取对象与 registry 内状态脱钩；
 - 明确正式 atom、pending、redirect 与 terminal snapshot 的传播规则。
 
 交付物：Memory/Pending 聚合边界、合法迁移 API、并发/版本测试。

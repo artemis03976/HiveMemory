@@ -22,7 +22,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -198,7 +198,7 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 
 ### 3.6 Workspace 与共享运行时
 
-`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。Alice 执行路径的派生缓存（L1 atom cache、profile cache）由 AliceRuntime 持有，并在 `AliceSystem.stop()` 自行清空，不属于 System 运行时基础设施。
+`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。写入意图登记与引用读取缓存属于 workspace，组合根在 Patchouli drain 后关闭 `WorkspaceRuntime`、撤销结算/失效订阅并清空派生缓存；Alice 只保留 CALL 目标 Profile 本地缓存，并在 `AliceSystem.stop()` 清空。两者均不属于通用 Work Queue Runtime。
 
 同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
 

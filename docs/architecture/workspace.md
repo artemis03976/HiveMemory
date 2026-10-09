@@ -45,20 +45,20 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # Workspace 架构
 
 本文是 Workspace 在当前系统架构中的事实入口，说明身份坐标、资源归属、运行时生命周期以及与 System、Patchouli、Gateway、Alice 和共享基础设施的边界。具体路由、事件字段和错误类型以[跨子系统契约](../contracts/subsystem-contracts.md)、[公开路由与事件](../contracts/routes-and-events.md)和[错误模型](../contracts/error-model.md)为准。
 
-Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspace 复制的 Runtime。代码上 `workspace` 是与 Gateway、Patchouli、Alice 同层的包，承载认证入口、访问检查、actor 能力层、读取视图与 WorkspaceAsset 设施；它没有独立的生命周期宿主，由 System 组合根装配。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。派生自 Workspace-owned 资源的视图缓存（Alice 的 L1 atom cache 与 profile cache）按派生源的 Workspace 坐标键控。
+Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspace 复制的 Runtime。代码上 `workspace` 是与 Gateway、Patchouli、Alice 同层的包，承载认证入口、访问检查、actor 能力层、读取视图与 WorkspaceAsset 设施；它没有独立的生命周期宿主，由 System 组合根装配。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。workspace 读取视图的完整原子缓存与 Profile 缓存按派生源的 Workspace 坐标键控，写入意图登记同样由 workspace 拥有。
 
 ## 1. 为什么建立 Workspace：初步的“ME 网络”边界
 
 HiveMemory 引入 Workspace，不是为了给现有对象再增加一个筛选字段，而是为了回答同一个问题的三个部分：谁在执行、资源归属于哪个稳定边界、一次后台或重试操作应当沿用哪一份身份事实。操作、记录与后台任务分别携带符合其寿命的身份数据，Topic、Memory、Artifact、WorkspaceAsset 以及它们的 binding/ref 生命周期才能在共享进程运行时中保持稳定归属。
 
-Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）由 System 持有并在最终寻址处校验；执行路径的派生视图缓存由执行子系统（Alice）持有并按派生源坐标键控。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
+Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）由 System 持有并在最终寻址处校验；完整原子与主进程 Profile 的派生视图由 workspace 读取视图持有；Alice 仅保留 CALL 目标 Profile 的既有缓存。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
 
 在这个意义上，当前 Workspace 已经形成一个初步的“ME 网络”概念。这里的“ME 网络”是借用 AE2 的架构隐喻，不是代码中的独立类、网络进程或完整运行时；它指的是一片能够被稳定寻址、由同一资源归属边界约束、并通过明确交接承载执行结果的最小资源网络：
 
@@ -109,7 +109,7 @@ flowchart TB
     IDENTITY -. "记录与后台 payload；不建立分区" .-> SHARED
 ```
 
-Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边界把 `IdentityScope` 拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部不再传递或重新组装 scope。全局总线的公开 route 参数仍可携带操作 scope；共享队列运输的记录与后台 payload 使用独立身份字段，两者都不因此自动产生 Workspace 命名域、缓存副本或独立调度分区。Alice 的两个派生视图缓存按派生源坐标键控，属于其执行路径的私有运行时状态（见 [Alice](../alice/README.md)）。WorkspaceAsset 的旧端口例外见第 10 节。
+Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边界把 `IdentityScope` 拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部不再传递或重新组装 scope。全局总线的公开 route 参数仍可携带操作 scope；共享队列运输的记录与后台 payload 使用独立身份字段，两者都不因此自动产生 Workspace 命名域、缓存副本或独立调度分区。workspace 读取视图拥有完整原子缓存与主进程 Profile 缓存；写入意图登记保存独立的归属、发起者和进程关联，不保存访问 context 或 `IdentityScope`。WorkspaceAsset 的旧端口例外见第 10 节。
 
 ## 3. 身份坐标
 
@@ -269,7 +269,7 @@ context 是**密封的**凭据：
 | `profile.read` | 能力层的 Agent Profile 读取；任务进程 CPU 分配中的 Profile 解析 |
 | `asset.acquire` | 任务进程 CPU 分配中的附件租借；不授权上传 |
 | `interaction.submit` | 任务进程的 finalize（提交交互记录）：进入 Actor 执行前预检，调用 finalize 前再次授权 |
-| `memory_intent.submit` | 目录项；当前没有绑定的授权点 |
+| `memory_intent.submit` | 能力层的 WRITE/UPDATE 意图提交；UPDATE 基础在提交授权后按正式原子 policy 验证 |
 | `task.observe` | 能力层的生成任务 list/get（观察不授予取消） |
 | `management.memory` | 能力层的 Memory 管理 create/list/get/update/delete/feedback；Agent Profile 的管理创建与列表 |
 | `management.task` | 能力层的生成任务取消 |
@@ -286,10 +286,10 @@ context 是**密封的**凭据：
 
 | | Actor 可见读取 | 管理读取 |
 |:---|:---|:---|
-| 方法 | `read`、`retrieve_by_aliases`、`retrieve`、`get_agent_profile` | `get_memory`、`list_memories`、`list_agent_profiles` |
+| 方法 | `read`、`retrieve_by_aliases`、`resolve_references`、`retrieve`、`get_agent_profile` | `get_memory`、`list_memories`、`list_agent_profiles` |
 | operation | `resource.read`、`resource.search`、`profile.read` | `management.memory` |
 | 可见性 | 按原子的 `MemoryAccessPolicy` 对当前 Actor 授权，不可见与不存在都按不存在处理 | owner 管理语义：整个 Workspace 可见，只校验 Workspace 归属 |
-| 读取路径 | workspace 读取视图（L1 完整原子缓存、L2 冷读回填） | 经 Patchouli 公开路由直接读取中期库，不进入缓存 |
+| 读取路径 | workspace 读取视图（L0 意图登记、L1 原子/Profile 缓存、L2 冷读回填） | 经 Patchouli 公开路由直接读取中期库，不进入缓存 |
 
 行为许可与资源许可必须同时满足：有 `resource.read` 仍可能被 private memory 拒绝，public memory 也不会使没有读取许可的 Actor 获得读取能力。`task.observe` 不授予取消、Pending 内容读或 canonical Memory 读取；`management.memory` 不得被 Topic/Asset/Task 借用泛化放行。
 
@@ -333,9 +333,19 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 缓存按所有权适用两条键控规则：
 
 1. **事实源按 ownership 寻址与校验**：跨子系统的 WorkspaceAssetStore 等事实源以 `WorkspaceIdentity` 参与资源复合键，在最终边界校验归属；
-2. **派生视图按派生源坐标键控**：Alice 执行路径的 L1 atom cache 与 profile cache 派生自 Workspace-owned 资源，alias 索引按 `(WorkspaceIdentity, alias)`、profile key 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区。分区解决"错误命中、无效覆盖和不必要的冷查询"，不替代授权——L1 atom cache 命中后仍由 resolver 重验 Workspace ownership 与 actor policy，profile cache 只复用同授权坐标内已通过 Patchouli 校验的结果。
+2. **派生视图按派生源坐标键控**：workspace 的完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。Alice 的 CALL 目标 Profile 缓存仍属于其执行路径，限制见第 10 节。
 
-两个缓存的当前边界与生命周期见 [Alice](../alice/README.md)。
+canonical 变更经 Patchouli local bus 与 bridge 内联转发；workspace 依次失效原子及 alias、失效源原子的 Profile 条目、推进 Workspace 代次。冷读开始与回填前比较代次，避免旧值在变更后重新进入缓存。通知只携带资源引用，不回放值，不做未送达补齐或重试。语义检索能力可预热缓存；Alice 直接 SEARCH 与 prepare 检索结果不再预热。
+
+### 5.4 写入意图与进程操作通道
+
+`WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作关联的 `process_id`。同 Workspace 的其他 Agent 可经 `resource.read` 回读；越界与不存在相同。WRITE/UPDATE 经 `memory_intent.submit` 授权后登记，ACK 仅表示接纳意图；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
+
+`AliasResolver` 统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。新登记不产生 expired，终态句柄保留到重启。
+
+每个任务进程创建一个 `ProcessOperationChannel`，绑定主线程访问 context、注册目标 Workspace 与 process_id，经 `workspace.contracts.ProcessOperations` 独立交给 CPU。端口不暴露凭据或目标参数，Alice 子 frame 沿用同一端口。completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；关闭时同步失效通道、释放附件租借，并只取消本进程仍为 PENDING 的意图。已认领任务在 finalize 失败时保持 MATERIALIZING。
+
+结算事件仍由 Patchouli 发布。settled 必带且匹配 intent_id；failed/cancelled 保持只带不可复用 pending_alias 的旧载荷，登记处理器在可选 intent_id 被提供时追加校验。
 
 ## 6. WorkspaceAssetStore
 
@@ -425,7 +435,7 @@ AccessGateway.close（拒绝新认证）
   -> SYSTEM_STOPPED
 ```
 
-认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；Alice 在自身停止时清空其派生缓存，Alice 和 Patchouli 完成各自已接纳工作的 drain 后，先关闭 workspace 读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore。这样 settlement consumer 可以在 drain 期间按既有交接约定用 task 中的 asset ref 反查 Store、持有 lease 并在完成后 release；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
+认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；Alice 在自身停止时清空其 CALL 目标 Profile 缓存，Alice 和 Patchouli 完成各自已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore。这样 settlement consumer 可以在 drain 期间按既有交接约定用 task 中的 asset ref 反查 Store、持有 lease 并在完成后 release；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
 
 ### 9.3 失败边界
 
@@ -436,14 +446,14 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - W0 只支持默认 `main_workspace` 的公开入口和内部 `isolation_workspace` 测试 seam，不提供用户可见的 Workspace 创建、切换、Mount、Bridge、Grant 或跨 Workspace sharing；
 - 访问登记只有进程内本地配置：无远程凭据协议、通用 IAM、管理 API 或热更新；HTTP 请求头中的用户身份不做证明，只适用于本地单用户部署；
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单，不能按 Agent 区分权限；
-- Alice 的 MTP 读取（语义检索、alias 批读）、Profile 解析与引用记录仍以 `IdentityScope` 直接请求 Patchouli 公开路由，不经能力层，这些调用没有操作授权；CPU 输入清单的 `IdentityScope` 由过渡方法 `cpu_execution_identity` 组装（第 4.4 节）。Patchouli 的交互提交与主动记忆意图提交路由同样只接收 `IdentityScope`、不做操作授权，目前没有生产调用方；
+- Alice 的 SEARCH、CALL 目标 Profile 解析与引用记录仍以 `IdentityScope` 直接请求 Patchouli 公开路由，不经能力层，这些调用没有操作授权；READ/RUN、WRITE/UPDATE 与 CALL context_refs 已经进程操作端口进入能力层；CPU 输入清单的 `IdentityScope` 由过渡方法 `cpu_execution_identity` 组装（第 4.4 节）。Patchouli 的交互提交与主动记忆意图提交路由同样只接收 `IdentityScope`、不做操作授权，目前没有生产调用方；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
 - WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
 - 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；System 停止流程不排空任务进程表，任务进程由注册入口在交付结束时关闭；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
-- Alice 的 L1 atom cache 与 profile cache 是执行路径的派生视图：不跨重启恢复，`AliceSystem.stop()` 时清空；profile cache 没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能 stale；
-- workspace 读取视图（`WorkspaceRuntime`：完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver）已装配，能力层的 actor 可见读取方法经它读取并在交付前逐次授权；但目前没有生产入口调用这些读取方法（HTTP 路由使用管理方法），缓存失效也尚未接上（`AtomCache.evict`、`ProfileCache.evict_source` 与 `WorkspaceEpoch.advance` 都没有调用方）。在接入失效协作之前，它不作为生产读取路径使用；
-- atom cache 返回原始 `MemoryAtom` 引用，可变性语义遵循[数据模型 ADR-0001](./decisions/0001-data-model-mutability-and-boundary-projection.md)，未做深冻结；
+- Alice 的 CALL 目标 Profile 缓存仍没有更新事件失效，Profile 修改在其 LRU 驻留期内可能 stale；主进程 Profile 解析已经能力层使用可失效的 workspace Profile 缓存；
+- workspace 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，物化仍由 completed finalize 派发；
+- 原子缓存与意图读取交付独立副本，但对象仍可变，不宣称递归冻结；
 - WorkspaceIdentity 的传播不意味着所有组件都参与隔离。任何新增资源都必须先明确其所有者，再决定是否使用 Workspace 复合键；新增派生缓存时按派生源坐标键控，不能从 scope 的存在自动推导隔离。
 
 ## 11. 代码与测试入口
@@ -459,7 +469,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)；
 - 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（注册入口与进程表、进程状态容器、四阶段骨架 `TaskProcessRunner` 与交付、CPU 分配、`chat.run.*` 事件投影与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（`CPUInputManifest`）；
 - 能力层与读取视图：[`workspace/capability/`](../../src/hivememory/workspace/capability/)、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
-- Alice 派生缓存：[`KoakumaAtomCache`](../../src/hivememory/agent_runtime/aliases/cache.py)（端口见 [`AtomCachePort`](../../src/hivememory/agent_runtime/aliases/ports.py)）、[`AgentProfileCache`](../../src/hivememory/alice/runtime/profile_cache.py)；消费侧 resolver 见 [`RuntimeAliasResolver`](../../src/hivememory/agent_runtime/aliases/resolver.py) 与 [`AgentProfileResolver`](../../src/hivememory/alice/runtime/profile_resolver.py)；
+- 写入意图：[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)、[`ProcessOperationChannel`](../../src/hivememory/workspace/process/operations.py)；Alice 的 CALL 目标 Profile 仍经 [`AgentProfileResolver`](../../src/hivememory/alice/runtime/profile_resolver.py) 解析；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；
 - [`AssetMaterializationReader`](../../src/hivememory/system/services/asset_materialization_reader.py)（WorkspaceAsset 旧身份端口的临时物化适配器）；
 - [`TopicAssetBinding`](../../src/hivememory/core/models/workspace_asset.py)、[`ShortTermMemoryStore`](../../src/hivememory/patchouli/memory_library/stores.py) 和 [`PerceptionFamiliar`](../../src/hivememory/patchouli/services/perception.py)。
@@ -469,10 +479,10 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - 访问边界：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/architecture/test_access_boundaries.py`](../../tests/unit/architecture/test_access_boundaries.py)、[`tests/unit/workspace/test_import_boundaries.py`](../../tests/unit/workspace/test_import_boundaries.py)、[`tests/unit/architecture/test_package_layers.py`](../../tests/unit/architecture/test_package_layers.py)、[`tests/integration/workspace/test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)、[`tests/integration/workspace/test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）；
 - [`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)；
 - [`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)；
-- Alice 派生缓存：[`tests/unit/agent_runtime/aliases/test_cache.py`](../../tests/unit/agent_runtime/aliases/test_cache.py)、[`tests/unit/alice/runtime/test_profile_cache.py`](../../tests/unit/alice/runtime/test_profile_cache.py)、[`test_alice_runtime_caches.py`](../../tests/unit/alice/runtime/test_alice_runtime_caches.py)；
+- 写入意图与读取失效：[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`tests/integration/workspace/test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)；
 - [`tests/integration/patchouli/test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)；
 - [`tests/integration/system/test_workspace_asset_runtime.py`](../../tests/integration/system/test_workspace_asset_runtime.py)、[`test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)；
-- cache 串扰与授权重验：[`tests/unit/agent_runtime/aliases/test_resolver.py`](../../tests/unit/agent_runtime/aliases/test_resolver.py)、[`tests/unit/alice/runtime/test_profile_resolver.py`](../../tests/unit/alice/runtime/test_profile_resolver.py)；
+- cache 串扰与授权重验：[`tests/unit/workspace/resolution/test_alias_resolver.py`](../../tests/unit/workspace/resolution/test_alias_resolver.py)、[`tests/unit/alice/runtime/test_profile_resolver.py`](../../tests/unit/alice/runtime/test_profile_resolver.py)；
 - 附件链路：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)；完整入口见[Chat 附件链路](../system/attachments.md)。
 
 相关入口：[总体架构](./overview.md)、[系统边界与所有权](./boundaries.md)、[数据模型与可变性边界](./data-model.md)、[System 组合根与生命周期](../system/composition.md)、[MemoryLibrary](../patchouli/memory-library.md)、[Perception 与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)、[Chat 附件链路](../system/attachments.md)、[归档的 A1 访问边界计划](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)和[Workspace 文档收口历史审计](../archive/plans/documentation-migration-finalization-audit.md)。

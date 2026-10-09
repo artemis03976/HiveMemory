@@ -9,6 +9,8 @@ code_paths:
   - src/hivememory/patchouli/control/
   - src/hivememory/agent_runtime/
   - src/hivememory/alice/runtime/
+  - src/hivememory/workspace/intents/
+  - src/hivememory/workspace/cache/
   - src/hivememory/patchouli/memory_library/
 related_docs:
   - docs/components/runtime-and-bus.md
@@ -19,7 +21,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/components/observability.md
-last_reviewed: 2026-09-13
+last_reviewed: 2026-10-07
 ---
 
 # 运行时状态持久化与故障恢复治理
@@ -39,11 +41,14 @@ last_reviewed: 2026-09-13
 | WorkspaceAsset / opaque ref | workspace 的进程内 `WorkspaceAssetStore`（组合根装配） | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
 | Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
-| PendingAtom / alias / intent | Alice 进程内 store/cache | 没有 durable ledger、TTL、replay 和重启后的 settlement 恢复 | 持久化 intent、状态、resolution 和 settlement cursor |
+| PendingAtom / alias / intent | workspace 进程内 `WriteIntentRegistry`，唯一状态机 | 登记可跨任务进程读回，但没有 durable ledger、TTL、replay 或通知未送达补偿；终态句柄保留到重启 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
-| Profile/atom cache | AliceRuntime 持有的派生 cache：atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区并附带命中/淘汰统计 | 仍无失效事件/TTL，Profile 更新存在 LRU 驻留期 stale 窗口；不跨重启保留，`AliceSystem.stop()` 幂等清空 | 保持 ephemeral derived 语义（atom cache 可从 Qdrant 重建、profile cache 可从路由重载）；命中必须由最终 owner/resolver 重验 `IdentityScope`，不把 cache 当事实 |
+| workspace Profile/atom cache | `WorkspaceRuntime` 持有按 Workspace/UUID 与 alias 定位的 AtomCache、按 Workspace/Actor/alias 定位的 ProfileCache | 已接 canonical 变更的内联失效与在途回填代次校验；通知无重试/replay，不跨重启保留 | 保持 ephemeral derived 语义；失效只删除派生项，冷读重建并重验归属与 actor policy，不把 cache 当事实 |
+| Alice CALL 目标 Profile cache | `AliceRuntime` 持有按 `(WorkspaceIdentity, Actor 投影, alias)` 分区的本地派生 cache | 尚未迁入 workspace 的失效链，没有失效事件/TTL，Profile 更新仍有 LRU 驻留期 stale 窗口；`AliceSystem.stop()` 幂等清空 | 保持 ephemeral derived 语义；CALL 目标解析迁移仍是独立后续范围 |
 | RuntimeEvent | 进程内 bounded ring buffer | 允许丢失、不可跨进程连续，不是审计账本 | 继续作为 best-effort 观测；需要历史时建立独立审计/任务查询模型 |
 | feedback/reinforcement history 与 GC stats | 主要为进程内历史 | 跨会话无法解释反馈来源，维护统计重启即归零 | 按产品与审计需要选择持久化事件或聚合快照 |
+
+canonical 变更事件已经覆盖每次中期提交尝试的进程内失效，但它不是 durable accepted 或持久化确认。PendingAtom 结算仍经功能事件更新 registry；事件丢失可能留下 MATERIALIZING，当前没有权威任务结果对账恢复。认领前的 PENDING 随所属进程关闭取消，认领后的 MATERIALIZING 不随进程关闭取消，这种寿命拆分也没有改变进程内登记会在重启后消失的事实。证据见[写入意图与读取缓存集成测试](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)和[中期变更事件集成测试](../../../tests/integration/patchouli/test_memory_change_events.py)。
 
 这些对象不能使用同一个“是否持久化”开关解决。Active topic 的原始 blocks 可能因隐私、容量和成本而保持短期；PendingAtom 的写意图、已接受的 interaction 和已经对用户承诺的 task 状态则不能在重启后无声消失。
 
@@ -91,9 +96,10 @@ last_reviewed: 2026-09-13
 持久化 adapter 保存领域状态，但不取得领域解释权：
 
 ```text
-Alice owns frame / PendingAtom semantics
-Patchouli owns MemoryAtom / Artifact / lifecycle semantics
-System owns work lifecycle / recovery coordination
+Alice owns run / frame / MTP execution semantics
+Workspace owns task process / PendingAtom registry / derived read views
+Patchouli owns MemoryAtom / Artifact / lifecycle / memory task semantics
+Components provides work lifecycle mechanisms; System assembles shared facilities
 Storage adapter owns bytes, transactions and indexes
 ```
 

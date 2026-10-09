@@ -23,7 +23,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-07
 ---
 
 # 多 Agent 编排
@@ -43,7 +43,7 @@ AliceSystem
   │    ├─ RunSession
   │    │    └─ frame registry / CallRecord ledger
   │    ├─ RunExecutor
-  │    │    └─ recursive frame evaluation + run finalization
+  │    │    └─ recursive frame evaluation + root outcome recording
   │    ├─ CallCoordinator
   │    │    ├─ begin/complete CALL, frame preparation, response apply
   │    │    └─ CallContextProvider -> target profile + context_refs -> CallContext
@@ -55,25 +55,25 @@ AliceSystem
   │         └─ global best-effort agent.run.* observability
   └─ AliceRuntime
        ├─ AgentProfileResolver -> (Workspace, Actor, alias) 授权坐标 keyed AgentProfile LRU cache
-       ├─ RuntimeAliasResolver -> context_refs pending / redirect / atom
+       ├─ frame ProcessOperations -> context_refs pending / redirect / atom
        └─ AgentRuntime facade -> execute one frame to a terminal/trap outcome
 ```
 
 - AgentRunService 是 Alice 的公开 run 用例入口：`run_agent` 以 `stream` 参数控制是否流式，内部只有一套执行骨架，负责创建入口 frame、为每次 run 构造 Executor、组装 CPU 中立的执行结果，并在流式终态后发出唯一 `done`。两种模式的 `agent.run.*` 终态事件语义一致：完成、失败与终态前被关闭或取消分别只发布一次；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
 - AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；它经全局总线调用 Alice 的统一执行路由，原样转交交互事件并把 `done` 转换为执行结果，端口输出流关闭时一并关闭 Alice 的事件流，因此 Alice 的运行时仍在公开路由之后；
-- AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache 和 PendingAtom 运行时投影（cache 按授权坐标分区），不参与单次 run 的控制链；
+- AliceSystem 是子系统装配根；AliceRuntime 持有进程级执行资源、AgentProfileResolver/cache（按授权坐标分区），不参与单次 run 的控制链；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
-- RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并且是唯一调用 `finalize_run()` 的位置；
+- RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
 - AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
-- CallContextProvider 按 caller `IdentityScope` 解析目标 Profile 与 `context_refs`，返回不含 frame 或 CALL ledger 状态的 `CallContext`；
+- CallContextProvider 按 caller `IdentityScope` 解析目标 Profile，按进程操作端口解析 `context_refs`，返回不含 frame 或 CALL ledger 状态的 `CallContext`；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
 - AgentProfileResolver 负责把可读 agent alias 解析为运行图纸；其实例和按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 授权坐标分区的 cache 由 AliceRuntime 持有，Workspace scope 随请求交给 Patchouli owner route，跨授权坐标不复用缓存条目；
-- RuntimeAliasResolver 让 context refs 复用与 READ 相同的运行时寻址；
+- 进程操作端口让 context refs 与 READ 使用 workspace 的同一套中立引用解析；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
 
-`RunExecutor` 是每次 run 独立创建的递归解释器，不维护 active-frame 状态机，也不把 caller/callee 写成两套绝对角色。`_execute_frame(frame)` 运行任意已登记 frame；遇到 CALL 时，它 `await` 递归执行新 frame，返回后继续同一个 caller。协程调用栈自然表达挂起与重入，`RunSession` 因而不再充当程序计数器。如果 AgentRuntime 开始创建 callee，或 CallCoordinator 再次调用 `run_frame()` / `finalize_run()`，说明这组责任重新混合。
+`RunExecutor` 是每次 run 独立创建的递归解释器，不维护 active-frame 状态机，也不把 caller/callee 写成两套绝对角色。`_execute_frame(frame)` 运行任意已登记 frame；遇到 CALL 时，它 `await` 递归执行新 frame，返回后继续同一个 caller。协程调用栈自然表达挂起与重入，`RunSession` 因而不再充当程序计数器。如果 AgentRuntime 开始创建 callee，或 CallCoordinator 再次调用 `run_frame()`，说明这组责任重新混合。
 
 ## 2. 主帧与运行作用域
 
@@ -86,9 +86,9 @@ AliceSystem
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
-FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。只有最外层入口 frame 的终态会触发 run 级 `finalize_run()`。
+FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。最外层入口 frame 的终态由 Alice 映射为 CPU 结果，任务进程据此认领或取消意图。
 
-frame 是实际可恢复状态。恢复 caller 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 PendingAtom action scope 都会分叉。父子、caller action 等调用关系只记录在 Alice 的 `CallRecord` 与事件元数据中，不进入 `RuntimeScope`。
+frame 是实际可恢复状态。恢复 caller 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 ACK alias 清单都会分叉。父子、caller action 等调用关系只记录在 Alice 的 `CallRecord` 与事件元数据中，不进入 `RuntimeScope`。
 
 RunSession 只登记 frame 与 CALL record，并校验 frame 属于当前 run、调用 action 唯一、callee 与 record 绑定一致。当前正在执行哪个 frame、caller 在哪里等待，都由 Python 协程调用栈表达；Session 不保存 `PENDING/RUNNABLE/RUNNING/WAITING/TERMINATED` 之类的调度状态。重复入口/callee、跨 run 绑定、重复 CALL action 和重复 apply 仍作为编排不变量抛出。
 
@@ -137,9 +137,9 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 ### 3.2 共享上下文
 
-`context_refs` 不是直接复制父 frame 的全部 history。CallContextProvider 逐个使用 RuntimeAliasResolver 解析：
+`context_refs` 不是直接复制父 frame 的全部 history。CallContextProvider 逐个使用 caller frame 的 `ProcessOperations.resolve_references()` 解析：
 
-- pending：共享尚未物化的本轮写意图；
+- pending：共享同一 Workspace 中仍可回读的写入意图；
 - redirect：共享已经结算后的 canonical atom；
 - atom：共享正式记忆；
 - discarded/failed/expired/not-found：记录 warning 并跳过。
@@ -157,9 +157,9 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - `topic_id=None`，不直接挂载 Patchouli 话题；
 - 目标 Agent Profile；
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
-- 继承父 frame 的完整 `IdentityScope`。
+- 继承父 frame 的完整 `IdentityScope` 与同一个进程操作端口。
 
-子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间产生的 pending aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，其 frame 内尚未结算的 PendingAtom 会被取消。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
+子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间收到 ACK 的 aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，该子帧不单独取消登记中的意图；登记由共同的根进程终态处理。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
 
 这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有结构化 tool_call/tool_result，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
 
@@ -182,14 +182,13 @@ root frame
 
 子帧成功结束后，CallCoordinator 通过 `AgentRuntime.finalize_frame()` 建立 artifact alias 列表：
 
-1. `FrameProducts` 投影该 frame 已登记的 PendingAtom alias；
-2. Runtime 对 UPDATE tool event 执行兼容补全，加入尚未登记为 pending 的 target alias。
+`FrameProducts` 只投影本 frame 收到 ACK 后去重记录的 alias，不加入 UPDATE 的原基础 alias；caller 收到成功 CALL response 后把子帧产物加入自己的 alias 清单。
 
 自然语言 reply 与 alias 列表组成 success `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把 success/error/cancelled 终态响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
 CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`call_response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 
-caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC harvest：入口 frame 终态后，RunExecutor 只调用一次 `AgentRuntime.finalize_run(run_id, result)`。IPC aliases 服务于 caller 当前认知，`RuntimeProducts.materialize_tasks` 服务于 Alice -> Patchouli 的数据交接，两者不能混为一份真相。
+caller 与 callee 使用同一个进程操作端口，登记中的意图因而关联同一个 process ID。IPC alias 服务于 caller 当前认知，最终物化任务由任务进程在 completed 后直接从 workspace 登记认领；CPU 结果不携带物化任务，Alice 不再提供 run 级登记收尾。
 
 ## 7. 流式事件
 
@@ -223,15 +222,15 @@ caller 与 callee 共享 run_id，因此最终物化任务不依赖这份 IPC ha
 - 子帧只接收 task 与显式 shared context，不能默认复制主 frame 全部工作历史；
 - 主 Agent 最终负责用户回复，子 Agent 不直接写入主话题或向客户端产生第二个 done；
 - Profile 的 persona 不能提升结构化权限，调用方 task 也不能替被调用者改写白名单；
-- Pending alias 的 IPC 收割与 run 级 materialize task 收集是两条不同用途的数据流；
-- `context_refs` 必须经过 RuntimeAliasResolver 与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；
+- Pending alias 的 IPC 收割与任务进程的意图认领是两条不同用途的数据流；
+- `context_refs` 必须经过进程操作端口的 workspace 引用解析与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；
 - CALL 权限与预算必须随 frame policy 传播，不能只依赖 prompt 告诫模型；取消沿拥有 Alice run 的 task 递归展开，不通过 session 建立第二套控制面；
 - Alice 可以持有 Profile 运行时 cache，却不能把它当成 Patchouli 中 Profile 记忆的第二份权威事实。
 
 ## 10. 当前限制
 
 - AgentProfile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 组织、上限固定为 32。缓存没有 TTL、版本检查或管理事件失效，Profile 更新要等 LRU 淘汰或进程重启才可靠生效；
-- `AgentProfile` 模型不保存来源 atom alias，子 frame 又继承父 `IdentityScope`。执行层子事件可能把 `agent_id` 标为父 Agent，子帧创建的 PendingAtom 也无法仅凭 actor projection 证明真实 CALL 目标；
+- `AgentProfile` 保留来源 alias，但子 frame 仍继承父 `IdentityScope` 和进程操作端口，子帧写意图的发起者仍是主线程 Actor；
 - frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；

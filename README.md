@@ -32,7 +32,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 - Memory、Topic 和附件携带明确的 Workspace 归属，入口统一 IdentityScope，并校验跨 Workspace 访问；
 - 支持 TXT、Markdown、DOCX 上传与确定性解析，READY 表示可显式选择进入 Chat；
 - AttachmentCompiler 按预算编译上下文，成功 Interaction 记录使用关系，Memory CREATE/UPDATE 按需生成来源 Artifact；
-- WorkspaceAsset 仅承诺当前进程内可用，缓存继续由 AliceRuntime 持有；完整边界见 [Workspace 架构](docs/architecture/workspace.md)和 [Chat 附件链路](docs/system/attachments.md)。
+- WorkspaceAsset 仅承诺当前进程内可用；写入意图登记与引用读取缓存由 workspace 持有，正式记忆变更会失效原子与 Profile 解析缓存；完整边界见 [Workspace 架构](docs/architecture/workspace.md)和 [Chat 附件链路](docs/system/attachments.md)。
 
 ### 记忆与话题管理
 

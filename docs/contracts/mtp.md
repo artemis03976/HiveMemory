@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-07
 ---
 
 # Memory Tool Protocol (MTP)
@@ -55,11 +55,11 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 ## 2. 执行位置
 
-`KoakumaRuntime` 负责 parse、权限检查、verb 分发、结果计时和格式化。它属于 Alice，使用 Alice local bus 映射的 Patchouli 公开路由访问记忆能力。
+`KoakumaRuntime` 负责 parse、权限检查、verb 分发、结果计时和格式化。它属于 Alice；WRITE/UPDATE、READ/RUN 的记忆目标与 CALL context_refs 经进程操作端口进入 workspace 能力层，SEARCH、引用记录与 CALL 目标 Profile 仍使用 Alice local bus 映射的 Patchouli 公开路由。
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 的 `RuntimeScope` 冻结得到；其中 `runtime_scope.identity_scope` 是记忆访问的唯一身份来源。MTP 文本、alias 或进程级缓存都不能自行指定或推导 Workspace，具体资源的 ownership 与 actor policy 仍由 Patchouli 的资源所有者最终校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 的 `RuntimeScope` 冻结得到，保留直接 Patchouli 调用的过渡身份。进程操作端口另由 workspace 绑定主线程访问 context、注册目标 Workspace 与 process_id，Alice 与子 frame 不取得这些凭据，也不能自行指定目标。端口提交绑定 `memory_intent.submit`，引用解析绑定 `resource.read`；原子的归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -76,7 +76,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 - filter 中的非法 token 不使整次搜索失败，而是忽略过滤并返回 warning；
 - 经 `patchouli.public.memory.retrieve` 检索；
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
-- 命中的完整 MemoryAtom 写入调用方 Workspace 分区的 L1 atom cache；
+- SEARCH 结果不预热读取缓存；只有 workspace 能力层的语义检索预热完整原子缓存；
 - 空结果仍为 `success`，并带 `no_memories_found` warning。
 
 SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”当成系统故障。检索本身具有不确定性，空结果只说明当前查询没有证据；Agent 仍可以改写查询、继续回答或明确告知信息不足。
@@ -89,7 +89,7 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 ```
 
 - 不支持 wildcard；
-- alias 可以解析为正式 atom、pending、redirect 或 discarded/failed/expired 终态；
+- alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；模型与编译器保留 expired 兼容种类，但登记不再产生它；
 - 每类结果均经 MemoryCompiler 的 `MTP_READ` target 编译；
 - 全部 alias 未命中时返回 error；
 - 部分未命中时返回已解析内容，并把缺失 alias 放入 warnings；
@@ -124,12 +124,12 @@ RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读�
 ```
 
 - `content` 必填；`title`、`reason` 可选；
-- 立即注册 PendingAtom 并返回 `ack + pending_alias`；
+- 经进程操作端口在 workspace 登记 PendingAtom 并返回 `ack + pending_alias`；同 Workspace 的其他 Agent 可经读取许可回读；
 - 不在 Koakuma 内同步创建正式 MemoryAtom；
-- PendingAtom materialize task 随 CPU 执行结果交给任务进程，经 `InteractionPayload` 进入 Patchouli finalize；
+- completed 时任务进程认领本进程的 PENDING 意图为 MATERIALIZING，生成 materialize task，经 `InteractionPayload` 进入 Patchouli finalize；CPU 执行结果不携带物化任务；
 - 只有完成 finalize 后，后续生成/结算流程才可能形成正式记忆。
 
-ACK 表示意图已被运行时接收，不表示长期记忆已经持久化。
+ACK 表示意图已在 workspace 登记，不表示长期记忆已经持久化。进程关闭只取消其仍为 PENDING 的意图；已认领意图不被关闭回滚。结算后的句柄保留到重启。
 
 延迟物化保护了长期记忆免受半完成运行污染。WRITE 发生时，Agent 仍可能在后续迭代中失败、取消或修正自己的判断；如果 Koakuma 立即写入正式 MemoryAtom，执行事务尚未完成就会产生难以撤销的长期事实。PendingAtom 让本轮可以引用刚提出的内容，同时把正式生成、来源归约和持久化留给成功后的 Patchouli finalize。
 
@@ -140,12 +140,12 @@ ACK 表示意图已被运行时接收，不表示长期记忆已经持久化。
 ```
 
 - TARGET 必须是单 alias；`instruction` 必填，`content` 可选；
-- 目标必须解析为正式 atom，pending alias 不能再次 UPDATE；
+- 目标必须解析为请求方可读的正式 atom；pending 与结算 redirect 句柄不能再次 UPDATE；
 - 注册以原记忆 UUID 为基线的 pending revision；
-- 使调用方 Workspace 分区内的 alias cache 失效，防止后续脏读；
+- 使 workspace 共享完整原子缓存中的基础原子及 alias 索引失效，防止后续脏读；
 - 返回 `ack + pending_alias`，实际更新延迟到 Patchouli finalize 后处理。
 
-UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pending revision，使当前 run 能表达修订意图，又保留旧版本和来源链；调用方 Workspace 分区内的 alias cache 立即失效，是为了避免 Agent 在同一轮继续把待修订内容当成无变化的权威事实。
+UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pending revision，使当前 run 能表达修订意图，又保留旧版本和来源链；workspace 共享完整原子缓存中的基础原子及 alias 索引立即失效，是为了避免 Agent 在同一轮继续把待修订内容当成无变化的权威事实。
 
 ### 3.6 CALL
 
@@ -216,7 +216,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - 记忆访问使用调用方 `IdentityScope`，先执行 Workspace ownership hard boundary，再执行 Workspace 内的 actor 可见性策略，不能绕过任一边界；
 - cancellation 不能被转换成普通 success。
 
-> **实现说明**：该不变量在别名解析的全部三级命中路径上执行。L2 冷查询携带调用方 `IdentityScope`，由最终 Memory owner 与 resolver 防御性重验 Workspace ownership 和 actor policy；L1 atom cache 与 L0 PendingAtomRuntime 同属 AliceRuntime，前者按 `(WorkspaceIdentity, alias)` 分区，命中在 resolver 边界执行同样的重验，后者比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理，不泄露 pending 的状态、内容或 canonical 指向。详见 [MTP Runtime](../alice/mtp-runtime.md)、[PendingAtom](../alice/pending-atom.md)；修复记录与测试入口见 [MTP 缓存命中作用域重验归档记录](../archive/todo/mtp-cache-scope-revalidation.md)。
+> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图与进程操作通道)、[MTP Runtime](../alice/mtp-runtime.md)。
 
 ## 7. 设计矛盾检查
 
@@ -236,7 +236,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 
 - parser / filter：`tests/unit/core/mtp/`；
 - verb 链路：`tests/unit/agent_runtime/mtp/test_*_chain.py`；
-- alias / PendingAtom：`tests/unit/agent_runtime/mtp/test_alias_generation.py`、`test_read_chain.py`；
+- alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
 - CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunExecutor/CallContextProvider/CallCoordinator 测试；
 - syscall：`tests/unit/agent_runtime/mtp/syscalls/`；
 - i18n formatter：MTP formatter 和 i18n runtime 测试。

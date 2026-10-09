@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 系统边界与所有权
@@ -42,7 +42,7 @@ last_reviewed: 2026-10-04
 - Patchouli 回答“长期知识是什么、如何检索、提交和演化”；
 - Alice 回答“Agent 如何在本轮上下文中行动、调用工具并形成执行结果”。
 
-这四类问题对应四种不同的状态寿命。System 持有一次用例及进程生命周期的控制状态；Gateway 的分析状态只服务于形成本次不可变决策；Patchouli 持有跨会话延续的记忆、话题和生成任务；Alice 持有一次 run 内的 frame、工具调用和临时别名。状态寿命不同，是职责不能简单合并的根本原因。
+这四类问题对应四种不同的状态寿命。System 持有一次用例及进程生命周期的控制状态；Gateway 的分析状态只服务于形成本次不可变决策；Patchouli 持有跨会话延续的记忆、话题和生成任务；workspace 持有跨任务进程保留的写入意图与派生读取视图；Alice 持有一次 run 内的 frame、工具调用和 ACK 别名清单。状态寿命不同，是职责不能简单合并的根本原因。
 
 ## 2. 边界原则
 
@@ -69,10 +69,10 @@ local bus 则是一个子系统内部的组合机制。它允许所有者替换�
 | 边界 | 负责 | 明确不负责 |
 |:---|:---|:---|
 | System | 组合根与门面、配置加载、生命周期、共享设施实例的装配与关闭、Provider/Model 注册表、接入登记与 Principal authentication、被动摄入、就绪检查 | 查询分析、记忆算法、Agent loop、MTP 具体执行、Workspace 准入与行为白名单（归 workspace）、运行时机制实现（归 components） |
-| Workspace | 认证入口与准入、逐次行为授权、actor 能力层、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Workspace | 认证入口与准入、逐次行为授权、actor 能力层、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析（不执行）、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
 | Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
-| Alice | Agent run、frame 编排、MTP/工具执行、PendingAtom 运行时 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
+| Alice | Agent run、frame 编排、MTP/工具执行与 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core contracts | 依赖中立的数据模型、协议枚举、稳定常量、访问值类型与端口协议 | 业务编排、I/O 与运行时状态 |
 | Components | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context | 业务状态与业务判断 |
 
@@ -163,19 +163,19 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 - 一次 Agent run 的 frame、消息、turn events 和终态；
 - Agent loop 的迭代与流式执行资源；task cancellation 的业务裁决属于任务进程编排（`workspace.process`），Agent 执行只负责原生传播与本地 unwind；
-- Koakuma 的 MTP parser、权限检查、alias cache 与 syscall registry（alias cache 按 `(WorkspaceIdentity, alias)` 分区）；
-- PendingAtom 在当前运行期内的别名、redirect 和 terminal view；
+- Koakuma 的 MTP parser、Profile 权限检查与 syscall registry；
+- 当前 frame 收到的 WRITE/UPDATE ACK 别名清单；
 - CALL 的父子 frame 调度。
 
 ### 7.2 依赖方向
 
-Alice 接收任务进程组装的 `CPUInputManifest`（`workspace.contracts`），在内部转换为 `AgentRunContext`。需要检索、别名读取、Profile 或引用记录时，经映射到 Alice local bus 的全局公开路由访问 Patchouli。
+Alice 接收任务进程组装的 `CPUInputManifest` 与独立的 `ProcessOperations` 端口，在内部转换为 `AgentRunContext`。WRITE/UPDATE、READ/RUN 与 CALL context_refs 经端口调用 workspace 能力层；SEARCH、引用记录与 CALL 目标 Profile 解析仍经 Alice local bus 映射的 Patchouli 公开路由。子 frame 沿用主线程端口，不持有访问 context。
 
 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
-Alice 执行路径的派生缓存（L1 atom cache、profile cache）与 PendingAtomRuntime 一样由 AliceRuntime 创建并持有：派生自 Workspace-owned 资源的视图按派生源的 Workspace 坐标键控，分区不替代命中后的 ownership/actor policy 重验。
+写入意图登记与完整引用解析由 workspace 唯一拥有。完整原子与主进程 Profile 的派生缓存也归 workspace，按源 Workspace 键控并在交付时重新授权；Alice 仅保留 CALL 目标 Profile 的既有缓存。
 
-Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行时视图。Alice 不以此取得正式记忆所有权。
+Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical 变更事件内联失效 workspace 读取缓存。Alice 只消费端口返回的独立解析结果，不订阅结算事件，也不持有写入意图状态。
 
 ### 7.3 禁止的越界
 
@@ -197,11 +197,13 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 | `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
 | `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
 | `InteractionSubmission` / `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | Patchouli | 独立保存必需的 `belong_to` 与 `from_actor`；scope 不进入记录或队列 |
-| `PendingAtomMaterializeTask` | Alice 投影，Patchouli 消费 | 只读请求独立保存 `belong_to` 与 `from_actor`，不交接 Alice 的运行时 scope |
+| `PendingAtomMaterializeTask` | workspace 任务进程认领登记后投影，Patchouli 消费 | 只读请求独立保存 `belong_to` 与 `from_actor`，不交接 Alice 的运行时 scope |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
 | `WorkspaceAsset` working set | Workspace（组合根装配） | `core.ports.workspace_assets` 窄化端口、`WorkspaceAssetRef` 与 lease |
 | `WorkspaceIdentity` / `ActorIdentity` / `IdentityScope` | Core value object；授权点组装操作 scope，资源 owner 拆分归属与发起者 | 不可变公共模型，不构成独立运行时状态；scope 不随记录或后台任务保存 |
-| PendingAtom 运行时状态 | Alice | 结算事件从 Patchouli 回传 |
+| PendingAtom 运行时状态 | Workspace 写入意图登记 | 分开保存归属、发起者与进程关联；Patchouli 结算事件回传 |
+| `ReferenceResolution` | Workspace 读取视图投影 | core 中立结果；意图与原子交付独立副本 |
+| `ProcessOperations` | Workspace 任务进程 | 独立交给 CPU 的操作端口，进程关闭同步失效 |
 | 任务进程控制（chat run 的 phase/outcome/stop reason/active_task） | Workspace 任务进程表（`workspace.process`） | 编排内部状态与 RuntimeEvent 投影 |
 | passive run 控制 | System | 应用服务内部状态与 RuntimeEvent 投影 |
 | 根配置 / 配置段 | System 加载（`config.app`）/ 各组件接收自己的段（`config.<section>`） | 组合根按段注入；下层不持有根配置 |
@@ -210,12 +212,13 @@ Patchouli 结算 PendingAtom 后，通过全局事件通知 Alice 更新运行�
 ## 9. 允许的调用方向
 
 ```text
-Server adapters -> 门面提供的服务（workspace 能力层 / Alice chat 编排 / System 被动摄入）
+Server adapters -> 门面提供的服务（workspace 能力层与任务进程 / System 被动摄入）
 上述服务 -> GlobalSystemBus public routes
 workspace 认证入口 -> System Principal authentication（经 core.access 端口注入）
 Gateway -> Patchouli public read routes (话题上下文)
-Alice -> Patchouli public read/citation routes (MTP)
-Patchouli -> GlobalEvents -> Alice (PendingAtom 结算通知)
+Alice -> ProcessOperations -> workspace 能力层 (WRITE/UPDATE/READ/RUN/CALL context_refs)
+Alice -> Patchouli public routes (SEARCH/citation/CALL目标Profile)
+Patchouli -> GlobalEvents -> workspace (意图结算与canonical读取失效)
 Subsystem -> RuntimeEventSink (观测旁路)
 ```
 

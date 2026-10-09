@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # Alice
@@ -35,7 +35,7 @@ Alice 当前拥有：
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
 - 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 由 Alice 运行时解析；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
-- PendingAtom 的进程内写缓冲、临时 alias、物化任务投影和 settlement 运行时视图；
+- 经进程操作端口提交写入意图、读取中立引用结果与记录本帧收到的 ACK alias；
 - 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 - Alice 私有 local bus，并经它代理 Patchouli 的公开记忆能力。
 
@@ -53,7 +53,7 @@ Alice 不负责：
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
 
-chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 只通过公开 route、公共模型和 settlement event 与它们交接。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
+chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过公开 route、公共模型与 `workspace.contracts.ProcessOperations` 交接；写入意图登记、结算和读取缓存属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ## 2. Alice 与 AgentRuntime 为什么是两层
 
@@ -68,15 +68,15 @@ AliceSystem
   │         -> CallCoordinator + CallContextProvider + FrameFactory
   │         -> AgentRuntime facade
   ├─ AliceRuntime                     process-local execution resources
-  │    -> Koakuma + PendingAtomRuntime + alias/profile caches（按 Workspace 坐标分区）
-  └─ AliceBridge                      public routes + Patchouli proxies/events
+  │    -> Koakuma + AgentRuntime + CALL Profile cache
+  └─ AliceBridge                      public routes + Patchouli proxies
 ```
 
 - `agent_runtime/` 是“CPU”：只关心把一个 `ExecutionFrame` 运行到自然收敛、取消或 CALL trap，不决定下一步该调度谁；
 - Alice 编排层是“进程调度器”：创建主帧，消费 CALL trap，通过 CallContextProvider 取得子 Agent Profile/共享上下文，派生子帧，收割结果并恢复主帧；
 - Patchouli 是长期存储与记忆域：Alice 可以提出物化请求，却不能自行确认长期事实已经成立。
 
-`agent_runtime/` 是顶层共享层，不是第四个子系统。它不实现 `SubsystemProtocol`，不注册全局公开路由，也不拥有独立启停；依赖的 bus、配置、模型注册表和 PendingAtomRuntime 均由 Alice 注入。反向出现 `agent_runtime -> alice` 的领域依赖，或让执行循环重新决定子 Agent 拓扑，都意味着这道边界开始失效。
+`agent_runtime/` 是顶层共享层，不是第四个子系统。它不实现 `SubsystemProtocol`，不注册全局公开路由，也不拥有独立启停；依赖的 bus、配置与模型注册表由 Alice 注入，进程操作端口随 frame 传入。反向出现 `agent_runtime -> alice` 的领域依赖，或让执行循环重新决定子 Agent 拓扑，都意味着这道边界开始失效。
 
 ## 3. 人偶图纸：人格与权限分离
 
@@ -93,7 +93,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-自定义 Profile 必须携带调用方的 `IdentityScope` 交由 Patchouli 公开边界解析。Patchouli 拆出归属与发起者，先检查 Workspace 归属，再检查 PUBLIC / TEAM / PRIVATE 可见性、MemoryType 与 `agent_config`；Profile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区，同一 Actor 在不同 Workspace 的同名 profile 各自缓存。actor 身份只含 user、agent 与 team，不含外部会话 ID。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+自定义 Profile 必须携带调用方的 `IdentityScope` 交由 Patchouli 公开边界解析。Patchouli 拆出归属与发起者，先检查 Workspace 归属，再检查 PUBLIC / WORKSPACE / PRIVATE 可见性、MemoryType 与 `agent_config`；Profile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区，同一 Actor 在不同 Workspace 的同名 profile 各自缓存。actor 身份只含 user、agent 与 team，不含外部会话 ID。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -102,7 +102,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 ```text
 任务进程的 CPUInputManifest
   -> 转换为 AgentRunContext（Alice 内部）
-  -> warm pre-retrieval MemoryAtoms into alias cache
+  -> attach ProcessOperations to root frame
   -> assemble MTP + persona + memory + topic messages
   -> create root ExecutionFrame(topic_id=...)
   -> RunExecutor -> AgentRuntime.run_frame()
@@ -112,7 +112,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
   -> 任务进程据执行结果决定是否封口交互记录并进入 Patchouli finalize
 ```
 
-Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名和 `PendingAtomMaterializeTask[]`；迭代统计只出现在 `agent.run.*` 观测事件中。
+Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名；迭代统计只出现在 `agent.run.*` 观测事件中。
 
 `FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在任务进程管理的主动流程中进入 Patchouli finalize。
 
@@ -139,15 +139,15 @@ root frame emits CALL
 
 Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提出长期写入或委派意图。完整语法和动词契约只在 [MTP 契约](../contracts/mtp.md)维护；Alice 文档只说明运行时怎样兑现它。
 
-`WRITE` / `UPDATE` 不同步修改 Qdrant。Koakuma 立即创建 PendingAtom 并返回 `draft_*` 或 `rev_*` 临时句柄，使当前 run 可以继续 READ；run 完成时 Alice 将仍为 PENDING 的原子投影为 materialize task，Patchouli 后台生成完成后再通过 settled/failed/cancelled event 回填运行时状态。
+`WRITE` / `UPDATE` 不同步修改 Qdrant。Koakuma 经进程操作端口在 workspace 登记意图，返回 `draft_*` 或 `rev_*` 句柄供当前及后续进程 READ；completed 后由任务进程认领本进程意图并交给 Patchouli finalize，结算事件更新 workspace 登记。
 
-这条写缓冲边界使 Agent 可以在同一 run 内读到自己的写意图，又不会让半完成、失败或取消的执行直接污染长期记忆。详细状态与回收语义见 [PendingAtom](./pending-atom.md)。
+这条写缓冲边界使 Agent 可以在同一 run 内读到自己的写意图，又不会让半完成、失败或取消的执行直接污染长期记忆。Alice 的适配与 frame 产物见 [PendingAtom](./pending-atom.md)，登记状态和读取缓存的权威说明见 [Workspace 架构](../architecture/workspace.md)。
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册统一执行路由 `alice.public.run_agent`（带 `stream` 参数），并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 System 应用层持有的控制状态处理。
+`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册统一执行路由 `alice.public.run_agent`（带 `stream` 参数），并在 AliceBus 上挂载访问 Patchouli 公开能力的代理；停止时按相反顺序卸载。Alice 不再为 run workflow 维护一套无人消费的 local route。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程持有的控制状态处理。
 
-AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/cancelled 业务事件。事件只更新 Alice 的运行时投影；正式记忆是否落库仍以 Patchouli 为准。
+AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登记消费。AliceSystem 停止时清理自己保留的 CALL Profile 缓存。
 
 每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。流式路径必须出现 `done` 才被视为正常终态；流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 
@@ -155,7 +155,7 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 
 - [Agent Runtime](./agent-runtime.md)：单 Agent 执行层、ExecutionFrame、prompt、模型解析、循环与流式输出；
 - [多 Agent 编排](./orchestration.md)：RunExecutor、CallCoordinator、CallContextProvider、CALL trap、Profile 解析、共享上下文、结果回流与当前单层策略；
-- [PendingAtom](./pending-atom.md)：运行时写缓冲、状态机、物化任务、settlement、redirect 与回收；
+- [PendingAtom](./pending-atom.md)：进程操作端口的写入意图适配、回读与 ACK alias 收割；
 - [MTP Runtime](./mtp-runtime.md)：Koakuma、权限、verb 分发、syscall、错误、取消和真实安全边界。
 
 跨子系统 route、event、MTP 语法和错误类型不在本目录复制，分别以[公开路由与事件](../contracts/routes-and-events.md)、[MTP 契约](../contracts/mtp.md)和[错误模型](../contracts/error-model.md)为准。
@@ -172,17 +172,17 @@ AliceRuntime 还订阅 PatchouliBridge 发布的 PendingAtom settled/failed/canc
 | Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
 | 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
 | Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
-| 执行、PendingAtom 与 MTP 测试 | `tests/unit/agent_runtime/` |
+| 执行与 MTP 测试 | `tests/unit/agent_runtime/` |
 | 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py` |
 
 ## 9. 当前限制与设计张力
 
-- AgentProfile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区（32 项 LRU）；它仍没有 TTL、更新事件或显式失效入口，Profile 修改在 LRU 驻留期内可能对进程不可见；
-- `ExecutionFrame.identity` 只是从 `runtime_scope.identity_scope.actor_identity` 派生的兼容投影；子帧继承父帧的完整 `IdentityScope`。`AgentProfile` 又不携带解析 alias，因此部分子帧流事件和 PendingAtom provenance 会记录父 Agent，而不是实际 CALL 目标；
-- PendingAtomRuntime 与 KoakumaAtomCache 都由 AliceRuntime 进程级持有；L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区。L0 pending 命中与 L1 atom 命中都会在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不可见处理（回归入口见 [MTP cache scope revalidation 归档记录](../archive/todo/mtp-cache-scope-revalidation.md)）；
+- CALL 目标的 AgentProfile cache 由 AliceRuntime 持有，按 `(WorkspaceIdentity, user_id, agent_id, team_id, alias)` 完整授权坐标分区（32 项 LRU）；它仍没有 TTL、更新事件或逐项失效入口，Profile 修改在 LRU 驻留期内可能对 CALL 不可见；
+- `ExecutionFrame.identity` 只是从 `runtime_scope.identity_scope.actor_identity` 派生的兼容投影；子帧继承父帧的完整 `IdentityScope`。`AgentProfile` 已携带来源 alias，但子帧与 root 使用相同的进程端口，意图发起者仍为主线程 Actor；
+- SEARCH、citation 和 CALL 目标 Profile 解析仍直接请求 Patchouli；其余资源操作已走 workspace 端口，不能据此声称 Alice 的全部读取均已迁入能力层；
 - 每次 run 的 frame registry 与 CallRecord 由独立 `RunSession` 持有，stream sequence 由流式输出端口持有；`RunExecutor` 用协程递归表达 CALL 的挂起与重入，不维护单活动 frame 状态机；Chat application 在更上层拥有可取消阶段 task。
 - 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
-- Agent frame、PendingAtom、alias cache 与 Profile cache 均不持久化，进程重启后不能恢复；派生 cache 由 `AliceSystem.stop()` 在 bridge 卸载后幂等清空；统一恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
+- Alice 的 Agent frame 与 CALL Profile cache 均不持久化，进程重启后不能恢复；派生 cache 由 `AliceSystem.stop()` 在 bridge 卸载后幂等清空；统一恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - Alice 当前只有单层 CALL，不具备持久化 DAG、并行 specialist、review loop、配额或 backpressure；
 - Koakuma 的若干配置字段和同步 syscall 仍有实现缺口，RUN 也不是不受信任代码的安全边界，详见 [MTP Runtime](./mtp-runtime.md)；
 - `health()` 目前主要报告 AgentRuntime 与 Koakuma 的固定 `ok`，不探测模型、syscall、缓存隔离或正在运行的 frame。

@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 记忆生成
@@ -87,7 +87,7 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-Alice 的 MTP WRITE 先创建 PendingAtom 与 `PendingAtomMaterializeTask`。Patchouli finalize 把任务交给 Coordinator；Coordinator 使用话题最近五个 blocks 作为背景，并把 `WriteFocus` 作为保存核心。
+Alice 的 MTP WRITE 经任务进程操作通道调用 workspace 能力层，在共享 `WriteIntentRegistry` 登记 PendingAtom，ACK 只表示登记成功。Actor completed 后，任务进程认领本进程仍为 PENDING 的意图，将其推进为 MATERIALIZING 并构造 `PendingAtomMaterializeTask`，随封口的 `InteractionPayload` 交给 Patchouli finalize；Coordinator 使用话题最近五个 blocks 作为背景，并把 `WriteFocus` 作为保存核心。意图登记与终态由 workspace 持有，正式记忆生成与任务状态仍由 Patchouli 持有。
 
 Extractor 失败时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失。Fallback 仍要经过去重，因而最终可能 CREATE、UPDATE、TOUCH 或 DISCARD；ACK 从未承诺“一定新建一条独立记忆”。
 
@@ -172,7 +172,9 @@ Controller。由此，Engine 计算语义与 Patchouli 已持久化事实保持�
 WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PENDING/RUNNING` 快照，不会接管或
 自动取消后台任务；仅 shutdown drain 会把超时窗口后仍未终结的快照汇总为观测计数，并显式 cancel 那批任务。
 
-任务状态通过 RuntimeEvent 发布。TaskController 只决定生命周期事件的发生时机，`MemoryTaskEventEmitter` 集中选择 `memory.task.*` 类型并组装稳定 payload；通用队列仍独立发布 `work.*` 基础设施事件，两者不互相替代。主动任务完成后，settlement 会通过 PatchouliBridge 转发为全局 PendingAtom event；发布失败不会把已持久化记忆回滚，但会 best-effort 发布 pending failure，使 Alice 不无限等待。PendingAtom settlement、failed、cancelled 仍属于功能事件并继续留在 TaskController。
+任务状态通过 RuntimeEvent 发布。TaskController 只决定生命周期事件的发生时机，`MemoryTaskEventEmitter` 集中选择 `memory.task.*` 类型并组装稳定 payload；通用队列仍独立发布 `work.*` 基础设施事件，两者不互相替代。主动任务完成后，settlement 会通过 PatchouliBridge 转发为全局 PendingAtom event，由 workspace registry 更新登记终态；发布失败不会回滚已持久化记忆，Controller 会 best-effort 发布 pending failure。PendingAtom settlement、failed、cancelled 仍属于功能事件并继续留在 TaskController；当前没有事件未送达补偿或跨重启恢复，不能保证 registry 在通知丢失后自行补齐终态。
+
+PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中期 Store 的独立变更事件负责原子、alias 与 Profile 派生项失效，所有正式记忆重新读取都经过当前授权；两种事件的作用见[MemoryLibrary](./memory-library.md#12-中期当前可检索书库)。
 
 ## 7. Active finalize 的时序
 
@@ -203,6 +205,7 @@ continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不�
 
 ## 8. 当前限制
 
+- WRITE/UPDATE 仍在 completed 进程的 finalize 阶段派发，没有实时物化入口；进程关闭取消本进程尚未认领的 PENDING，已认领的 MATERIALIZING 不随进程关闭取消；
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；

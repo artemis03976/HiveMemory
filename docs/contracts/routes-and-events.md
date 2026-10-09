@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 公开路由与事件
@@ -121,7 +121,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent`（统一入口） | `CPUInputManifest`（含 `process_id`）、generation options、`stream` | `stream=True`：交互输出的 async generator 对象；`stream=False`：`CPUExecutionResult` |
+| `alice.public.run_agent` | `AgentRunService.run_agent`（统一入口） | `CPUInputManifest`（含 `process_id`）、独立的 `ProcessOperations`、generation options、`stream` | `stream=True`：交互输出的 async generator 对象；`stream=False`：`CPUExecutionResult` |
 
 任务进程不直接调用这条路由，而是经组合根注入的 CPU 端口调用执行者；Alice 的端口实现 `AliceCPU` 经这条路由调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。
 
@@ -129,17 +129,18 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 ## 3. 全局业务事件
 
-当前 `GlobalEvents` 只包含 PendingAtom 结算通知：
+当前 `GlobalEvents` 包含 canonical 失效与既有 PendingAtom 结算通知：
 
 | Event | Publisher | Subscriber | Payload |
 |:---|:---|:---|:---|
-| `alice.events.pending_atom.settled` | PatchouliBridge | AliceRuntime | `settlement` |
-| `alice.events.pending_atom.failed` | PatchouliBridge | AliceRuntime | `pending_alias` |
-| `alice.events.pending_atom.cancelled` | PatchouliBridge | AliceRuntime | `pending_alias` |
+| `patchouli.events.memory.changed` | PatchouliBridge | workspace CacheInvalidator | `payload: MemoryChangeEvent`（`belong_to`、`memory_id`、`operation: upsert/patch/delete`） |
+| `alice.events.pending_atom.settled` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（含 intent_id） |
+| `alice.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias` |
+| `alice.events.pending_atom.cancelled` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias` |
 
-这些事件把 Patchouli local settlement 投影回 Alice 的运行时 PendingAtom 视图。前缀中的 `alice.events` 表示消费域，不表示 Alice 是发布者。
+中期库的 upsert、patch_payload、delete 与 delete_by_key 在提交调用的 finally 中各内联发布一次变更通知，包括 primary/secondary 失败与删除未命中；通知不证明提交成功。store 只依赖注入发布端口，本地发布器与 bridge 顺序 await 转发，写入返回前失效订阅者已执行。订阅者先清原子及 alias、清源 Profile，再推进 Workspace 代次，之后不回填值；普通订阅异常由总线记录，不反向改变存储结果。首版不补齐未送达或重试。
 
-发布者必须是 PatchouliBridge，因为只有 Patchouli 能确认延迟物化最终是 settled、failed 还是 cancelled；Alice 只是把这个长期结算事实映射回仍然存活的运行时 alias。若由 Alice 自己发布结算，PendingAtom 就会从“尚待长期系统确认的意图”变成 Alice 自证成功，破坏记忆所有权边界。
+结算的权威发布方仍为 Patchouli，由 bridge 转发到 workspace 登记；`alice.events` 前缀保持历史兼容，不再表示当前消费方。settled 严格匹配 intent_id 后迁移状态；failed/cancelled 保持只带永不复用 pending_alias 的载荷，处理器仅在可选 intent_id 被提供时追加校验。登记不回填 canonical 缓存，正式物化写入触发上述失效。
 
 ## 4. RuntimeEvent 观测契约
 

@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 子系统公共契约
@@ -142,7 +142,8 @@ finalize_agent_run(
 |:---|:---|
 | `user_message` | 任务请求的入口消息 |
 | `rewritten_query`、`worth_saving` | Gateway 阶段的决定 |
-| `assistant_final_text`、`turn_events`、`model_used`、`materialize_tasks` | Actor 的执行结果 |
+| `assistant_final_text`、`turn_events`、`model_used` | Actor 的执行结果 |
+| `materialize_tasks` | completed 时任务进程从 workspace 登记认领本进程的 PENDING 意图，迁为 MATERIALIZING 后投影 |
 | `mtp_traces` | 由 core 的 `ActionReducer` / `TraceReducer` 从 `turn_events` 归约 |
 | `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
 
@@ -197,7 +198,7 @@ Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolic
 
 两类直接调用目前没有操作授权：
 
-- Alice 的 MTP 读取（`memory.retrieve`、`memory.retrieve_by_aliases`）、Profile 解析（`get_agent_profile`）与引用记录（`record_memory_citation`）以 `IdentityScope` 直接请求 Patchouli，不经能力层；
+- Alice 的 SEARCH（`memory.retrieve`）、CALL 目标 Profile 解析（`get_agent_profile`）与引用记录（`record_memory_citation`）以 `IdentityScope` 直接请求 Patchouli，不经能力层；
 - 交互提交（`interaction.submit`）与主动记忆意图提交（`memory_intent.submit`）只接收 `IdentityScope`，目前没有生产调用方。
 
 Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
@@ -212,6 +213,7 @@ class CPUPort(Protocol):
         self,
         manifest: CPUInputManifest,
         *,
+        operations: ProcessOperations,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]: ...
@@ -220,6 +222,8 @@ class CPUPort(Protocol):
 CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接口：端口由 workspace 定义，执行者实现，组合根注入 `TaskProcessService`。进程只依赖端口与本节的中立模型，因此执行者可以替换而不改动进程与入口；当前唯一的实现是 Alice 的 `AliceCPU`（4.4），测试中的 `ScriptedCPU` 同样能跑完整个任务进程。端口采用对象而不是总线路由，是因为外部 harness 的驱动多数不是子系统：按路由契约接入，每种驱动都要新增路由常量，或在总线之后再建一层分派。
 
 `CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`identity_scope`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。
+
+`ProcessOperations` 是 execute 的独立参数，提供 `submit_write_intent(focus)`、`submit_update_intent(base_alias, instruction, content=None)` 与 `resolve_references(aliases)`，分别返回 PendingAtom ACK 与逐项 `ReferenceResolution`。端口不携带访问 context、目标 Workspace 或 process_id 参数；进程内的 `ProcessOperationChannel` 绑定这些坐标，先做能力层授权。子 frame 沿用主线程通道；关闭后同步失效，后续调用抛 `ProcessOperationsClosedError`。
 
 端口语义：
 
@@ -237,7 +241,8 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 - `final_text`：最终用户可见文本；
 - `turn_events`：结构化运行事实（`TurnEvent`）；
 - `model_used`：执行者实际使用的模型展示名，空字符串表示未解析；
-- `materialize_tasks`：本次执行产生的不可变物化请求；写入意图的实时派发实现之前保留。
+
+执行结果不携带 `materialize_tasks`；该字段只在任务进程封口的交互记录中出现，来自 workspace 登记的本进程认领结果。
 
 执行者专属的统计（例如 Alice 的 MTP 迭代次数）不进入执行结果，只出现在各自的观测事件中。任务进程据执行结果决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断执行已经完成。
 
@@ -248,6 +253,7 @@ run_agent(
     input_manifest: CPUInputManifest,
     generation_options: dict[str, Any] | None = None,
     *,
+    operations: ProcessOperations,
     stream: bool = True,
 ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]
 ```
@@ -261,7 +267,7 @@ run_agent(
 ### 4.5 Alice 不变量
 
 - Alice 不修改输入清单所引用的长期记忆或话题；
-- WRITE/UPDATE 只产生 PendingAtom 和 materialize task；
+- WRITE/UPDATE 经操作端口只登记 workspace 意图并返回 ACK；物化任务由 completed 的任务进程认领，Alice 不持有登记或 resolver；
 - 取消或失败结果不默认进入 Patchouli finalize；
 - MTP 权限由 Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 控制；
 - CALL 仅允许根 frame 发起，子 frame 不能继续递归 CALL。
@@ -274,14 +280,14 @@ Gateway command outcome（解析结果）
   -> 不调用 Patchouli prepare / CPU / Patchouli finalize
 
 Gateway decision outcome
-  -> 解析 Agent Profile（Patchouli 公开路由）
+  -> 解析 Agent Profile（workspace 能力层与 Profile 读取缓存）
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
   -> Actor 执行：经 CPU 端口（当前为 Alice）
-  -> completed: 任务进程封口交互记录（InteractionPayload，含实际使用的附件）
+  -> completed: 任务进程认领本进程意图并封口交互记录（InteractionPayload，含实际使用的附件）
        -> Patchouli finalize
   -> cancelled/failed/exception: Patchouli cleanup (若已 prepare)
-  -> 进程结束：释放附件租借
+  -> 进程结束：失效操作通道、释放附件租借、取消本进程仍为 PENDING 的意图
 ```
 
 Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare 可能新建 Topic 或按 LRU 结算已有话题，Profile 缺失的请求应在这些副作用发生前失败。
