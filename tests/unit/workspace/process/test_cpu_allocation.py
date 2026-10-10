@@ -301,7 +301,10 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
 
     manifest = cpu.calls[0].manifest
     assert manifest.process_id == "process-manifest"
-    assert manifest.agent_profile is profile
+    # 能力层交付独立副本，输入清单不持有读取缓存中的可变对象。
+    assert manifest.agent_profile == profile
+    manifest.agent_profile.persona = "只改变本轮"
+    assert profile.persona == "allocated-persona"
     assert manifest.user_message == "问题"
     assert manifest.topic_id == "topic-1"
     assert manifest.memories == []

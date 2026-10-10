@@ -30,12 +30,16 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.aliases import RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import MemoryType
+from hivememory.core.errors import (
+    OperationDeniedError,
+    PendingUpdateNotAllowedError,
+    ResourceNotFoundError,
+    ResourceUnavailableError,
+    ScopeRequiredError,
+)
+from hivememory.core.models import MemoryType, WriteFocus
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTPCallRequest,
@@ -51,6 +55,7 @@ from hivememory.core.mtp import (
 )
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
+    BusRouteUnavailableError,
     InvalidArgumentError,
     MemoryTypeMismatchError,
     MTPError,
@@ -71,11 +76,11 @@ from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.i18n.resolver import resolve_language
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.aliases import AtomCachePort
     from hivememory.components.bus.async_bus import AsyncSystemBus
     from hivememory.config.alice import KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
     from hivememory.core.models import MemoryAtom
+    from hivememory.workspace.contracts import ProcessOperations
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +132,6 @@ class KoakumaRuntime:
         bus: AsyncSystemBus | None = None,
         config: KoakumaConfig | None = None,
         *,
-        alias_resolver: RuntimeAliasResolver,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ):
         """
@@ -136,7 +140,6 @@ class KoakumaRuntime:
         Args:
             bus: AsyncSystemBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
-            alias_resolver: 运行时别名解析器
         """
         from hivememory.config.alice import KoakumaConfig
 
@@ -146,7 +149,6 @@ class KoakumaRuntime:
         self._filter_parser = MTPFilterParser()
         self._formatter = MTPFormatter()
 
-        self._alias_resolver = alias_resolver
         self._memory_compiler_config = memory_compiler_config
 
         # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
@@ -325,17 +327,12 @@ class KoakumaRuntime:
             context=context,
         )
 
-    # ========== 别名管理 ==========
-
-    @property
-    def atom_cache(self) -> AtomCachePort:
-        """访问 Workspace 分区的统一原子缓存（读写需携带 Workspace 坐标）"""
-        return self._alias_resolver.atom_cache
-
-    @property
-    def pending_runtime(self) -> PendingAtomRuntime:
-        """访问运行时 pending atom 管理中心"""
-        return self._alias_resolver.pending_runtime
+    @staticmethod
+    def _operations(context: MTPExecutionContext) -> ProcessOperations:
+        """取得进程交付的操作端口；缺失时显式拒绝资源操作。"""
+        if context.operations is None:
+            raise ScopeRequiredError("MTP 执行缺少进程操作端口")
+        return context.operations
 
     # ========== 内部路由 ==========
 
@@ -376,6 +373,22 @@ class KoakumaRuntime:
             # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)
+
+        except ResourceUnavailableError as error:
+            unavailable = BusRouteUnavailableError(cause=error)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR, content="", error=unavailable.to_error_info()
+            )
+
+        except OperationDeniedError as error:
+            denied = PermissionDeniedError(
+                message_key="mtp.permission.verb_denied",
+                params={"verb": command.verb.value},
+                cause=error,
+            )
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR, content="", error=denied.to_error_info()
+            )
 
         except MTPError as e:
             if isinstance(e, SystemFault):
@@ -463,12 +476,6 @@ class KoakumaRuntime:
         ).text
         response_warnings = list(filter_warnings)
 
-        # 将检索到的记忆原子缓存到调用方 Workspace 分区（完整对象，而非仅 UUID）
-        self.atom_cache.ingest_atoms(
-            memories,
-            workspace_identity=context.identity_scope.workspace_identity,
-        )
-
         return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content=content,
@@ -502,11 +509,11 @@ class KoakumaRuntime:
 
         resolved: list[tuple[str, MemoryAtom]] = []  # (alias, atom)
         resolved_pending: list[tuple[str, Any]] = []  # (alias, PendingAtom)
-        resolved_redirects: list[tuple[str, Any]] = []  # (alias, ResolveResult)
-        resolved_terminal: list[tuple[str, Any]] = []  # (alias, ResolveResult)
+        resolved_redirects: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
+        resolved_terminal: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
         unresolved: list[str] = []
-        for alias in aliases:
-            result = await self._alias_resolver.resolve(alias, context=context)
+        results = await self._operations(context).resolve_references(aliases)
+        for alias, result in zip(aliases, results, strict=True):
             if result.kind == "pending" and result.pending is not None:
                 resolved_pending.append((alias, result.pending))
             elif result.kind == "redirect" and result.atom is not None:
@@ -615,9 +622,9 @@ class KoakumaRuntime:
             result = syscall.handler(command.args)
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
-        # Level 1: 用户态工具路径 (统一原子缓存)
+        # Level 1: 用户态工具路径（经进程端口进入 workspace 读取视图）
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        resolved = await self._alias_resolver.resolve(alias, context=context)
+        resolved = (await self._operations(context).resolve_references([alias]))[0]
         warnings: list[MTPWarningInfo] = []
         if resolved.kind == "pending":
             raise InvalidArgumentError(
@@ -674,7 +681,7 @@ class KoakumaRuntime:
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
         v3.0 延迟捕获模式:
-        将 WRITE 内容打包为 WriteFocus，随 MTPExecutionResult 返回给 LoopExecutor，
+        将 WRITE 内容打包为 WriteFocus，经进程操作端口提交 workspace 登记，
         实际记忆生成延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -694,12 +701,8 @@ class KoakumaRuntime:
         title = command.args.get("title", "")
 
         # 注册 pending atom 并生成 pending alias
-        pending = self.pending_runtime.register_write(
-            content=content,
-            title=title or None,
-            reason=reason or None,
-            identity=context.identity,
-            runtime_scope=context.runtime_scope,
+        pending = await self._operations(context).submit_write_intent(
+            WriteFocus(content=content, title=title or None, reason=reason or None)
         )
 
         logger.info(
@@ -726,7 +729,7 @@ class KoakumaRuntime:
         处理 UPDATE 指令 (附录 C)
 
         v3.0 延迟捕获模式:
-        将 UPDATE 意图打包为 UpdateFocus，随 MTPExecutionResult 返回给 LoopExecutor，
+        将 UPDATE 意图经进程操作端口提交 workspace 登记，
         实际记忆更新延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -746,38 +749,24 @@ class KoakumaRuntime:
         if not instruction:
             raise InvalidArgumentError(message_key="mtp.update.missing_instruction")
 
-        resolved = await self._alias_resolver.resolve(alias, context=context)
-        if resolved.kind == "pending":
+        # 能力层在操作授权后解析可信基线，并负责登记成功后的缓存失效。
+        try:
+            pending = await self._operations(context).submit_update_intent(
+                base_alias=alias,
+                instruction=instruction,
+                content=command.args.get("content"),
+            )
+        except PendingUpdateNotAllowedError as error:
             raise InvalidArgumentError(
                 message_key="mtp.update.pending_not_updatable",
                 params={"alias": alias},
-            )
-        if resolved.kind != "atom" or resolved.atom is None:
+            ) from error
+        except ResourceNotFoundError as error:
+            # 能力层把不可见与不存在合并为 not_found，UPDATE 不区分两者。
             raise AliasNotFoundError(
                 message_key="mtp.update.alias_not_found",
                 params={"alias": alias},
-            )
-        atom = resolved.atom
-        uuid = str(atom.id)
-
-        # 获取可选的 content
-        content = command.args.get("content", None)
-
-        # 注册 pending revision
-        pending = self.pending_runtime.register_update(
-            base_alias=alias,
-            base_uuid=uuid,
-            instruction=instruction,
-            content=content,
-            identity=context.identity,
-            runtime_scope=context.runtime_scope,
-        )
-
-        # 使当前 Workspace 分区内的缓存失效，防止脏读
-        self.atom_cache.invalidate_alias(
-            alias,
-            workspace_identity=context.identity_scope.workspace_identity,
-        )
+            ) from error
 
         logger.info(
             f"MTP UPDATE 延迟捕获: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"

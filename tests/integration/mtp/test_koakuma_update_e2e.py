@@ -15,6 +15,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     UpdateFocus,
+    WriteFocus,
 )
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
@@ -77,7 +78,7 @@ class TestKoakumaUpdateE2E:
         koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
 
         # 注册 alias 到缓存
-        koakuma.atom_cache.ingest_atom(existing_memory, workspace_identity=MAIN)
+        koakuma.memories[existing_memory.get_alias()] = existing_memory
         return koakuma
 
     @pytest.mark.asyncio
@@ -90,7 +91,7 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        pending = update_koakuma.pending_runtime.get(result.pending_alias)
+        pending = update_koakuma.registry.get(result.pending_alias, MAIN)
         assert pending is not None
         focus = pending.focus
         assert isinstance(focus, UpdateFocus)
@@ -107,7 +108,7 @@ class TestKoakumaUpdateE2E:
         assert result is not None
         assert result.success
 
-        pending = update_koakuma.pending_runtime.get(result.pending_alias)
+        pending = update_koakuma.registry.get(result.pending_alias, MAIN)
         assert pending is not None
         focus = pending.focus
         assert focus.content == "port = 9090"
@@ -141,7 +142,7 @@ class TestKoakumaUpdateValidation:
     @pytest.mark.asyncio
     async def test_missing_instruction(self, validation_koakuma):
         # 注册 alias 但不提供 instruction
-        validation_koakuma.atom_cache.ingest_atom(
+        validation_koakuma.memories[
             MemoryAtom(
                 id=uuid4(),
                 meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
@@ -152,8 +153,17 @@ class TestKoakumaUpdateValidation:
                     alias="fact_api_port",
                 ),
                 payload=PayloadLayer(content="port = 8080"),
+            ).get_alias()
+        ] = MemoryAtom(
+            id=uuid4(),
+            meta=make_memory_metadata(user_id="test_user", source_agent_id="test"),
+            index=IndexLayer(
+                title="API Port Config",
+                summary="API port configuration fact",
+                memory_type=MemoryType.FACT,
+                alias="fact_api_port",
             ),
-            workspace_identity=MAIN,
+            payload=PayloadLayer(content="port = 8080"),
         )
         agent_text = '⟪ UPDATE | fact_api_port | content="some content"'
         result = await _intercept_and_execute(
@@ -183,12 +193,11 @@ class TestKoakumaUpdateValidation:
 
     @pytest.mark.asyncio
     async def test_pending_alias_rejected(self, validation_koakuma):
-        pending = validation_koakuma.pending_runtime.register_write(
-            content="pending content",
-            title="Pending Note",
-            reason=None,
-            identity=validation_koakuma.context.identity,
-            runtime_scope=validation_koakuma.context.runtime_scope,
+        pending = validation_koakuma.registry.register_write(
+            WriteFocus(content="pending content", title="Pending Note", reason=None),
+            belong_to=validation_koakuma.context.runtime_scope.identity_scope.workspace_identity,
+            from_actor=validation_koakuma.context.identity,
+            process_id=validation_koakuma.context.runtime_scope.run_id,
         )
 
         agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'
@@ -230,15 +239,14 @@ class TestKoakumaUpdateValidation:
                 frame_id="frame_main_update",
             ),
         )
-        koakuma.atom_cache.ingest_atom(existing_memory, workspace_identity=MAIN)
+        koakuma.memories[existing_memory.get_alias()] = existing_memory
 
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
         result = await _intercept_and_execute(koakuma, agent_text, context=context)
 
         assert result is not None
         assert result.success
-        pending = koakuma.pending_runtime.get(result.pending_alias)
+        pending = koakuma.registry.get(result.pending_alias, MAIN)
         assert pending is not None
         assert pending.focus.instruction == "test"
-        assert pending.runtime_scope.run_id == "run_update_test"
-        assert pending.runtime_scope.frame_id == "frame_main_update"
+        assert pending.process_id == "run_update_test"

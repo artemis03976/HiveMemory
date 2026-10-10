@@ -132,17 +132,17 @@ class MemoryCompiler:
         """
         从可编译单元 source 构建 MemoryUnitIR。
         """
-        from hivememory.agent_runtime.aliases import ResolveResult
         from hivememory.core.models.pending import (
             PendingAtom,
             PendingAtomResolution,
             PendingAtomSettlement,
         )
+        from hivememory.core.models.reference import ReferenceResolution
 
-        if isinstance(source, ResolveResult):
+        if isinstance(source, ReferenceResolution):
             if source.kind == "not_found":
                 raise ValueError(
-                    "Cannot compile ResolveResult with kind='not_found'. "
+                    "Cannot compile ReferenceResolution with kind='not_found'. "
                     "Handle this in MTP runtime instead."
                 )
             if source.kind == "pending" and source.pending:
@@ -158,7 +158,7 @@ class MemoryCompiler:
             kind = (
                 "discarded" if source.resolution == PendingAtomResolution.DISCARDED else "redirect"
             )
-            resolve = ResolveResult(
+            resolve = ReferenceResolution(
                 kind=kind,
                 requested_alias=source.pending_alias,
                 canonical_alias=source.canonical_alias,
@@ -170,12 +170,12 @@ class MemoryCompiler:
             return build_memory_atom_ir(source), options
         if isinstance(source, PendingAtom):
             return build_pending_atom_ir(source), options
-        if isinstance(source, ResolveResult):
+        if isinstance(source, ReferenceResolution):
             return build_resolve_result_ir(source), options
 
         raise TypeError(
             f"Unsupported source type: {type(source).__name__}. "
-            "Expected MemoryAtom, PendingAtom, ResolveResult, or PendingAtomSettlement."
+            "Expected MemoryAtom, PendingAtom, ReferenceResolution, or PendingAtomSettlement."
         )
 
     def _build_unit_irs(

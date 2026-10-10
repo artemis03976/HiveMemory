@@ -27,6 +27,8 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
+    PendingUpdateNotAllowedError,
+    ResourceNotFoundError,
     WorkspaceDomainError,
 )
 from hivememory.core.models import (
@@ -37,6 +39,10 @@ from hivememory.core.models import (
     MemoryType,
     MetaData,
     PayloadLayer,
+    PendingAtom,
+    ReferenceResolution,
+    UpdateFocus,
+    WriteFocus,
 )
 from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.protocol.models import RetrievalRequest
@@ -88,6 +94,84 @@ class MemoryApplicationService:
         self._global_bus = global_bus
         self._authorizer = operation_authorizer
         self._reader = memory_reader
+        # 提交与 L0 回读必须是同一份登记：只经读取视图取得，不另行注入。
+        self._intents = memory_reader.intents
+
+    async def submit_write_intent(
+        self,
+        focus: WriteFocus,
+        *,
+        process_id: str | None,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> PendingAtom:
+        """提交 WRITE（``memory_intent.submit``），ACK 仅表示意图已登记。"""
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
+        return self._intents.register_write(
+            focus,
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            process_id=process_id,
+        )
+
+    async def submit_update_intent(
+        self,
+        base_alias: str,
+        instruction: str,
+        content: str | None = None,
+        *,
+        process_id: str | None,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> PendingAtom:
+        """提交 UPDATE：授权后解析可读正式基础原子，登记成功才失效基础缓存。"""
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
+        result = (await self._reader.resolve_references([base_alias], scope=scope))[0]
+        if result.kind == "pending":
+            raise PendingUpdateNotAllowedError(details={"alias": base_alias})
+        if result.kind != "atom" or result.atom is None:
+            raise ResourceNotFoundError(details={"alias": base_alias})
+        atom = result.atom
+        pending = self._intents.register_update(
+            UpdateFocus(
+                base_alias=atom.index.alias or base_alias,
+                base_uuid=str(atom.id),
+                instruction=instruction,
+                content=content or None,
+            ),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            process_id=process_id,
+        )
+        self._reader.evict(scope.workspace_identity, atom.id)
+        return pending
+
+    async def cancel_intents(
+        self,
+        aliases: list[str],
+        *,
+        process_id: str,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> list[str]:
+        """撤回本进程提交且尚未认领的意图（``memory_intent.submit``）。
+
+        属于提交的取消语义：只改变 ``process_id`` 对应且仍为 PENDING 的记录，
+        返回实际撤回的 alias。
+        """
+        self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
+        return self._intents.cancel_aliases(aliases, process_id=process_id)
+
+    async def resolve_references(
+        self,
+        aliases: list[str],
+        *,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> list[ReferenceResolution]:
+        """读取引用（``resource.read``）：每个请求项均得到一个中立解析结果。"""
+        scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
+        return await self._reader.resolve_references(aliases, scope=scope)
 
     async def create_memory(
         self,

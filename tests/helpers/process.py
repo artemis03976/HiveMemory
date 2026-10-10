@@ -15,10 +15,14 @@ from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.backing import BusCanonicalReadBackend
+from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.contracts import CPUPort
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.runtime import WorkspaceRuntime
 
 
 def make_task_process_service(
@@ -30,11 +34,26 @@ def make_task_process_service(
     event_publisher: RuntimeEventPublisher | None = None,
     asset_reader: WorkspaceAssetReaderPort | None = None,
     attachment_compiler_config: AttachmentCompilerConfig | None = None,
+    workspace_runtime: WorkspaceRuntime | None = None,
 ) -> TaskProcessService:
     """按生产装配方式构建注册入口：CPU 分配器 → 执行器 → 注册入口。"""
+    runtime = workspace_runtime or WorkspaceRuntime(
+        backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
+    )
+    memory = MemoryApplicationService(
+        global_bus,
+        operation_authorizer=operation_authorizer,
+        memory_reader=runtime.aliases,
+    )
+    agent = AgentApplicationService(
+        global_bus,
+        operation_authorizer=operation_authorizer,
+        profile_reader=runtime.profiles,
+    )
     allocator = CPUAllocator(
         global_bus,
         operation_authorizer=operation_authorizer,
+        agent_service=agent,
         asset_reader=asset_reader,
         attachment_compiler_config=attachment_compiler_config,
     )
@@ -43,6 +62,8 @@ def make_task_process_service(
         cpu=cpu,
         allocator=allocator,
         operation_authorizer=operation_authorizer,
+        memory_service=memory,
+        intent_registry=runtime.intents,
     )
     return TaskProcessService(
         runner,

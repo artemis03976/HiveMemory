@@ -12,6 +12,10 @@ from hivememory.workspace.contracts.cpu import (
     CPUOutput,
     CPUPort,
 )
+from hivememory.workspace.contracts.operations import (
+    ProcessOperations,
+    ProcessOperationsClosedError,
+)
 from hivememory.workspace.contracts.process import CPUInputManifest
 
 __all__ = [
@@ -20,4 +24,6 @@ __all__ = [
     "CPUInputManifest",
     "CPUPort",
     "CPUOutput",
+    "ProcessOperations",
+    "ProcessOperationsClosedError",
 ]

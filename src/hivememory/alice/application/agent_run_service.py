@@ -7,7 +7,7 @@ frame、为每次 run 构造 run-local RunExecutor，并产出 CPU 中立的执�
 
 统一入口 :meth:`AgentRunService.run_agent` 与 ``run_process`` 一样以
 ``stream`` 参数控制是否流式，内部只有一套执行骨架（会话、``agent.run.*``
-事件、预检索 alias 预热、提示词组装、root frame 与 RunExecutor）：
+事件、提示词组装、root frame 与 RunExecutor）：
 ``stream=True`` 返回交互事件的异步生成器（最后一项是 ``done``），
 ``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
 queue / runner task / stream sequence 与 RuntimeEvent envelope 实现均不
@@ -24,14 +24,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal, cast, overload
 
-from hivememory.agent_runtime.aliases import AtomCachePort
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_executor import RunExecutor
@@ -47,15 +45,18 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
     IdentityScope,
-    MemoryAtom,
-    WorkspaceIdentity,
 )
 from hivememory.core.protocol.models import (
     AgentRunContext,
     RetrievalResponse,
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
-from hivememory.workspace.contracts import CPUExecutionResult, CPUExecutionStatus, CPUInputManifest
+from hivememory.workspace.contracts import (
+    CPUExecutionResult,
+    CPUExecutionStatus,
+    CPUInputManifest,
+    ProcessOperations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,6 @@ class AgentRunService:
         call_coordinator: CallCoordinator,
         frame_factory: FrameFactory,
         prompt_assembler: AgentPromptAssembler,
-        atom_cache: AtomCachePort,
         stream_adapter: AgentRunStreamAdapter,
         agent_run_events: AgentRunEventEmitter,
     ) -> None:
@@ -118,7 +118,6 @@ class AgentRunService:
         self._call_coordinator = call_coordinator
         self._frame_factory = frame_factory
         self._prompt_assembler = prompt_assembler
-        self._atom_cache = atom_cache
         self._stream_adapter = stream_adapter
         self._agent_run_events = agent_run_events
 
@@ -130,6 +129,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
+        operations: ProcessOperations,
         stream: Literal[True] = True,
     ) -> AsyncGenerator[dict[str, Any], None]: ...
 
@@ -139,6 +139,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
+        operations: ProcessOperations,
         stream: Literal[False],
     ) -> Coroutine[Any, Any, CPUExecutionResult]: ...
 
@@ -147,6 +148,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
+        operations: ProcessOperations,
         stream: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]:
         """Alice Agent run 的统一入口（``stream`` 控制是否流式）。
@@ -155,7 +157,9 @@ class AgentRunService:
         返回交互事件的异步生成器，最后一项是 ``done``（含运行元数据）；
         ``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
         """
-        producer = self._run_agent(input_manifest, generation_options, stream=stream)
+        producer = self._run_agent(
+            input_manifest, generation_options, operations=operations, stream=stream
+        )
         if stream:
             # 流式骨架只产出交互事件与 done；骨架的产出类型是两种形态的并集。
             return cast(AsyncGenerator[dict[str, Any], None], producer)
@@ -166,9 +170,10 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None,
         *,
+        operations: ProcessOperations,
         stream: bool,
     ) -> AsyncGenerator[dict[str, Any] | CPUExecutionResult, None]:
-        """统一执行骨架：会话、事件、预热、组装、执行与终态发布只有一份。
+        """统一执行骨架：会话、事件、组装、执行与终态发布只有一份。
 
         ``stream`` 只决定执行是否接入 :class:`AgentRunStreamAdapter` 并产出
         交互事件：流式逐条产出事件后以 ``done`` 收尾；非流式直接 await
@@ -181,10 +186,6 @@ class AgentRunService:
         executor_stream: AsyncGenerator[dict[str, Any], None] | None = None
 
         try:
-            self._register_preretrieval_aliases(
-                preparation.context.retrieval_result.memories,
-                workspace_identity=preparation.context.identity_scope.workspace_identity,
-            )
             executor = RunExecutor(
                 agent_runtime=self._agent_runtime,
                 session=preparation.session,
@@ -195,6 +196,7 @@ class AgentRunService:
                 agent_stream = self._stream_adapter.create(preparation.session)
                 frame = self._create_root_frame(
                     messages=messages,
+                    operations=operations,
                     identity_scope=preparation.context.identity_scope,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
@@ -219,6 +221,7 @@ class AgentRunService:
             else:
                 frame = self._create_root_frame(
                     messages=messages,
+                    operations=operations,
                     identity_scope=preparation.context.identity_scope,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
@@ -226,9 +229,8 @@ class AgentRunService:
                 )
                 engine_result = await executor.run(frame, generation_options=generation_options)
 
-            runtime_products = executor.runtime_products or RuntimeProducts()
-            result = self._assemble_execution_result(frame, engine_result, runtime_products)
-            self._publish_terminal(run_events, result, self._stats_for(frame, runtime_products))
+            result = self._assemble_execution_result(frame, engine_result)
+            self._publish_terminal(run_events, result, self._stats_for(frame))
             exit_reason = StreamExitReason.TERMINAL
             if stream:
                 yield {
@@ -292,28 +294,11 @@ class AgentRunService:
         run_events.started()
         return _RunPreparation(context=context, session=session, events=run_events)
 
-    def _register_preretrieval_aliases(
-        self,
-        memories: list[MemoryAtom],
-        *,
-        workspace_identity: WorkspaceIdentity,
-    ) -> None:
-        """把预检索记忆预热到调用方 Workspace 分区的 L1 cache。"""
-        self._atom_cache.ingest_atoms(
-            memories,
-            workspace_identity=workspace_identity,
-        )
-        if memories:
-            logger.debug(
-                "预检索记忆预热完成: %s 条已写入 L1 atom cache (workspace=%s)",
-                len(memories),
-                workspace_identity.workspace_id,
-            )
-
     def _create_root_frame(
         self,
         *,
         messages: list[dict[str, str]],
+        operations: ProcessOperations,
         identity_scope: IdentityScope,
         topic_id: str,
         agent_profile: AgentProfile | None,
@@ -335,6 +320,7 @@ class AgentRunService:
                 messages=messages,
                 topic_id=topic_id or "",
                 execution_policy=policy,
+                operations=operations,
             )
         )
         session.register_root_frame(frame)
@@ -344,9 +330,8 @@ class AgentRunService:
     def _assemble_execution_result(
         frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
-        runtime_products: RuntimeProducts,
     ) -> CPUExecutionResult:
-        """把执行层终态与产品投影为 CPU 中立的执行结果。"""
+        """把执行层终态与轮次事件投影为 CPU 中立的执行结果。"""
         if engine_result.status == FrameExecutionStatus.CANCELLED:
             run_status = CPUExecutionStatus.CANCELLED
         elif engine_result.status == FrameExecutionStatus.COMPLETED:
@@ -358,18 +343,16 @@ class AgentRunService:
             status=run_status,
             final_text="".join(progress.text_segments),
             turn_events=progress.turn_events,
-            materialize_tasks=list(runtime_products.materialize_tasks),
             model_used=progress.model_used,
         )
 
     @staticmethod
-    def _stats_for(frame: ExecutionFrame, runtime_products: RuntimeProducts) -> AgentRunStats:
-        """从 frame 进度与运行时产品取得 ``agent.run.*`` 终态事件的观测统计。"""
+    def _stats_for(frame: ExecutionFrame) -> AgentRunStats:
+        """从 frame 进度取得 ``agent.run.*`` 终态事件的观测统计。"""
         progress = frame.progress
         return AgentRunStats(
             mtp_iterations=max(0, progress.iteration - 1),
             total_iterations=progress.iteration,
-            materialize_task_count=len(runtime_products.materialize_tasks),
         )
 
     @staticmethod

@@ -22,7 +22,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/VISION.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-09
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -183,6 +183,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 - 例：现有的 MTP READ 与将来经 MCP 提供的记忆读取，都归一化为 `MemoryApplicationService.read` 的调用；管理员操作同样遵循归一化原则，经 HTTP 操作适配器映射到能力层。管理员与 agent 因身份与操作意图不同，最终映射到不同的方法（总 Idea 15.7），归一化的逻辑相同。
 - 职责：协议翻译；一次操作映射到一个能力方法；把结果与错误映射回协议。
+- 细化（owner，2026-10-09）：操作适配器不直接调用能力层，而是把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 经 workspace 的单一操作入口调用能力层；请求与能力方法一一对应，对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套操作列表。HTTP 管理侧理论上也采用这一形态，暂不迁移。见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9。
 
 **不属于操作适配器的职责**：
 

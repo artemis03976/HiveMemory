@@ -35,14 +35,17 @@ from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
     CPUPort,
 )
+from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.command_terminal import command_terminal
+from hivememory.workspace.process.operations import ProcessOperationChannel
 from hivememory.workspace.process.outputs import (
     ActorEvent,
     CommandCompleted,
@@ -152,12 +155,16 @@ class TaskProcessRunner:
         cpu: CPUPort,
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
+        memory_service: MemoryApplicationService,
+        intent_registry: WriteIntentRegistry,
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
         self._bus = global_bus
         self._cpu = cpu
         self._allocator = allocator
         self._authorizer = operation_authorizer
+        self._memory_service = memory_service
+        self._intents = intent_registry
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
     # ========== 编排骨架 ==========
@@ -221,6 +228,13 @@ class TaskProcessRunner:
             # ---- Actor 执行：可被 stop 中断；流式逐条转交交互事件 ----
             record.enter_phase(ProcessPhase.ACTOR)
             events.status(record)
+            operations = ProcessOperationChannel(
+                self._memory_service,
+                access=record.access,
+                target_workspace=request.target_workspace,
+                process_id=record.process_id,
+            )
+            working_set.operations = operations
             # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
             # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
@@ -228,6 +242,7 @@ class TaskProcessRunner:
             # 取消路径）。
             cpu_output = self._cpu.execute(
                 manifest,
+                operations=operations,
                 generation_options=request.generation_options,
                 stream=stream,
             )
@@ -273,6 +288,10 @@ class TaskProcessRunner:
                 raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
             events.status(record)
             yield Finalizing()
+            # finalize 所需的授权先于认领：授权失败时意图仍为 PENDING，由关闭
+            # 流程取消，不会停在无人派发的 MATERIALIZING。scope 只用于紧随的
+            # 阶段调用，不在工作集中冻结等待 finalize。
+            finalize_scope = self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT)
             # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
             # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
             # 按进程失败处理，走现有关闭流程。
@@ -282,7 +301,8 @@ class TaskProcessRunner:
                 assistant_final_text=execution_result.final_text,
                 turn_events=execution_result.turn_events,
                 model_used=execution_result.model_used,
-                materialize_tasks=execution_result.materialize_tasks,
+                # completed 才认领本进程的意图；CPU 不再拥有物化请求。
+                materialize_tasks=self._intents.claim_process(record.process_id),
                 # 附件编译冻结的实际使用引用（被预算跳过的附件不在其中）。
                 used_attachments=working_set.used_attachments,
             )
@@ -290,8 +310,7 @@ class TaskProcessRunner:
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
-                # scope 只用于紧随的阶段调用，不在工作集中冻结等待 finalize。
-                identity_scope=self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT),
+                identity_scope=finalize_scope,
             )
             # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
             working_set.hand_off_prepared()
@@ -417,6 +436,11 @@ class TaskProcessRunner:
             record.mark_cancelled()
             record.events.closed_before_terminal(record)
 
+        # 通道失效、取消未认领意图与租借释放都先于任何 await：即使后续
+        # CPU 输出流关闭被取消，也不能留下可调用端口或游离 PENDING。
+        if working_set.operations is not None:
+            working_set.operations.close()
+        self._intents.cancel_process(record.process_id)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         await self._close_cpu_output(working_set)

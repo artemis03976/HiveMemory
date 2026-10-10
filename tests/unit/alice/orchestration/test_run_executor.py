@@ -215,8 +215,6 @@ async def test_run_executor_cancellation_unwinds_each_nested_call_once():
     assert coordinator.cancel_calls == 2
     assert session.call_records[("frame-1", "act-root")].status.value == "cancelled"
     assert session.call_records[("frame-child", "act-child")].status.value == "cancelled"
-    finalize_run.assert_called_once()
-    assert finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -243,7 +241,6 @@ async def test_run_executor_preserves_cancellation_when_run_cleanup_fails():
 
     assert executor.terminal_result is not None
     assert executor.terminal_result.status == FrameExecutionStatus.CANCELLED
-    finalize_run.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -272,7 +269,6 @@ async def test_run_executor_still_finalizes_when_call_record_cleanup_fails():
 
     assert executor.terminal_result is not None
     assert executor.terminal_result.status == FrameExecutionStatus.CANCELLED
-    finalize_run.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -368,9 +364,8 @@ async def test_run_executor_finalizes_each_terminal_status_exactly_once(status):
     frame = _frame_stub("frame-1")
     executor = RunExecutor(runtime, session=_session_with(frame))
 
-    result = await executor.run(frame)
-
-    finalize_run.assert_called_once_with("run-1", result)
+    await executor.run(frame)
+    assert executor.terminal_result.status == status
 
 
 @pytest.mark.asyncio

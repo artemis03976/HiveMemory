@@ -19,6 +19,7 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
     CPUOutput,
+    ProcessOperations,
 )
 
 
@@ -32,15 +33,19 @@ class AliceCPU:
         self,
         manifest: CPUInputManifest,
         *,
+        operations: ProcessOperations,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
-        return self._execute(manifest, generation_options=generation_options, stream=stream)
+        return self._execute(
+            manifest, operations=operations, generation_options=generation_options, stream=stream
+        )
 
     async def _execute(
         self,
         manifest: CPUInputManifest,
         *,
+        operations: ProcessOperations,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
@@ -48,6 +53,7 @@ class AliceCPU:
             event_stream = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 input_manifest=manifest,
+                operations=operations,
                 generation_options=generation_options,
                 stream=True,
             )
@@ -65,6 +71,7 @@ class AliceCPU:
             yield await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 input_manifest=manifest,
+                operations=operations,
                 generation_options=generation_options,
                 stream=False,
             )

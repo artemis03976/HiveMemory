@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/workspace/assets/
   - src/hivememory/gateway/workflow/
   - src/hivememory/patchouli/memory_library/
-  - src/hivememory/agent_runtime/pending_atom/
+  - src/hivememory/workspace/intents/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 数据模型与可变性边界
@@ -110,9 +110,9 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.4 PendingAtom 状态机
 
-`PendingAtom` 与 `PendingAtomSettlement` 是可变状态载体，`PendingAtomSnapshot` 和 materialize task 是对外只读投影。可变性本身用于表达运行期间的 pending、redirect、settled、failed、expired 等迁移；真正需要治理的是写权限仍主要依靠模块约定，部分调用方仍可能直接修改字段。
+`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作认领/取消关联的 `process_id`；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记统一执行 PENDING、MATERIALIZING、SETTLED、FAILED、CANCELLED 状态迁移；模型保留 EXPIRED 枚举，但新登记不产生它，终态句柄保留到进程重启。
 
-当前设计要求 PendingAtom Runtime 成为状态迁移的唯一所有者。未来治理应把合法迁移收敛为命令或领域方法，而不是先把状态对象机械冻结。
+登记与解析器均交付深复制结果，调用方修改返回对象不会改写权威登记或缓存。`ReferenceResolution` 是 core 中立 dataclass，携带逐项状态、独立的 pending/atom 与结算视图；redirect 目标不可读时清空引用并省略 pending，避免 UPDATE focus 泄露基础 UUID。物化任务在 completed 时由任务进程认领登记后投影，只读任务继续独立携带归属与发起者。
 
 ### 4.5 可变累积后冻结
 
@@ -129,7 +129,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 | `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次阶段授权的 scope |
 | `InteractionSubmission` | 必需的 `belong_to`、`from_actor` | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |
-| `PendingAtomMaterializeTask` | 必需的 `belong_to`、`from_actor` | WRITE/UPDATE 从 Alice 向 Patchouli 交接的只读请求 |
+| `PendingAtomMaterializeTask` | 必需的 `belong_to`、`from_actor` | workspace 任务进程认领 WRITE/UPDATE 意图后向 Patchouli 交接的只读请求 |
 | `TopicMaterializeTask` / Topic lease | `belong_to` | 结算与占用；不保存最近访问者 |
 
 手动与后台 SETTLE 的发起者统一由 `system_actor_for_workspace()` 构造：Workspace owner 用户、`agent_id="system"`、`team_id=None`。参与内容的 Agent 只记入贡献者；WRITE/UPDATE 保留提交 Agent 的身份。资源授权只使用目标归属与当次发起者的 policy，不使用资源来源或贡献者字段。
@@ -206,7 +206,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 - `tests/unit/gateway/test_phase3b_contracts.py`；
 - `tests/unit/patchouli/memory_library/test_memory_library.py`；
-- `tests/unit/agent_runtime/pending_atom/test_runtime.py`；
+- `tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py`；
 - `src/hivememory/core/models/immutable.py`、`interaction.py`、`topic.py`、`memory.py`、`pending.py`；
 - `src/hivememory/core/protocol/models.py`；
 - `src/hivememory/gateway/workflow/state.py`、`steps.py`。

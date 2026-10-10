@@ -51,6 +51,7 @@ from .memory import (
     VerificationStatus,
     WorkspaceMemoryKey,
 )
+from .memory_change import MemoryChangeEvent
 from .model_definition import ModelDefinition
 from .pending import (
     InvalidStateTransition,
@@ -72,6 +73,7 @@ from .provenance import (
     MemoryProvenance,
     normalize_contributing_agent_ids,
 )
+from .reference import ReferenceResolution
 from .topic import (
     LogicalBlock,
     TopicData,
@@ -159,6 +161,8 @@ __all__ = [
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
     "ModelDefinition",
+    "MemoryChangeEvent",
+    "ReferenceResolution",
     "PendingAtomStatus",
     "PendingAtomResolution",
     "PendingAtomSnapshot",

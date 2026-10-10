@@ -120,6 +120,12 @@ class ResourceNotFoundError(WorkspaceDomainError):
     code = "workspace.resource.not_found"
 
 
+class PendingUpdateNotAllowedError(WorkspaceDomainError):
+    """UPDATE 的基础仍是待物化意图，不能作为正式原子更新。"""
+
+    code = "workspace.memory.intent.pending_update_not_allowed"
+
+
 class ResourceNotVisibleError(WorkspaceDomainError):
     """资源存在但当前 Actor 未通过可见性授权。
 
@@ -168,6 +174,7 @@ __all__ = [
     "AdmissionDeniedError",
     "OperationDeniedError",
     "ResourceNotFoundError",
+    "PendingUpdateNotAllowedError",
     "ResourceNotVisibleError",
     "ResourceUnavailableError",
     "MemoryAliasConflictError",

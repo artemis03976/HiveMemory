@@ -3,7 +3,7 @@
 迁移源为 Alice 侧 ``agent_runtime/aliases/resolver.py``（``RuntimeAliasResolver``）
 的 L1/L2 部分；按边界宪章 §6.1 归 workspace runtime。解析顺序：
 
-- L0 pending registry：A4 接入后启用（接缝形状由 A4-0 冻结），缺省等价 L0 miss；
+- L0 写入意图登记：在 Workspace 归属边界内交付 pending 与结算状态；
 - L1 ``AtomCache``：按原子自身 policy 对当前 Actor 授权，有效命中不回源；
 - L2 backing 冷读：受 Workspace 代次守护，代次未变才回填，库侧资源归属与
   policy 校验独立成立（纵深防御）。
@@ -18,9 +18,16 @@ import logging
 from uuid import UUID
 
 from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
-from hivememory.core.models import IdentityScope, MemoryAtom
+from hivememory.core.models import IdentityScope, MemoryAtom, ReferenceResolution, WorkspaceIdentity
+from hivememory.core.models.pending import (
+    PendingAtom,
+    PendingAtomResolution,
+    PendingAtomStatus,
+    UpdateFocus,
+)
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
+from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
 
@@ -36,10 +43,102 @@ class AliasResolver:
         cache: AtomCache,
         guard: ColdReadGuard,
         backing: CanonicalReadBackend,
+        intents: WriteIntentRegistry,
     ) -> None:
         self._cache = cache
         self._guard = guard
         self._backing = backing
+        self._intents = intents
+
+    @property
+    def intents(self) -> WriteIntentRegistry:
+        """读取视图共享的写入意图登记，由组合根统一持有。"""
+        return self._intents
+
+    def evict(self, workspace: WorkspaceIdentity, memory_id: UUID) -> None:
+        """UPDATE 登记后失效基础原子，不回填意图或 canonical 内容。"""
+        self._cache.evict(workspace, memory_id)
+
+    async def resolve_references(
+        self,
+        aliases: list[str],
+        *,
+        scope: IdentityScope,
+    ) -> list[ReferenceResolution]:
+        """逐项解析全部引用，保留请求顺序、重复项与 not_found 结果。"""
+        self._guard.ensure_open()
+        results: list[ReferenceResolution] = []
+        for requested in aliases:
+            alias = requested.strip()
+            pending = self._intents.get(alias, scope.workspace_identity)
+            if pending is not None:
+                results.append(await self._resolve_pending(pending, requested, scope))
+                continue
+            atoms = await self.resolve_aliases([alias], scope=scope) if alias else []
+            results.append(
+                ReferenceResolution(
+                    kind="atom" if atoms else "not_found",
+                    requested_alias=requested,
+                    atom=atoms[0] if atoms else None,
+                )
+            )
+        return results
+
+    async def _resolve_pending(
+        self,
+        pending: PendingAtom,
+        requested: str,
+        scope: IdentityScope,
+    ) -> ReferenceResolution:
+        """L0 状态投影；redirect 必须重新经过 canonical 原子的 policy 授权。"""
+        if pending.status in (PendingAtomStatus.CANCELLED, PendingAtomStatus.EXPIRED):
+            # CANCELLED 与遗留 EXPIRED 都按不存在处理；新登记不再产生 EXPIRED。
+            return ReferenceResolution(kind="not_found", requested_alias=requested)
+        if isinstance(pending.focus, UpdateFocus):
+            # UPDATE 意图携带基础原子的修改内容与坐标，可见性跟随基础原子：
+            # 基础对当前 Actor 不可读时，任何状态的意图都与不存在相同。
+            if await self.read(UUID(pending.focus.base_uuid), scope=scope) is None:
+                return ReferenceResolution(kind="not_found", requested_alias=requested)
+        settlement = pending.settlement
+        if pending.status.is_in_flight:
+            return ReferenceResolution(
+                kind="pending", requested_alias=requested, pending=pending, settlement=settlement
+            )
+        if pending.status == PendingAtomStatus.FAILED:
+            return ReferenceResolution(
+                kind="failed", requested_alias=requested, pending=pending, settlement=settlement
+            )
+        if pending.status == PendingAtomStatus.SETTLED and settlement is not None:
+            if settlement.resolution == PendingAtomResolution.DISCARDED:
+                return ReferenceResolution(
+                    kind="discarded",
+                    requested_alias=requested,
+                    pending=pending,
+                    settlement=settlement,
+                )
+            atom: MemoryAtom | None = None
+            if settlement.canonical_uuid:
+                atom = await self.read(UUID(settlement.canonical_uuid), scope=scope)
+            elif settlement.canonical_alias:
+                atoms = await self.resolve_aliases([settlement.canonical_alias], scope=scope)
+                atom = atoms[0] if atoms else None
+            if atom is None:
+                # 引用字段同时存在于顶层与嵌套结算视图；全部清除以免泄露目标身份。
+                settlement = settlement.model_copy(
+                    update={"canonical_alias": None, "canonical_uuid": None}, deep=True
+                )
+            return ReferenceResolution(
+                kind="redirect",
+                requested_alias=requested,
+                # UPDATE focus 也可能含 canonical 基础身份；拒绝时不交付整份记录。
+                pending=pending if atom is not None else None,
+                settlement=settlement,
+                atom=atom,
+                canonical_alias=settlement.canonical_alias,
+                canonical_uuid=settlement.canonical_uuid,
+            )
+        # SETTLED 但缺少结算载荷的记录没有可交付的终态。
+        return ReferenceResolution(kind="not_found", requested_alias=requested)
 
     async def read(
         self,
@@ -80,7 +179,7 @@ class AliasResolver:
         delivered: dict[str, MemoryAtom] = {}
         misses: list[str] = []
         for alias in requested:
-            # L0：pending registry 分支，A4 接入前恒为 miss。
+            # canonical 批读的历史接口只交付 MemoryAtom；统一状态由 resolve_references 提供。
             cached = self._cache.get_by_alias(workspace, alias)
             if cached is None:
                 misses.append(alias)

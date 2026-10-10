@@ -10,7 +10,6 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
-from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.orchestration.run_output import AgentRunOutput, NullAgentRunOutput
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
@@ -56,7 +55,6 @@ class RunExecutor:
         self._call_coordinator = call_coordinator
         self._started = False
         self.terminal_result: FrameExecutionResult | None = None
-        self.runtime_products: RuntimeProducts | None = None
 
     @property
     def call_records(self) -> dict[tuple[str, str], CallRecord]:
@@ -242,14 +240,6 @@ class RunExecutor:
         if self.terminal_result is not None:
             raise RuntimeError("RunExecutor attempted to finalize a run more than once.")
         self.terminal_result = result
-        finalize_run = getattr(self._agent_runtime, "finalize_run", None)
-        if callable(finalize_run):
-            self.runtime_products = finalize_run(
-                self._session.agent_run_id,
-                result,
-            )
-        else:
-            self.runtime_products = RuntimeProducts()
         return result
 
     def _require_root(self, frame: ExecutionFrame) -> None:

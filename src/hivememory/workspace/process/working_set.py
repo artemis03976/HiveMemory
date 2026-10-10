@@ -23,6 +23,7 @@ from hivememory.core.models.workspace_asset import (
 )
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUOutput
+from hivememory.workspace.process.operations import ProcessOperationChannel
 
 
 @dataclass
@@ -41,6 +42,8 @@ class ProcessWorkingSet:
     attachment_leases: list[RepresentationLease] = field(default_factory=list)
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()
     cpu_output: AsyncGenerator[CPUOutput, None] | None = None
+    # 访问凭据仅由通道持有；执行者获得不携身份参数的端口视图。
+    operations: ProcessOperationChannel | None = None
     # prepare 结果是否已交回 Patchouli（finalize 接管，或关闭流程已取出
     # 请求 cleanup）；交回之后工作集不再负有补偿义务。
     _prepared_handed_off: bool = field(default=False, repr=False)

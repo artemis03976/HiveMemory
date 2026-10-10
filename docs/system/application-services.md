@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-09
 ---
 
 # 应用服务
@@ -44,7 +44,7 @@ last_reviewed: 2026-10-04
 
 应用服务可以保存一次用例的短期控制状态，例如任务进程编排的进程表，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
-workspace 能力层（Memory、Agent、Topic、Task 能力服务与附件上传服务）是授权点：方法只接收访问 context、目标 Workspace 与业务参数，先经操作授权者授权，再用返回的 `IdentityScope` 构造领域对象并调用 Patchouli 公开路由，不向下传 context。能力层的读取分两族：管理读取（Memory 与 Profile 的管理 get/list，绑定 `management.memory`）经 Patchouli 公开路由直接读取；actor 可见读取（Memory 点读、alias 读取、语义检索、Profile 读取）经 workspace 读取视图读取并在交付前逐次授权，目前没有生产调用方，HTTP 路由使用管理方法。
+workspace 能力层（Memory、Agent、Topic、Task 能力服务与附件上传服务）是授权点：方法只接收访问 context、目标 Workspace 与业务参数，先经操作授权者授权，再用返回的 `IdentityScope` 构造领域对象并调用 Patchouli 公开路由，不向下传 context。能力层的读取分两族：管理读取（Memory 与 Profile 的管理 get/list，绑定 `management.memory`）经 Patchouli 公开路由直接读取；actor 可见读取（Memory 点读、alias 读取、语义检索、Profile 读取）经 workspace 读取视图读取并在交付前逐次授权。Alice 的 READ、RUN、UPDATE 基础引用与 CALL 上下文引用经进程操作通道进入引用读取；CPU 分配经 Agent 能力服务读取 Profile。HTTP 管理路由继续使用管理方法。WRITE/UPDATE 意图提交绑定 `memory_intent.submit`，登记的归属与发起者取自本次授权结果。
 
 ### 1.1 Transport / Router 边界
 
@@ -60,7 +60,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，返回不透明的进程句柄；运行已注册的进程（主动非流式/流式 chat、command short-circuit、四阶段编排与阶段授权）；CPU 分配（Profile 解析、附件租借、附件与记忆编译、组装 `CPUInputManifest`）；进程表登记每个任务进程，提供取消、状态查询与关闭 | 认证网关、操作授权者；Gateway、Patchouli public routes；CPU 端口（组合根注入，当前为 Alice 的实现）；WorkspaceAsset reader 端口；MemoryCompiler、AttachmentCompiler；RuntimeEventPublisher（经 `TaskProcessEventEmitter` 投影 `chat.run.*`） |
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
-| `MemoryApplicationService`（`workspace.capability`） | Memory 管理 CRUD、feedback 和查询参数转换（`management.memory`）；actor 可见读取经读取视图（`resource.read` / `resource.search`） | 操作授权者；Patchouli memory routes；workspace 读取视图 |
+| `MemoryApplicationService`（`workspace.capability`） | Memory 管理 CRUD、feedback 和查询参数转换（`management.memory`）；actor 可见读取经读取视图（`resource.read` / `resource.search`）；提交 WRITE/UPDATE 意图与撤回本进程 PENDING 意图（`memory_intent.submit`） | 操作授权者；Patchouli memory routes；workspace 读取视图（写入意图登记经它取得，与 L0 回读是同一份） |
 | `MemoryTaskApplicationService`（`workspace.capability`） | 查询/取消 Patchouli 拥有的 memory generation task（观察 `task.observe`、取消 `management.task`） | 操作授权者；Patchouli task routes |
 | `AgentApplicationService`（`workspace.capability`） | 构造 Agent Profile atom 并调用 Patchouli profile routes（管理创建与列表绑定 `management.memory`）；Profile 读取经读取视图（`profile.read`） | 操作授权者；Patchouli profile routes；workspace 读取视图 |
 | `TopicApplicationService`（`workspace.capability`） | 活跃话题列表、手动 settle、evict（均绑定 `management.topic`） | 操作授权者；Patchouli topic routes |
@@ -81,7 +81,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `TaskProcessService`（注册入口，`workspace/process/service.py`） | 生命周期依赖：认证网关、操作授权者（进程控制授权）、事件 emitter、进程表、执行器 | 总线、CPU 端口、CPU 分配器、asset reader、编译配置等编排依赖 |
 | `TaskProcess`（进程状态容器，`workspace/process/task_process.py`） | 本进程独有的东西：进程记录（含访问 context 与绑定了本进程标签的观测通道）、任务参数、工作集、`trace_id`、驱动本进程的 owner task | 任何跨进程共享的依赖 |
-| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、`CPUAllocator`、操作授权者（阶段授权）、Gateway 超时配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)` | 任何进程的状态 |
+| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、`CPUAllocator`、Memory 能力服务、写入意图登记、操作授权者（阶段授权）、Gateway 超时配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)` | 任何进程的状态 |
 
 这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-3），并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（同一 Idea 1.2）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。
 
@@ -89,7 +89,9 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成，它取得的附件租借也由它在进程关闭时释放；`chat.run.*` 观测事件由领域 emitter `TaskProcessEventEmitter`（`workspace/process/events.py`）投影。
 
-Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
+Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, operations, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
+
+CPU 同时取得窄化的 `ProcessOperations` 端口。`ProcessOperationChannel` 绑定本进程的访问 context、目标 Workspace 与 `process_id`，只允许提交 WRITE/UPDATE、读取引用和撤回本进程仍为 PENDING 的意图；每次调用由能力层重新授权，CPU 不传入身份参数。当前 Alice 的主 frame 与 CALL 子 frame 共享同一通道。关闭通道会撤下 context、取消尚在等待的能力调用，后续调用抛 `ProcessOperationsClosedError`，防止冷读结束后再登记意图。
 
 ### 3.1 非流式链路
 
@@ -98,27 +100,27 @@ TaskProcessService.register_process()：认证、创建进程、登记进程表�
 TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(process)
   -> Gateway public process (ACTIVE_CHAT)             阶段授权 resource.read
   -> command: return command outcome
-  -> decision: 解析 Agent Profile（Patchouli get_agent_profile）  profile.read
+  -> decision: 解析 Agent Profile（workspace Agent 能力服务与读取视图）  profile.read
   -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）  resource.search
   -> CPU 分配：附件租借与编译（asset.acquire）、记忆编译、组装 CPUInputManifest
   -> 进入 Actor 前检查 interaction.submit
   -> Actor 执行：CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
-  -> completed: 封口交互记录（InteractionPayload）-> interaction.submit 再授权 -> Patchouli finalize_agent_run
+  -> completed: 认领本进程 PENDING 意图、封口交互记录（InteractionPayload）-> interaction.submit 再授权 -> Patchouli finalize_agent_run
   -> cancelled/failed: resource.search 再授权 -> Patchouli cleanup_prepared_agent_run
-  -> 关闭：TaskProcessRunner.close(process) 经 CPUAllocator 释放附件租借；注册入口撤销 context、从进程表注销
+  -> 关闭：TaskProcessRunner.close(process) 同步关闭操作通道、取消本进程 PENDING 意图，经 CPUAllocator 释放附件租借；注册入口撤销 context、从进程表注销
 ```
 
 每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_operation`，把返回的 `IdentityScope` 传给对应路由；某一阶段缺少 operation 时在该阶段失败，不产生后续副作用。进入 Actor 前检查 `interaction.submit`，用于提前拒绝；紧接 finalize 前再次检查同一 operation，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用。CPU 输入清单中的 `IdentityScope` 由操作授权者的过渡方法 `cpu_execution_identity` 组装（[Workspace 架构](../architecture/workspace.md)第 4.4 节）。
 
 CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
-Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 暂时经 Patchouli 公开路由解析，不经能力层。
+Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 经 workspace Agent 能力服务与读取视图解析，正式原子变更会失效解析缓存；解析时机仍在 prepare 之前。
 
-交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；finalize 原样提交。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
+交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；物化任务来自 workspace 登记对本进程 PENDING 意图的同步认领，认领将其改为 MATERIALIZING，CPU 结果不携带物化任务；finalize 原样提交。finalize 失败时，已认领的意图保持 MATERIALIZING，本阶段不增加补偿。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
-进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用与 Actor 执行期间打开的 CPU 输出流；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
+进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流与本进程操作通道；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
 
-进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步释放全部租借，再关闭 CPU 输出流（若尚未关闭）、以 `resource.search` 再授权后请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
+进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步关闭操作通道、取消本进程仍为 PENDING 的意图并释放全部租借，再关闭 CPU 输出流（若尚未关闭）、以 `resource.search` 再授权后请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
 
 Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
@@ -235,4 +237,6 @@ process_id
 - `tests/unit/workspace/capability/`（Memory、MemoryTask、Agent Profile、Topic 能力服务）
 - `tests/unit/system/application/test_readiness_service.py`
 - `tests/integration/workspace/capability/test_assets.py`、`tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
+- `tests/integration/workspace/test_process_intents.py`（按进程认领、取消与关闭通道的在途调用）
+- `tests/integration/system/test_workspace_intent_subscription.py`（组合根装配即订阅、关闭即取消订阅）
 - `tests/integration/workspace/test_published_registration_chain.py`（随仓库发布的登记文件驱动的管理路由、chat 与取消链路）

@@ -8,10 +8,8 @@ import pytest_asyncio
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import KoakumaConfig
 from hivememory.config.patchouli import DenseRetrieverConfig
@@ -89,12 +87,7 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
         application = MemoryManagementService(bus=local_bus)
         global_bus = GlobalSystemBus()
         global_bus.register(PatchouliRoutes.MEMORY_RETRIEVE, application.retrieve)
-        resolver = RuntimeAliasResolver(
-            pending_runtime=PendingAtomRuntime(),
-            atom_cache=KoakumaAtomCache(),
-            bus=global_bus,
-        )
-        yield KoakumaRuntime(global_bus, KoakumaConfig(), alias_resolver=resolver), mid_term
+        yield KoakumaRuntime(global_bus, KoakumaConfig()), mid_term
     finally:
         await qdrant.client.close()
 
@@ -178,9 +171,6 @@ async def test_search_agent_filter_matches_source_or_contributor_and_excludes_ot
     assert result.response_status == "success"
     assert "fact_selected" in result.response_content
     assert "fact_other" not in result.response_content
-    assert koakuma.atom_cache.size == 1
-    assert koakuma.atom_cache.has_alias("fact_selected", workspace_identity=WORKSPACE) is True
-    assert koakuma.atom_cache.has_alias("fact_other", workspace_identity=WORKSPACE) is False
 
 
 @pytest.mark.asyncio
@@ -197,7 +187,6 @@ async def test_search_without_agent_filter_returns_visible_memories_from_all_sou
     assert result.response_status == "success"
     assert "fact_research" in result.response_content
     assert "fact_writer" in result.response_content
-    assert koakuma.atom_cache.size == 2
 
 
 @pytest.mark.asyncio
@@ -212,7 +201,6 @@ async def test_search_unmatched_agent_filter_returns_empty_without_broadening_qu
 
     assert result.response_status == "success"
     assert result.response_content == ""
-    assert koakuma.atom_cache.size == 0
 
 
 @pytest.mark.asyncio
@@ -258,11 +246,6 @@ async def test_search_agent_filter_intersects_callers_resource_visibility(
     assert {
         alias for alias in ("fact_public", "fact_restricted") if alias in result.response_content
     } == expected_aliases
-    assert {
-        alias
-        for alias in ("fact_public", "fact_restricted")
-        if koakuma.atom_cache.has_alias(alias, workspace_identity=WORKSPACE)
-    } == expected_aliases
 
 
 @pytest.mark.asyncio
@@ -293,8 +276,6 @@ async def test_search_agent_filter_never_crosses_resource_ownership(
     assert result.response_status == "success"
     assert "fact_local" in result.response_content
     assert "fact_foreign" not in result.response_content
-    assert koakuma.atom_cache.size == 1
-    assert koakuma.atom_cache.has_alias("fact_foreign", workspace_identity=WORKSPACE) is False
 
 
 @pytest.mark.asyncio
@@ -317,4 +298,3 @@ async def test_search_agent_filter_intersects_memory_type_filter(search_stack) -
     assert "fact_selected" in result.response_content
     assert "code_same_source" not in result.response_content
     assert "fact_other_source" not in result.response_content
-    assert koakuma.atom_cache.size == 1

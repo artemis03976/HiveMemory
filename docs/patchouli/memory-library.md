@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-09
 ---
 
 # MemoryLibrary 与存储层
@@ -60,7 +60,11 @@ Actor 读取（UUID、alias、scroll 与 search）独立接收 `belong_to` 和�
 
 alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入（生成、手工编辑、Profile 管理创建、revive）的汇聚点，在主后端写入前检查 alias 是否已被同一 Workspace 的其他 Memory 占用，冲突时抛 `MemoryAliasConflictError`（`reason=alias_occupied`）且不产生任何写入；没有 alias 的原子不参与该约束，原子自身已持有该 alias 视为可用。归档即释放 alias，revive 时撞名显式失败；`patch_payload` 白名单不含 `index.alias`，不需要校验。精确 alias 查询命中多条时 fail closed（`reason=ambiguous_alias`），不按存储顺序任取其一。并发写入者之间“检查→写入”的竞态不在保证范围内。
 
-`MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。`upsert` 与 `patch_payload` 都会按顺序把同一变更同步到各 secondary 并传播存储错误，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
+`MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。完整写入、payload patch 与删除按顺序把同一变更同步到各 secondary 并传播存储错误，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
+
+中期变更是 workspace 派生读取视图的失效入口。Runtime 向 Store 注入 `MemoryChangePublisher`；`upsert`、`patch_payload`、`delete` 与 `delete_by_key` 每次提交尝试都在 `finally` 中内联等待发布 `patchouli.events.memory.changed`，经 PatchouliBridge 转为同名全局事件。只改 `meta.lifecycle` 动态状态的 `patch_payload` 不发布：动态统计字段（访问计数、活力、置信度等）独立成 `MemoryLifecycleState` 聚合，它们的更新不使读取视图失效，缓存中的原子可能带有较旧的统计值；涉及 `meta.access_policy` 的 patch 照常发布。`MemoryChangeEvent` 只携带 `belong_to`、`memory_id` 与 `operation=upsert|patch|delete`，不携带原子正文、访问 scope 或成功标志。存储失败、secondary 部分提交和删除未命中同样失效，因为异常不能证明后端未发生变更；原始存储异常继续向调用方传播。
+
+workspace 订阅者先清除原子与旧 alias 索引，再清除来源于该 UUID 的 Profile 派生项，最后推进 Workspace 失效代次；不做回填或外部调用。发布与订阅错误不把存储结果改写为失败，但也没有未送达重试或 replay。它是当前进程内的保守失效协作，不是持久化成功通知、任务完成确认或跨介质事务。失败、内联等待与 bridge 生命周期由[Store 单元测试](../../tests/unit/patchouli/memory_library/test_memory_change_events.py)和[事件集成测试](../../tests/integration/patchouli/test_memory_change_events.py)验证；读取代次与授权边界见[Workspace 架构](../architecture/workspace.md)。
 
 ### 1.3 长期：冷藏库
 
@@ -141,6 +145,7 @@ Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重
 - 短期 store 只在内存中，异常退出不会自动恢复；
 - archive/revive 是跨两个后端的顺序操作，没有事务、补偿日志或幂等 job；前一步成功而后一步失败时，可能暂时形成重复副本；
 - MidTerm secondary 写入虽有接口，但当前没有原子提交和回滚语义；
+- canonical 变更事件只支持进程内内联失效，没有 durable outbox、未送达重试或跨重启 replay；
 - 长期记忆不会被普通 Retrieval 自动召回，revive 需要显式触发；
 - 健康检查验证可访问性，不扫描缺失副本、悬空 ArtifactRef 或 archive/revive 中间态；
 - Store 和 port 中仍有 Phase 命名与 future adapter 注释，它们是演化痕迹，不代表 Redis、图数据库或 SQL artifact index 已经实现。

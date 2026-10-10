@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-07
 ---
 
 # HiveMemory 当前系统架构
@@ -147,7 +147,9 @@ Alice 是 Agent 执行与控制平面，拥有：
 - 非流式和流式 Agent run；
 - Agent loop、ExecutionFrame 和有限深度的子 Agent 编排；
 - Koakuma MTP 解析、执行与回填；
-- PendingAtom 的运行时视图。
+- 当前 frame 的 ACK 别名清单与 CALL 目标 Profile 缓存。
+
+写入意图登记、完整引用解析与可失效的原子/主进程 Profile 读取缓存由 workspace 拥有。Alice 通过进程操作端口提交与回读意图，正式记忆仍由 Patchouli 物化和结算。
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 

@@ -14,13 +14,14 @@ code_paths:
   - src/hivememory/system/access/
   - src/hivememory/workspace/authentication.py
   - src/hivememory/workspace/authorization.py
+  - src/hivememory/workspace/contracts/operations.py
   - src/hivememory/server/app.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 跨边界错误模型
@@ -168,6 +169,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
 | `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
 | `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
+| `workspace.memory.intent.pending_update_not_allowed` | UPDATE 的基础仍是 PENDING/MATERIALIZING 意图，不能作为正式 atom 更新（`PendingUpdateNotAllowedError`） |
 | `workspace.asset.not_found` | 当前作用域找不到资产 |
 | `workspace.asset.expired` | ref 已随当前进程运行时失效 |
 | `workspace.asset.not_ready` | 资产尚未达到可用状态 |
@@ -198,6 +200,10 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
+
+写入意图能力层与进程操作端口的错误保持各自边界：WRITE/UPDATE 提交缺少 `memory_intent.submit`、引用读取缺少 `resource.read` 时抛 `OperationDeniedError`；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
+
+进程关闭后的操作通道抛 `ProcessOperationsClosedError`（RuntimeError），表示调用已经失效的端口；关闭时尚在等待的能力调用收到 `asyncio.CancelledError`。该端口错误没有独立 HTTP API，不新增 HTTP 映射；取消仍按原异步控制语义传播。
 
 ### 4.5 Memory 输入校验与存储写入错误（v0.7.0 A2-P）
 

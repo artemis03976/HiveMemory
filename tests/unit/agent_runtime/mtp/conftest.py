@@ -10,11 +10,10 @@ KoakumaRuntime 已重构为 bus-based 架构 (bus, config)，
 
 from unittest.mock import MagicMock
 
-from hivememory.agent_runtime.aliases import KoakumaAtomCache, RuntimeAliasResolver
-from hivememory.agent_runtime.pending_atom import PendingAtomRuntime
 from hivememory.components.bus.async_bus import AsyncSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
+from tests.helpers.operations import HarnessKoakumaRuntime
 
 
 class MockAsyncBus(AsyncSystemBus):
@@ -110,22 +109,12 @@ def make_mock_bus(
     )
 
 
-def make_runtime_alias_resolver(bus: MockAsyncBus) -> RuntimeAliasResolver:
-    return RuntimeAliasResolver(
-        pending_runtime=PendingAtomRuntime(),
-        atom_cache=KoakumaAtomCache(),
-        bus=bus,
-    )
-
-
 def make_koakuma_runtime(bus: MockAsyncBus, config=None):
-    from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
     from hivememory.config.alice import KoakumaConfig
 
-    return KoakumaRuntime(
+    return HarnessKoakumaRuntime(
         bus=bus,
         config=config or KoakumaConfig(),
-        alias_resolver=make_runtime_alias_resolver(bus),
     )
 
 

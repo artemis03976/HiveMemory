@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-07
 ---
 
 # HiveMemory 项目总览
@@ -168,8 +168,8 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 - Agent Profile 驱动的模型、采样参数、语言和权限；
 - Agent loop、结构化 turn events、取消与运行终态；
 - MTP `SEARCH / READ / RUN / WRITE / UPDATE / CALL`；
-- PendingAtom 延迟物化、alias redirect 和结算通知；
-- MTP 的 L0 pending、L1 cache、L2 owner 路径均重验 scope；派生缓存仍由 AliceRuntime 持有，alias 索引按 Workspace 分区；
+- workspace 共享的 PendingAtom 登记、按进程认领后延迟物化、alias redirect 和结算通知；
+- MTP 引用读取统一经 workspace 读取视图：L0 意图按 Workspace 回读，L1/L2 正式记忆逐次检查 actor policy；原子与 Profile 解析缓存由 workspace 持有，canonical 变更同步失效；
 - 根 Agent 对子 Agent 的有限深度 CALL 编排。
 
 ### 5.4 运行与观测
@@ -190,7 +190,7 @@ HiveMemorySystem（组合根与门面）
   │    ├─ PassiveIngressService    被动摄入（System）
   │    └─ Memory / Task / Profile / Topic / Asset 能力服务（workspace.capability）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
-  ├─ Workspace 设施：认证网关、认证一侧与操作授权者、读取视图、WorkspaceAssetStore
+  ├─ Workspace 设施：认证网关、认证一侧与操作授权者、写入意图登记、读取视图与失效订阅、WorkspaceAssetStore
   ├─ GatewaySystem   入口决策与命令
   ├─ PatchouliSystem 记忆与知识平面
   └─ AliceSystem     Agent 执行与控制平面
@@ -218,7 +218,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、PendingAtom 运行时视图和 CALL 编排。它不直接拥有长期记忆存储。
+Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经进程绑定的操作端口提交和读取。它不直接拥有长期记忆存储。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
@@ -258,7 +258,7 @@ external event
 
 ### 8.3 MTP
 
-Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。WRITE/UPDATE 返回 ACK 只表示 PendingAtom 已登记，正式持久化由 Patchouli finalize 后续处理。
+Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。WRITE/UPDATE 经进程操作端口提交，返回 ACK 只表示 PendingAtom 已在 workspace 登记；进程正常完成时认领本进程的 PENDING 意图，正式持久化由 Patchouli finalize 后续处理。取消或失败只取消该进程仍为 PENDING 的意图。
 
 完整规范见[MTP 契约](./contracts/mtp.md)。
 
@@ -295,7 +295,7 @@ System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当�
 - [Components](./components/README.md)：总线、维护调度器、Local Work Queue、串行门与运行时事件等进程内机制；
 - [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
 - [Patchouli](./patchouli/README.md)：MemoryLibrary、Artifacts、Perception、Generation、Retrieval、Lifecycle 与 MemoryCompiler；
-- [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、PendingAtom 与 MTP Runtime。
+- [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、写入意图端口的消费与 MTP Runtime。
 
 ### 9.5 其他文档类型
 

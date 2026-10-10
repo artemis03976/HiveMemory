@@ -32,6 +32,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     WorkspaceIdentity,
+    WriteFocus,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
@@ -43,7 +44,6 @@ from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_gateway_decision,
     make_mtp_turn_events,
-    make_write_materialize_task,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
@@ -209,13 +209,17 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     """测试 CPU 跑完非流式进程：finalize 收到的交互记录来自 CPU 执行结果。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
-    write_task = make_write_materialize_task()
+    submitted = []
+
+    async def write(operations):
+        submitted.append(await operations.submit_write_intent(WriteFocus(content="记住这一点")))
+
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
         result=make_cpu_result(
             turn_events=turn_events,
-            materialize_tasks=[write_task],
-        )
+        ),
+        operation_script=write,
     )
 
     async def finalize(**kwargs):
@@ -242,7 +246,12 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == turn_events
     assert payload.model_used == "glm-4"
-    assert payload.materialize_tasks == [write_task]
+    (task,) = payload.materialize_tasks
+    assert task.pending_alias == submitted[0].pending_alias
+    assert task.intent_id == submitted[0].intent_id
+    assert task.focus.content == "记住这一点"
+    assert task.belong_to == _workspace()
+    assert task.from_actor == _actor()
     assert payload.mtp_traces == expected_mtp_traces()
 
 
@@ -543,7 +552,7 @@ class _SlowClosingCPU:
         self.close_entered = asyncio.Event()
         self.release_close = asyncio.Event()
 
-    def execute(self, manifest, *, generation_options, stream):
+    def execute(self, manifest, *, operations, generation_options, stream):
         return self._iterate()
 
     async def _iterate(self):

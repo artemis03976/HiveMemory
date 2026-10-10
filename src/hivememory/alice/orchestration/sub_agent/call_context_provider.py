@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
+from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.engines.memory_compiler import (
@@ -14,7 +14,6 @@ from hivememory.engines.memory_compiler import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.aliases import RuntimeAliasResolver
     from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
 
 logger = logging.getLogger(__name__)
@@ -34,10 +33,8 @@ class CallContextProvider:
     def __init__(
         self,
         profile_resolver: AgentProfileResolver,
-        alias_resolver: RuntimeAliasResolver,
     ) -> None:
         self._profile_resolver = profile_resolver
-        self._alias_resolver = alias_resolver
 
     async def provide(
         self,
@@ -70,15 +67,17 @@ class CallContextProvider:
 
         compiler = MemoryCompiler()
         sources = []
-        context = MTPExecutionContext(runtime_scope=caller_frame.runtime_scope)
+        if caller_frame.operations is None:
+            raise RuntimeError("CALL context_refs 缺少进程操作端口")
         for alias in aliases:
             try:
-                resolved = await self._alias_resolver.resolve(alias, context=context)
+                resolved = (await caller_frame.operations.resolve_references([alias]))[0]
             except Exception as error:
                 logger.warning("Failed to resolve context_ref %s: %s", alias, error)
                 continue
-            if resolved.kind in {"pending", "redirect", "atom"} and (
-                resolved.pending is not None or resolved.atom is not None
+            # redirect 必须带有调用方可读的正式原子；不可读目标不交给编译器。
+            if (resolved.kind == "pending" and resolved.pending is not None) or (
+                resolved.kind in {"redirect", "atom"} and resolved.atom is not None
             ):
                 sources.append(resolved)
             else:

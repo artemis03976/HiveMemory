@@ -7,6 +7,9 @@ code_paths:
   - src/hivememory/core/models/identity.py
   - src/hivememory/agent_runtime/
   - src/hivememory/alice/runtime/
+  - src/hivememory/workspace/intents/
+  - src/hivememory/workspace/capability/
+  - src/hivememory/workspace/cache/
   - src/hivememory/patchouli/memory_library/
   - src/hivememory/server/
   - frontend/
@@ -20,12 +23,12 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-09
 ---
 
 # 身份隔离与执行安全治理
 
-HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，但派生缓存失效、PendingAtom 的耐久隔离、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
+HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 派生缓存已接入 canonical 变更失效；Alice CALL 目标 Profile 的失效、PendingAtom 的耐久隔离、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
 
 这不是单纯的登录页面工作，也不是给每个 handler 再加一个 `if user_id`。它需要统一回答：一次请求、一次 Agent run、一个 PendingAtom、一个 Profile、一个 MemoryAtom 和一段可执行资产分别属于谁；哪个组件拥有最终授权权；缓存、子帧、重试和后台任务如何继承或缩小权限。
 
@@ -33,9 +36,9 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 
 | 边界 | 当前实现基础 | 当前风险 |
 |:---|:---|:---|
-| Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | L0/L1/L2 命中路径均在 resolver/owner 边界重验归属与 actor policy；L1 atom cache 另按 `(WorkspaceIdentity, alias)` 分区 |
-| PendingAtom | atom 通过 `runtime_scope.identity_scope` 保存完整归属，Alice 通过 alias/intent 解析 | 进程级 store 与并发 run 共享，无持久化 ledger；L0 命中已按 scope 重验，作用域不匹配按 alias 不可见处理 |
-| Agent Profile | Profile 作为 MemoryAtom，通过 retrieval/alias 发现 | Profile cache 已按 `(WorkspaceIdentity, Actor 投影, alias)` 分区，失败结果不进入缓存；仍无失效事件/TTL，Profile 更新存在 LRU 驻留期 stale 窗口 |
+| Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | workspace resolver 在 L1 命中与 L2 交付时重验归属及 actor policy；canonical 变更失效原子、旧 alias 和 Profile 派生项，不提供通知未送达补偿 |
+| PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；能力层分别以 `memory_intent.submit` / `resource.read` 授权 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
+| Agent Profile | Profile 作为 MemoryAtom，主线程分配经 workspace 能力层 `profile.read`，ProfileCache 按 Workspace/Actor/alias 分区 | workspace 缓存已有来源 UUID 失效与代次回填保护；Alice CALL 目标仍用自己的 Profile resolver/cache，没有事件失效或 TTL，保留 stale 窗口 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、Chat 可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；跨用户身份与缓存隔离仍待验证 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证，部分身份/权限重新校验仍需收紧 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
@@ -89,7 +92,9 @@ Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、Mem
 
 ### 3.3 缓存不承载授权
 
-通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以调用方的归属和发起者重验。Alice 的公开调用仍携带操作 scope，Patchouli 内部只消费拆出的字段。v0.6.2 起派生视图缓存按派生源坐标键控：Alice 持有的 L1 atom cache 按 `(WorkspaceIdentity, alias)` 分区，profile cache 按 `(WorkspaceIdentity, Actor 投影, alias)` 分区。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**——L1 命中仍走重验，失败结果不进入缓存。失效不完整时宁可返回 miss，也不能返回另一个用户或 Workspace 最近访问的 Profile、MemoryAtom、PendingAtom 或 compiled context。
+通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以调用方的归属和发起者重验。workspace 持有 canonical 原子与 alias 索引、Profile 派生缓存；Alice 只保留 CALL 目标的 Profile 本地缓存。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**。workspace 在 canonical 提交尝试后依次失效原子、旧 alias、来源 Profile 并推进 Workspace 代次，在途点读跨代次时重读一次，仍变化则报资源不可用，不回填旧值；语义检索跨代次仍交付已授权结果，但不预热缓存。失败结果不进入缓存。调用方取得独立副本，不能修改缓存内授权事实。
+
+PendingAtom 的全 Workspace 回读只适用于意图：解析到结算后的 canonical 时再次执行当前 actor policy；目标不可读时不交付正文、canonical alias/UUID，也不交付含 UPDATE 基础坐标的 Pending 副本。UPDATE 意图的回读跟随基础原子的可读性，基础不可读时在任何状态下都与不存在相同。UPDATE 只接受可读的正式 atom，不接受 pending 或结算 redirect。MTP READ、RUN 与 CALL 的共享引用解析经进程通道进入能力层，而 SEARCH、引用记录和 CALL 目标 Profile 的直接路由仍携带过渡 scope。权限、redirect 防泄露与副本隔离证据见[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)和[意图/缓存集成回归](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。
 
 ### 3.4 可执行资产是更高风险能力
 
@@ -112,8 +117,8 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
-1. 已完成：L0 PendingAtom alias 命中已在 resolver 边界重验调用方 `IdentityScope`，作用域不匹配按 alias 不存在处理；L1 atom cache 命中后重验边界保持不变（见 [MTP cache scope revalidation 归档记录](../../archive/todo/mtp-cache-scope-revalidation.md)）；
-2. 已完成（v0.6.2）：L1 atom cache 与 profile cache 按 Workspace(+Actor) 坐标分区且由 AliceRuntime 持有，同分区命中仍重验 ownership/actor policy；PendingAtom store、compiled context 等其余共享组件不因 Workspace 自动拆分；
+1. 已完成（2026-10-07）：PendingAtom registry 与引用解析归 workspace，按 Workspace 硬边界回读，不再按整个执行 scope 相等判断。Pending 第一版在全 Workspace 开放（UPDATE 意图跟随基础原子的可读性，2026-10-09），canonical redirect 重新校验资源 policy；旧 scope 校验背景见 [MTP cache scope revalidation 历史记录](../../archive/todo/mtp-cache-scope-revalidation.md)；
+2. 已完成（2026-10-07）：workspace 原子和 Profile 派生缓存按源坐标分区、命中重验、保存/读取副本，canonical 变更事件失效派生项并推进 Workspace 代次；Alice CALL 目标 Profile 缓存仍为后续迁移范围。编译上下文等其余共享组件不因 Workspace 自动拆分；
 3. 已完成（身份第二批）：MemoryLibrary、Artifact 与 lifecycle 内部按归属传递，涉及 actor 可见性的读取另外接收发起者；后台任务独立保存归属与发起者，架构测试限制 Patchouli 内部和五个引擎包使用 `IdentityScope`。跨重启恢复仍由可靠性治理处理，资产旧 scope 接口由 [Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
@@ -145,7 +150,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 - 任意 Memory/Artifact/Profile/PendingAtom alias 命中都经过实际归属和适用的可见性校验；L0/L1/L2 已具备 owner/resolver 重验，Patchouli 内部不保存或重新组装操作 scope；
 - 两个并发用户使用相同 alias、topic 或 Profile 名称不会读取对方状态；
 - 子 Agent、后台 retry 和恢复任务不会扩大或错误继承身份权限；
-- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；两个派生 cache 的跨 Workspace/跨 Actor 隔离已有回归测试，PendingAtom store 的并发隔离仍按本治理主题验证；
+- FrameScheduler 已删除，cancel、budget、frame registry 与 CALL record 按 run 隔离，并发 CALL/cancel/恢复测试稳定通过；workspace 派生缓存与 Pending registry 的 Workspace 硬边界、权限拒绝和并发回填已有回归，子线程独立身份与 durable ledger 仍按本治理主题验证；
 - 指定 Profile 失败不会静默加载全权限 Omni-Doll；未指定 Profile 的 fallback 仍有明确且可观察语义；
 - MTP RUN 在未满足可信资产和硬限制时拒绝执行或明确降级，不能把 prompt 当安全边界；
 - 前端身份切换不会留下旧用户的请求、缓存、stream 或页面状态；

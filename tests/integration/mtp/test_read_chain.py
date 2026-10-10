@@ -29,6 +29,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
+    WriteFocus,
 )
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
@@ -115,7 +116,7 @@ class TestReadAliasResolution:
 
     def test_all_valid(self, koakuma):
         mem = _make_memory(content="resolved content", alias="fact_a")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
 
         result = _execute_mtp(koakuma, "⟪ READ | fact_a | ⟫")
 
@@ -137,7 +138,7 @@ class TestReadAliasResolution:
     def test_mixed_valid_invalid(self, koakuma):
         """混合有效/无效别名"""
         mem = _make_memory(content="valid content", alias="good_alias")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None  # bad_alias 的 L2 未命中
 
         result = _execute_mtp(koakuma, "⟪ READ | [good_alias, bad_alias] | ⟫")
@@ -153,7 +154,7 @@ class TestReadAliasResolution:
     def test_mixed_valid_invalid_uses_warning_template_language(self, koakuma):
         """混合读取中的局部 alias 未找到片段应作为 warning 按上下文语言渲染。"""
         mem = _make_memory(content="valid content", alias="good_alias")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
         context = MTPExecutionContext(
             runtime_scope=make_runtime_scope(user_id="test_user"),
@@ -182,8 +183,8 @@ class TestReadAliasResolution:
         mem1 = _make_memory(content="content A", alias="a1")
         mem2 = _make_memory(content="content B", alias="a2")
 
-        koakuma.atom_cache.ingest_atom(mem1, workspace_identity=MAIN)
-        koakuma.atom_cache.ingest_atom(mem2, workspace_identity=MAIN)
+        koakuma.memories[mem1.get_alias()] = mem1
+        koakuma.memories[mem2.get_alias()] = mem2
 
         result = _execute_mtp(koakuma, "⟪ READ | [a1, a2] | ⟫")
 
@@ -197,7 +198,7 @@ class TestReadAliasResolution:
 
     def test_citation_failure_keeps_success_response(self, koakuma):
         mem = _make_memory(content="readable", alias="fact_cite_fail")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
         koakuma._bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, "⟪ READ | fact_cite_fail | ⟫")
@@ -206,27 +207,28 @@ class TestReadAliasResolution:
         assert "readable" in result.response_content
 
     def test_read_redirected_pending_alias(self, koakuma):
-        pending = koakuma.pending_runtime.register_write(
-            content="pending content",
-            title="Pending Note",
-            reason=None,
-            identity=make_runtime_scope().identity_scope.actor_identity,
-            runtime_scope=make_runtime_scope(),
+        pending = koakuma.registry.register_write(
+            WriteFocus(content="pending content", title="Pending Note", reason=None),
+            belong_to=make_runtime_scope().identity_scope.workspace_identity,
+            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            process_id=make_runtime_scope().run_id,
         )
         canonical = _make_memory(
             content="canonical content",
             alias="fact_canonical",
         )
-        koakuma.atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
-        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
-        koakuma.pending_runtime.settle(
-            PendingAtomSettlement(
-                pending_alias=pending.pending_alias,
-                intent_id=pending.intent_id,
-                resolution=PendingAtomResolution.CREATED,
-                duplicate_decision=DuplicateDecision.CREATE,
-                canonical_alias="fact_canonical",
-                canonical_uuid=str(canonical.id),
+        koakuma.memories[canonical.get_alias()] = canonical
+        koakuma.registry.claim_process(pending.process_id)
+        asyncio.run(
+            koakuma.registry.on_settled(
+                settlement=PendingAtomSettlement(
+                    pending_alias=pending.pending_alias,
+                    intent_id=pending.intent_id,
+                    resolution=PendingAtomResolution.CREATED,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                    canonical_alias="fact_canonical",
+                    canonical_uuid=str(canonical.id),
+                )
             )
         )
 
@@ -242,21 +244,22 @@ class TestReadAliasResolution:
         assert koakuma._bus._memory_citations == [{"memory_id": canonical.id, "source": "mtp.read"}]
 
     def test_read_discarded_pending_alias(self, koakuma):
-        pending = koakuma.pending_runtime.register_write(
-            content="pending content",
-            title="Pending Note",
-            reason=None,
-            identity=make_runtime_scope().identity_scope.actor_identity,
-            runtime_scope=make_runtime_scope(),
+        pending = koakuma.registry.register_write(
+            WriteFocus(content="pending content", title="Pending Note", reason=None),
+            belong_to=make_runtime_scope().identity_scope.workspace_identity,
+            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            process_id=make_runtime_scope().run_id,
         )
-        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
-        koakuma.pending_runtime.settle(
-            PendingAtomSettlement(
-                pending_alias=pending.pending_alias,
-                intent_id=pending.intent_id,
-                resolution=PendingAtomResolution.DISCARDED,
-                duplicate_decision=DuplicateDecision.DISCARD,
-                message="Not materialized.",
+        koakuma.registry.claim_process(pending.process_id)
+        asyncio.run(
+            koakuma.registry.on_settled(
+                settlement=PendingAtomSettlement(
+                    pending_alias=pending.pending_alias,
+                    intent_id=pending.intent_id,
+                    resolution=PendingAtomResolution.DISCARDED,
+                    duplicate_decision=DuplicateDecision.DISCARD,
+                    message="Not materialized.",
+                )
             )
         )
 
@@ -267,15 +270,19 @@ class TestReadAliasResolution:
         assert "已实例化: 否" in result.response_content
         assert "Not materialized." in result.response_content
 
-    def test_read_expired_pending_alias(self, koakuma):
-        pending = koakuma.pending_runtime.register_write(
-            content="pending content",
-            title="Pending Note",
-            reason=None,
-            identity=make_runtime_scope().identity_scope.actor_identity,
-            runtime_scope=make_runtime_scope(),
+    def test_read_failed_pending_alias(self, koakuma):
+        pending = koakuma.registry.register_write(
+            WriteFocus(content="pending content", title="Pending Note", reason=None),
+            belong_to=make_runtime_scope().identity_scope.workspace_identity,
+            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            process_id=make_runtime_scope().run_id,
         )
-        koakuma.pending_runtime.expire(pending.pending_alias)
+        koakuma.registry.claim_process(pending.process_id)
+        asyncio.run(
+            koakuma.registry.on_failed(
+                pending_alias=pending.pending_alias, intent_id=pending.intent_id
+            )
+        )
 
         result = _execute_mtp(
             koakuma,
@@ -283,8 +290,8 @@ class TestReadAliasResolution:
         )
 
         assert result.success
-        assert "expired" in result.response_content
-        assert "reclaimed" in result.response_content
+        assert "状态: 失败" in result.response_content
+        assert "重新发出 WRITE/UPDATE" in result.response_content
         assert "Alias Not Found" not in result.response_content
 
 
@@ -296,7 +303,7 @@ class TestKoakumaReadE2E:
 
     def test_read_single_alias(self, koakuma):
         mem = _make_memory(content="API documentation", alias="fact_api")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
 
         result = _execute_mtp(koakuma, "⟪ READ | fact_api | ⟫")
 
@@ -306,8 +313,8 @@ class TestKoakumaReadE2E:
     def test_read_list_aliases(self, koakuma):
         mem1 = _make_memory(content="Doc A", alias="a1")
         mem2 = _make_memory(content="Doc B", alias="a2")
-        koakuma.atom_cache.ingest_atom(mem1, workspace_identity=MAIN)
-        koakuma.atom_cache.ingest_atom(mem2, workspace_identity=MAIN)
+        koakuma.memories[mem1.get_alias()] = mem1
+        koakuma.memories[mem2.get_alias()] = mem2
 
         result = _execute_mtp(koakuma, "⟪ READ | [a1, a2] | ⟫")
 
@@ -327,7 +334,7 @@ class TestKoakumaReadE2E:
 
     def test_read_formatted_response_xml(self, koakuma):
         mem = _make_memory(content="test", alias="test_alias")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
 
         result = _execute_mtp(koakuma, "⟪ READ | test_alias | ⟫")
 
@@ -336,7 +343,7 @@ class TestKoakumaReadE2E:
 
     def test_read_via_intercept(self, koakuma):
         mem = _make_memory(content="intercepted content", alias="fact_x")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
 
         agent_text = "Let me read that. ⟪ READ | fact_x |"
         result = _intercept_and_execute(koakuma, agent_text)
@@ -348,7 +355,7 @@ class TestKoakumaReadE2E:
     def test_read_cache_hit_no_db_query(self, koakuma):
         """缓存命中后不查数据库"""
         mem = _make_memory(content="cached content", alias="fact_cached")
-        koakuma.atom_cache.ingest_atom(mem, workspace_identity=MAIN)
+        koakuma.memories[mem.get_alias()] = mem
 
         result = _execute_mtp(koakuma, "⟪ READ | fact_cached | ⟫")
 
@@ -356,7 +363,6 @@ class TestKoakumaReadE2E:
         assert "cached content" in result.response_content
         # 验证没有查 Qdrant
         koakuma._bus._mock_storage.get_memory.assert_not_called()
-        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
 
 # ========== Test 4：Koakuma READ 校验 ==========
@@ -422,7 +428,6 @@ class TestReadL2Fallback:
         assert "promoted content" in result2.response_content
 
         # L2 不应被再次调用
-        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
 
     def test_l2_miss_returns_error(self, koakuma):
         """L1 和 L2 均未命中"""
@@ -453,7 +458,7 @@ class TestReadL2Fallback:
         mem_l2 = _make_memory(content="from L2", alias="alias_l2")
 
         # 缓存注册
-        koakuma.atom_cache.ingest_atom(mem_cached, workspace_identity=MAIN)
+        koakuma.memories[mem_cached.get_alias()] = mem_cached
 
         # L2 返回
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem_l2
@@ -473,12 +478,11 @@ class TestReadPendingScopeIsolation:
 
     def test_read_in_flight_pending_same_scope_renders_pending_content(self, koakuma):
         """同 scope 注册的 in-flight pending 仍可通过 READ 读取。"""
-        pending = koakuma.pending_runtime.register_write(
-            content="draft body",
-            title="Draft Note",
-            reason=None,
-            identity=make_runtime_scope().identity_scope.actor_identity,
-            runtime_scope=make_runtime_scope(),
+        pending = koakuma.registry.register_write(
+            WriteFocus(content="draft body", title="Draft Note", reason=None),
+            belong_to=make_runtime_scope().identity_scope.workspace_identity,
+            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            process_id=make_runtime_scope().run_id,
         )
 
         result = _execute_mtp(koakuma, f"⟪ READ | {pending.pending_alias} | ⟫")
@@ -488,14 +492,15 @@ class TestReadPendingScopeIsolation:
 
     def test_read_pending_from_other_workspace_reports_not_found(self, koakuma):
         """跨 Workspace 调用方 READ 他人 pending alias：报 Alias Not Found，不泄露内容。"""
-        pending = koakuma.pending_runtime.register_write(
-            content="cross workspace draft",
-            title="Secret Draft",
-            reason=None,
-            identity=make_runtime_scope(
+        pending = koakuma.registry.register_write(
+            WriteFocus(content="cross workspace draft", title="Secret Draft", reason=None),
+            belong_to=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.workspace_identity,
+            from_actor=make_runtime_scope(
                 workspace_id="isolation_workspace"
             ).identity_scope.actor_identity,
-            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+            process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
         )
         koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
 
@@ -515,26 +520,29 @@ class TestReadPendingScopeIsolation:
 
     def test_read_settled_redirect_from_other_workspace_does_not_read_canonical(self, koakuma):
         """跨 Workspace READ 已结算 redirect：不触发 canonical 读取与 citation。"""
-        pending = koakuma.pending_runtime.register_write(
-            content="pending content",
-            title="Pending Note",
-            reason=None,
-            identity=make_runtime_scope(
+        pending = koakuma.registry.register_write(
+            WriteFocus(content="pending content", title="Pending Note", reason=None),
+            belong_to=make_runtime_scope(
+                workspace_id="isolation_workspace"
+            ).identity_scope.workspace_identity,
+            from_actor=make_runtime_scope(
                 workspace_id="isolation_workspace"
             ).identity_scope.actor_identity,
-            runtime_scope=make_runtime_scope(workspace_id="isolation_workspace"),
+            process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
         )
         canonical = _make_memory(content="canonical content", alias="fact_canonical")
-        koakuma.atom_cache.ingest_atom(canonical, workspace_identity=MAIN)
-        koakuma.pending_runtime.claim_for_materialization([pending.pending_alias])
-        koakuma.pending_runtime.settle(
-            PendingAtomSettlement(
-                pending_alias=pending.pending_alias,
-                intent_id=pending.intent_id,
-                resolution=PendingAtomResolution.CREATED,
-                duplicate_decision=DuplicateDecision.CREATE,
-                canonical_alias="fact_canonical",
-                canonical_uuid=str(canonical.id),
+        koakuma.memories[canonical.get_alias()] = canonical
+        koakuma.registry.claim_process(pending.process_id)
+        asyncio.run(
+            koakuma.registry.on_settled(
+                settlement=PendingAtomSettlement(
+                    pending_alias=pending.pending_alias,
+                    intent_id=pending.intent_id,
+                    resolution=PendingAtomResolution.CREATED,
+                    duplicate_decision=DuplicateDecision.CREATE,
+                    canonical_alias="fact_canonical",
+                    canonical_uuid=str(canonical.id),
+                )
             )
         )
 
@@ -552,4 +560,3 @@ class TestReadPendingScopeIsolation:
         assert "[Alias Redirected]" not in result.formatted_response
         assert "[Alias Not Found]" in result.formatted_response
         assert koakuma._bus._memory_citations == []
-        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()

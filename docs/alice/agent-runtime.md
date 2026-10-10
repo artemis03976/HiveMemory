@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-07
 ---
 
 # Agent Runtime
@@ -32,7 +32,7 @@ AgentRunService
        -> AgentLoopExecutor
        -> WorkerAgentService
        -> MTPExecutor port -> KoakumaRuntime
-       -> PendingAtomRuntime management facade
+       -> frame ProcessOperations port -> workspace capability
 ```
 
 `src/hivememory/agent_runtime/` 是共享执行层，不是子系统：
@@ -41,9 +41,9 @@ AgentRunService
 - 不拥有 start/stop/health 生命周期；
 - 不直接 import Alice 的 RunExecutor、CallCoordinator、CallContextProvider 或 ProfileResolver；
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
-- 持久化记忆、Profile 读取与 citation 均通过 Alice 装配的 local bus 间接访问 Patchouli。
+- WRITE/UPDATE 与引用解析经 frame 的进程操作端口；SEARCH、citation 与 CALL Profile 读取仍经 Alice local bus 请求 Patchouli。
 
-`AgentRuntime` 门面与 frame 级稳定契约保留在 `agent_runtime/` 根部；`execution/` 收拢 loop 与 WorkerAgent，`aliases/` 收拢三级解析与 L1 热缓存（alias 索引按 `(WorkspaceIdentity, alias)` 分区），`mtp/`、`pending_atom/` 分别保存协议执行与写缓冲能力。AliceRuntime 在进程启动时构造这组资源，AgentRunService 把同一个门面交给每次 run 的 RunExecutor；执行层不再位于 Alice 编排目录中。
+`AgentRuntime` 门面与 frame 级契约保留在 `agent_runtime/` 根部，`execution/` 收拢 loop 与 WorkerAgent，`mtp/` 保存协议执行。AliceRuntime 装配无状态执行机制和保留的 CALL Profile 缓存；写入意图登记、引用解析与原子缓存由 workspace 持有，执行层只消费进程交付的端口。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
 
@@ -58,7 +58,8 @@ ExecutionFrame
   ├─ IdentityScope（通过 RuntimeScope 继承）
   ├─ working_history[]
   ├─ topic_id | None
-  ├─ harvested_aliases[]
+  ├─ ProcessOperations（root 与 CALL 子帧共享）
+  ├─ harvested_aliases[]（本帧收到的 ACK alias）
   └─ ExecutionProgress
        ├─ text_segments[]
        ├─ turn_events[]
@@ -157,15 +158,12 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 
 - `final_text` 来自主 frame 累积正文；
 - `turn_events` 是当前用户消息、assistant 输出和工具事件的有序事实（`TurnEvent`）；
-- `materialize_tasks` 由 PendingAtomRuntime 按共享 run_id 认领，包含父子帧写意图；
 - `status` 由取消状态与运行终态确定；
 - `model_used` 来自主 frame 模型解析。
 
 迭代统计（`mtp_iterations/total_iterations`）来自主 frame PCB，但属于 Alice 的观测：它们只进入 `agent.run.*` 终态事件的载荷，不进入执行结果。
 
-执行层不应为了组装最终响应重新维护 write focus、pending alias 或子 Agent 结果副本。PendingAtomRuntime 已拥有写缓冲真相，AgentRunService 只在 run 边界投影稳定公共结果。
-
-当前收尾由两个显式产品模型分开：`finalize_frame()` 产生只供当前 CALL 使用的 `FrameProducts.artifact_aliases`，`finalize_run()` 产生交给 Patchouli 的 `RuntimeProducts.materialize_tasks`。前者可由 `CallCoordinator` 调用，后者只由 `RunExecutor` 在入口 frame 终态调用一次；编排层不再遍历 PendingAtom store 的内部集合。
+执行层不维护写入意图或物化任务副本。Agent loop 只在 ACK 时记录 alias；成功子帧的 `finalize_frame()` 返回 `FrameProducts.artifact_aliases`，服务于当前 CALL 的回填。整个进程的物化任务由 workspace 在 completed 后认领和封口，AgentRuntime 不再提供 `finalize_run()`，RunExecutor 只记录根帧终态。
 
 ## 8. 关键不变量与矛盾检查
 
@@ -181,7 +179,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 
 当前执行层配置位于 `AliceConfig.runtime.max_loop_iterations`；模型、密钥与采样默认值由 ModelRegistry 和 shared config 管理，单次请求可以覆盖。Koakuma 与 prompt 配置见 [MTP Runtime](./mtp-runtime.md)。
 
-`AgentRunEventEmitter` 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 process、agent run、topic、agent、status、迭代与 materialize task 数量；`RuntimeEventPublisher` 统一补充 scope/context、payload 安全转换和 best-effort 异常隔离。AgentRunService 只在明确的业务分支调用这些语义方法。frame 内部过程则通过交互输出事件和结构化 TurnEvent 暴露，不进入 RuntimeEventBus。
+`AgentRunEventEmitter` 为主 run 产生 `agent.run.started/completed/cancelled/failed` 观测事件，包含 process、agent run、topic、agent、status、迭代统计；`RuntimeEventPublisher` 统一补充 scope/context、payload 安全转换和 best-effort 异常隔离。AgentRunService 只在明确的业务分支调用这些语义方法。frame 内部过程则通过交互输出事件和结构化 TurnEvent 暴露，不进入 RuntimeEventBus。
 
 主要验证入口：
 
@@ -200,7 +198,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或 checkpoint 恢复策略；
 - 主 run 的失败和预算耗尽都由 Alice 组装为执行结果的 `failed`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；
-- AliceRuntime 仍直接持有 PendingAtom settlement/cache 刷新逻辑；这部分属于进程级运行时投影，但尚未进一步提取为窄事件处理器；
+- 资源操作所需的进程端口不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧沿用主线程端口；
 - 流式取消只能在 LiteLLM chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
 - 执行层没有每 run 的资源配额、token budget、并发限流、持久化 checkpoint 或回放能力；
 - `health()` 只返回 loop/worker 固定 `ok`，不验证模型端点、正在运行的 frame 或迭代耗尽率。

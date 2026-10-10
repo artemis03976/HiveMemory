@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-07
 ---
 
 # MemoryCompiler
@@ -24,7 +24,7 @@ MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视�
 ## 1. 编译管线
 
 ```text
-MemoryAtom | PendingAtom | ResolveResult | PendingAtomSettlement
+MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement
   -> source builder
   -> MemoryUnitIR
   -> unit target handler
@@ -46,8 +46,8 @@ MemoryAtom | PendingAtom | ResolveResult | PendingAtomSettlement
 
 - MemoryAtom：正式记忆当前 head；
 - PendingAtom：仍在物化中的 WRITE/UPDATE 候选；
-- ResolveResult：atom、pending、redirect、discard、failed/expired 等解析结果；
-- PendingAtomSettlement：先投影为 redirect/discard ResolveResult。
+- ReferenceResolution：core 中立模型，表达 atom、pending、redirect、discarded、failed、expired 与 not_found 逐项解析结果；资源值由 workspace 交付独立副本。Compiler 接受有内容或终态的结果，not_found 由 adapter 处理、不进入编译；
+- PendingAtomSettlement：先投影为 redirect/discarded ReferenceResolution。
 
 IR 的意义是让 target handler 面对稳定语义，而不是知道 MemoryAtom、PendingAtom 和 resolver 的全部字段结构。IR 不对外承诺为公共协议，也不应被持久化成另一份记忆真相。
 

@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-09
 ---
 
 # Plans
@@ -19,9 +19,9 @@ last_reviewed: 2026-10-06
 | 1 | 任务进程表与任务请求唯一注册入口 | 已完成：第一至第五批均已实施归档（[落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)、[命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md)）；Topic 按需创建与写入意图分别归外部会话与写入意图迁移两个方向 | 背景：[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) |
 | 1 之后 | A1 访问边界返工 | 已完成：2026-10-04 实施归档；与 workspace 相关的 HTTP 请求都经认证网关，两阶段认证与两阶段授权按身份与访问体系 Idea 的第一批落地 | [归档计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md)；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |
 | 与 A1 返工同步 | 身份与访问体系 | 已完成：第一批随 A1 返工完成；第二批于 2026-10-04 验收归档，实现在分支 `refactor/identity-access-batch-2` 提交（`b2c7aee`，审查后调整 `773fe4c`、`6af6e72`），同日经 PR #107 合并至 master（`5660fed`）；WorkspaceAssetStore 内部接口拆分明确暂缓，由 Todo 跟踪 | [第二批归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；背景：[Idea](../ideas/identity-and-access-model.md)；[资产 Todo](../todo/workspace-asset-ownership-identity-split.md) |
-| A1 返工之后 | 写入意图登记迁入 workspace 与读取缓存失效 | 已建立计划（Planned，2026-10-06），尚未开始：写入意图迁移第 1 步、读取缓存失效与 Alice 引用解析的整体迁出合为一份计划（总 Idea 15.11 的补充） | [计划](./v0.7.0-intent-registry-and-read-cache.md)；背景：[写入意图迁移 Idea](../ideas/pending-intent-migration.md)（原 A4） |
+| A1 返工之后 | 写入意图登记迁入 workspace 与读取缓存失效 | 已完成：2026-10-07 实施、验收与 code review 后归档；workspace 唯一登记、统一引用解析、canonical 变更失效及进程操作通道落地 | [归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)；当前事实：[Workspace 架构](../architecture/workspace.md)；背景：[写入意图迁移 Idea](../ideas/pending-intent-migration.md)（原 A4） |
 | 上一行之后 | 写入意图迁移·第 2 步 | 计划尚未建立：实时派发生成，收尾不再派发物化，取消与失败不再丢弃写入意图；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 |
-| 写入意图登记与读取缓存失效之后 | Alice 的能力层调用迁移 | 2026-10-06 再次收窄，计划尚未建立：SEARCH 与引用记录改经能力层，删除 CPU 过渡身份，D-9 的其余遗留；子线程暂时共享主线程的 context；前置问题见总 Idea 15.5“重新划分” | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#155-alice-的能力层调用迁移) 15.5 |
+| 写入意图登记与读取缓存失效之后 | Alice 的能力层调用迁移 | 2026-10-06 再次收窄，计划尚未建立：先以操作请求与 workspace 的单一操作入口取代进程操作通道（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9，2026-10-09），再让 SEARCH 与引用记录改经能力层，删除 CPU 过渡身份，D-9 的其余遗留；子线程暂时共享主线程的 context；前置问题见总 Idea 15.5“重新划分” | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#155-alice-的能力层调用迁移) 15.5 |
 | Alice 的能力层调用迁移之后 | 执行线程层 | 2026-10-06 由 Alice 的能力层调用迁移拆出，计划尚未建立：派生经过进程、每个线程一份访问 context、派生授权；与 Profile 权限计划的先后受执行单元 Idea T-3c 约束 | 背景：[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md) |
 | — | Agent Profile 的权限并入 operation 控制 | 2026-10-06 决定从 Alice 的能力层调用迁移中拆出，单独建立计划；计划尚未建立，与执行线程层的先后受执行单元 Idea T-3c 约束，与其他方向的先后未定 | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#154-agent-profile-的权限并入-operation-控制p-2p-10) 15.4 |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
@@ -40,6 +40,7 @@ last_reviewed: 2026-10-06
 
 | Plan | 状态 | 结果与事实入口 |
 |:---|:---:|:---|
+| [v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](../archive/plans/v0.7.0-intent-registry-and-read-cache.md) | Archived（2026-10-07） | workspace 唯一登记与读取视图、进程绑定操作通道、按进程认领/取消、canonical 变更同步失效；当前事实见 [Workspace 架构](../architecture/workspace.md)、[MTP 契约](../contracts/mtp.md)与 [System 应用服务](../system/application-services.md) |
 | [v0.7.0 身份与访问体系第二批](../archive/plans/v0.7.0-identity-access-batch-2.md) | Archived（2026-10-04） | Patchouli 内部与后台任务分开携带归属与发起者，SETTLE 四触发使用 system，finalize/cleanup 重新阶段授权，actor 移除 session_id；当前事实见 [Workspace 架构](../architecture/workspace.md)、[子系统公共契约](../contracts/subsystem-contracts.md)与 [Patchouli 生成](../patchouli/generation.md)；[WorkspaceAsset 拆分](../todo/workspace-asset-ownership-identity-split.md)暂缓 |
 | [v0.7.0 A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md) | Archived（2026-10-04） | 与 workspace 相关的 HTTP 请求都经统一认证网关；访问 context 改为密封的运行时凭据，认证一侧与操作授权者互不依赖；注册入口先注册后运行，进程表登记任务进程，句柄按对象身份判定有效；Patchouli 与 Gateway 只接收 `IdentityScope`；两个登记文件与用户级记录；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节、[错误模型](../contracts/error-model.md)、[System 应用服务](../system/application-services.md)与 [System 配置](../system/configuration.md) |
 | [v0.7.0 任务进程：命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md) | Archived（2026-10-01） | Gateway 的命令结果只携带解析结果，删除命令分发与执行，任务进程产生“暂不可用”的命令终态；当前事实见 [Gateway 全局命令](../gateway/commands.md) |
@@ -52,7 +53,7 @@ last_reviewed: 2026-10-06
 | [v0.7.0 A1 Workspace 访问边界与授权](../archive/plans/v0.7.0-a1-workspace-access-boundary.md) | Archived | 统一认证网关、两类登记、guard 签发生命周期与逐次行为授权；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节 |
 | [v0.6.2 W0 Workspace MVP](../archive/plans/v0.6.2-workspace-mvp.md) | Archived | `WorkspaceIdentity`、端到端 scope、双 Workspace 隔离、进程内 WorkspaceAssetStore、两级状态机和 SemanticBuffer binding；当前事实见 [Workspace 架构](../architecture/workspace.md) |
 | [v0.6.2 Identity 投影收敛](../archive/plans/v0.6.2-identity-projection-cleanup.md) | Archived | 服务入口统一 `IdentityScope`、`InteractionTurnSnapshot` actor 值对象化、读侧兼容属性收口与 `system` 保留 actor 语义；当前事实见 [Workspace 架构](../architecture/workspace.md) 与 [System 应用服务](../system/application-services.md) |
-| [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移](../archive/plans/v0.6.2-workspace-runtime-cache-migration.md) | Archived | Workspace-aware cache key；派生缓存所有权随后归还 AliceRuntime；当前事实见 [System 组合根](../system/composition.md)与 [Alice](../alice/README.md) |
+| [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移](../archive/plans/v0.6.2-workspace-runtime-cache-migration.md) | Archived | Workspace-aware cache key；派生缓存所有权曾归还 AliceRuntime，v0.7.0 引用读取缓存已迁入 workspace；当前事实见 [System 组合根](../system/composition.md)与 [Alice](../alice/README.md) |
 | [v0.6.2 W1 Chat Attachments](../archive/plans/v0.6.2-w1-chat-attachments.md) | Archived | 附件上传、确定性解析、Chat 选择与 lease、AttachmentCompiler、Topic binding 与按需 Artifact promotion；当前事实见 [Chat 附件链路](../system/attachments.md) |
 
 其余已归档计划见 [Archived Plans](../archive/plans/README.md)。

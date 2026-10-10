@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -55,9 +56,7 @@ async def test_alice_cpu_stream_relays_events_and_converts_done() -> None:
     items = [
         item
         async for item in cpu.execute(
-            manifest,
-            generation_options={"temperature": 0.5},
-            stream=True,
+            manifest, generation_options={"temperature": 0.5}, stream=True, operations=MagicMock()
         )
     ]
 
@@ -101,6 +100,7 @@ async def test_alice_cpu_once_yields_single_execution_result() -> None:
             make_input_manifest(process_id="process-once"),
             generation_options=None,
             stream=False,
+            operations=MagicMock(),
         )
     ]
 
@@ -126,7 +126,9 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, stream_route)
     cpu = AliceCPU(bus)
 
-    iterator = cpu.execute(make_input_manifest(), generation_options=None, stream=True)
+    iterator = cpu.execute(
+        make_input_manifest(), generation_options=None, stream=True, operations=MagicMock()
+    )
     first = await iterator.__anext__()
     assert first == {"event": "token", "data": {"content": "一"}}
 

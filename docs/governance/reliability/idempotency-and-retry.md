@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/patchouli/control/
   - src/hivememory/patchouli/services/
   - src/hivememory/patchouli/memory_library/
-  - src/hivememory/agent_runtime/pending_atom/
+  - src/hivememory/workspace/intents/
   - src/hivememory/components/
 related_docs:
   - docs/components/runtime-and-bus.md
@@ -17,7 +17,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-07
 ---
 
 # 跨子系统幂等性与重试治理
@@ -33,13 +33,15 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | Passive ingress | `source + external_event_id` 进程内去重，重复事件可忽略 | dedup 记录不耐久；重启后可能再次接受；submit apply 的跨进程幂等仍需定义 |
 | Interaction submission | Active/Passive 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；apply journal 按 Workspace、interaction 与目标 Topic 判断重放或冲突 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
 | Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
-| PendingAtom settlement | `intent_id` 与 alias 反查，settlement 会校验 intent | store 进程内，resolution 与重复 settlement 缺少耐久唯一约束和跨重启 replay |
+| PendingAtom settlement | workspace `WriteIntentRegistry` 按 alias/intent_id 校验；每个 PENDING 只认领一次，终态不再被后续通知重写 | registry 进程内，resolution 与重复 settlement 缺少耐久唯一约束、跨重启 replay 和通知未送达对账 |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
 | MemoryAtom update | version 字段和 UPDATE artifact | 版本冲突、重复 UPDATE、CREATE/UPDATE/TOUCH 重放的业务结果需要统一 |
 | archive/revive | MemoryLibrary 编排跨层搬运，GC 会检查已归档 | 中间失败可能产生重复副本；重复 archive/revive 的返回语义未形成公共规则 |
 | Retrieval HIT | finalize 内有单批 `seen` 去重和 best-effort 记录入口 | 有意不提供跨 finalize 去重、retry 或耐久 event key；允许少量遗漏或重复 |
 | CITATION/feedback | 生命周期事件入口已经存在 | 若未来被提升为必须恢复的用户事实，再为其定义稳定身份与重复语义 |
 | Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`；Interaction 与 Memory Generation payload 独立保存 `belong_to` 与 `from_actor`，不保存 `IdentityScope`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；lane、ordering、registry 与 idempotency key 不因 Workspace 自动分区，业务 consumer 必须检查资源归属与适用的 actor policy；当前契约不含 lease，通用 key 不能替代领域对重复副作用的解释 |
+
+canonical 变更失效只清除派生缓存并推进 Workspace 代次，不回放资源值；重复或失败提交的通知可以保守多失效，当前不自动重试未送达事件。它不创建幂等操作记录，也不能证明写入完成，具体边界见[MemoryLibrary](../../patchouli/memory-library.md)。
 
 当前唯一较完整的例子是 Passive ingress 的 external event dedup。它不能被直接推广为所有业务的“全局去重表”：不同操作的重复输入可能代表重试、同一意图的新版本、合法的再次引用或必须拒绝的冲突。
 

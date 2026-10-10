@@ -11,7 +11,7 @@ import logging
 import threading
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from hivememory.core.errors import MemoryAliasConflictError
@@ -23,6 +23,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.artifact import ArtifactRef
+from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
 from hivememory.patchouli.memory_library.models import (
@@ -32,6 +33,7 @@ from hivememory.patchouli.memory_library.models import (
 from hivememory.patchouli.memory_library.ports import (
     ArtifactStoragePort,
     LongTermStoragePort,
+    MemoryChangePublisherPort,
     MidTermStoragePort,
     ShortTermStoragePort,
 )
@@ -126,7 +128,15 @@ class MidTermMemoryStore:
     Profile 管理、revive）的汇聚点，也是唯一能覆盖所有路径的检查点，因此
     在主后端写入前校验；归档即释放 alias，revive 撞名显式失败。
     ``patch_payload`` 白名单不含 ``index.alias``，该路径无需校验。
+
+    生产 Runtime 注入变更发布端口；四个提交入口都在 finally 中内联等待
+    失效通知，提交失败与删除未命中同样通知，不回滚已完成的后端写入。
+    例外是只改 ``meta.lifecycle`` 的 patch：动态统计字段独立成
+    ``MemoryLifecycleState`` 聚合，正是为了让它们的更新不使读取视图失效。
     """
+
+    # 动态状态聚合的 dotted 前缀；patch 路径全部落在其下时不发布变更通知。
+    _LIFECYCLE_PATCH_PREFIX = "meta.lifecycle."
 
     # 唯一性判定只需确认"除自身外是否还有其他占用者"：自身至多一条，
     # 因此取两条即可覆盖。
@@ -136,9 +146,12 @@ class MidTermMemoryStore:
         self,
         primary: MidTermStoragePort,
         secondary: list[MidTermStoragePort] | None = None,
+        *,
+        change_publisher: MemoryChangePublisherPort | None = None,
     ) -> None:
         self._primary = primary
         self._secondary: list[MidTermStoragePort] = secondary or []
+        self._change_publisher = change_publisher
 
     async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
         """提交完整 canonical Memory；primary 写入后沿顺序同步 secondary。
@@ -147,10 +160,14 @@ class MidTermMemoryStore:
         产生任何写入。首版沿用 A2-P 的串行写入假设：并发写入者之间"检查→
         写入"的竞态不在保证范围内。
         """
-        await self.ensure_alias_available(memory)
-        await self._primary.upsert(memory, recompute_vectors=recompute_vectors)
-        for secondary in self._secondary:
-            await secondary.upsert(memory, recompute_vectors=recompute_vectors)
+        try:
+            await self.ensure_alias_available(memory)
+            await self._primary.upsert(memory, recompute_vectors=recompute_vectors)
+            for secondary in self._secondary:
+                await secondary.upsert(memory, recompute_vectors=recompute_vectors)
+        finally:
+            # primary 失败或 secondary 部分提交后也不能继续信任读取投影。
+            await self._publish_change(memory.workspace_identity, memory.id, "upsert")
 
     async def list_alias_holders(
         self,
@@ -225,24 +242,52 @@ class MidTermMemoryStore:
     ) -> MemoryAtom | None:
         """受限局部更新：primary 提交并返回结果，同一 patch 沿顺序同步 secondary。
 
-        任一存储失败按顺序直接传播，不回滚已成功的写入（首版串行假设）。
+        任一存储失败按顺序直接传播，不回滚已成功的写入（首版串行假设）。只改
+        ``meta.lifecycle`` 动态状态的 patch 不发布变更通知；涉及其他路径（如
+        ``meta.access_policy``）时与其他提交入口一样在 finally 中通知。
         """
-        result = await self._primary.patch_payload(key, patch)
-        for secondary in self._secondary:
-            await secondary.patch_payload(key, patch)
-        return result
+        affects_read_view = any(not path.startswith(self._LIFECYCLE_PATCH_PREFIX) for path in patch)
+        try:
+            result = await self._primary.patch_payload(key, patch)
+            for secondary in self._secondary:
+                await secondary.patch_payload(key, patch)
+            return result
+        finally:
+            if affects_read_view:
+                await self._publish_change(key.workspace_identity, key.memory_id, "patch")
 
     async def delete(self, belong_to: WorkspaceIdentity, memory_id: UUID) -> bool:
-        result = await self._primary.delete(belong_to, memory_id)
-        for secondary in self._secondary:
-            await secondary.delete(belong_to, memory_id)
-        return result
+        """删除 canonical；未命中同样失效可能残留的读取投影。"""
+        try:
+            result = await self._primary.delete(belong_to, memory_id)
+            for secondary in self._secondary:
+                await secondary.delete(belong_to, memory_id)
+            return result
+        finally:
+            await self._publish_change(belong_to, memory_id, "delete")
 
     async def delete_by_key(self, key: WorkspaceMemoryKey) -> bool:
-        result = await self._primary.delete_by_key(key)
-        for secondary in self._secondary:
-            await secondary.delete_by_key(key)
-        return result
+        """按复合归属键删除；通知不依赖后端是否命中。"""
+        try:
+            result = await self._primary.delete_by_key(key)
+            for secondary in self._secondary:
+                await secondary.delete_by_key(key)
+            return result
+        finally:
+            await self._publish_change(key.workspace_identity, key.memory_id, "delete")
+
+    async def _publish_change(
+        self,
+        belong_to: WorkspaceIdentity,
+        memory_id: UUID,
+        operation: Literal["upsert", "patch", "delete"],
+    ) -> None:
+        """通过注入端口内联通知，等待失效完成后才结束提交调用。"""
+        if self._change_publisher is None:
+            return
+        await self._change_publisher.publish_change(
+            MemoryChangeEvent(belong_to=belong_to, memory_id=memory_id, operation=operation)
+        )
 
     async def search(
         self,

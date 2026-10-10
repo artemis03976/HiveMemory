@@ -47,6 +47,7 @@ AUTHORIZER_ONLY_FILES = frozenset(
         "workspace/capability/assets.py",
         "workspace/process/runner.py",
         "workspace/process/allocation.py",
+        "workspace/process/operations.py",
     }
 )
 

@@ -35,6 +35,7 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
     WorkspaceIdentity,
+    WriteFocus,
 )
 from hivememory.core.protocol.gateway import (
     CommandExecutionStatus,
@@ -55,7 +56,6 @@ from hivememory.workspace.process.table import ProcessStatusSnapshot
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_mtp_turn_events,
-    make_write_materialize_task,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
@@ -204,7 +204,7 @@ def _memory_ref_atom() -> MemoryAtom:
     )
 
 
-def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], write_task) -> None:
+def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) -> None:
     """完成的进程交给 finalize 的交互记录逐字段等于各阶段产出。"""
     decision = _decision_outcome().decision
     assert payload.user_message == "问题"
@@ -213,7 +213,12 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], write_task)
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == turn_events
     assert payload.model_used == "glm-4"
-    assert payload.materialize_tasks == [write_task]
+    (task,) = payload.materialize_tasks
+    assert task.pending_alias == submitted[0].pending_alias
+    assert task.intent_id == submitted[0].intent_id
+    assert task.focus.content == "记住这一点"
+    assert task.belong_to == _workspace()
+    assert task.from_actor == _actor()
     # 本测试未选择附件：附件编译的实际使用集合为空
     assert payload.used_attachments == []
     assert payload.mtp_traces == expected_mtp_traces()
@@ -299,9 +304,14 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     calls: list[str] = []
 
     class _RecordingCPU(ScriptedCPU):
-        def execute(self, manifest, *, generation_options=None, stream=False):
+        def execute(self, manifest, *, operations, generation_options=None, stream=False):
             calls.append("cpu")
-            return super().execute(manifest, generation_options=generation_options, stream=stream)
+            return super().execute(
+                manifest,
+                operations=operations,
+                generation_options=generation_options,
+                stream=stream,
+            )
 
     async def gateway(**_kwargs):
         calls.append("gateway")
@@ -334,13 +344,17 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
     """完成的非流式进程：交给 finalize 的交互记录由进程封口，逐字段等于各阶段产出。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
-    write_task = make_write_materialize_task()
+    submitted = []
+
+    async def write(operations):
+        submitted.append(await operations.submit_write_intent(WriteFocus(content="记住这一点")))
+
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
         result=make_cpu_result(
             turn_events=turn_events,
-            materialize_tasks=[write_task],
-        )
+        ),
+        operation_script=write,
     )
 
     async def finalize(**kwargs):
@@ -359,7 +373,7 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
     _assert_sealed_payload(
         finalize_kwargs["payload"],
         turn_events=turn_events,
-        write_task=write_task,
+        submitted=submitted,
     )
 
 
@@ -368,14 +382,18 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
     """完成的流式进程：与非流式共用同一封口，CPU 终态结果逐字段进入交互记录。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
-    write_task = make_write_materialize_task()
+    submitted = []
+
+    async def write(operations):
+        submitted.append(await operations.submit_write_intent(WriteFocus(content="记住这一点")))
+
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "完成"}}],
         result=make_cpu_result(
             turn_events=turn_events,
-            materialize_tasks=[write_task],
         ),
+        operation_script=write,
     )
 
     async def finalize(**kwargs):
@@ -396,7 +414,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
     _assert_sealed_payload(
         finalize_kwargs["payload"],
         turn_events=turn_events,
-        write_task=write_task,
+        submitted=submitted,
     )
 
 
@@ -453,7 +471,6 @@ async def test_streaming_done_omits_sealing_only_result_fields(
         result=make_cpu_result(
             status=status,
             turn_events=make_mtp_turn_events(),
-            materialize_tasks=[make_write_materialize_task()],
         ),
     )
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))

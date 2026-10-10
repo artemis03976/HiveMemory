@@ -23,6 +23,7 @@ workspace_actors:
       - "profile.read"
       - "asset.acquire"
       - "interaction.submit"
+      - "memory_intent.submit"
 
   # 保留 system actor：管理入口（memories/topics/agents/assets/memory-tasks
   # 与 chat 取消）以 (user, system) 坐标经网关取得 context。system 直接

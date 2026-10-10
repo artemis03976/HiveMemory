@@ -164,6 +164,9 @@ class SystemAssembler:
             atom_capacity=cache_config.atom_capacity,
             profile_capacity=cache_config.profile_capacity,
         )
+        # 先订阅失效与结算事件，再装配可能产生 canonical 写入的子系统；
+        # 首个请求进入之前，workspace 的唯一意图登记与读取缓存已就绪。
+        workspace_runtime.subscribe(global_bus)
 
         runtime_events_config = getattr(self._config, "runtime_events", None)
         if not isinstance(runtime_events_config, RuntimeEventsConfig):
@@ -357,11 +360,24 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
+        # 能力层必须先于任务进程装配：CPU 分配读取 Profile，进程通道调用
+        # 意图提交与统一引用解析，共享同一个 workspace 读取运行时。
+        memory = MemoryApplicationService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            memory_reader=runtime.workspace_runtime.aliases,
+        )
+        agent = AgentApplicationService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            profile_reader=runtime.workspace_runtime.profiles,
+        )
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
         allocator = CPUAllocator(
             runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
+            agent_service=agent,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
             # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
@@ -377,6 +393,8 @@ class SystemAssembler:
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
+            memory_service=memory,
+            intent_registry=runtime.workspace_runtime.intents,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
         )
         process = TaskProcessService(
@@ -401,19 +419,9 @@ class SystemAssembler:
         # 能力层（A2）：读取方法在 backing 调用前执行操作授权，随后经
         # workspace resolver 解析；写入与管理用例的授权同样在本层执行
         # （A1 访问边界返工 4.5），管理路由保持薄委托。
-        memory = MemoryApplicationService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-            memory_reader=runtime.workspace_runtime.aliases,
-        )
         memory_task = MemoryTaskApplicationService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
-        )
-        agent = AgentApplicationService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-            profile_reader=runtime.workspace_runtime.profiles,
         )
         topic = TopicApplicationService(
             global_bus=runtime.global_bus,

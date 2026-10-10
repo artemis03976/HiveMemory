@@ -181,6 +181,7 @@ class CallCoordinator:
                     messages=messages,
                     topic_id=None,
                     execution_policy=policy,
+                    operations=caller_frame.operations,
                 )
             )
         except Exception as error:
@@ -224,6 +225,14 @@ class CallCoordinator:
             callee_frame,
             callee_result,
         )
+        if (
+            effective_result.status != FrameExecutionStatus.COMPLETED
+            and callee_frame.harvested_aliases
+            and callee_frame.operations is not None
+        ):
+            # 子帧未成功结束时一并撤回它已登记的意图，避免根帧 completed 后被认领
+            # 物化。协程取消路径不必撤回：进程关闭会取消本进程全部 PENDING 意图。
+            await callee_frame.operations.cancel_intents(list(callee_frame.harvested_aliases))
         response = response_for_frame_result(
             call_request.target_alias,
             effective_result,

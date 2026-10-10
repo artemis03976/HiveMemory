@@ -20,7 +20,6 @@ from hivememory.config.patchouli import (
 )
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import ActorIdentity, MemoryAtom, TurnEvent, WriteFocus
-from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -215,6 +214,12 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
     # Gateway 的无模型保守模式保持真实 workflow 与公开话题上下文读取。
     gateway = GatewayService(GatewayRuntime(config=SystemGatewayConfig(), global_bus=global_bus))
     global_bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway.process)
+    submitted = []
+
+    async def write(operations):
+        """测试 CPU 经进程端口提交意图，物化任务由进程认领。"""
+        submitted.append(await operations.submit_write_intent(WriteFocus(content="保存本轮事实")))
+
     cpu = ScriptedCPU(
         result=make_cpu_result(
             final_text="本轮完成",
@@ -223,17 +228,8 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
                     kind="assistant_message", sequence=0, role="assistant", content="本轮完成"
                 )
             ],
-            materialize_tasks=[
-                PendingAtomMaterializeTask(
-                    pending_alias="draft-http-chat",
-                    intent_id="intent-http-chat",
-                    source_verb="WRITE",
-                    belong_to=workspace,
-                    from_actor=actor,
-                    focus=WriteFocus(content="保存本轮事实"),
-                )
-            ],
-        )
+        ),
+        operation_script=write,
     )
     process_service = make_task_process_service(
         global_bus,

@@ -182,7 +182,7 @@ def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, A
 
 
 # 只服务于封口交互记录的执行结果字段，不下发给流式交付方。
-_SEALING_ONLY_FIELDS = frozenset({"turn_events", "materialize_tasks"})
+_SEALING_ONLY_FIELDS = frozenset({"turn_events"})
 
 
 def _done_result_fields(result: CPUExecutionResult) -> dict[str, Any]:

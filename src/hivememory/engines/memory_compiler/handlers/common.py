@@ -49,6 +49,9 @@ def artifact_status(unit: MemoryUnitIR) -> str | None:
     if unit.status.is_discarded:
         return "discarded"
     if is_resolve_terminal(unit):
+        # 全局失败事件只有 alias，不能用可选 error 字段反推生命周期状态。
+        if unit.status.source_state in {"failed", "expired"}:
+            return unit.status.source_state
         return "failed" if unit.status.error is not None else "expired"
     return unit.status.source_state
 
@@ -72,7 +75,7 @@ def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -
             .rstrip()
         )
 
-    if status.error is not None:
+    if status.source_state == "failed" or status.error is not None:
         return (
             _resolve_text("resolve_failed", options.language)
             .format(

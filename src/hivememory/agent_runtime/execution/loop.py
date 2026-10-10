@@ -195,6 +195,7 @@ class AgentLoopExecutor:
                 agent_profile=frame.agent_profile,
                 runtime_scope=frame.runtime_scope.with_action(action_id),
                 execution_policy=frame.execution_policy,
+                operations=frame.operations,
             )
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
@@ -288,6 +289,10 @@ class AgentLoopExecutor:
                     suspend_assistant_text=result.text,
                     suspend_action_id=action_id,
                 )
+
+            # 只记录已收到 ACK 的产物句柄；登记与物化的所有权留在 workspace。
+            if mtp_result.response_status == "ack" and mtp_result.pending_alias:
+                frame.add_harvested_alias(mtp_result.pending_alias)
 
             p.turn_events[-1] = command_event.model_copy(
                 update={"status": mtp_result.response_status}

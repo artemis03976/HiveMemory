@@ -17,7 +17,7 @@ from hivememory.agent_runtime.models import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.agent_runtime.products import FrameProducts, RuntimeProducts
+from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
@@ -67,7 +67,6 @@ def _runtime_for_frame(
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        finalize_run=MagicMock(return_value=RuntimeProducts()),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     factory = MagicMock(spec=FrameFactory)
@@ -80,7 +79,6 @@ def _runtime_for_frame(
         prompt_assembler=MagicMock(
             build_main_agent_messages=MagicMock(return_value=frame.working_history)
         ),
-        atom_cache=MagicMock(),
         stream_adapter=AgentRunStreamAdapter(),
         agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
@@ -108,18 +106,14 @@ async def test_run_agent_assembles_result_from_completed_frame():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
-        finalize_run=MagicMock(return_value=RuntimeProducts()),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     service, session = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame), stream=False)
+    result = await service.run_agent(_context(frame), stream=False, operations=MagicMock())
 
     assert result.final_text == "hello world"
     assert [event.kind for event in result.turn_events] == ["user_message", "assistant_message"]
-    agent_runtime.finalize_run.assert_called_once()
-    assert agent_runtime.finalize_run.call_args.args[0] == "run-1"
-    assert agent_runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.COMPLETED
     assert session.frames == {"frame-main": frame}
 
 
@@ -135,19 +129,18 @@ async def test_run_agent_cancellation_unwinds_and_propagates():
     agent_runtime = SimpleNamespace(
         max_iterations=5,
         run_frame=run_frame,
-        finalize_run=MagicMock(return_value=RuntimeProducts()),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    task = asyncio.create_task(service.run_agent(_context(frame), stream=False))
+    task = asyncio.create_task(
+        service.run_agent(_context(frame), stream=False, operations=MagicMock())
+    )
     await started.wait()
     task.cancel()
 
     with pytest.raises(asyncio.CancelledError):
         await task
-    agent_runtime.finalize_run.assert_called_once()
-    assert agent_runtime.finalize_run.call_args.args[1].status == FrameExecutionStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -158,18 +151,13 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
         ),
-        finalize_run=MagicMock(return_value=RuntimeProducts()),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame), stream=False)
+    result = await service.run_agent(_context(frame), stream=False, operations=MagicMock())
 
     assert result.status == CPUExecutionStatus.FAILED.value
-    assert result.materialize_tasks == []
-    assert agent_runtime.finalize_run.call_args.args[1].status == (
-        FrameExecutionStatus.BUDGET_EXHAUSTED
-    )
 
 
 @pytest.mark.asyncio
@@ -180,12 +168,14 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
         run_frame=AsyncMock(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
         ),
-        finalize_run=MagicMock(return_value=RuntimeProducts()),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    events = [event async for event in service.run_agent(_context(frame), stream=True)]
+    events = [
+        event
+        async for event in service.run_agent(_context(frame), stream=True, operations=MagicMock())
+    ]
 
     done = next(event for event in events if event["event"] == "done")
     assert done["data"]["status"] == CPUExecutionStatus.FAILED.value
@@ -204,7 +194,7 @@ async def test_run_agent_preserves_factory_initialized_turn_events():
     frame = _frame(messages=messages)
     service, _ = _runtime_for_frame(frame)
 
-    result = await service.run_agent(_context(frame), stream=False)
+    result = await service.run_agent(_context(frame), stream=False, operations=MagicMock())
 
     assert [event.kind for event in result.turn_events] == ["user_message"]
     assert result.turn_events[0].content == "current"

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from hivememory.core.models import (
@@ -22,6 +22,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
+from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.patchouli.memory_library.models import (
     ArtifactIntegrityResult,
@@ -78,6 +79,14 @@ class ShortTermStoragePort(ABC):
 
 
 # ============ MidTermStoragePort ============
+
+
+class MemoryChangePublisherPort(Protocol):
+    """中期库注入的内联失效通知端口；Store 不持有总线。"""
+
+    async def publish_change(self, payload: MemoryChangeEvent) -> None:
+        """等待本次失效通知的订阅者执行完毕。"""
+        ...
 
 
 class MidTermStoragePort(ABC):
@@ -282,6 +291,7 @@ class ArtifactStoragePort(ABC):
 
 
 __all__ = [
+    "MemoryChangePublisherPort",
     "ShortTermStoragePort",
     "MidTermStoragePort",
     "LongTermStoragePort",

@@ -6,8 +6,9 @@ workspace 包内更严格的约束：
 
 1. 认证、准入、读取能力（cache / resolution / runtime）与配置模块只依赖
    core 与 workspace 自身——resolver 经 backing 协议冷读，不导入总线、
-   路由常量或任何子系统实现；
-2. ``capability`` / ``assets`` / ``process`` 作为能力层、资产设施与进程
+   路由常量或任何子系统实现；运行时装配与失效订阅者仅另依赖总线机制；
+2. ``intents`` 作为共享登记只可另依赖 ``components``；
+   ``capability`` / ``assets`` / ``process`` 作为能力层、资产设施与进程
    编排，可依赖更低层的机制（``components``），不受上一条约束；
 3. ``process`` 以外的 workspace 模块不得导入 ``hivememory.workspace.process``：
    能力层与共享设施不得依赖进程表与任务进程编排；
@@ -29,6 +30,10 @@ UNRESTRICTED_SUBPACKAGES = (
     WORKSPACE_PACKAGE / "assets",
     WORKSPACE_PACKAGE / "process",
 )
+SHARED_EVENT_SUBSCRIBERS = {
+    WORKSPACE_PACKAGE / "runtime.py",
+    WORKSPACE_PACKAGE / "cache" / "invalidation.py",
+}
 ALLOWED_INTERNAL = ("hivememory.core", "hivememory.workspace")
 PROCESS_PACKAGE_MODULE = "hivememory.workspace.process"
 
@@ -70,12 +75,17 @@ def _sources_excluding_unrestricted() -> list[Path]:
 
 
 def test_workspace_access_and_read_modules_depend_only_on_core():
-    """认证、准入、读取能力与配置模块只允许 import core / workspace 自身。"""
+    """读取本体只依赖 core / workspace，共享事件装配仅另依赖 components。"""
     violations = [
         f"{path}: {module}"
         for path in _sources_excluding_unrestricted()
         for module in _imports_of(path)
-        if module.startswith("hivememory") and not module.startswith(ALLOWED_INTERNAL)
+        if module.startswith("hivememory")
+        and not module.startswith(ALLOWED_INTERNAL)
+        and not (
+            (path in SHARED_EVENT_SUBSCRIBERS or WORKSPACE_PACKAGE / "intents" in path.parents)
+            and module.startswith("hivememory.components")
+        )
     ]
     assert violations == []
 
@@ -135,5 +145,19 @@ def test_workspace_contracts_only_depend_on_core():
         if module.startswith("hivememory")
         and not module.startswith("hivememory.core")
         and not module.startswith(contracts_module)
+    ]
+    assert violations == []
+
+
+def test_workspace_shared_facilities_do_not_import_capability():
+    """意图与派生读取设施不得反向依赖能力入口，避免产生第二个编排所有者。"""
+    packages = [WORKSPACE_PACKAGE / name for name in ("intents", "cache", "resolution")]
+    violations = [
+        f"{path}: {target}"
+        for package in packages
+        for path in package.rglob("*.py")
+        for target in _import_targets_of(path)
+        if target == "hivememory.workspace.capability"
+        or target.startswith("hivememory.workspace.capability.")
     ]
     assert violations == []

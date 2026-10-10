@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
@@ -13,6 +14,9 @@ from hivememory.core.models import (
     TurnEvent,
 )
 
+if TYPE_CHECKING:
+    from hivememory.workspace.contracts import ProcessOperations
+
 
 @dataclass(frozen=True)
 class FrameSpec:
@@ -23,6 +27,7 @@ class FrameSpec:
     messages: Sequence[dict[str, str]]
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
+    operations: ProcessOperations | None = None
 
 
 class FrameFactory:
@@ -39,6 +44,7 @@ class FrameFactory:
             working_history=[dict(message) for message in spec.messages],
             topic_id=spec.topic_id,
             execution_policy=spec.execution_policy,
+            operations=spec.operations,
             progress=self._initial_progress(spec.messages),
         )
 

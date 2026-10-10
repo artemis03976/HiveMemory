@@ -21,8 +21,9 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
         agent_id="agent-1",
         workspace_id="isolation_workspace",
     )
-    stats = AgentRunStats(mtp_iterations=2, total_iterations=3, materialize_task_count=1)
 
+    stats = AgentRunStats(mtp_iterations=2, total_iterations=3)
+    stats = AgentRunStats(mtp_iterations=2, total_iterations=3)
     events.started()
     events.completed(stats)
 
@@ -39,7 +40,6 @@ def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> Non
     assert sink.events[-1].data == {
         "mtp_iterations": 2,
         "total_iterations": 3,
-        "materialize_task_count": 1,
     }
 
 

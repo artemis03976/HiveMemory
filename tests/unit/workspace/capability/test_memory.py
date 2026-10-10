@@ -29,6 +29,7 @@ from hivememory.workspace.capability.memory import (
     MemoryLifecycleUnavailableError,
     MemoryNotFoundError,
 )
+from hivememory.workspace.intents import WriteIntentRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_access_composition,
@@ -309,6 +310,9 @@ class TestMemoryApplicationService:
 
         class CapturingReader:
             """捕获能力层构造的检索请求与调用 scope 的替身读取器。"""
+
+            # 能力层经读取视图取得写入意图登记；本测试不登记意图。
+            intents = WriteIntentRegistry()
 
             async def search(self, request, *, scope):
                 captured["request"] = request

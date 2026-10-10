@@ -1,6 +1,6 @@
 """CPU 分配 — 任务进程在进入 Actor 之前准备的全部输入。
 
-CPU 分配由进程完成而不是交给 Actor：Profile 经 Patchouli 公开路由解析，
+CPU 分配由进程完成而不是交给 Actor：Profile 经 workspace 能力层解析，
 附件租借经注入的 reader port 取得并登记进进程工作集，附件与记忆文本由
 进程调用共享编译引擎生成，最后组装与 CPU 无关的输入清单。Actor 只消费
 清单，不接触租借或编译配置。
@@ -23,12 +23,10 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import AssetOperationConflictError, WorkspaceDomainError
 from hivememory.core.models import (
     AgentProfile,
     AttachmentSelectionRequest,
-    ResolvedAgentProfile,
     WorkspaceIdentity,
 )
 from hivememory.core.models.workspace_asset import RepresentationLease
@@ -40,6 +38,7 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.working_set import ProcessWorkingSet
 
@@ -60,12 +59,14 @@ class CPUAllocator:
         global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
+        agent_service: AgentApplicationService,
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
     ) -> None:
         self._bus = global_bus
         self._authorizer = operation_authorizer
+        self._agent_service = agent_service
         self._asset_reader = asset_reader
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._memory_compiler = MemoryCompiler()
@@ -79,13 +80,10 @@ class CPUAllocator:
         access: WorkspaceAccessContext,
         target_workspace: WorkspaceIdentity,
     ) -> AgentProfile:
-        """经 Patchouli 公开路由解析本进程的执行 Profile（``profile.read``）。
+        """经能力层解析本进程的执行 Profile（``profile.read``）。
 
-        与拆分前 prepare 使用的本地路由是同一条解析规则；运行上下文只需要
-        能力描述，源原子 policy 依据不进入 run（A2 §2.3）。暂不经能力层：
-        它依赖的 Profile 缓存也还没有失效机制（见任务进程 Idea 1.2）；
-        ``profile.read`` 的阶段授权在本层、路由调用前执行，Patchouli 只
-        接收操作授权者组装的可信 scope。
+        能力层逐次授权，读取视图负责缓存及 canonical 变更失效；运行上下文
+        只需要能力描述，源原子的授权依据不进入 run。
 
         中间态（2026-09-29）：Profile 属于 CPU 分配，但暂时在 Patchouli prepare
         之前解析。当前 prepare 会按 Gateway 的路由决定预先新建 Topic，话题池已满
@@ -93,16 +91,16 @@ class CPUAllocator:
         失败的请求已经留下这些不可逆的副作用。Topic 的新建与驱逐改到 interaction
         提交之后以后，Profile 解析可以回到 prepare 之后的 CPU 分配步骤。
         """
-        # 阶段授权：Profile 解析绑定 profile.read，先于路由调用执行。
+        # 当前执行 Agent 由授权点确定，不能从入口附带的 Profile alias 推断。
+        # 能力层仍独立执行 profile.read 授权并负责交付可见性检查。
         scope = self._authorizer.authorize_operation(
             access, WorkspaceOperation.PROFILE_READ, target_workspace
         )
-        resolved_profile: ResolvedAgentProfile = await self._bus.request(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+        return await self._agent_service.get_agent_profile(
             scope.actor_identity.agent_id,
-            identity_scope=scope,
+            target_workspace=target_workspace,
+            access=access,
         )
-        return resolved_profile.profile
 
     def allocate(
         self,

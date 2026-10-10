@@ -1,9 +1,8 @@
 """
 AgentRunService 集成测试 — 真实 AliceRuntime 装配链协作
 
-驱动 AgentRunService + 真实 AliceRuntime（profile/alias resolver、atom_cache、
-AgentRuntime 实例）+ 真实 CallCoordinator/CallContextProvider/FrameFactory/
-AgentPromptAssembler + 真实事件管线；仅 stub LLM 执行端口 run_frame/finalize_run。
+驱动 AgentRunService + 真实 AliceRuntime（Profile resolver、AgentRuntime 实例）+ 真实 CallCoordinator/CallContextProvider/FrameFactory/
+AgentPromptAssembler + 真实事件管线；仅 stub LLM 执行端口 run_frame。
 """
 
 import asyncio
@@ -13,7 +12,6 @@ import pytest
 
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
-from hivememory.agent_runtime.products import RuntimeProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
@@ -37,7 +35,7 @@ from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope, make_workspace_identity
+from tests.helpers.workspace import make_identity_scope
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -84,7 +82,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        CallContextProvider(runtime.profile_resolver, runtime.alias_resolver),
+        CallContextProvider(runtime.profile_resolver),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )
@@ -93,7 +91,6 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         call_coordinator=coordinator,
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
-        atom_cache=runtime.atom_cache,
         stream_adapter=AgentRunStreamAdapter(),
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
@@ -109,24 +106,27 @@ def _stub_terminal_execution(
     runtime._agent_runtime.run_frame = AsyncMock(
         return_value=FrameExecutionResult(status=status),
     )
-    runtime._agent_runtime.finalize_run = MagicMock(return_value=RuntimeProducts())
 
 
 @pytest.mark.asyncio
-async def test_run_agent_warms_preretrieval_alias_cache_before_execution():
+async def test_run_agent_passes_input_and_operations_to_root_frame():
+    """CPU 交付的端口随 root frame 进入执行层，预检索内容仍进入提示词。"""
     runtime, service = _build_service()
     memory = _build_memory_atom()
     context = _build_input_manifest(memory)
-    _stub_terminal_execution(runtime)
+    seen = []
+    operations = MagicMock()
 
-    await service.run_agent(context, stream=False)
+    async def run_frame(frame, **_kwargs):
+        seen.append(frame)
+        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
-    cached = runtime._koakuma.atom_cache.get_atom_by_alias(
-        "mem_alias",
-        workspace_identity=make_workspace_identity(owner_user_id="u1"),
-    )
-    assert cached is memory
-    runtime._agent_runtime.run_frame.assert_awaited_once()
+    runtime._agent_runtime.run_frame = run_frame
+    result = await service.run_agent(context, stream=False, operations=operations)
+    assert result.status == CPUExecutionStatus.COMPLETED.value
+    (frame,) = seen
+    assert frame.operations is operations
+    assert any("hello" in message["content"] for message in frame.working_history)
 
 
 @pytest.mark.asyncio
@@ -144,7 +144,7 @@ async def test_root_frame_inherits_agent_run_workspace_context() -> None:
     )
     _stub_terminal_execution(runtime)
 
-    await service.run_agent(context, stream=False)
+    await service.run_agent(context, stream=False, operations=MagicMock())
 
     frame = runtime._agent_runtime.run_frame.await_args.args[0]
     assert frame.identity_scope == context.identity_scope
@@ -166,7 +166,7 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
         return session
 
     service._create_run_session = _capture_session
-    await service.run_agent(context, stream=False)
+    await service.run_agent(context, stream=False, operations=MagicMock())
 
     session = created_sessions[0]
     assert session.process_id == "process-1"
@@ -181,7 +181,7 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
     context = _build_input_manifest(_build_memory_atom())
     _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
 
-    result = await service.run_agent(context, stream=False)
+    result = await service.run_agent(context, stream=False, operations=MagicMock())
 
     assert result.status == CPUExecutionStatus.FAILED.value
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
@@ -190,19 +190,16 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_warms_preretrieval_alias_cache_before_execution():
+async def test_run_agent_stream_returns_completed_root_frame():
     runtime, service = _build_service()
     memory = _build_memory_atom()
     context = _build_input_manifest(memory)
     _stub_terminal_execution(runtime)
 
-    events = [event async for event in service.run_agent(context, stream=True)]
+    events = [
+        event async for event in service.run_agent(context, stream=True, operations=MagicMock())
+    ]
 
-    cached = runtime._koakuma.atom_cache.get_atom_by_alias(
-        "mem_alias",
-        workspace_identity=make_workspace_identity(owner_user_id="u1"),
-    )
-    assert cached is memory
     assert [event["event"] for event in events] == ["done"]
     assert events[0]["data"]["status"] == CPUExecutionStatus.COMPLETED.value
     assert events[0]["data"]["scope"] == "main"
@@ -219,8 +216,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
         await asyncio.Event().wait()
 
     runtime._agent_runtime.run_frame = _run_frame
-    runtime._agent_runtime.finalize_run = MagicMock(return_value=RuntimeProducts())
-    stream = service.run_agent(context, stream=True)
+    stream = service.run_agent(context, stream=True, operations=MagicMock())
 
     assert (await anext(stream))["event"] == "token"
     await stream.aclose()
@@ -230,7 +226,6 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     assert RuntimeEventType.AGENT_RUN_CANCELLED in runtime_event_types
     assert recorder.events[-1].status == "cancelled"
     assert recorder.events[-1].data["close_reason"] == "stream_closed"
-    runtime._agent_runtime.finalize_run.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -269,7 +264,7 @@ async def test_executor_stream_close_error_does_not_replace_task_cancellation():
 
     agent_stream.events.side_effect = events
     service._stream_adapter.create = MagicMock(return_value=agent_stream)
-    stream = service.run_agent(context, stream=True)
+    stream = service.run_agent(context, stream=True, operations=MagicMock())
 
     assert (await anext(stream))["event"] == "token"
     pull_task = asyncio.create_task(anext(stream))
@@ -292,7 +287,7 @@ async def test_run_agent_stream_error_preserves_failed_runtime_event():
     runtime._agent_runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
-        async for _ in service.run_agent(context, stream=True):
+        async for _ in service.run_agent(context, stream=True, operations=MagicMock()):
             pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
@@ -328,13 +323,13 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
     stream_recorder = RecordingRuntimeEventSink()
     stream_runtime, stream_service = _build_service(runtime_events=stream_recorder)
     stream_runtime._agent_runtime.run_frame = _scripted_run_frame
-    stream_runtime._agent_runtime.finalize_run = MagicMock(return_value=RuntimeProducts())
 
     stream_events = [
         event
         async for event in stream_service.run_agent(
             _build_input_manifest(_build_memory_atom(), process_id="process-unified"),
             stream=True,
+            operations=MagicMock(),
         )
     ]
     done = next(event for event in stream_events if event["event"] == "done")
@@ -342,11 +337,11 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
     once_recorder = RecordingRuntimeEventSink()
     once_runtime, once_service = _build_service(runtime_events=once_recorder)
     once_runtime._agent_runtime.run_frame = _scripted_run_frame
-    once_runtime._agent_runtime.finalize_run = MagicMock(return_value=RuntimeProducts())
 
     result = await once_service.run_agent(
         _build_input_manifest(_build_memory_atom(), process_id="process-unified"),
         stream=False,
+        operations=MagicMock(),
     )
 
     # 两种模式在终态、最终回复、轮次事件与模型名上一致。
@@ -382,9 +377,8 @@ async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
         await asyncio.Event().wait()
 
     runtime._agent_runtime.run_frame = _run_frame
-    runtime._agent_runtime.finalize_run = MagicMock(return_value=RuntimeProducts())
 
-    task = asyncio.create_task(service.run_agent(context, stream=False))
+    task = asyncio.create_task(service.run_agent(context, stream=False, operations=MagicMock()))
     await started.wait()
     task.cancel()
 

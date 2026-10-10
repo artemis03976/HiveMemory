@@ -8,6 +8,7 @@ scope: execution-unit-thread-environment-cpu-driver-and-operation-adapter
 code_paths:
   - src/hivememory/workspace/contracts/
   - src/hivememory/workspace/process/
+  - src/hivememory/workspace/capability/
   - src/hivememory/alice/application/cpu.py
   - src/hivememory/alice/orchestration/
   - src/hivememory/agent_runtime/mtp/runtime.py
@@ -19,12 +20,12 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-09
 ---
 
 # 执行单元、执行线程与执行环境
 
-**文档状态**：Idea，未形成实施承诺
+**文档状态**：Idea；T-4a、T-4c 主线程通道已实施，其通道形态已由 T-9 取代、尚未实施；其余执行线程与环境方向仍在讨论
 **记录日期**：2026-10-05 起；2026-10-06 由总 Idea 第四部分拆出
 
 ## 0. 文档性质
@@ -33,7 +34,7 @@ last_reviewed: 2026-10-06
 
 - 2026-10-06 由[总 Idea](./workspace-network-task-process-architecture.md)第四部分拆出；前提编号（1–10）与问题编号（T-1–T-8）不变，总 Idea 与其他文档提到“第四部分”及这些编号时，均指本文。拆出时只把章节号改为本文的编号、把指向总 Idea 的引用改写为“总 Idea X”，并补充同日的两项决定：T-7、T-8 不在 v0.7.0（第 5 节），以及写入意图迁移第 1 步对回调通道的依赖（T-4）。
 - 总 Idea 的章节在本文中写作“总 Idea X”，例如“总 Idea 15.5”；身份数据的界定以[身份与访问体系 Idea](./identity-and-access-model.md)为准，外部 harness 的接入以[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)为准。
-- 版本归属：T-1a、T-1b、T-2a、T-3、T-4、T-5a 服务于 v0.7.0 的 Alice 迁移（总 Idea 15.5）；T-7、T-8（执行环境的选择）不在 v0.7.0，见第 5 节。
+- 版本归属：T-1a、T-1b、T-2a、T-3、T-4、T-5a、T-9 服务于 v0.7.0 的 Alice 迁移（总 Idea 15.5）；T-7、T-8（执行环境的选择）不在 v0.7.0，见第 5 节。
 - 前提是 owner 提出的出发点；已完成的问题注明决定日期与实施状态；未完成的问题只列出选项及其影响，不替 owner 作出选择，选项顺序不代表倾向；分析均标注为分析。
 
 ## 1. 前提（owner 提出）
@@ -54,6 +55,7 @@ last_reviewed: 2026-10-06
 6. （2026-10-06）adapter 称**操作适配器**（operation adapter）：把任意外部操作请求归一化为 workspace 统一能力层 API 的一次调用。例如 MTP READ 与将来经 MCP 提供的记忆读取，都归一化为 `MemoryApplicationService.read`；管理员操作同样经 HTTP 操作适配器归一化，只是因身份与操作意图不同而映射到不同的方法。定义与边界见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4。
    - 操作适配器属于接入侧面，不在 CPU 驱动之内：plugin 模式只经操作适配器访问能力层，没有进程，也没有驱动。controller 模式下两者如何连接（驱动把绑定进程的操作适配器端点交给 harness，工具调用经它回到 workspace），见 T-4。
    - 驱动与操作适配器分别对应外部 Actor Idea 1.2 中 harness 登记的执行侧面与接入侧面。
+   - （owner，2026-10-09）操作适配器不直接调用能力层 API：它把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 调用对应的能力层 API；只有 CPU 持有能力层的入口。请求与能力方法一一对应，见 T-9。
 7. （2026-10-06）HTTP server 承担两个角色：对任务请求，它是**请求入口**，`POST /chat` 进入唯一注册入口、创建任务进程，这不是能力层的操作（总 Idea P-4b 已决定不设“创建任务”类 operation）；对管理操作，它是 HTTP 操作适配器。
 8. （2026-10-06）“kernel”是早期架构遗留的命名，不再作为概念使用；harness 实例不称 kernel。代码与文档中的剩余使用点见 [kernel 遗留命名清理 Todo](../todo/kernel-legacy-naming.md)。
 9. （2026-10-06）**agent 与执行环境解耦**：外部 harness 最初被视为一个单独的 agent；现在它是一个执行环境（CPU 的 backend）。理论上可以在外部 harness 之上再应用 Agent Profile（例如作为系统提示词），外部协议是否支持另当别论。用户在前端或任何交互环境中分别选择要使用的 agent 与执行环境，外部 harness 本身与单个 agent 的概念解耦。这一条决定了[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-6-actor-与执行单元的对应) E-6a。
@@ -101,21 +103,21 @@ last_reviewed: 2026-10-06
 - 事实文档（AGENTS.md、契约、Workspace 架构、Alice 文档）描述的是现有实现，措辞在相关设计实施并晋升时随之统一，不在讨论阶段修改。
 - 例：总 Idea D-9 写“Alice 作为 CPU 既要实现 CPU 端口，又要调用能力层”，前提 4 写“actor 的主动操作请求导向能力层”，两句的主语按前提 3 分属执行单元与执行线程。
 
-### 2.2 代码现状（2026-10-06 核对）
+### 2.2 代码现状（2026-10-07 核对）
 
 - **执行单元一侧已有线程表**：Alice 每次 run 的 [`RunSession`](../../src/hivememory/alice/orchestration/run_session.py) 持有 frame 注册表，`register_root_frame` 登记唯一的根 frame（主线程），`register_callee_frame` 连同 `CallRecord` 登记 callee frame（子线程）。
 - **派生在 Alice 内部完成**：MTP CALL 必须指定目标 agent alias（`MTPCallRequest.target_alias`，[`core/mtp/models.py`](../../src/hivememory/core/mtp/models.py)）；Koakuma 处理 CALL 时返回 SUSPEND 并携带调用请求（[`agent_runtime/mtp/runtime.py`](../../src/hivememory/agent_runtime/mtp/runtime.py)），`RunExecutor` 交给 `CallCoordinator` 解析目标 Profile 并创建 callee frame（[`run_executor.py`](../../src/hivememory/alice/orchestration/run_executor.py)）。整个派生过程不经过任务进程。
-- **子线程沿用主线程的身份**：callee frame 的 `RuntimeScope` 直接取 caller frame 的 `IdentityScope`（[`call_coordinator.py`](../../src/hivememory/alice/orchestration/sub_agent/call_coordinator.py)），被调用方的 Profile 也以调用方的身份解析（[`call_context_provider.py`](../../src/hivememory/alice/orchestration/sub_agent/call_context_provider.py)）。因此子线程发起的读取、写入意图与引用记录，在授权与记录上都算作主线程的 actor；[Alice 文档](../alice/README.md#9-当前限制与设计张力)第 9 节记录了子帧的 PendingAtom 来源会记成父 Agent。
+- **子线程沿用主线程的身份与通道**：callee frame 继承 caller 的 operations 端口，`RuntimeScope` 直接取 caller frame 的 `IdentityScope`（[`call_coordinator.py`](../../src/hivememory/alice/orchestration/sub_agent/call_coordinator.py)），被调用方的 Profile 也以调用方的身份解析（[`call_context_provider.py`](../../src/hivememory/alice/orchestration/sub_agent/call_context_provider.py)）。因此子线程发起的读取、写入意图与引用记录，在授权与记录上都算作主线程的 actor；[Alice 文档](../alice/README.md#9-当前限制与设计张力)第 9 节记录了子帧的 PendingAtom 来源会记成父 Agent。
 - **CPU 驱动**：[`AliceCPU`](../../src/hivememory/alice/application/cpu.py) 经全局总线请求 Alice 的统一执行路由，把 `done` 事件转换为 `CPUExecutionResult`，其余交互事件原样转交。组合根只注入这一个驱动（[`system/assembler.py`](../../src/hivememory/system/assembler.py)），没有选择 CPU 的步骤；`CPUAllocator` 名为“CPU 分配”，实际只为 CPU 准备输入（Profile 解析、附件租借、记忆与附件编译、输入清单），进程记录也不登记所用的 CPU（任务进程 Idea 1.2）。chat 请求体 `ChatRequest`（[`server/models/chat.py`](../../src/hivememory/server/models/chat.py)）必须显式给出 `agent_id`，没有选择执行环境的字段。
-- **操作适配器**：唯一的实例是 HTTP（`system_principals.yaml` 中 `adapters: ["http"]`）。MTP 没有操作适配器，Koakuma 直接请求 Patchouli 的公开路由（总 Idea 13.5）；MCP 尚未接入。
+- **操作适配器**：HTTP 仍是唯一已登记的外部 adapter（`system_principals.yaml` 中 `adapters: ["http"]`）。MTP 的 WRITE、UPDATE 与共同引用解析已在 Alice 内转换为 `ProcessOperations` 端口调用，由 workspace 的绑定进程通道进入能力层；SEARCH、引用记录、CALL 目标 Profile 仍走直接路由，MCP 尚未接入。
 - **任务进程一侧没有线程层**：进程记录只持有一份访问 context（身份 Idea I-8）；context 的运行绑定 `RunBinding`（[`core/access.py`](../../src/hivememory/core/access.py)）只有运行类型（任务进程或请求）与运行标识。
-- **CPU 端口是单向的**：进程调用 `CPUPort.execute`，执行单元交回事件流与唯一的终态结果（[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)）；执行期间执行单元没有回到进程的通道。输入清单携带过渡期的 `IdentityScope`（I-9，由 `cpu_execution_identity` 组装），Alice 用它直接调用 Patchouli（总 Idea 13.5）。
-- **目标 workspace**：授权点显式接收目标 workspace（身份 Idea I-4）；任务进程的阶段调用以任务注册时声明并通过认证的 workspace 为目标（I-8）。[MTP 契约](../contracts/mtp.md#2-执行位置)第 2 节规定 MTP 文本、alias 或进程级缓存都不能自行指定或推导 Workspace，记忆访问的身份只来自当前 frame 的 `RuntimeScope`，两项要求写在同一条中。
+- **CPU 已有主线程回调通道**：进程调用 `CPUPort.execute` 时把 operations 作为独立参数交给 CPU，执行单元仍交回事件流与唯一终态结果（[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`operations.py`](../../src/hivememory/workspace/contracts/operations.py)）。`ProcessOperationChannel` 绑定访问 context、注册目标与 process_id，执行者不提交这些身份参数；关闭同步使通道失效并取消在途操作，防止迟到 UPDATE 冷读再登记新意图。输入清单仍携带过渡 `IdentityScope`（I-9），用于 SEARCH、引用记录与 CALL 目标 Profile 的剩余直接调用。
+- **目标 workspace**：授权点显式接收目标 workspace（身份 Idea I-4）；任务进程的阶段调用与 operations 通道均以任务注册时声明并通过认证的 workspace 为目标（I-8）。[MTP 契约](../contracts/mtp.md#2-执行位置)第 2 节继续禁止 MTP 文本、alias 或进程级缓存自行指定或推导 Workspace；已迁移的操作由进程通道绑定身份，剩余直接路由仍使用过渡 `RuntimeScope`。
 - **Profile 的默认可见性**：管理入口创建的 Agent Profile 使用 `MemoryAccessPolicy.public()`（[`workspace/capability/agent_profiles.py`](../../src/hivememory/workspace/capability/agent_profiles.py)）；`AgentProfile.agent_id` 取自源原子的 `index.alias`。
 
 ## 3. 流程图
 
-实线是现状；虚线依赖第 5 节的未完成问题，标注问题编号。
+实线是现状：主线程提交与引用解析已有绑定通道，子线程当前共用它；虚线表示独立子线程身份与派生准入等第 5 节的未完成问题。SEARCH、引用记录与 CALL 目标 Profile 的剩余直连路径未在图中展开。
 
 ```mermaid
 flowchart LR
@@ -124,7 +126,7 @@ flowchart LR
         TM["主线程的身份<br/>注册时认证的 actor"]
         TC["子线程的身份与 context<br/>派生时由被调用方确定（T-1、T-2；授权见 T-3）"]
         OA["操作适配器<br/>MTP / MCP：归一化为能力层调用"]
-        FILL["补全<br/>线程 → 发起者；默认目标（T-1b、T-5）"]
+        FILL["绑定主线程<br/>发起者与注册目标<br/>独立线程绑定待 T-1b"]
         CAP["能力层<br/>第 3 阶段：操作授权"]
     end
     subgraph EU["执行单元 = CPU（执行：怎么做）"]
@@ -139,22 +141,24 @@ flowchart LR
     RUN --- TH1
     PR --- TM
     PR -.- TC
-    TH0 -. "工具调用 + 线程标记（T-1b、T-4）" .-> OA
-    TH1 -. "工具调用 + 线程标记（T-1b、T-4）" .-> OA
+    TH0 -- "提交与引用解析：绑定通道" --> OA
+    TH1 -- "当前共用主线程通道" --> OA
     TH0 -. "派生调用：目标 alias（T-1a、T-3）" .-> TC
-    OA -.-> FILL
-    FILL -.-> CAP
+    OA --> FILL
+    FILL --> CAP
     CAP --> RES["资源 owner<br/>第 4 阶段：资源授权"]
 ```
 
 图中操作适配器与补全分开画，表示归一化（对应哪个方法）与补全（谁发起、目标是哪里）是两件事；两者如何组合、操作适配器如何绑定进程，见 T-4c。
+
+图中是第 1 步实施后的现状。T-9 决定的形态尚未实施：操作适配器只产出操作请求，由 CPU 附上发出调用的线程的执行凭据，提交到 workspace 的操作入口，再由入口授权并调用能力方法。
 
 分析（2026-10-06）：任务进程与执行单元是同一个任务的两面，前者回答“谁、能做什么”，后者回答“怎么做”；两面在任务与线程两个粒度上对应。
 
 | 粒度 | workspace 一侧 | 执行单元一侧 | 现状 |
 |:---|:---|:---|:---|
 | 任务 | 任务进程：进程记录与工作集 | 一次执行：Alice 的 `RunSession` | 两侧都已实现，经 CPU 端口对接 |
-| 线程 | 每个线程一份访问 context（T-2，已决定） | 执行线程：Alice 的 `ExecutionFrame` | 执行单元一侧已实现；workspace 一侧不存在，CPU 端口也没有回调通道（T-4）；外部执行单元不识别子线程（T-1） |
+| 线程 | 每个线程一份访问 context（T-2，已决定） | 执行线程：Alice 的 `ExecutionFrame` | 主线程 context 与回调通道已实现；子线程共用主线程通道，尚无独立登记与 context；外部执行单元不识别子线程（T-1） |
 
 按操作系统的直觉，线程属于进程而不属于 CPU；按两面分开看，线程的执行状态在执行单元内，线程的身份与授权在进程一侧，两种说法并不冲突。
 
@@ -162,7 +166,7 @@ flowchart LR
 
 ### T-1 执行线程身份的确定方式
 
-**状态**：已完成（方向）。2026-10-06 决定；随 Alice 的能力层调用迁移实施，尚未实施。T-1a、T-1b 见第 5 节。
+**状态**：已完成（方向）。2026-10-06 决定；随 Alice 的能力层调用迁移实施，尚未实施。T-1a 见第 5 节；T-1b 的方向随 T-9 确定（2026-10-09）。
 
 **问题**：前提 4 由执行单元为工具调用补上发起人。“某个线程是哪个 actor”以什么为准：执行单元在工具调用上直接标注 actor，还是经进程确定？
 
@@ -192,7 +196,7 @@ flowchart LR
 
 ### T-4a、T-4c 主线程的回调通道
 
-**状态**：已完成（主线程部分）。2026-10-06 决定；由[写入意图登记与读取缓存失效计划](../plans/v0.7.0-intent-registry-and-read-cache.md)实施，尚未实施。T-4b 与子线程的部分见第 5 节。
+**状态**：已完成（主线程部分）。2026-10-06 决定，2026-10-07 实施验收；历史记录见[写入意图登记与读取缓存失效归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)。T-4b 与子线程的独立身份部分见第 5 节。
 
 **问题**：写入意图迁移第 1 步需要 Alice 经能力层提交与读回意图（总 Idea 15.11），通道怎样交给 Alice、操作适配器怎样绑定进程？
 
@@ -204,6 +208,8 @@ flowchart LR
 
 **取舍**：放进输入清单会让持有 context 的对象进入 DTO；由执行单元在执行开始时向进程取得，需要额外的查找入口。不绑定进程、每次调用附带标记，需要在归一化之后另做补全。
 
+**演进**（2026-10-09）：T-4c 的通道形态由 T-9 取代，绑定进程的通道对象改为每个线程的执行凭据与 workspace 的单一操作入口。T-4a 中“不放进输入清单、作为 `execute` 的独立参数”针对的是持有访问 context 的对象；T-9 之后每个进程交给 CPU 的是主线程的执行凭据，它的传递方式留给计划决定。
+
 ### T-6 只有接入侧面的参与者是否称 CPU
 
 **状态**：已完成。2026-10-06 决定；属于讨论层面的用语，无需代码实施。
@@ -214,9 +220,64 @@ flowchart LR
 
 **取舍**：保留“接入侧面的 CPU”会让 CPU 端口的 CPU 与能力层调用方的 CPU 继续同名。
 
+### T-9 操作请求与 workspace 的操作入口
+
+**状态**：已完成（方向）。2026-10-08、2026-10-09 决定；尚未实施，作为收窄后 Alice 能力层调用迁移的第一步（总 Idea 15.5），在 SEARCH、引用记录与 CALL 目标 Profile 加入之前完成。
+
+**问题**（owner，2026-10-08）：第 1 步实施的进程操作通道（T-4c，2.2）有两个结构问题：
+
+- 通道由 `TaskProcessRunner` 在每个进程中临时创建、注入 `execute`，而能力层的 API 本身是稳定的；runner 为了创建通道，必须持有能力服务（`_memory_service`），能力服务不应进入 runner；
+- 通道是一个集成的方法集合：每增加一种能力，`ProcessOperations` 与通道都要增加方法，最终回到早期 Patchouli 一个门面代理全部 API 的状态，破坏按分类实现的能力层。
+
+分析：两个问题出自同一处：按进程创建的对象把**绑定**（谁发起、属于哪个进程、目标 workspace，随进程和线程变化）与**调用面**（可调用哪些能力方法，稳定，由能力层各分类所有）放在一起，因此必须在每个进程中重新声明一遍调用面。同一原因还使目标 workspace 在创建时固定（与前提 2 的跨 workspace 目标不符），关闭时也只能取消调用方的整个任务，因为副作用发生前无法再检查一次绑定。
+
+**设计**（owner）：
+
+- **不改走总线路由**：Patchouli 从大门面改为总线结构，是因为其内部方法的使用方复杂，随意传递端口会造成严重的管理与可读性问题；workspace 的流向比较清楚，能力层的调用方只有两类，CPU 一侧（agent 发出的请求）与管理员一侧（HTTP 及其操作适配器），两者最终都归一化到唯一的能力层调用，不需要架设总线（总 Idea 7.1.6 保持不变）。应用服务本身已经接近端口的形态，不再为每个方法另行定义端口。
+- **操作适配器只产出操作请求**：适配器不直接调用能力层 API，而是把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 调用对应的能力层 API；只有 CPU 持有能力层的入口（前提 4、6）。
+- **请求与能力方法一一对应**，因此：
+  1. 对 actor 暴露的可用操作、解析出的操作请求、能力层的 API 与对应的 `WorkspaceOperation` 是同一套操作列表；之后可能重写其分类与命名，使之更正式；
+  2. 将来重构 agent 可用操作的白名单（总 Idea 15.4）时，以这张列表为基础；
+  3. HTTP 管理侧理论上也应采用这种映射形态；管理员操作相对独立，暂不迁移。
+
+**设计**（owner 接受的形态，2026-10-09）：
+
+- **单一操作入口**：workspace 一侧提供一个执行操作请求的入口，只有一个泛型方法，接收操作请求与调用方，按请求类型分派到能力方法。映射只在这里做一次，不由每个 CPU 驱动各自实现；入口的接口不随能力增加而增长，增长的是按能力分类组织的请求类型。
+- **请求模型**：放在 `workspace.contracts`（只依赖 core）；每个请求类型声明自己的结果类型，保留静态类型；能力方法可以直接以请求模型为参数，避免请求与方法签名两处重复。
+- **多步操作经提交函数往返**：CALL 要先解析 `context_refs` 与目标 Profile 再派生，RUN 先读取记忆再在本地执行，READ 在解析后还要编译为 Agent 可读文本，适配器需要拿到结果才能继续。因此“交回 CPU”实现为：CPU 交给适配器一个只有一个方法的提交函数，绑定发出调用的线程的执行凭据；适配器只认识请求模型，不持有能力层，也不持有身份。
+- **绑定改为执行凭据**：进程为每个执行线程签发不透明的执行凭据，CPU 提交请求时附上发出调用的线程的凭据，workspace 在授权点由凭据还原访问 context；进程关闭时同步吊销凭据，产生副作用的路径在副作用前检查凭据是否仍有效，不再取消调用方的任务。
+- **装配**：runner 只签发与吊销凭据，不持有能力服务；能力服务由组合根装配一次，交给 System 门面（HTTP）与操作入口。
+- **分层规则不变**：Alice 只依赖 `workspace.contracts` 中的请求模型与入口协议，不需要允许其他子系统导入 `workspace.capability`。
+
+影响（分析）：
+
+- T-4c 由本条取代；T-1b 的方向由本条确定：每个线程一份执行凭据，派生时签发，由 CPU 在每次提交时附上。
+- 现有 `WorkspaceOperation` 的粒度比能力方法粗：`resource.read` 覆盖点读、alias 批读与引用解析，`memory_intent.submit` 覆盖 WRITE 与 UPDATE。合为同一套列表时，需要拆分条目或合并方法，随分类与命名的重写处理。
+- MTP 动词是协议语法，与操作不是一一对应：READ、WRITE、UPDATE 各对应一个请求；RUN 由引用解析与本地执行组成，CALL 组合引用解析、目标 Profile 与派生。白名单按操作还是按动词授权，属于总 Idea 15.4“统一 operation 与 MTP 动词、系统工具的粒度”。
+- 外部执行单元的操作适配器（ACP 会话提供的 MCP 等）产出同一套请求，经同一个入口提交。入口的调用方因此有两种形态：CPU 附上的执行凭据，以及请求级访问 context 的持有者（暂不迁移的 HTTP 管理侧；plugin 模式随其设计另定）。
+
+留给计划的细节：入口调用方参数的形态（联合类型或两个入口）；凭据表的位置（CPU 分配已使 `workspace.process` 依赖能力层，凭据表放在授权一侧可避免循环）；组合根的装配顺序（Alice 目前在能力服务之前构建）；主线程凭据交给 CPU 的方式（T-4a）；目标 workspace 的携带方式（当前默认注册目标，显式目标的表达见 T-5b）。
+
+**取舍**：
+
+- 在 `workspace.contracts` 按能力分类声明端口：能力服务可以直接实现，但方法签名要在两处维护；
+- 允许 Alice 导入 `workspace.capability`：不需要端口，但要为分层规则开例外，并让子系统持有对方的服务；
+- 改走总线路由：天然解耦，但推翻总 Idea 7.1.6，并失去静态类型；
+- 由各 CPU 驱动把请求映射到能力方法：每个驱动重复一张映射表，Alice 的驱动仍要导入能力层。
+
+### T-1b 后续调用与执行线程的对应
+
+**状态**：已完成（方向）。2026-10-09 随 T-9 确定；实施随执行线程层。
+
+**问题**：派生只确定“出现了一个以某个 actor 运行的线程”；该线程此后的每次工具调用都要对应到它自己的 context（T-2）。外部执行单元只有主线程（T-1），本问题只涉及 Alice。
+
+**设计**：每个执行线程一份执行凭据，派生时由进程签发；CPU 在每次提交操作请求时附上发出调用的线程的凭据（T-9）。
+
+**取舍**：原选项为“派生时签发绑定该线程 context 的句柄或端点，线程的调用都经它发出 / 每次调用附带线程标记，由进程按登记查表 / 其他”。T-9 采用前一项的凭据形式，但凭据由 CPU 附上，线程本身不持有调用端点。
+
 ## 5. 未完成的问题
 
-每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
+每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。T-1b 已于 2026-10-09 随 T-9 确定方向，移至第 4 节。
 
 ### T-1a 派生到达进程的途径
 
@@ -227,13 +288,6 @@ T-1 的方向已完成，见第 4 节：子线程的身份由派生调用确定�
 | A | 执行单元经回调通道上报派生：Koakuma 仍返回 SUSPEND，`CallCoordinator` 在创建 callee frame 前经通道请求进程登记子线程 | 通道需要承载线程派生（T-4b 的第二项）；派生仍由 Alice 的编排发起，进程只做准入、签发与授权 |
 | B | MTP 操作适配器把 CALL 归一化为进程一侧的“派生线程”方法，由它返回子线程的句柄后，Alice 再创建 callee frame | CALL 归一化的目标是进程而不是能力层的资源操作，与任务请求进入注册入口而不是能力层属于同一类情况；外部 Actor Idea 3.4“归一化的目标必须是能力层已有的方法”需要相应限定 |
 | C | 其他 | —— |
-
-### T-1b 后续调用与执行线程的对应
-
-**背景**：派生只确定“出现了一个以某个 actor 运行的线程”；该线程此后的每次工具调用都要对应到它自己的 context（T-2）。外部执行单元只有主线程（T-1），本问题只涉及 Alice。
-
-- 选项：派生时签发绑定该线程 context 的句柄或端点，线程的调用都经它发出 / 每次调用附带线程标记，由进程按登记查表 / 其他。
-- 影响（分析）：前一项中 Alice 的每个 frame 持有自己的句柄，进程内的句柄可沿用 I-8 进程句柄的做法，按对象身份判定有效；与 T-4c（操作适配器如何绑定进程）一并决定。
 
 ### T-2a 子线程 context 的失效时点
 
@@ -255,9 +309,10 @@ T-2 已完成，见第 4 节：每个执行线程一份 context。
 
 ### T-4 进程与执行单元之间的回调通道
 
-**背景**：CPU 端口是单向的（2.2）。执行线程的工具调用（前提 4），以及 T-1a 选择经通道上报时的线程派生，都需要执行单元在执行期间回到进程。外部 Actor Idea 1.1 的分析中提到，controller 模式下 HiveMemory 可以向外部 harness 提供绑定进程的操作适配器端点（例如 ACP 创建会话时由客户端提供的 MCP server），属于同一类通道。按前提 6，操作适配器只负责归一化；发起者与默认目标的补全（前提 4、T-1b、T-5）需要知道调用属于哪个进程、哪个线程。
+**背景**：讨论发起时 CPU 端口是单向的；2026-10-07 已实现主线程提交与引用解析回调（2.2）。其余执行线程的工具调用（前提 4），以及 T-1a 选择经通道上报时的线程派生，都需要执行单元在执行期间回到进程。外部 Actor Idea 1.1 的分析中提到，controller 模式下 HiveMemory 可以向外部 harness 提供绑定进程的操作适配器端点（例如 ACP 创建会话时由客户端提供的 MCP server），属于同一类通道。按前提 6，操作适配器只负责归一化；发起者与默认目标的补全（前提 4、T-1b、T-5）需要知道调用属于哪个进程、哪个线程。
 
-- 2026-10-06：T-4a 与 T-4c 的主线程部分已完成，见第 4 节；以下两项保留原选项，子线程的部分随执行线程层决定。
+- 2026-10-07：T-4a 与 T-4c 的主线程部分已实施，见第 4 节；以下保留原选项，子线程独立身份及其余操作的部分随执行线程层与 Alice 剩余迁移决定。
+- 2026-10-09：T-4c 由 T-9 取代。在 T-9 的形态下，T-4b 变为：线程的派生是否作为操作列表中的一项，经同一个操作入口到达进程（与 T-1a 联动）。
 - **T-4a 通道交给执行单元的方式**：作为 `execute` 的参数，由 CPU 驱动转交给 harness / 放入输入清单 / 由执行单元在执行开始时向进程取得 / 其他。
 - **T-4b 通道承载的内容**：只承载工具调用 / 同时承载线程的派生与结束 / 其他。与 T-1a 联动：T-1a 选择经回调通道上报派生时，通道必须承载派生。
 - **T-4c 操作适配器与进程的绑定方式**：每个进程一个绑定进程的操作适配器实例，调用经它到达时即可确定进程 / 操作适配器不绑定进程，由通道在每次调用时附上进程与线程标记，归一化之后再补全 / 其他。与外部 Actor Idea E-3b（操作适配器的代码位置）相关；管理员与 plugin 模式经同一种操作适配器、按请求认证（T-6），不绑定进程。
@@ -268,9 +323,9 @@ T-2 已完成，见第 4 节：每个执行线程一份 context。
 
 **背景**：前提 2；授权点已显式接收目标 workspace（2.2）。
 
-- **T-5a 默认值**：agent 未给出目标时，补全的一层填入任务注册时声明并通过认证的 workspace / 填入 context 的驻留 workspace（当前两者相同） / 其他；子线程是否继承主线程的默认目标。
+- **T-5a 默认值**：2026-10-07 主线程通道已绑定任务注册时声明并通过认证的 workspace，不接收 Actor 另传目标；当前子线程共用通道，因此沿用相同默认目标。独立子线程通道是否继续继承该目标，随执行线程层决定；原选项是注册目标 / context 的驻留 workspace（当前两者相同） / 其他。
 - **T-5b 将来的表达形式**（受限穿透访问不在 v0.7.0）：按指令给出目标，一条指令一个目标 / 按引用限定，alias 带上 workspace 限定 / 其他。影响：alias 目前按 (workspace, alias) 分区，跨 workspace 的引用必须带限定；agent 只能给出 workspace key 一类名称，`WorkspaceIdentity` 中的 owner 由补全的一层解析，解析失败与无权访问需要对 agent 表现一致。
-- 影响（分析）：MTP 契约第 2 节把“MTP 文本不能指定 Workspace”与“身份只来自 frame”写在同一条中（2.2）。实现穿透访问时需要拆开：前者随穿透访问放宽，后者（发起者不能由工具调用指定，前提 1、2）长期成立。
+- 影响（分析）：MTP 文本不能指定 Workspace 的现有约束，随穿透访问设计另行评审；发起者不能由工具调用指定（前提 1、2）长期成立，已经落地的进程绑定通道继续满足这一边界。
 
 T-7、T-8 不在 v0.7.0（owner，2026-10-06）：v0.7.0 只有 Alice 一个执行环境，选择机制没有可验收的对象；它随后续版本实施，不一定是 v0.7.1。前提 9、10 已确定执行环境与 agent 的关系，v0.7.0 之后接入外部执行环境不需要再改动拓扑。
 
@@ -296,12 +351,13 @@ T-7、T-8 不在 v0.7.0（owner，2026-10-06）：v0.7.0 只有 Alice 一个执�
 | T-1a、T-1b | T-1、T-4b、T-4c；外部 Actor Idea 3.4；身份 Idea I-8（进程句柄） |
 | T-2a | T-2；总 Idea P-6 |
 | T-3 | 总 Idea P-5a（并入本问题）、15.4（Profile 权限计划的先后）、P-3；T-1；任务进程 Idea Q-10 |
-| T-4 | 总 Idea 15.5；身份 Idea I-9；外部 Actor Idea 1.1（绑定进程的操作适配器端点）、3.4、E-3b |
+| T-4 | 总 Idea 15.5；身份 Idea I-9；外部 Actor Idea 1.1（绑定进程的操作适配器端点）、3.4、E-3b；T-9 |
 | T-5 | 身份 Idea I-4 与第 3 节（受限穿透访问） |
 | T-7 | 前提 9；总 Idea P-10a；任务进程 Idea 1.2（Profile 的解析时点） |
 | T-8 | 前提 10；总 Idea 15.3；外部 Actor Idea 1.2、E-1、E-6；外部会话 Idea 0.1；任务进程 Idea 1.2（CPU 分配记入进程记录） |
+| T-9 | T-4、T-1b；总 Idea 7.1.6、15.4、15.5；外部 Actor Idea 3.4 |
 
-分析（2026-10-06）：按总 Idea 15.5 的重新划分，写入意图迁移第 1 步需要 T-4 中主线程的部分，收窄后的 Alice 能力层调用迁移完成 T-4，执行线程层实现 T-1、T-2 的决定并给出 T-1a、T-1b、T-2a、T-3 的一种实现；外部 Actor 的 controller 模式（v0.7.1）沿用同一结构，但只有主线程（T-1、外部 Actor Idea E-5），actor 与执行单元的对应见外部 Actor Idea E-6。
+分析（2026-10-07）：按总 Idea 15.5 的重新划分，写入意图迁移第 1 步已完成 T-4 中主线程的提交与共同引用解析部分，收窄后的 Alice 能力层调用迁移完成 T-4（2026-10-09 起以 T-9 为第一步），执行线程层实现 T-1、T-2 的决定并给出 T-1a、T-1b、T-2a、T-3 的一种实现；外部 Actor 的 controller 模式（v0.7.1）沿用同一结构，但只有主线程（T-1、外部 Actor Idea E-5），actor 与执行单元的对应见外部 Actor Idea E-6。
 
 
 ## 6. 与其他文档的关系
@@ -311,7 +367,7 @@ T-7、T-8 不在 v0.7.0（owner，2026-10-06）：v0.7.0 只有 Alice 一个执�
 | [总 Idea](./workspace-network-task-process-architecture.md) | 本文原为其第四部分；Alice 的能力层调用迁移（15.5）、Profile 权限并入 operation 控制（15.4）、与写入意图迁移的先后（P-11）与能力层为 MTP 补齐的接口（P-12）在总 Idea 维护 |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 访问 context 的界定；T-2 使运行绑定细化到线程，I-8 与 `RunBinding` 在实施时修订；T-4 决定 I-9 的删除 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | CPU 端口与 CPU 分配（1.2）；Q-10 由 T-1、T-2 满足 |
-| [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 操作适配器的定义（3.4）；harness 登记的两个侧面（1.2）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
+| [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 操作适配器的定义（3.4，2026-10-09 起只产出操作请求，见 T-9）；harness 登记的两个侧面（1.2）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
 | [写入意图迁移 Idea](./pending-intent-migration.md) | 第 1 步先于 Alice 的能力层调用迁移（总 Idea P-11），需要主线程的回调通道（T-4） |
 
 ## 7. 形成计划的条件

@@ -5,7 +5,7 @@ owner: alice
 scope: mtp-parser-execution-permissions-and-syscalls
 code_paths:
   - src/hivememory/agent_runtime/mtp/
-  - src/hivememory/agent_runtime/aliases/
+  - src/hivememory/workspace/contracts/operations.py
   - src/hivememory/core/mtp/
   - src/hivememory/prompts/mtp.py
   - src/hivememory/config/alice.py
@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-07
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -62,9 +62,10 @@ Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构�
 - `identity_scope`：访问 Patchouli 公开记忆能力时使用的完整 `ActorIdentity + WorkspaceIdentity` 调用方作用域；`identity` 仅是其 actor projection 的兼容读取；
 - `agent_profile`：MTP verb 与系统工具白名单；
 - `runtime_scope`：run、frame 与 action 坐标；不包含 parent/depth 拓扑信息；
+- `operations`：任务进程绑定的操作端口，root 与 CALL 子帧共享，不暴露访问 context 或目标选择；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-WRITE/UPDATE 注册 PendingAtom 时会复制 `identity_scope` 与 runtime scope；SEARCH、READ、UPDATE 和用户态 RUN 在 L2 冷查询时把完整 scope 传给 Patchouli；CALL 是否允许由 `FrameExecutionPolicy` 的 permitted verbs 决定。协议参数只描述“想做什么”，ExecutionContext 才回答“谁在做、在哪一帧做、允许做到哪里”。
+WRITE/UPDATE 与引用解析通过 `operations` 进入 workspace 能力层，逐次检查 `memory_intent.submit` 或 `resource.read`。SEARCH、引用记录与 CALL 目标 Profile 读取仍使用 frame 的 `IdentityScope` 直接请求 Patchouli；CALL 是否允许由 `FrameExecutionPolicy` 决定。协议参数描述动作，进程端口绑定可信身份与目标，Profile 白名单继续独立约束 MTP 执行面。
 
 ## 3. 双层权限
 
@@ -80,11 +81,11 @@ Agent Profile 的权限同时作用于 prompt 和 runtime：
 
 | Verb | 当前 Runtime 行为 | 主要交接边界 |
 |:---|:---|:---|
-| `SEARCH` | 解析 query/filter，经 Alice local bus 请求 Patchouli retrieval；用 MemoryCompiler 编译结果并预热调用方 Workspace 分区的 L1 atom cache | Patchouli 拥有检索，Alice 拥有本帧缓存与回填 |
-| `READ` | 通过 L0 PendingAtom、L1 atom cache、L2 Patchouli 冷查询解析一个或多个 alias；编译 pending、redirect、atom 与终态 | alias 语义由 RuntimeAliasResolver 统一 |
+| `SEARCH` | 解析 query/filter，经 Alice local bus 请求 Patchouli retrieval；用 MemoryCompiler 编译结果，不预热原子缓存 | Patchouli 拥有检索，Alice 拥有本帧回填 |
+| `READ` | 经进程操作端口解析一个或多个 alias；编译 pending、redirect、atom 与终态 | alias 与缓存语义由 workspace 统一 |
 | `RUN` | 先匹配 Kernel syscall；否则解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | Profile 控制工具可见面，但不等于 OS 沙箱 |
-| `WRITE` | 校验 content，注册 `WriteFocus` PendingAtom，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
-| `UPDATE` | 解析单个正式 atom，注册 `UpdateFocus` revision，使原 alias 的 L1 缓存失效，返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
+| `WRITE` | 校验 content，经端口提交 `WriteFocus`，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
+| `UPDATE` | 校验参数，经端口让能力层解析正式基础、登记 revision 并失效基础缓存，返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
 | `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallContextProvider` 解析上下文，`CallCoordinator` 负责 callee 与结果回流 |
 
 SEARCH 空结果是带 `no_memories_found` warning 的 success，而不是基础设施错误；READ 列表中部分 alias 丢失时返回已有内容并附 warning，全部丢失才返回 error。这样的区别让“不确定检索没有证据”和“系统无法完成请求”保持不同语义。
@@ -109,7 +110,7 @@ READ/SEARCH 输出都经过 MemoryCompiler。MTP handler 不维护另一套记�
 
 ### 5.2 `CODE_SNIPPET` 用户态工具
 
-如果 target 没有命中 Kernel Registry，Koakuma 使用三级 alias resolver 查找记忆。只有 `MemoryType.CODE_SNIPPET` 能进入执行器；普通事实、pending alias、失败/过期句柄都不能作为代码运行。settled redirect 可以继续执行 canonical code atom，但会携带 alias 已重定向的 warning；成功执行后记录 `mtp.run` citation。
+如果 target 没有命中 Kernel Registry，Koakuma 经进程操作端口解析记忆引用。只有 `MemoryType.CODE_SNIPPET` 能进入执行器；普通事实、pending alias、失败/过期句柄都不能作为代码运行。settled redirect 可以继续执行 canonical code atom，但会携带 alias 已重定向的 warning；成功执行后记录 `mtp.run` citation。
 
 代码正文由 MemoryAtom 提供，命令 args 作为 `params` 注入受限 namespace。它仍使用与 Python REPL 相同的本地子进程限制，不能因为代码来自“记忆”就推断其来源可信。
 
@@ -160,7 +161,7 @@ Alice 配置当前分为两组：
 
 1. 变化属于协议语义还是 Alice 的实现策略？前者更新 Contracts，后者更新本文；
 2. 新能力是否同时经过 prompt 裁剪和 runtime 权限检查；
-3. 记忆访问是否使用当前 frame 的 `IdentityScope`，而不是全局缓存中的无主对象；
+3. 引用解析与意图提交是否经可信进程端口，保留的直接路由是否使用当前 frame 的 `IdentityScope`；
 4. WRITE/UPDATE 是否仍然只登记意图，CALL 是否仍然只产生 `SUSPENDED` trap；
 5. handler 是否保持结构化 error/warning，不泄露内部 exception；
 6. 同步工作、timeout 与取消是否给出了与真实接线一致的保证；
@@ -174,7 +175,8 @@ Alice 配置当前分为两组：
 | parser、formatter 与协议模型 | `src/hivememory/core/mtp/` |
 | Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py` |
 | Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/executor.py` |
-| alias 解析与热缓存 | `src/hivememory/agent_runtime/aliases/resolver.py`、`cache.py` |
+| 进程操作端口 | `src/hivememory/workspace/contracts/operations.py` |
+| 中立引用解析与缓存 | 见 [Workspace 架构](../architecture/workspace.md) |
 | syscall 注册与实现 | `src/hivememory/agent_runtime/mtp/syscalls/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
 | Alice 配置 | `src/hivememory/config/alice.py` |
@@ -191,9 +193,9 @@ Alice 配置当前分为两组：
 - 同步 syscall 执行期间不会轮询取消状态，因此 task cancellation 不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
-- RuntimeAliasResolver 的三级命中都在 resolver/owner 边界重验调用方 scope：L1 atom cache 命中与 L2 冷查询重验 `IdentityScope` 与资源 ownership；L0 PendingAtom 命中比较 pending 自身 `runtime_scope.identity_scope` 与调用方 scope，不匹配时按 alias 不存在处理（回归入口见 [MTP cache scope revalidation 归档记录](../archive/todo/mtp-cache-scope-revalidation.md)）；
+- CALL 目标 Profile 仍使用 Alice 的独立缓存，不受 workspace canonical 变更订阅者失效；SEARCH 与 citation 仍直接请求 Patchouli；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为执行结果的 `failed`，CALL callee 映射为稳定的 budget error；
-- Koakuma、atom cache 与 PendingAtomRuntime 的共享服务仍属于 Alice 组合根，L1 atom cache 的 alias 索引按 `(WorkspaceIdentity, alias)` 分区；frame registry、CALL ledger 与 stream sequence 已按 run 隔离。
+- Koakuma 的执行机制属于 Alice 组合根，写入意图登记、引用解析与原子缓存由 workspace 持有；frame registry、CALL ledger 与 stream sequence 按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。
