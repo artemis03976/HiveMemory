@@ -26,6 +26,7 @@ from hivememory.alice.orchestration.sub_agent.call_response import (
 )
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import MTPError, SystemFault
+from hivememory.workspace.contracts import CancelIntentsRequest
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.runtime import AgentRuntime
@@ -171,7 +172,7 @@ class CallCoordinator:
                 shared_context=call_context.shared_context,
             )
             scope = self._frame_factory.scope(
-                identity_scope=caller_frame.identity_scope,
+                labels=caller_frame.runtime_scope.labels,
                 run_id=caller_frame.runtime_scope.run_id,
             )
             return self._frame_factory.create(
@@ -181,7 +182,7 @@ class CallCoordinator:
                     messages=messages,
                     topic_id=None,
                     execution_policy=policy,
-                    operations=caller_frame.operations,
+                    submit_operation=caller_frame.submit_operation,
                 )
             )
         except Exception as error:
@@ -228,11 +229,13 @@ class CallCoordinator:
         if (
             effective_result.status != FrameExecutionStatus.COMPLETED
             and callee_frame.harvested_aliases
-            and callee_frame.operations is not None
+            and callee_frame.submit_operation is not None
         ):
             # 子帧未成功结束时一并撤回它已登记的意图，避免根帧 completed 后被认领
             # 物化。协程取消路径不必撤回：进程关闭会取消本进程全部 PENDING 意图。
-            await callee_frame.operations.cancel_intents(list(callee_frame.harvested_aliases))
+            await callee_frame.submit_operation(
+                CancelIntentsRequest(aliases=tuple(callee_frame.harvested_aliases))
+            )
         response = response_for_frame_result(
             call_request.target_alias,
             effective_result,

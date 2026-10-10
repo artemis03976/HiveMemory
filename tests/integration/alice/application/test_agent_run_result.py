@@ -48,7 +48,7 @@ def _frame(
 
 def _context(frame: ExecutionFrame):
     return make_input_manifest(
-        identity_scope=frame.identity_scope,
+        labels=frame.runtime_scope.labels,
         process_id="interaction-test",
         topic_id=frame.topic_id,
         user_message="hello",
@@ -110,7 +110,7 @@ async def test_run_agent_assembles_result_from_completed_frame():
     )
     service, session = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame), stream=False, operations=MagicMock())
+    result = await service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
 
     assert result.final_text == "hello world"
     assert [event.kind for event in result.turn_events] == ["user_message", "assistant_message"]
@@ -134,7 +134,7 @@ async def test_run_agent_cancellation_unwinds_and_propagates():
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
     task = asyncio.create_task(
-        service.run_agent(_context(frame), stream=False, operations=MagicMock())
+        service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
     )
     await started.wait()
     task.cancel()
@@ -155,7 +155,7 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame), stream=False, operations=MagicMock())
+    result = await service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
 
     assert result.status == CPUExecutionStatus.FAILED.value
 
@@ -174,7 +174,9 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
 
     events = [
         event
-        async for event in service.run_agent(_context(frame), stream=True, operations=MagicMock())
+        async for event in service.run_agent(
+            _context(frame), stream=True, submit_operation=MagicMock()
+        )
     ]
 
     done = next(event for event in events if event["event"] == "done")
@@ -194,7 +196,7 @@ async def test_run_agent_preserves_factory_initialized_turn_events():
     frame = _frame(messages=messages)
     service, _ = _runtime_for_frame(frame)
 
-    result = await service.run_agent(_context(frame), stream=False, operations=MagicMock())
+    result = await service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
 
     assert [event.kind for event in result.turn_events] == ["user_message"]
     assert result.turn_events[0].content == "current"

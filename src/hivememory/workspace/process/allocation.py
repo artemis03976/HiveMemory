@@ -11,13 +11,13 @@ CPU 分配由进程完成而不是交给 Actor：Profile 经 workspace 能力层
 授权边界（A1 访问边界返工第 4.4 节）：本层是任务进程的阶段授权点——
 Profile 解析绑定 ``profile.read``、附件租借绑定 ``asset.acquire``，检查
 都以任务目标 workspace 为目标、在对应副作用前执行；CPU 输入清单的
-``IdentityScope`` 由操作授权者的 CPU 执行身份过渡方法组装（I-9），不取自
-调用方。
+观测标签沿用注册时的绑定值，不从访问 context 读取或组装执行身份。
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Protocol
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentCompilerConfig
@@ -27,6 +27,7 @@ from hivememory.core.errors import AssetOperationConflictError, WorkspaceDomainE
 from hivememory.core.models import (
     AgentProfile,
     AttachmentSelectionRequest,
+    ExecutionLabels,
     WorkspaceIdentity,
 )
 from hivememory.core.models.workspace_asset import RepresentationLease
@@ -38,11 +39,24 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.working_set import ProcessWorkingSet
 
 logger = logging.getLogger(__name__)
+
+
+class _AgentProfileReader(Protocol):
+    """CPU 分配所需的 Profile 读取端口，由组合根注入能力层实现。"""
+
+    async def get_agent_profile(
+        self,
+        agent_alias: str | None,
+        *,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> AgentProfile:
+        """解析本进程的执行 Profile，并在交付前执行逐次授权。"""
+        ...
 
 
 class CPUAllocator:
@@ -59,7 +73,7 @@ class CPUAllocator:
         global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        agent_service: AgentApplicationService,
+        agent_service: _AgentProfileReader,
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
@@ -107,6 +121,7 @@ class CPUAllocator:
         working_set: ProcessWorkingSet,
         *,
         process_id: str,
+        labels: ExecutionLabels,
         user_message: str,
         agent_profile: AgentProfile,
         selections: list[AttachmentSelectionRequest],
@@ -118,8 +133,8 @@ class CPUAllocator:
         在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
         :meth:`resolve_agent_profile` 提前解析。附件租借绑定 ``asset.acquire``，
         授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
-        CPU 执行身份由操作授权者的过渡方法组装（I-9）：清单携带的
-        ``IdentityScope`` 不取自调用方。stop 请求不打断分配，由调用方在
+        ``labels`` 由注册入口认证成功后绑定，只供 CPU 的提示词与观测使用；
+        资源操作仍凭访问 context 逐次授权。stop 请求不打断分配，由调用方在
         进入 Actor 之前统一检查。任何失败沿异常路径上抛，已取得的租借由
         本分配器在进程关闭时释放。
         """
@@ -158,12 +173,11 @@ class CPUAllocator:
             else ""
         )
 
-        # 3. 清单：组装与 CPU 无关的输入清单交给 Actor。执行身份是过渡期
-        #    的授权点产物（I-9）：只做目标与 owner 检查、不检查 operation，
-        #    Alice 的能力层调用迁移完成后随本方法一并调整。
+        # 3. 清单：沿用注册时的只读标签，CPU 不接收身份或访问 context。
+        #    标签与资源授权分离；附件租借仍在各次 acquire 前独立授权。
         manifest = CPUInputManifest(
             process_id=process_id,
-            identity_scope=self._authorizer.cpu_execution_identity(access, target_workspace),
+            labels=labels,
             user_message=user_message,
             agent_profile=agent_profile,
             memories=memories,

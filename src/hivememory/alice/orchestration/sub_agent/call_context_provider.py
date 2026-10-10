@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.core.errors import OperationDeniedError, ResourceUnavailableError
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp import MTPCallRequest
+from hivememory.core.mtp.exceptions import (
+    BusRouteUnavailableError,
+    MTPError,
+    PermissionDeniedError,
+    SystemFault,
+)
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-
-if TYPE_CHECKING:
-    from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
+from hivememory.workspace.contracts import GetAgentProfileRequest, ResolveReferencesRequest
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +34,38 @@ class CallContext:
 class CallContextProvider:
     """解析 CALL target 与 context_refs，供 CallCoordinator 组装 callee frame。"""
 
-    def __init__(
-        self,
-        profile_resolver: AgentProfileResolver,
-    ) -> None:
-        self._profile_resolver = profile_resolver
-
     async def provide(
         self,
         caller_frame: ExecutionFrame,
         request: MTPCallRequest,
     ) -> CallContext:
-        """按 caller identity 解析目标 profile 与受控共享上下文。"""
-        profile = await self._profile_resolver.resolve(
-            request.target_alias,
-            identity_scope=caller_frame.identity_scope,
-        )
+        """经调用方提交函数读取目标 Profile，再编译受控共享上下文。
+
+        内置 Profile 同样提交读取请求，不能绕过 workspace 的 ``profile.read``
+        授权；Alice 只保留 MTP 错误映射，不持有另一份 Profile 缓存。
+        """
+        if caller_frame.submit_operation is None:
+            raise RuntimeError("CALL 缺少操作提交函数")
+        try:
+            profile = await caller_frame.submit_operation(
+                GetAgentProfileRequest(agent_alias=request.target_alias)
+            )
+        except OperationDeniedError as error:
+            raise PermissionDeniedError(
+                message_key="mtp.permission.verb_denied",
+                params={"verb": "CALL"},
+                cause=error,
+            ) from error
+        except ResourceUnavailableError as error:
+            raise BusRouteUnavailableError(cause=error) from error
+        except MTPError:
+            raise
+        except Exception as error:
+            raise SystemFault(
+                message_key="mtp.call.profile_load_failed",
+                params={"agent_alias": request.target_alias},
+                cause=error,
+            ) from error
         shared_context = await self._resolve_shared_context(
             aliases=request.context_refs,
             caller_frame=caller_frame,
@@ -67,11 +87,13 @@ class CallContextProvider:
 
         compiler = MemoryCompiler()
         sources = []
-        if caller_frame.operations is None:
-            raise RuntimeError("CALL context_refs 缺少进程操作端口")
+        if caller_frame.submit_operation is None:
+            raise RuntimeError("CALL context_refs 缺少操作提交函数")
         for alias in aliases:
             try:
-                resolved = (await caller_frame.operations.resolve_references([alias]))[0]
+                resolved = (
+                    await caller_frame.submit_operation(ResolveReferencesRequest((alias,)))
+                )[0]
             except Exception as error:
                 logger.warning("Failed to resolve context_ref %s: %s", alias, error)
                 continue

@@ -29,10 +29,12 @@ from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 def _frame(
     action_id: str = "act-1",
     *,
+    agent_id: str = "test_agent",
     workspace_id: str = "main_workspace",
 ) -> ExecutionFrame:
     frame = ExecutionFrame(
         runtime_scope=make_runtime_scope(
+            agent_id=agent_id,
             run_id="run-1",
             frame_id="frame-1",
             workspace_id=workspace_id,
@@ -323,13 +325,19 @@ async def test_unsuccessful_callee_withdraws_its_acknowledged_intents(status, ch
     """子帧未成功结束时撤回它收到 ACK 的意图；成功子帧与调用方的意图留给进程认领。"""
     harness = OperationsHarness()
     scope = make_identity_scope(user_id="u1", agent_id="writer")
-    operations = await harness.channel(scope, "process-1")
+    submit_operation = await harness.submitter(scope, "process-1")
     caller = _frame()
     child = _frame()
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
-    child.operations = operations
-    caller_intent = await operations.submit_write_intent(WriteFocus(content="caller draft"))
-    child_intent = await operations.submit_write_intent(WriteFocus(content="child draft"))
+    child.submit_operation = submit_operation
+    from hivememory.workspace.contracts import SubmitWriteIntentRequest
+
+    caller_intent = await submit_operation(
+        SubmitWriteIntentRequest(WriteFocus(content="caller draft"))
+    )
+    child_intent = await submit_operation(
+        SubmitWriteIntentRequest(WriteFocus(content="child draft"))
+    )
     child.add_harvested_alias(child_intent.pending_alias)
     runtime = SimpleNamespace(
         max_iterations=8,
@@ -475,9 +483,9 @@ async def test_call_coordinator_rejects_unregistered_caller():
 
 
 @pytest.mark.asyncio
-async def test_child_frame_inherits_caller_workspace_hard_boundary() -> None:
-    """防止 CALL 派生子帧时切回默认 Workspace 或扩大访问边界。"""
-    caller = _frame(workspace_id="isolation_workspace")
+async def test_child_frame_inherits_caller_observation_labels() -> None:
+    """防止 CALL 派生子帧时丢失注册标签或切回默认 Workspace 展示。"""
+    caller = _frame(agent_id="registered_agent", workspace_id="isolation_workspace")
     runtime = SimpleNamespace(
         max_iterations=8,
         apply_call_response=MagicMock(),
@@ -503,6 +511,6 @@ async def test_child_frame_inherits_caller_workspace_hard_boundary() -> None:
     )
 
     assert isinstance(result, DispatchCallee)
-    assert result.frame.identity_scope == caller.identity_scope
+    assert result.frame.runtime_scope.labels == caller.runtime_scope.labels
     assert result.frame.runtime_scope.run_id == caller.runtime_scope.run_id
     assert result.frame.runtime_scope.frame_id != caller.runtime_scope.frame_id

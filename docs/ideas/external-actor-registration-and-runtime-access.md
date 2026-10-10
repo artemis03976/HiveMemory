@@ -27,7 +27,9 @@ last_reviewed: 2026-10-09
 
 # 外部 Actor 的接入登记与运行时访问
 
-**文档状态**：Idea，未形成实施承诺
+**文档状态**：Idea，外部 harness 接入未形成实施承诺
+
+**实施关联（2026-10-09）**：Alice 的操作请求、执行凭据与观测标签已通过 [迁移计划验收](../archive/plans/v0.7.0-alice-capability-migration.md)，当前接口见 [子系统契约](../contracts/subsystem-contracts.md)。本 Idea 的 controller/plugin 模式、传输会话到凭据的映射和独立子线程身份仍是后续方向，不能从 Alice 迁移完成推断它们已实现。
 **记录日期**：2026-09-27，由原 v0.7.0 计划 B 退回
 
 ## 0. 文档性质

@@ -22,7 +22,7 @@ last_reviewed: 2026-10-09
 
 本文是进程内跨子系统路由名、事件名和投递语义的规范入口。HTTP API 不属于本文范围。
 
-全局总线的目标是解除对象图耦合：Gateway 或 Alice 可以请求 Patchouli 的公共能力，却不需要持有它的 Runtime、Service 或存储对象。它不是为了把单体进程伪装成分布式系统，也不提供网络消息中间件的可靠性语义。明确这一点很重要，否则调用方容易把一次普通函数交接误写成无人负责的事件流，或反过来依赖总线并未承诺的持久化、重试和 exactly-once。
+全局总线的目标是解除对象图耦合：Gateway 与 workspace 可以请求 Patchouli 的公共能力，却不需要持有它的 Runtime、Service 或存储对象。它不是为了把单体进程伪装成分布式系统，也不提供网络消息中间件的可靠性语义。明确这一点很重要，否则调用方容易把一次普通函数交接误写成无人负责的事件流，或反过来依赖总线并未承诺的持久化、重试和 exactly-once。
 
 ## 1. 总线语义
 
@@ -121,11 +121,13 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent`（统一入口） | `CPUInputManifest`（含 `process_id`）、独立的 `ProcessOperations`、generation options、`stream` | `stream=True`：交互输出的 async generator 对象；`stream=False`：`CPUExecutionResult` |
+| `alice.public.run_agent` | `AgentRunService.run_agent`（统一入口） | `CPUInputManifest`（含 `process_id` 与只读 `labels`）、独立的 `submit_operation: OperationSubmitter`、generation options、`stream` | `stream=True`：交互输出的 async generator 对象；`stream=False`：`CPUExecutionResult` |
 
-任务进程不直接调用这条路由，而是经组合根注入的 CPU 端口调用执行者；Alice 的端口实现 `AliceCPU` 经这条路由调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。
+任务进程不直接调用这条路由，而是经组合根注入的 CPU 端口调用执行者；Alice 的端口实现 `AliceCPU` 经这条路由调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。Alice 的资源操作经 workspace 公共 `OperationEntry` 与请求契约，不直接调用 Patchouli 路由；这一进程内入口不增加全局总线 API。
 
 `stream=True` 时返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
+
+交互流的 Agent 展示优先使用当前 Profile 的来源 alias，空值才回退注册标签；`agent.run.*` 与 `chat.run.*` 观测中的 Agent/Workspace 则使用同一次注册的 `ExecutionLabels`。历史角色匹配使用注册的 `labels.agent_id`，Profile 展示名不会改变授权身份或事件标签。
 
 ## 3. 全局业务事件
 

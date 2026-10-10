@@ -12,13 +12,10 @@
 标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
 """
 
-from uuid import uuid4
-
 import pytest
 
-from hivememory.core.models import ActorIdentity, build_internal_identity_scope
-from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
 from hivememory.workspace.process.service import NonStreamingAgentOutcome
+from tests.helpers.registered_chat import run_registered_chat
 
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
 
@@ -29,14 +26,10 @@ def _mtp_calls(result) -> int:
 
 
 async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
-    result = await e2e_system.process_service.run_process(
-        stream=False,
+    result = await run_registered_chat(
+        e2e_system,
+        user_id=user_id,
         message=prompt,
-        identity_scope=build_internal_identity_scope(
-            ActorIdentity(user_id=user_id, agent_id="omni_doll"),
-            MAIN_WORKSPACE_ID,
-        ),
-        interaction_id=f"interaction_{uuid4().hex}",
         enable_memory_retrieval=False,
         **kwargs,
     )

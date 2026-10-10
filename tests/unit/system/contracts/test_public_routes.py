@@ -13,7 +13,6 @@ from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.events import GlobalEvents
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -31,9 +30,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from hivememory.workspace.contracts import CPUInputManifest
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import (
-    make_identity_scope,
-)
+from tests.helpers.operations import OperationsHarness
 
 # ========== Alice ==========
 
@@ -57,6 +54,7 @@ class TestAlicePublicRoutes:
 
     def setup_method(self):
         self.global_bus = GlobalSystemBus()
+        self.operation_entry = OperationsHarness().entry
         self.config = MagicMock()
         self.config.koakuma = MagicMock()
         self.config.koakuma.enabled = False
@@ -66,7 +64,9 @@ class TestAlicePublicRoutes:
     @pytest.mark.asyncio
     async def test_start_registers_public_routes_on_global_bus(self):
         """Alice 只挂载一条统一执行路由，已删除的流式路由名不再注册。"""
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        system = AliceSystem(
+            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
+        )
         await system.start()
 
         routes = self.global_bus.list_routes()
@@ -75,7 +75,9 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_stop_removes_public_routes_from_global_bus(self):
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        system = AliceSystem(
+            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
+        )
         await system.start()
         await system.stop()
 
@@ -84,7 +86,9 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_request_through_global_bus_reaches_handler(self):
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        system = AliceSystem(
+            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
+        )
         received = []
 
         async def fake_run_agent(*, messages, identity):
@@ -105,7 +109,9 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_stream_mode_returns_async_generator(self):
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        system = AliceSystem(
+            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
+        )
 
         async def _stream(**kwargs):
             yield {"event": "token"}
@@ -129,76 +135,18 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_no_global_bus_skips_public_routes(self):
-        system = AliceSystem(config=self.config, global_bus=None)
+        system = AliceSystem(
+            config=self.config, global_bus=None, operation_entry=self.operation_entry
+        )
         await system.start()
         await system.stop()
 
     @pytest.mark.asyncio
-    async def test_alice_local_bus_bridges_patchouli_memory_routes(self):
-        received = []
-
-        async def retrieve(*, request):
-            received.append(("retrieve", request))
-            return "retrieved"
-
-        async def retrieve_by_aliases(*, aliases, identity_scope):
-            received.append(("aliases", aliases, identity_scope))
-            return "aliases"
-
-        async def get_agent_profile(alias, *, identity_scope):
-            received.append(("profile", alias, identity_scope))
-            return "profile"
-
-        async def record_citation(*, memory_id, source):
-            received.append(("citation", memory_id, source))
-            return "citation"
-
-        self.global_bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, retrieve)
-        self.global_bus.register(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
-            retrieve_by_aliases,
-        )
-        self.global_bus.register(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
-            get_agent_profile,
-        )
-        self.global_bus.register(
-            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
-            record_citation,
-        )
-
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
-        await system.start()
-        identity_scope = make_identity_scope()
-
-        result = await system.runtime.local_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
-            request="request",
-        )
-        profile_result = await system.runtime.local_bus.request(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
-            "coder_doll",
-            identity_scope=identity_scope,
-        )
-        citation_result = await system.runtime.local_bus.request(
-            GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
-            memory_id="mid",
-            source="mtp.read",
-        )
-
-        assert result == "retrieved"
-        assert profile_result == "profile"
-        assert citation_result == "citation"
-        assert received == [
-            ("retrieve", "request"),
-            ("profile", "coder_doll", identity_scope),
-            ("citation", "mid", "mtp.read"),
-        ]
-
-    @pytest.mark.asyncio
     async def test_alice_does_not_subscribe_to_intent_settlement_events(self):
         """结算投影只由 workspace 登记订阅，Alice 生命周期不注册订阅者。"""
-        system = AliceSystem(config=self.config, global_bus=self.global_bus)
+        system = AliceSystem(
+            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
+        )
         await system.start()
         assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
         assert GlobalEvents.PENDING_ATOM_CANCELLED not in self.global_bus.list_events()

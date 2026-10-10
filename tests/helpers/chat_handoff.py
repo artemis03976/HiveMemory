@@ -10,6 +10,7 @@ from __future__ import annotations
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
+    ExecutionLabels,
     IdentityScope,
     MemoryAtom,
     TopicData,
@@ -27,7 +28,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUInputManifest
 from tests.helpers.memory import make_memory_identity_scope
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_execution_labels, make_identity_scope
 
 
 def make_gateway_decision(**overrides) -> GatewayDecision:
@@ -70,7 +71,7 @@ def make_prepared_run(
 def make_input_manifest(
     *,
     process_id: str = "process-test",
-    identity_scope: IdentityScope | None = None,
+    labels: ExecutionLabels | None = None,
     user_message: str = "hello",
     agent_profile: AgentProfile | None = None,
     memories: list[MemoryAtom] | None = None,
@@ -83,7 +84,7 @@ def make_input_manifest(
     """构造 Alice 执行路由接收的 CPU 输入清单。"""
     return CPUInputManifest(
         process_id=process_id,
-        identity_scope=identity_scope or make_identity_scope(),
+        labels=labels or make_execution_labels(),
         user_message=user_message,
         agent_profile=agent_profile or OMNI_DOLL_PROFILE,
         memories=list(memories or []),

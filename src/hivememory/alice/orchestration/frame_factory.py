@@ -9,13 +9,13 @@ from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
     AgentProfile,
-    IdentityScope,
+    ExecutionLabels,
     RuntimeScope,
     TurnEvent,
 )
 
 if TYPE_CHECKING:
-    from hivememory.workspace.contracts import ProcessOperations
+    from hivememory.workspace.contracts import OperationSubmitter
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class FrameSpec:
     messages: Sequence[dict[str, str]]
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
-    operations: ProcessOperations | None = None
+    submit_operation: OperationSubmitter | None = None
 
 
 class FrameFactory:
@@ -44,7 +44,7 @@ class FrameFactory:
             working_history=[dict(message) for message in spec.messages],
             topic_id=spec.topic_id,
             execution_policy=spec.execution_policy,
-            operations=spec.operations,
+            submit_operation=spec.submit_operation,
             progress=self._initial_progress(spec.messages),
         )
 
@@ -73,13 +73,13 @@ class FrameFactory:
     @staticmethod
     def scope(
         *,
-        identity_scope: IdentityScope,
+        labels: ExecutionLabels,
         run_id: str,
         frame_id: str | None = None,
     ) -> RuntimeScope:
-        """生成继承 hard boundary 的唯一 run/frame 坐标。"""
+        """生成继承观测标签的唯一 run/frame 坐标，不携带授权身份。"""
         return RuntimeScope(
-            identity_scope=identity_scope,
+            labels=labels,
             run_id=run_id,
             frame_id=frame_id or f"frame_{uuid4().hex}",
         )

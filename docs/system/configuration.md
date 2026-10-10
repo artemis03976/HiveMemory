@@ -59,7 +59,7 @@ last_reviewed: 2026-10-09
 - 登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
 - `system.server_principal_id`（默认 `hivememory:http-server`）是 server 经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致。
 
-默认用户级登记包含 `memory_intent.submit`，供任务进程操作通道经能力层提交 WRITE/UPDATE 意图；逐次引用读取仍要求 `resource.read`。该授权不改变保留 `system` actor 的管理白名单。升级注意：自定义过该文件的部署，需要为执行 MTP 的 Agent 记录补上 `memory_intent.submit`，否则 WRITE/UPDATE 会以 `mtp.permission.verb_denied` 被拒绝；CALL 子 frame 未成功结束时撤回意图同样使用这一授权。
+默认用户级登记包含 `memory_intent.submit`、`resource.read`、`resource.search` 与 `profile.read`，分别供操作请求提交/撤回意图、读取引用、SEARCH 与 CALL Profile 读取使用；内置 CALL Profile 同样要求 `profile.read`。这些授权不改变保留 `system` actor 的管理白名单。升级注意：自定义过该文件的部署，应核对执行 MTP 的 Agent 记录包含需要的 operation；缺少 `memory_intent.submit` 时 WRITE/UPDATE 与子帧意图撤回被拒绝，缺少 `resource.search` 时 SEARCH 被拒绝，缺少 `profile.read` 时 CALL 以准备失败回填。MTP 权限拒绝沿用 `mtp.permission.verb_denied` 文案键。
 
 登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
 

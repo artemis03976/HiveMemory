@@ -3,7 +3,8 @@
 访问 context 是授权点之间的进程内凭据：只有 workspace 的认证入口、认证
 一侧、操作授权者与授权点（能力层、任务进程、注册入口、server 的 HTTP
 入口）接触它；Gateway、Patchouli、Alice 等资源 owner 与引擎位于授权点
-以下，只流动授权点组装的 ``IdentityScope``（A1 访问边界返工第 4.1 节，
+以下，资源调用只流动授权点组装的 ``IdentityScope``；Alice 与执行适配器
+只持操作提交函数和观测标签（A1 访问边界返工第 4.1 节，
 身份与访问体系不变量 2/4）。包分层测试只能证明"子系统之间只导入
 contracts"；本模块把认证与授权两侧的依赖方向固化为精确清单：
 
@@ -41,13 +42,13 @@ AUTH_MODULES = (
 AUTHORIZER_ONLY_FILES = frozenset(
     {
         "workspace/capability/memory.py",
+        "workspace/capability/operations.py",
         "workspace/capability/agent_profiles.py",
         "workspace/capability/topic.py",
         "workspace/capability/memory_tasks.py",
         "workspace/capability/assets.py",
         "workspace/process/runner.py",
         "workspace/process/allocation.py",
-        "workspace/process/operations.py",
     }
 )
 
@@ -99,7 +100,7 @@ def test_capability_and_process_do_not_import_the_auth_side():
 
 
 def test_authorizer_imports_neither_process_nor_capability():
-    """操作授权者不导入任务进程与能力层（依赖方向：process → capability → 授权者）。"""
+    """操作授权者不导入任务进程与能力层，只被编排与能力授权点消费。"""
     imports = _internal_imports(SRC_ROOT / "workspace" / "authorization.py")
     offenders = [
         module
@@ -114,22 +115,22 @@ def test_authorizer_imports_neither_process_nor_capability():
     assert offenders == []
 
 
-def test_cpu_execution_identity_is_only_called_from_cpu_allocation():
-    """CPU 执行身份（过渡）只能由任务进程的 CPU 分配调用（A1 返工第 9 节）。
-
-    ``cpu_execution_identity`` 不检查 operation，调用面必须收敛：AST 扫描
-    全部生产代码，方法调用只允许出现在 ``workspace/process/allocation.py``
-    （CPU 分配）与 ``workspace/authorization.py``（定义处）。
-    """
+def test_cpu_execution_identity_has_no_definition_or_call_site():
+    """过渡执行身份已删除，生产代码不能重新定义或调用其无 operation 路径。"""
     offenders: list[str] = []
     for path in _source_files():
         relative = path.relative_to(SRC_ROOT).as_posix()
-        if relative in {"workspace/process/allocation.py", "workspace/authorization.py"}:
-            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr == "cpu_execution_identity":
-                offenders.append(relative)
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "cpu_execution_identity"
+                or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "cpu_execution_identity"
+                or isinstance(node, ast.Name)
+                and node.id == "cpu_execution_identity"
+            ):
+                offenders.append(f"{relative}:{node.lineno}")
     assert offenders == []
 
 
@@ -173,3 +174,44 @@ def test_context_content_is_only_read_by_authorizer_and_diagnostics():
         "workspace/authorization.py",
         "workspace/authentication.py",
     }
+
+
+def test_alice_resource_operations_do_not_reference_patchouli_routes():
+    """Alice 与 MTP 适配器只提交操作请求，不保留资源 owner 的 RPC 路径。"""
+    files = [path for path in _source_files() if _top_package(path) in {"alice", "agent_runtime"}]
+    assert files, "未扫描到 Alice 与 agent_runtime 源文件"
+    offenders: list[str] = []
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr.startswith("PATCHOULI_")
+                or isinstance(node, ast.Name)
+                and node.id.startswith("PATCHOULI_")
+                or isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.startswith("patchouli.public.")
+            ):
+                offenders.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{node.lineno}")
+    assert offenders == []
+
+
+def test_alice_execution_does_not_import_or_reference_identity_scope():
+    """Alice 与 MTP 执行适配器不能从观测标签重建资源访问身份。"""
+    files = [path for path in _source_files() if _top_package(path) in {"alice", "agent_runtime"}]
+    assert files, "未扫描到 Alice 与 agent_runtime 源文件"
+    offenders: list[str] = []
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and any(alias.name == "IdentityScope" for alias in node.names)
+                or isinstance(node, ast.Name)
+                and node.id == "IdentityScope"
+                or isinstance(node, ast.Attribute)
+                and node.attr == "IdentityScope"
+            ):
+                offenders.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{node.lineno}")
+    assert offenders == []

@@ -11,7 +11,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/archive/ideas/workspace-mvp-chat-attachments-design.md
   - docs/architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md
-last_reviewed: 2026-09-07
+last_reviewed: 2026-10-09
 ---
 
 # MaaT 与 Skill/Plugin 边界的资产消费模型
@@ -19,6 +19,9 @@ last_reviewed: 2026-09-07
 **文档状态**: Idea
 **目标阶段**: Unscheduled
 **适用范围**: `MemoryCompiler`、MTP `RUN`、可执行记忆资产（Patchouli 资产层 + Alice 执行层）
+
+**实现背景补充（2026-10-09）**：Alice 现在以凭据绑定的提交函数读取资源，frame 只携带观测标签；READ/RUN/CALL 共享引用自动记录 `workspace.reference_read`，不再按 `mtp.read`/`mtp.run` 区分。下文执行结果、版本证据与强沙箱仍为长期草案；准确的当前边界见 [MTP 契约](../contracts/mtp.md)。
+
 **前置条件**: 本 Idea 依赖已裁定边界 [ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)；不在此重新定义 Workspace、身份或 Artifact 所有权
 
 ---

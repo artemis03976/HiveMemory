@@ -150,12 +150,27 @@ def test_workspace_contracts_only_depend_on_core():
 
 
 def test_workspace_shared_facilities_do_not_import_capability():
-    """意图与派生读取设施不得反向依赖能力入口，避免产生第二个编排所有者。"""
+    """意图、读取与凭据设施不得反向依赖能力入口，避免第二个编排所有者。"""
     packages = [WORKSPACE_PACKAGE / name for name in ("intents", "cache", "resolution")]
+    files = [path for package in packages for path in package.rglob("*.py")]
+    files.append(WORKSPACE_PACKAGE / "credentials.py")
     violations = [
         f"{path}: {target}"
-        for package in packages
-        for path in package.rglob("*.py")
+        for path in files
+        for target in _import_targets_of(path)
+        if target == "hivememory.workspace.capability"
+        or target.startswith("hivememory.workspace.capability.")
+    ]
+    assert violations == []
+
+
+def test_workspace_process_does_not_import_capability():
+    """进程只负责阶段编排与凭据生命周期，不持有具体能力服务。"""
+    files = sorted((WORKSPACE_PACKAGE / "process").rglob("*.py"))
+    assert files, "未扫描到 workspace process 源文件"
+    violations = [
+        f"{path}: {target}"
+        for path in files
         for target in _import_targets_of(path)
         if target == "hivememory.workspace.capability"
         or target.startswith("hivememory.workspace.capability.")

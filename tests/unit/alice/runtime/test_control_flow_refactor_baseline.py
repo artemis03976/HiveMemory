@@ -10,18 +10,15 @@ from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.core import AliceRuntime
-from hivememory.alice.runtime.profile_cache import AgentProfileCache
-from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
-from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE
-from tests.helpers.workspace import make_identity_scope, make_runtime_scope
+from tests.helpers.workspace import make_execution_labels, make_runtime_scope
 
 
 def _frame(run_id: str, frame_id: str) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
             runtime_scope=FrameFactory.scope(
-                identity_scope=make_identity_scope(user_id="user"),
+                labels=make_execution_labels(),
                 run_id=run_id,
                 frame_id=frame_id,
             ),
@@ -76,21 +73,6 @@ def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
     assert "run_agent_stream" not in runtime_public_methods
 
 
-def test_alice_runtime_owns_derived_caches() -> None:
-    """架构守卫：两个派生 cache 由 AliceRuntime 创建并持有（ADR-0005）。"""
-    config = HiveMemoryConfig()
-    runtime = AliceRuntime(config.alice, config.memory_compiler)
-
-    assert isinstance(runtime._profile_cache, AgentProfileCache)
-
-
-def test_alice_runtime_owns_process_scoped_profile_resolver() -> None:
-    config = HiveMemoryConfig()
-    runtime = AliceRuntime(config.alice, config.memory_compiler)
-
-    assert isinstance(runtime.profile_resolver, AgentProfileResolver)
-
-
 def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:
     frame = _frame("run-a", "frame-a")
 
@@ -119,6 +101,6 @@ def test_mtp_context_contains_workspace_and_frame_coordinates() -> None:
 
     assert context.runtime_scope.run_id == "test_run"
     assert context.runtime_scope.frame_id == "test_frame"
-    assert context.identity_scope.workspace_identity.workspace_id == "main_workspace"
+    assert context.runtime_scope.labels.workspace_id == "main_workspace"
     # 架构护栏：执行上下文不携带父子拓扑元数据
     assert not hasattr(context.runtime_scope, "depth")

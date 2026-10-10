@@ -15,16 +15,14 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
-    ActorIdentity,
     AgentProfile,
-    IdentityScope,
     RuntimeScope,
     TurnEvent,
 )
 from hivememory.core.mtp.models import MTPCallRequest
 
 if TYPE_CHECKING:
-    from hivememory.workspace.contracts import ProcessOperations
+    from hivememory.workspace.contracts import OperationSubmitter
 
 
 @dataclass
@@ -51,7 +49,8 @@ class ExecutionFrame:
     一次单 Agent 执行的可恢复进程控制块（PCB）。
 
     ExecutionFrame 携带运行一个 Agent 所需的隔离状态，使共享 runtime 无需
-    保存 per-frame 的 identity 与权限。执行进度（正文、事件、迭代与序号）
+    保存每帧的观测标签与权限。资源访问由进程绑定的操作提交函数负责，
+    标签仅用于展示与观测。执行进度（正文、事件、迭代与序号）
     全部放在 ``progress`` 上，CALL 挂起后重入同一 frame 可自然续接
     （见 docs/alice/agent-runtime.md §2）。
     """
@@ -62,8 +61,8 @@ class ExecutionFrame:
     topic_id: str | None
     execution_policy: FrameExecutionPolicy = field(default_factory=FrameExecutionPolicy)
 
-    # 本进程的操作端口由 root 与 CALL 子帧共享，授权 context 仍由进程持有。
-    operations: ProcessOperations | None = None
+    # 本进程的操作提交函数由 root 与 CALL 子帧共享，执行凭据由 CPU 驱动绑定。
+    submit_operation: OperationSubmitter | None = None
 
     harvested_aliases: list[str] = field(default_factory=list)
 
@@ -71,16 +70,6 @@ class ExecutionFrame:
     # execute_frame 的局部变量下沉到此处，使 CALL 挂起后重入续接、编号连续。
     # 见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1bis。
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
-
-    @property
-    def identity_scope(self) -> IdentityScope:
-        """返回 frame 随 RuntimeScope 继承的 Workspace hard boundary。"""
-        return self.runtime_scope.identity_scope
-
-    @property
-    def identity(self) -> ActorIdentity:
-        """只读派生的执行者身份展示；新代码应使用 ``identity_scope``（完整 Workspace hard boundary）。"""
-        return self.identity_scope.actor_identity
 
     def is_transient(self) -> bool:
         """判断本帧是否未挂载话题（子帧为瞬态帧，topic_id 为 None）。"""
@@ -102,23 +91,13 @@ class ExecutionFrame:
 
 @dataclass(frozen=True)
 class MTPExecutionContext:
-    """单条 MTP 指令执行时的身份、权限与运行坐标上下文。"""
+    """单条 MTP 指令执行时的观测标签、权限与运行坐标上下文。"""
 
     runtime_scope: RuntimeScope
-    operations: ProcessOperations | None = None
+    submit_operation: OperationSubmitter | None = None
     agent_profile: Any = None
     execution_policy: FrameExecutionPolicy | None = None
     language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生
-
-    @property
-    def identity_scope(self) -> IdentityScope:
-        """返回 MTP 指令继承的 Workspace hard boundary。"""
-        return self.runtime_scope.identity_scope
-
-    @property
-    def identity(self) -> ActorIdentity:
-        """只读派生的执行者身份展示；新代码应使用 ``identity_scope``（完整 Workspace hard boundary）。"""
-        return self.identity_scope.actor_identity
 
 
 @dataclass

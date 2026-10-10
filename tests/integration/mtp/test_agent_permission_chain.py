@@ -102,7 +102,7 @@ def _create_runtime_with_koakuma():
         runtime.get_mtp_prompt = MethodType(_get_mtp_prompt, runtime)
 
         # 创建真实的 Koakuma 实例
-        koakuma = KoakumaRuntime(bus=None, config=None)
+        koakuma = KoakumaRuntime(config=None)
         runtime._services = {"koakuma": koakuma}
 
         return runtime, koakuma

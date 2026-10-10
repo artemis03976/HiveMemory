@@ -18,6 +18,7 @@ Patchouli；context 不向下传递，调用方也不能另行传入 scope 或�
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -56,6 +57,8 @@ if TYPE_CHECKING:
     from hivememory.core.models.query import QueryFilters
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.alias import AliasResolver
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryLifecycleUnavailableError(RuntimeError):
@@ -169,9 +172,38 @@ class MemoryApplicationService:
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[ReferenceResolution]:
-        """读取引用（``resource.read``）：每个请求项均得到一个中立解析结果。"""
+        """读取引用（``resource.read``），为本次交付的正式原子逐一记录引用。
+
+        逐项结果保留顺序与重复项，引用记录在本请求内按 memory id 去重。
+        只处理 atom 或带可读原子的 redirect；缓存命中也记录。记录失败只
+        影响日志，不改变读取结果，取消则继续传播给调用方。
+        """
         scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
-        return await self._reader.resolve_references(aliases, scope=scope)
+        results = await self._reader.resolve_references(aliases, scope=scope)
+        cited: set[UUID] = set()
+        for result in results:
+            atom = result.atom
+            if result.kind not in ("atom", "redirect") or atom is None or atom.id in cited:
+                continue
+            # 去重发生在尝试前：同批失败不重试，以免已提交但应答失败时重复计数。
+            cited.add(atom.id)
+            try:
+                await self._global_bus.request(
+                    GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+                    memory_id=atom.id,
+                    identity_scope=scope,
+                    source="workspace.reference_read",
+                )
+            except Exception:
+                # 生命周期反馈为 best-effort；CancelledError 不属于 Exception，
+                # 必须正常传播，不能把已经取消的读取变为成功。
+                logger.warning(
+                    "Failed to record memory citation for memory_id=%s source=%s",
+                    atom.id,
+                    "workspace.reference_read",
+                    exc_info=True,
+                )
+        return results
 
     async def create_memory(
         self,

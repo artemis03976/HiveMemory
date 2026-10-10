@@ -40,6 +40,7 @@ from hivememory.core.errors import (
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
+    ExecutionLabels,
     IdentityScope,
     ResolvedAgentProfile,
     WorkspaceIdentity,
@@ -101,7 +102,10 @@ def _record(process_id: str) -> ProcessRecord:
     return ProcessRecord(
         process_id=process_id,
         access=access,
-        events=BoundProcessEvents(RuntimeEventPublisher(NullRuntimeEventSink())),
+        events=BoundProcessEvents(
+            RuntimeEventPublisher(NullRuntimeEventSink()),
+            labels=ExecutionLabels(agent_id=_AGENT, workspace_id=_workspace().workspace_id),
+        ),
     )
 
 

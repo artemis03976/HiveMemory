@@ -40,6 +40,7 @@ from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
+    ExecutionLabels,
     WorkspaceIdentity,
 )
 from hivememory.workspace.authentication import ActorAuthenticationGateway
@@ -170,14 +171,15 @@ class TaskProcessService:
         )
         try:
             # 3-4. 创建进程记录写入 context，绑定观测标签，并登记到进程表。
+            # 标签只在认证成功后创建一次，事件通道与 CPU 输入清单共用。
+            labels = ExecutionLabels(agent_id=actor.agent_id, workspace_id=workspace.workspace_id)
             trace_id = generate_trace_id("task")
             record = ProcessRecord(
                 process_id=process_id,
                 access=access,
                 events=self._events.for_process(
                     process_id=process_id,
-                    workspace_id=workspace.workspace_id,
-                    agent_id=actor.agent_id,
+                    labels=labels,
                     trace_id=trace_id,
                 ),
             )

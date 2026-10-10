@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 记忆生成
@@ -87,7 +87,7 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-Alice 的 MTP WRITE 经任务进程操作通道调用 workspace 能力层，在共享 `WriteIntentRegistry` 登记 PendingAtom，ACK 只表示登记成功。Actor completed 后，任务进程认领本进程仍为 PENDING 的意图，将其推进为 MATERIALIZING 并构造 `PendingAtomMaterializeTask`，随封口的 `InteractionPayload` 交给 Patchouli finalize；Coordinator 使用话题最近五个 blocks 作为背景，并把 `WriteFocus` 作为保存核心。意图登记与终态由 workspace 持有，正式记忆生成与任务状态仍由 Patchouli 持有。
+Alice 的 MTP WRITE 经执行凭据绑定的操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 PendingAtom，ACK 只表示登记成功。Actor completed 后，任务进程认领本进程仍为 PENDING 的意图，将其推进为 MATERIALIZING 并构造 `PendingAtomMaterializeTask`，随封口的 `InteractionPayload` 交给 Patchouli finalize；Coordinator 使用话题最近五个 blocks 作为背景，并把 `WriteFocus` 作为保存核心。意图登记与终态由 workspace 持有，正式记忆生成与任务状态仍由 Patchouli 持有。
 
 Extractor 失败时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失。Fallback 仍要经过去重，因而最终可能 CREATE、UPDATE、TOUCH 或 DISCARD；ACK 从未承诺“一定新建一条独立记忆”。
 

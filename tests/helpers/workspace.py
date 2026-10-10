@@ -12,6 +12,7 @@ from hivememory.core.access import (
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
+    ExecutionLabels,
     IdentityScope,
     RuntimeScope,
     WorkspaceIdentity,
@@ -87,25 +88,25 @@ def make_management_identity_scope(
     )
 
 
+def make_execution_labels(
+    *,
+    agent_id: str = "test_agent",
+    workspace_id: str = "main_workspace",
+) -> ExecutionLabels:
+    """构造展示与事件关联标签；资源授权测试需独立装配访问凭据。"""
+    return ExecutionLabels(agent_id=agent_id, workspace_id=workspace_id)
+
+
 def make_runtime_scope(
     *,
-    actor_identity: ActorIdentity | None = None,
-    user_id: str = "test_user",
     agent_id: str = "test_agent",
     run_id: str = "test_run",
     frame_id: str = "test_frame",
     workspace_id: str = "main_workspace",
-    interaction_id: str | None = None,
 ) -> RuntimeScope:
-    """构造携带完整 Workspace hard boundary 的 Alice 执行坐标。"""
+    """构造 Alice 执行坐标，只携带观测标签，不组装资源访问身份。"""
     return RuntimeScope(
-        identity_scope=make_identity_scope(
-            actor_identity=actor_identity,
-            user_id=user_id,
-            agent_id=agent_id,
-            workspace_id=workspace_id,
-            interaction_id=interaction_id,
-        ),
+        labels=make_execution_labels(agent_id=agent_id, workspace_id=workspace_id),
         run_id=run_id,
         frame_id=frame_id,
     )

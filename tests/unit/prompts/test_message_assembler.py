@@ -2,11 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from hivememory.core.models import AgentProfile, TopicData
+from hivememory.core.models import ActorIdentity, AgentProfile, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.i18n import set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_execution_labels, make_identity_scope
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +48,7 @@ def test_build_main_agent_messages_from_context():
         language="zh",
     )
     context = AgentRunContext(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        labels=make_execution_labels(agent_id="omni_doll"),
         interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
@@ -78,7 +78,7 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
         language="zh",
     )
     context = AgentRunContext(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        labels=make_execution_labels(agent_id="omni_doll"),
         interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
@@ -92,6 +92,49 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
 
     # zh 场景应渲染中文离线通知；若语言回退错误渲染成英文文本，此断言会红
     assert "离线" in messages[0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("registered_agent_id", "expected_reply"),
+    [
+        ("registered_agent", "历史回复"),
+        ("another_agent", "[From: registered_agent]\n历史回复"),
+    ],
+)
+def test_history_role_prefix_uses_registered_label_instead_of_profile_display_alias(
+    registered_agent_id, expected_reply
+):
+    """历史角色归并取注册标签，Profile 的展示 alias 不改变当前发起角色。"""
+    topic = _make_topic_data().model_copy(
+        update={
+            "blocks": (
+                LogicalBlock(
+                    turn=TurnRecord(
+                        identity=ActorIdentity(user_id="u1", agent_id="registered_agent"),
+                        user_query="历史问题",
+                        assistant_final_text="历史回复",
+                    )
+                ),
+            )
+        }
+    )
+    context = AgentRunContext(
+        labels=make_execution_labels(agent_id=registered_agent_id),
+        interaction_id="interaction-labels",
+        topic_id="topic_1",
+        user_message="当前问题",
+        topic_context=topic,
+        retrieval_result=RetrievalResponse(),
+        agent_profile=AgentProfile(agent_id="display_agent"),
+    )
+
+    messages = AgentPromptAssembler(_make_koakuma_config()).build_main_agent_messages(context)
+
+    assert messages[-3:] == [
+        {"role": "user", "content": "历史问题"},
+        {"role": "assistant", "content": expected_reply},
+        {"role": "user", "content": "当前问题"},
+    ]
 
 
 def test_build_sub_agent_messages_disables_call():

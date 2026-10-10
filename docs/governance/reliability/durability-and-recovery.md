@@ -43,8 +43,7 @@ last_reviewed: 2026-10-09
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | workspace 进程内 `WriteIntentRegistry`，唯一状态机 | 登记可跨任务进程读回，但没有 durable ledger、TTL、replay 或通知未送达补偿；终态句柄保留到重启 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
-| workspace Profile/atom cache | `WorkspaceRuntime` 持有按 Workspace/UUID 与 alias 定位的 AtomCache、按 Workspace/Actor/alias 定位的 ProfileCache | 已接 canonical 变更的内联失效与在途回填代次校验；通知无重试/replay，不跨重启保留 | 保持 ephemeral derived 语义；失效只删除派生项，冷读重建并重验归属与 actor policy，不把 cache 当事实 |
-| Alice CALL 目标 Profile cache | `AliceRuntime` 持有按 `(WorkspaceIdentity, Actor 投影, alias)` 分区的本地派生 cache | 尚未迁入 workspace 的失效链，没有失效事件/TTL，Profile 更新仍有 LRU 驻留期 stale 窗口；`AliceSystem.stop()` 幂等清空 | 保持 ephemeral derived 语义；CALL 目标解析迁移仍是独立后续范围 |
+| workspace Profile/atom cache（含 CALL 目标） | `WorkspaceRuntime` 持有按 Workspace/UUID 与 alias 定位的 AtomCache、按 Workspace/alias 定位并在命中时重验当前 actor 的 ProfileCache | 已接 canonical 变更的内联失效与在途回填代次校验；通知无重试/replay，不跨重启保留 | 保持 ephemeral derived 语义；失效只删除派生项，冷读重建并重验归属与 actor policy，不把 cache 当事实 |
 | RuntimeEvent | 进程内 bounded ring buffer | 允许丢失、不可跨进程连续，不是审计账本 | 继续作为 best-effort 观测；需要历史时建立独立审计/任务查询模型 |
 | feedback/reinforcement history 与 GC stats | 主要为进程内历史 | 跨会话无法解释反馈来源，维护统计重启即归零 | 按产品与审计需要选择持久化事件或聚合快照 |
 

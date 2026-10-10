@@ -35,6 +35,8 @@ last_reviewed: 2026-10-09
 # 身份与访问体系
 
 **文档状态**：Idea，保留决定理由与分批讨论；第一、二批均已实施归档。第二批于 2026-10-04 经测试与审查后在分支 `refactor/identity-access-batch-2` 提交（实现 commit `b2c7aee`），同日经 PR #107 合并至 master（`5660fed`），见[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；合并不表示 v0.7.0 已发布。
+**实施补充（2026-10-09）**：I-9 的 CPU 过渡身份已删除，Alice/CPU 改持观测标签与执行凭据；见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)。第二批快照及下文过渡设计保留为历史背景；当前事实由 [Workspace 架构](../architecture/workspace.md)维护。独立子线程 context 与 WorkspaceAsset 内部拆分仍按各自方向推进。
+
 **记录日期**：2026-10-03；2026-10-04 记录 I-6、I-6a、I-7、I-11 的决定，并按第二批最终代码更新现状。WorkspaceAsset 内部拆分明确暂缓，见 [Todo](../todo/workspace-asset-ownership-identity-split.md)。
 
 ## 0. 文档性质
@@ -337,7 +339,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 #### I-9 CPU 在过渡期的身份
 
-**状态**：已完成。2026-10-03 决定；过渡设计已实施，随 Alice 的能力层调用迁移删除。
+**状态**：已完成。2026-10-03 的过渡设计曾随第一批实施；2026-10-09 已随 Alice 能力层调用迁移删除，以下保留当时的问题与设计理由。删除之后的观测标签与执行凭据已落地。
 
 **问题**：Alice 改经能力层调用之前（总 Idea 15.5），CPU 输入清单要携带一个 `IdentityScope` 供 Alice 直接调用 Patchouli。按不变量 4，`IdentityScope` 只由授权点组装，但 CPU 执行本身没有对应的 operation；借用某次不相关的 operation 授权结果，或直接用注册声明组装，都会破坏这条不变量。
 
@@ -347,7 +349,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 - 过渡身份删除后，CPU 输入清单不再携带 `IdentityScope`，改为只用于观测与提示词的标签（例如 agent_id、workspace_id 字符串），不参与授权；Alice 内部 `RuntimeScope`、运行上下文与 MTP 执行上下文中的 `IdentityScope` 随之移除，`IdentityScope` 完全回到授权点之下的调用链内。
 - CPU 调用能力层所用的是执行凭据（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9）：进程内的不透明对象，本身不携带可读的身份，只能由 workspace 的操作入口兑现为访问 context；按对象身份判定有效，与进程句柄（I-8）同一做法，进程关闭时同步吊销。它与访问 context 分开：context 仍只由运行持有者与授权点持有，CPU 只持有凭据。
-- 实施见 [Alice 的能力层调用迁移计划](../plans/v0.7.0-alice-capability-migration.md)。
+- 实施见 [Alice 的能力层调用迁移计划](../archive/plans/v0.7.0-alice-capability-migration.md)。
 
 #### I-10 workspace 一侧的认证与操作授权如何划分
 

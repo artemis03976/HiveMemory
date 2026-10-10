@@ -22,6 +22,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    ReferenceResolution,
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.capability.memory import (
@@ -351,3 +352,43 @@ class TestMemoryApplicationService:
         )
         assert request.identity_scope.workspace_identity == workspace
         assert captured["scope"] == expected_scope
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kind", ["pending", "failed", "discarded", "not_found", "expired"])
+    async def test_reference_status_outside_formal_delivery_does_not_record_citation(
+        self, kind, composition, workspace, access
+    ):
+        """引用记录以可交付状态为准，非正式状态即使带有原子也不能引用。"""
+        citations = []
+
+        class CitationBus:
+            """只捕获库侧引用 RPC 的公开副作用，不模拟能力层的分支。"""
+
+            async def request(self, route, *, memory_id, identity_scope, source):
+                citations.append((route, memory_id, identity_scope, source))
+
+        class ReferenceReader:
+            """隔离读取视图，仅提供能力层所需的中立解析结果。"""
+
+            def __init__(self):
+                self.intents = WriteIntentRegistry()
+
+            async def resolve_references(self, aliases, *, scope):
+                return [
+                    ReferenceResolution(
+                        kind=kind, requested_alias=aliases[0], atom=_make_memory_atom()
+                    )
+                ]
+
+        service = MemoryApplicationService(
+            global_bus=CitationBus(),
+            operation_authorizer=composition.authorizer,
+            memory_reader=ReferenceReader(),
+        )
+
+        (result,) = await service.resolve_references(
+            ["draft"], target_workspace=workspace, access=access
+        )
+
+        assert (result.requested_alias, result.kind) == ("draft", kind)
+        assert citations == []

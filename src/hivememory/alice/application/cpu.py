@@ -19,41 +19,48 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
     CPUOutput,
-    ProcessOperations,
+    ExecutionCredential,
+    OperationEntry,
+    OperationRequest,
 )
 
 
 class AliceCPU:
     """以 Alice Agent run 充当任务进程 CPU 的端口实现。"""
 
-    def __init__(self, global_bus: GlobalSystemBus) -> None:
+    def __init__(self, global_bus: GlobalSystemBus, operation_entry: OperationEntry) -> None:
         self._bus = global_bus
+        self._operation_entry = operation_entry
 
     def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        operations: ProcessOperations,
+        credential: ExecutionCredential,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
         return self._execute(
-            manifest, operations=operations, generation_options=generation_options, stream=stream
+            manifest, credential=credential, generation_options=generation_options, stream=stream
         )
 
     async def _execute(
         self,
         manifest: CPUInputManifest,
         *,
-        operations: ProcessOperations,
+        credential: ExecutionCredential,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
+        async def submit_operation[R](request: OperationRequest[R]) -> R:
+            """绑定本次执行凭据，把操作请求交给 workspace 统一入口。"""
+            return await self._operation_entry.execute(request, credential=credential)
+
         if stream:
             event_stream = await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 input_manifest=manifest,
-                operations=operations,
+                submit_operation=submit_operation,
                 generation_options=generation_options,
                 stream=True,
             )
@@ -71,7 +78,7 @@ class AliceCPU:
             yield await self._bus.request(
                 GlobalRoutes.ALICE_RUN_AGENT,
                 input_manifest=manifest,
-                operations=operations,
+                submit_operation=submit_operation,
                 generation_options=generation_options,
                 stream=False,
             )

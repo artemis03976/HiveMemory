@@ -44,7 +44,7 @@ from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    IdentityScope,
+    ExecutionLabels,
 )
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -55,7 +55,7 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
-    ProcessOperations,
+    OperationSubmitter,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunCont
     alias 登记等流程使用。``AgentRunContext`` 不出现在任何公开路由上。
     """
     return AgentRunContext(
-        identity_scope=manifest.identity_scope,
+        labels=manifest.labels,
         interaction_id=manifest.process_id,
         topic_id=manifest.topic_id,
         user_message=manifest.user_message,
@@ -129,7 +129,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: Literal[True] = True,
     ) -> AsyncGenerator[dict[str, Any], None]: ...
 
@@ -139,7 +139,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: Literal[False],
     ) -> Coroutine[Any, Any, CPUExecutionResult]: ...
 
@@ -148,7 +148,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]:
         """Alice Agent run 的统一入口（``stream`` 控制是否流式）。
@@ -158,7 +158,7 @@ class AgentRunService:
         ``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
         """
         producer = self._run_agent(
-            input_manifest, generation_options, operations=operations, stream=stream
+            input_manifest, generation_options, submit_operation=submit_operation, stream=stream
         )
         if stream:
             # 流式骨架只产出交互事件与 done；骨架的产出类型是两种形态的并集。
@@ -170,7 +170,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: bool,
     ) -> AsyncGenerator[dict[str, Any] | CPUExecutionResult, None]:
         """统一执行骨架：会话、事件、组装、执行与终态发布只有一份。
@@ -196,8 +196,8 @@ class AgentRunService:
                 agent_stream = self._stream_adapter.create(preparation.session)
                 frame = self._create_root_frame(
                     messages=messages,
-                    operations=operations,
-                    identity_scope=preparation.context.identity_scope,
+                    submit_operation=submit_operation,
+                    labels=preparation.context.labels,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
                     agent_profile=preparation.context.agent_profile,
@@ -221,8 +221,8 @@ class AgentRunService:
             else:
                 frame = self._create_root_frame(
                     messages=messages,
-                    operations=operations,
-                    identity_scope=preparation.context.identity_scope,
+                    submit_operation=submit_operation,
+                    labels=preparation.context.labels,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
                     agent_profile=preparation.context.agent_profile,
@@ -298,8 +298,8 @@ class AgentRunService:
         self,
         *,
         messages: list[dict[str, str]],
-        operations: ProcessOperations,
-        identity_scope: IdentityScope,
+        submit_operation: OperationSubmitter,
+        labels: ExecutionLabels,
         topic_id: str,
         agent_profile: AgentProfile | None,
         session: RunSession,
@@ -313,14 +313,14 @@ class AgentRunService:
         frame = self._frame_factory.create(
             FrameSpec(
                 runtime_scope=self._frame_factory.scope(
-                    identity_scope=identity_scope,
+                    labels=labels,
                     run_id=session.agent_run_id,
                 ),
                 profile=profile,
                 messages=messages,
                 topic_id=topic_id or "",
                 execution_policy=policy,
-                operations=operations,
+                submit_operation=submit_operation,
             )
         )
         session.register_root_frame(frame)
@@ -357,7 +357,7 @@ class AgentRunService:
 
     @staticmethod
     def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
-        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
+        agent_id = frame.agent_profile.agent_id or frame.runtime_scope.labels.agent_id
         return {
             "agent_run_id": frame.runtime_scope.run_id,
             "action_id": None,
@@ -399,8 +399,8 @@ class AgentRunService:
             agent_run_id=session.agent_run_id,
             process_id=session.process_id,
             topic_id=agent_run_context.topic_id,
-            agent_id=agent_run_context.identity_scope.actor_identity.agent_id,
-            workspace_id=agent_run_context.identity_scope.workspace_identity.workspace_id,
+            agent_id=agent_run_context.labels.agent_id,
+            workspace_id=agent_run_context.labels.workspace_id,
         )
 
 

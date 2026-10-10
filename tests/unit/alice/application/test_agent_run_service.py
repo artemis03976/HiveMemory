@@ -33,7 +33,7 @@ from hivememory.core.models import (
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_execution_labels
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -56,7 +56,7 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_input_manifest(memory: MemoryAtom):
     return make_input_manifest(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        labels=make_execution_labels(agent_id="omni_doll"),
         process_id="process-test",
         topic_id="topic_1",
         user_message="hello",
@@ -75,7 +75,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        CallContextProvider(runtime.profile_resolver),
+        CallContextProvider(),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )
@@ -108,7 +108,7 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
         return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent(manifest, stream=True, operations=MagicMock()):
+            async for _ in service.run_agent(manifest, stream=True, submit_operation=MagicMock()):
                 pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED

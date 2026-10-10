@@ -4,7 +4,7 @@
 定位：MTP 协议的运行时执行器
 职责：
     - MTP 指令解析 (委托给 MTPParser)
-    - 指令路由与分发 (通过 Alice local bus 调用公开服务 API)
+    - 指令路由与分发 (提交操作请求，由 workspace 能力层执行)
     - 响应格式化与回填
     - 别名解析
 
@@ -31,7 +31,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     OperationDeniedError,
     PendingUpdateNotAllowedError,
@@ -62,10 +61,7 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
     SystemFault,
 )
-from hivememory.core.protocol.models import (
-    MTPExecutionResult,
-    RetrievalRequest,
-)
+from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -74,13 +70,18 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.i18n.resolver import resolve_language
+from hivememory.workspace.contracts import (
+    OperationSubmitter,
+    ResolveReferencesRequest,
+    RetrieveRequest,
+    SubmitUpdateIntentRequest,
+    SubmitWriteIntentRequest,
+)
 
 if TYPE_CHECKING:
-    from hivememory.components.bus.async_bus import AsyncSystemBus
     from hivememory.config.alice import KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
     from hivememory.core.models import MemoryAtom
-    from hivememory.workspace.contracts import ProcessOperations
 
 logger = logging.getLogger(__name__)
 
@@ -113,23 +114,16 @@ class KoakumaRuntime:
     职责:
         1. 接收已由 WorkerAgent 归一化的 MTP 输出文本
         2. 解析 MTP 指令
-        3. 路由到对应的内核服务 (Retrieval/Librarian)
+        3. 将资源操作请求提交给 workspace 能力层
         4. 格式化执行结果为 XML 响应容器
         5. 返回回填文本供 Kernel 注入 Assistant 历史
 
-    使用示例:
-        >>> koakuma = KoakumaRuntime(
-        ...     retrieval_familiar=retrieval,
-        ...     librarian_core=librarian,
-        ...     storage=storage,
-        ... )
-        >>> result = koakuma.execute_mtp('⟪ READ | fact_api_spec | ⟫')
-        >>> print(result.formatted_response)
+    资源访问由执行上下文中的提交函数提供；运行时只保留协议翻译、
+    结果编译与工具执行，不直接持有资源 owner 的总线路由。
     """
 
     def __init__(
         self,
-        bus: AsyncSystemBus | None = None,
         config: KoakumaConfig | None = None,
         *,
         memory_compiler_config: MemoryCompilerConfig | None = None,
@@ -138,12 +132,10 @@ class KoakumaRuntime:
         初始化 Koakuma MTP 运行时
 
         Args:
-            bus: AsyncSystemBus 实例，用于跨服务通信（纯异步总线）
             config: Koakuma 配置 (可选，使用默认值)
         """
         from hivememory.config.alice import KoakumaConfig
 
-        self._bus = bus
         self._config = config or KoakumaConfig()
         self._parser = MTPParser()
         self._filter_parser = MTPFilterParser()
@@ -245,7 +237,7 @@ class KoakumaRuntime:
         """
         start_time = time.time()
         if context is None:
-            raise ScopeRequiredError("MTP 执行缺少 IdentityScope")
+            raise ScopeRequiredError("MTP 执行缺少运行上下文")
 
         try:
             language = _resolve_context_language(context)
@@ -328,11 +320,11 @@ class KoakumaRuntime:
         )
 
     @staticmethod
-    def _operations(context: MTPExecutionContext) -> ProcessOperations:
-        """取得进程交付的操作端口；缺失时显式拒绝资源操作。"""
-        if context.operations is None:
-            raise ScopeRequiredError("MTP 执行缺少进程操作端口")
-        return context.operations
+    def _operation_submitter(context: MTPExecutionContext) -> OperationSubmitter:
+        """取得 CPU 交付的提交函数；缺失时显式拒绝资源操作。"""
+        if context.submit_operation is None:
+            raise ScopeRequiredError("MTP 执行缺少操作提交函数")
+        return context.submit_operation
 
     # ========== 内部路由 ==========
 
@@ -420,7 +412,8 @@ class KoakumaRuntime:
         """
         处理 SEARCH 指令 (Section 2.2)
 
-        调用 RetrievalFamiliar 进行模糊检索，再通过 MemoryCompiler 编译为 Agent 可读文本。
+        提交检索请求，经 workspace 授权与缓存预热后，
+        再通过 MemoryCompiler 编译为 Agent 可读文本。
 
         Type A 数据类响应 (Section 3.3.3)
 
@@ -443,12 +436,10 @@ class KoakumaRuntime:
         )
 
         # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理；
-        # 检索路由返回完整原子列表（A2 §2.1），MTP 输出在此编译呈现。
-        memories = await self._bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
-            request=RetrievalRequest(
+        # 能力层返回完整原子列表，filter 翻译与 MTP 输出编译留在协议边界。
+        memories = await self._operation_submitter(context)(
+            RetrieveRequest(
                 semantic_query=query,
-                identity_scope=context.identity_scope,
                 filters=parsed_filters,
             ),
         )
@@ -512,7 +503,9 @@ class KoakumaRuntime:
         resolved_redirects: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
         resolved_terminal: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
         unresolved: list[str] = []
-        results = await self._operations(context).resolve_references(aliases)
+        results = await self._operation_submitter(context)(
+            ResolveReferencesRequest(aliases=tuple(aliases))
+        )
         for alias, result in zip(aliases, results, strict=True):
             if result.kind == "pending" and result.pending is not None:
                 resolved_pending.append((alias, result.pending))
@@ -575,16 +568,12 @@ class KoakumaRuntime:
                 )
             )
 
-        response = MTPResponse(
+        # 正式原子的引用记录已由能力层在交付前完成，协议层只负责输出。
+        return MTPResponse(
             status=MTPResponseStatus.SUCCESS,
             content="\n".join(output_lines),
             warnings=warnings,
         )
-        for _, atom in resolved:
-            await self._record_memory_citation(atom, "mtp.read", context)
-        for _, result in resolved_redirects:
-            await self._record_memory_citation(result.atom, "mtp.read", context)
-        return response
 
     async def _handle_run(
         self,
@@ -622,9 +611,9 @@ class KoakumaRuntime:
             result = syscall.handler(command.args)
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
-        # Level 1: 用户态工具路径（经进程端口进入 workspace 读取视图）
+        # Level 1: 用户态工具路径（提交引用请求进入 workspace 读取视图）
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        resolved = (await self._operations(context).resolve_references([alias]))[0]
+        resolved = (await self._operation_submitter(context)(ResolveReferencesRequest((alias,))))[0]
         warnings: list[MTPWarningInfo] = []
         if resolved.kind == "pending":
             raise InvalidArgumentError(
@@ -668,8 +657,6 @@ class KoakumaRuntime:
         response = self._execute_user_tool(alias, code, command.args)
         if warnings:
             response.warnings = [*warnings, *response.warnings]
-        if response.status == MTPResponseStatus.SUCCESS:
-            await self._record_memory_citation(atom, "mtp.run", context)
         return response
 
     async def _handle_write(
@@ -681,7 +668,7 @@ class KoakumaRuntime:
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
         v3.0 延迟捕获模式:
-        将 WRITE 内容打包为 WriteFocus，经进程操作端口提交 workspace 登记，
+        将 WRITE 内容打包为操作请求，经提交函数交给 workspace 登记，
         实际记忆生成延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -701,8 +688,10 @@ class KoakumaRuntime:
         title = command.args.get("title", "")
 
         # 注册 pending atom 并生成 pending alias
-        pending = await self._operations(context).submit_write_intent(
-            WriteFocus(content=content, title=title or None, reason=reason or None)
+        pending = await self._operation_submitter(context)(
+            SubmitWriteIntentRequest(
+                focus=WriteFocus(content=content, title=title or None, reason=reason or None)
+            )
         )
 
         logger.info(
@@ -729,7 +718,7 @@ class KoakumaRuntime:
         处理 UPDATE 指令 (附录 C)
 
         v3.0 延迟捕获模式:
-        将 UPDATE 意图经进程操作端口提交 workspace 登记，
+        将 UPDATE 意图打包为操作请求，经提交函数交给 workspace 登记，
         实际记忆更新延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -751,10 +740,12 @@ class KoakumaRuntime:
 
         # 能力层在操作授权后解析可信基线，并负责登记成功后的缓存失效。
         try:
-            pending = await self._operations(context).submit_update_intent(
-                base_alias=alias,
-                instruction=instruction,
-                content=command.args.get("content"),
+            pending = await self._operation_submitter(context)(
+                SubmitUpdateIntentRequest(
+                    base_alias=alias,
+                    instruction=instruction,
+                    content=command.args.get("content"),
+                )
             )
         except PendingUpdateNotAllowedError as error:
             raise InvalidArgumentError(
@@ -851,29 +842,6 @@ class KoakumaRuntime:
         )
 
     # ========== 辅助方法 ==========
-
-    async def _record_memory_citation(
-        self,
-        atom: MemoryAtom,
-        source: str,
-        context: MTPExecutionContext,
-    ) -> None:
-        if self._bus is None:
-            return
-        try:
-            await self._bus.request(
-                GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
-                memory_id=atom.id,
-                identity_scope=context.identity_scope,
-                source=source,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to record memory citation for memory_id=%s source=%s",
-                getattr(atom, "id", None),
-                source,
-                exc_info=True,
-            )
 
     def _execute_user_tool(self, alias: str, code: str, args: dict[str, str]) -> MTPResponse:
         """

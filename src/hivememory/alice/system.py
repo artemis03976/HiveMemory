@@ -25,6 +25,7 @@ from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.workspace.contracts import OperationEntry
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class AliceSystem(SubsystemProtocol):
         event_publisher: RuntimeEventPublisher | None = None,
         model_registry: ModelResolver | None = None,
         *,
+        operation_entry: OperationEntry,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
         self._config = config
@@ -60,9 +62,7 @@ class AliceSystem(SubsystemProtocol):
 
         frame_factory = FrameFactory()
         prompt_assembler = AgentPromptAssembler(config.koakuma)
-        call_context_provider = CallContextProvider(
-            self._runtime.profile_resolver,
-        )
+        call_context_provider = CallContextProvider()
         call_coordinator = CallCoordinator(
             self._runtime.agent_runtime,
             call_context_provider,
@@ -79,15 +79,13 @@ class AliceSystem(SubsystemProtocol):
         )
 
         self._bridge = AliceBridge(
-            local_bus=self._runtime.local_bus,
-            runtime=self._runtime,
             public_api=AlicePublicApi(agent=self._service),
             global_bus=global_bus,
         )
 
         # 任务进程经 CPUPort 端口调用本子系统；端口实现由组合根注入进程，
         # workspace 侧不出现 Alice 的路由名或结果类型。
-        self._cpu = AliceCPU(global_bus) if global_bus is not None else None
+        self._cpu = AliceCPU(global_bus, operation_entry) if global_bus is not None else None
 
         logger.info("AliceSystem 初始化完成")
 
@@ -115,9 +113,6 @@ class AliceSystem(SubsystemProtocol):
 
     async def stop(self) -> None:
         self._bridge.unmount()
-        # bridge 卸载后不再有新请求进入；派生 cache 属于 Alice 执行路径，
-        # 由其所有者在自身停止时清空，不依赖 System stop 序列的额外步骤。
-        self._runtime.clear_derived_caches()
 
     async def health(self) -> dict[str, Any]:
         return {

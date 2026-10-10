@@ -1,11 +1,12 @@
 """
 HiveMemory 系统装配器
 
-将 HiveMemorySystem.build() 的四个关注层次拆分为独立方法：
+将 HiveMemorySystem.build() 的关注层次拆分为独立方法：
   - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set / workspace 读取运行时
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
+  - _build_capabilities: workspace 能力服务 / 执行凭据表 / 操作入口
   - _build_subsystems  : Gateway + Patchouli + Alice
-  - _build_services    : 全部应用服务与 workspace 能力层
+  - _build_services    : 任务进程与其他应用服务
 
 每个方法的入参明确声明它所依赖的上游产物，依赖关系无需读实现即可理解。
 """
@@ -48,7 +49,9 @@ from hivememory.workspace.capability.assets import WorkspaceAssetApplicationServ
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
@@ -99,6 +102,16 @@ class _SubsystemBundle:
 
 
 @dataclass
+class _CapabilitiesBundle:
+    """子系统之前构建的能力层产物；入口与进程共享唯一的凭据表。"""
+
+    memory: MemoryApplicationService
+    agent: AgentApplicationService
+    credentials: ExecutionCredentialRegistry
+    operations: WorkspaceOperationEntry
+
+
+@dataclass
 class _ServicesBundle:
     process: TaskProcessService
     ingress: PassiveIngressService
@@ -136,8 +149,9 @@ class SystemAssembler:
         runtime = self._build_runtime()
         registries = self._build_registries()
         access_control = self._build_access_control()
-        subsystems = self._build_subsystems(runtime, registries, access_control)
-        services = self._build_services(runtime, subsystems, access_control)
+        capabilities = self._build_capabilities(runtime, access_control)
+        subsystems = self._build_subsystems(runtime, registries, capabilities)
+        services = self._build_services(runtime, subsystems, access_control, capabilities)
 
         return HiveMemorySystem(
             config=self._config,
@@ -309,14 +323,45 @@ class SystemAssembler:
             ) from exc
 
     # ------------------------------------------------------------------
-    # 层三：子系统（Gateway / Patchouli / Alice 平级装配）
+    # 层三：workspace 能力服务与操作入口
+    # ------------------------------------------------------------------
+
+    def _build_capabilities(
+        self,
+        runtime: _RuntimeBundle,
+        access_control: _AccessControlBundle,
+    ) -> _CapabilitiesBundle:
+        """能力服务仅依赖共享运行时，先于需要操作入口的 Alice 装配。"""
+        memory = MemoryApplicationService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            memory_reader=runtime.workspace_runtime.aliases,
+        )
+        agent = AgentApplicationService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            profile_reader=runtime.workspace_runtime.profiles,
+        )
+        credentials = ExecutionCredentialRegistry()
+        operations = WorkspaceOperationEntry(
+            memory,
+            agent=agent,
+            credential_registry=credentials,
+            intent_registry=runtime.workspace_runtime.intents,
+        )
+        return _CapabilitiesBundle(
+            memory=memory, agent=agent, credentials=credentials, operations=operations
+        )
+
+    # ------------------------------------------------------------------
+    # 层四：子系统（Gateway / Patchouli / Alice 平级装配）
     # ------------------------------------------------------------------
 
     def _build_subsystems(
         self,
         runtime: _RuntimeBundle,
         registries: _RegistriesBundle,
-        access_control: _AccessControlBundle,
+        capabilities: _CapabilitiesBundle,
     ) -> _SubsystemBundle:
         # 组合根把根配置拆成各子系统自己的配置段注入，子系统不依赖根配置类型。
         gateway = GatewaySystem(
@@ -343,6 +388,7 @@ class SystemAssembler:
         alice = AliceSystem(
             config=self._config.alice,
             global_bus=runtime.global_bus,
+            operation_entry=capabilities.operations,
             event_publisher=runtime.event_publisher.scoped(subsystem="alice"),
             model_registry=registries.model_registry,
             memory_compiler_config=self._config.memory_compiler,
@@ -351,7 +397,7 @@ class SystemAssembler:
         return _SubsystemBundle(gateway=gateway, patchouli=patchouli, alice=alice)
 
     # ------------------------------------------------------------------
-    # 层四：应用服务与 workspace 能力层（经全局总线访问子系统公开能力）
+    # 层五：任务进程与其他应用服务（复用已构建的 workspace 能力服务）
     # ------------------------------------------------------------------
 
     def _build_services(
@@ -359,25 +405,14 @@ class SystemAssembler:
         runtime: _RuntimeBundle,
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
+        capabilities: _CapabilitiesBundle,
     ) -> _ServicesBundle:
-        # 能力层必须先于任务进程装配：CPU 分配读取 Profile，进程通道调用
-        # 意图提交与统一引用解析，共享同一个 workspace 读取运行时。
-        memory = MemoryApplicationService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-            memory_reader=runtime.workspace_runtime.aliases,
-        )
-        agent = AgentApplicationService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-            profile_reader=runtime.workspace_runtime.profiles,
-        )
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
         allocator = CPUAllocator(
             runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
-            agent_service=agent,
+            agent_service=capabilities.agent,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
             # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
@@ -393,7 +428,7 @@ class SystemAssembler:
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
-            memory_service=memory,
+            credential_registry=capabilities.credentials,
             intent_registry=runtime.workspace_runtime.intents,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
         )
@@ -446,9 +481,9 @@ class SystemAssembler:
         return _ServicesBundle(
             process=process,
             ingress=ingress,
-            memory=memory,
+            memory=capabilities.memory,
             memory_task=memory_task,
-            agent=agent,
+            agent=capabilities.agent,
             topic=topic,
             readiness=readiness,
             workspace_assets=workspace_assets,

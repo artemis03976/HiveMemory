@@ -81,7 +81,8 @@ class QueueAgentRunOutput(AgentRunOutput):
         scope: Literal["main", "sub"],
         depth: int,
     ) -> FrameOutputSink:
-        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
+        # Profile.agent_id 来自源原子的 alias；内置 Profile 回退到注册观测标签。
+        agent_id = frame.agent_profile.agent_id or frame.runtime_scope.labels.agent_id
         return _BoundFrameOutputSink(
             self,
             metadata={

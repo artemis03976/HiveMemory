@@ -259,7 +259,7 @@ class HiveMemorySystem:
             await self._gateway.stop()
             completed_steps.append("gateway.stop")
             # 最终清理必须晚于 Patchouli Topic settlement/generation drain 与剩余消费者；
-            # Alice 的 CALL Profile 缓存已在自身 stop 中清空；workspace 保持
+            # Alice 已卸载运行入口；workspace 继续保持
             # 结算/失效订阅直到 Patchouli drain 完成，随后停止新读、取消订阅
             # 并清理派生缓存（不触碰 canonical），最后收尾 AssetStore。
             self._workspace_runtime.close()

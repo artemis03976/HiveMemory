@@ -195,7 +195,7 @@ class AgentLoopExecutor:
                 agent_profile=frame.agent_profile,
                 runtime_scope=frame.runtime_scope.with_action(action_id),
                 execution_policy=frame.execution_policy,
-                operations=frame.operations,
+                submit_operation=frame.submit_operation,
             )
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,
