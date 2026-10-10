@@ -52,7 +52,7 @@ last_reviewed: 2026-10-10
 
 本文是 Workspace 在当前系统架构中的事实入口，说明身份坐标、资源归属、运行时生命周期以及与 System、Patchouli、Gateway、Alice 和共享基础设施的边界。具体路由、事件字段和错误类型以[跨子系统契约](../contracts/subsystem-contracts.md)、[公开路由与事件](../contracts/routes-and-events.md)和[错误模型](../contracts/error-model.md)为准。
 
-Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspace 复制的 Runtime。代码上 `workspace` 是与 Gateway、Patchouli、Alice 同层的包，承载认证入口、访问检查、actor 能力层、读取视图与 WorkspaceAsset 设施；它没有独立的生命周期宿主，由 System 组合根装配。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。workspace 读取视图的完整原子缓存与 Profile 缓存按派生源的 Workspace 坐标键控，写入意图登记同样由 workspace 拥有。
+Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspace 复制的 Runtime。代码上 `workspace` 是与 Gateway、Patchouli、Alice 同层的包，承载认证入口、访问检查、能力层（只供 root 的 root API 与供任意 actor 的 actor API）、读取视图与 WorkspaceAsset 设施；它没有独立的生命周期宿主，由 System 组合根装配。System 进程只装配一套 Gateway、Patchouli、Alice、队列、注册表、调度器和 EventBus；需要隔离的资源在其最终寻址和授权处检查 WorkspaceIdentity。workspace 读取视图的完整原子缓存与 Profile 缓存按派生源的 Workspace 坐标键控，写入意图登记同样由 workspace 拥有。
 
 ## 1. 为什么建立 Workspace：初步的“ME 网络”边界
 
@@ -88,7 +88,8 @@ workspace 的 `contracts` 子包是其他 L3 子系统可以导入的唯一入�
 flowchart TB
     IN["HTTP / Passive ingress / 内部测试入口"]
     SCOPE["IdentityScope\nActor + Workspace"]
-    APP["门面提供的服务\nworkspace 能力层 / 任务进程编排 / 被动摄入"]
+    APP["门面提供的服务\nroot API / 任务进程编排 / 被动摄入"]
+    ENTRY["操作入口\nactor API"]
     BUS["GlobalSystemBus"]
     GW["Gateway\n入口决策"]
     PA["Patchouli\nTopic / Memory / Artifact"]
@@ -103,7 +104,7 @@ flowchart TB
     BUS --> GW
     BUS --> PA
     APP --> CPU["CPU 端口\n输入清单 labels + 独立执行凭据"] --> AL
-    AL --> OP["操作请求\n绑定凭据的 OperationSubmitter"] --> APP
+    AL --> OP["操作请求\n绑定凭据的 OperationSubmitter"] --> ENTRY --> SCOPE
     PA --> IDENTITY --> TOPIC
     APP --> ASSET
     IDENTITY -. "最终资源边界重新校验" .-> TOPIC
@@ -131,7 +132,7 @@ HTTP 层的用户导向身份选择（`user_id + workspace_id`）由统一请求
 
 1. 同一请求的 header 与 body/query 携带同一身份字段且不一致时显式拒绝（409），不静默择一；
 2. `workspace_id` 只允许已声明的公共入口 `main_workspace`，其余值按不存在拒绝（404）；全部缺省时在此唯一回退 `DEFAULT_USER_ID` 与默认 Workspace；
-3. Chat 等由具体 Agent 执行的 Agent action 必须显式提供 `agent_id`，缺失或显式给出保留的 `system` 都返回 400；非 Agent action（管理操作、Topic 管理、取消等）由 server 使用保留 `SYSTEM_AGENT_ID = "system"`，其语义是"没有具体 Agent 作为操作来源主体"，不是超级 Agent、不是前端可选 Agent，也不得写入 `MemoryAccessPolicy.target_agent_id`。
+3. Chat 等由具体 Agent 执行的 Agent action 必须显式提供 `agent_id`，缺失或显式给出保留的 `system` 都返回 400；非 Agent action（管理操作、Topic 管理、取消等）由 server 使用保留 `SYSTEM_AGENT_ID = "system"`，其语义是"没有具体 Agent 作为操作来源主体"。`system` 是 root API 唯一接受的 actor（第 4.5 节），但它不是 Agent：不持有任何 actor 操作、不能执行任务进程、不是前端可选 Agent，也不得写入 `MemoryAccessPolicy.target_agent_id`。
 
 声明只作为认证输入：server 把它交给统一认证网关，认证通过后经过验证的身份只存在于访问 context 中，server 不把声明当作已确认的身份继续使用，也不交给路由处理函数（第 4.4 节）。W0 不提供 Workspace 创建或切换产品入口。`isolation_workspace` 仅由内部服务和隔离测试显式构造（`build_internal_identity_scope`），用于验证同一用户和 Agent 在两个资源域中的访问不会串扰。
 
@@ -199,18 +200,19 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | `configs/system_principals.yaml` | `principals`：稳定来源标识 `principal_id`、连接方式 `kind`、是否启用、可用 adapter、可选的 `allowed_user_ids` 收紧 | System | `system/access/registry.py` 的接入注册表 |
 | `configs/workspace_actors.yaml` | `workspace_actors`：`(owner_user_id, workspace_id, user_id, agent_id)` 坐标、是否启用、`allowed_operations` | Workspace | `workspace/registry.py` 的 Workspace Actor 访问注册表 |
 
-- principal 登记不授予任何 Workspace operation；一条 Workspace 访问记录同时承载准入状态与行为白名单，白名单允许为空（可进入但没有资源操作）。`session_id`、run/frame 和调用协议不进入权限键；两个 owner 使用相同 `workspace_id` 时记录不串扰。
+- principal 登记不授予任何 Workspace operation；一条 Workspace 访问记录同时承载准入状态与 actor 操作白名单，白名单允许为空（可进入但不能执行 actor 操作）。白名单只表达第 4.5 节的六项 actor 操作；root 能力与任务进程的阶段调用都不经白名单。`session_id`、run/frame 和调用协议不进入权限键；两个 owner 使用相同 `workspace_id` 时记录不串扰。
 - **用户级记录**：省略 `agent_id` 的记录覆盖该用户的所有具体 Agent，但不覆盖保留的 `system`；`system` 必须单独登记。查询时精确记录优先，精确记录被禁用即拒绝，不回落到用户级记录；每个 `(owner, workspace, user)` 至多一条用户级记录。
-- **装载规则**：两个文件都拒绝未知字段；装载期拒绝重复键、跨 owner 记录（W0 基线：`user_id` 必须等于 `owner_user_id`）和"禁用却配置白名单"的矛盾配置，未知 operation 值装载期失败。默认路径的文件缺失时按空登记装载并告警，网关随后拒绝一切认证（fail closed）；文件路径可用 `HIVEMEMORY_PRINCIPALS_PATH` / `HIVEMEMORY_WORKSPACE_ACTORS_PATH` 覆盖，显式指定的路径缺失或内容非法则显式失败。登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
+- **装载规则**：两个文件都拒绝未知字段；装载期拒绝重复键、跨 owner 记录（W0 基线：`user_id` 必须等于 `owner_user_id`）、"禁用却配置白名单"的矛盾配置，以及为保留的 `system` 配置 operation 的记录；未知 operation 值（包括已删除的旧名称）装载期失败并指出值与记录坐标。默认路径的文件缺失时按空登记装载并告警，网关随后拒绝一切认证（fail closed）；文件路径可用 `HIVEMEMORY_PRINCIPALS_PATH` / `HIVEMEMORY_WORKSPACE_ACTORS_PATH` 覆盖，显式指定的路径缺失或内容非法则显式失败。登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
 - **随仓库发布的默认登记**：
 
 | 文件 | 登记 | 内容 |
 |:---|:---|:---|
 | principals | server 的 principal `hivememory:http-server` | adapter `http`；需与 `config.yaml` 的 `system.server_principal_id` 一致 |
-| workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | `resource.read`、`resource.search`、`profile.read`、`asset.acquire`、`interaction.submit` |
-| workspace_actors | 用户 `default` 的 `system` | `management.memory`、`management.topic`、`management.asset`、`management.task`、`task.observe` |
+| principals | Profile 注入脚本的 principal `hivememory:profile-injector` | kind `local-process`，adapter `local`；脚本以它和 `system` 声明经认证网关取得请求级 context，再调用 root API |
+| workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | 六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call` |
+| workspace_actors | 用户 `default` 的 `system` | 只登记准入，不配置 operation |
 
-`system` 的白名单不含任何 actor 可见的读取 operation（`resource.read` / `resource.search` / `profile.read`）：管理员的直接通道只做管理操作，不会走到第 4.5 节中带缓存的 actor 可见读取。
+`system` 记录只回答"能否进入"：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到第 4.5 节中带缓存的 actor 读取。
 
 HTTP 入口以自身登记的 principal 与 `http` adapter 调用认证网关；请求头中的用户身份不做证明，这是本地单用户部署的信任假设（第 10 节）。
 
@@ -251,50 +253,74 @@ context 是**密封的**凭据：
 |:---|:---|:---|:---|
 | `ActorAuthenticationGateway` | 唯一对外的认证入口：`authenticate(adapter, principal, actor, workspace, binding)` 依次完成第 1、2 阶段并签发 context；转交单个撤销、撤销全部与诊断查询；关闭（拒绝新认证） | `PrincipalAuthenticator` 端口、`WorkspaceAuthenticator` | 运行持有者：server（请求级 context）、注册入口（进程 context）；System |
 | `WorkspaceAuthenticator` | 第 2 阶段：检查 actor 用户等于要进入的 Workspace 的 owner，准入记录存在且启用；签发写有授予内容的 context；撤销；诊断查询（授予内容摘要，只用于日志与观测标签） | Workspace Actor 访问注册表 | 只有认证网关 |
-| `WorkspaceOperationAuthorizer` | 第 3 阶段：`authorize_operation(access, operation, target_workspace)`；进程控制授权；无状态 | Workspace Actor 访问注册表 | 授权点 |
+| `WorkspaceOperationAuthorizer` | 第 3 阶段：actor 操作授权 `authorize_operation(access, operation, target_workspace)`、root 授权 `authorize_root(access, target_workspace)`、阶段授权 `authorize_stage(access, target_workspace)`；进程控制授权；无状态 | Workspace Actor 访问注册表 | 授权点 |
 
 认证与授权互不依赖：两者都只读同一份访问注册表，经 context 这个类型发生联系；认证网关是唯一对外的认证入口，运行持有者不直接持有 `WorkspaceAuthenticator`。
 
-`authorize_operation` 的检查顺序：读取 context 的授予内容并确认未撤销、准入记录仍然有效；目标 Workspace 等于驻留 Workspace；actor 用户等于目标 Workspace 的 owner；访问登记的白名单包含该 operation；全部通过才返回 `IdentityScope(actor, target)`。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。
+三种授权共用前三步：读取 context 的授予内容并确认未撤销、准入记录仍然有效；目标 Workspace 等于驻留 Workspace；actor 用户等于目标 Workspace 的 owner。此后 `authorize_operation` 检查访问登记的白名单包含该 operation，`authorize_root` 检查 actor 是保留的 `system`，`authorize_stage` 不再检查；全部通过才返回 `IdentityScope(actor, target)`，发起者始终是 context 中的 actor。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。三种授权的调用面与设计理由见第 4.5 节。
 
 **进程控制授权**：取消与状态查询比对请求方 context 与进程记录中的 context，两者驻留在同一 owner 与 Workspace 时允许；请求方 context 无效以 `ScopeRequiredError` 拒绝；进程记录侧的 context 已撤销时按不可控处理，呈现为 `not_found`，不泄露进程是否存在。
 
 **执行标签与凭据**：注册认证通过后，以该注册的 Agent 和 Workspace 创建一次冻结的 `ExecutionLabels(agent_id, workspace_id)`，由 `BoundProcessEvents` 持有。CPU 分配显式接收同一标签对象，传给 `CPUInputManifest.labels`；Alice 的运行上下文与主、子 frame 沿用它，不读取访问 context 组装身份。标签只服务历史角色匹配、展示回退与运行观测，不能授权或选择资源目标。Actor 阶段独立签发的不透明执行凭据绑定授权所需的 context 与注册目标；操作入口的职责与吊销边界见第 5.4 节。
 
-### 4.5 操作目录与授权点
+### 4.5 三个调用面：actor API、root API 与任务进程的阶段调用
 
-`WorkspaceOperation`（`core.access`）是操作定义目录（代码契约）；某 Actor 实际获准的集合只由访问注册表表达（授权配置），两者必须分开。每个 operation 只授予其语义声明的能力，互不隐含、不可推导；新增 operation 不自动加入已有白名单：
+能力层对外有两个互不导入的 API 面，任务进程另有自己的阶段调用。三者对应 `WorkspaceOperationAuthorizer` 的三种授权：
 
-| operation | 绑定的授权点（授权失败时不触达资源后端） |
+| 调用面 | 代码 | 授权 | 检查（共用的准入与目标检查之外） | 调用方 |
+|:---|:---|:---|:---|:---|
+| actor API | `workspace/capability/actor/` | `authorize_operation` | 访问登记白名单包含该 actor 操作 | 只有操作入口 `WorkspaceOperationEntry`（第 5.4 节） |
+| root API | `workspace/capability/root/` | `authorize_root` | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；Profile 注入脚本 |
+| 阶段调用 | `workspace/process/`（`TaskProcessRunner`、`CPUAllocator`） | `authorize_stage` | 不检查 actor 操作 | 任务进程自身的编排 |
+
+**为什么分成三个调用面**：能力层最初从 System 层的应用服务原样迁入，管理方法与 actor 方法混在同一批服务中，管理能力是可以登记给任何 actor 的普通 operation；actor 一侧的方法也与 actor 能做的事对不齐，任务进程的阶段调用还借用 actor 的 operation，没有检索许可的 Agent 在 prepare 阶段就会失败。现在的划分按"谁在做这件事"区分：
+
+- **actor 操作**是 actor 在 Workspace 中主动执行的事，与 MTP 动词一一对应，白名单只表达这一类；
+- **root 能力**是管理员（root）对 Workspace 的管理，类似操作系统中 root 账户与普通账户的关系：它不是 actor 操作，不能登记给任何 actor，root 只有保留的 `system` 一个；
+- **阶段调用**是进程替 actor 做的系统操作（Gateway 读话题、预检索、CPU 分配、交互提交），actor 没有发起它们，因此不以 actor 的许可为前提。阶段授权返回的 scope 仍以进程 actor 为发起者，资源 owner 照常按该 actor 的身份过滤可见性：预检索不会让其他 Agent 的 PRIVATE 记忆进入输入清单，但它不检查 actor 能否 READ——没有 READ 许可的 actor 能否进一步读取预检索结果，不由预检索负责。
+
+`system` 还有第二种用法：非主动路径（手动、idle、LRU、shutdown 结算）的发起者（第 8.2 节）。这种用法只经资源 owner 的普通可见性规则读取，从不经过 root API，两者分属不同入口。
+
+**actor 操作目录**：`WorkspaceOperation`（`core.access`）只有六项，每项对应一种请求和一个 actor API 方法；某 actor 实际获准的集合只由访问注册表表达。各项互不隐含，新增操作不自动加入已有白名单：
+
+| operation | MTP 动词 | 请求 | actor API 方法 | 说明 |
+|:---|:---|:---|:---|:---|
+| `memory.read` | READ（含 Agent Profile 原子；CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用 |
+| `memory.search` | SEARCH | `RetrieveRequest` | `ActorMemoryService.retrieve` | 结果预热原子缓存；不记录引用 |
+| `memory.run` | RUN 的记忆中用户态工具 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付执行目标时记录引用；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
+| `memory.write` | WRITE | `SubmitWriteIntentRequest` | `ActorMemoryService.submit_write_intent` | ACK 只表示意图已登记 |
+| `memory.update` | UPDATE | `SubmitUpdateIntentRequest` | `ActorMemoryService.submit_update_intent` | 基础原子按正式原子 policy 验证；不记录引用 |
+| `agent.call` | CALL（只有 Alice 使用） | `ResolveCallTargetRequest` | `ActorAgentService.resolve_call_target` | 读取 CALL 目标 Profile，内置 Profile 同样授权 |
+
+RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor 能创建子帧，但没有 `memory.read` 时 `context_refs` 解析失败并被跳过，共享上下文中不出现这些记忆。撤回意图不在目录中：它是执行单元内部的补偿请求，由操作入口直接处理（第 5.4 节）。
+
+**root API**：方法与原管理用例一致，授权改为 root 授权；管理读取经 Patchouli 公开路由直接读取，不进入 actor 读取视图的缓存。
+
+| 服务 | 方法 |
 |:---|:---|
-| `resource.read` | 能力层的 Actor 可见 Memory 点读与 alias 读取；任务进程的 Gateway 话题读取与结算后的话题池读取 |
-| `resource.search` | 能力层的语义检索；任务进程的 prepare（话题与检索）与 cleanup 补偿 |
-| `profile.read` | 能力层的 Agent Profile 读取（主进程与 CALL 目标，内置 Profile 同样授权）；任务进程 CPU 分配中的 Profile 解析 |
-| `asset.acquire` | 任务进程 CPU 分配中的附件租借；不授权上传 |
-| `interaction.submit` | 任务进程的 finalize（提交交互记录）：进入 Actor 执行前预检，调用 finalize 前再次授权 |
-| `memory_intent.submit` | 能力层的 WRITE/UPDATE 意图提交与本进程 PENDING 意图的撤回；UPDATE 基础在提交授权后按正式原子 policy 验证 |
-| `task.observe` | 能力层的生成任务 list/get（观察不授予取消） |
-| `management.memory` | 能力层的 Memory 管理 create/list/get/update/delete/feedback；Agent Profile 的管理创建与列表 |
-| `management.task` | 能力层的生成任务取消 |
-| `management.topic` | 能力层的 Topic 结算/驱逐，以及管理员的话题列表 |
-| `management.asset` | 能力层的 WorkspaceAsset 上传登记 |
+| `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory` |
+| `RootAgentProfileService` | `create_agent_profile`、`list_agent_profiles` |
+| `RootTopicService` | `list_active_topics`、`settle_topic`、`evict_topic` |
+| `RootMemoryTaskService` | `list_memory_tasks`、`get_memory_task`、`cancel_memory_task` |
+| `RootWorkspaceAssetService` | `upload_asset` |
 
-**授权点**：
+两种读取视角因此分属两个 API 面：
 
-- **能力层**（`workspace/capability/`）：方法只接收访问 context、目标 Workspace 与业务参数，先调用 `authorize_operation`，再用返回的 `IdentityScope` 构造领域对象并调用 Patchouli，不向下传 context。附件上传只使用授权返回的 scope，调用方不能另传 scope；检索请求由能力层用授权返回的 scope 构造。
-- **任务进程的阶段检查**：阶段调用是进程自身的编排而非 actor 的主动操作，每次阶段调用前以任务参数中的目标 Workspace 授权，再把返回的 `IdentityScope` 传给对应路由。`PreparedAgentRun` 只冻结 prepare 的 `belong_to`；finalize 使用当次 `interaction.submit` 授权所得发起者，归属不一致时在接纳交互前抛 `WorkspaceMismatchError`。cleanup 重新授权 `resource.search`，拒绝时记录警告并完成进程关闭；资源 owner 对越域 prepared 返回 `False`，不执行删除。
-- **注册入口**：注册时完成两阶段认证；取消与状态查询经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
-
-能力层的读取分为两族，对应两种视角：
-
-| | Actor 可见读取 | 管理读取 |
+| | actor 读取（actor API） | 管理读取（root API） |
 |:---|:---|:---|
-| 方法 | `read`、`retrieve_by_aliases`、`resolve_references`、`retrieve`、`get_agent_profile` | `get_memory`、`list_memories`、`list_agent_profiles` |
-| operation | `resource.read`、`resource.search`、`profile.read` | `management.memory` |
-| 可见性 | 按原子的 `MemoryAccessPolicy` 对当前 Actor 授权，不可见与不存在都按不存在处理 | owner 管理语义：整个 Workspace 可见，只校验 Workspace 归属 |
-| 读取路径 | workspace 读取视图（L0 意图登记、L1 原子/Profile 缓存、L2 冷读回填） | 经 Patchouli 公开路由直接读取中期库，不进入缓存 |
+| 方法 | `resolve_references`、`resolve_run_target`、`retrieve`、`resolve_call_target` | `get_memory`、`list_memories`、`list_agent_profiles`、`list_active_topics` |
+| 可见性 | 按原子的 `MemoryAccessPolicy` 对当前 actor 授权，不可见与不存在都按不存在处理 | owner 管理语义：整个 Workspace 可见，只校验 Workspace 归属 |
+| 读取路径 | workspace 读取视图（L0 意图登记、L1 原子/Profile 缓存、L2 冷读回填） | 经 Patchouli 公开路由直接读取，不进入缓存 |
 
-行为许可与资源许可必须同时满足：有 `resource.read` 仍可能被 private memory 拒绝，public memory 也不会使没有读取许可的 Actor 获得读取能力。`task.observe` 不授予取消、Pending 内容读或 canonical Memory 读取；`management.memory` 不得被 Topic/Asset/Task 借用泛化放行。
+行为许可与资源许可必须同时满足：有 `memory.read` 仍可能被 PRIVATE 记忆拒绝，PUBLIC 记忆也不会使没有读取许可的 actor 获得读取能力。
+
+**授权点的共同约定**：方法只接收访问 context、目标 Workspace 与业务参数，先调用对应授权，再用返回的 `IdentityScope` 构造领域对象并调用资源 owner，不向下传 context；授权失败时不触达资源后端。附件上传只使用授权返回的 scope，检索请求由 actor API 用授权返回的 scope 构造。
+
+**任务进程的阶段调用**：Gateway 话题读取、prepare（话题与检索）、cleanup 补偿、CPU 分配中的 Profile 解析与附件租借、finalize 与结算后的话题池读取，每次调用前都以任务参数中的目标 Workspace 执行阶段授权，再把返回的 `IdentityScope` 传给对应路由或端口。CPU 分配的 Profile 解析经组合根注入的 Profile 读取端口（workspace 读取视图）完成，不经能力层；任务进程不导入能力层。`PreparedAgentRun` 只冻结 prepare 的 `belong_to`；finalize 的授权在认领本进程意图之前执行，归属不一致时在接纳交互前抛 `WorkspaceMismatchError`。cleanup 重新执行阶段授权，拒绝时记录警告并完成进程关闭；资源 owner 对越域 prepared 返回 `False`，不执行删除。阶段授权的 scope 只交给紧随的阶段调用，不进入 CPU 输入清单、执行凭据或任何 CPU 可见的对象。
+
+**注册入口**：注册时完成两阶段认证，并拒绝以保留的 `system` 注册任务进程；取消与状态查询经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
+
+**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`authorize_root` 只在 root API 中出现；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
 
 ### 4.6 拒绝语义
 
@@ -305,8 +331,8 @@ context 是**密封的**凭据：
 `SystemAssembler` 从两个登记文件装载两类注册表，构造 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`（两者都只接收 Workspace Actor 访问注册表），再以 `SystemPrincipalAuthenticator` 与 `WorkspaceAuthenticator` 组装认证网关：
 
 - 认证网关注入任务进程的注册入口，并经 `HiveMemorySystem.access_gateway` 暴露给 server；
-- 操作授权者注入能力层各服务、注册入口与 CPU 分配；
-- 共享的 `ExecutionCredentialRegistry` 与 `WorkspaceOperationEntry` 由组合根装配；凭据表注入任务进程，公共 `OperationEntry` 注入 `AliceCPU`，能力层仍是逐次操作授权点；
+- 操作授权者注入 root API 与 actor API 的各服务、注册入口与 CPU 分配；CPU 分配另注入读取视图的 Profile 读取端口；
+- 共享的 `ExecutionCredentialRegistry` 与 `WorkspaceOperationEntry` 由组合根装配；凭据表注入任务进程，公共 `OperationEntry` 注入 `AliceCPU`；actor API 只由操作入口持有，门面只向 server 暴露 root API 与任务进程服务；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。
 
 依赖方向为 `system → workspace → core`；workspace 不导入 System，Patchouli 不依赖 workspace 的认证与授权实现。停止顺序见第 9.2 节。
@@ -337,23 +363,23 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 缓存按所有权适用两条键控规则：
 
 1. **事实源按 ownership 寻址与校验**：跨子系统的 WorkspaceAssetStore 等事实源以 `WorkspaceIdentity` 参与资源复合键，在最终边界校验归属；
-2. **派生视图按派生源坐标键控**：workspace 的完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。主进程与 CALL 目标都经同一 Profile 读取能力；内置 Profile 也先检查 `profile.read`。
+2. **派生视图按派生源坐标键控**：workspace 的完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。主进程与 CALL 目标都经同一个 `ProfileResolver` 读取并按当前发起者检查源原子可见性：主进程 Profile 由 CPU 分配在阶段授权后读取，CALL 目标经 actor API 先检查 `agent.call`，内置 Profile 同样检查。
 
 canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.lifecycle` 动态状态的 patch 不发布，缓存原子的统计值可能较旧）；workspace 依次失效原子及 alias、失效源原子的 Profile 条目、推进 Workspace 代次。冷读开始与回填前比较代次，避免旧值在变更后重新进入缓存。通知只携带资源引用，不回放值，不做未送达补齐或重试。语义检索能力预热完整原子缓存，MTP SEARCH 经该能力获得同样行为；prepare 的检索结果不预热。
 
 ### 5.4 写入意图、执行凭据与操作入口
 
-`WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作关联的 `process_id`。同 Workspace 的其他 Agent 可经 `resource.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。WRITE/UPDATE 经 `memory_intent.submit` 授权后登记，ACK 仅表示接纳意图；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
+`WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作关联的 `process_id`。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记，ACK 仅表示接纳意图；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
 
 `AliasResolver` 统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。新登记不产生 expired，终态句柄保留到重启。
 
-`ExecutionCredentialRegistry` 是 workspace 共享的执行凭据表。任务进程进入 Actor 阶段时为主线程签发不透明的 `ExecutionCredential`，表内绑定访问 context、注册目标 Workspace 与 process_id；凭据本身没有身份字段，只按签发对象身份兑现，不能复制或序列化。签发不授予操作许可。`WorkspaceOperationEntry` 实现公共 `OperationEntry`，兑现凭据后把每个请求薄分派到一个能力方法；能力层仍逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。
+`ExecutionCredentialRegistry` 是 workspace 共享的执行凭据表。任务进程进入 Actor 阶段时为主线程签发不透明的 `ExecutionCredential`，表内绑定访问 context、注册目标 Workspace 与 process_id；凭据本身没有身份字段，只按签发对象身份兑现，不能复制或序列化。签发不授予操作许可。`WorkspaceOperationEntry` 实现公共 `OperationEntry`，兑现凭据后把每个 actor 请求薄分派到一个 actor API 方法；actor API 仍逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。`system` 的 context 即使取得凭据，也因白名单为空而在每个 actor 请求上被拒绝。
 
-CPU 的独立 `credential` 参数不进入输入清单。`AliceCPU` 将凭据绑定为 `OperationSubmitter`，MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id；主、子 frame 暂时共享该提交函数。六类 `OperationRequest[R]` 的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与执行凭据)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子 frame 未成功结束时提交撤回请求，只撤回它已收到 ACK 且仍为 PENDING 的意图，同样要求 `memory_intent.submit`。
+CPU 的独立 `credential` 参数不进入输入清单。`AliceCPU` 将凭据绑定为 `OperationSubmitter`，MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id；主、子 frame 暂时共享该提交函数。六项 actor 请求与内部撤回请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与执行凭据)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子 frame 未成功结束时提交撤回请求，只撤回它已收到 ACK 且仍为 PENDING 的意图。撤回是执行单元内部的补偿，不属于 actor 操作：操作入口兑现凭据后直接以绑定的 process_id 调用写入意图登记，不检查 operation、不经 actor API，因此缺少 WRITE/UPDATE 许可也能补偿本进程先前登记的意图，且不能撤回其他进程或已被认领的意图。
 
 completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；已认领任务在 finalize 失败时保持 MATERIALIZING。关闭先同步吊销执行凭据、取消本进程仍为 PENDING 的意图并释放附件租借，再等待输出流关闭与 cleanup；访问 context 最后由注册入口撤销。吊销只删除凭据绑定，不取消操作调用方任务，在途只读请求可以自然完成；后续提交明确拒绝。意图提交可能在等待期间遇到关闭（当前是 UPDATE 的基础冷读），操作入口对 WRITE、UPDATE 都在能力返回后的同步段重新兑现凭据，若已吊销就同步撤回该次刚登记的意图并拒绝返回 ACK，避免关闭后留下游离 PENDING 意图；统一复查使这条保证不依赖能力方法内部是否等待。
 
-引用读取的副作用也由能力层拥有：`resolve_references` 对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。READ、RUN 记忆目标与 CALL context_refs 共享该路径；RUN 在类型检查和工具执行前已读取，所以后续执行失败仍计数，CALL context_refs 是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
+引用读取的副作用也由 actor API 拥有：READ（`resolve_references`）与 RUN（`resolve_run_target`）共享同一解析与引用记录路径，对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。RUN 在类型检查和工具执行前已交付目标，所以后续执行失败仍计数；CALL context_refs 经 READ 请求，是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
 
 结算事件仍由 Patchouli 发布。settled 必带且匹配 intent_id；failed/cancelled 保持只带不可复用 pending_alias 的旧载荷，登记处理器在可选 intent_id 被提供时追加校验。
 
@@ -396,7 +422,7 @@ Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic �
   -> server/deps.py 解析为身份声明（actor 声明 + 请求进入的 Workspace）
   -> 统一认证网关：第 1、2 阶段，签发绑定本次运行的访问 context
        chat：由注册入口认证并创建任务进程；管理操作与取消：请求级 context
-  -> 授权点：第 3 阶段，组装 IdentityScope（能力层 / 任务进程的阶段检查）
+  -> 授权点：第 3 阶段，组装 IdentityScope（actor API / root API / 任务进程的阶段授权）
   -> public route / 资源 owner 公共边界（接收 IdentityScope）
   -> Patchouli 拆为 belong_to / from_actor，内部独立传递
   -> 在 Workspace-owned 资源边界校验归属与 actor policy
@@ -455,7 +481,9 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 
 - W0 只支持默认 `main_workspace` 的公开入口和内部 `isolation_workspace` 测试 seam，不提供用户可见的 Workspace 创建、切换、Mount、Bridge、Grant 或跨 Workspace sharing；
 - 访问登记只有进程内本地配置：无远程凭据协议、通用 IAM、管理 API 或热更新；HTTP 请求头中的用户身份不做证明，只适用于本地单用户部署；
-- 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单，不能按 Agent 区分权限；
+- 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单；按 Agent 区分需要逐个登记精确记录；
+- MTP 动词与 `sys_*` 系统工具仍同时受 Agent Profile 的 `allowed_mtp_verbs` / `allowed_sys_tools` 约束，与访问登记的 actor 操作白名单并存，两处检查都通过才执行；
+- root 只由 actor 是否为保留的 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`：任何已登记且可代表该用户的来源都能进入 root API。当前登记的来源都是本地受信进程；
 - Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权，目前没有生产调用方；新的调用方必须在自己的授权点先完成操作授权；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
 - WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
@@ -477,7 +505,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 
 - [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)；
 - 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（注册入口与进程表、进程状态容器、四阶段骨架 `TaskProcessRunner` 与交付、CPU 分配、`chat.run.*` 事件投影与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（CPU 输入与结果、操作请求、执行凭据及入口协议）；
-- 能力层与读取视图：[`workspace/capability/`](../../src/hivememory/workspace/capability/)、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
+- 能力层与读取视图：[`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)（root API）、[`workspace/capability/actor/`](../../src/hivememory/workspace/capability/actor/)（actor API）、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
 - 写入意图与操作入口：[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)、[`ExecutionCredentialRegistry`](../../src/hivememory/workspace/credentials.py)、[`WorkspaceOperationEntry`](../../src/hivememory/workspace/capability/operations.py)；Profile 读取统一使用 [`ProfileResolver`](../../src/hivememory/workspace/resolution/profile.py)；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；
 - [`AssetMaterializationReader`](../../src/hivememory/system/services/asset_materialization_reader.py)（WorkspaceAsset 旧身份端口的临时物化适配器）；
@@ -485,14 +513,14 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 
 代表性行为测试：
 
-- 访问边界：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/architecture/test_access_boundaries.py`](../../tests/unit/architecture/test_access_boundaries.py)、[`tests/unit/workspace/test_import_boundaries.py`](../../tests/unit/workspace/test_import_boundaries.py)、[`tests/unit/architecture/test_package_layers.py`](../../tests/unit/architecture/test_package_layers.py)、[`tests/integration/workspace/test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)、[`tests/integration/workspace/test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）；
+- 访问边界：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/architecture/test_access_boundaries.py`](../../tests/unit/architecture/test_access_boundaries.py)、[`tests/unit/workspace/test_import_boundaries.py`](../../tests/unit/workspace/test_import_boundaries.py)、[`tests/unit/architecture/test_package_layers.py`](../../tests/unit/architecture/test_package_layers.py)、[`tests/integration/workspace/test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权）、[`test_registration_configuration.py`](../../tests/integration/workspace/test_registration_configuration.py)（旧 operation 与 `system` 白名单的装载失败）、[`tests/integration/workspace/test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）；
 - [`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)；
 - [`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)；
-- 操作请求、凭据与引用交付：[`tests/integration/workspace/test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`tests/e2e/system/test_alice_capability_chat.py`](../../tests/e2e/system/test_alice_capability_chat.py)；
+- 操作请求、凭据与引用交付：[`tests/integration/workspace/test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`tests/e2e/system/test_alice_capability_chat.py`](../../tests/e2e/system/test_alice_capability_chat.py)、[`test_stage_authorization_chat.py`](../../tests/e2e/system/test_stage_authorization_chat.py)（没有 actor 操作的 Agent 完成 chat，预检索仍按 actor 过滤）；
 - 写入意图与读取失效：[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`tests/integration/workspace/test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)；
 - [`tests/integration/patchouli/test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)；
 - [`tests/integration/system/test_workspace_asset_runtime.py`](../../tests/integration/system/test_workspace_asset_runtime.py)、[`test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)；
 - cache 串扰与授权重验：[`tests/unit/workspace/resolution/test_alias_resolver.py`](../../tests/unit/workspace/resolution/test_alias_resolver.py)、[`tests/unit/workspace/resolution/test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)；
 - 附件链路：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)；完整入口见[Chat 附件链路](../system/attachments.md)。
 
-相关入口：[总体架构](./overview.md)、[系统边界与所有权](./boundaries.md)、[数据模型与可变性边界](./data-model.md)、[System 组合根与生命周期](../system/composition.md)、[MemoryLibrary](../patchouli/memory-library.md)、[Perception 与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)、[Chat 附件链路](../system/attachments.md)、[归档的 A1 访问边界计划](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[归档的 Alice 能力层迁移](../archive/plans/v0.7.0-alice-capability-migration.md)和[Workspace 文档收口历史审计](../archive/plans/documentation-migration-finalization-audit.md)。
+相关入口：[总体架构](./overview.md)、[系统边界与所有权](./boundaries.md)、[数据模型与可变性边界](./data-model.md)、[System 组合根与生命周期](../system/composition.md)、[MemoryLibrary](../patchouli/memory-library.md)、[Perception 与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)、[Chat 附件链路](../system/attachments.md)、[归档的 A1 访问边界计划](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[归档的 Alice 能力层迁移](../archive/plans/v0.7.0-alice-capability-migration.md)、[归档的能力层分层](../archive/plans/v0.7.0-capability-surface-split.md)和[Workspace 文档收口历史审计](../archive/plans/documentation-migration-finalization-audit.md)。

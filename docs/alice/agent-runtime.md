@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Agent Runtime
@@ -32,7 +32,7 @@ AgentRunService
        -> AgentLoopExecutor
        -> WorkerAgentService
        -> MTPExecutor port -> KoakumaRuntime
-       -> frame submit_operation -> WorkspaceOperationEntry -> workspace capability
+       -> frame submit_operation -> WorkspaceOperationEntry -> workspace actor API
 ```
 
 `src/hivememory/agent_runtime/` 是共享执行层，不是子系统：

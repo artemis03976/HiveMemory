@@ -8,12 +8,12 @@
 omni_doll 是代码内置的 fallback Profile（``OMNI_DOLL_PROFILE``），按 alias 解析时
 先于存储记录生效，因此不注入存储。
 
-写入走与 ``POST /api/v1/agents`` 相同的root 管理用例（RootAgentProfileService →
+写入走与 ``POST /api/v1/agents`` 相同的 root 管理用例（RootAgentProfileService →
 Patchouli 完整写入路径）：执行字段校验并生成版本记录。已存在的 alias 跳过，
 可重复执行。
 
 使用方式:
-    python scripts/inject_profiles.py [--user-id USER]
+    python scripts/inject_profiles.py [--user-id USER] [--principal-id PRINCIPAL]
 
 前置条件:
     - 本地脚本 principal 已登记，目标用户的 system actor 有 Workspace 准入

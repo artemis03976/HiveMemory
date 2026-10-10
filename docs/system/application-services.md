@@ -23,7 +23,7 @@ last_reviewed: 2026-10-10
 应用服务是 transport 与子系统之间的用例层。它们由 System 组合根装配、经 `HiveMemorySystem` 门面交给入口，但按归属分布在三处：
 
 - 任务进程表与 chat 任务进程编排：`workspace.process`（`ProcessTable`/`ProcessRecord` 进程表、`TaskProcessService` 唯一注册入口、`TaskProcess` 进程状态容器与 `TaskProcessRunner` 四阶段骨架）；
-- 资源能力层：`workspace.capability`（Memory、MemoryTask、Agent Profile、Topic、WorkspaceAsset 服务）；
+- 资源能力层：`workspace.capability`，分为只供 `system` 的 root API（`root/`：Memory、Agent Profile、Topic、MemoryTask、WorkspaceAsset 管理服务）与只经操作入口供 actor 使用的 actor API（`actor/`：Memory 与 CALL 目标服务）；门面只向入口暴露 root API；
 - 系统级服务：`system.application`（被动摄入与就绪检查）。
 
 本文统一描述它们共同遵守的用例层规则。它们回答“这次请求应该按什么顺序跨边界运行”，而不回答“记忆如何检索”“Agent 如何生成”或“Gateway 如何分析”。
@@ -40,11 +40,11 @@ last_reviewed: 2026-10-10
 4. 不把内部 execution state、fallback 原因和观测事件直接返回给外部客户端；
 5. 对取消、失败和 cleanup 保持与 Contracts 一致的终态。
 
-身份与访问的交接遵循两阶段认证与两阶段授权（[Workspace 架构](../architecture/workspace.md)第 4 节）：server 在 `server/deps.py` 用 `resolve_request_identity_claims` 把用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）解析为身份声明，交给统一认证网关取得访问 context：chat 由任务进程的注册入口认证，管理操作与取消取得绑定本次请求的请求级 context。应用服务不解析身份，也不执行默认解析；非 Agent action 的声明使用保留 `system` actor，只标记"没有具体 Agent 作为操作来源主体"。`IdentityScope` 只用于一次操作到公开资源边界的调用；Patchouli 在该边界拆出 `belong_to` 与 `from_actor`，后台 task 和 retry 使用这些独立字段，由领域所有者校验归属与可见性。finalize 的 scope 来自调用前的阶段授权，不从 prepare 结果或当前 Workspace 推导。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
+身份与访问的交接遵循两阶段认证与两阶段授权（[Workspace 架构](../architecture/workspace.md)第 4 节）：server 在 `server/deps.py` 用 `resolve_request_identity_claims` 把用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）解析为身份声明，交给统一认证网关取得访问 context：chat 由任务进程的注册入口认证，管理操作与取消取得绑定本次请求的请求级 context。应用服务不解析身份，也不执行默认解析；非 Agent action 的声明使用保留 `system` actor，标记"没有具体 Agent 作为操作来源主体"，它也是 root API 唯一接受的 actor。`IdentityScope` 只用于一次操作到公开资源边界的调用；Patchouli 在该边界拆出 `belong_to` 与 `from_actor`，后台 task 和 retry 使用这些独立字段，由领域所有者校验归属与可见性。finalize 的 scope 来自调用前的阶段授权，不从 prepare 结果或当前 Workspace 推导。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
 应用服务可以保存一次用例的短期控制状态，例如任务进程编排的进程表，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。
 
-workspace 能力层（Memory、Agent、Topic、Task 能力服务与附件上传服务）是授权点：方法只接收访问 context、目标 Workspace 与业务参数，先经操作授权者授权，再用返回的 `IdentityScope` 构造领域对象并调用 Patchouli 公开路由，不向下传 context。能力层的读取分两族：管理读取（Memory 与 Profile 的管理 get/list，绑定 `management.memory`）经 Patchouli 公开路由直接读取；actor 可见读取（Memory 点读、alias 读取、语义检索、Profile 读取）经 workspace 读取视图读取并在交付前逐次授权。Alice 的 SEARCH、READ、RUN、WRITE/UPDATE、意图撤回、CALL Profile 与共享引用统一提交操作请求，由 `WorkspaceOperationEntry` 兑现凭据后分派；CPU 分配经组合根注入的 Profile 读取协议调用 Agent 能力服务。引用读取为已交付的正式原子自动记录引用，UPDATE 基础解析不触发该副作用。HTTP 管理路由继续使用管理方法。WRITE/UPDATE 意图提交绑定 `memory_intent.submit`，登记的归属与发起者取自本次授权结果。
+workspace 能力层的两个 API 面都是授权点：方法只接收访问 context、目标 Workspace 与业务参数，先经操作授权者授权，再用返回的 `IdentityScope` 构造领域对象并调用资源 owner，不向下传 context。root API 用 root 授权（actor 必须是保留的 `system`，不读取白名单），管理读取经 Patchouli 公开路由直接读取；actor API 用 actor 操作授权（访问登记白名单包含对应操作），读取经 workspace 读取视图并在交付前逐次授权。HTTP 管理路由只调用 root API。Alice 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 目标读取与 `context_refs` 统一提交操作请求，由 `WorkspaceOperationEntry` 兑现凭据后分派到 actor API；子 frame 失败时的意图撤回是入口内部的补偿，不经 actor API。READ 与 RUN 为已交付的正式原子自动记录引用，UPDATE 基础解析不触发该副作用；WRITE、UPDATE 登记的归属与发起者取自本次授权结果。任务进程的阶段调用不经能力层，见第 3.1 节。三个调用面与六项 actor 操作的完整对照维护在[Workspace 架构](../architecture/workspace.md#45-三个调用面actor-apiroot-api-与任务进程的阶段调用)第 4.5 节。
 
 ### 1.1 Transport / Router 边界
 
@@ -60,14 +60,14 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，返回不透明的进程句柄；运行已注册的进程（主动非流式/流式 chat、command short-circuit、四阶段编排与阶段授权）；CPU 分配（Profile 解析、附件租借、附件与记忆编译、组装 `CPUInputManifest`）；进程表登记每个任务进程，提供取消、状态查询与关闭 | 认证网关、操作授权者；Gateway、Patchouli public routes；CPU 端口（组合根注入，当前为 Alice 的实现）；WorkspaceAsset reader 端口；MemoryCompiler、AttachmentCompiler；RuntimeEventPublisher（经 `TaskProcessEventEmitter` 投影 `chat.run.*`） |
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
-| `MemoryApplicationService`（`workspace.capability`） | Memory 管理 CRUD、feedback 和查询参数转换（`management.memory`）；actor 可见读取经读取视图（`resource.read` / `resource.search`）；提交 WRITE/UPDATE 意图与撤回本进程 PENDING 意图（`memory_intent.submit`） | 操作授权者；Patchouli memory routes；workspace 读取视图（写入意图登记经它取得，与 L0 回读是同一份） |
-| `MemoryTaskApplicationService`（`workspace.capability`） | 查询/取消 Patchouli 拥有的 memory generation task（观察 `task.observe`、取消 `management.task`） | 操作授权者；Patchouli task routes |
-| `AgentApplicationService`（`workspace.capability`） | 构造 Agent Profile atom 并调用 Patchouli profile routes（管理创建与列表绑定 `management.memory`）；Profile 读取经读取视图（`profile.read`） | 操作授权者；Patchouli profile routes；workspace 读取视图 |
-| `TopicApplicationService`（`workspace.capability`） | 活跃话题列表、手动 settle、evict（均绑定 `management.topic`） | 操作授权者；Patchouli topic routes |
+| `RootMemoryService`（`workspace.capability.root`） | Memory 管理 CRUD、feedback 和查询参数转换（root 授权） | 操作授权者；Patchouli memory routes |
+| `RootMemoryTaskService`（`workspace.capability.root`） | 查询/取消 Patchouli 拥有的 memory generation task（root 授权） | 操作授权者；Patchouli task routes |
+| `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权） | 操作授权者；Patchouli profile routes |
+| `RootTopicService`（`workspace.capability.root`） | 活跃话题列表、手动 settle、evict（root 授权） | 操作授权者；Patchouli topic routes |
+| `RootWorkspaceAssetService`（`workspace.capability.root`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册只使用授权返回的 scope | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、操作授权者；链路事实见[Chat 附件链路](./attachments.md) |
 | `SystemReadinessService`（`system.application`） | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
-| `WorkspaceAssetApplicationService`（`workspace.capability`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前授权（`management.asset`），注册只使用授权返回的 scope | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、操作授权者；链路事实见[Chat 附件链路](./attachments.md) |
 
-这些服务的“拥有”只指顶层用例入口，不改变表中后端子系统的状态所有权。例如 `MemoryTaskApplicationService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。
+这些服务的“拥有”只指顶层用例入口，不改变表中后端子系统的状态所有权。例如 `RootMemoryTaskService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。actor API 的 `ActorMemoryService`（READ、SEARCH、RUN、WRITE、UPDATE）与 `ActorAgentService`（CALL 目标）不经门面暴露，只由操作入口持有（第 3 节）。
 
 附件上传同样遵守这一边界：应用层只有 `upload_asset()` 用例入口，文件名规则、受限读取和 SHA-256 计算由附件接收函数实现，解析接纳、来源校验和失败/取消收尾由 `AttachmentParseService` 实现。应用层决定串行门覆盖整个请求，并保留 Store 返回的 `created` 标记；它不实现解析算法，也不维护另一份资产状态。完整职责与错误语义统一维护在[Chat 附件链路](./attachments.md)。上传方法只接收访问 context 与目标 Workspace，调用方不能另传 scope，注册与解析交接都使用授权返回的 scope。
 
@@ -91,7 +91,7 @@ CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组�
 
 Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, credential, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
 
-Actor 阶段由 runner 经共享 `ExecutionCredentialRegistry` 签发不透明的 `ExecutionCredential`，独立于输入清单交给 CPU。凭据表绑定本进程的访问 context、注册目标与 `process_id`；CPU 驱动将它绑定为 `submit_operation(request)`，Alice 的 root 与 CALL 子 frame 共用该函数。`WorkspaceOperationEntry` 先兑现凭据，再恰好调用对应能力方法，逐次授权仍在能力层；请求不携带身份、目标或进程选择。runner 不持有能力服务，凭据表不依赖 process/capability。
+Actor 阶段由 runner 经共享 `ExecutionCredentialRegistry` 签发不透明的 `ExecutionCredential`，独立于输入清单交给 CPU。凭据表绑定本进程的访问 context、注册目标与 `process_id`；CPU 驱动将它绑定为 `submit_operation(request)`，Alice 的 root 与 CALL 子 frame 共用该函数。`WorkspaceOperationEntry` 先兑现凭据，再恰好调用对应的 actor API 方法，逐次授权仍在 actor API；撤回意图请求由入口直接按绑定的 process_id 处理，不检查 operation。请求不携带身份、目标或进程选择。runner 不持有能力服务，凭据表不依赖 process/capability。
 
 进程关闭先于任何 await 同步吊销凭据、取消本进程 PENDING 意图并释放附件租借；后续请求抛 `ExecutionCredentialRevokedError`。关闭不取消操作调用方 task，已在途的只读请求自然完成；WRITE、UPDATE 返回入口时若凭据已经吊销（当前只有 UPDATE 在登记前等待冷读），入口在同步段补偿刚登记的 alias 后抛吊销错误，防止留下游离 PENDING。新增副作用前有 await 的能力方法时，必须补充同类返回后检查与同步补偿。
 
@@ -100,32 +100,31 @@ Actor 阶段由 runner 经共享 `ExecutionCredentialRegistry` 签发不透明�
 ```text
 TaskProcessService.register_process()：认证、创建进程、登记进程表，返回进程句柄
 TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(process)
-  -> Gateway public process (ACTIVE_CHAT)             阶段授权 resource.read
+  -> Gateway public process (ACTIVE_CHAT)             阶段授权
   -> command: return command outcome
-  -> decision: 解析 Agent Profile（workspace Agent 能力服务与读取视图）  profile.read
-  -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）  resource.search
-  -> CPU 分配：附件租借与编译（asset.acquire）、记忆编译、组装 CPUInputManifest
-  -> 进入 Actor 前检查 interaction.submit
+  -> decision: 解析 Agent Profile（workspace 读取视图）  阶段授权
+  -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）  阶段授权
+  -> CPU 分配：附件租借（阶段授权）与编译、记忆编译、组装 CPUInputManifest
   -> Actor 执行：CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
-  -> completed: 认领本进程 PENDING 意图、封口交互记录（InteractionPayload）-> interaction.submit 再授权 -> Patchouli finalize_agent_run
+  -> completed: 阶段授权 -> 认领本进程 PENDING 意图、封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
   -> cancelled/failed: 不进入 finalize，转入关闭补偿
   -> 关闭：TaskProcessRunner.close(process)
        -> 同步吊销执行凭据、取消本进程 PENDING 意图，经 CPUAllocator 释放附件租借
-       -> await CPU 输出流关闭；若 prepare 成功且 finalize 未成功，resource.search 再授权 -> await Patchouli cleanup_prepared_agent_run
+       -> await CPU 输出流关闭；若 prepare 成功且 finalize 未成功，阶段授权 -> await Patchouli cleanup_prepared_agent_run
        -> 注册入口在 finally 中撤销 context、从进程表注销
 ```
 
-每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_operation`，把返回的 `IdentityScope` 传给对应路由；某一阶段缺少 operation 时在该阶段失败，不产生后续副作用。进入 Actor 前检查 `interaction.submit`，用于提前拒绝；紧接 finalize 前再次检查同一 operation，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用。CPU 输入清单只携带冻结的 `ExecutionLabels(agent_id, workspace_id)`，与注册入口的 `chat.run.*` 发布器共用同一组标签；它不含访问 context 或 `IdentityScope`。标签用于提示词、展示与观测，不参与任何操作授权。
+阶段调用是进程替 Agent 做的系统操作，不是 Agent 主动执行的操作：每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_stage`，只校验 context 与准入仍然有效、目标与 owner 相符，不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成整条 chat 链路。返回的 `IdentityScope` 仍以进程的 Agent 为发起者，资源 owner 照常按该 Agent 过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆，但预检索不检查 Agent 能否 READ。finalize 的阶段授权在认领本进程意图之前执行，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用；授权失败时意图仍为 PENDING，由关闭流程取消。阶段授权只在 `workspace.process` 中调用（架构测试守护）。CPU 输入清单只携带冻结的 `ExecutionLabels(agent_id, workspace_id)`，与注册入口的 `chat.run.*` 发布器共用同一组标签；它不含访问 context 或 `IdentityScope`。标签用于提示词、展示与观测，不参与任何操作授权。
 
 CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
-Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 经 workspace Agent 能力服务与读取视图解析，正式原子变更会失效解析缓存；解析时机仍在 prepare 之前。
+Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 经阶段授权后由组合根注入的读取视图（`ProfileResolver`）解析，不经能力层，仍按进程 Agent 检查源原子可见性；正式原子变更会失效解析缓存；解析时机仍在 prepare 之前。
 
 交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；物化任务来自 workspace 登记对本进程 PENDING 意图的同步认领，认领将其改为 MATERIALIZING，CPU 结果不携带物化任务；finalize 原样提交。finalize 失败时，已认领的意图保持 MATERIALIZING，不增加跨边界回滚补偿。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
 进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流与本进程执行凭据；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
 
-进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步吊销执行凭据、取消本进程仍为 PENDING 的意图并释放全部租借，再关闭 CPU 输出流（若尚未关闭）、以 `resource.search` 再授权后请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
+进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步吊销执行凭据、取消本进程仍为 PENDING 的意图并释放全部租借，再关闭 CPU 输出流（若尚未关闭）、重新执行阶段授权后请求 cleanup；注册入口随后撤销进程绑定的访问 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
 
 Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
@@ -195,15 +194,17 @@ process_id
 
 ### 5.1 Memory 与 Profile
 
-`MemoryApplicationService` 用授权返回的 `IdentityScope` 将 API 字段构造成 `MemoryAtom`，再通过 Patchouli public route 执行 create/list/get/update/delete/feedback。列表查询会显式排除 `AGENT_PROFILE`，避免普通记忆管理 API 与 Profile 资产混为一类；不存在的 get/update 被翻译为 `MemoryNotFoundError`。管理读写按 owner-management 语义执行：在 Workspace ownership hard boundary 之内访问该 Workspace 的全部 Memory，不执行 Agent 级 `MemoryAccessPolicy` 可见性过滤（见[Workspace 架构](../architecture/workspace.md)与[MemoryLibrary](../patchouli/memory-library.md)）。
+管理类应用服务都属于 root API：只接受保留的 `system`，任何具体 Agent 即使持有全部 actor 操作也以 `root_required` 被拒绝，`system` 也不需要（不能配置）白名单。
 
-`AgentApplicationService` 用同样的 atom 结构创建 `AGENT_PROFILE`，Profile 的实际持久化和可见性仍由 Patchouli 负责。这里的 `agent_config` 是资产内容，不是 System 直接解释的运行时权限。
+`RootMemoryService` 用授权返回的 `IdentityScope` 将 API 字段构造成 `MemoryAtom`，再通过 Patchouli public route 执行 create/list/get/update/delete/feedback。列表查询会显式排除 `AGENT_PROFILE`，避免普通记忆管理 API 与 Profile 资产混为一类；不存在的 get/update 被翻译为 `MemoryNotFoundError`。管理读写按 owner-management 语义执行：在 Workspace ownership hard boundary 之内访问该 Workspace 的全部 Memory，不执行 Agent 级 `MemoryAccessPolicy` 可见性过滤（见[Workspace 架构](../architecture/workspace.md)与[MemoryLibrary](../patchouli/memory-library.md)）。
+
+`RootAgentProfileService` 用同样的 atom 结构创建与列出 `AGENT_PROFILE`，Profile 的实际持久化和可见性仍由 Patchouli 负责。这里的 `agent_config` 是资产内容，不是 System 直接解释的运行时权限。Profile 注入脚本（`scripts/inject_profiles.py`）以登记的本地来源 `hivememory:profile-injector` 和 `system` 声明经认证网关取得请求级 context，再调用同一 root API，结束时撤销 context。
 
 ### 5.2 Task、Topic 与 Readiness
 
-`MemoryTaskApplicationService` 授权后转发 task list/get/cancel（观察绑定 `task.observe`、取消绑定 `management.task`），Patchouli 将公共 scope 的目标 Workspace 与任务的 `belong_to` 比对；不存在与越域任务统一隐藏，HTTP 查询和取消都映射为同一 404。能力层不从 Patchouli task 对象推导第二套状态机。
+`RootMemoryTaskService` 授权后转发 task list/get/cancel，Patchouli 将公共 scope 的目标 Workspace 与任务的 `belong_to` 比对；不存在与越域任务统一隐藏，HTTP 查询和取消都映射为同一 404。root API 不从 Patchouli task 对象推导第二套状态机。
 
-`TopicApplicationService` 提供活跃话题列表、手动 settle 和 evict 入口，三者都绑定 `management.topic`（管理用例的 actor 为保留 `system`，它的白名单不含 `resource.read`）；授权后以返回的 `IdentityScope` 通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
+`RootTopicService` 提供活跃话题列表、手动 settle 和 evict 入口；授权后以返回的 `IdentityScope` 通过 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，不参与 Workspace 资源授权。
 
 ## 6. 错误、观测与 cleanup
 
@@ -239,7 +240,10 @@ process_id
 - `tests/unit/server/routers/test_chat.py`（注册后运行、客户端断开取消、流从未开始时的关闭）
 - `tests/unit/system/application/test_api_services.py`
 - `tests/unit/system/application/test_identity_entry_guards.py`（服务签名/身份入口守卫）
-- `tests/unit/workspace/capability/`（Memory、MemoryTask、Agent Profile、Topic 能力服务）
+- `tests/unit/workspace/capability/root/`、`tests/unit/workspace/capability/actor/`（root 与 actor API 的各服务）
+- `tests/integration/workspace/test_root_api_authorization.py`（逐方法验证 root 授权：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用）
+- `tests/e2e/system/test_stage_authorization_chat.py`（没有任何 actor 操作的 Agent 经 HTTP 完成 chat，预检索与 Profile 仍按该 Agent 校验可见性）
+- `tests/integration/workspace/test_profile_injection_script.py`（注入脚本经认证网关与 root API 写入，重复执行幂等）
 - `tests/unit/system/application/test_readiness_service.py`
 - `tests/integration/workspace/capability/test_assets.py`、`tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
 - `tests/integration/workspace/test_process_intents.py`（按进程认领、取消、凭据吊销与在途 UPDATE 同步补偿）

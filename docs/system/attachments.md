@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/server/models/workspace_asset.py
   - src/hivememory/server/models/chat.py
   - src/hivememory/server/routers/chat.py
-  - src/hivememory/workspace/capability/assets.py
+  - src/hivememory/workspace/capability/root/assets.py
   - src/hivememory/workspace/assets/upload.py
   - src/hivememory/workspace/assets/parse_service.py
   - src/hivememory/config/attachments.py
@@ -38,7 +38,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-10
 ---
 
 # Chat 附件链路
@@ -78,7 +78,7 @@ Topic settlement
 
 上传入口是 `POST /api/v1/workspace/assets`，单文件 `multipart/form-data`，文件字段名 `file`；重复 file part、多文件 part 或额外业务字段按非法请求拒绝。请求头 `Idempotency-Key` 是本次上传的稳定 operation identity，服务层将其映射为 Store 的 `client_operation_id`；同一文件重试必须沿用同一取值。身份仍由 `x-user-id` / `x-workspace-id` 统一承载。
 
-上传应用服务（`WorkspaceAssetApplicationService`）只负责用例顺序：持有 operation 串行门（`components/serial_gate.py` 的 `KeyedSerialGate`）、接收文件、调用 Store 原子注册、交给解析服务并返回最终回执。文件接收由 `workspace/assets/upload.py` 的 `receive_upload` 完成，解析接纳由同目录 `parse_service.py` 的 `AttachmentParseService` 承担；两者都不额外引入上传数据模型。
+上传应用服务（root API 的 `RootWorkspaceAssetService`，只接受保留的 `system`）只负责用例顺序：持有 operation 串行门（`components/serial_gate.py` 的 `KeyedSerialGate`）、接收文件、调用 Store 原子注册、交给解析服务并返回最终回执。文件接收由 `workspace/assets/upload.py` 的 `receive_upload` 完成，解析接纳由同目录 `parse_service.py` 的 `AttachmentParseService` 承担；两者都不额外引入上传数据模型。
 
 接收阶段在创建资产前完成全部无副作用校验：拒绝空文件；文件名做 NFKC 规范化、去除路径分隔符与控制字符并限制为 200 字符（只作展示用途的 `display_name`）；按批准格式集合分派规范媒体类型（`.txt`/`.md`/`.markdown`/`.docx`，客户端 MIME 只作提示、明确冲突即拒绝）。读取按 64 KiB 分块进行，`size_bytes` 与 SHA-256 均以实际读取字节为准，超出 `max_raw_bytes` 立即中止。上传流与框架临时文件由 router 在 transport 边界关闭；接收函数不访问 Store，也不持有资产生命周期。
 
@@ -165,7 +165,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 后端：
 
-- 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/assets.py`](../../src/hivememory/workspace/capability/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
+- 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/root/assets.py`](../../src/hivememory/workspace/capability/root/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
 - 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`components/serial_gate.py`](../../src/hivememory/components/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`infrastructure/attachments/`](../../src/hivememory/infrastructure/attachments/)；
 - Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/runner.py`](../../src/hivememory/workspace/process/runner.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；封口写入快照：[`workspace/process/sealing.py`](../../src/hivememory/workspace/process/sealing.py)；finalize 原样提交：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；

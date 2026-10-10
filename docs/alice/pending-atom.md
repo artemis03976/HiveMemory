@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
@@ -43,7 +43,7 @@ READ、RUN 的记忆目标与 CALL 的 `context_refs` 提交 `ResolveReferencesR
 
 同一 Workspace 的其他 Agent 或后续任务进程能够回读仍在飞行的意图；UPDATE 意图只对能读取其基础原子的 Agent 可见，否则在任何状态下都与不存在相同。结算后，旧 alias 可以解析为 canonical redirect；CALL 与 READ 只使用实际可读的 canonical 原子，不把无可读目标的 redirect 交给编译器。不同 Workspace 的意图与不存在相同。
 
-SEARCH 提交 `RetrieveRequest`，经 `resource.search` 授权后检索；读取视图在代次未变时预热 workspace 原子缓存，随后的 READ 可直接命中。引用读取在能力层返回前为交付的正式 atom 和可读 redirect 自动记录引用，同一请求按 UUID 去重，缓存命中也记录；pending、不可读目标及失败终态不记录。来源统一为 `workspace.reference_read`，记录失败只记日志，取消正常传播。UPDATE 基础解析不经此副作用。CALL 目标 Profile 也经操作请求与 workspace 读取视图取得，Alice 没有独立缓存。
+SEARCH 提交 `RetrieveRequest`，经 `memory.search` 授权后检索；读取视图在代次未变时预热 workspace 原子缓存，随后的 READ 可直接命中。READ 与 RUN 在 actor API 返回前为交付的正式 atom 和可读 redirect 自动记录引用，同一请求按 UUID 去重，缓存命中也记录；pending、不可读目标及失败终态不记录。来源统一为 `workspace.reference_read`，记录失败只记日志，取消正常传播。UPDATE 基础解析不经此副作用。CALL 目标 Profile 也经操作请求与 workspace 读取视图取得，Alice 没有独立缓存。
 
 ## 3. frame 产物与进程收尾
 

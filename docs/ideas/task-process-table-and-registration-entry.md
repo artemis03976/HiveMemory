@@ -221,7 +221,7 @@ flowchart LR
 
 记忆生成（独立业务 lane）、Topic 的空闲/LRU 结算，以及在全局维护调度器上注册的维护任务，都在 Patchouli 或 System 调度设施内部运行，不由任何 Actor 执行。
 
-记忆任务的暴露面：能力层的 [`MemoryTaskApplicationService`](../../src/hivememory/workspace/capability/memory_tasks.py) 为 HTTP 管理路由 `/api/v1/memory-tasks` 提供列表、查询与取消；任务进程在 finalize 返回后把本轮产生的记忆任务标识放入 SSE 事件（`memory_task_ids`）。MTP 没有与记忆任务相关的动词。
+记忆任务的暴露面：能力层 root API 的 [`RootMemoryTaskService`](../../src/hivememory/workspace/capability/root/memory_tasks.py) 为 HTTP 管理路由 `/api/v1/memory-tasks` 提供列表、查询与取消；任务进程在 finalize 返回后把本轮产生的记忆任务标识放入 SSE 事件（`memory_task_ids`）。MTP 没有与记忆任务相关的动词。
 
 ### 2.4 各阶段的取消行为（迁移前）
 

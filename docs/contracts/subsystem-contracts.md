@@ -156,7 +156,7 @@ Finalize：
 3. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
 4. 记录预检索命中。
 
-任务进程只对 `status == completed` 的执行结果封口并调用 finalize。`interaction.submit` 在进入 Actor 执行前预检，在调用 finalize 前再次授权，不能从 prepared 取回旧 scope。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
+任务进程只对 `status == completed` 的执行结果封口并调用 finalize。finalize 前重新执行阶段授权（在认领本进程意图之前），不能从 prepared 取回旧 scope。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
 
 finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不会默认进入长期知识。
 
@@ -170,7 +170,7 @@ cleanup_prepared_agent_run(
 ) -> bool
 ```
 
-Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。任务进程调用前重新以 `resource.search` 授权；拒绝时记录警告并继续关闭。Patchouli 校验当次 scope 与 prepared 的资源归属，越域时返回 `False`，不触发删除；已有话题、已有内容或已被 finalization continuation/submission queue 接管的话题同样不删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
+Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。任务进程调用前重新执行阶段授权；拒绝时记录警告并继续关闭。Patchouli 校验当次 scope 与 prepared 的资源归属，越域时返回 `False`，不触发删除；已有话题、已有内容或已被 finalization continuation/submission queue 接管的话题同样不删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
 
 它不是 rollback，也不承诺撤销整个 prepare 之后发生的一切。跨子系统没有一项可以原子回滚的数据库事务；cleanup 只补偿明确由 prepare 创建、且仍可安全判断为空的临时副作用。将它描述为回滚会诱使调用方删除已经存在或已被其他流程使用的长期状态。
 
@@ -192,11 +192,11 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 ### 3.5 访问 context 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成——workspace 能力层与任务进程的阶段检查先经 `WorkspaceOperationAuthorizer.authorize_operation(access, operation, target_workspace)` 授权，再把返回的 `IdentityScope` 交给紧随的 Patchouli 路由；finalize 与 cleanup 分别绑定 `interaction.submit` 和 `resource.search`，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_operation(access, operation, target_workspace)` 检查 actor 操作白名单；root API 用 `authorize_root(access, target_workspace)`，只接受保留的 `system`；任务进程的阶段调用（Gateway 话题读取、prepare、finalize、cleanup、话题池读取）用 `authorize_stage(access, target_workspace)`，不检查 actor 操作，发起者仍是进程的 Agent。finalize 与 cleanup 各自重新授权，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
-Alice 的 SEARCH、READ/RUN 记忆目标、WRITE/UPDATE、CALL 目标 Profile 与 context_refs 均经 workspace 能力层逐次操作授权；引用交付由能力层记录 `workspace.reference_read` citation。交互提交（`interaction.submit`）与主动记忆意图提交（`memory_intent.submit`）路由只接收 `IdentityScope`，目前没有生产调用方，新的调用方须在自己的授权点先完成操作授权。
+Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation。Patchouli 的公开交互提交与主动记忆意图提交路由只接收 `IdentityScope`，目前没有生产调用方，新的调用方须在自己的授权点先完成授权。
 
 Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
 
@@ -267,25 +267,27 @@ run_agent(
 - Alice 不直接请求 Patchouli；检索、引用交付与 Profile 读取经 workspace 操作请求完成，Alice 不持有资源缓存或 resolver；
 - WRITE/UPDATE 经操作请求只登记 workspace 意图并返回 ACK；物化任务由 completed 的任务进程认领，Alice 不持有登记；
 - 取消或失败结果不默认进入 Patchouli finalize；
-- MTP 权限由 Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 控制；
+- MTP 动词与系统工具由 Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 控制；提交到 workspace 的请求另受访问登记的 actor 操作白名单约束，两处都通过才执行；
 - CALL 仅允许根 frame 发起，子 frame 不能继续递归 CALL。
 
 ### 4.6 操作请求与执行凭据
 
-`OperationRequest[R]` 是 frozen dataclass 结果类型契约；六类具体请求只携带业务参数，不接收访问 context、`IdentityScope`、目标 Workspace 或 process_id：
+`OperationRequest[R]` 是 frozen dataclass 结果类型契约；具体请求只携带业务参数，不接收访问 context、`IdentityScope`、目标 Workspace 或 process_id。六项 actor 请求与 actor 操作一一对应，每种请求恰好检查一项操作：
 
-| 请求 | 参数 | 结果 `R` | 能力层操作授权 |
-|:---|:---|:---|:---|
-| `SubmitWriteIntentRequest` | `focus: WriteFocus` | `PendingAtom` | `memory_intent.submit` |
-| `SubmitUpdateIntentRequest` | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory_intent.submit` |
-| `CancelIntentsRequest` | `aliases: tuple[str, ...]` | 实际撤回的 `list[str]` | `memory_intent.submit` |
-| `ResolveReferencesRequest` | `aliases: tuple[str, ...]` | `list[ReferenceResolution]` | `resource.read` |
-| `RetrieveRequest` | `semantic_query`、`keywords=()`、`top_k=5`、`filters=None` | `list[MemoryAtom]` | `resource.search` |
-| `GetAgentProfileRequest` | `agent_alias=None` | `AgentProfile` | `profile.read`（内置同样需要） |
+| 请求 | MTP 动词 | 参数 | 结果 `R` | actor 操作 |
+|:---|:---|:---|:---|:---|
+| `ResolveReferencesRequest` | READ（含 CALL 的 `context_refs`） | `aliases: tuple[str, ...]` | `list[ReferenceResolution]` | `memory.read` |
+| `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`top_k=5`、`filters=None` | `list[MemoryAtom]` | `memory.search` |
+| `ResolveRunTargetRequest` | RUN（记忆中的用户态工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
+| `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
+| `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
+| `ResolveCallTargetRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `AgentProfile` | `agent.call`（内置同样需要） |
+
+`CancelIntentsRequest(aliases: tuple[str, ...]) -> list[str]` 是执行单元内部的补偿请求，不属于 actor 操作：入口兑现凭据后只按绑定的进程关联撤回仍为 PENDING 的指定意图，返回实际撤回的 alias，不检查 operation，也不能撤回其他进程或已被认领的意图。RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
 公共入口与提交函数分别为 `OperationEntry.execute[R](request: OperationRequest[R], *, credential: ExecutionCredential) -> R`、`OperationSubmitter.__call__[R](request: OperationRequest[R]) -> R`。主、子 frame 暂时共享 CPU 驱动绑定的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
 
-`ExecutionCredentialRegistry` 是 workspace 内部共享表，签发对象身份凭据并绑定访问 context、注册目标与 process_id；兑现只接受确切的已签发对象，凭据不保存身份字段，拒绝复制与序列化。`WorkspaceOperationEntry` 兑现凭据后薄分派到相应能力方法，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验。未知请求类型抛 `TypeError`，未知或已吊销凭据抛 `ExecutionCredentialRevokedError`。
+`ExecutionCredentialRegistry` 是 workspace 内部共享表，签发对象身份凭据并绑定访问 context、注册目标与 process_id；兑现只接受确切的已签发对象，凭据不保存身份字段，拒绝复制与序列化。`WorkspaceOperationEntry` 兑现凭据后把 actor 请求薄分派到对应的 actor API 方法，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。未知请求类型抛 `TypeError`，未知或已吊销凭据抛 `ExecutionCredentialRevokedError`。
 
 进程关闭同步吊销凭据；吊销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）返回入口后都在同步段再次检查凭据，吊销时同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越关闭的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。凭据表不拥有访问 context 的撤销；完整关闭、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图执行凭据与操作入口)。
 
@@ -297,7 +299,7 @@ Gateway command outcome（解析结果）
   -> 不调用 Patchouli prepare / CPU / Patchouli finalize
 
 Gateway decision outcome
-  -> 解析 Agent Profile（workspace 能力层与 Profile 读取缓存）
+  -> 解析 Agent Profile（阶段授权后经 workspace 的 Profile 读取视图）
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
   -> Actor 执行：经 CPU 端口（当前为 Alice）

@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # HiveMemory 项目总览
@@ -188,7 +188,7 @@ HiveMemorySystem（组合根与门面）
   ├─ 门面提供的服务
   │    ├─ TaskProcessService      任务进程表与 chat 任务进程编排（workspace.process）
   │    ├─ PassiveIngressService    被动摄入（System）
-  │    └─ Memory / Task / Profile / Topic / Asset 能力服务（workspace.capability）
+  │    └─ Memory / Task / Profile / Topic / Asset 管理服务（workspace.capability 的 root API，只供 system）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
   ├─ Workspace 设施：认证网关、认证一侧与操作授权者、写入意图登记、读取视图与失效订阅、WorkspaceAssetStore
   ├─ GatewaySystem   入口决策与命令
@@ -258,7 +258,7 @@ external event
 
 ### 8.3 MTP
 
-Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定执行凭据的操作请求进入 workspace 能力层，Alice 只持有只读观测标签；引用交付统一记录 `workspace.reference_read` citation，Profile 读取包括内置目标都要求行为授权。WRITE/UPDATE 的 ACK 只表示 PendingAtom 已登记；进程正常完成时认领本进程的 PENDING 意图，正式持久化由 Patchouli finalize 后续处理。进程关闭同步吊销凭据，只取消该进程仍为 PENDING 的意图。
+Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定执行凭据的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 的 ACK 只表示 PendingAtom 已登记；进程正常完成时认领本进程的 PENDING 意图，正式持久化由 Patchouli finalize 后续处理。进程关闭同步吊销凭据，只取消该进程仍为 PENDING 的意图。
 
 完整规范见[MTP 契约](./contracts/mtp.md)。
 

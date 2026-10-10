@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # System 配置与注册表
@@ -59,7 +59,11 @@ last_reviewed: 2026-10-09
 - 登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
 - `system.server_principal_id`（默认 `hivememory:http-server`）是 server 经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致。
 
-默认用户级登记包含 `memory_intent.submit`、`resource.read`、`resource.search` 与 `profile.read`，分别供操作请求提交/撤回意图、读取引用、SEARCH 与 CALL Profile 读取使用；内置 CALL Profile 同样要求 `profile.read`。这些授权不改变保留 `system` actor 的管理白名单。升级注意：自定义过该文件的部署，应核对执行 MTP 的 Agent 记录包含需要的 operation；缺少 `memory_intent.submit` 时 WRITE/UPDATE 与子帧意图撤回被拒绝，缺少 `resource.search` 时 SEARCH 被拒绝，缺少 `profile.read` 时 CALL 以准备失败回填。MTP 权限拒绝沿用 `mtp.permission.verb_denied` 文案键。
+`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户态工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的阶段调用（Gateway、预检索、Profile 解析、附件租借、finalize）不检查 actor 操作，白名单为空的 Agent 也能完成对话，只是不能执行任何 MTP 资源操作。
+
+保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：管理入口经 root API 授权，只要求 actor 是 `system`，不读取白名单。默认接入登记另有本地来源 `hivememory:profile-injector`（kind `local-process`，adapter `local`），供 `scripts/inject_profiles.py` 经认证网关以 `system` 取得 context 后调用 root API 注入 Profile；脚本可用 `--principal-id` 指定其他已登记的本地来源。
+
+升级注意（能力层分为 root API 与 actor API）：旧名称 `resource.read`、`resource.search`、`profile.read`、`asset.acquire`、`interaction.submit`、`memory_intent.submit`、`task.observe` 与 `management.*` 已删除，配置中出现时装载失败并指出值与记录坐标；`system` 记录配置任何 operation 时同样装载失败。自定义过该文件的部署应改用新名称，并删除 `system` 记录上的 `allowed_operations`。旧 `memory_intent.submit` 拆为 `memory.write` 与 `memory.update`；RUN 的记忆目标改为需要 `memory.run`（不再借用 READ）；子帧的意图撤回不再需要任何 operation。缺少对应操作时，MTP 权限拒绝沿用 `mtp.permission.verb_denied` 文案键，缺少 `agent.call` 时 CALL 以准备失败回填。
 
 登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
 

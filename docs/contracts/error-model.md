@@ -166,7 +166,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | `workspace.scope_required` | 缺少完整 `IdentityScope`，或访问 context 无效：传入的不是访问 context，或 context 已撤销（`reason=context_not_issued`），或授权时准入记录已不存在（`reason=actor_not_admitted`） |
 | `workspace.mismatch` | 资源与请求 Workspace 不一致，例如 prepare 返回的 scope 与授权组装的 scope 不一致 |
 | `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`actor_not_allowed_for_principal`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
-| `workspace.operation_denied` | 第 3 阶段操作授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`） |
+| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`） |
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
 | `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
 | `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
@@ -191,18 +191,19 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | 认证网关已关闭（System 停止中） | `AdmissionDeniedError` | `authentication_gateway_closed` | 503 |
 | 第 3 阶段：目标 Workspace 不等于驻留 Workspace | `OperationDeniedError` | `target_workspace_not_resident` | 403 |
 | 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
-| 第 3 阶段：白名单不含该 operation | `OperationDeniedError` | `operation_not_allowed` | 403 |
+| 第 3 阶段（actor API）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
+| 第 3 阶段（root API）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
 | 凭据无效：不是访问 context，或已撤销；授权时准入记录已不存在 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
 | 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
 
-- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有资源动作都被拒绝。未知 operation 与未绑定的公共方法默认拒绝。
+- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权与任务进程的阶段授权不检查 operation，它们的目标拒绝与 `root_required` 不附带 `operation`。阶段授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
 - 访问 context 没有固定有效期，不存在“过期”拒绝；认证网关关闭只拒绝新认证，已签发的 context 照常可用，直到被撤销。
 - HTTP 映射由 server 的异常处理器统一完成（`server/app.py`），响应体包含稳定机器码 `error`、`detail` 与 `reason`，不暴露接入凭据。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
-能力层与操作入口的错误保持各自边界：意图提交/撤回缺少 `memory_intent.submit`、引用交付缺少 `resource.read`、SEARCH 缺少 `resource.search`、Profile 读取缺少 `profile.read`（包括内置目标）时抛 `OperationDeniedError`；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
+actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；意图撤回是入口内部补偿，不检查 operation；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
 未知或已吊销的执行凭据在操作入口抛 `ExecutionCredentialRevokedError`（RuntimeError），未知请求类型抛 `TypeError`；它们表示接线或生命周期违规，没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。进程关闭同步吊销凭据，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 跨越关闭时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 

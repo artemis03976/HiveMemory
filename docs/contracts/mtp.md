@@ -59,7 +59,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。workspace 凭据表绑定主线程的访问 context、注册目标 Workspace 与 process_id，CPU 驱动将不透明凭据绑定为提交函数，主、子 frame 沿用同一函数和注册标签。请求不能自行指定目标；意图提交/撤回、引用交付、检索与 Profile 读取分别要求 `memory_intent.submit`、`resource.read`、`resource.search` 与 `profile.read`，资源归属与 actor policy 仍逐次校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。workspace 凭据表绑定主线程的访问 context、注册目标 Workspace 与 process_id，CPU 驱动将不透明凭据绑定为提交函数，主、子 frame 沿用同一函数和注册标签。请求不能自行指定目标；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；子帧的意图撤回是内部补偿，不检查 operation。资源归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -155,8 +155,8 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 
 - TARGET 和 `task` 必填；`context_refs` 可选；
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
-- Alice RunExecutor 通过协程调用栈挂起 caller frame，以 `GetAgentProfileRequest` 读取目标、以 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
-- 目标读取要求 `profile.read`，内置 Profile 也不跳过；context_refs 的正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
+- Alice RunExecutor 通过协程调用栈挂起 caller frame，以 `ResolveCallTargetRequest` 读取目标、以 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
+- 目标读取要求 `agent.call`，内置 Profile 也不跳过；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
 - CALL 只允许 root frame 发起；callee 的 `FrameExecutionPolicy` 显式移除 CALL，防止递归爆炸；
 - 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，并撤回其已登记且仍为 PENDING 的意图；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 会转换为结构化 error CALL response；`SUSPENDED` 是 RunExecutor 继续消费的控制流 trap，不构造 CALL response。
