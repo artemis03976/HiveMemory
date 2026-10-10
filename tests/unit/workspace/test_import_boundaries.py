@@ -13,7 +13,9 @@ workspace 包内更严格的约束：
 3. ``process`` 以外的 workspace 模块不得导入 ``hivememory.workspace.process``：
    能力层与共享设施不得依赖进程表与任务进程编排；
 4. ``contracts`` 是跨子系统公共契约子包，只依赖 ``core``——不导入
-   workspace 的其他模块，也不导入任何子系统实现。
+   workspace 的其他模块，也不导入任何子系统实现；
+5. root 与 actor API 互不依赖；操作入口只取得 actor API，HTTP 只取得
+   root API；actor 的六项方法、操作和请求保持一一对应的公开面。
 
 以 AST 静态扫描直接 import（含相对导入）判定。
 """
@@ -195,14 +197,164 @@ def test_server_imports_only_root_capability_api():
     assert violations == []
 
 
-def test_operation_entry_does_not_import_root_api():
-    """执行凭据兑现后的操作分派不能取得 root 管理能力。"""
+def test_operation_entry_only_imports_actor_capability_api():
+    """操作入口只取得 actor API；共享 backing、凭据与意图设施可以继续使用。"""
     entry = WORKSPACE_PACKAGE / "capability" / "operations.py"
     assert entry.is_file(), f"操作入口文件不存在: {entry}"
-    root_api = "hivememory.workspace.capability.root"
+    capability = "hivememory.workspace.capability"
+    allowed = (f"{capability}.actor", f"{capability}.backing")
     violations = [
         target
         for target in _import_targets_of(entry)
-        if target == root_api or target.startswith(f"{root_api}.")
+        if (target == capability or target.startswith(f"{capability}."))
+        and not any(target == module or target.startswith(f"{module}.") for module in allowed)
     ]
     assert violations == []
+
+
+def _api_sources(api: str) -> list[Path]:
+    """扫描一个 API 目录，目录缺失或迁移漂移时显式失败。"""
+    directory = WORKSPACE_PACKAGE / "capability" / api
+    files = sorted(directory.rglob("*.py"))
+    assert files, f"未扫描到 {api} API 源文件: {directory}"
+    return files
+
+
+def test_root_and_actor_capability_apis_do_not_import_each_other():
+    """两个 API 面互不依赖，不能以直接或相对导入取得对方能力。"""
+    violations = []
+    for api, forbidden_api in (("root", "actor"), ("actor", "root")):
+        forbidden = f"hivememory.workspace.capability.{forbidden_api}"
+        violations.extend(
+            f"{path}: {target}"
+            for path in _api_sources(api)
+            for target in _import_targets_of(path)
+            if target == forbidden or target.startswith(f"{forbidden}.")
+        )
+    assert violations == []
+
+
+def test_capability_parent_does_not_reexport_root_or_actor_apis():
+    """父包只提供共享 backing，导入 root 时不能间接装载或取得 actor 能力。"""
+    parent = WORKSPACE_PACKAGE / "capability" / "__init__.py"
+    forbidden = (
+        "hivememory.workspace.capability.root",
+        "hivememory.workspace.capability.actor",
+    )
+    violations = [
+        target
+        for target in _import_targets_of(parent)
+        if any(target == module or target.startswith(f"{module}.") for module in forbidden)
+    ]
+    assert violations == []
+
+
+def test_actor_capability_surface_only_contains_six_public_methods():
+    """actor API 只提供六个明确的行为入口，不重新混入管理、撤回或旧读取方法。"""
+    public_methods: set[str] = set()
+    for path in _api_sources("actor"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+                public_methods.update(
+                    f"{node.name}.{method.name}"
+                    for method in node.body
+                    if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and not method.name.startswith("_")
+                )
+            elif isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef)
+            ) and not node.name.startswith("_"):
+                public_methods.add(node.name)
+
+    assert public_methods == {
+        "ActorMemoryService.resolve_references",
+        "ActorMemoryService.retrieve",
+        "ActorMemoryService.resolve_run_target",
+        "ActorMemoryService.submit_write_intent",
+        "ActorMemoryService.submit_update_intent",
+        "ActorAgentService.resolve_call_target",
+    }
+
+
+def test_workspace_operation_catalog_only_contains_six_actor_operations():
+    """操作登记只允许六项 actor 操作，root、阶段调用与补偿不进入白名单。"""
+    path = SRC_ROOT / "core" / "access.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    catalog = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "WorkspaceOperation"
+    ]
+    assert len(catalog) == 1, "WorkspaceOperation 必须有唯一声明"
+    declared = {}
+    for node in catalog[0].body:
+        if isinstance(node, ast.Assign):
+            declared.update(
+                (target.id, ast.literal_eval(node.value))
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            )
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            assert node.value is not None, f"操作 {node.target.id} 必须声明稳定值"
+            declared[node.target.id] = ast.literal_eval(node.value)
+    assert declared == {
+        "MEMORY_READ": "memory.read",
+        "MEMORY_SEARCH": "memory.search",
+        "MEMORY_RUN": "memory.run",
+        "MEMORY_WRITE": "memory.write",
+        "MEMORY_UPDATE": "memory.update",
+        "AGENT_CALL": "agent.call",
+    }
+
+
+def test_operation_requests_only_expose_six_actor_requests_and_internal_compensation():
+    """请求只携带操作参数；RUN/CALL 独立，撤回保持内部补偿且不携带目标身份。"""
+    path = WORKSPACE_PACKAGE / "contracts" / "operations.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    requests = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(
+            isinstance(base, ast.Subscript)
+            and isinstance(base.value, ast.Name)
+            and base.value.id == "OperationRequest"
+            for base in node.bases
+        )
+    }
+    fields = {
+        name: {
+            field.target.id
+            for field in request.body
+            if isinstance(field, ast.AnnAssign) and isinstance(field.target, ast.Name)
+        }
+        for name, request in requests.items()
+    }
+    assert fields == {
+        "ResolveReferencesRequest": {"aliases"},
+        "RetrieveRequest": {"semantic_query", "keywords", "top_k", "filters"},
+        "ResolveRunTargetRequest": {"alias"},
+        "SubmitWriteIntentRequest": {"focus"},
+        "SubmitUpdateIntentRequest": {"base_alias", "instruction", "content"},
+        "ResolveCallTargetRequest": {"agent_alias"},
+        "CancelIntentsRequest": {"aliases"},
+    }
+
+    # 公开面同时包含声明与导出，避免请求留在源文件却从契约入口悄然消失。
+    expected_exports = {*fields, "OperationRequest"}
+    for exports_path in (path, WORKSPACE_PACKAGE / "contracts" / "__init__.py"):
+        exports_tree = ast.parse(
+            exports_path.read_text(encoding="utf-8"), filename=str(exports_path)
+        )
+        declarations = [
+            node
+            for node in exports_tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets
+            )
+        ]
+        assert len(declarations) == 1, f"公开契约必须声明唯一导出列表: {exports_path}"
+        exports = ast.literal_eval(declarations[0].value)
+        assert {name for name in exports if name.endswith("Request")} == expected_exports

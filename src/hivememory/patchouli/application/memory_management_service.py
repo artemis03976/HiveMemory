@@ -164,7 +164,7 @@ class MemoryManagementService:
         identity_scope: IdentityScope,
         refresh_vitality: bool = True,
     ) -> MemoryAtom | None:
-        """Actor-visible 的 canonical UUID 点读 backing（能力层授权 ``resource.read``）。
+        """Actor-visible 的 canonical UUID 点读 backing，读取视图按本次授权 scope 交付。
 
         与管理 GET 的区别：可见性由 Patchouli 按 MemoryAccessPolicy 强制
         （enforce=True），不可见与缺失统一返回 ``None``。
@@ -185,7 +185,7 @@ class MemoryManagementService:
         self,
         request: RetrievalRequest,
     ) -> list[MemoryAtom]:
-        """语义检索 backing（能力层授权 ``resource.search``），返回完整原子列表。
+        """语义检索 backing（能力层授权 ``memory.search``），返回完整原子列表。
 
         检索请求自带 ``identity_scope``（授权点组装后冻结在请求内），不
         接收单独的 scope 参数。
@@ -210,7 +210,7 @@ class MemoryManagementService:
         aliases: list[str],
         identity_scope: IdentityScope,
     ) -> list[MemoryAtom]:
-        """alias 批量读取 backing（能力层授权 ``resource.read``），只含实际可读的完整原子。"""
+        """alias 批量读取 backing，按 READ/RUN/UPDATE 本次授权 scope 返回，只含实际可读的完整原子。"""
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,

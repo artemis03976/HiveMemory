@@ -262,7 +262,7 @@ async def make_process_access(
     进程持有的 access 由注入服务的同一组合签发，与生产装配一致：认证
     一侧与操作授权者读取同一份访问登记。测试显式构造该组合：context 以 ``for_task_process(process_id)`` 绑定签发；返回
     的 actor/workspace 声明供 ``register_process`` 使用。记录授予全部
-    operation（测试便利），阶段授权按阶段语义逐项检查。
+    operation（测试便利），阶段授权只检查准入与目标。
     """
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id=user_id, agent_id=agent_id)]

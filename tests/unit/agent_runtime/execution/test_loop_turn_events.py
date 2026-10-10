@@ -31,7 +31,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.workspace.contracts import GetAgentProfileRequest
+from hivememory.workspace.contracts import ResolveCallTargetRequest
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -396,7 +396,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     async def submit_operation(request):
         """仅替代能力提交端口；事件采集与 CALL 编排仍执行生产实现。"""
-        if isinstance(request, GetAgentProfileRequest):
+        if isinstance(request, ResolveCallTargetRequest):
             return OMNI_DOLL_PROFILE.model_copy(deep=True)
         raise AssertionError(f"本场景不应提交其他资源操作: {request}")
 

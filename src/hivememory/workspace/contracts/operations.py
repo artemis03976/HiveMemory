@@ -33,7 +33,7 @@ class ExecutionCredential:
 
 @dataclass(frozen=True)
 class OperationRequest[R]:
-    """操作请求的结果类型契约，具体请求与能力方法一一对应。"""
+    """请求的结果类型契约：actor 请求一一对应能力方法，补偿请求由入口处理。"""
 
 
 @dataclass(frozen=True)
@@ -54,16 +54,27 @@ class SubmitUpdateIntentRequest(OperationRequest[PendingAtom]):
 
 @dataclass(frozen=True)
 class CancelIntentsRequest(OperationRequest[list[str]]):
-    """撤回当前进程仍为 PENDING 的指定意图。"""
+    """执行单元内部补偿：撤回当前进程仍为 PENDING 的指定意图。
+
+    不属于 actor 操作；入口兑现凭据后只按绑定的进程关联撤回，不检查
+    actor 操作许可，也不能撤回其他进程或已经认领的意图。
+    """
 
     aliases: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class ResolveReferencesRequest(OperationRequest[list[ReferenceResolution]]):
-    """按请求顺序解析引用，每个引用均获得中立解析结果。"""
+    """READ：按请求顺序解析引用，每个引用均获得中立解析结果。"""
 
     aliases: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ResolveRunTargetRequest(OperationRequest[ReferenceResolution]):
+    """RUN：解析单个执行目标，独立检查 memory.run 并记录正式引用。"""
+
+    alias: str
 
 
 @dataclass(frozen=True)
@@ -77,8 +88,8 @@ class RetrieveRequest(OperationRequest[list[MemoryAtom]]):
 
 
 @dataclass(frozen=True)
-class GetAgentProfileRequest(OperationRequest[AgentProfile]):
-    """读取 Agent Profile，内置与自定义图纸均经过 profile.read 授权。"""
+class ResolveCallTargetRequest(OperationRequest[AgentProfile]):
+    """CALL：读取目标 Profile，内置与自定义图纸均经过 agent.call 授权。"""
 
     agent_alias: str | None = None
 
@@ -101,11 +112,12 @@ __all__ = [
     "CancelIntentsRequest",
     "ExecutionCredential",
     "ExecutionCredentialRevokedError",
-    "GetAgentProfileRequest",
     "OperationEntry",
     "OperationRequest",
     "OperationSubmitter",
+    "ResolveCallTargetRequest",
     "ResolveReferencesRequest",
+    "ResolveRunTargetRequest",
     "RetrieveRequest",
     "SubmitUpdateIntentRequest",
     "SubmitWriteIntentRequest",

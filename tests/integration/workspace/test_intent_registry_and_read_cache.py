@@ -51,7 +51,7 @@ from hivememory.patchouli.services.memory_generation import MemoryGenerationFami
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.cache import AtomCache, ProfileCache, ProfileCacheEntry, WorkspaceEpochs
 from hivememory.workspace.cache.invalidation import CacheInvalidator
-from hivememory.workspace.capability import AgentApplicationService, MemoryApplicationService
+from hivememory.workspace.capability.actor import ActorAgentService, ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.runtime import WorkspaceRuntime
@@ -114,8 +114,8 @@ class _Chain:
     bus: GlobalSystemBus
     store: MidTermMemoryStore
     runtime: WorkspaceRuntime
-    memories: MemoryApplicationService
-    profiles: AgentApplicationService
+    memories: ActorMemoryService
+    profiles: ActorAgentService
     root_memories: RootMemoryService
     composition: AccessTestComposition
     writer: WorkspaceAccessContext
@@ -175,14 +175,13 @@ async def chain(tmp_path):
         store=store,
         runtime=runtime,
         composition=composition,
-        memories=MemoryApplicationService(
+        memories=ActorMemoryService(
             bus,
             operation_authorizer=composition.authorizer,
             memory_reader=runtime.aliases,
         ),
         root_memories=RootMemoryService(bus, operation_authorizer=composition.authorizer),
-        profiles=AgentApplicationService(
-            bus,
+        profiles=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
         ),
@@ -494,7 +493,7 @@ async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, 
         default_workspace=WORKSPACE,
     )
     denied = await composition.authenticate(agent_id="denied")
-    service = MemoryApplicationService(
+    service = ActorMemoryService(
         chain.bus,
         operation_authorizer=composition.authorizer,
         memory_reader=chain.runtime.aliases,
@@ -521,11 +520,11 @@ async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, 
                 ["canonical"], target_workspace=WORKSPACE, access=denied
             )
 
-    expected = (
-        WorkspaceOperation.RESOURCE_READ
-        if operation == "read"
-        else WorkspaceOperation.MEMORY_INTENT_SUBMIT
-    )
+    expected = {
+        "read": WorkspaceOperation.MEMORY_READ,
+        "write": WorkspaceOperation.MEMORY_WRITE,
+        "update": WorkspaceOperation.MEMORY_UPDATE,
+    }[operation]
     assert exc_info.value.details["operation"] == expected.value
     assert (chain.runtime.intents.size, chain.runtime.stats()) == (0, before)
 
@@ -560,7 +559,11 @@ async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanc
         updated = await chain.root_memories.update_memory(
             atom.id, content="committed", target_workspace=WORKSPACE, access=chain.manager
         )
-        read = await chain.memories.read(atom.id, target_workspace=WORKSPACE, access=chain.reader)
+        read = (
+            await chain.memories.resolve_references(
+                [atom.index.alias], target_workspace=WORKSPACE, access=chain.reader
+            )
+        )[0].atom
 
         assert (updated.payload.content, read.payload.content) == ("committed", "committed")
         assert (

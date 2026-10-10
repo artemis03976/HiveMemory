@@ -124,7 +124,7 @@ async def _store_scope(composition: AccessTestComposition) -> IdentityScope:
     """构造 Store 测试资产的 scope：经操作授权者授权组装，与进程内阶段授权同源。"""
     context = await composition.authenticate(agent_id=_AGENT)
     return composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
+        context, WorkspaceOperation.MEMORY_READ, composition.default_workspace
     )
 
 
@@ -409,8 +409,8 @@ def _recording(calls: list):
 
 
 @pytest.mark.asyncio
-async def test_missing_profile_read_operation_still_allocates_execution_profile() -> None:
-    """缺 profile.read 仍能解析执行 Profile，阶段读取保持进程 actor 身份。"""
+async def test_no_actor_operations_still_allocates_execution_profile() -> None:
+    """没有 actor 操作仍能解析执行 Profile，阶段读取保持进程 actor 身份。"""
     bus = GlobalSystemBus()
     profile_calls: list = []
     profile = AgentProfile(persona="阶段读取配置", language="zh")
@@ -422,10 +422,10 @@ async def test_missing_profile_read_operation_still_allocates_execution_profile(
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
     cpu = ScriptedCPU(result=make_cpu_result())
-    composition = _composition(excluded_operations=frozenset({WorkspaceOperation.PROFILE_READ}))
+    composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
     service, composition = await _service(bus, cpu=cpu, composition=composition)
-    result = await _run_once(composition, service, "问题", process_id="process-no-profile-read")
+    result = await _run_once(composition, service, "问题", process_id="process-no-actor-operations")
 
     assert result.execution_result.status == "completed"
     assert cpu.calls[0].manifest.agent_profile.persona == "阶段读取配置"

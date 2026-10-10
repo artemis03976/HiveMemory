@@ -15,8 +15,8 @@ from hivememory.core.models import (
     MemoryAtom,
     ResolvedAgentProfile,
 )
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     ExecutionCredential,
@@ -67,7 +67,7 @@ class MemoryBackend:
 
     async def get_agent_profile(self, alias, *, scope):
         # 内存 backing 沿用 Patchouli 的内置图纸规则；入口仍必须先执行
-        # profile.read 授权，测试不在 Alice 内另设默认配置回退。
+        # agent.call 授权，测试不在 Alice 内另设默认配置回退。
         if alias is None or alias.strip() in ("", "default", "omni_doll"):
             return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
         if self.bus is None:
@@ -104,13 +104,12 @@ class OperationsHarness:
     def make_entry(self, operation_authorizer) -> WorkspaceOperationEntry:
         """入口与所有测试凭据共享同一份登记，替身仅位于持久化边界。"""
         return WorkspaceOperationEntry(
-            MemoryApplicationService(
+            ActorMemoryService(
                 self.bus,
                 operation_authorizer=operation_authorizer,
                 memory_reader=self.runtime.aliases,
             ),
-            agent=AgentApplicationService(
-                self.bus,
+            agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
                 profile_reader=self.runtime.profiles,
             ),

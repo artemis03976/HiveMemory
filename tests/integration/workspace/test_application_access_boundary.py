@@ -84,7 +84,7 @@ from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.memory import make_memory_metadata
@@ -99,10 +99,9 @@ from tests.helpers.workspace import (
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 OTHER = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
 
-READ = WorkspaceOperation.RESOURCE_READ
-SEARCH = WorkspaceOperation.RESOURCE_SEARCH
-INTENT = WorkspaceOperation.MEMORY_INTENT_SUBMIT
-INTERACT = WorkspaceOperation.INTERACTION_SUBMIT
+READ = WorkspaceOperation.MEMORY_READ
+SEARCH = WorkspaceOperation.MEMORY_SEARCH
+INTENT = WorkspaceOperation.MEMORY_WRITE
 
 
 def _access_records() -> list:
@@ -113,7 +112,7 @@ def _access_records() -> list:
             owner_user_id="u1",
             workspace_id=MAIN.workspace_id,
             agent_id="a1",
-            allowed_operations={READ, SEARCH, INTERACT, INTENT},
+            allowed_operations={READ, SEARCH, INTENT},
         ),
         make_actor_access_record(
             owner_user_id="u1",
@@ -206,6 +205,10 @@ async def wired():
         familiar.retrieve_async,
     )
     local_bus.register(
+        PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+        familiar.retrieve_by_aliases_async,
+    )
+    local_bus.register(
         PatchouliLocalRoutes.GET_AGENT_PROFILE,
         familiar.get_agent_profile,
     )
@@ -280,7 +283,7 @@ async def wired():
 
     # actor 读取走共享读取视图；root 管理直接经同一全局总线访问资源 owner。
     runtime = make_workspace_runtime(global_bus)
-    actor_memory = MemoryApplicationService(
+    actor_memory = ActorMemoryService(
         global_bus=global_bus,
         operation_authorizer=access.authorizer,
         memory_reader=runtime.aliases,
@@ -466,7 +469,11 @@ async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wir
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError) as read_error:
-        await wired.actor_memory.read(str(uuid4()), target_workspace=MAIN, access=context)
+        (
+            await wired.actor_memory.resolve_references(
+                [str(str(uuid4()))], target_workspace=MAIN, access=context
+            )
+        )[0].atom
     assert read_error.value.details["reason"] == "operation_not_allowed"
     with pytest.raises(OperationDeniedError) as intent_error:
         wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
@@ -549,21 +556,27 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
 
     a1_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
 
-    visible = await wired.actor_memory.read(
-        str(public_atom.id), target_workspace=MAIN, access=a1_context
-    )
+    visible = (
+        await wired.actor_memory.resolve_references(
+            [public_atom.index.alias], target_workspace=MAIN, access=a1_context
+        )
+    )[0].atom
     assert visible.payload.content == "visible"
 
     # 有 read 行为许可但资源 PRIVATE 只对 a2：对 a1 按不存在呈现
-    secret = await wired.actor_memory.read(
-        str(private_atom.id), target_workspace=MAIN, access=a1_context
-    )
+    secret = (
+        await wired.actor_memory.resolve_references(
+            [private_atom.index.alias], target_workspace=MAIN, access=a1_context
+        )
+    )[0].atom
     assert secret is None
 
-    # 跨 Workspace 的 canonical uuid 不可见
-    outside = await wired.actor_memory.read(
-        str(foreign.id), target_workspace=MAIN, access=a1_context
-    )
+    # 跨 Workspace 的正式 alias 不可见
+    outside = (
+        await wired.actor_memory.resolve_references(
+            [foreign.index.alias], target_workspace=MAIN, access=a1_context
+        )
+    )[0].atom
     assert outside is None
 
 
@@ -589,7 +602,11 @@ async def test_single_context_reused_across_different_permitted_operations(wired
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
 
     public_atom = await _seed_public_fact(wired.store, alias="fact_reuse", content="reuse")
-    read = await wired.actor_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)
+    read = (
+        await wired.actor_memory.resolve_references(
+            [public_atom.index.alias], target_workspace=MAIN, access=context
+        )
+    )[0].atom
     assert read.payload.content == "reuse"
 
     # 检索参数由调用方提交：检索请求由能力层用授权返回的可信 scope 构造
@@ -609,13 +626,13 @@ async def test_single_context_reused_across_different_permitted_operations(wired
 
 @pytest.mark.asyncio
 async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
-    """interaction.submit 经真实全局路由与内存队列接纳；收据可用（无 Alice）。
+    """空操作白名单的阶段交互经真实全局路由与内存队列接纳；收据可用。
 
-    公开路由只接收授权点组装的 ``IdentityScope``；队列记录里的身份即
-    操作授权者返回的可信 scope。
+    公开路由只接收阶段授权点组装的 ``IdentityScope``；队列记录里的身份即
+    任务进程阶段 scope，不要求 actor 操作许可。
     """
-    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    scope = wired.access.authorizer.authorize_operation(context, INTERACT, MAIN)
+    context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
+    scope = wired.access.authorizer.authorize_stage(context, MAIN)
     receipt = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
         payload=InteractionPayload(
@@ -652,7 +669,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
         assistant_final_text="delayed answer",
         turn_events=[],
     )
-    scope = wired.access.authorizer.authorize_operation(context, INTERACT, MAIN)
+    scope = wired.access.authorizer.authorize_stage(context, MAIN)
     first = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
         payload=payload,
@@ -665,12 +682,12 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     # 后续授权按 context_not_issued 拒绝，不能把新工作送入队列。
     wired.access.gateway.invalidate_context(context)
     with pytest.raises(ScopeRequiredError) as exc_info:
-        wired.access.authorizer.authorize_operation(context, INTERACT, MAIN)
+        wired.access.authorizer.authorize_stage(context, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
 
     # 重新认证恢复：同一 interaction_id 的幂等重放返回原收据。
     renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    renewed_scope = wired.access.authorizer.authorize_operation(renewed, INTERACT, MAIN)
+    renewed_scope = wired.access.authorizer.authorize_stage(renewed, MAIN)
     replay = await wired.global_bus.request(
         GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
         payload=payload,
@@ -689,7 +706,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     assert auth_error.value.details["reason"] == "authentication_gateway_closed"
     wired.access.gateway.revoke_all_contexts()
     with pytest.raises(ScopeRequiredError) as closed_error:
-        wired.access.authorizer.authorize_operation(renewed, INTERACT, MAIN)
+        wired.access.authorizer.authorize_stage(renewed, MAIN)
     assert closed_error.value.details["reason"] == "context_not_issued"
 
     # 已接纳的交互只携带归属与发起者：网关关闭与撤销 context 不影响其应用。
@@ -805,21 +822,29 @@ async def test_invalidated_context_rejected_and_reauthentication_restores_access
     """失效后的旧 context 在授权点拒绝；重新认证恢复（证据 7）。"""
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     public_atom = await _seed_public_fact(wired.store, alias="fact_ttl", content="ttl")
-    first = await wired.actor_memory.read(
-        str(public_atom.id), target_workspace=MAIN, access=context
-    )
+    first = (
+        await wired.actor_memory.resolve_references(
+            [public_atom.index.alias], target_workspace=MAIN, access=context
+        )
+    )[0].atom
     assert first.payload.content == "ttl"
 
     wired.access.gateway.invalidate_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
-        await wired.actor_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)
+        (
+            await wired.actor_memory.resolve_references(
+                [public_atom.index.alias], target_workspace=MAIN, access=context
+            )
+        )[0].atom
     assert exc_info.value.details["reason"] == "context_not_issued"
 
     renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    refreshed = await wired.actor_memory.read(
-        str(public_atom.id), target_workspace=MAIN, access=renewed
-    )
+    refreshed = (
+        await wired.actor_memory.resolve_references(
+            [public_atom.index.alias], target_workspace=MAIN, access=renewed
+        )
+    )[0].atom
     assert refreshed.payload.content == "ttl"
 
 

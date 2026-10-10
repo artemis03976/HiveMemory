@@ -44,9 +44,9 @@ from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway, WorkspaceAuthenticator
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
-from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
@@ -107,8 +107,8 @@ class _SubsystemBundle:
 class _CapabilitiesBundle:
     """子系统之前构建的 actor 能力产物；操作入口与进程共享唯一的凭据表。"""
 
-    memory: MemoryApplicationService
-    agent: AgentApplicationService
+    memory: ActorMemoryService
+    agent: ActorAgentService
     credentials: ExecutionCredentialRegistry
     operations: WorkspaceOperationEntry
 
@@ -336,13 +336,12 @@ class SystemAssembler:
         access_control: _AccessControlBundle,
     ) -> _CapabilitiesBundle:
         """能力服务仅依赖共享运行时，先于需要操作入口的 Alice 装配。"""
-        memory = MemoryApplicationService(
+        memory = ActorMemoryService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
         )
-        agent = AgentApplicationService(
-            global_bus=runtime.global_bus,
+        agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
         )

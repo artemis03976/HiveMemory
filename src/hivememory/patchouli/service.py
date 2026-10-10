@@ -110,8 +110,7 @@ class PatchouliService:
         返回的 PreparedAgentRun 携带话题准备结果与检索到的原始记忆原子；
         Profile 解析、附件租借与编译由任务进程在 CPU 分配时完成，用户消息
         与 Gateway 决定也由进程持有。prepare 失败时只清理本轮可能预创建的
-        空话题。``identity_scope`` 是任务进程完成 ``resource.search`` 阶段
-        授权后组装的可信 scope。
+        空话题。``identity_scope`` 是任务进程通过阶段授权后组装的可信 scope。
         """
         identity_scope = require_identity_scope(identity_scope)
         belong_to = identity_scope.workspace_identity
@@ -174,7 +173,7 @@ class PatchouliService:
         ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
         原样提交，不改写其内容。物化任务按 ``payload.materialize_tasks`` 派发；附件租借由进程持有并随进程关闭
         释放，finalize 不负责释放。``identity_scope`` 来自调用前的
-        ``interaction.submit`` 阶段授权；公共边界拆分后，后台 continuation
+        任务进程阶段授权；公共边界拆分后，后台 continuation
         只携带归属与本次提交的发起者。
         """
         scope = require_identity_scope(identity_scope)
@@ -401,8 +400,8 @@ class PatchouliService:
         """清理已 prepare 但未 finalize 的预创建空话题。
 
         附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不再负责。
-        调用方以 prepare 所绑定的 ``resource.search`` 再次授权。本边界
-        校验待清理结果的归属，越域结果不会进入补偿流程。
+        调用方重新通过任务进程阶段授权。本边界校验待清理结果的归属，
+        越域结果不会进入补偿流程。
         """
         scope = require_identity_scope(identity_scope)
         if prepared_run.belong_to != scope.workspace_identity:

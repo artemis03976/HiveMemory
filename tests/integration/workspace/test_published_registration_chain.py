@@ -22,7 +22,7 @@ Patchouli/Alice/Qdrant）：替身记录授权点组装后传入的 ``IdentitySc
    列表）与 chat 全链路（fake CPU）经网关成功；用户 actor 使用 default
    用户 + 具体 ``agent_id``，命中发布登记的用户级记录；
 2. ``system`` 不持有 actor 可见的操作（发布登记的 system 记录只有准入）：以 (default, system) 声明
-   认证取得的 context 调用能力层 ``read`` / ``retrieve_by_aliases`` 被拒；
+   认证取得的 context 调用能力层 ``resolve_references`` / ``resolve_run_target`` 被拒；
 3. chat 认证失败（未登记用户）返回 403 且不创建进程；未登记 principal /
    不匹配 adapter 分别以 ``unknown_principal`` / ``adapter_mismatch`` 拒绝
    （403）。
@@ -108,7 +108,7 @@ from hivememory.workspace.authentication import (
     WorkspaceAuthenticator,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.capability.root.topic import RootTopicService
@@ -303,7 +303,7 @@ async def published_stack():
     cpu = ScriptedCPU(result=make_cpu_result(final_text="发布登记链路完成"))
 
     root_memory_service = RootMemoryService(bus, operation_authorizer=registration.authorizer)
-    memory_service = MemoryApplicationService(
+    memory_service = ActorMemoryService(
         global_bus=bus,
         operation_authorizer=registration.authorizer,
         memory_reader=make_workspace_runtime(bus).aliases,
@@ -361,7 +361,7 @@ class _Stack:
         cpu: ScriptedCPU,
         client: TestClient,
         app: FastAPI,
-        memory_service: MemoryApplicationService,
+        memory_service: ActorMemoryService,
         process_service: TaskProcessService,
     ):
         self.registration = registration
@@ -459,8 +459,8 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     """chat 注册 → 四阶段编排（fake CPU）经发布登记的用户级记录全链路成功。
 
     用户 actor 为 default 用户 + 具体 ``agent_id``：发布登记的用户级记录
-    （省略 agent_id，覆盖所有具体 Agent）提供 resource.read / resource.search /
-    profile.read / interaction.submit 与结算后话题池的 resource.read。
+    （省略 agent_id，覆盖所有具体 Agent）完成准入。四阶段调用只做阶段
+    授权，保留该 actor 的可见性，不借用六项 actor 操作。
     """
     stack = published_stack
 
@@ -481,7 +481,7 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
         "completed",
         "发布登记链路完成",
     )
-    # 结算后的话题池读取（resource.read）成功：done 事件携带替身快照。
+    # 结算后的话题池阶段读取成功：done 事件携带替身快照。
     assert len(done["data"]["pool_topics"]) == 1
     assert done["data"]["pool_topics"][0]["topic_id"] == "topic-1"
 
@@ -591,11 +591,11 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
 
 @pytest.mark.asyncio
 async def test_system_context_cannot_use_actor_visible_read_operations(published_stack):
-    """发布登记的 system 白名单不含 resource.read：读取能力在授权点被拒。
+    """发布登记的 system 不持有 actor 操作：READ 与 RUN 均在授权点被拒。
 
     以 (default, system) 声明经网关认证取得 context（发布登记的 system
-    记录允许进入），能力层 ``read`` / ``retrieve_by_aliases`` 绑定
-    ``resource.read``，在 backing 调用前按 ``operation_not_allowed`` 拒绝。
+    记录允许进入），能力层 ``resolve_references`` / ``resolve_run_target`` 分别绑定
+    ``memory.read`` / ``memory.run``，在 backing 调用前按 ``operation_not_allowed`` 拒绝。
     """
     stack = published_stack
     workspace = stack.registration.default_workspace
@@ -608,12 +608,16 @@ async def test_system_context_cannot_use_actor_visible_read_operations(published
     )
 
     with pytest.raises(OperationDeniedError) as read_error:
-        await stack.memory_service.read(str(uuid4()), target_workspace=workspace, access=context)
+        (
+            await stack.memory_service.resolve_references(
+                [str(str(uuid4()))], target_workspace=workspace, access=context
+            )
+        )[0].atom
     assert read_error.value.details["reason"] == "operation_not_allowed"
 
     with pytest.raises(OperationDeniedError) as aliases_error:
-        await stack.memory_service.retrieve_by_aliases(
-            ["some-alias"], target_workspace=workspace, access=context
+        await stack.memory_service.resolve_run_target(
+            "some-alias", target_workspace=workspace, access=context
         )
     assert aliases_error.value.details["reason"] == "operation_not_allowed"
 

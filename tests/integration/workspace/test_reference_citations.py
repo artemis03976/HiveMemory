@@ -25,8 +25,8 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     ExecutionCredential,
@@ -84,7 +84,7 @@ class _ReferenceChain:
     bus: GlobalSystemBus
     backing: _MemoryBacking
     runtime: WorkspaceRuntime
-    memory: MemoryApplicationService
+    memory: ActorMemoryService
     entry: WorkspaceOperationEntry
     credentials: ExecutionCredentialRegistry
     composition: AccessTestComposition
@@ -109,13 +109,13 @@ async def chain():
     credential = credentials.issue(
         access=access, target_workspace=composition.default_workspace, process_id="references"
     )
-    memory = MemoryApplicationService(
+    memory = ActorMemoryService(
         bus, operation_authorizer=composition.authorizer, memory_reader=runtime.aliases
     )
     entry = WorkspaceOperationEntry(
         memory,
-        agent=AgentApplicationService(
-            bus, operation_authorizer=composition.authorizer, profile_reader=runtime.profiles
+        agent=ActorAgentService(
+            operation_authorizer=composition.authorizer, profile_reader=runtime.profiles
         ),
         credential_registry=credentials,
         intent_registry=runtime.intents,
@@ -316,20 +316,16 @@ async def test_update_base_resolution_does_not_record_citation(chain):
 
 
 @pytest.mark.asyncio
-async def test_other_read_and_search_methods_do_not_record_citation(chain):
-    """引用记录只属于 resolve_references，不扩散到管理外的普通点读与检索。"""
+async def test_search_does_not_record_citation(chain):
+    """检索只交付匹配结果，不产生 READ/RUN 的引用记录副作用。"""
     atom = _add_atom(chain)
     kwargs = {
         "target_workspace": chain.composition.default_workspace,
         "access": chain.access,
     }
 
-    point = await chain.memory.read(atom.id, **kwargs)
-    aliases = await chain.memory.retrieve_by_aliases(["canonical"], **kwargs)
     search = await chain.memory.retrieve(semantic_query="正式内容", **kwargs)
 
-    assert point.payload.content == "正式引用内容"
-    assert [item.id for item in aliases] == [atom.id]
     assert [item.id for item in search] == [atom.id]
     assert atom.meta.lifecycle.access_count == 0
     assert chain.backing.citations == []
@@ -407,7 +403,7 @@ async def test_cancellation_during_citation_propagates_to_reference_caller(chain
 async def test_rejected_reference_request_cannot_record_citation_even_after_cache_warmup(
     chain, rejection
 ):
-    """热缓存不能绕过凭据或 resource.read，拒绝时无额外引用。"""
+    """热缓存不能绕过凭据或 memory.read，拒绝时无额外引用。"""
     atom = _add_atom(chain)
     await _resolve(chain, "canonical")
     credential = chain.credential
@@ -422,7 +418,7 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
         composition = make_access_composition(
             [
                 make_actor_access_record(
-                    allowed_operations=set(WorkspaceOperation) - {WorkspaceOperation.RESOURCE_READ}
+                    allowed_operations=set(WorkspaceOperation) - {WorkspaceOperation.MEMORY_READ}
                 )
             ]
         )
@@ -431,13 +427,12 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
             access=access, target_workspace=composition.default_workspace, process_id="denied"
         )
         entry = WorkspaceOperationEntry(
-            MemoryApplicationService(
+            ActorMemoryService(
                 chain.bus,
                 operation_authorizer=composition.authorizer,
                 memory_reader=chain.runtime.aliases,
             ),
-            agent=AgentApplicationService(
-                chain.bus,
+            agent=ActorAgentService(
                 operation_authorizer=composition.authorizer,
                 profile_reader=chain.runtime.profiles,
             ),

@@ -14,10 +14,16 @@ from hivememory.system.system import HiveMemorySystem
         "management.asset",
         "management.task",
         "task.observe",
+        "resource.read",
+        "resource.search",
+        "profile.read",
+        "asset.acquire",
+        "interaction.submit",
+        "memory_intent.submit",
     ],
 )
-def test_removed_root_operation_fails_during_system_assembly(tmp_path, monkeypatch, operation):
-    """旧管理 operation 不能继续装载，错误明确指出未知值与访问坐标。"""
+def test_removed_operation_fails_during_system_assembly(tmp_path, monkeypatch, operation):
+    """旧版 operation 不能继续装载，错误明确指出未知值与访问坐标。"""
     path = tmp_path / "workspace_actors.yaml"
     path.write_text(
         "workspace_actors:\n"
@@ -43,7 +49,7 @@ def test_system_operation_whitelist_fails_during_system_assembly(tmp_path, monke
         '    workspace_id: "main_workspace"\n'
         '    user_id: "default"\n'
         '    agent_id: "system"\n'
-        '    allowed_operations: ["resource.read"]\n',
+        '    allowed_operations: ["memory.read"]\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("HIVEMEMORY_WORKSPACE_ACTORS_PATH", str(path))

@@ -90,7 +90,7 @@ class WorkspaceActorAccessEntry(BaseModel):
     """Workspace Actor 访问登记配置：准入状态 + 行为白名单。
 
     ``allowed_operations`` 使用 ``WorkspaceOperation`` 的枚举值字符串
-    （如 ``"resource.read"``）；允许为空——代表可进入但未获准执行资源
+    （如 ``"memory.read"``）；允许为空——代表可进入但未获准执行资源
     操作。W0 兼容基线要求 ``user_id == owner_user_id``。
 
     ``agent_id`` 省略（``None``）表示用户级记录：覆盖该用户的所有具体

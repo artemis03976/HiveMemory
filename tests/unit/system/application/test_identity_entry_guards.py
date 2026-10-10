@@ -29,8 +29,8 @@ from hivememory.core.errors import ScopeRequiredError, WorkspaceDomainError
 from hivememory.core.models import ActorIdentity
 from hivememory.server import deps
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
 from hivememory.workspace.capability.root.memory import RootMemoryService
@@ -49,8 +49,8 @@ from tests.helpers.workspace import (
 
 #: root 与 actor 的能力入口均显式配对目标 Workspace 与访问 context。
 _CAPABILITY_SERVICES = (
-    AgentApplicationService,
-    MemoryApplicationService,
+    ActorAgentService,
+    ActorMemoryService,
     RootAgentProfileService,
     RootMemoryService,
     RootMemoryTaskService,

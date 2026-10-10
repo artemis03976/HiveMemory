@@ -524,6 +524,6 @@ async def test_system_stop_rejects_new_authentication_and_invalidates_issued_con
     assert auth_error.value.details["reason"] == "authentication_gateway_closed"
     with pytest.raises(ScopeRequiredError) as scope_error:
         composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.RESOURCE_READ, scope.workspace_identity
+            context, WorkspaceOperation.MEMORY_READ, scope.workspace_identity
         )
     assert scope_error.value.details["reason"] == "context_not_issued"

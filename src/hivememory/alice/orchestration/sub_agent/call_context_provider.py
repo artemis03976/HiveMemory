@@ -18,7 +18,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.workspace.contracts import GetAgentProfileRequest, ResolveReferencesRequest
+from hivememory.workspace.contracts import ResolveCallTargetRequest, ResolveReferencesRequest
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +41,15 @@ class CallContextProvider:
     ) -> CallContext:
         """经调用方提交函数读取目标 Profile，再编译受控共享上下文。
 
-        内置 Profile 同样提交读取请求，不能绕过 workspace 的 ``profile.read``
-        授权；Alice 只保留 MTP 错误映射，不持有另一份 Profile 缓存。
+        内置 Profile 同样提交 CALL 目标请求，不能绕过 ``agent.call`` 授权；
+        context_refs 另提交 READ 请求，仍需要 ``memory.read``。Alice 只保留
+        MTP 错误映射，不持有另一份 Profile 缓存。
         """
         if caller_frame.submit_operation is None:
             raise RuntimeError("CALL 缺少操作提交函数")
         try:
             profile = await caller_frame.submit_operation(
-                GetAgentProfileRequest(agent_alias=request.target_alias)
+                ResolveCallTargetRequest(agent_alias=request.target_alias)
             )
         except OperationDeniedError as error:
             raise PermissionDeniedError(

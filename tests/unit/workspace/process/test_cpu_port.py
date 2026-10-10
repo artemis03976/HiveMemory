@@ -505,7 +505,7 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
     composition = _composition()
     requestor = await composition.authenticate(agent_id=_AGENT)
     scope = composition.authorizer.authorize_operation(
-        requestor, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
+        requestor, WorkspaceOperation.MEMORY_READ, composition.default_workspace
     )
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="正文甲")
 

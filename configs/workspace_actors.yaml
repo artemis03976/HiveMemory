@@ -18,12 +18,12 @@ workspace_actors:
     workspace_id: "main_workspace"
     user_id: "default"
     allowed_operations:
-      - "resource.read"
-      - "resource.search"
-      - "profile.read"
-      - "asset.acquire"
-      - "interaction.submit"
-      - "memory_intent.submit"
+      - "memory.read"
+      - "memory.search"
+      - "memory.run"
+      - "memory.write"
+      - "memory.update"
+      - "agent.call"
 
   # 保留 system actor：HTTP 管理入口与 chat 取消经网关取得 context。
   # root API 只检查准入、目标与 system 身份，不使用 actor 操作白名单；

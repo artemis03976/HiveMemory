@@ -20,7 +20,6 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.utils.uuid import normalize_uuid
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -33,7 +32,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class MemoryApplicationService:
+class ActorMemoryService:
     """actor 资源入口，访问 context 只由本层授权并转为本次操作 scope。"""
 
     def __init__(
@@ -57,8 +56,8 @@ class MemoryApplicationService:
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> PendingAtom:
-        """提交 WRITE（``memory_intent.submit``），ACK 仅表示意图已登记。"""
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
+        """提交 WRITE（``memory.write``），ACK 仅表示意图已登记。"""
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_WRITE, target_workspace)
         return self._intents.register_write(
             focus,
             belong_to=scope.workspace_identity,
@@ -76,8 +75,8 @@ class MemoryApplicationService:
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> PendingAtom:
-        """提交 UPDATE：授权后解析可读正式基础原子，登记成功才失效基础缓存。"""
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
+        """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。"""
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_UPDATE, target_workspace)
         result = (await self._reader.resolve_references([base_alias], scope=scope))[0]
         if result.kind == "pending":
             raise PendingUpdateNotAllowedError(details={"alias": base_alias})
@@ -98,22 +97,6 @@ class MemoryApplicationService:
         self._reader.evict(scope.workspace_identity, atom.id)
         return pending
 
-    async def cancel_intents(
-        self,
-        aliases: list[str],
-        *,
-        process_id: str,
-        target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
-    ) -> list[str]:
-        """撤回本进程提交且尚未认领的意图（``memory_intent.submit``）。
-
-        属于提交的取消语义：只改变 ``process_id`` 对应且仍为 PENDING 的记录，
-        返回实际撤回的 alias。
-        """
-        self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
-        return self._intents.cancel_aliases(aliases, process_id=process_id)
-
     async def resolve_references(
         self,
         aliases: list[str],
@@ -121,13 +104,37 @@ class MemoryApplicationService:
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[ReferenceResolution]:
-        """读取引用（``resource.read``），为本次交付的正式原子逐一记录引用。
+        """读取引用（``memory.read``），为本次交付的正式原子逐一记录引用。
 
         逐项结果保留顺序与重复项，引用记录在本请求内按 memory id 去重。
         只处理 atom 或带可读原子的 redirect；缓存命中也记录。记录失败只
         影响日志，不改变读取结果，取消则继续传播给调用方。
         """
-        scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_READ, target_workspace)
+        return await self._resolve_and_record_citations(aliases, scope=scope)
+
+    async def resolve_run_target(
+        self,
+        alias: str,
+        *,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> ReferenceResolution:
+        """解析 RUN 的单个执行目标（``memory.run``），交付时记录正式引用。
+
+        RUN 与 READ 独立授权；资源可见性与引用副作用沿用同一读取视图，
+        返回中立解析结果，目标是否可执行仍由 Actor 的工具运行时判断。
+        """
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_RUN, target_workspace)
+        return (await self._resolve_and_record_citations([alias], scope=scope))[0]
+
+    async def _resolve_and_record_citations(
+        self,
+        aliases: list[str],
+        *,
+        scope: IdentityScope,
+    ) -> list[ReferenceResolution]:
+        """复用 READ/RUN 的解析与引用记录，权限只由各自的公共入口检查。"""
         results = await self._reader.resolve_references(aliases, scope=scope)
         cited: set[UUID] = set()
         for result in results:
@@ -154,32 +161,6 @@ class MemoryApplicationService:
                 )
         return results
 
-    async def read(
-        self,
-        memory_id: UUID | str,
-        *,
-        target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
-    ) -> MemoryAtom | None:
-        """UUID 点读（``resource.read``）：返回完整原子独立副本。
-
-        未知或对当前 Actor 不可见的资源按 A1 防泄露规则返回 ``None``；非法
-        UUID 字符串维持 ``ValueError``（A2 §8.2）。
-        """
-        scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
-        return await self._reader.read(normalize_uuid(memory_id), scope=scope)
-
-    async def retrieve_by_aliases(
-        self,
-        aliases: list[str],
-        *,
-        target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
-    ) -> list[MemoryAtom]:
-        """alias 批量读取（``resource.read``）：按请求顺序返回实际可读的完整原子。"""
-        scope = self._authorize(access, WorkspaceOperation.RESOURCE_READ, target_workspace)
-        return await self._reader.resolve_aliases(aliases, scope=scope)
-
     async def retrieve(
         self,
         *,
@@ -190,13 +171,13 @@ class MemoryApplicationService:
         target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
-        """语义检索（``resource.search``）：保持领域排序，结果协作预热缓存。
+        """语义检索（``memory.search``）：保持领域排序，结果协作预热缓存。
 
         调用方只提交检索参数：检索请求由本层用授权返回的可信 scope 构造，
         ``IdentityScope`` 不进入调用方输入（A1 访问边界返工第 4.5 节），
         不能据请求体重新选择 Workspace。
         """
-        scope = self._authorize(access, WorkspaceOperation.RESOURCE_SEARCH, target_workspace)
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_SEARCH, target_workspace)
         request = RetrievalRequest(
             semantic_query=semantic_query,
             keywords=list(keywords or ()),

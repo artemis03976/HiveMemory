@@ -8,7 +8,9 @@ from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
+    MTPExecutionContext,
 )
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
@@ -167,14 +169,14 @@ async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_config
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("alias", ["", "default", "omni_doll", "custom_agent"])
-async def test_call_without_profile_read_returns_permission_error_without_dispatch(alias):
-    """缺少 profile.read 的凭据无法执行 CALL，内置 Profile 同样不能旁路。"""
+async def test_call_without_call_permission_returns_permission_error_without_dispatch(alias):
+    """只有 READ 许可不能执行 CALL，内置 Profile 同样受 agent.call 约束。"""
     harness = OperationsHarness()
     scope = make_identity_scope(agent_id="parent")
     submit_operation = await harness.submitter(
         scope,
         "call-process",
-        allowed_operations={WorkspaceOperation.RESOURCE_READ},
+        allowed_operations={WorkspaceOperation.MEMORY_READ},
     )
     caller = _caller(submit_operation)
 
@@ -247,3 +249,64 @@ async def test_call_context_refs_record_citations_for_delivered_formal_atoms():
     assert [
         citation["identity_scope"].actor_identity.agent_id for citation in harness.citations
     ] == ["parent"]
+
+
+@pytest.mark.asyncio
+async def test_call_permission_without_read_dispatches_child_without_shared_memory():
+    """只有 CALL 许可仍能创建子帧，缺少 READ 时 context_refs 不交付记忆或记录引用。"""
+    harness = OperationsHarness()
+    atom = MemoryAtom(
+        meta=make_memory_metadata(source_agent_id="parent", user_id="test_user"),
+        index=IndexLayer(
+            title="需要 READ 许可的共享资料",
+            alias="context_guarded",
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content="没有 READ 就不能共享的正文"),
+    )
+    harness.memories[atom.get_alias()] = atom
+    submit_operation = await harness.submitter(
+        make_identity_scope(agent_id="parent"),
+        "call-process",
+        allowed_operations={WorkspaceOperation.AGENT_CALL},
+    )
+    caller = _caller(submit_operation)
+
+    transition, session = await _begin_call(caller, "omni_doll", context_refs=[atom.get_alias()])
+
+    assert isinstance(transition, DispatchCallee)
+    assert set(session.frames) == {"caller", transition.frame.runtime_scope.frame_id}
+    assert transition.frame.agent_profile == OMNI_DOLL_PROFILE
+    assert atom.payload.content not in str(transition.frame.working_history)
+    assert atom.get_alias() not in str(transition.frame.working_history)
+    assert harness.runtime.stats()["atom_size"] == 0
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_callee_cannot_gain_write_permission_from_its_profile():
+    """子帧沿用主线程提交函数；callee Profile 允许 WRITE 也不能扩大凭据许可。"""
+    harness = OperationsHarness()
+    submit_operation = await harness.submitter(
+        make_identity_scope(agent_id="parent"),
+        "call-process",
+        allowed_operations={WorkspaceOperation.AGENT_CALL},
+    )
+    caller = _caller(submit_operation)
+    transition, _ = await _begin_call(caller, "omni_doll")
+    assert isinstance(transition, DispatchCallee)
+    child = transition.frame
+
+    result = await KoakumaRuntime().execute_mtp(
+        '⟪ WRITE | * | content="子帧不能扩大主线程权限" ⟫',
+        MTPExecutionContext(
+            runtime_scope=child.runtime_scope,
+            agent_profile=child.agent_profile,
+            submit_operation=child.submit_operation,
+        ),
+    )
+
+    assert child.submit_operation is caller.submit_operation
+    assert result.response_status == "error"
+    assert 'code="mtp.permission.denied"' in result.formatted_response
+    assert harness.registry.size == 0

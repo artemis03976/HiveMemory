@@ -1,6 +1,5 @@
 """actor Memory 能力入口的读取授权与引用副作用测试。"""
 
-from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -18,7 +17,7 @@ from hivememory.core.models import (
     ReferenceResolution,
 )
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.intents import WriteIntentRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -43,7 +42,7 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     )
 
 
-class TestMemoryApplicationService:
+class TestActorMemoryService:
     """actor 读取授权与正式引用交付行为。"""
 
     @pytest.fixture
@@ -61,21 +60,9 @@ class TestMemoryApplicationService:
         )
 
     @pytest.fixture
-    def mock_global_bus(self):
-        """捕获能力层总线请求的替身：记录调用，结果按测试需要设置。"""
-        bus = MagicMock(spec=GlobalSystemBus)
-        bus.request = AsyncMock(return_value=None)
-        return bus
-
-    @pytest.fixture
-    def service(self, mock_global_bus, composition):
-        # 读取依赖注入真实 resolver，读取 backing 挂在同一 mock 总线上，
-        # 便于断言授权失败时 backing 未被触达。
-        return MemoryApplicationService(
-            global_bus=mock_global_bus,
-            operation_authorizer=composition.authorizer,
-            memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
-        )
+    def global_bus(self):
+        """真实总线不挂载 backing，授权被绕过时即暴露为资源不可达。"""
+        return GlobalSystemBus()
 
     @pytest_asyncio.fixture
     async def access(self, composition):
@@ -87,20 +74,20 @@ class TestMemoryApplicationService:
         ("invoke", "expected_operation", "allowed_operations"),
         [
             pytest.param(
-                lambda service, workspace, access: service.read(
-                    uuid4(), target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.RESOURCE_READ,
-                frozenset(),
-                id="read",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.retrieve_by_aliases(
+                lambda service, workspace, access: service.resolve_references(
                     ["fact"], target_workspace=workspace, access=access
                 ),
-                WorkspaceOperation.RESOURCE_READ,
+                WorkspaceOperation.MEMORY_READ,
                 frozenset(),
-                id="retrieve_by_aliases",
+                id="resolve_references",
+            ),
+            pytest.param(
+                lambda service, workspace, access: service.resolve_run_target(
+                    "fact", target_workspace=workspace, access=access
+                ),
+                WorkspaceOperation.MEMORY_RUN,
+                frozenset({WorkspaceOperation.MEMORY_READ}),
+                id="resolve_run_target",
             ),
             pytest.param(
                 lambda service, workspace, access: service.retrieve(
@@ -108,15 +95,15 @@ class TestMemoryApplicationService:
                     target_workspace=workspace,
                     access=access,
                 ),
-                WorkspaceOperation.RESOURCE_SEARCH,
-                # 已有 resource.read 不隐含 resource.search：检索单独授权。
-                frozenset({WorkspaceOperation.RESOURCE_READ}),
+                WorkspaceOperation.MEMORY_SEARCH,
+                # 已有 memory.read 不隐含 memory.search：检索单独授权。
+                frozenset({WorkspaceOperation.MEMORY_READ}),
                 id="retrieve",
             ),
         ],
     )
     async def test_actor_read_without_operation_denied_before_backing(
-        self, mock_global_bus, workspace, invoke, expected_operation, allowed_operations
+        self, global_bus, workspace, invoke, expected_operation, allowed_operations
     ):
         """白名单缺少对应读取 operation 时读取入口在本层拒绝，不触达 backing。"""
         composition = make_access_composition(
@@ -129,10 +116,10 @@ class TestMemoryApplicationService:
             ],
             default_workspace=workspace,
         )
-        service = MemoryApplicationService(
-            global_bus=mock_global_bus,
+        service = ActorMemoryService(
+            global_bus=global_bus,
             operation_authorizer=composition.authorizer,
-            memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
+            memory_reader=make_workspace_runtime(global_bus=global_bus).aliases,
         )
         access = await composition.authenticate(agent_id="test_agent", user_id="u1")
 
@@ -141,11 +128,10 @@ class TestMemoryApplicationService:
 
         assert exc_info.value.details["reason"] == "operation_not_allowed"
         assert exc_info.value.details["operation"] == expected_operation.value
-        mock_global_bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_retrieve_builds_backing_request_from_authorized_scope(
-        self, mock_global_bus, workspace, composition, access
+        self, global_bus, workspace, composition, access
     ):
         """检索请求由能力层用授权返回的可信 scope 构造，身份不进入调用方输入。
 
@@ -167,10 +153,10 @@ class TestMemoryApplicationService:
                 return [_make_memory_atom(title="Hit")]
 
         expected_scope = composition.authorizer.authorize_operation(
-            access, WorkspaceOperation.RESOURCE_SEARCH, workspace
+            access, WorkspaceOperation.MEMORY_SEARCH, workspace
         )
-        service = MemoryApplicationService(
-            global_bus=mock_global_bus,
+        service = ActorMemoryService(
+            global_bus=global_bus,
             operation_authorizer=composition.authorizer,
             memory_reader=CapturingReader(),
         )
@@ -200,11 +186,14 @@ class TestMemoryApplicationService:
         assert captured["scope"] == expected_scope
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "operation", [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_RUN]
+    )
     @pytest.mark.parametrize("kind", ["pending", "failed", "discarded", "not_found", "expired"])
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(
-        self, kind, composition, workspace, access
+        self, kind, operation, composition, workspace, access
     ):
-        """引用记录以可交付状态为准，非正式状态即使带有原子也不能引用。"""
+        """READ/RUN 只为正式交付记录引用，其他状态即使带有原子也不能引用。"""
         citations = []
 
         class CitationBus:
@@ -226,15 +215,20 @@ class TestMemoryApplicationService:
                     )
                 ]
 
-        service = MemoryApplicationService(
+        service = ActorMemoryService(
             global_bus=CitationBus(),
             operation_authorizer=composition.authorizer,
             memory_reader=ReferenceReader(),
         )
 
-        (result,) = await service.resolve_references(
-            ["draft"], target_workspace=workspace, access=access
-        )
+        if operation == WorkspaceOperation.MEMORY_READ:
+            (result,) = await service.resolve_references(
+                ["draft"], target_workspace=workspace, access=access
+            )
+        else:
+            result = await service.resolve_run_target(
+                "draft", target_workspace=workspace, access=access
+            )
 
         assert (result.requested_alias, result.kind) == ("draft", kind)
         assert citations == []

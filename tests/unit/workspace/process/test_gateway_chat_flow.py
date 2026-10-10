@@ -769,7 +769,7 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
 
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
-    # cleanup 只补偿本进程 prepare 的结果，scope 来自关闭前 resource.search 再授权。
+    # cleanup 只补偿本进程 prepare 的结果，scope 来自关闭前阶段再授权。
     # 注：交付收口会经 close_process 再次 close，cleanup 补偿当前会重复发布
     # （疑似生产缺陷，见迁移报告），这里固定补偿以本进程 prepared_run 发生。
     cleanup.assert_any_await(
@@ -999,7 +999,7 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
     with pytest.raises(ScopeRequiredError) as excinfo:
         composition.authorizer.authorize_operation(
             issued[0],
-            WorkspaceOperation.RESOURCE_READ,
+            WorkspaceOperation.MEMORY_READ,
             _workspace(),
         )
     assert excinfo.value.details["reason"] == "context_not_issued"

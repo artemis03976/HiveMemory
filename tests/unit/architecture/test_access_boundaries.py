@@ -41,9 +41,9 @@ AUTH_MODULES = (
 # 只经操作授权者授权的授权点文件（不含注册入口：它另持认证网关）。
 AUTHORIZER_ONLY_FILES = frozenset(
     {
-        "workspace/capability/memory.py",
+        "workspace/capability/actor/memory.py",
         "workspace/capability/operations.py",
-        "workspace/capability/agent_profiles.py",
+        "workspace/capability/actor/agent_profiles.py",
         "workspace/capability/root/memory.py",
         "workspace/capability/root/agent_profiles.py",
         "workspace/capability/root/topic.py",

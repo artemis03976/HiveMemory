@@ -23,7 +23,7 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
     SystemFault,
 )
-from hivememory.workspace.contracts import GetAgentProfileRequest, ResolveReferencesRequest
+from hivememory.workspace.contracts import ResolveCallTargetRequest, ResolveReferencesRequest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
@@ -61,7 +61,7 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None
 
     async def submit_operation(request):
         """只替代 workspace 操作边界，CALL 的请求构造与上下文编译保持真实。"""
-        if isinstance(request, GetAgentProfileRequest):
+        if isinstance(request, ResolveCallTargetRequest):
             if profile_error is not None:
                 raise profile_error
             return profile
@@ -176,7 +176,7 @@ async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
     ("error", "expected_type", "expected_code", "expected_key"),
     [
         (
-            OperationDeniedError("profile.read 未获授权"),
+            OperationDeniedError("agent.call 未获授权"),
             PermissionDeniedError,
             "mtp.permission.denied",
             "mtp.permission.verb_denied",

@@ -73,6 +73,7 @@ from hivememory.i18n.resolver import resolve_language
 from hivememory.workspace.contracts import (
     OperationSubmitter,
     ResolveReferencesRequest,
+    ResolveRunTargetRequest,
     RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
@@ -611,9 +612,10 @@ class KoakumaRuntime:
             result = syscall.handler(command.args)
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
-        # Level 1: 用户态工具路径（提交引用请求进入 workspace 读取视图）
+        # Level 1: 用户态工具路径。RUN 以自己的操作请求进入读取视图，
+        # 与 READ 的许可独立；交付执行目标时仍由 workspace 记录正式引用。
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        resolved = (await self._operation_submitter(context)(ResolveReferencesRequest((alias,))))[0]
+        resolved = await self._operation_submitter(context)(ResolveRunTargetRequest(alias=alias))
         warnings: list[MTPWarningInfo] = []
         if resolved.kind == "pending":
             raise InvalidArgumentError(

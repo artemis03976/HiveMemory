@@ -60,7 +60,7 @@ from tests.helpers.workspace import (
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 ISOLATION = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
 FOREIGN_OWNER = make_workspace_identity(owner_user_id="u2", workspace_id="main_workspace")
-READ = WorkspaceOperation.RESOURCE_READ
+READ = WorkspaceOperation.MEMORY_READ
 
 
 def _composition(**record_kwargs):
@@ -232,7 +232,7 @@ async def test_authorize_operation_returns_assembled_scope_for_whitelisted_opera
                 owner_user_id="u1",
                 agent_id="a1",
                 allowed_operations=frozenset(
-                    {WorkspaceOperation.RESOURCE_READ, WorkspaceOperation.RESOURCE_SEARCH}
+                    {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH}
                 ),
             )
         ],
@@ -241,10 +241,10 @@ async def test_authorize_operation_returns_assembled_scope_for_whitelisted_opera
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     first = composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ, MAIN
+        context, WorkspaceOperation.MEMORY_READ, MAIN
     )
     second = composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_SEARCH, MAIN
+        context, WorkspaceOperation.MEMORY_SEARCH, MAIN
     )
 
     assert isinstance(first, IdentityScope)
@@ -263,7 +263,7 @@ async def test_authorize_operation_rejects_operation_out_of_whitelist():
             make_actor_access_record(
                 owner_user_id="u1",
                 agent_id="a1",
-                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
             )
         ],
         default_workspace=MAIN,
@@ -271,12 +271,10 @@ async def test_authorize_operation_rejects_operation_out_of_whitelist():
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(OperationDeniedError) as exc_info:
-        composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.MEMORY_INTENT_SUBMIT, MAIN
-        )
+        composition.authorizer.authorize_operation(context, WorkspaceOperation.MEMORY_WRITE, MAIN)
 
     assert exc_info.value.details["reason"] == "operation_not_allowed"
-    assert exc_info.value.details["operation"] == "memory_intent.submit"
+    assert exc_info.value.details["operation"] == "memory.write"
 
 
 @pytest.mark.asyncio
@@ -296,7 +294,7 @@ async def test_authorize_operation_rejects_foreign_owner_target():
 
     with pytest.raises(OperationDeniedError) as exc_info:
         composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.RESOURCE_READ, FOREIGN_OWNER
+            context, WorkspaceOperation.MEMORY_READ, FOREIGN_OWNER
         )
 
     assert exc_info.value.details["reason"] == "target_workspace_not_resident"
@@ -313,11 +311,11 @@ async def test_authorize_operation_rejects_missing_and_bare_scope_context():
     )
 
     with pytest.raises(ScopeRequiredError) as missing_info:
-        composition.authorizer.authorize_operation(None, WorkspaceOperation.RESOURCE_READ, MAIN)
+        composition.authorizer.authorize_operation(None, WorkspaceOperation.MEMORY_READ, MAIN)
     with pytest.raises(ScopeRequiredError) as bare_info:
         composition.authorizer.authorize_operation(
             make_identity_scope(user_id="u1", agent_id="a1"),
-            WorkspaceOperation.RESOURCE_READ,
+            WorkspaceOperation.MEMORY_READ,
             MAIN,
         )
 
@@ -358,10 +356,10 @@ async def test_authorize_operation_rejects_wrong_operation_and_target_types():
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(TypeError):
-        composition.authorizer.authorize_operation(context, "resource.read", MAIN)
+        composition.authorizer.authorize_operation(context, "memory.read", MAIN)
     with pytest.raises(TypeError):
         composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.RESOURCE_READ, "main_workspace"
+            context, WorkspaceOperation.MEMORY_READ, "main_workspace"
         )
 
 

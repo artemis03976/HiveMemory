@@ -28,8 +28,8 @@ from hivememory.engines.lifecycle.models import EventType
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTaskStatus
 from hivememory.server import deps
 from hivememory.server.routers.chat import router
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from tests.helpers.memory import make_memory_metadata
@@ -87,13 +87,12 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
     runtime.subscribe(stack.bus)
     credentials = ExecutionCredentialRegistry()
     entry = WorkspaceOperationEntry(
-        MemoryApplicationService(
+        ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
         ),
-        agent=AgentApplicationService(
-            stack.bus,
+        agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=runtime.profiles,
         ),

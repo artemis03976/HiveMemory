@@ -1,7 +1,7 @@
 """InteractionSubmissionService / MemoryIntentSubmissionService 的单元测试。
 
 被测对象：两个公开提交 API 的身份边界与载荷语义（A1 访问边界返工第 4.6 节）：
-- 本层不再检查 operation：``interaction.submit`` / ``memory_intent.submit``
+- 本层不再检查 operation：``interaction.submit`` / ``memory.write``
   的行为授权在 workspace 能力层出现对应方法时进行，本层只接收调用方传入
   的 ``IdentityScope``，不接收 ``access`` 参数；
 - ``submit_interaction`` 经真实内存队列接纳并返回收据投影；

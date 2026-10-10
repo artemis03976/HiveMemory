@@ -27,8 +27,8 @@ from hivememory.core.models import (
 from hivememory.server import deps
 from hivememory.server.routers.chat import router
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     CPUInputManifest,
@@ -138,13 +138,12 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
     runtime = make_workspace_runtime(stack.bus)
     credentials = ExecutionCredentialRegistry()
     entry = WorkspaceOperationEntry(
-        MemoryApplicationService(
+        ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
         ),
-        agent=AgentApplicationService(
-            stack.bus,
+        agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=runtime.profiles,
         ),
