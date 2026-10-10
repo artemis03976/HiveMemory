@@ -41,6 +41,7 @@ from hivememory.patchouli.memory_library.stores import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.operations import HarnessKoakumaRuntime
 from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 NOW = datetime(2026, 10, 4, 12, tzinfo=UTC)
@@ -57,7 +58,7 @@ class _DeterministicEmbedding:
 
 @pytest_asyncio.fixture
 async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermMemoryStore]]:
-    """真实 MTP、公共/本地总线、检索与 Qdrant 内存模式组成隔离链路。"""
+    """真实 MTP、workspace 入口、检索与 Qdrant 内存模式组成隔离链路。"""
     qdrant = QdrantMemoryStore.__new__(QdrantMemoryStore)
     qdrant.client = AsyncQdrantClient(location=":memory:")
     qdrant.collection_name = "mtp_search_source_agent"
@@ -87,7 +88,7 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
         application = MemoryManagementService(bus=local_bus)
         global_bus = GlobalSystemBus()
         global_bus.register(PatchouliRoutes.MEMORY_RETRIEVE, application.retrieve)
-        yield KoakumaRuntime(global_bus, KoakumaConfig()), mid_term
+        yield HarnessKoakumaRuntime(bus=global_bus, config=KoakumaConfig()), mid_term
     finally:
         await qdrant.client.close()
 

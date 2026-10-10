@@ -4,6 +4,7 @@ import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -121,3 +122,35 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
     assert 'code="mtp.permission.denied"' in result.formatted_response
     assert harness.registry.size == 0
     assert harness.runtime.stats()["cold_reads"] == 0
+
+
+@pytest.mark.asyncio
+async def test_search_without_resource_search_grant_does_not_deliver_or_warm_memories():
+    """READ 授权不能代替 SEARCH 授权，拒绝后不交付内容或预热共享缓存。"""
+    harness = OperationsHarness()
+    atom = MemoryAtom(
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
+        index=IndexLayer(
+            title="未获检索授权的记忆",
+            summary="隐私边界",
+            alias="fact_guarded",
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content="只读授权不能开启检索"),
+    )
+    harness.memories[atom.get_alias()] = atom
+    scope = make_runtime_scope()
+    context = MTPExecutionContext(
+        runtime_scope=scope,
+        submit_operation=await harness.submitter(
+            scope.identity_scope, allowed_operations=[WorkspaceOperation.RESOURCE_READ]
+        ),
+    )
+
+    result = await KoakumaRuntime().execute_mtp('⟪ SEARCH | * | query="记忆" ⟫', context)
+
+    assert result.response_status == "error"
+    assert 'code="mtp.permission.denied"' in result.formatted_response
+    assert result.response_content == ""
+    assert harness.runtime.stats()["atom_size"] == 0
+    assert harness.citations == []

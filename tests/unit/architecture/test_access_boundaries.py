@@ -173,3 +173,24 @@ def test_context_content_is_only_read_by_authorizer_and_diagnostics():
         "workspace/authorization.py",
         "workspace/authentication.py",
     }
+
+
+def test_alice_resource_operations_do_not_reference_patchouli_routes():
+    """Alice 与 MTP 适配器只提交操作请求，不保留资源 owner 的 RPC 路径。"""
+    files = [path for path in _source_files() if _top_package(path) in {"alice", "agent_runtime"}]
+    assert files, "未扫描到 Alice 与 agent_runtime 源文件"
+    offenders: list[str] = []
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr.startswith("PATCHOULI_")
+                or isinstance(node, ast.Name)
+                and node.id.startswith("PATCHOULI_")
+                or isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value.startswith("patchouli.public.")
+            ):
+                offenders.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{node.lineno}")
+    assert offenders == []

@@ -62,9 +62,7 @@ class AliceSystem(SubsystemProtocol):
 
         frame_factory = FrameFactory()
         prompt_assembler = AgentPromptAssembler(config.koakuma)
-        call_context_provider = CallContextProvider(
-            self._runtime.profile_resolver,
-        )
+        call_context_provider = CallContextProvider()
         call_coordinator = CallCoordinator(
             self._runtime.agent_runtime,
             call_context_provider,
@@ -81,8 +79,6 @@ class AliceSystem(SubsystemProtocol):
         )
 
         self._bridge = AliceBridge(
-            local_bus=self._runtime.local_bus,
-            runtime=self._runtime,
             public_api=AlicePublicApi(agent=self._service),
             global_bus=global_bus,
         )
@@ -117,9 +113,6 @@ class AliceSystem(SubsystemProtocol):
 
     async def stop(self) -> None:
         self._bridge.unmount()
-        # bridge 卸载后不再有新请求进入；派生 cache 属于 Alice 执行路径，
-        # 由其所有者在自身停止时清空，不依赖 System stop 序列的额外步骤。
-        self._runtime.clear_derived_caches()
 
     async def health(self) -> dict[str, Any]:
         return {

@@ -140,7 +140,7 @@ class TestRunKernelFastPath:
         result = _execute_mtp(koakuma, "⟪ RUN | sys_clock | ⟫")
         assert result.success
         assert "UTC" in result.response_content
-        assert koakuma._bus._memory_citations == []
+        assert koakuma.harness.backing.bus._memory_citations == []
 
     def test_sys_clock_iso(self, koakuma):
         result = _execute_mtp(koakuma, '⟪ RUN | sys_clock | format="iso" ⟫')
@@ -182,7 +182,7 @@ class TestRunUserToolPath:
 
     def test_unknown_tool_not_found(self, koakuma):
         """L1+L2 均未命中，返回 not found"""
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = None
         result = _execute_mtp(koakuma, "⟪ RUN | nonexistent_tool | ⟫")
         assert not result.success
         assert result.response_content == ""
@@ -191,14 +191,14 @@ class TestRunUserToolPath:
         )
 
     def test_unknown_tool_suggests_search(self, koakuma):
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = None
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = None
         result = _execute_mtp(koakuma, "⟪ RUN | my_custom_tool | ⟫")
         assert not result.success
         assert result.response_content == ""
         assert "SEARCH" in result.formatted_response
 
     def test_l2_route_failure_returns_infra_error(self, koakuma):
-        koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
             "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
         )
 
@@ -211,14 +211,16 @@ class TestRunUserToolPath:
     def test_l2_hit_executes_code_snippet(self, koakuma):
         """L2 命中 CODE_SNIPPET，沙箱执行成功"""
         mem = _make_code_memory(code="print('tool output')", alias="tool_greet")
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
 
         result = _execute_mtp(koakuma, "⟪ RUN | tool_greet | ⟫")
 
         assert result.success
         assert "tool output" in result.response_content
-        assert koakuma._bus._memory_citations == [{"memory_id": mem.id, "source": "mtp.run"}]
+        assert koakuma.harness.backing.bus._memory_citations == [
+            {"memory_id": mem.id, "source": "workspace.reference_read"}
+        ]
 
     def test_l1_alias_hit_executes(self, koakuma):
         """L1 别名命中 → 加载 → 执行"""
@@ -229,21 +231,23 @@ class TestRunUserToolPath:
 
         assert result.success
         assert "from l1" in result.response_content
-        assert koakuma._bus._memory_citations == [{"memory_id": mem.id, "source": "mtp.run"}]
+        assert koakuma.harness.backing.bus._memory_citations == [
+            {"memory_id": mem.id, "source": "workspace.reference_read"}
+        ]
 
     def test_cache_hit_skips_qdrant(self, koakuma):
         """第二次调用走 LRU 缓存，不查 Qdrant"""
         mem = _make_code_memory(code="print('cached')", alias="tool_cached")
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
 
         # 第一次调用: L2 命中 → 加载 → 缓存
         result1 = _execute_mtp(koakuma, "⟪ RUN | tool_cached | ⟫")
         assert result1.success
 
         # 重置 mock 调用计数
-        koakuma._bus._mock_storage.get_memory.reset_mock()
-        koakuma._bus._mock_storage.get_memory_by_alias.reset_mock()
+        koakuma.harness.backing.bus._mock_storage.get_memory.reset_mock()
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.reset_mock()
 
         # 第二次调用: 应走 LRU 缓存
         result2 = _execute_mtp(koakuma, "⟪ RUN | tool_cached | ⟫")
@@ -251,11 +255,11 @@ class TestRunUserToolPath:
         assert "cached" in result2.response_content
 
         # 验证没有再查 Qdrant
-        koakuma._bus._mock_storage.get_memory.assert_not_called()
-        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
+        koakuma.harness.backing.bus._mock_storage.get_memory.assert_not_called()
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.assert_not_called()
 
     def test_non_code_snippet_rejected(self, koakuma):
-        """类型不是 CODE_SNIPPET 时拒绝执行"""
+        """类型不是 CODE_SNIPPET 时拒绝执行，但已交付的正式原子仍记录引用。"""
         fact_mem = _make_fact_memory()
         koakuma.memories[fact_mem.get_alias()] = fact_mem
 
@@ -264,7 +268,9 @@ class TestRunUserToolPath:
         assert not result.success
         assert result.response_content == ""
         assert "CODE_SNIPPET" in result.formatted_response
-        assert koakuma._bus._memory_citations == []
+        assert koakuma.harness.backing.bus._memory_citations == [
+            {"memory_id": fact_mem.id, "source": "workspace.reference_read"}
+        ]
 
     def test_sandbox_timeout(self, koakuma):
         """死循环代码触发超时"""
@@ -272,8 +278,8 @@ class TestRunUserToolPath:
             code="while True: pass",
             alias="tool_infinite",
         )
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
         # 使用极短超时加速测试
         koakuma._config.python_repl_timeout_seconds = 1
 
@@ -293,8 +299,8 @@ class TestRunUserToolPath:
             code="import os\nprint(os.getcwd())",
             alias="tool_bad_import",
         )
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
 
         result = _execute_mtp(koakuma, "⟪ RUN | tool_bad_import | ⟫")
 
@@ -308,8 +314,8 @@ class TestRunUserToolPath:
             code="print(f\"x={params['x']}, y={params['y']}\")",
             alias="tool_params",
         )
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
 
         result = _execute_mtp(koakuma, '⟪ RUN | tool_params | x="42" y="hello" ⟫')
 
@@ -327,8 +333,8 @@ class TestRunUserToolPath:
         assert result.success
         assert "cached" in result.response_content
         # 验证没有查 Qdrant
-        koakuma._bus._mock_storage.get_memory.assert_not_called()
-        koakuma._bus._mock_storage.get_memory_by_alias.assert_not_called()
+        koakuma.harness.backing.bus._mock_storage.get_memory.assert_not_called()
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.assert_not_called()
 
     def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
         pending = koakuma.registry.register_write(
@@ -365,7 +371,9 @@ class TestRunUserToolPath:
         assert f"请求的别名: {pending.pending_alias}" in result.formatted_response
         assert "规范别名: tool_canonical" in result.formatted_response
         assert "<warnings>" in result.formatted_response
-        assert koakuma._bus._memory_citations == [{"memory_id": canonical.id, "source": "mtp.run"}]
+        assert koakuma.harness.backing.bus._memory_citations == [
+            {"memory_id": canonical.id, "source": "workspace.reference_read"}
+        ]
 
     def test_failed_pending_alias_returns_reclaimed_error(self, koakuma):
         pending = koakuma.registry.register_write(
@@ -407,7 +415,7 @@ class TestRunUserToolPath:
         assert result.response_content == ""
         assert "[Invalid Argument]" in result.formatted_response
         assert "是运行时 pending atom" in result.formatted_response
-        assert koakuma._bus._memory_citations == []
+        assert koakuma.harness.backing.bus._memory_citations == []
 
     def test_run_pending_from_other_scope_returns_alias_not_found(self, koakuma):
         """跨 Workspace RUN 他人 pending alias：报 Alias Not Found，不泄露 pending 状态。"""
@@ -435,7 +443,7 @@ class TestRunUserToolPath:
         assert "[Alias Not Found]" in result.formatted_response
         assert "是运行时 pending atom" not in result.formatted_response
         assert "[Invalid Argument]" not in result.formatted_response
-        assert koakuma._bus._memory_citations == []
+        assert koakuma.harness.backing.bus._memory_citations == []
 
     def test_run_settled_redirect_from_other_scope_does_not_execute_canonical_tool(self, koakuma):
         """跨 Workspace RUN 已结算 redirect：不得执行 canonical 工具。"""
@@ -480,13 +488,13 @@ class TestRunUserToolPath:
         assert result.response_content == ""
         assert "redirected tool output" not in result.formatted_response
         assert "[Alias Not Found]" in result.formatted_response
-        assert koakuma._bus._memory_citations == []
+        assert koakuma.harness.backing.bus._memory_citations == []
 
     def test_user_tool_success_returns_execution_result(self, koakuma):
         """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
         mem = _make_code_memory(code="print('traced')", alias="tool_trace")
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
 
         result = _execute_mtp(koakuma, "⟪ RUN | tool_trace | ⟫")
 
@@ -494,22 +502,24 @@ class TestRunUserToolPath:
         assert "traced" in result.response_content
 
     def test_user_tool_error_returns_execution_failure(self, koakuma):
-        """执行失败时返回错误响应，trace 由 TurnEvent reducer 负责生成。"""
+        """执行失败仍返回错误，引用在能力层交付原子时已记录。"""
         mem = _make_code_memory(code="raise ValueError('boom')", alias="tool_err")
-        koakuma._bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma._bus._mock_storage.get_memory.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
+        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
 
         result = _execute_mtp(koakuma, "⟪ RUN | tool_err | ⟫")
 
         assert not result.success
         assert result.response_content == ""
         assert "Error" in result.formatted_response
-        assert koakuma._bus._memory_citations == []
+        assert koakuma.harness.backing.bus._memory_citations == [
+            {"memory_id": mem.id, "source": "workspace.reference_read"}
+        ]
 
     def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
         mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
         koakuma.memories[mem.get_alias()] = mem
-        koakuma._bus.unregister("patchouli.public.record_memory_citation")
+        koakuma.harness.backing.bus.unregister("patchouli.public.record_memory_citation")
 
         result = _execute_mtp(koakuma, "⟪ RUN | tool_cite_fail | ⟫")
 

@@ -6,8 +6,16 @@ from dataclasses import replace
 
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import RunBinding
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ResourceUnavailableError
-from hivememory.core.models import IdentityScope, MemoryAtom
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    IdentityScope,
+    MemoryAtom,
+    ResolvedAgentProfile,
+)
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
@@ -49,11 +57,15 @@ class MemoryBackend:
         return found
 
     async def retrieve(self, request):
+        if self.bus is not None:
+            return await self.bus.request(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, request=request)
         return list(self.memories.values())
 
     async def get_agent_profile(self, alias, *, scope):
-        from hivememory.core.contracts.routes import GlobalRoutes
-
+        # 内存 backing 沿用 Patchouli 的内置图纸规则；入口仍必须先执行
+        # profile.read 授权，测试不在 Alice 内另设默认配置回退。
+        if alias is None or alias.strip() in ("", "default", "omni_doll"):
+            return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
         if self.bus is None:
             raise NotImplementedError("本测试未装配 Profile backing")
         return await self.bus.request(
@@ -65,6 +77,10 @@ class OperationsHarness:
     """为测试身份装配真实入口，跨调用保留同一份进程级登记。"""
 
     def __init__(self, bus=None, *, operation_authorizer=None) -> None:
+        self.bus = bus or GlobalSystemBus()
+        self.citations: list[dict] = []
+        if bus is None:
+            self.bus.register(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, self._record_citation)
         self.backing = MemoryBackend(bus)
         self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
         self.registry = self.runtime.intents
@@ -73,13 +89,24 @@ class OperationsHarness:
         self._process_credentials: dict[str, list[ExecutionCredential]] = {}
         self.entry = self.make_entry(operation_authorizer or make_access_composition([]).authorizer)
 
+    async def _record_citation(self, *, memory_id, source, identity_scope):
+        """持久化替身记录公共引用路由的副作用，读取与授权边界保持真实。"""
+        self.citations.append(
+            {"memory_id": memory_id, "source": source, "identity_scope": identity_scope}
+        )
+
     def make_entry(self, operation_authorizer) -> WorkspaceOperationEntry:
         """入口与所有测试凭据共享同一份登记，替身仅位于持久化边界。"""
         return WorkspaceOperationEntry(
             MemoryApplicationService(
-                GlobalSystemBus(),
+                self.bus,
                 operation_authorizer=operation_authorizer,
                 memory_reader=self.runtime.aliases,
+            ),
+            agent=AgentApplicationService(
+                self.bus,
+                operation_authorizer=operation_authorizer,
+                profile_reader=self.runtime.profiles,
             ),
             credential_registry=self.credentials,
             intent_registry=self.registry,
@@ -103,7 +130,13 @@ class OperationsHarness:
             ],
             default_workspace=workspace,
         )
-        access = await composition.authenticate(agent_id=actor.agent_id, user_id=actor.user_id)
+        access = await composition.gateway.authenticate(
+            adapter="local",
+            principal=composition.principal,
+            actor=actor,
+            workspace=workspace,
+            binding=RunBinding.for_task_process(process_id),
+        )
         entry = self.make_entry(composition.authorizer)
         credential = self.credentials.issue(
             access=access, target_workspace=workspace, process_id=process_id
@@ -125,7 +158,7 @@ class HarnessKoakumaRuntime(KoakumaRuntime):
     """测试显式装配提交函数，复用生产 MTP handler，不模拟解析或登记。"""
 
     def __init__(self, *, bus=None, config=None):
-        super().__init__(bus=bus, config=config)
+        super().__init__(config=config)
         self.harness = OperationsHarness(bus)
         self.memories = self.harness.memories
         self.registry = self.harness.registry

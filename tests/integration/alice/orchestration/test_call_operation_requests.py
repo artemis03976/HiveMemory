@@ -45,7 +45,7 @@ async def test_callee_submits_with_parent_credential_and_keeps_parent_as_intent_
     )
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        CallContextProvider(runtime.profile_resolver),
+        CallContextProvider(),
         frame_factory=FrameFactory(),
         prompt_assembler=AgentPromptAssembler(config.koakuma),
     )

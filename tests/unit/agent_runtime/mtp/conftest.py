@@ -1,9 +1,8 @@
 """
 MTP 链路测试共享 Fixtures
 
-提供 mock Async bus 工厂，用于替代旧的直接服务注入模式。
-KoakumaRuntime 已重构为 bus-based 架构 (bus, config)，
-测试需要通过 mock bus 路由到 mock 服务。
+提供存储边界的异步总线替身，资源操作通过测试装配的提交函数执行。
+KoakumaRuntime 不持有总线，协议解析与输出仍使用生产实现。
 
 作者: HiveMemory Team
 """

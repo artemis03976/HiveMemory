@@ -345,6 +345,7 @@ class SystemAssembler:
         credentials = ExecutionCredentialRegistry()
         operations = WorkspaceOperationEntry(
             memory,
+            agent=agent,
             credential_registry=credentials,
             intent_registry=runtime.workspace_runtime.intents,
         )

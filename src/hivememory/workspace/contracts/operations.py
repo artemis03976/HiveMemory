@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import NoReturn, Protocol
 
+from hivememory.core.models.agent import AgentProfile
+from hivememory.core.models.memory import MemoryAtom
 from hivememory.core.models.pending import PendingAtom, WriteFocus
+from hivememory.core.models.query import QueryFilters
 from hivememory.core.models.reference import ReferenceResolution
 
 
@@ -63,6 +66,23 @@ class ResolveReferencesRequest(OperationRequest[list[ReferenceResolution]]):
     aliases: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RetrieveRequest(OperationRequest[list[MemoryAtom]]):
+    """检索可见记忆，过滤与数量参数由能力层映射到 canonical 读取。"""
+
+    semantic_query: str
+    keywords: tuple[str, ...] = ()
+    top_k: int = 5
+    filters: QueryFilters | None = None
+
+
+@dataclass(frozen=True)
+class GetAgentProfileRequest(OperationRequest[AgentProfile]):
+    """读取 Agent Profile，内置与自定义图纸均经过 profile.read 授权。"""
+
+    agent_alias: str | None = None
+
+
 class OperationEntry(Protocol):
     """workspace 的单一操作入口，凭据只在入口兑现为访问 context。"""
 
@@ -81,10 +101,12 @@ __all__ = [
     "CancelIntentsRequest",
     "ExecutionCredential",
     "ExecutionCredentialRevokedError",
+    "GetAgentProfileRequest",
     "OperationEntry",
     "OperationRequest",
     "OperationSubmitter",
     "ResolveReferencesRequest",
+    "RetrieveRequest",
     "SubmitUpdateIntentRequest",
     "SubmitWriteIntentRequest",
 ]

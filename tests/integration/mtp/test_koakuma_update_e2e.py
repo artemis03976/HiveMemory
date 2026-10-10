@@ -213,8 +213,8 @@ class TestKoakumaUpdateValidation:
 
     @pytest.mark.asyncio
     async def test_l2_route_failure_returns_infra_error(self, validation_koakuma):
-        validation_koakuma._bus._mock_storage.get_memory_by_alias.side_effect = KeyError(
-            "AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered"
+        validation_koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.side_effect = (
+            KeyError("AsyncSystemBus: route 'memory.retrieve_by_aliases' not registered")
         )
         agent_text = '⟪ UPDATE | fact_api_port | instruction="test"'
         result = await _intercept_and_execute(

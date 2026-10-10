@@ -5,15 +5,20 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
+from hivememory.core.models.agent import AgentProfile
+from hivememory.core.models.memory import MemoryAtom
 from hivememory.core.models.pending import PendingAtom
 from hivememory.core.models.reference import ReferenceResolution
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.contracts.operations import (
     CancelIntentsRequest,
     ExecutionCredential,
     ExecutionCredentialRevokedError,
+    GetAgentProfileRequest,
     OperationRequest,
     ResolveReferencesRequest,
+    RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
@@ -28,10 +33,12 @@ class WorkspaceOperationEntry:
         self,
         memory: MemoryApplicationService,
         *,
+        agent: AgentApplicationService,
         credential_registry: ExecutionCredentialRegistry,
         intent_registry: WriteIntentRegistry,
     ) -> None:
         self._memory = memory
+        self._agent = agent
         self._credentials = credential_registry
         self._intents = intent_registry
         # 泛型结果由公开契约约束；异构分派表仅在入口内部擦除类型。
@@ -42,6 +49,8 @@ class WorkspaceOperationEntry:
             SubmitUpdateIntentRequest: self._submit_update,
             CancelIntentsRequest: self._cancel_intents,
             ResolveReferencesRequest: self._resolve_references,
+            RetrieveRequest: self._retrieve,
+            GetAgentProfileRequest: self._get_agent_profile,
         }
 
     async def execute[R](
@@ -49,7 +58,7 @@ class WorkspaceOperationEntry:
     ) -> R:
         """分派前兑现凭据；UPDATE 在返回后的同步段补偿关闭期间的登记。
 
-        当前只有 UPDATE 在副作用前等待冷读。新增同类能力时必须一并加入
+        当前只有 UPDATE 在意图登记前等待冷读。新增同类能力时必须一并加入
         返回后的凭据检查与同步补偿；只读请求在吊销时已在途的仍正常完成。
         """
         binding = self._credentials.resolve(credential)
@@ -109,6 +118,29 @@ class WorkspaceOperationEntry:
         """请求不携带目标，引用解析沿用能力层的逐项结果。"""
         return await self._memory.resolve_references(
             list(request.aliases),
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+    async def _retrieve(
+        self, request: RetrieveRequest, binding: ExecutionBinding
+    ) -> list[MemoryAtom]:
+        """SEARCH 只提交检索参数，授权与缓存预热均由能力层负责。"""
+        return await self._memory.retrieve(
+            semantic_query=request.semantic_query,
+            keywords=list(request.keywords),
+            top_k=request.top_k,
+            filters=request.filters,
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+    async def _get_agent_profile(
+        self, request: GetAgentProfileRequest, binding: ExecutionBinding
+    ) -> AgentProfile:
+        """CALL 图纸读取沿用主线程绑定，执行权限仍由 Alice 的 Profile 控制。"""
+        return await self._agent.get_agent_profile(
+            request.agent_alias,
             target_workspace=binding.target_workspace,
             access=binding.access,
         )

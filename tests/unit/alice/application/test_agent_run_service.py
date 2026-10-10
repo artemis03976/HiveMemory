@@ -75,7 +75,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        CallContextProvider(runtime.profile_resolver),
+        CallContextProvider(),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )

@@ -10,11 +10,13 @@ resolver 与 backing 位于授权点以下（A1 访问边界返工第 4.1 节）
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
 
+from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -60,7 +62,7 @@ class _FakeProfileBacking:
         self.calls += 1
         if self.on_fetch is not None:
             self.on_fetch()
-        if agent_alias in (None, "default", "omni_doll"):
+        if agent_alias in (None, "", "default", "omni_doll"):
             return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
         resolved = self.profiles.get(agent_alias)
         if resolved is None:
@@ -76,13 +78,14 @@ def _resolver(backing) -> tuple[ProfileResolver, WorkspaceEpochs, ProfileCache]:
 
 
 @pytest.mark.asyncio
-async def test_builtin_profile_is_resolved_by_backing_each_time_and_not_cached():
+@pytest.mark.parametrize("alias", [None, "", "default", "omni_doll"])
+async def test_builtin_profile_is_resolved_by_backing_each_time_and_not_cached(alias):
     """builtin Profile 无源原子：每次经 backing 解析，不进缓存、无本地解析旁路。"""
     backing = _FakeProfileBacking()
     resolver, _, cache = _resolver(backing)
 
-    first = await resolver.get("default", scope=A1)
-    second = await resolver.get(None, scope=A1)
+    first = await resolver.get(alias, scope=A1)
+    second = await resolver.get(alias, scope=A1)
 
     assert first == OMNI_DOLL_PROFILE
     assert second == OMNI_DOLL_PROFILE
@@ -139,3 +142,66 @@ async def test_profile_read_during_workspace_change_is_retried_before_caching():
     cached = await resolver.get("coder_doll", scope=A1)
 
     assert (result.persona, cached.persona, backing.calls) == ("v2", "v2", 2)
+
+
+@pytest.mark.asyncio
+async def test_same_profile_alias_is_cached_separately_for_each_workspace():
+    """同一 Actor 的同名 Profile 在不同 Workspace 各自解析，不能串用缓存。"""
+    isolated = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolated")
+
+    class WorkspaceBacking:
+        async def get_agent_profile(self, alias, *, scope):
+            return _resolved(alias, persona=scope.workspace_identity.workspace_id)
+
+    resolver, _, _ = _resolver(WorkspaceBacking())
+    main_profile = await resolver.get("coder_doll", scope=A1)
+    isolated_profile = await resolver.get("coder_doll", scope=isolated)
+    main_again = await resolver.get("coder_doll", scope=A1)
+
+    assert (main_profile.persona, isolated_profile.persona, main_again.persona) == (
+        "main_workspace",
+        "isolated",
+        "main_workspace",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [ResourceUnavailableError("存储不可达"), asyncio.CancelledError()]
+)
+async def test_failed_profile_read_does_not_cache_and_next_read_can_recover(failure):
+    """不可达与取消均不写缓存；恢复后重新读取并缓存当前 Profile。"""
+
+    class RecoveringBacking(_FakeProfileBacking):
+        first_read = True
+
+        async def get_agent_profile(self, alias, *, scope):
+            if self.first_read:
+                self.first_read = False
+                raise failure
+            return await super().get_agent_profile(alias, scope=scope)
+
+    backing = RecoveringBacking()
+    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="recovered")
+    resolver, _, _ = _resolver(backing)
+    with pytest.raises(type(failure)):
+        await resolver.get("coder_doll", scope=A1)
+    recovered = await resolver.get("coder_doll", scope=A1)
+    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="uncached replacement")
+    cached = await resolver.get("coder_doll", scope=A1)
+
+    assert (recovered.persona, cached.persona, backing.calls) == ("recovered", "recovered", 1)
+
+
+@pytest.mark.asyncio
+async def test_missing_profile_is_reloaded_after_it_becomes_available():
+    """缺失结果不驻留缓存，创建同名图纸后可以重新解析。"""
+    backing = _FakeProfileBacking()
+    resolver, _, _ = _resolver(backing)
+    with pytest.raises(AliasNotFoundError):
+        await resolver.get("coder_doll", scope=A1)
+    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="newly created")
+
+    recovered = await resolver.get("coder_doll", scope=A1)
+
+    assert (recovered.persona, backing.calls) == ("newly created", 2)

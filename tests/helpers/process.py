@@ -52,16 +52,16 @@ def make_task_process_service(
         memory_reader=runtime.aliases,
     )
     credentials = credential_registry or ExecutionCredentialRegistry()
-    entry = operation_entry or WorkspaceOperationEntry(
-        memory, credential_registry=credentials, intent_registry=runtime.intents
-    )
-    if isinstance(cpu, ScriptedCPU):
-        cpu.bind_operation_entry(entry)
     agent = AgentApplicationService(
         global_bus,
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
     )
+    entry = operation_entry or WorkspaceOperationEntry(
+        memory, agent=agent, credential_registry=credentials, intent_registry=runtime.intents
+    )
+    if isinstance(cpu, ScriptedCPU):
+        cpu.bind_operation_entry(entry)
     allocator = CPUAllocator(
         global_bus,
         operation_authorizer=operation_authorizer,

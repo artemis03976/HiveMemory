@@ -1,7 +1,7 @@
 """
 AgentRunService 集成测试 — 真实 AliceRuntime 装配链协作
 
-驱动 AgentRunService + 真实 AliceRuntime（Profile resolver、AgentRuntime 实例）+ 真实 CallCoordinator/CallContextProvider/FrameFactory/
+驱动 AgentRunService + 真实 AliceRuntime（AgentRuntime 实例）+ 真实 CallCoordinator/CallContextProvider/FrameFactory/
 AgentPromptAssembler + 真实事件管线；仅 stub LLM 执行端口 run_frame。
 """
 
@@ -82,7 +82,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime.agent_runtime,
-        CallContextProvider(runtime.profile_resolver),
+        CallContextProvider(),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
     )

@@ -22,8 +22,10 @@ from hivememory.workspace.contracts import (
     CancelIntentsRequest,
     ExecutionCredential,
     ExecutionCredentialRevokedError,
+    GetAgentProfileRequest,
     OperationRequest,
     ResolveReferencesRequest,
+    RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
@@ -169,6 +171,10 @@ def _request_cases():
         pytest.param(
             ResolveReferencesRequest(("base",)), WorkspaceOperation.RESOURCE_READ, id="read"
         ),
+        pytest.param(RetrieveRequest("拒绝检索"), WorkspaceOperation.RESOURCE_SEARCH, id="search"),
+        pytest.param(
+            GetAgentProfileRequest("unreadable"), WorkspaceOperation.PROFILE_READ, id="profile"
+        ),
     ]
 
 
@@ -203,6 +209,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
             == PendingAtomStatus.PENDING
         )
         assert harness.runtime.stats()["cold_reads"] == 0
+        assert harness.citations == []
     finally:
         harness.runtime.close()
         access.gateway.close()
@@ -226,6 +233,7 @@ async def test_unknown_or_revoked_credential_rejects_every_request_without_side_
         await harness.entry.execute(operation_request, credential=credentials[credential_state])
     assert harness.registry.size == 0
     assert harness.runtime.stats()["cold_reads"] == 0
+    assert harness.citations == []
 
 
 @pytest.mark.asyncio

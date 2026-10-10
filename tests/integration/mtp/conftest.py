@@ -1,9 +1,9 @@
 """
 MTP 链路集成测试共享 Fixtures。
 
-KoakumaRuntime 已重构为 bus-based 架构 (bus, config, alias_resolver)。
-集成测试通过 MockAsyncBus 路由到 mock 服务，验证 Koakuma 与各组件
-（parser、handler、compiler、alias resolver、syscall 执行器）的协作链路。
+KoakumaRuntime 通过提交函数进入真实 workspace 操作入口、读取视图与授权。
+MockAsyncBus 仅替代入口之后的存储边界，parser、handler、compiler、
+alias resolver 与 syscall 执行器仍使用生产实现。
 """
 
 import asyncio
