@@ -131,7 +131,12 @@ class MidTermMemoryStore:
 
     生产 Runtime 注入变更发布端口；四个提交入口都在 finally 中内联等待
     失效通知，提交失败与删除未命中同样通知，不回滚已完成的后端写入。
+    例外是只改 ``meta.lifecycle`` 的 patch：动态统计字段独立成
+    ``MemoryLifecycleState`` 聚合，正是为了让它们的更新不使读取视图失效。
     """
+
+    # 动态状态聚合的 dotted 前缀；patch 路径全部落在其下时不发布变更通知。
+    _LIFECYCLE_PATCH_PREFIX = "meta.lifecycle."
 
     # 唯一性判定只需确认"除自身外是否还有其他占用者"：自身至多一条，
     # 因此取两条即可覆盖。
@@ -237,15 +242,19 @@ class MidTermMemoryStore:
     ) -> MemoryAtom | None:
         """受限局部更新：primary 提交并返回结果，同一 patch 沿顺序同步 secondary。
 
-        任一存储失败按顺序直接传播，不回滚已成功的写入（首版串行假设）。
+        任一存储失败按顺序直接传播，不回滚已成功的写入（首版串行假设）。只改
+        ``meta.lifecycle`` 动态状态的 patch 不发布变更通知；涉及其他路径（如
+        ``meta.access_policy``）时与其他提交入口一样在 finally 中通知。
         """
+        affects_read_view = any(not path.startswith(self._LIFECYCLE_PATCH_PREFIX) for path in patch)
         try:
             result = await self._primary.patch_payload(key, patch)
             for secondary in self._secondary:
                 await secondary.patch_payload(key, patch)
             return result
         finally:
-            await self._publish_change(key.workspace_identity, key.memory_id, "patch")
+            if affects_read_view:
+                await self._publish_change(key.workspace_identity, key.memory_id, "patch")
 
     async def delete(self, belong_to: WorkspaceIdentity, memory_id: UUID) -> bool:
         """删除 canonical；未命中同样失效可能残留的读取投影。"""

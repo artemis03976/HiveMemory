@@ -7,7 +7,13 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import IndexLayer, MemoryAtom, PayloadLayer, WorkspaceMemoryKey
+from hivememory.core.models import (
+    IndexLayer,
+    MemoryAccessPolicy,
+    MemoryAtom,
+    PayloadLayer,
+    WorkspaceMemoryKey,
+)
 from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from tests.helpers.memory import make_memory_metadata
@@ -33,7 +39,7 @@ class _MemoryPort:
 
     async def patch_payload(self, _key, patch):
         self._check_available()
-        if self.memory is not None:
+        if self.memory is not None and "meta.lifecycle.access_count" in patch:
             self.memory.meta.lifecycle.access_count = patch["meta.lifecycle.access_count"]
         return self.memory
 
@@ -71,7 +77,11 @@ async def _mutate(store: MidTermMemoryStore, memory: MemoryAtom, method: str):
     if method == "upsert":
         return await store.upsert(memory)
     if method == "patch_payload":
-        return await store.patch_payload(key, {"meta.lifecycle.access_count": 7})
+        # 同时涉及 policy 的混合 patch 会改变读取视图，必须通知。
+        return await store.patch_payload(
+            key,
+            {"meta.lifecycle.access_count": 7, "meta.access_policy": MemoryAccessPolicy.public()},
+        )
     if method == "delete":
         return await store.delete(memory.workspace_identity, memory.id)
     return await store.delete_by_key(key)
@@ -103,6 +113,60 @@ async def test_each_mutation_publishes_one_resource_coordinate(method, operation
             "memory_id": memory.id,
             "operation": operation,
         }
+    ]
+
+
+_LIFECYCLE_ONLY_PATCH = {
+    "meta.lifecycle.access_count": 7,
+    "meta.lifecycle.vitality_score": 42.0,
+    "meta.lifecycle.confidence_score": 0.9,
+}
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_only_patch_publishes_nothing() -> None:
+    """只改 meta.lifecycle 动态状态的 patch 不使读取视图失效。"""
+    memory = _memory()
+    primary = _MemoryPort()
+    primary.memory = memory.model_copy(deep=True)
+    publisher = _RecordingPublisher()
+    store = MidTermMemoryStore(primary, change_publisher=publisher)
+    key = WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
+
+    await store.patch_payload(key, _LIFECYCLE_ONLY_PATCH)
+
+    assert (primary.memory.meta.lifecycle.access_count, publisher.events) == (7, [])
+
+
+@pytest.mark.asyncio
+async def test_failed_lifecycle_only_patch_publishes_nothing_and_propagates() -> None:
+    """失败的动态状态 patch 同样无需失效，存储错误照常传播。"""
+    memory = _memory()
+    failure = RuntimeError("primary unavailable")
+    publisher = _RecordingPublisher()
+    store = MidTermMemoryStore(_MemoryPort(error=failure), change_publisher=publisher)
+    key = WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
+
+    with pytest.raises(RuntimeError, match="primary unavailable") as exc_info:
+        await store.patch_payload(key, _LIFECYCLE_ONLY_PATCH)
+
+    assert (exc_info.value, publisher.events) == (failure, [])
+
+
+@pytest.mark.asyncio
+async def test_policy_only_patch_publishes_patch_event() -> None:
+    """access_policy 决定可见性，只改它的 patch 仍须失效读取视图。"""
+    memory = _memory()
+    primary = _MemoryPort()
+    primary.memory = memory.model_copy(deep=True)
+    publisher = _RecordingPublisher()
+    store = MidTermMemoryStore(primary, change_publisher=publisher)
+    key = WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
+
+    await store.patch_payload(key, {"meta.access_policy": MemoryAccessPolicy.public()})
+
+    assert [(event.memory_id, event.operation) for event in publisher.events] == [
+        (memory.id, "patch")
     ]
 
 

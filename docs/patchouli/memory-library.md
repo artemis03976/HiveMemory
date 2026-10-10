@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # MemoryLibrary 与存储层
@@ -62,7 +62,7 @@ alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入
 
 `MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。完整写入、payload patch 与删除按顺序把同一变更同步到各 secondary 并传播存储错误，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
 
-中期变更是 workspace 派生读取视图的失效入口。Runtime 向 Store 注入 `MemoryChangePublisher`；`upsert`、`patch_payload`、`delete` 与 `delete_by_key` 每次提交尝试都在 `finally` 中内联等待发布 `patchouli.events.memory.changed`，经 PatchouliBridge 转为同名全局事件。`MemoryChangeEvent` 只携带 `belong_to`、`memory_id` 与 `operation=upsert|patch|delete`，不携带原子正文、访问 scope 或成功标志。存储失败、secondary 部分提交和删除未命中同样失效，因为异常不能证明后端未发生变更；原始存储异常继续向调用方传播。
+中期变更是 workspace 派生读取视图的失效入口。Runtime 向 Store 注入 `MemoryChangePublisher`；`upsert`、`patch_payload`、`delete` 与 `delete_by_key` 每次提交尝试都在 `finally` 中内联等待发布 `patchouli.events.memory.changed`，经 PatchouliBridge 转为同名全局事件。只改 `meta.lifecycle` 动态状态的 `patch_payload` 不发布：动态统计字段（访问计数、活力、置信度等）独立成 `MemoryLifecycleState` 聚合，它们的更新不使读取视图失效，缓存中的原子可能带有较旧的统计值；涉及 `meta.access_policy` 的 patch 照常发布。`MemoryChangeEvent` 只携带 `belong_to`、`memory_id` 与 `operation=upsert|patch|delete`，不携带原子正文、访问 scope 或成功标志。存储失败、secondary 部分提交和删除未命中同样失效，因为异常不能证明后端未发生变更；原始存储异常继续向调用方传播。
 
 workspace 订阅者先清除原子与旧 alias 索引，再清除来源于该 UUID 的 Profile 派生项，最后推进 Workspace 失效代次；不做回填或外部调用。发布与订阅错误不把存储结果改写为失败，但也没有未送达重试或 replay。它是当前进程内的保守失效协作，不是持久化成功通知、任务完成确认或跨介质事务。失败、内联等待与 bridge 生命周期由[Store 单元测试](../../tests/unit/patchouli/memory_library/test_memory_change_events.py)和[事件集成测试](../../tests/integration/patchouli/test_memory_change_events.py)验证；读取代次与授权边界见[Workspace 架构](../architecture/workspace.md)。
 

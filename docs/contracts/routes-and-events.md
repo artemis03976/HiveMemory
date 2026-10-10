@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 公开路由与事件
@@ -138,7 +138,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `alice.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias` |
 | `alice.events.pending_atom.cancelled` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias` |
 
-中期库的 upsert、patch_payload、delete 与 delete_by_key 在提交调用的 finally 中各内联发布一次变更通知，包括 primary/secondary 失败与删除未命中；通知不证明提交成功。store 只依赖注入发布端口，本地发布器与 bridge 顺序 await 转发，写入返回前失效订阅者已执行。订阅者先清原子及 alias、清源 Profile，再推进 Workspace 代次，之后不回填值；普通订阅异常由总线记录，不反向改变存储结果。首版不补齐未送达或重试。
+中期库的 upsert、patch_payload、delete 与 delete_by_key 在提交调用的 finally 中各内联发布一次变更通知，包括 primary/secondary 失败与删除未命中；只改 `meta.lifecycle` 动态状态的 patch_payload 不发布；通知不证明提交成功。store 只依赖注入发布端口，本地发布器与 bridge 顺序 await 转发，写入返回前失效订阅者已执行。订阅者先清原子及 alias、清源 Profile，再推进 Workspace 代次，之后不回填值；普通订阅异常由总线记录，不反向改变存储结果。首版不补齐未送达或重试。
 
 结算的权威发布方仍为 Patchouli，由 bridge 转发到 workspace 登记；`alice.events` 前缀保持历史兼容，不再表示当前消费方。settled 严格匹配 intent_id 后迁移状态；failed/cancelled 保持只带永不复用 pending_alias 的载荷，处理器仅在可选 intent_id 被提供时追加校验。登记不回填 canonical 缓存，正式物化写入触发上述失效。
 

@@ -21,7 +21,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/components/observability.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 运行时状态持久化与故障恢复治理
@@ -48,7 +48,7 @@ last_reviewed: 2026-10-07
 | RuntimeEvent | 进程内 bounded ring buffer | 允许丢失、不可跨进程连续，不是审计账本 | 继续作为 best-effort 观测；需要历史时建立独立审计/任务查询模型 |
 | feedback/reinforcement history 与 GC stats | 主要为进程内历史 | 跨会话无法解释反馈来源，维护统计重启即归零 | 按产品与审计需要选择持久化事件或聚合快照 |
 
-canonical 变更事件已经覆盖每次中期提交尝试的进程内失效，但它不是 durable accepted 或持久化确认。PendingAtom 结算仍经功能事件更新 registry；事件丢失可能留下 MATERIALIZING，当前没有权威任务结果对账恢复。认领前的 PENDING 随所属进程关闭取消，认领后的 MATERIALIZING 不随进程关闭取消，这种寿命拆分也没有改变进程内登记会在重启后消失的事实。证据见[写入意图与读取缓存集成测试](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)和[中期变更事件集成测试](../../../tests/integration/patchouli/test_memory_change_events.py)。
+canonical 变更事件已经覆盖每次中期提交尝试的进程内失效（只改 `meta.lifecycle` 动态状态的 patch 不影响读取视图，不发布），但它不是 durable accepted 或持久化确认。PendingAtom 结算仍经功能事件更新 registry；事件丢失可能留下 MATERIALIZING，当前没有权威任务结果对账恢复。认领前的 PENDING 随所属进程关闭取消，认领后的 MATERIALIZING 不随进程关闭取消，这种寿命拆分也没有改变进程内登记会在重启后消失的事实。证据见[写入意图与读取缓存集成测试](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)和[中期变更事件集成测试](../../../tests/integration/patchouli/test_memory_change_events.py)。
 
 这些对象不能使用同一个“是否持久化”开关解决。Active topic 的原始 blocks 可能因隐私、容量和成本而保持短期；PendingAtom 的写意图、已接受的 interaction 和已经对用户承诺的 task 状态则不能在重启后无声消失。
 

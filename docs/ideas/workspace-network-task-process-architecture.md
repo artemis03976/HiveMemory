@@ -485,7 +485,7 @@ canonical 变更事件与 workspace 读取缓存的失效直接相关，是 Alic
 **Patchouli → 库外**：事件协作，承载于全局系统总线的 `publish`，分两个事件族。2026-10-07 两族已接 workspace 订阅者并登记入公共事件契约；权威结果对账仍是候选要求，没有随本批实现。
 
 1. **settlement 事件**（复用既有 `pending_atom_settler`/bridge 投递链）：当前由 workspace registry 按 intent_id 更新终态，不回填 canonical 原子。后续要求 registry 能以 intent_id 核对 generation 的权威任务/领域结果；当前没有对账路径或未送达补偿，不能把通知到达当成跨重启的结算保证。
-2. **canonical 变更事件**：`MidTermMemoryStore` 各变更方法（upsert/patch/delete）的提交调用完成时（`finally`，无论提交成败：evict-only 语义下失败提交的空失效无害，且能覆盖主库成功而 secondary 失败的半成功场景）发布提交尝试的失效通知（`belong_to + memory_id + operation`，不含 patch 路径、正文或成功标志）。发布由注入 store 的 `MemoryChangePublisher`（`patchouli/control`，持总线，随 runtime 装配，与 PendingAtomSettler 同模式）内联承载；订阅者据此决定失效哪些条目与索引并推进 epoch，失效范围（含被释放的旧 alias）由订阅者按自身的正反索引推导。库只声明提交尝试的失效坐标，不计算缓存影响或承诺持久化成功；store 不依赖总线，只依赖注入的发布协议。
+2. **canonical 变更事件**（owner，2026-10-09：只改 `meta.lifecycle` 动态状态的 patch 不发布，把动态更新字段独立成 `MemoryLifecycleState` 数据模型正是为此）：`MidTermMemoryStore` 各变更方法（upsert/patch/delete）的提交调用完成时（`finally`，无论提交成败：evict-only 语义下失败提交的空失效无害，且能覆盖主库成功而 secondary 失败的半成功场景）发布提交尝试的失效通知（`belong_to + memory_id + operation`，不含 patch 路径、正文或成功标志）。发布由注入 store 的 `MemoryChangePublisher`（`patchouli/control`，持总线，随 runtime 装配，与 PendingAtomSettler 同模式）内联承载；订阅者据此决定失效哪些条目与索引并推进 epoch，失效范围（含被释放的旧 alias）由订阅者按自身的正反索引推导。库只声明提交尝试的失效坐标，不计算缓存影响或承诺持久化成功；store 不依赖总线，只依赖注入的发布协议。
 
 两个事件族都是 `GlobalSystemBus` 上的公共事件族，不是 RuntimeEvent，AGENTS.md 对 RuntimeEvent 的观测性条款不适用。
 
