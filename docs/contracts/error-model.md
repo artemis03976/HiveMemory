@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 跨边界错误模型
@@ -204,7 +204,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 能力层与操作入口的错误保持各自边界：意图提交/撤回缺少 `memory_intent.submit`、引用交付缺少 `resource.read`、SEARCH 缺少 `resource.search`、Profile 读取缺少 `profile.read`（包括内置目标）时抛 `OperationDeniedError`；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
-未知或已吊销的执行凭据在操作入口抛 `ExecutionCredentialRevokedError`（RuntimeError），未知请求类型抛 `TypeError`；它们表示接线或生命周期违规，没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。进程关闭同步吊销凭据，不取消在途能力调用任务，已开始的只读操作可以自然完成；UPDATE 跨越关闭时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+未知或已吊销的执行凭据在操作入口抛 `ExecutionCredentialRevokedError`（RuntimeError），未知请求类型抛 `TypeError`；它们表示接线或生命周期违规，没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。进程关闭同步吊销凭据，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 跨越关闭时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 

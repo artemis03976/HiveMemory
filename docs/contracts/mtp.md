@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Memory Tool Protocol (MTP)
@@ -217,7 +217,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - 记忆访问经执行凭据绑定进入 workspace，授权点组装当次 `IdentityScope`，资源 owner 先执行 Workspace ownership hard boundary，再执行 actor 可见性策略；执行标签不能代替任一授权边界；
 - cancellation 不能被转换成普通 success。
 
-> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；UPDATE 意图另按基础原子的 actor policy 判断，读不到基础时与不存在相同；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图与进程操作通道)、[MTP Runtime](../alice/mtp-runtime.md)。
+> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；UPDATE 意图另按基础原子的 actor policy 判断，读不到基础时与不存在相同；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图执行凭据与操作入口)、[MTP Runtime](../alice/mtp-runtime.md)。
 
 ## 7. 设计矛盾检查
 

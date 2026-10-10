@@ -18,6 +18,9 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
+from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     CancelIntentsRequest,
     ExecutionCredential,
@@ -304,6 +307,68 @@ async def test_inflight_read_finishes_after_credential_revocation(operation_setu
         assert result.atom.payload.content == "正式基础内容"
         with pytest.raises(ExecutionCredentialRevokedError, match="revoked"):
             await harness.entry.execute(ResolveReferencesRequest(("base",)), credential=credential)
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+class _WriteAwaitingBeforeRegistration(MemoryApplicationService):
+    """真实能力服务，只在 WRITE 登记前插入一次等待，模拟登记前出现 await 的能力方法。"""
+
+    def __init__(self, *args, started: asyncio.Event, release: asyncio.Event, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._started = started
+        self._release = release
+
+    async def submit_write_intent(self, focus, **kwargs):
+        self._started.set()
+        await self._release.wait()
+        return await super().submit_write_intent(focus, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_write_registered_after_revocation_is_withdrawn_without_cancelling_caller(
+    operation_setup,
+):
+    """WRITE 与 UPDATE 同样在返回入口后复查凭据：等待期间进程关闭，迟到登记被撤回。"""
+    harness, access = operation_setup
+    started = asyncio.Event()
+    release = asyncio.Event()
+    entry = WorkspaceOperationEntry(
+        _WriteAwaitingBeforeRegistration(
+            harness.bus,
+            operation_authorizer=access.authorizer,
+            memory_reader=harness.runtime.aliases,
+            started=started,
+            release=release,
+        ),
+        agent=AgentApplicationService(
+            harness.bus,
+            operation_authorizer=access.authorizer,
+            profile_reader=harness.runtime.profiles,
+        ),
+        credential_registry=harness.credentials,
+        intent_registry=harness.registry,
+    )
+    credential = await _issue(harness, access)
+    task = asyncio.create_task(
+        entry.execute(
+            SubmitWriteIntentRequest(WriteFocus(content="迟到的写入")), credential=credential
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        harness.credentials.revoke(credential)
+        assert task.cancelling() == 0
+        release.set()
+        with pytest.raises(ExecutionCredentialRevokedError, match="revoked"):
+            await asyncio.wait_for(task, timeout=2)
+
+        # 登记确实发生过，但已不再是可被 completed 认领的 PENDING。
+        assert harness.registry.size == 1
+        assert harness.registry.claim_process("process") == []
     finally:
         release.set()
         if not task.done():

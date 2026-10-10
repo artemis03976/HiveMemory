@@ -25,6 +25,9 @@ from hivememory.workspace.contracts.operations import (
 from hivememory.workspace.credentials import ExecutionBinding, ExecutionCredentialRegistry
 from hivememory.workspace.intents.registry import WriteIntentRegistry
 
+# 产生写入意图登记的请求：返回入口后都要复查凭据，见 ``execute``。
+_INTENT_SUBMISSIONS = (SubmitWriteIntentRequest, SubmitUpdateIntentRequest)
+
 
 class WorkspaceOperationEntry:
     """无业务状态的入口，身份与进程关联只取自凭据表。"""
@@ -56,17 +59,20 @@ class WorkspaceOperationEntry:
     async def execute[R](
         self, request: OperationRequest[R], *, credential: ExecutionCredential
     ) -> R:
-        """分派前兑现凭据；UPDATE 在返回后的同步段补偿关闭期间的登记。
+        """分派前兑现凭据；意图提交在返回后的同步段补偿关闭期间的登记。
 
-        当前只有 UPDATE 在意图登记前等待冷读。新增同类能力时必须一并加入
-        返回后的凭据检查与同步补偿；只读请求在吊销时已在途的仍正常完成。
+        WRITE 与 UPDATE 返回入口后都复查凭据：能力方法在登记前只要有一次
+        await（当前是 UPDATE 的基础冷读），进程就可能已经关闭并取消了本进程
+        的 PENDING 意图。统一复查使这条保证不依赖能力方法内部是否等待；只读
+        请求在吊销时已在途的仍正常完成。新增会登记意图、需随进程关闭撤回的请求
+        时同样加入。
         """
         binding = self._credentials.resolve(credential)
         handler = self._handlers.get(type(request))
         if handler is None:
             raise TypeError(f"Unsupported operation request: {type(request).__name__}")
         result = await handler(request, binding)
-        if isinstance(request, SubmitUpdateIntentRequest):
+        if isinstance(request, _INTENT_SUBMISSIONS):
             try:
                 self._credentials.resolve(credential)
             except ExecutionCredentialRevokedError:

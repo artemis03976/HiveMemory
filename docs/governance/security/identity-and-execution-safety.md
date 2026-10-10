@@ -23,7 +23,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 身份隔离与执行安全治理
@@ -88,7 +88,7 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 
 WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
 
-执行凭据按对象身份兑现，不能序列化，也不保存身份字段；只有 workspace 凭据表保存访问 context、固定目标和 process ID 绑定。`WorkspaceOperationEntry` 在分派前拒绝未知/吊销凭据，能力方法仍逐次授权。进程关闭同步吊销、取消 PENDING 与释放租借先于任何 await；在途只读可完成，在途 UPDATE 冷读返回后由入口同步补偿关闭期间产生的登记，不取消请求调用方 task。新增副作用前有 await 的能力方法必须补上同类检查和补偿。
+执行凭据按对象身份兑现，不能序列化，也不保存身份字段；只有 workspace 凭据表保存访问 context、固定目标和 process ID 绑定。`WorkspaceOperationEntry` 在分派前拒绝未知/吊销凭据，能力方法仍逐次授权。进程关闭同步吊销、取消 PENDING 与释放租借先于任何 await；在途只读可完成；WRITE、UPDATE 返回入口后都会复查凭据（当前 UPDATE 的基础冷读可能跨越关闭），由入口同步补偿关闭期间产生的登记，不取消请求调用方 task。新增副作用前有 await 的能力方法必须补上同类检查和补偿。
 
 ### 3.2 所有者重新校验
 

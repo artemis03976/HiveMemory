@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 子系统公共契约
@@ -287,7 +287,7 @@ run_agent(
 
 `ExecutionCredentialRegistry` 是 workspace 内部共享表，签发对象身份凭据并绑定访问 context、注册目标与 process_id；兑现只接受确切的已签发对象，凭据不保存身份字段，拒绝复制与序列化。`WorkspaceOperationEntry` 兑现凭据后薄分派到相应能力方法，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验。未知请求类型抛 `TypeError`，未知或已吊销凭据抛 `ExecutionCredentialRevokedError`。
 
-进程关闭同步吊销凭据；吊销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。UPDATE 的基础冷读可能跨越关闭，入口在能力返回后的同步段再次检查凭据，吊销时同步撤回刚登记的 PENDING 意图并拒绝 ACK。凭据表不拥有访问 context 的撤销；完整关闭、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图与进程操作通道)。
+进程关闭同步吊销凭据；吊销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）返回入口后都在同步段再次检查凭据，吊销时同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越关闭的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。凭据表不拥有访问 context 的撤销；完整关闭、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图执行凭据与操作入口)。
 
 ## 5. 顶层主动链路契约
 

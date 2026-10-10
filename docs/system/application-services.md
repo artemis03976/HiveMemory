@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 应用服务
@@ -93,7 +93,7 @@ Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`�
 
 Actor 阶段由 runner 经共享 `ExecutionCredentialRegistry` 签发不透明的 `ExecutionCredential`，独立于输入清单交给 CPU。凭据表绑定本进程的访问 context、注册目标与 `process_id`；CPU 驱动将它绑定为 `submit_operation(request)`，Alice 的 root 与 CALL 子 frame 共用该函数。`WorkspaceOperationEntry` 先兑现凭据，再恰好调用对应能力方法，逐次授权仍在能力层；请求不携带身份、目标或进程选择。runner 不持有能力服务，凭据表不依赖 process/capability。
 
-进程关闭先于任何 await 同步吊销凭据、取消本进程 PENDING 意图并释放附件租借；后续请求抛 `ExecutionCredentialRevokedError`。关闭不取消操作调用方 task，已在途的只读请求自然完成；UPDATE 冷读返回时若凭据已经吊销，入口在同步段补偿刚登记的 alias 后抛吊销错误，防止留下游离 PENDING。新增副作用前有 await 的能力方法时，必须补充同类返回后检查与同步补偿。
+进程关闭先于任何 await 同步吊销凭据、取消本进程 PENDING 意图并释放附件租借；后续请求抛 `ExecutionCredentialRevokedError`。关闭不取消操作调用方 task，已在途的只读请求自然完成；WRITE、UPDATE 返回入口时若凭据已经吊销（当前只有 UPDATE 在登记前等待冷读），入口在同步段补偿刚登记的 alias 后抛吊销错误，防止留下游离 PENDING。新增副作用前有 await 的能力方法时，必须补充同类返回后检查与同步补偿。
 
 ### 3.1 非流式链路
 

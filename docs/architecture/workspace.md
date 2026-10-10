@@ -45,7 +45,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Workspace 架构
@@ -341,7 +341,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 
 canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.lifecycle` 动态状态的 patch 不发布，缓存原子的统计值可能较旧）；workspace 依次失效原子及 alias、失效源原子的 Profile 条目、推进 Workspace 代次。冷读开始与回填前比较代次，避免旧值在变更后重新进入缓存。通知只携带资源引用，不回放值，不做未送达补齐或重试。语义检索能力预热完整原子缓存，MTP SEARCH 经该能力获得同样行为；prepare 的检索结果不预热。
 
-### 5.4 写入意图与进程操作通道
+### 5.4 写入意图、执行凭据与操作入口
 
 `WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作关联的 `process_id`。同 Workspace 的其他 Agent 可经 `resource.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。WRITE/UPDATE 经 `memory_intent.submit` 授权后登记，ACK 仅表示接纳意图；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
 
@@ -351,7 +351,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 CPU 的独立 `credential` 参数不进入输入清单。`AliceCPU` 将凭据绑定为 `OperationSubmitter`，MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id；主、子 frame 暂时共享该提交函数。六类 `OperationRequest[R]` 的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与执行凭据)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子 frame 未成功结束时提交撤回请求，只撤回它已收到 ACK 且仍为 PENDING 的意图，同样要求 `memory_intent.submit`。
 
-completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；已认领任务在 finalize 失败时保持 MATERIALIZING。关闭先同步吊销执行凭据、取消本进程仍为 PENDING 的意图并释放附件租借，再等待输出流关闭与 cleanup；访问 context 最后由注册入口撤销。吊销只删除凭据绑定，不取消操作调用方任务，在途只读请求可以自然完成；后续提交明确拒绝。UPDATE 可能在冷读等待期间遇到关闭，操作入口在能力返回后的同步段重新兑现凭据，若已吊销就同步撤回该次刚登记的意图并拒绝返回 ACK，避免关闭后留下游离 PENDING 意图。
+completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；已认领任务在 finalize 失败时保持 MATERIALIZING。关闭先同步吊销执行凭据、取消本进程仍为 PENDING 的意图并释放附件租借，再等待输出流关闭与 cleanup；访问 context 最后由注册入口撤销。吊销只删除凭据绑定，不取消操作调用方任务，在途只读请求可以自然完成；后续提交明确拒绝。意图提交可能在等待期间遇到关闭（当前是 UPDATE 的基础冷读），操作入口对 WRITE、UPDATE 都在能力返回后的同步段重新兑现凭据，若已吊销就同步撤回该次刚登记的意图并拒绝返回 ACK，避免关闭后留下游离 PENDING 意图；统一复查使这条保证不依赖能力方法内部是否等待。
 
 引用读取的副作用也由能力层拥有：`resolve_references` 对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。READ、RUN 记忆目标与 CALL context_refs 共享该路径；RUN 在类型检查和工具执行前已读取，所以后续执行失败仍计数，CALL context_refs 是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
 
