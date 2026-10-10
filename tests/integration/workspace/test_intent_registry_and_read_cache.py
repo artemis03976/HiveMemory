@@ -29,6 +29,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
     WriteFocus,
 )
+from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
@@ -58,6 +59,7 @@ from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
+    make_identity_scope,
     make_workspace_identity,
     make_workspace_runtime,
 )
@@ -234,14 +236,16 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
 
 @pytest.mark.asyncio
 async def test_profile_source_update_invalidates_profile_configuration(chain):
-    """Profile 的源原子管理变更后，下一次能力层 Profile 解析取得新配置。"""
+    """Profile 的源原子管理变更后，下一次进程阶段解析取得新配置。"""
     atom = _atom("custom_agent", profile=True)
     await chain.store.upsert(atom)
     process_access = await chain.composition.authenticate(
         agent_id="custom_agent", binding=RunBinding.for_task_process("first_profile_process")
     )
     allocator = CPUAllocator(
-        chain.bus, operation_authorizer=chain.composition.authorizer, agent_service=chain.profiles
+        chain.bus,
+        operation_authorizer=chain.composition.authorizer,
+        profile_reader=chain.runtime.profiles,
     )
     first = await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=process_access)
     assert first.model_name == "old-model"
@@ -261,6 +265,43 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
     )
 
     assert second.model_name == "new-model"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("warm_cache", [False, True], ids=["canonical", "cached"])
+async def test_cpu_profile_without_actor_operations_rejects_other_agents_private_source(
+    chain, warm_cache: bool
+):
+    """阶段读取不检查 actor 操作，但冷读与缓存命中都保持 PRIVATE 可见性。"""
+    atom = _atom("custom_agent", profile=True, visibility="PRIVATE")
+    await chain.store.upsert(atom)
+    if warm_cache:
+        # writer 有权读取此 PRIVATE 源原子，先填充共享读取视图以覆盖命中路径。
+        await chain.runtime.profiles.get(
+            "custom_agent", scope=make_identity_scope(user_id="u1", agent_id="writer")
+        )
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1", agent_id="custom_agent", allowed_operations=frozenset()
+            )
+        ],
+        default_workspace=WORKSPACE,
+    )
+    access = await composition.authenticate(
+        agent_id="custom_agent", binding=RunBinding.for_task_process("private_profile_process")
+    )
+    allocator = CPUAllocator(
+        chain.bus,
+        operation_authorizer=composition.authorizer,
+        profile_reader=chain.runtime.profiles,
+    )
+
+    with pytest.raises(AliasNotFoundError) as excinfo:
+        await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=access)
+
+    assert excinfo.value.message_key == "mtp.call.profile_not_found"
+    assert excinfo.value.params == {"agent_alias": "custom_agent"}
 
 
 @pytest.mark.asyncio

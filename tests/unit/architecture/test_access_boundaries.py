@@ -134,6 +134,24 @@ def test_cpu_execution_identity_has_no_definition_or_call_site():
     assert offenders == []
 
 
+def test_stage_authorization_is_only_called_by_task_processes():
+    """阶段授权只供任务进程的系统编排使用，不能成为 actor 操作的旁路。"""
+    call_sites: set[str] = set()
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if any(
+            isinstance(node, ast.Attribute) and node.attr == "authorize_stage"
+            for node in ast.walk(tree)
+        ):
+            call_sites.add(path.relative_to(SRC_ROOT).as_posix())
+
+    # 精确清单同时防止调用面扩散和扫描空转；方法引用也属于调用面。
+    assert call_sites == {
+        "workspace/process/runner.py",
+        "workspace/process/allocation.py",
+    }
+
+
 def _private_call_sites(attribute: str) -> set[str]:
     """生产代码中访问某个属性名的源文件（相对路径），不含定义处 core/access.py。"""
     sites: set[str] = set()

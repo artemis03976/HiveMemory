@@ -1,6 +1,6 @@
 """CPU 分配 — 任务进程在进入 Actor 之前准备的全部输入。
 
-CPU 分配由进程完成而不是交给 Actor：Profile 经 workspace 能力层解析，
+CPU 分配由进程完成而不是交给 Actor：Profile 经注入的读取端口解析，
 附件租借经注入的 reader port 取得并登记进进程工作集，附件与记忆文本由
 进程调用共享编译引擎生成，最后组装与 CPU 无关的输入清单。Actor 只消费
 清单，不接触租借或编译配置。
@@ -8,9 +8,9 @@ CPU 分配由进程完成而不是交给 Actor：Profile 经 workspace 能力层
 附件租借由本分配器取得，也由本分配器释放（:meth:`CPUAllocator.release`）：
 工作集只登记租借，不持有 reader。
 
-授权边界（A1 访问边界返工第 4.4 节）：本层是任务进程的阶段授权点——
-Profile 解析绑定 ``profile.read``、附件租借绑定 ``asset.acquire``，检查
-都以任务目标 workspace 为目标、在对应副作用前执行；CPU 输入清单的
+授权边界：本层是任务进程的阶段授权点——Profile 解析与附件租借只检查
+准入与任务目标 workspace，不借用 actor 操作；读取视图仍按进程 actor
+检查 Profile 可见性。检查在对应副作用前执行；CPU 输入清单的
 观测标签沿用注册时的绑定值，不从访问 context 读取或组装执行身份。
 """
 
@@ -22,12 +22,13 @@ from typing import Protocol
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
-from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import AssetOperationConflictError, WorkspaceDomainError
 from hivememory.core.models import (
     AgentProfile,
     AttachmentSelectionRequest,
     ExecutionLabels,
+    IdentityScope,
     WorkspaceIdentity,
 )
 from hivememory.core.models.workspace_asset import RepresentationLease
@@ -46,16 +47,15 @@ logger = logging.getLogger(__name__)
 
 
 class _AgentProfileReader(Protocol):
-    """CPU 分配所需的 Profile 读取端口，由组合根注入能力层实现。"""
+    """CPU 分配所需的 Profile 读取端口，由组合根注入读取视图实现。"""
 
-    async def get_agent_profile(
+    async def get(
         self,
         agent_alias: str | None,
         *,
-        target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        scope: IdentityScope,
     ) -> AgentProfile:
-        """解析本进程的执行 Profile，并在交付前执行逐次授权。"""
+        """按阶段授权的 scope 解析 Profile，并在交付前检查源原子可见性。"""
         ...
 
 
@@ -64,8 +64,8 @@ class CPUAllocator:
 
     ``asset_reader`` 是进程级唯一 WorkspaceAssetStore 的只读 reader 端口；
     两个编译配置段驱动进程侧的记忆/附件编译（与拆分前 Patchouli prepare
-    使用相同的引擎与配置段）。``operation_authorizer`` 是组合根注入的操作授权者：
-    Profile 解析与附件租借的阶段操作授权在本层、对应副作用前执行。
+    使用相同的引擎与配置段）。``operation_authorizer`` 是组合根注入的授权者：
+    Profile 解析与附件租借的阶段授权在本层、对应副作用前执行。
     """
 
     def __init__(
@@ -73,14 +73,14 @@ class CPUAllocator:
         global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        agent_service: _AgentProfileReader,
+        profile_reader: _AgentProfileReader,
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
     ) -> None:
         self._bus = global_bus
         self._authorizer = operation_authorizer
-        self._agent_service = agent_service
+        self._profile_reader = profile_reader
         self._asset_reader = asset_reader
         self._memory_compiler_config = memory_compiler_config or MemoryCompilerConfig()
         self._memory_compiler = MemoryCompiler()
@@ -94,9 +94,9 @@ class CPUAllocator:
         access: WorkspaceAccessContext,
         target_workspace: WorkspaceIdentity,
     ) -> AgentProfile:
-        """经能力层解析本进程的执行 Profile（``profile.read``）。
+        """阶段授权后经读取视图解析本进程的执行 Profile。
 
-        能力层逐次授权，读取视图负责缓存及 canonical 变更失效；运行上下文
+        阶段授权只校验准入与目标，读取视图负责可见性、缓存及 canonical 变更失效；运行上下文
         只需要能力描述，源原子的授权依据不进入 run。
 
         中间态（2026-09-29）：Profile 属于 CPU 分配，但暂时在 Patchouli prepare
@@ -106,14 +106,11 @@ class CPUAllocator:
         提交之后以后，Profile 解析可以回到 prepare 之后的 CPU 分配步骤。
         """
         # 当前执行 Agent 由授权点确定，不能从入口附带的 Profile alias 推断。
-        # 能力层仍独立执行 profile.read 授权并负责交付可见性检查。
-        scope = self._authorizer.authorize_operation(
-            access, WorkspaceOperation.PROFILE_READ, target_workspace
-        )
-        return await self._agent_service.get_agent_profile(
+        # Profile 可见性仍由读取视图按进程 actor 检查，不改用 system 身份。
+        scope = self._authorizer.authorize_stage(access, target_workspace)
+        return await self._profile_reader.get(
             scope.actor_identity.agent_id,
-            target_workspace=target_workspace,
-            access=access,
+            scope=scope,
         )
 
     def allocate(
@@ -131,10 +128,10 @@ class CPUAllocator:
         """取得附件租借并编译附件与记忆，组装输入清单。
 
         在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
-        :meth:`resolve_agent_profile` 提前解析。附件租借绑定 ``asset.acquire``，
+        :meth:`resolve_agent_profile` 提前解析。附件租借执行阶段授权，
         授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
         ``labels`` 由注册入口认证成功后绑定，只供 CPU 的提示词与观测使用；
-        资源操作仍凭访问 context 逐次授权。stop 请求不打断分配，由调用方在
+        阶段调用仍凭访问 context 逐次授权。stop 请求不打断分配，由调用方在
         进入 Actor 之前统一检查。任何失败沿异常路径上抛，已取得的租借由
         本分配器在进程关闭时释放。
         """
@@ -198,8 +195,8 @@ class CPUAllocator:
     ) -> RepresentationLease:
         """acquire 单个选中附件并核对客户端提供的版本摘要。
 
-        附件租借绑定 ``asset.acquire``：授权检查先于租借副作用执行，租借
-        使用操作授权者返回的可信 scope。reader 的同一 Store 临界区已完成
+        阶段授权检查先于租借副作用执行，租借使用授权者返回的可信 scope。
+        reader 的同一 Store 临界区已完成
         Workspace/ref、asset READY 与 representation READY 校验并建立
         lease，无需先做 resolve_asset。取得的 lease 先登记进工作集；版本
         摘要不一致时立即移出工作集并释放该租借，拒绝整轮，不留游离租借。
@@ -209,9 +206,7 @@ class CPUAllocator:
                 "当前系统未装配附件读取能力，不能处理附件选择",
                 details={"reason": "asset_reader_unavailable"},
             )
-        scope = self._authorizer.authorize_operation(
-            access, WorkspaceOperation.ASSET_ACQUIRE, target_workspace
-        )
+        scope = self._authorizer.authorize_stage(access, target_workspace)
         lease = self._asset_reader.acquire_ready_representation(
             scope,
             selection.asset_ref,

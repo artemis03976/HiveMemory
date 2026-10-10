@@ -65,7 +65,7 @@ def make_task_process_service(
     allocator = CPUAllocator(
         global_bus,
         operation_authorizer=operation_authorizer,
-        agent_service=agent,
+        profile_reader=runtime.profiles,
         asset_reader=asset_reader,
         attachment_compiler_config=attachment_compiler_config,
     )

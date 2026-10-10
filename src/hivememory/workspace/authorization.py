@@ -87,6 +87,21 @@ class WorkspaceOperationAuthorizer:
         # WorkspaceIdentity 相等性覆盖 owner_user_id 与 workspace 坐标。
         return requestor_grant.workspace == record_grant.workspace
 
+    def authorize_stage(
+        self,
+        access: WorkspaceAccessContext,
+        target_workspace: WorkspaceIdentity,
+    ) -> IdentityScope:
+        """任务进程阶段授权：校验准入与目标，不检查 actor 操作白名单。
+
+        阶段调用由进程负责，scope 保留进程 actor 的身份以执行资源可见性
+        检查；它只交给紧随的阶段调用，不进入 CPU 输入清单或执行凭据。
+        生产调用面限定在 ``workspace.process``。
+        """
+        grant, _ = self._redeem(access)
+        self._check_target(grant, target_workspace)
+        return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
+
     # ---- 内部辅助 ----
 
     def _redeem(
@@ -125,7 +140,7 @@ class WorkspaceOperationAuthorizer:
         grant: AccessGrant,
         target_workspace: WorkspaceIdentity,
         *,
-        operation: WorkspaceOperation,
+        operation: WorkspaceOperation | None = None,
     ) -> None:
         """操作授权的目标 workspace 与 owner 检查。
 
@@ -135,7 +150,7 @@ class WorkspaceOperationAuthorizer:
         """
         if not isinstance(target_workspace, WorkspaceIdentity):
             raise TypeError("target_workspace 必须是 WorkspaceIdentity")
-        operation_detail = {"operation": operation.value}
+        operation_detail = {"operation": operation.value} if operation is not None else {}
         if target_workspace != grant.workspace:
             raise OperationDeniedError(
                 details={

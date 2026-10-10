@@ -21,6 +21,8 @@
   分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
 - 进程控制授权比对请求方与进程记录的驻留坐标（P-7）：请求方无效按
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
+- ``authorize_stage`` 只检查凭据、准入与目标，不要求 actor 操作白名单；
+  返回 scope 仍保留进程 actor 身份，不切换成保留的 system actor；
 
 签发约定：``WorkspaceAuthenticator.admit`` 只由认证网关调用——本套件的
 全部签发都经 ``composition.gateway.authenticate`` 完成，不直接调用
@@ -361,6 +363,92 @@ async def test_authorize_operation_rejects_wrong_operation_and_target_types():
         composition.authorizer.authorize_operation(
             context, WorkspaceOperation.RESOURCE_READ, "main_workspace"
         )
+
+
+@pytest.mark.asyncio
+async def test_authorize_stage_without_operations_preserves_process_actor():
+    """没有 actor 操作许可也能做阶段授权，返回本进程 actor 的可信 scope。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    scope = composition.authorizer.authorize_stage(context, MAIN)
+
+    assert scope == IdentityScope(
+        actor_identity=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
+        workspace_identity=MAIN,
+    )
+
+
+@pytest.mark.asyncio
+async def test_authorize_stage_rejects_revoked_context():
+    """阶段授权兑现已撤销凭据时拒绝，空白名单不能绕过签发有效性检查。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+    composition.gateway.invalidate_context(context)
+
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        composition.authorizer.authorize_stage(context, MAIN)
+
+    assert exc_info.value.details["reason"] == "context_not_issued"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [True, False], ids=["missing-actor", "disabled-actor"])
+async def test_authorize_stage_rechecks_current_admission(enabled):
+    """准入记录缺失或已禁用时，阶段授权仍拒绝持有原签发凭据的 actor。"""
+    context = await _composition().authenticate(agent_id="a1", user_id="u1")
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="other-agent" if enabled else "a1",
+                enabled=enabled,
+                allowed_operations=frozenset(),
+            )
+        ],
+        default_workspace=MAIN,
+    )
+
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        composition.authorizer.authorize_stage(context, MAIN)
+
+    assert exc_info.value.details["reason"] == "actor_not_admitted"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", [ISOLATION, FOREIGN_OWNER], ids=["workspace", "owner"])
+async def test_authorize_stage_rejects_target_outside_resident_workspace(target):
+    """跨 workspace 或 owner 的阶段目标均拒绝，错误不伪造 actor operation。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    with pytest.raises(OperationDeniedError) as exc_info:
+        composition.authorizer.authorize_stage(context, target)
+
+    assert exc_info.value.details == {
+        "reason": "target_workspace_not_resident",
+        "resident_workspace_id": MAIN.workspace_id,
+        "target_workspace_id": target.workspace_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_authorize_stage_rejects_missing_context_and_invalid_target():
+    """阶段授权同样守住凭据与目标类型边界，不接受裸身份替代访问凭据。"""
+    composition = _composition()
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    with pytest.raises(ScopeRequiredError) as missing_info:
+        composition.authorizer.authorize_stage(None, MAIN)
+    with pytest.raises(ScopeRequiredError) as bare_info:
+        composition.authorizer.authorize_stage(
+            make_identity_scope(user_id="u1", agent_id="a1"), MAIN
+        )
+    with pytest.raises(TypeError, match="target_workspace 必须是 WorkspaceIdentity"):
+        composition.authorizer.authorize_stage(context, "main_workspace")
+
+    assert missing_info.value.code == "workspace.scope_required"
+    assert bare_info.value.code == "workspace.scope_required"
 
 
 class TestAuthorizeProcessControl:

@@ -20,7 +20,6 @@ from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AssetNotReadyError,
-    OperationDeniedError,
     ScopeRequiredError,
     WorkspaceDomainError,
 )
@@ -616,19 +615,19 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
     assert captured["topic_pool"]["identity_scope"] == _expected_scope()
 
 
-class _DenyRepeatedOperation:
-    """授权点外部替身：指定 operation 第二次授权时拒绝，其他检查用真实授权者。"""
+class _AdmissionChangingAuthorizer:
+    """阶段授权使用实时准入：Actor 执行后切换到已撤销的真实访问登记。"""
 
-    def __init__(self, delegate, operation: WorkspaceOperation):
+    def __init__(self, delegate):
         self._delegate = delegate
-        self._operation = operation
-        self._count = 0
+        self._revoked = make_access_composition([]).authorizer
+        self.revoked = False
+
+    def authorize_stage(self, access, target_workspace):
+        authorizer = self._revoked if self.revoked else self._delegate
+        return authorizer.authorize_stage(access, target_workspace)
 
     def authorize_operation(self, access, operation, target_workspace):
-        if operation == self._operation:
-            self._count += 1
-            if self._count == 2:
-                raise OperationDeniedError(details={"operation": operation.value})
         return self._delegate.authorize_operation(access, operation, target_workspace)
 
     def authorize_process_control(self, requestor, record_access):
@@ -636,20 +635,25 @@ class _DenyRepeatedOperation:
 
 
 @pytest.mark.asyncio
-async def test_finalize_reauthorizes_and_denial_closes_completed_cpu_process() -> None:
-    """Actor 完成后重新授权被拒绝：不提交交互，进程失败并用目标归属补偿 prepare。"""
+async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_process() -> None:
+    """Actor 完成前准入撤销：不提交交互，进程失败且 cleanup 不越过准入检查。"""
     bus = GlobalSystemBus()
     finalized = []
     cleaned = []
-    cpu = ScriptedCPU(result=make_cpu_result())
     composition = _composition()
+    authorizer = _AdmissionChangingAuthorizer(composition.authorizer)
+
+    async def revoke_admission(_submit):
+        authorizer.revoked = True
+
+    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=revoke_admission)
 
     async def finalize(**kwargs):
         finalized.append(kwargs)
         return []
 
-    async def cleanup(*, prepared_run, identity_scope):
-        cleaned.append((prepared_run.belong_to, identity_scope.workspace_identity))
+    async def cleanup(**kwargs):
+        cleaned.append(kwargs)
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
@@ -660,27 +664,30 @@ async def test_finalize_reauthorizes_and_denial_closes_completed_cpu_process() -
         bus,
         cpu=cpu,
         access_gateway=composition.gateway,
-        operation_authorizer=_DenyRepeatedOperation(
-            composition.authorizer, WorkspaceOperation.INTERACTION_SUBMIT
-        ),
+        operation_authorizer=authorizer,
     )
     issued = _capture_issued_contexts(composition)
-    with pytest.raises(OperationDeniedError) as error:
+    with pytest.raises(ScopeRequiredError) as error:
         await _run_once(composition, service, "问题", process_id="process-finalize-denied")
 
-    assert error.value.details == {"operation": "interaction.submit"}
+    assert error.value.details == {"reason": "actor_not_admitted"}
     assert len(cpu.calls) == 1
+    assert cpu.closed is True
     assert finalized == []
-    assert cleaned == [(_workspace(), _workspace())]
+    assert cleaned == []
     assert composition.gateway.describe_context(issued[0]) is None
 
 
 @pytest.mark.asyncio
-async def test_cleanup_authorization_denial_skips_route_and_still_closes_process(caplog) -> None:
-    """cleanup 的 resource.search 再授权失败只记录警告，进程注销与 context 失效照常。"""
+async def test_cleanup_admission_denial_skips_route_and_still_closes_process(caplog) -> None:
+    """Actor 失败前准入撤销：cleanup 只记录拒绝警告，进程注销与 context 失效照常。"""
     bus = GlobalSystemBus()
     cleaned = []
     composition = _composition()
+    authorizer = _AdmissionChangingAuthorizer(composition.authorizer)
+
+    async def revoke_admission(_submit):
+        authorizer.revoked = True
 
     async def cleanup(**kwargs):
         cleaned.append(kwargs)
@@ -689,13 +696,15 @@ async def test_cleanup_authorization_denial_skips_route_and_still_closes_process
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
     bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    cpu = ScriptedCPU(
+        result=make_cpu_result(status=CPUExecutionStatus.FAILED.value),
+        operation_script=revoke_admission,
+    )
     service = make_task_process_service(
         bus,
-        cpu=ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED.value)),
+        cpu=cpu,
         access_gateway=composition.gateway,
-        operation_authorizer=_DenyRepeatedOperation(
-            composition.authorizer, WorkspaceOperation.RESOURCE_SEARCH
-        ),
+        operation_authorizer=authorizer,
     )
     issued = _capture_issued_contexts(composition)
     result = await _run_once(composition, service, "问题", process_id="process-cleanup-denied")

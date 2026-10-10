@@ -412,7 +412,8 @@ class SystemAssembler:
         allocator = CPUAllocator(
             runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
-            agent_service=capabilities.agent,
+            # Profile 阶段读取直接使用读取视图，不经过 actor 能力的操作检查。
+            profile_reader=runtime.workspace_runtime.profiles,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
             # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
