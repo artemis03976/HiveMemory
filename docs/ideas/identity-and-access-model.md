@@ -29,7 +29,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 身份与访问体系
@@ -384,6 +384,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 - 所有非主动写入的路径都以 `system` 作为发起者结算：这些路径中本来就没有任何 agent 的主动意图；参与过工作的 agent 只记录在 `contributing_agent_ids` 中。
 - 当前实现中，非主动路径得到的记忆都以 PUBLIC 开放，查重同样只在 PUBLIC 内进行。以 `system` 为发起者即满足这一点：policy 拒绝把 `system` 作为 PRIVATE 的 target，`system` 的 `team_id` 为 `None`（6.7，分析）。
+- 补充（2026-10-10）：`system` 同时是唯一的 root 角色，管理员能力只对它开放（[总 Idea](./workspace-network-task-process-architecture.md#1512-能力层分为-root-api-与-actor-api) 15.12）。分析：两种用法不冲突的前提是各自限定在不同的入口：非主动路径以 `system` 为发起者时仍按 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API。root 的判定属于第 3 阶段授权，不写进身份类型（不变量 6）。
 - 发起者作为后台任务的字段携带（I-6 的 `from_actor`），不在 Patchouli 内部组装 `IdentityScope`。
 
 主动的 WRITE、UPDATE 仍以提交写入意图的 actor 为发起者（现状）。管理写入由用户经直接通道显式指定 policy，不属于非主动生成路径（分析）。
