@@ -828,6 +828,7 @@ sequenceDiagram
 - 归属（2026-10-02）：属于 Alice 的能力层调用迁移计划（15.5），不在 A1 返工内。
 - 归属（2026-10-06，取代上一条）：单独作为一个计划实现，不随 Alice 的能力层调用迁移实施。与 Alice 迁移的先后未定。
 - （owner，2026-10-09）白名单的重构以[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9 的操作列表为基础：对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套列表。
+- （owner，2026-10-09）正式的操作列表（分类与命名）留到本计划与白名单重构一起完成；在此之前，能力层请求类型与能力方法一一对应，多对一地映射到现有 `WorkspaceOperation`。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
@@ -870,6 +871,7 @@ sequenceDiagram
 - （owner，2026-10-06）读取缓存失效与写入意图迁移第 1 步合为[同一份归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)，Alice 的引用解析也在该计划中整体迁到 workspace，避免 pending 与正式记忆分处两地解析的过渡状态；收窄后的 Alice 能力层调用迁移相应只剩 SEARCH、引用记录、CALL 目标 Profile/cache、`cpu_execution_identity` 的删除与 D-9 中尚未处理的遗留。
 - 分析：Alice 的能力层调用迁移完成、执行线程层实施之前，Alice 的子线程共享主线程的访问 context，与外部执行单元的语义相同（外部 Actor Idea E-5），是一个合法的中间状态。
 - 执行环境的选择（执行单元 Idea T-7、T-8）不在 v0.7.0，随后续版本实施，不一定是 v0.7.1（owner，2026-10-06）。
+- （owner，2026-10-09）收窄后的 Alice 能力层调用迁移作为一份计划实施，内部分阶段验收：先以 T-9 的操作请求与单一操作入口取代进程操作通道，再迁移 SEARCH、引用记录与 CALL 目标 Profile，最后删除 `cpu_execution_identity`。正式操作列表不在本计划（15.4）；引用记录的形态见 P-12b；删除过渡身份后的观测标签见[身份与访问体系 Idea](./identity-and-access-model.md#i-9-cpu-在过渡期的身份) I-9；执行凭据的形态见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9。计划：[Alice 的能力层调用迁移](../plans/v0.7.0-alice-capability-migration.md)。
 
 ### 15.6 访问登记与 context 的生命周期
 
@@ -1079,6 +1081,7 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 - **P-12b 引用记录**：Alice 在 MTP READ（来源 `mtp.read`）与 RUN（`mtp.run`）交付原子后，调用 Patchouli 的 `record_memory_citation`，由 Patchouli 的生命周期服务记录一次引用事件；调用失败只记日志。能力层没有对应方法（13.5）。
   - 所需 operation：归入 `resource.read`（引用随读取发生） / 新增 operation / 由能力层的读取方法在交付时记录，不单独暴露 / 其他；
   - 失败语义：保持只记日志 / 显式失败 / 其他。
+  - （owner，2026-10-09）引用记录是能力层引用读取自动触发的副作用，不是能力层的一项能力，也不设请求类型或 operation：能力层的引用读取向 agent 交付正式原子时自动记录一次引用，CALL 的 `context_refs` 也走同一读取，因此同样记录（此前只有 READ 与 RUN 记录）。失败语义沿用只记日志。
 - 分析：错误映射（例如把 workspace 一侧的 `ResourceUnavailableError` 映射为 MTP 的错误）属于操作适配器的职责（外部 Actor Idea 3.4），不需要能力层新增接口。
 
 ### 与前两部分问题的关联

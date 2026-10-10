@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # Archived Plans
@@ -14,7 +14,7 @@ last_reviewed: 2026-10-07
 
 当前记录：
 
-- [v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](./v0.7.0-intent-registry-and-read-cache.md)：2026-10-07 已完成实施、验收与 code review，workspace 唯一登记与统一引用解析、进程操作通道和按进程认领/取消、canonical 变更同步失效已落地；全量后端 2720 passed、2 skipped，覆盖率 93.06%，确定性 HTTP chat E2E 2 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[MTP 契约](../../contracts/mtp.md)与 [System 应用服务](../../system/application-services.md)；实现仍在工作区，未提交或发布。
+- [v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](./v0.7.0-intent-registry-and-read-cache.md)：2026-10-07 已完成实施、验收与 code review，workspace 唯一登记与统一引用解析、进程操作通道和按进程认领/取消、canonical 变更同步失效已落地；全量后端 2720 passed、2 skipped，覆盖率 93.06%，确定性 HTTP chat E2E 2 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[MTP 契约](../../contracts/mtp.md)与 [System 应用服务](../../system/application-services.md)；2026-10-09 连同审查后修复经 PR #109 合并至 master（`0fcf118`），未发布。
 
 - [v0.7.0 身份与访问体系第二批](./v0.7.0-identity-access-batch-2.md)：Patchouli 公开边界拆出归属与发起者，内部和后台记录不保存操作 scope；SETTLE 四种触发使用 system，查重只读取 PUBLIC；finalize/cleanup 使用阶段授权结果，actor 的 session_id 已移除。2026-10-04 经全量门槛、确定性 HTTP chat E2E 与审查后提交（commit `b2c7aee`，审查后调整见计划第 11.4 节），同日经 PR #107 合并至 master（`5660fed`），不表示版本已发布；[WorkspaceAsset 内部拆分](../../todo/workspace-asset-ownership-identity-split.md)按用户要求暂缓。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统公共契约](../../contracts/subsystem-contracts.md)与 [Patchouli 生成](../../patchouli/generation.md)。
 - [v0.7.0 A1 访问边界返工](./v0.7.0-a1-access-boundary-rework.md)：A1 遗留的生产入口接线，按身份与访问体系 Idea 的第一批完成——与 workspace 相关的 HTTP 请求都经统一认证网关；四种身份数据形态与两阶段认证加两阶段授权落地；访问 context 改为密封的运行时凭据，guard 拆为 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer` 且互不依赖；注册入口先注册后运行，进程表登记任务进程，句柄按对象身份判定有效，取消统一为一个方法；Patchouli 与 Gateway 只接收 `IdentityScope`；两个登记文件、用户级记录与默认登记；附件上传 scope 缺陷结构性修复；当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4 节、[错误模型](../../contracts/error-model.md)第 4.4 节、[System 应用服务](../../system/application-services.md)第 4 节与 [System 配置](../../system/configuration.md)第 1.1 节。

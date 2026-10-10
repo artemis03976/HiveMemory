@@ -29,7 +29,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-09
 ---
 
 # 身份与访问体系
@@ -342,6 +342,12 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 **问题**：Alice 改经能力层调用之前（总 Idea 15.5），CPU 输入清单要携带一个 `IdentityScope` 供 Alice 直接调用 Patchouli。按不变量 4，`IdentityScope` 只由授权点组装，但 CPU 执行本身没有对应的 operation；借用某次不相关的 operation 授权结果，或直接用注册声明组装，都会破坏这条不变量。
 
 **设计**：操作授权者提供过渡专用的 `cpu_execution_identity`：只做第 3 阶段的目标 workspace 与 owner 检查，不检查 operation。只有任务进程的 CPU 分配调用它（架构测试限定调用面）。Alice 的直接调用因此仍没有 operation 授权，与过渡前相同；Alice 的能力层调用迁移完成后删除该方法。
+
+**删除之后**（owner，2026-10-09）：
+
+- 过渡身份删除后，CPU 输入清单不再携带 `IdentityScope`，改为只用于观测与提示词的标签（例如 agent_id、workspace_id 字符串），不参与授权；Alice 内部 `RuntimeScope`、运行上下文与 MTP 执行上下文中的 `IdentityScope` 随之移除，`IdentityScope` 完全回到授权点之下的调用链内。
+- CPU 调用能力层所用的是执行凭据（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9）：进程内的不透明对象，本身不携带可读的身份，只能由 workspace 的操作入口兑现为访问 context；按对象身份判定有效，与进程句柄（I-8）同一做法，进程关闭时同步吊销。它与访问 context 分开：context 仍只由运行持有者与授权点持有，CPU 只持有凭据。
+- 实施见 [Alice 的能力层调用迁移计划](../plans/v0.7.0-alice-capability-migration.md)。
 
 #### I-10 workspace 一侧的认证与操作授权如何划分
 
