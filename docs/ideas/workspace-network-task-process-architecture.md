@@ -49,14 +49,14 @@ related_docs:
   - docs/ideas/identity-and-access-model.md
   - docs/contracts/mtp.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Workspace 网络与任务进程架构
 
 **文档状态**：Idea，未形成实施承诺
 **覆盖范围**：第一部分——网络拓扑、迁移与 Import Bus（任务进程与注册入口已拆出为独立 Idea）；第二部分——system 包的边界；第三部分——认证与授权流程
-**记录日期**：2026-09-26；2026-10-04 按“已完成 / 未完成”重新整理
+**记录日期**：2026-09-26；2026-10-04 按“已完成 / 未完成”重新整理；2026-10-10 增补 15.12（能力层分为 root API 与 actor API），并在受影响的前提与问题处注明
 
 ## 0. 文档性质
 
@@ -520,6 +520,8 @@ canonical 变更事件与 workspace 读取缓存的失效直接相关，是 Alic
 
 能力层由原 `system/application` 的资源能力部分改造而成，不新建中间层：拥有平面状态（resolver、双缓存、边界授权、lease）或组合多个领域步骤的方法构成能力实现；向单个 backing 领域操作的无状态委托可以保持薄转发，条件是转发前已在能力边界完成 operation 授权，且转发目标是一个完整的领域操作而不是裸机制（如 `patch_payload`）。现状：资源能力位于 `workspace/capability`，任务进程的编排位于 `workspace/process`（第 9 节 D-9）。
 
+（owner，2026-10-10）能力层是计划重构前从 system 层的 API 原样搬入的，没有按调用方分层：管理员方法与 actor 方法混在同一套服务里。capability 目录显式分为 root API 与 actor API 两个独立目录，见 15.12。
+
 （2026-10-09）CPU 一侧的入口形态见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9：操作适配器只产出操作请求，CPU 附上线程的执行凭据后经 workspace 的单一操作入口提交；仍是 in-process，不新开总线路由。
 
 adapter 现称操作适配器，定义见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4（2026-10-06 以归一化定义取代原五条判据）；operation 授权的检查点迁移见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)与第三部分前提第 5 条。
@@ -670,12 +672,14 @@ Import Bus 已排除在现有系统之外（5.8），本问题随其独立演进
    - **Workspace authentication**：当前 actor 是否有权限在这个 workspace 中工作。
 3. 未通过两阶段认证的请求，不创建任务进程。
 4. 进程内，actor 的任何主动操作请求（MCP、MTP、HTTP 请求）都导向 workspace 的能力层；能力层是 actor 唯一可见的 API 接口。
+   - 2026-10-10 注：能力层分为 actor API 与 root API（15.12），本条与第 5 条的“能力层”指 actor API。
 5. 能力层进行统一的操作权限授权（Operation Authorization），通过后才进入业务逻辑。
 6. 资源自身的可见性授权与读取权限，仍留在资源读取边界上各自进行，因为任意资源在运行时可能来回变动所处位置，并被缓存。
 7. 管理员操作也作为 CPU 的一种接入。管理员操作指用户从 server 直接发起、没有具体 Agent 的操作。它和 actor 发出的请求一样调用 workspace 能力层，经过同一套操作授权与业务逻辑，响应路径相同，因此不为管理员另设一套 API。代价是它与普通 agent actor 性质不同：只有操作请求，没有完整的任务进程周期。
    - 这里的“CPU”指能力层的调用方，即[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#12-harness-登记的两个侧面owner2026-09-30) 1.2 中的接入侧面；它与任务进程经 CPU 端口驱动的执行侧面无关。管理员与 plugin 模式的 harness 只有接入侧面，Alice 两个侧面都有。
    - 2026-10-03 注：本条统一的是接入路径，不是用例清单。管理员与 agent 对部分读取期望的行为不同，读取按视角区分，见 15.7。
    - 2026-10-06 注：第四部分前提 3 起，CPU 专指执行单元（执行侧面）。本条所说管理员作为“CPU 的一种接入”，按 T-6 的决定不再称 CPU：管理员操作经 HTTP 操作适配器归一化后调用能力层（第四部分前提 6）。
+   - 2026-10-10 注（owner，取代本条“不为管理员另设一套 API”）：管理员即唯一的 root 角色（`system`），使用独立的 root API，不与 actor 共用能力层方法；接入路径（认证网关、请求级 context、不建进程）不变。见 15.12。
 8. 至此，以 A1 为代表的 workspace 权限体系在新架构下的流程已经理顺。
 
 ## 13. 第三部分现状事实（代码核对，2026-10-04，A1 返工之后）
@@ -746,14 +750,16 @@ flowchart TB
     AUTH -- "任务请求通过" --> PROC["创建任务进程<br/>签发 context 并绑定进程<br/>随进程关闭撤销（15.6）"]
     AUTH -- "管理员请求通过" --> DCTX["签发请求级 context<br/>不创建进程<br/>随请求结束撤销（15.6）"]
     PROC --> OPS["进程内的主动操作<br/>MCP / MTP / HTTP"]
-    OPS --> CAP["能力层<br/>操作授权"]
-    DCTX --> CAP
+    OPS --> CAP["actor API<br/>按 actor 操作白名单授权"]
+    DCTX --> RCAP["root API<br/>只对 root（system）开放"]
     CAP -- "未获许可" --> ODENY["OperationDenied"]
     CAP -- "获得许可" --> BIZ["业务逻辑"]
+    RCAP -- "非 root" --> ODENY
+    RCAP -- "root" --> BIZ
     BIZ --> RES["资源边界<br/>资源自身的可见性与读取授权"]
 ```
 
-图中“进程内的主动操作 → 能力层”已覆盖 WRITE、UPDATE 与共同引用解析；SEARCH、引用记录和 CALL 目标 Profile 仍随 Alice 的剩余能力层调用迁移完成（13.5、15.5）。
+图中的两个 API 面按 15.12（2026-10-10）的决定画出，尚未实施：现状仍是一套能力层，管理员与 actor 都经操作授权进入（13.4、13.6）。Alice 的资源操作已全部经操作入口进入能力层（15.5 实施结果）。
 
 ### 14.2 任务进程内一次操作的授权顺序
 
@@ -794,6 +800,8 @@ sequenceDiagram
 - **P-9e 管理员在访问登记中的表示**（2026-10-02）：以保留的 `system` 单独登记，用户级记录不覆盖它（15.6）。`system` 只表示“没有具体 Agent 作为操作来源主体”，不承担权限绕过语义。
 - **带来的约束**：任务进程 Idea 的前提“任意任务请求从唯一入口注册为一个进程”之外，存在一类不注册进程的访问，范围见 P-9a；能力层需要同时处理绑定进程的 context 与请求级 context，区分方式见 P-9c；直接通道用不到写入意图、附件租借等进程内资源。
 
+**演进**（owner，2026-10-10）：管理员调用的不再是与 actor 共用的能力层，而是独立的 root API；不建进程、请求级 context 与认证网关的接入方式不变。`system` 从“没有具体 Agent 作为操作来源主体、不承担权限绕过语义”改为唯一的 root 角色。见 15.12。
+
 **取舍**：讨论中列出的另外三种做法：进程表中维护一个始终开启的进程，专门用于管理员操作；每个操作请求包裹在一个随请求结束的任务进程中；按管理会话建进程，打开管理界面时创建，空闲超时或退出时关闭。这些做法与方案 C 的分歧，取决于“进程”指“由 CPU 执行的一个任务”，还是“任何经过认证的交互”；方案 C 与前一种定义对应（是否把它确立为任务进程 Idea 的前提定义，见 P-9d）。AE2 中，玩家在 ME 终端里直接存取物品不经过合成 CPU，但权限仍由安全终端控制，分为存入、取出、合成、建造、安全管理五项。
 
 ### 15.2 每次请求重新校验身份（P-1a）
@@ -816,7 +824,7 @@ sequenceDiagram
 
 ### 15.4 Agent Profile 的权限并入 operation 控制（P-2、P-10）
 
-**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划；尚未实施，计划尚未建立。P-10a 见第 16 节。
+**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；尚未实施，计划尚未建立。P-10a 见第 16 节。
 
 **问题**：两套权限并存：A1 的 operation 白名单与 Agent Profile 的 `allowed_mtp_verbs`、`allowed_sys_tools`（13.2）。后者的语义绑定 MTP 与系统工具体系，对不经 MTP 的外部 Actor（MCP、外部协议）没有定义含义（P-10，原记录于 AgentProfile 模型演进 Todo，2026-09-27 归档）。
 
@@ -829,6 +837,10 @@ sequenceDiagram
 - 归属（2026-10-06，取代上一条）：单独作为一个计划实现，不随 Alice 的能力层调用迁移实施。与 Alice 迁移的先后未定。
 - （owner，2026-10-09）白名单的重构以[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9 的操作列表为基础：对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套列表。
 - （owner，2026-10-09）正式的操作列表（分类与命名）留到本计划与白名单重构一起完成；在此之前，能力层请求类型与能力方法一一对应，多对一地映射到现有 `WorkspaceOperation`。
+- （owner，2026-10-10）白名单的内容就是 actor 操作的全集（15.12）：Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 移除，权限主体不再位于 Profile；白名单按 (user, workspace, agent) 记录。系统工具暂不设权限：Alice 中所有系统工具对所有 agent 可用，外部 harness 本就不适用。内置 OMNI_DOLL 的默认集合为全部 actor 操作。同一份名单对 Alice 翻译为 MTP 工具列表，对外部 harness 翻译为 MCP 工具列表。
+- 分析（2026-10-10）：Agent Profile 是某个 workspace 中的记忆原子，`agent_id` 即其 alias，只在 workspace 内唯一；不同 workspace 中的同名 agent 是两条独立的原子。因此“同一 agent 在不同 workspace 有不同能力”只可能出现在受限穿透访问中：那时一次跨 workspace 的操作要同时满足 agent 自身的白名单与目标一侧的授予，actor 身份也需要带上驻留 workspace（不在 v0.7.0）。
+- （owner，2026-10-10）能力层分层先于白名单：能力层提供的能力与 actor 应有的能力对齐之后，才讨论白名单。
+- 未决（随白名单计划讨论，不阻塞能力层分层）：权限留在 Profile 原子还是独立登记。留在 Profile：修改权限就是修改原子，删除 Profile 时权限随之消失，但只能表达一种权限情况，授权要读记忆库；独立登记：授权数据由 workspace 持有、记忆库不可达时仍能授权，但需要持久化、一个只对 root 开放的编辑接口，以及与 Profile 创建、删除的同步。owner（2026-10-10）认为两者没有明显优劣，并指出权限迟早需要在前端运行时编辑。另一项是执行线程层之前子线程的权限：Profile 字段移除后，子线程只能以主线程的白名单执行。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
@@ -865,12 +877,14 @@ sequenceDiagram
 | 写入意图迁移·第 1 步（2026-10-07 已实施，[写入意图迁移 Idea](./pending-intent-migration.md#02-第-1-步实施结果与剩余方向2026-10-07) 0.2） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；其余开放项留给第 2 步 |
 | Alice 的能力层调用迁移（收窄后） | 先以操作请求与 workspace 的单一操作入口取代第 1 步的进程操作通道（执行单元 Idea T-9）；SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分；T-9 已于 2026-10-09 决定，其余细节留给计划 |
 | 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3 |
-| Agent Profile 的权限并入 operation 控制 | 已于同日拆出（15.4） | operation 与 MTP 动词、系统工具的粒度；默认登记；权限的编辑位置 |
+| 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节” |
+| Agent 操作白名单（原“Agent Profile 的权限并入 operation 控制”） | 15.4：Profile 的 allow 字段移除，白名单为 actor 操作全集；2026-10-10 起排在能力层分层之后 | 权限的存储与编辑位置；子线程权限的过渡 |
 
 - 顺序：读取缓存失效与写入意图迁移第 1 步都在 Alice 的能力层调用迁移之前；两者之间的先后取决于第 1 步是否经 workspace 的原子缓存跟随结算后的 canonical 引用（P-12a）：若是，缓存失效在前。执行线程层在 Alice 的能力层调用迁移之后；它与 Profile 权限计划的先后受执行单元 Idea T-3c 约束。
 - （owner，2026-10-06）读取缓存失效与写入意图迁移第 1 步合为[同一份归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)，Alice 的引用解析也在该计划中整体迁到 workspace，避免 pending 与正式记忆分处两地解析的过渡状态；收窄后的 Alice 能力层调用迁移相应只剩 SEARCH、引用记录、CALL 目标 Profile/cache、`cpu_execution_identity` 的删除与 D-9 中尚未处理的遗留。
 - 分析：Alice 的能力层调用迁移完成、执行线程层实施之前，Alice 的子线程共享主线程的访问 context，与外部执行单元的语义相同（外部 Actor Idea E-5），是一个合法的中间状态。
 - 执行环境的选择（执行单元 Idea T-7、T-8）不在 v0.7.0，随后续版本实施，不一定是 v0.7.1（owner，2026-10-06）。
+- （owner，2026-10-10）能力层分层作为单独的计划，先于 Agent 操作白名单（15.12、15.4）。
 - （owner，2026-10-09）收窄后的 Alice 能力层调用迁移作为一份计划实施，内部分阶段验收：先以 T-9 的操作请求与单一操作入口取代进程操作通道，再迁移 SEARCH、引用记录与 CALL 目标 Profile，最后删除 `cpu_execution_identity`。正式操作列表不在本计划（15.4）；引用记录的形态见 P-12b；删除过渡身份后的观测标签见[身份与访问体系 Idea](./identity-and-access-model.md#i-9-cpu-在过渡期的身份) I-9；执行凭据的形态见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9。实施记录：[Alice 的能力层调用迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)。
 - **实施结果（2026-10-09）**：收窄后的三个阶段均完成并通过验收与 code review：单一请求入口/执行凭据、SEARCH/引用记录/CALL Profile 经能力层、过渡身份删除。当前事实见 [Workspace 架构](../architecture/workspace.md)与 [MTP 契约](../contracts/mtp.md)；子帧仍共用主线程凭据，独立线程身份与 Profile 权限重构继续作为后续方向。上文旧通道及缓存描述保留为分批背景，不作为现状。
 
@@ -913,6 +927,7 @@ sequenceDiagram
 - **workspace 读取缓存只由 actor 可见读取回填**，管理读取不回填。
 - **`system` 不持有 actor 可见的读取 operation**（2026-10-03，P-9c 的一部分）：`system` 的默认白名单去掉 `resource.read`；管理员的直接通道只持有 `management.*` 与 `task.observe`，由白名单保证管理员不会走到带缓存的读取，而不是依赖管理路由不调用这些方法。
 - **P-9g 管理员话题列表的 operation**（2026-10-03）：管理员的话题列表暂时映射到 `management.topic`；operation 目录中“Topic 快照读取绑定 `resource.read`、不借 `management.topic` 放行”的约定相应改为：actor 的话题读取绑定 `resource.read`，管理视角的话题列表绑定 `management.topic`。（另两种做法：新增管理视角的读取 operation，需要同步维护目录、配置与测试；保留 `resource.read`，随 `system` 去掉它而排除。）
+- **演进**（owner，2026-10-10）：两种视角改由 API 面表达，不再由 operation 表达：owner 视角只在 root API，agent 视角只在 actor API（15.12），P-9f 随之决定。“`system` 不持有 actor 可见读取 operation”由结构保证，不再依赖白名单；本节“管理员与 actor 经同一个能力层”的前提相应改为“经同一个认证网关、各自的 API 面”。
 
 ### 15.8 任务进程的阶段授权与两个提交路由
 
@@ -925,6 +940,7 @@ sequenceDiagram
 - **阶段调用的 operation 检查放在进程内**（2026-10-03）：阶段调用是进程自己的编排，不是 actor 的主动操作，不在前提第 4 条的范围内。检查由进程在调用前进行，以任务注册时通过认证的 workspace 为目标，使用同一个操作授权者与同一份访问登记的白名单。实现上由执行器 `TaskProcessRunner` 与 `CPUAllocator` 执行（[System 应用服务](../system/application-services.md)第 3.1 节）。
 - **资源 owner 只接收 `IdentityScope`**（身份与访问体系 Idea 第一批）：Patchouli 与 Gateway 不再接收访问 context，因此 Patchouli 一侧不存在放行分支。Alice 绕过能力层的问题由 Alice 的能力层调用迁移解决（15.5）。
 - **两个提交路由**的 operation 检查在能力层出现对应方法时进行。2026-10-07 WRITE/UPDATE 登记已通过能力层 `memory_intent.submit` 授权；独立交互提交与实时物化派发 API 仍未接生产，completed 认领继续随 finalize 交接。
+- **演进**（owner，2026-10-10）：阶段调用是系统做出的操作，不再以 actor 的白名单检查，预检索也不例外；预检索只按 actor 的身份过滤记忆的可见性（15.12）。本节“使用同一个操作授权者与同一份访问登记的白名单”相应被取代。
 
 **演进**：2026-10-02 曾决定“放行分支分两步去掉”：A1 返工去掉 HTTP 入口与任务进程所调用方法的放行分支，Alice MTP 仍在调用的四个方法的放行分支留给 Alice 的能力层调用迁移。2026-10-03 曾决定“两个提交路由的检查暂留在 Patchouli”。资源 owner 不再接收访问 context 后，两项都失去前提，按上述设计执行。
 
@@ -947,6 +963,7 @@ sequenceDiagram
 - **P-7（取消）**（2026-09-28）：只有用户有权取消任务进程，入口是唯一的 HTTP server 入口；取消请求必须带明确的 `process_id`；只有 Gateway 与 Actor 执行两个阶段可以取消（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-15-各阶段取消策略的声明方式) Q-15、Q-16）。
 - **取消不新增 operation**（2026-10-02，P-9c 的一部分）：维持进程服务的 owner 与 workspace 校验。A1 返工中实现为进程控制授权：由操作授权者比对请求方 context 与进程记录 context 的驻留坐标，不匹配时与不存在一样返回 `not_found`；持有进程句柄的入口是进程生命周期的所有者，取消时不经进程控制授权（身份与访问体系 Idea I-8）。
 - **memory-tasks 路由**（2026-10-02，P-9c 的一部分）：补上身份，按 `task.observe` / `management.task` 授权。
+- **演进**（owner，2026-10-10）：memory-tasks 路由属于 root API，`task.observe` 与 `management.task` 由 root 检查取代（15.12）。
 
 ### 15.11 写入意图迁移第 1 步先于 Alice 的能力层调用迁移（P-11）
 
@@ -980,6 +997,44 @@ sequenceDiagram
 | C | 调整两份计划的范围，由其中一份承担 resolver 的整体迁出（含 L0） | 承担方的范围变大；另一份计划以它为前驱 |
 | D | 其他 | —— |
 
+### 15.12 能力层分为 root API 与 actor API
+
+**状态**：已完成。2026-10-10 决定；尚未实施，作为单独的计划推进，在 Agent 操作白名单（15.4）之前。
+
+**问题**（owner，2026-10-10）：能力层是计划重构前从 system 层的 API 原样搬入 workspace 的（7.1.6），迁移结果没有经过审查。用户（管理员）使用的方法与 actor 使用的方法混在同一套能力层里，具有误导性：`management.*` 作为普通 operation 可以登记给任何 actor，而管理方法不应暴露给任何 actor。能力层提供的能力与 actor 应有的能力对齐之后，才能讨论白名单（15.4）。
+
+**背景**（代码核对，2026-10-10）：
+
+- actor 一侧经操作入口调用：`MemoryApplicationService` 的 `resolve_references`、`retrieve`、`submit_write_intent`、`submit_update_intent`，以及 `AgentApplicationService.get_agent_profile`；绑定 `resource.read`、`resource.search`、`memory_intent.submit`、`profile.read`。RUN 借用 READ 的引用解析，WRITE 与 UPDATE 共用一个 operation。
+- 管理员一侧经 HTTP 管理入口调用：记忆的增删改查与反馈、Profile 的新建与列表、话题的列表/结算/驱逐、记忆任务的查看与取消、资产上传；绑定四项 `management.*` 与 `task.observe`。
+- 两类方法混放在 `MemoryApplicationService` 与 `AgentApplicationService` 中；`read`、`retrieve_by_aliases` 没有生产调用方；`cancel_intents` 是 CALL 编排内部的补偿，不是 actor 的工具调用。
+- 任务进程的阶段调用（Gateway 读话题、话题池列表、prepare 与 cleanup、CPU 分配读 Profile、附件租借、交互提交）借用 `resource.read`、`resource.search`、`profile.read`、`asset.acquire`、`interaction.submit` 做阶段授权（15.8），没有检索权限的 agent 在 prepare 阶段即失败。
+
+**设计**（owner）：
+
+1. **actor 操作**：READ（读单个记忆原子，包括 Agent Profile）、SEARCH、RUN、WRITE、UPDATE 是所有 actor 通用的操作；RUN 成为独立操作。CALL 仍是 actor 操作，但只有 Alice 使用：外部 harness 不以它派生子线程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-5-外部执行单元的执行线程) E-5）。v0.6.2 引入附件之后，最多再加一项：读取 workspace store 中的附件。这组操作就是白名单的全集（15.4）。
+2. **进程阶段调用是系统的操作，不检查任何 actor 操作，预检索也不例外**：预检索只按 actor 的身份过滤记忆的可见性，避免不属于当前 actor 的记忆出现在预检索结果中。
+   - 背景：预检索结果按 MemoryCompiler 的注入策略进入上下文（`full`、`cascade`、`compact`，默认 `compact` 只注入索引）。`compact` 下，actor 要根据预检索结果进一步阅读具体内容，需要 READ 操作；`full` 下，即使没有 READ 与 SEARCH，actor 也能取得完整的记忆内容并运行。actor 是否拥有 READ 不是预检索的责任。
+   - 演进：当日的第一版记录写成“预检索的记忆必须让 actor 有权限读取”，被理解为预检索需要检查 actor 的操作；owner 澄清（2026-10-10）：这里的“有权限读取”指可见性，预检索不检查任何操作。
+3. **root 角色只有一个，即 `system` actor**：管理员能力只对 root 开放，任何 actor 都不能经白名单获得。
+4. **两个 API 目录**：能力层分层单独作为计划推进；capability 目录显式分为两个独立的 API 目录，分别明确 root user 可用的能力层 API 与 actor 可用的能力层 API。
+
+**影响**（分析）：
+
+- 第三部分前提第 7 条“不为管理员另设一套 API”被取代；15.1 的接入方式（认证网关、请求级 context、不建进程）不变，调用目标改为 root API。前提第 4、5 条的“能力层”指 actor API。
+- 15.7：读取视角由 API 面表达，不再由 operation 表达；P-9f 决定为两个入口，分属两个 API 目录。
+- 15.8：阶段调用不再以 actor 白名单检查，预检索也不例外。阶段调用仍要组装 `IdentityScope` 调用 Patchouli 与 Gateway（预检索按进程的 actor 过滤可见性），因此操作授权者需要一个只做准入与目标检查、不查 actor 操作的阶段授权方法，调用面限定在 `workspace.process`。它与已删除的过渡方法（身份 Idea I-9）不同：组装出的 scope 只用于进程自己的阶段调用，不交给 CPU。
+- 15.10：记忆任务路由属于 root API。
+- `system` 的语义：13.4 与 15.1 所说“没有具体 Agent 作为操作来源主体，不承担权限绕过语义”改为唯一的 root 角色。`system` 同时仍是非主动写入路径的发起者（身份 Idea I-11），后者沿用 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API，两种用法不在同一个方法内混用。root 的判定在第 3 阶段授权中进行，不写进身份类型（身份 Idea 不变量 6）。
+- operation 目录（13.1）随之重整：`management.*` 与 `task.observe` 由 root 检查取代；`profile.read`、`asset.acquire`、`interaction.submit` 不再作为阶段检查使用；actor 操作的命名在能力层分层的计划中确定。
+- P-9c：两类 context 由 API 面区分：root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据。plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
+- 执行单元 Idea T-9 第 3 点“HTTP 管理侧理论上也采用这种映射形态”被取代：操作请求与操作列表只描述 actor API；root API 由 HTTP 管理入口直接调用。
+- P-3：RUN 与 CALL 成为 actor 操作，授权进入能力层；执行本身是否经能力层仍未决定。
+
+**留给计划的细节**：阶段授权方法的命名与调用面守护；两个 API 目录的命名与导入约束；RUN 与 CALL 的请求形态；`read`、`retrieve_by_aliases` 的删除；`cancel_intents` 改为进程一侧的内部补偿。
+
+**取舍**：原前提第 7 条的单一能力层让管理员与 actor 共用方法、以 operation 区分，代价是管理操作成为可以登记给任何 actor 的普通 operation，读取视角也只能靠 operation 区分（15.7）。另一种做法是保留分项的 `management.*`，但只允许登记在 `system` 名下；root 只有一个时，分项没有使用者，还需要额外的登记约束。
+
 ## 16. 第三部分未完成的问题
 
 每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。已完成的子问题只在开头指明位置。
@@ -995,7 +1050,7 @@ P-1a（每次请求重新校验身份）已完成，见 15.2。
 
 ### P-3 能力层是否覆盖执行本身
 
-**背景**：operation 目录中没有代码执行、工具调用或 CALL（13.1）；15.4 已决定执行类操作（RUN、CALL、系统工具）的授权进入 operation 目录。剩下的问题是执行本身是否经能力层。
+**背景**：operation 目录中没有代码执行、工具调用或 CALL（13.1）；15.4 已决定执行类操作（RUN、CALL、系统工具）的授权进入 operation 目录。剩下的问题是执行本身是否经能力层。2026-10-10：RUN 与 CALL 成为 actor 操作，系统工具暂不设权限（15.12、15.4）。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
@@ -1037,15 +1092,16 @@ P-4b（不开放创建任务进程）已完成，见 15.9。
 
 ### P-9 管理员直接通道（方案 C）的后续问题
 
-已完成的子问题：P-9b（随单次请求）见 15.6，P-9e（`system` 单独登记）见 15.1，P-9g（管理员话题列表）见 15.7；P-9c 中的 `system` 白名单、memory-tasks 路由与取消见 15.7、15.10。System 层面的 API 不经 workspace（15.3），不在本问题范围内。
+已完成的子问题：P-9b（随单次请求）见 15.6，P-9e（`system` 单独登记）见 15.1，P-9g（管理员话题列表）见 15.7，P-9f（两种读取视角的入口形式）见 15.12；P-9c 中的 `system` 白名单、memory-tasks 路由与取消见 15.7、15.10。System 层面的 API 不经 workspace（15.3），不在本问题范围内。
 
 - **P-9a 直接通道的适用范围**：除管理员操作外，以下请求是否也经直接通道：进程控制与状态查询、任务观察、Import Bus 输入（与 D-8a 相关；Import Bus 不在 v0.7.0）、其他。逐项决定。
   - 分析（2026-10-02）：这些请求都不会创建进程（前提第 3 条、P-4b）。逐项要回答的是：是否经认证网关取得 context，以及可以调用哪些 operation。现状：进程控制与任务观察已经以请求级 context 进入（13.4），取消不是能力层的 operation。
 - **P-9c（剩余）能力层如何区分两类 context**：绑定进程的 context 与请求级 context 是否需要在授权时区分，以及如何区分。
   - 现状：区分实际依靠 actor，即 `system` 记录与用户级记录分开登记；context 中写入了运行绑定（运行类型与标识），但操作授权不读取它。
   - 选项：维持按访问登记区分（现状） / 操作授权按运行类型限制可用的 operation / 其他。
+  - 2026-10-10：按 15.12，root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据，两类 context 由 API 面区分；剩下的是 plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义（15.1 的取舍）。
-- **P-9f 两种读取视角的入口形式**（2026-10-03，由 15.7 引出）：两个入口，视角体现在方法名与 operation 上（现状） / 一个入口加显式视角参数，例如 `read(memory_id, view=AGENT | OWNER)`，视角映射到 operation / 一个入口，按调用方持有的权限决定视角 / 其他。
+- **P-9f 两种读取视角的入口形式**（2026-10-03，由 15.7 引出；2026-10-10 已决定：两个入口分属 root API 与 actor API，见 15.12，以下保留原选项与分析）：两个入口，视角体现在方法名与 operation 上（现状） / 一个入口加显式视角参数，例如 `read(memory_id, view=AGENT | OWNER)`，视角映射到 operation / 一个入口，按调用方持有的权限决定视角 / 其他。
   - 影响：
     - 两个入口：入口成对出现；需要共享底层读取机制、统一返回约定，并在文档中成对列出。
     - 视角参数：对外只有一个接口；但参数会改变可见性、是否进缓存与返回约定，需要严格的测试。

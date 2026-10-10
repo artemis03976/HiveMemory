@@ -20,7 +20,7 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 执行单元、执行线程与执行环境
@@ -55,6 +55,7 @@ last_reviewed: 2026-10-09
 6. （2026-10-06）adapter 称**操作适配器**（operation adapter）：把任意外部操作请求归一化为 workspace 统一能力层 API 的一次调用。例如 MTP READ 与将来经 MCP 提供的记忆读取，都归一化为 `MemoryApplicationService.read`；管理员操作同样经 HTTP 操作适配器归一化，只是因身份与操作意图不同而映射到不同的方法。定义与边界见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4。
    - 操作适配器属于接入侧面，不在 CPU 驱动之内：plugin 模式只经操作适配器访问能力层，没有进程，也没有驱动。controller 模式下两者如何连接（驱动把绑定进程的操作适配器端点交给 harness，工具调用经它回到 workspace），见 T-4。
    - 驱动与操作适配器分别对应外部 Actor Idea 1.2 中 harness 登记的执行侧面与接入侧面。
+   - （owner，2026-10-10）管理员（唯一的 root 角色 `system`）经 HTTP 操作适配器调用的是独立的 root API，不与 actor 共用能力层方法；本条“只是因身份与操作意图不同而映射到不同的方法”相应改为“映射到不同的 API 面”。见总 Idea 15.12。
    - （owner，2026-10-09）操作适配器不直接调用能力层 API：它把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 调用对应的能力层 API；只有 CPU 持有能力层的入口。请求与能力方法一一对应，见 T-9。
 7. （2026-10-06）HTTP server 承担两个角色：对任务请求，它是**请求入口**，`POST /chat` 进入唯一注册入口、创建任务进程，这不是能力层的操作（总 Idea P-4b 已决定不设“创建任务”类 operation）；对管理操作，它是 HTTP 操作适配器。
 8. （2026-10-06）“kernel”是早期架构遗留的命名，不再作为概念使用；harness 实例不称 kernel。代码与文档中的剩余使用点见 [kernel 遗留命名清理 Todo](../todo/kernel-legacy-naming.md)。
@@ -222,6 +223,8 @@ flowchart LR
 
 **取舍**：保留“接入侧面的 CPU”会让 CPU 端口的 CPU 与能力层调用方的 CPU 继续同名。
 
+**补充**（owner，2026-10-10）：管理员直接通道的 actor `system` 是唯一的 root 角色，调用 root API；plugin 模式的 harness 是普通 actor，只能使用 actor API（总 Idea 15.12）。
+
 ### T-9 操作请求与 workspace 的操作入口
 
 **状态**：已完成并实施（2026-10-09）。2026-10-08、2026-10-09 的决定先作为 Alice 迁移阶段一落地，随后完成 SEARCH、引用记录与 CALL Profile，以及过渡身份删除；[归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)保留三阶段验收。每个子线程独立签发 context/凭据仍属于后续执行线程层，本次子帧共用主线程提交函数。
@@ -241,6 +244,7 @@ flowchart LR
   1. 对 actor 暴露的可用操作、解析出的操作请求、能力层的 API 与对应的 `WorkspaceOperation` 是同一套操作列表；之后可能重写其分类与命名，使之更正式；
   2. 将来重构 agent 可用操作的白名单（总 Idea 15.4）时，以这张列表为基础；
   3. HTTP 管理侧理论上也应采用这种映射形态；管理员操作相对独立，暂不迁移。
+     - （owner，2026-10-10，取代本点）管理员能力属于独立的 root API，不进入这张操作列表；操作请求与操作列表只描述 actor API，root API 由 HTTP 管理入口直接调用（总 Idea 15.12）。
 
 **设计**（owner 接受的形态，2026-10-09）：
 
@@ -265,6 +269,7 @@ flowchart LR
 - **执行凭据**：进程内的不透明对象，按对象身份判定有效（与身份 Idea I-8 的进程句柄同一做法），绑定访问 context、目标 workspace 与 process_id；进程关闭时同步吊销。需要跨传输的外部 harness 由操作适配器持有“会话 → 凭据”的映射（外部 Actor Idea 3.4），凭据本身不跨传输。
 - **兑现位置**：操作入口是唯一认识凭据的地方，先把凭据还原为访问 context，再调用能力方法；能力方法的签名不变，仍只接收访问 context，“调用方参数的形态”因此不再需要选择。
 - **操作列表**：请求类型暂与能力方法一一对应，多对一地映射到现有 `WorkspaceOperation`；正式列表随 Profile 权限与白名单重构完成（总 Idea 15.4）。
+  - （owner，2026-10-10）actor 操作为 READ（含 Agent Profile）、SEARCH、RUN、WRITE、UPDATE 与只有 Alice 使用的 CALL，附件读取以后可能加入；进程阶段调用与 root 操作都不在列表中。命名在能力层分层的计划中确定（总 Idea 15.12）。
 - **引用记录**：不是操作，也不设请求类型，是能力层引用读取的自动副作用（总 Idea P-12b）。
 - 其余细节（凭据表位置、装配顺序、凭据交给 CPU 的方式、目标 workspace）由[计划](../archive/plans/v0.7.0-alice-capability-migration.md)给出。
 

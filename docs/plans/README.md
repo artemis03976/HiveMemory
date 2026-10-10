@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Plans
@@ -23,7 +23,8 @@ last_reviewed: 2026-10-09
 | 上一行之后 | 写入意图迁移·第 2 步 | 计划尚未建立：实时派发生成，收尾不再派发物化，取消与失败不再丢弃写入意图；与外部会话与 Topic 投影的先后均可 | [Idea](../ideas/pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 |
 | 写入意图登记与读取缓存失效之后 | Alice 的能力层调用迁移 | 已完成（2026-10-09）：三阶段实现、验收与 code review 均完成并归档；操作请求/执行凭据、SEARCH/引用记录/CALL Profile 迁移及 CPU 过渡身份删除已落地；子线程共用主线程凭据，独立身份留给执行线程层 | [归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)；背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#155-alice-的能力层调用迁移) 15.5、[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9 |
 | Alice 的能力层调用迁移之后 | 执行线程层 | 2026-10-06 由 Alice 的能力层调用迁移拆出，计划尚未建立：派生经过进程、每个线程一份访问 context、派生授权；与 Profile 权限计划的先后受执行单元 Idea T-3c 约束 | 背景：[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md) |
-| — | Agent Profile 的权限并入 operation 控制 | 2026-10-06 决定从 Alice 的能力层调用迁移中拆出，单独建立计划；计划尚未建立，与执行线程层的先后受执行单元 Idea T-3c 约束，与其他方向的先后未定 | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#154-agent-profile-的权限并入-operation-控制p-2p-10) 15.4 |
+| Alice 的能力层调用迁移之后（2026-10-10 定为下一个方向） | 能力层分层：root API 与 actor API | 计划尚未建立：capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与只有 Alice 使用的 CALL；进程阶段调用改为系统操作；root 只有 `system` 一个 | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#1512-能力层分为-root-api-与-actor-api) 15.12 |
+| 能力层分层之后 | Agent 操作白名单（原“Agent Profile 的权限并入 operation 控制”） | 2026-10-06 拆出单独建立计划，2026-10-10 排在能力层分层之后；Profile 的 allow 字段移除，白名单为 actor 操作全集，存储与编辑位置未定；与执行线程层的先后受执行单元 Idea T-3c 约束 | 背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#154-agent-profile-的权限并入-operation-控制p-2p-10) 15.4 |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 
 - 不在 v0.7.0：执行环境的选择（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#5-未完成的问题) T-7、T-8）随后续版本实施，不一定是 v0.7.1（2026-10-06）；外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；
