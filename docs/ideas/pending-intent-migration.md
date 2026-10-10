@@ -97,7 +97,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 登记、共同引用解析与读取缓存失效已同批形成稳定基线，实施与验收记录见[归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)。当前事实以[Workspace 架构](../architecture/workspace.md)、[PendingAtom](../alice/pending-atom.md)、[MemoryLibrary](../patchouli/memory-library.md)及[公开路由与事件](../contracts/routes-and-events.md)为准，本文不复制其完整接口。
 
 - workspace `WriteIntentRegistry` 是唯一状态机，PendingAtom 分开保存 `belong_to`、`from_actor` 与 `process_id`，不保存 RuntimeScope；意图在同 Workspace 内可回读（UPDATE 意图跟随基础原子的可读性，2026-10-09），读回及交接任务是独立副本。
-- 任务进程把绑定主线程 context/目标的操作通道作为 CPU `execute` 独立参数交给 Alice；WRITE、UPDATE、READ、RUN 资源解析与 CALL 共享引用经过能力层逐次授权。主线程 Profile 解析也已经能力层；SEARCH、引用记录、CALL 目标 Profile 与其 Alice 本地缓存、过渡 `cpu_execution_identity` 尚未迁完。
+- 2026-10-07 第 1 步曾通过绑定主线程的操作通道把意图提交与共同引用解析接入能力层。2026-10-09 [Alice 迁移](../archive/plans/v0.7.0-alice-capability-migration.md)已进一步用执行凭据和请求入口替换通道，并完成 SEARCH、引用记录、CALL Profile 与过渡身份删除；子帧仍共用主线程提交函数。这不改变本 Idea 第 2 步的实时派发、寿命与对账范围。
 - core `ReferenceResolution` 提供七种逐项状态。结算后优先按 UUID 读取 canonical，当前 actor 不可读时不交付目标坐标或含 UPDATE 基础坐标的 Pending 副本；UPDATE 继续只接受正式 atom，不接受结算 redirect。
 - Store 的 canonical 变更事件内联失效 workspace 原子、旧 alias 与来源 Profile 派生项并推进代次；结算只推进 registry，不回填原子，通知无重试、replay 或未送达对账。
 - completed 进程认领意图后仍经 `InteractionPayload.materialize_tasks` 和 finalize 派发；关闭取消尚未认领的 PENDING，不取消 MATERIALIZING。没有实时派发、保留期或 durable ledger，终态句柄保留到重启。

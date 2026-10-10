@@ -25,7 +25,7 @@ last_reviewed: 2026-10-09
 
 # 执行单元、执行线程与执行环境
 
-**文档状态**：Idea；T-4a、T-4c 主线程通道已实施，其通道形态已由 T-9 取代、尚未实施；其余执行线程与环境方向仍在讨论
+**文档状态**：Idea；T-9 操作请求与执行凭据已于 2026-10-09 实施验收，取代 T-4a/T-4c 的主线程通道；独立子线程身份、派生授权与执行环境方向仍在讨论。实施证据见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)，当前事实见 [Workspace 架构](../architecture/workspace.md)。
 **记录日期**：2026-10-05 起；2026-10-06 由总 Idea 第四部分拆出
 
 ## 0. 文档性质
@@ -104,6 +104,8 @@ last_reviewed: 2026-10-09
 - 例：总 Idea D-9 写“Alice 作为 CPU 既要实现 CPU 端口，又要调用能力层”，前提 4 写“actor 的主动操作请求导向能力层”，两句的主语按前提 3 分属执行单元与执行线程。
 
 ### 2.2 代码现状（2026-10-07 核对）
+
+> 本节保留建立 T-9 时的背景快照。2026-10-09 操作通道已替换为执行凭据与提交函数，SEARCH、引用记录及 CALL Profile 已经能力层，输入清单只含观测标签；子帧仍沿用主线程凭据。实际接口以 [子系统契约](../contracts/subsystem-contracts.md)为准，独立线程身份尚未实施。
 
 - **执行单元一侧已有线程表**：Alice 每次 run 的 [`RunSession`](../../src/hivememory/alice/orchestration/run_session.py) 持有 frame 注册表，`register_root_frame` 登记唯一的根 frame（主线程），`register_callee_frame` 连同 `CallRecord` 登记 callee frame（子线程）。
 - **派生在 Alice 内部完成**：MTP CALL 必须指定目标 agent alias（`MTPCallRequest.target_alias`，[`core/mtp/models.py`](../../src/hivememory/core/mtp/models.py)）；Koakuma 处理 CALL 时返回 SUSPEND 并携带调用请求（[`agent_runtime/mtp/runtime.py`](../../src/hivememory/agent_runtime/mtp/runtime.py)），`RunExecutor` 交给 `CallCoordinator` 解析目标 Profile 并创建 callee frame（[`run_executor.py`](../../src/hivememory/alice/orchestration/run_executor.py)）。整个派生过程不经过任务进程。
@@ -222,7 +224,7 @@ flowchart LR
 
 ### T-9 操作请求与 workspace 的操作入口
 
-**状态**：已完成（方向）。2026-10-08、2026-10-09 决定；尚未实施，作为收窄后 Alice 能力层调用迁移的第一步（总 Idea 15.5），在 SEARCH、引用记录与 CALL 目标 Profile 加入之前完成。
+**状态**：已完成并实施（2026-10-09）。2026-10-08、2026-10-09 的决定先作为 Alice 迁移阶段一落地，随后完成 SEARCH、引用记录与 CALL Profile，以及过渡身份删除；[归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)保留三阶段验收。每个子线程独立签发 context/凭据仍属于后续执行线程层，本次子帧共用主线程提交函数。
 
 **问题**（owner，2026-10-08）：第 1 步实施的进程操作通道（T-4c，2.2）有两个结构问题：
 
@@ -264,7 +266,7 @@ flowchart LR
 - **兑现位置**：操作入口是唯一认识凭据的地方，先把凭据还原为访问 context，再调用能力方法；能力方法的签名不变，仍只接收访问 context，“调用方参数的形态”因此不再需要选择。
 - **操作列表**：请求类型暂与能力方法一一对应，多对一地映射到现有 `WorkspaceOperation`；正式列表随 Profile 权限与白名单重构完成（总 Idea 15.4）。
 - **引用记录**：不是操作，也不设请求类型，是能力层引用读取的自动副作用（总 Idea P-12b）。
-- 其余细节（凭据表位置、装配顺序、凭据交给 CPU 的方式、目标 workspace）由[计划](../plans/v0.7.0-alice-capability-migration.md)给出。
+- 其余细节（凭据表位置、装配顺序、凭据交给 CPU 的方式、目标 workspace）由[计划](../archive/plans/v0.7.0-alice-capability-migration.md)给出。
 
 **取舍**：
 

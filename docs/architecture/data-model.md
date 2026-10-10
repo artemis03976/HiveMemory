@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 数据模型与可变性边界
@@ -76,7 +76,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 当前形成较完整不可变链路的模型包括：
 
-- `ActorIdentity`；
+- `ActorIdentity` 与仅含两个字符串的 `ExecutionLabels`；
 - `TurnEvent`、`AgentAction`、`TraceItem`、`TurnRecord`；
 - `TopicData`、`TopicSnapshot` 与相关展示值对象；
 - Gateway 的公共 decision / command outcome 及多项私有分析结果；
@@ -126,6 +126,8 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 |:---|:---|:---|
 | `ActorIdentity` | `user_id`、`agent_id`、可选 `team_id` | 不含 session 或运行关联 ID |
 | `IdentityScope` | 操作发起者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
+| `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 注册认证通过后创建一次，CPU 清单、主子 frame 与运行事件共享；不用于授权 |
+| `ExecutionCredential` | 不保存身份字段；凭据表按对象身份绑定访问 context、目标与进程 | Actor 阶段签发，独立于 CPU 清单，进程关闭同步吊销；不复制或序列化 |
 | `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次阶段授权的 scope |
 | `InteractionSubmission` | 必需的 `belong_to`、`from_actor` | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |
@@ -140,7 +142,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 - `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体继续接受 `session_id` 兼容字段，但不使用它构造身份或关联 finalize。
 - Interaction submission codec 为 v3，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
 - V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
-- 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 因无消费者而删除；剩余的 `.identity` 只读派生 property（`ExecutionFrame`、`MTPExecutionContext`）统一标注"只读派生，新代码走 `identity_scope`"。
+- 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope`、`AgentRunContext` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由 workspace 凭据绑定与逐次授权决定。
 - `PassiveConversationKey` 等 shared infra 命名键保留从 `IdentityScope.actor_identity` 平铺的三元组，仅作 buffer/gate/ordering 的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
 
 ### 4.7 Memory schema 2.1 与受控写入（v0.7.0 A2-P）
@@ -162,7 +164,8 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 | 区域 | 代表对象 | 当前风险/理由 |
 |:---|:---|:---|
 | 记忆领域 | `MemoryAtom` 及 meta/index/payload/artifacts/relations | 多层 list/dict 与模型仍可直接修改；写入口已收敛（完整提交经 Familiar、动态状态经 patch 白名单），但读取方拿到的仍是可变对象，依赖调用方不改写 |
-| 通用协议 | `RetrievalResponse`、`AgentRunContext`、`CPUInputManifest`、`CPUExecutionResult`、`InteractionPayload` | 公共 DTO 与运行结果仍共享可变 list/model |
+| 通用协议 | `RetrievalResponse`、`AgentRunContext`、`CPUInputManifest`、`CPUExecutionResult`、`InteractionPayload` | 公共 DTO 与运行结果仍含可变 list/model；冻结的 `ExecutionLabels` 不使整个清单递归不可变 |
+| 操作请求 | frozen `OperationRequest[R]` 及六种具体请求 | 请求外壳不可重新赋值，tuple 参数只读；`RetrieveRequest.filters` 等嵌套模型仍按自身可变性处理 |
 | Alice Runtime | frame、progress、generation result | 请求级累积状态有意可变，但所有权标记不统一 |
 | 应用服务结果 | `PreparedAgentRun`、`PassiveIngressOutcome` 等 | frozen 外壳包裹可变模型、list 或 dict |
 | Gateway Step | `GatewayStepResult.updates` | 只冻结顶层 mapping |

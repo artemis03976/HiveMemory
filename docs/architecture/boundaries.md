@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 系统边界与所有权
@@ -31,23 +31,24 @@ last_reviewed: 2026-10-07
 
 这里的“边界”不是为了让目录看起来整齐，也不是把一套进程内实现包装成微服务。它要解决的是一个更直接的问题：当一次交互同时经过入口判断、记忆检索、Agent 执行和长期沉淀时，究竟由谁作决定、由谁保存状态、又由谁对失败负责。如果这个问题没有唯一答案，同一份状态就会在多个 Runtime 中出现副本，业务顺序会散落到 HTTP router、事件订阅者和领域对象里，局部修复最终会改变整条链路的语义。
 
-当前边界是在项目多次演进和解耦中逐步形成的。早期 Gateway、Patchouli、Alice 的部分职责曾经依附于更大的引擎或对象图；随着命令、被动摄入、PendingAtom、取消和观测能力加入，直接持有另一个子系统 Runtime 的方式开始制造循环依赖，也让“谁是权威所有者”变得模糊。因此，本文保留的不只是当前目录关系，更是这些关系背后的约束：跨边界只传递完成一次交接所需的公共事实，领域状态留在其所有者内部，顶层用例由 System 明确编排。
+当前边界是在项目多次演进和解耦中逐步形成的。早期 Gateway、Patchouli、Alice 的部分职责曾经依附于更大的引擎或对象图；随着命令、被动摄入、PendingAtom、取消和观测能力加入，直接持有另一个子系统 Runtime 的方式开始制造循环依赖，也让“谁是权威所有者”变得模糊。因此，本文保留的不只是当前目录关系，更是这些关系背后的约束：跨边界只传递完成一次交接所需的公共事实，领域状态留在其所有者内部，跨子系统用例由各自的应用层明确编排。
 
 ## 1. 如何判断边界
 
 一个能力应该属于哪个子系统，首先看它在回答什么问题，而不是看哪个模块最方便调用它：
 
-- System 回答“这次用例按什么顺序运行、如何取消和收尾”；
+- System 回答“各组件如何装配和启停、被动摄入如何收尾”；
+- Workspace 回答“actor 能执行什么操作、任务进程如何执行和关闭”；
 - Gateway 回答“输入意味着什么、接下来应该采取什么入口决策”；
 - Patchouli 回答“长期知识是什么、如何检索、提交和演化”；
 - Alice 回答“Agent 如何在本轮上下文中行动、调用工具并形成执行结果”。
 
-这四类问题对应四种不同的状态寿命。System 持有一次用例及进程生命周期的控制状态；Gateway 的分析状态只服务于形成本次不可变决策；Patchouli 持有跨会话延续的记忆、话题和生成任务；workspace 持有跨任务进程保留的写入意图与派生读取视图；Alice 持有一次 run 内的 frame、工具调用和 ACK 别名清单。状态寿命不同，是职责不能简单合并的根本原因。
+这些问题对应不同的状态寿命。System 持有整体生命周期与被动用例的控制状态；workspace 任务进程表持有 chat 进程控制状态；Gateway 的分析状态只服务于形成本次不可变决策；Patchouli 持有跨会话延续的记忆、话题和生成任务；workspace 持有跨任务进程保留的写入意图与派生读取视图；Alice 持有一次 run 内的 frame、工具调用和 ACK 别名清单。状态寿命不同，是职责不能简单合并的根本原因。
 
 ## 2. 边界原则
 
 1. **应用层编排，子系统执行**：跨多个子系统的用户用例由应用层服务编排（chat 任务进程编排位于 `workspace.process`，被动摄入位于 System），领域行为留在其所有者内部。
-2. **公开路由跨边界，local bus 留在边界内**：调用方不能依赖另一个子系统的 local route 或 Runtime 组件。
+2. **公开契约跨边界，local bus 留在边界内**：调用方通过 public route、CPU 端口或操作入口交接，不能依赖另一个子系统的 local route 或 Runtime 组件。
 3. **模型应依赖中立**：跨边界模型放在 `core/protocol` 或明确的公共 contract 模块中，不暴露具体引擎对象。
 4. **状态只有一个所有者**：其他模块可以读取投影或发送命令，不能并行维护同一状态的第二份权威副本。
 5. **观测不反向控制业务**：RuntimeEvent 可以描述运行过程，但订阅者和观测失败不能改变业务终态。
@@ -90,7 +91,7 @@ System 是舞台管理者：它装配所有参与者，知道它们按什么顺�
 
 ### 4.2 允许的依赖
 
-System 可以依赖任何下层包完成装配，也可以通过全局路由调用公共能力。HTTP router 经门面取得服务（workspace 能力层、Alice chat 编排、System 被动摄入），而不是直接依赖子系统 Runtime。
+System 可以依赖任何下层包完成装配，也可以通过全局路由调用公共能力。HTTP router 经门面取得服务（workspace 能力层与任务进程编排、System 被动摄入），而不是直接依赖子系统 Runtime。
 
 ### 4.3 禁止的越界
 
@@ -169,13 +170,13 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 ### 7.2 依赖方向
 
-Alice 接收任务进程组装的 `CPUInputManifest` 与独立的 `ProcessOperations` 端口，在内部转换为 `AgentRunContext`。WRITE/UPDATE、READ/RUN 与 CALL context_refs 经端口调用 workspace 能力层；SEARCH、引用记录与 CALL 目标 Profile 解析仍经 Alice local bus 映射的 Patchouli 公开路由。子 frame 沿用主线程端口，不持有访问 context。
+Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的执行凭据独立于清单，`AliceCPU` 绑定凭据与公共 `OperationEntry` 形成 `OperationSubmitter`；MTP 与 CALL 仅构造请求，检索、引用交付、意图提交/撤回及 Profile 读取统一进入 workspace 能力层。主、子 frame 沿用同一提交函数与注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标。
 
 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
-写入意图登记与完整引用解析由 workspace 唯一拥有。完整原子与主进程 Profile 的派生缓存也归 workspace，按源 Workspace 键控并在交付时重新授权；Alice 仅保留 CALL 目标 Profile 的既有缓存。
+写入意图登记与完整引用解析由 workspace 唯一拥有。完整原子与主进程、CALL 目标 Profile 的派生缓存也归 workspace，按源 Workspace 键控并在交付时重新授权；Alice 不持有 Profile resolver 或缓存。
 
-Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical 变更事件内联失效 workspace 读取缓存。Alice 只消费端口返回的独立解析结果，不订阅结算事件，也不持有写入意图状态。
+Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical 变更事件内联失效 workspace 读取缓存。Alice 只消费操作请求返回的独立解析结果，不订阅结算事件，也不持有写入意图状态。
 
 ### 7.3 禁止的越界
 
@@ -203,7 +204,9 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 | `WorkspaceIdentity` / `ActorIdentity` / `IdentityScope` | Core value object；授权点组装操作 scope，资源 owner 拆分归属与发起者 | 不可变公共模型，不构成独立运行时状态；scope 不随记录或后台任务保存 |
 | PendingAtom 运行时状态 | Workspace 写入意图登记 | 分开保存归属、发起者与进程关联；Patchouli 结算事件回传 |
 | `ReferenceResolution` | Workspace 读取视图投影 | core 中立结果；意图与原子交付独立副本 |
-| `ProcessOperations` | Workspace 任务进程 | 独立交给 CPU 的操作端口，进程关闭同步失效 |
+| `ExecutionCredential` / 凭据绑定 | workspace 共享凭据表 | 凭据独立交给 CPU；绑定仅在 workspace 内兑现，进程关闭同步吊销 |
+| `OperationRequest[R]` / `OperationEntry` / `OperationSubmitter` | workspace 定义，能力层执行，CPU 驱动绑定提交函数 | 只传操作参数与类型化结果，资源授权保持在能力层和资源 owner |
+| `ExecutionLabels` | 注册认证通过后创建，进程事件绑定载体持有 | CPU 清单、主子 frame 与运行事件共享只读标签，不携带授权身份 |
 | 任务进程控制（chat run 的 phase/outcome/stop reason/active_task） | Workspace 任务进程表（`workspace.process`） | 编排内部状态与 RuntimeEvent 投影 |
 | passive run 控制 | System | 应用服务内部状态与 RuntimeEvent 投影 |
 | 根配置 / 配置段 | System 加载（`config.app`）/ 各组件接收自己的段（`config.<section>`） | 组合根按段注入；下层不持有根配置 |
@@ -216,13 +219,13 @@ Server adapters -> 门面提供的服务（workspace 能力层与任务进程 / 
 上述服务 -> GlobalSystemBus public routes
 workspace 认证入口 -> System Principal authentication（经 core.access 端口注入）
 Gateway -> Patchouli public read routes (话题上下文)
-Alice -> ProcessOperations -> workspace 能力层 (WRITE/UPDATE/READ/RUN/CALL context_refs)
-Alice -> Patchouli public routes (SEARCH/citation/CALL目标Profile)
+Alice -> OperationSubmitter -> workspace OperationEntry -> workspace 能力层
+workspace 能力层 -> Patchouli public routes (授权后组装当次 IdentityScope)
 Patchouli -> GlobalEvents -> workspace (意图结算与canonical读取失效)
 Subsystem -> RuntimeEventSink (观测旁路)
 ```
 
-包之间的导入方向另由分层规则约束（见[系统架构概览](./overview.md)第 3 节）。任何反向调用都需要先确认是否在制造循环所有权。新跨边界能力应优先扩展公共 route/model，而不是注入对方 Runtime 对象。
+包之间的导入方向另由分层规则约束（见[系统架构概览](./overview.md)第 3 节）。任何反向调用都需要先确认是否在制造循环所有权。新跨边界能力应使用公共契约；执行者的资源操作扩展操作请求与入口，其余公开业务调用使用 public route/model，不注入对方 Runtime 对象。
 
 ## 10. 公共模型的当前限制
 

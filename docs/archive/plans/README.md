@@ -14,6 +14,8 @@ last_reviewed: 2026-10-09
 
 当前记录：
 
+- [v0.7.0 Alice 的能力层调用迁移](./v0.7.0-alice-capability-migration.md)：2026-10-09 三阶段实施、验收与 code review 完成；单一操作入口与执行凭据、SEARCH/引用记录/CALL Profile 经能力层，以及 CPU/Alice 过渡身份删除已落地。阶段一、二分别提交为 `7c28c3c`、`f8dccad`，阶段三与事实文档收尾保留在工作区供审阅；未发布。全量后端 2789 passed、2 skipped，覆盖率 93.16%，确定性 HTTP E2E 3 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统契约](../../contracts/subsystem-contracts.md)与 [Alice](../../alice/README.md)。
+
 - [v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](./v0.7.0-intent-registry-and-read-cache.md)：2026-10-07 已完成实施、验收与 code review，workspace 唯一登记与统一引用解析、进程操作通道和按进程认领/取消、canonical 变更同步失效已落地；全量后端 2720 passed、2 skipped，覆盖率 93.06%，确定性 HTTP chat E2E 2 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[MTP 契约](../../contracts/mtp.md)与 [System 应用服务](../../system/application-services.md)；2026-10-09 连同审查后修复经 PR #109 合并至 master（`0fcf118`），未发布。
 
 - [v0.7.0 身份与访问体系第二批](./v0.7.0-identity-access-batch-2.md)：Patchouli 公开边界拆出归属与发起者，内部和后台记录不保存操作 scope；SETTLE 四种触发使用 system，查重只读取 PUBLIC；finalize/cleanup 使用阶段授权结果，actor 的 session_id 已移除。2026-10-04 经全量门槛、确定性 HTTP chat E2E 与审查后提交（commit `b2c7aee`，审查后调整见计划第 11.4 节），同日经 PR #107 合并至 master（`5660fed`），不表示版本已发布；[WorkspaceAsset 内部拆分](../../todo/workspace-asset-ownership-identity-split.md)按用户要求暂缓。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统公共契约](../../contracts/subsystem-contracts.md)与 [Patchouli 生成](../../patchouli/generation.md)。

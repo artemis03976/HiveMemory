@@ -27,7 +27,7 @@ last_reviewed: 2026-10-09
 
 ## 1. 组合结构
 
-`SystemAssembler.assemble()` 按五步生成中间产物，最后交给 `HiveMemorySystem`：
+`SystemAssembler.assemble()` 按六步生成中间产物，最后交给 `HiveMemorySystem`：
 
 ```text
 HiveMemorySystem.build(config)
@@ -45,18 +45,21 @@ HiveMemorySystem.build(config)
             WorkspaceAuthenticator（workspace.authentication；准入、签发与撤销）
             WorkspaceOperationAuthorizer（workspace.authorization；操作授权，只依赖访问注册表）
             ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator 与 WorkspaceAuthenticator）
+       -> capabilities bundle
+            Memory / Agent 能力服务（workspace.capability；注入操作授权者与统一读取视图）
+            ExecutionCredentialRegistry（workspace.credentials；共享执行凭据表）
+            WorkspaceOperationEntry（workspace.capability；凭据兑现与请求薄分派）
        -> subsystem bundle
-            GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
+            GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段；Alice 注入操作入口）
        -> service bundle
-            Memory / Agent 能力服务（workspace.capability；注入操作授权者与读取视图，写入意图登记经读取视图取得同一份）
-            CPUAllocator（workspace.process；注入操作授权者、Agent 能力服务、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
-            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、Memory 能力服务、写入意图登记、操作授权者与 Gateway 请求超时）
+            CPUAllocator（workspace.process；注入操作授权者、Profile 读取协议（由 Agent 能力服务实现）、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
+            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、执行凭据表、写入意图登记、操作授权者与 Gateway 请求超时）
             TaskProcessService（workspace.process，注册入口，含进程表；注入 TaskProcessRunner、认证网关、操作授权者与 root RuntimeEventPublisher）
             PassiveIngressService / SystemReadinessService（system.application）
             MemoryTask / Topic / WorkspaceAsset 能力服务（workspace.capability；注入操作授权者）
 ```
 
-五个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关只注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server；操作授权者注入能力层、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
+六个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建资源能力服务、共享凭据表与操作入口，Alice 构建时即可注入入口；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关只注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server；操作授权者注入能力层、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
 
 ### 1.1 Runtime bundle
 
@@ -67,9 +70,9 @@ HiveMemorySystem.build(config)
 - `RuntimeEventBus`：启用时保存有界观测事件和订阅队列；
 - `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
 - `InMemoryWorkspaceAssetStore`：workspace 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例，由组合根创建并在关闭时最后清理；
-- `WorkspaceRuntime`：共享写入意图登记与读取视图（完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；Alice 引用读取与 CPU 分配的 Profile 读取经能力层使用该视图。组合根创建后立即订阅 canonical 变更与三种写入意图结算事件，早于子系统构建及请求接收。
+- `WorkspaceRuntime`：共享写入意图登记与读取视图（完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；Alice 全部资源读取（含 SEARCH、CALL Profile）与 CPU 分配的 Profile 读取经能力层使用该视图。组合根创建后立即订阅 canonical 变更与三种写入意图结算事件，早于子系统构建及请求接收。
 
-写入意图登记和引用读取缓存由 workspace 唯一持有；Alice 不再持有 PendingAtomRuntime、自有原子缓存或引用 resolver。CALL 目标 Profile 的本地缓存仍由 AliceRuntime 创建，未纳入本阶段迁移。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
+写入意图登记、完整引用解析、原子与 Profile 读取缓存由 workspace 唯一持有；Alice 不持有自己的资源缓存或 resolver。CPUAllocator 只依赖 Profile 读取协议，runner 只签发与吊销执行凭据，不导入能力服务；CPU 驱动绑定凭据形成操作提交函数，入口与 runner 使用同一份凭据表和意图登记。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 
@@ -87,7 +90,7 @@ HiveMemorySystem.build(config)
 |:---|:---|:---|
 | Gateway | 注入 `gateway` 配置段、已解析的 Gateway LLM 配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
 | Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
-| Alice | 注入 `alice` / `memory_compiler` 配置段、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）和观测 sink | Agent run、frame、MTP、工具、ACK alias 集合与 CALL 目标 Profile 本地缓存 |
+| Alice | 注入 `alice` / `memory_compiler` 配置段、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）、操作入口（`WorkspaceOperationEntry` 实现 `OperationEntry`）和观测 sink | Agent run、frame、MTP、工具与 ACK alias 集合 |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、被动摄入、能力层）通过 `GlobalSystemBus` 发起。
 
@@ -127,7 +130,7 @@ ActorAuthenticationGateway.close
   -> SYSTEM_STOPPED
 ```
 
-认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时在 bridge 卸载后自行清空 CALL 目标 Profile 本地缓存；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
 
@@ -154,7 +157,7 @@ System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `pr
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
 - `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
 - `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
-- 全进程只存在一个 WorkspaceAssetStore 与一个 WorkspaceRuntime；写入意图登记与引用读取缓存由 workspace 持有，结算订阅保留到 Patchouli drain 完成后才撤销；
+- 全进程只存在一个 WorkspaceAssetStore 与一个 WorkspaceRuntime；写入意图登记、完整引用解析与原子/Profile 读取缓存由 workspace 持有，结算订阅保留到 Patchouli drain 完成后才撤销；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。
 
 评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。

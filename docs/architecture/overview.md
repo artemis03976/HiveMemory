@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # HiveMemory 当前系统架构
@@ -147,19 +147,19 @@ Alice 是 Agent 执行与控制平面，拥有：
 - 非流式和流式 Agent run；
 - Agent loop、ExecutionFrame 和有限深度的子 Agent 编排；
 - Koakuma MTP 解析、执行与回填；
-- 当前 frame 的 ACK 别名清单与 CALL 目标 Profile 缓存。
+- 当前 frame 的 ACK 别名清单与 CALL 父子 frame 调度。
 
-写入意图登记、完整引用解析与可失效的原子/主进程 Profile 读取缓存由 workspace 拥有。Alice 通过进程操作端口提交与回读意图，正式记忆仍由 Patchouli 物化和结算。
+写入意图登记、完整引用解析与可失效的原子/Profile 读取缓存由 workspace 拥有。Alice 通过绑定执行凭据的操作提交函数访问这些能力，包括 SEARCH 和 CALL 目标 Profile；引用记录由 workspace 统一完成，正式记忆仍由 Patchouli 物化和结算。运行清单与主、子 frame 仅携带注册时创建的只读观测标签，标签不参与资源授权。
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 
-因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定 prepare/finalize。chat 任务进程编排（`workspace.process`）作为 chat 任务类型的执行步骤位于 workspace 包内，只经公开路由依次调用 Gateway、Patchouli 与 Alice，不持有其他子系统的对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
+因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定 prepare/finalize。chat 任务进程编排（`workspace.process`）作为 chat 任务类型的执行步骤位于 workspace 包内，经公开路由调用 Gateway、Patchouli，经 CPU 对象端口调用执行者，不持有其他子系统的内部运行时对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
 
 ## 4. 共享运行时：连接而不混合
 
 ### 4.1 GlobalSystemBus
 
-`GlobalSystemBus` 是进程内的公开跨子系统 RPC / PubSub 总线。顶层应用服务只调用公开路由，不直接穿透子系统 Runtime。Patchouli、Alice 和 Gateway 各自的 local bus 只服务内部协作。
+`GlobalSystemBus` 是进程内的公开跨子系统 RPC / PubSub 总线。顶层应用服务经公共契约调用子系统，总线路径只使用公开路由，不直接穿透子系统 Runtime。Patchouli 和 Gateway 的 local bus 只服务内部协作；Alice 没有用于代理 Patchouli 操作的 local bus。
 
 选择总线的目的不是模拟微服务，而是让调用方依赖“能力名称与公共模型”，而不是对方的对象图。这样才能看出一项能力究竟是公共契约还是偶然的内部方法。
 
@@ -190,13 +190,14 @@ TaskProcessService（workspace.process）
   -> Gateway PROCESS (ACTIVE_CHAT)
      -> command: 返回命令结果并短路
      -> decision: 继续
-  -> Patchouli GET_AGENT_PROFILE（CPU 分配的一部分，暂时先于 prepare）
+  -> workspace Profile 读取能力（CPU 分配的一部分，先于 prepare；按需经公开路由冷读）
   -> Patchouli PREPARE_AGENT_RUN（话题与检索）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
   -> Actor 执行：CPU 端口（当前为 Alice，经 RUN_AGENT 路由）
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN
-  -> 释放附件租借，返回 Agent 结果和记忆任务信息
+  -> 同步吊销执行凭据、取消本进程未认领意图、释放附件租借
+  -> 关闭输出流与进程，返回 Agent 结果和记忆任务信息
 ```
 
 这条三段式链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把 finalize 藏进 Alice，Agent 取消就可能留下半完成的长期写入；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败、观测和补偿。
@@ -205,7 +206,7 @@ TaskProcessService（workspace.process）
 
 1. Gateway 必须先形成命令终态或完整决策；
 2. Patchouli prepare 只准备话题并检索记忆，返回 `PreparedAgentRun`（未编译的检索原子）；
-3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 只消费输入清单和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
+3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、独立的不透明执行凭据和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
 4. 只有执行结果为 completed 的一轮进入 finalize；
 5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
 6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并处理物化任务和检索命中。
@@ -255,11 +256,11 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 
 - Gateway、Patchouli、Alice 是由 System 装配的同级子系统，workspace 设施与它们同层；
 - 包依赖遵循分层规则：下层不导入上层，子系统之间只导入对方的 `contracts`，system 只被入口导入；
-- 跨子系统业务调用只依赖公开模型和 `GlobalSystemBus` 路由；
+- 跨子系统业务调用依赖公开契约：任务进程调用 CPU 对象端口，执行者提交 workspace 操作请求，其他子系统业务调用使用 `GlobalSystemBus` 公开路由；
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
 - Passive Memory 不得产生命令结果；
-- Alice 不直接持有 Patchouli Runtime / Service；MTP 通过公开路由访问记忆能力；
+- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 经 workspace 的公共操作入口访问记忆能力；
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
 

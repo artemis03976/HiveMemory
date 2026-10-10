@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 跨边界错误模型
@@ -100,11 +100,12 @@ cause        内部原因，只供调试，序列化时排除
 | `mtp.memory.not_found` | 目标记忆不存在 |
 | `mtp.memory.type_mismatch` | 记忆类型不适用于操作 |
 | `mtp.argument.invalid` | 参数缺失或格式错误 |
-| `mtp.permission.denied` | verb、tool 或 frame policy 禁止 CALL |
+| `mtp.permission.denied` | Profile verb/tool、frame CALL policy 或 Workspace operation 拒绝 |
 | `mtp.system.storage_offline` | 存储离线 |
 | `mtp.system.storage_error` | 存储读取错误 |
 | `mtp.system.service_unavailable` | 所需总线路由/服务不可用 |
 | `mtp.system.tool_error` | 工具内部错误 |
+| `mtp.system.fault` | 未分类的内部故障；不暴露 exception cause |
 | `mtp.syscall.invalid_argument` | syscall 参数错误 |
 | `mtp.syscall.permission_denied` | syscall 权限拒绝 |
 | `mtp.syscall.execution_error` | syscall 执行失败 |
@@ -201,9 +202,11 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
-写入意图能力层与进程操作端口的错误保持各自边界：WRITE/UPDATE 提交缺少 `memory_intent.submit`、引用读取缺少 `resource.read` 时抛 `OperationDeniedError`；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
+能力层与操作入口的错误保持各自边界：意图提交/撤回缺少 `memory_intent.submit`、引用交付缺少 `resource.read`、SEARCH 缺少 `resource.search`、Profile 读取缺少 `profile.read`（包括内置目标）时抛 `OperationDeniedError`；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
-进程关闭后的操作通道抛 `ProcessOperationsClosedError`（RuntimeError），表示调用已经失效的端口；关闭时尚在等待的能力调用收到 `asyncio.CancelledError`。该端口错误没有独立 HTTP API，不新增 HTTP 映射；取消仍按原异步控制语义传播。
+未知或已吊销的执行凭据在操作入口抛 `ExecutionCredentialRevokedError`（RuntimeError），未知请求类型抛 `TypeError`；它们表示接线或生命周期违规，没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。进程关闭同步吊销凭据，不取消在途能力调用任务，已开始的只读操作可以自然完成；UPDATE 跨越关闭时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+
+引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 
 ### 4.5 Memory 输入校验与存储写入错误（v0.7.0 A2-P）
 
