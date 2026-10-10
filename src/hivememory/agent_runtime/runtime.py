@@ -229,7 +229,7 @@ class AgentRuntime:
         frame: ExecutionFrame,
         result: FrameExecutionResult,
     ) -> FrameProducts:
-        """只收割成功子帧收到 ACK 的 alias，意图状态由任务进程收尾。"""
+        """只收割成功子帧收到 ACK 的 alias；失败子帧的意图由 CALL 编排撤回。"""
         if result.status != FrameExecutionStatus.COMPLETED:
             return FrameProducts()
         return FrameProducts(artifact_aliases=tuple(frame.harvested_aliases))

@@ -85,6 +85,17 @@ class ProcessOperationChannel:
             )
         )
 
+    async def cancel_intents(self, aliases: list[str]) -> list[str]:
+        """只撤回本进程仍为 PENDING 的意图，进程 ID 由通道绑定。"""
+        return await self._invoke(
+            lambda access: self._memory.cancel_intents(
+                aliases,
+                process_id=self._process_id,
+                target_workspace=self._target_workspace,
+                access=access,
+            )
+        )
+
     async def resolve_references(self, aliases: list[str]) -> list[ReferenceResolution]:
         """以绑定的目标读取引用，不接受执行者提交的身份坐标。"""
         return await self._invoke(

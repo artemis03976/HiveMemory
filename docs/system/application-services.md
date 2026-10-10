@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 应用服务
@@ -91,7 +91,7 @@ CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组�
 
 Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, operations, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
 
-CPU 同时取得窄化的 `ProcessOperations` 端口。`ProcessOperationChannel` 绑定本进程的访问 context、目标 Workspace 与 `process_id`，只允许提交 WRITE/UPDATE 和读取引用；每次调用由能力层重新授权，CPU 不传入身份参数。当前 Alice 的主 frame 与 CALL 子 frame 共享同一通道。关闭通道会撤下 context、取消尚在等待的能力调用，后续调用抛 `ProcessOperationsClosedError`，防止冷读结束后再登记意图。
+CPU 同时取得窄化的 `ProcessOperations` 端口。`ProcessOperationChannel` 绑定本进程的访问 context、目标 Workspace 与 `process_id`，只允许提交 WRITE/UPDATE、读取引用和撤回本进程仍为 PENDING 的意图；每次调用由能力层重新授权，CPU 不传入身份参数。当前 Alice 的主 frame 与 CALL 子 frame 共享同一通道。关闭通道会撤下 context、取消尚在等待的能力调用，后续调用抛 `ProcessOperationsClosedError`，防止冷读结束后再登记意图。
 
 ### 3.1 非流式链路
 

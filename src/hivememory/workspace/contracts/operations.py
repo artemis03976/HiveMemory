@@ -29,6 +29,10 @@ class ProcessOperations(Protocol):
         """提交 UPDATE，基础引用由能力层解析并验证。"""
         ...
 
+    async def cancel_intents(self, aliases: list[str]) -> list[str]:
+        """撤回本进程仍为 PENDING 的指定意图（如未成功结束的子线程提交的意图）。"""
+        ...
+
     async def resolve_references(self, aliases: list[str]) -> list[ReferenceResolution]:
         """按请求顺序解析全部引用，包括不存在的引用。"""
         ...

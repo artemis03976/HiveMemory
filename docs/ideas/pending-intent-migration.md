@@ -72,6 +72,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 **第 1 步的补充决定**（owner，2026-10-06，建立计划前接受的默认决定 W4、W5）：
 
 - **W4 未以 completed 结束的进程**：第 1 步沿用现状，进程关闭时取消本进程仍为 PENDING 的意图；本节“取消与失败：不再丢弃”随第 2 步与实时派发一起实施。第 1 步仍只在 finalize 时派发物化，不取消的意图将永远不被派发。
+  - （owner，2026-10-09）CALL 子 frame 未成功结束时，同样撤回它提交且仍为 PENDING 的写入意图，一并视为第 1 步取消语义的一部分；第 2 步改为实时派发后随取消语义重新设计，现阶段不做更复杂的处理。
 - **W5 operation 与默认登记**：提交（WRITE、UPDATE）绑定 `memory_intent.submit`，读回绑定 `resource.read`；默认的用户级访问登记加入 `memory_intent.submit`。
 - 第 1 步与读取缓存失效、Alice 引用解析的整体迁出合为一份计划，已于 2026-10-07 实施验收：[写入意图登记与读取缓存失效归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)（历史实施记录，总 Idea 15.11 的补充）。
 

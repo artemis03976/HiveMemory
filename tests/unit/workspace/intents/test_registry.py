@@ -86,6 +86,26 @@ def test_cancel_process_preserves_materializing_and_other_process_records():
     ] == [PendingAtomStatus.MATERIALIZING, PendingAtomStatus.CANCELLED, PendingAtomStatus.PENDING]
 
 
+def test_cancel_aliases_withdraws_only_pending_records_of_the_process():
+    """按 alias 撤回只作用于本进程 PENDING；已认领、他人与未知句柄不受影响。"""
+    registry = WriteIntentRegistry()
+    materializing = _write(registry)
+    registry.claim_process("process_a")
+    pending = _write(registry)
+    other = _write(registry, "process_b")
+
+    cancelled = registry.cancel_aliases(
+        [materializing.pending_alias, pending.pending_alias, other.pending_alias, "missing"],
+        process_id="process_a",
+    )
+
+    assert cancelled == [pending.pending_alias]
+    assert [
+        registry.get(atom.pending_alias, WORKSPACE).status
+        for atom in (materializing, pending, other)
+    ] == [PendingAtomStatus.MATERIALIZING, PendingAtomStatus.CANCELLED, PendingAtomStatus.PENDING]
+
+
 @pytest.mark.asyncio
 async def test_settlement_matches_intent_id_and_keeps_terminal_handle():
     """不匹配的结算不会改状态；结算后旧句柄仍可读且重复事件幂等。"""

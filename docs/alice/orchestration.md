@@ -23,7 +23,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 多 Agent 编排
@@ -188,7 +188,7 @@ root frame
 
 CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`call_response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 
-caller 与 callee 使用同一个进程操作端口，登记中的意图因而关联同一个 process ID。IPC alias 服务于 caller 当前认知，最终物化任务由任务进程在 completed 后直接从 workspace 登记认领；CPU 结果不携带物化任务，Alice 不再提供 run 级登记收尾。
+caller 与 callee 使用同一个进程操作端口，登记中的意图因而关联同一个 process ID。callee 未成功结束时，CallCoordinator 经该端口撤回 callee 已收到 ACK 的意图（只影响仍为 PENDING 的记录），避免它们在根帧 completed 后被认领物化。IPC alias 服务于 caller 当前认知，最终物化任务由任务进程在 completed 后直接从 workspace 登记认领；CPU 结果不携带物化任务，Alice 不再提供 run 级登记收尾。
 
 ## 7. 流式事件
 

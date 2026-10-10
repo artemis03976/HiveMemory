@@ -269,7 +269,7 @@ context 是**密封的**凭据：
 | `profile.read` | 能力层的 Agent Profile 读取；任务进程 CPU 分配中的 Profile 解析 |
 | `asset.acquire` | 任务进程 CPU 分配中的附件租借；不授权上传 |
 | `interaction.submit` | 任务进程的 finalize（提交交互记录）：进入 Actor 执行前预检，调用 finalize 前再次授权 |
-| `memory_intent.submit` | 能力层的 WRITE/UPDATE 意图提交；UPDATE 基础在提交授权后按正式原子 policy 验证 |
+| `memory_intent.submit` | 能力层的 WRITE/UPDATE 意图提交与本进程 PENDING 意图的撤回；UPDATE 基础在提交授权后按正式原子 policy 验证 |
 | `task.observe` | 能力层的生成任务 list/get（观察不授予取消） |
 | `management.memory` | 能力层的 Memory 管理 create/list/get/update/delete/feedback；Agent Profile 的管理创建与列表 |
 | `management.task` | 能力层的生成任务取消 |
@@ -343,7 +343,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 `AliasResolver` 统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。新登记不产生 expired，终态句柄保留到重启。
 
-每个任务进程创建一个 `ProcessOperationChannel`，绑定主线程访问 context、注册目标 Workspace 与 process_id，经 `workspace.contracts.ProcessOperations` 独立交给 CPU。端口不暴露凭据或目标参数，Alice 子 frame 沿用同一端口。completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；关闭时同步失效通道、释放附件租借，并只取消本进程仍为 PENDING 的意图。已认领任务在 finalize 失败时保持 MATERIALIZING。
+每个任务进程创建一个 `ProcessOperationChannel`，绑定主线程访问 context、注册目标 Workspace 与 process_id，经 `workspace.contracts.ProcessOperations` 独立交给 CPU。端口不暴露凭据或目标参数，Alice 子 frame 沿用同一端口；子 frame 未成功结束时经端口撤回它已收到 ACK 的 PENDING 意图（同样绑定 `memory_intent.submit`）。completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；关闭时同步失效通道、释放附件租借，并只取消本进程仍为 PENDING 的意图。已认领任务在 finalize 失败时保持 MATERIALIZING。
 
 结算事件仍由 Patchouli 发布。settled 必带且匹配 intent_id；failed/cancelled 保持只带不可复用 pending_alias 的旧载荷，登记处理器在可选 intent_id 被提供时追加校验。
 

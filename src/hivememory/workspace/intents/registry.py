@@ -119,6 +119,20 @@ class WriteIntentRegistry:
                 aliases.append(atom.pending_alias)
         return aliases
 
+    def cancel_aliases(self, aliases: list[str], *, process_id: str) -> list[str]:
+        """撤回指定进程仍为 PENDING 的意图；其他进程的句柄与已认领记录不受影响。"""
+        cancelled: list[str] = []
+        for alias in dict.fromkeys(aliases):
+            atom = self._atoms.get(alias)
+            if (
+                atom is not None
+                and atom.process_id == process_id
+                and atom.status == PendingAtomStatus.PENDING
+            ):
+                atom.status = PendingAtomStatus.CANCELLED
+                cancelled.append(alias)
+        return cancelled
+
     def subscribe(self, bus: AsyncSystemBus) -> None:
         """订阅既有结算事件；重复装配幂等，切换总线时先取消旧订阅。"""
         if self._bus is bus:

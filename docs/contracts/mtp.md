@@ -157,7 +157,7 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
 - Alice RunExecutor 通过协程调用栈挂起 caller frame、解析共享上下文、递归运行 callee frame，再以 `MTPCallResponse` 回填；
 - CALL 只允许 root frame 发起；callee 的 `FrameExecutionPolicy` 显式移除 CALL，防止递归爆炸；
-- 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；
+- 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，并撤回其已登记且仍为 PENDING 的意图；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 会转换为结构化 error CALL response；`SUSPENDED` 是 RunExecutor 继续消费的控制流 trap，不构造 CALL response。
 
 `suspend` 是控制流，不是“成功但没有正文”的普通工具结果。父 frame 必须停在一个可恢复位置，等待调度器建立子 frame、传递受控上下文并返回结构化响应；若直接把空结果写回模型，父 Agent 会在子任务尚未完成时继续生成，委派关系也无法被可靠观测和取消。

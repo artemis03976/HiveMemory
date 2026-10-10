@@ -47,11 +47,11 @@ SEARCH 和 prepare 结果不再预热 Alice 原子缓存。SEARCH、引用记录
 
 ## 3. frame 产物与进程收尾
 
-Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame 的 `harvested_aliases`。成功子帧的 `finalize_frame()` 投影这些句柄为 `FrameProducts.artifact_aliases`，供 caller 继续 READ 或通过 CALL 共享；失败、取消或预算耗尽的子帧不回填产物。UPDATE 的原基础 alias 不再被当作新产物补入。
+Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame 的 `harvested_aliases`。成功子帧的 `finalize_frame()` 投影这些句柄为 `FrameProducts.artifact_aliases`，供 caller 继续 READ 或通过 CALL 共享；失败、取消或预算耗尽的子帧不回填产物，CallCoordinator 还会经操作端口撤回这些句柄中仍为 PENDING 的意图。UPDATE 的原基础 alias 不再被当作新产物补入。
 
 CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：任务进程只在 CPU completed 后从登记认领本进程的 PENDING 意图，并封入 `InteractionPayload.materialize_tasks`，随后进入 Patchouli finalize。`CPUExecutionResult` 不承载物化任务，AgentRuntime 与 RunExecutor 不再认领、取消或回收登记记录。
 
-根进程关闭时取消本进程仍为 PENDING 的记录，已经认领的 MATERIALIZING 记录保持原状。子帧与根帧共享进程端口；子帧失败本身不会单独取消登记，意图仍由根进程终态处理。结算事件由 workspace 登记订阅，AliceBridge 不再订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
+根进程关闭时取消本进程仍为 PENDING 的记录，已经认领的 MATERIALIZING 记录保持原状。子帧与根帧共享进程端口；子帧未成功结束时撤回它已收到 ACK 的意图，作为取消语义的一部分，其余意图仍由根进程终态处理。结算事件由 workspace 登记订阅，AliceBridge 不再订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
 
 ## 4. 不变量与限制
 

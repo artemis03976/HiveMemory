@@ -149,6 +149,23 @@ class MemoryApplicationService:
         self._reader.evict(scope.workspace_identity, atom.id)
         return pending
 
+    async def cancel_intents(
+        self,
+        aliases: list[str],
+        *,
+        process_id: str,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> list[str]:
+        """撤回本进程提交且尚未认领的意图（``memory_intent.submit``）。
+
+        属于提交的取消语义：只改变 ``process_id`` 对应且仍为 PENDING 的记录，
+        返回实际撤回的 alias。
+        """
+        self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
+        registry = self._intents if self._intents is not None else self._reader.intents
+        return registry.cancel_aliases(aliases, process_id=process_id)
+
     async def resolve_references(
         self,
         aliases: list[str],

@@ -20,9 +20,10 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
-from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
+from hivememory.core.models import OMNI_DOLL_PROFILE, PendingAtomStatus, TurnEvent, WriteFocus
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.operations import OperationsHarness
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
 def _frame(
@@ -306,6 +307,52 @@ async def test_cancelled_callee_resumes_caller_when_run_is_not_cancelled():
     assert transition == ResumeCaller()
     assert response.status == MTPResponseStatus.CANCELLED
     assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "child_intent_status"),
+    [
+        (FrameExecutionStatus.FAILED, PendingAtomStatus.CANCELLED),
+        (FrameExecutionStatus.CANCELLED, PendingAtomStatus.CANCELLED),
+        (FrameExecutionStatus.BUDGET_EXHAUSTED, PendingAtomStatus.CANCELLED),
+        (FrameExecutionStatus.COMPLETED, PendingAtomStatus.PENDING),
+    ],
+)
+async def test_unsuccessful_callee_withdraws_its_acknowledged_intents(status, child_intent_status):
+    """子帧未成功结束时撤回它收到 ACK 的意图；成功子帧与调用方的意图留给进程认领。"""
+    harness = OperationsHarness()
+    scope = make_identity_scope(user_id="u1", agent_id="writer")
+    operations = await harness.channel(scope, "process-1")
+    caller = _frame()
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    child.operations = operations
+    caller_intent = await operations.submit_write_intent(WriteFocus(content="caller draft"))
+    child_intent = await operations.submit_write_intent(WriteFocus(content="child draft"))
+    child.add_harvested_alias(child_intent.pending_alias)
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+        apply_call_response=MagicMock(),
+    )
+    coordinator = _coordinator(runtime, child)
+    session = _session(caller)
+    suspension = _suspension()
+
+    await coordinator.begin_call(caller, suspension, session=session)
+    await coordinator.complete_call(
+        caller,
+        suspension,
+        child,
+        FrameExecutionResult(status=status),
+        session=session,
+    )
+
+    assert [
+        harness.registry.get(intent.pending_alias, scope.workspace_identity).status
+        for intent in (child_intent, caller_intent)
+    ] == [child_intent_status, PendingAtomStatus.PENDING]
 
 
 @pytest.mark.asyncio

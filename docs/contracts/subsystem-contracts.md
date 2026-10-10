@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # 子系统公共契约
@@ -223,7 +223,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 `CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`identity_scope`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。
 
-`ProcessOperations` 是 execute 的独立参数，提供 `submit_write_intent(focus)`、`submit_update_intent(base_alias, instruction, content=None)` 与 `resolve_references(aliases)`，分别返回 PendingAtom ACK 与逐项 `ReferenceResolution`。端口不携带访问 context、目标 Workspace 或 process_id 参数；进程内的 `ProcessOperationChannel` 绑定这些坐标，先做能力层授权。子 frame 沿用主线程通道；关闭后同步失效，后续调用抛 `ProcessOperationsClosedError`。
+`ProcessOperations` 是 execute 的独立参数，提供 `submit_write_intent(focus)`、`submit_update_intent(base_alias, instruction, content=None)`、`resolve_references(aliases)` 与 `cancel_intents(aliases)`：提交返回 PendingAtom ACK，引用解析返回逐项 `ReferenceResolution`，撤回只作用于本进程仍为 PENDING 的意图并返回实际撤回的 alias。端口不携带访问 context、目标 Workspace 或 process_id 参数；进程内的 `ProcessOperationChannel` 绑定这些坐标，先做能力层授权。子 frame 沿用主线程通道；关闭后同步失效，后续调用抛 `ProcessOperationsClosedError`。
 
 端口语义：
 
